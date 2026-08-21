@@ -641,6 +641,7 @@ end
 -- source.
 local MAX_EXACT_INTEGER = 9007199254740991
 local scalarIntrinsics = require("nupp.compiler.scalarintrinsics")
+local bit = require("nupp.compiler.bitops")
 
 -- BitOp is the declared semantics of `&`, `|`, `~`, `<<`, `>>` and `~>>` rather than a
 -- coincidence about them (`decls/prelude.d.nupp`): operands normalize to 32 bits and

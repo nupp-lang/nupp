@@ -1032,7 +1032,8 @@ function project.updateBootstrap(root: string?): boolean?, string?
     if not config then
         return nil, err
     end
-    local target = assert(targetConfig(config, config.selfHost and config.selfHost.target or nil))
+    local targetName = config.selfHost and (config.selfHost.bootstrapTarget or config.selfHost.target) or nil
+    local target = assert(targetConfig(config, targetName))
     local bootstrapPath = join(root, config.selfHost and config.selfHost.bootstrap or "bootstrap/nupp.lua")
     -- What the build recorded, so the bundle carries the modules it compiled rather
     -- than everything that has since appeared beside them.
@@ -1209,6 +1210,10 @@ function project.fixpoint(root: string?, opts: project.FixpointOptions?): intege
     end
     writeFile(join(destination, ".nupp-complete"), second .. "\n")
     if opts.updateBootstrap then
+        local bootstrapTarget = config.selfHost and config.selfHost.bootstrapTarget or nil
+        if bootstrapTarget and project.build(root, {target = bootstrapTarget}) ~= 0 then
+            return 1
+        end
         local updated, updateErr = project.updateBootstrap(root)
         if not updated then
             io.stderr:write("nupp: " .. tostring(updateErr) .. "\n");

@@ -1,0 +1,16 @@
+local record bit
+    tobit: nosuspend function(value: number): integer
+    tohex: nosuspend function(value: number, digits: number?): string
+    bnot: nosuspend function(value: number): integer
+    band: nosuspend function(...: number): integer
+    bor: nosuspend function(...: number): integer
+    bxor: nosuspend function(...: number): integer
+    lshift: nosuspend function(value: number, count: number): integer
+    rshift: nosuspend function(value: number, count: number): integer
+    arshift: nosuspend function(value: number, count: number): integer
+    rol: nosuspend function(value: number, count: number): integer
+    ror: nosuspend function(value: number, count: number): integer
+    bswap: nosuspend function(value: number): integer
+end
+
+return bit

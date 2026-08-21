@@ -505,28 +505,25 @@ local function propertiesFit(a: PropertyType, b: PropertyType): boolean, string?
     for name, want in pairs(b.byname or {}) do
         local have = aReads[name]
         if not have then
-            if admitsNil(want) then
-                goto nextRead
+            if not admitsNil(want) then
+                return false, ("%s is not a %s (no readable member %q)"):format(T.tostring(a), T.tostring(b), name)
             end
-            return false, ("%s is not a %s (no readable member %q)"):format(T.tostring(a), T.tostring(b), name)
-        end
-        if not memberIsA(have, want) then
+        elseif not memberIsA(have, want) then
             return false, ("%s is not a %s (read member %q does not match)"):format(T.tostring(a), T.tostring(b), name)
         end
-        ::nextRead::
     end
     for name, want in pairs(b.writeByname or {}) do
-        if fresh then
-            goto nextWrite
+        if not fresh then
+            local have = aWrites[name]
+            if not have then
+                return false, ("%s is not a %s (no writable member %q)"):format(T.tostring(a), T.tostring(b), name)
+            end
+            if not memberIsA(want, have) then
+                return false, (
+                    "%s is not a %s (write member %q does not match)"
+                ):format(T.tostring(a), T.tostring(b), name)
+            end
         end
-        local have = aWrites[name]
-        if not have then
-            return false, ("%s is not a %s (no writable member %q)"):format(T.tostring(a), T.tostring(b), name)
-        end
-        if not memberIsA(want, have) then
-            return false, ("%s is not a %s (write member %q does not match)"):format(T.tostring(a), T.tostring(b), name)
-        end
-        ::nextWrite::
     end
 
     return true

@@ -22,8 +22,6 @@ See `docs/reference/diagnostics.md` for the shape of what is being rendered, and
 `nupp check --json` for the form meant for programs.
 ]]
 
-local ansi = require("nupp.compiler.ansi")
-
 local diagnostics = {}
 
 local REPORTED = {note = "note", warning = "warning"}
@@ -89,6 +87,7 @@ function diagnostics.report(values: {any}): boolean
     if #values == 0 then
         return false
     end
+    local ansi = require("nupp.compiler.ansi")
     local style = ansi.style(io.stderr)
     local failed = false
     local sources = {}

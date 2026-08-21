@@ -1,42 +1,122 @@
 module nupp.compiler.doc.syntax
 
--- The line grammars shared by documentation extraction, rendering, and formatting.
+-- Fixed line recognizers shared by documentation extraction, rendering, and
+-- formatting. Keeping them as checked source avoids a compiler-startup PEG runtime.
 
-local syntax: {
-    [string]: any
-} = {
-    fence = nupp.peg.compile([=[{ %s* } { '```' '`'* / '~~~' '~'* } { .* } !.]=]),
-    markdownFence = nupp.peg.compile([=[{ ' '? ' '? ' '? } { '```' '`'* / '~~~' '~'* } { .* } !.]=]),
-    tag = nupp.peg.compile([=['@' { [a-zA-Z0-9_-]+ } %s* { .* } !.]=]),
-    heading = nupp.peg.compile([=[{ '#'+ } %s+ { .+ } !.]=]),
-    directive = nupp.peg.compile([=[%s* ':::' %s+ { [a-zA-Z0-9_-]+ } %s* { .* } !.]=]),
-    comment = nupp.peg.compile([=['--' '-'* ' '? { .* } !.]=]),
-    docComment = nupp.peg.compile([=['---' ' '? { .* } !.]=]),
-    nameValue = nupp.peg.compile([=[{ (!%s .)+ } %s* { .* } !.]=]),
-    blank = nupp.peg.compile([=[%s* !.]=]),
-    indented = nupp.peg.compile([=[%s]=]),
-    codeIndented = nupp.peg.compile([=['    ' !%s .]=]),
-    fenceInfo = nupp.peg.compile([=[%s* { [a-zA-Z0-9_+-]* } %s* { .* } !.]=]),
-    caption = nupp.peg.compile(
-        [=[
-        start <- (!caption .)* caption
-        caption <- '[' { (!']' .)+ } ']'
-    ]=]
-    ),
-    lineNumber = nupp.peg.compile(
-        [=[
-        start <- (!value .)* value
-        value <- ':line-numbers' ('=' { [0-9]+ } / '' -> '1') ![a-zA-Z0-9_-]
-    ]=]
-    ),
-    playground = nupp.peg.compile(
-        [=[
-        start <- (!value .)* value
-        value <- ':playground' ![a-zA-Z0-9_-]
-    ]=]
-    ),
-    lines = nupp.peg.compile([=[{| ({ (!%nl .)* } %nl)* { (!%nl .)* } |} !.]=]),
-}
+local syntax: {[string]: any} = {}
+
+local function matcher(match: function(string): ...any): any
+    local out = {}
+    function out:match(subject: string): ...any
+        return match(subject)
+    end
+
+    return out
+end
+
+local function boundary(subject: string, after: integer): boolean
+    local byte = subject:sub(after, after)
+    return byte == "" or not byte:match("[A-Za-z0-9_-]")
+end
+
+syntax.fence = matcher(function(line: string): ...any
+    local prefix, marker, rest = line:match("^(%s*)(```+)(.*)$")
+    if marker then
+        return prefix, marker, rest
+    end
+
+    return line:match("^(%s*)(~~~+)(.*)$")
+end)
+syntax.markdownFence = matcher(function(line: string): ...any
+    local prefix = line:match("^( ? ? ?)") or ""
+    local rest = line:sub(#prefix + 1)
+    local marker, trailing = rest:match("^(```+)(.*)$")
+    if not marker then
+        marker, trailing = rest:match("^(~~~+)(.*)$")
+    end
+    if marker then
+        return prefix, marker, trailing
+    end
+end)
+syntax.tag = matcher(function(line: string): ...any
+    return line:match("^@([A-Za-z0-9_-]+)%s*(.*)$")
+end)
+syntax.heading = matcher(function(line: string): ...any
+    return line:match("^(#+)%s+(.+)$")
+end)
+syntax.directive = matcher(function(line: string): ...any
+    return line:match("^%s*:::%s+([A-Za-z0-9_-]+)%s*(.*)$")
+end)
+syntax.comment = matcher(function(line: string): ...any
+    return line:match("^%-%-%-* ?(.*)$")
+end)
+syntax.docComment = matcher(function(line: string): ...any
+    return line:match("^%-%-%- ?(.*)$")
+end)
+syntax.nameValue = matcher(function(line: string): ...any
+    return line:match("^(%S+)%s*(.*)$")
+end)
+syntax.blank = matcher(function(line: string): integer?
+    if line:match("^%s*$") then
+        return #line + 1
+    end
+end)
+syntax.indented = matcher(function(line: string): integer?
+    if line:match("^%s") then
+        return 2
+    end
+end)
+syntax.codeIndented = matcher(function(line: string): integer?
+    if line:match("^    %S") then
+        return 6
+    end
+end)
+syntax.fenceInfo = matcher(function(line: string): ...any
+    return line:match("^%s*([A-Za-z0-9_+%-]*)%s*(.*)$")
+end)
+syntax.caption = matcher(function(line: string): string?
+    return line:match("%[([^%]]+)%]")
+end)
+syntax.lineNumber = matcher(function(line: string): string?
+    local from = 1
+    while true do
+        local first, last = line:find(":line-numbers", from, true)
+        if not first or not last then
+            return nil
+        end
+        local digits = line:sub(last + 1):match("^=(%d+)")
+        local after = digits and last + #digits + 2 or last + 1
+        if boundary(line, after) then
+            return digits or "1"
+        end
+        from = first + 1
+    end
+end)
+syntax.playground = matcher(function(line: string): integer?
+    local from = 1
+    while true do
+        local first, last = line:find(":playground", from, true)
+        if not first or not last then
+            return nil
+        end
+        if boundary(line, last + 1) then
+            return last + 1
+        end
+        from = first + 1
+    end
+end)
+syntax.lines = matcher(function(value: string): {string}
+    local lines, from = {}, 1
+    while true do
+        local newline = value:find("\n", from, true)
+        if not newline then
+            lines[#lines + 1] = value:sub(from)
+            return lines
+        end
+        lines[#lines + 1] = value:sub(from, newline - 1)
+        from = newline + 1
+    end
+end)
 
 function syntax.closes(opened: string, marker: string?, rest: string?): boolean
     return marker ~= nil and marker:sub(

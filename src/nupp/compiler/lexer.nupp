@@ -22,7 +22,7 @@ trip, which is what lets an editor keep working in a file that is mid-edit.
 ]]
 
 local lexer = {}
-local ffi = require("ffi")
+local triviaarena = require("nupp.compiler.triviaarena")
 
 -- Trivia kinds as the small integers an arena record stores, and the way back.
 const TRIVIA_WHITESPACE = 1
@@ -32,9 +32,8 @@ const TRIVIA_BOM = 4
 const TRIVIA_KIND_NAMES = {"whitespace", "comment", "hashbang", "bom"}
 
 -- Words to an arena record: kind, offset, length, line, column.
-const TRIVIA_STRIDE = 5
 
---- Every trivia in one file, five 32-bit words to a record, in one growable block.
+--- Every trivia in one file, five words to a record, in one growable block.
 ---
 --- A trivia is a kind and a span and nothing else, so it needs no object: its text is a
 --- slice of the source this holds, cut when something asks for it rather than while
@@ -46,49 +45,11 @@ const TRIVIA_STRIDE = 5
 --- index outliving its arena would need a generation beside it to be caught, and one
 --- cannot, because there is no way to hold the index without holding a token that holds
 --- the arena.
-record lexer.TriviaArena
-    --- The file the spans index into.
-    source: string
-
-    --- Records stored.
-    count: integer
-
-    private capacity: integer
-
-    private words: uint32[?]
-
-    --- Appends one record and returns its index, counting from 1.
-    function append(self, kind: integer, offset: integer, length: integer, line: integer, col: integer): integer
-        if self.count >= self.capacity then
-            local grown = self.capacity > 0 ? self.capacity * 2 : 32
-            local fresh = ffi.new("uint32_t[?]", grown * TRIVIA_STRIDE) as uint32[?]
-            ffi.copy(fresh as any, self.words as any, self.count * TRIVIA_STRIDE * 4)
-            self.words = fresh
-            self.capacity = grown
-        end
-
-        local at = self.count * TRIVIA_STRIDE
-        unsafe do
-            self.words[at] = kind
-            self.words[at + 1] = offset
-            self.words[at + 2] = length
-            self.words[at + 3] = line
-            self.words[at + 4] = col
-        end
-        self.count = self.count + 1
-
-        return self.count
-    end
-end
+type lexer.TriviaArena = nupp.compiler.triviaarena.Arena
 
 --- A file's trivia block, empty.
 function lexer.arena(source: string): lexer.TriviaArena
-    return new lexer.TriviaArena(
-        source = source,
-        count = 0,
-        capacity = 0,
-        words = ffi.new("uint32_t[?]", 0) as uint32[?]
-    )
+    return triviaarena.new(source)
 end
 
 --- The block a token with no trivia of its own can point at, so that every token has
@@ -796,9 +757,8 @@ function lexer.lex(source: string, filename: string?): {lexer.Token}, {lexer.Lex
     return tokens, errors
 end
 
--- The word a token's `index`-th trivia record starts at.
-local function triviaWordAt(tok: lexer.Token, index: integer): integer
-    return (tok.triviaFirst + index - 2) * TRIVIA_STRIDE
+local function triviaIndex(tok: lexer.Token, index: integer): integer
+    return tok.triviaFirst + index - 1
 end
 
 --- How many trivia precede `tok`.
@@ -808,11 +768,7 @@ end
 
 --- The kind of `tok`'s `index`-th trivia: "whitespace", "comment", "hashbang" or "bom".
 function lexer.triviaKind(tok: lexer.Token, index: integer): string
-    local at = triviaWordAt(tok, index)
-    local code: integer
-    unsafe do
-        code = tok.trivia.words[at] as integer
-    end
+    local code = tok.trivia:record(triviaIndex(tok, index))
 
     return TRIVIA_KIND_NAMES[code] as string
 end
@@ -820,25 +776,16 @@ end
 --- The bytes of `tok`'s `index`-th trivia, cut from the source when asked for.
 function lexer.triviaText(tok: lexer.Token, index: integer): string
     local arena = tok.trivia
-    local at = triviaWordAt(tok, index)
-    local offset: integer
-    local length: integer
-    unsafe do
-        offset = arena.words[at + 1] as integer
-        length = arena.words[at + 2] as integer
-    end
+    local _, offset, length = arena:record(triviaIndex(tok, index))
 
     return sub(arena.source, offset, offset + length - 1)
 end
 
 --- Where `tok`'s `index`-th trivia starts: offset, line and column.
 function lexer.triviaAt(tok: lexer.Token, index: integer): integer, integer, integer
-    local at = triviaWordAt(tok, index)
-    unsafe do
-        local words = tok.trivia.words
+    local _, offset, _, line, col = tok.trivia:record(triviaIndex(tok, index))
 
-        return words[at + 1] as integer, words[at + 3] as integer, words[at + 4] as integer
-    end
+    return offset, line, col
 end
 
 --- One trivia as an ordinary record, for a caller that has to hand it on as plain data

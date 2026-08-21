@@ -32,7 +32,7 @@ test comparing them is supposed to be able to catch. A shallow clone has no
 untracked files for the two definitions to disagree about anyway.
 ]]
 
-local bundled = require("nupp.compiler.bundled")
+local bundled = require("nupp.compiler.bundledlist")
 local fs = require("nupp.compiler.fs")
 local process = require("nupp.compiler.build.process")
 local syntax = require("nupp.compiler.build.syntax")

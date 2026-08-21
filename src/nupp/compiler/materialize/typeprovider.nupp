@@ -8,8 +8,8 @@ nominal allocation identities, scopes or CST nodes. The parent validates and int
 the finalized graph through `nupp.compiler.typeblueprint`.
 ]]
 
-local hash = require("nupp.compiler.build.hash")
-local stable = require("nupp.compiler.build.cache").stable
+local hash = require("nupp.compiler.hash")
+local stable = require("nupp.compiler.stable")
 
 type typeprovider.Failure = {
     readonly code: string,

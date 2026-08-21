@@ -552,6 +552,59 @@ function M.checksModulesNothingRequires()
    os.execute("rm -rf '" .. dir .. "'")
 end
 
+function M.targetSourcesSelectARecursiveModuleSet()
+   local dir = tempProject({
+      ["nupp.lua"] = [[
+return {
+   include = {"src"},
+   build = {targets = {app = {
+      kind = "modules", entries = {"app.main"}, sources = {"src/app"},
+   }}},
+}
+]],
+      ["src/app/main.g.nupp"] = "return require('shared.answer')\n",
+      ["src/app/plugin.g.nupp"] = "return {name = 'selected'}\n",
+      -- A static dependency is part of the target even when its file sits outside the
+      -- selected directory.
+      ["src/shared/answer.g.nupp"] = "return 42\n",
+      ["src/other/orphan.g.nupp"] =
+         "local value: string = 42\nreturn value\n",
+   })
+   local out = capture(("cd '%s' && '%s' build --target app"):format(dir, NUPP))
+   assertEq(out, "", "a scoped target ignores source outside its set: " .. out)
+   assert(exists(dir .. "/build/app/plugin.lua"),
+      "a recursively selected module is compiled even when nothing requires it")
+   assert(exists(dir .. "/build/shared/answer.lua"),
+      "a static dependency outside the selected directory is compiled")
+   assert(not exists(dir .. "/build/other/orphan.lua"),
+      "unselected and unreachable source is absent")
+   os.execute("rm -rf '" .. dir .. "'")
+end
+
+function M.targetSourcesRejectEmptyAndEscapingSelections()
+   local missing = tempProject({
+      ["nupp.lua"] = [[return {include = {"src"}, build = {
+   entries = {"main"}, sources = {"src/missing"},
+}}]],
+      ["src/main.nupp"] = "return 1\n",
+   })
+   local missingOut = capture(("cd '%s' && '%s' build"):format(missing, NUPP))
+   assert(missingOut:find("build.sources matched nothing: src/missing", 1, true),
+      "a misspelled source set fails: " .. missingOut)
+   os.execute("rm -rf '" .. missing .. "'")
+
+   local escaping = tempProject({
+      ["nupp.lua"] = [[return {include = {"src"}, build = {
+   entries = {"main"}, sources = {"../outside"},
+}}]],
+      ["src/main.nupp"] = "return 1\n",
+   })
+   local escapingOut = capture(("cd '%s' && '%s' build"):format(escaping, NUPP))
+   assert(escapingOut:find("build.sources must stay inside the project", 1, true),
+      "a source set cannot escape its project: " .. escapingOut)
+   os.execute("rm -rf '" .. escaping .. "'")
+end
+
 function M.jsonBuildReportsColdAndWarmDeriveObservations()
    local dir = tempProject({
       ["nupp.lua"] = 'return {include = {"."}}\n',

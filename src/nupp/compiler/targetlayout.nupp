@@ -101,8 +101,9 @@ end
 function targetLayout.hostKey(): string?
     local architectures: {[string]: string} = {x64 = "x86_64", x86 = "i686", arm64 = "aarch64"}
     local systems: {[string]: string} = {OSX = "apple-darwin", Linux = "unknown-linux-gnu", Windows = "pc-windows-msvc"}
-    local architecture = architectures[jit.arch]
-    local system = systems[jit.os]
+    local host: any = rawget(_G, "jit")
+    local architecture = host and architectures[host.arch] or nil
+    local system = host and systems[host.os] or nil
     local key = architecture and system and architecture .. "-" .. system or nil
 
     return key and MODELS[key] and key or nil

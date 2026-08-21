@@ -122,7 +122,8 @@ local function isatty(fd: integer): boolean
     -- call is the one that declared it.
     pcall(ffi.cdef, "int isatty(int);")
     local ok, result = pcall(function()
-        return ffi.C.isatty(fd)
+        local C: any = ffi.C
+        return C.isatty(fd)
     end)
     if ok then
         return result ~= 0
@@ -130,7 +131,8 @@ local function isatty(fd: integer): boolean
     -- The Microsoft C runtime keeps it under the reserved-name spelling.
     pcall(ffi.cdef, "int _isatty(int);")
     local retried, retriedResult = pcall(function()
-        return ffi.C._isatty(fd)
+        local C: any = ffi.C
+        return C._isatty(fd)
     end)
 
     return retried and retriedResult ~= 0

@@ -27,6 +27,7 @@ local T = require("nupp.compiler.types")
 local backends = require("nupp.compiler.backends")
 
 local incremental = {}
+local hostServices = require("nupp.compiler.hostservices")
 
 --- One exported declaration, as a project header records it. Headers are compared field
 --- by field to decide whether a reparse changed anything a dependent could see.
@@ -187,6 +188,8 @@ type incremental.Observer = {
 ---     literal, and the checker widens one of those to `table` whatever it is being
 ---     assigned to.
 function incremental.new(rootDir: string, opts: table?): incremental.Inc
+    opts = opts or {}
+    opts.compilerServices = opts.compilerServices or hostServices
     opts = opts or {}
     local env = envMod.new(rootDir, opts)
     -- Left nil when nothing forced it, so each file's extension decides.
@@ -824,6 +827,7 @@ function incremental.new(rootDir: string, opts: table?): incremental.Inc
     end
 
     function inc.setBackendResolution(resolved: any)
+        env.backendResolution = resolved
         q:setInput("backendResolution", "root", resolved)
     end
 

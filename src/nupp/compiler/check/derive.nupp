@@ -6,8 +6,7 @@ local T = require("nupp.compiler.types")
 local cst = require("nupp.compiler.cst")
 local relations = require("nupp.compiler.relations")
 local generics = require("nupp.compiler.generics")
-local hash = require("nupp.compiler.build.hash")
-local fs = require("nupp.compiler.fs")
+local hash = require("nupp.compiler.hash")
 local recipeCodec = require("nupp.compiler.materialize.codec")
 local reflection = require("nupp.compiler.reflection")
 local typeblueprint = require("nupp.compiler.typeblueprint")
@@ -15,6 +14,13 @@ local comptime = require(
     "nupp.compiler.comptime"
 ) as {evaluateDeriveProviderDirect: function(any, any, any, any, string?): (any, any)}
 local state = require("nupp.compiler.check.state")
+local hostOs: any = rawget(_G, "os")
+local getenv = hostOs and hostOs.getenv or function(): nil
+    return nil
+end
+local clock = hostOs and hostOs.clock or function(): number
+    return 0
+end
 
 local derive = {}
 
@@ -368,7 +374,16 @@ function derive.install(c: state.Checker): derive.Ops
         input.providerFiles = {}
         input.providerInputDescriptors = {}
         local providerInputs = {}
-        local root = fs.canonical(fs.absolute(c.env and c.env.rootDir or "."))
+        local fs = c.env and c.env.compilerServices and c.env.compilerServices.fs or nil
+        if #filePaths > 0 and not fs then
+            c.diag(
+                "NUPP2810",
+                provider.site.arg.expr or provider.site.arg,
+                "derive.file is unavailable in the in-memory compiler"
+            )
+            return
+        end
+        local root = fs and fs.canonical(fs.absolute(c.env and c.env.rootDir or ".")) or "."
         local rootPrefix = root:sub(-1) == "/" and root or root .. "/"
         for _, authoredPath in ipairs(filePaths) do
             local absolute = fs.canonical(fs.absolute(fs.join(root, authoredPath)))
@@ -522,12 +537,11 @@ function derive.install(c: state.Checker): derive.Ops
             end
         end
         if not envelope then
-            local root = os.getenv("NUPP_COMPILER_ROOT")
+            local root = getenv("NUPP_COMPILER_ROOT")
             local executable = root and root .. "/bin/nupp" or nil
-            if executable and not os.getenv("NUPP_COMPTIME_WORKER_CHILD") then
-                local worker = require(
-                    "nupp.compiler.comptimeworker"
-                ) as {evaluateDeriveProvider: function(any, any, any, string?, string, any?): (any, any)}
+            local worker = c.env and c.env.compilerServices and c.env.compilerServices.comptimeworker or nil
+            if worker and executable and not getenv("NUPP_COMPTIME_WORKER_CHILD") then
+                worker = worker as {evaluateDeriveProvider: function(any, any, any, string?, string, any?): (any, any)}
                 envelope, evaluationFailure = worker.evaluateDeriveProvider(
                     provider.sealedProgram,
                     input,
@@ -1228,7 +1242,7 @@ function derive.install(c: state.Checker): derive.Ops
             providerSites = providerSites,
             providerLabels = providerLabels,
             providers = providers,
-            startedAt = os.clock(),
+            startedAt = clock(),
         }
         table.sort(providers, function(left, right)
             return left.identity < right.identity
@@ -1455,7 +1469,7 @@ function derive.install(c: state.Checker): derive.Ops
                         "stdlib.derives"
                     } or {"stdlib.derives"},
                     cached = item.recipeCached and true or false,
-                    durationMs = math.floor((os.clock() - item.startedAt) * 1000000 + 0.5) / 1000,
+                    durationMs = math.floor((clock() - item.startedAt) * 1000000 + 0.5) / 1000,
                     -- Closed recipes allocate exactly these maxima regardless of
                     -- field count: two setup locals and at most one captured entry.
                     generatedLocals = 2,

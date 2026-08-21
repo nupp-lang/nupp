@@ -28,6 +28,15 @@ local rawType = T.unwrapOwnership
 
 local ffi = {}
 
+-- C declaration parsing is a native-only compiler service. Keep the import
+-- dynamic so an in-memory compiler that disables cinterop never packages it.
+local function cHeader(c: state.Checker): any
+    return assert(
+        c.env and c.env.compilerServices and c.env.compilerServices.cheader,
+        "native C-header compiler service is unavailable"
+    )
+end
+
 --- A type, as nupp.compiler.types builds them.
 local type Type = T.Type
 
@@ -85,11 +94,13 @@ function ffi.install(c: state.Checker): ffi.Intrinsic
         end
 
         if not typeArg and baseName == "ffi" and operators.ffiTypeFirst[memberName] then
-            capabilities.require(c, "cinterop", node)
             local name = memberName
             local args = argExprs
             for _, e in ipairs(args) do
                 c.infer(e)
+            end
+            if not capabilities.require(c, "cinterop", node) then
+                return T.any
             end
             local spec = nil
             local firstArg = args[1]
@@ -108,7 +119,7 @@ function ffi.install(c: state.Checker): ffi.Intrinsic
 
                     return nil
                 end
-                local t, err = require("nupp.compiler.cheader").typeFromString(spec, resolver)
+                local t, err = cHeader(c).typeFromString(spec, resolver)
                 if t then
                     resolved = t
                 else
@@ -140,7 +151,12 @@ function ffi.install(c: state.Checker): ffi.Intrinsic
         -- ffi.new<T>() and friends: the return type follows the type argument rather
         -- than collapsing to any.
         if typeArg then
-            capabilities.require(c, "cinterop", node)
+            if not capabilities.require(c, "cinterop", node) then
+                for _, e in ipairs(argExprs) do
+                    c.infer(e)
+                end
+                return T.any
+            end
             local name = memberName
             local argT = c.resolveType(typeArg)
             if argT and argT.tag == "nominal" and argT.cdefIdentity then
@@ -325,7 +341,9 @@ function ffi.install(c: state.Checker): ffi.Intrinsic
             -- generated file to keep in step and the sizes are the ones this platform
             -- actually uses.
         elseif calleeName == "cheader" then
-            capabilities.require(c, "cinterop", node)
+            if not capabilities.require(c, "cinterop", node) then
+                return T.any
+            end
             local args = argExprs
             local function literal(e)
                 if e and e.kind == "string" then
@@ -347,7 +365,7 @@ function ffi.install(c: state.Checker): ffi.Intrinsic
             for _, root in ipairs(c.env and c.env.roots or {}) do
                 candidates[#candidates + 1] = root .. "/" .. headerPath
             end
-            local cheaderMod = require("nupp.compiler.cheader")
+            local cheaderMod = cHeader(c)
             local loaded, err
             local externalReader = c.env and c.env.externalFile and function(externalPath)
                 return c.env.externalFile(c.env, externalPath)
@@ -418,7 +436,7 @@ function ffi.install(c: state.Checker): ffi.Intrinsic
             then
                 local body = cdefBody(subject.token.text)
                 if body then
-                    local ok, _, names = require("nupp.compiler.cheader").declare(body)
+                    local ok, _, names = cHeader(c).declare(body)
                     if ok then
                         c.recordCDeclarations(names)
                         node.cdefDeclarationBlock = true
@@ -439,7 +457,7 @@ function ffi.install(c: state.Checker): ffi.Intrinsic
             if strTok then
                 local body = cdefBody(strTok.text)
                 if body then
-                    local ok, err, names = require("nupp.compiler.cheader").declare(body)
+                    local ok, err, names = cHeader(c).declare(body)
                     c.recordCDeclarations(names)
                     node.cdefDeclarationBlock = true
                     if not ok then

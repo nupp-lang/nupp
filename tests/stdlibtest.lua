@@ -578,6 +578,18 @@ function M.runtimeJsonSeamExposesItsOwnConformanceSuite()
    assert(ok, problem)
 end
 
+function M.lunajsonAdapterPassesThePublicJsonContract()
+   local passed, problem = jsonSeam.test("nupp.runtime.provider.lunajson")
+   assert(passed, "the pinned pure-Lua adapter passes data.json contract 1: "
+      .. tostring(problem))
+end
+
+function M.scalarBitopsProviderPassesThePublicContract()
+   local passed, problem = bitopsSeam.test("nupp.runtime.provider.scalarbitops")
+   assert(passed, "the scalar provider passes numeric.bitops contract 1: "
+      .. tostring(problem))
+end
+
 function M.missingRuntimeJsonProviderNamesTheDependency()
    local selected = "fixtures.provider_that_is_missing"
    local backendModule = "fixtures.missing_provider_backend"

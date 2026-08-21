@@ -10,7 +10,7 @@ program when it is a direct module member. The generator erases the declaration.
 ]]
 
 local cst = require("nupp.compiler.cst")
-local hash = require("nupp.compiler.build.hash")
+local hash = require("nupp.compiler.hash")
 local T = require("nupp.compiler.types")
 local state = require("nupp.compiler.check.state")
 

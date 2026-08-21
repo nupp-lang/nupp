@@ -396,82 +396,93 @@ function ownership.install(c: state.Checker): ownership.Ops
         end
         c.validatedCleanupContracts[contractKey] = true
         for j, cleanup in ipairs(cleanups or {}) do
-            if cleanup.kind ~= "function" then
-                goto continue
-            end
-            local cleanupT = cleanup.functionType or c.lookupVar(cleanup.name)
-            local cleanupFunc = cleanupT and cleanupT.tag == "func" and cleanupT or nil
-            local cleanupEntry = declaredFunctionEntry(cleanup.name)
-            local cVoidTerminal = cleanupFunc
-                and #cleanupFunc.rets == 0
-                and cleanupFunc.retPack.tail == nil
-                and cleanupEntry
-                and cleanupEntry.definition
-                and cleanupEntry.definition.cdef
-            if cleanup.kind == "function" and c.nosuspend and c.nosuspend.cleanup then
-                local localDefinition = cleanupEntry
-                    and cleanupEntry.definition
-                    and cleanupEntry.definition.filename == c.filename
-                    and cleanupEntry.definition
-                    or nil
-                cleanup.token = localDefinition and localDefinition.token or nil
-                cleanup.visibleBody = localDefinition and (
-                    not c.declarationFile or c.result.moduleName == "nupp.prelude"
-                ) or nil
-                c.nosuspend.cleanup(cleanup, at)
-            end
-            local firstParam = cleanupFunc and cleanupFunc.params[1] or nil
-            local genericBound = nil
-            if firstParam and firstParam.tag == "typevar" and cleanupFunc then
-                for parameter, typeParameter in ipairs(cleanupFunc.typeParams or {}) do
-                    if typeParameter == firstParam then
-                        genericBound = cleanupFunc.typeBounds and cleanupFunc.typeBounds[parameter] or nil
+            if cleanup.kind == "function" then
+                local function validateFunctionCleanup()
+                    local cleanupT = cleanup.functionType or c.lookupVar(cleanup.name)
+                    local cleanupFunc = cleanupT and cleanupT.tag == "func" and cleanupT or nil
+                    local cleanupEntry = declaredFunctionEntry(cleanup.name)
+                    local cVoidTerminal = cleanupFunc
+                        and #cleanupFunc.rets == 0
+                        and cleanupFunc.retPack.tail == nil
+                        and cleanupEntry
+                        and cleanupEntry.definition
+                        and cleanupEntry.definition.cdef
+                    if cleanup.kind == "function" and c.nosuspend and c.nosuspend.cleanup then
+                        local localDefinition = cleanupEntry
+                            and cleanupEntry.definition
+                            and cleanupEntry.definition.filename == c.filename
+                            and cleanupEntry.definition
+                            or nil
+                        cleanup.token = localDefinition and localDefinition.token or nil
+                        cleanup.visibleBody = localDefinition and (
+                            not c.declarationFile or c.result.moduleName == "nupp.prelude"
+                        ) or nil
+                        c.nosuspend.cleanup(cleanup, at)
+                    end
+                    local firstParam = cleanupFunc and cleanupFunc.params[1] or nil
+                    local genericBound = nil
+                    if firstParam and firstParam.tag == "typevar" and cleanupFunc then
+                        for parameter, typeParameter in ipairs(cleanupFunc.typeParams or {}) do
+                            if typeParameter == firstParam then
+                                genericBound = cleanupFunc.typeBounds and cleanupFunc.typeBounds[parameter] or nil
+                            end
+                        end
+                    end
+                    if not cleanupT and cleanup.key then
+                        -- An instantiated exported affine alias carries the stable key
+                        -- of a cleanup already checked in its defining module. The
+                        -- declaration's local function type is intentionally not part
+                        -- of the importing value namespace; requiring it again here
+                        -- made sound public aliases unusable from another module. A
+                        -- directly written unknown function never gets a key and still
+                        -- follows the diagnostic below.
+                        return
+                    elseif not cleanupT then
+                        c.diag(code, at, ("cleanup %q is not declared"):format(cleanup.name), nil, {
+                            notes = {
+                                "a cleanup is resolved here, where the owner "
+                                .. "is declared, so it has to name a function this file "
+                                .. "can see"
+                            }
+                        })
+                    elseif genericBound and not isA(cleanupValue, genericBound) then
+                        pendingGenericCleanupBounds[
+                            #pendingGenericCleanupBounds + 1
+                        ] = {cleanup = cleanup, value = cleanupValue, bound = genericBound, at = at, code = code,}
+                    elseif cleanupT and cleanupT ~= T.any and not cleanupFunc then
+                        c.diag(code, at, ("terminal %q must be a function"):format(cleanup.name))
+                    elseif cleanupFunc and (
+                        #cleanupFunc.params ~= 1 or cleanupFunc.paramPack.tail ~= nil or cleanupFunc.paramModes[
+                            1
+                        ] ~= "takes"
+                    ) then
+                        c.diag(code, at, ("terminal %q must take exactly one consuming argument"):format(cleanup.name))
+                    elseif cleanupFunc and not genericBound and (
+                        not firstParam or firstParam.id ~= cleanupValue.id
+                    ) then
+                        c.diag(
+                            code,
+                            at,
+                            ("terminal %q must take exactly %s"):format(cleanup.name, T.tostring(cleanupValue))
+                        )
+                    elseif cleanupFunc and (
+                        not cVoidTerminal and (
+                            #cleanupFunc.rets ~= 1 or cleanupFunc.retPack.tail ~= nil or cleanupFunc.rets[1] ~= T.nil_
+                        )
+                    ) then
+                        c.diag(code, at, ("terminal %q must return nil"):format(cleanup.name))
+                    elseif cleanupFunc and not cleanupFunc.noYield and cleanup.visibleBody ~= true then
+                        c.diag(code, at, ("terminal %q must be nosuspend"):format(cleanup.name))
+                    elseif cleanupFunc and j < #(cleanups or {}) and cleanupFunc.paramModes[1] == "takes" then
+                        c.diag("NUPP2615", at, ("cleanup %q takes before the final step"):format(cleanup.name))
+                    end
+                    if cleanupT then
+                        cleanup.validated = true
                     end
                 end
+
+                validateFunctionCleanup()
             end
-            if not cleanupT and cleanup.key then
-                -- An instantiated exported affine alias carries the stable key of a
-                -- cleanup already checked in its defining module. The declaration's
-                -- local function type is intentionally not part of the importing
-                -- value namespace; requiring it again here made sound public aliases
-                -- unusable from another module. A directly written unknown function
-                -- never gets a key and still follows the diagnostic below.
-                goto continue
-            elseif not cleanupT then
-                c.diag(code, at, ("cleanup %q is not declared"):format(cleanup.name), nil, {
-                    notes = {
-                        "a cleanup is resolved here, where the owner "
-                        .. "is declared, so it has to name a function this file "
-                        .. "can see"
-                    }
-                })
-            elseif genericBound and not isA(cleanupValue, genericBound) then
-                pendingGenericCleanupBounds[
-                    #pendingGenericCleanupBounds + 1
-                ] = {cleanup = cleanup, value = cleanupValue, bound = genericBound, at = at, code = code,}
-            elseif cleanupT and cleanupT ~= T.any and not cleanupFunc then
-                c.diag(code, at, ("terminal %q must be a function"):format(cleanup.name))
-            elseif cleanupFunc and (
-                #cleanupFunc.params ~= 1 or cleanupFunc.paramPack.tail ~= nil or cleanupFunc.paramModes[1] ~= "takes"
-            ) then
-                c.diag(code, at, ("terminal %q must take exactly one consuming argument"):format(cleanup.name))
-            elseif cleanupFunc and not genericBound and (not firstParam or firstParam.id ~= cleanupValue.id) then
-                c.diag(code, at, ("terminal %q must take exactly %s"):format(cleanup.name, T.tostring(cleanupValue)))
-            elseif cleanupFunc and (
-                not cVoidTerminal and (
-                    #cleanupFunc.rets ~= 1 or cleanupFunc.retPack.tail ~= nil or cleanupFunc.rets[1] ~= T.nil_
-                )
-            ) then
-                c.diag(code, at, ("terminal %q must return nil"):format(cleanup.name))
-            elseif cleanupFunc and not cleanupFunc.noYield and cleanup.visibleBody ~= true then
-                c.diag(code, at, ("terminal %q must be nosuspend"):format(cleanup.name))
-            elseif cleanupFunc and j < #(cleanups or {}) and cleanupFunc.paramModes[1] == "takes" then
-                c.diag("NUPP2615", at, ("cleanup %q takes before the final step"):format(cleanup.name))
-            end
-            if cleanupT then
-                cleanup.validated = true
-            end
-            ::continue::
         end
     end
 

@@ -53,13 +53,19 @@ local metatable = require("nupp.compiler.check.metatable")
 local cst = require("nupp.compiler.cst")
 local annotationMod = require("nupp.compiler.annotations")
 local state = require("nupp.compiler.check.state")
+local capabilities = require("nupp.compiler.capabilities")
+local hostOs: any = rawget(_G, "os")
+local getenv = hostOs and hostOs.getenv or function(): nil
+    return nil
+end
+
 local generics = require("nupp.compiler.generics")
 local methodslots = require("nupp.compiler.methodslots")
 local comptime = require("nupp.compiler.comptime")
 local typeblueprint = require("nupp.compiler.typeblueprint")
 local reflection = require("nupp.compiler.reflection")
-local hash = require("nupp.compiler.build.hash")
-local stable = require("nupp.compiler.build.cache").stable
+local hash = require("nupp.compiler.hash")
+local stable = require("nupp.compiler.stable")
 
 local checkMod = {}
 
@@ -604,11 +610,9 @@ local function finalizeCallGuarantees(c: state.Checker, queries: any)
                 noAllocate = noAllocate,
                 noRaise = noRaise,
                 traceFindings = traceFindings,
-                traceProfileId = source and source.traceProfileId or require("nupp.profile.trace").profile().id,
-                reasonCatalogId = source and source.reasonCatalogId or require("nupp.profile.trace").CATALOG_ID,
-                reasonCatalogVersion = source and source.reasonCatalogVersion or require(
-                    "nupp.profile.trace"
-                ).CATALOG_VERSION,
+                traceProfileId = source and source.traceProfileId or traceSource.profile().id,
+                reasonCatalogId = source and source.reasonCatalogId or traceSource.CATALOG_ID,
+                reasonCatalogVersion = source and source.reasonCatalogVersion or traceSource.CATALOG_VERSION,
             }
         end
     end
@@ -1052,15 +1056,15 @@ function checkMod.check(
                 return persistedType, nil
             end
         end
-        local root = os.getenv("NUPP_COMPILER_ROOT")
+        local root = getenv("NUPP_COMPILER_ROOT")
+        local cliArguments: any = rawget(_G, "arg")
         local executable = root and root .. "/bin/nupp" or type(
-            arg
-        ) == "table" and type(arg[0]) == "string" and arg[0] or nil
+            cliArguments
+        ) == "table" and type(cliArguments[0]) == "string" and cliArguments[0] or nil
         local envelope, evaluationFailure
-        if executable and not os.getenv("NUPP_COMPTIME_WORKER_CHILD") then
-            local worker = require(
-                "nupp.compiler.comptimeworker"
-            ) as {evaluateTypeFunction: function(any, {any}, string, any?): (any, any)}
+        local worker = c.env and c.env.compilerServices and c.env.compilerServices.comptimeworker or nil
+        if worker and executable and not getenv("NUPP_COMPTIME_WORKER_CHILD") then
+            worker = worker as {evaluateTypeFunction: function(any, {any}, string, any?): (any, any)}
             envelope, evaluationFailure = worker.evaluateTypeFunction(
                 program,
                 transported,
@@ -1701,17 +1705,28 @@ function checkMod.check(
     --- A file that declared nothing gets an empty shape rather than `any`, so
     --- reaching a symbol it never declared is NUPP2004 instead of silence.
     c.cNamespaceType = function(): Type
-        local decls = require("nupp.compiler.cheader").declaredFunctions(
-            function(tag)
-                local found = c.lookupType(tag)
-                if found and found.tag == "nominal" then
-                    return found
-                end
+        local decls = {}
+        local resolved = c.opts._capabilityResolution or capabilities.resolve(c.opts.dialect, c.opts.backendResolution)
+        local cinterop = capabilities.get(resolved, "cinterop")
+        if cinterop.kind ~= "missing" and (
+            not c.env or c.env.nativeCompilerServices ~= false
+        ) and next(c.cDeclared) ~= nil then
+            local cheader: any = assert(
+                c.env and c.env.compilerServices and c.env.compilerServices.cheader,
+                "native C-header compiler service is unavailable"
+            )
+            decls = cheader.declaredFunctions(
+                function(tag)
+                    local found = c.lookupType(tag)
+                    if found and found.tag == "nominal" then
+                        return found
+                    end
 
-                return nil
-            end,
-            c.cDeclared
-        )
+                    return nil
+                end,
+                c.cDeclared
+            )
+        end
         for name, t in pairs(c.cDefinedFunctions) do
             decls[name] = t
         end

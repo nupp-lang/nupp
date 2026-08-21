@@ -31,6 +31,66 @@ local isFatal, printErrors = diagnosticMod.isFatal, diagnosticMod.report
 
 local modules = {}
 
+local function hiddenDirectory(name: string): boolean
+    return name:sub(1, 1) == "."
+end
+
+--- The source set one explicitly scoped target owns.
+---
+--- `sources` has always meant project-relative files or directories to the docs
+--- target. Module targets use the same spelling and recursion here; the only
+--- difference is the file kinds they can compile. A glob may select files, while a
+--- directory selected without a glob is walked recursively. Every selection has to
+--- name something so a misspelling cannot quietly produce a smaller artifact.
+local function selectedSourceFiles(root: string, target: Target): ({string}?, string?)
+    if target.sources == nil then
+        return nil
+    end
+
+    local selected, seen = {}, {}
+    for _, source in ipairs(target.sources) do
+        local normalized = normalize(source)
+        if normalized == "" or normalized:sub(
+            1,
+            1
+        ) == "/" or normalized:match("^[A-Za-z]:/") or ("/" .. normalized .. "/"):find("/../", 1, true) then
+            return nil, "build.sources must stay inside the project: " .. source
+        end
+        local matches = expandGlob(root, normalized)
+        if #matches == 0 then
+            return nil, "build.sources matched nothing: " .. source
+        end
+        local candidates = {}
+        for _, matched in ipairs(matches) do
+            local info = nupp.io.files.info(matched)
+            if info and info.kind == "directory" then
+                for _, path in ipairs(fs.listFiles(matched, hiddenDirectory)) do
+                    candidates[#candidates + 1] = path
+                end
+            else
+                candidates[#candidates + 1] = matched
+            end
+        end
+        local accepted = 0
+        for _, path in ipairs(candidates) do
+            path = normalize(path)
+            if (path:match("%.nupp$") and not path:match("%.d%.nupp$")) or path:match("%.lua$") then
+                accepted = accepted + 1
+                if not seen[path] then
+                    seen[path] = true
+                    selected[#selected + 1] = path
+                end
+            end
+        end
+        if accepted == 0 then
+            return nil, "build.sources selected no compilable source: " .. source
+        end
+    end
+    table.sort(selected)
+
+    return selected
+end
+
 local function exportDeprecationsFingerprint(exports: any): string
     local items = {}
     for _, field in ipairs({"typeDefs", "valueDefs"}) do
@@ -588,6 +648,7 @@ local function openSession(
             config = envConfig,
             strict = strict,
             dialect = target.dialect,
+            nativeCompilerServices = target.dialect ~= "lua51",
             typeRoots = rocks and rocks.typeRoots or {},
             observe = observer,
         }),
@@ -827,12 +888,19 @@ local function buildModules(root: string, outDir: string, config: Config, target
         end
 
         -- An entry may live outside the include roots, as a file named on the command
-        -- line
-        -- does, so it is seeded first and the source set is added around it.
-        for _, path in ipairs(envMod.listSourceFiles(inc.env, false)) do
+        -- line does, so it is seeded first and the source set is added around it. A
+        -- target that names `sources` owns exactly that selected set plus dependencies
+        -- discovered below; an ordinary target retains the whole-project contract.
+        local sourceSet, sourceSetErr = selectedSourceFiles(root, target)
+        if sourceSetErr then
+            return nil, sourceSetErr
+        end
+        for _, path in ipairs(sourceSet or envMod.listSourceFiles(inc.env, false)) do
             local name = envMod.moduleNameForPath(inc.env, path)
             if name then
                 seed(name, path)
+            elseif sourceSet then
+                return nil, "cannot determine module name for selected source " .. path
             end
         end
         for name in pairs(linkedModules) do

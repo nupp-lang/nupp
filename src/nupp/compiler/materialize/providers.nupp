@@ -10,7 +10,7 @@ provider exercises the common path before a public provider depends on it.
 ]]
 
 local cst = require("nupp.compiler.cst")
-local hash = require("nupp.compiler.build.hash")
+local hash = require("nupp.compiler.hash")
 local peg = require("nupp.compiler.materialize.peg") as {
     installEvaluator: function(any, any, any, any),
     method: function(any, any, string, any, any): (any, any),

@@ -158,7 +158,7 @@ function backends.inspect(root: any, moduleName: string?): any?, string?
         return nil, "backend " .. name .. " must supply at least one seam"
     end
     descriptor.fingerprint = fingerprint(descriptor)
-    descriptor.digest = require("nupp.compiler.build.hash").digest(descriptor.fingerprint)
+    descriptor.digest = require("nupp.compiler.hash").digest(descriptor.fingerprint)
 
     return descriptor
 end
@@ -208,9 +208,10 @@ function backends.resolve(inc: any, selected: {string}?): any?, string?, any?
             ), {module = moduleName, path = path}
         end
         descriptor.module = moduleName
-        local source = require("nupp.compiler.fs").readFile(path)
+        local fs: any = require("nupp.compiler." .. "fs")
+        local source = fs.readFile(path)
         if source ~= nil then
-            descriptor.digest = require("nupp.compiler.build.hash").digest(source)
+            descriptor.digest = require("nupp.compiler.hash").digest(source)
         end
         resolved.modules[#resolved.modules + 1] = descriptor
         fingerprints[#fingerprints + 1] = moduleName .. "\0" .. descriptor.digest
@@ -273,7 +274,7 @@ function backends.reached(effects: {[string]: any}?, resolved: any?): {any}
                                 binding = seam.binding or "runtime",
                                 backend = moduleName,
                                 backendDigest = descriptor.digest or require(
-                                    "nupp.compiler.build.hash"
+                                    "nupp.compiler.hash"
                                 ).digest(descriptor.fingerprint or ""),
                                 runtimeModule = seam.runtimeModule,
                                 runtimeDependency = seam.runtimeDependency,

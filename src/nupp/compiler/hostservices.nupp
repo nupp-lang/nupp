@@ -1,0 +1,10 @@
+module nupp.compiler.hostservices
+
+-- Native compiler implementation services. Importing this module is the explicit
+-- boundary that admits filesystem/process/C-header support into a compiler host.
+
+export = {
+    cheader = require("nupp.compiler.cheader"),
+    comptimeworker = require("nupp.compiler.comptimeworker"),
+    fs = require("nupp.compiler.fs"),
+}

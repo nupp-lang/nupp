@@ -122,6 +122,9 @@ type manifest.Test = {
 --- Which target rebuilds the compiler, and where its stage zero lives.
 type manifest.SelfHost = {
     target: string?,
+
+    --- A separately composed target used only to regenerate the tracked stage zero.
+    bootstrapTarget: string?,
     bootstrap: string?,
 
     --- The `binary` target `nupp fixpoint --binary` stamps twice.
@@ -315,7 +318,7 @@ for _, key in ipairs(TARGET_KEYS) do
 end
 
 local TEST_KEYS = {"argv", "build", "env"}
-local SELF_HOST_KEYS = {"target", "bootstrap", "binary"}
+local SELF_HOST_KEYS = {"target", "bootstrapTarget", "bootstrap", "binary"}
 
 -- A dependency's keys are its provider's, and the providers have almost nothing in
 -- common: what a C build takes and what a rock takes overlap in `path` and nothing
@@ -1189,6 +1192,18 @@ local function validateManifest(config: manifest.Config): boolean?, string?
             end
             if type(build.targets[config.selfHost.target]) ~= "table" then
                 return nil, "selfHost.target references unknown target " .. config.selfHost.target
+            end
+        end
+        if config.selfHost.bootstrapTarget ~= nil then
+            valid, err = validateString(config.selfHost.bootstrapTarget, "selfHost.bootstrapTarget")
+            if not valid then
+                return nil, err
+            end
+            if not build.targets then
+                return nil, "selfHost.bootstrapTarget requires build.targets"
+            end
+            if type(build.targets[config.selfHost.bootstrapTarget]) ~= "table" then
+                return nil, "selfHost.bootstrapTarget references unknown target " .. config.selfHost.bootstrapTarget
             end
         end
         if config.selfHost.bootstrap ~= nil then

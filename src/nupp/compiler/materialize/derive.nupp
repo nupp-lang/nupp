@@ -5,7 +5,7 @@ module nupp.compiler.materialize.derive
 -- inspect immutable input handles and assemble forwarding blueprints, but it
 -- never receives checker objects or source nodes.
 
-local hash = require("nupp.compiler.build.hash")
+local hash = require("nupp.compiler.hash")
 local recipeCodec = require("nupp.compiler.materialize.codec")
 local typeprovider = require("nupp.compiler.materialize.typeprovider")
 

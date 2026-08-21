@@ -816,77 +816,72 @@ function parser.parse(source: string, filename: string?): parser.ParseResult
                         annotationColon(p, "after const function parameter")
                         p.constDomainTok = add(p, advance())
                         n.params[#n.params + 1] = add(n, p)
-                        if cur().kind ~= "," then
-                            break
-                        end
-                        add(n, advance())
-                        goto continue_type_parameter
-                    end
-                    if cur().kind == "name" and (
-                        cur().text == "takes"
-                        or cur().text == "borrows"
-                        or cur().text == "scoped"
-                        or cur().text == "exclusive"
-                        or cur().text == "retains"
-                        or cur().text == "releases"
-                    ) and tokens[i + 1] and tokens[i + 1].kind == "..." then
-                        p.modeTok = add(p, advance())
-                    end
-                    if cur().kind == "..." then
-                        add(p, advance())
-                        p.vararg = true
-                        if cur().kind == ":" then
-                            annotationColon(p, "in vararg type")
-                            if cur().kind == "name" and (
-                                (
-                                    tokens[i + 1] and tokens[i + 1].kind == "..."
-                                ) or (cur().text == "unpackof" and startsType(tokens[i + 1]))
-                            ) then
-                                p.type = add(p, parseTypePack())
-                                p.pack = true
-                            else
-                                p.type = add(p, parseType())
-                            end
-                        end
-                        n.params[#n.params + 1] = add(n, p)
-                        break
-                    elseif cur().kind == "name" and tokens[i + 1] and tokens[i + 1].kind == "..." then
-                        local pack = new cst.Tpack(kind = "tpack", types = {})
-                        local tail = new cst.Tname(kind = "tname")
-                        tail.base = add(tail, advance())
-                        pack.tail = add(pack, tail)
-                        pack.tailKind = "generic"
-                        add(pack, advance()).generic = true
-                        p.type, p.pack = add(p, pack), true
-                        n.params[#n.params + 1] = add(n, p)
-                        break
-                    elseif cur().kind == "name" and (
-                        cur().text == "takes"
-                        or cur().text == "borrows"
-                        or cur().text == "scoped"
-                        or cur().text == "exclusive"
-                        or cur().text == "retains"
-                        or cur().text == "releases"
-                    ) and tokens[
-                        i + 1
-                    ] and tokens[i + 1].kind == "name" and tokens[i + 2] and tokens[i + 2].kind == ":" then
-                        p.modeTok = add(p, advance())
-                        p.name = add(p, advance())
-                        annotationColon(p, "in parameter type")
-                        p.type = add(p, parseType())
-                    elseif cur().kind == "name" and tokens[i + 1] and tokens[i + 1].kind == ":" then
-                        p.name = add(p, advance())
-                        annotationColon(p, "in parameter type")
-                        p.type = add(p, parseType())
                     else
-                        p.type = add(p, parseType())
+                        if cur().kind == "name" and (
+                            cur().text == "takes"
+                            or cur().text == "borrows"
+                            or cur().text == "scoped"
+                            or cur().text == "exclusive"
+                            or cur().text == "retains"
+                            or cur().text == "releases"
+                        ) and tokens[i + 1] and tokens[i + 1].kind == "..." then
+                            p.modeTok = add(p, advance())
+                        end
+                        if cur().kind == "..." then
+                            add(p, advance())
+                            p.vararg = true
+                            if cur().kind == ":" then
+                                annotationColon(p, "in vararg type")
+                                if cur().kind == "name" and (
+                                    (
+                                        tokens[i + 1] and tokens[i + 1].kind == "..."
+                                    ) or (cur().text == "unpackof" and startsType(tokens[i + 1]))
+                                ) then
+                                    p.type = add(p, parseTypePack())
+                                    p.pack = true
+                                else
+                                    p.type = add(p, parseType())
+                                end
+                            end
+                            n.params[#n.params + 1] = add(n, p)
+                            break
+                        elseif cur().kind == "name" and tokens[i + 1] and tokens[i + 1].kind == "..." then
+                            local pack = new cst.Tpack(kind = "tpack", types = {})
+                            local tail = new cst.Tname(kind = "tname")
+                            tail.base = add(tail, advance())
+                            pack.tail = add(pack, tail)
+                            pack.tailKind = "generic"
+                            add(pack, advance()).generic = true
+                            p.type, p.pack = add(p, pack), true
+                            n.params[#n.params + 1] = add(n, p)
+                            break
+                        elseif cur().kind == "name" and (
+                            cur().text == "takes"
+                            or cur().text == "borrows"
+                            or cur().text == "scoped"
+                            or cur().text == "exclusive"
+                            or cur().text == "retains"
+                            or cur().text == "releases"
+                        ) and tokens[
+                            i + 1
+                        ] and tokens[i + 1].kind == "name" and tokens[i + 2] and tokens[i + 2].kind == ":" then
+                            p.modeTok = add(p, advance())
+                            p.name = add(p, advance())
+                            annotationColon(p, "in parameter type")
+                            p.type = add(p, parseType())
+                        elseif cur().kind == "name" and tokens[i + 1] and tokens[i + 1].kind == ":" then
+                            p.name = add(p, advance())
+                            annotationColon(p, "in parameter type")
+                            p.type = add(p, parseType())
+                        else
+                            p.type = add(p, parseType())
+                        end
+                        n.params[#n.params + 1] = add(n, p)
                     end
-                    n.params[#n.params + 1] = add(n, p)
                     if cur().kind ~= "," then
                         break
                     end
                     add(n, advance())
-                    ::continue_type_parameter::
                 until false
             end
             add(n, expect(")", "to close function type parameters"))
@@ -1994,71 +1989,66 @@ function parser.parse(source: string, filename: string?): parser.ParseResult
                     annotationColon(p, "after const function parameter")
                     p.constDomainTok = add(p, advance())
                     n.params[#n.params + 1] = add(n, p)
-                    if cur().kind ~= "," then
+                else
+                    if cur().kind == "name" and (
+                        cur().text == "takes"
+                        or cur().text == "borrows"
+                        or cur().text == "scoped"
+                        or cur().text == "exclusive"
+                        or cur().text == "retains"
+                        or cur().text == "releases"
+                    ) and tokens[i + 1] and tokens[i + 1].kind == "..." then
+                        p.modeTok = add(p, advance())
+                    end
+                    if cur().kind == "..." then
+                        local dots = add(p, advance())
+                        p.vararg = true
+                        if cur().kind == "name" and cur().offset == dots.offset + #dots.text then
+                            local nameTok = advance()
+                            p.name = add(p, nameTok)
+                            p.namedVararg = true
+                            nameTok.namedVararg = true
+                            n.varargParam = p
+                        end
+                        if cur().kind == ":" then
+                            annotationColon(p, "in vararg annotation")
+                            if cur().kind == "name" and (
+                                (
+                                    tokens[i + 1] and tokens[i + 1].kind == "..."
+                                ) or (cur().text == "unpackof" and startsType(tokens[i + 1]))
+                            ) then
+                                p.type = add(p, parseTypePack())
+                            else
+                                p.type = add(p, parseType())
+                            end
+                        end
+                        n.params[#n.params + 1] = add(n, p)
+                        if cur().kind == "," then
+                            errAt(cur(), "'...' must be the last parameter")
+                        end
                         break
                     end
-                    add(n, advance())
-                    goto continue_parameter
-                end
-                if cur().kind == "name" and (
-                    cur().text == "takes"
-                    or cur().text == "borrows"
-                    or cur().text == "scoped"
-                    or cur().text == "exclusive"
-                    or cur().text == "retains"
-                    or cur().text == "releases"
-                ) and tokens[i + 1] and tokens[i + 1].kind == "..." then
-                    p.modeTok = add(p, advance())
-                end
-                if cur().kind == "..." then
-                    local dots = add(p, advance())
-                    p.vararg = true
-                    if cur().kind == "name" and cur().offset == dots.offset + #dots.text then
-                        local nameTok = advance()
-                        p.name = add(p, nameTok)
-                        p.namedVararg = true
-                        nameTok.namedVararg = true
-                        n.varargParam = p
+                    if cur().kind == "name" and (
+                        cur().text == "takes"
+                        or cur().text == "borrows"
+                        or cur().text == "scoped"
+                        or cur().text == "exclusive"
+                        or cur().text == "retains"
+                        or cur().text == "releases"
+                    ) and tokens[i + 1] and tokens[i + 1].kind == "name" then
+                        p.modeTok = add(p, advance())
                     end
+                    p.name = add(p, expectName("as parameter"))
                     if cur().kind == ":" then
-                        annotationColon(p, "in vararg annotation")
-                        if cur().kind == "name" and (
-                            (
-                                tokens[i + 1] and tokens[i + 1].kind == "..."
-                            ) or (cur().text == "unpackof" and startsType(tokens[i + 1]))
-                        ) then
-                            p.type = add(p, parseTypePack())
-                        else
-                            p.type = add(p, parseType())
-                        end
+                        annotationColon(p, "in parameter annotation")
+                        p.type = add(p, parseType())
                     end
                     n.params[#n.params + 1] = add(n, p)
-                    if cur().kind == "," then
-                        errAt(cur(), "'...' must be the last parameter")
-                    end
-                    break
                 end
-                if cur().kind == "name" and (
-                    cur().text == "takes"
-                    or cur().text == "borrows"
-                    or cur().text == "scoped"
-                    or cur().text == "exclusive"
-                    or cur().text == "retains"
-                    or cur().text == "releases"
-                ) and tokens[i + 1] and tokens[i + 1].kind == "name" then
-                    p.modeTok = add(p, advance())
-                end
-                p.name = add(p, expectName("as parameter"))
-                if cur().kind == ":" then
-                    annotationColon(p, "in parameter annotation")
-                    p.type = add(p, parseType())
-                end
-                n.params[#n.params + 1] = add(n, p)
                 if cur().kind ~= "," then
                     break
                 end
                 add(n, advance())
-                ::continue_parameter::
             until false
         end
         add(n, expect(")", "to close parameter list"))

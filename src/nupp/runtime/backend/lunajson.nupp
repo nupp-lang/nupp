@@ -1,0 +1,11 @@
+module nupp.runtime.backend.lunajson
+
+--[[
+The portable JSON backend. The descriptor names the checked adapter while the
+target's dependency declaration owns the pinned third-party implementation.
+]]
+
+const Backend = require("nupp.runtime.backend")
+const JSON = require("nupp.runtime.seam.json")
+
+export = Backend.new("lunajson", {JSON.seam("nupp.runtime.provider.lunajson"),})

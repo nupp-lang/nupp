@@ -2,7 +2,7 @@ module nupp.compiler.materialize.fieldcodec
 
 -- A second sealed materializer: keyed record-field projection from nupp.reflect.Info.
 
-local hash = require("nupp.compiler.build.hash")
+local hash = require("nupp.compiler.hash")
 
 type fieldcodec.Failure = {
     readonly code: string,

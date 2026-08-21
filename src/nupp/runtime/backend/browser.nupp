@@ -1,0 +1,13 @@
+module nupp.runtime.backend.browser
+
+-- The complete set of third-party and checked pure-Lua providers carried by the
+-- portable compiler host. Application backends remain an independent target choice.
+
+const Backend = require("nupp.runtime.backend")
+const Bitops = require("nupp.runtime.seam.bitops")
+const JSON = require("nupp.runtime.seam.json")
+
+export = Backend.new("nupp.browser", {
+    Bitops.seam("nupp.runtime.provider.scalarbitops"),
+    JSON.seam("nupp.runtime.provider.lunajson"),
+})

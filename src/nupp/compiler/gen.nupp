@@ -42,8 +42,14 @@ local stdlib = require("nupp.compiler.stdlib")
 local backends = require("nupp.compiler.backends")
 local capabilities = require("nupp.compiler.capabilities")
 local cabi = require("nupp.compiler.cabi")
+local bit = require("nupp.compiler.bitops")
 
 local gen = {}
+
+-- Generation runs inside both LuaJIT and the portable stock-5.1 compiler. Read the
+-- host identity once: it controls only the optional parser sanity check, never output.
+local hostJit = rawget(_G, "jit")
+local VALIDATING_HOST_DIALECT = type(hostJit) == "table" and "luajit" or (_VERSION == "Lua 5.1" and "lua51" or nil)
 
 -- These are the nodes a block may execute directly. Coverage deliberately stays at
 -- statement boundaries: putting a probe in every expression is both less useful to a
@@ -458,7 +464,8 @@ function gen.generate(
     filename: string?,
     coverage: (boolean | gen.CoverageRequest)?,
     hot: gen.HotRequest?,
-    backendResolution: any?
+    backendResolution: any?,
+    validatingHostDialect: string?
 ): string, {any}, gen.Coverage?, {[string]: boolean}, gen.HotMetadata?
     local out = {}
     local capabilityResolution = capabilities.resolve(result.dialect or "luajit", backendResolution)
@@ -7467,7 +7474,9 @@ function gen.generate(
     --
     -- Line numbers survive generation one to one, so the line LuaJIT names is the line
     -- that was written.
-    if loadstring then
+    local targetDialect = result.dialect or "luajit"
+    local hostDialect = validatingHostDialect or VALIDATING_HOST_DIALECT
+    if loadstring and hostDialect == targetDialect then
         local chunk, reason = loadstring(code, "@" .. tostring(filename or "generated"))
         if not chunk then
             local text = tostring(reason)

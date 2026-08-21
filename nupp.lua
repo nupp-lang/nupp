@@ -167,6 +167,10 @@ for _, name in ipairs(SEAM_SUITE_RESOURCES) do
       output = "nupp/compiler/nupp/runtime/seam/" .. name .. "suite.nupp",
    }
 end
+local PLAYGROUND_COMPILER_RESOURCES = {}
+for index, resource in ipairs(RESOURCES) do
+   PLAYGROUND_COMPILER_RESOURCES[index] = resource
+end
 for _, relative in ipairs(TEMPLATE_FILES) do
    RESOURCES[#RESOURCES + 1] = {
       source = "templates/" .. relative,
@@ -183,6 +187,11 @@ return {
    -- and `tests/run` put that tree on the search path, and a build puts it
    -- there for itself, so nothing here is installed globally.
    dependencies = {
+      lunajson = {
+         kind = "luarocks",
+         version = "1.2.3-1",
+         bundle = { "lunajson.lua", "lunajson/**.lua" },
+      },
       jsonNative = {
          kind = "c",
          cc = os.getenv("NUPP_JSON_CC") or "c++",
@@ -239,6 +248,27 @@ return {
             entries = { "nupp.compiler.main" },
             dependencies = { "jsonNative" },
             resources = RESOURCES,
+         },
+         bootstrapCompiler = {
+            kind = "modules",
+            description = "Build the self-contained stage-zero compiler",
+            outDir = "build/bootstrap-compiler",
+            entries = { "nupp.compiler.main" },
+            dependencies = { "lunajson" },
+            backends = { "nupp.runtime.backend.lunajson" },
+            resources = RESOURCES,
+         },
+         playgroundCompiler = {
+            kind = "bundle",
+            description = "Build the stock-Lua in-memory compiler",
+            outDir = "build/playground",
+            output = "build/playground/nupp-compiler.lua",
+            dialect = "lua51",
+            entries = { "nupp.compiler.browser" },
+            sources = { "src/nupp/compiler/browser.nupp" },
+            dependencies = { "lunajson" },
+            backends = { "nupp.runtime.backend.browser" },
+            resources = PLAYGROUND_COMPILER_RESOURCES,
          },
          -- Nupp stamped into a feature-matched host as one self-contained
          -- executable. It is the first payload the format ever carries, on
@@ -370,6 +400,7 @@ return {
 
    selfHost = {
       target = "compiler",
+      bootstrapTarget = "bootstrapCompiler",
       bootstrap = "bootstrap/nupp.lua",
       -- The target `nupp fixpoint --binary` stamps twice. Naming it here rather
       -- than in the command keeps the compiler from knowing anything about how

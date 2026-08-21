@@ -4,6 +4,7 @@ module nupp.compiler.scalarintrinsics
 -- definition-guided by the checker; this module owns names and exact integer folding
 -- so later native and vector backends consume the same vocabulary.
 local scalar = {}
+local bit = require("nupp.compiler.bitops")
 
 type scalar.Folded = number | boolean
 

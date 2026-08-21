@@ -2,8 +2,8 @@ module nupp.compiler.reflection
 
 -- Versioned, target-independent semantic type descriptors for comptime and derive.
 
-local hash = require("nupp.compiler.build.hash")
-local stable = require("nupp.compiler.build.cache").stable
+local hash = require("nupp.compiler.hash")
+local stable = require("nupp.compiler.stable")
 local members = require("nupp.compiler.members")
 local T = require("nupp.compiler.types")
 

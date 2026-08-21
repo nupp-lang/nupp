@@ -10,7 +10,7 @@ calls, including calls through an interface, and deliberately excludes the
 return pack: a return type cannot select an overload.
 ]]
 
-local hash = require("nupp.compiler.build.hash")
+local hash = require("nupp.compiler.hash")
 
 local interface Methodslots
     member: function(name: string, ft: any): string

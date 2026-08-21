@@ -88,9 +88,13 @@ function capabilities.require(checker: any, name: string, at: any): boolean
     if capability.seam then
         help = ("select a backend that supplies %s contract %d"):format(capability.seam, capability.version)
     end
-    checker.diag("NUPP3006", at, ("the `%s` dialect has no `%s` capability"):format(checker.opts.dialect, name), nil, {
-        help = help
-    })
+    checker.diag(
+        "NUPP3006",
+        at,
+        capability.reason or ("the `%s` dialect has no `%s` capability"):format(checker.opts.dialect, name),
+        nil,
+        {help = help}
+    )
 
     return false
 end

@@ -9,8 +9,8 @@ operation which allocates a nominal declaration.
 ]]
 
 local T = require("nupp.compiler.types")
-local hash = require("nupp.compiler.build.hash")
-local stable = require("nupp.compiler.build.cache").stable
+local hash = require("nupp.compiler.hash")
+local stable = require("nupp.compiler.stable")
 
 type typeblueprint.Failure = {
     readonly code: string,

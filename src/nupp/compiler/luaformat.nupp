@@ -1,12 +1,7 @@
 module nupp.compiler.luaformat
 
---[[
-Compiler lowering for the `%?` debug-format extension, parsed by Nupp's own PEG
-implementation. Ordinary comptime Nupp in the prelude decides argument types; this
-module only rewrites `%?` to the runtime `%s` operation.
-]]
-
-local stdlib = require("nupp.compiler.stdlib")
+-- Compiler lowering for the fixed `string.format` directive grammar and Nupp's
+-- `%?` extension. This scanner is compiler-private and needs no PEG runtime.
 
 local record Analysis
     format: string
@@ -17,77 +12,65 @@ local record luaFormat
     analyze: function(string): (Analysis?, string?)
 end
 
-local matcher: any
+local FLAGS = "-+ #0"
+local DIGITS = "0123456789"
+local CONVERSIONS = "aAcdiouxXeEfgGpqs?"
 
-local function parser()
-    if matcher then
-        return matcher
-    end
-
-    local sandbox = {}
-    sandbox._G = sandbox
-    setmetatable(sandbox, {__index = _G})
-    local source = stdlib.bootstrap({["stdlib.peg.compile"] = true})
-    local chunk, why = loadstring(source, "=nupp compiler Lua-format PEG")
-    assert(chunk, why)
-    setfenv(chunk, sandbox)
-    chunk()
-    matcher = sandbox.nupp.peg.compile(
-        [[
-        start <- {| (escaped / directive / malformed / ordinary)* |} !.
-        escaped <- '%%'
-        directive <- {| { '%' { [-+ #0]* } { [0-9]* } { '.' [0-9]* / '' } { [aAcdiouxXeEfgGpqs?] } } |}
-        malformed <- { '%' (!'%' .)* }
-        ordinary <- !'%' .
-    ]],
-        {backend = "lpeg"}
-    )
-
-    return matcher
+local function contains(haystack: string, byte: string): boolean
+    return byte ~= "" and haystack:find(byte, 1, true) ~= nil
 end
 
 function luaFormat.analyze(format: string): (Analysis?, string?)
-    local tokens = parser():match(format)
-    if not tokens then
-        return nil, "invalid string.format directive"
-    end
-
-    local debugArguments = {}
-    for _, token in ipairs(tokens) do
-        if type(token) ~= "table" then
-            return nil, 'invalid string.format directive starting at "' .. tostring(token) .. '"'
-        end
-        local _, flags, width, precision, conversion = token[1], token[2], token[3], token[4], token[5]
-        if #width > 2 then
-            return nil, 'invalid string.format directive starting at "%' .. flags .. width:sub(1, 3) .. '"'
-        end
-        if #precision > 3 then
-            return nil, 'invalid string.format directive starting at "%' .. flags .. width .. precision:sub(1, 4) .. '"'
-        end
-        local debug = conversion == "?"
-        debugArguments[#debugArguments + 1] = debug
-    end
-
-    local pieces = {}
-    local index, argument = 1, 1
+    local debugArguments, pieces = {}, {}
+    local copiedFrom, index = 1, 1
     while index <= #format do
-        local percent = format:find("%", index, true)
-        if not percent then
-            pieces[#pieces + 1] = format:sub(index)
-            break
-        end
-        pieces[#pieces + 1] = format:sub(index, percent - 1)
-        if format:sub(percent + 1, percent + 1) == "%" then
-            pieces[#pieces + 1] = "%%"
-            index = percent + 2
+        if format:sub(index, index) ~= "%" then
+            index = index + 1
+        elseif format:sub(index + 1, index + 1) == "%" then
+            index = index + 2
         else
-            local directive = tokens[argument][1]
-            assert(format:sub(percent, percent + #directive - 1) == directive)
-            pieces[#pieces + 1] = debugArguments[argument] and directive:sub(1, -2) .. "s" or directive
-            argument = argument + 1
-            index = percent + #directive
+            local directive = index
+            index = index + 1
+            while contains(FLAGS, format:sub(index, index)) do
+                index = index + 1
+            end
+            local width = index
+            while contains(DIGITS, format:sub(index, index)) do
+                index = index + 1
+            end
+            if index - width > 2 then
+                return nil, 'invalid string.format directive starting at "' .. format:sub(directive, width + 2) .. '"'
+            end
+            if format:sub(index, index) == "." then
+                local precision = index
+                index = index + 1
+                while contains(DIGITS, format:sub(index, index)) do
+                    index = index + 1
+                end
+                if index - precision > 3 then
+                    return nil, 'invalid string.format directive starting at "' .. format:sub(
+                        directive,
+                        precision + 3
+                    ) .. '"'
+                end
+            end
+            local conversion = format:sub(index, index)
+            if not contains(CONVERSIONS, conversion) then
+                local ending = format:find("%", index + 1, true)
+                ending = ending and ending - 1 or #format
+                return nil, 'invalid string.format directive starting at "' .. format:sub(directive, ending) .. '"'
+            end
+            local debug = conversion == "?"
+            debugArguments[#debugArguments + 1] = debug
+            if debug then
+                pieces[#pieces + 1] = format:sub(copiedFrom, index - 1)
+                pieces[#pieces + 1] = "s"
+                copiedFrom = index + 1
+            end
+            index = index + 1
         end
     end
+    pieces[#pieces + 1] = format:sub(copiedFrom)
 
     return new Analysis(format = table.concat(pieces), debugArguments = debugArguments), nil
 end

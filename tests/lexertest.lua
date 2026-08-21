@@ -54,6 +54,29 @@ local CORPUS = {
 
 local M = {}
 
+function M.triviaArenaProvidersShareOneContract()
+   local providers = {
+      require("nupp.compiler.triviaarena.ffi"),
+      require("nupp.compiler.triviaarena.table"),
+   }
+   for _, provider in ipairs(providers) do
+      local arena = provider.new("  -- note\nvalue")
+      assertEq(arena.count, 0, "a new arena is empty")
+      assertEq(arena:append(1, 1, 2, 1, 1), 1, "the first record index")
+      for index = 2, 80 do
+         assertEq(arena:append(index % 4 + 1, index, index + 1,
+            index + 2, index + 3), index, "append grows the arena")
+      end
+      local kind, offset, length, line, col = arena:record(65)
+      assertEq(kind, 2, "record kind")
+      assertEq(offset, 65, "record offset")
+      assertEq(length, 66, "record length")
+      assertEq(line, 67, "record line")
+      assertEq(col, 68, "record column")
+      assertEq(arena.source, "  -- note\nvalue", "the source is retained")
+   end
+end
+
 function M.roundtripCorpus()
    for _, src in ipairs(CORPUS) do
       assertRoundtrip(src)

@@ -14,6 +14,8 @@ end
 -- This registry is deliberately positive. Adding a public module requires an
 -- explicit classification before `lua51` can claim it is portable.
 local MODULES = {
+    ["bit"] = selected("runtime", "numeric.bitops"),
+    ["jsonNative"] = selected("runtime", "data.json"),
     ["nupp"] = {kind = "common"},
     ["nupp.data"] = {kind = "members"},
     ["nupp.data.json"] = selected("runtime", "data.json"),

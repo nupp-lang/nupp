@@ -23,6 +23,7 @@ local COMMON_ROOTS: {
     [string]: boolean
 } = {
     _G = true,
+    _VERSION = true,
     print = true,
     type = true,
     tostring = true,
@@ -42,6 +43,7 @@ local COMMON_ROOTS: {
     xpcall = true,
     require = true,
     dofile = true,
+    loadfile = true,
     string = true,
     table = true,
     math = true,
@@ -101,6 +103,7 @@ local COMMON_MEMBERS: {
         randomseed = true,
         pi = true,
         huge = true,
+        frexp = true,
     },
     os = {
         clock = true,
@@ -130,7 +133,7 @@ local COMMON_MEMBERS: {
         stderr = true,
         stdin = true,
     },
-    coroutine = {create = true, resume = true, yield = true, status = true, wrap = true,},
+    coroutine = {create = true, resume = true, yield = true, status = true, wrap = true, running = true,},
     debug = {
         getinfo = true,
         traceback = true,
@@ -209,6 +212,17 @@ end
 --- Reports a resolved require of a runtime-specific VM module.
 function surface.requireModule(checker: any, name: string, at: any)
     if checker.opts.dialect ~= "lua51" or not RUNTIME_MODULES[name] then
+        return
+    end
+    local classification = require("nupp.compiler.standardsurface").classify(name)
+    local selected = classification
+        and classification.seam
+        and checker.opts.backendResolution
+        and checker.opts.backendResolution.seams
+        and checker.opts.backendResolution.seams[
+        classification.seam
+    ] or nil
+    if selected then
         return
     end
     checker.diag("NUPP3010", at, ("the `lua51` runtime surface does not include module `%s`"):format(name), nil, {

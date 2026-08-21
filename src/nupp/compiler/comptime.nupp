@@ -25,11 +25,16 @@ local cst = require("nupp.compiler.cst")
 local T = require("nupp.compiler.types")
 local materializeProviders = require("nupp.compiler.materialize.providers")
 local reflection = require("nupp.compiler.reflection")
-local hash = require("nupp.compiler.build.hash")
+local hash = require("nupp.compiler.hash")
+local bit = require("nupp.compiler.bitops")
+local hostOs: any = rawget(_G, "os")
+local getenv = hostOs and hostOs.getenv or function(): nil
+    return nil
+end
 
 local record comptime
     evaluateDirect: function(cst.Node, cst.Node?, any, any, any): (string?, T.Type?, any, any)
-    evaluate: function(cst.Node, cst.Node?, any, any, any, any?): (string?, T.Type?, any, any)
+    evaluate: function(cst.Node, cst.Node?, any, any, any, any?, any?): (string?, T.Type?, any, any)
     evaluateTypeFunctionDirect: function(any, {any}, any): (any, any)
     evaluateDeriveProviderDirect: function(any, any, any, any, string?): (any, any)
     typeFunctionProgram: function(any, any): any
@@ -1945,16 +1950,17 @@ function comptime.evaluate(
     reflections: any,
     layouts: any,
     helpers: any,
-    host: any?
+    host: any?,
+    compilerServices: any?
 ): string?, T.Type?, comptime.Failure?, any
-    local root = os.getenv("NUPP_COMPILER_ROOT")
+    local root = getenv("NUPP_COMPILER_ROOT")
+    local arguments: any = rawget(_G, "arg")
     local executable = root and root .. "/bin/nupp" or type(
-        arg
-    ) == "table" and type(arg[0]) == "string" and arg[0] or nil
-    if executable and not os.getenv("NUPP_COMPTIME_WORKER_CHILD") then
-        local worker = require(
-            "nupp.compiler.comptimeworker"
-        ) as {evaluate: function(string, string, any, any, any, any?): (string?, any, any)}
+        arguments
+    ) == "table" and type(arguments[0]) == "string" and arguments[0] or nil
+    local worker = compilerServices and compilerServices.comptimeworker or nil
+    if worker and executable and not getenv("NUPP_COMPTIME_WORKER_CHILD") then
+        worker = worker as {evaluate: function(string, string, any, any, any, any?): (string?, any, any)}
         local quoted, failure, envelope = worker.evaluate(
             cst.textOf(node),
             executable,

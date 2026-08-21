@@ -1,0 +1,272 @@
+module nupp.compiler.browser
+
+--[[
+The in-memory compiler API shared by a native stock-Lua host and the browser Worker.
+It selects compiler-private providers directly, owns one lazy environment per output
+dialect, and leaves JSON at the outer ABI boundary.
+]]
+
+local triviaArena = require("nupp.compiler.triviaarena")
+triviaArena.install(require("nupp.compiler.triviaarena.table"))
+
+-- Select the compiler host's bit implementation once. LuaJIT keeps its native
+-- operations; stock Lua 5.1 gets the checked scalar provider.
+local hasNativeBit = pcall(require, "bit")
+if not hasNativeBit then
+    local scalarBitops = require("nupp.runtime.provider.scalarbitops")
+    package.preload.bit = function()
+        return scalarBitops
+    end
+end
+
+local json = require("nupp.runtime.provider.lunajson")
+local parser = require("nupp.compiler.parser")
+local check = require("nupp.compiler.check")
+local envMod = require("nupp.compiler.env")
+local optimize = require("nupp.compiler.optimize")
+local gen = require("nupp.compiler.gen")
+local tree = require("nupp.compiler.lsp.tree")
+local T = require("nupp.compiler.types")
+local capabilities = require("nupp.compiler.capabilities")
+
+local type BrowserOptions = {
+    strict: boolean?,
+    optimize: boolean?,
+    dialect: ('lua51' | 'luajit')?
+}
+
+local type CheckResponse = {diagnostics: {any}}
+local type CompileResponse = {
+    code: string?,
+    reason: string?,
+    diagnostics: {any}
+}
+local type HoverResponse = {
+    found: boolean,
+    name: string?,
+    signature: string?,
+    offset: integer?,
+    length: integer?
+}
+
+local BROWSER_DESCRIPTOR = {
+    name = "nupp.browser",
+    module = "nupp.runtime.backend.browser",
+    digest = "portable-browser-providers-1",
+    seams = {
+        {
+            name = "numeric.bitops",
+            version = 1,
+            effect = "runtime.bitops",
+            effects = {"runtime.bitops"},
+            binding = "runtime",
+            runtimeModule = "nupp.runtime.provider.scalarbitops",
+        },
+        {
+            name = "data.json",
+            version = 1,
+            effect = "native.json",
+            effects = {"native.json"},
+            binding = "runtime",
+            runtimeModule = "nupp.runtime.provider.lunajson",
+        },
+    },
+}
+local BACKENDS = {
+    modules = {BROWSER_DESCRIPTOR},
+    seams = {
+        [
+            "numeric.bitops"
+        ] = {
+            name = "numeric.bitops",
+            version = 1,
+            effect = "runtime.bitops",
+            binding = "runtime",
+            runtimeModule = "nupp.runtime.provider.scalarbitops",
+            backend = "nupp.browser",
+            module = "nupp.runtime.backend.browser",
+        },
+        [
+            "data.json"
+        ] = {
+            name = "data.json",
+            version = 1,
+            effect = "native.json",
+            binding = "runtime",
+            runtimeModule = "nupp.runtime.provider.lunajson",
+            backend = "nupp.browser",
+            module = "nupp.runtime.backend.browser",
+        },
+    },
+    byEffect = {['runtime.bitops'] = "nupp.runtime.backend.browser", ['native.json'] = "nupp.runtime.backend.browser",},
+}
+
+local function selectedDialect(options: BrowserOptions?): 'lua51' | 'luajit'
+    return options and options.dialect or "lua51"
+end
+
+local function diagnosticsOf(diags: {any}): {any}
+    local out = json.asArray({})
+    for index, diag in ipairs(diags) do
+        out[
+            index
+        ] = {
+            code = diag.code,
+            msg = diag.msg,
+            severity = diag.severity,
+            line = diag.line,
+            col = diag.col,
+            offset = diag.offset,
+            length = diag.length,
+            help = diag.help,
+            notes = diag.notes,
+            related = diag.related,
+        }
+    end
+
+    return out
+end
+
+local function hasErrors(diags: {any}): boolean
+    for _, diag in ipairs(diags) do
+        if diag.severity == "error" then
+            return true
+        end
+    end
+
+    return false
+end
+
+local function capabilityResolution(dialect: string): any
+    local resolved = capabilities.resolve(dialect, BACKENDS)
+    if dialect == "luajit" then
+        local reason = "the in-memory compiler has no native layout or storage provider"
+        resolved.byName.cinterop = {kind = "missing", name = "cinterop", reason = reason,}
+        resolved.byName.cstorage = {kind = "missing", name = "cstorage", reason = reason,}
+    end
+
+    return resolved
+end
+
+local Session = {}
+Session.__index = Session
+
+function Session:environment(dialect: string): any
+    local current = self.environments[dialect]
+    if current then
+        return current
+    end
+    current = envMod.new(".", {
+        cache = false,
+        memoryOnly = true,
+        dialect = dialect,
+        backendResolution = BACKENDS,
+        capabilityResolution = capabilityResolution(dialect),
+        nativeCompilerServices = false,
+        config = {_target = {dialect = dialect, layoutTarget = "x86_64-unknown-linux-gnu",},},
+        typeRoots = {},
+    })
+    self.environments[dialect] = current
+
+    return current
+end
+
+function Session:checked(source: string, filename: string, options: BrowserOptions?): (any, {any})
+    local dialect = selectedDialect(options)
+    self.lastDialect = dialect
+    local result = parser.parse(source, filename)
+    if #result.errors > 0 then
+        return result, result.errors
+    end
+    local diags = check.check(result, filename, self:environment(dialect), {
+        strict = options and options.strict == true,
+        dialect = dialect,
+        backendResolution = BACKENDS,
+        _capabilityResolution = capabilityResolution(dialect),
+    })
+    if not hasErrors(diags) then
+        self.lastResults[dialect] = result
+    end
+
+    return result, diags
+end
+
+function Session:check(source: string, filename: string, options: BrowserOptions?): CheckResponse
+    local _, diags = self:checked(source, filename, options)
+    return {diagnostics = diagnosticsOf(diags),}
+end
+
+function Session:compile(source: string, filename: string, options: BrowserOptions?): CompileResponse
+    local result, diags = self:checked(source, filename, options)
+    if #result.errors > 0 then
+        return {reason = "syntax errors", diagnostics = diagnosticsOf(diags),}
+    end
+    if hasErrors(diags) then
+        return {reason = "type errors", diagnostics = diagnosticsOf(diags),}
+    end
+    optimize.run(result, {
+        level = options and options.optimize == true and 1 or 0,
+        filename = filename,
+        disabled = {},
+        relaxed = {},
+    })
+    result.effects = optimize.liveEffects(result)
+    local code, generated = gen.generate(result, filename, nil, nil, BACKENDS, "lua51")
+    if #generated > 0 then
+        return {reason = "code generation errors", diagnostics = diagnosticsOf(generated),}
+    end
+
+    return {code = code, diagnostics = diagnosticsOf(diags),}
+end
+
+function Session:hover(offset: integer): HoverResponse
+    local result = self.lastResults[self.lastDialect or "lua51"]
+    if not result then
+        return {found = false,}
+    end
+    local token: any = tree.tokenAt(result, offset)
+    if not token then
+        return {found = false,}
+    end
+    local definition = token.definition
+    local valueType = token.inferredType
+    if (valueType == nil or valueType == T.any) and definition and definition.type then
+        valueType = definition.type
+    end
+    if not valueType then
+        return {found = false,}
+    end
+    local name = definition and definition.name or token.text
+    local prefix = definition and definition.cdef and "cdef " or definition and definition.constant and "const " or ""
+
+    return {
+        found = true,
+        name = name,
+        signature = prefix .. name .. ": " .. T.tostring(valueType),
+        offset = token.offset,
+        length = #token.text,
+    }
+end
+
+function Session:request(requestText: string): string
+    local request = json.decode(requestText, json.NULL)
+    local options = request.options or {}
+    local filename = request.filename or "playground.nupp"
+    if request.kind == "check" then
+        return json.encode(self:check(request.source or "", filename, options), json.NULL)
+    elseif request.kind == "compile" then
+        return json.encode(self:compile(request.source or "", filename, options), json.NULL)
+    elseif request.kind == "hover" then
+        self.lastDialect = selectedDialect(options)
+        return json.encode(self:hover(request.offset or 1), json.NULL)
+    end
+    error("unknown browser compiler request kind " .. tostring(request.kind), 2)
+end
+
+local Browser = {}
+
+function Browser.new(): any
+    return setmetatable({environments = {}, lastResults = {}, lastDialect = "lua51",}, Session)
+end
+
+export = Browser

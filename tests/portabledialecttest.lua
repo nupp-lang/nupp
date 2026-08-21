@@ -94,6 +94,15 @@ function M.cdataNumeralsRequireRepresentationsThePortableDialectDoesNotHave()
    assert(portableDiags[3].msg:find("`cinterop` capability", 1, true), portableDiags[3].msg)
 end
 
+function M.crossDialectOutputSkipsTheHostParserCheck()
+   local result, diags = checked("return 2ULL", "luajit")
+   assertEq(#diags, 0, "the LuaJIT-only source checks for its target")
+   local code, loweringDiags = gen.generate(result, "native-from-portable.nupp",
+      nil, nil, nil, "lua51")
+   assertEq(#loweringDiags, 0, "a stock Lua 5.1 host does not reject LuaJIT output")
+   assert(code:find("2ULL", 1, true), "LuaJIT-only output remains intact")
+end
+
 function M.runtimeSpecificPreludeUsesAreDefinitionBased()
    local source = table.concat({
       "local values = {",

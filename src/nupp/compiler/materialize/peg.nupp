@@ -10,7 +10,7 @@ LPeg lowering. It may additionally select a proven straight-line matcher kernel 
 that graph. No live handle, source fragment, or lexical binding crosses the worker.
 ]]
 
-local hash = require("nupp.compiler.build.hash")
+local hash = require("nupp.compiler.hash")
 local T = require("nupp.compiler.types")
 local generics = require("nupp.compiler.generics")
 local pegRe = require("nupp.compiler.materialize.pegre")
