@@ -1,3 +1,7 @@
+---
+order: 10
+---
+
 # Installation
 
 Nupp is written in Nupp. A checkout carries a stage-0 compiler already lowered

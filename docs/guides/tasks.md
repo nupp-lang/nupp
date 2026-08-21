@@ -1,3 +1,7 @@
+---
+order: 590
+---
+
 # Tasks
 
 A task is a build or maintenance command the manifest names. `nupp task <name>`

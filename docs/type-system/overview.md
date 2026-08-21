@@ -1,3 +1,8 @@
+---
+order: 210
+title: Overview
+---
+
 # Type system
 
 Nupp is gradually typed: anything unannotated or unresolvable is `any` and

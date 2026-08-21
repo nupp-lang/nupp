@@ -1,3 +1,7 @@
+---
+order: 540
+---
+
 # Documentation generator
 
 `nupp doc` renders a project's API reference from its source, together with the
@@ -353,6 +357,50 @@ before teaches nothing a second time. Opting in keeps the editor on the example
 a reader would actually try, which is usually the first one on the page.
 :::
 
+### Home page
+
+A page whose entry or frontmatter says `layout = "home"` renders a hero above
+its prose and a feature showcase inside it, and writes both in Markdown between
+comment markers rather than configuring them beside the page.
+
+````markdown
+<!-- nupp:hero -->
+
+# Project
+
+One line under the title.
+
+[Get started](getting-started/installation)
+[Playground](/playground/)
+
+![A project logo](images/project.png)
+
+<!-- /nupp:hero -->
+
+<!-- nupp:features -->
+
+## What it does
+
+The paragraph beside the sample.
+
+```nupp
+local answer: integer = 42
+```
+
+<!-- /nupp:features -->
+````
+
+In the hero, the heading is the title, the first paragraph is the line under
+it, any further prose is the paragraph below that, the image is the
+illustration, and a paragraph of nothing but links is the row of buttons, the
+first of which is the one the page is for. In the showcase, each `##` heading
+is a card: its prose is the caption, and its fenced block is the sample beside
+it. A card that shows an image instead shows that.
+
+The showcase renders where it was written, so a home page decides for itself
+what a reader meets first. Everything outside the two regions is the page's
+ordinary Markdown.
+
 ### File embeds
 
 An embed reads a file at build time, guessing the language from its extension:
@@ -607,7 +655,7 @@ docs = {
    format = "both",
    outDir = "build/docs",
    title = "Project API",
-   pages = { { path = "guide", title = "Guide", source = "docs/guide.md" } },
+   pages = { { glob = "docs/**.md" } },
 }
 ```
 
@@ -631,12 +679,17 @@ documents, and a signature on a page is the one that was written rather than
 one the checker confirmed. Run `nupp check --target docs` to parse and validate
 a docs target without writing output.
 
-### How does a directory of pages get published without listing each one?
+### How does a page get published without being listed in the manifest?
 
-A page entry names a `directory` instead of a `source`, and every `.md` file
-under it is published, with an index generated at the entry's own path. See
-[page directories](build.md#page-directories) for frontmatter, numbering, and
-how the index is built.
+A page entry names a `glob` instead of a `path` and a `source`, and every
+Markdown file it matches is published at the route its own path gives. What the
+path cannot say -- where the page sits in the navigation, what navigation calls
+it -- the page says in frontmatter. See [page trees](build.md#page-trees).
+
+A `directory` entry does the same for a collection, publishing every document
+under it beneath one generated index. See [page
+directories](build.md#page-directories) for numbering and how the index is
+built.
 
 ::: seealso
 - [cli.md](../reference/cli.md#doc) for the command's flags and JSON report

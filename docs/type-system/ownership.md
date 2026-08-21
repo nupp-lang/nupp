@@ -1,3 +1,8 @@
+---
+order: 250
+redirects: reference/ownership
+---
+
 # Ownership and borrowing
 
 Ownership tracks which value carries a cleanup obligation and where that

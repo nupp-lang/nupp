@@ -244,22 +244,15 @@ local PAGE_KEYS = {
     -- Names a directory of markdown instead of a single `source`. The entry then
     -- stands for every document in it, and for the index generated at `path`.
     "directory",
+    -- Names the files instead of the routes. The entry stands for every markdown file
+    -- the pattern matches, each published where it sits; `base` is the directory routes
+    -- are named from and `exclude` drops what the tree holds and the site does not
+    -- publish. What a path cannot say, the page says in its own front matter.
+    "glob",
+    "base",
+    "exclude",
     "layout",
     "redirects",
-    "heroTitle",
-    "heroText",
-    "heroContent",
-    "heroImage",
-    "heroImageAlt",
-    "heroActions",
-    -- accepted spellings of the same six
-    "hero_title",
-    "hero_text",
-    "hero_content",
-    "hero_image",
-    "hero_image_alt",
-    "hero_actions",
-    "features",
 }
 
 -- The two generated indexes are configured the same way: where the page goes, what to
@@ -267,8 +260,6 @@ local PAGE_KEYS = {
 -- whose prose it opens with.
 local GENERATED_KEYS = {"path", "redirects", "source", "title"}
 
-local HERO_ACTION_KEYS = {"text", "path", "theme"}
-local FEATURE_KEYS = {"icon", "image", "imageAlt", "title", "details", "code", "codeLanguage"}
 local TASK_KEYS = {"description", "argv", "build", "env"}
 
 -- The rest of the manifest, closed for the same reason the docs target is: a key
@@ -483,17 +474,21 @@ local function validateDocsTarget(target, label)
         if not valid then
             return nil, err
         end
-        for actionIndex, action in ipairs(page.heroActions or page.hero_actions or {}) do
-            valid, err = validateKeys(action, HERO_ACTION_KEYS, ("%s.heroActions[%d]"):format(pageLabel, actionIndex))
+        -- One of the two ways a page entry names what it publishes: a route it writes,
+        -- or a pattern the files answer for themselves.
+        if page.glob ~= nil then
+            if type(page.glob) ~= "string" then
+                valid, err = validateArray(page.glob, pageLabel .. ".glob", "string", true)
+                if not valid then
+                    return nil, err
+                end
+            end
+            valid, err = validateArray(page.exclude, pageLabel .. ".exclude", "string", false)
             if not valid then
                 return nil, err
             end
-        end
-        for featureIndex, feature in ipairs(page.features or {}) do
-            valid, err = validateKeys(feature, FEATURE_KEYS, ("%s.features[%d]"):format(pageLabel, featureIndex))
-            if not valid then
-                return nil, err
-            end
+        elseif type(page.path) ~= "string" then
+            return nil, pageLabel .. ".path must be a string"
         end
     end
 

@@ -1,3 +1,8 @@
+---
+order: 90
+redirects: concepts/declarations
+---
+
 # Modules
 
 A declared module is one real source file and one real Lua module. The first

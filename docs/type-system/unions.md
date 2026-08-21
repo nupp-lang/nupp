@@ -1,3 +1,7 @@
+---
+order: 290
+---
+
 # Unions
 
 A union is a value that is one of several types, written with `|`:

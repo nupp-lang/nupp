@@ -1,3 +1,7 @@
+---
+order: 320
+---
+
 # Generics
 
 A type parameter stands in for a type the caller supplies. It is written in

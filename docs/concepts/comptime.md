@@ -1,3 +1,7 @@
+---
+order: 120
+---
+
 # Comptime
 
 `comptime do ... end` is an expression whose value is computed while the file is

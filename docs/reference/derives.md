@@ -1,3 +1,8 @@
+---
+order: 680
+title: Declaration derives
+---
+
 `nupp.derive` holds the two bundled derive providers and the recipe API a
 package uses to publish its own. `@derive` names a provider on a record
 declaration and adds the closed set of checked members that provider returns.

@@ -1,3 +1,7 @@
+---
+order: 160
+---
+
 # C interop
 
 Nupp turns C declarations into checked LuaJIT FFI calls, with no foreign-call

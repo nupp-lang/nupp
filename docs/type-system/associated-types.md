@@ -1,3 +1,7 @@
+---
+order: 350
+---
+
 # Associated types
 
 An [interface](interfaces.md) may state a type it does not name. Whatever takes

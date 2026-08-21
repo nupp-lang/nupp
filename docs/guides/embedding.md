@@ -1,3 +1,7 @@
+---
+order: 510
+---
+
 # Embedding Nupp
 
 `libnupp` lets a C application own the process and event loop while checked

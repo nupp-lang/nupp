@@ -1,3 +1,7 @@
+---
+order: 650
+---
+
 # `nupp` command
 
 One executable holds every tool. Each command carries its own `--help`, which is

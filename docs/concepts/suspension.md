@@ -1,3 +1,8 @@
+---
+order: 140
+redirects: concepts/suspension-handlers
+---
+
 # Suspension
 
 A suspension-aware function waits without changing its call syntax or return

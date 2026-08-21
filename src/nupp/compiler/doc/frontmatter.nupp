@@ -1,0 +1,76 @@
+module nupp.compiler.doc.frontmatter
+
+--[[
+The `key: value` block a markdown document may open with.
+
+A page carries a little that its prose cannot say: where it sits in the navigation, the
+name navigation calls it when that is not its heading, and the routes it used to answer
+at. Frontmatter is where a document says those, so the file that has to change when a
+page moves is the page.
+
+The block is read as flat `key: value` lines rather than as YAML. Nothing here needs
+nesting, and a parser that accepted it would be a second, worse YAML in a compiler that
+has no business carrying one.
+]]
+
+local frontmatter = {}
+
+--- The fields a document opened with, and the body below them.
+---
+--- A document with no frontmatter block answers an empty table and its whole text,
+--- because such a document still reads correctly and only loses what the fields would
+--- have configured.
+function frontmatter.parse(source: string): {[string]: string}, string
+    if source:sub(1, 4) ~= "---\n" then
+        return {}, source
+    end
+    local ending = source:find("\n---\n", 5, true)
+    if not ending then
+        return {}, source
+    end
+    local fields: {[string]: string} = {}
+    for line in source:sub(5, ending):gmatch("[^\n]+") do
+        local key, value = line:match("^([%w_-]+)%s*:%s*(.-)%s*$")
+        if key and value then
+            -- A value written with quotes is a value that had to be, because YAML would
+            -- have read the colon in `NEP 0: Index` as a second key. Nothing here reads
+            -- it as YAML, but the quotes are what an editor's highlighting expects, so
+            -- they are accepted and dropped rather than rendered.
+            local quoted = value:match('^"(.*)"$') or value:match("^'(.*)'$")
+            fields[key] = quoted or value
+        end
+    end
+
+    -- The blank line under the block belongs to the block: a page's prose starts at
+    -- its first line whether or not the file opened with fields.
+
+    return fields, (source:sub(ending + 5):gsub("^\n+", ""))
+end
+
+--- The body of a document, whatever it opened with.
+function frontmatter.strip(source: string): string
+    local _, body = frontmatter.parse(source)
+
+    return body
+end
+
+--- A comma-separated field as its items, or nil when the field is absent or empty.
+---
+--- One line holds every list a page needs -- the routes it used to answer at -- so a
+--- list is written the way it is spoken rather than as a block of dashes.
+function frontmatter.list(value: string?): {string}?
+    if not value then
+        return nil
+    end
+    local items: {string} = {}
+    for item in value:gmatch("[^,]+") do
+        local trimmed = item:match("^%s*(.-)%s*$") as string
+        if trimmed ~= "" then
+            items[#items + 1] = trimmed
+        end
+    end
+
+    return #items > 0 and items or nil
+end
+
+export = frontmatter

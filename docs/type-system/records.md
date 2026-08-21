@@ -1,3 +1,7 @@
+---
+order: 230
+---
+
 # Records and structs
 
 A `record` is a Lua table with a nominal name, and a `struct` is FFI cdata with

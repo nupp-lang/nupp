@@ -1,3 +1,7 @@
+---
+order: 330
+---
+
 # Comptime types
 
 A `comptime function` that accepts compiler-only `type` and `typepack` handles

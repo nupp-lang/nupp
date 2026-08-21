@@ -212,7 +212,7 @@
   margin-bottom: 3.5rem;
 }
 
-/* The base theme never styles <hr> at all — home.md's markdown now opens
+/* The base theme never styles <hr> at all — the home page's markdown now opens
  * with one instead of a "Try Nupp" heading, so it was falling back to the
  * browser's default inset-gray rule, which read as a stray UI glitch
  * against this theme. */

@@ -1,3 +1,7 @@
+---
+order: 170
+---
+
 # Structure-of-arrays storage
 
 `nupp.mem.soa` stores every top-level field of a reified struct in its own

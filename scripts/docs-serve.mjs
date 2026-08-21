@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 // Builds the docs site and the playground, then serves both from one
 // server: the docs site at /, the playground at /playground/ — the same
-// path nupp.lua's homepage heroActions links to, so that link actually
+// path the home page's hero links to, so that link actually
 // resolves here instead of 404ing (see editors/playground/README.md and
 // the commit that added the button).
 //

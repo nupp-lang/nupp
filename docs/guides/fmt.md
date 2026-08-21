@@ -1,3 +1,7 @@
+---
+order: 530
+---
+
 # Formatter
 
 `nupp fmt` rewrites Nupp source into one canonical layout. The style is fixed:

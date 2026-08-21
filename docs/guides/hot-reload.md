@@ -1,3 +1,7 @@
+---
+order: 620
+---
+
 # Hot reload
 
 `nupp run --watch app.nupp` builds a development-only version of a program in

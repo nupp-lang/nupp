@@ -1,3 +1,7 @@
+---
+order: 570
+---
+
 # Annotated Lua
 
 Nupp always reads recognized LuaCATS, EmmyLua, and typed LuaDoc comments in a

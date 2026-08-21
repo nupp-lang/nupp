@@ -1,3 +1,7 @@
+---
+order: 150
+---
+
 # Workers
 
 `nupp.workers` runs a named module in a fresh LuaJIT state on a native thread.

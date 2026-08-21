@@ -1,3 +1,7 @@
+---
+order: 610
+---
+
 # LuaJIT trace checking
 
 LuaJIT discovers an unsupported hot path only once that path is hot. Nupp finds

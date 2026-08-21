@@ -1,3 +1,8 @@
+---
+order: 500
+title: Build system
+---
+
 # Project builds
 
 A Nupp project is a `nupp.lua` manifest naming where source lives, what the
@@ -126,8 +131,7 @@ nupp: build.targets.site has no key "custmCss"; did you mean "customCss"?
 ```
 
 The sets cover the top level, the build section, every target, a docs target's
-pages and their `heroActions` and `features` entries, `test`, `tasks`,
-`selfHost`, `fmt`, and each dependency. A dependency is checked against the
+pages, `test`, `tasks`, `selfHost`, `fmt`, and each dependency. A dependency is checked against the
 keys its own kind reads, since what a C build takes and what a rock takes have
 almost nothing in common. Keys beginning with `_` are the build's own, folded
 in from a command's options; a manifest has no reason to write one.
@@ -286,15 +290,7 @@ docs = {
    customCss = "docs/site.css",
    constructorPattern = "^new",
    pages = {
-      {
-         path = "",
-         title = "Project",
-         source = "docs/index.md",
-         layout = "home",
-         heroTitle = "Project",
-         heroText = "Project documentation.",
-      },
-      { path = "guide", title = "Guide", source = "docs/guide.md" },
+      { glob = "docs/**.md" },
    },
 }
 ```
@@ -317,17 +313,51 @@ The keys the target itself reads:
 | `lexers` | Directory of project Scintillua lexers, searched before the bundled ones |
 | `includePrivate` | Renders the declarations privacy rules hide |
 | `constructorPattern` | Lua pattern a constructor's last name segment matches |
-| `pages` | Handwritten pages, each with a `path` and a `source` |
+| `pages` | Handwritten pages: a `glob` over a tree, a `directory`, or one `source` at one `path` |
 | `diagnostics` | The generated diagnostic index, and the page it is appended to |
 | `stdlib` | The generated LuaJIT standard library page |
 | `dependencies` | Rocks to install before rendering, `lunamark` among them |
 
 The appended `customCss` overrides the documented `--nuppdoc-*` custom
 properties without changing other documentation targets. A page entry also
-takes `layout = "home"` with `heroTitle`, `heroText`, `heroImage`,
-`heroActions` and `features` for a landing page, and `redirects` for the routes
-it used to answer at. See [doc.md](doc.md) for doc comments, page syntax,
-privacy rules, and what each output format writes.
+takes `redirects` for the routes it used to answer at, and `layout = "home"`
+for a landing page, whose hero and feature showcase are written in the page's
+own Markdown. See [doc.md](doc.md) for doc comments, page syntax, privacy
+rules, and what each output format writes.
+
+### Page trees
+
+A page entry may name a `glob` instead of a `path` and a `source`. It then
+stands for every Markdown file the pattern matches, each published where it
+sits: `docs/guides/build.md` answers at `guides/build`, and an `index.md` names
+the directory holding it rather than a route ending in `index`. `base` is the
+directory routes are named from, defaulting to the fixed part the pattern opens
+with, and `exclude` drops files the tree holds and the site does not publish.
+
+```lua
+{ glob = "docs/**.md", exclude = { "docs/style.md" } }
+```
+
+What a path cannot say, the page says in a frontmatter block of `key: value`
+lines between `---` fences:
+
+| Field | Effect |
+| --- | --- |
+| `order` | Where the page sits in the navigation |
+| `title` | What navigation calls it, when its heading is not what to call it |
+| `redirects` | Routes it used to answer at, separated by commas |
+| `layout` | The layout it renders under, `home` being the one that differs |
+
+Sections of the sidebar are the first segment of a route, in the order their
+first page appears, so one `order` per page settles both the order of the
+sections and the order inside them. A page that names none follows the pages
+that do, in the order the directory lists them. A page that names no `title`
+and carries no heading is titled by the module it documents, which is what a
+module overview wants and how it stays correct when the module is renamed.
+
+A page whose route a `directory` entry already publishes is left to that entry,
+and so is the file the `diagnostics` index opens with. Sweeping a tree does not
+publish either one twice.
 
 ### Page directories
 

@@ -1,3 +1,7 @@
+---
+order: 280
+---
+
 # Property capabilities
 
 Properties and indexers declared `readonly` or `writeonly` grant read and write

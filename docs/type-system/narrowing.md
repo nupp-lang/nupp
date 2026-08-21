@@ -1,3 +1,7 @@
+---
+order: 360
+---
+
 # Narrowing
 
 Narrowing is how a [union](unions.md) becomes one of its members inside a

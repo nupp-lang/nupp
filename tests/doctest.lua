@@ -2021,6 +2021,92 @@ function M.aPageDirectoryPublishesEveryDocumentAndGeneratesItsIndex()
    os.execute("rm -rf '" .. dir .. "'")
 end
 
+-- A tree of pages, published by being written rather than by being listed. The
+-- manifest names the pattern; every route, title, and place in the navigation is
+-- the file's own, which is what keeps a page added on a Tuesday from being a page
+-- the site quietly never shows.
+function M.aPageTreePublishesEveryFileAtTheRouteItSitsAt()
+   local dir = tempProject({
+      ["src/math.nupp"] = SOURCE,
+      ["docs/index.md"] = "---\norder: 0\n---\n\n# Welcome\n\nThe front page.\n",
+      ["docs/guides/build.md"] = table.concat({
+         "---",
+         "order: 20",
+         "title: Build system",
+         "redirects: guides/building",
+         "---",
+         "",
+         "# Project builds",
+         "",
+         "See [the tour](../tour.md).",
+      }, "\n") .. "\n",
+      -- No order, so it follows the pages that name one.
+      ["docs/guides/zzz.md"] = "# Last of all\n",
+      ["docs/tour.md"] = "---\norder: 10\n---\n\n# Tour\n",
+      -- Written for whoever writes the docs, and excluded by the entry.
+      ["docs/style.md"] = "# House style\n",
+   })
+   local config = {include = {"src"}}
+   local settings = {sources = {"src"}, pages = {
+      {glob = "docs/**.md", exclude = {"docs/style.md"}},
+   }}
+   assert(doc.build(dir, config, settings, {format = "site", output = "site"}) == 0)
+
+   local home = readFile(dir .. "/site/index.html")
+   assert(home:find("The front page.", 1, true),
+      "index.md is the route the tree is named from")
+   local build = readFile(dir .. "/site/guides/build/index.html")
+   assert(build:find("Project builds", 1, true),
+      "a page publishes at the path it sits at")
+   assert(build:find('href="../../tour/index.html"', 1, true),
+      "a relative link between two swept pages resolves to a route")
+   assert(not io.open(dir .. "/site/style/index.html", "rb"),
+      "an excluded file was published anyway")
+   local moved = readFile(dir .. "/site/guides/building/index.html")
+   assert(moved:find("guides/build/index.html", 1, true),
+      "a frontmatter redirect left no stub: " .. moved)
+
+   -- Navigation is `order`, and a page that names none follows the ones that do.
+   -- The sidebar titles a page by its frontmatter where it has one, and by its
+   -- heading where it does not.
+   local sidebar = build:match('<aside class="nuppdoc%-sidebar".-</aside>')
+   assert(sidebar, "the page has a sidebar")
+   assert(sidebar:find(">Build system<", 1, true),
+      "frontmatter titles the navigation entry: " .. sidebar)
+   assert(not sidebar:find(">Project builds<", 1, true),
+      "the heading titled it anyway: " .. sidebar)
+   assert(sidebar:find(">Build system<", 1, true) < sidebar:find(">Last of all<",
+      1, true), "an unordered page came before an ordered one")
+   local tour = readFile(dir .. "/site/tour/index.html")
+   assert(tour:find("Next", 1, true) and tour:find("Build system", 1, true),
+      "the page order follows `order` rather than the directory listing")
+   os.execute("rm -rf '" .. dir .. "'")
+end
+
+-- A collection is a tree the manifest already publishes another way, and a sweep
+-- over the directory holding it must not publish every document a second time at
+-- a route of its own.
+function M.aPageTreeLeavesACollectionToItsOwnEntry()
+   local dir = tempProject({
+      ["src/math.nupp"] = SOURCE,
+      ["docs/index.md"] = "# Welcome\n",
+      ["docs/neps/index.md"] = "# Proposals\n",
+      ["docs/neps/0001-process.md"] = "---\ntitle: Process\n---\n\n## Summary\n",
+   })
+   local config = {include = {"src"}}
+   local settings = {sources = {"src"}, pages = {
+      {glob = "docs/**.md"},
+      {path = "reference/neps", title = "NEPs", directory = "docs/neps"},
+   }}
+   assert(doc.build(dir, config, settings, {format = "site", output = "site"}) == 0)
+
+   assert(io.open(dir .. "/site/reference/neps/0001-process/index.html", "rb"),
+      "the collection publishes its documents"):close()
+   assert(not io.open(dir .. "/site/neps/0001-process/index.html", "rb"),
+      "the sweep published a collection document a second time")
+   os.execute("rm -rf '" .. dir .. "'")
+end
+
 function M.siteBuildRemovesFilesItNoLongerProduces()
    local dir = tempProject({
       ["src/math.nupp"] = SOURCE,
@@ -2064,18 +2150,7 @@ function M.siteMatchesTheNuppdocPageModel()
          github = "https://github.com/example/project",
          pages = {
             {path = "", title = "Example", source = "docs/index.md",
-               layout = "home", heroTitle = "Build with Nupp",
-               heroText = "Typed LuaJIT programs without ceremony.",
-               heroContent = "A brief welcome.",
-               heroImage = "images/project.svg",
-               heroImageAlt = "Example project icon",
-               heroActions = {
-                  {text = "Get started", path = "guide", theme = "brand"},
-               },
-               features = {
-                  {title = "Fast", details = "Parse-only docs.",
-                     code = "local speed: number = 1"},
-               }},
+               layout = "home"},
             {path = "guide", title = "Guide", source = "docs/guide.md"},
             {path = "reference/details", title = "Details",
                source = "docs/details.md"},
@@ -2086,7 +2161,39 @@ function M.siteMatchesTheNuppdocPageModel()
    }},
 }
 ]],
-      ["docs/index.md"] = "Welcome to the project.\n\n<!-- nupp:features -->\n\n## More details\n",
+      -- The hero and the showcase are the page's own Markdown, between markers,
+      -- rather than tables in the manifest beside it.
+      ["docs/index.md"] = table.concat({
+         "<!-- nupp:hero -->",
+         "",
+         "# Build with Nupp",
+         "",
+         "Typed LuaJIT programs without ceremony.",
+         "",
+         "A brief welcome.",
+         "",
+         "[Get started](guide)",
+         "",
+         "![Example project icon](images/project.svg)",
+         "",
+         "<!-- /nupp:hero -->",
+         "",
+         "Welcome to the project.",
+         "",
+         "<!-- nupp:features -->",
+         "",
+         "## Fast",
+         "",
+         "Parse-only docs.",
+         "",
+         "```nupp",
+         "local speed: number = 1",
+         "```",
+         "",
+         "<!-- /nupp:features -->",
+         "",
+         "## More details",
+      }, "\n") .. "\n",
       ["docs/math-overview.md"] = table.concat({
          "Hand-written prose above the generated API.",
          "",

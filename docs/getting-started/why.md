@@ -1,3 +1,8 @@
+---
+order: 30
+title: Why use Nupp?
+---
+
 # Why use Nupp
 
 Nupp is LuaJIT with a type system, cleanup obligations the checker tracks, and

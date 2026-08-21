@@ -22,6 +22,9 @@ local urlsMod = require("nupp.compiler.doc.urls")
 local apiMod = require("nupp.compiler.doc.api")
 local pageMod = require("nupp.compiler.doc.page")
 local collectionMod = require("nupp.compiler.doc.collection")
+local sweepMod = require("nupp.compiler.doc.sweep")
+local homeMod = require("nupp.compiler.doc.home")
+local frontmatterMod = require("nupp.compiler.doc.frontmatter")
 local diagnosticsMod = require("nupp.compiler.doc.diagnostics")
 local stdlibMod = require("nupp.compiler.doc.stdlib")
 local json = nupp.data.json
@@ -49,30 +52,25 @@ local renderPage, homeHero, homeFeatures = pageMod.render, pageMod.homeHero, pag
 local doc = {}
 
 --- One page a manifest configured. `path` is the route it is written to; `source` is
---- the markdown read into it. A hero key is accepted in either spelling, because a
---- manifest is Lua and both are what people write.
+--- the markdown read into it.
+---
+--- `glob` names the files instead of the routes, and the entry then stands for every
+--- markdown file it matches: a page's route is where it sits, its title is its heading,
+--- and the rest is what the page itself says in frontmatter. `base` is the directory
+--- routes are named from and `exclude` drops files the tree holds and the site does not
+--- publish.
 ---
 --- `directory` names a whole directory of markdown instead of one file, and the entry
 --- then stands for every document in it plus a generated index at `path`. A collection
---- grows by writing a file, which is the point: a manifest that had to name each
---- document would fail silently the first time someone forgot.
+--- grows by writing a file, which is the point, and so does a tree: a manifest that had
+--- to name each document would fail silently the first time someone forgot.
 type doc.Page = {
+    base: string?,
     directory: string?,
-    features: {pageMod.Feature}?,
-    heroActions: {pageMod.HeroAction}?,
-    heroContent: string?,
-    heroImage: string?,
-    heroImageAlt: string?,
-    heroText: string?,
-    heroTitle: string?,
-    hero_actions: {pageMod.HeroAction}?,
-    hero_content: string?,
-    hero_image: string?,
-    hero_image_alt: string?,
-    hero_text: string?,
-    hero_title: string?,
+    exclude: {string}?,
+    glob: (string | {string})?,
     layout: string?,
-    path: string,
+    path: string?,
     redirects: {string}?,
     source: string?,
     title: string?
@@ -443,17 +441,10 @@ end
 -- expanding one there produces a fence inside a fence: the inner block's closing line
 -- ends the outer one, and every heading after it is swallowed by the block the leftover
 -- opening starts. This page documents the directive, so it is the case that matters.
--- YAML front matter is metadata for whatever else reads the file, and the page starts
--- after it. A document collection reads the same block for its own listing, so removing
--- it here is a rendering decision rather than a loss.
-local function stripFrontMatter(source: string): string
-    if source:sub(1, 4) ~= "---\n" then
-        return source
-    end
-    local ending = source:find("\n---\n", 5, true)
-
-    return ending and source:sub(ending + 5) or source
-end
+-- Front matter is metadata for whatever else reads the file, and the page starts after
+-- it. A collection and a swept tree read the same block for a page's place and name, so
+-- removing it here is a rendering decision rather than a loss.
+local stripFrontMatter = frontmatterMod.strip
 
 local function embedFiles(root, markdown)
     local out, fence = {}, nil
@@ -544,17 +535,97 @@ local function rewriteModuleDocLinks(
     end
 end
 
+-- The home page's hero and showcase are written in its markdown, between markers, and
+-- read back off it here. A page that carries neither region -- which is every page but
+-- the one -- is answered unchanged.
+local function decorate(candidate)
+    if candidate.layout ~= "home" or not homeMod.decorated(candidate.markdown) then
+        return candidate
+    end
+    local sections = homeMod.parse(candidate.markdown)
+    candidate.markdown = sections.markdown
+    candidate.heroTitle = sections.heroTitle
+    candidate.heroText = sections.heroText
+    candidate.heroContent = sections.heroContent
+    candidate.heroImage = sections.heroImage
+    candidate.heroImageAlt = sections.heroImageAlt
+    candidate.heroActions = sections.heroActions
+    candidate.features = sections.features
+
+    return candidate
+end
+
+-- The pages one glob entry publishes, ready to be added: the tree's own files, with
+-- what a collection or a generated index already publishes left out of the match.
+local function sweptPages(root, configured, reserved, title)
+    local exclude: {string} = {}
+    for _, pattern in ipairs(reserved) do
+        exclude[#exclude + 1] = pattern
+    end
+    for _, pattern in ipairs(configured.exclude or {}) do
+        exclude[#exclude + 1] = pattern
+    end
+    local expanded, err = sweepMod.expand(root, {base = configured.base, exclude = exclude, glob = configured.glob})
+    if not expanded then
+        return nil, err
+    end
+    local candidates = {}
+    for _, swept in ipairs(expanded) do
+        local markdown, embedErr = embedFiles(root, swept.markdown)
+        if not markdown then
+            return nil, embedErr
+        end
+        candidates[#candidates + 1] = decorate({
+            path = swept.path,
+            -- Left unnamed when the page names itself nowhere: a module overview is
+            -- prose above a generated page and is titled by the module it opens,
+            -- which is known further down than here.
+            title = swept.title or (swept.path == "" and title or nil),
+            source = swept.source,
+            layout = swept.layout,
+            redirects = swept.redirects,
+            markdown = markdown,
+        })
+    end
+
+    return candidates
+end
+
 local function configuredPages(root, settings, title)
     local pages, seen, home = {}, {}, false
+    -- A collection publishes the documents in its directory itself. A glob over the
+    -- tree that holds it would publish every one of them a second time at a route of
+    -- its own, so the directories are collected before any file is matched.
+    local reserved: {string} = {}
+    for _, configured in ipairs(settings.pages or {}) do
+        if type(configured) == "table" and configured.directory then
+            reserved[#reserved + 1] = configured.directory .. "/**"
+        end
+    end
+    -- The diagnostics prose is the same kind of file at the same kind of path, and it
+    -- is already published: the generated index opens with it. Sweeping it up again
+    -- would be one page claiming the route the other was written for.
+    local diagnosticsSource = settings.diagnostics and settings.diagnostics.source
+    if diagnosticsSource then
+        reserved[#reserved + 1] = diagnosticsSource
+    end
     for index, configured in ipairs(settings.pages or {}) do
         if type(configured) ~= "table" then
             return nil, "documentation page " .. index .. " must be a table"
         end
-        local route = cleanRoute(configured.path)
-        if not route then
-            return nil, "invalid documentation page path"
-        end
-        if configured.directory then
+        if configured.glob then
+            local expanded, expandErr = sweptPages(root, configured, reserved, title)
+            if not expanded then
+                return nil, expandErr
+            end
+            for _, swept in ipairs(expanded) do
+                if seen[swept.path] then
+                    return nil, "duplicate documentation page path: " .. swept.path
+                end
+                seen[swept.path], home = true, home or swept.path == ""
+                pages[#pages + 1] = swept
+            end
+        elseif configured.directory then
             local expanded, expandErr = collectionMod.expand(root, configured as collectionMod.Settings)
             if not expanded then
                 return nil, expandErr
@@ -572,35 +643,37 @@ local function configuredPages(root, settings, title)
                 member.markdown = embedded
                 pages[#pages + 1] = member
             end
-        elseif seen[route] then
-            return nil, "duplicate documentation page path: " .. route
         else
+            local route = cleanRoute(configured.path)
+            if not route then
+                return nil, "invalid documentation page path"
+            end
+            if seen[route] then
+                return nil, "duplicate documentation page path: " .. route
+            end
             seen[route], home = true, home or route == ""
             local candidate = {}
             for key, value in pairs(configured) do
                 candidate[key] = value
             end
-            candidate.heroTitle = candidate.heroTitle or candidate.hero_title
-            candidate.heroText = candidate.heroText or candidate.hero_text
-            candidate.heroContent = candidate.heroContent or candidate.hero_content
-            candidate.heroImage = candidate.heroImage or candidate.hero_image
-            candidate.heroImageAlt = candidate.heroImageAlt or candidate.hero_image_alt
-            candidate.heroActions = candidate.heroActions or candidate.hero_actions
             candidate.path = route
-            candidate.title = candidate.title or (route == "" and title or route)
             candidate.markdown = ""
             if candidate.source then
                 local source, err = readFile(join(root, candidate.source))
                 if not source then
                     return nil, err
                 end
-                source, err = embedFiles(root, stripFrontMatter(source))
+                local fields, body = frontmatterMod.parse(source)
+                candidate.title = candidate.title or fields.title
+                candidate.layout = candidate.layout or fields.layout
+                source, err = embedFiles(root, body)
                 if not source then
                     return nil, err
                 end
                 candidate.markdown = source
             end
-            pages[#pages + 1] = candidate
+            candidate.title = candidate.title or (route == "" and title or route)
+            pages[#pages + 1] = decorate(candidate)
         end
     end
     -- Which handwritten files the site actually builds, so a generated page can link
@@ -823,6 +896,9 @@ local function renderSite(root, outDir, modules, title, settings)
     end
     for _, candidate in ipairs(pages) do
         if not moduleRoutes[candidate.path] then
+            -- A page that documents no module and named itself nothing is shown by its
+            -- route, which is at least where the reader is.
+            candidate.title = candidate.title or candidate.path
             ordered[#ordered + 1] = candidate
         end
     end

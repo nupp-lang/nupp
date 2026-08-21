@@ -1,3 +1,7 @@
+---
+order: 240
+---
+
 # Affine types
 
 An affine type is a compile-time-generated view of an existing representation.

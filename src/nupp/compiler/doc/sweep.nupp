@@ -1,0 +1,192 @@
+module nupp.compiler.doc.sweep
+
+--[[
+A tree of prose documents, published by being written.
+
+A manifest that named every page repeated the directory it was naming: a route that was
+the file's path, a title that was its heading, and a source that was both again. The
+copy is the kind that fails quietly -- a page added and not listed is a page the site
+never shows -- and it is also the kind nobody enjoys maintaining.
+
+A glob replaces the list. What a file's path cannot say, the file says in frontmatter:
+`order` places it in the navigation, `title` names it when navigation should not call it
+what its heading does, and `redirects` carries the routes it used to answer at.
+]]
+
+local filesMod = require("nupp.compiler.doc.files")
+local frontmatterMod = require("nupp.compiler.doc.frontmatter")
+local urlsMod = require("nupp.compiler.doc.urls")
+local syntax = require("nupp.compiler.build.syntax")
+
+local sweep = {}
+
+local join, readFile, normalize = filesMod.join, filesMod.readFile, filesMod.normalize
+local listMarkdown = filesMod.listMarkdown
+local cleanRoute = urlsMod.cleanRoute
+
+--- One page a glob found.
+---
+--- Everything here is either the file's path or something the file said about itself,
+--- which is the point: the manifest supplied none of it.
+record sweep.Page
+    layout: string?
+    markdown: string
+    order: number?
+    path: string
+    redirects: {string}?
+    source: string
+    title: string?
+end
+
+--- Which files a glob entry publishes.
+---
+--- `glob` is one pattern or several, matched against project-relative paths. `base` is
+--- the directory routes are named from, and defaults to the fixed prefix the first
+--- pattern opens with, so `docs/**.md` publishes `docs/guides/build.md` at
+--- `guides/build`. `exclude` drops files the tree holds and the site does not publish.
+type sweep.Settings = {
+    base: string?,
+    exclude: {string}?,
+    glob: string | {string}
+}
+
+local INDEX = "index.md"
+
+local function patterns(settings: sweep.Settings): {string}
+    local glob = settings.glob
+
+    return type(glob) == "string" and {glob as string} or glob as {string}
+end
+
+-- The directory a pattern is anchored in: everything before the first wildcard. It is
+-- where the walk starts and, unless the settings say otherwise, what routes are named
+-- relative to.
+local function anchor(glob: string): string
+    local prefix = glob:match("^(.-)[*?]") or glob
+
+    return prefix:match("^(.*)/") or "."
+end
+
+-- A document names its own route by where it sits. `index.md` names the directory
+-- holding it rather than a route ending in `index`, which is the rule the generated
+-- site already follows for a module's own page.
+local function routeOf(relative: string): string?
+    local stem = relative:gsub("%.md$", "")
+    if stem == INDEX:gsub("%.md$", "") then
+        return ""
+    end
+    stem = (stem:gsub("/index$", ""))
+    if stem == "" then
+        return ""
+    end
+
+    return cleanRoute(stem)
+end
+
+-- Navigation shows a page's title as text, so the heading's markdown is not carried
+-- into it: `` `nupp` command `` is a heading and `nupp command` is what a sidebar,
+-- a breadcrumb, and a search result all want.
+local function headingTitle(body: string): string?
+    local heading = body:match("^#%s+([^\n]+)") or body:match("\n#%s+([^\n]+)")
+    if not heading then
+        return nil
+    end
+
+    return (heading:gsub("`", ""):gsub("%s+$", ""))
+end
+
+-- A path below a directory, named from it. The project root is usually `.`, which is
+-- the prefix a listing does not carry, so the two cases are one function rather than
+-- one subtraction that is right half the time.
+local function below(directory: string, path: string): string
+    local base = normalize(directory)
+    path = normalize(path)
+    if base == "." or base == "" then
+        return path
+    elseif path:sub(1, #base + 1) == base .. "/" then
+        return path:sub(#base + 2)
+    end
+
+    return path
+end
+
+local function expandOne(root: string, base: string, file: string): sweep.Page?, string?
+    local source, err = readFile(file)
+    if not source then
+        return nil, err
+    end
+    local relative = below(join(root, base), file)
+    local route = routeOf(relative)
+    if not route then
+        return nil, "a documentation page does not name a route: " .. relative
+    end
+    local fields, body = frontmatterMod.parse(source)
+
+    return new sweep.Page(
+        layout = fields.layout,
+        markdown = body,
+        order = tonumber(fields.order),
+        path = route,
+        redirects = frontmatterMod.list(fields.redirects),
+        source = below(root, file),
+        title = fields.title or headingTitle(body)
+    )
+end
+
+--- Every page the glob entry publishes, in navigation order.
+---
+--- Order is what a document's `order` field says, and files that name none follow the
+--- ones that do in the order the directory lists them. Returns nil and a message when a
+--- file cannot be read or does not name a route.
+function sweep.expand(root: string, settings: sweep.Settings): {sweep.Page}?, string?
+    local base = settings.base or anchor(patterns(settings)[1] as string)
+    local excluded: {function(string): boolean} = {}
+    for _, pattern in ipairs(settings.exclude or {}) do
+        excluded[#excluded + 1] = syntax.glob(normalize(pattern))
+    end
+    local seen: {[string]: boolean} = {}
+    local pages: {sweep.Page} = {}
+    for _, glob in ipairs(patterns(settings)) do
+        local matches = syntax.glob(normalize(glob))
+        for _, file in ipairs(listMarkdown(join(root, anchor(glob)))) do
+            local relative = below(root, file)
+            local skip = not matches(relative) or seen[relative]
+            for _, drops in ipairs(excluded) do
+                skip = skip or drops(relative)
+            end
+            if not skip then
+                seen[relative] = true
+                local page, err = expandOne(root, base, file)
+                if not page then
+                    return nil, err
+                end
+                pages[#pages + 1] = page
+            end
+        end
+    end
+    -- A stable sort, because two pages that name the same order -- or name none -- are
+    -- left in the order the directory listed them rather than swapped by whichever
+    -- comparison the sort happened to make.
+    local positions: {[sweep.Page]: integer} = {}
+    for index, page in ipairs(pages) do
+        positions[page] = index
+    end
+    table.sort(pages, function(left: sweep.Page, right: sweep.Page): boolean
+        local leftOrder, rightOrder = left.order, right.order
+        if leftOrder ~= rightOrder then
+            if not leftOrder then
+                return false
+            elseif not rightOrder then
+                return true
+            end
+
+            return leftOrder < rightOrder
+        end
+
+        return (positions[left] or 0) < (positions[right] or 0)
+    end)
+
+    return pages
+end
+
+export = sweep

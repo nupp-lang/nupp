@@ -1,3 +1,8 @@
+---
+order: 70
+title: Metamethods
+---
+
 # Metamethod contracts
 
 A `metamethod` declaration is a static contract: it tells the checker how an

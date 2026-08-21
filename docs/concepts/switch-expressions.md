@@ -1,3 +1,7 @@
+---
+order: 80
+---
+
 # Switch expressions
 
 A switch selects one value from ordered cases, evaluating its selector once and

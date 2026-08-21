@@ -1,3 +1,7 @@
+---
+order: 520
+---
+
 # Working with LuaRocks
 
 Nupp libraries are distributed as Lua rocks. LuaRocks owns versions, dependency

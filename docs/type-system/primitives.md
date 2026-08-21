@@ -1,3 +1,7 @@
+---
+order: 220
+---
+
 # Primitive types
 
 A primitive is a builtin type name that resolves without a declaration. They

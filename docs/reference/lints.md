@@ -1,3 +1,7 @@
+---
+order: 690
+---
+
 # Lints
 
 A lint is advice the compiler is confident enough to give but not entitled to

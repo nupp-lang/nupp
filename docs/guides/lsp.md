@@ -1,3 +1,7 @@
+---
+order: 550
+---
+
 # Language server
 
 `nupp lsp serve` speaks LSP over stdio and drives the same checker and

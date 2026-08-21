@@ -1,3 +1,7 @@
+---
+order: 50
+---
+
 # Nupp syntax
 
 Nupp's grammar has two layers: LuaJIT's Lua dialect, and a typed layer written

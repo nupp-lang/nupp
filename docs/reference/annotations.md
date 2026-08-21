@@ -1,3 +1,7 @@
+---
+order: 670
+---
+
 # Annotations
 
 An annotation is typed, type-erased metadata attached to a declaration or a

@@ -1,3 +1,7 @@
+---
+order: 110
+---
+
 # Exact affine scopes
 
 Ordinary [affine locals](ownership.md) are destroyed automatically at their

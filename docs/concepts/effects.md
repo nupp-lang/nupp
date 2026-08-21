@@ -1,3 +1,7 @@
+---
+order: 190
+---
+
 # Effect contracts
 
 ::: note Most code does not need @effects

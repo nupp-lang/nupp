@@ -653,14 +653,17 @@ function M.aMisspelledDocsKeyIsRejectedWithTheNameItMeant()
    end
    reject('{kind = "docs", sources = {"src"}, titel = "x"}',
       'has no key "titel"; did you mean "title"?')
-   reject('{kind = "docs", sources = {"src"}, pages = {{heroTitel = "x"}}}',
-      'pages[1] has no key "heroTitel"; did you mean "heroTitle"?')
-   reject('{kind = "docs", sources = {"src"}, pages = {{heroActions = '
-      .. '{{text = "G", them = "brand"}}}}}',
-      'heroActions[1] has no key "them"; did you mean "theme"?')
-   reject('{kind = "docs", sources = {"src"}, pages = {{features = '
-      .. '{{icon = "x", detials = "d"}}}}}',
-      'features[1] has no key "detials"; did you mean "details"?')
+   reject('{kind = "docs", sources = {"src"}, pages = {{titel = "x"}}}',
+      'pages[1] has no key "titel"; did you mean "title"?')
+   reject('{kind = "docs", sources = {"src"}, pages = {{glob = "docs/**.md", '
+      .. 'exlude = {"docs/style.md"}}}}',
+      'pages[1] has no key "exlude"; did you mean "exclude"?')
+   -- A page names what it publishes one way or the other, and one that names
+   -- neither a route nor a pattern is a page nothing can place.
+   reject('{kind = "docs", sources = {"src"}, pages = {{source = "docs/x.md"}}}',
+      'pages[1].path must be a string')
+   reject('{kind = "docs", sources = {"src"}, pages = {{glob = 1}}}',
+      'pages[1].glob must be an array')
    -- Nothing near enough to guess at is still named, without one.
    reject('{kind = "docs", sources = {"src"}, wibble = 1}',
       'has no key "wibble"')
@@ -708,10 +711,8 @@ return {
       logo = "l.svg", public = "p", customCss = "c.css", lexers = "lx",
       includePrivate = true, all = true,
       pages = {{path = "", title = "H", layout = "home", source = "i.md",
-         heroTitle = "T", hero_text = "S", heroImage = "i.png",
-         heroImageAlt = "A", heroActions = {{text = "G", path = "g",
-         theme = "brand"}}, features = {{icon = "x", image = "y",
-         title = "T", details = "D"}}}},
+         redirects = {"old"}}, {glob = {"docs/**.md"}, base = "docs",
+         exclude = {"docs/style.md"}}},
    }}},
 }
 ]]})

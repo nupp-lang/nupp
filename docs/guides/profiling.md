@@ -1,3 +1,7 @@
+---
+order: 600
+---
+
 # Profiling
 
 The profiler ships with the compiler, so finding out where a program spends its

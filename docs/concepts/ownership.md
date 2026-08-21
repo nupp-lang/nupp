@@ -1,3 +1,7 @@
+---
+order: 100
+---
+
 # Ownership
 
 A file, socket, C allocation, or any other value that needs one final action can

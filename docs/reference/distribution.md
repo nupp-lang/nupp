@@ -1,3 +1,8 @@
+---
+order: 700
+title: Distribution
+---
+
 # Stubs and payloads
 
 A distributed program is a stub with a payload appended to it. The stub is an

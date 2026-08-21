@@ -1,3 +1,7 @@
+---
+order: 580
+---
+
 # Testing
 
 `nupp test` builds the configured target, then runs the command the manifest

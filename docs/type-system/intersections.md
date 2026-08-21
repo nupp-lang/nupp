@@ -1,3 +1,7 @@
+---
+order: 300
+---
+
 # Intersections
 
 `A & B` describes a value that satisfies both types. An intersection is

@@ -1,3 +1,7 @@
+---
+order: 640
+---
+
 # Performance
 
 Nupp rewrites the Lua it generates wherever the checker knows something LuaJIT

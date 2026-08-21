@@ -1,3 +1,7 @@
+---
+order: 560
+---
+
 # Editors
 
 The repository carries a Visual Studio Code extension and a Claude Code plugin,

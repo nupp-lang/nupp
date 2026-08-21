@@ -1,7 +1,7 @@
 -- The home page's code samples, held to the compiler that claims them.
 --
 -- Every other example in the project is checked by something: the reference
--- chapters by referencetest, the documentation site by doctest. The manifest's
+-- chapters by referencetest, the documentation site by doctest. The home page's
 -- feature cards were the one place a sample could stop compiling in silence,
 -- which is the most expensive place to be wrong, since it is the first Nupp
 -- most readers ever see.
@@ -13,6 +13,7 @@
 -- and is not obliged to use them.
 
 local json = require("testjson")
+local home = require("nupp.compiler.doc.home")
 
 local HERE = assert(debug.getinfo(1, "S").source:match("^@(.*)[/\\]"))
 if not HERE:match("^/") then
@@ -25,16 +26,13 @@ local NUPP = ROOT .. "/bin/nupp"
 
 local M = {}
 
---- The home page's feature cards, from the manifest the site is built from.
+--- The home page's feature cards, read from the page they are written on.
 local function features()
-   local manifest = assert(dofile(ROOT .. "/nupp.lua"))
-   local docs = assert(manifest.build.targets.docs, "the docs target")
-   for _, page in ipairs(docs.pages or {}) do
-      if page.layout == "home" then
-         return assert(page.features, "the home page's features")
-      end
-   end
-   error("the manifest has no home page")
+   local file = assert(io.open(ROOT .. "/docs/index.md", "rb"), "the home page")
+   local markdown = file:read("*a")
+   file:close()
+
+   return assert(home.parse(markdown).features, "the home page's features")
 end
 
 --- Every diagnostic one card's sample reports, as a project of its own.

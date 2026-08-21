@@ -2,6 +2,18 @@
 
 ## Unreleased
 
+- Publish the documentation site by convention rather than by inventory. A page
+  entry names a `glob`, and every Markdown file it matches is published at the
+  route its path gives, under the title its heading gives; what a path cannot
+  say -- where the page sits in the navigation, the name navigation should use
+  instead, the routes it used to answer at -- the page says in its own front
+  matter. The manifest had listed all 71 pages as a route, a title, and a source
+  that were the same fact written three times, which the tree already held and
+  which failed silently the first time a page was written and not listed. The
+  home page's hero and feature showcase move the same way, from three hundred
+  lines of Lua tables holding Markdown into the Markdown page itself, between
+  comment markers. `nupp.lua` is a third of its former size.
+
 - Move the standard library's documentation into the modules themselves. Twelve
   pages under `docs/modules/` said what a module is, next to none of the source
   that says what it does, so a change to one had to remember the other. Each is

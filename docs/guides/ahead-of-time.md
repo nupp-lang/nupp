@@ -1,3 +1,7 @@
+---
+order: 630
+---
+
 # Ahead-of-time compilation
 
 `@aot` compiles a whole function ahead of time rather than leaving it to LuaJIT.

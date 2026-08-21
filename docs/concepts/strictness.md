@@ -1,3 +1,7 @@
+---
+order: 40
+---
+
 # Gradual typing
 
 Nupp is a gradual superset of LuaJIT's Lua, so every valid LuaJIT program is
