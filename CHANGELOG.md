@@ -2,16 +2,12 @@
 
 ## Unreleased
 
-- Let the incremental JSON writer select an object member with
-  `keyBuffer(name)`, reading a borrowed `string.buffer.Buffer` in place instead
-  of allocating an intermediate Lua string.
-
-- Make derived JSON emission append to caller-owned storage. `@derive(JSON)`
-  now generates `writeJSON(out)` over `string.buffer.Buffer`, and the
-  type-witness API adds `writeAs` and `writeRecord`, so callers can reuse
-  capacity or hand the buffer to pointer-based I/O without first allocating a
-  complete JSON string. `encodeAs` and `encodeRecord` remain explicit
-  allocating conveniences.
+- Write incremental and derived JSON through one checked, buffer-backed writer.
+  `EncodedValue` and the interned `EncodedString` retain bytes encoded or
+  verified once, letting `write` and `key` append them without another walk,
+  validation, escape pass, or intermediate string. Derived schemas lazily cache
+  encoded field names and literals; `encodeAs` and `encodeRecord` remain
+  explicit allocating conveniences.
 
 - Let a loop compile around an owned binding whose protected body reads or
   writes an enclosing local. A capture stable for one function call keeps one

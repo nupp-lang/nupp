@@ -374,7 +374,9 @@ end
 
 local user = new User(id = 42, name = "Ada")
 local out = string.buffer.new()
-user:writeJSON(out)
+local writer = nupp.data.json.writer(out)
+user:writeJSON(writer)
+writer:finish()
 print(user:debug(), out:tostring())]],
                      },
                      {

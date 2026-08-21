@@ -770,15 +770,18 @@ function M.standardJsonApiHasCompleteDocumentation()
    assert(module, errors and errors[1] and errors[1].msg)
 
    local expected = {
-      JSONEncodable = true, Writer = true, decode = true, pull = true,
+      EncodedValue = true, EncodedString = true, JSONEncodable = true,
+      Writer = true, decode = true, pull = true,
       arrayOf = true, asArray = true, asObject = true, encode = true,
-      serialize = true, writer = true, decodeAs = true, encodeAs = true,
+      serialize = true, encoded = true, encodedString = true, verified = true,
+      verifiedString = true, writer = true, decodeAs = true, encodeAs = true,
       encodeRecord = true, writeAs = true, writeRecord = true, NULL = true,
       EMPTY_ARRAY = true, EMPTY_OBJECT = true,
    }
    local callable = {
       decode = true, pull = true, arrayOf = true, asArray = true, asObject = true,
-      encode = true, serialize = true, writer = true, decodeAs = true, encodeAs = true,
+      encode = true, serialize = true, encoded = true, encodedString = true,
+      verified = true, verifiedString = true, writer = true, decodeAs = true, encodeAs = true,
       encodeRecord = true, writeAs = true, writeRecord = true,
    }
    local writer

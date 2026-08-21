@@ -400,24 +400,25 @@ do
       and markedEmpty(decoded.emptyObject, simdjsonBench.EMPTY_OBJECT),
       "serialized empty-container sentinels did not round trip")
 
-   local writer = simdjsonBench.writer(nullValue)
+   local out = require("string.buffer").new()
+   local writer = simdjsonBench.writer(out, nullValue)
    writer:startObject():key("items"):startArray():write(1)
-   local first = writer:flush()
    writer:null():write(simdjsonBench.EMPTY_OBJECT):close()
       :key("empty"):write(simdjsonBench.EMPTY_ARRAY):close()
-   local last = writer:finish()
-   check(first .. last == [[{"items":[1,null,{}],"empty":[]}]],
+   writer:finish()
+   check(out:tostring() == [[{"items":[1,null,{}],"empty":[]}]],
       "streaming writer emitted the wrong chunks")
-   local key = require("string.buffer").new():put('quoted"key')
-   local buffered = simdjsonBench.writer():startObject()
-      :keyBuffer(key):write(1):close():finish()
-   check(buffered == [[{"quoted\"key":1}]],
-      "streaming writer emitted a buffered key incorrectly")
-   check(key:tostring() == 'quoted"key', "streaming writer consumed its key buffer")
+   out = require("string.buffer").new()
+   local key = simdjsonBench.encodedString('quoted"key')
+   simdjsonBench.writer(out):startObject()
+      :key(key):write(simdjsonBench.verified("1")):close():finish()
+   check(out:tostring() == [[{"quoted\"key":1}]],
+      "streaming writer emitted trusted bytes incorrectly")
    check(not pcall(function() writer:write(true) end),
       "finished streaming writer accepted another value")
    check(not pcall(function()
-      simdjsonBench.writer():startObject():write(true)
+      local invalidOut = require("string.buffer").new()
+      simdjsonBench.writer(invalidOut):startObject():write(true)
    end), "streaming writer accepted an object value without a key")
 end
 

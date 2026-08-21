@@ -172,7 +172,9 @@ local record Outer inner: models.Inner end
 local value = new Outer(inner = new models.Inner())
 print(value:debug())
 local out = string.buffer.new()
-value:writeJSON(out)
+local writer = nupp.data.json.writer(out)
+value:writeJSON(writer)
+writer:finish()
 print(out:tostring())
 ]],
       ["src/runtime_derive_models.nupp"] = [[

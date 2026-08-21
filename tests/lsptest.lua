@@ -3093,7 +3093,9 @@ local record Model
 end
 local model = new Model()
 local out = string.buffer.new()
-model:writeJSON(out)
+local writer = nupp.data.json.writer(out)
+model:writeJSON(writer)
+writer:finish()
 local json = out:tostring()
 local restored, why = Model.fromJSON(json)
 local codec = Model.fieldCodec()
@@ -3113,15 +3115,15 @@ return restored, why, codec, shown
          textDocument = { uri = uri, languageId = "nupp", version = 1,
             text = source } } },
       { jsonrpc = "2.0", id = 10, method = "textDocument/hover", params = {
-         textDocument = { uri = uri }, position = at("writeJSON(out)", 1) } },
+         textDocument = { uri = uri }, position = at("writeJSON(writer)", 1) } },
       { jsonrpc = "2.0", id = 11, method = "$/nupp/inspect", params = {
-         textDocument = { uri = uri }, position = at("writeJSON(out)", 1) } },
+         textDocument = { uri = uri }, position = at("writeJSON(writer)", 1) } },
       { jsonrpc = "2.0", id = 12, method = "textDocument/definition", params = {
-         textDocument = { uri = uri }, position = at("writeJSON(out)", 1) } },
+         textDocument = { uri = uri }, position = at("writeJSON(writer)", 1) } },
       { jsonrpc = "2.0", id = 13, method = "textDocument/definition", params = {
          textDocument = { uri = uri }, position = at("fromJSON(json)", 1) } },
       { jsonrpc = "2.0", id = 14, method = "textDocument/references", params = {
-         textDocument = { uri = uri }, position = at("writeJSON(out)", 1),
+         textDocument = { uri = uri }, position = at("writeJSON(writer)", 1),
          context = { includeDeclaration = true } } },
       { jsonrpc = "2.0", id = 15, method = "textDocument/references", params = {
          textDocument = { uri = uri }, position = at("fromJSON(json)", 1),
@@ -3133,10 +3135,10 @@ return restored, why, codec, shown
       { jsonrpc = "2.0", id = 18, method = "textDocument/documentSymbol", params = {
          textDocument = { uri = uri } } },
       { jsonrpc = "2.0", id = 19, method = "textDocument/rename", params = {
-         textDocument = { uri = uri }, position = at("writeJSON(out)", 1),
+         textDocument = { uri = uri }, position = at("writeJSON(writer)", 1),
          newName = "encode" } },
       { jsonrpc = "2.0", id = 20, method = "textDocument/prepareRename", params = {
-         textDocument = { uri = uri }, position = at("writeJSON(out)", 1) } },
+         textDocument = { uri = uri }, position = at("writeJSON(writer)", 1) } },
       { jsonrpc = "2.0", id = 2, method = "shutdown" },
       { jsonrpc = "2.0", method = "exit" },
    }, projectDir)

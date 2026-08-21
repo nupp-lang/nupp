@@ -19,11 +19,11 @@ calibration calls alongside the public parsing and serialization operations:
   consumed and validated, but allocate no Lua values.
 - `simdjson_bench.encode(value, nullValue)` (also named `serialize`) converts a
   Lua value to JSON with simdjson's low-level string builder.
-- `simdjson_bench.writer(nullValue)` exposes the same builder incrementally.
-  `startObject`, `startArray`, `key`, `keyBuffer`, `write`, `null`, and `close`
-  form a checked JSON stream. `keyBuffer` reads a `string.buffer` in place.
-  `flush()` returns and clears the current chunk; concatenating the chunks with
-  the final `finish()` result produces the document.
+- `simdjson_bench.writer(out, nullValue)` exposes the same builder incrementally
+  over caller-owned storage. `startObject`, `startArray`, `key`, `write`, `null`,
+  and `close` form a checked JSON stream. Values returned by `encoded` or
+  `verified`, and strings returned by `encodedString` or `verifiedString`, skip
+  repeated traversal, validation, and escaping.
 
 JSON null is dropped by default: object members disappear and array members are
 compacted. Passing any non-nil `nullValue` preserves null with that identity.
@@ -41,11 +41,12 @@ local projected = simdjson_bench.pull(source, {
    tags = simdjson_bench.arrayOf(true),
 })
 
-local writer = simdjson_bench.writer(myNull)
+local out = require("string.buffer").new()
+local writer = simdjson_bench.writer(out, myNull)
 writer:startObject():key("id"):write(projected.id)
-local prefix = writer:flush()
 writer:key("items"):write(simdjson_bench.EMPTY_ARRAY):close()
-local json = prefix .. writer:finish()
+writer:finish()
+local json = out:tostring()
 ```
 
 The removed lazy-DOM prototype offered random access by constructing a complete

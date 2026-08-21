@@ -91,10 +91,14 @@ function M.encode(value, nullValue)
 end
 
 M.serialize = M.encode
+M.encoded = luaNative.encoded
+M.encodedString = luaNative.encodedString
+M.verified = luaNative.verified
+M.verifiedString = luaNative.verifiedString
 
---- Creates an incremental writer. flush() returns the next completed chunk.
-function M.writer(nullValue)
-   return luaNative.writer(nullValue)
+--- Creates an incremental writer over caller-owned storage.
+function M.writer(out, nullValue)
+   return luaNative.writer(out, nullValue)
 end
 
 M.NULL = luaNative.NULL

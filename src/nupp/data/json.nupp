@@ -34,7 +34,25 @@ end
 
 const native = require("jsonNative")
 
---- Values that can append their JSON encoding to a caller-owned byte buffer.
+--- A complete JSON value whose immutable bytes have already been encoded or
+--- validated.
+---
+--- Values come from `encoded` or `verified`; the private token prevents checked
+--- callers from manufacturing an unverified fast-path value.
+export record EncodedValue
+    private _token: any
+end
+
+--- A JSON string whose immutable encoded bytes have already been produced or
+--- validated.
+---
+--- `Writer:key` accepts this type without validating UTF-8 or escaping it again.
+--- Values produced by `encodedString` and `verifiedString` are interned.
+export record EncodedString
+    private _token: any
+end
+
+--- Values that can write one complete JSON value through a checked writer.
 ---
 --- Declared here rather than aliased out of the host boundary, because this is the
 --- name callers write: `derive.JSON` answers a contract in terms of it. `Writer`
@@ -44,36 +62,34 @@ const native = require("jsonNative")
 --- local record Money is nupp.data.json.JSONEncodable
 ---     cents: integer
 ---
----     function writeJSON(self, exclusive out: string.buffer.Buffer): nil
----         out:put('{"cents":', self.cents, "}")
+---     function writeJSON(self, out: nupp.data.json.Writer): nil
+---         out:startObject():key("cents"):write(self.cents):close()
 ---     end
 --- end
 --- ```
 export interface JSONEncodable
-    --- Appends this value as one complete JSON document.
-    ---
-    --- Bytes already appended remain in `out` if encoding raises. Reset or discard
-    --- the buffer when an all-or-nothing result is required.
+    --- Writes this value at the writer's current value position.
     --- @param self the value being encoded
-    --- @param out the caller-owned destination
-    writeJSON: function(self, exclusive out: string.buffer.Buffer): nil
+    --- @param out the checked destination
+    writeJSON: function(self, out: Writer): nil
 end
 
 --- A checked incremental JSON writer.
 ---
 --- ```nupp
---- local writer = nupp.data.json.writer()
---- local text = writer:startObject():key("ok"):write(true):close():finish()
---- assert(text == [[{"ok":true}]])
+--- local out = string.buffer.new()
+--- local writer = nupp.data.json.writer(out)
+--- writer:startObject():key("ok"):write(true):close():finish()
+--- assert(out:tostring() == [[{"ok":true}]])
 --- ```
 --- @export
 export interface Writer
     --- Starts an array value.
     ---
     --- ```nupp
-    --- local writer = nupp.data.json.writer()
-    --- local text = writer:startArray():write("first"):close():finish()
-    --- assert(text == "[\"first\"]")
+    --- local out = string.buffer.new()
+    --- nupp.data.json.writer(out):startArray():write("first"):close():finish()
+    --- assert(out:tostring() == "[\"first\"]")
     --- ```
     --- @param self the writer
     --- @return this writer
@@ -82,9 +98,9 @@ export interface Writer
     --- Starts an object value.
     ---
     --- ```nupp
-    --- local writer = nupp.data.json.writer()
-    --- local text = writer:startObject():close():finish()
-    --- assert(text == "{}")
+    --- local out = string.buffer.new()
+    --- nupp.data.json.writer(out):startObject():close():finish()
+    --- assert(out:tostring() == "{}")
     --- ```
     --- @param self the writer
     --- @return this writer
@@ -93,48 +109,34 @@ export interface Writer
     --- Selects the next object member.
     ---
     --- ```nupp
-    --- local writer = nupp.data.json.writer()
-    --- local text = writer:startObject():key("answer"):write(42):close():finish()
-    --- assert(text == [[{"answer":42}]])
+    --- local out = string.buffer.new()
+    --- nupp.data.json.writer(out):startObject():key("answer"):write(42):close():finish()
+    --- assert(out:tostring() == [[{"answer":42}]])
     --- ```
     --- @param self the writer
     --- @param name the next member name
     --- @return this writer
-    key: function(self: Writer, name: string): Writer
-
-    --- Selects the next object member from a byte buffer without first copying its
-    --- contents into a string.
-    ---
-    --- ```nupp
-    --- local name = string.buffer.new()
-    --- name:put('quoted"key')
-    --- local writer = nupp.data.json.writer()
-    --- local text = writer:startObject():keyBuffer(name):write(42):close():finish()
-    --- assert(text == [[{"quoted\"key":42}]])
-    --- ```
-    --- @param self the writer
-    --- @param name the buffer holding the next member name
-    --- @return this writer
-    keyBuffer: function(self: Writer, borrows name: string.buffer.Buffer): Writer
+    key: function(self: Writer, name: string): Writer & function(self: Writer, name: EncodedString): Writer
 
     --- Appends one complete Lua value.
     ---
     --- ```nupp
-    --- local writer = nupp.data.json.writer()
-    --- local text = writer:startArray():write({id = 41}):close():finish()
-    --- assert(text == "[{\"id\":41}]")
+    --- local out = string.buffer.new()
+    --- nupp.data.json.writer(out):startArray():write({id = 41}):close():finish()
+    --- assert(out:tostring() == "[{\"id\":41}]")
     --- ```
     --- @param self the writer
     --- @param value the next JSON value
     --- @return this writer
-    write: function(self: Writer, value: any): Writer
+    write: function(self: Writer, value: string | number | boolean | {any} | {[string]: any}): Writer
+        & function(self: Writer, value: EncodedValue | EncodedString): Writer
 
     --- Appends JSON null.
     ---
     --- ```nupp
-    --- local writer = nupp.data.json.writer()
-    --- local text = writer:startArray():null():close():finish()
-    --- assert(text == "[null]")
+    --- local out = string.buffer.new()
+    --- nupp.data.json.writer(out):startArray():null():close():finish()
+    --- assert(out:tostring() == "[null]")
     --- ```
     --- @param self the writer
     --- @return this writer
@@ -143,38 +145,89 @@ export interface Writer
     --- Closes the current array or object.
     ---
     --- ```nupp
-    --- local writer = nupp.data.json.writer()
-    --- local text = writer:startArray():startObject():close():close():finish()
-    --- assert(text == "[{}]")
+    --- local out = string.buffer.new()
+    --- nupp.data.json.writer(out):startArray():startObject():close():close():finish()
+    --- assert(out:tostring() == "[{}]")
     --- ```
     --- @param self the writer
     --- @return this writer
     close: function(self: Writer): Writer
 
-    --- Returns bytes completed since the previous flush.
+    --- Verifies that the document is complete and closes the writer.
     ---
     --- ```nupp
-    --- local writer = nupp.data.json.writer()
-    --- writer:startArray():write(1)
-    --- local first = writer:flush()
-    --- local last = writer:close():finish()
-    --- assert(first .. last == "[1]")
-    --- ```
-    --- @param self the writer
-    --- @return the completed JSON bytes
-    flush: function(self: Writer): string
-
-    --- Completes the document and returns its final bytes.
-    ---
-    --- ```nupp
-    --- local writer = nupp.data.json.writer()
+    --- local out = string.buffer.new()
+    --- local writer = nupp.data.json.writer(out)
     --- writer:write({ok = true})
-    --- assert(writer:finish() == [[{"ok":true}]])
+    --- writer:finish()
+    --- assert(out:tostring() == [[{"ok":true}]])
     --- ```
     --- @param self the writer
-    --- @return the final JSON bytes
-    finish: function(self: Writer): string
+    finish: function(self: Writer): nil
 end
+
+local record WriterImpl is Writer
+    private raw: any
+
+    function startArray(self): Writer
+        self.raw:startArray()
+        return self
+    end
+
+    function startObject(self): Writer
+        self.raw:startObject()
+        return self
+    end
+
+    function key(self, name: string): Writer
+        self.raw:key(name)
+        return self
+    end
+
+    function key(self, name: EncodedString): Writer
+        self.raw:key(name)
+        return self
+    end
+
+    function write(self, value: string | number | boolean | {any} | {[string]: any}): Writer
+        self.raw:write(value)
+        return self
+    end
+
+    function write(self, value: EncodedValue | EncodedString): Writer
+        self.raw:write(value)
+        return self
+    end
+
+    function null(self): Writer
+        self.raw:null()
+        return self
+    end
+
+    function close(self): Writer
+        self.raw:close()
+        return self
+    end
+
+    function finish(self): nil
+        self.raw:finish()
+    end
+end
+
+-- Overloaded methods occupy signature-specific slots in checked code. The ordinary
+-- names keep the same object usable from Lua, where overload selection is dynamic.
+local function writerKey(self: WriterImpl, name: any): WriterImpl
+    self.raw:key(name)
+    return self
+end
+
+local function writerWrite(self: WriterImpl, value: any): WriterImpl
+    self.raw:write(value)
+    return self
+end
+
+rawset(WriterImpl, "key", writerKey)
+rawset(WriterImpl, "write", writerWrite)
 
 --- Decodes one complete JSON document.
 ---
@@ -298,24 +351,77 @@ export function serialize(value: any, nullValue: any?): string
     return native.serialize(value, nullValue)
 end
 
---- Creates an incremental JSON writer.
+--- Encodes a Lua value once for trusted raw insertion by a `Writer`.
+---
+--- The returned handle retains immutable encoded bytes. Each later write copies
+--- those bytes directly to its destination without walking or validating the value.
 ---
 --- ```nupp
---- local writer = nupp.data.json.writer()
---- local text = writer:startObject():key("id"):write(41):close():finish()
---- assert(text == [[{"id":41}]])
+--- local cached = nupp.data.json.encoded({1, 2, 3})
 --- ```
+--- @param value the value to encode
+--- @param nullValue an additional value treated as JSON null
+--- @return the reusable encoded value
+--- @export
+export function encoded(value: any, nullValue: any?): EncodedValue
+    if nullValue == nil then
+        return native.encoded(value) as EncodedValue
+    end
+    return native.encoded(value, nullValue) as EncodedValue
+end
+
+--- Encodes and interns one string for trusted use as either a key or value.
+---
+--- ```nupp
+--- local key = nupp.data.json.encodedString("user_id")
+--- ```
+--- @param value the unencoded string
+--- @return its reusable encoded representation
+--- @export
+export function encodedString(value: string): EncodedString
+    return native.encodedString(value) as EncodedString
+end
+
+--- Validates existing JSON bytes once without decoding or re-encoding them.
+---
+--- ```nupp
+--- local cached = nupp.data.json.verified([[{"id":41}]])
+--- ```
+--- @param text one complete JSON value
+--- @return a handle retaining the original immutable string
+--- @export
+export function verified(text: string): EncodedValue
+    return native.verified(text) as EncodedValue
+end
+
+--- Validates and interns existing bytes containing one complete JSON string.
+---
+--- ```nupp
+--- local key = nupp.data.json.verifiedString([["user_id"]])
+--- ```
+--- @param text an encoded JSON string, including its quotes
+--- @return a handle retaining the original immutable string
+--- @export
+export function verifiedString(text: string): EncodedString
+    return native.verifiedString(text) as EncodedString
+end
+
+--- Creates an incremental JSON writer over caller-owned storage.
+---
+--- ```nupp
+--- local out = string.buffer.new()
+--- nupp.data.json.writer(out):startObject():key("id"):write(41):close():finish()
+--- assert(out:tostring() == [[{"id":41}]])
+--- ```
+--- @param out the destination receiving bytes as operations complete
 --- @param nullValue an additional value treated as JSON null
 --- @return a new writer
 --- @export
-export function writer(nullValue: any?): Writer
-    -- The host declaration carries the same recursive Writer interface. Crossing
-    -- through `any` keeps the wrapper from structurally unfolding the two nominal
-    -- interfaces forever while preserving this module's public contract.
+export function writer(exclusive out: string.buffer.Buffer, nullValue: any?): Writer
     if nullValue == nil then
-        return native.writer() as any
+        return new WriterImpl(raw = native.writer(out))
     end
-    return native.writer(nullValue) as any
+    return new WriterImpl(raw = native.writer(out, nullValue))
 end
 
 --- Decodes JSON into the nominal record named by a type witness.
@@ -339,7 +445,7 @@ export function decodeAs<T>(type: Type<T>, text: string): (T?, string?)
     error("nupp: JSON was not derived for this type", 2)
 end
 
---- Appends a nominal record after explicitly supplying its type witness.
+--- Writes a nominal record after explicitly supplying its type witness.
 ---
 --- ```nupp
 --- @derive(nupp.derive.JSON)
@@ -348,19 +454,21 @@ end
 --- end
 ---
 --- local out = string.buffer.new()
---- nupp.data.json.writeAs(User, new User(id = 41), out)
+--- local writer = nupp.data.json.writer(out)
+--- nupp.data.json.writeAs(User, new User(id = 41), writer)
+--- writer:finish()
 --- assert(out:tostring() == [[{"id":41}]])
 --- ```
 --- @param type the record type being encoded
 --- @param value the record value
---- @param out the caller-owned destination
+--- @param out the checked destination
 --- @raises when JSON was not derived for the type
 --- @export
-export function writeAs<T>(type: Type<T>, borrows value: T, exclusive out: string.buffer.Buffer): nil
+export function writeAs<T>(type: Type<T>, borrows value: T, out: Writer): nil
     error("nupp: JSON was not derived for this type", 2)
 end
 
---- Appends a nominal record using its own metatable as the type witness.
+--- Writes a nominal record using its own metatable as the type witness.
 ---
 --- ```nupp
 --- @derive(nupp.derive.JSON)
@@ -369,14 +477,16 @@ end
 --- end
 ---
 --- local out = string.buffer.new()
---- nupp.data.json.writeRecord(new User(id = 41), out)
+--- local writer = nupp.data.json.writer(out)
+--- nupp.data.json.writeRecord(new User(id = 41), writer)
+--- writer:finish()
 --- assert(out:tostring() == [[{"id":41}]])
 --- ```
 --- @param value the record value
---- @param out the caller-owned destination
+--- @param out the checked destination
 --- @raises when JSON was not derived for the type
 --- @export
-export function writeRecord<T>(borrows value: T, exclusive out: string.buffer.Buffer): nil
+export function writeRecord<T>(borrows value: T, out: Writer): nil
     error("nupp: JSON was not derived for this type", 2)
 end
 

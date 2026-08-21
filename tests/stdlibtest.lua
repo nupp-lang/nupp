@@ -587,22 +587,19 @@ function M.theJsonModuleOpensItsHostOnRequire()
       assert(json.encode(json.asArray({})) == "[]")
       assert(json.decode("[1,null,2]")[2] == 2)
       assert(json.decode("null", json.NULL) == json.NULL)
-      local name = require("string.buffer").new():put('quoted"key')
-      local writer = json.writer()
-      local text = writer:startObject():keyBuffer(name):write(42):close():finish()
-      assert(text == [[{"quoted\"key":42}]])
-      assert(name:tostring() == 'quoted"key', "writing the key consumed its buffer")
-      local empty = require("string.buffer").new()
-      local emptyText = json.writer():startObject()
-         :keyBuffer(empty):write(true):close():finish()
-      assert(emptyText == [[{"":true}]])
-      local invalid = require("string.buffer").new():put("\255")
+      local buffer = require("string.buffer").new()
+      local name = json.encodedString('quoted"key')
+      assert(name == json.encodedString('quoted"key'), "encoded keys are interned")
+      local writer = json.writer(buffer)
+      writer:startObject():key(name):write(json.verified("4.20e1")):close():finish()
+      assert(buffer:tostring() == [[{"quoted\"key":4.20e1}]])
+      local invalid = '"\255"'
       assert(not pcall(function()
-         json.writer():startObject():keyBuffer(invalid)
-      end), "a buffered key must contain valid UTF-8")
+         json.verifiedString(invalid)
+      end), "a verified key must contain valid UTF-8")
       assert(not pcall(function()
-         json.writer():startObject():keyBuffer("not a buffer")
-      end), "keyBuffer must reject strings")
+         json.verifiedString("42")
+      end), "a verified key must be a JSON string")
    end)
    package.loaded.jsonNative = package.loaded.jsonNative or loadedJson
    package.loaded["nupp.data.json"] = package.loaded["nupp.data.json"] or loadedModule
@@ -934,7 +931,8 @@ function M.jsonNativeModule()
       "local json = require('jsonNative')",
       "local text: string = json.encode({1, 2, 3})",
       "local value = json.decode(text)",
-      "local stream = json.writer()",
+      "local out = string.buffer.new()",
+      "local stream = json.writer(out)",
       "local array: table = json.asArray({})",
    }, "\n"))
    -- decode yields any, so it flows anywhere
@@ -965,10 +963,9 @@ function M.jsonNativeConstantsAndWriter()
       "local nul: any = json.NULL",
       "local array: table = json.EMPTY_ARRAY",
       "local object: table = json.EMPTY_OBJECT",
-      "local writer = json.writer(nul)",
-      "local name = string.buffer.new()",
-      "name:put('answer')",
-      "local text: string = writer:startObject():keyBuffer(name):write(1):close():finish()",
+      "local out = string.buffer.new()",
+      "local writer = json.writer(out, nul)",
+      "writer:startObject():key('answer'):write(1):close():finish()",
    }, "\n"))
 end
 

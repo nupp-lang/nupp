@@ -131,9 +131,13 @@ end
 
 local user = new User(id = 7, name = "ada")
 local out = string.buffer.new()
-user:writeJSON(out)
+local writer = nupp.data.json.writer(out)
+user:writeJSON(writer)
+writer:finish()
 local text = out:get()
-nupp.data.json.writeAs(User, user, out)
+writer = nupp.data.json.writer(out)
+nupp.data.json.writeAs(User, user, writer)
+writer:finish()
 local sameText = out:get()
 local restored, problem = nupp.data.json.decodeAs(User, text)
 

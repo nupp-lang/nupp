@@ -15,9 +15,9 @@ so a caller sees one API.
 
 --- The host module's surface, as `nupp.data.json` hands it out.
 record json
-    --- Values that append their JSON encoding to a caller-owned byte buffer.
+    --- Values that write their JSON encoding through a checked writer.
     interface JSONEncodable
-        writeJSON: function(self, exclusive out: string.buffer.Buffer): nil
+        writeJSON: function(self, out: Writer): nil
     end
 
     --- A checked incremental JSON writer.
@@ -36,13 +36,7 @@ record json
         --- @param self this writer
         --- @param name the next object member name
         --- @return this writer
-        key: function(self: Writer, name: string): Writer
-
-        --- Selects the next object member directly from a byte buffer.
-        --- @param self this writer
-        --- @param name the buffer holding the next object member name
-        --- @return this writer
-        keyBuffer: function(self: Writer, borrows name: string.buffer.Buffer): Writer
+        key: function(self: Writer, name: any): Writer
 
         --- Appends one complete Lua value.
         --- @param self this writer
@@ -60,15 +54,9 @@ record json
         --- @return this writer
         close: function(self: Writer): Writer
 
-        --- Returns bytes completed since the previous flush.
+        --- Verifies that the document is complete and closes the writer.
         --- @param self this writer
-        --- @return the completed JSON bytes
-        flush: function(self: Writer): string
-
-        --- Completes the document and returns its final bytes.
-        --- @param self this writer
-        --- @return the final JSON bytes
-        finish: function(self: Writer): string
+        finish: function(self: Writer): nil
     end
 
     --- Decodes one JSON document.
@@ -119,20 +107,33 @@ record json
     --- @return the JSON document
     serialize: function(value: any, nullValue: any?): string
 
+    --- Encodes a reusable trusted JSON value.
+    encoded: function(value: any, nullValue: any?): any
+
+    --- Encodes and interns a reusable trusted JSON string.
+    encodedString: function(value: string): any
+
+    --- Validates existing bytes as one trusted JSON value.
+    verified: function(text: string): any
+
+    --- Validates and interns existing bytes as one trusted JSON string.
+    verifiedString: function(text: string): any
+
     --- Creates an incremental JSON writer.
     ---
-    --- Each call answers the writer again, so a document is built as one chain.
-    --- `flush` hands back the bytes completed so far and `finish` closes the
-    --- document.
+    --- Each call answers the writer again, so a document is built as one chain
+    --- while bytes are appended directly to caller-owned storage.
     ---
     --- ```nupp
-    --- local writer = nupp.data.json.writer()
+    --- local out = string.buffer.new()
+    --- local writer = nupp.data.json.writer(out)
     --- writer:startObject():key("id"):write(41):close()
-    --- local text = writer:finish()
+    --- writer:finish()
     --- ```
+    --- @param out the checked destination
     --- @param nullValue an additional value treated as JSON null
     --- @return a new writer
-    writer: function(nullValue: any?): Writer
+    writer: function(exclusive out: string.buffer.Buffer, nullValue: any?): Writer
 
     --- Decodes JSON into the nominal record named by its one type witness.
     --- @param type the record's type witness, naming what to decode into
@@ -144,13 +145,13 @@ record json
     --- Appends a nominal record after explicitly supplying its type witness.
     --- @param type the record's type witness
     --- @param value the record to encode
-    --- @param out the caller-owned destination
-    writeAs: function<T>(type: Type<T>, value: T, exclusive out: string.buffer.Buffer): nil
+    --- @param out the checked destination
+    writeAs: function<T>(type: Type<T>, value: T, out: Writer): nil
 
     --- Appends a nominal record using the metatable its value already carries.
     --- @param value the record to encode
     --- @param out the caller-owned destination
-    writeRecord: function<T>(value: T, exclusive out: string.buffer.Buffer): nil
+    writeRecord: function<T>(value: T, out: Writer): nil
 
     --- Encodes a nominal record into a new string after supplying its type witness.
     --- @param type the record's type witness

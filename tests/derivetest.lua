@@ -80,7 +80,9 @@ local user: User = new User()
 local printable: nupp.Debug = user
 local encodable: nupp.data.json.JSONEncodable = user
 local out = string.buffer.new()
-encodable:writeJSON(out)
+local writer = nupp.data.json.writer(out)
+encodable:writeJSON(writer)
+writer:finish()
 local text = out:tostring()
 local decoded, err = User.fromJSON(text)
 assert(decoded and not err)
@@ -99,6 +101,26 @@ return {
    assertEq(result.scores, 0)
    assertEq(result.active, false)
    assert(code:find("__derive.register", 1, true), code)
+end
+
+function M.composesDerivedAndPreencodedValuesInOneWriter()
+   local result = run([[
+@derive(nupp.derive.JSON)
+local record User
+    id: integer
+end
+
+local out = string.buffer.new()
+local writer = nupp.data.json.writer(out)
+local userKey = nupp.data.json.encodedString("user")
+local cached = nupp.data.json.verified('{"ok":true,"items":[1,2]}')
+writer:startObject():key(userKey)
+local user = new User(id = 7)
+user:writeJSON(writer)
+writer:key("cached"):write(cached):close():finish()
+return out:tostring()
+]])
+   assertEq(result, '{"user":{"id":7},"cached":{"ok":true,"items":[1,2]}}')
 end
 
 function M.constructsFreshMutableDefaults()
@@ -147,7 +169,9 @@ local checked, checkedErr = codec:decode({name = "ok", labels = {"a"}})
 local payload = new Payload(name = "x", secret = "hidden", labels = {})
 local keyed = codec:encode(payload)
 local out = string.buffer.new()
-payload:writeJSON(out)
+local writer = nupp.data.json.writer(out)
+payload:writeJSON(writer)
+writer:finish()
 return {
     name = decoded and decoded.name,
     secret = decoded and decoded.secret,
@@ -190,7 +214,9 @@ local root = new Node(value = 1, next = nil)
 root.next = root
 local debugged = root:debug()
 local out = string.buffer.new()
-local encoded, cycle = pcall(function(): nil root:writeJSON(out) end)
+local encoded, cycle = pcall(function(): nil
+    root:writeJSON(nupp.data.json.writer(out))
+end)
 local decoded, err = Node.fromJSON('{"value":1,"next":{"value":2,"next":null}}')
 return {
     debugged = debugged,
@@ -253,7 +279,9 @@ end
 
 local envelope = new Envelope(pet = new Cat(kind = "cat", lives = 9))
 local out = string.buffer.new()
-envelope:writeJSON(out)
+local writer = nupp.data.json.writer(out)
+envelope:writeJSON(writer)
+writer:finish()
 local text = out:tostring()
 local decoded, err = Envelope.fromJSON('{"pet":{"kind":"dog","barks":true}}')
 assert(decoded and not err)

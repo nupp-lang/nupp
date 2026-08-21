@@ -29,11 +29,15 @@ struct nuppSimdjsonParser {
 namespace {
 
 constexpr const char *WRITER_METATABLE = "nupp.simdjson.writer";
+constexpr const char *ENCODED_VALUE_METATABLE = "nupp.simdjson.encoded-value";
+constexpr const char *ENCODED_STRING_METATABLE = "nupp.simdjson.encoded-string";
 static char EMPTY_ARRAY_KEY;
 static char EMPTY_OBJECT_KEY;
 static char NULL_KEY;
 static char ARRAY_SHAPE_KEY;
 static char BUFFER_METATABLE_KEY;
+static char ENCODED_STRING_INTERN_KEY;
+static char VERIFIED_STRING_INTERN_KEY;
 
 enum class containerKind {
     ARRAY,
@@ -52,6 +56,8 @@ struct luaWriter {
     bool rootWritten{false};
     bool finished{false};
 };
+
+struct encodedBytes {};
 
 enum class emitResult {
     PRODUCED,
@@ -834,6 +840,102 @@ static bool appendLuaValue(
     }
 }
 
+static void pushEncoded(
+    lua_State *L,
+    const char *metatable,
+    int bytesIndex
+) {
+    bytesIndex = absoluteIndex(L, bytesIndex);
+    new (lua_newuserdata(L, sizeof(encodedBytes))) encodedBytes{};
+    luaL_getmetatable(L, metatable);
+    lua_setmetatable(L, -2);
+    lua_createtable(L, 0, 1);
+    lua_pushvalue(L, bytesIndex);
+    lua_setfield(L, -2, "bytes");
+    lua_setfenv(L, -2);
+}
+
+static bool pushEncodedBytes(
+    lua_State *L,
+    int index,
+    const char *metatable,
+    std::string_view *bytes
+) {
+    index = absoluteIndex(L, index);
+    if (!lua_getmetatable(L, index)) {
+        return false;
+    }
+    luaL_getmetatable(L, metatable);
+    const bool matches = lua_rawequal(L, -1, -2) != 0;
+    lua_pop(L, 2);
+    if (!matches) {
+        return false;
+    }
+    lua_getfenv(L, index);
+    lua_getfield(L, -1, "bytes");
+    lua_remove(L, -2);
+    size_t length = 0;
+    const char *data = lua_tolstring(L, -1, &length);
+    if (data == nullptr) {
+        luaL_error(L, "simdjson encoded value lost its bytes");
+    }
+    *bytes = std::string_view(data, length);
+    return true;
+}
+
+static void appendToBuffer(
+    lua_State *L,
+    int bufferIndex,
+    std::string_view bytes
+) {
+    if (bytes.empty()) {
+        return;
+    }
+    bufferIndex = absoluteIndex(L, bufferIndex);
+    lua_getfield(L, bufferIndex, "reserve");
+    lua_pushvalue(L, bufferIndex);
+    lua_pushinteger(L, static_cast<lua_Integer>(bytes.size()));
+    lua_call(L, 2, 2);
+    const void *storage = lua_topointer(L, -2);
+    if (storage == nullptr) {
+        luaL_error(L, "string.buffer.Buffer.reserve() returned no storage");
+    }
+    char *destination = *static_cast<char *const *>(storage);
+    std::memcpy(destination, bytes.data(), bytes.size());
+    lua_pop(L, 2);
+
+    lua_getfield(L, bufferIndex, "commit");
+    lua_pushvalue(L, bufferIndex);
+    lua_pushinteger(L, static_cast<lua_Integer>(bytes.size()));
+    lua_call(L, 2, 1);
+    lua_pop(L, 1);
+}
+
+static void appendToWriterBuffer(
+    lua_State *L,
+    int index,
+    std::string_view bytes
+) {
+    if (bytes.empty()) {
+        return;
+    }
+    index = absoluteIndex(L, index);
+    lua_getfenv(L, index);
+    lua_getfield(L, -1, "out");
+    appendToBuffer(L, -1, bytes);
+    lua_pop(L, 2);
+}
+
+static void drainWriter(lua_State *L, int index, luaWriter *writer) {
+    std::string_view output;
+    const auto error = writer->builder.view().get(output);
+    if (error) {
+        luaL_error(L, "simdjson writer: %s", simdjson::error_message(error));
+    }
+    appendToWriterBuffer(L, index, output);
+    writer->builder.clear();
+}
+
 static luaWriter *checkedWriter(lua_State *L, int index) {
     return static_cast<luaWriter *>(luaL_checkudata(L, index, WRITER_METATABLE));
 }
@@ -890,6 +992,7 @@ static int luaWriterStartArray(lua_State *L) {
     if (failure) {
         return writerError(L, failure);
     }
+    drainWriter(L, 1, writer);
     lua_settop(L, 1);
     return 1;
 }
@@ -908,6 +1011,7 @@ static int luaWriterStartObject(lua_State *L) {
     if (failure) {
         return writerError(L, failure);
     }
+    drainWriter(L, 1, writer);
     lua_settop(L, 1);
     return 1;
 }
@@ -939,39 +1043,35 @@ static const char *appendWriterKey(
 
 static int luaWriterKey(lua_State *L) {
     luaWriter *writer = checkedWriter(L, 1);
-    size_t length = 0;
-    const char *key = luaL_checklstring(L, 2, &length);
-    const char *failure = appendWriterKey(writer, key, length);
+    const char *failure = nullptr;
+    std::string_view encoded;
+    if (pushEncodedBytes(L, 2, ENCODED_STRING_METATABLE, &encoded)) {
+        if (writer->finished || writer->frames.empty()
+            || writer->frames.back().kind != containerKind::OBJECT) {
+            failure = "key() requires an open object";
+        } else if (writer->frames.back().needsValue) {
+            failure = "the previous object key has no value";
+        } else {
+            auto &frame = writer->frames.back();
+            if (!frame.first) {
+                writer->builder.append_comma();
+            }
+            frame.first = false;
+            frame.needsValue = true;
+            drainWriter(L, 1, writer);
+            appendToWriterBuffer(L, 1, encoded);
+            writer->builder.append_colon();
+        }
+        lua_pop(L, 1);
+    } else {
+        size_t length = 0;
+        const char *key = luaL_checklstring(L, 2, &length);
+        failure = appendWriterKey(writer, key, length);
+    }
     if (failure) {
         return writerError(L, failure);
     }
-    lua_settop(L, 1);
-    return 1;
-}
-
-static int luaWriterKeyBuffer(lua_State *L) {
-    luaWriter *writer = checkedWriter(L, 1);
-    if (!hasRegisteredMetatable(L, 2, &BUFFER_METATABLE_KEY)) {
-        return luaL_argerror(L, 2, "string.buffer.Buffer expected");
-    }
-
-    lua_getfield(L, 2, "ref");
-    lua_pushvalue(L, 2);
-    lua_call(L, 1, 2);
-    // Buffer:ref() returns a pointer cdata object. LuaJIT's lua_topointer()
-    // addresses that cdata's storage, which holds the pointer into the buffer.
-    const void *storage = lua_topointer(L, -2);
-    if (storage == nullptr) {
-        return luaL_error(L, "string.buffer.Buffer.ref() returned no storage");
-    }
-    const size_t length = static_cast<size_t>(luaL_checkinteger(L, -1));
-    const char *key = length == 0
-        ? ""
-        : *static_cast<const char *const *>(storage);
-    const char *failure = appendWriterKey(writer, key, length);
-    if (failure) {
-        return writerError(L, failure);
-    }
+    drainWriter(L, 1, writer);
     lua_settop(L, 1);
     return 1;
 }
@@ -985,11 +1085,23 @@ static int luaWriterWrite(lua_State *L) {
     const int nullIndex = lua_isnil(L, -1) ? 0 : lua_gettop(L);
     const char *failure = nullptr;
     try {
-        std::unordered_set<const void *> visiting;
+        std::string_view encoded;
+        const bool isEncoded = pushEncodedBytes(
+            L, 2, ENCODED_VALUE_METATABLE, &encoded
+        ) || pushEncodedBytes(L, 2, ENCODED_STRING_METATABLE, &encoded);
         if (prepareWriterValue(writer, &failure)) {
-            appendLuaValue(
-                L, writer->builder, 2, nullIndex, visiting, 0, &failure
-            );
+            if (isEncoded) {
+                drainWriter(L, 1, writer);
+                appendToWriterBuffer(L, 1, encoded);
+            } else {
+                std::unordered_set<const void *> visiting;
+                appendLuaValue(
+                    L, writer->builder, 2, nullIndex, visiting, 0, &failure
+                );
+            }
+        }
+        if (isEncoded) {
+            lua_pop(L, 1);
         }
     } catch (const std::bad_alloc &) {
         failure = "allocation failed";
@@ -998,6 +1110,7 @@ static int luaWriterWrite(lua_State *L) {
         lua_settop(L, 2);
         return writerError(L, failure);
     }
+    drainWriter(L, 1, writer);
     lua_settop(L, 1);
     return 1;
 }
@@ -1011,6 +1124,7 @@ static int luaWriterNull(lua_State *L) {
     if (failure) {
         return writerError(L, failure);
     }
+    drainWriter(L, 1, writer);
     lua_settop(L, 1);
     return 1;
 }
@@ -1036,37 +1150,25 @@ static int luaWriterClose(lua_State *L) {
     if (failure) {
         return writerError(L, failure);
     }
+    drainWriter(L, 1, writer);
     lua_settop(L, 1);
     return 1;
 }
 
-static int pushWriterChunk(lua_State *L, luaWriter *writer, bool finish) {
+static int luaWriterFinish(lua_State *L) {
+    luaWriter *writer = checkedWriter(L, 1);
     const char *failure = nullptr;
     if (writer->finished) {
         failure = "writer is already finished";
-    } else if (finish && (!writer->rootWritten || !writer->frames.empty())) {
+    } else if (!writer->rootWritten || !writer->frames.empty()) {
         failure = "finish() requires one complete root value";
     }
     if (failure) {
         return writerError(L, failure);
     }
-    std::string_view output;
-    const auto error = writer->builder.view().get(output);
-    if (error) {
-        return writerError(L, simdjson::error_message(error));
-    }
-    lua_pushlstring(L, output.data(), output.size());
-    writer->builder.clear();
-    writer->finished = finish;
-    return 1;
-}
-
-static int luaWriterFlush(lua_State *L) {
-    return pushWriterChunk(L, checkedWriter(L, 1), false);
-}
-
-static int luaWriterFinish(lua_State *L) {
-    return pushWriterChunk(L, checkedWriter(L, 1), true);
+    drainWriter(L, 1, writer);
+    writer->finished = true;
+    return 0;
 }
 
 static int luaDecode(lua_State *L) {
@@ -1199,14 +1301,116 @@ static int luaEncode(lua_State *L) {
     return 1;
 }
 
+static int luaEncoded(lua_State *L) {
+    luaEncode(L);
+    pushEncoded(L, ENCODED_VALUE_METATABLE, -1);
+    return 1;
+}
+
+static int luaEncodedString(lua_State *L) {
+    size_t length = 0;
+    const char *source = luaL_checklstring(L, 1, &length);
+    pushRegistered(L, &ENCODED_STRING_INTERN_KEY);
+    const int intern = lua_gettop(L);
+    lua_pushvalue(L, 1);
+    lua_rawget(L, intern);
+    if (!lua_isnil(L, -1)) {
+        return 1;
+    }
+    lua_pop(L, 1);
+
+    if (!simdjson::validate_utf8(source, length)) {
+        return luaL_error(L, "simdjson encoded string: invalid UTF-8");
+    }
+    const char *failure = nullptr;
+    try {
+        simdjson::builder::string_builder builder;
+        builder.escape_and_append_with_quotes(std::string_view(source, length));
+        std::string_view output;
+        const auto error = builder.view().get(output);
+        if (error) {
+            failure = simdjson::error_message(error);
+        } else {
+            lua_pushlstring(L, output.data(), output.size());
+        }
+    } catch (const std::bad_alloc &) {
+        failure = "allocation failed";
+    }
+    if (failure) {
+        return luaL_error(L, "simdjson encoded string: %s", failure);
+    }
+    pushEncoded(L, ENCODED_STRING_METATABLE, -1);
+    lua_pushvalue(L, 1);
+    lua_pushvalue(L, -2);
+    lua_rawset(L, intern);
+    return 1;
+}
+
+static int pushVerified(lua_State *L, bool requireString) {
+    size_t length = 0;
+    const char *source = luaL_checklstring(L, 1, &length);
+    const char *failure = nullptr;
+    bool isString = false;
+    try {
+        static thread_local simdjson::dom::parser parser;
+        simdjson::dom::element document;
+        const auto error = parser.parse(source, length, true).get(document);
+        if (error) {
+            failure = simdjson::error_message(error);
+        } else {
+            isString = document.type() == simdjson::dom::element_type::STRING;
+            if (requireString && !isString) {
+                failure = "a JSON string is required";
+            }
+        }
+    } catch (const std::bad_alloc &) {
+        failure = "allocation failed";
+    }
+    if (failure) {
+        return luaL_error(L, "simdjson verify: %s", failure);
+    }
+    pushEncoded(
+        L,
+        requireString ? ENCODED_STRING_METATABLE : ENCODED_VALUE_METATABLE,
+        1
+    );
+    return 1;
+}
+
+static int luaVerified(lua_State *L) {
+    return pushVerified(L, false);
+}
+
+static int luaVerifiedString(lua_State *L) {
+    luaL_checkstring(L, 1);
+    pushRegistered(L, &VERIFIED_STRING_INTERN_KEY);
+    const int intern = lua_gettop(L);
+    lua_pushvalue(L, 1);
+    lua_rawget(L, intern);
+    if (!lua_isnil(L, -1)) {
+        return 1;
+    }
+    lua_pop(L, 1);
+    pushVerified(L, true);
+    lua_pushvalue(L, 1);
+    lua_pushvalue(L, -2);
+    lua_rawset(L, intern);
+    return 1;
+}
+
 static int luaNewWriter(lua_State *L) {
+    if (!hasRegisteredMetatable(L, 1, &BUFFER_METATABLE_KEY)) {
+        return luaL_argerror(L, 1, "string.buffer.Buffer expected");
+    }
     void *storage = lua_newuserdata(L, sizeof(luaWriter));
     new (storage) luaWriter{};
     luaL_getmetatable(L, WRITER_METATABLE);
     lua_setmetatable(L, -2);
-    lua_createtable(L, 0, 1);
-    if (lua_gettop(L) >= 3 && !lua_isnil(L, 1)) {
-        lua_pushvalue(L, 1);
+    lua_createtable(L, 0, 2);
+    lua_pushvalue(L, 1);
+    lua_setfield(L, -2, "out");
+    if (lua_gettop(L) >= 4 && !lua_isnil(L, 2)) {
+        lua_pushvalue(L, 2);
     } else {
         pushRegistered(L, &NULL_KEY);
     }
@@ -1351,16 +1555,32 @@ extern "C" const char *nuppSimdjsonImplementation(void) {
 
 extern "C" NUPP_SIMDJSON_EXPORT int luaopen_simdjson_bench_native(lua_State *L) {
     installBufferMetatable(L);
+    luaL_newmetatable(L, ENCODED_VALUE_METATABLE);
+    lua_pushliteral(L, "simdjson encoded value");
+    lua_setfield(L, -2, "__metatable");
+    lua_pop(L, 1);
+    luaL_newmetatable(L, ENCODED_STRING_METATABLE);
+    lua_pushliteral(L, "simdjson encoded string");
+    lua_setfield(L, -2, "__metatable");
+    lua_pop(L, 1);
+    lua_createtable(L, 0, 0);
+    lua_pushlightuserdata(L, &ENCODED_STRING_INTERN_KEY);
+    lua_pushvalue(L, -2);
+    lua_rawset(L, LUA_REGISTRYINDEX);
+    lua_pop(L, 1);
+    lua_createtable(L, 0, 0);
+    lua_pushlightuserdata(L, &VERIFIED_STRING_INTERN_KEY);
+    lua_pushvalue(L, -2);
+    lua_rawset(L, LUA_REGISTRYINDEX);
+    lua_pop(L, 1);
     luaL_newmetatable(L, WRITER_METATABLE);
     setFunction(L, "__gc", luaWriterGc);
     setFunction(L, "startArray", luaWriterStartArray);
     setFunction(L, "startObject", luaWriterStartObject);
     setFunction(L, "key", luaWriterKey);
-    setFunction(L, "keyBuffer", luaWriterKeyBuffer);
     setFunction(L, "write", luaWriterWrite);
     setFunction(L, "null", luaWriterNull);
     setFunction(L, "close", luaWriterClose);
-    setFunction(L, "flush", luaWriterFlush);
     setFunction(L, "finish", luaWriterFinish);
     lua_pushvalue(L, -1);
     lua_setfield(L, -2, "__index");
@@ -1368,7 +1588,7 @@ extern "C" NUPP_SIMDJSON_EXPORT int luaopen_simdjson_bench_native(lua_State *L) 
     lua_setfield(L, -2, "__metatable");
     lua_pop(L, 1);
 
-    lua_createtable(L, 0, 11);
+    lua_createtable(L, 0, 15);
     const int moduleIndex = lua_gettop(L);
     setFunction(L, "decode", luaDecode);
     setFunction(L, "pull", luaPull);
@@ -1377,6 +1597,10 @@ extern "C" NUPP_SIMDJSON_EXPORT int luaopen_simdjson_bench_native(lua_State *L) 
     setFunction(L, "asObject", luaAsObject);
     setFunction(L, "encode", luaEncode);
     setFunction(L, "serialize", luaEncode);
+    setFunction(L, "encoded", luaEncoded);
+    setFunction(L, "encodedString", luaEncodedString);
+    setFunction(L, "verified", luaVerified);
+    setFunction(L, "verifiedString", luaVerifiedString);
     setFunction(L, "writer", luaNewWriter);
     installMarker(L, moduleIndex, &NULL_KEY, "NULL");
     installMarker(L, moduleIndex, &EMPTY_ARRAY_KEY, "EMPTY_ARRAY");

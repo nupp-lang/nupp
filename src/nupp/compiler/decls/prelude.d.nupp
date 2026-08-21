@@ -427,7 +427,7 @@ record nupp.derive
     --- ```
     Debug: Provider
 
-    --- Generates `writeJSON(out)`, a static `fromJSON(text): T?, string?`, a
+    --- Generates `writeJSON(writer)`, a static `fromJSON(text): T?, string?`, a
     --- `fieldCodec`, and `nupp.data.json.JSONEncodable` conformance.
     ---
     --- Encoding is deterministic: fields follow declaration order and string map keys
@@ -444,7 +444,9 @@ record nupp.derive
     ---
     --- local user = new User(id = 7, name = "ada")
     --- local out = string.buffer.new()
-    --- user:writeJSON(out)
+    --- local writer = nupp.data.json.writer(out)
+    --- user:writeJSON(writer)
+    --- writer:finish()
     --- assert(out:tostring() == '{"user_id":7,"name":"ada"}')
     ---
     --- local decoded, failure = User.fromJSON('{"name": "ada"}')

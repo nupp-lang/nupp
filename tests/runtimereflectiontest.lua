@@ -109,6 +109,28 @@ return User
       "the module answered no codec when it was asked before anything else")
 end
 
+function M.derivedJSONCachesEncodedSchemaConstants()
+   local User = run([[
+@derive(nupp.derive.JSON)
+local record User
+    kind: "user"
+    id: integer
+end
+local out = string.buffer.new()
+local writer = nupp.data.json.writer(out)
+local user = new User(kind = "user", id = 7)
+user:writeJSON(writer)
+writer:finish()
+return User
+]])
+   local entry = _G.nupp.__derive.types[rawget(User, "__nuppDeriveKey")]
+   local kind = entry.schema.fields[1]
+   assert(kind.encodedName ~= nil, "the derived key was not cached")
+   assert(kind.jsonType.encoded ~= nil, "the literal value was not cached")
+   assertEq(kind.encodedName, require("nupp.data.json").encodedString("kind"),
+      "the derived key did not use the interned representation")
+end
+
 function M.jsonUsesOneTypeWitness()
    local result = run([[
 @derive(nupp.derive.JSON)
@@ -118,11 +140,17 @@ end
 local user = new User(id = 7)
 local out = string.buffer.new()
 out:put("prefix:")
-nupp.data.json.writeRecord(user, out)
+local writer = nupp.data.json.writer(out)
+nupp.data.json.writeRecord(user, writer)
+writer:finish()
 local inferredWrite = out:get()
-nupp.data.json.writeAs(User, user, out)
+writer = nupp.data.json.writer(out)
+nupp.data.json.writeAs(User, user, writer)
+writer:finish()
 local explicitWrite = out:get()
-user:writeJSON(out)
+writer = nupp.data.json.writer(out)
+user:writeJSON(writer)
+writer:finish()
 local memberWrite = out:get()
 local text = nupp.data.json.encodeRecord(user)
 local explicit = nupp.data.json.encodeAs(User, user)

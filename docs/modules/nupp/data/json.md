@@ -68,32 +68,35 @@ input but constructs only the Lua values the shape asks for.
 
 ## Streaming output
 
-The writer emits checked JSON without first building a Lua table to encode.
-`flush()` returns the completed bytes since the previous flush, and `finish()`
-closes the document and returns the final bytes:
+The writer emits checked JSON directly into caller-owned storage without first
+building a Lua table or a complete result string. `finish()` verifies that the
+document is complete:
 
 ```nupp
-local writer = nupp.data.json.writer()
+local out = string.buffer.new()
+local writer = nupp.data.json.writer(out)
 writer:startObject():key("items"):startArray():write(1):write(2):close():close()
-local text = writer:finish()
+writer:finish()
 ```
 
-`keyBuffer(name)` reads an object member name directly from the unconsumed bytes
-of a borrowed `string.buffer.Buffer`. It avoids allocating the intermediate Lua
-string that `key(name)` would otherwise require; the buffer is not consumed or
-retained.
+`encoded(value)` performs ordinary encoding once. `verified(text)` instead
+validates an existing immutable JSON string without decoding or re-encoding it.
+Both return a value that `write` appends without another walk or validation.
+`encodedString(value)` and `verifiedString(text)` provide the corresponding
+string-only form accepted by both `key` and `write`; these handles are interned,
+so repeated schema keys share their encoded representation.
 
 ## Derived records
 
-For a record deriving `nupp.derive.JSON`, `writeRecord(value, out)` discovers
-the record's type witness from the value and appends to caller-owned storage.
-`writeAs(Record, value, out)` and `decodeAs(Record, text)` accept the visible
-record name directly. `encodeRecord` and `encodeAs` allocate and return a
-complete string for callers that specifically need one.
+For a record deriving `nupp.derive.JSON`, `writeRecord(value, writer)` discovers
+the record's type witness from the value. `writeAs(Record, value, writer)` and
+`decodeAs(Record, text)` accept the visible record name directly. `encodeRecord`
+and `encodeAs` allocate and return a complete string for callers that
+specifically need one.
 
-The generated `writeJSON(out)` member takes the same `string.buffer.Buffer`.
-It is the direct-emission path for a statically known schema; the checked
-`Writer` above is the separate API for assembling a document dynamically.
+The generated `writeJSON(writer)` member writes through the same checked API, so
+a derived record can occupy the root or any value position in a larger document.
+Derived schemas lazily cache their encoded field names and literal values.
 
 ::: seealso
 - [reflection.md](../../../concepts/reflection.md#json-through-a-type-witness)

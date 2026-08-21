@@ -15,7 +15,9 @@ end
 
 local user = new User()
 local out = string.buffer.new()
-user:writeJSON(out)
+local writer = nupp.data.json.writer(out)
+user:writeJSON(writer)
+writer:finish()
 print(user:debug(), out:tostring())
 ```
 
@@ -25,7 +27,7 @@ independently nameable types. The two bundled providers are:
 
 - [`nupp.derive.Debug`](#debug): `debug(self): string` and `nupp.Debug`
   conformance.
-- [`nupp.derive.JSON`](#json): `writeJSON(out)`, a static `fromJSON`,
+- [`nupp.derive.JSON`](#json): `writeJSON(writer)`, a static `fromJSON`,
   `fieldCodec`, and
   `nupp.data.json.JSONEncodable` conformance.
 
@@ -112,11 +114,12 @@ Credentials { user = "ada", password = <redacted> }
 
 ## JSON
 
-`JSON` generates `writeJSON(out)`, a static `fromJSON`, a `fieldCodec`, and
-`nupp.data.json.JSONEncodable` conformance. Encoding appends directly to the
-caller-owned `string.buffer.Buffer`; it does not allocate a complete result
-string. Record and shape fields follow declaration order and string map keys
-sort by byte order, so the same value always produces the same bytes.
+`JSON` generates `writeJSON(writer)`, a static `fromJSON`, a `fieldCodec`, and
+`nupp.data.json.JSONEncodable` conformance. Encoding writes through the checked
+buffer-backed writer; it does not allocate a complete result string. Record and
+shape fields follow declaration order and string map keys sort by byte order, so
+the same value always produces the same bytes. Encoded field names and literal
+values are cached lazily on the derived schema.
 If encoding fails, bytes appended before the failure remain in the buffer;
 reset or discard it when the surrounding operation needs atomic output.
 
@@ -130,7 +133,9 @@ end
 
 local user = new User(id = 7, name = "ada")
 local out = string.buffer.new()
-user:writeJSON(out)
+local writer = nupp.data.json.writer(out)
+user:writeJSON(writer)
+writer:finish()
 print(out:tostring())
 
 local decoded = User.fromJSON('{"user_id": 7, "name": "ada"}')
@@ -198,7 +203,9 @@ end
 
 local user = new User(id = 7, tags = {})
 local out = string.buffer.new()
-user:writeJSON(out)
+local writer = nupp.data.json.writer(out)
+user:writeJSON(writer)
+writer:finish()
 local text = out:tostring()
 print(text)
 print(select(2, User.fromJSON(text)))
@@ -230,8 +237,9 @@ JSON path that reached it. Decoding uses Nupp's strict simdjson-backed codec and
 preserves null with `nupp.data.json.NULL` while it validates the raw value.
 
 The JSON field codec is allocated lazily as a runtime reflection extension. Use
-`nupp.data.json.writeRecord`, `writeAs(User, value, out)`, and `decodeAs(User,
-text)` when a type-witness API fits better than generated members. The
+`nupp.data.json.writeRecord`, `writeAs(User, value, writer)`, and
+`decodeAs(User, text)` when a type-witness API fits better than generated
+members. The
 allocating `encodeRecord` and `encodeAs` wrappers remain available when a
 complete string is specifically required. See
 [reflection.md](../concepts/reflection.md#runtime-reflection) for the witness

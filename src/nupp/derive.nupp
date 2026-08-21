@@ -243,68 +243,6 @@ renderRecord = function(value: any, schema: any, state: any?): string
     return resolved.name .. " { " .. table.concat(parts, ", ") .. " }"
 end
 
--- The two-character escapes JSON defines. Anything else below 32 goes out as \uXXXX.
-local ESCAPES: {
-    [integer]: string
-} = {[8] = "\\b", [9] = "\\t", [10] = "\\n", [12] = "\\f", [13] = "\\r", [34] = '\\"', [92] = "\\\\",}
-
--- Copied out in runs rather than byte by byte: the common case is a string with
--- nothing to escape, and that case should be one `put` of the whole thing.
---
--- The UTF-8 validation is the encoder's, not the decoder's: a Lua string is bytes, and
--- writing invalid UTF-8 into a document that claims to be JSON is how a value that
--- round-tripped locally fails at whoever reads it.
-local function putString(exclusive buf: string.buffer.Buffer, text: any, path: string): nil
-    if type(text) ~= "string" then
-        error(path .. ": expected string", 3)
-    end
-    local subject = text as string
-    buf:put('"')
-    local start = 1
-    local i = 1
-    while i <= #subject do
-        local byte = subject:byte(i) as integer
-        local escaped = ESCAPES[byte]
-        if escaped ~= nil or byte < 32 then
-            if i > start then
-                buf:put(subject:sub(start, i - 1))
-            end
-            buf:put(escaped or string.format("\\u%04X", byte))
-            i = i + 1
-            start = i
-        elseif byte < 128 then
-            i = i + 1
-        else
-            local count = byte >= 240 and 4 or byte >= 224 and 3 or byte >= 194 and 2 or 0
-            if count == 0 or i + count - 1 > #subject then
-                error(path .. ": invalid UTF-8", 3)
-            end
-            local b2, b3, b4 = subject:byte(i + 1, i + 3)
-            if not b2 or b2 < 128 or b2 > 191 or count >= 3 and (
-                not b3 or b3 < 128 or b3 > 191
-            ) or count == 4 and (
-                not b4 or b4 < 128 or b4 > 191
-            )
-                or byte == 224
-                and b2 < 160
-                or byte == 237
-                and b2 >= 160
-                or byte == 240
-                and b2 < 144
-                or byte == 244
-                and b2 >= 144
-                or byte > 244 then
-                error(path .. ": invalid UTF-8", 3)
-            end
-            i = i + count
-        end
-    end
-    if start <= #subject then
-        buf:put(subject:sub(start))
-    end
-    buf:put('"')
-end
-
 local function finite(value: number): boolean
     return value == value and value ~= math.huge and value ~= -math.huge
 end
@@ -328,7 +266,7 @@ local function leave(value: any, state: any): nil
 end
 
 -- Mutually recursive: a field's type may be a shape, and a shape's fields have types.
-local writeValue: function(value: any, spec: any, exclusive buf: string.buffer.Buffer, state: any, path: string): nil
+local writeValue: function(value: any, spec: any, out: nupp.data.json.Writer, json: any, state: any, path: string): nil
 
 -- An object is written from the field list rather than from the value, so a field the
 -- schema does not name never reaches the document however the value came to hold it.
@@ -336,7 +274,8 @@ local function writeObject(
     value: any,
     fields: any,
     unknown: any,
-    exclusive buf: string.buffer.Buffer,
+    out: nupp.data.json.Writer,
+    json: any,
     state: any,
     path: string
 ): nil
@@ -344,38 +283,37 @@ local function writeObject(
         error(path .. ": expected object", 3)
     end
     enter(value, state, path)
-    buf:put("{")
-    local first = true
+    out:startObject()
     for _, field in ipairs(fields) do
         if not field.omit then
             local item = rawget(value, field.name)
             local empty = item == nil or item == "" or item == false or type(item) == "table" and next(item) == nil
             if not (field.omitEmpty and empty) then
-                if not first then
-                    buf:put(",")
-                end
-                first = false
                 local name = field.jsonName or field.name
-                putString(buf, name, path)
-                buf:put(":")
-                writeValue(item, field.jsonType, buf, state, path .. "." .. name)
+                local encodedName = field.encodedName
+                if encodedName == nil then
+                    encodedName = json.encodedString(name)
+                    field.encodedName = encodedName
+                end
+                out:key(encodedName as nupp.data.json.EncodedString)
+                writeValue(item, field.jsonType, out, json, state, path .. "." .. name)
             end
         end
     end
-    buf:put("}")
+    out:close()
     leave(value, state)
 end
 
 -- Every failure carries the path it happened at, because the value being encoded is
 -- often nested several containers deep and "expected finite number" alone does not say
 -- which field held the NaN.
-writeValue = function(value: any, spec: any, exclusive buf: string.buffer.Buffer, state: any, path: string): nil
+writeValue = function(value: any, spec: any, out: nupp.data.json.Writer, json: any, state: any, path: string): nil
     local kind: any = spec and spec.kind
     if kind == "optional" then
         if value == nil then
-            buf:put("null")
+            out:null()
         else
-            writeValue(value, spec.value, buf, state, path)
+            writeValue(value, spec.value, out, json, state, path)
         end
 
         return
@@ -388,38 +326,40 @@ writeValue = function(value: any, spec: any, exclusive buf: string.buffer.Buffer
             error(path .. "." .. spec.jsonTag .. ": unknown discriminant", 3)
         end
 
-        return writeValue(value, selected, buf, state, path)
+        return writeValue(value, selected, out, json, state, path)
     elseif kind == "record" then
         local nested = derived[spec.typeKey]
         if not nested then
             error(path .. ": derived JSON dependency is not loaded", 3)
         end
 
-        return writeObject(value, nested.schema.fields, nested.schema.unknown, buf, state, path)
+        return writeObject(value, nested.schema.fields, nested.schema.unknown, out, json, state, path)
     elseif kind == "string" then
-        return putString(buf, value, path)
+        if type(value) ~= "string" then
+            error(path .. ": expected string", 3)
+        end
+        out:write(value as string)
+
+        return
     elseif kind == "boolean" then
         if type(value) ~= "boolean" then
             error(path .. ": expected boolean", 3)
         end
-        buf:put(value and "true" or "false")
+        out:write(value as boolean)
 
         return
     elseif kind == "literal" then
         if value ~= spec.value then
             error(path .. ": literal value does not match", 3)
         end
-        local base = type(value)
-        if base == "string" then
-            return putString(buf, value, path)
-        elseif base == "boolean" then
-            buf:put(value and "true" or "false")
-
-            return
-        else
-            -- A literal number is written the way any number is, below.
-            kind = "number"
+        local encoded = spec.encoded
+        if encoded == nil then
+            encoded = json.encoded(spec.value)
+            spec.encoded = encoded
         end
+        out:write(encoded as nupp.data.json.EncodedValue)
+
+        return
     end
     if kind == "number" or kind == "float" or kind == "integer" then
         local number = tonumber(value)
@@ -431,9 +371,7 @@ writeValue = function(value: any, spec: any, exclusive buf: string.buffer.Buffer
         ) then
             error(path .. ": integer is out of range", 3)
         end
-        -- Seventeen significant digits is what round-trips a double, and lowercasing
-        -- normalizes the exponent so two runs on two platforms produce one text.
-        buf:put(string.format("%.17g", number):lower())
+        out:write(number)
 
         return
     end
@@ -457,14 +395,11 @@ writeValue = function(value: any, spec: any, exclusive buf: string.buffer.Buffer
         if count ~= maximum then
             error(path .. ": expected dense array", 3)
         end
-        buf:put("[")
+        out:startArray()
         for i = 1, maximum do
-            if i > 1 then
-                buf:put(",")
-            end
-            writeValue(value[i], spec.value, buf, state, path .. "[" .. i .. "]")
+            writeValue(value[i], spec.value, out, json, state, path .. "[" .. i .. "]")
         end
-        buf:put("]")
+        out:close()
         leave(value, state)
 
         return
@@ -475,20 +410,17 @@ writeValue = function(value: any, spec: any, exclusive buf: string.buffer.Buffer
                 error(path .. ": tuple shape does not match", 3)
             end
         end
-        buf:put("[")
+        out:startArray()
         for i, item in ipairs(spec.items) do
-            if i > 1 then
-                buf:put(",")
-            end
-            writeValue(value[i], item, buf, state, path .. "[" .. i .. "]")
+            writeValue(value[i], item, out, json, state, path .. "[" .. i .. "]")
         end
-        buf:put("]")
+        out:close()
         leave(value, state)
 
         return
     elseif kind == "map" then
         enter(value, state, path)
-        buf:put("{")
+        out:startObject()
         -- Sorted, so the same map encodes to the same bytes twice running.
         local keys: {string} = {}
         for key in pairs(value) do
@@ -498,20 +430,16 @@ writeValue = function(value: any, spec: any, exclusive buf: string.buffer.Buffer
             keys[#keys + 1] = key
         end
         table.sort(keys)
-        for i, key in ipairs(keys) do
-            if i > 1 then
-                buf:put(",")
-            end
-            putString(buf, key, path)
-            buf:put(":")
-            writeValue(value[key], spec.value, buf, state, path .. "." .. key)
+        for _, key in ipairs(keys) do
+            out:key(key)
+            writeValue(value[key], spec.value, out, json, state, path .. "." .. key)
         end
-        buf:put("}")
+        out:close()
         leave(value, state)
 
         return
     elseif kind == "shape" then
-        return writeObject(value, spec.fields, spec.unknown, buf, state, path)
+        return writeObject(value, spec.fields, spec.unknown, out, json, state, path)
     end
     error(path .. ": unsupported JSON value", 3)
 end
@@ -779,7 +707,7 @@ function derive.debug<T is table>(value: T, entry: derive.Entry): string
     return renderRecord(value, entry.schema.data.debug, nil)
 end
 
---- Appends a derived record as a JSON document.
+--- Writes a derived record as one JSON value.
 ---
 --- The field list, the renaming and the omission rules all come from the recipe
 --- `@derive(JSON)` folded, so the document is what the declaration asked for rather
@@ -787,10 +715,10 @@ end
 ---
 --- @param value the record to encode
 --- @param entry the type's registry entry
---- @param out the caller-owned destination
-function derive.writeJSON<T is table>(value: T, entry: derive.Entry, exclusive out: string.buffer.Buffer): nil
+--- @param out the checked destination
+function derive.writeJSON<T is table>(value: T, entry: derive.Entry, out: nupp.data.json.Writer): nil
     derivedJSON(entry)
-    writeObject(value, entry.schema.fields, entry.schema.unknown, out, {active = {}, depth = 0}, "$")
+    writeObject(value, entry.schema.fields, entry.schema.unknown, out, entry.decoder, {active = {}, depth = 0}, "$")
 end
 
 --- Encodes a derived record into a newly allocated string.
@@ -799,7 +727,10 @@ end
 --- writes into caller-owned storage and does not expose this allocating route.
 local function encodeJSON<T is table>(value: T, entry: derive.Entry): string
     local out = newBuffer()
-    derive.writeJSON(value, entry, out)
+    local json = require("nupp.data.json")
+    local writer = json.writer(out)
+    derive.writeJSON(value, entry, writer)
+    writer:finish()
 
     return out:tostring()
 end
