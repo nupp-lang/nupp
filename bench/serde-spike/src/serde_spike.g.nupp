@@ -1,0 +1,339 @@
+local m = {}
+
+local json = require("nupp.data.json")
+local native = require("serde_spike_native")
+local buffer = require("string.buffer")
+
+local type FieldKind = "string" | "integer" | "number" | "boolean"
+
+local record Member
+    index: integer
+    name: string
+    kind: FieldKind
+    jsonKey: nupp.data.json.EncodedString
+end
+
+local record Schema
+    members: {Member}
+    native: any
+end
+
+local interface Serializer
+    beginStruct: function(self, schema: Schema): nil
+    writeString: function(self, member: Member, value: string): nil
+    writeInteger: function(self, member: Member, value: integer): nil
+    writeNumber: function(self, member: Member, value: number): nil
+    writeBoolean: function(self, member: Member, value: boolean): nil
+    endStruct: function(self): nil
+    finish: function(self): string
+end
+
+local record JsonSerializer is Serializer
+    out: string.buffer.Buffer
+    writer: nupp.data.json.Writer
+
+    function beginStruct(self, schema: Schema): nil
+        self.writer:startObject()
+    end
+
+    function writeString(self, member: Member, value: string): nil
+        self.writer:key(member.jsonKey):write(value)
+    end
+
+    function writeInteger(self, member: Member, value: integer): nil
+        self.writer:key(member.jsonKey):write(value)
+    end
+
+    function writeNumber(self, member: Member, value: number): nil
+        self.writer:key(member.jsonKey):write(value)
+    end
+
+    function writeBoolean(self, member: Member, value: boolean): nil
+        self.writer:key(member.jsonKey):write(value)
+    end
+
+    function endStruct(self): nil
+        self.writer:close()
+    end
+
+    function finish(self): string
+        self.writer:finish()
+        return self.out:tostring()
+    end
+end
+
+local function member(index: integer, name: string, kind: FieldKind): Member
+    return new Member(
+        index = index,
+        name = name,
+        kind = kind,
+        jsonKey = json.encodedString(name)
+    )
+end
+
+local function schema(members: {Member}): Schema
+    local fields: {any} = {}
+    for index, item in ipairs(members) do
+        fields[index] = {
+            name = item.name,
+            wire = item.name,
+            kind = item.kind,
+        }
+    end
+    return new Schema(members = members, native = native.compile(fields))
+end
+
+local function serializer(): JsonSerializer
+    local out = buffer.new()
+    return new JsonSerializer(out = out, writer = json.writer(out))
+end
+
+local function genericEncode(value: any, description: Schema, slots: boolean): string
+    local target = serializer()
+    target:beginStruct(description)
+    for _, item in ipairs(description.members) do
+        local field: any
+        if slots then
+            field = value[item.index]
+        else
+            field = rawget(value, item.name)
+        end
+        if item.kind == "string" then
+            target:writeString(item, field as string)
+        elseif item.kind == "integer" then
+            target:writeInteger(item, field as integer)
+        elseif item.kind == "number" then
+            target:writeNumber(item, field as number)
+        else
+            target:writeBoolean(item, field as boolean)
+        end
+    end
+    target:endStruct()
+    return target:finish()
+end
+
+local smallMembers = {
+    member(1, "id", "integer"),
+    member(2, "active", "boolean"),
+    member(3, "name", "string"),
+}
+local smallSchema = schema(smallMembers)
+
+@derive(nupp.derive.JSON)
+local record Small
+    id: integer
+    active: boolean
+    name: string
+
+    function serializeSerde(self, target: Serializer): nil
+        target:beginStruct(smallSchema)
+        target:writeInteger(smallMembers[1], self.id)
+        target:writeBoolean(smallMembers[2], self.active)
+        target:writeString(smallMembers[3], self.name)
+        target:endStruct()
+    end
+end
+
+local mediumMembers = {
+    member(1, "id", "integer"),
+    member(2, "active", "boolean"),
+    member(3, "name", "string"),
+    member(4, "count", "integer"),
+    member(5, "score", "number"),
+    member(6, "region", "string"),
+    member(7, "enabled", "boolean"),
+    member(8, "version", "integer"),
+    member(9, "ratio", "number"),
+    member(10, "owner", "string"),
+    member(11, "retries", "integer"),
+    member(12, "cached", "boolean"),
+}
+local mediumSchema = schema(mediumMembers)
+
+@derive(nupp.derive.JSON)
+@json(unknown = "ignore")
+local record Medium
+    id: integer
+    active: boolean
+    name: string
+    count: integer
+    score: number
+    region: string
+    enabled: boolean
+    version: integer
+    ratio: number
+    owner: string
+    retries: integer
+    cached: boolean
+
+    function serializeSerde(self, target: Serializer): nil
+        target:beginStruct(mediumSchema)
+        target:writeInteger(mediumMembers[1], self.id)
+        target:writeBoolean(mediumMembers[2], self.active)
+        target:writeString(mediumMembers[3], self.name)
+        target:writeInteger(mediumMembers[4], self.count)
+        target:writeNumber(mediumMembers[5], self.score)
+        target:writeString(mediumMembers[6], self.region)
+        target:writeBoolean(mediumMembers[7], self.enabled)
+        target:writeInteger(mediumMembers[8], self.version)
+        target:writeNumber(mediumMembers[9], self.ratio)
+        target:writeString(mediumMembers[10], self.owner)
+        target:writeInteger(mediumMembers[11], self.retries)
+        target:writeBoolean(mediumMembers[12], self.cached)
+        target:endStruct()
+    end
+end
+
+local smallValue = new Small(id = 41, active = true, name = "Ada")
+local smallSlots: {any} = {41, true, "Ada"}
+local mediumValue = new Medium(
+    id = 41,
+    active = true,
+    name = "Ada",
+    count = 1701,
+    score = 98.25,
+    region = "us-east-1",
+    enabled = false,
+    version = 7,
+    ratio = 0.625,
+    owner = "example-owner",
+    retries = 3,
+    cached = true
+)
+local mediumSlots: {any} = {
+    41, true, "Ada", 1701, 98.25, "us-east-1", false, 7, 0.625,
+    "example-owner", 3, true,
+}
+
+function m.currentEncodeSmall(): string
+    return json.encodeAs(Small, smallValue)
+end
+
+function m.documentEncodeSmall(): string
+    return json.encode(smallValue)
+end
+
+function m.directEncodeSmall(): string
+    local target = serializer()
+    target.writer:startObject()
+    target.writer:key(smallMembers[1].jsonKey):write(smallValue.id)
+    target.writer:key(smallMembers[2].jsonKey):write(smallValue.active)
+    target.writer:key(smallMembers[3].jsonKey):write(smallValue.name)
+    target.writer:close():finish()
+    return target.out:tostring()
+end
+
+function m.serdeEncodeSmall(): string
+    local target = serializer()
+    smallValue:serializeSerde(target)
+    return target:finish()
+end
+
+function m.genericEncodeSmall(): string
+    return genericEncode(smallValue, smallSchema, false)
+end
+
+function m.dynamicEncodeSmall(): string
+    return genericEncode(smallSlots, smallSchema, true)
+end
+
+function m.nativeEncodeSmall(): string
+    return native.encodeRecord(smallSchema.native, smallValue) as string
+end
+
+function m.nativeDynamicEncodeSmall(): string
+    return native.encodeSlots(smallSchema.native, smallSlots) as string
+end
+
+function m.currentEncodeMedium(): string
+    return json.encodeAs(Medium, mediumValue)
+end
+
+function m.documentEncodeMedium(): string
+    return json.encode(mediumValue)
+end
+
+function m.serdeEncodeMedium(): string
+    local target = serializer()
+    mediumValue:serializeSerde(target)
+    return target:finish()
+end
+
+function m.genericEncodeMedium(): string
+    return genericEncode(mediumValue, mediumSchema, false)
+end
+
+function m.dynamicEncodeMedium(): string
+    return genericEncode(mediumSlots, mediumSchema, true)
+end
+
+function m.nativeEncodeMedium(): string
+    return native.encodeRecord(mediumSchema.native, mediumValue) as string
+end
+
+function m.nativeDynamicEncodeMedium(): string
+    return native.encodeSlots(mediumSchema.native, mediumSlots) as string
+end
+
+local smallJson = m.nativeEncodeSmall()
+local mediumJson = m.nativeEncodeMedium()
+local mediumReverseJson = [[{"cached":true,"retries":3,"owner":"example-owner","ratio":0.625,"version":7,"enabled":false,"region":"us-east-1","score":98.25,"count":1701,"name":"Ada","active":true,"id":41}]]
+local mediumUnknownJson = [[{"ignored":{"nested":[1,2,3]},"id":41,"active":true,"name":"Ada","count":1701,"score":98.25,"region":"us-east-1","enabled":false,"version":7,"ratio":0.625,"owner":"example-owner","retries":3,"cached":true}]]
+
+function m.currentDecodeSmall(): Small
+    return assert(Small.fromJSON(smallJson))
+end
+
+function m.documentDecodeSmall(): any
+    return json.decode(smallJson)
+end
+
+function m.nativeDecodeSmall(): Small
+    return native.decodeRecord(smallSchema.native, smallJson, Small) as Small
+end
+
+function m.nativeDynamicDecodeSmall(): any
+    return native.decodeSlots(smallSchema.native, smallJson)
+end
+
+function m.currentDecodeMedium(): Medium
+    return assert(Medium.fromJSON(mediumJson))
+end
+
+function m.documentDecodeMedium(): any
+    return json.decode(mediumJson)
+end
+
+function m.nativeDecodeMedium(): Medium
+    return native.decodeRecord(mediumSchema.native, mediumJson, Medium) as Medium
+end
+
+function m.nativeDynamicDecodeMedium(): any
+    return native.decodeSlots(mediumSchema.native, mediumJson)
+end
+
+function m.nativeDecodeMediumReverse(): Medium
+    return native.decodeRecord(mediumSchema.native, mediumReverseJson, Medium) as Medium
+end
+
+function m.nativeDecodeMediumUnknown(): Medium
+    return native.decodeRecord(mediumSchema.native, mediumUnknownJson, Medium) as Medium
+end
+
+function m.currentDecodeMediumReverse(): Medium
+    return assert(Medium.fromJSON(mediumReverseJson))
+end
+
+function m.currentDecodeMediumUnknown(): Medium
+    return assert(Medium.fromJSON(mediumUnknownJson))
+end
+
+function m.smallJson(): string
+    return smallJson
+end
+
+function m.mediumJson(): string
+    return mediumJson
+end
+
+return m

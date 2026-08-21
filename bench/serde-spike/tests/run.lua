@@ -1,0 +1,44 @@
+local spike = require("serde_spike")
+
+local small = spike.smallJson()
+for _, name in ipairs({
+   "currentEncodeSmall",
+   "directEncodeSmall",
+   "serdeEncodeSmall",
+   "genericEncodeSmall",
+   "dynamicEncodeSmall",
+   "nativeEncodeSmall",
+   "nativeDynamicEncodeSmall",
+}) do
+   assert(spike[name]() == small, name .. " produced different JSON")
+end
+local smallDocument = require("jsonNative").decode(spike.documentEncodeSmall())
+assert(smallDocument.id == 41 and smallDocument.active and smallDocument.name == "Ada")
+
+local medium = spike.mediumJson()
+for _, name in ipairs({
+   "currentEncodeMedium",
+   "serdeEncodeMedium",
+   "genericEncodeMedium",
+   "dynamicEncodeMedium",
+   "nativeEncodeMedium",
+   "nativeDynamicEncodeMedium",
+}) do
+   assert(spike[name]() == medium, name .. " produced different JSON")
+end
+local mediumDocument = require("jsonNative").decode(spike.documentEncodeMedium())
+assert(mediumDocument.id == 41 and mediumDocument.owner == "example-owner")
+
+assert(spike.currentDecodeSmall().id == 41)
+assert(spike.documentDecodeSmall().id == 41)
+assert(spike.nativeDecodeSmall().id == 41)
+assert(spike.nativeDynamicDecodeSmall()[1] == 41)
+
+assert(spike.currentDecodeMedium().owner == "example-owner")
+assert(spike.documentDecodeMedium().owner == "example-owner")
+assert(spike.nativeDecodeMedium().owner == "example-owner")
+assert(spike.nativeDynamicDecodeMedium()[10] == "example-owner")
+assert(spike.currentDecodeMediumReverse().owner == "example-owner")
+assert(spike.nativeDecodeMediumReverse().owner == "example-owner")
+assert(spike.currentDecodeMediumUnknown().owner == "example-owner")
+assert(spike.nativeDecodeMediumUnknown().owner == "example-owner")
