@@ -36,6 +36,7 @@ local materializeIR = require("nupp.compiler.materialize.ir") as {
 local stable = require("nupp.compiler.build.cache").stable
 local fixedWidth = require("nupp.compiler.fixedwidth")
 local capabilities = require("nupp.compiler.capabilities")
+local runtimeSurface = require("nupp.compiler.runtimesurface")
 
 local expr = {}
 
@@ -864,6 +865,10 @@ function expr.install(c: state.Checker): nil
                 entry and entry.t or T.any,
                 entry and entry.definition and entry.definition.kind or "variable"
             )
+            local runtimeRoot = runtimeSurface.resolvedRoot(c, nameTok) or entry and entry.runtimeSurfaceRoot
+            local runtimeNode = node as any
+            runtimeNode.runtimeSurfaceRoot = runtimeRoot
+            runtimeSurface.requireIdentity(c, runtimeRoot, nil, nameTok)
             if not entry then
                 -- An unknown name is `any` and says nothing, which is right for a name
                 -- nobody has heard of. When a project file is named after it, the

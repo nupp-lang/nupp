@@ -1233,6 +1233,13 @@ local ENTRIES: {any} = {
         docs = "docs/neps/0013-dialects-and-capability-backends.md",
     },
     {
+        code = "NUPP3010",
+        summary = "A resolved prelude identity is outside the portable runtime surface",
+        rule = "The `lua51` dialect runs on Lua 5.1 through 5.4 and LuaJIT, so an ambient prelude identity is available only when it has the same contract throughout that matrix or the compiler lowers it explicitly. A same-spelled local or ordinary table field is a different definition and remains application code.",
+        related = {"NUPP3006", "NUPP3009"},
+        docs = "docs/neps/0013-dialects-and-capability-backends.md",
+    },
+    {
         code = "NUPP3001",
         summary = "`is` has nothing to test against this type",
         rule = "A record is identified by the metatable it stamps and a struct "

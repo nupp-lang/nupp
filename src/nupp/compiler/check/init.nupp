@@ -2118,6 +2118,9 @@ function checkMod.check(
             c.diag("NUPP1002", stat.modifier or stat, "'global' is not allowed in a declared module; use 'export'")
             stat.visibility = "local"
         end
+        if stat.kind == "recordDecl" and stat.declKind == "struct" then
+            require("nupp.compiler.capabilities").require(c, "structvalue", stat)
+        end
         c.checkTypedecl(stat)
     end
 

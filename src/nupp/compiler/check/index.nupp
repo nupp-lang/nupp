@@ -20,6 +20,7 @@ local scalarIntrinsics = require("nupp.compiler.scalarintrinsics")
 local fixedWidth = require("nupp.compiler.fixedwidth")
 local native = require("nupp.compiler.native")
 local indexedViews = require("nupp.compiler.indexedviews")
+local runtimeSurface = require("nupp.compiler.runtimesurface")
 
 local isA = relations.isA
 local rawType = T.unwrapOwnership
@@ -228,6 +229,7 @@ function index.install(c: state.Checker): state.ExprHandlers
                 local moduleType = c.env.resolveModule(c.env, moduleName)
                 if moduleType then
                     c.infer(target)
+                    runtimeSurface.requireIdentity(c, (target as any).runtimeSurfaceRoot, memberName, member)
                     node.compilerModule = moduleName
                     node.immutablePath = true
                     node.resolvedType = moduleType
@@ -286,6 +288,7 @@ function index.install(c: state.Checker): state.ExprHandlers
             end
         end
         local trackedObject = c.infer(target)
+        runtimeSurface.requireIdentity(c, (target as any).runtimeSurfaceRoot, memberName, member)
         local intrinsicPath = c.pathKey(node)
         if intrinsicPath then
             local root = target

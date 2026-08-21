@@ -7084,10 +7084,20 @@ function gen.generate(
             .. code
     end
     if needsClearTab then
-        code = ("const %s = require(\"table.clear\"); "):format(clearTabName) .. code
+        if pluck.portable then
+            code = ("local function %s(t) for k in next,t do t[k]=nil end end; "):format(clearTabName) .. code
+        else
+            code = ("const %s = require(\"table.clear\"); "):format(clearTabName) .. code
+        end
     end
     if needsNewTab then
-        code = ("const %s = require(\"table.new\"); "):format(newTabName) .. code
+        if pluck.portable then
+            -- The call still evaluates both capacity arguments before entering this
+            -- helper. Only their allocation hint is erased.
+            code = ("local function %s(_,_) return {} end; "):format(newTabName) .. code
+        else
+            code = ("const %s = require(\"table.new\"); "):format(newTabName) .. code
+        end
     end
     if needsMetatypeOnce then
         -- `ffi.metatype` claims a ctype once per process. A named struct's tag encodes
@@ -7228,6 +7238,10 @@ function gen.generate(
 
     if pluck.portable then
         code = lowerPortableConst(code)
+        -- These are the two moved names emitted code itself reaches. Keeping the
+        -- compatibility floor lexical avoids mutating the process global table and
+        -- leaves a same-spelled source local free to shadow it normally.
+        code = "local unpack=unpack or table.unpack;local loadstring=loadstring or load;" .. code
     end
 
     -- Prelude implementation bodies are ordinary checked and generated Nupp. Execute

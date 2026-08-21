@@ -20,6 +20,16 @@ local CONTRACTS = {
         seams = {lua51 = {name = "numeric.int64", version = 1, effect = "runtime.int64",},},
     },
     cinterop = {native = {luajit = true}, seams = {},},
+    structvalue = {
+        native = {luajit = true},
+        seams = {lua51 = {name = "representation.structvalue", version = 1, effect = "runtime.structvalue",},},
+    },
+    cstorage = {native = {luajit = true}, seams = {},},
+    presize = {native = {luajit = true}, compiler = {lua51 = true}, seams = {},},
+    simd = {
+        native = {luajit = true},
+        seams = {lua51 = {name = "numeric.simd", version = 1, effect = "runtime.simd",},},
+    },
 }
 
 --- Resolves every closed capability for one dialect and selected backend set.
@@ -28,6 +38,8 @@ function capabilities.resolve(dialect: string, backends: any?): any
     for name, contract in pairs(CONTRACTS) do
         if contract.native[dialect] then
             resolved.byName[name] = {kind = "native", name = name,}
+        elseif contract.compiler and contract.compiler[dialect] then
+            resolved.byName[name] = {kind = "compiler", name = name,}
         else
             local required = contract.seams[dialect]
             local selected = required and backends and backends.seams[required.name] or nil

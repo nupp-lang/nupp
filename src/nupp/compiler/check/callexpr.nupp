@@ -30,6 +30,7 @@ local state = require("nupp.compiler.check.state")
 local pegTyping = require(
     "nupp.compiler.materialize.peg"
 ) as {inferSourceResult: function(string, T.Type?): (T.Pack?, any)}
+local runtimeSurface = require("nupp.compiler.runtimesurface")
 
 local isA = relations.isA
 local packIsA = relations.packIsA
@@ -964,6 +965,7 @@ function callexpr.install(c: state.Checker): state.ExprHandlers
                 local text = tok.text
                 local modname = text:match('^"(.*)"$') or text:match("^'(.*)'$")
                 if modname then
+                    runtimeSurface.requireModule(c, modname, tok)
                     node.requiredModule = modname
                     local modulePath = c.env.findModulePath and c.env.findModulePath(c.env, modname) or nil
                     local canonical = modulePath and c.env.moduleNameForPath and c.env.moduleNameForPath(

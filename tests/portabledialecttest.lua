@@ -47,6 +47,14 @@ function M.realCorpusRunsUnderStockLuaAndLuaJIT()
    end
    assert(not generated:match("%f[%a]const%f[^%w_]"),
       "portable generated output retained const:\n" .. generated)
+   assert(generated:find("local unpack=unpack or table.unpack", 1, true),
+      "portable output binds the moved unpack identity:\n" .. generated)
+   assert(generated:find("local loadstring=loadstring or load", 1, true),
+      "portable output binds the moved loadstring identity:\n" .. generated)
+   assert(not generated:find('require("table.new")', 1, true),
+      "portable table.new is a compiler lowering:\n" .. generated)
+   assert(not generated:find('require("table.clear")', 1, true),
+      "portable table.clear is a compiler lowering:\n" .. generated)
 end
 
 function M.explicitNativeDialectChangesNoGeneratedByte()
@@ -84,6 +92,64 @@ function M.cdataNumeralsRequireRepresentationsThePortableDialectDoesNotHave()
    assertEq(#portableDiags, 3, "each unportable cdata numeral is diagnosed")
    assert(portableDiags[1].msg:find("`int64` capability", 1, true), portableDiags[1].msg)
    assert(portableDiags[3].msg:find("`cinterop` capability", 1, true), portableDiags[3].msg)
+end
+
+function M.runtimeSpecificPreludeUsesAreDefinitionBased()
+   local source = table.concat({
+      "local values = {",
+      "    setfenv, getfenv, package.loaders, bit, jit,",
+      "    require(\"ffi\"), require(\"string.buffer\"), string.buffer,",
+      "}",
+      "local packageAlias = package",
+      "values[#values + 1] = packageAlias.loaders",
+      "return values",
+   }, "\n")
+   local _, nativeDiags = checked(source, "luajit")
+   assertEq(#nativeDiags, 0, "LuaJIT retains its native prelude identities")
+   local _, portableDiags = checked(source, "lua51")
+   local identities = {}
+   for _, diag in ipairs(portableDiags) do
+      if diag.code == "NUPP3010" then
+         identities[#identities + 1] = diag.msg
+      end
+   end
+   assertEq(#identities, 9, "every runtime-specific resolved identity is diagnosed")
+   assert(table.concat(identities, "\n"):find("package.loaders", 1, true),
+      "the member identity is named")
+   assert(table.concat(identities, "\n"):find("module `ffi`", 1, true),
+      "the LuaJIT module is named")
+
+   local shadowed = table.concat({
+      "local setfenv = 1",
+      "local getfenv = 2",
+      "local package = {loaders = 3}",
+      "local bit = 4",
+      "local jit = 5",
+      "return setfenv + getfenv + package.loaders + bit + jit",
+   }, "\n")
+   local _, shadowedDiags = checked(shadowed, "lua51")
+   for _, diag in ipairs(shadowedDiags) do
+      assert(diag.code ~= "NUPP3010", "application definitions remain portable: " .. diag.msg)
+   end
+end
+
+function M.portableCheckingStopsUnavailableRepresentationsBeforeGeneration()
+   local cases = {
+      {source = "local struct Point\n    x: number\nend\nreturn Point", capability = "structvalue"},
+      {source = "local type Pointer = int32*\nreturn 1", capability = "cstorage"},
+      {source = "cdef function read(value: int32): int32\nreturn read", capability = "cinterop"},
+   }
+   for _, case in ipairs(cases) do
+      local _, nativeDiags = checked(case.source, "luajit")
+      assertEq(#nativeDiags, 0, "LuaJIT retains native " .. case.capability)
+      local _, portableDiags = checked(case.source, "lua51")
+      local found = false
+      for _, diag in ipairs(portableDiags) do
+         found = found or diag.code == "NUPP3006" and
+            diag.msg:find("`" .. case.capability .. "` capability", 1, true) ~= nil
+      end
+      assert(found, "portable check reports missing " .. case.capability)
+   end
 end
 
 function M.constErasureDoesNotRewriteStringContents()
