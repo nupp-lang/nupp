@@ -177,9 +177,7 @@ separately from the return type. [Follow the call from function to
 scheduler](concepts/suspension/index.html).
 
 ```nupp
-const http = nupp.io.http
-const suspension = nupp.suspension
-const uri = nupp.io.uri
+const http, uri = nupp.io.http, nupp.io.uri
 
 const client = new http.Client()
 
@@ -191,7 +189,7 @@ local function fetch(url: string): integer
     return status
 end
 
-const statuses = suspension.all({
+const statuses = nupp.suspension.all({
     || -> fetch("https://example.com/"),
     || -> fetch("https://example.org/")
 })
