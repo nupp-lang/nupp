@@ -15,7 +15,20 @@ local jsonSeam = {}
 jsonSeam.moduleName = "nupp.runtime.seam.json"
 jsonSeam.suiteModuleName = "nupp.runtime.seam.jsonsuite"
 
-local REQUIRED_FUNCTIONS = {"arrayOf", "asArray", "asObject", "decode", "encode", "pull", "serialize", "writer",}
+local REQUIRED_FUNCTIONS = {
+    "arrayOf",
+    "asArray",
+    "asObject",
+    "decode",
+    "encode",
+    "encoded",
+    "encodedString",
+    "pull",
+    "serialize",
+    "verified",
+    "verifiedString",
+    "writer",
+}
 
 --- Answers why one loaded value cannot satisfy the shallow runtime contract.
 function jsonSeam.validate(value: any): string?

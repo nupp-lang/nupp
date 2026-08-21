@@ -901,6 +901,8 @@ json.arrayOf, json.asArray, json.asObject = same, same, same
 json.decode, json.pull = same, same
 function json.encode(value) return "portable:" .. tostring(value.answer) end
 json.serialize = json.encode
+json.encoded, json.encodedString = same, same
+json.verified, json.verifiedString = same, same
 json.writer = same
 return json
 ]])

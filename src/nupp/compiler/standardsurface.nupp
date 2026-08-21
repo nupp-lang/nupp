@@ -18,6 +18,7 @@ local MODULES = {
     ["nupp.data"] = {kind = "members"},
     ["nupp.data.json"] = selected("runtime", "data.json"),
     ["nupp.data.hmac"] = selected("runtime", "crypto.hmac_sha256", true),
+    ["nupp.data.serde"] = {kind = "unavailable", capability = "cstorage"},
     ["nupp.data.utf8"] = selected("runtime", "data.utf8"),
     ["nupp.derive"] = {kind = "compiler"},
     ["nupp.hotreload"] = {kind = "unavailable", capability = "cinterop"},

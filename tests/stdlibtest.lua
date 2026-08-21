@@ -184,9 +184,11 @@ function M.standardSurfaceRequiresExactPortableSeams()
       "   data.sha256('abc'), data.uuid4(), data.uuid7(), data.WORD_BITS",
    }, "\n"), {dialect = "lua51", backendResolution = selected})
    local classified = standardsurface.all()
-   for _, name in ipairs({"nupp.data.json", "nupp.data.utf8", "nupp.io.files", "nupp.io.http", "nupp.io.process", "nupp.io.path", "nupp.io.uri", "nupp.mem", "nupp.native", "nupp.simd", "nupp.workers"}) do
+   for _, name in ipairs({"nupp.data.json", "nupp.data.serde", "nupp.data.utf8", "nupp.io.files", "nupp.io.http", "nupp.io.process", "nupp.io.path", "nupp.io.uri", "nupp.mem", "nupp.native", "nupp.simd", "nupp.workers"}) do
       assert(classified[name], "public standard module is classified: " .. name)
    end
+   local serde = diagsOf("local serde = require('nupp.data.serde')", {dialect = "lua51"})
+   assertEq(serde, "NUPP3006:1", "C-backed serde is refused before portable generation")
 end
 
 
@@ -493,8 +495,12 @@ function M.runtimeJsonProviderIsOptInLazyAndChecked()
          asObject = same,
          decode = same,
          encode = same,
+         encoded = same,
+         encodedString = same,
          pull = same,
          serialize = same,
+         verified = same,
+         verifiedString = same,
          writer = same,
       }
    end

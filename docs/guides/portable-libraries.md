@@ -313,7 +313,7 @@ lowering or a complete seam. These boundaries remain unavailable under
 `lua51`:
 
 - `cdef`, C pointers, and other `cinterop` operations;
-- C-backed storage and modules built on `nupp.mem`;
+- C-backed storage, `nupp.data.serde`, and modules built on `nupp.mem`;
 - authored labels and `goto`;
 - direct use of LuaJIT-only prelude identities and VM modules; and
 - standard modules with no selected seam.

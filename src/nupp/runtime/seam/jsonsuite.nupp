@@ -12,6 +12,38 @@ checkable without putting test-vector construction on the install path.
 
 local jsonSuite = {}
 
+local function tableBuffer(): any
+    local parts = {}
+    local output = {}
+    function output:put(value: string): any
+        parts[#parts + 1] = value
+        return self
+    end
+
+    function output:tostring(): string
+        return table.concat(parts)
+    end
+
+    return output
+end
+
+local function writerFor(provider: any): (any, any)
+    local output = tableBuffer()
+    local opened, writer = pcall(provider.writer, output, provider.NULL)
+    if opened then
+        return output, writer
+    end
+
+    local nativeBufferName = "string." .. "buffer"
+    local loaded, nativeBuffer = pcall(require, nativeBufferName)
+    if not loaded then
+        error("writer must accept a portable output buffer: " .. tostring(writer), 0)
+    end
+    output = nativeBuffer.new()
+
+    return output, provider.writer(output, provider.NULL)
+end
+
 --- Runs the behavioral contract against one structurally valid implementation.
 function jsonSuite.test(provider: any): (boolean, string?)
     local ok, problem = pcall(function()
@@ -31,11 +63,21 @@ function jsonSuite.test(provider: any): (boolean, string?)
         assert(type(pulled) == "table" and pulled.answer == 42, "pull must retain selected object members")
         assert(pulled.ignored == nil, "pull must discard unselected object members")
 
-        local writer = provider.writer(provider.NULL)
-        local document = writer:startArray():write(1):null():close():finish()
+        local output, writer = writerFor(provider)
+        writer:startObject()
+            :key(provider.encodedString("answer"))
+            :write(1)
+            :key(provider.verifiedString('"nothing"'))
+            :write(provider.verified("null"))
+            :key("nested")
+            :write(provider.encoded({answer = 42}))
+            :endObject()
+        writer:close()
+        local document = output:tostring()
         local values = provider.decode(document, provider.NULL)
-        assert(type(values) == "table" and values[1] == 1, "writer must emit its first array member")
-        assert(values[2] == provider.NULL, "writer null must use the configured replacement")
+        assert(type(values) == "table" and values.answer == 1, "writer must emit an encoded key")
+        assert(values.nothing == provider.NULL, "writer must accept verified JSON values")
+        assert(type(values.nested) == "table" and values.nested.answer == 42, "writer must accept encoded values")
     end)
     if not ok then
         return false, tostring(problem)
