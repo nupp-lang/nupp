@@ -1,21 +1,27 @@
 # Portable Lua libraries
 
-A portable library lowers the same `.nupp` source into separate LuaJIT and
-Lua 5.1 artifacts. Use a `lua51` target with checked backends beside the
-default `luajit` target:
+Nupp libraries can be written to take full advantage of LuaJIT's performance
+features, and that same library can be compiled to work with Lua 5.1 too.
 
 ```lua
 return {
    include = { "src" },
-   build = { default = "portable", targets = {
-      native = {
-         entries = { "main" }, dialect = "luajit", outDir = "build/luajit",
-      },
-      portable = {
-         entries = { "main" }, dialect = "lua51", outDir = "build/lua51",
-         backends = { "portable.backend" },
-      },
-   } },
+   build = {
+      default = "portable",
+      targets = {
+         native = {
+            entries = { "main" },
+            dialect = "luajit",
+            outDir = "build/luajit",
+         },
+         portable = {
+            entries = { "main" },
+            dialect = "lua51",
+            outDir = "build/lua51",
+            backends = { "portable.backend" },
+         }
+      }
+   }
 }
 ```
 
@@ -147,16 +153,19 @@ return {
          kind = "luarocks",
          rock = "acme-crypto",
          version = "1.0-1",
-      },
+      }
    },
-   build = { default = "portable", targets = {
-      portable = {
-         entries = { "main" },
-         dialect = "lua51",
-         dependencies = { "crypto" },
-         backends = { "acme.cryptobackend" },
-      },
-   } },
+   build = {
+      default = "portable",
+      targets = {
+         portable = {
+            entries = { "main" },
+            dialect = "lua51",
+            dependencies = { "crypto" },
+            backends = { "acme.cryptobackend" }
+         }
+      }
+   }
 }
 ```
 
@@ -219,18 +228,20 @@ target. A dependency-backed entry also records the package and pinned version:
 
 ```json
 {
-  "dialect": "lua51",
-  "backendResolution": [{
-    "name": "crypto.hmac_sha256",
-    "version": 1,
-    "binding": "runtime",
-    "backend": "acme.cryptobackend",
-    "runtimeModule": "acme.hmac_sha256",
-    "runtimeDependency": {
-      "package": "acme-crypto",
-      "version": "1.0-1"
-    }
-  }]
+   "dialect": "lua51",
+   "backendResolution": [
+      {
+         "name": "crypto.hmac_sha256",
+         "version": 1,
+         "binding": "runtime",
+         "backend": "acme.cryptobackend",
+         "runtimeModule": "acme.hmac_sha256",
+         "runtimeDependency": {
+            "package": "acme-crypto",
+            "version": "1.0-1"
+         }
+      }
+   ]
 }
 ```
 
