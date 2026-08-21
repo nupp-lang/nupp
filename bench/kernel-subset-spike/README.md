@@ -375,6 +375,45 @@ of forty thousand samples. The difference is headroom rather than correctness:
 one fused multiply-add is under an ulp either way, and binary64 has enough of
 them left that on this view no escape test landed on the other side of four.
 
+## Three things that do not make the lane body faster
+
+Measured rather than reasoned about, because reading the emitted loop suggested
+all three and none survived. Same kernel, same view, checksums identical in
+every case, best of five interleaved rounds.
+
+```
+ Change                                       MPix/s   Verdict
+ ───────────────────────────────────────────  ──────   ──────────────
+ (shipped) vwhile, 8 lanes                     108.9
+ uniform trip bound, live test each pass       110.1   +1%, not worth it
+ uniform trip bound, live test every 8          98.2   -10%
+ narrow the gang to one register (neon = 16)    83.1   -28%
+```
+
+The inner loop spends 8 of its 40 instructions maintaining a per-lane iteration
+counter and re-deriving `iteration < maxIterations`, which `vwhile_uniform`
+would not pay -- but this loop carries a `break`, so it cannot take that form,
+and hand-writing the shape it lacks (a uniform trip bound around a per-lane
+exit) is worth one percent. The loop is not instruction-bound the way counting
+instructions suggests.
+
+Testing liveness less often is worse, not better. Seven instructions a pass is
+real, but a gang that keeps computing after its last lane retires wastes whole
+iterations to save them, and on this view that trade loses by ten percent.
+
+The `neon = 32` entry in `TIERS` is the one deliberate width in the table that
+is not a machine register, and it earns it: an `f32x8` operation is two NEON
+instructions, so a wider gang buys no arithmetic -- it amortizes the loop
+overhead and the horizontal test over twice the lanes, and that alone is worth
+1.39x against the same source at four. It pays this despite carrying more
+divergence waste, 1.43x against 1.22x.
+
+Against `forgo`, a Go fork whose `archsimd` exposes only `Float32x4` on arm64
+and so cannot write an eight-lane float32 kernel at all: at four lanes its
+generated code is about 1.12x this backend's, and the eight-lane gang here is
+about 1.24x its four-lane one. The gap at equal width is modest; the width is
+where the win is.
+
 ## Checked boundary
 
 The scalar subset currently covers:
