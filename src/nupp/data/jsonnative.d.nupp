@@ -38,6 +38,12 @@ record json
         --- @return this writer
         key: function(self: Writer, name: string): Writer
 
+        --- Selects the next object member directly from a byte buffer.
+        --- @param self this writer
+        --- @param name the buffer holding the next object member name
+        --- @return this writer
+        keyBuffer: function(self: Writer, borrows name: string.buffer.Buffer): Writer
+
         --- Appends one complete Lua value.
         --- @param self this writer
         --- @param value the next complete JSON value

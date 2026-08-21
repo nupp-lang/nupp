@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- Let the incremental JSON writer select an object member with
+  `keyBuffer(name)`, reading a borrowed `string.buffer.Buffer` in place instead
+  of allocating an intermediate Lua string.
+
 - Make derived JSON emission append to caller-owned storage. `@derive(JSON)`
   now generates `writeJSON(out)` over `string.buffer.Buffer`, and the
   type-witness API adds `writeAs` and `writeRecord`, so callers can reuse

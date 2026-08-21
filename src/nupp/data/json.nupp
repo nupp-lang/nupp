@@ -102,6 +102,21 @@ export interface Writer
     --- @return this writer
     key: function(self: Writer, name: string): Writer
 
+    --- Selects the next object member from a byte buffer without first copying its
+    --- contents into a string.
+    ---
+    --- ```nupp
+    --- local name = string.buffer.new()
+    --- name:put('quoted"key')
+    --- local writer = nupp.data.json.writer()
+    --- local text = writer:startObject():keyBuffer(name):write(42):close():finish()
+    --- assert(text == [[{"quoted\"key":42}]])
+    --- ```
+    --- @param self the writer
+    --- @param name the buffer holding the next member name
+    --- @return this writer
+    keyBuffer: function(self: Writer, borrows name: string.buffer.Buffer): Writer
+
     --- Appends one complete Lua value.
     ---
     --- ```nupp

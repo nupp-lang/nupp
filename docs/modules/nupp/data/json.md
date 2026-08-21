@@ -78,6 +78,11 @@ writer:startObject():key("items"):startArray():write(1):write(2):close():close()
 local text = writer:finish()
 ```
 
+`keyBuffer(name)` reads an object member name directly from the unconsumed bytes
+of a borrowed `string.buffer.Buffer`. It avoids allocating the intermediate Lua
+string that `key(name)` would otherwise require; the buffer is not consumed or
+retained.
+
 ## Derived records
 
 For a record deriving `nupp.derive.JSON`, `writeRecord(value, out)` discovers

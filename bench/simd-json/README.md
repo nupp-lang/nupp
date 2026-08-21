@@ -20,9 +20,10 @@ calibration calls alongside the public parsing and serialization operations:
 - `simdjson_bench.encode(value, nullValue)` (also named `serialize`) converts a
   Lua value to JSON with simdjson's low-level string builder.
 - `simdjson_bench.writer(nullValue)` exposes the same builder incrementally.
-  `startObject`, `startArray`, `key`, `write`, `null`, and `close` form a checked
-  JSON stream. `flush()` returns and clears the current chunk; concatenating the
-  chunks with the final `finish()` result produces the document.
+  `startObject`, `startArray`, `key`, `keyBuffer`, `write`, `null`, and `close`
+  form a checked JSON stream. `keyBuffer` reads a `string.buffer` in place.
+  `flush()` returns and clears the current chunk; concatenating the chunks with
+  the final `finish()` result produces the document.
 
 JSON null is dropped by default: object members disappear and array members are
 compacted. Passing any non-nil `nullValue` preserves null with that identity.

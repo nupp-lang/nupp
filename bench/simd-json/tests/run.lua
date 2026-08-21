@@ -408,6 +408,12 @@ do
    local last = writer:finish()
    check(first .. last == [[{"items":[1,null,{}],"empty":[]}]],
       "streaming writer emitted the wrong chunks")
+   local key = require("string.buffer").new():put('quoted"key')
+   local buffered = simdjsonBench.writer():startObject()
+      :keyBuffer(key):write(1):close():finish()
+   check(buffered == [[{"quoted\"key":1}]],
+      "streaming writer emitted a buffered key incorrectly")
+   check(key:tostring() == 'quoted"key', "streaming writer consumed its key buffer")
    check(not pcall(function() writer:write(true) end),
       "finished streaming writer accepted another value")
    check(not pcall(function()

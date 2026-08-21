@@ -33,6 +33,7 @@ static char EMPTY_ARRAY_KEY;
 static char EMPTY_OBJECT_KEY;
 static char NULL_KEY;
 static char ARRAY_SHAPE_KEY;
+static char BUFFER_METATABLE_KEY;
 
 enum class containerKind {
     ARRAY,
@@ -911,28 +912,63 @@ static int luaWriterStartObject(lua_State *L) {
     return 1;
 }
 
+static const char *appendWriterKey(
+    luaWriter *writer,
+    const char *key,
+    size_t length
+) {
+    if (writer->finished || writer->frames.empty()
+        || writer->frames.back().kind != containerKind::OBJECT) {
+        return "key() requires an open object";
+    } else if (writer->frames.back().needsValue) {
+        return "the previous object key has no value";
+    } else if (!simdjson::validate_utf8(key, length)) {
+        return "JSON object keys must contain valid UTF-8";
+    }
+
+    auto &frame = writer->frames.back();
+    if (!frame.first) {
+        writer->builder.append_comma();
+    }
+    frame.first = false;
+    frame.needsValue = true;
+    writer->builder.escape_and_append_with_quotes(std::string_view(key, length));
+    writer->builder.append_colon();
+    return nullptr;
+}
+
 static int luaWriterKey(lua_State *L) {
     luaWriter *writer = checkedWriter(L, 1);
     size_t length = 0;
     const char *key = luaL_checklstring(L, 2, &length);
-    const char *failure = nullptr;
-    if (writer->finished || writer->frames.empty()
-        || writer->frames.back().kind != containerKind::OBJECT) {
-        failure = "key() requires an open object";
-    } else if (writer->frames.back().needsValue) {
-        failure = "the previous object key has no value";
-    } else if (!simdjson::validate_utf8(key, length)) {
-        failure = "JSON object keys must contain valid UTF-8";
-    } else {
-        auto &frame = writer->frames.back();
-        if (!frame.first) {
-            writer->builder.append_comma();
-        }
-        frame.first = false;
-        frame.needsValue = true;
-        writer->builder.escape_and_append_with_quotes(std::string_view(key, length));
-        writer->builder.append_colon();
+    const char *failure = appendWriterKey(writer, key, length);
+    if (failure) {
+        return writerError(L, failure);
     }
+    lua_settop(L, 1);
+    return 1;
+}
+
+static int luaWriterKeyBuffer(lua_State *L) {
+    luaWriter *writer = checkedWriter(L, 1);
+    if (!hasRegisteredMetatable(L, 2, &BUFFER_METATABLE_KEY)) {
+        return luaL_argerror(L, 2, "string.buffer.Buffer expected");
+    }
+
+    lua_getfield(L, 2, "ref");
+    lua_pushvalue(L, 2);
+    lua_call(L, 1, 2);
+    // Buffer:ref() returns a pointer cdata object. LuaJIT's lua_topointer()
+    // addresses that cdata's storage, which holds the pointer into the buffer.
+    const void *storage = lua_topointer(L, -2);
+    if (storage == nullptr) {
+        return luaL_error(L, "string.buffer.Buffer.ref() returned no storage");
+    }
+    const size_t length = static_cast<size_t>(luaL_checkinteger(L, -1));
+    const char *key = length == 0
+        ? ""
+        : *static_cast<const char *const *>(storage);
+    const char *failure = appendWriterKey(writer, key, length);
     if (failure) {
         return writerError(L, failure);
     }
@@ -1204,6 +1240,28 @@ static void installMarker(
     lua_setfield(L, moduleIndex, field);
 }
 
+static void installBufferMetatable(lua_State *L) {
+    pushRegistered(L, &BUFFER_METATABLE_KEY);
+    if (!lua_isnil(L, -1)) {
+        lua_pop(L, 1);
+        return;
+    }
+    lua_pop(L, 1);
+
+    lua_getglobal(L, "require");
+    lua_pushliteral(L, "string.buffer");
+    lua_call(L, 1, 1);
+    lua_getfield(L, -1, "new");
+    lua_call(L, 0, 1);
+    if (!lua_getmetatable(L, -1)) {
+        luaL_error(L, "string.buffer.new() returned a value without a metatable");
+    }
+    lua_pushlightuserdata(L, &BUFFER_METATABLE_KEY);
+    lua_pushvalue(L, -2);
+    lua_rawset(L, LUA_REGISTRYINDEX);
+    lua_pop(L, 3);
+}
+
 } // namespace
 
 extern "C" nuppSimdjsonParser *nuppSimdjsonNew(void) {
@@ -1292,11 +1350,13 @@ extern "C" const char *nuppSimdjsonImplementation(void) {
 }
 
 extern "C" NUPP_SIMDJSON_EXPORT int luaopen_simdjson_bench_native(lua_State *L) {
+    installBufferMetatable(L);
     luaL_newmetatable(L, WRITER_METATABLE);
     setFunction(L, "__gc", luaWriterGc);
     setFunction(L, "startArray", luaWriterStartArray);
     setFunction(L, "startObject", luaWriterStartObject);
     setFunction(L, "key", luaWriterKey);
+    setFunction(L, "keyBuffer", luaWriterKeyBuffer);
     setFunction(L, "write", luaWriterWrite);
     setFunction(L, "null", luaWriterNull);
     setFunction(L, "close", luaWriterClose);

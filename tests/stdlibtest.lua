@@ -587,6 +587,22 @@ function M.theJsonModuleOpensItsHostOnRequire()
       assert(json.encode(json.asArray({})) == "[]")
       assert(json.decode("[1,null,2]")[2] == 2)
       assert(json.decode("null", json.NULL) == json.NULL)
+      local name = require("string.buffer").new():put('quoted"key')
+      local writer = json.writer()
+      local text = writer:startObject():keyBuffer(name):write(42):close():finish()
+      assert(text == [[{"quoted\"key":42}]])
+      assert(name:tostring() == 'quoted"key', "writing the key consumed its buffer")
+      local empty = require("string.buffer").new()
+      local emptyText = json.writer():startObject()
+         :keyBuffer(empty):write(true):close():finish()
+      assert(emptyText == [[{"":true}]])
+      local invalid = require("string.buffer").new():put("\255")
+      assert(not pcall(function()
+         json.writer():startObject():keyBuffer(invalid)
+      end), "a buffered key must contain valid UTF-8")
+      assert(not pcall(function()
+         json.writer():startObject():keyBuffer("not a buffer")
+      end), "keyBuffer must reject strings")
    end)
    package.loaded.jsonNative = package.loaded.jsonNative or loadedJson
    package.loaded["nupp.data.json"] = package.loaded["nupp.data.json"] or loadedModule
@@ -950,7 +966,9 @@ function M.jsonNativeConstantsAndWriter()
       "local array: table = json.EMPTY_ARRAY",
       "local object: table = json.EMPTY_OBJECT",
       "local writer = json.writer(nul)",
-      "local text: string = writer:startArray():write(1):close():finish()",
+      "local name = string.buffer.new()",
+      "name:put('answer')",
+      "local text: string = writer:startObject():keyBuffer(name):write(1):close():finish()",
    }, "\n"))
 end
 
