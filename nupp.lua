@@ -94,6 +94,7 @@ local RESOURCES = {
    {source = "src/nupp/mem/heap.nupp", output = "nupp/compiler/nupp/mem/heap.nupp"},
    {source = "src/nupp/mem/soa.nupp", output = "nupp/compiler/nupp/mem/soa.nupp"},
    {source = "src/nupp/data/json.nupp", output = "nupp/compiler/nupp/data/json.nupp"},
+   {source = "src/nupp/data/hmac.nupp", output = "nupp/compiler/nupp/data/hmac.nupp"},
    {
       source = "src/nupp/runtime/backend.nupp",
       output = "nupp/compiler/nupp/runtime/backend.nupp",
@@ -134,6 +135,17 @@ local RESOURCES = {
    {source = "src/nupp/workers/native.d.nupp", output = "nupp/compiler/nupp/workers/native.d.nupp"},
    {source = "src/nupp/data/jsonnative.d.nupp", output = "nupp/compiler/nupp/data/jsonnative.d.nupp"},
 }
+local SEAM_FACTORY_RESOURCES = {
+   "registry", "module", "bitset", "files", "hash", "hmacsha256", "http",
+   "int64", "iobytes", "path", "peg", "process", "sha256", "simd",
+   "structvalue", "suspension", "uri", "utf8", "uuid", "workers",
+}
+for _, name in ipairs(SEAM_FACTORY_RESOURCES) do
+   RESOURCES[#RESOURCES + 1] = {
+      source = "src/nupp/runtime/seam/" .. name .. ".nupp",
+      output = "nupp/compiler/nupp/runtime/seam/" .. name .. ".nupp",
+   }
+end
 for _, relative in ipairs(TEMPLATE_FILES) do
    RESOURCES[#RESOURCES + 1] = {
       source = "templates/" .. relative,

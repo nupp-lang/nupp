@@ -1,0 +1,23 @@
+@!internal
+module nupp.runtime.seam.iobytessuite
+
+local suite = {}
+
+function suite.test(provider: any): (boolean, string?)
+    local ok, problem = pcall(function()
+        local writer = provider.newScalarWriter()
+        writer:writeUint8(0xab):writeUint32(0x12345678):writeBytes("ok")
+        local buffer = writer:buffer()
+        assert(buffer ~= nil and buffer:length() == 7, "the scalar writer must retain exact byte length")
+        local reader = provider.newScalarReader(buffer:getString())
+        assert(reader:readUint8() == 0xab and reader:readUint32() == 0x12345678, "scalar codecs must round-trip")
+        assert(reader:readBytes(2) == "ok" and reader:atEnd(), "byte reads must consume the encoded suffix")
+    end)
+    if not ok then
+        return false, tostring(problem)
+    end
+
+    return true
+end
+
+export = suite

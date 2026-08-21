@@ -1,14 +1,16 @@
-module nupp.runtime.seam.simd
+module nupp.runtime.seam.uri
 
 local common = require("nupp.runtime.seam.module")
 local runtimeBackend = require("nupp.runtime.backend")
-local seam = {moduleName = "nupp.runtime.seam.simd", suiteModuleName = "nupp.runtime.seam.simdsuite",}
-local CONTRACT = common.contract("numeric.simd", {
-    globalName = "__nuppSimd",
-    requiredFunctions = {"alignBytes", "maskBits64", "paddedStringU8", "preferredU8", "tableU8x16"},
-    requiredValues = {"lanes"},
+local seam = {moduleName = "nupp.runtime.seam.uri", suiteModuleName = "nupp.runtime.seam.urisuite",}
+local CONTRACT = common.contract("io.uri", {
+    globalName = "__nuppUri",
+    requiredFunctions = {"isURI", "newURI", "validate"},
+    requiredValues = {"Components", "URI"},
     suiteModule = seam.suiteModuleName,
+    modules = {["nupp.io.uri"] = "",},
 })
+
 function seam.validate(value: any): string?
     return common.validate(CONTRACT, value)
 end
@@ -18,7 +20,7 @@ function seam.seam(moduleName: string): runtimeBackend.Seam
 end
 
 function seam.backend(moduleName: string): runtimeBackend.Backend
-    return runtimeBackend.new("simd:" .. moduleName, {seam.seam(moduleName)})
+    return runtimeBackend.new("io-uri:" .. moduleName, {seam.seam(moduleName)})
 end
 
 export = seam

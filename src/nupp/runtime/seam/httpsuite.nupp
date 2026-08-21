@@ -1,0 +1,31 @@
+@!internal
+module nupp.runtime.seam.httpsuite
+
+local suite = {}
+
+function suite.test(provider: any): (boolean, string?)
+    local ok, problem = pcall(function()
+        local file = provider.file("payload.bin", "application/octet-stream")
+        assert(
+            file.path == "payload.bin" and file.contentType == "application/octet-stream",
+            "file bodies must preserve metadata"
+        )
+        local source = {
+            read = function(): string
+                return ""
+            end,
+        }
+        local reader = provider.reader(source, 0, "text/plain")
+        assert(
+            reader.reader == source and reader.length == 0 and reader.contentType == "text/plain",
+            "reader bodies must preserve metadata"
+        )
+    end)
+    if not ok then
+        return false, tostring(problem)
+    end
+
+    return true
+end
+
+export = suite

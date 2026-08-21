@@ -461,7 +461,9 @@ Nupp.
 
 The smallest independently selected standard contract is a runtime seam. A
 backend can contain one or many of `data.json`, `data.sha256`, `data.utf8`,
-`data.uuid`, `data.hash`, `data.bitset`, `io`, `peg` and `suspension`. Those
+`data.uuid`, `data.hash`, `data.bitset`, `io.bytes`, `io.path`, `io.uri`,
+`host.files`, `host.http`, `host.process`, `host.workers`,
+`crypto.hmac_sha256`, `peg` and `suspension`. Those
 names are contracts, not blessed packages. A seam may be a thin adapter over
 `lunajson`, BitOp, a SHA-256 or UUID rock, LPeg, a scheduler or any other
 implementation. Its checked source must use the compiler-owned seam factory.
@@ -498,6 +500,40 @@ module. A build does not execute the backend, and an absent runtime rock is
 therefore a runtime dependency error rather than a compiler execution side
 effect.
 
+The runtime provider may be shipped by a target dependency. The checked
+backend remains in the project's source set, while a portable target can
+select its crypto rock without making it a dependency of the native target:
+
+```lua
+dependencies = {
+    portable_crypto = {
+        kind = "luarocks",
+        rock = "acme-crypto",
+        version = "1.0-1",
+    },
+}
+build = {targets = {
+    native = {
+        dialect = "luajit",
+        entries = {"main"},
+    },
+    portable = {
+        dialect = "lua51",
+        entries = {"main"},
+        dependencies = {"portable_crypto"},
+        backends = {"acme.crypto.backend"},
+    },
+}}
+```
+
+The project source implements `acme.crypto.backend`; the rockspec installs its
+exact provider module and may pull HMAC, SHA, TLS or HTTP libraries
+transitively. The backend records that adapter module name. It does not run
+LuaRocks or probe installed alternatives during checking. Resolving the
+checked backend itself from a rock's `nupp/` directory is future work:
+dependency type roots are not currently available early enough for backend
+discovery.
+
 Facilities with environmental authority use the same rule. Filesystem access,
 processes, HTTP, secure entropy and clocks may have host seams. A seam is
 allowed to be unavailable on a host; it is not allowed to replace secure
@@ -519,11 +555,11 @@ The portable standard surface is accounted for by kind:
 | scalar `nupp.math` expressible on the common Lua `math` table | compiler or existing Lua source |
 | exact `i32`, `u32` and binary32 operations not supplied by a chosen bit backend | selected runtime seam |
 | JSON, UTF-8, hashes, checksums, UUID and bitsets | selected runtime seam per independently reached contract |
-| byte buffers, readers, writers and typed scalar codecs | selected `io` seam |
+| byte buffers, readers, writers and typed scalar codecs | selected `io.bytes` seam |
 | PEG | selected runtime seam, commonly an adapter over LPeg |
 | suspension, scheduling and event-loop integration | bundled protocol or selected complete `suspension` seam |
 | lexical URI and path operations | selected runtime seam or existing portable source |
-| files, processes, HTTP, entropy, clocks and workers | selected host seam |
+| files, processes, HTTP and workers | independently selected host seams |
 | `nupp.native`, raw heaps, C-array spans, C-layout SoA and pointer projection | unavailable without `cstorage` or `cinterop` |
 
 This table is a completeness requirement for the dialect, not a promise to

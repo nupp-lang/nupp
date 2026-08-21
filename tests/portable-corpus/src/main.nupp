@@ -1,3 +1,8 @@
+local struct Point
+    x: uint8
+    y: int16
+end
+
 local function main(): string
     const settings = {const label = "portable"}
     local present: {value: integer}? = {value = 4}
@@ -50,13 +55,15 @@ local function main(): string
     table.clear(presized)
     local cleared = next(presized) == nil
     local cloned = table.clone({value = 14})
+    local point = new Point(258, -2)
 
     return `${settings.label}:${selected}:${defaulted}:${twice(
         4
     )}:${count(
         nil,
         nil
-    )}:${called}:${bracketed}:${methodValue}:${mutable?.value}:${total}:${customary}:${separated}:${hexadecimal}:${calls}:${unpacked}:${loaded}:${cleared}:${cloned.value}`
+    )}:${called}:${bracketed}:${methodValue}:${mutable?.value}:${total}:${customary}:${separated}:${hexadecimal}:${calls}:${unpacked}:${loaded}:${cleared}:${cloned.value}:${point.x == 2
+        and point.y == -2}`
 end
 
 print(main())

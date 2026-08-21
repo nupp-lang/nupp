@@ -14,74 +14,10 @@ local backends = {}
 
 local RUNTIME_BACKEND_MODULE = "nupp.runtime.backend"
 
-local FACTORIES = {
-    ["nupp.runtime.seam.json"] = {seam = {name = "data.json", version = 1, effect = "native.json",},},
-    [
-        "nupp.runtime.seam.bitops"
-    ] = {seam = {name = "numeric.bitops", version = 1, effect = "runtime.bitops", binding = "compile",},},
-    [
-        "nupp.runtime.seam.structvalue"
-    ] = {
-        seam = {name = "representation.structvalue", version = 1, effect = "runtime.structvalue", binding = "compile",},
-    },
-    [
-        "nupp.runtime.seam.int64"
-    ] = {seam = {name = "numeric.int64", version = 1, effect = "runtime.int64", binding = "compile",},},
-    [
-        "nupp.runtime.seam.simd"
-    ] = {seam = {name = "numeric.simd", version = 1, effect = "runtime.simd", binding = "compile",},},
-    [
-        "nupp.runtime.seam.suspension"
-    ] = {seam = {name = "suspension", version = 1, effect = "runtime.suspension", binding = "runtime",},},
-    [
-        "nupp.runtime.seam.sha256"
-    ] = {seam = {name = "data.sha256", version = 1, effect = "native.sha256", binding = "runtime",},},
-    [
-        "nupp.runtime.seam.hash"
-    ] = {seam = {name = "data.hash", version = 1, effect = "runtime.data_hash", binding = "runtime",},},
-    [
-        "nupp.runtime.seam.utf8"
-    ] = {seam = {name = "data.utf8", version = 1, effect = "native.lua_utf8", binding = "runtime",},},
-    [
-        "nupp.runtime.seam.uuid"
-    ] = {seam = {name = "data.uuid", version = 1, effect = "native.uuid", binding = "runtime",},},
-    [
-        "nupp.runtime.seam.bitset"
-    ] = {seam = {name = "data.bitset", version = 1, effect = "runtime.data_bitset", binding = "runtime",},},
-    [
-        "nupp.runtime.seam.peg"
-    ] = {
-        seam = {
-            name = "peg",
-            version = 1,
-            effect = "native.lpeg",
-            effects = {"native.lpeg", "stdlib.lpeg.re", "stdlib.peg", "stdlib.peg.compile"},
-            binding = "runtime",
-        },
-    },
-    [
-        "nupp.runtime.seam.io"
-    ] = {
-        seam = {
-            name = "io",
-            version = 1,
-            effect = "stdlib.io",
-            effects = {"stdlib.io", "native.path", "native.uri"},
-            binding = "runtime",
-        },
-    },
-    [
-        "nupp.runtime.seam.host"
-    ] = {
-        seam = {
-            name = "host",
-            version = 1,
-            effect = "native.host",
-            effects = {"native.host", "native.files", "native.process", "native.http", "native.workers"},
-            binding = "runtime",
-        },
-    },
-}
+local FACTORIES = {}
+for _, contract in ipairs(require("nupp.runtime.seam.registry").all()) do
+    FACTORIES[contract.factoryModule] = {seam = contract,}
+end
 
 local function literalString(node: any): string?
     local token = node and node.kind == "string" and node.token or nil

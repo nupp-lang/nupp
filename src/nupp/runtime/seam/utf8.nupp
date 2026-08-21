@@ -2,16 +2,13 @@ module nupp.runtime.seam.utf8
 local common = require("nupp.runtime.seam.module")
 local runtimeBackend = require("nupp.runtime.backend")
 local seam = {moduleName = "nupp.runtime.seam.utf8", suiteModuleName = "nupp.runtime.seam.utf8suite",}
-local CONTRACT: common.Contract = {
-    name = "data.utf8",
-    version = 1,
-    binding = "runtime",
+local CONTRACT = common.contract("data.utf8", {
     globalName = "__nuppUtf8",
     requiredFunctions = {"decodeAt", "decodeBefore", "encode", "isValid", "length", "truncate", "validPrefixLength"},
     requiredValues = {},
     suiteModule = seam.suiteModuleName,
     modules = {["nupp.data.utf8"] = ""},
-}
+})
 function seam.validate(value: any): string?
     return common.validate(CONTRACT, value)
 end

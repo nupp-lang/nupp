@@ -1,0 +1,8 @@
+module backend
+
+const Backend = require("nupp.runtime.backend")
+const Structvalue = require("nupp.runtime.seam.structvalue")
+
+export = Backend.new("portable-corpus", {
+    Structvalue.seam("nupp.runtime.provider.tablestruct"),
+})

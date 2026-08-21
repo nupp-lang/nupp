@@ -19,6 +19,16 @@ export interface Contract
     readonly exports: {[string]: string}?
 end
 
+--- Combines runtime shape with the compiler/runtime's single seam identity record.
+function moduleSeam.contract(name: string, shape: any): Contract
+    local identity = require("nupp.runtime.seam.registry").get(name)
+    shape.name = identity.name
+    shape.version = identity.version
+    shape.binding = identity.binding
+
+    return shape as Contract
+end
+
 function moduleSeam.validate(contract: Contract, value: any): string?
     if type(value) ~= "table" then
         return "module returned " .. type(value) .. ", expected table"
@@ -80,15 +90,16 @@ function moduleSeam.install(contract: Contract, moduleName: string): nil
     end
 
     selections[contract.name] = moduleName
-    rawset(
-        _G,
-        contract.globalName,
-        setmetatable({}, {
-            __index = function(_, name)
-                return provider()[name]
-            end,
-        })
-    )
+    local binding = {}
+    setmetatable(binding, {
+        __index = function(self, name)
+            local value = provider()[name]
+            rawset(self, name, value)
+
+            return value
+        end,
+    })
+    rawset(_G, contract.globalName, binding)
     for target, member in pairs(contract.modules or {}) do
         if package.loaded[target] ~= nil then
             error("nupp: " .. contract.name .. " provider was selected after " .. target .. " was already loaded", 0)

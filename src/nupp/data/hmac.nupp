@@ -1,0 +1,32 @@
+module nupp.data.hmac
+
+--[[Typed surface for a backend-selected HMAC-SHA256 implementation.]]
+
+local hmac = {}
+
+local function provider(): any
+    local selected = rawget(_G, "__nuppHmacSha256")
+    if selected == nil then
+        error("nupp: crypto.hmac_sha256 has no installed runtime provider", 2)
+    end
+
+    return selected
+end
+
+--- Computes the raw 32-byte HMAC-SHA256 digest.
+--- @param key the secret key bytes
+--- @param message the message bytes
+--- @return the raw digest bytes
+function hmac.digest(key: string, message: string): string
+    return provider().digest(key, message)
+end
+
+--- Computes the lowercase hexadecimal HMAC-SHA256 digest.
+--- @param key the secret key bytes
+--- @param message the message bytes
+--- @return the sixty-four hexadecimal digits
+function hmac.hex(key: string, message: string): string
+    return provider().hex(key, message)
+end
+
+export = hmac
