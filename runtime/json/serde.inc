@@ -818,8 +818,10 @@ int decodeSerdeBytes(
         auto error = parser.iterate(source, length, capacity).get(document);
         if (error) failure = simdjson::error_message(error);
         else {
-            simdjson::ondemand::value root = document;
-            if (!pushSerdeNode(
+            simdjson::ondemand::value root;
+            error = document.get(root);
+            if (error) failure = simdjson::error_message(error);
+            else if (!pushSerdeNode(
                 state, root, *schema, schema->root, 1,
                 schema->rejectUnknown, 0, &failure
             )) {
