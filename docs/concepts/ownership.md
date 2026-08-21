@@ -54,8 +54,9 @@ end
 ```
 
 The terminal must be a non-suspending function that takes the represented value
-and returns `nil`. It may raise. A package may delegate cleanup to a method, but
-no method name or generic ownership alias is compiler-known.
+and returns `nil`. It may raise. General affine policies name the exact function;
+the standard `Closeable` lifecycle below names `close` through an explicit
+nominal contract.
 
 The parentheses are compile-time call syntax: `affine(Session, closeSession)`
 invokes a built-in type generator while checking and produces a transparent
@@ -69,6 +70,34 @@ the obligation on the type would close `stdout`. A function returning
 returning a plain `File` states that nothing is owed. See [NEP
 4](../neps/0004-ownership.md) for more information.
 :::
+
+## Closeable resources
+
+Use `Closeable` when closing is intrinsic to the type rather than one policy a
+producer may choose:
+
+```nupp
+local record Client is Closeable
+    function flush(exclusive self): nil
+    end
+
+    function close(takes self): nil
+    end
+end
+
+local client = new Client()
+client:flush()
+-- `client:close()` runs automatically here.
+```
+
+Conformance is explicit because it changes ownership. Construction and a bare
+owned `Client` annotation carry one close obligation; `borrows Client` and
+`exclusive Client` remain non-owning views. `close` consumes the owner and
+`flush` leaves it live. Both are non-suspending and `close` returns `nil`.
+
+Use general `affine(T, terminal)` when cleanup is not intrinsic to `T`, when a
+representation supports several policies, or when an obligation is
+transfer-only.
 
 ## Discharging an owner
 
@@ -141,6 +170,36 @@ local bundle = new Bundle(
 )
 drop bundle
 ```
+
+Closeable fields behave the same way without an explicit wrapper: a field
+written `client: Client` owns that client and makes the containing record
+affine.
+
+## Managed aliases
+
+Static borrows should remain the default. When references must escape a lexical
+borrow, move the owner into an independent managed cell:
+
+```nupp
+local owner = nupp.manage(new Client())
+local client = owner:alias()
+
+local result, problem = client:with(function(borrows value)
+    return use(value)
+end)
+```
+
+`managed(T)` is the cell's unique affine owner. `alias(T)` is copyable and does
+not keep custody alive. `with` and `withExclusive` acquire checked callback
+borrows, `take` restores the exact original owner once, and `close` closes
+through an alias. After close or take, every alias observes the same permanent
+tombstone. `nupp.recoverAlias(value)` validates the brand of an alias that
+crossed `any`, and `alias:downcast<T>()` then validates its erased payload and
+cleanup policy.
+
+For runtime-sized heterogeneous shutdown, `nupp.managed.Group` adopts managed
+cells and closes them in reverse order. It is ordinary library code over
+aliases, not a compiler-recognized container.
 
 A structural `function drop(takes self): nil` may replace that behavior, but it
 must discharge every affine field on every path. See

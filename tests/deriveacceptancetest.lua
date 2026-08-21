@@ -91,7 +91,7 @@ local out = string.buffer.new()
 for index, value in ipairs(corpora) do
     local writer = nupp.data.json.writer(out)
     value:writeJSON(writer)
-    writer:finish()
+    writer:close()
     bytes[index] = out:get()
     local decoded, why = ModuleCache.fromJSON(bytes[index])
     accepted = accepted and decoded ~= nil and why == nil
@@ -144,7 +144,7 @@ local out = string.buffer.new()
 for index, request in ipairs(corpus) do
     local writer = nupp.data.json.writer(out)
     request:writeJSON(writer)
-    writer:finish()
+    writer:close()
     bytes[index] = out:get()
     debugged[index] = request:debug()
     local decoded, why = TecsMCPRequest.fromJSON(bytes[index])

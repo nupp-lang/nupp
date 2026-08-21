@@ -324,6 +324,10 @@ record state.Checker
     --- The type an annotation names.
     resolveType: function(node: Node?): Type
 
+    --- Set while a borrow-qualified annotation resolves, so an inherently affine
+    --- nominal contributes its representation rather than a new owner.
+    suppressInherentOwner: boolean?
+
     --- Every declaration that contributes to a projection, for go-to-definition. More
     --- than one when independent contracts state the name or fix it compatibly.
     associatedDefinitions: function(head: Type, name: string): {any}

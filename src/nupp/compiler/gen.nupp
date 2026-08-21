@@ -4545,7 +4545,7 @@ function gen.generate(
             e(" end")
             return
 
-        elseif kind == "callStmt" and x.expr and (x.expr.automaticOwnerMoves or x.expr.dynamicPutCleanups) then
+        elseif kind == "callStmt" and x.expr and x.expr.automaticOwnerMoves then
             -- A consuming call lowers to an immediately-invoked wrapper. At the start
             -- of a statement its leading `(` can continue the call on the previous
             -- line, because Lua newlines are whitespace: `print(x)\n(function...)()`
@@ -4639,7 +4639,7 @@ function gen.generate(
             e(")")
             return
 
-        elseif kind == "call" and x.ownershipIntrinsic then
+        elseif kind == "call" and x.ownershipIntrinsic and x.ownershipIntrinsic ~= "manage" then
             local args = x.args and x.args.exprs or {}
             local line = sourceLine(x)
             local move = ownershipMoveOf(args[1])
@@ -4841,28 +4841,83 @@ function gen.generate(
             end
             return
 
-        elseif kind == "call" and x.dynamicRecoverPolicy then
-            -- The type witness is compile-time-only. Recovery receives the exact same
-            -- representation-and-cleanup key injected at `put`, so runtime code never
-            -- guesses from a display name or invokes cleanup through the requested
-            -- type before validating it.
-            local callee = x.obj
-            if callee and callee.kind == "dotIndex" and callee.obj then
-                emit(callee.obj)
-                e("._recover(")
-                local args = x.args and x.args.exprs or {}
-                if args[1] then
-                    emit(args[1])
-                else
-                    e("nil")
-                end
-                e((",%q)"):format(x.dynamicRecoverPolicy))
-                return
+        elseif kind == "call" and x.managedCleanups then
+            if hotState and x.managedPolicy then
+                hotState.policies[x.managedPolicy] = true
             end
+            local line = sourceLine(x)
+            local args = x.args and x.args.exprs or {}
+            local activeNames, seen = {}, {}
+            local directMove = ownershipMoveOf(args[1])
+            local directActive = directMove and activeWith(directMove) or nil
+            if directActive then
+                seen[directActive] = true
+                activeNames[#activeNames + 1] = directActive
+            end
+            for _, move in ipairs(x.automaticOwnerMoves or {}) do
+                local activeName = activeWith(move)
+                if activeName and not seen[activeName] then
+                    seen[activeName] = true
+                    activeNames[#activeNames + 1] = activeName
+                end
+            end
+            local value = nextTemp()
+            pluck.loweredFunction(("(function(%s) "):format(value), line, pluck.reasons.move)
+            for _, activeName in ipairs(activeNames) do
+                e(("%s=false; "):format(activeName))
+            end
+            local body = {"local __first,__suppressed=nil,0; "}
+            for _, cleanup in ipairs(x.managedCleanups) do
+                local call = protectedCleanupCall(cleanup, "__nuppV", "pcall")
+                if call then
+                    body[
+                        #body + 1
+                    ] = "do local __ok,__reason="
+                        .. call
+                        .. "; if not __ok then if __first==nil then __first=__reason "
+                        .. "else __suppressed=__suppressed+1 end end end; "
+                end
+            end
+            body[
+                #body + 1
+            ] = "if __first~=nil then if __suppressed>0 then "
+                .. "error(tostring(__first)..\" (suppressed \"..tostring(__suppressed)"
+                .. "..\" cleanup failure(s))\",0) else error(__first,0) end end"
+            e(
+                (
+                    "return __nupp.__manage(%s,%s,%q)"
+                ):format(
+                    value,
+                    pluck.declareHelper("__nuppManagedCleanup", "__nuppV", table.concat(body)),
+                    x.managedPolicy or ""
+                )
+            )
+            e(" end)(")
+            if args[1] then
+                emit(args[1])
+            else
+                e("nil")
+            end
+            e(")")
+            return
 
-        elseif (
-            kind == "call" or kind == "methodCall"
-        ) and x.automaticOwnerMoves and not x.resourceAdoptCleanups and not x.dynamicPutCleanups then
+        elseif kind == "call" and x.recoverManagedAlias then
+            local args = x.args and x.args.exprs or {}
+            e("__nupp.__recoverAlias(", sourceLine(x))
+            if args[1] then
+                emit(args[1])
+            else
+                e("nil")
+            end
+            e(")")
+            return
+
+        elseif kind == "methodCall" and x.managedAliasPolicy then
+            emit(x.obj)
+            e((":_downcast(%q)"):format(x.managedAliasPolicy), sourceLine(x))
+            return
+
+        elseif (kind == "call" or kind == "methodCall") and x.automaticOwnerMoves then
             -- Evaluate the complete callee/receiver and argument list before ending
             -- the caller's cleanup responsibility. Once the wrapper body begins the
             -- callee is about to receive every `takes` value, so a raise belongs to
@@ -4905,119 +4960,6 @@ function gen.generate(
                     e(",")
                     emit(value)
                 end
-            end
-            e(")")
-            return
-
-        elseif kind == "methodCall" and x.dynamicPutCleanups then
-            if hotState and x.dynamicTypePolicy then
-                hotState.policies[x.dynamicTypePolicy] = true
-            end
-            local line = sourceLine(x)
-            local args = x.args and x.args.exprs or {}
-            local activeNames, seen = {}, {}
-            for _, move in ipairs(x.automaticOwnerMoves or {}) do
-                local activeName = activeWith(move)
-                if activeName and not seen[activeName] then
-                    seen[activeName] = true
-                    activeNames[#activeNames + 1] = activeName
-                end
-            end
-            local object, value = nextTemp(), nextTemp()
-            pluck.loweredFunction(("(function(%s,%s) "):format(object, value), line, pluck.reasons.move)
-            for _, activeName in ipairs(activeNames) do
-                e(("%s=false; "):format(activeName))
-            end
-            local body = {"local __first,__suppressed=nil,0; "}
-            for _, cleanup in ipairs(x.dynamicPutCleanups) do
-                local call = protectedCleanupCall(cleanup, "__nuppV", "pcall")
-                if call then
-                    body[
-                        #body + 1
-                    ] = "do local __ok,__reason="
-                        .. call
-                        .. "; if not __ok then if __first==nil then __first=__reason "
-                        .. "else __suppressed=__suppressed+1 end end end; "
-                end
-            end
-            body[
-                #body + 1
-            ] = "if __first~=nil then if __suppressed>0 then "
-                .. "error(tostring(__first)..\" (suppressed \"..tostring(__suppressed)"
-                .. "..\" cleanup failure(s))\",0) else error(__first,0) end end"
-            e(
-                (
-                    "return %s:_put(%s,%s,%q)"
-                ):format(
-                    object,
-                    value,
-                    pluck.declareHelper("__nuppDynamicCleanup", "__nuppV", table.concat(body)),
-                    x.dynamicTypePolicy or ""
-                )
-            )
-            e(" end)(")
-            emit(x.obj)
-            e(",")
-            if args[1] then
-                emit(args[1])
-            else
-                e("nil")
-            end
-            e(")")
-            return
-
-        elseif kind == "methodCall" and x.resourceAdoptCleanups then
-            local line = sourceLine(x)
-            local args = x.args and x.args.exprs or {}
-            local activeNames, seen = {}, {}
-            for _, move in ipairs(x.automaticOwnerMoves or {}) do
-                local activeName = activeWith(move)
-                if activeName and not seen[activeName] then
-                    seen[activeName] = true
-                    activeNames[#activeNames + 1] = activeName
-                end
-            end
-            local object, value = nextTemp(), nextTemp()
-            pluck.loweredFunction(("(function(%s,%s) "):format(object, value), line, pluck.reasons.move)
-            for _, activeName in ipairs(activeNames) do
-                e(("%s=false; "):format(activeName))
-            end
-            -- The cleanup this hands to `adopt` reads its parameter and nothing else,
-            -- so
-            -- it is one function for the module rather than one per adoption. The
-            -- wrapper
-            -- around it stays where it is: that one clears this site's own `active`
-            -- flags,
-            -- which no shared function could reach.
-            local body = {"local __first,__suppressed=nil,0; "}
-            for _, cleanup in ipairs(x.resourceAdoptCleanups) do
-                local call = protectedCleanupCall(cleanup, "__nuppV", "pcall")
-                if call then
-                    body[
-                        #body + 1
-                    ] = "do local __ok,__reason="
-                        .. call
-                        .. "; if not __ok then if __first==nil then __first=__reason "
-                        .. "else __suppressed=__suppressed+1 end end end; "
-                end
-            end
-            body[
-                #body + 1
-            ] = "if __first~=nil then if __suppressed>0 then "
-                .. "error(tostring(__first)..\" (suppressed \"..tostring(__suppressed)"
-                .. "..\" cleanup failure(s))\",0) else error(__first,0) end end"
-            e(
-                (
-                    "return %s:adopt(%s,%s)"
-                ):format(object, value, pluck.declareHelper("__nuppAdopt", "__nuppV", table.concat(body)))
-            )
-            e(" end)(")
-            emit(x.obj)
-            e(",")
-            if args[1] then
-                emit(args[1])
-            else
-                e("nil")
             end
             e(")")
             return

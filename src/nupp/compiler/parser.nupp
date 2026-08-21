@@ -378,6 +378,10 @@ function parser.parse(source: string, filename: string?): parser.ParseResult
     --- what keeps `local record = 5` ordinary Lua.
     local function startsTypedecl(at: integer): boolean
         local kw = tokens[at]
+        if kw and kw.kind == "name" and kw.text == "affine" then
+            at = at + 1
+            kw = tokens[at]
+        end
         if kw and kw.kind == "sealed" then
             at = at + 1
             kw = tokens[at]
@@ -1331,6 +1335,18 @@ function parser.parse(source: string, filename: string?): parser.ParseResult
         end
         add(n, advance()) -- ':'
         n.name = add(n, expectName("for method call"))
+        if cur().kind == "<" then
+            add(n, advance()).generic = true
+            n.typeArgs = {}
+            repeat
+                n.typeArgs[#n.typeArgs + 1] = add(n, parseType())
+                if cur().kind ~= "," then
+                    break
+                end
+                add(n, advance())
+            until false
+            add(n, expectGenericClose("to close method type arguments")).generic = true
+        end
         if cur().kind == "?." then
             n.safeMethod = add(n, advance())
         end
@@ -2337,6 +2353,9 @@ function parser.parse(source: string, filename: string?): parser.ParseResult
                 e.value = add(e, parseType())
             elseif cur().kind == "name" then
                 e = new cst.FieldDecl(kind = "fieldDecl")
+                if cur().text == "terminal" and tokens[i + 1] and tokens[i + 1].kind == "name" then
+                    e.terminalTok = add(e, advance())
+                end
                 if cur().text == "private" and tokens[i + 1] and tokens[i + 1].kind == "name" then
                     e.privacy = add(e, advance())
                 end
@@ -2394,6 +2413,10 @@ function parser.parse(source: string, filename: string?): parser.ParseResult
 
     --- A `type`, `record`, `interface` or `struct` declaration.
     parseTypedecl = function(modifierTok: Token?, visibility: string?): Node
+        local affineTok = nil
+        if cur().kind == "name" and cur().text == "affine" then
+            affineTok = advance()
+        end
         local sealedTok = nil
         if cur().kind == "sealed" then
             sealedTok = advance()
@@ -2402,6 +2425,9 @@ function parser.parse(source: string, filename: string?): parser.ParseResult
         local which = kw.text
         if sealedTok and which ~= "interface" then
             errAt(sealedTok, "'sealed' may modify only an interface", "NUPP1002")
+        end
+        if affineTok and which ~= "interface" then
+            errAt(affineTok, "'affine' may modify only an interface", "NUPP1002")
         end
         -- Records where the declaration begins in source. A visibility fix writes
         -- `local`/`global` before the introducer or deletes a modifier that is already
@@ -2415,6 +2441,9 @@ function parser.parse(source: string, filename: string?): parser.ParseResult
             end
             if sealedTok then
                 add(n, sealedTok)
+            end
+            if affineTok then
+                add(n, affineTok)
             end
             add(n, kw)
 
@@ -2432,6 +2461,7 @@ function parser.parse(source: string, filename: string?): parser.ParseResult
             local n = introduce(new cst.RecordDecl(kind = "recordDecl"))
             n.declKind = which
             n.sealedTok = sealedTok
+            n.affineTok = affineTok
             parseDeclName(n, "after '" .. which .. "'")
             parseGenerics(n)
             n.supertypes = {}

@@ -33,6 +33,59 @@ local function __nuppCloseFile(handle)if io.type(handle)=="closed file"then retu
 ]=]
 )
 
+local MANAGED = compact(
+    [=[
+local __nuppManagedBrand=_G.__nuppManagedBrand
+if not __nuppManagedBrand then __nuppManagedBrand={};_G.__nuppManagedBrand=__nuppManagedBrand end
+local __nuppManagedCells=_G.__nuppManagedCells
+if not __nuppManagedCells then __nuppManagedCells=setmetatable({},{__mode="k"});_G.__nuppManagedCells=__nuppManagedCells end
+local __nuppManagedOwner={};__nuppManagedOwner.__index=__nuppManagedOwner;local __nuppManagedAlias={};__nuppManagedAlias.__index=__nuppManagedAlias
+local function __nuppManagedError(code,message)return{code=code,message=message}end
+local function __nuppManagedProblem(cell)
+if type(cell)~="table"or cell._brand~=__nuppManagedBrand then return __nuppManagedError("NUPP2614","value is not a managed alias")end
+if cell._state=="taken"then return __nuppManagedError("NUPP2614","managed ownership was already taken")end
+if cell._state=="closed"or cell._state=="closing"then return __nuppManagedError("NUPP2614","managed resource is closed")end
+return nil end
+local function __nuppManagedClose(cell,checked)
+local problem=__nuppManagedProblem(cell);if problem then if checked then return problem end;return nil end
+if cell._borrows~=0 or cell._exclusive then local busy=__nuppManagedError("NUPP2620","managed resource has an active borrow");if checked then return busy end;error(busy.message,0)end
+cell._state="closing";local value,cleanup=cell._value,cell._cleanup;cell._value=nil;cell._cleanup=nil
+local ok,reason=pcall(cleanup,value);cell._state="closed";if not ok then error(reason,0)end;return nil end
+function __nuppManagedOwner:alias()return setmetatable({_cell=self,_brand=__nuppManagedBrand},__nuppManagedAlias)end
+function __nuppManagedOwner:close()return __nuppManagedClose(self,false)end
+local function __nuppAliasCell(self)
+if type(self)~="table"or self._brand~=__nuppManagedBrand or getmetatable(self)~=__nuppManagedAlias then return nil,__nuppManagedError("NUPP2614","value is not a managed alias")end
+local cell=self._cell;local problem=__nuppManagedProblem(cell);if problem then return nil,problem end;return cell,nil end
+function __nuppManagedAlias:with(callback)
+local cell,problem=__nuppAliasCell(self);if not cell then return nil,problem end
+if cell._exclusive then return nil,__nuppManagedError("NUPP2620","managed resource is exclusively borrowed")end
+cell._borrows=cell._borrows+1;cell._state="shared-borrowed("..cell._borrows..")"
+local ok,result=pcall(callback,cell._value);cell._borrows=cell._borrows-1;cell._state=cell._borrows>0 and("shared-borrowed("..cell._borrows..")")or"live"
+if not ok then error(result,0)end;return result,nil end
+function __nuppManagedAlias:withExclusive(callback)
+local cell,problem=__nuppAliasCell(self);if not cell then return nil,problem end
+if cell._exclusive or cell._borrows~=0 then return nil,__nuppManagedError("NUPP2620","managed resource is already borrowed")end
+cell._exclusive=true;cell._state="exclusive-borrowed";local ok,result=pcall(callback,cell._value);cell._exclusive=false;cell._state="live"
+if not ok then error(result,0)end;return result,nil end
+function __nuppManagedAlias:take()
+local cell,problem=__nuppAliasCell(self);if not cell then return nil,problem end
+if cell._exclusive or cell._borrows~=0 then return nil,__nuppManagedError("NUPP2620","managed resource has an active borrow")end
+cell._state="taken";local value=cell._value;cell._value=nil;cell._cleanup=nil;return value,nil end
+function __nuppManagedAlias:close()
+local cell,problem=__nuppAliasCell(self);if not cell then return problem end;return __nuppManagedClose(cell,true)end
+function __nuppManagedAlias:_downcast(policy)
+local cell,problem=__nuppAliasCell(self);if not cell then return nil,problem end
+if cell._policy~=policy then return nil,__nuppManagedError("NUPP2613","managed alias has the wrong type or cleanup policy")end
+return self,nil end
+function __nupp.__manage(value,cleanup,policy)
+local cell=setmetatable({_brand=__nuppManagedBrand,_value=value,_cleanup=cleanup,_policy=policy,_state="live",_borrows=0,_exclusive=false},__nuppManagedOwner);__nuppManagedCells[cell]=true;return cell end
+function __nupp.__recoverAlias(value)
+if type(value)~="table"or value._brand~=__nuppManagedBrand or getmetatable(value)~=__nuppManagedAlias then return nil,__nuppManagedError("NUPP2614","value is not a managed alias")end
+local cell,problem=__nuppAliasCell(value);if not cell then return nil,problem end;return value,nil end
+_G.__nuppManagedPolicyCount=function(policy)local count=0;for cell in pairs(__nuppManagedCells)do if cell._policy==policy and(cell._state=="live"or cell._state:match("borrowed"))then count=count+1 end end;return count end
+]=]
+)
+
 local LAZY = compact(
     [=[
 local function __nuppLazy(target,name,loader)local meta=getmetatable(target)or{};local loaders=meta.__nuppLoaders;if not loaders then loaders={};local prior=meta.__index;meta.__nuppLoaders=loaders;meta.__index=function(t,k)local load=loaders[k];if load then local value=load(k);loaders[k]=nil;if value==nil then value=rawget(t,k)else rawset(t,k,value)end;return value end;if type(prior)=="function"then return prior(t,k)elseif prior then return prior[k]end end;setmetatable(target,meta)end;if name~=nil and rawget(target,name)==nil and loaders[name]==nil then loaders[name]=loader end end
@@ -62,7 +115,7 @@ function json.encoded(value,nullValue)return setmetatable({bytes=json.encode(val
 function json.encodedString(value)local found=encodedStrings[value];if found then return found end;local encoded=setmetatable({bytes=quote(value)},ENCODED_STRING);encodedStrings[value]=encoded;return encoded end
 function json.verified(text)json.decode(text,json.NULL);return setmetatable({bytes=text},ENCODED_VALUE)end
 function json.verifiedString(text)local value=json.decode(text,json.NULL);if type(value)~="string"then error("simdjson verify: a JSON string is required",2)end;local found=verifiedStrings[text];if found then return found end;local encoded=setmetatable({bytes=text},ENCODED_STRING);verifiedStrings[text]=encoded;return encoded end
-function json.writer(out,nullValue)local parts,stack,root={}, {},false;local writer={};local function prepare()if #stack==0 then if root then error("writer already has a root value",2)end;root=true;return end;local frame=stack[#stack];if frame.kind=="array"then if not frame.first then parts[#parts+1]=","end;frame.first=false elseif not frame.value then error("an object value must follow key()",2)else frame.value=false end end;function writer:startArray()prepare();parts[#parts+1]="[";stack[#stack+1]={kind="array",first=true};return self end;function writer:startObject()prepare();parts[#parts+1]="{";stack[#stack+1]={kind="object",first=true,value=false};return self end;function writer:key(name)local frame=stack[#stack];if not frame or frame.kind~="object"or frame.value then error("key() requires an open object with no pending key",2)end;if not frame.first then parts[#parts+1]=","end;frame.first=false;parts[#parts+1]=getmetatable(name)==ENCODED_STRING and name.bytes or quote(name);parts[#parts+1]=":";frame.value=true;return self end;function writer:write(value)prepare();local marker=getmetatable(value);parts[#parts+1]=(marker==ENCODED_VALUE or marker==ENCODED_STRING)and value.bytes or json.encode(value,nullValue);return self end;function writer:null()prepare();parts[#parts+1]="null";return self end;function writer:close()local frame=stack[#stack];if not frame or frame.value then error("close() requires a complete open container",2)end;stack[#stack]=nil;parts[#parts+1]=frame.kind=="array"and"]"or"}";return self end;function writer:finish()if not root or #stack>0 then error("finish() requires one complete root value",2)end;out:put(table.concat(parts))end;return writer end
+function json.writer(out,nullValue)local parts,stack,root,closed,size={}, {},false,false,0;local writer={};local function publish()if size>0 then out:put(table.concat(parts));parts={};size=0 end end;local function add(text)parts[#parts+1]=text;size=size+#text;if size>=65536 then publish()end end;local function prepare()if closed then error("writer is already closed",2)end;if #stack==0 then if root then error("writer already has a root value",2)end;root=true;return end;local frame=stack[#stack];if frame.kind=="array"then if not frame.first then add(",")end;frame.first=false elseif not frame.value then error("an object value must follow key()",2)else frame.value=false end end;function writer:startArray()prepare();add("[");stack[#stack+1]={kind="array",first=true};return self end;function writer:startObject()prepare();add("{");stack[#stack+1]={kind="object",first=true,value=false};return self end;function writer:key(name)if closed then error("writer is already closed",2)end;local frame=stack[#stack];if not frame or frame.kind~="object"or frame.value then error("key() requires an open object with no pending key",2)end;if not frame.first then add(",")end;frame.first=false;add(getmetatable(name)==ENCODED_STRING and name.bytes or quote(name));add(":");frame.value=true;return self end;function writer:write(value)prepare();local marker=getmetatable(value);add((marker==ENCODED_VALUE or marker==ENCODED_STRING)and value.bytes or json.encode(value,nullValue));return self end;function writer:null()prepare();add("null");return self end;local function finishContainer(kind,name)local frame=stack[#stack];if closed or not frame or frame.kind~=kind then error(name.." requires an open "..kind,2)end;if frame.value then error("the final object key has no value",2)end;stack[#stack]=nil;add(kind=="array"and"]"or"}");return writer end;function writer:endArray()return finishContainer("array","endArray()")end;function writer:endObject()return finishContainer("object","endObject()")end;function writer:flush()if closed then error("writer is already closed",2)end;publish()end;function writer:close()if closed then error("writer is already closed",2)end;closed=true;if not root or #stack>0 then parts={};size=0;error("close() requires one complete root value",2)end;publish()end;return writer end
 return json
 ]=]
 )
@@ -195,7 +248,7 @@ function stdlib.bootstrapJsonFallback(): string
 end
 
 function stdlib.bootstrap(effects: {[string]: any}?, watch: boolean?): string
-    local out = {watch and HOT_BASE or BASE}
+    local out = {watch and HOT_BASE or BASE, MANAGED}
     if effects and next(effects) then
         out[#out + 1] = LAZY
     end

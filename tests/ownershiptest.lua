@@ -469,63 +469,57 @@ function M.aDiscardedOwnershipIntrinsicEmitsLoadableLua()
    assert(chunk, tostring(loadErr) .. "\n" .. code)
 end
 
-function M.resourceSetsReifyCleanupOwnersAtOneAuditedBoundary()
+function M.managedGroupsUseOrdinaryLibraryCalls()
    local source = table.concat({
       RESOURCE,
-      "local set = require('nupp.owners')",
+      "local managed = require('nupp.managed')",
       "do",
-      "   local group = set.newSet('requests')",
-      "   local value = group:adopt(resource_new())",
-      "   print(value.value)",
+      "   local group = managed.group()",
+      "   local handle = group:adopt(nupp.manage(resource_new()))",
+      "   local value = handle:with(function(borrows item) return item.value end)",
+      "   print(value)",
       "end",
    }, "\n")
    local result, diags = checked(source)
    assertEq(#diags, 0, diags[1] and diags[1].msg or "check")
    local code, genDiags = gen.generate(result, "ownership-test")
    assertEq(#genDiags, 0)
-   -- The witness is declared once for the module rather than built per adoption, so what
-   -- `adopt` receives is its name.
-   assert(code:find(":adopt%([^,]+,__nuppAdopt%d+%)"),
-      "adoption must receive the resolved discharge witness:\n" .. code)
-   assert(code:find("const __nuppAdopt%d+ = function%(__nuppV%) local __first"),
-      "the witness is declared once for the module:\n" .. code)
+   assert(code:find("__nupp%.__manage%(") and code:find(":%s*adopt%s*%("),
+      "managed custody must lower through ordinary manage and adopt calls:\n" .. code)
+   assert(not code:find("__nuppAdopt"),
+      "ManagedGroup must not receive a compiler-injected witness:\n" .. code)
 end
 
-function M.resourceSetsRequireAWitnessForOpaqueOwners()
+function M.manageRejectsTransferOnlyOwners()
    assertEq(codes(table.concat({
-      "local set = require('nupp.owners')",
       "local record Request",
       "   value: integer",
       "end",
       "local function beginRequest(): affine(Request) return new Request(value = 1) end",
-      "do",
-      "   local group = set.newSet('requests')",
-      "   local request = group:adopt(beginRequest())",
-      "end",
-   }, "\n")), "NUPP2602")
+      "local cell = nupp.manage(beginRequest())",
+   }, "\n")), "NUPP2612")
 end
 
-function M.resourceSetsCanTransferARegistrationBackOutExactlyOnce()
+function M.managedGroupsCanTransferARegistrationBackOutExactlyOnce()
    assertClean(table.concat({
       RESOURCE,
-      "local set = require('nupp.owners')",
+      "local managed = require('nupp.managed')",
       "do",
-      "   local group = set.newSet('requests')",
-      "   local borrowed = group:adopt(resource_new())",
-      "   local returned = group:remove(borrowed)",
+      "   local group = managed.group()",
+      "   local handle = group:adopt(nupp.manage(resource_new()))",
+      "   local returned = group:remove(handle)",
       "   drop(returned)",
       "end",
    }, "\n"))
 end
 
-function M.dynamicStoresCarryExactCleanupPoliciesBehindTypedHandles()
+function M.managedCellsCarryExactCleanupPoliciesBehindAliases()
    local source = table.concat({
       RESOURCE,
-      "local stores = require('nupp.owners')",
       "do",
-      "   local store = stores.newStore()",
-      "   local handle = store:put(resource_new())",
-      "   local returned, problem = store:take(handle)",
+      "   local owner = nupp.manage(resource_new())",
+      "   local handle = owner:alias()",
+      "   local returned, problem = handle:take()",
       "   assert(problem == nil)",
       "   drop(assert(returned))",
       "end",
@@ -534,15 +528,14 @@ function M.dynamicStoresCarryExactCleanupPoliciesBehindTypedHandles()
    assertEq(#diags, 0, diags[1] and diags[1].msg or "check")
    local code, genDiags = gen.generate(result, "ownership-test")
    assertEq(#genDiags, 0)
-   assert(code:find(":_put%([^,]+,__nuppDynamicCleanup%d+,") ,
-      "dynamic put must receive its cleanup program and policy:\n" .. code)
-   assert(code:find("const __nuppDynamicCleanup%d+ = function%(__nuppV%)"),
-      "dynamic cleanup must be declared once per policy:\n" .. code)
+   assert(code:find("__nupp%.__manage%([^,]+,__nuppManagedCleanup%d+,") ,
+      "manage must receive its cleanup program and policy:\n" .. code)
+   assert(code:find("const __nuppManagedCleanup%d+ = function%(__nuppV%)"),
+      "managed cleanup must be declared once per policy:\n" .. code)
 end
 
-function M.dynamicStoresEnforceCustodyAtRuntime()
+function M.managedCellsEnforceCustodyAtRuntime()
    local source = table.concat({
-      "local stores = require('nupp.owners')",
       "local cleaned = 0",
       "local record FileState value: integer end",
       "local function closeFile(takes file: FileState): nil",
@@ -551,21 +544,23 @@ function M.dynamicStoresEnforceCustodyAtRuntime()
       "local function openFile(value: integer): affine(FileState, closeFile)",
       "   return new FileState(value = value)",
       "end",
-      "local store = stores.newStore()",
-      "local handle = store:put(openFile(1))",
+      "local owner = nupp.manage(openFile(1))",
+      "local handle = owner:alias()",
       "local stale = handle",
-      "local erased = stores.erase(handle)",
-      "local recovered, recoveryProblem = stores.recover(erased, FileState)",
+      "local erased: any = handle",
+      "local recoveredAlias, recoveryProblem = nupp.recoverAlias(erased)",
       "assert(recoveryProblem == nil)",
-      "if not recovered then error('recovery failed') end",
-      "local file, takeProblem = store:take(recovered)",
+      "if not recoveredAlias then error('recovery failed') end",
+      "local recovered, policyProblem = recoveredAlias:downcast<affine(FileState, closeFile)>()",
+      "assert(policyProblem == nil)",
+      "if not recovered then error('downcast failed') end",
+      "local file, takeProblem = recovered:take()",
       "assert(takeProblem == nil)",
       "if not file then error('take failed') end",
       "drop(file)",
-      "local staleProblem = store:remove(stale)",
+      "local _, staleProblem = stale:with(function(borrows value) return value.value end)",
       "assert(staleProblem ~= nil)",
-      "store:put(openFile(2))",
-      "drop(store)",
+      "do local another = nupp.manage(openFile(2)) end",
       "return cleaned, staleProblem and staleProblem.code",
    }, "\n")
    local result, diags = checked(source)
@@ -576,19 +571,15 @@ function M.dynamicStoresEnforceCustodyAtRuntime()
    local chunk, loadErr = loadstring(code, "@ownership-dynamic-runtime")
    assert(chunk, tostring(loadErr) .. "\n" .. code)
    local cleaned, staleCode = chunk()
-   assertEq(cleaned, 3, "take and store destruction each clean exactly once")
-   assertEq(staleCode, "NUPP2614", "a consumed slot invalidates copied handles")
+   assertEq(cleaned, 3, "take and managed destruction each clean exactly once")
+   assertEq(staleCode, "NUPP2614", "taking a cell tombstones every copied alias")
 end
 
-function M.dynamicStoresRejectCapabilitiesTheyCannotDischarge()
+function M.managedCellsRejectCapabilitiesTheyCannotDischarge()
    assertEq(codes(table.concat({
-      "local stores = require('nupp.owners')",
       "local record Request value: integer end",
       "local function begin(): affine(Request) return new Request(value = 1) end",
-      "local store = stores.newStore()",
-      "local handle = store:put(begin())",
-      "drop(store)",
-      "return handle",
+      "local owner = nupp.manage(begin())",
    }, "\n")), "NUPP2612")
 end
 
@@ -691,32 +682,72 @@ function M.publicContractsAreExplicitOnlyForCapabilityBearingParameters()
    }, "\n"))
 end
 
-function M.dynamicRecoveryKeepsAndChecksTheStoredCapabilityPolicy()
-   local prelude = table.concat({
-      "local stores = require('nupp.owners')",
-      "local record FileState end",
-      "local function closeFile(takes value: FileState): nil end",
-      "local type File = affine(FileState, closeFile)",
-      "local function openFile(): File return new FileState() end",
-      "local record SocketState end",
-      "local function closeSocket(takes value: SocketState): nil end",
-      "local type Socket = affine(SocketState, closeSocket)",
-      "local store = stores.newStore()",
-      "local handle = store:put(openFile())",
-      "local erased = stores.erase(handle)",
-   }, "\n")
-   assertClean(prelude .. table.concat({
-      "",
-      "local recovered, problem = stores.recover(erased, FileState)",
-      "if recovered then",
-      "   local value = store:take(recovered)",
-      "   if value then drop(value) end",
+function M.aliasRecoveryChecksTheStoredCapabilityPolicy()
+   local source = table.concat({
+      "local record File is Closeable",
+      "   function flush(exclusive self): nil end",
+      "   function close(takes self): nil end",
       "end",
-   }, "\n"))
-   local _, mismatch = checked(prelude .. "\nlocal recovered = stores.recover(erased, SocketState)")
-   assertEq(mismatch[1] and mismatch[1].code, "NUPP2613")
-   assertEq(mismatch[1].fixes[1].title, "change the type to `FileState`")
-   assertEq(#(mismatch[1].related or {}), 1, "policy mismatch names the enrolled handle")
+      "local record Socket is Closeable",
+      "   function flush(exclusive self): nil end",
+      "   function close(takes self): nil end",
+      "end",
+      "local owner = nupp.manage(new File())",
+      "local erased: any = owner:alias()",
+      "local recovered, problem = nupp.recoverAlias(erased)",
+      "assert(recovered ~= nil and problem == nil)",
+      "local file, fileProblem = recovered:downcast<File>()",
+      "assert(file ~= nil and fileProblem == nil)",
+      "local mismatch, mismatchProblem = recovered:downcast<Socket>()",
+      "return mismatch, mismatchProblem and mismatchProblem.code",
+   }, "\n")
+   local result, diags = checked(source)
+   assertEq(#diags, 0, diags[1] and diags[1].msg or "check")
+   local code, genDiags = gen.generate(result, "ownership-alias-recovery")
+   assertEq(#genDiags, 0)
+   local chunk, loadErr = loadstring(code, "@ownership-alias-recovery")
+   assert(chunk, tostring(loadErr) .. "\n" .. code)
+   local mismatch, mismatchCode = chunk()
+   assertEq(mismatch, nil)
+   assertEq(mismatchCode, "NUPP2613")
+end
+
+function M.managedCallbackBorrowsReleaseOnErrorsAndRejectConflicts()
+   local source = table.concat({
+      "local record Client is Closeable",
+      "   value: integer",
+      "   function flush(exclusive self): nil end",
+      "   function close(takes self): nil end",
+      "end",
+      "local owner = nupp.manage(new Client(value = 1))",
+      "local handle = owner:alias()",
+      "local conflict: string? = nil",
+      "local _, outerProblem = handle:with(function(borrows value)",
+      "   local _, problem = handle:withExclusive(function(exclusive item) return item.value end)",
+      "   conflict = problem and problem.code",
+      "   return value.value",
+      "end)",
+      "assert(outerProblem == nil)",
+      "local raised = pcall(function(): nil",
+      "   handle:with(function(borrows value): nil error('callback failed') end)",
+      "end)",
+      "local answer, finalProblem = handle:withExclusive(function(exclusive value)",
+      "   value.value = value.value + 1",
+      "   return value.value",
+      "end)",
+      "return conflict, raised, answer, finalProblem",
+   }, "\n")
+   local result, diags = checked(source)
+   assertEq(#diags, 0, diags[1] and diags[1].msg or "check")
+   local code, genDiags = gen.generate(result, "ownership-managed-borrows")
+   assertEq(#genDiags, 0)
+   local chunk, loadErr = loadstring(code, "@ownership-managed-borrows")
+   assert(chunk, tostring(loadErr) .. "\n" .. code)
+   local conflict, raised, answer, finalProblem = chunk()
+   assertEq(conflict, "NUPP2620")
+   assertEq(raised, false)
+   assertEq(answer, 2)
+   assertEq(finalProblem, nil)
 end
 function M.spansCarryBoundsRootsAndAnAffineWriteExtent()
    assertClean(table.concat({
@@ -3449,6 +3480,36 @@ function M.aTerminalNamedInATypeIsRegisteredAtItsDeclaration()
    _G.__nuppCleanupRegistry = previous
    assert(ok, tostring(answer) .. "\n" .. code)
    assertEq(answer, true, "the top-level owner was not discharged")
+end
+
+function M.closeableTypesCarryAnInherentCloseObligation()
+   assertClean(table.concat({
+      "local record Client is Closeable",
+      "   function flush(exclusive self): nil end",
+      "   function close(takes self): nil end",
+      "end",
+      "local client = new Client()",
+      "client:flush()",
+   }, "\n"))
+end
+
+function M.affineInterfacesRequireOneValidTerminal()
+   assertEq(codes(table.concat({
+      "local affine interface Broken",
+      "   terminal close: function(self: Broken): boolean",
+      "end",
+   }, "\n")), "NUPP2615")
+
+   local conflicts = codes(table.concat({
+      "local affine interface First",
+      "   terminal close: nosuspend function(takes self: First): nil",
+      "end",
+      "local affine interface Second",
+      "   terminal destroy: nosuspend function(takes self: Second): nil",
+      "end",
+      "interface Both is First, Second end",
+   }, "\n"))
+   assert(conflicts:find("NUPP2615", 1, true), conflicts)
 end
 
 return M

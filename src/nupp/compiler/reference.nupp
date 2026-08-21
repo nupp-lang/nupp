@@ -1214,7 +1214,9 @@ return m
             "NUPP2612",
             "NUPP2613",
             "NUPP2614",
-            "NUPP2615"
+            "NUPP2615",
+            "NUPP2616",
+            "NUPP2620"
         },
         body = [=[
 `affine(T[, cleanup])` is a transparent compile-time type-generator call,
@@ -1222,6 +1224,13 @@ written in a type position: `type HeldLock = affine(LockToken, unlock)`. Its
 identity combines `T` with the exact const cleanup function, and no wrapper is
 allocated. Cleanup has type `nosuspend function(takes T): nil`. `affine(T)` is
 transfer-only.
+
+`Closeable` is the common nominal lifecycle. A record explicitly implementing
+it is inherently affine, so construction and bare annotations carry its
+`close` obligation without spelling `affine(T, T.close)`. `flush(exclusive
+self)` leaves the obligation live; `close(takes self)` is its non-suspending
+terminal. An affine interface declares one `terminal` member, and inherited
+interfaces may not contribute competing terminals.
 
 A known affine local is dropped at scope exit. `drop owner` invokes its selected
 terminal now, `takes` parameters and affine returns transfer it, and
@@ -1249,10 +1258,13 @@ The ownership helpers are `nupp.attemptAll`, `nupp.borrow`, `nupp.borrowFrom`,
 and `nupp.pin`. `attemptAll` tries every cleanup in order and raises the first
 failure with the rest suppressed. A local name shadows a helper.
 
-The standard library carries the container forms: `nupp.owners.Set` holds
-dynamic owners, while `nupp.owners.Store` holds self-contained cleanup capabilities
-behind copyable generation-checked handles, and `nupp.mem.heap.Array<T>` moves
-its count with its private pointer.
+`nupp.manage(owner)` moves a self-contained exact obligation into an independent
+managed cell. The unique `managed(T)` value owns the cell; copyable `alias(T)`
+values provide checked callback borrows, exclusive callback borrows, one-time
+ownership recovery, and closure. Closed and taken cells remain tombstones, so
+an old alias can never select a later resource. `nupp.managed.Group` implements
+runtime-sized heterogeneous custody as ordinary library code over aliases.
+`nupp.mem.heap.Array<T>` remains the typed homogeneous owning container.
 
 See [ownership.md](docs/type-system/ownership.md) for the complete contract
 reference, and [affine-types.md](docs/type-system/affine-types.md) for the

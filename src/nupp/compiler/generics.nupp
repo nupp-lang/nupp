@@ -1591,6 +1591,11 @@ function generics.instantiate(n: T.Nominal, map: Bindings): T.Nominal
     inst.affineFields = n.affineFields
     inst.fieldBorrowSources = n.fieldBorrowSources
     inst.borrowedRootFields = n.borrowedRootFields
+    inst.affineInterface = n.affineInterface
+    inst.terminalMethod = n.terminalMethod
+    inst.inherentCleanup = n.inherentCleanup
+    inst.managedCell = n.managedCell
+    inst.managedAlias = n.managedAlias
     inst.arrayOf = n.arrayOf and substWith(n.arrayOf, map, PRESERVE) or nil
     inst.fieldDefs = n.fieldDefs
     inst.writeFieldDefs = n.writeFieldDefs
@@ -1895,7 +1900,12 @@ function generics.unify(param: Type, arg: Type, map: Bindings): nil
                 for j, p in ipairs(param.typeArgs or {}) do
                     local a = nominalArg and nominalArg.typeArgs and nominalArg.typeArgs[j]
                     if a then
-                        generics.unify(p, a, map)
+                        if ((po as T.Nominal).managedCell or (po as T.Nominal).managedAlias) and p.tag == "typevar" then
+                            local prior = map[p]
+                            map[p] = prior and T.union({prior, a}) or a
+                        else
+                            generics.unify(p, a, map)
+                        end
                     end
                 end
                 for j, p in ipairs(param.packArgs or {}) do

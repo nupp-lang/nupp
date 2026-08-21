@@ -15,11 +15,56 @@ below may name Lua types such as `LuaFile`.
 This file is parsed and checked by `nupp` itself, as is its Lua counterpart.
 ]]
 
+--- A resource with a deterministic, consuming close operation.
+---
+--- Declaring `is Closeable` makes construction and bare type annotations carry the
+--- close obligation automatically. `flush` publishes pending work without consuming
+--- that obligation.
+affine interface Closeable
+    flush: nosuspend function(exclusive self: Closeable): nil
+    terminal close: nosuspend function(takes self: Closeable): nil
+end
+
+--- A failed operation on a managed alias.
+record nupp.AliasError
+    code: string
+    message: string
+end
+
+--- The unique owner of one independently allocated managed cell.
+--- @internal
+record nupp.Managed<T>
+    alias: function(borrows self: nupp.Managed<T>): alias(T)
+    close: nosuspend function(takes self: nupp.Managed<T>): nil
+end
+
+--- A copyable, checked, non-owning reference to one managed cell.
+--- @internal
+record nupp.Alias<T>
+    with: function<R>(
+        self: nupp.Alias<T>,
+        scoped callback: function(borrows value: T): R
+    ): ((R, nil) | (nil, nupp.AliasError))
+    withExclusive: function<R>(
+        self: nupp.Alias<T>,
+        scoped callback: function(exclusive value: T): R
+    ): ((R, nil) | (nil, nupp.AliasError))
+    take: nosuspend function(self: nupp.Alias<T>): ((T, nil) | (nil, nupp.AliasError))
+    close: nosuspend function(self: nupp.Alias<T>): nupp.AliasError?
+    downcast: function<U>(self: nupp.Alias<T>): ((alias(U), nil) | (nil, nupp.AliasError))
+end
+
 --- Compiler-provided facilities. The namespace is always present; native members are
 --- linked automatically when source reaches them.
 ---
 --- @namespace nupp
 local nupp: {
+
+    --- Moves an exact affine obligation into an independently allocated cell.
+    manage: function<T>(takes owner: T): managed(T),
+
+    --- Recovers an erased alias from an untyped boundary after checking its brand.
+    recoverAlias: function(value: any): ((alias(unknown), nil) | (nil, nupp.AliasError)),
 
     --- `nupp.math` adds the scalar, fixed-width and two-dimensional operations missing
     --- from Lua's built-in `math` table. It is pure generated Lua and adds no native
@@ -569,7 +614,7 @@ record nupp.derive
     --- local out = string.buffer.new()
     --- local writer = nupp.data.json.writer(out)
     --- user:writeJSON(writer)
-    --- writer:finish()
+    --- writer:close()
     --- assert(out:tostring() == '{"user_id":7,"name":"ada"}')
     ---
     --- local decoded, failure = User.fromJSON('{"name": "ada"}')
@@ -1051,7 +1096,8 @@ end
 --- | `.` | any one byte |
 --- | `[a-z_]` | one byte from a class or range |
 --- | `[^0-9]` | one byte outside a class |
---- | `%a`, `%d`, `%s`, `%w`, `%x` | ASCII letter, digit, space, alphanumeric, or hex byte; any other `%name` reads a definition |
+--- | `%a`, `%d`, `%s`, `%w`, `%x` | ASCII letter, digit, space, alphanumeric, or hex
+--- byte; any other `%name` reads a definition |
 --- | `p q` | `p` followed by `q` |
 --- | `p / q` | ordered choice: try `p`, then `q` |
 --- | `p*`, `p+`, `p?` | zero or more, one or more, or optional `p` |
@@ -1059,7 +1105,8 @@ end
 --- | `&p`, `!p` | require `p`, or require that `p` fails, without consuming input |
 --- | `{ p }` | capture the substring consumed by `p` |
 --- | `{}` | capture the current 1-based byte position |
---- | `{: name: p :}` | group captures under `name`; omit `name:` for an anonymous group |
+--- | `{: name: p :}` | group captures under `name`; omit `name:` for an anonymous group
+--- |
 --- | `{~ p ~}` | substitute captured text into the substring consumed by `p` |
 --- | `=name` | match the text previously captured by named group `name` |
 --- | `p -> {}` | collect `p`'s captures in a table |

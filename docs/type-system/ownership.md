@@ -46,10 +46,10 @@ update(mutex, false)
 assert(not mutex.locked)
 ```
 
-Affinity is a public language facility. Ownership policy is ordinary Nupp source
-in libraries and user packages, so nothing here is privileged compiler
-knowledge. See [ownership.md](../concepts/ownership.md) for the annotations a
-caller writes.
+Affinity is a public language facility. General cleanup policy remains ordinary
+Nupp source. The core additionally defines the explicit `Closeable` lifecycle
+and managed cells for dynamic aliases. See
+[ownership.md](../concepts/ownership.md) for the annotations a caller writes.
 
 ## Declaring affine types
 
@@ -85,10 +85,8 @@ end
 global type Socket = affine(SocketHandle, closeSocket)
 ```
 
-There is no global `Owned`, `Transfer`, or structural `Drop` policy. A package
-may define a generic method-delegating cleanup as ordinary source, but the
-compiler never recognizes that helper or a method name. A foreign pointer or
-type with several valid cleanup policies names one explicitly:
+There is no structural `Drop` inference. A foreign pointer or type with several
+valid cleanup policies names one explicitly:
 
 ```nupp
 cdef function malloc(size: uint64): voidptr
@@ -100,6 +98,29 @@ end
 ```
 
 `affine(voidptr)` says there is deliberately no local terminal.
+
+## Closeable nominal lifecycle
+
+An affine interface declares that conforming nominal types carry an inherent
+terminal:
+
+```nupp
+affine interface Closeable
+    flush: nosuspend function(exclusive self: Closeable): nil
+    terminal close: nosuspend function(takes self: Closeable): nil
+end
+```
+
+A record must explicitly state `is Closeable`; matching method names do not
+infer conformance. Construction then introduces `affine(T, T.close)` behavior,
+and a bare owned `T` annotation carries it. Borrow-qualified parameter and
+result positions refer to the representation instead of minting an owner.
+Calling `close()` consumes the obligation, while `flush()` keeps it live.
+
+An affine interface must declare one terminal. Its terminal consumes `self`,
+returns `nil`, is non-suspending, and may raise. Interface composition rejects
+competing terminal names. A record containing Closeable fields inherits their
+aggregate obligations and destroys live fields in reverse declaration order.
 
 ## Terminal contract
 
@@ -464,42 +485,48 @@ status and borrow contracts are independent of the affine facility. See
 [c-interop.md](../concepts/c-interop.md#describe-lifetime-behavior) for the
 import side of the same contracts.
 
-## Dynamic boundaries
+## Dynamic boundaries and managed cells
 
-A nontrivial capability cannot disappear into `any` or an untyped call, which is
-reported. Prefer a typed wrapper for a closed backend set. Truly
-heterogeneous storage uses `nupp.owners`:
+A nontrivial capability cannot disappear into `any` or an untyped call. Prefer
+a typed wrapper or static borrow. When references must escape, `nupp.manage`
+moves one self-contained exact obligation into an independently owned cell:
 
 ```nupp
-local owners = require("nupp.owners")
+local owner = nupp.manage(new Client())
+local client = owner:alias()
 
-local store = owners.newStore()
-local handle = store:put(openFile()) -- moves the exact cleanup policy in
-local token = owners.erase(handle) -- safe to pass through untyped Lua
-local restored, problem = owners.recover(token, FileState)
-if restored then
-    local file = store:take(restored)
-    if file then use(file) end
-end
-drop(store) -- cleans every entry not taken or removed
+local answer, problem = client:with(function(borrows value)
+    return value:request()
+end)
 ```
 
-Handles contain store identity, slot, generation, and a stable type-policy key.
-`take` and `remove` invalidate every copied handle. Recovery checks a nominal
-representation witness against the complete stored representation-and-cleanup
-key, and `take` restores the exact stored affine policy. Transfer-only values,
-external borrows, pins, and foreign retentions cannot be enrolled, because store
-destruction could not discharge them, and enrolling one is reported.
+`managed(T)` is affine and closes its payload lexically. `alias(T)` is copyable,
+does not extend custody, and points permanently at the same cell. The runtime
+states are live, shared-borrowed, exclusive-borrowed, closing, closed, and
+taken. State changes before cleanup or transfer, active borrows are released
+even when callbacks raise, and close or take clears the payload and cleanup.
 
-### Stores across a reload
+`with` provides a shared callback borrow, `withExclusive` provides an exclusive
+one, `take` restores the original affine payload, and `close` exercises close
+authority without making the alias an owner. `nupp.recoverAlias(anyValue)`
+checks the unforgeable brand and yields `alias(unknown)`; `downcast<T>` then
+checks its erased representation and exact cleanup policy. Failures return
+`AliasError`, preserving success/error correlation.
 
-In watch mode, the store that must survive reload belongs to the host rather
-than to the patched module. Generated modules publish their stable policy keys
-to the hot-reload transaction. A cleanup-body edit behind the same declaration
-identity uses the patched function slot. Removing or changing a policy with live
-entries rejects the patch without invalidating its handles, so drain those
-entries first. See [hot-reload.md](../guides/hot-reload.md) for the reload
-transaction that check runs inside.
+Transfer-only owners, external loans, pins, and unmatched foreign retentions
+cannot be managed because a cell could not discharge them independently.
+`nupp.managed.Group` supplies runtime-sized heterogeneous cleanup by storing
+aliases and closing them in reverse adoption order. It contains one audited
+release where static custody becomes the group's runtime invariant; the
+compiler has no special case for the group.
+
+### Managed cells across a reload
+
+Generated modules publish stable cleanup-policy keys to the hot-reload
+transaction. Removing or incompatibly changing a policy with live managed cells
+rejects the patch. Close or take those cells first. Aliases remain tombstones
+after terminal state and never select a replacement resource. See
+[hot-reload.md](../guides/hot-reload.md) for the reload transaction.
 
 ## Unsafe representation boundaries
 

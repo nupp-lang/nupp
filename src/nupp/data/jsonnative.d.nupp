@@ -17,7 +17,7 @@ so a caller sees one API.
 record json
     --- Values that write their JSON encoding through a checked writer.
     interface JSONEncodable
-        writeJSON: function(self, out: Writer): nil
+        writeJSON: function(self, exclusive out: Writer): nil
     end
 
     --- A checked incremental JSON writer.
@@ -25,38 +25,45 @@ record json
         --- Starts an array value.
         --- @param self this writer
         --- @return this writer
-        startArray: function(self: Writer): Writer
+        startArray: function(exclusive self: Writer): Writer borrows (self)
 
         --- Starts an object value.
         --- @param self this writer
         --- @return this writer
-        startObject: function(self: Writer): Writer
+        startObject: function(exclusive self: Writer): Writer borrows (self)
 
         --- Selects the next object member.
         --- @param self this writer
         --- @param name the next object member name
         --- @return this writer
-        key: function(self: Writer, name: any): Writer
+        key: function(exclusive self: Writer, name: any): Writer borrows (self)
 
         --- Appends one complete Lua value.
         --- @param self this writer
         --- @param value the next complete JSON value
         --- @return this writer
-        write: function(self: Writer, value: any): Writer
+        write: function(exclusive self: Writer, value: any): Writer borrows (self)
 
         --- Appends JSON null.
         --- @param self this writer
         --- @return this writer
-        null: function(self: Writer): Writer
+        null: function(exclusive self: Writer): Writer borrows (self)
 
-        --- Closes the current array or object.
+        --- Ends the current array.
         --- @param self this writer
         --- @return this writer
-        close: function(self: Writer): Writer
+        endArray: function(exclusive self: Writer): Writer borrows (self)
 
-        --- Verifies that the document is complete and closes the writer.
+        --- Ends the current object.
         --- @param self this writer
-        finish: function(self: Writer): nil
+        --- @return this writer
+        endObject: function(exclusive self: Writer): Writer borrows (self)
+
+        --- Publishes staged bytes without ending the document.
+        flush: nosuspend function(exclusive self: Writer): nil
+
+        --- Verifies and publishes a complete root, then closes the writer.
+        close: nosuspend function(exclusive self: Writer): nil
     end
 
     --- Decodes one JSON document.
@@ -127,8 +134,8 @@ record json
     --- ```nupp
     --- local out = string.buffer.new()
     --- local writer = nupp.data.json.writer(out)
-    --- writer:startObject():key("id"):write(41):close()
-    --- writer:finish()
+    --- writer:startObject():key("id"):write(41):endObject()
+    --- writer:close()
     --- ```
     --- @param out the checked destination
     --- @param nullValue an additional value treated as JSON null
@@ -146,12 +153,12 @@ record json
     --- @param type the record's type witness
     --- @param value the record to encode
     --- @param out the checked destination
-    writeAs: function<T>(type: Type<T>, value: T, out: Writer): nil
+    writeAs: function<T>(type: Type<T>, value: T, exclusive out: Writer): nil
 
     --- Appends a nominal record using the metatable its value already carries.
     --- @param value the record to encode
     --- @param out the caller-owned destination
-    writeRecord: function<T>(value: T, out: Writer): nil
+    writeRecord: function<T>(value: T, exclusive out: Writer): nil
 
     --- Encodes a nominal record into a new string after supplying its type witness.
     --- @param type the record's type witness

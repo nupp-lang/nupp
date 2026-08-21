@@ -1135,9 +1135,8 @@ function M.standardMathApiHasCompleteDocumentation()
    end
 end
 
--- Shared by the two halves of what used to be one `nupp.resources` module: the
--- owning file wrappers and the container that holds owners. Both claim to document
--- exactly their public surface, and neither may leak private storage into it.
+-- Public modules claim to document exactly their public surface and may not leak
+-- private storage into it.
 local function assertDocumentedSurface(relativePath, moduleName, expected, recordCheck)
    local source = readFile(HERE .. "/../" .. relativePath)
    local module, errors = doc.extract(source, relativePath, moduleName)
@@ -1177,39 +1176,31 @@ local function assertDocumentedSurface(relativePath, moduleName, expected, recor
    assert(next(expected) == nil, moduleName .. " is missing part of its public API")
 end
 
--- Only what reaches an operation that can fail documents a failure. Handing back an
--- empty set cannot fail, and neither can discharging one.
--- `adopt` and `remove` are inline members and document themselves inside the record.
--- `close` is declared there and defined below so its public signature and
--- implementation remain separately documented.
--- Being written outside the record does not make it a function of the module: it
--- folds back onto `Set`, which is where a reader reaches it.
-function M.standardOwnerSetApiHasCompleteDocumentation()
-   local source = readFile(HERE .. "/../src/nupp/owners/init.nupp")
-   local module = assert(doc.extract(source, "src/nupp/owners/init.nupp", "nupp.owners"))
-   local setRecord, newSet, newStore
+function M.standardManagedGroupApiHasCompleteDocumentation()
+   local source = readFile(HERE .. "/../src/nupp/managed.nupp")
+   local module = assert(doc.extract(source, "src/nupp/managed.nupp", "nupp.managed"))
+   local groupRecord, newGroup
    for _, item in ipairs(module.items) do
-      if item.name == "Set" then setRecord = item end
-      if item.name == "owners.newSet" then newSet = item end
-      if item.name == "owners.newStore" then newStore = item end
+      if item.name == "Group" then groupRecord = item end
+      if item.name == "managed.group" then newGroup = item end
    end
-   assert(setRecord and newSet and newStore, "nupp.owners lost a documented constructor")
-   local function checkSet(item)
-      -- The set's storage is its own business. A reader of these docs is told what a
-      -- set does, never what it keeps to do it.
+   assert(groupRecord and newGroup, "nupp.managed lost its documented public surface")
+   local function checkGroup(item)
+      -- The group's storage is its own business. A reader is told what it does,
+      -- never what it keeps to do it.
       local named = {}
       for _, member in ipairs(item.members) do
          assert(member.name ~= "_entries" and member.name ~= "_closed",
-            "the set's private storage leaked into the public docs")
+            "the group's private storage leaked into the public docs")
          named[member.name] = member
       end
       for _, operation in ipairs({"close", "adopt", "remove"}) do
-         assert(named[operation], "the set stopped documenting " .. operation)
-         assert(#named[operation].raises > 0,
-            operation .. " has no documented failure condition")
+         assert(named[operation], "the group stopped documenting " .. operation)
       end
+      assert(#named.close.raises > 0, "close has no documented failure condition")
+      assert(#named.remove.raises > 0, "remove has no documented failure condition")
    end
-   checkSet(setRecord)
+   checkGroup(groupRecord)
 end
 
 function M.documentsACdefOnlyWhereItReachesAReader()

@@ -171,7 +171,7 @@ that page:
 | Named and plucked arguments | [calls.md](../concepts/calls.md) | `NUPP2004`, `NUPP2006`, `NUPP2125` |
 | Narrowing | [narrowing.md](../type-system/narrowing.md) | `NUPP2002`, `NUPP2109`, `NUPP2110` |
 | Overloads and overrides | [overloads.md](../type-system/overloads.md) | `NUPP2118`, `NUPP2125`, `NUPP2126`, `NUPP2208` |
-| Ownership | [ownership.md](../type-system/ownership.md) | `NUPP2601`, `NUPP2602`, `NUPP2603`, `NUPP2606` through `NUPP2615` |
+| Ownership | [ownership.md](../type-system/ownership.md) | `NUPP2601`, `NUPP2602`, `NUPP2603`, `NUPP2606` through `NUPP2615`, `NUPP2620` |
 | Primitive types | [primitives.md](../type-system/primitives.md) | `NUPP2001`, `NUPP2002`, `NUPP2004`, `NUPP2006`, `NUPP2106`, `NUPP2115` |
 | Property capabilities | [properties.md](../type-system/properties.md) | `NUPP2009`, `NUPP2118` |
 | Records and structs | [records.md](../type-system/records.md) | `NUPP2118`, `NUPP2201`, `NUPP2202`, `NUPP2204`, `NUPP2205` |

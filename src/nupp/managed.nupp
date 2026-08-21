@@ -1,0 +1,96 @@
+module nupp.managed
+
+--[[
+Utilities built over core managed cells and aliases.
+
+`Group` owns a runtime-sized heterogeneous collection without compiler privileges.
+It stores copyable aliases and has one audited `unsafe release` where custody moves
+from a statically tracked `managed(T)` owner into the group's runtime invariant.
+Closing the group closes every live cell in reverse adoption order.
+]]
+
+local managed = {}
+
+--- A runtime-sized deterministic cleanup group.
+--- @export
+record managed.Group is Closeable
+    _entries: {alias(unknown)}
+    _closed: boolean
+
+    function flush(exclusive self): nil
+        -- Cells publish no pending data of their own. Their payloads decide what their
+        -- consuming close operation publishes.
+    end
+
+    --- Moves a managed cell into this group and returns a checked non-owning alias.
+    function adopt<T>(exclusive self, takes cell: managed(T)): alias(T)
+        assert(not self._closed, "managed group is closed")
+        local handle = cell:alias()
+        self._entries[#self._entries + 1] = handle as alias(unknown)
+        unsafe do
+            -- The stored alias keeps the cell representation reachable. The group's
+            -- close invariant, rather than the static local, now owns its obligation.
+            local _raw = unsafe release cell
+        end
+
+        return handle
+    end
+
+    --- Removes one adopted cell and restores its exact original owner.
+    --- @raises when the alias is absent, closed, borrowed, or already taken
+    function remove<T>(exclusive self, handle: alias(T)): T
+        assert(not self._closed, "managed group is closed")
+        for index = #self._entries, 1, -1 do
+            if self._entries[index] == handle then
+                table.remove(self._entries, index)
+                local value, problem = handle:take()
+                if problem then
+                    error(problem.message, 2)
+                end
+                return assert(value)
+            end
+        end
+        error("managed alias is not registered in this group", 2)
+    end
+
+    --- Closes every adopted cell in reverse order, attempting all cleanups.
+    --- @raises after attempting all entries when any payload cleanup raises
+    function close(takes self): nil
+        if self._closed then
+            return
+        end
+        self._closed = true
+        local first: any = nil
+        local suppressed = 0
+        for index = #self._entries, 1, -1 do
+            local ok, reason = pcall(function()
+                local problem = self._entries[index]:close()
+                if problem and problem.code ~= "NUPP2614" then
+                    error(problem.message, 0)
+                end
+            end)
+            if not ok then
+                if first == nil then
+                    first = reason
+                else
+                    suppressed = suppressed + 1
+                end
+            end
+        end
+        self._entries = {}
+        if first ~= nil then
+            if suppressed > 0 then
+                error(tostring(first) .. " (suppressed " .. tostring(suppressed) .. " cleanup failure(s))", 0)
+            end
+            error(first, 0)
+        end
+    end
+end
+
+--- Creates an empty managed cleanup group.
+--- @export
+function managed.group(): managed.Group
+    return new managed.Group(_entries = {}, _closed = false)
+end
+
+export = managed

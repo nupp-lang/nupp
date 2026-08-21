@@ -433,15 +433,16 @@ function M.partialFieldMovesAndReinitializationKeepExactObligations()
    assertEq(chunk(), "abc")
 end
 
-function M.resourceSetAdoptionTransfersAutomaticResponsibility()
+function M.managedGroupAdoptionTransfersAutomaticResponsibility()
    local chunk = compile(PRELUDE .. table.concat({
       "",
-      "local set = require('nupp.owners')",
+      "local managed = require('nupp.managed')",
       "do",
-      "   local group = set.newSet('automatic')",
+      "   local group = managed.group()",
       "   local value = open_resource('q')",
-      "   local borrowed = group:adopt(value)",
-      "   print(borrowed.name)",
+      "   local handle = group:adopt(nupp.manage(value))",
+      "   local name = handle:with(function(borrows item) return item.name end)",
+      "   print(name)",
       "end",
       "return calls",
    }, "\n"))
@@ -612,6 +613,45 @@ function M.aNestedFunctionReturnsValuesThroughItsOwnRegion()
    assertEq(name, "i")
    assertEq(count, 2)
    assertEq(calls, "i")
+end
+
+function M.closeableFieldsCloseInReverseOrder()
+   local chunk = compile(table.concat({
+      "local calls = ''",
+      "local record Resource is Closeable",
+      "   name: string",
+      "   function flush(exclusive self): nil end",
+      "   function close(takes self): nil calls = calls .. self.name end",
+      "end",
+      "local record Bundle",
+      "   first: Resource",
+      "   second: Resource",
+      "end",
+      "do",
+      "   local bundle = new Bundle(",
+      "      first = new Resource(name = 'a'),",
+      "      second = new Resource(name = 'b')",
+      "   )",
+      "end",
+      "return calls",
+   }, "\n"))
+   assertEq(chunk(), "ba")
+end
+
+function M.manualCloseDischargesAnInherentObligationOnce()
+   local chunk = compile(table.concat({
+      "local calls = 0",
+      "local record Resource is Closeable",
+      "   function flush(exclusive self): nil end",
+      "   function close(takes self): nil calls = calls + 1 end",
+      "end",
+      "do",
+      "   local value = new Resource()",
+      "   value:close()",
+      "end",
+      "return calls",
+   }, "\n"))
+   assertEq(chunk(), 1)
 end
 
 return M

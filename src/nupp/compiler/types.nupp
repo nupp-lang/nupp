@@ -793,11 +793,20 @@ record types.Nominal
     --- A sealed interface is nominal at conformance sites rather than structural.
     sealedModule: string?
 
-    --- The audited dynamic discharge container shipped by the standard library.
-    resourceSet: boolean?
+    --- This interface changes conforming values into inherent affine owners.
+    affineInterface: boolean?
 
-    --- The generation-checked heterogeneous capability store.
-    dynamicStore: boolean?
+    --- The single consuming method inherited as the inherent cleanup policy.
+    terminalMethod: string?
+
+    --- Cleanup carried by bare values of this declaration.
+    inherentCleanup: types.Cleanup?
+
+    --- Core managed-cell nominal whose payload argument includes its exact ownership.
+    managedCell: boolean?
+
+    --- Core checked-alias nominal.
+    managedAlias: boolean?
 
     --- The compiler-provided LPeg declaration whose generic argument is its capture
     --- tuple.
@@ -1571,6 +1580,11 @@ function types.closureCleanup(): types.Cleanup
     return new types.Cleanup(id = "generated:closure", kind = "closure")
 end
 
+--- A terminal reached through the owned value itself.
+function types.methodCleanup(name: string): types.Cleanup
+    return new types.Cleanup(id = "method:" .. name, kind = "method", name = name)
+end
+
 --- A cleanup applied to one affine field of an owning record.
 function types.fieldCleanup(field: string, cleanup: types.Cleanup): types.Cleanup
     return new types.Cleanup(
@@ -1674,6 +1688,18 @@ function types.affine(
             obligation = obligation
         )
     )
+end
+
+--- Applies the ownership policy declared by an affine interface, if any.
+function types.inherentOwner(t: types.Type): types.Type
+    local raw = types.unwrapOwnership(t)
+    local nominal = raw.tag == "nominal" and raw as types.Nominal or nil
+    local cleanup = nominal and nominal.inherentCleanup or nil
+    if cleanup then
+        return types.affine(raw, {cleanup})
+    end
+
+    return t
 end
 
 function types.obligationFor(t: types.Type): types.Obligation?

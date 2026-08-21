@@ -44,8 +44,8 @@ local projected = simdjson_bench.pull(source, {
 local out = require("string.buffer").new()
 local writer = simdjson_bench.writer(out, myNull)
 writer:startObject():key("id"):write(projected.id)
-writer:key("items"):write(simdjson_bench.EMPTY_ARRAY):close()
-writer:finish()
+writer:key("items"):write(simdjson_bench.EMPTY_ARRAY):endObject()
+writer:close()
 local json = out:tostring()
 ```
 

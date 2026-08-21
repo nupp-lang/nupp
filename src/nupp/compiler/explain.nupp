@@ -877,8 +877,8 @@ local ENTRIES: {any} = {
         summary = "A dynamic boundary would erase a live capability",
         rule = "A value carrying an obligation, root, exclusive loan, pin, or "
         .. "foreign retention cannot be converted to any or passed to untyped Lua. "
-        .. "Keep the boundary typed, enroll a self-contained value in "
-        .. "nupp.owners, or use an explicit unsafe release.",
+        .. "Keep the boundary typed, move a self-contained owner into "
+        .. "nupp.manage, or use an explicit unsafe release.",
         wrong = "local function erase(value: affine(table)): any\n    return value\nend\nreturn erase\n",
         right = "local function erase(takes value: affine(table)): any\n"
         .. "    return unsafe release value\nend\nreturn erase\n",
@@ -887,53 +887,46 @@ local ENTRIES: {any} = {
     },
     {
         code = "NUPP2612",
-        summary = "A dynamic-store value is not self-contained",
-        rule = "nupp.owners accepts only capabilities it can discharge without "
+        summary = "A managed value is not self-contained",
+        rule = "nupp.manage accepts only a capability it can discharge without "
         .. "outside state. Transfer-only obligations, external roots, outstanding "
-        .. "exclusive loans, and unmatched foreign retentions cannot be enrolled.",
-        wrong = "local stores = require('nupp.owners')\n"
-        .. "local record Resource\n    value: integer\nend\n"
-        .. "local function begin(): affine(Resource) "
-        .. "return new Resource(value = 1) end\n"
-        .. "local store = stores.newStore()\n"
-        .. "local handle = store:put(begin())\ndrop(store)\nreturn handle\n",
-        right = "local stores = require('nupp.owners')\n"
-        .. "local record Resource\nend\n"
+        .. "exclusive loans, and unmatched foreign retentions cannot be managed.",
+        wrong = "local record Resource\nend\n"
+        .. "local function begin(): affine(Resource) return new Resource() end\n"
+        .. "local cell = nupp.manage(begin())\n",
+        right = "local record Resource\nend\n"
         .. "local function close(takes value: Resource): nil\nend\n"
         .. "local function open(): affine(Resource, close) return new Resource() end\n"
-        .. "local store = stores.newStore()\nstore:put(open())\ndrop(store)\n",
+        .. "local cell = nupp.manage(open())\n",
         related = {"NUPP2608", "NUPP2611", "NUPP2614"},
         docs = "docs/type-system/ownership.md#dynamic-boundaries",
     },
     {
         code = "NUPP2613",
-        summary = "A dynamic handle has the wrong type policy",
-        rule = "Recovering an erased dynamic handle requires the same canonical "
-        .. "representation and cleanup policy that were recorded by put. A name or "
-        .. "cast cannot substitute for that runtime check.",
-        wrong = "local stores = require('nupp.owners')\n"
-        .. "local record File\nend\nlocal record Socket\nend\n"
-        .. "local function close(takes value: File): nil\nend\n"
-        .. "local function open(): affine(File, close) return new File() end\n"
-        .. "local store = stores.newStore()\nlocal handle = store:put(open())\n"
-        .. "local erased = stores.erase(handle)\n"
-        .. "local recovered = stores.recover(erased, Socket)\n",
-        right = "local stores = require('nupp.owners')\n"
-        .. "local record File\nend\n"
-        .. "local function close(takes value: File): nil\nend\n"
-        .. "local function open(): affine(File, close) return new File() end\n"
-        .. "local store = stores.newStore()\nlocal handle = store:put(open())\n"
-        .. "local erased = stores.erase(handle)\n"
-        .. "local recovered = stores.recover(erased, File)\n",
+        summary = "A managed alias has the wrong type policy",
+        rule = "Downcasting an alias requires an exactly droppable target and compares "
+        .. "its canonical representation and cleanup policy with the policy recorded "
+        .. "by nupp.manage. Recovery from any separately validates the runtime brand.",
+        wrong = "local record Plain\nend\n"
+        .. "local erased: any = {}\n"
+        .. "local recovered = nupp.recoverAlias(erased)\n"
+        .. "local plain = recovered and recovered:downcast<Plain>()\n",
+        right = "local record File is Closeable\n"
+        .. "    function flush(exclusive self): nil\nend\n"
+        .. "    function close(takes self): nil\nend\nend\n"
+        .. "local owner = nupp.manage(new File())\n"
+        .. "local erased: any = owner:alias()\n"
+        .. "local recovered = nupp.recoverAlias(erased)\n"
+        .. "local file = recovered and recovered:downcast<File>()\n",
         related = {"NUPP2611", "NUPP2614"},
         docs = "docs/type-system/ownership.md#dynamic-boundaries",
     },
     {
         code = "NUPP2614",
-        summary = "A dynamic handle is stale or names a destroyed store",
-        rule = "Taking, removing, or destroying a dynamic-store slot increments its "
-        .. "generation. Every older handle fails before the stored value is read or "
-        .. "its cleanup policy is selected.",
+        summary = "A managed alias is invalid or its cell is terminal",
+        rule = "An alias must carry the runtime brand of one managed cell. Closing or "
+        .. "taking the payload leaves that cell as a permanent tombstone, and every "
+        .. "copied alias fails before reading the payload.",
         related = {"NUPP2612", "NUPP2613"},
         docs = "docs/type-system/ownership.md#dynamic-boundaries",
     },
@@ -955,7 +948,8 @@ local ENTRIES: {any} = {
         code = "NUPP2615",
         summary = "An affine value names an invalid terminal",
         rule = "The terminal must be visible and have the exact shape "
-        .. "`nosuspend function(takes Representation): nil`.",
+        .. "`nosuspend function(takes Representation): nil`. An affine interface "
+        .. "declares exactly one such terminal and cannot inherit a competing one.",
         wrong = "local record Resource\nend\nlocal record Other\nend\n"
         .. "local function release(takes value: Other): nil\nend\n"
         .. "local function acquire(): affine(Resource, release)\n"
@@ -966,6 +960,16 @@ local ENTRIES: {any} = {
         .. "    return new Resource()\nend\nreturn acquire\n",
         related = {"NUPP2602", "NUPP2603"},
         docs = "docs/type-system/affine-types.md#cleanup-and-transfer-only-forms",
+    },
+    {
+        code = "NUPP2620",
+        summary = "A managed cell has a conflicting runtime borrow",
+        rule = "Shared alias callbacks exclude an exclusive callback, and an "
+        .. "exclusive callback excludes every other borrow. Close and take likewise "
+        .. "require no active callback borrow. The runtime releases a borrow before "
+        .. "propagating a callback error.",
+        related = {"NUPP2607", "NUPP2614"},
+        docs = "docs/type-system/ownership.md#dynamic-boundaries",
     },
     {
         code = "NUPP2801",

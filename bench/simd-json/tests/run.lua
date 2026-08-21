@@ -403,15 +403,17 @@ do
    local out = require("string.buffer").new()
    local writer = simdjsonBench.writer(out, nullValue)
    writer:startObject():key("items"):startArray():write(1)
-   writer:null():write(simdjsonBench.EMPTY_OBJECT):close()
-      :key("empty"):write(simdjsonBench.EMPTY_ARRAY):close()
-   writer:finish()
+   writer:null():write(simdjsonBench.EMPTY_OBJECT):endArray()
+      :key("empty"):write(simdjsonBench.EMPTY_ARRAY):endObject()
+   writer:close()
    check(out:tostring() == [[{"items":[1,null,{}],"empty":[]}]],
       "streaming writer emitted the wrong chunks")
    out = require("string.buffer").new()
    local key = simdjsonBench.encodedString('quoted"key')
-   simdjsonBench.writer(out):startObject()
-      :key(key):write(simdjsonBench.verified("1")):close():finish()
+   local trustedWriter = simdjsonBench.writer(out)
+   trustedWriter:startObject()
+      :key(key):write(simdjsonBench.verified("1")):endObject()
+   trustedWriter:close()
    check(out:tostring() == [[{"quoted\"key":1}]],
       "streaming writer emitted trusted bytes incorrectly")
    check(not pcall(function() writer:write(true) end),

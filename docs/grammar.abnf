@@ -334,7 +334,7 @@ bindingentry   = [%s"type"] Name [%s"as" Name] [":" type]
 
 typedeclstat   = ["local" / "global"] typedecl
 typedecl       = "type" declname [generics] "=" type
-               / ["sealed"] "interface" declname [generics] [contracts]
+               / ["sealed" / "affine"] "interface" declname [generics] [contracts]
                  [refinement] recordbody "end"
                / ("record" / "struct") declname [generics] [contracts] [refinement]
                  recordbody "end"
@@ -351,7 +351,7 @@ arraypart      = "{" type "}"                  ; the record is also a
 annotatedentry = *annotation (fielddecl / metamethoddecl / inlinemethod
                               / constructordecl / matchesdecl)
                                                 ; metadata attaches to one entry
-fielddecl      = [propertycap] Name ":" type ["=" exp]
+fielddecl      = [propertycap / %s"terminal"] Name ":" type ["=" exp]
                                                 ; one explicit type per field;
                                                 ; grouped names are rejected
                                                 ; with a targeted error
@@ -550,7 +550,9 @@ packunion      = typepack 1*("|" typepack)
 ;   tokens are a Name followed by `=` or `:`. Elsewhere it is an identifier.
 ;   `sealed` is a reserved level-1 keyword rather than a contextual name. It may
 ;   appear only immediately before `interface`, after an optional visibility
-;   modifier: `local sealed interface Token`.
+;   modifier: `local sealed interface Token`. `affine interface` and its
+;   `terminal` field modifier are contextual forms that declare one inherent
+;   ownership terminal; the checker restricts `terminal` to affine interfaces.
 ;   LuaJIT's `const` is likewise a soft keyword: at statement position it
 ;   introduces a block-scoped immutable local when followed by a Name or
 ;   `function`, or an immutable named field when followed by a dotted field

@@ -439,6 +439,30 @@ function callexpr.install(c: state.Checker): state.ExprHandlers
         return T.union(nonnil)
     end
 
+    local function managedGeneric(name: string, payload: Type): Type
+        local declared = c.lookupType("nupp." .. name)
+        if declared and declared.tag == "nominal" and declared.typeParams and declared.typeParams[1] then
+            local core = (declared.origin or declared) as T.Nominal
+            if name == "Managed" then
+                core.managedCell = true
+            else
+                core.managedAlias = true
+            end
+            return generics.instantiate(declared, {[declared.typeParams[1]] = payload})
+        end
+
+        return T.any
+    end
+
+    local function policyFor(value: Type): string
+        local policy = {T.tostring(value)}
+        for _, cleanup in ipairs(T.capabilityCleanups(T.capability(value))) do
+            policy[#policy + 1] = cleanup.id
+        end
+
+        return table.concat(policy, "|")
+    end
+
     -- Resolves an expression-shaped type path without inferring it as a runtime value.
     -- `nupp.reflect` and the layout intrinsics share this spelling and dependency
     -- behavior.
@@ -680,7 +704,39 @@ function callexpr.install(c: state.Checker): state.ExprHandlers
         local intrinsic = node.ownershipSyntax or ownershipIntrinsic(c, callee)
         if intrinsic then
             local args = argExprs
-            if intrinsic == "borrow" then
+            if intrinsic == "manage" then
+                local valueT = args[1] and c.infer(args[1]) or T.any
+                local entry = args[1] and c.ownershipEntry(args[1]) or nil
+                local capability = c.capabilityOf(valueT, entry)
+                local selfContained = #args == 1 and capability and T.capabilityHasMovable(
+                    capability
+                ) and not T.capabilityTransferOnly(
+                    capability
+                ) and #T.capabilityCleanups(
+                    capability
+                ) > 0 and #capability.loans == 0 and #capability.anchors == 0 and #capability.retentions == 0
+                if not selfContained then
+                    c.diag(
+                        "NUPP2612",
+                        args[1] or node,
+                        "nupp.manage requires one self-contained owner with an exact cleanup policy",
+                        nil,
+                        {
+                            help = "remove borrows, pins, foreign retention, or transfer-only leaves before managing the value"
+                        }
+                    )
+                    return T.any
+                end
+                c.moveExpression(args[1], valueT, "nupp.manage")
+                node.ownershipIntrinsic = "manage"
+                node.managedCleanups = T.capabilityCleanups(capability)
+                node.managedPolicy = policyFor(valueT)
+                local cell = managedGeneric("Managed", valueT)
+                local owned = T.affine(cell, {T.methodCleanup("close")})
+                node.valuePack = T.pack({owned})
+                c.lastCallRets = {owned}
+                return owned
+            elseif intrinsic == "borrow" then
                 local valueT = args[1] and c.infer(args[1]) or T.any
                 if #args ~= 1 or c.ownershipKind(valueT) ~= "affine" then
                     c.diag("NUPP2602", node, "borrow expects one live owned value")
@@ -1519,21 +1575,6 @@ function callexpr.install(c: state.Checker): state.ExprHandlers
                 end
             end
         end
-        local dynamicExport = node.kind == "call" and callee and callee.exactCallExport or nil
-        if not dynamicExport
-            and node.kind == "call"
-            and callee
-            and callee.kind == "dotIndex"
-            and callee.obj
-            and callee.obj.kind == "name"
-            and callee.obj.token
-            and callee.name
-        then
-            local holder = c.lookupEntry(callee.obj.token.text)
-            if holder and holder.requiredModule == "nupp.owners" then
-                dynamicExport = {module = "nupp.owners", member = callee.name.text,}
-            end
-        end
         local soaExport = node.kind == "call" and callee and callee.exactCallExport or nil
         if soaExport and soaExport.module == "nupp.mem.soa" and (
             soaExport.member == "allocate" or soaExport.member == "layoutof"
@@ -1591,61 +1632,16 @@ function callexpr.install(c: state.Checker): state.ExprHandlers
         if indexedProducer then
             node.indexedViewProducer = {producer = indexedProducer, source = argExprs[1], count = argExprs[2],}
         end
-        if dynamicExport and dynamicExport.module == "nupp.owners" then
-            local source = argExprs[1]
-            local entry = source and c.ownershipEntry(source) or nil
-            entry = c.ownershipState(entry)
-            if dynamicExport.member == "erase" then
-                if entry and entry.resourceCapability then
-                    node.resourceCapability = entry.resourceCapability
-                end
-            elseif dynamicExport.member == "recover" and entry and entry.resourceCapability then
-                local capabilityType = entry.resourceCapability as T.Type
-                local expected = node.argumentPack and T.packAt(node.argumentPack, 2) or nil
-                local requested = expected and expected.tag == "typeobject" and expected.of or nil
-                if requested and requested.id ~= rawType(capabilityType).id then
-                    local fix = c.edits.typeFix(argExprs[2], T.tostring(rawType(capabilityType)))
-                    local related = entry.definition and c.related(
-                        entry.definition,
-                        "erased handle policy was established here"
-                    ) or nil
-                    c.diag(
-                        "NUPP2613",
-                        argExprs[2] or node,
-                        "dynamic handle recovery requests a different type or cleanup policy",
-                        fix and {fix} or nil,
-                        {
-                            help = "recover the representation recorded by the handle",
-                            related = related and {related} or nil,
-                        }
-                    )
-                else
-                    local capability = c.capabilityOf(capabilityType)
-                    local policy = {T.tostring(capabilityType)}
-                    for _, cleanup in ipairs(T.capabilityCleanups(capability)) do
-                        policy[#policy + 1] = cleanup.id
-                    end
-                    node.dynamicRecoverPolicy = table.concat(policy, "|")
-                    node.resourceCapability = capabilityType
-                end
+        local globals = c.env and c.env.globals
+        local stableNupp = globals and c.lookupEntry("nupp") == globals.nupp
+        if stableNupp and baseName == "nupp" and memberName == "recoverAlias" then
+            if #argExprs == 1 then
+                local aliasType = managedGeneric("Alias", T.unknown)
+                first = T.optional(aliasType)
+                rets = {first, rets and rets[2] or T.any}
+                pack = T.pack(rets)
+                node.recoverManagedAlias = true
             end
-        end
-        -- `ErasedHandle` is private and constructible only by nupp.owners.
-        -- Preserve custody metadata from its typed source even when an imported-call
-        -- sidecar was unavailable (for example while checking the bundled module
-        -- graph).
-        local erasedResult = rawType(first)
-        local erasedOrigin = erasedResult.tag == "nominal" and (erasedResult.origin or erasedResult) or nil
-        if erasedOrigin
-            and erasedOrigin.tag == "nominal"
-            and erasedOrigin.moduleName == "nupp.owners"
-            and erasedOrigin.name == "ErasedHandle"
-            and not node.resourceCapability
-        then
-            local source = argExprs[1]
-            local entry = source and c.ownershipEntry(source) or nil
-            entry = c.ownershipState(entry)
-            node.resourceCapability = entry and entry.resourceCapability or nil
         end
         if node.kind == "safeCall" then
             local calledPack = pack or (rets and T.pack(rets) or T.pack({}, {kind = "unknown", type = T.any}))
@@ -1876,85 +1872,35 @@ function callexpr.install(c: state.Checker): state.ExprHandlers
                 member.text,
                 node.argumentPack and T.packAt(node.argumentPack, 2) or nil
             )
-            if owner.tag == "nominal" and owner.dynamicStore and member.text == "put" then
-                local adopted = node.argumentPack and T.packAt(node.argumentPack, 1) or nil
-                local actualArgs = node.args and node.args.kind == "args" and node.args.exprs or {}
-                local entry = actualArgs[1] and c.ownershipEntry(actualArgs[1]) or nil
-                local capability = adopted and c.capabilityOf(adopted, entry) or nil
-                local selfContained = capability and T.capabilityHasMovable(
-                    capability
-                ) and not T.capabilityTransferOnly(
-                    capability
-                ) and #capability.loans == 0 and #capability.anchors == 0 and #capability.retentions == 0
-                local cleanups = capability and T.capabilityCleanups(capability) or {}
-                if selfContained and #cleanups > 0 then
-                    local policy = {T.tostring(adopted as T.Type)}
-                    for _, cleanup in ipairs(cleanups) do
-                        policy[#policy + 1] = cleanup.id
-                    end
-                    node.dynamicPutCleanups = cleanups
-                    node.dynamicTypePolicy = table.concat(policy, "|")
-                    node.resourceCapability = adopted
-                else
-                    local related = entry and entry.definition and c.related(
-                        entry.definition,
-                        "value supplied to the dynamic store is declared here"
-                    ) or nil
-                    c.diag(
-                        "NUPP2612",
-                        actualArgs[1] or node,
-                        "dynamic.Store.put requires a self-contained capability with an exact cleanup policy",
-                        nil,
-                        {
-                            help = "remove borrows, pins, foreign retention, or transfer-only leaves before enrolling the value",
-                            related = related and {related} or nil,
-                        }
-                    )
-                end
-            elseif owner.tag == "nominal" and owner.dynamicStore and member.text == "take" then
-                local actualArgs = node.args and node.args.kind == "args" and node.args.exprs or {}
-                local entry = actualArgs[1] and c.ownershipEntry(actualArgs[1]) or nil
-                entry = c.ownershipState(entry)
-                local capability = entry and entry.resourceCapability or nil
-                if capability then
-                    local payload = T.optional(rawType(capability))
-                    local returned = T.withOwnershipPayload(capability, payload)
+            local aliasDeclaration = c.lookupType("nupp.Alias")
+            local aliasOrigin = aliasDeclaration and aliasDeclaration.tag == "nominal" and (
+                (aliasDeclaration.origin or aliasDeclaration) as T.Nominal
+            ) or nil
+            if origin and aliasOrigin and origin == aliasOrigin and member.text == "take" then
+                local capability = nominal and nominal.typeArgs and nominal.typeArgs[1] or nil
+                if capability and c.ownershipKind(capability) == "affine" then
+                    local returned = T.withOwnershipPayload(capability, T.optional(rawType(capability)))
                     first = returned
                     rets = {returned, rets and rets[2] or T.any}
                     pack = T.pack(rets)
                     node.resourceCapability = capability
                 end
-            elseif owner.tag == "nominal" and owner.resourceSet and member.text == "adopt" then
-                local adopted = node.argumentPack and T.packAt(node.argumentPack, 1) or nil
-                local cleanups = adopted and adopted.tag == "affine" and adopted.cleanups or nil
-                local actualArgs = node.args and node.args.kind == "args" and node.args.exprs or {}
-                if cleanups and #cleanups > 0 then
-                    if actualArgs[2] then
-                        c.diag("NUPP2602", actualArgs[2], "a cleanup owner already carries its discharge contract")
-                    end
-                    node.resourceAdoptCleanups = cleanups
-                    node.resourceCapability = adopted
-                elseif cleanups and #cleanups == 0 then
-                    if not actualArgs[2] then
-                        c.diag("NUPP2602", node, "an opaque owner needs an explicit terminal consumer when adopted")
-                    end
-                    node.resourceCapability = adopted
+            elseif origin and aliasOrigin and origin == aliasOrigin and member.text == "downcast" then
+                local typeArgs = node.typeArgs or {}
+                if #typeArgs ~= 1 then
+                    c.diag("NUPP2613", node, "alias.downcast expects one explicit target type")
                 else
-                    c.diag("NUPP2602", actualArgs[1] or node, "Set.adopt requires an owned value")
-                end
-            elseif owner.tag == "nominal" and owner.resourceSet and member.text == "remove" then
-                local actualArgs = node.args and node.args.kind == "args" and node.args.exprs or {}
-                local entry, nameNode = actualArgs[1] and c.ownershipEntry(actualArgs[1]) or nil
-                entry = c.ownershipState(entry)
-                if not entry or not entry.resourceCapability or entry.moved then
-                    c.diag("NUPP2602", actualArgs[1] or node, "Set.remove needs a live value returned by adopt")
-                else
-                    local capability = entry.resourceCapability
-                    entry.moved = true
-                    entry.movedAt = nameNode or actualArgs[1]
-                    c.releaseBorrowLinks(entry)
-                    first, rets, pack = capability, {capability}, T.pack({capability})
-                    node.resourceCapability = capability
+                    local requested = c.resolveType(typeArgs[1])
+                    local capability = c.capabilityOf(requested)
+                    if #T.capabilityCleanups(capability) == 0 then
+                        c.diag("NUPP2613", typeArgs[1], "alias.downcast requires an exactly droppable owner type")
+                    else
+                        local aliasType = managedGeneric("Alias", requested)
+                        first = T.optional(aliasType)
+                        rets = {first, rets and rets[2] or T.any}
+                        pack = T.pack(rets)
+                        node.managedAliasPolicy = policyFor(requested)
+                    end
                 end
             end
             if owner.tag == "nominal" and owner.overloadedMethods and owner.overloadedMethods[

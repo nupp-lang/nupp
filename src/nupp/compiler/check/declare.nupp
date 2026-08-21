@@ -1277,12 +1277,14 @@ function declare.install(
             if n.declKind == "interface" and stat.sealedTok then
                 n.sealedModule = n.moduleName or c.filename
             end
-            if c.result.moduleName == "nupp.owners" and n.name == "Set" then
-                n.resourceSet = true
-            elseif c.result.moduleName == "nupp.owners" and n.name == "StoreState" then
-                n.dynamicStore = true
+            if stat.affineTok then
+                n.affineInterface = true
             end
-
+            if c.result.moduleName == "nupp.prelude" and n.name == "Managed" then
+                n.managedCell = true
+            elseif c.result.moduleName == "nupp.prelude" and n.name == "Alias" then
+                n.managedAlias = true
+            end
             -- Predeclared before anything resolves, so a member may name one wherever
             -- it sits in the body and a collision reports the same either way round.
             local declaredAssociated = predeclareAssociated(c, stat, n)
@@ -1313,7 +1315,7 @@ function declare.install(
             -- runtime initialization has already filled them.
             n.supertypes = {}
             for _, superNode in ipairs(stat.supertypes or {}) do
-                local super = c.resolveType(superNode)
+                local super = T.unwrapOwnership(c.resolveType(superNode))
                 if super.tag ~= "nominal" or super.declKind ~= "interface" then
                     c.diag(
                         "NUPP2117",
@@ -1321,6 +1323,21 @@ function declare.install(
                         ("%s may inherit contracts only from interfaces"):format(stat.declKind)
                     )
                 else
+                    if super.affineInterface then
+                        n.affineInterface = true
+                        if n.terminalMethod and super.terminalMethod and n.terminalMethod ~= super.terminalMethod then
+                            c.diag(
+                                "NUPP2615",
+                                superNode,
+                                (
+                                    "%s inherits competing terminal methods %q and %q"
+                                ):format(n.name, n.terminalMethod, super.terminalMethod)
+                            )
+                        elseif super.terminalMethod then
+                            n.terminalMethod = super.terminalMethod
+                            n.inherentCleanup = super.inherentCleanup or T.methodCleanup(super.terminalMethod)
+                        end
+                    end
                     if super.sealedModule and super.sealedModule ~= (c.result.moduleName or c.filename) then
                         c.diag(
                             "NUPP2136",
@@ -1563,6 +1580,33 @@ function declare.install(
                         end
                     end
                     local ft = c.resolveType(e.type)
+                    if e.terminalTok then
+                        local rawField = T.unwrapOwnership(ft)
+                        local terminal = rawField.tag == "func" and rawField or nil
+                        if stat.declKind ~= "interface" or not stat.affineTok then
+                            c.diag("NUPP2615", e.terminalTok, "terminal members belong to an affine interface")
+                        elseif n.terminalMethod and n.terminalMethod ~= e.name.text then
+                            c.diag(
+                                "NUPP2615",
+                                e.terminalTok,
+                                ("affine interface %s already has terminal %q"):format(n.name, n.terminalMethod)
+                            )
+                        else
+                            n.terminalMethod = e.name.text
+                            n.inherentCleanup = T.methodCleanup(e.name.text)
+                        end
+                        if not terminal then
+                            c.diag("NUPP2615", e, "a terminal member must be a function")
+                        elseif #terminal.params ~= 1 or terminal.paramPack.tail ~= nil or terminal.paramModes[
+                            1
+                        ] ~= "takes" then
+                            c.diag("NUPP2615", e, "a terminal method must take exactly one consuming self")
+                        elseif #terminal.rets ~= 1 or terminal.retPack.tail ~= nil or terminal.rets[1] ~= T.nil_ then
+                            c.diag("NUPP2615", e, "a terminal method must return nil")
+                        elseif not terminal.noYield then
+                            c.diag("NUPP2615", e, "a terminal method must be nosuspend")
+                        end
+                    end
                     if stat.declKind ~= "struct" then
                         c.fixedWidth.storageOnly(e.type, ft, ("the %q table-backed field"):format(e.name.text))
                     end
@@ -2180,6 +2224,13 @@ function declare.install(
                     end
                 end
                 n.predicate = derived
+            end
+            if stat.affineTok and not n.terminalMethod then
+                c.diag(
+                    "NUPP2615",
+                    stat.affineTok,
+                    ("affine interface %s must declare one terminal member"):format(n.name)
+                )
             end
             -- A refinement is the runtime test `is` compiles to, and it can only read
             -- fields. An associated type is erased, so a declaration whose associated

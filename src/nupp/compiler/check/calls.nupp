@@ -1198,6 +1198,10 @@ function calls.install(c: state.Checker): calls.Ops
             if #aggregateRoots > 0 then
                 c.own.capabilityFacts(node).roots = aggregateRoots
             end
+            if calleeT.inherentCleanup then
+                local owned = T.affine(calleeT, {calleeT.inherentCleanup})
+                return owned, {owned}
+            end
             if calleeT.affineFields and #calleeT.affineFields > 0 then
                 local cleanups, obligations, transferOnly = {}, {}, false
                 for j = #calleeT.affineFields, 1, -1 do

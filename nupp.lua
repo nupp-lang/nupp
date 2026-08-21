@@ -98,7 +98,7 @@ local RESOURCES = {
    {source = "src/nupp/native.nupp", output = "nupp/compiler/nupp/native.nupp"},
    {source = "src/nupp/data/init.nupp", output = "nupp/compiler/nupp/data/init.nupp"},
    {source = "src/nupp/mem/init.nupp", output = "nupp/compiler/nupp/mem/init.nupp"},
-   {source = "src/nupp/owners/init.nupp", output = "nupp/compiler/nupp/owners/init.nupp"},
+   {source = "src/nupp/managed.nupp", output = "nupp/compiler/nupp/managed.nupp"},
    {source = "src/nupp/io/path.nupp", output = "nupp/compiler/nupp/io/path.nupp"},
    {source = "src/nupp/io/uri.nupp", output = "nupp/compiler/nupp/io/uri.nupp"},
    {source = "src/nupp/io/files.nupp", output = "nupp/compiler/nupp/io/files.nupp"},

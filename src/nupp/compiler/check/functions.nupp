@@ -669,9 +669,15 @@ function functions.install(c: state.Checker): state.StatHandlers
                 end
                 c.bindVar(p.name.text, T.table_, false, p.name, "parameter", true)
             elseif p.name then
+                local mode = inferredModes[sourceIndex] or "borrows"
+                local priorSuppression = c.suppressInherentOwner
+                if p.type and (mode == "borrows" or mode == "exclusive") then
+                    c.suppressInherentOwner = true
+                end
                 local pt = p.constDomainTok and T.functionConst or p.type and c.resolveType(
                     p.type
                 ) or (expectedParams and expectedParams[#params + 1]) or T.any
+                c.suppressInherentOwner = priorSuppression
                 if p.type then
                     c.fixedWidth.storageOnly(p.type, pt, "a parameter")
                     -- Kept on the node the type was written at, so a later pass
@@ -683,7 +689,6 @@ function functions.install(c: state.Checker): state.StatHandlers
                 end
                 params[#params + 1] = pt
                 paramNames[#params] = p.name.text
-                local mode = inferredModes[sourceIndex] or "borrows"
                 if not declaredModes[sourceIndex] and scopedCandidates[p.name.text] and rawType(pt).tag == "func" then
                     mode = "scoped"
                 end
@@ -1138,8 +1143,13 @@ function functions.install(c: state.Checker): state.StatHandlers
             if p == explicitSelf then
                 -- The receiver added above is the leading `self` spelling.
             elseif p.name and not p.namedVararg then
-                local pt = p.constDomainTok and T.functionConst or p.type and c.resolveType(p.type) or T.any
                 local mode = inferredModes[sourceIndex] or "borrows"
+                local priorSuppression = c.suppressInherentOwner
+                if p.type and (mode == "borrows" or mode == "exclusive") then
+                    c.suppressInherentOwner = true
+                end
+                local pt = p.constDomainTok and T.functionConst or p.type and c.resolveType(p.type) or T.any
+                c.suppressInherentOwner = priorSuppression
                 if not declaredModes[sourceIndex] and scopedCandidates[p.name.text] and rawType(pt).tag == "func" then
                     mode = "scoped"
                 end

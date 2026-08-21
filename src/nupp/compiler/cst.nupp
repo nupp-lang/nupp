@@ -534,17 +534,19 @@ interface cst.Hints
     --- result stays at its source rather than transferring into temporary storage.
     discardingResults: boolean?
 
-    --- Ordered discharge functions injected into Set.adopt.
-    resourceAdoptCleanups: any
-
-    --- Exact capability dynamically registered by Set.adopt/remove.
+    --- Exact capability transported through a managed alias operation.
     resourceCapability: any
 
-    --- Cleanup program and stable policy injected into dynamic.Store.put.
-    dynamicPutCleanups: any
+    --- Cleanup program and stable policy carried by `nupp.manage`.
+    managedCleanups: any
 
-    dynamicTypePolicy: string?
-    dynamicRecoverPolicy: string?
+    managedPolicy: string?
+
+    --- Stable target policy for alias recovery and downcasting.
+    managedAliasPolicy: string?
+
+    --- This call validates and recovers a managed alias from `any`.
+    recoverManagedAlias: boolean?
 
     --- Whether a use-after-move was already reported here.
     ownershipUseReported: boolean?
@@ -1267,6 +1269,9 @@ record cst.RecordDecl is cst.Hints
     --- The `sealed` modifier on this interface, when one was written.
     sealedTok: lexer.Token?
 
+    --- The `affine` modifier on an ownership-bearing interface.
+    affineTok: lexer.Token?
+
     --- Which form: "record", "interface" or "struct".
     declKind: string?
 
@@ -1324,6 +1329,9 @@ record cst.FieldDecl is cst.Hints
 
     --- Its type.
     type: cst.Node?
+
+    --- Marks this callable member as the affine interface's terminal operation.
+    terminalTok: lexer.Token?
 
     --- The integer width after a C bitfield's second colon.
     bitWidth: lexer.Token?
@@ -1844,6 +1852,9 @@ record cst.MethodCall is cst.Hints
 
     --- The argument list.
     args: cst.Node?
+
+    --- Explicit type arguments written after the method name.
+    typeArgs: {cst.Node}?
 
     --- Intersection-overload selection and its direct runtime target.
     overloadWinner: any
@@ -2721,7 +2732,7 @@ cst.isToken = isToken
 --- introduced only as `nupp.pin`: a bare `pin` is an ordinary value name.
 local OWNERSHIP_INTRINSICS: {
     [string]: boolean
-} = {attemptAll = true, borrow = true, borrowFrom = true, partition = true, region = true, pin = true,}
+} = {attemptAll = true, borrow = true, borrowFrom = true, partition = true, region = true, pin = true, manage = true,}
 
 --- The ownership intrinsic a callee is written as, before anything asks what the names
 --- in it resolve to. Answers nil for a callee of any other shape.

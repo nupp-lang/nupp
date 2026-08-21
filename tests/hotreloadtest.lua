@@ -140,10 +140,10 @@ function M.retainedFunctionUsesPatchedBodyAndCapturedCell()
    assertEq(retained(1), 4, "patched implementation shares old value cell")
 end
 
-function M.dynamicHandlesKeepPolicyAndUseThePatchedCleanupSlot()
+function M.managedCellsKeepPolicyAndUseThePatchedCleanupSlot()
    local function source(multiplier)
       return table.concat({
-         "local stores = require('nupp.owners')",
+         "local managed = require('nupp.managed')",
          "local cleaned: integer = 0",
          "local record Item value: integer end",
          "local function closeItem(takes item: Item): nil",
@@ -152,34 +152,30 @@ function M.dynamicHandlesKeepPolicyAndUseThePatchedCleanupSlot()
          "local function openItem(): affine(Item, closeItem)",
          "   return new Item(value = 3)",
          "end",
-         "local function make(): (stores.Store, stores.Handle<Item>)",
-         "   local store = stores.newStore()",
-         "   local handle = store:put(openItem())",
-         "   return store, handle",
-         "end",
-         "local function remove(exclusive store: stores.Store, handle: stores.Handle<Item>): stores.Error?",
-         "   return store:remove(handle)",
+         "local function make(): (managed.Group, alias(unknown))",
+         "   local group = managed.group()",
+         "   local handle = group:adopt(nupp.manage(openItem()))",
+         "   return group, handle as alias(unknown)",
          "end",
          "local function count(): integer return cleaned end",
-         "return {make = make, remove = remove, count = count}",
+         "return {make = make, count = count}",
       }, "\n")
    end
 
    local api = initial(source(1), "dynamic-policy")
-   local store, handle = api.make()
+   local group = api.make()
    local patch = generate(source(2), "patch", "dynamic-policy")
    local prepared, reason = hot.stage(patch, hot.generation())
    assert(prepared, reason)
    assertEq(hot.commit(prepared), 2, "dynamic policy patch committed")
-   assertEq(api.remove(store, handle), nil, "patched remove accepts the live handle")
-   store:drop()
-   assertEq(api.count(), 6, "live entry resolves cleanup through the patched slot")
+   group:close()
+   assertEq(api.count(), 6, "live cell resolves cleanup through the patched slot")
 end
 
 function M.liveDynamicPoliciesRejectAnIncompatiblePatchTransactionally()
    local function source(openName)
       return table.concat({
-         "local stores = require('nupp.owners')",
+         "local managed = require('nupp.managed')",
          "local M = {}",
          "local cleaned: integer = 0",
          "local record Item value: integer end",
@@ -187,13 +183,10 @@ function M.liveDynamicPoliciesRejectAnIncompatiblePatchTransactionally()
          "local function closeB(takes item: Item): nil cleaned = cleaned + item.value * 10 end",
          "function M.openA(): affine(Item, closeA) return new Item(value = 2) end",
          "function M.openB(): affine(Item, closeB) return new Item(value = 2) end",
-         "function M.make(): (stores.Store, stores.Handle<Item>)",
-         "   local store = stores.newStore()",
-         "   local handle = store:put(M." .. openName .. "())",
-         "   return store, handle",
-         "end",
-         "function M.remove(exclusive store: stores.Store, handle: stores.Handle<Item>): stores.Error?",
-         "   return store:remove(handle)",
+         "function M.make(): managed.Group",
+         "   local group = managed.group()",
+         "   group:adopt(nupp.manage(M." .. openName .. "()))",
+         "   return group",
          "end",
          "function M.count(): integer return cleaned end",
          "return M",
@@ -201,15 +194,14 @@ function M.liveDynamicPoliciesRejectAnIncompatiblePatchTransactionally()
    end
 
    local api = initial(source("openA"), "dynamic-transition")
-   local store, handle = api.make()
+   local group = api.make()
    local patch = generate(source("openB"), "patch", "dynamic-transition")
    local prepared, reason = hot.stage(patch, hot.generation())
    assertEq(prepared, nil, "a live policy blocks incompatible replacement")
-   assert(reason and reason:find("live dynamic capability policy changed", 1, true), tostring(reason))
+   assert(reason and reason:find("live managed-cell policy changed", 1, true), tostring(reason))
    assertEq(hot.generation(), 1, "rejected policy transition leaves the generation unchanged")
-   assertEq(api.remove(store, handle), nil, "rejection leaves the enrolled entry valid")
-   store:drop()
-   assertEq(api.count(), 2, "rejection neither migrates nor cleans the entry")
+   group:close()
+   assertEq(api.count(), 2, "rejection neither migrates nor cleans the cell")
 end
 
 function M.commitFlushesJitAfterPublishing()

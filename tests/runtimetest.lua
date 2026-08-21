@@ -174,7 +174,7 @@ print(value:debug())
 local out = string.buffer.new()
 local writer = nupp.data.json.writer(out)
 value:writeJSON(writer)
-writer:finish()
+writer:close()
 print(out:tostring())
 ]],
       ["src/runtime_derive_models.nupp"] = [[

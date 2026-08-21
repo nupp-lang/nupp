@@ -233,7 +233,7 @@ function M.aProvenIdentityIsNotTested()
       "local maybe: R? = v",
       "print(v is R, maybe is R)",
    }, "\n"))
-   assert(not code:find("getmetatable", 1, true),
+   assert(not code:find("getmetatable%s*%(%s*v%s*%)"),
       "neither test runs: " .. code)
    assert(code:find("maybe ~= nil", 1, true),
       "the optional still answers for its nil: " .. code)

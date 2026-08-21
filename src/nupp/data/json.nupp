@@ -70,16 +70,22 @@ input but constructs only the Lua values the shape asks for.
 
 ## Streaming output
 
-The writer emits checked JSON directly into caller-owned storage without first
-building a Lua table or a complete result string. `finish()` verifies that the
-document is complete:
+The Closeable writer emits checked JSON into caller-owned storage without first
+building a Lua table or a complete result string. `endArray()` and
+`endObject()` end containers, `flush()` publishes a bounded staged batch while
+leaving the document open, and consuming `close()` requires one complete root:
 
 ```nupp
 local out = string.buffer.new()
 local writer = nupp.data.json.writer(out)
-writer:startObject():key("items"):startArray():write(1):write(2):close():close()
-writer:finish()
+writer:startObject():key("items"):startArray():write(1):write(2):endArray():endObject()
+writer:close()
 ```
+
+Lexical destruction closes a live writer automatically. The public writer
+identity is single-use; after close, only its native builder, frame capacity,
+and temporary buffers return to a pool. Untyped stale references therefore
+remain closed and cannot affect a later document.
 
 `encoded(value)` performs ordinary encoding once. `verified(text)` instead
 validates an existing immutable JSON string without decoding or re-encoding it.
@@ -159,8 +165,8 @@ end
 --- local record Money is nupp.data.json.JSONEncodable
 ---     cents: integer
 ---
----     function writeJSON(self, out: nupp.data.json.Writer): nil
----         out:startObject():key("cents"):write(self.cents):close()
+---     function writeJSON(self, exclusive out: nupp.data.json.Writer): nil
+---         out:startObject():key("cents"):write(self.cents):endObject()
 ---     end
 --- end
 --- ```
@@ -168,7 +174,7 @@ export interface JSONEncodable
     --- Writes this value at the writer's current value position.
     --- @param self the value being encoded
     --- @param out the checked destination
-    writeJSON: function(self, out: Writer): nil
+    writeJSON: function(self, exclusive out: Writer): nil
 end
 
 --- A checked incremental JSON writer.
@@ -176,149 +182,201 @@ end
 --- ```nupp
 --- local out = string.buffer.new()
 --- local writer = nupp.data.json.writer(out)
---- writer:startObject():key("ok"):write(true):close():finish()
+--- writer:startObject():key("ok"):write(true):endObject()
+--- writer:close()
 --- assert(out:tostring() == [[{"ok":true}]])
 --- ```
 --- @export
-export interface Writer
+export affine interface Writer is Closeable
     --- Starts an array value.
     ---
     --- ```nupp
     --- local out = string.buffer.new()
-    --- nupp.data.json.writer(out):startArray():write("first"):close():finish()
+    --- local writer = nupp.data.json.writer(out)
+    --- writer:startArray():write("first"):endArray()
+    --- writer:close()
     --- assert(out:tostring() == "[\"first\"]")
     --- ```
     --- @param self the writer
     --- @return this writer
-    startArray: function(self: Writer): Writer
+    startArray: function(exclusive self: Writer): Writer borrows (self)
 
     --- Starts an object value.
     ---
     --- ```nupp
     --- local out = string.buffer.new()
-    --- nupp.data.json.writer(out):startObject():close():finish()
+    --- local writer = nupp.data.json.writer(out)
+    --- writer:startObject():endObject()
+    --- writer:close()
     --- assert(out:tostring() == "{}")
     --- ```
     --- @param self the writer
     --- @return this writer
-    startObject: function(self: Writer): Writer
+    startObject: function(exclusive self: Writer): Writer borrows (self)
 
     --- Selects the next object member.
     ---
     --- ```nupp
     --- local out = string.buffer.new()
-    --- nupp.data.json.writer(out):startObject():key("answer"):write(42):close():finish()
+    --- local writer = nupp.data.json.writer(out)
+    --- writer:startObject():key("answer"):write(42):endObject()
+    --- writer:close()
     --- assert(out:tostring() == [[{"answer":42}]])
     --- ```
     --- @param self the writer
     --- @param name the next member name
     --- @return this writer
-    key: function(self: Writer, name: string): Writer & function(self: Writer, name: EncodedString): Writer
+    key: function(exclusive self: Writer, name: string): Writer borrows (self)
+        & function(exclusive self: Writer, name: EncodedString): Writer borrows (self)
 
     --- Appends one complete Lua value.
     ---
     --- ```nupp
     --- local out = string.buffer.new()
-    --- nupp.data.json.writer(out):startArray():write({id = 41}):close():finish()
+    --- local writer = nupp.data.json.writer(out)
+    --- writer:startArray():write({id = 41}):endArray()
+    --- writer:close()
     --- assert(out:tostring() == "[{\"id\":41}]")
     --- ```
     --- @param self the writer
     --- @param value the next JSON value
     --- @return this writer
-    write: function(self: Writer, value: string | number | boolean | {any} | {[string]: any}): Writer
-        & function(self: Writer, value: EncodedValue | EncodedString): Writer
+    write: function(
+        exclusive self: Writer,
+        value: string | number | boolean | {any} | {[string]: any}
+    ): Writer borrows (self)
+        & function(exclusive self: Writer, value: EncodedValue | EncodedString): Writer borrows (self)
 
     --- Appends JSON null.
     ---
     --- ```nupp
     --- local out = string.buffer.new()
-    --- nupp.data.json.writer(out):startArray():null():close():finish()
+    --- local writer = nupp.data.json.writer(out)
+    --- writer:startArray():null():endArray()
+    --- writer:close()
     --- assert(out:tostring() == "[null]")
     --- ```
     --- @param self the writer
     --- @return this writer
-    null: function(self: Writer): Writer
+    null: function(exclusive self: Writer): Writer borrows (self)
 
-    --- Closes the current array or object.
+    --- Ends the current array.
     ---
     --- ```nupp
     --- local out = string.buffer.new()
-    --- nupp.data.json.writer(out):startArray():startObject():close():close():finish()
+    --- local writer = nupp.data.json.writer(out)
+    --- writer:startArray():startObject():endObject():endArray()
+    --- writer:close()
     --- assert(out:tostring() == "[{}]")
     --- ```
     --- @param self the writer
     --- @return this writer
-    close: function(self: Writer): Writer
+    endArray: function(exclusive self: Writer): Writer borrows (self)
 
-    --- Verifies that the document is complete and closes the writer.
+    --- Ends the current object.
+    ---
+    --- ```nupp
+    --- local out = string.buffer.new()
+    --- local writer = nupp.data.json.writer(out)
+    --- writer:startObject():key("items"):startArray():endArray():endObject()
+    --- writer:close()
+    --- assert(out:tostring() == [[{"items":[]}]])
+    --- ```
+    --- @param self the writer
+    --- @return this writer
+    endObject: function(exclusive self: Writer): Writer borrows (self)
+
+    --- Publishes staged bytes without ending the document.
+    ---
+    --- ```nupp
+    --- local out = string.buffer.new()
+    --- local writer = nupp.data.json.writer(out)
+    --- writer:startArray():write(1)
+    --- writer:flush()
+    --- assert(out:tostring() == "[1")
+    --- writer:endArray():close()
+    --- ```
+    --- @param self the writer
+    flush: nosuspend function(exclusive self: Writer): nil
+
+    --- Verifies and publishes one complete root, then releases backing state.
     ---
     --- ```nupp
     --- local out = string.buffer.new()
     --- local writer = nupp.data.json.writer(out)
     --- writer:write({ok = true})
-    --- writer:finish()
+    --- writer:close()
     --- assert(out:tostring() == [[{"ok":true}]])
     --- ```
     --- @param self the writer
-    finish: function(self: Writer): nil
+    terminal close: nosuspend function(takes self: Writer): nil
 end
 
 local record WriterImpl is Writer
     private raw: any
 
-    function startArray(self): Writer
+    function startArray(exclusive self): Writer borrows (self)
         self.raw:startArray()
         return self
     end
 
-    function startObject(self): Writer
+    function startObject(exclusive self): Writer borrows (self)
         self.raw:startObject()
         return self
     end
 
-    function key(self, name: string): Writer
+    function key(exclusive self, name: string): Writer borrows (self)
         self.raw:key(name)
         return self
     end
 
-    function key(self, name: EncodedString): Writer
+    function key(exclusive self, name: EncodedString): Writer borrows (self)
         self.raw:key(name)
         return self
     end
 
-    function write(self, value: string | number | boolean | {any} | {[string]: any}): Writer
+    function write(exclusive self, value: string | number | boolean | {any} | {[string]: any}): Writer borrows (self)
         self.raw:write(value)
         return self
     end
 
-    function write(self, value: EncodedValue | EncodedString): Writer
+    function write(exclusive self, value: EncodedValue | EncodedString): Writer borrows (self)
         self.raw:write(value)
         return self
     end
 
-    function null(self): Writer
+    function null(exclusive self): Writer borrows (self)
         self.raw:null()
         return self
     end
 
-    function close(self): Writer
-        self.raw:close()
+    function endArray(exclusive self): Writer borrows (self)
+        self.raw:endArray()
         return self
     end
 
-    function finish(self): nil
-        self.raw:finish()
+    function endObject(exclusive self): Writer borrows (self)
+        self.raw:endObject()
+        return self
+    end
+
+    function flush(exclusive self): nil
+        self.raw:flush()
+    end
+
+    function close(takes self): nil
+        self.raw:close()
     end
 end
 
 -- Overloaded methods occupy signature-specific slots in checked code. The ordinary
 -- names keep the same object usable from Lua, where overload selection is dynamic.
-local function writerKey(self: WriterImpl, name: any): WriterImpl
+local function writerKey(exclusive self: WriterImpl, name: any): WriterImpl borrows (self)
     self.raw:key(name)
     return self
 end
 
-local function writerWrite(self: WriterImpl, value: any): WriterImpl
+local function writerWrite(exclusive self: WriterImpl, value: any): WriterImpl borrows (self)
     self.raw:write(value)
     return self
 end
@@ -507,7 +565,9 @@ end
 ---
 --- ```nupp
 --- local out = string.buffer.new()
---- nupp.data.json.writer(out):startObject():key("id"):write(41):close():finish()
+--- local writer = nupp.data.json.writer(out)
+--- writer:startObject():key("id"):write(41):endObject()
+--- writer:close()
 --- assert(out:tostring() == [[{"id":41}]])
 --- ```
 --- @param out the destination receiving bytes as operations complete
@@ -553,7 +613,7 @@ end
 --- local out = string.buffer.new()
 --- local writer = nupp.data.json.writer(out)
 --- nupp.data.json.writeAs(User, new User(id = 41), writer)
---- writer:finish()
+--- writer:close()
 --- assert(out:tostring() == [[{"id":41}]])
 --- ```
 --- @param type the record type being encoded
@@ -561,7 +621,7 @@ end
 --- @param out the checked destination
 --- @raises when JSON was not derived for the type
 --- @export
-export function writeAs<T>(type: Type<T>, borrows value: T, out: Writer): nil
+export function writeAs<T>(type: Type<T>, borrows value: T, exclusive out: Writer): nil
     error("nupp: JSON was not derived for this type", 2)
 end
 
@@ -576,14 +636,14 @@ end
 --- local out = string.buffer.new()
 --- local writer = nupp.data.json.writer(out)
 --- nupp.data.json.writeRecord(new User(id = 41), writer)
---- writer:finish()
+--- writer:close()
 --- assert(out:tostring() == [[{"id":41}]])
 --- ```
 --- @param value the record value
 --- @param out the checked destination
 --- @raises when JSON was not derived for the type
 --- @export
-export function writeRecord<T>(borrows value: T, out: Writer): nil
+export function writeRecord<T>(borrows value: T, exclusive out: Writer): nil
     error("nupp: JSON was not derived for this type", 2)
 end
 

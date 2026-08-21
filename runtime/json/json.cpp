@@ -5,6 +5,7 @@
 #include <cstdint>
 #include <cstdlib>
 #include <cstring>
+#include <memory>
 #include <new>
 #include <string>
 #include <string_view>
@@ -50,12 +51,21 @@ struct writerFrame {
     bool needsValue{false};
 };
 
-struct luaWriter {
+struct writerBacking {
     simdjson::builder::string_builder builder;
     std::vector<writerFrame> frames;
+    std::unordered_set<const void *> visiting;
+};
+
+struct luaWriter {
+    writerBacking *backing{nullptr};
     bool rootWritten{false};
     bool finished{false};
 };
+
+constexpr size_t WRITER_FLUSH_THRESHOLD = 64 * 1024;
+constexpr size_t WRITER_POOL_LIMIT = 32;
+static thread_local std::vector<std::unique_ptr<writerBacking>> WRITER_POOL;
 
 struct encodedBytes {};
 
@@ -927,13 +937,55 @@ static void appendToWriterBuffer(
 }
 
 static void drainWriter(lua_State *L, int index, luaWriter *writer) {
+    auto *backing = writer->backing;
     std::string_view output;
-    const auto error = writer->builder.view().get(output);
+    const auto error = backing->builder.view().get(output);
     if (error) {
         luaL_error(L, "simdjson writer: %s", simdjson::error_message(error));
     }
     appendToWriterBuffer(L, index, output);
-    writer->builder.clear();
+    backing->builder.clear();
+}
+
+static void drainWriterAtThreshold(lua_State *L, int index, luaWriter *writer) {
+    std::string_view output;
+    const auto error = writer->backing->builder.view().get(output);
+    if (error) {
+        luaL_error(L, "simdjson writer: %s", simdjson::error_message(error));
+    }
+    if (output.size() >= WRITER_FLUSH_THRESHOLD) {
+        drainWriter(L, index, writer);
+    }
+}
+
+static writerBacking *acquireWriterBacking() {
+    if (WRITER_POOL.empty()) {
+        return new writerBacking{};
+    }
+    auto *backing = WRITER_POOL.back().release();
+    WRITER_POOL.pop_back();
+    return backing;
+}
+
+static void releaseWriterBacking(luaWriter *writer) noexcept {
+    auto *backing = writer->backing;
+    if (backing == nullptr) {
+        return;
+    }
+    backing->builder.clear();
+    backing->frames.clear();
+    backing->visiting.clear();
+    writer->backing = nullptr;
+    if (WRITER_POOL.size() < WRITER_POOL_LIMIT) {
+        std::unique_ptr<writerBacking> owned(backing);
+        try {
+            WRITER_POOL.push_back(std::move(owned));
+        } catch (...) {
+            // `owned` deletes the backing. Cleanup must remain non-throwing.
+        }
+    } else {
+        delete backing;
+    }
 }
 
 static luaWriter *checkedWriter(lua_State *L, int index) {
@@ -941,11 +993,11 @@ static luaWriter *checkedWriter(lua_State *L, int index) {
 }
 
 static bool prepareWriterValue(luaWriter *writer, const char **failure) {
-    if (writer->finished) {
-        *failure = "writer is already finished";
+    if (writer->finished || writer->backing == nullptr) {
+        *failure = "writer is already closed";
         return false;
     }
-    if (writer->frames.empty()) {
+    if (writer->backing->frames.empty()) {
         if (writer->rootWritten) {
             *failure = "writer already has a root value";
             return false;
@@ -953,10 +1005,10 @@ static bool prepareWriterValue(luaWriter *writer, const char **failure) {
         writer->rootWritten = true;
         return true;
     }
-    auto &frame = writer->frames.back();
+    auto &frame = writer->backing->frames.back();
     if (frame.kind == containerKind::ARRAY) {
         if (!frame.first) {
-            writer->builder.append_comma();
+            writer->backing->builder.append_comma();
         }
         frame.first = false;
         return true;
@@ -974,7 +1026,10 @@ static int writerError(lua_State *L, const char *failure) {
 }
 
 static int luaWriterGc(lua_State *L) {
-    checkedWriter(L, 1)->~luaWriter();
+    auto *writer = checkedWriter(L, 1);
+    delete writer->backing;
+    writer->backing = nullptr;
+    writer->~luaWriter();
     return 0;
 }
 
@@ -983,8 +1038,8 @@ static int luaWriterStartArray(lua_State *L) {
     const char *failure = nullptr;
     try {
         if (prepareWriterValue(writer, &failure)) {
-            writer->builder.start_array();
-            writer->frames.push_back({containerKind::ARRAY});
+            writer->backing->builder.start_array();
+            writer->backing->frames.push_back({containerKind::ARRAY});
         }
     } catch (const std::bad_alloc &) {
         failure = "allocation failed";
@@ -992,7 +1047,7 @@ static int luaWriterStartArray(lua_State *L) {
     if (failure) {
         return writerError(L, failure);
     }
-    drainWriter(L, 1, writer);
+    drainWriterAtThreshold(L, 1, writer);
     lua_settop(L, 1);
     return 1;
 }
@@ -1002,8 +1057,8 @@ static int luaWriterStartObject(lua_State *L) {
     const char *failure = nullptr;
     try {
         if (prepareWriterValue(writer, &failure)) {
-            writer->builder.start_object();
-            writer->frames.push_back({containerKind::OBJECT});
+            writer->backing->builder.start_object();
+            writer->backing->frames.push_back({containerKind::OBJECT});
         }
     } catch (const std::bad_alloc &) {
         failure = "allocation failed";
@@ -1011,7 +1066,7 @@ static int luaWriterStartObject(lua_State *L) {
     if (failure) {
         return writerError(L, failure);
     }
-    drainWriter(L, 1, writer);
+    drainWriterAtThreshold(L, 1, writer);
     lua_settop(L, 1);
     return 1;
 }
@@ -1021,23 +1076,26 @@ static const char *appendWriterKey(
     const char *key,
     size_t length
 ) {
-    if (writer->finished || writer->frames.empty()
-        || writer->frames.back().kind != containerKind::OBJECT) {
+    if (writer->finished || writer->backing == nullptr
+        || writer->backing->frames.empty()
+        || writer->backing->frames.back().kind != containerKind::OBJECT) {
         return "key() requires an open object";
-    } else if (writer->frames.back().needsValue) {
+    } else if (writer->backing->frames.back().needsValue) {
         return "the previous object key has no value";
     } else if (!simdjson::validate_utf8(key, length)) {
         return "JSON object keys must contain valid UTF-8";
     }
 
-    auto &frame = writer->frames.back();
+    auto &frame = writer->backing->frames.back();
     if (!frame.first) {
-        writer->builder.append_comma();
+        writer->backing->builder.append_comma();
     }
     frame.first = false;
     frame.needsValue = true;
-    writer->builder.escape_and_append_with_quotes(std::string_view(key, length));
-    writer->builder.append_colon();
+    writer->backing->builder.escape_and_append_with_quotes(
+        std::string_view(key, length)
+    );
+    writer->backing->builder.append_colon();
     return nullptr;
 }
 
@@ -1046,21 +1104,21 @@ static int luaWriterKey(lua_State *L) {
     const char *failure = nullptr;
     std::string_view encoded;
     if (pushEncodedBytes(L, 2, ENCODED_STRING_METATABLE, &encoded)) {
-        if (writer->finished || writer->frames.empty()
-            || writer->frames.back().kind != containerKind::OBJECT) {
+        if (writer->finished || writer->backing == nullptr
+            || writer->backing->frames.empty()
+            || writer->backing->frames.back().kind != containerKind::OBJECT) {
             failure = "key() requires an open object";
-        } else if (writer->frames.back().needsValue) {
+        } else if (writer->backing->frames.back().needsValue) {
             failure = "the previous object key has no value";
         } else {
-            auto &frame = writer->frames.back();
+            auto &frame = writer->backing->frames.back();
             if (!frame.first) {
-                writer->builder.append_comma();
+                writer->backing->builder.append_comma();
             }
             frame.first = false;
             frame.needsValue = true;
-            drainWriter(L, 1, writer);
-            appendToWriterBuffer(L, 1, encoded);
-            writer->builder.append_colon();
+            writer->backing->builder.append_raw(encoded);
+            writer->backing->builder.append_colon();
         }
         lua_pop(L, 1);
     } else {
@@ -1071,7 +1129,7 @@ static int luaWriterKey(lua_State *L) {
     if (failure) {
         return writerError(L, failure);
     }
-    drainWriter(L, 1, writer);
+    drainWriterAtThreshold(L, 1, writer);
     lua_settop(L, 1);
     return 1;
 }
@@ -1091,13 +1149,14 @@ static int luaWriterWrite(lua_State *L) {
         ) || pushEncodedBytes(L, 2, ENCODED_STRING_METATABLE, &encoded);
         if (prepareWriterValue(writer, &failure)) {
             if (isEncoded) {
-                drainWriter(L, 1, writer);
-                appendToWriterBuffer(L, 1, encoded);
+                writer->backing->builder.append_raw(encoded);
             } else {
-                std::unordered_set<const void *> visiting;
+                writer->backing->visiting.clear();
                 appendLuaValue(
-                    L, writer->builder, 2, nullIndex, visiting, 0, &failure
+                    L, writer->backing->builder, 2, nullIndex,
+                    writer->backing->visiting, 0, &failure
                 );
+                writer->backing->visiting.clear();
             }
         }
         if (isEncoded) {
@@ -1110,7 +1169,7 @@ static int luaWriterWrite(lua_State *L) {
         lua_settop(L, 2);
         return writerError(L, failure);
     }
-    drainWriter(L, 1, writer);
+    drainWriterAtThreshold(L, 1, writer);
     lua_settop(L, 1);
     return 1;
 }
@@ -1119,55 +1178,90 @@ static int luaWriterNull(lua_State *L) {
     luaWriter *writer = checkedWriter(L, 1);
     const char *failure = nullptr;
     if (prepareWriterValue(writer, &failure)) {
-        writer->builder.append_null();
+        writer->backing->builder.append_null();
     }
     if (failure) {
         return writerError(L, failure);
     }
-    drainWriter(L, 1, writer);
+    drainWriterAtThreshold(L, 1, writer);
     lua_settop(L, 1);
     return 1;
 }
 
-static int luaWriterClose(lua_State *L) {
+static int luaWriterEndContainer(
+    lua_State *L,
+    containerKind expected,
+    const char *operation
+) {
     luaWriter *writer = checkedWriter(L, 1);
     const char *failure = nullptr;
-    if (writer->finished || writer->frames.empty()) {
-        failure = "close() requires an open array or object";
+    if (writer->finished || writer->backing == nullptr
+        || writer->backing->frames.empty()
+        || writer->backing->frames.back().kind != expected) {
+        failure = operation;
     } else {
-        const auto frame = writer->frames.back();
+        const auto frame = writer->backing->frames.back();
         if (frame.kind == containerKind::OBJECT && frame.needsValue) {
             failure = "the final object key has no value";
         } else {
-            writer->frames.pop_back();
+            writer->backing->frames.pop_back();
             if (frame.kind == containerKind::ARRAY) {
-                writer->builder.end_array();
+                writer->backing->builder.end_array();
             } else {
-                writer->builder.end_object();
+                writer->backing->builder.end_object();
             }
         }
     }
     if (failure) {
         return writerError(L, failure);
     }
-    drainWriter(L, 1, writer);
+    drainWriterAtThreshold(L, 1, writer);
     lua_settop(L, 1);
     return 1;
 }
 
-static int luaWriterFinish(lua_State *L) {
+static int luaWriterEndArray(lua_State *L) {
+    return luaWriterEndContainer(
+        L, containerKind::ARRAY, "endArray() requires an open array"
+    );
+}
+
+static int luaWriterEndObject(lua_State *L) {
+    return luaWriterEndContainer(
+        L, containerKind::OBJECT, "endObject() requires an open object"
+    );
+}
+
+static int luaWriterFlush(lua_State *L) {
     luaWriter *writer = checkedWriter(L, 1);
-    const char *failure = nullptr;
-    if (writer->finished) {
-        failure = "writer is already finished";
-    } else if (!writer->rootWritten || !writer->frames.empty()) {
-        failure = "finish() requires one complete root value";
-    }
-    if (failure) {
-        return writerError(L, failure);
+    if (writer->finished || writer->backing == nullptr) {
+        return writerError(L, "writer is already closed");
     }
     drainWriter(L, 1, writer);
+    return 0;
+}
+
+static void clearWriterEnvironment(lua_State *L, int index) {
+    lua_createtable(L, 0, 0);
+    lua_setfenv(L, index);
+}
+
+static int luaWriterClose(lua_State *L) {
+    luaWriter *writer = checkedWriter(L, 1);
+    if (writer->finished || writer->backing == nullptr) {
+        return writerError(L, "writer is already closed");
+    }
     writer->finished = true;
+    const bool complete = writer->rootWritten
+        && writer->backing->frames.empty();
+    if (!complete) {
+        releaseWriterBacking(writer);
+        clearWriterEnvironment(L, 1);
+        return writerError(L, "close() requires one complete root value");
+    }
+    drainWriter(L, 1, writer);
+    releaseWriterBacking(writer);
+    clearWriterEnvironment(L, 1);
     return 0;
 }
 
@@ -1403,7 +1497,13 @@ static int luaNewWriter(lua_State *L) {
         return luaL_argerror(L, 1, "string.buffer.Buffer expected");
     }
     void *storage = lua_newuserdata(L, sizeof(luaWriter));
-    new (storage) luaWriter{};
+    auto *writer = new (storage) luaWriter{};
+    try {
+        writer->backing = acquireWriterBacking();
+    } catch (const std::bad_alloc &) {
+        writer->~luaWriter();
+        return luaL_error(L, "simdjson writer: allocation failed");
+    }
     luaL_getmetatable(L, WRITER_METATABLE);
     lua_setmetatable(L, -2);
     lua_createtable(L, 0, 2);
@@ -1580,8 +1680,10 @@ extern "C" NUPP_SIMDJSON_EXPORT int luaopen_simdjson_bench_native(lua_State *L) 
     setFunction(L, "key", luaWriterKey);
     setFunction(L, "write", luaWriterWrite);
     setFunction(L, "null", luaWriterNull);
+    setFunction(L, "endArray", luaWriterEndArray);
+    setFunction(L, "endObject", luaWriterEndObject);
+    setFunction(L, "flush", luaWriterFlush);
     setFunction(L, "close", luaWriterClose);
-    setFunction(L, "finish", luaWriterFinish);
     lua_pushvalue(L, -1);
     lua_setfield(L, -2, "__index");
     lua_pushliteral(L, "simdjson writer");

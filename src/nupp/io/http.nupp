@@ -1506,16 +1506,12 @@ end
 ---
 --- A client is worth keeping: connections, the TLS session cache and the default
 --- headers all live on it, so one client per program beats one per request.
-record http.Client is BodyClient
+record http.Client is BodyClient, Closeable
     _native: NativeClient
     _options: any
     _source: suspension.Source?
     _sourceUsers: integer
     _closed: boolean
-
-    --- Closes the pool and every transfer still in flight.
-    --- @param self this client, spent by the call
-    drop: nosuspend function(takes self: http.Client): nil
 
     --- Opens a connection pool.
     ---
@@ -1534,7 +1530,7 @@ record http.Client is BodyClient
     --- @param self the client being initialized
     --- @param options connection, redirect, timeout and concurrency options
     --- @raises when the native client cannot be initialized
-    constructor(self, options: http.Options?): affine(http.Client, http.Client.destroy)
+    constructor(self, options: http.Options?): http.Client
         local copied = copiedOptions(options)
         local backend, reason = newClient(copied)
         if backend == nil then
@@ -1547,12 +1543,9 @@ record http.Client is BodyClient
         self._closed = false
     end
 
-    --- Releases the client when its owner leaves scope.
-    --- @internal
-    function destroy(takes self): nil
-        nosuspend do
-            self:drop()
-        end
+    --- Publishes pending client work. Requests are submitted immediately, so this
+    --- client has nothing to publish independently of closing it.
+    function flush(exclusive self): nil
     end
 
     function _retainSource(self, context: suspension.Context): nil
@@ -1889,24 +1882,7 @@ end
 ---
 --- Repeated calls are safe.
 --- @param self this client, spent by the call
---- @return true
---- @return nothing
-function http.Client.close(takes self: http.Client): (boolean, string?)
-    if self._closed then
-        return true
-    end
-    self._closed = true
-    if self._source ~= nil then
-        self._source:release()
-        self._source = nil
-        self._sourceUsers = 0
-    end
-    self._native:close()
-
-    return true
-end
-
-function http.Client.drop(takes self: http.Client): nil
+function http.Client.close(takes self: http.Client): nil
     nosuspend do
         if not self._closed then
             self._closed = true

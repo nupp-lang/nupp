@@ -341,8 +341,15 @@ size_t nuppFsPending(void);
 
 local ffi = native.ffi
 local C = native.C
-local fileRead: function(handle: any, borrows destination: uint8[?], count: integer): int64 = C.nuppFileRead as any
-local fileWrite: function(handle: any, borrows source: const uint8[?], count: integer): int64 = C.nuppFileWrite as any
+local function fileRead(handle: any, borrows destination: uint8[?], count: integer): int64
+    local call = C.nuppFileRead as function(handle: any, borrows destination: uint8[?], count: integer): int64
+    return call(handle, destination, count)
+end
+
+local function fileWrite(handle: any, borrows source: const uint8[?], count: integer): int64
+    local call = C.nuppFileWrite as function(handle: any, borrows source: const uint8[?], count: integer): int64
+    return call(handle, source, count)
+end
 
 -- The library numbers what a path is, what an entry is, which user folder, how a file
 -- is opened, and what a seek is measured from. Each of these is its side of one of

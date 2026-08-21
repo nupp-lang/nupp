@@ -591,8 +591,31 @@ function M.theJsonModuleOpensItsHostOnRequire()
       local name = json.encodedString('quoted"key')
       assert(name == json.encodedString('quoted"key'), "encoded keys are interned")
       local writer = json.writer(buffer)
-      writer:startObject():key(name):write(json.verified("4.20e1")):close():finish()
+      writer:startObject():key(name):write(json.verified("4.20e1")):endObject()
+      writer:close()
       assert(buffer:tostring() == [[{"quoted\"key":4.20e1}]])
+
+      local partial = require("string.buffer").new()
+      local streaming = json.writer(partial)
+      streaming:startArray():write(1)
+      streaming:flush()
+      assert(partial:tostring() == "[1", "flush publishes an incomplete batch")
+      streaming:write(json.verified("2")):endArray()
+      streaming:close()
+      assert(partial:tostring() == "[1,2]", "close publishes the completed root")
+      assert(not pcall(streaming.write, streaming, 3), "a closed writer stays stale")
+
+      local incomplete = json.writer(require("string.buffer").new())
+      incomplete:startObject()
+      assert(not pcall(incomplete.close, incomplete), "close rejects an incomplete root")
+      assert(not pcall(incomplete.endObject, incomplete),
+         "a failed consuming close still leaves a terminal writer")
+
+      local replacement = json.writer(require("string.buffer").new())
+      replacement:write(true)
+      replacement:close()
+      assert(not pcall(streaming.write, streaming, false),
+         "a stale identity cannot reach pooled backing state")
       local invalid = '"\255"'
       assert(not pcall(function()
          json.verifiedString(invalid)
@@ -965,7 +988,8 @@ function M.jsonNativeConstantsAndWriter()
       "local object: table = json.EMPTY_OBJECT",
       "local out = string.buffer.new()",
       "local writer = json.writer(out, nul)",
-      "writer:startObject():key('answer'):write(1):close():finish()",
+      "writer:startObject():key('answer'):write(1):endObject()",
+      "writer:close()",
    }, "\n"))
 end
 

@@ -220,11 +220,11 @@ function hotreload.module(name: string): hotreload.Slots
     return module.slots
 end
 
---- Records one dynamic-custody policy a generated module uses.
+--- Records one managed-cell cleanup policy a generated module uses.
 ---
---- During staging the candidate set stays private until every live persistent store
---- admits the change, so a policy that still has entries cannot be changed out from
---- under them.
+--- During staging the candidate set stays private until every live managed cell
+--- admits the change, so a policy that still owns a payload cannot be changed out
+--- from under it.
 ---
 --- @param slots the module's slot array
 --- @param key the stable policy key
@@ -357,12 +357,12 @@ function hotreload.stage(source: string, baseGeneration: integer): hotreload.Tra
     for _, candidate in ipairs(staging.candidates) do
         changedModules[candidate.module] = true
     end
-    local policyCount = _G.__nuppDynamicPolicyCount
+    local policyCount = _G.__nuppManagedPolicyCount
     for module in pairs(changedModules) do
         local candidatePolicies = staging.policies[module] or {}
         for policy in pairs(module.policies or {}) do
             if not candidatePolicies[policy] and policyCount and policyCount(policy) > 0 then
-                return nil, "live dynamic capability policy changed; drain its store entries before reloading"
+                return nil, "live managed-cell policy changed; close or take its payload before reloading"
             end
         end
     end

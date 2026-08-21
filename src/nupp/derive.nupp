@@ -257,7 +257,14 @@ local function leave(value: any, state: any): nil
 end
 
 -- Mutually recursive: a field's type may be a shape, and a shape's fields have types.
-local writeValue: function(value: any, spec: any, out: nupp.data.json.Writer, json: any, state: any, path: string): nil
+local writeValue: function(
+    value: any,
+    spec: any,
+    exclusive out: nupp.data.json.Writer,
+    json: any,
+    state: any,
+    path: string
+): nil
 
 -- An object is written from the field list rather than from the value, so a field the
 -- schema does not name never reaches the document however the value came to hold it.
@@ -265,7 +272,7 @@ local function writeObject(
     value: any,
     fields: any,
     unknown: any,
-    out: nupp.data.json.Writer,
+    exclusive out: nupp.data.json.Writer,
     json: any,
     state: any,
     path: string
@@ -291,14 +298,21 @@ local function writeObject(
             end
         end
     end
-    out:close()
+    out:endObject()
     leave(value, state)
 end
 
 -- Every failure carries the path it happened at, because the value being encoded is
 -- often nested several containers deep and "expected finite number" alone does not say
 -- which field held the NaN.
-writeValue = function(value: any, spec: any, out: nupp.data.json.Writer, json: any, state: any, path: string): nil
+writeValue = function(
+    value: any,
+    spec: any,
+    exclusive out: nupp.data.json.Writer,
+    json: any,
+    state: any,
+    path: string
+): nil
     local kind: any = spec and spec.kind
     if kind == "optional" then
         if value == nil then
@@ -390,7 +404,7 @@ writeValue = function(value: any, spec: any, out: nupp.data.json.Writer, json: a
         for i = 1, maximum do
             writeValue(value[i], spec.value, out, json, state, path .. "[" .. i .. "]")
         end
-        out:close()
+        out:endArray()
         leave(value, state)
 
         return
@@ -405,7 +419,7 @@ writeValue = function(value: any, spec: any, out: nupp.data.json.Writer, json: a
         for i, item in ipairs(spec.items) do
             writeValue(value[i], item, out, json, state, path .. "[" .. i .. "]")
         end
-        out:close()
+        out:endArray()
         leave(value, state)
 
         return
@@ -425,7 +439,7 @@ writeValue = function(value: any, spec: any, out: nupp.data.json.Writer, json: a
             out:key(key)
             writeValue(value[key], spec.value, out, json, state, path .. "." .. key)
         end
-        out:close()
+        out:endObject()
         leave(value, state)
 
         return
@@ -707,7 +721,7 @@ end
 --- @param value the record to encode
 --- @param entry the type's registry entry
 --- @param out the checked destination
-function derive.writeJSON<T is table>(value: T, entry: derive.Entry, out: nupp.data.json.Writer): nil
+function derive.writeJSON<T is table>(value: T, entry: derive.Entry, exclusive out: nupp.data.json.Writer): nil
     derivedJSON(entry)
     writeObject(value, entry.schema.fields, entry.schema.unknown, out, entry.decoder, {active = {}, depth = 0}, "$")
 end
@@ -721,7 +735,7 @@ local function encodeJSON<T is table>(value: T, entry: derive.Entry): string
     local json = require("nupp.data.json")
     local writer = json.writer(out)
     derive.writeJSON(value, entry, writer)
-    writer:finish()
+    writer:close()
 
     return out:tostring()
 end

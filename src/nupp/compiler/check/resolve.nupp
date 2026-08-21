@@ -435,6 +435,22 @@ function resolve.install(c: state.Checker): nil
         return instantiateNominal(t, map)
     end
 
+    local function applyWrittenType(t, node)
+        local resolved = applyTypeArgs(t, node)
+        if c.suppressInherentOwner then
+            -- A mode-qualified annotation names the representation it borrows. An
+            -- explicitly written `affine(...)` is constructed outside this name
+            -- resolution and therefore retains its policy; a generic alias is
+            -- already a complete written type and likewise stays intact.
+            if t and t.tag ~= "genericAlias" and resolved then
+                return T.unwrapOwnership(resolved)
+            end
+            return resolved
+        end
+
+        return resolved and T.inherentOwner(resolved) or nil
+    end
+
     --- Where a projection was decided: the answer that settled it, or the requirements
     --- that state it when nothing has.
     ---
@@ -522,7 +538,35 @@ function resolve.install(c: state.Checker): nil
                 end
             end
             local name = table.concat(calleeParts, ".")
-            if name == "affine" then
+            if name == "managed" or name == "alias" then
+                local argumentCount = #(node.arguments or {})
+                if argumentCount ~= 1 then
+                    c.diag(
+                        "NUPP2421",
+                        node,
+                        ("%s expects one owned value type, got %d arguments"):format(name, argumentCount)
+                    )
+                    return T.any
+                end
+                local payload = c.resolveType(node.arguments[1])
+                local declared = c.lookupType(name == "managed" and "nupp.Managed" or "nupp.Alias")
+                if not declared or declared.tag ~= "nominal" or not declared.typeParams or not declared.typeParams[
+                    1
+                ] then
+                    c.diag("NUPP2421", node, "the managed-cell prelude declarations are unavailable")
+                    return T.any
+                end
+                local core = (declared.origin or declared) as T.Nominal
+                if name == "managed" then
+                    core.managedCell = true
+                else
+                    core.managedAlias = true
+                end
+                local instance = instantiateNominal(declared, {[declared.typeParams[1]] = payload})
+                local result = name == "managed" and T.affine(instance, {T.methodCleanup("close")}) or instance
+                node.resolvedType = result
+                return result
+            elseif name == "affine" then
                 local argumentCount = #(node.arguments or {})
                 if argumentCount ~= 1 and argumentCount ~= 2 then
                     c.diag(
@@ -835,7 +879,7 @@ function resolve.install(c: state.Checker): nil
                         elseif declared.tag == "nominal" and declared.declKind == "interface" then
                             node.interfaceName = declared.runtimePath or key
                         end
-                        return applyTypeArgs(declared, node)
+                        return applyWrittenType(declared, node)
                     end
                 end
                 -- A binder is a namespace too, but only when something says what it
@@ -924,7 +968,7 @@ function resolve.install(c: state.Checker): nil
                                 node.recordName = lexical.runtimePath
                             end
                         end
-                        return applyTypeArgs(lexical, node)
+                        return applyWrittenType(lexical, node)
                     end
                 end
                 -- A declaration answers its associated types through
@@ -976,7 +1020,7 @@ function resolve.install(c: state.Checker): nil
                     elseif t.tag == "nominal" and t.declKind == "interface" then
                         node.interfaceName = ("require(%q).%s"):format(resolvedModule, typeName)
                     end
-                    return applyTypeArgs(t, node)
+                    return applyWrittenType(t, node)
                 end
                 if not recoverForeign(
                     node,
@@ -1049,7 +1093,7 @@ function resolve.install(c: state.Checker): nil
                 t, def, lookupErr, moduleName, visibility, conflicts = c.lookupType(name)
             end
             c.markToken(base, def, t, def and def.kind or "type")
-            t = applyTypeArgs(t, node)
+            t = applyWrittenType(t, node)
             if t then
                 -- Generic applications are interned across checks. Reusing a closed
                 -- affine result must still publish its terminal in this source unit;
@@ -1082,17 +1126,18 @@ function resolve.install(c: state.Checker): nil
                 end
                 -- hint for the code generator: this name is a reified struct whose
                 -- runtime ctype is local, global, or project-exported
-                if t.tag == "nominal" and t.declKind == "struct" then
+                local namedType = T.unwrapOwnership(t)
+                if namedType.tag == "nominal" and namedType.declKind == "struct" then
                     if moduleName and visibility ~= "global" then
                         node.reified = ("require(%q).%s"):format(moduleName, name)
                     else
                         node.reified = name
                     end
-                    if t.cdefName then
-                        node.cdefName = t.cdefName
-                        node.cdefKind = t.cdefKind or "struct"
+                    if namedType.cdefName then
+                        node.cdefName = namedType.cdefName
+                        node.cdefKind = namedType.cdefKind or "struct"
                     end
-                elseif t.tag == "nominal" and t.declKind == "record" then
+                elseif namedType.tag == "nominal" and namedType.declKind == "record" then
                     -- a record's runtime table is its identity, which is what `is`
                     -- compares against. An interface has none: it is conformance, not
                     -- provenance, so it stays uncompilable.
@@ -1101,7 +1146,7 @@ function resolve.install(c: state.Checker): nil
                     else
                         node.recordName = name
                     end
-                elseif t.tag == "nominal" and t.declKind == "interface" then
+                elseif namedType.tag == "nominal" and namedType.declKind == "interface" then
                     -- An interface has a table only when it carries defaults, and then
                     -- only so a declaration taking one can reach the body.
                     if moduleName and visibility ~= "global" then
@@ -1235,7 +1280,11 @@ function resolve.install(c: state.Checker): nil
             -- the body returns the plain value; the borrow wrapper and the argument it
             -- is tied to are applied to the function type, the same way affine(T,
             -- cleanup) wraps an annotated return
-            return c.resolveType(node.type)
+            local priorSuppression = c.suppressInherentOwner
+            c.suppressInherentOwner = true
+            local result = c.resolveType(node.type)
+            c.suppressInherentOwner = priorSuppression
+            return result
         elseif kind == "tpreserves" then
             -- The callable records the relation; this node contributes its payload.
             return c.resolveType(node.type)
@@ -1464,9 +1513,19 @@ function resolve.install(c: state.Checker): nil
                             varargType = c.resolveType(p.type)
                         end
                     else
-                        params[#params + 1] = p.type and c.resolveType(p.type) or T.any
                         local mode = p.modeTok
-                        paramModes[#params] = mode and mode.text or "plain"
+                        local modeName = mode and mode.text or "plain"
+                        local priorSuppression = c.suppressInherentOwner
+                        if modeName == "borrows" or modeName == "exclusive" then
+                            c.suppressInherentOwner = true
+                        end
+                        local parameter = p.type and c.resolveType(p.type) or T.any
+                        c.suppressInherentOwner = priorSuppression
+                        -- `borrows Closeable` and `exclusive Closeable` describe a
+                        -- view of somebody else's obligation. Only `takes` carries
+                        -- the inherent close policy into the callee.
+                        params[#params + 1] = parameter
+                        paramModes[#params] = modeName
                         paramNames[#params] = p.name and p.name.text or ""
                     end
                 end
