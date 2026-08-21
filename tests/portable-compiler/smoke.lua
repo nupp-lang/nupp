@@ -9,6 +9,22 @@ local function noErrors(response, label)
    end
 end
 
+local function equivalent(got, want, path)
+   if type(got) ~= type(want) then
+      error(path .. " has type " .. type(got) .. ", expected " .. type(want), 0)
+   end
+   if type(got) ~= "table" then
+      assert(got == want, path .. " differs: " .. tostring(got) .. " ~= " .. tostring(want))
+      return
+   end
+   for key, value in pairs(want) do
+      equivalent(got[key], value, path .. "." .. tostring(key))
+   end
+   for key in pairs(got) do
+      assert(want[key] ~= nil, path .. " has unexpected member " .. tostring(key))
+   end
+end
+
 return function(Browser)
    local session = Browser.new()
    local source = "local answer: integer = 42\nreturn answer"
@@ -47,6 +63,25 @@ return function(Browser)
       [[{"kind":"check","source":"return 1","options":{"dialect":"lua51"}}]])
    assert(type(wire) == "string" and wire:find("diagnostics", 1, true),
       "JSON request adapter returned no response")
+
+   if NUPP_EXPECTED then
+      local json = require("nupp.runtime.provider.lunajson")
+      local expected = json.decode(NUPP_EXPECTED, json.NULL)
+      local differentialSource = "local answer: integer = 42\nreturn answer"
+      local portable = {
+         check = session:check(differentialSource, "differential.nupp", {
+            strict = true,
+            dialect = "lua51",
+         }),
+         compile = session:compile(differentialSource, "differential.nupp", {
+            strict = true,
+            optimize = true,
+            dialect = "lua51",
+         }),
+         hover = session:hover(7),
+      }
+      equivalent(portable, expected, "native-versus-portable corpus")
+   end
 
    local forbidden = {
       ffi = true,

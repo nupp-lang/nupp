@@ -50,6 +50,35 @@ Measured on this compiler, the walk was removing one module out of seventy-one
 and costing about sixteen kilobytes on a 1.6 MB binary.
 :::
 
+### Target source sets
+
+A module or bundle target may narrow the initial source set with `sources`.
+Files and directories use the same recursive expansion as a documentation
+target:
+
+```lua
+targets = {
+   compiler = {
+      kind = "bundle",
+      entries = { "compiler.browser" },
+      sources = { "src/compiler/browser.nupp", "src/runtime/portable" }
+   }
+}
+```
+
+The target checks and packages every selected `.nupp`, `.g.nupp`, and `.lua`
+file. It also adds dependencies reached through a constant `require`, even
+when they sit outside the selected paths. Omitting `sources` retains the whole
+project source set.
+
+A computed `require(name)` cannot add a source during the build. Its eventual
+module must have been selected independently, or the built program reports an
+ordinary module-not-found error when that call runs. The build does not claim
+that every possible computed name is present.
+
+Every source entry must match at least one compilable file inside the project.
+The normalized set participates in the target cache key.
+
 ## Targets and outputs
 
 A target names its kind, where execution starts, and the inputs it needs:

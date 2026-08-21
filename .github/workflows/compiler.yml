@@ -23,6 +23,50 @@ concurrency:
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
+  portable-compiler:
+    name: Portable compiler on official Lua 5.1.5
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - name: Check out the repository
+        uses: actions/checkout@v5
+
+      - name: Restore the pinned build tools
+        uses: actions/cache@v4
+        with:
+          path: |
+            ${{ runner.temp }}/nupp-ci-tools
+            .rocks
+          key: >-
+            nupp-tools-${{ runner.os }}-${{ runner.arch }}-${{
+            hashFiles('.github/scripts/setup-luajit-posix.sh') }}
+
+      - name: Restore the Rust build
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            .nupp-cache/native-dev-all
+            runtime/native/target
+          key: >-
+            nupp-cargo-${{ runner.os }}-${{ runner.arch }}-${{
+            hashFiles('runtime/native/Cargo.lock') }}
+          restore-keys: |
+            nupp-cargo-${{ runner.os }}-${{ runner.arch }}-
+
+      - name: Build LuaJIT and simdjson
+        shell: bash
+        run: .github/scripts/setup-luajit-posix.sh
+
+      - name: Bootstrap the compiler
+        shell: bash
+        run: ./bin/nupp build
+
+      - name: Run the portable compiler in the six-library host
+        shell: bash
+        run: .github/scripts/test-portable-compiler.sh
+
   compiler:
     name: ${{ matrix.name }}
     runs-on: ${{ matrix.os }}

@@ -97,14 +97,16 @@ static int load(lua_State *state, const struct bytes *source, const char *name) 
 int main(int argc, char **argv) {
     struct bytes bundle = {0};
     struct bytes suite = {0};
+    struct bytes expected = {0};
     lua_State *state;
     int ok = 0;
 
-    if (argc != 3) {
-        fprintf(stderr, "usage: %s BUNDLE TEST_SUITE\n", argv[0]);
+    if (argc != 3 && argc != 4) {
+        fprintf(stderr, "usage: %s BUNDLE TEST_SUITE [EXPECTED_JSON]\n", argv[0]);
         return 2;
     }
-    if (!read_file(argv[1], &bundle) || !read_file(argv[2], &suite)) {
+    if (!read_file(argv[1], &bundle) || !read_file(argv[2], &suite) ||
+        (argc == 4 && !read_file(argv[3], &expected))) {
         goto done;
     }
     state = luaL_newstate();
@@ -118,6 +120,10 @@ int main(int argc, char **argv) {
     open_library(state, LUA_STRLIBNAME, luaopen_string);
     open_library(state, LUA_MATHLIBNAME, luaopen_math);
     install_require_trace(state);
+    if (expected.data != NULL) {
+        lua_pushlstring(state, expected.data, expected.length);
+        lua_setglobal(state, "NUPP_EXPECTED");
+    }
 
     if (!load(state, &bundle, "@nupp-compiler.lua") || lua_pcall(state, 0, 1, 0) != 0) {
         fprintf(stderr, "%s\n", lua_tostring(state, -1));
@@ -142,5 +148,6 @@ int main(int argc, char **argv) {
 done:
     free(bundle.data);
     free(suite.data);
+    free(expected.data);
     return ok ? 0 : 1;
 }
