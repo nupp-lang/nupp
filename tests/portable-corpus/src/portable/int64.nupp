@@ -1,0 +1,347 @@
+module portable.int64
+
+--[[Four-limb reference provider used only to prove the complete int64 seam on
+stock Lua. Production targets should select a maintained integer rock.]]
+
+local wide = {}
+local BASE = 65536
+
+local function value(a: number, b: number, c: number, d: number, unsigned: boolean?): any
+    return {a = a % BASE, b = b % BASE, c = c % BASE, d = d % BASE, unsigned = unsigned == true}
+end
+
+
+local function copy(input: any, unsigned: boolean?): any
+    return value(input.a, input.b, input.c, input.d, unsigned == nil and input.unsigned or unsigned)
+end
+
+
+local function isZero(input: any): boolean
+    return input.a == 0 and input.b == 0 and input.c == 0 and input.d == 0
+end
+
+
+local function negative(input: any): boolean
+    return not input.unsigned and input.d >= 32768
+end
+
+
+local function addRaw(left: any, right: any, unsigned: boolean?): any
+    local out, carry = {}, 0
+    for _, limb in ipairs({"a", "b", "c", "d"}) do
+        local sum = left[limb] + right[limb] + carry
+        out[limb], carry = sum % BASE, math.floor(sum / BASE)
+    end
+    out.unsigned = unsigned == nil and (left.unsigned or right.unsigned) or unsigned
+
+    return out
+end
+
+
+local function negate(input: any, unsigned: boolean?): any
+    local inverted = value(BASE - 1 - input.a, BASE - 1 - input.b, BASE - 1 - input.c, BASE - 1 - input.d)
+
+    return addRaw(inverted, value(1, 0, 0, 0), unsigned)
+end
+
+
+local function compareRaw(left: any, right: any): integer
+    for _, limb in ipairs({"d", "c", "b", "a"}) do
+        if left[limb] ~= right[limb] then
+            return left[limb] < right[limb] and -1 or 1
+        end
+    end
+
+    return 0
+end
+
+
+local function shiftLeftOne(input: any): any
+    local out, carry = {}, 0
+    for _, limb in ipairs({"a", "b", "c", "d"}) do
+        local shifted = input[limb] * 2 + carry
+        out[limb], carry = shifted % BASE, math.floor(shifted / BASE)
+    end
+    out.unsigned = input.unsigned
+
+    return out
+end
+
+
+local function shiftRightOne(input: any, fill: boolean?): any
+    local out, carry = {}, fill and 32768 or 0
+    for _, limb in ipairs({"d", "c", "b", "a"}) do
+        local current = input[limb]
+        out[limb] = math.floor(current / 2) + carry
+        carry = current % 2 == 1 and 32768 or 0
+    end
+    out.unsigned = input.unsigned
+
+    return out
+end
+
+
+local function getBit(input: any, index: integer): boolean
+    local names = {"a", "b", "c", "d"}
+    local limb = input[names[math.floor(index / 16) + 1]]
+
+    return math.floor(limb / 2 ^ (index % 16)) % 2 == 1
+end
+
+
+local function setBit(input: any, index: integer): nil
+    local names = {"a", "b", "c", "d"}
+    local name = names[math.floor(index / 16) + 1]
+    input[name] = input[name] + 2 ^ (index % 16)
+end
+
+
+local function multiplySmall(input: any, multiplier: number): any
+    local out, carry = {}, 0
+    for _, limb in ipairs({"a", "b", "c", "d"}) do
+        local product = input[limb] * multiplier + carry
+        out[limb], carry = product % BASE, math.floor(product / BASE)
+    end
+    out.unsigned = input.unsigned
+
+    return out
+end
+
+
+local function addSmall(input: any, amount: number): any
+    return addRaw(input, value(amount, 0, 0, 0), input.unsigned)
+end
+
+
+local function parse(input: any, unsigned: boolean): any
+    if type(input) == "table" then
+        return copy(input, unsigned)
+    end
+    local text = tostring(input)
+    local isNegative = text:sub(1, 1) == "-"
+    if isNegative then
+        text = text:sub(2)
+    end
+    assert(text:match("^%d+$"), "invalid 64-bit integer " .. text)
+    local out = value(0, 0, 0, 0, unsigned)
+    for digit in text:gmatch("%d") do
+        out = addSmall(multiplySmall(out, 10), assert(tonumber(digit)))
+    end
+    if isNegative then
+        out = negate(out, unsigned)
+    end
+
+    return out
+end
+
+
+local function magnitude(input: any): any, boolean
+    local wasNegative = negative(input)
+
+    return wasNegative and negate(input, true) or copy(input, true), wasNegative
+end
+
+
+local function divideUnsigned(dividend: any, divisor: any): any, any
+    assert(not isZero(divisor), "division by zero")
+    local quotient = value(0, 0, 0, 0, true)
+    local remainder = value(0, 0, 0, 0, true)
+    for index = 63, 0, -1 do
+        remainder = shiftLeftOne(remainder)
+        if getBit(dividend, index) then
+            remainder.a = remainder.a + 1
+        end
+        if compareRaw(remainder, divisor) >= 0 then
+            remainder = addRaw(remainder, negate(divisor, true), true)
+            setBit(quotient, index)
+        end
+    end
+
+    return quotient, remainder
+end
+
+
+local function divideSmall(input: any, divisor: number): any, number
+    local out, remainder = {}, 0
+    for _, limb in ipairs({"d", "c", "b", "a"}) do
+        local current = remainder * BASE + input[limb]
+        out[limb], remainder = math.floor(current / divisor), current % divisor
+    end
+    out.unsigned = input.unsigned
+
+    return out, remainder
+end
+
+
+function wide.int64(input: any): any
+    return parse(input, false)
+end
+
+function wide.uint64(input: any): any
+    return parse(input, true)
+end
+
+function wide.add(left: any, right: any): any
+    return addRaw(left, right)
+end
+
+function wide.sub(left: any, right: any): any
+    return addRaw(left, negate(right))
+end
+
+function wide.neg(input: any): any
+    return negate(input, input.unsigned)
+end
+
+function wide.mul(left: any, right: any): any
+    local l, r = {left.a, left.b, left.c, left.d}, {right.a, right.b, right.c, right.d}
+    local out: any = {0, 0, 0, 0}
+    for i = 1, 4 do
+        local carry = 0
+        for j = 1, 5 - i do
+            local at = i + j - 1
+            local product = out[at] + l[i] * r[j] + carry
+            out[at], carry = product % BASE, math.floor(product / BASE)
+        end
+    end
+
+    return value(out[1], out[2], out[3], out[4], left.unsigned or right.unsigned)
+end
+
+function wide.compare(left: any, right: any): integer
+    if not (left.unsigned or right.unsigned) then
+        local leftNegative, rightNegative = negative(left), negative(right)
+        if leftNegative ~= rightNegative then
+            return leftNegative and -1 or 1
+        end
+    end
+
+    return compareRaw(left, right)
+end
+
+function wide.div(left: any, right: any): any
+    local dividend, leftNegative = magnitude(left)
+    local divisor, rightNegative = magnitude(right)
+    local quotient = divideUnsigned(dividend, divisor)
+    local signed = not (left.unsigned or right.unsigned)
+
+    return signed and leftNegative ~= rightNegative and negate(quotient, false) or copy(quotient, not signed)
+end
+
+function wide.mod(left: any, right: any): any
+    local dividend, leftNegative = magnitude(left)
+    local divisor = magnitude(right)
+    local _, remainder = divideUnsigned(dividend, divisor)
+    local signed = not left.unsigned
+
+    return signed and leftNegative and negate(remainder, false) or copy(remainder, not signed)
+end
+
+function wide.pow(left: any, right: any): any
+    local exponent = type(right) == "number" and right or wide.toNumber(right)
+    assert(exponent >= 0 and exponent == math.floor(exponent), "invalid integer exponent")
+    local result = value(1, 0, 0, 0, left.unsigned)
+    local base = copy(left)
+    while exponent > 0 do
+        if exponent % 2 == 1 then
+            result = wide.mul(result, base)
+        end
+        exponent = math.floor(exponent / 2)
+        if exponent > 0 then
+            base = wide.mul(base, base)
+        end
+    end
+
+    return result
+end
+
+function wide.lshift(input: any, count: any): any
+    local out = copy(input)
+    local amount = type(count) == "number" and count or wide.toNumber(count)
+    for _ = 1, amount % 64 do
+        out = shiftLeftOne(out)
+    end
+
+    return out
+end
+
+function wide.rshift(input: any, count: any): any
+    local out = copy(input, true)
+    local amount = type(count) == "number" and count or wide.toNumber(count)
+    for _ = 1, amount % 64 do
+        out = shiftRightOne(out)
+    end
+
+    return out
+end
+
+function wide.arshift(input: any, count: any): any
+    local out = copy(input, false)
+    local fill = negative(out)
+    local amount = type(count) == "number" and count or wide.toNumber(count)
+    for _ = 1, amount % 64 do
+        out = shiftRightOne(out, fill)
+    end
+
+    return out
+end
+
+local function limbBits(left: any, right: any?, operation: string): any
+    local bits: any = assert(rawget(_G, "__nuppBitops"))
+    local out = {}
+    for _, limb in ipairs({"a", "b", "c", "d"}) do
+        out[limb] = operation == "not" and bits.bnot(left[limb]) % BASE
+            or bits[operation](left[limb], right[limb]) % BASE
+    end
+    out.unsigned = left.unsigned or right and right.unsigned or false
+
+    return out
+end
+
+
+function wide.band(left: any, right: any): any
+    return limbBits(left, right, "band")
+end
+
+function wide.bor(left: any, right: any): any
+    return limbBits(left, right, "bor")
+end
+
+function wide.bxor(left: any, right: any): any
+    return limbBits(left, right, "bxor")
+end
+
+function wide.bnot(input: any): any
+    return limbBits(input, nil, "not")
+end
+
+function wide.toNumber(input: any): number
+    local magnitudeValue, wasNegative = magnitude(input)
+    local out = magnitudeValue.a
+        + magnitudeValue.b * BASE
+        + magnitudeValue.c * BASE * BASE
+        + magnitudeValue.d * BASE * BASE * BASE
+
+    return wasNegative and -out or out
+end
+
+function wide.toString(input: any): string
+    local remaining, wasNegative = magnitude(input)
+    if isZero(remaining) then
+        return "0"
+    end
+    local digits = {}
+    while not isZero(remaining) do
+        local digit
+        remaining, digit = divideSmall(remaining, 10)
+        digits[#digits + 1] = string.char(48 + digit)
+    end
+    local out = {}
+    for index = #digits, 1, -1 do
+        out[#out + 1] = digits[index]
+    end
+
+    return (wasNegative and "-" or "") .. table.concat(out)
+end
+
+export = wide

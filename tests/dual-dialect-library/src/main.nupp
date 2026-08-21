@@ -1,0 +1,3 @@
+local codec = require("codec")
+
+print(string.format("%.0f", codec.digest("nupp")))

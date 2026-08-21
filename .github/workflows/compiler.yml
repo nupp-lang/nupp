@@ -112,6 +112,11 @@ jobs:
         shell: bash
         run: scripts/portable-lua-corpus.sh lua5.1 lua5.2 lua5.3 lua5.4 luajit
 
+      - name: Build the same library for LuaJIT and Lua 5.1
+        if: runner.os == 'Linux'
+        shell: bash
+        run: scripts/dual-dialect-library.sh lua5.1
+
       - name: Diagnose a Windows native-library load failure
         if: failure() && runner.os == 'Windows'
         shell: pwsh

@@ -76,6 +76,7 @@ for _, untyped in ipairs(CONTRACTS) do
     local contract: any = untyped
     contract.version = 1
     contract.effects = contract.effects or {contract.effect}
+    contract.suiteModule = contract.factoryModule .. "suite"
     assert(byName[contract.name] == nil, "duplicate seam contract " .. contract.name)
     assert(byFactory[contract.factoryModule] == nil, "duplicate seam factory " .. contract.factoryModule)
     byName[contract.name] = contract

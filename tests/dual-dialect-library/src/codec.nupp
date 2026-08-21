@@ -1,0 +1,21 @@
+module codec
+
+--[[The same library source becomes direct LuaJIT operators and a Lua 5.1
+adapter call. Its public API exposes neither representation.]]
+
+local codec = {}
+
+local struct State
+    value: uint32
+end
+
+function codec.digest(input: string): integer
+    local state = new State(2166136261)
+    for index = 1, #input do
+        state.value = (state.value ~ string.byte(input, index)) * 16777619
+    end
+
+    return state.value
+end
+
+export = codec

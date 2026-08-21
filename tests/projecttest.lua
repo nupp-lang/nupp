@@ -909,10 +909,28 @@ return json
    assert(backend:find("portable_json", 1, true),
       "the checked backend source owns its exact runtime dependency")
    local script = ("package.path=%q..package.path;io.write(require('main'))")
-      :format(dir .. "/out/?.lua;build/?.lua;")
+      :format(dir .. "/out/?.lua;")
    local status, output = process.capture({"luajit", "-e", script})
    assertEq(status, 0, "the built artifact loads the runtime backend: " .. tostring(output))
    assertEq(output, "portable:42", "the backend seam delegates to the selected provider")
+   remove(dir)
+end
+
+function M.invalidBackendSelectionReportsAStructuredDiagnostic()
+   local dir = tempProject({
+      ["nupp.lua"] = [[
+return {include = {"src"}, build = {entries = {"main"},
+   backends = {"missing.backend"}}}
+]],
+      ["src/main.nupp"] = "return true\n",
+   })
+   local diagnostics = {}
+   assertEq(project.build(dir, {checkOnly = true, diagnostics = diagnostics}), 1,
+      "a missing selected backend refuses the build")
+   assertEq(diagnostics[1] and diagnostics[1].code, "NUPP3008",
+      "backend resolution failures have a stable diagnostic code")
+   assert(diagnostics[1].msg:find("missing.backend", 1, true),
+      "the structured diagnostic names the selected module")
    remove(dir)
 end
 
@@ -974,7 +992,7 @@ export = Backend.new("portable", {
    assert(not generated:find("Bitops.seam", 1, true),
       "the entry embeds no adapter source")
    local script = ("package.path=%q..package.path;local f=require('main');io.write(f(240,60))")
-      :format(dir .. "/out/?.lua;build/?.lua;")
+      :format(dir .. "/out/?.lua;")
    local status, output = process.capture({"luajit", "-e", script})
    assertEq(status, 0, "the portable artifact runs through the selected BitOp module: " .. tostring(output))
    assertEq(tonumber(output), bit.bxor(
@@ -2402,6 +2420,7 @@ build = {
    modules = {
       ["acme.hmac_sha256"] = "provider.lua",
    },
+   copy_directories = { "nupp" },
 }
 ]]
    local provider = [[
@@ -2444,7 +2463,7 @@ return hmac.hex("key", "The quick brown fox jumps over the lazy dog")
 ]],
       ["vendor/crypto/acme-crypto-1.0-1.rockspec"] = rockspec,
       ["vendor/crypto/provider.lua"] = provider,
-      ["src/acme/cryptobackend.nupp"] = declaration,
+      ["vendor/crypto/nupp/acme/cryptobackend.nupp"] = declaration,
    })
    local task = assert(project.describeTasks(dir, "portable"))
    assertEq(task.dependencies[1], "crypto", "the portable target owns its crypto rock")
@@ -2454,8 +2473,19 @@ return hmac.hex("key", "The quick brown fox jumps over the lazy dog")
       "a checked backend can name a provider from its target dependency")
    assertEq(produced.backendResolution[1].name, "crypto.hmac_sha256",
       "requiring HMAC reaches the dependency-backed seam")
+   assertEq(produced.backendResolution[1].runtimeDependency.package, "acme-crypto",
+      "artifact accounting names the provider package rather than its manifest alias")
+   assertEq(produced.backendResolution[1].runtimeDependency.version, "1.0-1",
+      "artifact accounting pins the provider package version")
+   assert(exists(dir .. "/.rocks/lib/luarocks/rocks-5.1/acme-crypto/1.0-1/"
+      .. "nupp/acme/cryptobackend.nupp"),
+      "the target dependency carries the checked backend source")
+   assert(exists(dir .. "/out/acme/cryptobackend.lua"),
+      "the selected dependency backend is compiled for the consuming target")
+   assert(exists(dir .. "/out/nupp/runtime/seam/hmacsha256.lua"),
+      "the artifact carries the compiler-owned runtime support its backend requires")
    local script = ("package.path=%q..package.path;io.write(require('main'))")
-      :format(dir .. "/out/?.lua;" .. dir .. "/.rocks/share/lua/5.1/?.lua;build/?.lua;")
+      :format(dir .. "/out/?.lua;" .. dir .. "/.rocks/share/lua/5.1/?.lua;")
    local status, output = process.capture({"luajit", "-e", script})
    assertEq(status, 0, "the dependency-backed artifact loads its target rock: " .. tostring(output))
    assertEq(output, "f7bc83f430538424b13298e6aa6fb143ef4d59a14946175997479dbc2d1a3cd8")
