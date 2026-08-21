@@ -1307,7 +1307,10 @@ function expr.install(c: state.Checker): nil
     --- @param node the expression
     c.infer = function(node: Node): Type
         if not EXPANDS[node.kind] then
-            return inferExpr(node)
+            local inferred = inferExpr(node)
+            local dynamic: any = node
+            dynamic.inferredType = inferred
+            return inferred
         end
         -- A tree survives the check that read it, so what the last one concluded about
         -- this call is dropped before this one asks. An incremental recheck reaches the
@@ -1319,6 +1322,8 @@ function expr.install(c: state.Checker): nil
         node.fixedWidthResultTrusted = nil
         node.fixedWidthUntrustedResult = nil
         local first = inferExpr(node)
+        local dynamic: any = node
+        dynamic.inferredType = first
         if fixedWidth.isValue(first) and not node.fixedWidthUntrustedResult then
             c.fixedWidth.mark(node, first)
         end

@@ -1,0 +1,22 @@
+@!internal
+module nupp.runtime.seam.utf8suite
+local suite = {}
+function suite.test(provider: any): (boolean, string?)
+    local ok, problem = pcall(function()
+        local value = "A\226\130\172"
+        assert(provider.isValid(value) == true, "valid UTF-8 must validate")
+        assert(provider.length(value) == 2, "length must count code points")
+        assert(provider.decodeAt(value, 2) == 0x20ac, "decodeAt must decode a scalar")
+        assert(provider.encode(0x20ac) == "\226\130\172", "encode must encode a scalar")
+        assert(provider.isValid("\255") == false, "invalid UTF-8 must be refused")
+        assert(provider.validPrefixLength(value, 3) == 1, "valid prefixes may not cut a scalar")
+        assert(provider.truncate(value, 3) == "A", "truncate must use the valid prefix")
+    end)
+    if not ok then
+        return false, tostring(problem)
+    end
+
+    return true
+end
+
+export = suite

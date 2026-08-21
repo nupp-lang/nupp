@@ -1,0 +1,29 @@
+module nupp.runtime.seam.sha256
+
+local common = require("nupp.runtime.seam.module")
+local runtimeBackend = require("nupp.runtime.backend")
+local seam = {moduleName = "nupp.runtime.seam.sha256", suiteModuleName = "nupp.runtime.seam.sha256suite",}
+local CONTRACT: common.Contract = {
+    name = "data.sha256",
+    version = 1,
+    binding = "runtime",
+    globalName = "__nuppSha256",
+    requiredFunctions = {"sha256"},
+    requiredValues = {},
+    suiteModule = seam.suiteModuleName,
+    exports = {["nupp.data.sha256"] = "sha256",},
+}
+
+function seam.validate(value: any): string?
+    return common.validate(CONTRACT, value)
+end
+
+function seam.seam(moduleName: string): runtimeBackend.Seam
+    return common.seam(CONTRACT, moduleName)
+end
+
+function seam.backend(moduleName: string): runtimeBackend.Backend
+    return runtimeBackend.new("sha256:" .. moduleName, {seam.seam(moduleName)})
+end
+
+export = seam

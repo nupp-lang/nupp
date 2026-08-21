@@ -1,0 +1,17 @@
+@!internal
+module nupp.runtime.seam.pegsuite
+local suite = {}
+function suite.test(provider: any): (boolean, string?)
+    local ok, problem = pcall(function()
+        local pattern = provider.compile("ab+")
+        assert(provider.match(pattern, "abbb") ~= nil, "compiled patterns must match")
+        assert(provider.match(pattern, "ac") == nil, "a failed match must return nil")
+    end)
+    if not ok then
+        return false, tostring(problem)
+    end
+
+    return true
+end
+
+export = suite

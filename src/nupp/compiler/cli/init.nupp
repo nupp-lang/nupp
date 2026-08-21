@@ -77,6 +77,12 @@ local REGISTRY: {{
         end
     },
     {
+        name = "backend",
+        load = function(): specMod.Handler
+            return require("nupp.compiler.cli.backend")
+        end
+    },
+    {
         name = "clean",
         load = function(): specMod.Handler
             return require("nupp.compiler.cli.clean")

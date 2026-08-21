@@ -1,0 +1,44 @@
+@!internal
+module nupp.runtime.seam.int64suite
+local suite = {}
+function suite.test(provider: any): (boolean, string?)
+    local ok, problem = pcall(function()
+        local one = provider.int64("1")
+        local max = provider.int64("9223372036854775807")
+        local min = provider.add(max, one)
+        assert(provider.toString(min) == "-9223372036854775808", "signed addition must wrap at 64 bits")
+        assert(provider.toString(provider.sub(min, one)) == "9223372036854775807", "signed subtraction must wrap")
+        assert(
+            provider.toString(provider.mul(provider.int64("4294967296"), provider.int64("4294967296"))) == "0",
+            "multiplication must keep the low 64 bits"
+        )
+        assert(
+            provider.toString(provider.div(provider.int64("-7"), provider.int64("3"))) == "-2",
+            "division must truncate toward zero"
+        )
+        assert(
+            provider.toString(provider.mod(provider.int64("-7"), provider.int64("3"))) == "-1",
+            "remainder must follow truncating division"
+        )
+        assert(
+            provider.compare(provider.uint64("18446744073709551615"), provider.uint64("1")) > 0,
+            "unsigned comparison must preserve the high bit"
+        )
+        assert(
+            provider.toString(provider.rshift(provider.uint64("18446744073709551615"), 63)) == "1",
+            "logical right shift must fill with zeros"
+        )
+        assert(
+            provider.toString(provider.arshift(provider.int64("-2"), 1)) == "-1",
+            "arithmetic right shift must preserve sign"
+        )
+        assert(provider.toNumber(provider.int64("42")) == 42, "exact small values must convert to numbers")
+    end)
+    if not ok then
+        return false, tostring(problem)
+    end
+
+    return true
+end
+
+export = suite

@@ -1,0 +1,29 @@
+@!internal
+module nupp.runtime.seam.simdsuite
+local suite = {}
+function suite.test(provider: any): (boolean, string?)
+    local ok, problem = pcall(function()
+        assert(provider.lanes == 16, "the portable species must have sixteen lanes")
+        local species = provider.preferredU8()
+        assert(species.lanes == 16, "preferredU8 must expose the selected width")
+        local bytes = species:loadString("aZ09................", 0)
+        assert(bytes:equal(97):count() == 1, "equal/count must agree")
+        assert(bytes:inRange(48, 57):bits() == 12, "range masks must expose lane bits")
+        assert(species:tail(3):count() == 3, "tail must clamp active lanes")
+        local table16 = provider.tableU8x16(15, 14, 13, 12, 11, 10, 9, 8, 7, 6, 5, 4, 3, 2, 1, 0)
+        assert(species:splat(0):lookup16(table16):equal(15):all(), "lookup16 must transform every lane")
+        local mask64 = provider.maskBits64(3, 0)
+        assert(mask64:count() == 2 and mask64:firstSet() == 0, "64-bit masks must preserve both halves")
+        assert(mask64:clearFirst():lowBits() == 2, "clearFirst must remove the least set bit")
+        local padded = provider.paddedStringU8("abc")
+        assert(padded.length == 3 and padded.tailLength == 3, "padded strings must report their partition")
+        assert(padded:loadTail():equal(0):count() == 13, "inactive padded lanes must be zero")
+    end)
+    if not ok then
+        return false, tostring(problem)
+    end
+
+    return true
+end
+
+export = suite

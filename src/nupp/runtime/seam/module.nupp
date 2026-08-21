@@ -1,0 +1,182 @@
+@!internal
+
+module nupp.runtime.seam.module
+
+--[[Shared mechanics for exact third-party runtime-module seams.]]
+
+local runtimeBackend = require("nupp.runtime.backend")
+local moduleSeam = {}
+
+export interface Contract
+    readonly name: string
+    readonly version: integer
+    readonly binding: string
+    readonly globalName: string
+    readonly requiredFunctions: {string}
+    readonly requiredValues: {string}
+    readonly suiteModule: string
+    readonly modules: {[string]: string}?
+    readonly exports: {[string]: string}?
+end
+
+function moduleSeam.validate(contract: Contract, value: any): string?
+    if type(value) ~= "table" then
+        return "module returned " .. type(value) .. ", expected table"
+    end
+    for _, name in ipairs(contract.requiredFunctions) do
+        if type(value[name]) ~= "function" then
+            return "member " .. name .. " is " .. type(value[name]) .. ", expected function"
+        end
+    end
+    for _, name in ipairs(contract.requiredValues) do
+        if value[name] == nil then
+            return "member " .. name .. " is absent"
+        end
+    end
+
+    return nil
+end
+
+local function loadProvider(contract: Contract, moduleName: string): any
+    local ok, value = pcall(require, moduleName)
+    if not ok then
+        error(
+            "nupp: runtime provider " .. moduleName .. " for " .. contract.name .. " could not load: " .. tostring(
+                value
+            ),
+            0
+        )
+    end
+    local problem = moduleSeam.validate(contract, value)
+    if problem ~= nil then
+        error("nupp: runtime provider " .. moduleName .. " for " .. contract.name .. " is incompatible: " .. problem, 0)
+    end
+
+    return value
+end
+
+function moduleSeam.install(contract: Contract, moduleName: string): nil
+    local selections = rawget(_G, "__nuppRuntimeProviders")
+    if selections == nil then
+        selections = {}
+        rawset(_G, "__nuppRuntimeProviders", selections)
+    end
+    local prior = selections[contract.name]
+    if prior ~= nil and prior ~= moduleName then
+        error("nupp: runtime provider conflict for " .. contract.name .. ": " .. prior .. " and " .. moduleName, 0)
+    elseif prior ~= nil then
+        return
+    end
+    if rawget(_G, contract.globalName) ~= nil then
+        error("nupp: " .. contract.name .. " runtime binding already exists", 0)
+    end
+    local loaded: any = nil
+    local function provider(): any
+        if loaded == nil then
+            loaded = loadProvider(contract, moduleName)
+        end
+
+        return loaded
+    end
+
+    selections[contract.name] = moduleName
+    rawset(
+        _G,
+        contract.globalName,
+        setmetatable({}, {
+            __index = function(_, name)
+                return provider()[name]
+            end,
+        })
+    )
+    for target, member in pairs(contract.modules or {}) do
+        if package.loaded[target] ~= nil then
+            error("nupp: " .. contract.name .. " provider was selected after " .. target .. " was already loaded", 0)
+        end
+        package.preload[target] = function()
+            local value = provider()
+            if member ~= "" then
+                value = value[member]
+            end
+            if type(value) ~= "table" then
+                error(
+                    "nupp: runtime provider "
+                    .. moduleName
+                    .. " for "
+                    .. contract.name
+                    .. " member "
+                    .. member
+                    .. " is "
+                    .. type(
+                        value
+                    ) .. ", expected module table",
+                    0
+                )
+            end
+
+            return value
+        end
+    end
+    local projected = rawget(_G, "__nuppRuntimeModules")
+    if projected == nil then
+        projected = {}
+        rawset(_G, "__nuppRuntimeModules", projected)
+    end
+    for path, providerMember in pairs(contract.exports or {}) do
+        local target, member = path:match("^(.*)%.([^%.]+)$")
+        if not target or not member then
+            error("nupp: invalid projected runtime export " .. path, 0)
+        end
+        if package.loaded[target] ~= nil then
+            error("nupp: " .. contract.name .. " provider was selected after " .. target .. " was already loaded", 0)
+        end
+        local projection = projected[target]
+        if projection == nil then
+            projection = {loaders = {},}
+            projected[target] = projection
+            package.preload[target] = function()
+                local value = {}
+                for exported, loader in pairs(projection.loaders) do
+                    value[exported] = loader()
+                end
+
+                return value
+            end
+        end
+        if projection.loaders[member] ~= nil then
+            error("nupp: more than one runtime provider supplies " .. path, 0)
+        end
+        projection.loaders[member] = function()
+            return provider()[providerMember]
+        end
+    end
+end
+
+function moduleSeam.test(contract: Contract, moduleName: string): (boolean, string?)
+    local ok, value = pcall(require, moduleName)
+    if not ok then
+        return false, "could not load module: " .. tostring(value)
+    end
+    local problem = moduleSeam.validate(contract, value)
+    if problem ~= nil then
+        return false, problem
+    end
+    local suite = require(contract.suiteModule) as any
+
+    return suite.test(value)
+end
+
+function moduleSeam.seam(contract: Contract, moduleName: string): runtimeBackend.Seam
+    local selected: any = {name = contract.name, version = contract.version, binding = contract.binding,}
+    function selected:install(): nil
+        moduleSeam.install(contract, moduleName)
+    end
+
+    function selected:test(): (boolean, string?)
+        return moduleSeam.test(contract, moduleName)
+    end
+
+    return selected as runtimeBackend.Seam
+end
+
+export = moduleSeam

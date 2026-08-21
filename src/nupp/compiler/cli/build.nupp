@@ -93,6 +93,7 @@ local command = spec.command{
                         provider = {type = "string"},
                         schema = {type = "integer"},
                         fingerprint = {type = "string"},
+                        digest = {type = "string"},
                         backend = {type = "string"},
                         blueprintSize = {type = "integer"},
                         generatedSize = {type = "integer"},
@@ -164,13 +165,31 @@ local command = spec.command{
                                     name = {type = "string"},
                                     version = {type = "integer"},
                                     effect = {type = "string"},
+                                    effects = {type = "array", items = {type = "string"}},
+                                    binding = {type = "string", enum = {"compile", "runtime"}},
                                     runtimeModule = {type = "string"},
                                 },
-                                required = {"name", "version", "effect", "runtimeModule"},
+                                required = {"name", "version", "effect", "effects", "binding", "runtimeModule"},
                             },
                         },
                     },
-                    required = {"name", "module", "fingerprint", "seams"},
+                    required = {"name", "module", "fingerprint", "digest", "seams"},
+                },
+            },
+            backendResolution = {
+                type = "array",
+                description = "Exactly the reached seam resolution recorded in generated artifacts; this is not a certification claim.",
+                items = {
+                    type = "object",
+                    properties = {
+                        name = {type = "string"},
+                        version = {type = "integer"},
+                        binding = {type = "string"},
+                        backend = {type = "string"},
+                        backendDigest = {type = "string"},
+                        runtimeModule = {type = "string"},
+                    },
+                    required = {"name", "version", "binding", "backend", "backendDigest", "runtimeModule"},
                 },
             },
             timing = {
@@ -210,7 +229,16 @@ local command = spec.command{
                 description = "Whether the build completed. False when a " .. "diagnostic stopped it."
             },
         },
-        required = {"ok", "diagnostics", "written", "materializations", "derives", "backends", "dialect"},
+        required = {
+            "ok",
+            "diagnostics",
+            "written",
+            "materializations",
+            "derives",
+            "backends",
+            "backendResolution",
+            "dialect"
+        },
     },
     detail = [[Manifest target options cannot be combined with explicit source files.
 Use 'nupp tasks' to discover target names and configuration.
@@ -280,6 +308,7 @@ local function run(parsed: any): integer
     local materializations: {any} = {}
     local derives: {any} = {}
     local selectedBackends: {any} = {}
+    local reachedBackends: {any} = {}
     local function finish(
         code: integer,
         builtTarget: any,
@@ -306,6 +335,7 @@ local function run(parsed: any): integer
                 materializations = observed or materializations,
                 derives = observedDerives or derives,
                 backends = selectedBackends,
+                backendResolution = reachedBackends,
                 timing = code == 0 and timing or nil,
             })
         end
@@ -331,6 +361,7 @@ local function run(parsed: any): integer
             progress = progressMode
         })
         selectedBackends = produced.backends or {}
+        reachedBackends = produced.backendResolution or {}
         selectedDialect = produced.dialect or selectedDialect
         return finish(
             code,

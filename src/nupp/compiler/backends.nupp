@@ -16,7 +16,71 @@ local RUNTIME_BACKEND_MODULE = "nupp.runtime.backend"
 
 local FACTORIES = {
     ["nupp.runtime.seam.json"] = {seam = {name = "data.json", version = 1, effect = "native.json",},},
-    ["nupp.runtime.seam.bitops"] = {seam = {name = "numeric.bitops", version = 1, effect = "runtime.bitops",},},
+    [
+        "nupp.runtime.seam.bitops"
+    ] = {seam = {name = "numeric.bitops", version = 1, effect = "runtime.bitops", binding = "compile",},},
+    [
+        "nupp.runtime.seam.structvalue"
+    ] = {
+        seam = {name = "representation.structvalue", version = 1, effect = "runtime.structvalue", binding = "compile",},
+    },
+    [
+        "nupp.runtime.seam.int64"
+    ] = {seam = {name = "numeric.int64", version = 1, effect = "runtime.int64", binding = "compile",},},
+    [
+        "nupp.runtime.seam.simd"
+    ] = {seam = {name = "numeric.simd", version = 1, effect = "runtime.simd", binding = "compile",},},
+    [
+        "nupp.runtime.seam.suspension"
+    ] = {seam = {name = "suspension", version = 1, effect = "runtime.suspension", binding = "runtime",},},
+    [
+        "nupp.runtime.seam.sha256"
+    ] = {seam = {name = "data.sha256", version = 1, effect = "native.sha256", binding = "runtime",},},
+    [
+        "nupp.runtime.seam.hash"
+    ] = {seam = {name = "data.hash", version = 1, effect = "runtime.data_hash", binding = "runtime",},},
+    [
+        "nupp.runtime.seam.utf8"
+    ] = {seam = {name = "data.utf8", version = 1, effect = "native.lua_utf8", binding = "runtime",},},
+    [
+        "nupp.runtime.seam.uuid"
+    ] = {seam = {name = "data.uuid", version = 1, effect = "native.uuid", binding = "runtime",},},
+    [
+        "nupp.runtime.seam.bitset"
+    ] = {seam = {name = "data.bitset", version = 1, effect = "runtime.data_bitset", binding = "runtime",},},
+    [
+        "nupp.runtime.seam.peg"
+    ] = {
+        seam = {
+            name = "peg",
+            version = 1,
+            effect = "native.lpeg",
+            effects = {"native.lpeg", "stdlib.lpeg.re", "stdlib.peg", "stdlib.peg.compile"},
+            binding = "runtime",
+        },
+    },
+    [
+        "nupp.runtime.seam.io"
+    ] = {
+        seam = {
+            name = "io",
+            version = 1,
+            effect = "stdlib.io",
+            effects = {"stdlib.io", "native.path", "native.uri"},
+            binding = "runtime",
+        },
+    },
+    [
+        "nupp.runtime.seam.host"
+    ] = {
+        seam = {
+            name = "host",
+            version = 1,
+            effect = "native.host",
+            effects = {"native.host", "native.files", "native.process", "native.http", "native.workers"},
+            binding = "runtime",
+        },
+    },
 }
 
 local function literalString(node: any): string?
@@ -86,7 +150,12 @@ end
 local function fingerprint(descriptor: any): string
     local parts = {descriptor.name}
     for _, seam in ipairs(descriptor.seams) do
-        parts[#parts + 1] = table.concat({seam.name, tostring(seam.version), seam.effect, seam.runtimeModule}, "\0")
+        parts[
+            #parts + 1
+        ] = table.concat(
+            {seam.name, tostring(seam.version), seam.effect, seam.binding or "runtime", seam.runtimeModule},
+            "\0"
+        )
     end
 
     return table.concat(parts, "\0")
@@ -138,12 +207,20 @@ function backends.inspect(root: any, moduleName: string?): any?, string?
         seen[contract.name] = true
         descriptor.seams[
             #descriptor.seams + 1
-        ] = {name = contract.name, version = contract.version, effect = contract.effect, runtimeModule = runtimeModule,}
+        ] = {
+            name = contract.name,
+            version = contract.version,
+            effect = contract.effect,
+            effects = contract.effects or {contract.effect},
+            binding = contract.binding or "runtime",
+            runtimeModule = runtimeModule,
+        }
     end
     if #descriptor.seams == 0 then
         return nil, "backend " .. name .. " must supply at least one seam"
     end
     descriptor.fingerprint = fingerprint(descriptor)
+    descriptor.digest = require("nupp.compiler.build.hash").digest(descriptor.fingerprint)
 
     return descriptor
 end
@@ -193,8 +270,12 @@ function backends.resolve(inc: any, selected: {string}?): any?, string?
             )
         end
         descriptor.module = moduleName
+        local source = require("nupp.compiler.fs").readFile(path)
+        if source ~= nil then
+            descriptor.digest = require("nupp.compiler.build.hash").digest(source)
+        end
         resolved.modules[#resolved.modules + 1] = descriptor
-        fingerprints[#fingerprints + 1] = moduleName .. "\0" .. descriptor.fingerprint
+        fingerprints[#fingerprints + 1] = moduleName .. "\0" .. descriptor.digest
         for _, seam in ipairs(descriptor.seams) do
             local prior = resolved.seams[seam.name]
             if prior then
@@ -204,17 +285,79 @@ function backends.resolve(inc: any, selected: {string}?): any?, string?
                 name = seam.name,
                 version = seam.version,
                 effect = seam.effect,
+                binding = seam.binding or "runtime",
                 runtimeModule = seam.runtimeModule,
                 backend = descriptor.name,
                 module = moduleName,
             }
             resolved.seams[seam.name] = selectedSeam
-            resolved.byEffect[seam.effect] = moduleName
+            for _, effect in ipairs(seam.effects or {seam.effect}) do
+                resolved.byEffect[effect] = moduleName
+            end
         end
     end
     resolved.fingerprint = table.concat(fingerprints, "\0")
 
     return resolved
+end
+
+--- Returns the exact reached seam records written into a generated artifact.
+function backends.reached(effects: {[string]: any}?, resolved: any?): {any}
+    local reached = {}
+    local seen = {}
+    for effect in pairs(effects or {}) do
+        local moduleName = resolved and resolved.byEffect[effect] or nil
+        if moduleName then
+            for _, descriptor in ipairs(resolved.modules or {}) do
+                if descriptor.module == moduleName then
+                    for _, seam in ipairs(descriptor.seams or {}) do
+                        local matches = false
+                        for _, candidate in ipairs(seam.effects or {seam.effect}) do
+                            matches = matches or candidate == effect
+                        end
+                        if matches and not seen[seam.name] then
+                            seen[seam.name] = true
+                            reached[
+                                #reached + 1
+                            ] = {
+                                name = seam.name,
+                                version = seam.version,
+                                binding = seam.binding or "runtime",
+                                backend = moduleName,
+                                backendDigest = descriptor.digest or require(
+                                    "nupp.compiler.build.hash"
+                                ).digest(descriptor.fingerprint or ""),
+                                runtimeModule = seam.runtimeModule,
+                            }
+                        end
+                    end
+                end
+            end
+        end
+    end
+    table.sort(reached, function(a, b)
+        return a.name < b.name
+    end)
+
+    return reached
+end
+
+--- Emits a data-only audit comment. It asserts resolution, never certification.
+function backends.artifact(effects: {[string]: any}?, resolved: any?): string
+    local parts = {}
+    for _, seam in ipairs(backends.reached(effects, resolved)) do
+        parts[
+            #parts + 1
+        ] = table.concat(
+            {seam.name, tostring(seam.version), seam.binding, seam.backend, seam.backendDigest, seam.runtimeModule,},
+            "|"
+        )
+    end
+    if #parts == 0 then
+        return ""
+    end
+
+    return "--[[nupp-backends: resolved=" .. table.concat(parts, ";") .. "]]"
 end
 
 --- Removes native features replaced by selected backend seams.

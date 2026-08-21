@@ -1,0 +1,165 @@
+module nupp.compiler.cli.backend
+
+--[[Explicit certification runner for checked backend seam suites.]]
+
+local spec = require("nupp.compiler.cli.spec")
+
+local command = spec.command{
+    name = "backend",
+    summary = "Run checked backend conformance suites",
+    usage = {"nupp backend test <module> [--dialect luajit|lua51] [--seam NAME] [--json]"},
+    universal = false,
+    options = {{name = "-h", names = {"-h", "--help"}, help = "Show this help"}},
+    positionals = {},
+    detail = "The command checks and compiles the backend without executing it, then runs all or one of its compiler-owned seam suites in this isolated CLI process. It reports resolution evidence, not a cached certification claim.",
+}
+
+local function fail(message: string): integer
+    io.stderr:write("nupp: " .. message .. "\n")
+    return 2
+end
+
+local function run(argv: {string}): integer
+    if argv[1] == "-h" or argv[1] == "--help" then
+        io.write(command:help())
+        return 0
+    end
+    if argv[1] ~= "test" or argv[2] == nil then
+        return fail("backend expects `test <module>`; see `nupp help backend`")
+    end
+    local moduleName = argv[2]
+    local dialect, focused, asJson = "luajit", nil, false
+    local at: integer = 3
+    while at <= #argv do
+        local value = argv[at]
+        if value == "--json" then
+            asJson = true
+        elseif value == "--dialect" and argv[at + 1] ~= nil then
+            dialect = argv[at + 1]
+            at = at + 1
+        elseif value:match("^%-%-dialect=") then
+            dialect = value:sub(11)
+        elseif value == "--seam" and argv[at + 1] ~= nil then
+            focused = argv[at + 1]
+            at = at + 1
+        elseif value:match("^%-%-seam=") then
+            focused = value:sub(8)
+        else
+            return fail("unknown backend test argument " .. value)
+        end
+        at = at + 1
+    end
+    if require("nupp.compiler.dialects").resolve(dialect) == nil then
+        return fail("unknown dialect " .. dialect)
+    end
+
+    local env: any = require("nupp.compiler.env").new(".")
+    local path = env.findModulePath(env, moduleName)
+    if path == nil then
+        return fail("backend module not found: " .. moduleName)
+    end
+    local source, readProblem = require("nupp.compiler.fs").readFile(path)
+    if source == nil then
+        return fail(tostring(readProblem))
+    end
+    local parsed = require("nupp.compiler.parser").parse(source, path)
+    local diagnostics = parsed.errors
+    if #diagnostics == 0 then
+        diagnostics = require("nupp.compiler.check").check(parsed, path, env, {dialect = dialect, strict = true,})
+    end
+    if require("nupp.compiler.diagnostics").report(diagnostics) then
+        return 1
+    end
+    local descriptor, descriptorProblem = require("nupp.compiler.backends").inspect(parsed.root, moduleName)
+    if descriptor == nil then
+        return fail("backend module " .. moduleName .. ": " .. tostring(descriptorProblem or "invalid Backend export"))
+    end
+
+    local compile = require("nupp.compiler.cli.compile")
+    local settings = compile.settings({strict = true, dialect = dialect})
+    local function preloadChecked(name: string, candidate: string): boolean
+        local code = compile.module(candidate, env, settings)
+        if code == nil then
+            return false
+        end
+        package.loaded[name] = nil
+        package.preload[name] = function()
+            local chunk, problem = loadstring(code, "@" .. candidate)
+            if chunk == nil then
+                error(problem, 0)
+            end
+
+            return chunk()
+        end
+
+        return true
+    end
+
+    for _, selected in ipairs(descriptor.seams) do
+        local implementation = env.findModulePath(env, selected.runtimeModule)
+        if implementation ~= nil and not preloadChecked(selected.runtimeModule, implementation) then
+            return 1
+        end
+    end
+    if not preloadChecked(moduleName, path) then
+        return 1
+    end
+    local loaded, backend = pcall(require, moduleName)
+    if not loaded then
+        io.stderr:write("nupp: backend " .. moduleName .. " could not load: " .. tostring(backend) .. "\n")
+        return 1
+    end
+
+    local results = {}
+    local failed = false
+    backend:install()
+    for _, selected in ipairs(backend.seams or {}) do
+        if focused == nil or focused == selected.name then
+            local ok, problem = selected:test()
+            results[
+                #results + 1
+            ] = {
+                name = selected.name,
+                version = selected.version,
+                binding = selected.binding or "runtime",
+                ok = ok,
+                problem = problem,
+            }
+            failed = failed or not ok
+        end
+    end
+    if focused ~= nil and #results == 0 then
+        return fail("backend " .. moduleName .. " does not supply seam " .. focused)
+    end
+    local runtime = _VERSION .. (jit and " / " .. jit.version or "")
+    local digest = require("nupp.compiler.build.hash").digest(source)
+    if asJson then
+        require("nupp.compiler.cli.report").write({
+            ok = not failed,
+            backend = descriptor.name,
+            module = moduleName,
+            digest = digest,
+            dialect = dialect,
+            runtime = runtime,
+            seams = results,
+        })
+    else
+        for _, result in ipairs(results) do
+            io.write(
+                (
+                    "%s %d (%s): %s\n"
+                ):format(
+                    result.name,
+                    result.version,
+                    result.binding,
+                    result.ok and "passed" or "failed: " .. tostring(result.problem)
+                )
+            )
+        end
+        io.write(("backend %s digest %s; dialect %s; runtime %s\n"):format(moduleName, digest, dialect, runtime))
+    end
+
+    return failed and 1 or 0
+end
+
+export = new spec.Handler(spec = command, raw = true, run = run)

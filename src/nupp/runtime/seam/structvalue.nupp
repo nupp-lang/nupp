@@ -1,0 +1,34 @@
+module nupp.runtime.seam.structvalue
+
+--[[Compile-bound table representation for `representation.structvalue`.]]
+
+local common = require("nupp.runtime.seam.module")
+local runtimeBackend = require("nupp.runtime.backend")
+local structvalue = {}
+
+structvalue.moduleName = "nupp.runtime.seam.structvalue"
+structvalue.suiteModuleName = "nupp.runtime.seam.structvaluesuite"
+
+local CONTRACT: common.Contract = {
+    name = "representation.structvalue",
+    version = 1,
+    binding = "compile",
+    globalName = "__nuppStructvalue",
+    requiredFunctions = {"define", "array", "scalar"},
+    requiredValues = {"referenceValued"},
+    suiteModule = structvalue.suiteModuleName,
+}
+
+function structvalue.validate(value: any): string?
+    return common.validate(CONTRACT, value)
+end
+
+function structvalue.seam(moduleName: string): runtimeBackend.Seam
+    return common.seam(CONTRACT, moduleName)
+end
+
+function structvalue.backend(moduleName: string): runtimeBackend.Backend
+    return runtimeBackend.new("structvalue:" .. moduleName, {structvalue.seam(moduleName)})
+end
+
+export = structvalue

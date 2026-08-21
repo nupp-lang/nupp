@@ -22,6 +22,7 @@ local surface = {}
 local COMMON_ROOTS: {
     [string]: boolean
 } = {
+    _G = true,
     print = true,
     type = true,
     tostring = true,
@@ -80,6 +81,7 @@ local COMMON_MEMBERS: {
         floor = true,
         sqrt = true,
         exp = true,
+        log = true,
         pow = true,
         fmod = true,
         modf = true,

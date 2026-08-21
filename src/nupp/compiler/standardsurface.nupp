@@ -1,0 +1,152 @@
+module nupp.compiler.standardsurface
+
+--[[Closed portable classification for public standard-library facilities.]]
+
+local surface = {}
+
+-- This registry is deliberately positive. Adding a public module requires an
+-- explicit classification before `lua51` can claim it is portable.
+local MODULES = {
+    ["nupp"] = {kind = "common"},
+    ["nupp.data"] = {kind = "members"},
+    ["nupp.data.json"] = {kind = "runtime", seam = "data.json", effect = "native.json"},
+    ["nupp.data.utf8"] = {kind = "runtime", seam = "data.utf8", effect = "native.lua_utf8"},
+    ["nupp.derive"] = {kind = "compiler"},
+    ["nupp.hotreload"] = {kind = "unavailable", capability = "cinterop"},
+    ["nupp.io"] = {kind = "runtime", seam = "io", effect = "stdlib.io"},
+    ["nupp.io.files"] = {kind = "host", seam = "host", effect = "native.files"},
+    ["nupp.io.http"] = {kind = "host", seam = "host", effect = "native.http"},
+    ["nupp.io.path"] = {kind = "runtime", seam = "io", effect = "native.path"},
+    ["nupp.io.process"] = {kind = "host", seam = "host", effect = "native.process"},
+    ["nupp.io.uri"] = {kind = "runtime", seam = "io", effect = "native.uri"},
+    ["nupp.log"] = {kind = "unavailable", capability = "cinterop"},
+    ["nupp.mathruntime"] = {kind = "compiler"},
+    ["nupp.mem"] = {kind = "unavailable", capability = "cstorage"},
+    ["nupp.mem.heap"] = {kind = "unavailable", capability = "cstorage"},
+    ["nupp.mem.indexed"] = {kind = "unavailable", capability = "cstorage"},
+    ["nupp.mem.soa"] = {kind = "unavailable", capability = "cstorage"},
+    ["nupp.mem.span"] = {kind = "unavailable", capability = "cstorage"},
+    ["nupp.native"] = {kind = "unavailable", capability = "cinterop"},
+    ["nupp.owners"] = {kind = "common"},
+    ["nupp.pegruntime"] = {kind = "runtime", seam = "peg", effect = "stdlib.peg"},
+    ["nupp.profile"] = {kind = "unavailable", capability = "cinterop"},
+    ["nupp.profile.trace"] = {kind = "unavailable", capability = "cinterop"},
+    ["nupp.profile.zone"] = {kind = "unavailable", capability = "cinterop"},
+    ["nupp.reflectruntime"] = {kind = "compiler"},
+    ["nupp.simd"] = {kind = "compile", seam = "numeric.simd", effect = "runtime.simd"},
+    ["nupp.suspension"] = {kind = "common"},
+    ["nupp.workers"] = {kind = "host", seam = "host", effect = "native.workers"},
+}
+
+local FACILITIES = {
+    ["data.hash"] = {kind = "runtime", seam = "data.hash", effect = "runtime.data_hash"},
+    ["data.sha256"] = {kind = "runtime", seam = "data.sha256", effect = "native.sha256"},
+    ["data.uuid"] = {kind = "runtime", seam = "data.uuid", effect = "native.uuid"},
+    ["data.bitset"] = {kind = "runtime", seam = "data.bitset", effect = "runtime.data_bitset"},
+}
+
+local MODULE_MEMBERS = {
+    [
+        "nupp.data"
+    ] = {
+        Bitset = "data.bitset",
+        WORD_BITS = "data.bitset",
+        crc32 = "data.hash",
+        fnv1a64 = "data.hash",
+        sha256 = "data.sha256",
+        uuid4 = "data.uuid",
+        uuid7 = "data.uuid",
+    },
+}
+
+function surface.classify(moduleName: string): any?
+    return MODULES[moduleName]
+end
+
+function surface.all(): {[string]: any}
+    local copy = {}
+    for name, classification in pairs(MODULES) do
+        copy[name] = classification
+    end
+
+    return copy
+end
+
+function surface.facilities(): {[string]: any}
+    local copy = {}
+    for name, classification in pairs(FACILITIES) do
+        copy[name] = classification
+    end
+
+    return copy
+end
+
+function surface.requireModule(checker: any, moduleName: string, at: any): string?
+    if checker.opts.dialect ~= "lua51" then
+        return nil
+    end
+    local classification = MODULES[moduleName]
+    if classification == nil
+        or classification.kind == "common"
+        or classification.kind == "compiler"
+        or classification.kind == "members"
+    then
+        return nil
+    end
+    if classification.kind == "unavailable" then
+        require("nupp.compiler.capabilities").require(checker, classification.capability, at)
+        return nil
+    end
+    local selected = checker.opts.backendResolution
+        and checker.opts.backendResolution.seams
+        and checker.opts.backendResolution.seams[
+        classification.seam
+    ]
+    if selected == nil then
+        checker.diag(
+            "NUPP3012",
+            at,
+            (
+                "the `%s` dialect needs standard seam `%s` to reach module `%s`"
+            ):format(checker.opts.dialect, classification.seam, moduleName),
+            nil,
+            {help = "select a checked backend whose exact runtime module implements the complete contract"}
+        )
+        return nil
+    end
+
+    return classification.effect
+end
+
+--- Requires the seam owning one member of a mixed standard module.
+function surface.requireMember(checker: any, moduleName: string, member: string, at: any): string?
+    if checker.opts.dialect ~= "lua51" then
+        return nil
+    end
+    local facilityName = MODULE_MEMBERS[moduleName] and MODULE_MEMBERS[moduleName][member] or nil
+    if not facilityName then
+        return nil
+    end
+    local classification = FACILITIES[facilityName]
+    local selected = checker.opts.backendResolution
+        and checker.opts.backendResolution.seams
+        and checker.opts.backendResolution.seams[
+        classification.seam
+    ]
+    if selected == nil then
+        checker.diag(
+            "NUPP3012",
+            at,
+            (
+                "the `%s` dialect needs standard seam `%s` to reach `%s.%s`"
+            ):format(checker.opts.dialect, classification.seam, moduleName, member),
+            nil,
+            {help = "select a checked backend whose exact runtime module implements the complete contract"}
+        )
+        return nil
+    end
+
+    return classification.effect
+end
+
+export = surface

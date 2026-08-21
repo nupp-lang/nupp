@@ -17,6 +17,7 @@ backend.moduleName = "nupp.runtime.backend"
 export interface Seam
     readonly name: string
     readonly version: integer
+    readonly binding: string?
     install: function(self: Seam): nil
     test: function(self: Seam): (boolean, string?)
 end
@@ -53,6 +54,7 @@ function backend.new(name: string, seams: {Seam}): Backend
             seam:install()
         end
     end
+
     function selected:test(): (boolean, string?)
         for _, seam in ipairs(self.seams) do
             local ok, problem = seam:test()
