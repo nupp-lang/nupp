@@ -35,6 +35,7 @@ local materializeIR = require("nupp.compiler.materialize.ir") as {
 }
 local stable = require("nupp.compiler.build.cache").stable
 local fixedWidth = require("nupp.compiler.fixedwidth")
+local capabilities = require("nupp.compiler.capabilities")
 
 local expr = {}
 
@@ -671,6 +672,14 @@ function expr.install(c: state.Checker): nil
             local literal = node.token
             if not literal then
                 return T.number
+            end
+            if c.opts.dialect == "lua51" then
+                local lower = literal.text:gsub("_", ""):lower()
+                if lower:find("ull", 1, true) or lower:find("ll", 1, true) then
+                    capabilities.require(c, "int64", literal)
+                elseif lower:sub(-1) == "i" then
+                    capabilities.require(c, "cinterop", literal)
+                end
             end
             local base = numberLiteralType(literal.text)
             local value = tonumber((literal.text:gsub("_", "")))

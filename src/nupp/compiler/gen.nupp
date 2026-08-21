@@ -208,6 +208,68 @@ CP = C_PRIM
 -- out as it was read.
 local LOWERED_COMPOUND = {["//="] = true, ["??="] = true}
 
+-- LuaJIT's `const` is emitted from many semantic lowerings as well as from authored
+-- tokens. Portable output erases that runtime enforcement to Lua 5.1 `local`. This
+-- scanner changes identifiers only: C declarations and user strings containing the
+-- word remain byte-for-byte intact.
+local function lowerPortableConst(code: string): string
+    local out, at, count = {}, 1, #code
+    local function copyThrough(last: number)
+        out[#out + 1] = code:sub(at, last)
+        at = last + 1
+    end
+
+    while at <= count do
+        local char = code:sub(at, at)
+        if char == '"' or char == "'" then
+            local quote, cursor = char, at + 1
+            while cursor <= count do
+                local current = code:sub(cursor, cursor)
+                if current == "\\" then
+                    cursor = cursor + 2
+                elseif current == quote then
+                    cursor = cursor + 1
+                    break
+                else
+                    cursor = cursor + 1
+                end
+            end
+            copyThrough(cursor - 1)
+        elseif char == "[" then
+            local opened, _, equals = code:find("%[(=*)%[", at)
+            if opened == at and equals then
+                local close = "]" .. equals .. "]"
+                local finish = code:find(close, at + #equals + 2, true)
+                copyThrough(finish and finish + #close - 1 or count)
+            else
+                copyThrough(at)
+            end
+        elseif char == "-" and code:sub(at, at + 1) == "--" then
+            local opened, _, equals = code:find("%-%-%[(=*)%[", at)
+            if opened == at and equals then
+                local close = "]" .. equals .. "]"
+                local finish = code:find(close, at + #equals + 4, true)
+                copyThrough(finish and finish + #close - 1 or count)
+            else
+                local finish = code:find("\n", at + 2, true)
+                copyThrough(finish and finish - 1 or count)
+            end
+        elseif char:match("[%a_]") then
+            local finish = at + 1
+            while finish <= count and code:sub(finish, finish):match("[%w_]") do
+                finish = finish + 1
+            end
+            local word = code:sub(at, finish - 1)
+            out[#out + 1] = word == "const" and "local" or word
+            at = finish
+        else
+            copyThrough(at)
+        end
+    end
+
+    return table.concat(out)
+end
+
 -- Where a constructor lands on a record's runtime table. It has to be reachable from a
 -- call in another module, and that table is the one thing about a record that already
 -- crosses; a registry keyed by name would be a link step the language does not have.
@@ -611,6 +673,7 @@ function gen.generate(
         activations = {},
         activationPlaceholders = {},
         loopNodes = {},
+        portableLoops = {},
         captureFrames = {},
         captureFrameStack = {},
     }
@@ -1577,6 +1640,7 @@ function gen.generate(
     -- instruments the largest function in the compiler and the module then will not
     -- load.
     local pluck = {
+        portable = result.dialect == "lua51",
         plans = {},
         statementActive = {},
         helpers = helpers,
@@ -2546,6 +2610,41 @@ function gen.generate(
         return labels
     end
 
+    -- A synthetic one-iteration repeat gives Lua 5.1 a structured target for
+    -- `continue`. Nested loops and functions own their control statements, so they do
+    -- not force a wrapper around this loop.
+    function pluck.portableLoopNeedsWrapper(loop): boolean
+        if not pluck.portable then
+            return false
+        end
+        local found = false
+        local function walk(node)
+            if found or not node or cst.isToken(node) then
+                return
+            end
+            local kind = node.kind
+            if kind == "continueStmt" then
+                found = true
+                return
+            end
+            if kind == "funcbody" or kind == "funcExpr" or kind == "shortfn" then
+                return
+            end
+            if node ~= loop.body and (
+                kind == "whileStmt" or kind == "fornumStmt" or kind == "forinStmt" or kind == "repeatStmt"
+            ) then
+                return
+            end
+            for _, child in ipairs(node) do
+                walk(child)
+            end
+        end
+
+        walk(loop.body)
+
+        return found
+    end
+
     -- `...` cannot cross the protected region's function boundary, so a body that reads
     -- it makes the region variadic and the varargs are forwarded through xpcall. Nested
     -- Nested cleanup bodies are searched too, so an inner region's varargs are
@@ -3115,6 +3214,17 @@ function gen.generate(
             if x.kind == "string" and text:sub(1, 1) == "`" then
                 -- backtick string without interpolation -> quoted string
                 text = pluck.quote(text:sub(2, -2))
+            elseif pluck.portable and x.kind == "number" then
+                text = text:gsub("_", "")
+                local lower = text:lower()
+                if lower:find("x", 1, true) and (lower:find("%.") or lower:find("p", 1, true)) then
+                    local value = tonumber(text)
+                    if value then
+                        text = ("%.17g"):format(value)
+                    end
+                end
+            elseif pluck.portable then
+                text = ({["!"] = "not", ["&&"] = "and", ["||"] = "or", ["!="] = "~=",})[text] or text
             end
             e(text, x.line)
             return
@@ -3166,6 +3276,26 @@ function gen.generate(
             else
                 e("nil", sourceLine(x))
             end
+            return
+        end
+        if pluck.portable and kind == "assignStmt" and #(
+            x.targets or {}
+        ) == 1 and #(
+            x.exprs or {}
+        ) == 1 and (x.targets[1].kind == "safeIndex" or x.targets[1].kind == "safeBracket") then
+            local target, object = x.targets[1], nextTemp()
+            e(("do local %s="):format(object), sourceLine(x))
+            emit(target.obj)
+            e((";if %s~=nil then "):format(object))
+            if target.kind == "safeIndex" then
+                e(object .. "." .. target.name.text .. "=")
+            else
+                e(object .. "[")
+                emit(target.expr)
+                e("]=")
+            end
+            emit(x.exprs[1])
+            e(" end end")
             return
         end
         if kind == "assignStmt" and #(x.targets or {}) == 1 and #(x.exprs or {}) == 1 then
@@ -3400,7 +3530,18 @@ function gen.generate(
                         e(",", x.op.line)
                     else
                         emitDepth.view.spanSlot(access.obj, indexName, target.name.text, not access.indexedDirectAccess)
-                        e((" %s "):format(x.op.kind), x.op.line)
+                        if pluck.portable then
+                            e("=")
+                            emitDepth.view.spanSlot(
+                                access.obj,
+                                indexName,
+                                target.name.text,
+                                not access.indexedDirectAccess
+                            )
+                            e((" %s "):format(compoundBase), x.op.line)
+                        else
+                            e((" %s "):format(x.op.kind), x.op.line)
+                        end
                     end
                     emit(x.value)
                     if bitMethod then
@@ -3422,6 +3563,8 @@ function gen.generate(
                 end
                 if bitMethod then
                     e(("; %s=%s.%s(%s,"):format(slot, pluck.bitops.name, bitMethod, slot), x.op.line)
+                elseif pluck.portable then
+                    e(("; %s=%s %s "):format(slot, slot, compoundBase), x.op.line)
                 else
                     e(("; %s %s "):format(slot, x.op.kind), x.op.line)
                 end
@@ -3447,7 +3590,13 @@ function gen.generate(
                         e(",", x.op.line)
                     else
                         emitDepth.view.soaSlot(row.obj, ordinal, indexName, not emitDepth.soa.unchecked(row))
-                        e((" %s "):format(x.op.kind), x.op.line)
+                        if pluck.portable then
+                            e("=")
+                            emitDepth.view.soaSlot(row.obj, ordinal, indexName, not emitDepth.soa.unchecked(row))
+                            e((" %s "):format(compoundBase), x.op.line)
+                        else
+                            e((" %s "):format(x.op.kind), x.op.line)
+                        end
                     end
                     emit(x.value)
                     if bitMethod then
@@ -3464,6 +3613,8 @@ function gen.generate(
                 local slot = emitDepth.soa.slot(viewName, ordinal, indexName, emitDepth.soa.unchecked(row))
                 if bitMethod then
                     e(("; %s=%s.%s(%s,"):format(slot, pluck.bitops.name, bitMethod, slot), x.op.line)
+                elseif pluck.portable then
+                    e(("; %s=%s %s "):format(slot, slot, compoundBase), x.op.line)
                 else
                     e(("; %s %s "):format(slot, x.op.kind), x.op.line)
                 end
@@ -3519,6 +3670,86 @@ function gen.generate(
             -- Annotation schemas are compile-time model metadata, even when written
             -- with `record` or `struct`; they have no runtime value or FFI layout of
             -- their own.
+            return
+        end
+        if pluck.portable and kind == "ternary" and x.cond and x.ifTrue and x.ifFalse then
+            local value = nextTemp()
+            e(("(function(%s) if %s then return ("):format(value, value), sourceLine(x))
+            emit(x.ifTrue)
+            e(") else return (")
+            emit(x.ifFalse)
+            e(") end end)(")
+            emit(x.cond)
+            e(")")
+            return
+        end
+        if pluck.portable and kind == "binop" and x.op and x.op.kind == "??" and x.lhs and x.rhs then
+            local value = nextTemp()
+            e(("(function(%s) if %s==nil then return ("):format(value, value), x.op.line)
+            emit(x.rhs)
+            e((") else return %s end end)("):format(value))
+            emit(x.lhs)
+            e(")")
+            return
+        end
+        if pluck.portable and (kind == "safeIndex" or kind == "safeBracket" or kind == "safeCall") and x.obj then
+            local value = nextTemp()
+            e(("(function(%s) if %s==nil then return nil end return %s"):format(value, value, value), sourceLine(x))
+            if kind == "safeIndex" then
+                e("." .. x.name.text)
+            elseif kind == "safeBracket" then
+                e("[")
+                emit(x.expr)
+                e("]")
+            elseif x.args then
+                emit(x.args)
+            end
+            e(" end)(")
+            emit(x.obj)
+            e(")")
+            return
+        end
+        if pluck.portable and kind == "methodCall" and (x.safeObj or x.safeMethod) and x.obj and x.name then
+            local object, method = nextTemp(), nextTemp()
+            e(("(function(%s) "):format(object), sourceLine(x))
+            if x.safeObj then
+                e(("if %s==nil then return nil end; "):format(object))
+            end
+            if x.safeMethod then
+                e(
+                    (
+                        "local %s=%s.%s; if %s==nil then return nil end; return %s(%s"
+                    ):format(method, object, x.overloadMember or x.name.text, method, method, object)
+                )
+                local args = x.args
+                if args and args.loweredArgs then
+                    for _, argument in ipairs(args.loweredArgs) do
+                        e(",")
+                        pluck.emitArgument(argument, args)
+                    end
+                elseif args then
+                    for _, argument in ipairs(args.exprs or {}) do
+                        e(",")
+                        emit(argument)
+                    end
+                    if args.table then
+                        e(",")
+                        emit(args.table)
+                    elseif args.str then
+                        e(",")
+                        emit(args.str)
+                    end
+                end
+                e(")")
+            else
+                e(("return %s:%s"):format(object, x.overloadMember or x.name.text))
+                if x.args then
+                    emit(x.args)
+                end
+            end
+            e(" end)(")
+            emit(x.obj)
+            e(")")
             return
         end
         if not pluck.statementActive[x] then
@@ -3589,7 +3820,9 @@ function gen.generate(
             e(")")
             return
         end
-        if pluck.bitops.portable and kind == "binop" and x.op and pluck.bitops.methods[x.op.kind] and x.lhs and x.rhs then
+        if pluck.bitops.portable and kind == "binop" and x.op and pluck.bitops.methods[
+            x.op.kind
+        ] and x.lhs and x.rhs then
             needRuntimeEffect(pluck.bitops.effect)
             e(pluck.bitops.name .. "." .. pluck.bitops.methods[x.op.kind] .. "(", x.op.line)
             emit(x.lhs)
@@ -4340,7 +4573,7 @@ function gen.generate(
             -- for.
             local first = x[1]
             local line = first and (cst.isToken(first) and first.line or (first[1] and first[1].line))
-            if not x.varargParam then
+            if not x.varargParam and not pluck.portable then
                 local names = {}
                 for _, p in ipairs(x.params) do
                     names[#names + 1] = p.name.text
@@ -4371,7 +4604,9 @@ function gen.generate(
             e("function(" .. table.concat(names, ", ") .. ")", line)
             emitDepth.fn = emitDepth.fn + 1
             emitDepth.beginActivation()
-            e(("const %s = { n = select(\"#\", ...), ... }"):format(x.varargParam.name.text))
+            if x.varargParam then
+                e(("const %s = { n = select(\"#\", ...), ... }"):format(x.varargParam.name.text))
+            end
             if x.expr then
                 -- Parentheses force the expression form to return exactly one result,
                 -- even when its body is a multi-return call.
@@ -4446,12 +4681,13 @@ function gen.generate(
             e("))")
 
         elseif kind == "compoundAssign" and (
-            LOWERED_COMPOUND[x.op.kind]
-            or (pluck.bitops.portable and pluck.bitops.methods[x.op.kind:sub(1, -2)])
+            pluck.portable or LOWERED_COMPOUND[
+                x.op.kind
+            ] or (pluck.bitops.portable and pluck.bitops.methods[x.op.kind:sub(1, -2)])
         ) then
-            -- Only the two the runtime lacks are lowered. Both read the target and then
-            -- write it, so an indexed target's prefix and key are bound to temporaries
-            -- first: `obj.f //= v` must not re-run whatever produced obj.
+            -- Portable Lua has no compound syntax. Every form reads the target and then
+            -- writes it, so an indexed target's prefix and key are bound to temporaries
+            -- first: `obj.f += v` must not re-run whatever produced obj.
             local base = x.op.kind:sub(1, -2)
             local bitMethod = pluck.bitops.portable and pluck.bitops.methods[base] or nil
             if bitMethod then
@@ -4473,8 +4709,12 @@ function gen.generate(
                     e(("%s = math.floor((%s) / ("):format(slot, slot), at)
                     emit(x.value)
                     e("))")
-                else
+                elseif bitMethod then
                     e(("%s=%s.%s(%s,"):format(slot, pluck.bitops.name, bitMethod, slot), at)
+                    emit(x.value)
+                    e(")")
+                else
+                    e(("%s=%s %s ("):format(slot, slot, base), at)
                     emit(x.value)
                     e(")")
                 end
@@ -4491,15 +4731,20 @@ function gen.generate(
             e(("do const %s = "):format(prefix), line)
             emit(target.obj)
             e("; ")
-            local reach = safe and "?." or "."
+            if safe then
+                e(("if %s~=nil then "):format(prefix))
+            end
             if dotted then
-                assignTo(("%s%s%s"):format(prefix, reach, target.name.text))
+                assignTo(("%s.%s"):format(prefix, target.name.text))
             else
                 local key = nextTemp()
                 e(("const %s = "):format(key))
                 emit(target.expr)
                 e("; ")
-                assignTo(("%s%s[%s]"):format(prefix, safe and "?." or "", key))
+                assignTo(("%s[%s]"):format(prefix, key))
+            end
+            if safe then
+                e(" end")
             end
             e(" end")
             return
@@ -4520,7 +4765,11 @@ function gen.generate(
                     indexName,
                     emitDepth.soa.unchecked(row)
                 )
-                e(("; %s %s "):format(slot, x.op.kind), x.op.line)
+                if pluck.portable then
+                    e(("; %s=%s %s "):format(slot, slot, x.op.kind:sub(1, -2)), x.op.line)
+                else
+                    e(("; %s %s "):format(slot, x.op.kind), x.op.line)
+                end
                 emit(x.value)
                 e(" end")
             else
@@ -5868,7 +6117,12 @@ function gen.generate(
                     parent.breakExit = true
                     e("return \"break\"")
                 else
-                    e("break")
+                    local portableLoop = emitDepth.portableLoops[#emitDepth.portableLoops]
+                    if pluck.portable and portableLoop and portableLoop.action then
+                        e(portableLoop.action .. "=\"break\";break")
+                    else
+                        e("break")
+                    end
                 end
                 e(" end;")
             end
@@ -5878,7 +6132,12 @@ function gen.generate(
                     parent.continueExit = true
                     e("return \"continue\"")
                 else
-                    e("continue")
+                    local portableLoop = emitDepth.portableLoops[#emitDepth.portableLoops]
+                    if pluck.portable and portableLoop and portableLoop.action then
+                        e(portableLoop.action .. "=\"continue\";break")
+                    else
+                        e("continue")
+                    end
                 end
                 e(" end;")
             end
@@ -5934,6 +6193,15 @@ function gen.generate(
             activeWith()[completion .. "Exit"] = true
             e(("return %q"):format(completion), sourceLine(x))
 
+        elseif pluck.portable and (kind == "breakStmt" or kind == "continueStmt") then
+            local portableLoop = emitDepth.portableLoops[#emitDepth.portableLoops]
+            if portableLoop and portableLoop.action then
+                local completion = kind == "breakStmt" and "break" or "continue"
+                e(("%s=%q;break"):format(portableLoop.action, completion), sourceLine(x))
+            else
+                emitChildren(x)
+            end
+
         elseif kind == "gotoStmt" and activeWith() and not activeWith().labels[x.name.text] then
             local ctx = activeWith()
             ctx.gotos[x.name.text] = true
@@ -5957,6 +6225,12 @@ function gen.generate(
             for j = 3, #names do
                 e(("local %s=nil;"):format(names[j].text))
             end
+            local portableLoop = {}
+            if pluck.portableLoopNeedsWrapper(x) then
+                portableLoop.action = nextTemp()
+                e(("local %s;repeat"):format(portableLoop.action))
+            end
+            emitDepth.portableLoops[#emitDepth.portableLoops + 1] = portableLoop
             emitDepth.loop = emitDepth.loop + 1
             emitDepth.loopNodes[#emitDepth.loopNodes + 1] = x
             if x.body then
@@ -5964,6 +6238,10 @@ function gen.generate(
             end
             emitDepth.loopNodes[#emitDepth.loopNodes] = nil
             emitDepth.loop = emitDepth.loop - 1
+            emitDepth.portableLoops[#emitDepth.portableLoops] = nil
+            if portableLoop.action then
+                e(("until true;if %s==\"break\" then break end;"):format(portableLoop.action))
+            end
             local endTok
             for j = #x, 1, -1 do
                 local child = x[j]
@@ -5976,14 +6254,26 @@ function gen.generate(
             finishConcatBuffer(x, endTok and endTok.line or nil)
 
         elseif kind == "whileStmt" or kind == "fornumStmt" or kind == "forinStmt" or kind == "repeatStmt" then
+            local portableLoop = {}
+            if pluck.portableLoopNeedsWrapper(x) then
+                portableLoop.action = nextTemp()
+            end
             local lastLine = nil
             for _, child in ipairs(x) do
                 if child == x.body then
+                    if portableLoop.action then
+                        e(("local %s;repeat"):format(portableLoop.action), sourceLine(child))
+                    end
+                    emitDepth.portableLoops[#emitDepth.portableLoops + 1] = portableLoop
                     emitDepth.loop = emitDepth.loop + 1
                     emitDepth.loopNodes[#emitDepth.loopNodes + 1] = x
                     emit(child)
                     emitDepth.loopNodes[#emitDepth.loopNodes] = nil
                     emitDepth.loop = emitDepth.loop - 1
+                    emitDepth.portableLoops[#emitDepth.portableLoops] = nil
+                    if portableLoop.action then
+                        e(("until true;if %s==\"break\" then break end;"):format(portableLoop.action))
+                    end
                 else
                     emit(child)
                 end
@@ -6936,6 +7226,10 @@ function gen.generate(
         }
     end
 
+    if pluck.portable then
+        code = lowerPortableConst(code)
+    end
+
     -- Prelude implementation bodies are ordinary checked and generated Nupp. Execute
     -- their generated chunk before this module on one physical line so authored source
     -- line numbers remain aligned with the module body.
@@ -6945,7 +7239,11 @@ function gen.generate(
         -- every source position. Turn those continuations into `\n` escapes so the
         -- ordinary prelude implementation remains on the generated preamble line.
         local quotedPrelude = ("%q"):format(result.preludeRuntime):gsub("\n", "n")
-        code = ("_G.assert(_G.loadstring(%s,%q))();"):format(quotedPrelude, "@nupp-prelude") .. code
+        if pluck.portable then
+            code = ("_G.assert((_G.loadstring or _G.load)(%s,%q))();"):format(quotedPrelude, "@nupp-prelude") .. code
+        else
+            code = ("_G.assert(_G.loadstring(%s,%q))();"):format(quotedPrelude, "@nupp-prelude") .. code
+        end
     end
 
     -- Generated Lua that will not load is a bug in this file, and it should say so here
