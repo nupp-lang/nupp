@@ -22,6 +22,7 @@ local cabi = require("nupp.compiler.cabi")
 local fixedWidth = require("nupp.compiler.fixedwidth")
 local cst = require("nupp.compiler.cst")
 local state = require("nupp.compiler.check.state")
+local capabilities = require("nupp.compiler.capabilities")
 
 local cdef = {}
 
@@ -97,6 +98,7 @@ function cdef.install(
     end
 
     handlers.cdefStruct = function(stat: cst.CdefStruct)
+        capabilities.require(c, "cinterop", stat)
         local structName = stat.name
         if not structName then
             return
@@ -175,6 +177,7 @@ function cdef.install(
     end
 
     handlers.cdefFunc = function(stat: cst.CdefFunc)
+        capabilities.require(c, "cinterop", stat)
         c.raises.checkParams(stat, stat.params or {})
         local params, paramModes, paramNames = {}, {}, {}
         local abiParams = {}

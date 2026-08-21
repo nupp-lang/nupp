@@ -20,6 +20,7 @@ local narrowing = require("nupp.compiler.narrowing")
 local cst = require("nupp.compiler.cst")
 local operators = require("nupp.compiler.check.operators")
 local state = require("nupp.compiler.check.state")
+local capabilities = require("nupp.compiler.capabilities")
 
 local isA = relations.isA
 local subtract = narrowing.subtract
@@ -84,6 +85,7 @@ function ffi.install(c: state.Checker): ffi.Intrinsic
         end
 
         if not typeArg and baseName == "ffi" and operators.ffiTypeFirst[memberName] then
+            capabilities.require(c, "cinterop", node)
             local name = memberName
             local args = argExprs
             for _, e in ipairs(args) do
@@ -138,6 +140,7 @@ function ffi.install(c: state.Checker): ffi.Intrinsic
         -- ffi.new<T>() and friends: the return type follows the type argument rather
         -- than collapsing to any.
         if typeArg then
+            capabilities.require(c, "cinterop", node)
             local name = memberName
             local argT = c.resolveType(typeArg)
             if argT and argT.tag == "nominal" and argT.cdefIdentity then
@@ -207,6 +210,7 @@ function ffi.install(c: state.Checker): ffi.Intrinsic
 
         -- carray(Struct, n) allocates a contiguous array of n of them
         if calleeName == "carray" then
+            capabilities.require(c, "cstorage", node)
             local args = argExprs
             local elemT = args[1] and c.infer(args[1]) or nil
             local countT = args[2] and c.infer(args[2]) or nil
@@ -239,6 +243,7 @@ function ffi.install(c: state.Checker): ffi.Intrinsic
             -- field order and types. Everything numeric is this platform's and is asked
             -- of the FFI at run time.
         elseif calleeName == "layoutof" then
+            capabilities.require(c, "structvalue", node)
             local args = argExprs
             local subject = args[1] and c.infer(args[1]) or nil
             if not subject or subject.tag ~= "nominal" or subject.declKind ~= "struct" then
@@ -320,6 +325,7 @@ function ffi.install(c: state.Checker): ffi.Intrinsic
             -- generated file to keep in step and the sizes are the ones this platform
             -- actually uses.
         elseif calleeName == "cheader" then
+            capabilities.require(c, "cinterop", node)
             local args = argExprs
             local function literal(e)
                 if e and e.kind == "string" then

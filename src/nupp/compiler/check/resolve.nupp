@@ -21,6 +21,7 @@ local relations = require("nupp.compiler.relations")
 local fixedWidth = require("nupp.compiler.fixedwidth")
 local cst = require("nupp.compiler.cst")
 local state = require("nupp.compiler.check.state")
+local capabilities = require("nupp.compiler.capabilities")
 
 local resolve = {}
 
@@ -1207,6 +1208,7 @@ function resolve.install(c: state.Checker): nil
         elseif kind == "tconst" then
             return T.constOf(c.resolveType(node.inner))
         elseif kind == "tcarray" then
+            capabilities.require(c, "cstorage", node)
             local elem = c.resolveType(node.element)
             local countNode = node.count
             if not countNode then
@@ -1242,6 +1244,7 @@ function resolve.install(c: state.Checker): nil
         elseif kind == "topt" then
             return T.optional(c.resolveType(node.inner))
         elseif kind == "tptr" then
+            capabilities.require(c, "cstorage", node)
             return T.ptr(c.resolveType(node.inner))
         elseif kind == "tunion" then
             local members = {}

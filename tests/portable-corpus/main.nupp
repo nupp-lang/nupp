@@ -43,13 +43,20 @@ local function main(): string
     local customary = !false && 1 != 2 || false
     local separated = 1_000
     local hexadecimal = 0x1p4
+    local unpacked = unpack({11})
+    local loaded = assert(loadstring("return 12"))()
+    local presized = table.new(2, 1)
+    presized.kept = 13
+    table.clear(presized)
+    local cleared = next(presized) == nil
+    local cloned = table.clone({value = 14})
 
     return `${settings.label}:${selected}:${defaulted}:${twice(
         4
     )}:${count(
         nil,
         nil
-    )}:${called}:${bracketed}:${methodValue}:${mutable?.value}:${total}:${customary}:${separated}:${hexadecimal}:${calls}`
+    )}:${called}:${bracketed}:${methodValue}:${mutable?.value}:${total}:${customary}:${separated}:${hexadecimal}:${calls}:${unpacked}:${loaded}:${cleared}:${cloned.value}`
 end
 
 print(main())

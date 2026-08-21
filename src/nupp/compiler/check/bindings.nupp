@@ -276,6 +276,7 @@ function bindings.install(c: state.Checker): state.StatHandlers
             end
             if boundEntry then
                 boundEntry.annotationNode = stat.types and stat.types[j] or nil
+                boundEntry.runtimeSurfaceRoot = initNode and (initNode as any).runtimeSurfaceRoot or nil
                 c.fixedWidth.setBinding(boundEntry, initNode, fixedResultIndex)
             end
             if boundEntry and initNode and (initNode.kind == "funcExpr" or initNode.kind == "shortfn") then
