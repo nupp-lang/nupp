@@ -11,6 +11,21 @@ local targetSeconds = 0.075
 local blackhole = 0
 
 local cases = {
+   { group = "debugSmall", name = "previousRenderer", call = "legacyDebugSmall", result = "#value", baseline = true },
+   { group = "debugSmall", name = "derivedSchema", call = "derivedDebugSmall", result = "#value" },
+   { group = "debugSmall", name = "preparedSchema", call = "preparedDebugSmall", result = "#value" },
+   { group = "debugSmall", name = "preparedBuffer", call = "bufferedDebugSmall", result = "value" },
+
+   { group = "debugMedium", name = "previousRenderer", call = "legacyDebugMedium", result = "#value", baseline = true },
+   { group = "debugMedium", name = "derivedSchema", call = "derivedDebugMedium", result = "#value" },
+   { group = "debugMedium", name = "preparedSchema", call = "preparedDebugMedium", result = "#value" },
+   { group = "debugMedium", name = "preparedBuffer", call = "bufferedDebugMedium", result = "value" },
+
+   { group = "debugNested", name = "previousRenderer", call = "legacyDebugNested", result = "#value", baseline = true },
+   { group = "debugNested", name = "derivedSchema", call = "derivedDebugNested", result = "#value" },
+   { group = "debugNested", name = "preparedSchema", call = "preparedDebugNested", result = "#value" },
+   { group = "debugNested", name = "preparedBuffer", call = "bufferedDebugNested", result = "value" },
+
    { group = "encodeSmall", name = "currentDerived", call = "currentEncodeSmall", result = "#value" },
    { group = "encodeSmall", name = "document", call = "documentEncodeSmall", result = "#value" },
    { group = "encodeSmall", name = "directJson", call = "directEncodeSmall", result = "#value" },
@@ -210,7 +225,7 @@ for group, members in pairs(groups) do
    local baseline
    local baselineSamples
    for _, case in ipairs(members) do
-      if case.name == "currentDerived" then
+      if case.baseline or case.name == "currentDerived" then
          baseline = case.medianNanoseconds
          baselineSamples = case.nanoseconds
          break
@@ -242,6 +257,7 @@ if jsonOutput then
    end
 else
    local order = {
+      "debugSmall", "debugMedium", "debugNested",
       "encodeSmall", "prepareAndEncodeSmall", "encodeMedium", "encodePayload4KiB", "encodePayload64KiB", "encodeNested",
       "decodeSmall", "decodeMediumOrdered",
       "decodeMediumReverse", "decodeMediumUnknown", "decodeNested", "decodePayload64KiB",

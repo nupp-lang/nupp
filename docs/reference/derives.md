@@ -47,8 +47,10 @@ sits among the built-in annotations.
 
 ## Debug
 
-`debug(self): string` renders a value the way the declaration reads, so what
-comes back names the record and its fields in declaration order.
+`debug(self): string` renders a record or fixed-layout struct the way the
+declaration reads, so what comes back names the declaration and its fields in
+declaration order. The derive records a format-neutral schema and physical
+binding; the generic formatter prepares and caches its traversal on first use.
 
 ```nupp
 @derive(nupp.derive.Debug)
@@ -118,6 +120,25 @@ print(c:debug())
 
 ```text
 Credentials { user = "ada", password = <redacted> }
+```
+
+`Debug` and `Serde` on the same declaration share one schema recipe. `Debug`
+alone keeps that binding internal and does not make the declaration
+`nupp.data.serde.Serializable`. Code that already retains a public binding can
+prepare the same formatter explicitly and append without constructing the final
+string:
+
+```nupp
+@derive(nupp.derive.Debug, nupp.derive.Serde)
+local struct Vec2
+    x: float
+    y: float
+end
+
+local prepared = nupp.data.serde.prepareDebug(nupp.data.serde.of(Vec2))
+local output = string.buffer.new()
+prepared:write(new Vec2(1.25, 2.5), output)
+assert(output:tostring() == "Vec2 { x = 1.25, y = 2.5 }")
 ```
 
 ## Serde

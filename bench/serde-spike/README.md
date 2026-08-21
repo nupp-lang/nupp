@@ -202,3 +202,28 @@ derive moved by roughly the same amount between runs; the intervals do not show
 a meaningful preparation regression. Hot results likewise remain in their prior
 range. The benefit of the change is one uniform, compact metadata representation
 for static and dynamic schemas, not a claimed traversal speedup.
+
+## Schema-driven Debug result
+
+`results/arm64-macos-schema-debug.json` retains 15 samples after `Debug` became
+a prepared serde consumer. `previousRenderer` is a benchmark-local copy of the
+removed shared renderer, including its per-value kind branches, intermediate
+strings, cycle tracking, and final `table.concat`. Every path is checked for
+identical output before timing.
+
+| Scenario | Previous renderer | Derived schema | Prepared format | Caller buffer |
+| --- | ---: | ---: | ---: | ---: |
+| 3 scalar fields | 366 ns | 247 ns (1.49x) | 194 ns (1.88x) | 182 ns (2.00x) |
+| 12 scalar fields | 1,028 ns | 504 ns (2.03x) | 456 ns (2.26x) | 435 ns (2.35x) |
+| Recursive records, lists, and map | 2,796 ns | 1,108 ns (2.53x) | 1,055 ns (2.65x) | 1,041 ns (2.69x) |
+
+The derived method lazily caches the prepared operation on its type entry.
+`format` uses a small per-prepared buffer pool: a live buffer is removed from
+the pool and returned only after reset, so nested or interleaved calls cannot
+share mutable storage. `write` skips that machinery and appends directly to the
+caller's buffer. Member policies and physical access are resolved during
+preparation; the hot traversal performs no extension lookup.
+
+This also removes the per-field Debug recipe. A declaration deriving both
+`Debug` and `Serde` emits one serde schema recipe, while Debug-only declarations
+keep an internal binding and do not acquire public `Serializable` conformance.

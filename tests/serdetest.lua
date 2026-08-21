@@ -235,6 +235,142 @@ return {text = text, y = value and value.y, problem = problem}
    assert(code:find("__derive.register", 1, true), "struct derive data was not registered")
 end
 
+function M.preparedDebugSharesRecordAndStructSerdeBindings()
+   local result, code = run([=[
+@derive(nupp.derive.Debug, nupp.derive.Serde)
+local record Credentials
+    user: string
+    @debug(redact = true)
+    password: string
+    @debug(skip = true)
+    cache: string
+end
+
+@derive(nupp.derive.Debug, nupp.derive.Serde)
+local struct Vec2
+    x: float
+    y: float
+end
+
+const serde = nupp.data.serde
+local binding = serde.of(Credentials)
+local prepared = serde.prepareDebug(binding)
+local again = serde.prepareDebug(binding)
+local value = new Credentials(user = "ada", password = "hunter2", cache = "cached")
+local output = string.buffer.new()
+prepared:write(value, output)
+local point = new Vec2(1.25, 2.5)
+return {
+    method = value:debug(),
+    prepared = prepared:format(value),
+    written = output:tostring(),
+    same = prepared == again,
+    structMethod = point:debug(),
+    structPrepared = serde.prepareDebug(serde.of(Vec2)):format(point),
+}
+]=])
+   local expected = 'Credentials { user = "ada", password = <redacted> }'
+   assert(result.method == expected and result.prepared == expected
+      and result.written == expected, "record Debug paths did not share one plan")
+   assert(result.same == true, "prepared Debug was not cached on the binding")
+   assert(result.structMethod == "Vec2 { x = 1.25, y = 2.5 }"
+      and result.structPrepared == result.structMethod,
+      "struct Debug did not use its serde binding")
+   assert(not code:find("debugType", 1, true),
+      "Debug emitted its obsolete per-field type recipe")
+   local _, serdeRecipes = code:gsub('%["serde"%]', "")
+   assert(serdeRecipes == 2,
+      "Debug and Serde did not merge to one schema recipe per declaration")
+end
+
+function M.dynamicSchemasUseIndexedDebugMetadata()
+   local result = run([=[
+const serde = nupp.data.serde
+local label: nupp.data.serde.MetadataKey<string> = serde.metadataKey()
+local childBuilder = new serde.SchemaBuilder()
+childBuilder:structure("example.Profile")
+childBuilder:required("region", serde.string)
+local childSchema = childBuilder:freeze()
+local childBinding = serde.dynamic(childSchema)
+local builder = new serde.SchemaBuilder()
+builder:structure("example.Credentials")
+builder:required("user", serde.string)
+builder:required("password", serde.string)
+builder:required("profile", childSchema)
+builder:optional("cache", serde.document)
+builder:metadata(label, "credentials")
+builder:memberMetadata("password", serde.debugRedact, true)
+builder:memberMetadata("cache", serde.debugSkip, true)
+local schema = builder:freeze()
+local binding = serde.dynamic(schema)
+local value = binding:bind{
+    user = "ada",
+    password = "hunter2",
+    profile = childBinding:bind{region = "us-east-1"},
+    cache = {1, 2},
+}
+local prepared = serde.prepareDebug(binding)
+local output = string.buffer.new()
+prepared:write(value, output)
+return {
+    formatted = prepared:format(value),
+    written = output:tostring(),
+    rootMetadata = schema:metadata(label),
+    redacted = schema:expectMember("password"):metadata(serde.debugRedact),
+}
+]=])
+   local expected = 'example.Credentials { user = "ada", password = <redacted>, '
+      .. 'profile = example.Profile { region = "us-east-1" } }'
+   assert(result.formatted == expected and result.written == expected,
+      "dynamic Debug did not use the prepared schema")
+   assert(result.rootMetadata == "credentials" and result.redacted == true,
+      "indexed schema metadata did not retain its typed values")
+end
+
+function M.debugOnlyBindingsStayInternal()
+   local result = run([=[
+@derive(nupp.derive.Debug)
+local record DebugOnly
+    value: integer
+end
+local ok, problem = pcall(function(): any
+    return nupp.data.serde.of(DebugOnly)
+end)
+return {debugged = (new DebugOnly(value = 7)):debug(), ok = ok, problem = tostring(problem)}
+]=])
+   assert(result.debugged == "DebugOnly { value = 7 }", result.debugged)
+   assert(result.ok == false and result.problem:find("Serde was not derived", 1, true),
+      "Debug-only internal binding escaped through serde.of")
+end
+
+function M.schemaDebugPreservesWideIntegerSupport()
+   local result = run([=[
+@derive(nupp.derive.Debug)
+local record Wide
+    signed: int64
+    unsigned: uint64
+end
+return (new Wide(signed = -7LL, unsigned = 9ULL)):debug()
+]=])
+   assert(result == "Wide { signed = -7LL, unsigned = 9ULL }", result)
+end
+
+function M.debugPoliciesDoNotRequireTraversableFieldTypes()
+   local result = run([=[
+@derive(nupp.derive.Debug)
+local record Policies
+    shown: string
+    @debug(skip = true)
+    callback: function(): nil
+    @debug(redact = true)
+    secretCallback: function(): nil
+end
+local noop = function(): nil end
+return (new Policies(shown = "yes", callback = noop, secretCallback = noop)):debug()
+]=])
+   assert(result == 'Policies { shown = "yes", secretCallback = <redacted> }', result)
+end
+
 function M.recursiveContainersUseTheSameLogicalGraph()
    local result = run([=[
 @derive(nupp.derive.Serde)

@@ -94,6 +94,51 @@ A schema may have several bindings at once. A nominal record and a dynamic
 value can therefore share logical member identity while retaining different
 physical access plans.
 
+## Typed metadata
+
+`MetadataKey<T>` is a typed identity for data supplied with a schema. A dynamic
+client can attach root or member metadata while constructing its model:
+
+```nupp
+const serde = nupp.data.serde
+local serviceName: nupp.data.serde.MetadataKey<string> = serde.metadataKey()
+local builder = new serde.SchemaBuilder()
+builder:structure("example.Credentials")
+builder:required("user", serde.string)
+builder:required("password", serde.string)
+builder:metadata(serviceName, "example")
+builder:memberMetadata("password", serde.debugRedact, true)
+
+local schema = builder:freeze()
+assert(schema:metadata(serviceName) == "example")
+assert(schema:expectMember("password"):metadata(serde.debugRedact) == true)
+```
+
+Every key receives a dense process-local index. The index is never serialized
+or treated as stable across runs; it makes both derived and dynamic metadata a
+direct indexed lookup after the schema is frozen.
+
+## Debug preparation
+
+`Debug` is a schema consumer rather than a separate generated traversal. Its
+prepared plan combines member metadata such as `debugRedact` and `debugSkip`
+with the binding's record, struct, or dynamic-slot access once, then caches the
+result on the binding:
+
+```nupp
+local prepared = serde.prepareDebug(binding)
+local text = prepared:format(value)
+
+local output = string.buffer.new()
+prepared:write(value, output)
+```
+
+`format` returns the conventional Debug string. `write` appends directly to a
+caller-owned LuaJIT string buffer, which avoids allocating that complete result
+and is the appropriate path for logging and larger composed diagnostics. A
+derived `value:debug()` lazily retains the prepared operation on its type entry;
+it does not resolve schema extensions for each field or each call.
+
 ## JSON preparation
 
 `json()` creates an immutable profile. `prepare(binding)` memoizes the combined
@@ -117,11 +162,10 @@ ignored values are validated and skipped without constructing a document.
 `write(value, buffer)` appends the complete root to caller-owned storage in one
 buffer operation; encoder scratch is pooled per worker thread.
 
-Nested records, lists, and maps use the same schema and binding semantics. The
-current JSON implementation falls back to a generic document traversal for a
-root that contains those kinds while recursive native traversal is developed.
-Preparation remains the API boundary, so that optimization does not change
-callers.
+Nested records, lists, maps, optionals, and documents use the same schema and
+binding semantics and are traversed by the recursive prepared implementation.
+Preparation remains the API boundary for adding more format-specific
+optimizations without changing callers.
 
 `nupp.data.json.newCodec` is a compatibility entry point for the same codec.
 `nupp.data.serde.json` is the typed primary API.
@@ -144,8 +188,10 @@ local second = schema:extension(displayName)
 assert(first == second and calls == 1)
 ```
 
-Successful values and failures are cached. Recursive initialization reports an
-error. Each key receives a dense process-local slot, and hosts cache extension
+Metadata is supplied by a model builder or derive. Extensions differ by
+computing a derived value lazily from their host. Successful extension values
+and failures are cached, and recursive initialization reports an error. Each
+extension key receives a dense process-local slot, and hosts cache extension
 state by that integer rather than by key-object identity. Slots are acceleration
 values: their numbers may change with module initialization order and are never
 persistent metadata identifiers. JSON uses schema extensions for profile layouts

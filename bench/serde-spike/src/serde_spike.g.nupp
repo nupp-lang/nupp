@@ -108,10 +108,85 @@ local function genericEncode(value: any, description: Schema, slots: boolean): s
     return target:finish()
 end
 
+-- The allocating shared renderer removed by the schema-driven Debug path. Keep a
+-- benchmark-local copy so old and new mechanisms run in the same process and against
+-- the same values. This deliberately retains the former string-per-value and
+-- table.concat shape instead of sharing the new buffer writer.
+local legacyDebugValue: function(value: any, spec: any, state: any): string
+local legacyDebugRecord: function(value: any, spec: any, state: any?): string
+
+local function legacySortedKeys(value: any): {any}
+    local keys: {any} = {}
+    for key in pairs(value) do
+        keys[#keys + 1] = key
+    end
+    table.sort(keys, function(a: any, b: any): boolean
+        return tostring(a) < tostring(b)
+    end)
+    return keys
+end
+
+legacyDebugValue = function(value: any, spec: any, state: any): string
+    if spec.kind == "record" then
+        return legacyDebugRecord(value, spec, state)
+    elseif spec.kind == "string" then
+        return string.format("%q", value)
+    elseif spec.kind == "nil"
+        or spec.kind == "boolean"
+        or spec.kind == "number"
+        or spec.kind == "integer"
+        or spec.kind == "float"
+        or (spec.kind as string):match("^u?int") ~= nil
+    then
+        return tostring(value)
+    end
+    if type(value) ~= "table" then
+        return "<" .. type(value) .. ">"
+    end
+    if state.active[value] then
+        return "<cycle>"
+    end
+    state.active[value] = true
+    local parts: {string} = {}
+    if spec.kind == "array" then
+        for index = 1, #value do
+            parts[index] = legacyDebugValue(value[index], spec.value, state)
+        end
+    elseif spec.kind == "map" then
+        for _, key in ipairs(legacySortedKeys(value)) do
+            parts[
+                #parts + 1
+            ] = "[" .. legacyDebugValue(key, spec.key, state) .. "] = " .. legacyDebugValue(
+                value[key],
+                spec.value,
+                state
+            )
+        end
+    end
+    state.active[value] = nil
+    return "{" .. table.concat(parts, ", ") .. "}"
+end
+
+legacyDebugRecord = function(value: any, spec: any, state: any?): string
+    local open = state or {active = {}}
+    if open.active[value] then
+        return "<cycle>"
+    end
+    open.active[value] = true
+    local parts: {string} = {}
+    for _, field in ipairs(spec.fields) do
+        parts[
+            #parts + 1
+        ] = field.name .. " = " .. legacyDebugValue(rawget(value, field.name), field.value, open)
+    end
+    open.active[value] = nil
+    return spec.name .. " { " .. table.concat(parts, ", ") .. " }"
+end
+
 local smallMembers = {member(1, "id", "integer"), member(2, "active", "boolean"), member(3, "name", "string"),}
 local smallSchema = schema(smallMembers)
 
-@derive(nupp.derive.JSON, nupp.derive.Serde)
+@derive(nupp.derive.JSON, nupp.derive.Serde, nupp.derive.Debug)
 local record Small
     id: integer
     active: boolean
@@ -142,7 +217,7 @@ local mediumMembers = {
 }
 local mediumSchema = schema(mediumMembers)
 
-@derive(nupp.derive.JSON, nupp.derive.Serde)
+@derive(nupp.derive.JSON, nupp.derive.Serde, nupp.derive.Debug)
 @json(unknown = "ignore")
 local record Medium
     id: integer
@@ -197,7 +272,41 @@ local mediumSlots: {any} = {41, true, "Ada", 1701, 98.25, "us-east-1", false, 7,
 local productionCodec = serde.json{unknownMembers = "ignore"}
 local preparedSmall = productionCodec:prepare(serde.of(Small))
 local preparedMedium = productionCodec:prepare(serde.of(Medium))
+local preparedDebugSmall = serde.prepareDebug(serde.of(Small))
+local preparedDebugMedium = serde.prepareDebug(serde.of(Medium))
 local preparedOutput = buffer.new()
+
+local scalarString = {kind = "string"}
+local scalarInteger = {kind = "integer"}
+local scalarNumber = {kind = "number"}
+local scalarBoolean = {kind = "boolean"}
+local legacySmall = {
+    kind = "record",
+    name = "Small",
+    fields = {
+        {name = "id", value = scalarInteger},
+        {name = "active", value = scalarBoolean},
+        {name = "name", value = scalarString},
+    },
+}
+local legacyMedium = {
+    kind = "record",
+    name = "Medium",
+    fields = {
+        {name = "id", value = scalarInteger},
+        {name = "active", value = scalarBoolean},
+        {name = "name", value = scalarString},
+        {name = "count", value = scalarInteger},
+        {name = "score", value = scalarNumber},
+        {name = "region", value = scalarString},
+        {name = "enabled", value = scalarBoolean},
+        {name = "version", value = scalarInteger},
+        {name = "ratio", value = scalarNumber},
+        {name = "owner", value = scalarString},
+        {name = "retries", value = scalarInteger},
+        {name = "cached", value = scalarBoolean},
+    },
+}
 
 @derive(nupp.derive.JSON, nupp.derive.Serde)
 local record Payload
@@ -208,13 +317,13 @@ local preparedPayload = productionCodec:prepare(serde.of(Payload))
 local payload4KiB = new Payload(data = string.rep("x", 4 * 1024))
 local payload64KiB = new Payload(data = string.rep("x", 64 * 1024))
 
-@derive(nupp.derive.JSON, nupp.derive.Serde)
+@derive(nupp.derive.JSON, nupp.derive.Serde, nupp.derive.Debug)
 local record NestedChild
     label: string
     scores: {integer}
 end
 
-@derive(nupp.derive.JSON, nupp.derive.Serde)
+@derive(nupp.derive.JSON, nupp.derive.Serde, nupp.derive.Debug)
 local record NestedEnvelope
     id: integer
     child: NestedChild
@@ -229,7 +338,80 @@ local nestedValue = new NestedEnvelope(
     labels = {region = "us-east-1", owner = "example"}
 )
 local preparedNested = productionCodec:prepare(serde.of(NestedEnvelope))
+local preparedDebugNested = serde.prepareDebug(serde.of(NestedEnvelope))
 local nestedJson = preparedNested:encode(nestedValue)
+local legacyNestedChild: any = {
+    kind = "record",
+    name = "NestedChild",
+    fields = {
+        {name = "label", value = scalarString},
+        {name = "scores", value = {kind = "array", value = scalarInteger}},
+    },
+}
+local legacyNested = {
+    kind = "record",
+    name = "NestedEnvelope",
+    fields = {
+        {name = "id", value = scalarInteger},
+        {name = "child", value = legacyNestedChild},
+        {name = "children", value = {kind = "array", value = legacyNestedChild}},
+        {name = "labels", value = {kind = "map", key = scalarString, value = scalarString}},
+    },
+}
+
+function m.legacyDebugSmall(): string
+    return legacyDebugRecord(smallValue, legacySmall)
+end
+
+function m.derivedDebugSmall(): string
+    return smallValue:debug()
+end
+
+function m.preparedDebugSmall(): string
+    return preparedDebugSmall:format(smallValue)
+end
+
+function m.bufferedDebugSmall(): integer
+    preparedOutput:reset()
+    preparedDebugSmall:write(smallValue, preparedOutput)
+    return #preparedOutput
+end
+
+function m.legacyDebugMedium(): string
+    return legacyDebugRecord(mediumValue, legacyMedium)
+end
+
+function m.derivedDebugMedium(): string
+    return mediumValue:debug()
+end
+
+function m.preparedDebugMedium(): string
+    return preparedDebugMedium:format(mediumValue)
+end
+
+function m.bufferedDebugMedium(): integer
+    preparedOutput:reset()
+    preparedDebugMedium:write(mediumValue, preparedOutput)
+    return #preparedOutput
+end
+
+function m.legacyDebugNested(): string
+    return legacyDebugRecord(nestedValue, legacyNested)
+end
+
+function m.derivedDebugNested(): string
+    return nestedValue:debug()
+end
+
+function m.preparedDebugNested(): string
+    return preparedDebugNested:format(nestedValue)
+end
+
+function m.bufferedDebugNested(): integer
+    preparedOutput:reset()
+    preparedDebugNested:write(nestedValue, preparedOutput)
+    return #preparedOutput
+end
 
 function m.currentEncodeSmall(): string
     return json.encodeAs(Small, smallValue)

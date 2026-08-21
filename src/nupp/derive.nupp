@@ -51,6 +51,7 @@ local reflect: any = nil
 -- The module value is required only by the allocating encode wrappers. `writeJSON`
 -- receives its buffer, so that path neither allocates one nor loads the constructor.
 local bufferModule: any = nil
+local serdeRuntime: any = nil
 
 local function newBuffer(): string.buffer.Buffer
     if bufferModule == nil then
@@ -89,150 +90,6 @@ local function defaultValue(spec: any): any
         return copied(spec.value, nil)
     end
     error("nupp: unsupported field default", 3)
-end
-
--- Debug output is ordered so that two runs of the same program produce the same text,
--- which `pairs` alone does not promise.
-local function sortedKeys(value: any): {any}
-    local keys: {any} = {}
-    for key in pairs(value) do
-        keys[#keys + 1] = key
-    end
-    table.sort(keys, function(a: any, b: any): boolean
-        return tostring(a) < tostring(b)
-    end)
-
-    return keys
-end
-
--- Mutually recursive with the value renderer below, because a field of unknown type
--- may hold a derived record and a derived record's fields may be of unknown type.
-local debugAny: function(value: any, state: any): string
-local debugValue: function(value: any, spec: any, state: any): string
--- Named apart from the `debug` it is exported as, because that name is Lua's own
--- library inside this module and the renderers below call it before it is defined.
-local renderRecord: function(value: any, schema: any, state: any?): string
-
--- What a value looks like when nothing described it. A derived type still renders as
--- itself, because the registry finds it from the metatable.
-debugAny = function(value: any, state: any): string
-    local kind = type(value)
-    if kind == "nil" or kind == "boolean" or kind == "number" then
-        return tostring(value)
-    elseif kind == "string" then
-        return string.format("%q", value)
-    elseif kind ~= "table" then
-        return "<" .. kind .. ">"
-    end
-    if state.active[value] then
-        return "<cycle>"
-    end
-    state.active[value] = true
-    local mt = getmetatable(value)
-    local entry = mt ~= nil and derived[rawget(mt as any, "__nuppDeriveKey")] or nil
-    local out: string
-    if entry ~= nil then
-        out = renderRecord(value, entry.schema.data.debug, state)
-    else
-        local parts: {string} = {}
-        for _, key in ipairs(sortedKeys(value)) do
-            parts[#parts + 1] = "[" .. debugAny(key, state) .. "] = " .. debugAny(value[key], state)
-        end
-        out = "{" .. table.concat(parts, ", ") .. "}"
-    end
-    state.active[value] = nil
-
-    return out
-end
-
--- What a value looks like when the recipe described its type.
-debugValue = function(value: any, spec: any, state: any): string
-    if spec.kind == "optional" then
-        return value == nil and "nil" or debugValue(value, spec.value, state)
-    elseif spec.kind == "customDebug" then
-        return value:debug() as string
-    elseif spec.kind == "record" then
-        local nested = derived[spec.typeKey]
-
-        return nested ~= nil and renderRecord(value, nested.schema.data.debug, state) or "<unloaded>"
-    elseif spec.kind == "any" then
-        return debugAny(value, state)
-    elseif spec.kind == "string" or spec.kind == "literal" and type(value) == "string" then
-        return string.format("%q", value)
-    elseif spec.kind == "nil"
-        or spec.kind == "boolean"
-        or spec.kind == "number"
-        or spec.kind == "integer"
-        or spec.kind == "float"
-        or (
-        spec.kind as string
-    ):match("^u?int") ~= nil or spec.kind == "literal" then
-        return tostring(value)
-    end
-    if type(value) ~= "table" then
-        return "<" .. type(value) .. ">"
-    end
-    if state.active[value] then
-        return "<cycle>"
-    end
-    state.active[value] = true
-    local parts: {string} = {}
-    if spec.kind == "array" then
-        for i = 1, #value do
-            parts[#parts + 1] = debugValue(value[i], spec.value, state)
-        end
-    elseif spec.kind == "tuple" then
-        for i, item in ipairs(spec.items) do
-            parts[#parts + 1] = debugValue(value[i], item, state)
-        end
-    elseif spec.kind == "shape" then
-        for _, field in ipairs(spec.fields) do
-            parts[#parts + 1] = field.name .. " = " .. debugValue(rawget(value, field.name), field.type, state)
-        end
-    elseif spec.kind == "map" then
-        for _, key in ipairs(sortedKeys(value)) do
-            parts[
-                #parts + 1
-            ] = "[" .. debugValue(key, spec.key, state) .. "] = " .. debugValue(value[key], spec.value, state)
-        end
-    end
-    state.active[value] = nil
-
-    return "{" .. table.concat(parts, ", ") .. "}"
-end
-
---- Renders a derived record the way `@derive(Debug)` promises.
----
---- `schema` accepts either the debug schema itself or the registry entry holding one,
---- because a caller reaching this from the registry has the entry and a caller
---- reaching it from a field has the schema.
----
---- @param value the record to render
---- @param schema the debug schema, or the entry that carries it
---- @param state the cycle set, when one is already open
---- @return the rendered text
---- @export
-renderRecord = function(value: any, schema: any, state: any?): string
-    local resolved = schema.schema ~= nil and schema.schema.data.debug or schema
-    local open = state or {active = {},}
-    if open.active[value] then
-        return "<cycle>"
-    end
-    open.active[value] = true
-    local parts: {string} = {}
-    for _, field in ipairs(resolved.fields) do
-        if not field.debugSkip then
-            local shown = field.debugRedact and "<redacted>" or debugValue(
-                rawget(value, field.name),
-                field.debugType,
-                open
-            )
-            parts[#parts + 1] = field.name .. " = " .. shown
-        end
-    end
-    open.active[value] = nil
-
-    return resolved.name .. " { " .. table.concat(parts, ", ") .. " }"
 end
 
 local function finite(value: number): boolean
@@ -721,8 +578,11 @@ end
 --- @param value the record to render
 --- @param entry the type's registry entry
 --- @return the rendered text
-function derive.debug<T is table>(value: T, entry: derive.Entry): string
-    return renderRecord(value, entry.schema.data.debug, nil)
+function derive.debug(value: any, entry: derive.Entry): string
+    if serdeRuntime == nil then
+        serdeRuntime = require("nupp.data.serde")
+    end
+    return serdeRuntime.debugEntry(value, entry) as string
 end
 
 --- Writes a derived record as one JSON value.
@@ -813,7 +673,7 @@ function derive.install(namespace: any): nil
     runtime.byType = derivedByType
     runtime.register = register
     runtime.entry = derive.entry
-    runtime.debug = renderRecord
+    runtime.debug = derive.debug
     runtime.jsonCodec = jsonCodecFor
     runtime.writeJSON = derive.writeJSON
     runtime.fromJSON = derive.fromJSON
@@ -1127,10 +987,10 @@ local comptime function serdeSpec(T: type, contract: type): any
 end
 
 comptime function derive.Debug(info: nupp.derive.Info): nupp.derive.Result<nupp.Debug>
-    if info.kind ~= "record" then
-        return nupp.derive.error("Debug can be derived only for records", info.reference, "NUPP2803")
+    if info.kind ~= "record" and info.kind ~= "struct" then
+        return nupp.derive.error("Debug can be derived only for records or structs", info.reference, "NUPP2803")
     end
-    local fields = {}
+    local serdeFields = {}
     for index, field in ipairs(info.fields) do
         local skip = option(field.annotations, "debug", "skip") == true
         local redact = option(field.annotations, "debug", "redact") == true
@@ -1150,8 +1010,35 @@ comptime function derive.Debug(info: nupp.derive.Info): nupp.derive.Result<nupp.
                 return nupp.derive.error("field type cannot be formatted by Debug", field.reference, "NUPP2803")
             end
         end
-        fields[index] = {name = field.name, debugSkip = skip, debugRedact = redact, debugType = spec}
+        local defaultField = field as any
+        serdeFields[
+            index
+        ] = {
+            index = index,
+            name = field.name,
+            -- A skipped or redacted field is never traversed. Its Debug-only schema
+            -- still needs a node, while a co-derived public Serde recipe replaces
+            -- this placeholder with the field's actual logical type.
+            serdeType = spec or {kind = "any"},
+            required = optional(field.readType) == nil and not defaultField.hasDefault,
+            default = defaultField.hasDefault and {kind = "literal", value = defaultField.defaultValue} or nil,
+            debugSkip = skip,
+            debugRedact = redact,
+        }
     end
+
+    -- A standalone Debug derive still materializes the common schema/binding
+    -- representation, but does not claim Serializable. When Serde is requested on
+    -- the same owner, the derive merger folds these policies into Serde's recipe.
+    local data: any = {
+        debug = {schema = true},
+        serde = {
+            name = info.name,
+            representation = info.kind,
+            fields = serdeFields,
+            debugOnly = true,
+        },
+    }
 
     return nupp.derive.implement{
         methods = {
@@ -1160,7 +1047,7 @@ comptime function derive.Debug(info: nupp.derive.Info): nupp.derive.Result<nupp.
                 arguments = {nupp.derive.receiver(), nupp.derive.entry()},
             }
         },
-        data = {debug = {name = info.name, fields = fields}},
+        data = data,
     }
 end
 

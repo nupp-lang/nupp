@@ -1,5 +1,15 @@
 local spike = require("serde_spike")
 
+for _, suffix in ipairs({"Small", "Medium", "Nested"}) do
+   local previous = spike["legacyDebug" .. suffix]()
+   assert(spike["derivedDebug" .. suffix]() == previous,
+      "derived Debug changed the " .. suffix .. " output")
+   assert(spike["preparedDebug" .. suffix]() == previous,
+      "prepared Debug changed the " .. suffix .. " output")
+   assert(spike["bufferedDebug" .. suffix]() == #previous,
+      "buffered Debug changed the " .. suffix .. " output length")
+end
+
 local small = spike.smallJson()
 for _, name in ipairs({
    "currentEncodeSmall",

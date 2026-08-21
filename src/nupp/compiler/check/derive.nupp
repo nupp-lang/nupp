@@ -944,14 +944,36 @@ function derive.install(c: state.Checker): derive.Ops
         plan.data = plan.data or {}
         for name, value in pairs(envelope.payload.data or {}) do
             if plan.data[name] ~= nil then
-                c.diag(
-                    "NUPP2802",
-                    provider.site.arg.expr or provider.site.arg,
-                    ("derive providers both define runtime data %q"):format(name)
-                )
-                return
+                local prior = plan.data[name]
+                -- Debug is a serde-schema consumer. Its standalone recipe contains
+                -- the schema needed when no public Serde derive was requested; when
+                -- both providers are present, keep Serde's logical types and fold
+                -- Debug's indexed policies into the same member entries. Provider
+                -- evaluation order therefore cannot duplicate or replace the schema.
+                if name == "serde" and (prior.debugOnly or value.debugOnly) and not (
+                    prior.debugOnly and value.debugOnly
+                ) then
+                    local shared = prior.debugOnly and value or prior
+                    local debugRecipe = prior.debugOnly and prior or value
+                    for index, field in ipairs(debugRecipe.fields or {}) do
+                        local target = shared.fields and shared.fields[index]
+                        if target then
+                            target.debugSkip = field.debugSkip == true
+                            target.debugRedact = field.debugRedact == true
+                        end
+                    end
+                    plan.data[name] = shared
+                else
+                    c.diag(
+                        "NUPP2802",
+                        provider.site.arg.expr or provider.site.arg,
+                        ("derive providers both define runtime data %q"):format(name)
+                    )
+                    return
+                end
+            else
+                plan.data[name] = value
             end
-            plan.data[name] = value
         end
         plan.effects = plan.effects or {}
         for _, effect in ipairs(envelope.payload.effects or {}) do

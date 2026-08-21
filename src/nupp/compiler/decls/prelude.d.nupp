@@ -574,8 +574,9 @@ record nupp.derive
     record Provider
     end
 
-    --- Generates `debug(self): string` and `nupp.Debug` conformance, rendering the
-    --- declaration's own fields in declaration order.
+    --- Generates `debug(self): string` and `nupp.Debug` conformance for a record or
+    --- struct. The method lazily prepares a schema-driven declaration-order
+    --- formatter and shares its schema recipe with `Serde` when both are derived.
     ---
     --- `@debug(redact = true)` keeps a field's name and hides its value, which is what
     --- a

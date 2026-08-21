@@ -345,7 +345,7 @@ local record Point
 end
 ```
 
-`Debug` and `JSON` admit records. `Serde` admits records and structs. A package
+`Debug` and `Serde` admit records and structs. `JSON` admits records. A package
 provider declares its result contract and decides which target it accepts.
 `@json` and `@debug` configure their corresponding format and renderer; Serde
 itself is format-neutral. The reserved annotations are visible through a
