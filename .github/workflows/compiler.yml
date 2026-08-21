@@ -40,6 +40,18 @@ jobs:
         shell: bash
         run: ./bin/nupp build
 
+      - name: Install the portable Lua matrix
+        if: runner.os == 'Linux'
+        shell: bash
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y lua5.1 lua5.2 lua5.3 lua5.4
+
+      - name: Run the portable generated-output corpus
+        if: runner.os == 'Linux'
+        shell: bash
+        run: scripts/portable-lua-corpus.sh lua5.1 lua5.2 lua5.3 lua5.4 luajit
+
       - name: Diagnose a Windows native-library load failure
         if: failure() && runner.os == 'Windows'
         shell: pwsh

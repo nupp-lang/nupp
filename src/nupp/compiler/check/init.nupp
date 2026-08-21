@@ -2101,6 +2101,17 @@ function checkMod.check(
             statHandlers[kind] = handle
         end
     end
+    if c.opts.dialect == "lua51" then
+        local function refuseJump(stat)
+            local spelling = stat.kind == "gotoStmt" and "`goto`" or "a label"
+            c.diag("NUPP3009", stat, ("the `lua51` dialect cannot lower authored %s"):format(spelling), nil, {
+                help = "use structured control flow; generated cleanup transfers are lowered separately"
+            })
+        end
+
+        statHandlers.gotoStmt = refuseJump
+        statHandlers.labelStmt = refuseJump
+    end
     local function checkTypeDeclaration(stat)
         if declaredModuleName and stat.visibility == "global" then
             c.diag("NUPP1002", stat.modifier or stat, "'global' is not allowed in a declared module; use 'export'")

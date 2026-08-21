@@ -273,8 +273,12 @@ function M.buildAndCheckResolveTheSameDialectOption()
       ("cd '%s' && '%s' build --dialect lua51 main.nupp --json"):format(dir, NUPP)
    ))
    assertEq(portable.dialect, "lua51", "an explicit build reports its dialect")
-   assertEq(read(dir .. "/main.lua"), nativeCode,
-      "selecting a dialect alone adds no runtime wrapper to common source")
+   local portableCode = read(dir .. "/main.lua")
+   assert(portableCode ~= nativeCode, "the portable dialect carries its compatibility floor")
+   assert(portableCode:find("_G.loadstring or _G.load", 1, true),
+      "portable prelude loading works across the stock Lua versions")
+   assert(not nativeCode:find("_G.loadstring or _G.load", 1, true),
+      "the compatibility lookup costs nothing in native output")
 
    local checked = require("testjson").decode(captureJson(
       ("cd '%s' && '%s' check --dialect lua51 main.nupp --json"):format(dir, NUPP)

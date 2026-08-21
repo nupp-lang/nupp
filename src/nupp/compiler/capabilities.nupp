@@ -15,6 +15,11 @@ local CONTRACTS = {
         native = {luajit = true},
         seams = {lua51 = {name = "numeric.bitops", version = 1, effect = "runtime.bitops",},},
     },
+    int64 = {
+        native = {luajit = true},
+        seams = {lua51 = {name = "numeric.int64", version = 1, effect = "runtime.int64",},},
+    },
+    cinterop = {native = {luajit = true}, seams = {},},
 }
 
 --- Resolves every closed capability for one dialect and selected backend set.
