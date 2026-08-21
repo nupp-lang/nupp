@@ -18,8 +18,16 @@ assert(first.irText == second.irText, "equivalent input produced different AOT I
 assert(first.c == second.c, "equivalent input produced different C")
 assert(first.binding == second.binding, "equivalent input produced different checked bindings")
 
-assert(first.irText:find("native-c-ir 3", 1, true), "IR version was not widened")
-assert(first.irText:find("Transform2D{x:f32,y:f32", 1, true), "IR lost the struct layout")
+-- The header carries the version the compiler stamps, whatever that is today.
+-- A literal here named revision 3 and sat failing through seven more, because
+-- nothing bumps it and nothing reads it: the only thing this can usefully claim
+-- is that the text and the compiler agree on one number.
+local scalarIR = require("nupp.compiler.aot.scalar")
+assert(first.irText:find("native-c-ir " .. tostring(scalarIR.VERSION), 1, true),
+   "IR text does not carry the version the compiler stamps")
+-- What each field is stored as, whatever else the layout line has since learned
+-- to say about where that storage came from.
+assert(first.irText:match("Transform2D{x:f32[^,]*,y:f32"), "IR lost the struct layout")
 assert(first.irText:find("write_span transforms:struct:Transform2D", 1, true), "IR lost struct storage")
 assert(first.irText:find("readwrite", 1, true), "writable span is not readable")
 assert(first.irText:find("disjoint r0 r1 proof(exclusive_borrow)", 1, true), "IR lost disjointness")
@@ -42,9 +50,16 @@ local autoStart = assert(first.c:find("void ks_advance(", 1, true))
 assert(not first.c:sub(autoStart):find("vectorize(disable)", 1, true), "optimized C disables vectorization")
 
 assert(first.binding:find("layoutof(Transform2D)", 1, true), "binding does not verify layout")
-assert(first.binding:find("exclusive transforms: voidptr", 1, true), "private ABI did not erase pointer spelling")
+-- A span reaches the private ABI as a pointer to its element type, and a shared
+-- one keeps `const`. This used to assert the reverse -- that every span was
+-- erased to `voidptr` -- which is exactly what stopped being true, because
+-- erasing them asks the LuaJIT FFI to discard const at the call.
+assert(first.binding:find("exclusive transforms: Transform2D*", 1, true),
+   "writable span lost its element pointer type")
+assert(first.binding:find("borrows motions: const Motion*", 1, true),
+   "shared span lost const on the way to the private ABI")
 assert(first.binding:find("transforms:ref()", 1, true), "wrapper lost span projection")
-assert(first.binding:find("first < 1 or last > transforms.count", 1, true), "wrapper lost range check")
+assert(first.binding:find("first < 1 or last > #transforms", 1, true), "wrapper lost range check")
 
 do
    local renamed = assert(source:gsub("advance", "processRows"))
@@ -105,10 +120,21 @@ local function rejected(label, changed, expected)
 end
 
 rejected("unsupported-field", assert(source:gsub("drag: float", "drag: string", 1)), "field type string is not admitted")
-rejected("offset-load", assert(source:gsub("motions%[i%]", "motions[i + 1]", 1)), "active loop index exactly")
+rejected("offset-load", assert(source:gsub("motions%[i%]", "motions[i + 1]", 1)), "counted-loop index")
 rejected("dynamic-call", assert(source:gsub("math.sqrt%(dx %* dx %+ dy %* dy%)", "math.random()", 1)), "not an admitted intrinsic or helper")
-rejected("shared-output", assert(source:gsub("exclusive transforms", "borrows transforms", 1)), "writable span")
-rejected("allocation", assert(source:gsub("local nextX = transform.x %+ dx", "local nextX = {dx}", 1)), "tableExpr is not admitted")
+rejected("shared-output", assert(source:gsub("exclusive transforms", "borrows transforms", 1)), "must be declared exclusive")
+-- Allocating where a number belongs. This used to be refused as `tableExpr is
+-- not admitted`, by the catch-all every unhandled expression kind fell to; a
+-- table is a lowered expression now, so what refuses this is the arithmetic that
+-- reads it. The refusal still lands on the source line, which is what this case
+-- is here to hold.
+--
+-- It no longer covers an allocation nothing reads. That one lowers, and the IR
+-- verifier raises `Lua allocation outside a builder` -- an uncaught error rather
+-- than a diagnostic, from `nupp aot` on ordinary source. Reaching a verifier
+-- assertion is a compiler bug, not a refusal, so there is nothing to assert
+-- about it here until it is one.
+rejected("allocation", assert(source:gsub("local nextX = transform.x %+ dx", "local nextX = {dx}", 1)), "arithmetic operands must both be numeric")
 rejected(
    "recursive-helper",
    assert(source:gsub("return x %* scale, y %* scale", "return scalePair(x, y, scale), y", 1)),
