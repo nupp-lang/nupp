@@ -278,6 +278,19 @@ function ownership.install(c: state.Checker): ownership.Ops
         local owner = ownerName and c.lookupType(ownerName) or nil
         if not owner or owner.tag ~= "nominal" then
             local moduleName, exportName = name:match("^(.*)%.([^.]+)$")
+            -- A terminal is written under the local name its module was bound to
+            -- rather than the module's own name, so `const workers =
+            -- require("nupp.workers")` reaches `nupp.workers.destroyWorker` as
+            -- `workers.destroyWorker`. Substitute the binding's module before asking
+            -- for exports, the same way a qualified type resolves.
+            if moduleName then
+                local first = moduleName:match("^[^.]+")
+                local holder = first and c.lookupEntry(first) or nil
+                if holder and holder.requiredModule then
+                    local firstName = first as string
+                    moduleName = holder.requiredModule .. moduleName:sub(#firstName + 1)
+                end
+            end
             local exports = moduleName and c.env and c.env.resolveModuleExports and c.env.resolveModuleExports(
                 c.env,
                 moduleName
