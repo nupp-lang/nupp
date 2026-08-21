@@ -177,3 +177,28 @@ reuses its native backing, and threshold-flushes during recursive traversal.
 That lifecycle costs throughput, but bounds staged output to the flush
 threshold plus the largest scalar token and lets a prepared value occupy any
 value position in a larger streamed document.
+
+## Indexed extension result
+
+`results/arm64-macos-indexed-extensions.json` retains the 15-sample run after
+extension keys became opaque integer slots and host caches became dense arrays.
+The representation affects preparation, not a prepared traversal: codecs resolve
+extensions while constructing a plan and the hot encode/decode entry holds that
+plan directly.
+
+| Scenario | Prepared path | Relative throughput (95% CI) |
+| --- | ---: | ---: |
+| Fresh codec, prepare and encode | 407 ns | 5.89x (5.86–5.99x) |
+| Encode, 3 fields | 167 ns | 14.33x (14.25–15.27x) |
+| Encode, 12 fields | 585 ns | 8.71x (8.65–8.93x) |
+| Encode, recursive containers | 723 ns | 8.94x (8.87–9.04x) |
+| Decode, 3 fields | 293 ns | 2.14x (2.10–2.21x) |
+| Decode, 12 ordered fields | 669 ns | 2.51x (2.48–2.63x) |
+| Decode, recursive containers | 1,315 ns | 2.40x (2.33–2.41x) |
+
+The prior retained run measured fresh preparation at 417 ns and 6.10x relative
+throughput. The indexed run measures 407 ns and 5.89x because the compatibility
+derive moved by roughly the same amount between runs; the intervals do not show
+a meaningful preparation regression. Hot results likewise remain in their prior
+range. The benefit of the change is one uniform, compact metadata representation
+for static and dynamic schemas, not a claimed traversal speedup.

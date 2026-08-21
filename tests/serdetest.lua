@@ -340,6 +340,42 @@ return {first = schema:extension(key), second = schema:extension(key), calls = c
    assert(result.calls == 1, "typed extension was recomputed")
 end
 
+function M.typedExtensionSlotsSeparateKeysAndHosts()
+   local result = run([=[
+local leftCalls = 0
+local rightCalls = 0
+local left = nupp.extensions.key(function(schema: any): string
+    leftCalls = leftCalls + 1
+    return "left:" .. schema.name
+end)
+local right = nupp.extensions.key(function(schema: any): string
+    rightCalls = rightCalls + 1
+    return "right:" .. schema.name
+end)
+const serde = nupp.data.serde
+local firstBuilder = new serde.SchemaBuilder()
+firstBuilder:structure("First")
+local first = firstBuilder:freeze()
+local secondBuilder = new serde.SchemaBuilder()
+secondBuilder:structure("Second")
+local second = secondBuilder:freeze()
+return {
+    left = first:extension(left),
+    leftAgain = first:extension(left),
+    right = first:extension(right),
+    otherHost = second:extension(left),
+    leftCalls = leftCalls,
+    rightCalls = rightCalls,
+}
+]=])
+   assert(result.left == "left:First" and result.leftAgain == result.left,
+      "one extension slot did not retain its value")
+   assert(result.right == "right:First", "extension slots collided on one host")
+   assert(result.otherHost == "left:Second", "extension slots leaked between hosts")
+   assert(result.leftCalls == 2 and result.rightCalls == 1,
+      "extension providers did not run once per host and slot")
+end
+
 function M.recordOnlyDerivesStayRecordOnly()
    local problems = diagnostics([=[
 @derive(nupp.derive.JSON)

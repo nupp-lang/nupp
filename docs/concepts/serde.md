@@ -145,8 +145,12 @@ assert(first == second and calls == 1)
 ```
 
 Successful values and failures are cached. Recursive initialization reports an
-error. JSON uses schema extensions for profile layouts and binding extensions
-for physical access, so format facts do not leak into the logical schema.
+error. Each key receives a dense process-local slot, and hosts cache extension
+state by that integer rather than by key-object identity. Slots are acceleration
+values: their numbers may change with module initialization order and are never
+persistent metadata identifiers. JSON uses schema extensions for profile layouts
+and binding extensions for physical access, so format facts do not leak into the
+logical schema.
 
 ## Relationship to the JSON derive
 

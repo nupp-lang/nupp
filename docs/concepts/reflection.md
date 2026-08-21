@@ -59,9 +59,10 @@ pulls in neither the data nor the registry.
 `info:extension(key)` is the cache boundary for work derived from a descriptor.
 `nupp.extensions.key` creates a typed key with a provider; the first call builds
 it against that descriptor, and every later call with the same key returns what
-was built. Memoization is under key identity rather than a name, so two
-extensions that happen to describe the same thing stay separate. Schemas and
-serde bindings use the same facility.
+was built. Key identity is assigned a dense process-local slot rather than a
+name, so two extensions that happen to describe the same thing stay separate
+without making object keys the host's cache representation. Slot numbers are not
+persistent identifiers. Schemas and serde bindings use the same facility.
 
 The state of a build in progress is kept as well as the finished one. An
 extension whose `build` reflects its way back to the descriptor it is being
