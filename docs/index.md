@@ -31,8 +31,8 @@ AOT, SIMD, and self-contained builds without losing Lua's charm.
 
 ## Strict typing for LuaJIT
 
-Generics, interfaces, unions, overloads, and control-flow narrowing make
-contracts useful without making Lua feel heavy.
+Generics, interfaces, unions, intersections, associated types, overloads,
+and control-flow narrowing make contracts useful without making Lua feel heavy.
 
 ```nupp
 local function first<V>(items: {V}): V?
@@ -43,6 +43,49 @@ local function label(value: string | number): string
     if value is string then return value:upper() end
     return string.format("%.2f", value)
 end
+```
+
+## Records and structs
+
+_Records_ stay flexible Lua tables. _Structs_ become compact FFI cdata with a
+fixed C layout. Use the representation your data actually needs.
+
+```nupp
+local record User
+    name: string
+    online: boolean
+end
+
+local struct Vec2
+    x: float
+    y: float
+end
+```
+
+## Bring your old Lua files to Nupp
+
+Nupp can automatically import existing Lua files, and even understands how
+to marry documentation comments from LuaCATS, EmmyLua, and typed LuaDoc with
+Nupp's type system.
+
+```lua [users.lua]
+-- Nupp understands this too!
+
+---@alias UserId integer
+
+---@class User
+---@field id UserId
+---@field name? string
+
+local users = {}
+
+---@param id UserId
+---@return User
+function users.find(id)
+    return {id = id, name = "Ada"}
+end
+
+return users
 ```
 
 ## Gradual typing for existing code
@@ -70,9 +113,9 @@ end
 
 ## Comptime types
 
-A comptime function can inspect and construct types with normal branches,
-loops, and recursion. Its result participates in inference and narrowing, then
-the whole function erases.
+A `comptime` function can inspect and construct types with normal branches,
+loops, and recursion. Types generated at compile time participate in inference
+and narrowing just like any other type, and the comptime function erases.
 
 ```nupp
 local comptime function Optional(T: type): type
@@ -100,7 +143,7 @@ do
 end -- the file is closed on every structured exit
 ```
 
-## C and FFI in the type systems
+## C and FFI in the type system
 
 Import a header or write declarations with the real ABI, then state what each
 call borrows, consumes, and returns. Nupp checks the contract while LuaJIT FFI
@@ -124,44 +167,6 @@ cdef function buffer_read(
     exclusive output: uint8*,
     size: uint64
 ): int32
-```
-
-## Model real data precisely
-
-Records stay flexible Lua tables. Structs become compact FFI cdata with a fixed
-C layout. Use the representation your data actually needs.
-
-```nupp
-local record User
-    name: string
-    online: boolean
-end
-
-local struct Vec2
-    x: float
-    y: float
-end
-```
-
-## Derive checked behavior from declarations
-
-Bundled and project-defined comptime providers can add Debug, Default, JSON, or
-a project contract. Generated members use normal lookup, inference, interfaces,
-and editor navigation.
-
-```nupp
-@derive(nupp.derive.Debug, nupp.derive.JSON)
-local record User
-    id: integer
-    name: string
-end
-
-local user = new User(id = 42, name = "Ada")
-local out = string.buffer.new()
-local writer = nupp.data.json.writer(out)
-user:writeJSON(writer)
-writer:finish()
-print(user:debug(), out:tostring())
 ```
 
 ## Async that works like blocking code
@@ -195,7 +200,7 @@ client:close()
 print(statuses[1], statuses[2])
 ```
 
-## Use every core without sharing the heap
+## Distribute work across threads using workers
 
 Workers run fresh LuaJIT states on native threads and exchange bounded,
 serialized messages. Calls read like functions, failures cross back, and
@@ -213,44 +218,7 @@ do
 end
 ```
 
-## Turn raw pointers into checked spans
-
-Counted C pointers become sealed spans that retain their root, check every
-index and slice, and keep writable access affine. The adapter verifies equal
-lengths before calling C exactly once.
-
-```nupp
-cdef function transform(
-    borrows output: int32* countedBy(count),
-    borrows input: const int32* countedBy(count),
-    count: uint64
-)
-
-local spans = require("nupp.mem.span")
-local input = ffi.new<int32[256]>()
-local output = ffi.new<int32[256]>()
-local readable = spans.fromCarray(input, 256)
-local writable = spans.writeCarray(output, 256)
-
-transform(writable, readable)
-drop writable
-
-local result = spans.fromCarray(output, 256)
-print(result[1])
-```
-
-## Ship only what the program uses
-
-Resolved library uses select exactly the required native providers, then Nupp
-stamps them with the program into a self-contained LuaJIT host.
-Content-addressed inputs make the result reproducible byte for byte.
-
-```text
-nupp build --target dist
-nupp fixpoint --binary
-```
-
-## Flatten structured calls without allocations
+## Named and plucked arguments
 
 Nupp leaves hot loops to LuaJIT's tracer and uses types where the tracer
 cannot: plucked arguments share stable table paths and become flat positional
@@ -272,21 +240,6 @@ local body = new Body(x = 0, y = 0, vx = 1, vy = 0)
 
 update({x, y} = body, {vx, vy} = body)
 -- body is read once per group; update receives x, y, vx, vy.
-```
-
-## Erase instrumentation from hot paths
-
-Logging filters and profiling zones are compiler intrinsics. A disabled
-severity evaluates none of its arguments, while zone push and pop
-inline—leaving no Lua call for a hot path to pay for.
-
-```nupp
-nupp.log.debug("spawn at %d,%d", x, y) -- unevaluated when filtered
-
-local zone = require("nupp.profile.zone")
-zone.push("physics")
-stepWorld()
-zone.pop() -- inlined against the zone stack, not called
 ```
 
 ## Build constants before startup
@@ -326,61 +279,73 @@ nupp.data         hashes, checksums, UUIDs, UTF-8
 nupp.peg          typed parsing-expression grammars
 ```
 
-## Carry the whole workflow in one toolchain
+## Nupp is a single binary and can build single binaries
 
 Check, format, build, test, profile, generate documentation, explain errors,
-and power an editor from the same language-aware compiler. No glue scripts
-required.
+power an editor, and even build standalone binaries all from the same
+language-aware compiler. No glue scripts required.
 
 ```text
-nupp check          # type-check the project
-nupp fmt            # apply Nupp's fixed style
-nupp test           # build and run the configured suite
-nupp run --profile  # write a speedscope-compatible profile
-nupp lsp            # start the language server
+nupp check                # type-check the project
+nupp fmt                  # apply Nupp's fixed style
+nupp test                 # build and run the configured suite
+nupp build --target dist  # stamp a self-contained binary
+nupp run --profile        # write a speedscope-compatible profile
+nupp lsp                  # start the language server
+```
+
+## Write Nupp libraries that work on LuaJIT and Lua 5.1
+
+Write a library once and [build it for multiple targets]((guides/portable-libraries/index.html)).
+The LuaJIT build keeps FFI structs and performance optimizations; the portable
+build swaps in plain Lua that runs on any Lua from 5.1 to 5.4.
+
+```lua [nupp.lua]
+return {
+   include = {"src"},
+   build = {
+      default = "portable",
+      targets = {
+         native = {
+            entries = {"main"},
+            dialect = "luajit",
+            outDir = "build/luajit",
+         },
+         portable = {
+            entries = {"main"},
+            dialect = "lua51",
+            outDir = "build/lua51",
+            backends = {"portable.backend"},
+         },
+      },
+   },
+}
 ```
 
 <!-- /nupp:features -->
 
 ## Learning Nupp
 
-- [Installation](getting-started/installation.md): requirements, a checkout, and
-  a first project.
-- [Tour of Nupp](getting-started/tour.md): every construct in one pass, each
-  linked to the page that owns it.
-- [Why use Nupp](getting-started/why.md): what Lua gives you, what Nupp adds,
-  and what each addition costs.
-- [Gradual typing](concepts/strictness.md): how an existing `.lua` file becomes
-  a checked one, a declaration at a time.
-- [Nupp syntax](concepts/syntax.md): the typed layer, and what LuaJIT 2.1
-  carries underneath it.
-- [Tooling](getting-started/tooling.md): the checker, build system, formatter,
-  language server, documentation generator, and profiler.
+- [Installation](getting-started/installation.md)
+- [Tour of Nupp](getting-started/tour.md)
+- [Why use Nupp](getting-started/why.md)
+- [Gradual typing](concepts/strictness.md)
+- [Nupp syntax](concepts/syntax.md)
+- [Tooling](getting-started/tooling.md)
 
 ## Language reference
 
-- [Type system](type-system/overview.md): inference, records, structs,
-  interfaces, generics, and narrowing.
-- [Ownership](concepts/ownership.md): resources that are hard to leak.
-- [Suspension](concepts/suspension.md): scheduler-neutral waiting, checked
-  suspension effects, cancellation, and structured concurrency.
-- [Workers](concepts/workers.md): CPU work in isolated LuaJIT states, exchanged
-  as bounded copied messages.
-- [Effect contracts](concepts/effects.md): what a call may observe, change, or
-  expose.
-- [Reflection](concepts/reflection.md): comptime semantic descriptors, runtime
-  type witnesses, lazy descriptors, and JSON's extension-backed codec.
-- [Standard library](concepts/standard-library.md): JSON, UTF-8, buffers,
-  readers, writers, paths, URIs, identifiers, hashes, checksums, math, and
-  vectors.
-- [Checked spans](nupp.mem.span): rooted, bounds-checked shared and writable
-  views over contiguous C storage.
+- [Type system](type-system/overview.md)
+- [Ownership](concepts/ownership.md)
+- [Suspension](concepts/suspension.md)
+- [Workers](concepts/workers.md)
+- [Effect contracts](concepts/effects.md)
+- [Reflection](concepts/reflection.md)
+- [Standard library](concepts/standard-library.md)
+- [Checked spans](nupp.mem.span)
 
 ## Performance and profiling
 
-- [Performance](guides/performance.md): switch dispatch, indexed views, SoA hot
-  loops, and where each pass is specified.
-- [LuaJIT trace checking](guides/jit-trace-checking.md): deterministic blockers,
-  `@jit` contracts, editor inspection, and observed abort reasons.
-- [Profiling](guides/profiling.md): sampling, zones, and the places LuaJIT
-  declined to compile.
+- [Performance](guides/performance.md)
+- [LuaJIT trace checking](guides/jit-trace-checking.md)
+- [Profiling](guides/profiling.md)
