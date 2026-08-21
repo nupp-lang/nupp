@@ -8,7 +8,9 @@
   lookup, traverse flat scalar structures in one native call, and reuse
   per-thread encoder and decoder scratch. Dynamic bindings resolve names once
   into checked dense slots, and typed extensions now provide the shared lazy
-  cache boundary for reflection descriptors, schemas, and bindings.
+  cache boundary for reflection descriptors, schemas, and bindings. Prepared
+  writes reserve caller-owned buffer storage and avoid allocating and copying a
+  complete intermediate Lua string.
 
 - Publish the documentation site by convention rather than by inventory. A page
   entry names a `glob`, and every Markdown file it matches is published at the

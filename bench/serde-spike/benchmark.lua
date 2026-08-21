@@ -20,6 +20,7 @@ local cases = {
    { group = "encodeSmall", name = "nativeSchemaRecord", call = "nativeEncodeSmall", result = "#value" },
    { group = "encodeSmall", name = "nativeSchemaSlots", call = "nativeDynamicEncodeSmall", result = "#value" },
    { group = "encodeSmall", name = "preparedSerde", call = "preparedEncodeSmall", result = "#value" },
+   { group = "encodeSmall", name = "preparedSerdeCopied", call = "preparedCopiedWriteSmall", result = "value" },
    { group = "encodeSmall", name = "preparedSerdeBuffered", call = "preparedWriteSmall", result = "value" },
 
    { group = "encodeMedium", name = "currentDerived", call = "currentEncodeMedium", result = "#value" },
@@ -30,7 +31,18 @@ local cases = {
    { group = "encodeMedium", name = "nativeSchemaRecord", call = "nativeEncodeMedium", result = "#value" },
    { group = "encodeMedium", name = "nativeSchemaSlots", call = "nativeDynamicEncodeMedium", result = "#value" },
    { group = "encodeMedium", name = "preparedSerde", call = "preparedEncodeMedium", result = "#value" },
+   { group = "encodeMedium", name = "preparedSerdeCopied", call = "preparedCopiedWriteMedium", result = "value" },
    { group = "encodeMedium", name = "preparedSerdeBuffered", call = "preparedWriteMedium", result = "value" },
+
+   { group = "encodePayload4KiB", name = "currentDerived", call = "currentEncodePayload4KiB", result = "#value" },
+   { group = "encodePayload4KiB", name = "preparedSerde", call = "preparedEncodePayload4KiB", result = "#value" },
+   { group = "encodePayload4KiB", name = "preparedSerdeCopied", call = "preparedCopiedWritePayload4KiB", result = "value" },
+   { group = "encodePayload4KiB", name = "preparedSerdeBuffered", call = "preparedWritePayload4KiB", result = "value" },
+
+   { group = "encodePayload64KiB", name = "currentDerived", call = "currentEncodePayload64KiB", result = "#value" },
+   { group = "encodePayload64KiB", name = "preparedSerde", call = "preparedEncodePayload64KiB", result = "#value" },
+   { group = "encodePayload64KiB", name = "preparedSerdeCopied", call = "preparedCopiedWritePayload64KiB", result = "value" },
+   { group = "encodePayload64KiB", name = "preparedSerdeBuffered", call = "preparedWritePayload64KiB", result = "value" },
 
    { group = "decodeSmall", name = "currentDerived", call = "currentDecodeSmall", result = "value.id" },
    { group = "decodeSmall", name = "document", call = "documentDecodeSmall", result = "value.id" },
@@ -210,7 +222,8 @@ if jsonOutput then
    end
 else
    local order = {
-      "encodeSmall", "encodeMedium", "decodeSmall", "decodeMediumOrdered",
+      "encodeSmall", "encodeMedium", "encodePayload4KiB", "encodePayload64KiB",
+      "decodeSmall", "decodeMediumOrdered",
       "decodeMediumReverse", "decodeMediumUnknown",
    }
    for _, group in ipairs(order) do

@@ -151,6 +151,15 @@ record json
     --- Encodes indexed dynamic slots in one prepared native traversal.
     encodeSerdeSlots: function(schema: any, value: {any}): string
 
+    --- Encodes a record or struct into reserved caller-owned storage.
+    encodeSerdeRecordInto: function(schema: any, value: any, borrows destination: uint8[?], capacity: uint64): uint64
+
+    --- Encodes indexed dynamic slots into reserved caller-owned storage.
+    encodeSerdeSlotsInto: function(schema: any, value: {any}, borrows destination: uint8[?], capacity: uint64): uint64
+
+    --- Copies the last encoding after its first reservation was too small.
+    copySerdeEncoding: function(borrows destination: uint8[?], capacity: uint64): nil
+
     --- Decodes directly into a record or struct.
     decodeSerdeRecord: function(schema: any, text: string, type: any): any
 

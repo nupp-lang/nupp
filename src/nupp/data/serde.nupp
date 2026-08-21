@@ -40,6 +40,21 @@ local extensions = require("nupp.extensions")
 -- refreshes it, so the newly added native prepared entry points stay behind this
 -- private dynamic boundary. No ownership capability crosses it.
 local native: any = require("jsonNative")
+local encodeSerdeRecordInto = native.encodeSerdeRecordInto as function(
+    schema: any,
+    value: any,
+    borrows destination: uint8[?],
+    capacity: uint64
+): uint64
+local encodeSerdeSlotsInto = native.encodeSerdeSlotsInto as function(
+    schema: any,
+    value: {any},
+    borrows destination: uint8[?],
+    capacity: uint64
+): uint64
+local copySerdeEncoding = native.copySerdeEncoding as function(borrows destination: uint8[?], capacity: uint64): nil
+
+local SERDE_WRITE_RESERVE: integer = 256
 
 export type Kind = "unit"
     | "null"
@@ -590,7 +605,13 @@ end
 --- @export
 export sealed interface Prepared<T>
     encode: function(self, value: T): string
+
+    --- Appends one encoded root through reserved caller-owned storage.
+    ---
+    --- Prepared native layouts avoid constructing a complete intermediate Lua
+    --- string. The portable fallback retains encode-then-append semantics.
     write: function(self, value: T, exclusive out: string.buffer.Buffer): nil
+
     decode: function(self, text: string): (T?, string?)
 end
 
@@ -694,11 +715,29 @@ local record PreparedImpl<T> is Prepared<T>
         local state = preparedStates[self]
         local access = state.access
         if state.layout.native ~= nil then
-            if access.kind == "dynamic" then
-                out:put(native.encodeSerdeSlots(state.layout.native, (value as DynamicValue).token.values))
-            else
-                out:put(native.encodeSerdeRecord(state.layout.native, value))
+            local used: uint64
+            local available: uint64
+            do
+                local destination, reserved = out:reserve(SERDE_WRITE_RESERVE)
+                available = reserved
+                if access.kind == "dynamic" then
+                    used = encodeSerdeSlotsInto(
+                        state.layout.native,
+                        (value as DynamicValue).token.values,
+                        destination,
+                        available
+                    )
+                else
+                    used = encodeSerdeRecordInto(state.layout.native, value, destination, available)
+                end
             end
+            if used > available then
+                do
+                    local destination, reserved = out:reserve(used as integer)
+                    copySerdeEncoding(destination, reserved)
+                end
+            end
+            out:commit(used as integer)
             return
         end
         out:put(state.fallbackEncode(value))

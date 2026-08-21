@@ -183,15 +183,33 @@ void appendSerdeValue(
     }
 }
 
-int encodeSerde(lua_State *state, bool slots) {
+static thread_local simdjson::builder::string_builder serdeBuilder;
+
+char *serdeDestination(lua_State *state, int index) {
+    const void *storage = lua_topointer(state, index);
+    if (storage == nullptr) {
+        luaL_error(state, "prepared JSON destination is not a byte pointer");
+    }
+    return *static_cast<char *const *>(storage);
+}
+
+size_t serdeCapacity(lua_State *state, int index) {
+    const lua_Number value = luaL_checknumber(state, index);
+    if (!std::isfinite(value) || value < 0
+        || value > static_cast<lua_Number>(SIZE_MAX)) {
+        luaL_error(state, "prepared JSON destination capacity is invalid");
+    }
+    return static_cast<size_t>(value);
+}
+
+int encodeSerde(lua_State *state, bool slots, bool into) {
     auto *schema = checkSerdeSchema(state, 1);
     try {
         // A worker thread reuses its encoder allocation across complete roots. The
         // public Prepared value is immutable; this is operation scratch and is
         // cleared before every traversal, including after a prior Lua error longjmp.
-        static thread_local simdjson::builder::string_builder builder;
-        builder.clear();
-        builder.start_object();
+        serdeBuilder.clear();
+        serdeBuilder.start_object();
         size_t emitted = 0;
         for (size_t index = 0; index < schema->fields.size(); ++index) {
             const auto &field = schema->fields[index];
@@ -207,15 +225,23 @@ int encodeSerde(lua_State *state, bool slots) {
                 }
                 continue;
             }
-            if (emitted++ != 0) builder.append_comma();
-            builder.append_raw(field.encodedKey);
-            appendSerdeValue(state, builder, field, -1);
+            if (emitted++ != 0) serdeBuilder.append_comma();
+            serdeBuilder.append_raw(field.encodedKey);
+            appendSerdeValue(state, serdeBuilder, field, -1);
             lua_pop(state, 1);
         }
-        builder.end_object();
+        serdeBuilder.end_object();
         std::string_view output;
-        const auto error = builder.view().get(output);
+        const auto error = serdeBuilder.view().get(output);
         if (error) return luaL_error(state, "prepared JSON encode failed: %s", simdjson::error_message(error));
+        if (into) {
+            const size_t capacity = serdeCapacity(state, 4);
+            if (output.size() <= capacity && !output.empty()) {
+                std::memcpy(serdeDestination(state, 3), output.data(), output.size());
+            }
+            lua_pushnumber(state, static_cast<lua_Number>(output.size()));
+            return 1;
+        }
         lua_pushlstring(state, output.data(), output.size());
         return 1;
     } catch (const std::bad_alloc &) {
@@ -223,8 +249,29 @@ int encodeSerde(lua_State *state, bool slots) {
     }
 }
 
-int encodeSerdeRecord(lua_State *state) { return encodeSerde(state, false); }
-int encodeSerdeSlots(lua_State *state) { return encodeSerde(state, true); }
+int encodeSerdeRecord(lua_State *state) { return encodeSerde(state, false, false); }
+int encodeSerdeSlots(lua_State *state) { return encodeSerde(state, true, false); }
+int encodeSerdeRecordInto(lua_State *state) { return encodeSerde(state, false, true); }
+int encodeSerdeSlotsInto(lua_State *state) { return encodeSerde(state, true, true); }
+
+int copySerdeEncoding(lua_State *state) {
+    std::string_view output;
+    const auto error = serdeBuilder.view().get(output);
+    if (error) {
+        return luaL_error(
+            state, "prepared JSON buffered copy failed: %s",
+            simdjson::error_message(error)
+        );
+    }
+    const size_t capacity = serdeCapacity(state, 2);
+    if (output.size() > capacity) {
+        return luaL_error(state, "prepared JSON destination is too small");
+    }
+    if (!output.empty()) {
+        std::memcpy(serdeDestination(state, 1), output.data(), output.size());
+    }
+    return 0;
+}
 
 bool consumeSerdeValue(simdjson::ondemand::value &value, const char **failure) {
     simdjson::ondemand::json_type type;
@@ -440,6 +487,9 @@ extern "C" void nuppInstallJsonSerde(lua_State *state, int module) {
     setSerdeFunction(state, module, "compileSerde", compileSerde);
     setSerdeFunction(state, module, "encodeSerdeRecord", encodeSerdeRecord);
     setSerdeFunction(state, module, "encodeSerdeSlots", encodeSerdeSlots);
+    setSerdeFunction(state, module, "encodeSerdeRecordInto", encodeSerdeRecordInto);
+    setSerdeFunction(state, module, "encodeSerdeSlotsInto", encodeSerdeSlotsInto);
+    setSerdeFunction(state, module, "copySerdeEncoding", copySerdeEncoding);
     setSerdeFunction(state, module, "decodeSerdeRecord", decodeSerdeRecord);
     setSerdeFunction(state, module, "decodeSerdeSlots", decodeSerdeSlots);
 }

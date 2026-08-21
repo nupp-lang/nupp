@@ -213,6 +213,15 @@ local preparedSmall = productionCodec:prepare(serde.of(Small))
 local preparedMedium = productionCodec:prepare(serde.of(Medium))
 local preparedOutput = buffer.new()
 
+@derive(nupp.derive.JSON, nupp.derive.Serde)
+local record Payload
+    data: string
+end
+
+local preparedPayload = productionCodec:prepare(serde.of(Payload))
+local payload4KiB = new Payload(data = string.rep("x", 4 * 1024))
+local payload64KiB = new Payload(data = string.rep("x", 64 * 1024))
+
 function m.currentEncodeSmall(): string
     return json.encodeAs(Small, smallValue)
 end
@@ -264,6 +273,12 @@ function m.preparedWriteSmall(): integer
     return #preparedOutput
 end
 
+function m.preparedCopiedWriteSmall(): integer
+    preparedOutput:reset()
+    preparedOutput:put(preparedSmall:encode(smallValue))
+    return #preparedOutput
+end
+
 function m.currentEncodeMedium(): string
     return json.encodeAs(Medium, mediumValue)
 end
@@ -301,6 +316,52 @@ end
 function m.preparedWriteMedium(): integer
     preparedOutput:reset()
     preparedMedium:write(mediumValue, preparedOutput)
+    return #preparedOutput
+end
+
+function m.preparedCopiedWriteMedium(): integer
+    preparedOutput:reset()
+    preparedOutput:put(preparedMedium:encode(mediumValue))
+    return #preparedOutput
+end
+
+function m.currentEncodePayload4KiB(): string
+    return json.encodeAs(Payload, payload4KiB)
+end
+
+function m.preparedEncodePayload4KiB(): string
+    return preparedPayload:encode(payload4KiB)
+end
+
+function m.preparedCopiedWritePayload4KiB(): integer
+    preparedOutput:reset()
+    preparedOutput:put(preparedPayload:encode(payload4KiB))
+    return #preparedOutput
+end
+
+function m.preparedWritePayload4KiB(): integer
+    preparedOutput:reset()
+    preparedPayload:write(payload4KiB, preparedOutput)
+    return #preparedOutput
+end
+
+function m.currentEncodePayload64KiB(): string
+    return json.encodeAs(Payload, payload64KiB)
+end
+
+function m.preparedEncodePayload64KiB(): string
+    return preparedPayload:encode(payload64KiB)
+end
+
+function m.preparedCopiedWritePayload64KiB(): integer
+    preparedOutput:reset()
+    preparedOutput:put(preparedPayload:encode(payload64KiB))
+    return #preparedOutput
+end
+
+function m.preparedWritePayload64KiB(): integer
+    preparedOutput:reset()
+    preparedPayload:write(payload64KiB, preparedOutput)
     return #preparedOutput
 end
 

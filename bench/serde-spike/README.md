@@ -103,3 +103,32 @@ bound is the public binding and prepared-object dispatch. Encoding keeps most
 of the spike's gain. Decode remains faster than the compatibility derive while
 also performing raw-byte member matching, duplicate detection, required-member
 checks, scalar conversion, and unknown-value skipping.
+
+## Reserved-buffer implementation result
+
+The retained `results/arm64-macos-buffered.json` run measures the prepared
+buffer fast path with 15 samples. `preparedSerdeCopied` reproduces the previous
+implementation in the same binary: encode a complete Lua string and then append
+that string to `string.buffer`. `preparedSerdeBuffered` reserves caller-owned
+storage, performs one native traversal, and commits the encoded bytes without
+constructing that intermediate Lua string.
+
+| Scenario | Current derive | Previous encode + copy | Reserved buffer | Change from previous | Speedup over derive (95% CI) |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| 3 fields | 2,403 ns | 204 ns | 206 ns | -1.1% | 11.67x (11.65–11.70x) |
+| 12 fields | 5,164 ns | 612 ns | 607 ns | +0.8% | 8.51x (8.45–8.53x) |
+| 4 KiB string | 3,024 ns | 581 ns | 461 ns | +26.1% | 6.56x (6.48–6.59x) |
+| 64 KiB string | 19,288 ns | 7,843 ns | 7,124 ns | +10.1% | 2.71x (2.66–2.75x) |
+
+Small structures are effectively unchanged: their temporary strings were
+cheap, and reserving plus committing caller storage replaces that fixed cost.
+The benefit appears once copying and allocating the complete result matters.
+The 4 KiB and 64 KiB cases are 26% and 10% faster than the exact former path,
+respectively, while also reducing peak transient storage by one complete Lua
+string.
+
+The reservation starts with a small common-case capacity. When fresh caller
+storage is too small, the native encoder retains its pooled scratch result,
+the buffer grows to the exact size, and a second native entry copies the result
+without traversing the value again. Reused buffers normally retain enough
+capacity and stay on the one-entry path.

@@ -47,6 +47,10 @@ local again = codec:prepare(first)
 local text = prepared:encode(new User(id = 41, active = true, name = "Ada"))
 local output = string.buffer.new()
 prepared:write(new User(id = 42, active = false), output)
+local large = string.rep("x", 4096)
+local largeOutput = string.buffer.new()
+largeOutput:put("prefix:")
+prepared:write(new User(id = 43, active = true, name = large), largeOutput)
 local restored, problem = prepared:decode(text)
 local rejected, rejection = prepared:decode(
     [[{"id":41,"active":true,"name":"Ada","extra":{"nested":[1,2]}}]]
@@ -58,6 +62,7 @@ return {
     memberIndex = first:schema():expectMember("active").index,
     text = text,
     buffered = output:tostring(),
+    largeBuffered = largeOutput:tostring(),
     id = restored and restored.id,
     name = restored and restored.name,
     problem = problem,
@@ -70,6 +75,8 @@ return {
       "derived schema lost its logical identity")
    assert(result.text == '{"id":41,"active":true,"name":"Ada"}', result.text)
    assert(result.buffered == '{"id":42,"active":false}', result.buffered)
+   assert(result.largeBuffered == 'prefix:{"id":43,"active":true,"name":"'
+      .. string.rep("x", 4096) .. '"}', "large prepared write did not append exactly")
    assert(result.id == 41 and result.name == "Ada" and result.problem == nil,
       "prepared record did not round-trip")
    assert(result.rejected == nil and result.rejection:find("extra", 1, true),
