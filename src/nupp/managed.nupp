@@ -13,7 +13,7 @@ local managed = {}
 
 --- A runtime-sized deterministic cleanup group.
 --- @export
-record managed.Group is Closeable
+record managed.Group is nupp.Closeable
     _entries: {alias(unknown)}
     _closed: boolean
 

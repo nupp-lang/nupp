@@ -765,7 +765,7 @@ end
 ---
 --- Built by [](nupp.io.http.reader). A redirect cannot replay one, so a request
 --- carrying a reader body fails rather than following.
-record http.ReaderBody is Closeable
+record http.ReaderBody is nupp.Closeable
     --- Where the body's bytes come from.
     reader: io.Reader
 
@@ -810,7 +810,7 @@ type http.RequestBody = string | http.ReaderBody | http.FileBody
 ---     body = document
 --- )
 --- ```
-record http.Request is Closeable
+record http.Request is nupp.Closeable
     --- Where the request goes.
     url: uri.URI
 
@@ -1329,7 +1329,7 @@ end
 ---     end
 --- end
 --- ```
-record http.Response is Closeable
+record http.Response is nupp.Closeable
     --- The status the server answered with.
     status: integer
 
@@ -1506,7 +1506,7 @@ end
 ---
 --- A client is worth keeping: connections, the TLS session cache and the default
 --- headers all live on it, so one client per program beats one per request.
-record http.Client is BodyClient, Closeable
+record http.Client is BodyClient, nupp.Closeable
     _native: NativeClient
     _options: any
     _source: suspension.Source?

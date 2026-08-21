@@ -911,7 +911,7 @@ local ENTRIES: {any} = {
         .. "local erased: any = {}\n"
         .. "local recovered = nupp.recoverAlias(erased)\n"
         .. "local plain = recovered and recovered:downcast<Plain>()\n",
-        right = "local record File is Closeable\n"
+        right = "local record File is nupp.Closeable\n"
         .. "    function flush(exclusive self): nil\nend\n"
         .. "    function close(takes self): nil\nend\nend\n"
         .. "local owner = nupp.manage(new File())\n"

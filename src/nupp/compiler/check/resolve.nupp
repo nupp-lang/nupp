@@ -1532,9 +1532,9 @@ function resolve.install(c: state.Checker): nil
                         end
                         local parameter = p.type and c.resolveType(p.type) or T.any
                         c.suppressInherentOwner = priorSuppression
-                        -- `borrows Closeable` and `exclusive Closeable` describe a
-                        -- view of somebody else's obligation. Only `takes` carries
-                        -- the inherent close policy into the callee.
+                        -- `borrows nupp.Closeable` and `exclusive nupp.Closeable`
+                        -- describe a view of somebody else's obligation. Only `takes`
+                        -- carries the inherent close policy into the callee.
                         params[#params + 1] = parameter
                         paramModes[#params] = modeName
                         paramNames[#params] = p.name and p.name.text or ""

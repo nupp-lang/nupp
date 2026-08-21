@@ -684,11 +684,11 @@ end
 
 function M.aliasRecoveryChecksTheStoredCapabilityPolicy()
    local source = table.concat({
-      "local record File is Closeable",
+      "local record File is nupp.Closeable",
       "   function flush(exclusive self): nil end",
       "   function close(takes self): nil end",
       "end",
-      "local record Socket is Closeable",
+      "local record Socket is nupp.Closeable",
       "   function flush(exclusive self): nil end",
       "   function close(takes self): nil end",
       "end",
@@ -714,7 +714,7 @@ end
 
 function M.managedCallbackBorrowsReleaseOnErrorsAndRejectConflicts()
    local source = table.concat({
-      "local record Client is Closeable",
+      "local record Client is nupp.Closeable",
       "   value: integer",
       "   function flush(exclusive self): nil end",
       "   function close(takes self): nil end",
@@ -3484,7 +3484,7 @@ end
 
 function M.closeableTypesCarryAnInherentCloseObligation()
    assertClean(table.concat({
-      "local record Client is Closeable",
+      "local record Client is nupp.Closeable",
       "   function flush(exclusive self): nil end",
       "   function close(takes self): nil end",
       "end",
@@ -3495,7 +3495,7 @@ end
 
 function M.affineOfAnAffineInterfaceSelectsItsInherentTerminal()
    assertClean(table.concat({
-      "local affine interface Sink is Closeable",
+      "local affine interface Sink is nupp.Closeable",
       "   terminal close: nosuspend function(takes self: Sink): nil",
       "end",
       "local record BufferSink is Sink",
@@ -3513,7 +3513,7 @@ end
 
 function M.constructorsMayInitializeCloseableFields()
    assertClean(table.concat({
-      "local record Resource is Closeable",
+      "local record Resource is nupp.Closeable",
       "   function close(takes self): nil end",
       "end",
       "local record Pair",
@@ -3530,7 +3530,7 @@ end
 
 function M.consumingAggregatesMayForwardTheWholeOwner()
    assertClean(table.concat({
-      "local record Resource is Closeable",
+      "local record Resource is nupp.Closeable",
       "   function close(takes self): nil end",
       "end",
       "local record Box",
@@ -3550,7 +3550,7 @@ end
 function M.aggregatesOwnTheAffineMemberActuallyStoredInAUnionField()
    local source = table.concat({
       "local calls = ''",
-      "local record Resource is Closeable",
+      "local record Resource is nupp.Closeable",
       "   name: string",
       "   function close(takes self): nil calls = calls .. self.name end",
       "end",

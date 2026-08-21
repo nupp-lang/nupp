@@ -618,7 +618,7 @@ end
 function M.closeableFieldsCloseInReverseOrder()
    local chunk = compile(table.concat({
       "local calls = ''",
-      "local record Resource is Closeable",
+      "local record Resource is nupp.Closeable",
       "   name: string",
       "   function flush(exclusive self): nil end",
       "   function close(takes self): nil calls = calls .. self.name end",
@@ -641,7 +641,7 @@ end
 function M.manualCloseDischargesAnInherentObligationOnce()
    local chunk = compile(table.concat({
       "local calls = 0",
-      "local record Resource is Closeable",
+      "local record Resource is nupp.Closeable",
       "   function flush(exclusive self): nil end",
       "   function close(takes self): nil calls = calls + 1 end",
       "end",

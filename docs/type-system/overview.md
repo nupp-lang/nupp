@@ -180,7 +180,7 @@ That last line stores a non-integer into a `{integer}`, and nothing reports it.
   `table`, and a `table` may be used where any of them is wanted. It is closer
   to "`any`, for tables" than to a top type.
 - **A declared `is` edge is trusted rather than proved.** If a record says
-  `is Closeable`, it satisfies `Closeable` even before a runtime registrar has
+  `is nupp.Closeable`, it satisfies `nupp.Closeable` even before a runtime registrar has
   filled the members in.
 
 Each is a place where the checker chose compatibility over proof. See [`is` is

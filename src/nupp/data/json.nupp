@@ -70,7 +70,7 @@ input but constructs only the Lua values the shape asks for.
 
 ## Streaming output
 
-The Closeable writer emits checked JSON into caller-owned storage without first
+The `nupp.Closeable` writer emits checked JSON into caller-owned storage without first
 building a Lua table or a complete result string. `endArray()` and
 `endObject()` end containers, `flush()` publishes a bounded staged batch while
 leaving the document open, and consuming `close()` requires one complete root:
@@ -191,7 +191,7 @@ end
 --- assert(out:tostring() == [[{"ok":true}]])
 --- ```
 --- @export
-export affine interface Writer is Closeable
+export affine interface Writer is nupp.Closeable
     --- Starts an array value.
     ---
     --- ```nupp

@@ -33,11 +33,11 @@
   outline, and a reference to a module may carry an anchor into it, as
   `[](nupp.mem.span#writable-spans)`.
 
-- Add the explicit `Closeable` lifecycle, inherent affine construction, and
+- Add the explicit `nupp.Closeable` lifecycle, inherent affine construction, and
   `managed(T)` cells with checked copyable `alias(T)` references. Replace the
   compiler-privileged `nupp.owners` Set/Store protocol with ordinary
   `nupp.managed.Group` library code, permanent cell tombstones, and managed
-  policy checks during hot reload. HTTP clients now use the same Closeable
+  policy checks during hot reload. HTTP clients now use the same `nupp.Closeable`
   lifecycle.
 
 - Write incremental and derived JSON through one checked, buffer-backed writer.
@@ -45,7 +45,7 @@
   verified once, letting `write` and `key` append them without another walk,
   validation, escape pass, or intermediate string. Derived schemas lazily cache
   encoded field names and literals; `encodeAs` and `encodeRecord` remain
-  explicit allocating conveniences. The Writer is Closeable, batches commits,
+  explicit allocating conveniences. The Writer is `nupp.Closeable`, batches commits,
   names container endings explicitly, and pools only native backing state after
   its consuming `close()`.
 

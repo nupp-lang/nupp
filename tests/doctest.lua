@@ -1077,6 +1077,15 @@ function M.standardLibraryBackingRecordsStayInternal()
          .. " leaked its backing record")
    end
 
+   local closeable
+   for _, item in ipairs(module.items) do
+      if item.name == "Closeable" then closeable = item end
+   end
+   assert(closeable, "the prelude did not document Closeable")
+   assert(closeable.module == "nupp", "Closeable is not owned by the nupp module")
+   assert(closeable.signature:find("affine interface nupp.Closeable", 1, true),
+      "Closeable lost its qualified declaration")
+
    local private = assert(doc.extract(source,
       "src/nupp/compiler/decls/prelude.d.nupp", "nupp.compiler.decls.prelude",
       {includePrivate = true}))
@@ -2900,9 +2909,9 @@ function M.stdlibIndexHoldsTheLibrariesTheCompilerDeclares()
    -- with the anchor beside it and with what a reader searches for.
    assert(page.markdown:find("### `string.format`", 1, true), "no member of a library table")
    assert(page.markdown:find("### `print`", 1, true), "no ambient global")
-   assert(page.markdown:find("### `Closeable`", 1, true), "no ambient Closeable type")
-   assert(page.symbols and page.symbols.Closeable == "Closeable",
-      "Closeable has no generated-page symbol")
+   assert(page.markdown:find("### `LuaFile`", 1, true), "no ambient LuaFile type")
+   assert(page.symbols and page.symbols.LuaFile == "LuaFile",
+      "LuaFile has no generated-page symbol")
 end
 
 -- The page is an index, and an index is searched. An editor frame holds text the
@@ -2960,13 +2969,25 @@ end
 function M.stdlibIndexIsWrittenWhereTheManifestAsked()
    local linkedSource = SOURCE .. table.concat({
       "--- An owned handle.",
-      "record Handle is Closeable",
+      "record Handle is nupp.Closeable",
+      "   --- Its backing Lua stream.",
+      "   file: LuaFile",
       "   --- Closes it.",
       "   function close(takes self): nil",
       "   end",
       "end",
    }, "\n") .. "\n"
-   local dir = tempProject({["src/math.nupp"] = linkedSource})
+   local dir = tempProject({
+      ["src/math.nupp"] = linkedSource,
+      ["src/nupp/init.nupp"] = "--[[\nCore facilities.\n]]\n",
+      ["src/nupp/compiler/prelude.d.nupp"] = table.concat({
+         "@!internal",
+         "--- A deterministic resource.",
+         "affine interface nupp.Closeable",
+         "   terminal close: nosuspend function(takes self: nupp.Closeable): nil",
+         "end",
+      }, "\n") .. "\n",
+   })
    local config = {include = {"src"}}
    assert(doc.build(dir, config, {sources = {"src"}, stdlib = {path = "reference/luajit"}},
       {format = "site", output = "site"}) == 0)
@@ -2974,8 +2995,10 @@ function M.stdlibIndexIsWrittenWhereTheManifestAsked()
    assert(page:find("LuaJIT standard library", 1, true), page:sub(1, 400))
    assert(page:find("string.format", 1, true), "the page rendered without its declarations")
    local modulePage = readFile(dir .. "/site/modules/math/index.html")
-   assert(modulePage:find('href="../../reference/luajit/index.html#Closeable"', 1, true),
-      "a module signature did not link the ambient Closeable type")
+   assert(modulePage:find('href="../../reference/luajit/index.html#LuaFile"', 1, true),
+      "a module signature did not link the ambient LuaFile type")
+   assert(modulePage:find('href="../../modules/nupp/index.html#nupp.Closeable"', 1, true),
+      "a module signature did not link nupp.Closeable")
 
    local dir2 = tempProject({["src/math.nupp"] = SOURCE})
    assert(doc.build(dir2, config, {sources = {"src"}}, {format = "site", output = "site"}) == 0)

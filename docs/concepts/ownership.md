@@ -55,7 +55,7 @@ end
 
 The terminal must be a non-suspending function that takes the represented value
 and returns `nil`. It may raise. General affine policies name the exact function;
-the standard `Closeable` lifecycle below names `close` through an explicit
+the standard `nupp.Closeable` lifecycle below names `close` through an explicit
 nominal contract.
 
 The parentheses are compile-time call syntax: `affine(Session, closeSession)`
@@ -71,13 +71,13 @@ returning a plain `File` states that nothing is owed. See [NEP
 4](../neps/0004-ownership.md) for more information.
 :::
 
-## Closeable resources
+## `nupp.Closeable` resources
 
-Use `Closeable` when closing is intrinsic to the type rather than one policy a
+Use `nupp.Closeable` when closing is intrinsic to the type rather than one policy a
 producer may choose:
 
 ```nupp
-local record Client is Closeable
+local record Client is nupp.Closeable
     function close(takes self): nil
     end
 end
@@ -128,7 +128,7 @@ The visible `session` is a non-escaping borrow. Its hidden owner always drops at
 the end of the body and cannot be moved or ended early.
 
 `affine(T)` selects `T`'s inherent terminal when `T` is an affine interface or
-Closeable nominal type. Otherwise it is deliberately terminal-less: it may be
+`nupp.Closeable` nominal type. Otherwise it is deliberately terminal-less: it may be
 forwarded to another owner or consuming parameter, returned, or released in
 `unsafe`, but it cannot be dropped locally because there is no function to call.
 
@@ -170,7 +170,7 @@ local bundle = new Bundle(
 drop bundle
 ```
 
-Closeable fields behave the same way without an explicit wrapper: a field
+`nupp.Closeable` fields behave the same way without an explicit wrapper: a field
 written `client: Client` owns that client and makes the containing record
 affine.
 

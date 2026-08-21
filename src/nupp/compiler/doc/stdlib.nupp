@@ -241,7 +241,7 @@ function stdlib.page(settings: stdlib.Settings?): stdlib.Page?
         markdown = table.concat(out, "\n"),
         -- Ambient types have no module page to enter them in the ordinary symbol
         -- index. Publish their anchors with this generated page so API signatures
-        -- such as `Reader is Closeable` can still reach the canonical declaration.
+        -- such as a field of type `LuaFile` can still reach the canonical declaration.
         symbols = symbols
     }
 end

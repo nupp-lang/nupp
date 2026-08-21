@@ -47,7 +47,7 @@ assert(not mutex.locked)
 ```
 
 Affinity is a public language facility. General cleanup policy remains ordinary
-Nupp source. The core additionally defines the explicit `Closeable` lifecycle
+Nupp source. The core additionally defines the explicit `nupp.Closeable` lifecycle
 and managed cells for dynamic aliases. See
 [ownership.md](../concepts/ownership.md) for the annotations a caller writes.
 
@@ -99,18 +99,18 @@ end
 
 `affine(voidptr)` says there is deliberately no local terminal.
 
-## Closeable nominal lifecycle
+## `nupp.Closeable` nominal lifecycle
 
 An affine interface declares that conforming nominal types carry an inherent
 terminal:
 
 ```nupp
-affine interface Closeable
-    terminal close: nosuspend function(takes self: Closeable): nil
+affine interface nupp.Closeable
+    terminal close: nosuspend function(takes self: nupp.Closeable): nil
 end
 ```
 
-A record must explicitly state `is Closeable`; matching method names do not
+A record must explicitly state `is nupp.Closeable`; matching method names do not
 infer conformance. Construction then introduces `affine(T, T.close)` behavior,
 and a bare owned `T` annotation carries it. Borrow-qualified parameter and
 result positions refer to the representation instead of minting an owner.
@@ -119,7 +119,7 @@ add non-consuming operations such as `flush()`.
 
 An affine interface must declare one terminal. Its terminal consumes `self`,
 returns `nil`, is non-suspending, and may raise. Interface composition rejects
-competing terminal names. A record containing Closeable fields inherits their
+competing terminal names. A record containing `nupp.Closeable` fields inherits their
 aggregate obligations and destroys live fields in reverse declaration order.
 
 ## Terminal contract

@@ -31,7 +31,7 @@ end
 
 local record JsonSerializer is Serializer
     out: string.buffer.Buffer
-    -- This benchmark keeps its pre-Closeable callback harness intentionally
+    -- This benchmark keeps its pre-nupp.Closeable callback harness intentionally
     -- untyped; the production prepared path below uses the affine API normally.
     writer: any
 

@@ -340,7 +340,7 @@ end
 --- an open file and a request body all satisfy it, and a producer written
 --- against the contract fills any of them.
 --- @export
-export affine interface Writer is Closeable
+export affine interface Writer is nupp.Closeable
 
     --- Appends bytes.
     --- @param self this writer
@@ -372,7 +372,7 @@ end
 --- code written against the contract works over any of them without knowing
 --- which it has.
 --- @export
-export affine interface Reader is Closeable
+export affine interface Reader is nupp.Closeable
 
     --- Reads up to `count` bytes.
     ---
