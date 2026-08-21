@@ -1011,9 +1011,7 @@ comptime function derive.Debug(info: nupp.derive.Info): nupp.derive.Result<nupp.
             end
         end
         local defaultField = field as any
-        serdeFields[
-            index
-        ] = {
+        serdeFields[index] = {
             index = index,
             name = field.name,
             -- A skipped or redacted field is never traversed. Its Debug-only schema
@@ -1032,12 +1030,7 @@ comptime function derive.Debug(info: nupp.derive.Info): nupp.derive.Result<nupp.
     -- the same owner, the derive merger folds these policies into Serde's recipe.
     local data: any = {
         debug = {schema = true},
-        serde = {
-            name = info.name,
-            representation = info.kind,
-            fields = serdeFields,
-            debugOnly = true,
-        },
+        serde = {name = info.name, representation = info.kind, fields = serdeFields, debugOnly = true,},
     }
 
     return nupp.derive.implement{

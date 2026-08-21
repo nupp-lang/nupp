@@ -40,12 +40,7 @@ local extensions = require("nupp.extensions")
 -- the ownership-sensitive native surface typed while acquiring it only when a JSON
 -- codec is actually prepared or invoked.
 local interface JsonNativeRuntime
-    encodeSerdeInto: function(
-        schema: any,
-        value: any,
-        borrows destination: uint8[?],
-        capacity: uint64
-    ): uint64
+    encodeSerdeInto: function(schema: any, value: any, borrows destination: uint8[?], capacity: uint64): uint64
     copySerdeEncoding: function(borrows destination: uint8[?], capacity: uint64): nil
     writeSerde: function(schema: any, value: any, exclusive out: nupp.data.json.Writer): nil
     decodeSerdeBuffer: function(schema: any, exclusive input: string.buffer.Buffer): (any?, string?)
@@ -743,6 +738,7 @@ local function sortedDebugKeys(value: any): {any}
         keys[#keys + 1] = key
     end
     table.sort(keys, compareDebugKeys)
+
     return keys
 end
 
@@ -751,6 +747,7 @@ local function debugContainer(value: any, state: any): boolean
         return false
     end
     state.active[value] = true
+
     return true
 end
 
@@ -978,6 +975,7 @@ debugPlanFor = function(schema: Schema, access: any?, dynamicValues: boolean, se
             out:put(debugTypeName(value))
         end
     end
+
     return plan
 end
 
@@ -1002,16 +1000,14 @@ local record PreparedDebugImpl<T> is PreparedDebug<T>
         local result = out:tostring()
         out:reset()
         self.buffers[#self.buffers + 1] = out
+
         return result
     end
 end
 
 buildPreparedDebug = function(binding: any): any
     local access = bindingStates[binding]
-    return new PreparedDebugImpl(
-        plan = debugPlanFor(access.schema, access, access.kind == "dynamic", {}),
-        buffers = {}
-    )
+    return new PreparedDebugImpl(plan = debugPlanFor(access.schema, access, access.kind == "dynamic", {}), buffers = {})
 end
 
 --- Prepares and memoizes Debug formatting for a binding.
@@ -1027,6 +1023,7 @@ export function debugEntry(value: any, entry: any): string
         entry.debugPrepared = bindingForEntry(entry):extension(debugPreparedKey)
         entry.debugPlan = entry.debugPrepared.plan
     end
+
     return (entry.debugPrepared as PreparedDebug<any>):format(value)
 end
 

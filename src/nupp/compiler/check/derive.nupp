@@ -950,9 +950,9 @@ function derive.install(c: state.Checker): derive.Ops
                 -- both providers are present, keep Serde's logical types and fold
                 -- Debug's indexed policies into the same member entries. Provider
                 -- evaluation order therefore cannot duplicate or replace the schema.
-                if name == "serde" and (prior.debugOnly or value.debugOnly) and not (
-                    prior.debugOnly and value.debugOnly
-                ) then
+                if name == "serde" and (
+                    prior.debugOnly or value.debugOnly
+                ) and not (prior.debugOnly and value.debugOnly) then
                     local shared = prior.debugOnly and value or prior
                     local debugRecipe = prior.debugOnly and prior or value
                     for index, field in ipairs(debugRecipe.fields or {}) do
