@@ -23,7 +23,6 @@ local storeMod = require("nupp.compiler.build.store")
 local native = require("nupp.compiler.build.native")
 local nativeFeatures = require("nupp.compiler.native")
 local backends = require("nupp.compiler.backends")
-local stdlib = require("nupp.compiler.stdlib")
 local materializeObserve = require("nupp.compiler.materialize.observe")
 local progressMod = require("nupp.compiler.build.progress")
 
@@ -1043,9 +1042,7 @@ function project.updateBootstrap(root: string?): boolean?, string?
         root,
         config,
         target,
-        "-- Generated stage-0 compiler. "
-        .. "Update with: nupp fixpoint --update-bootstrap\n"
-        .. stdlib.bootstrapJsonFallback(),
+        "-- Generated stage-0 compiler. Update with: nupp fixpoint --update-bootstrap\n",
         state and state.modules or nil
     )
     if not text then
