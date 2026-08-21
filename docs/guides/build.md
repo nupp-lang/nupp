@@ -15,9 +15,12 @@ return {
    build = {
       default = "app",
       targets = {
-         app = { kind = "modules", entries = { "app.main" } },
-      },
-   },
+         app = {
+            kind = "modules",
+            entries = { "app.main" }
+         }
+      }
+   }
 }
 ```
 
@@ -61,10 +64,10 @@ build = {
          description = "Build the application",
          entries = { "app.main" },
          resources = { "src/app/*.d.nupp" },
-         dependencies = { "fast", "codec" },
-      },
-   },
-},
+         dependencies = { "fast", "codec" }
+      }
+   }
+}
 ```
 
 Entries may be module names or `.nupp` paths. Generated Lua preserves module
@@ -81,8 +84,11 @@ build = {
    dialect = "lua51",
    targets = {
       portable = { entries = { "lib.main" } },
-      native = { entries = { "app.main" }, dialect = "luajit" },
-   },
+      native = {
+         entries = { "app.main" },
+         dialect = "luajit"
+      }
+   }
 }
 ```
 
@@ -105,14 +111,14 @@ dependencies = {
    fast = {
       kind = "c",
       sources = { "native/fast.c" },
-      bindings = { header = "native/include/fast.h" },
+      bindings = { header = "native/include/fast.h" }
    },
    codec = {
       kind = "cargo",
       manifest = "native/codec/Cargo.toml",
-      library = "codec",
-   },
-},
+      library = "codec"
+   }
+}
 ```
 
 Each kind has its own keys: see [C dependencies](#c-dependencies), [Rust
@@ -123,8 +129,8 @@ first and the command to run:
 ```lua
 test = {
    build = "app",
-   argv = { "luajit", "tests/run.lua" },
-},
+   argv = { "luajit", "tests/run.lua" }
+}
 ```
 
 See [testing.md](testing.md) for what that command is handed and how its
@@ -138,7 +144,10 @@ lookup is relative to another module:
 
 ```lua
 resources = {
-   {source = "src/public/schema.nupp", output = "app/data/schema.nupp"},
+   {
+      source = "src/public/schema.nupp",
+      output = "app/data/schema.nupp"
+   }
 }
 ```
 
@@ -242,7 +251,7 @@ nativeFeatures = {
    json = true,
    lpeg = true,
    lua_utf8 = false,
-   sha256 = true,
+   sha256 = true
 }
 ```
 
@@ -266,7 +275,7 @@ compiler-owned target can name catalog platforms:
 platforms = {
    "x86_64-unknown-linux-gnu",
    "aarch64-apple-darwin",
-   "x86_64-pc-windows-msvc",
+   "x86_64-pc-windows-msvc"
 }
 ```
 
@@ -317,8 +326,8 @@ docs = {
    customCss = "docs/site.css",
    constructorPattern = "^new",
    pages = {
-      { glob = "docs/**.md" },
-   },
+      { glob = "docs/**.md" }
+   }
 }
 ```
 
@@ -362,7 +371,10 @@ directory routes are named from, defaulting to the fixed part the pattern opens
 with, and `exclude` drops files the tree holds and the site does not publish.
 
 ```lua
-{ glob = "docs/**.md", exclude = { "docs/style.md" } }
+{
+   glob = "docs/**.md",
+   exclude = { "docs/style.md" }
+}
 ```
 
 What a path cannot say, the page says in a frontmatter block of `key: value`
@@ -395,7 +407,11 @@ itself. A document is published by existing, so nothing has to be added to the
 manifest when one is written.
 
 ```lua
-{ path = "neps", title = "NEPs", directory = "docs/neps" }
+{
+   path = "neps",
+   title = "NEPs",
+   directory = "docs/neps"
+}
 ```
 
 Each document may open with a frontmatter block of `key: value` lines between
@@ -523,11 +539,11 @@ zstd = {
    kind = "c",
    source = {
       git = "https://github.com/facebook/zstd.git",
-      rev = "<full commit id>",
+      rev = "<full commit id>"
    },
    path = "lib",
    sources = { "*.c" },
-   bindings = { header = "zstd.h" },
+   bindings = { header = "zstd.h" }
 }
 ```
 
@@ -562,13 +578,13 @@ image = {
       macros = {
          IMAGE_CLAMP = {
             parameters = { "int32", "int32", "int32" },
-            result = "int32",
+            result = "int32"
          },
          IMAGE_IGNORE = {
-            parameters = { "int32" },
-         },
-      },
-   },
+            parameters = { "int32" }
+         }
+      }
+   }
 }
 ```
 
@@ -665,8 +681,8 @@ bindings = {
    cbindgen = true,
    ownership = {
       returns = { codec_create = "codec_destroy" },
-      takes = { codec_destroy = { 1 } },
-   },
+      takes = { codec_destroy = { 1 } }
+   }
 }
 ```
 
@@ -691,19 +707,22 @@ two search-path entries that reach it.
 ```lua
 dependencies = {
    -- From the LuaRocks server, at the version named here.
-   lunamark = { kind = "luarocks", version = "0.6.0-1" },
+   lunamark = {
+      kind = "luarocks",
+      version = "0.6.0-1"
+   },
    -- From a rockspec in the project, for a library upstream does not publish.
    scintillua = {
       kind = "luarocks",
-      rockspec = "rocks/scintillua-6.7-1.rockspec",
+      rockspec = "rocks/scintillua-6.7-1.rockspec"
    },
    -- From sources that ship with the project: `luarocks make`, no fetch.
    tinyrock = {
       kind = "luarocks",
       rock = "tinyrock",
       path = "vendor/tinyrock",
-      rockspec = "vendor/tinyrock/tinyrock-1.0-1.rockspec",
-   },
+      rockspec = "vendor/tinyrock/tinyrock-1.0-1.rockspec"
+   }
 }
 ```
 
@@ -762,7 +781,7 @@ lunamark = {
    kind = "luarocks",
    version = "0.6.0-1",
    bundle = { "lunamark.lua", "lunamark/**.lua", "cosmo.lua", "cosmo/**.lua",
-      "re.lua" },
+      "re.lua" }
 }
 ```
 
