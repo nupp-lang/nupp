@@ -1,6 +1,6 @@
 ---
 title: Dialects and capability backends
-status: Draft
+status: Implemented
 created: 2026-08-20
 ---
 

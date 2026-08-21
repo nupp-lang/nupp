@@ -92,9 +92,10 @@ files. The resolved value appears in build and check JSON and in `nupp tasks`.
 It is part of the cache key, so artifacts and checks from different dialects
 cannot satisfy one another.
 
-Dialect selection is currently plumbing for the lowering policy. Selecting
-`lua51` by itself does not yet certify that output is portable: the capability
-checks and syntax lowerings that provide that guarantee are separate work.
+The `lua51` checker also requires a complete lowering or selected backend seam
+for every reached construct and standard facility. See
+[portable-libraries.md](portable-libraries.md) for dual targets, checked
+backends, provider dependencies, and the runtime test matrix.
 
 A target's `dependencies` are names, declared once at the top level of the
 manifest and shared by every target that lists them:

@@ -905,6 +905,9 @@ nupp backend test acme.portable --dialect lua51 --runtime lua5.1
 The command reports evidence from that run. It does not modify a manifest,
 discover providers, or record a certification for later builds.
 
+See [portable-libraries.md](../guides/portable-libraries.md#backend-conformance)
+for backend source, dependency providers, and a multi-runtime test matrix.
+
 ### `clean`
 
 ```text [nupp clean --help]
