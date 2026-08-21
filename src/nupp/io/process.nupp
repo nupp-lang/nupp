@@ -69,6 +69,9 @@ suspension rather than a block.
 ]]
 
 local suspension = require("nupp.suspension")
+local ffi = require("ffi")
+local span = require("nupp.mem.span")
+local ffiString: function(borrows source: const uint8[?], count: integer): string = ffi.string as any
 
 local process = {}
 
@@ -363,6 +366,20 @@ end
 -- two, small enough that a quiet one costs a small buffer rather than a large one.
 local READ_LIMIT: integer = 65536
 
+--- @raises when value is not a positive integer
+local function positive(value: integer, what: string, level: integer): integer
+    if value ~= math.floor(value) or value < 1 then
+        error("nupp: " .. what .. " must be a positive integer", level)
+    end
+
+    return value
+end
+
+local function spanString(borrows source: span.ByteSpan): string
+    local pointer = source:ref()
+    return ffiString(pointer, #source)
+end
+
 local progressed, releasePump, await, awaitTick, pumpOnce, readForCompletion
 local validateOptions: function(options: process.Options): nil
 local nativeBackend: function(): process.Backend
@@ -472,8 +489,9 @@ record process.Reader is nupp.io.Reader
     --- this record, giving end of stream and closedness two homes. One place decides
     --- both, and the caller says how much it wants.
     ---
-    --- Zero and negative limits read one byte, which is what `nupp.io.Reader` says a
-    --- non-positive count does. Settled here rather than at the platform because the
+    --- Zero and negative polling limits read one byte. This concrete nonblocking
+    --- operation keeps that defensive behavior even though the shared `Reader` contract
+    --- requires a positive count. Settled here rather than at the platform because the
     --- platform is where it stops being a number and becomes a buffer size: a signed
     --- zero or minus one arriving at a native size conversion is either an empty read
     --- that looks like end of stream or an enormous one, and neither is worth being
@@ -546,7 +564,7 @@ record process.Reader is nupp.io.Reader
         if self.closed then
             return nil, "the process reader is closed"
         end
-        local chunk, reason = readForCompletion(self, count < 1 and 1 or count)
+        local chunk, reason = readForCompletion(self, positive(count, "process reader count", 2))
         if reason ~= nil then
             return nil, reason
         end
@@ -554,15 +572,31 @@ record process.Reader is nupp.io.Reader
         return chunk or ""
     end
 
-    function readInto(self, destination: nupp.io.Buffer, offset: integer?, count: integer?): (integer?, string?)
+    function readSpan(self, exclusive destination: span.Writable<uint8>): (integer?, string?)
+        local wanted = positive(#destination, "process reader destination length", 2)
+        local chunk, reason = self:read(wanted)
+        if chunk == nil then
+            return nil, reason
+        end
+        local input = span.fromString(chunk)
+        for index = 1, #chunk do
+            destination[index] = input[index]
+        end
+
+        return #chunk
+    end
+
+    function readInto(
+        self,
+        exclusive destination: nupp.io.Buffer,
+        offset: integer?,
+        count: integer?
+    ): (integer?, string?)
         local at = offset or 0
-        local wanted: integer = count or READ_LIMIT
-        if at < 0 or wanted < 0 then
-            error("nupp: process reader destination offset and count must not be negative", 2)
+        if at < 0 or at ~= math.floor(at) then
+            error("nupp: process reader destination offset must be a non-negative integer", 2)
         end
-        if wanted == 0 then
-            return 0
-        end
+        local wanted = positive(count or READ_LIMIT, "process reader count", 2)
         local chunk, reason = self:read(wanted)
         if chunk == nil then
             return nil, reason
@@ -570,12 +604,21 @@ record process.Reader is nupp.io.Reader
         if #chunk == 0 then
             return 0
         end
-        destination:setString(chunk, at)
+        local input = span.fromString(chunk)
+        local lease = destination:reserveWrite(at, wanted)
+        do
+            local output = lease:span()
+            for index = 1, #chunk do
+                output[index] = input[index]
+            end
+            drop output
+        end
+        lease:commit(#chunk)
 
         return #chunk
     end
 
-    function transferTo(self, destination: nupp.io.Writer): (integer?, string?)
+    function transferTo(self, exclusive destination: nupp.io.Writer): (integer?, string?)
         local total: integer = 0
         while true do
             local chunk, reason = self:read(READ_LIMIT)
@@ -751,7 +794,7 @@ record process.Writer is nupp.io.Writer
         self.timeoutMs = timeoutMs
     end
 
-    function write(self, bytes: string): (boolean, string?)
+    function write(exclusive self, bytes: string): (boolean, string?)
         if self.closed then
             return false, "the process writer is closed"
         end
@@ -775,46 +818,14 @@ record process.Writer is nupp.io.Writer
         return true
     end
 
-    function writeFrom(self, source: nupp.io.Buffer, offset: integer?, count: integer?): (integer?, string?)
-        local at = offset or 0
-        local length = source:length()
-        local wanted: integer = count == nil and length - at or count as integer
-        if at < 0 or wanted < 0 or at + wanted > length then
-            error("nupp: process writer buffer range is outside the source", 2)
-        end
-        local wrote, reason = self:write(source:getString(at, wanted))
+    function writeSpan(exclusive self, borrows source: span.ByteSpan): (integer?, string?)
+        local count = #source
+        local wrote, reason = self:write(spanString(source))
         if not wrote then
             return nil, reason
         end
 
-        return wanted
-    end
-
-    function writeView(self, source: nupp.io.ByteView, offset: integer?, count: integer?): (integer?, string?)
-        local at = offset or 0
-        local length = source:length()
-        local wanted: integer = count == nil and length - at or count as integer
-        if at < 0 or wanted < 0 or at + wanted > length then
-            error("nupp: process writer byte-view range is outside the source", 2)
-        end
-        local bytes = source:getString():sub(at + 1, at + wanted)
-        local wrote, reason = self:write(bytes)
-        if not wrote then
-            return nil, reason
-        end
-
-        return wanted
-    end
-
-    --- A pipe is written through the backend, which takes bytes rather than a
-    --- pointer, so raw storage has nowhere to go here without a copy either way.
-    function acceptsRaw(borrows self): boolean
-        return false
-    end
-
-    --- Says no rather than copying, so a caller that skipped `acceptsRaw` learns.
-    function writeRaw(borrows self, source: any, count: integer): (integer?, string?)
-        return nil, "a process writer does not take raw bytes"
+        return count
     end
 
     function flush(self): (boolean, string?)

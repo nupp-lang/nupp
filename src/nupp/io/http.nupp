@@ -74,6 +74,7 @@ local suspension = require("nupp.suspension")
 -- modules `nupp.io` is assembled from, and naming the assembly from inside it would
 -- be a cycle.
 local io = require("nupp.io")
+local span = require("nupp.mem.span")
 local path = require("nupp.io.path")
 local uri = require("nupp.io.uri")
 local http = {}
@@ -91,20 +92,10 @@ local interface NativeTransfer
     head: function(self: NativeTransfer): (string, integer?, integer?, string?, string?, string?)
     cancel: nosuspend function(self: NativeTransfer): nil
     close: nosuspend function(self: NativeTransfer): nil
-    offer: function(self: NativeTransfer, value: any, final: boolean, count: integer?): string
+    offer: function(self: NativeTransfer, value: any, count: integer?): string
+    finishUpload: function(self: NativeTransfer): string
     takeBody: function(self: NativeTransfer): (boolean?, string?)
-    bodyRead: function(
-        self: NativeTransfer,
-        count: integer,
-        borrows destination: io.Buffer?,
-        offset: integer
-    ): (string, any?, string?)
-    directDestination: function(self: NativeTransfer, borrows destination: io.Writer): boolean
-    bodyWrite: function(
-        self: NativeTransfer,
-        borrows destination: io.Writer,
-        count: integer
-    ): (string, integer?, string?)
+    bodyRead: function(self: NativeTransfer, count: integer): (string, any?, string?)
 end
 
 local interface NativeClient
@@ -213,6 +204,12 @@ double nuppHttpMonotonicMs(void);
 ]]
 
 const C = native.C
+local transferOffer: function(
+    handle: any,
+    borrows data: const uint8[?],
+    length: integer,
+    finished: boolean
+): integer = C.nuppHttpTransferOffer as any
 
 -- What polling the headers answers.
 const HEAD_PENDING = 0
@@ -406,26 +403,29 @@ local record Transfer is NativeTransfer
         ) as integer, url, native.ffi.string(head.headers, tonumber(head.headers_length) as integer), nil
     end
 
-    function offer(self: Transfer, value: any, final: boolean, count: integer?): string
-        local data: any = nil
-        local length = 0
-        if value ~= nil then
-            -- A buffer hands over its storage directly; anything else is bytes.
-            local raw = type(value) == "table" and rawget(value, "_data") or nil
-            if raw ~= nil then
-                data = raw
-                length = count or rawget(value, "_length")
-            else
-                data = value
-                length = count or #(value as string)
-            end
+    function offer(self: Transfer, value: any, count: integer?): string
+        local bytes = value as string
+        local length = count or #bytes
+        if length < 0 or length > #bytes then
+            error("nupp: HTTP upload offer is outside its bytes", 2)
         end
-        local answer = C.nuppHttpTransferOffer(self._handle, data, length, final == true)
+        local view = span.fromString(bytes)
+        local data = view:ref()
+        local answer = transferOffer(self._handle, data, length, false)
         if answer == UPLOAD_ACCEPTED then
             return "accepted"
         end
         if answer == UPLOAD_BACKPRESSURE then
             return "backpressure"
+        end
+
+        return "closed"
+    end
+
+    function finishUpload(self: Transfer): string
+        local answer = C.nuppHttpTransferOffer(self._handle, nil, 0, true)
+        if answer == UPLOAD_ACCEPTED then
+            return "accepted"
         end
 
         return "closed"
@@ -447,12 +447,7 @@ local record Transfer is NativeTransfer
     ---
     --- The crate lends the bytes rather than copying them, so this consumes only what
     --- it took and leaves the rest for the next call.
-    function bodyRead(
-        self: Transfer,
-        count: integer,
-        borrows destination: io.Buffer?,
-        offset: integer
-    ): (string, any?, string?)
+    function bodyRead(self: Transfer, count: integer): (string, any?, string?)
         local data = native.ffi.new("const uint8_t*[1]")
         local length = native.ffi.new("size_t[1]")
         local state = native.ffi.new("uint32_t[1]")
@@ -473,73 +468,12 @@ local record Transfer is NativeTransfer
             return "closed", nil, "the body is closed"
         end
         local take = math.min(count, tonumber(length[0]) as integer)
-        if destination ~= nil then
-            destination:ensureCapacity(offset + take)
-            local raw = destination:storage()
-            if raw ~= nil then
-                -- Writing past the end leaves a gap, which is zeroed rather than left
-                -- holding whatever the buffer grew over.
-                local old = destination:length()
-                if offset > old then
-                    native.ffi.fill(raw + old, (offset - old) as integer, 0)
-                end
-                native.ffi.copy(raw + offset, data[0], take)
-                destination:setLength(offset + take)
-                if not C.nuppHttpBodyConsume(self._body, take) then
-                    return "failed", nil, native.error()
-                end
-
-                return "data", take, nil
-            end
-        end
         local bytes = native.ffi.string(data[0], take)
         if not C.nuppHttpBodyConsume(self._body, take) then
             return "failed", nil, native.error()
         end
 
         return "data", bytes, nil
-    end
-
-    --- Whether this destination can take body bytes without a copy through Lua.
-    function directDestination(self: Transfer, borrows destination: io.Writer): boolean
-        return destination:acceptsRaw()
-    end
-
-    --- Moves body bytes straight from the crate's storage into a writer.
-    ---
-    --- The crate lends the bytes rather than copying them, and the writer takes them
-    --- by pointer, so a response body reaching a file or a buffer never becomes a Lua
-    --- string on the way. Only what the writer actually took is consumed.
-    function bodyWrite(self: Transfer, borrows destination: io.Writer, count: integer): (string, integer?, string?)
-        local data = native.ffi.new("const uint8_t*[1]")
-        local length = native.ffi.new("size_t[1]")
-        local state = native.ffi.new("uint32_t[1]")
-        if not C.nuppHttpBodyPeek(self._body, data, length, state) then
-            return "failed", nil, native.error()
-        end
-        local kind = tonumber(state[0])
-        if kind == BODY_PENDING then
-            return "pending", nil, nil
-        end
-        if kind == BODY_EOF then
-            return "eof", nil, nil
-        end
-        if kind == BODY_FAILED then
-            return "failed", nil, reason(C.nuppHttpBodyError(self._body), "HTTP response body failed")
-        end
-        if kind == BODY_CLOSED then
-            return "closed", nil, "the body is closed"
-        end
-        local take = math.min(count, tonumber(length[0]) as integer)
-        local wrote, why = destination:writeRaw(data[0], take)
-        if wrote == nil then
-            return "failed", nil, why
-        end
-        if not C.nuppHttpBodyConsume(self._body, wrote) then
-            return "failed", nil, native.error()
-        end
-
-        return "data", wrote, nil
     end
 
     function cancel(self: Transfer): nil
@@ -612,20 +546,8 @@ local record Client is NativeClient
         local bodyLength: integer = 0
         local value = descriptor.body
         if descriptor.bodyKind == BODY_INLINE then
-            if type(value) == "string" then
-                bodyPointer = value
-                bodyLength = #(value as string)
-            else
-                local raw = rawget(value, "_data")
-                if raw ~= nil then
-                    bodyPointer = raw
-                    bodyLength = rawget(value, "_length")
-                else
-                    local bytes = rawget(value, "_bytes") or value:getString()
-                    bodyPointer = bytes
-                    bodyLength = #(bytes as string)
-                end
-            end
+            bodyPointer = value
+            bodyLength = #(value as string)
         elseif descriptor.bodyKind == BODY_FILE then
             -- The path, which the crate opens for itself.
             bodyPointer = value
@@ -1151,7 +1073,7 @@ record http.Body is io.Reader
     _closed: boolean
     _reading: boolean
 
-    function _next(self, count: integer, borrows destination: io.Buffer?, offset: integer): (any?, string?)
+    function _next(self, count: integer): (string?, string?)
         if self._closed then
             return nil, "the body is closed"
         end
@@ -1160,13 +1082,13 @@ record http.Body is io.Reader
         end
         self._reading = true
         while true do
-            local state, value, reason = self._transfer:bodyRead(count, destination, offset)
+            local state, value, reason = self._transfer:bodyRead(count)
             if state == "data" then
                 self._reading = false
                 return value
             elseif state == "eof" then
                 self._reading = false
-                return destination ~= nil and 0 or ""
+                return ""
             elseif state == "failed" or state == "closed" then
                 self._reading = false
                 return nil, reason
@@ -1181,22 +1103,35 @@ record http.Body is io.Reader
 
     --- Reads up to `count` bytes, suspending until some arrive.
     ---
-    --- An empty answer is the end of the body. A count below one reads one byte,
-    --- which is what `nupp.io.Reader` says a non-positive count does.
+    --- An empty answer is the end of the body.
     --- @param self this body
     --- @param count the most bytes to read
     --- @return the bytes, or nil when the body is closed or failed
     --- @return why it could not read, when unsuccessful
-    --- @raises when count is not an integer, or a second reader is on the body
+    --- @raises when count is not a positive integer, or a second reader is on the body
     function read(self, count: integer): (string?, string?)
-        local wanted = whole(count, "body read count", -9007199254740991)
-        return self:_next(wanted < 1 and 1 or wanted, nil, 0)
+        local wanted = whole(count, "body read count", 1)
+        return self:_next(wanted)
+    end
+
+    function readSpan(self, exclusive destination: span.Writable<uint8>): (integer?, string?)
+        local wanted = whole(#destination, "body destination length", 1)
+        local chunk, reason = self:_next(wanted)
+        if chunk == nil then
+            return nil, reason
+        end
+        local input = span.fromString(chunk)
+        for index = 1, #chunk do
+            destination[index] = input[index]
+        end
+
+        return #chunk
     end
 
     --- Reads into a buffer, suspending until some bytes arrive.
     ---
-    --- A zero answer is the end of the body. Where the buffer has storage of its
-    --- own, the provider fills it directly rather than through a Lua string.
+    --- A zero answer is the end of the body. The destination is extended only after
+    --- a successful chunk arrives.
     --- @param self this body
     --- @param destination the buffer to write into
     --- @param offset where in the destination to start, or the beginning
@@ -1205,80 +1140,62 @@ record http.Body is io.Reader
     --- @return why it could not read, when unsuccessful
     --- @raises when an argument is not a whole number, or a second reader is on the
     ---     body
-    function readInto(self, borrows destination: io.Buffer, offset: integer?, count: integer?): (integer?, string?)
+    function readInto(self, exclusive destination: io.Buffer, offset: integer?, count: integer?): (integer?, string?)
         local at = whole(offset or 0, "body destination offset", 0)
-        local wanted = whole(count or READ_SIZE, "body read count", 0)
-        if wanted == 0 then
+        local wanted = whole(count or READ_SIZE, "body read count", 1)
+        local chunk, reason = self:_next(wanted)
+        if chunk == nil then
+            return nil, reason
+        end
+        if #chunk == 0 then
             return 0
         end
-        local value, reason = self:_next(wanted, destination, at)
-        if type(value) == "string" then
-            destination:setString(value, at)
-            return #value
+        local input = span.fromString(chunk)
+        local lease = destination:reserveWrite(at, wanted)
+        do
+            local output = lease:span()
+            for index = 1, #chunk do
+                output[index] = input[index]
+            end
+            drop output
         end
+        lease:commit(#chunk)
 
-        return value, reason
+        return #chunk
     end
 
     --- Writes the whole body to a writer, suspending as often as it has to.
     ---
-    --- Where the destination can take bytes without a copy through Lua, the
-    --- provider writes into it directly. Everything else falls back to reading and
-    --- writing chunks.
+    --- Each chunk crosses the writer boundary as a checked span.
     --- @param self this body
     --- @param destination the writer to fill
     --- @return how many bytes moved, or nil on failure
     --- @return why it could not, when unsuccessful
     --- @raises when a second reader is on the body
-    function transferTo(self, borrows destination: io.Writer): (integer?, string?)
+    function transferTo(self, exclusive destination: io.Writer): (integer?, string?)
         local total: integer = 0
         local turn: integer = 0
-        if self._transfer:directDestination(destination) then
-            while true do
-                if self._closed then
-                    return nil, "the body is closed"
-                end
-                if self._reading then
-                    error("nupp: an HTTP response body may only have one reader", 2)
-                end
-                self._reading = true
-                local state, count, reason = self._transfer:bodyWrite(destination, READ_SIZE)
-                if state == "pending" then
-                    local ok, problem = pcall(appendWaiter, self._client, self._transfer, "response body", true)
-                    self._reading = false
-                    if not ok then
-                        error(problem, 0)
-                    end
-                elseif state == "eof" then
-                    self._reading = false
-                    return total
-                elseif state == "failed" or state == "closed" then
-                    self._reading = false
-                    return nil, reason
-                else
-                    self._reading = false
-                    total = total + (count as integer)
-                    turn = turn + (count as integer)
-                    if turn >= COPY_TURN then
-                        fairnessYield()
-                        turn = 0
-                    end
-                end
-            end
-        end
         while true do
-            local chunk, reason = self:read(READ_SIZE)
+            local chunk, failure = self:read(READ_SIZE)
             if chunk == nil then
-                return nil, reason
+                return nil, failure
             elseif chunk == "" then
                 return total
             end
-            local wrote, failure = destination:write(chunk)
-            if not wrote then
-                return nil, failure
+            local source = span.fromString(chunk)
+            local at: integer = 1
+            while at <= #source do
+                local remaining = source:slice(at)
+                local wrote, reason = destination:writeSpan(remaining)
+                if wrote == nil then
+                    return nil, reason
+                elseif wrote < 1 then
+                    return nil, "the destination writer made no progress"
+                end
+                at = at + wrote
+                total = total + wrote
+                turn = turn + wrote
             end
-            total = total + #chunk
-            turn = turn + #chunk
             if turn >= COPY_TURN then
                 fairnessYield()
                 turn = 0
@@ -1716,6 +1633,7 @@ function http.Client:send(request: http.Request): (affine(http.Response?, destro
         elseif type(concrete.length) == "function" and type(concrete.getString) == "function" then
             bodyKind = BODY_INLINE
             bodyLength = concrete:length()
+            body = concrete:getString()
         else
             error("nupp: HTTP request body is not bytes, a Buffer, ReaderBody, or FileBody", 2)
         end
@@ -1783,7 +1701,7 @@ function http.Client:send(request: http.Request): (affine(http.Response?, destro
     local head, problem
     if reader ~= nil then
         local scratch = io.newBuffer(UPLOAD_SIZE)
-        local uploadTransfer = transfer as {offer: function(any, borrows source: io.Buffer, boolean, integer): string}
+        local uploadTransfer = transfer
         local function uploadAndWait(): any takes (scratch)
             local transferred: integer = 0
             while true do
@@ -1812,8 +1730,9 @@ function http.Client:send(request: http.Request): (affine(http.Response?, destro
                 end
                 local offered = scratch:length()
                 if offered > 0 then
+                    local source = scratch:getString()
                     while true do
-                        local accepted = uploadTransfer:offer(scratch, false, offered)
+                        local accepted = uploadTransfer:offer(source, offered)
                         if accepted == "accepted" then
                             break
                         elseif accepted == "closed" then
@@ -1831,7 +1750,7 @@ function http.Client:send(request: http.Request): (affine(http.Response?, destro
                             0
                         )
                     end
-                    if transfer:offer(nil, true) == "closed" then
+                    if transfer:finishUpload() == "closed" then
                         return waitHead(self, transfer, false)
                     end
                     return waitHead(self, transfer, false)

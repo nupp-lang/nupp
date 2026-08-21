@@ -177,10 +177,11 @@ end
 ```
 
 The reader and writer satisfy `nupp.io.Reader` and `nupp.io.Writer`, so `read`,
-`readInto`, `transferTo`, `write`, `writeFrom`, `writeView` and `flush` mean
-what they mean over a buffer. `readInto` lands bytes in the destination
-buffer's own storage rather than in a string on the way there, and `transferTo`
-streams a file of any size through a fixed window:
+`readSpan`, `readInto`, `transferTo`, `write`, `writeSpan` and `flush` mean
+what they mean over a buffer. Native callers can read and write through checked
+spans without separating a pointer from its bound. `readInto` commits the
+destination buffer only after a successful read, and `transferTo` streams a
+file of any size through a fixed window:
 
 ```nupp
 do

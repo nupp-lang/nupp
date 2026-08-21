@@ -178,16 +178,15 @@ function M.creationFailureIsRaisedByTheConstructor()
    assert(not ok and type(reason) == "string" and #reason > 0)
 end
 
--- A pipe is written through the backend, which takes bytes rather than a pointer, so
--- there is no shorter path for raw storage to take. Saying so is what keeps a caller
--- holding a pointer from assuming there is one.
-function M.aProcessWriterTakesNoRawBytes()
+-- A pipe accepts the same checked span contract as every other writer, copying into
+-- the backend's string boundary internally.
+function M.aProcessWriterTakesCheckedSpans()
    ready()
    local child = assert(startProcess({args = shell("cat > /dev/null")}))
-   test.equal(child.stdin:acceptsRaw(), false)
-   local wrote, reason = child.stdin:writeRaw(nil, 0)
-   test.equal(wrote, nil)
-   assert(type(reason) == "string" and #reason > 0)
+   local source = buffers.newBuffer("checked bytes")
+   local wrote, reason = child.stdin:writeSpan(source:readSpan())
+   assert(wrote, reason)
+   test.equal(wrote, 13)
    assert(child.stdin:close())
    assert(child:wait():succeeded())
    assert(child:close())

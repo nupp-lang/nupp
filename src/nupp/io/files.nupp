@@ -21,10 +21,8 @@ reference.
 
 The reader and writer an open file hands out satisfy the same contracts a buffer's
 do, so code written against those works over a file without knowing one is there.
-They read and write a `nupp.io.Buffer`'s storage directly where the
-destination has any, which is what lets a native read land in the destination rather
-than in a Lua string on the way to it. A destination without that storage still
-works, one copy slower.
+Their native boundary accepts checked spans: pointer lifetime and byte count stay one
+contract, and a buffer read is committed only after the file operation succeeds.
 
 A module rather than an export of [](nupp.io), the same as [](nupp.io.path) and
 [](nupp.io.uri): a program that wants a byte buffer should not carry the filesystem
@@ -36,6 +34,7 @@ const native = require("nupp.native")
 const suspension = require("nupp.suspension")
 const paths = require("nupp.io.path")
 const io = require("nupp.io")
+const span = require("nupp.mem.span")
 
 -- The record is declared here rather than in the runtime cdef below, because
 -- `ffi.new` names it and the checker has to know the type to accept that. It reaches
@@ -89,6 +88,8 @@ size_t nuppFsPending(void);
 
 local ffi = native.ffi
 local C = native.C
+local fileRead: function(handle: any, borrows destination: uint8[?], count: integer): int64 = C.nuppFileRead as any
+local fileWrite: function(handle: any, borrows source: const uint8[?], count: integer): int64 = C.nuppFileWrite as any
 
 -- The library numbers what a path is, what an entry is, which user folder, how a file
 -- is opened, and what a seek is measured from. Each of these is its side of one of
@@ -220,6 +221,16 @@ local function counted(value: any, what: string, level: integer): integer
     end
 
     return value as integer
+end
+
+--- @raises when value is not a positive integer
+local function positive(value: any, what: string, level: integer): integer
+    local answer = whole(value, what, level + 1)
+    if answer < 1 then
+        error("nupp: io.files " .. what .. " must be positive", level)
+    end
+
+    return answer
 end
 
 -- A direct call answers a boolean, and the reason for a false lives on the error
@@ -404,16 +415,13 @@ export record FileReader
     --- @param count the most bytes to read
     --- @return the bytes, or nil when the reader or its file is closed
     --- @return why it could not read, when unsuccessful
-    --- @raises when count is not an integer
+    --- @raises when count is not a positive integer
     function read(self, count: integer): (string?, string?)
         local file, reason = usable(self)
         if file == nil then
             return nil, reason
         end
-        local wanted = whole(count, "FileReader:read count", 2)
-        if wanted < 1 then
-            wanted = 1
-        end
+        local wanted = positive(count, "FileReader:read count", 2)
         local into = scratch(self, wanted)
         local got = tonumber(C.nuppFileRead((file as File)._handle, into, wanted)) or -1
         if got < 0 then
@@ -426,6 +434,21 @@ export record FileReader
         return ffi.string(into, got as integer), nil
     end
 
+    function readSpan(self, exclusive destination: span.Writable<uint8>): (integer?, string?)
+        local file, reason = usable(self)
+        if file == nil then
+            return nil, reason
+        end
+        local wanted = positive(#destination, "FileReader:readSpan destination length", 2)
+        local pointer = destination:ref()
+        local got = tonumber(fileRead((file as File)._handle, pointer, wanted)) or -1
+        if got < 0 then
+            return nil, native.error()
+        end
+
+        return got as integer, nil
+    end
+
     --- Reads into a buffer.
     ---
     --- A zero answer is the end of the file.
@@ -435,47 +458,33 @@ export record FileReader
     --- @param count the most bytes to read
     --- @return how many bytes were read, or nil on failure
     --- @return why it could not read, when unsuccessful
-    function readInto(self, borrows destination: io.Buffer, offset: integer?, count: integer?): (integer?, string?)
+    function readInto(self, exclusive destination: io.Buffer, offset: integer?, count: integer?): (integer?, string?)
         local file, reason = usable(self)
         if file == nil then
             return nil, reason
         end
         local from = counted(offset or 0, "FileReader:readInto offset", 2)
-        local wanted = counted(count or READ_SIZE, "FileReader:readInto count", 2)
-        if wanted == 0 then
+        local wanted = positive(count or READ_SIZE, "FileReader:readInto count", 2)
+        local chunk, failure = self:read(wanted)
+        if chunk == nil then
+            return nil, failure
+        end
+        local taking = #(chunk as string)
+        if taking == 0 then
             return 0, nil
         end
-        -- A destination with no storage of its own, meaning anything that is not
-        -- this library's buffer, is filled through a Lua string instead. One copy more,
-        -- and the same answer.
-        if destination:storage() == nil then
-            local chunk, why = self:read(wanted)
-            if chunk == nil then
-                return nil, why
+        local input = span.fromString(chunk as string)
+        local lease = destination:reserveWrite(from, wanted)
+        do
+            local output = lease:span()
+            for index = 1, taking do
+                output[index] = input[index]
             end
-            if #(chunk as string) == 0 then
-                return 0, nil
-            end
-            destination:setString(chunk as string, from)
+            drop output
+        end
+        lease:commit(taking)
 
-            return #(chunk as string), nil
-        end
-        destination:ensureCapacity(from + wanted)
-        local length = destination:length()
-        if from > length then
-            -- Zero the gap the way any other writer would, so the buffer's own length
-            -- moves with it rather than being corrected afterwards.
-            destination:setString(("\0"):rep(from - length), length)
-        end
-        -- Read after the growth, because growing replaces the allocation.
-        local data = destination:storage()
-        local got = tonumber(C.nuppFileRead((file as File)._handle, data + from, wanted)) or -1
-        if got < 0 then
-            return nil, native.error()
-        end
-        destination:setLength(from + (got as integer))
-
-        return got as integer, nil
+        return taking, nil
     end
 
     --- Reads the rest of the file into a writer.
@@ -483,7 +492,7 @@ export record FileReader
     --- @param destination the writer to fill
     --- @return how many bytes moved, or nil on failure
     --- @return why it could not, when unsuccessful
-    function transferTo(self, borrows destination: io.Writer): (integer?, string?)
+    function transferTo(self, exclusive destination: io.Writer): (integer?, string?)
         local file, reason = usable(self)
         if file == nil then
             return nil, reason
@@ -535,7 +544,7 @@ export record FileWriter
     --- @return whether they were written
     --- @return why they were not, when unsuccessful
     --- @raises when bytes is not a string
-    function write(self, bytes: string): (boolean, string?)
+    function write(exclusive self, bytes: string): (boolean, string?)
         local file, reason = writable(self)
         if file == nil then
             return false, reason
@@ -550,102 +559,22 @@ export record FileWriter
         return true, nil
     end
 
-    --- Writes part of a buffer.
-    --- @param self this writer
-    --- @param source the buffer to copy from
-    --- @param offset the zero-based start, or the beginning
-    --- @param count the byte count, or the rest
-    --- @return how many bytes moved, or nil on failure
-    --- @return why it could not, when unsuccessful
-    --- @raises when the range is past the end of the buffer
-    function writeFrom(self, borrows source: io.Buffer, offset: integer?, count: integer?): (integer?, string?)
+    function writeSpan(exclusive self, borrows source: span.ByteSpan): (integer?, string?)
         local file, reason = writable(self)
         if file == nil then
             return nil, reason
         end
-        local length = source:length()
-        local from = counted(offset or 0, "FileWriter:writeFrom offset", 2)
-        local taking = counted(count == nil and length - from or count, "FileWriter:writeFrom count", 2)
-        if from + taking > length then
-            error("nupp: io.files FileWriter:writeFrom range is past the end", 2)
-        end
-        if taking == 0 then
+        local count = #source
+        if count == 0 then
             return 0, nil
         end
-        local data = source:storage()
-        if data == nil then
-            local wrote, failure = self:write(source:getString(from, taking))
-            if not wrote then
-                return nil, failure
-            end
-
-            return taking, nil
-        end
-        if (tonumber(C.nuppFileWrite((file as File)._handle, data + from, taking)) or -1) < 0 then
-            return nil, native.error()
-        end
-
-        return taking, nil
-    end
-
-    --- A file takes bytes by pointer and length, so raw ones need no copy at all.
-    --- @param self this writer
-    --- @return whether the file is still open to write to
-    function acceptsRaw(borrows self): boolean
-        local file = writable(self)
-
-        return file ~= nil
-    end
-
-    --- Writes raw bytes at the file's current position.
-    ---
-    --- This is the shortest path bytes can take out of somebody else's memory and into
-    --- a file: one call, no string, no buffer. A short write is reported as it
-    --- happened rather than retried, because the caller is the one holding the
-    --- storage and knows what is left.
-    --- @param self this writer
-    --- @param source where the bytes are
-    --- @param count how many of them there are
-    --- @return how many bytes moved, or nil on failure
-    --- @return why it could not, when unsuccessful
-    function writeRaw(borrows self, source: any, count: integer): (integer?, string?)
-        local file, reason = writable(self)
-        if file == nil then
-            return nil, reason
-        end
-        local wrote = tonumber(C.nuppFileWrite((file as File)._handle, source, count)) or -1
+        local pointer = source:ref()
+        local wrote = tonumber(fileWrite((file as File)._handle, pointer, count)) or -1
         if wrote < 0 then
             return nil, native.error()
         end
 
         return wrote as integer, nil
-    end
-
-    --- Writes part of a snapshot.
-    --- @param self this writer
-    --- @param source the snapshot to copy from
-    --- @param offset the zero-based start, or the beginning
-    --- @param count the byte count, or the rest
-    --- @return how many bytes moved, or nil on failure
-    --- @return why it could not, when unsuccessful
-    --- @raises when the range is past the end of the snapshot
-    function writeView(self, borrows source: io.ByteView, offset: integer?, count: integer?): (integer?, string?)
-        local file, reason = writable(self)
-        if file == nil then
-            return nil, reason
-        end
-        local length = source:length()
-        local from = counted(offset or 0, "FileWriter:writeView offset", 2)
-        local taking = counted(count == nil and length - from or count, "FileWriter:writeView count", 2)
-        if from + taking > length then
-            error("nupp: io.files FileWriter:writeView range is past the end", 2)
-        end
-        local wrote, failure = self:write(source:getString():sub(from + 1, from + taking))
-        if not wrote then
-            return nil, failure
-        end
-
-        return taking, nil
     end
 
     --- Pushes the file's buffered writes at the operating system.

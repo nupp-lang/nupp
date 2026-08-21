@@ -68,6 +68,12 @@ least the minimum asked for.
 `close()` releases the buffer's storage, and an operation on a released buffer
 raises rather than answering a reason.
 
+`readSpan()` borrows the buffer's initialized bytes without separating its
+pointer from its length. Native producers write through `reserveWrite(offset,
+count)`: the returned lease supplies a checked writable span, and
+`commit(written)` changes the logical length only after the producer succeeds.
+Dropping the lease aborts it and leaves the length unchanged.
+
 ## Byte views
 
 `view(offset, count)` returns an immutable snapshot, not a mutable alias into
@@ -82,9 +88,10 @@ header:close()
 ```
 
 A view can make a smaller view, open its own snapshot reader, report its byte
-length, copy to a string, and be closed. Its offsets are zero-based like a
-buffer's. The data and UTF-8 modules accept views, which is what keeps those
-APIs from being coupled to a mutable buffer.
+length, copy to a string, borrow a checked span with `readSpan()`, and be
+closed. Its offsets are zero-based like a buffer's. The data and UTF-8 modules
+accept views, which is what keeps those APIs from being coupled to a mutable
+buffer.
 
 ## Readers
 
@@ -103,11 +110,13 @@ assert(reader:read(8) == "f")
 assert(reader:read(8) == "") -- EOF
 ```
 
-`read(count)` returns at most `max(1, count)` bytes, so zero and negative
-counts still make progress. It returns an empty string at EOF and nil with a
-reason after close. `readInto(buffer, offset, count)` returns zero at EOF and
-reads 64 KiB when given no count. `transferTo(writer)` copies the entire
-remaining source and returns the byte count.
+`read(count)` requires a positive count and returns at most that many bytes. It
+returns an empty string at EOF and nil with a reason after close.
+`readSpan(writable)` fills a positive-sized checked writable span.
+`readInto(buffer, offset, count)` returns zero at EOF and reads 64 KiB when
+given no count; an explicit count must be positive. A failed or EOF read does
+not extend the destination. `transferTo(writer)` copies the entire remaining
+source and returns the byte count.
 
 ## Writers
 
@@ -120,16 +129,17 @@ local writer = destination:newWriter()
 assert(writer:write("prefix:"))
 
 local payload = nupp.io.newBuffer("body")
-assert(writer:writeFrom(payload) == 4)
+assert(writer:writeSpan(payload:readSpan()) == 4)
 assert(writer:flush())
 assert(destination:getString() == "prefix:body")
 ```
 
-`write` answers a boolean; `writeFrom` and `writeView` answer the byte count.
-All three answer a reason when the writer is closed or the destination was
-released, and writing a buffer into itself is rejected. `flush` does nothing
-for memory and is part of the contract so that a later file or socket writer
-implements the same interface.
+`write` answers a boolean and `writeSpan` answers the byte count. Both answer a
+reason when the writer is closed or the destination was released. The span is
+the common zero-copy input contract for buffers, views, files, processes, and
+HTTP transfers; there is no unchecked raw-pointer writer alongside it. `flush`
+does nothing for memory and is part of the contract so that a later file or
+socket writer implements the same interface.
 
 ## Typed scalars
 
@@ -141,7 +151,9 @@ the missing piece, a sized integer or float landing on those bytes without an
 local writer = nupp.io.newScalarWriter()
 writer:writeUint32(1447383632 as uint32):writeFloat64(1.5)
 
-local reader = nupp.io.newScalarReader(assert(writer:buffer()))
+local stored = writer:buffer()
+assert(stored ~= nil)
+local reader = nupp.io.newScalarReader(stored as nupp.io.Buffer)
 assert(reader:readUint32() == (1447383632 as uint32))
 assert(reader:readFloat64() == 1.5)
 assert(reader:atEnd())
@@ -173,7 +185,9 @@ assert(reader:remaining() == 4)
 
 A `Reader` is consumed as it goes, which is what lets a file or an HTTP body be
 read a field at a time. It cannot say how much is left, so `remaining()`
-answers nil and `atEnd()` is the question to ask instead.
+answers nil and `atEnd()` is the question to ask instead. The scalar adapter
+takes that reader: closing or dropping the adapter closes or drops the reader
+exactly once.
 
 ### Scalar destinations
 
@@ -188,7 +202,11 @@ assert(destination:getString() == "header:!")
 ```
 
 A writer pointed at somebody else's `Writer` answers nil from `buffer()`, since
-the bytes are already gone.
+the bytes are already gone. That writer is taken, so closing or dropping the
+scalar adapter closes or drops it exactly once. A buffer supplied by the caller
+is only borrowed. The buffer created by the no-argument form belongs to the
+scalar writer; `buffer()` borrows it for as long as the scalar writer remains
+live.
 
 ## Byte queues
 
