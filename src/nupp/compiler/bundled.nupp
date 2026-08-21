@@ -40,6 +40,83 @@ end
 
 local embedded: any = nil
 
+--- The checkout these carried files were copied out of, when there is one.
+---
+--- Nothing to compare against in the two cases that answer nil: a stamped binary
+--- carries its declarations inside itself, and a compiler loaded straight from
+--- `src` is already reading the only copy there is.
+local function checkoutRoot(): string?
+    local dir = moduleDir():gsub("\\", "/")
+    if dir:match("/src/nupp/compiler$") then
+        return nil
+    end
+
+    return dir:match("^(.*)/build/nupp/compiler$") or os.getenv("NUPP_COMPILER_ROOT")
+end
+
+--- Where a carried file was copied from. The build writes the declarations under
+--- `src/nupp/compiler/decls` beside the compiled modules as `/decls`, and
+--- everything else it carries keeps the path it has under `src`.
+---
+--- A guess, in the sense that the manifest owns the real mapping and this does not
+--- read it. It is a safe one: a path this gets wrong names a file that is not
+--- there, and a file that is not there is one this says nothing about.
+local function sourcePath(root: string, relative: string): string
+    if relative:sub(1, 7) == "/decls/" then
+        return root .. "/src/nupp/compiler" .. relative
+    end
+
+    return root .. "/src" .. relative
+end
+
+--- Where a carried file was copied from, or nil when nothing carried it.
+---
+--- Exported because the mapping above is the fragile half of this: it restates
+--- what the manifest already says, and a test that walks it is what keeps the two
+--- from drifting apart in silence.
+---
+--- @param relative the path under the compiled modules, beginning with a slash
+--- @return the path in `src` it was copied from, or nil outside a checkout
+function bundled.sourcePathFor(relative: string): string?
+    local root = checkoutRoot()
+    if root == nil then
+        return nil
+    end
+
+    return sourcePath(root, relative)
+end
+
+local staleRelative: {string} = {}
+local staleSeen: {[string]: boolean} = {}
+
+--- Records a carried file that no longer matches the source it was copied from.
+local function noteStale(relative: string, carried: string): nil
+    if staleSeen[relative] then
+        return
+    end
+    local root = checkoutRoot()
+    if root == nil then
+        return
+    end
+    local current = readFile(sourcePath(root, relative))
+    if current ~= nil and current ~= carried then
+        staleSeen[relative] = true
+        staleRelative[#staleRelative + 1] = relative
+    end
+end
+
+--- The carried declarations this run read that its checkout has since changed.
+---
+--- Empty for a stamped binary and for a compiler running out of `src`, which are
+--- the two shapes with nothing to disagree with. Only files actually read are
+--- reported, so this costs one extra read of each declaration a command reaches
+--- rather than a walk of everything the compiler carries.
+---
+--- @return the paths, in the spelling `source` takes, or an empty list
+function bundled.staleDeclarations(): {string}
+    return staleRelative
+end
+
 --- The source of one declaration the compiler carries, or nil when it carries no such
 --- file.
 ---
@@ -56,8 +133,12 @@ function bundled.source(relative: string): string?
     if embedded and embedded[relative] then
         return embedded[relative]
     end
+    local carried = readFile(moduleDir() .. relative)
+    if carried ~= nil then
+        noteStale(relative, carried)
+    end
 
-    return readFile(moduleDir() .. relative)
+    return carried
 end
 
 --- The directory the compiled compiler modules were loaded from.

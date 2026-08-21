@@ -255,6 +255,37 @@ local function fail(message: string, hint: string): integer
     return 2
 end
 
+--- Warns when the compiler is checking against declarations its checkout has moved on
+--- from.
+---
+--- The declarations a build copies beside the compiled modules are what the checker
+--- resolves the prelude and `require("jsonNative")` against. Editing one in `src` does
+--- not reach that copy until a build copies it again, so until then every command
+--- describes today's source against yesterday's interface -- and it surfaces as an
+--- ordinary type error about a field that is plainly there in the file, or a contract
+--- that is plainly an interface. Neither error can mention the reason, because by the
+--- time it is raised the stale declaration is simply what the compiler knows.
+---
+--- The build that fails this way has already copied the new declarations before it
+--- reported anything, so running it again is the whole fix. Saying so is the point of
+--- this: the answer is one command, and nothing else in the output suggests it.
+local function warnStaleDeclarations(): nil
+    local stale = require("nupp.compiler.bundled").staleDeclarations()
+    if #stale == 0 then
+        return
+    end
+    local style = ansi.style(io.stderr)
+    local lines = {
+        ansi.forSeverity(style, "warning")("nupp:") .. " the compiler is using declarations older than this checkout:",
+    }
+    for _, relative in ipairs(stale) do
+        lines[#lines + 1] = "  " .. relative
+    end
+    lines[#lines + 1] = "A diagnostic above may describe an interface src/ no longer has."
+    lines[#lines + 1] = "Run the build again; it has already refreshed them."
+    io.stderr:write(table.concat(lines, "\n") .. "\n")
+end
+
 --- Answers `nupp help [command]`.
 local function runHelp(args: {string}): integer
     local name = args[1]
@@ -388,7 +419,10 @@ function cli.main(argv: {string}): integer
             require("nupp.compiler.cli.report").write(command.spec.schema)
             return 0
         end
-        return command.run(rest)
+        local status = command.run(rest)
+        warnStaleDeclarations()
+
+        return status
     end
     local parsed, err = command.spec:parse(rest)
     if not parsed then
@@ -406,7 +440,10 @@ function cli.main(argv: {string}): integer
         return 0
     end
 
-    return command.run(parsed)
+    local status = command.run(parsed)
+    warnStaleDeclarations()
+
+    return status
 end
 
 cli.spec = specMod

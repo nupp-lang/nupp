@@ -91,4 +91,46 @@ return m
    assertEq(found, true, "an exported signature mentioning any is still reported")
 end
 
+-- A declaration the build copied beside the compiled modules goes stale the moment
+-- `src` changes it, and the compiler then checks today's source against yesterday's
+-- interface. That surfaces as an ordinary type error about a field that is plainly
+-- in the file, so the compiler says which carried file it is instead of leaving it
+-- to be worked out. Twice now that has cost an afternoon.
+
+function M.aTreeInSyncReportsNothingStale()
+   -- The risk this carries is the false positive: it would nag on every command in
+   -- every checkout, which is worse than the error it explains.
+   local bundled = require("nupp.compiler.bundled")
+   for _, relative in ipairs({
+      "/decls/prelude.d.nupp",
+      "/decls/stringbuffer.d.nupp",
+      "/nupp/data/jsonnative.d.nupp",
+      "/nupp/mem/span.nupp",
+   }) do
+      assert(bundled.source(relative), "the compiler carries " .. relative)
+   end
+   local stale = bundled.staleDeclarations()
+   assertEq(#stale, 0, "a tree whose build is current reports " .. table.concat(stale, ", "))
+end
+
+function M.everyCarriedDeclarationResolvesToItsSource()
+   -- The mapping restates what the manifest says rather than reading it, so a file
+   -- it points at the wrong place is one nothing would ever report on. Both shapes
+   -- are here on purpose: `/decls` comes from under `src/nupp/compiler`, and
+   -- everything else keeps the path it has under `src`.
+   local bundled = require("nupp.compiler.bundled")
+   for _, relative in ipairs({
+      "/decls/prelude.d.nupp",
+      "/decls/jit/util.d.nupp",
+      "/nupp/data/jsonnative.d.nupp",
+      "/nupp/mem/span.nupp",
+   }) do
+      local path = bundled.sourcePathFor(relative)
+      assert(path, "a checkout was found for " .. relative)
+      local file = io.open(path, "rb")
+      assert(file, relative .. " maps to " .. tostring(path) .. ", which is not there")
+      file:close()
+   end
+end
+
 return M
