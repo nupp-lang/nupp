@@ -31,6 +31,7 @@ type stdlib.Page = {
     path: string,
     redirects: {string}?,
     source: string?,
+    symbols: {[string]: string}?,
     title: string
 }
 
@@ -216,6 +217,10 @@ function stdlib.page(settings: stdlib.Settings?): stdlib.Page?
         end
     end
     anchorByName(types)
+    local symbols: {[string]: string} = {}
+    for _, item in ipairs(types) do
+        symbols[item.name] = item.path
+    end
     section(
         out,
         "Types",
@@ -233,7 +238,11 @@ function stdlib.page(settings: stdlib.Settings?): stdlib.Page?
         -- searched: the browser's own find has to reach every signature at once, and
         -- text inside an editor frame is not findable. A signature is a declaration
         -- rather than a program besides, so there would be nothing to check.
-        markdown = table.concat(out, "\n")
+        markdown = table.concat(out, "\n"),
+        -- Ambient types have no module page to enter them in the ordinary symbol
+        -- index. Publish their anchors with this generated page so API signatures
+        -- such as `Reader is Closeable` can still reach the canonical declaration.
+        symbols = symbols
     }
 end
 

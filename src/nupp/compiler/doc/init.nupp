@@ -111,6 +111,7 @@ type doc.Generated = {
     path: string,
     redirects: {string}?,
     source: string?,
+    symbols: {[string]: string}?,
     title: string
 }
 
@@ -710,6 +711,7 @@ local function configuredPages(root, settings, title)
             markdown = generated.markdown,
             source = generated.source,
             redirects = generated.redirects,
+            symbols = generated.symbols,
             api = api
         }
 
@@ -923,7 +925,13 @@ local function renderSite(root, outDir, modules, title, settings)
         end
     end
 
-    local allMarkdown, linkIndex, searchEntries = {}, symbolLinkIndex(modules), {}
+    local generatedLinks: nupp.compiler.doc.urls.Links = {}
+    for _, candidate in ipairs(pages) do
+        for name, anchor in pairs(candidate.symbols or {}) do
+            generatedLinks[name] = routeFile(candidate.path) .. "#" .. anchor
+        end
+    end
+    local allMarkdown, linkIndex, searchEntries = {}, symbolLinkIndex(modules, nil, generatedLinks), {}
     for _, candidate in ipairs(pages) do
         local file = routeFile(candidate.path)
         local markdown, body, current = candidate.markdown or "", {}, nil

@@ -36,6 +36,7 @@ type diagnostics.Page = {
     path: string,
     redirects: {string}?,
     source: string?,
+    symbols: {[string]: string}?,
     title: string
 }
 
@@ -212,7 +213,8 @@ function diagnostics.page(settings: diagnostics.Settings?, published: diagnostic
         title = title,
         source = settings.source,
         redirects = settings.redirects,
-        markdown = table.concat(out, "\n")
+        markdown = table.concat(out, "\n"),
+        symbols = nil
     }
 end
 

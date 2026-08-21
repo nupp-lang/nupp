@@ -2900,6 +2900,9 @@ function M.stdlibIndexHoldsTheLibrariesTheCompilerDeclares()
    -- with the anchor beside it and with what a reader searches for.
    assert(page.markdown:find("### `string.format`", 1, true), "no member of a library table")
    assert(page.markdown:find("### `print`", 1, true), "no ambient global")
+   assert(page.markdown:find("### `Closeable`", 1, true), "no ambient Closeable type")
+   assert(page.symbols and page.symbols.Closeable == "Closeable",
+      "Closeable has no generated-page symbol")
 end
 
 -- The page is an index, and an index is searched. An editor frame holds text the
@@ -2955,13 +2958,24 @@ end
 
 -- A manifest that asks for the page gets it at the route it named.
 function M.stdlibIndexIsWrittenWhereTheManifestAsked()
-   local dir = tempProject({["src/math.nupp"] = SOURCE})
+   local linkedSource = SOURCE .. table.concat({
+      "--- An owned handle.",
+      "record Handle is Closeable",
+      "   --- Closes it.",
+      "   function close(takes self): nil",
+      "   end",
+      "end",
+   }, "\n") .. "\n"
+   local dir = tempProject({["src/math.nupp"] = linkedSource})
    local config = {include = {"src"}}
    assert(doc.build(dir, config, {sources = {"src"}, stdlib = {path = "reference/luajit"}},
       {format = "site", output = "site"}) == 0)
    local page = readFile(dir .. "/site/reference/luajit/index.html")
    assert(page:find("LuaJIT standard library", 1, true), page:sub(1, 400))
    assert(page:find("string.format", 1, true), "the page rendered without its declarations")
+   local modulePage = readFile(dir .. "/site/modules/math/index.html")
+   assert(modulePage:find('href="../../reference/luajit/index.html#Closeable"', 1, true),
+      "a module signature did not link the ambient Closeable type")
 
    local dir2 = tempProject({["src/math.nupp"] = SOURCE})
    assert(doc.build(dir2, config, {sources = {"src"}}, {format = "site", output = "site"}) == 0)

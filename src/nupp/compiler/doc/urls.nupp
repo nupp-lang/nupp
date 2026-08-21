@@ -58,7 +58,11 @@ local function defaultTarget(module: string, path: string?): string
     return moduleFile(module) .. (path and "#" .. path or "")
 end
 
-local function symbolLinkIndex(modules: {nupp.compiler.doc.extract.Module}, target: urls.Target?): urls.Links
+local function symbolLinkIndex(
+    modules: {nupp.compiler.doc.extract.Module},
+    target: urls.Target?,
+    extra: urls.Links?
+): urls.Links
     local target = target or defaultTarget
     local links, ambiguous = {}, {}
     for _, module in ipairs(modules) do
@@ -83,6 +87,12 @@ local function symbolLinkIndex(modules: {nupp.compiler.doc.extract.Module}, targ
         if links[module.name] == nil and not ambiguous[module.name] then
             links[module.name] = target(module.name)
         end
+    end
+    -- Generated indexes can own declarations that have no source module page. Feed
+    -- those through the same ambiguity rule rather than letting them silently win a
+    -- spelling already claimed by an API declaration.
+    for name, url in pairs(extra or {}) do
+        addSymbolLink(links, ambiguous, name, url)
     end
 
     return links
