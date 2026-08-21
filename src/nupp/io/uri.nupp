@@ -3,25 +3,14 @@ module nupp.io.uri
 --[[
 Parses URIs and answers new ones from them, over the native library's parser.
 
-A URI is an immutable value over a parsed handle. Every `with` operation answers a
-new URI, and one that would not change anything answers the same one rather than
-reparsing. `newURI` interns normalized URI text in a bounded least-recently-used cache,
-and the handle is released by the collector, so nothing has to be closed.
-
-Reading a component is reading the parse rather than a substring: `host` on a URI
-with no authority is nil, not an empty string, and `port` is a number only when one
-was actually written.
-
-A module rather than an export of [](nupp.io), because a program that wants a byte
-buffer should not carry the URI provider to get one. So this is reached as
-`nupp.io.uri`, and the value it answers is a `nupp.io.uri.URI`. See [](nupp.io.path)
-for naming a place on this machine rather than a resource anywhere.
-
 ```nupp
 const uri = require("nupp.io.uri")
 
 local endpoint = assert(uri.newURI("https://example.com/api"))
 ```
+
+A URI names a resource anywhere; see [](nupp.io.path) for naming a place on this
+machine.
 ]]
 
 const native = require("nupp.native")

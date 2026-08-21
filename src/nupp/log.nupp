@@ -1,29 +1,14 @@
 module nupp.log
 
 --[[
-Leveled logging over a swappable destination.
+Leveled logging over a swappable destination, where a filtered call evaluates
+none of its arguments.
 
 ```nupp
 nupp.log.level("info")
 nupp.log.info("loaded %d entities", count)
 nupp.log.debug("state=%s", state) -- filtered, so state is never rendered
 ```
-
-Logging is the one facility whose disabled path is its hot path, so the shape here
-answers to what a filtered call costs rather than to what an emitted one does. `on`
-is an array the rewritten call site indexes directly, `emit` is reached only once a
-level has been admitted, and a named logger carries stamped methods so a filtered
-call through one reaches an empty function rather than a test.
-
-Generation lowers `nupp.log.debug("...")` in statement position to a test against
-`on` around a direct `emit`, so a filtered call evaluates none of its arguments. The
-view `forModule` answers is what a generated chunk binds once and every site in it
-indexes; a site carries only its severity and its line.
-
-`os.time` is NYI in LuaJIT and stitches the trace it stands on, so the second is read
-through the FFI. `os.time` stays only to validate the symbol: some Windows CRTs
-inline `time` to `_time64` or give it a 32-bit `time_t`, and a resolved-but-wrong-
-width symbol would answer nonsense rather than fail to resolve.
 ]]
 
 local log = {}
@@ -90,6 +75,10 @@ local INDEX = {off = 0, error = 1, warn = 2, info = 3, debug = 4,}
 local ffi = require("ffi")
 pcall(ffi.cdef, "typedef int64_t nupp_time_t; nupp_time_t time(nupp_time_t *t);")
 
+-- `os.time` is NYI in LuaJIT and stitches the trace it stands on, so the second
+-- is read through the FFI. The drift check is what keeps a resolved-but-wrong-
+-- width `time` from answering nonsense: some Windows CRTs inline it to `_time64`
+-- or give it a 32-bit `time_t`, and neither fails to resolve.
 local clock: any = os.time
 do
     local resolved, fn = pcall(function(): any

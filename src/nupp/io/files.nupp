@@ -4,30 +4,18 @@ module nupp.io.files
 Reads and changes the filesystem: metadata, directory contents, open files, and
 whole-file transfers.
 
-Two shapes of operation live here and they are deliberately different. Anything that
-moves names rather than bytes, such as stat, rename, remove, symlinks and listing a
-directory, is a direct call that answers now, because the platform answers it now.
-Anything that moves a whole file's bytes, meaning read, write, append and copy, is
-submitted to the native library's worker lane and waited for through
-`nupp.suspension`, so a program inside a scheduler yields instead of blocking its
-host. See [0005-suspension.md](docs/neps/0005-suspension.md) for why waiting
-is a suspension rather than a block.
+```nupp
+const files = require("nupp.io.files")
 
-An open file and a created temporary path are both owners. Closing either is
-idempotent; a temporary path is settled by `persist` instead when the point of making
-it was to write somewhere nobody else could take and then put it where it belongs.
-See [ownership.md](docs/type-system/ownership.md) for the complete contract
-reference.
+for _, entry in ipairs(assert(files.list("src"))) do
+    print(entry.kind, entry.name)
+end
+```
 
-The reader and writer an open file hands out satisfy the same contracts a buffer's
-do, so code written against those works over a file without knowing one is there.
-Their native boundary accepts checked spans: pointer lifetime and byte count stay one
-contract, and a buffer read is committed only after the file operation succeeds.
-
-A module rather than an export of [](nupp.io), the same as [](nupp.io.path) and
-[](nupp.io.uri): a program that wants a byte buffer should not carry the filesystem
-provider to get one. So this is reached as `nupp.io.files`, and the types it declares
-are `nupp.io.files.File` and `nupp.io.files.Info`.
+An open file and a created temporary path are both owners. See
+[ownership.md](docs/type-system/ownership.md) for the complete contract
+reference, and [0005-suspension.md](docs/neps/0005-suspension.md) for why moving
+a whole file's bytes waits by suspending rather than blocking.
 ]]
 
 const native = require("nupp.native")

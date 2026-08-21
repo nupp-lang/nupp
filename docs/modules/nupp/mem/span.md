@@ -15,6 +15,10 @@ Use spans at checked boundaries. Direct indexing through a pointer or
 variable-length C array remains an [`unsafe`
 operation](../../../concepts/ownership.md#unsafe-representation-boundaries).
 
+`Span<T>` is a sealed contract over a private implementation that keeps an
+element count beside a rooted pointer, so public code can neither forge one nor
+reach the raw pointer it holds. Indexing and slicing check that count first.
+
 ## Creating a shared span
 
 `fromCarray(source, count)` borrows a C array and records its logical element
@@ -99,6 +103,9 @@ owned memory. Dropping it, explicitly or at scope exit, ends that access; it
 does not free or copy the source array. `writeFixedCarray` and
 `FixedWritable<T, N>` preserve a static count in the same way as their shared
 counterparts.
+
+Asking one array for a shared span while a writer over it is live reports
+`NUPP2607`, and so does the reverse.
 
 ## Slices and partitions
 

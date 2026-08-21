@@ -1,17 +1,8 @@
 module nupp.derive
 
 --[[
-Both halves of the standard derives: the providers that decide what a derived
-member is, and the runtime that member calls.
-
-`@derive` is a compiler feature: the checker resolves the contract, the
-materializer folds the recipe, and generation writes the member. The comptime
-providers below decide what a derived member is; the runtime above them is what
-that member calls, so a generated member is an ordinary `nupp.derive.forward`
-call rather than a compiler operation.
-
-`install` is what a program's prologue calls to publish the runtime half under
-`nupp.__derive`, which is where generated code addresses it from.
+Both halves of the standard derives: the comptime providers that decide what a
+derived member is, and the runtime that member calls.
 
 See [derives.md](docs/reference/derives.md) for what each standard derive writes, and
 [reflection.md](docs/concepts/reflection.md) for the descriptors the JSON codec is memoized

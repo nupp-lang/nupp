@@ -12,60 +12,10 @@ print(result.output)
 child:close()
 ```
 
-The lifecycle, the streams, and the draining are written once against a backend
-that answers in bytes and opaque handles. Platform providers differ in how they
-spawn and how they read; they do not differ in what a process is, so nothing
-about what a process is lives in any one of them.
-
-Two vocabularies are kept apart inside the one module.
-
-The first is the one callers use: options, streams, an exit. It is tecs's
-surface, deliberately, so that `tecs.io.Process`'s call sites compile against
-this module with the import changed and nothing else. The API is good, it was
-learned from a real workload, and re-deriving it would be re-learning the same
-lessons more slowly.
-
-The second is `Backend`: the smallest set of operations a platform has to
-answer, expressed in bytes and opaque handles and nothing else. Everything above
-it is the state machine below, written once: the lifecycle, draining two pipes
-without deadlocking, deadlines, and what `communicate` means. A design that let
-providers differ in more than spawning and reading would end up with two of every
-bug.
-
-They share a module because nothing wants one without the other. A caller needs
-the first and reaches it here; a platform provider needs `Backend` and reaches
-it here too, along with the `Options` it is handed and the `Exit` it answers.
-
-Nothing in the caller-facing half mentions a file descriptor, a HANDLE, errno,
-or a signal number. A caller that has to know which platform it is on has been
-handed a leak.
-
-Waiting is a suspension. Under a handler, a scheduler or a game frame, reading a
-pipe parks the caller and the frame keeps running; with none installed the
-built-in handler drives the pumps and blocks. The same call either way, which is
-the whole reason `nupp.suspension` exists.
-
-Three details are worth stating, because they are the ones a first
-implementation gets wrong.
-
-**`communicate` makes one combined step.** Not "write all the input, then read
-stdout to the end, then read stderr". A child that reads its input in pieces
-while filling stderr deadlocks against every sequential order: the parent blocks
-writing input the child is not reading, because the child is blocked writing
-output the parent is not reading. The loop attempts all three every pass and
-suspends only when none of them moved.
-
-**A deadline has to be checked while suspended.** Checking it before parking and
-never again means a quiet child, one producing nothing at all, waits past its
-deadline forever, which is precisely the case a deadline is for.
-
-**A killed child is not immediately reapable.** Terminating takes as long as it
-takes, so closing waits for the exit rather than reaping something still dying.
-
-See [ownership.md](docs/type-system/ownership.md) for the contract a child
-and its streams are handed out under, and
-[0005-suspension.md](docs/neps/0005-suspension.md) for why waiting is a
-suspension rather than a block.
+A child and its streams are owners. See
+[ownership.md](docs/type-system/ownership.md) for the contract they are handed
+out under, and [0005-suspension.md](docs/neps/0005-suspension.md) for why
+waiting is a suspension rather than a block.
 ]]
 
 local suspension = require("nupp.suspension")
@@ -73,6 +23,13 @@ local ffi = require("ffi")
 local span = require("nupp.mem.span")
 local ffiString: function(borrows source: const uint8[?], count: integer): string = ffi.string as any
 
+-- Two vocabularies share this module because nothing wants one without the other.
+-- The caller-facing half is tecs's surface, deliberately, so that `tecs.io.Process`
+-- call sites compile against this module with the import changed and nothing else.
+-- `Backend` is the other: the smallest set of operations a platform has to answer.
+-- Nothing in the caller-facing half may mention a file descriptor, a HANDLE, errno,
+-- or a signal number, because a caller that has to know which platform it is on has
+-- been handed a leak.
 local process = {}
 
 --- Where a stream goes: a pipe this process reads or writes, the parent's own
@@ -185,6 +142,10 @@ end
 
 --- The operations a platform must answer, in bytes and opaque handles and no
 --- policy.
+---
+--- Everything above it is written once against it: the lifecycle, draining two pipes
+--- without deadlocking, deadlines, and what `communicate` means. Letting providers
+--- differ in more than spawning and reading would end up with two of every bug.
 ---
 --- Every operation is non-blocking except `waitReady`, and that one exists precisely so
 --- that the blocking case is a deliberate call rather than a loop. Waiting is otherwise

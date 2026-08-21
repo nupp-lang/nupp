@@ -3,11 +3,9 @@ module nupp.suspension
 --[[
 Waiting, as an operation with an installable handler.
 
-A library that must wait performs `suspend`, and does not decide how waiting
+A library that must wait performs `suspend` and does not decide how waiting
 happens. Where a handler is installed, a scheduler or a game frame, the handler
-answers; where none is, the built-in one drives the registered sources. One call
-site, no `async` coloring, and no policy parameter threaded through an API that
-did not want one.
+answers; where none is, the built-in one drives the registered sources.
 
 ```nupp
 local suspension = require("nupp.suspension")
@@ -34,35 +32,9 @@ local function waitUntil(ready: function(): boolean): nil
 end
 ```
 
-The shape is tecs's, whose `taskruntime` has done this by hand inside one library
-for years: subscribe for a resumption, be resumed once, be cancellable. What is
-different is that the seam is the language's, so every library gets it rather
-than each re-implementing the dispatch or being unusable inside a frame.
-
-Three properties the protocol is built to keep, each because losing it is a
-silent bug rather than a loud one:
-
-- **Resumption has one path.** A handler is given no writable state. It parks,
-  it is woken, and it returns; the value only ever arrives through the one-shot
-  `resume` the runtime made, so the guard against a second resumption cannot be
-  walked around.
-- **A park is always cancellable.** A subscription that did not resume during
-  the call must answer a cancellation. A handler that has to abandon a wait,
-  because its task was cancelled or the process is shutting down, otherwise has
-  no way to tell the library. Only a subscription that already completed may
-  answer nil, having nothing left to cancel.
-- **The context is available before subscribing.** A library registers its
-  readiness pump with whoever is handling suspensions, which means it has to
-  know who that is at subscription time rather than after.
-
-Measured against tecs's own numbers (`bench/suspension-baseline.lua`), the row
-that matters is the *ready* path, an await whose subscription completes during
-the call, which is most of the cost of waiting even when waiting really happens.
-That path allocates no park and never wakes a handler.
-
 See [suspension.md](docs/concepts/suspension.md) for what a caller writes, and
-[0005-suspension.md](docs/neps/0005-suspension.md) for the record of why the protocol has these
-three properties.
+[0005-suspension.md](docs/neps/0005-suspension.md) for why waiting is an
+operation rather than a second API.
 ]]
 
 local suspension = {}

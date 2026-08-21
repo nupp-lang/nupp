@@ -66,6 +66,10 @@ assert(utf8.isValid("café"))
 assert(not utf8.isValid("\xff"))
 ```
 
+Overlong forms, surrogate halves and codepoints above the maximum are
+malformed even though their lead bytes are well formed, so they are rejected
+on the value rather than on the shape.
+
 `validPrefixLength(value, maxBytes)` answers the length of the largest valid
 prefix no longer than a byte budget, which is what keeps a fixed-width field
 from splitting a scalar in half. `truncate` applies that to a string and copies

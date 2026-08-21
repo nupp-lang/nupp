@@ -3,24 +3,14 @@ module nupp.io.path
 --[[
 Builds and takes apart filesystem paths the way the platform writes them.
 
-The rules are the native library's, so joining, normalizing and splitting agree with
-what the operating system will actually do rather than with a guess made in Lua. A
-path is an immutable value: every operation answers a new one, and two paths are
-equal when their text is. A path names a place on this machine; see [](nupp.io.uri)
-for identifying a resource that may be somewhere else.
-
-A module rather than an export of [](nupp.io), because a program that wants a byte
-buffer should not carry the path provider to get one. So this is reached as
-`nupp.io.path`, and `newPath` interns paths in a bounded least-recently-used cache:
-
 ```nupp
 const path = require("nupp.io.path")
 
 local source = path.newPath("src", "main.nupp")
 ```
 
-`currentDirectory` and `separator` are functions here beside the record, because
-neither builds a path out of components.
+A path names a place on this machine; see [](nupp.io.uri) for identifying a
+resource that may be somewhere else.
 ]]
 
 const native = require("nupp.native")

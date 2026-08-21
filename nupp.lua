@@ -760,6 +760,11 @@ nupp lsp            # start the language server]],
                   source = "docs/modules/nupp/io.md",
                },
                {
+                  path = "modules/nupp/io/http",
+                  title = "nupp.io.http",
+                  source = "docs/modules/nupp/io/http.md",
+               },
+               {
                   path = "modules/nupp/io/path",
                   title = "nupp.io.path",
                   source = "docs/modules/nupp/io/path.md",

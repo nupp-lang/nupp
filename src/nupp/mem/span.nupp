@@ -3,11 +3,6 @@ module nupp.mem.span
 --[[
 Bounds-carrying borrowed pointer views.
 
-`Span<T>` is a sealed public contract over a private runtime implementation that
-keeps an element count beside a rooted pointer. Indexing and slicing check that
-count before the only unsafe pointer operations in this module. Public code
-cannot forge the contract or dereference or offset its raw pointer.
-
 ```nupp
 local span = require("nupp.mem.span")
 
@@ -18,20 +13,6 @@ assert(#bytes == 5 and bytes[1] == 104)
 A shared span copies freely and reads. A writable span does neither: it is
 affine, and its live token holds the source under an incompatible-borrow barrier
 until `drop` or a scope boundary consumes it.
-
-```nupp
-local heap = require("nupp.mem.heap")
-
-do
-    local values = heap.allocate(ffi.typeof<int32>(), 4)
-    local writable = values:write()
-    writable[1] = 42 as int32
-    drop writable
-end
-```
-
-Asking one array for a reader while a writer is live reports `NUPP2607`, and so
-does the reverse.
 
 See [ownership.md](docs/type-system/ownership.md) for the borrow rules these views are written
 against, and [c-interop.md](docs/concepts/c-interop.md) for what `ref` hands a C call.

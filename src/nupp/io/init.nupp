@@ -3,22 +3,15 @@ module nupp.io
 --[[
 Stores bytes, and hands out the readers and writers that move them.
 
-A buffer owns a malloc-backed array that grows by doubling. Everything else here is a
-view onto bytes that already exist: a snapshot holds a copy, a reader walks one
-forward, a writer appends to a buffer, and the scalar pair reads and writes
-fixed-width numbers over either.
+```nupp
+local bytes = nupp.io.newBuffer("hello")
+local reader = bytes:newReader()
+assert(reader:read(5) == "hello")
+```
 
-Each of these is an owner. Closing one is idempotent and answers whether the thing it
-was writing into was still open, so a caller that cares can tell a clean finish from a
-destination that went away first. See
+Every value here is an owner. See
 [ownership.md](docs/type-system/ownership.md) for the complete contract
 reference.
-
-The rest of what `io` means is a module of its own, because each has a luacase name and
-so can have one: [](nupp.io.path) for filesystem paths, [](nupp.io.uri) for resource
-identifiers, [](nupp.io.files) for the filesystem itself. Keeping them apart is what
-lets a program that wants a byte buffer carry a byte buffer, rather than the path and
-URI providers it never reaches.
 ]]
 
 local ffi = require("ffi")

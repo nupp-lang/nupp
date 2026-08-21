@@ -3,15 +3,12 @@ module nupp.data.utf8
 --[[
 Reads, encodes and validates UTF-8 codepoints over strings and byte views.
 
-Encoding and validation are `lua-utf8`'s. Decoding is not: these answer a
-replacement character for malformed input rather than raising, and report where the
-next codepoint starts, so a caller walking a buffer of unknown provenance never has
-to guard every step. `0xFFFD` stands for one malformed byte, and the walk continues
-past it.
+```nupp
+const utf8 = require("nupp.data.utf8")
 
-Overlong forms, surrogate halves and codepoints above the maximum are malformed even
-though their lead bytes are well formed, so they are rejected on the value rather
-than on the shape.
+assert(utf8.length("A€") == 2)
+assert(utf8.encode(0x20ac) == "€")
+```
 ]]
 
 local native = require("lua-utf8")

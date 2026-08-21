@@ -98,6 +98,10 @@ The generated `writeJSON(writer)` member writes through the same checked API, so
 a derived record can occupy the root or any value position in a larger document.
 Derived schemas lazily cache their encoded field names and literal values.
 
+These five members are installed onto the module by the derive runtime rather
+than answered by simdjson, so each raises when nothing derived JSON for the
+type it was handed.
+
 ::: seealso
 - [reflection.md](../../../concepts/reflection.md#json-through-a-type-witness)
   for the derived schema and the generated `writeJSON` and `fromJSON` members

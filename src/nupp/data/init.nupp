@@ -4,14 +4,6 @@ module nupp.data
 Bytes become values and values become bytes: serialization, Unicode,
 identifiers, byte digests, and bitsets.
 
-The module holds the small byte algorithms and identifiers directly: FNV-1a,
-CRC-32, SHA-256, UUID v4 and UUID v7. JSON and UTF-8 remain separate modules
-because each stands on a separately selected runtime. `Bitset` is the growable
-multi-word set used when positions, rather than keys, are the data.
-
-See [standard-library.md](docs/concepts/standard-library.md) for how the library
-is laid out.
-
 ```nupp
 const data = require("nupp.data")
 
@@ -21,25 +13,8 @@ local visible = new data.Bitset(1024)
 visible:set(37)
 ```
 
-Which functions are native is not part of the contract. The build selects the
-UUID or SHA-256 provider only when generated code reaches that member.
-
-## Bitsets
-
-LuaJIT gives one 32-bit word at a time and no population count or trailing-zero
-operation -- those are table lookups here, which is the floor Lua can reach --
-so everything that makes a bitset a bitset lives here: the word loop,
-range masks that span word boundaries, the used-word bound, and counting across
-words. Storage is FFI cdata; the pointer is private, so no caller can hold one
-across a growth that replaces it.
-
-Bit indexes count from 0, because bit `i` lives in word `i / WORD_BITS` and
-fighting that costs correctness. `count` is resolved on demand rather than
-maintained through set algebra: union, intersection and difference are word
-loops whose per-word popcount would otherwise cost more than the operation.
-
-Bit indexes count from zero. Reading, clearing and testing beyond the current
-capacity are defined and cheap; setting beyond it grows the private storage.
+See [standard-library.md](docs/concepts/standard-library.md) for how the library
+is laid out.
 ]]
 
 local data = {}
