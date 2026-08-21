@@ -76140,6 +76140,10 @@ end
 
 
 function home . features ( text ) 
+
+
+
+text = text : gsub ( "\r\n" , "\n" ) : gsub ( "\r" , "\n" )
 local found = { }
 
 
@@ -134983,8 +134987,16 @@ _G.assert(_G.loadstring("local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppM
 
 
 
+
 local extensions = { }
 local states = setmetatable ( { } , { __mode = "k" } )
+local legacySlots = setmetatable ( { } , { __mode = "k" } )
+local nextSlot = 0
+
+local function allocateSlot ( ) 
+nextSlot = nextSlot + 1
+return nextSlot
+end
 
 
 
@@ -134994,8 +135006,12 @@ extensions.Key = {} extensions.Key.__index = extensions.Key
 
 
 
+
+
+
+
 function extensions . key ( build ) 
-return setmetatable({ build =  build }, extensions.Key)
+return setmetatable({ slot =  allocateSlot ( ) ,  build =  build }, extensions.Key)
 end
 
 
@@ -135018,7 +135034,20 @@ local state = states [ host ]
 if state == nil then
 error ( "nupp: value is not an extension host" , 2 )
 end
-local cached = state . values [ key ]
+
+
+
+local token = key
+local slot = token . slot
+if slot == nil then
+slot = legacySlots [ token ]
+if slot == nil then
+slot = allocateSlot ( )
+legacySlots [ token ] = slot
+end
+end
+local index = slot
+local cached = state . values [ index ]
 if cached ~= nil then
 if cached . state == "ready" then
 return cached . value
@@ -135028,8 +135057,8 @@ end
 error ( "nupp: recursive extension initialization" , 2 )
 end
 local initializing = { state = "initializing" }
-state . values [ key ] = initializing
-local ok , value = pcall ( ( key ) . build , host )
+state . values [ index ] = initializing
+local ok , value = pcall ( token . build , host )
 if not ok then
 initializing . state = "failed"
 initializing . error = tostring ( value )
@@ -164092,25 +164121,37 @@ module nupp.extensions
 --[[
 Typed, lazy derived data for immutable run-time descriptors.
 
-An extension key owns the provider and its result type. Hosts keep the cache in a
-side table, so neither the provider nor its process-local result becomes a public
-field on the host. Schema and binding use this directly; reflection delegates to the
-same state machine while retaining its existing public descriptor surface.
+An extension key owns the provider and its result type. Every key receives a dense,
+process-local slot when it is created. Hosts keep slot-indexed caches in a side table,
+so neither the provider nor its process-local result becomes a public field on the
+host. Schema and binding use this directly; reflection delegates to the same state
+machine while retaining its existing public descriptor surface.
 ]]
 
 local extensions = {}
 local states: any = setmetatable({}, {__mode = "k"})
+local legacySlots: any = setmetatable({}, {__mode = "k"})
+local nextSlot: integer = 0
+
+local function allocateSlot(): integer
+    nextSlot = nextSlot + 1
+    return nextSlot
+end
 
 --- A typed identity and provider for lazily derived host data.
 --- @export
 record extensions.Key<T>
+    -- Slots identify metadata only inside this process. They may change when
+    -- module initialization order changes and must never become persistent or
+    -- wire identities.
+    private readonly slot: integer
     private readonly build: function(host: any): T
 end
 
 --- Creates a typed extension key.
 --- @export
 function extensions.key<T>(build: function(host: any): T): extensions.Key<T>
-    return new extensions.Key(build = build)
+    return new extensions.Key(slot = allocateSlot(), build = build)
 end
 
 --- Registers an immutable object as an extension host.
@@ -164133,7 +164174,20 @@ function extensions.resolve<T>(host: any, key: extensions.Key<T>): T
     if state == nil then
         error("nupp: value is not an extension host", 2)
     end
-    local cached: any = state.values[key]
+    -- Reflection extensions predate typed keys and remain ordinary identity
+    -- tables. Assign those a slot lazily so every host cache still has one dense
+    -- representation while old extension providers retain their identity.
+    local token: any = key
+    local slot = token.slot as integer?
+    if slot == nil then
+        slot = legacySlots[token]
+        if slot == nil then
+            slot = allocateSlot()
+            legacySlots[token] = slot
+        end
+    end
+    local index = slot as integer
+    local cached: any = state.values[index]
     if cached ~= nil then
         if cached.state == "ready" then
             return cached.value as T
@@ -164143,8 +164197,8 @@ function extensions.resolve<T>(host: any, key: extensions.Key<T>): T
         error("nupp: recursive extension initialization", 2)
     end
     local initializing: any = {state = "initializing"}
-    state.values[key] = initializing
-    local ok, value = pcall((key as any).build, host)
+    state.values[index] = initializing
+    local ok, value = pcall(token.build, host)
     if not ok then
         initializing.state = "failed"
         initializing.error = tostring(value)
