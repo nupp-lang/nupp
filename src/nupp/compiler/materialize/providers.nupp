@@ -97,8 +97,8 @@ end
 
 local function installTest(state, env)
     local library = {}
-    local nodeToken = function()
-    end
+    -- A table, so the identity is fresh: Lua 5.3 shares upvalue-free closures.
+    local nodeToken = {}
     state.intrinsics[nodeToken] = function(at, args)
         local value = args[1]
         if type(value) ~= "number" or value ~= math.floor(value) then
@@ -108,8 +108,7 @@ local function installTest(state, env)
         return opaque(state, "compiler-test", "Graph", {value = value}, provenance(at, "node"))
     end
     library.node = nodeToken
-    local factoryToken = function()
-    end
+    local factoryToken = {}
     state.intrinsics[factoryToken] = function(at)
         return opaque(state, "compiler-test", "Factory", {}, provenance(at, "factory"))
     end

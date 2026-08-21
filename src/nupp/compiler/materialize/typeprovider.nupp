@@ -109,8 +109,10 @@ local function make(state, opaque, family, payload, at)
 end
 
 local function installIntrinsic(state, library, name, implementation)
-    local token = function()
-    end
+    -- A fresh table, not a closure: the evaluator matches intrinsics by object
+    -- identity, and Lua 5.3 answers an upvalue-free `function() end` with one
+    -- shared closure however often it is evaluated.
+    local token = {}
     state.intrinsics[token] = implementation
     library[name] = token
 end

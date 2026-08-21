@@ -22,8 +22,8 @@ end
 
 function fieldcodec.installEvaluator(state: any, env: any, newOpaque: any, provenance: any)
     local library = {}
-    local token = function()
-    end
+    -- A table, so the identity is fresh: Lua 5.3 shares upvalue-free closures.
+    local token = {}
     state.intrinsics[token] = function(at, args)
         local reflected = state.opaque[args[1]]
         if args.n ~= 1 or not reflected or reflected.provider ~= "reflection" or reflected.family ~= "TypeInfo" then

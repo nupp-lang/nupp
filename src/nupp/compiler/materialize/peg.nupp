@@ -100,12 +100,14 @@ function peg.installEvaluator(state: any, env: any, newOpaque: any, provenance: 
     local library = {}
 
     -- The token is the identity the evaluator matches on, so each intrinsic needs an
-    -- object of its own and this builds one. That is also why the registration loops
-    -- below cannot be made recordable (`jit-loop-closure`): moving the callback out
-    -- would leave this behind. They run once, when the library is materialized.
+    -- object of its own and this builds one. A table rather than a closure, because
+    -- Lua 5.3 answers an upvalue-free `function() end` with one shared closure however
+    -- often it is evaluated, which would collapse every intrinsic here onto whichever
+    -- was registered last. That is also why the registration loops below cannot be
+    -- made recordable (`jit-loop-closure`): moving the callback out would leave this
+    -- behind. They run once, when the library is materialized.
     local function intrinsic(name, callback)
-        local token = function()
-        end
+        local token = {}
         state.intrinsics[token] = function(at, args)
             return callback(args, at)
         end

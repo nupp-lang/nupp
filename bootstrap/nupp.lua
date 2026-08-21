@@ -104783,8 +104783,8 @@ end
 function deriveProvider . installEvaluator ( state , env , opaque , provenance , entryOf ) 
 local library = { }
 local function install ( name , implementation ) 
-local token = function ( ) 
-end
+
+local token = { }
 state . intrinsics [ token ] = implementation
 library [ name ] = token
 end
@@ -105458,8 +105458,8 @@ end
 
 function fieldcodec . installEvaluator ( state , env , newOpaque , provenance ) 
 local library = { }
-local token = function ( ) 
-end
+
+local token = { }
 state . intrinsics [ token ] = function ( at , args ) 
 local reflected = state . opaque [ args [ 1 ] ]
 if args . n ~= 1 or not reflected or reflected . provider ~= "reflection" or reflected . family ~= "TypeInfo" then
@@ -106015,9 +106015,11 @@ local library = { }
 
 
 
+
+
+
 local function intrinsic ( name , callback ) 
-local token = function ( ) 
-end
+local token = { }
 state . intrinsics [ token ] = function ( at , args ) 
 return callback ( args , at )
 end
@@ -108517,8 +108519,8 @@ end
 
 local function installTest ( state , env ) 
 local library = { }
-local nodeToken = function ( ) 
-end
+
+local nodeToken = { }
 state . intrinsics [ nodeToken ] = function ( at , args ) 
 local value = args [ 1 ]
 if type ( value ) ~= "number" or value ~= math . floor ( value ) then
@@ -108528,8 +108530,7 @@ end
 return opaque ( state , "compiler-test" , "Graph" , { value = value } , provenance ( at , "node" ) )
 end
 library . node = nodeToken
-local factoryToken = function ( ) 
-end
+local factoryToken = { }
 state . intrinsics [ factoryToken ] = function ( at ) 
 return opaque ( state , "compiler-test" , "Factory" , { } , provenance ( at , "factory" ) )
 end
@@ -109073,8 +109074,10 @@ return made
 end
 
 local function installIntrinsic ( state , library , name , implementation ) 
-local token = function ( ) 
-end
+
+
+
+local token = { }
 state . intrinsics [ token ] = implementation
 library [ name ] = token
 end
