@@ -128,13 +128,17 @@ rejected("shared-output", assert(source:gsub("exclusive transforms", "borrows tr
 -- table is a lowered expression now, so what refuses this is the arithmetic that
 -- reads it. The refusal still lands on the source line, which is what this case
 -- is here to hold.
---
--- It no longer covers an allocation nothing reads. That one lowers, and the IR
--- verifier raises `Lua allocation outside a builder` -- an uncaught error rather
--- than a diagnostic, from `nupp aot` on ordinary source. Reaching a verifier
--- assertion is a compiler bug, not a refusal, so there is nothing to assert
--- about it here until it is one.
 rejected("allocation", assert(source:gsub("local nextX = transform.x %+ dx", "local nextX = {dx}", 1)), "arithmetic operands must both be numeric")
+-- An allocation nothing reads, which the arithmetic above cannot catch. This is
+-- the case that reached the IR verifier and raised `Lua allocation outside a
+-- builder`, an uncaught error carrying no source, until a counted native loop
+-- learned to refuse a Lua value where it is written.
+rejected(
+   "unread-allocation",
+   assert(source:gsub("local damping = math%.max%(0, 1 %- motion%.drag %* dt%)",
+      "local scratch = {dx}\n        local damping = math.max(0, 1 - motion.drag * dt)", 1)),
+   "not admitted in a counted native loop"
+)
 rejected(
    "recursive-helper",
    assert(source:gsub("return x %* scale, y %* scale", "return scalePair(x, y, scale), y", 1)),

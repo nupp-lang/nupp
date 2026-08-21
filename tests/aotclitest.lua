@@ -838,6 +838,38 @@ function M.anUnknownTargetOrTierIsRejected()
       "and names the tiers it does have: " .. tierOut)
 end
 
+function M.aCountedLoopRefusesAValueOnlyTheVmCanHold()
+   -- The other half of the rule the test below states. A block body that reaches a
+   -- Lua value becomes a builder; a counted native loop runs per element with no VM
+   -- to allocate against and cannot become one, so the value is refused where it is
+   -- written.
+   --
+   -- It used to lower instead. Nothing refused it, the entry mode stayed `kernel`
+   -- because this shape hardcodes it, and the IR verifier then raised `Lua
+   -- allocation outside a builder` -- reached from `nupp aot` on ordinary source,
+   -- so an uncaught error carrying no file and no line was what a mistyped local
+   -- got you.
+   local dir = project{["loop.nupp"] = [[
+local span = require("nupp.mem.span")
+
+@aot
+local function scale(exclusive out: span.WriteSpan<float>, borrows input: span.Span<float>): nil
+    assert(#out == #input, "length mismatch")
+    for i = 1, #out do
+        local scratch = {1.0}
+        out[i] = input[i] * 2.0
+    end
+end
+
+return {scale = scale}
+]]}
+   local out, code = run(dir, "loop.nupp")
+   test.equal(code, 1, out)
+   assert(out:find("not admitted in a counted native loop", 1, true), out)
+   -- On the allocation, not on the loop that contains it.
+   assert(out:find("loop.nupp:7:25:", 1, true), "the refusal names the allocation: " .. out)
+end
+
 function M.luaBuildersReportAndEmitTheirSeparateVmAbi()
    local dir = project{["builder.nupp"] = [[
 @aot

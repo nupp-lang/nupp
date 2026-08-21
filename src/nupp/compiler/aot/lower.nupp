@@ -660,11 +660,29 @@ record lower.Kernel
     --- Whether lowering reached an operation that requires the VM-aware ABI.
     usesLua: boolean
 
+    --- Where it first did. A block body that reaches a Lua value is a builder and
+    --- wants no site; a counted native loop cannot become one, so this is what its
+    --- refusal points at. Kept because the shape is only known once the whole body
+    --- is lowered, by which time the expression that caused it is out of reach.
+    luaSource: scalarIR.Source?
+
     --- How many locals have been named, so two source scopes using one name get
     --- two C names.
     serial: integer
 
     context: lower.Context
+end
+
+--- Notes that lowering reached a value only the VM can hold, and where.
+---
+--- Every site that produces one calls this rather than setting the flag, so the
+--- first one is remembered whatever kind it was. What is done about it depends on
+--- the shape being lowered, which is decided later.
+local function markLua(kernel: lower.Kernel, source: scalarIR.Source): nil
+    kernel.usesLua = true
+    if kernel.luaSource == nil then
+        kernel.luaSource = source
+    end
 end
 
 --- The largest 32-bit pattern, for a literal standing in for one.
@@ -1074,7 +1092,7 @@ local function call(
             context.reject(lower.site(node), "simd.paddedStringU8 requires a rooted string parameter")
         end
         kernel.usesSimd = true
-        kernel.usesLua = true
+        markLua(kernel, lower.site(node))
         return new scalarIR.Simd(
             op = "simd_padded_string_u8",
             args = args,
@@ -1103,7 +1121,7 @@ local function call(
         if args[5].type ~= "lua_value" or args[5].op ~= "local" then
             context.reject(lower.site(node), "valuebuilder null replacement must be a rooted Lua value")
         end
-        kernel.usesLua = true
+        markLua(kernel, lower.site(node))
 
         return new scalarIR.LuaTree(
             op = "lua_tree",
@@ -1131,7 +1149,7 @@ local function call(
                 or "valuebuilder.new takes one rooted null replacement"
             )
         end
-        kernel.usesLua = true
+        markLua(kernel, lower.site(node))
         return new scalarIR.LuaBuilder(
             op = "lua_builder",
             nullValue = args[1],
@@ -1144,7 +1162,7 @@ local function call(
         if #args ~= 1 or args[1].type ~= "u32" then
             context.reject(lower.site(node), "valuebuilder.newWordScratch takes one uint32 capacity")
         end
-        kernel.usesLua = true
+        markLua(kernel, lower.site(node))
         return new scalarIR.LuaScratchU32(
             op = "lua_scratch_u32",
             capacity = args[1],
@@ -1155,7 +1173,7 @@ local function call(
         if #args ~= 2 or args[1].type ~= "lua_scratch_u32" or args[1].op ~= "local" or args[2].type ~= "u32" then
             context.reject(lower.site(node), "valuebuilder.scratchWord takes a local scratch buffer and uint32 index")
         end
-        kernel.usesLua = true
+        markLua(kernel, lower.site(node))
         return new scalarIR.LuaScratchU32Get(
             op = "lua_scratch_u32_get",
             scratch = args[1],
@@ -1172,7 +1190,7 @@ local function call(
                 "valuebuilder.setScratchWord takes a local scratch buffer, uint32 index, and uint32 value"
             )
         end
-        kernel.usesLua = true
+        markLua(kernel, lower.site(node))
         return new scalarIR.LuaScratchU32Set(
             op = "lua_scratch_u32_set",
             scratch = args[1],
@@ -1192,7 +1210,7 @@ local function call(
                 "valuebuilder.appendSetBits takes a local word scratch, uint32 index and base, and MaskBits64"
             )
         end
-        kernel.usesLua = true
+        markLua(kernel, lower.site(node))
         return new scalarIR.LuaScratchU32AppendBits(
             op = "lua_scratch_u32_append_bits",
             scratch = args[1],
@@ -1206,7 +1224,7 @@ local function call(
         if #args ~= 1 or args[1].type ~= "u32" then
             context.reject(lower.site(node), "valuebuilder.newByteScratch takes one uint32 capacity")
         end
-        kernel.usesLua = true
+        markLua(kernel, lower.site(node))
         return new scalarIR.LuaScratchU8(
             op = "lua_scratch_u8",
             capacity = args[1],
@@ -1217,7 +1235,7 @@ local function call(
         if #args ~= 2 or args[1].type ~= "lua_scratch_u8" or args[1].op ~= "local" or args[2].type ~= "u32" then
             context.reject(lower.site(node), "valuebuilder.scratchByte takes a local byte scratch and uint32 index")
         end
-        kernel.usesLua = true
+        markLua(kernel, lower.site(node))
         return new scalarIR.LuaScratchU8Get(
             op = "lua_scratch_u8_get",
             scratch = args[1],
@@ -1231,7 +1249,7 @@ local function call(
         ].type ~= "lua_scratch_u8" or args[1].op ~= "local" or args[2].type ~= "u32" or args[3].type ~= "u32" then
             context.reject(lower.site(node), "valuebuilder.setScratchByte takes a local byte scratch, index, and byte")
         end
-        kernel.usesLua = true
+        markLua(kernel, lower.site(node))
         return new scalarIR.LuaScratchU8Set(
             op = "lua_scratch_u8_set",
             scratch = args[1],
@@ -1244,7 +1262,7 @@ local function call(
         if #args ~= 1 or args[1].type ~= "lua_scratch_u8" or args[1].op ~= "local" then
             context.reject(lower.site(node), "valuebuilder.resetByteScratch takes one local byte scratch")
         end
-        kernel.usesLua = true
+        markLua(kernel, lower.site(node))
         return new scalarIR.LuaScratchU8Set(
             op = "lua_scratch_u8_reset",
             scratch = args[1],
@@ -1261,7 +1279,7 @@ local function call(
         ) or args[1].type ~= "lua_string" or args[1].op ~= "local" or takesIndex and args[2].type ~= "u32" then
             context.reject(lower.site(node), "valuebuilder rooted byte access has an invalid argument")
         end
-        kernel.usesLua = true
+        markLua(kernel, lower.site(node))
         return new scalarIR.LuaBytes(
             op = identity == "nupp.data.valuebuilder.byte"
             and "lua_string_byte"
@@ -1277,7 +1295,7 @@ local function call(
         if #args ~= 1 or args[1].type ~= "lua_builder" or args[1].op ~= "local" then
             context.reject(lower.site(node), "valuebuilder.finish takes one local builder")
         end
-        kernel.usesLua = true
+        markLua(kernel, lower.site(node))
         return new scalarIR.LuaBuilderFinish(
             op = "lua_builder_finish",
             builder = args[1],
@@ -1291,7 +1309,7 @@ local function call(
         if #args ~= 1 or args[1].type ~= "lua_builder" or args[1].op ~= "local" then
             context.reject(lower.site(node), "valuebuilder stream query takes one local builder")
         end
-        kernel.usesLua = true
+        markLua(kernel, lower.site(node))
         return new scalarIR.LuaBuilderQuery(
             op = identity == "nupp.data.valuebuilder.depth"
             and "lua_builder_depth"
@@ -1374,7 +1392,7 @@ local function call(
             elseif #args ~= 1 then
                 context.reject(lower.site(node), "valuebuilder event takes only its builder")
             end
-            kernel.usesLua = true
+            markLua(kernel, lower.site(node))
             return event
         end
     end
@@ -1391,7 +1409,7 @@ local function call(
                 context.reject(lower.site(node), "table.new capacities must be numeric")
             end
         end
-        kernel.usesLua = true
+        markLua(kernel, lower.site(node))
 
         return new scalarIR.LuaNewTable(
             op = "lua_new_table",
@@ -1583,7 +1601,7 @@ local function simdMethod(
         args[
             3
         ] = lower.convert(lower.expression(raw[2], environment, activeIndex, kernel), "u32", source, kernel.context)
-        kernel.usesLua = true
+        markLua(kernel, source)
         return new scalarIR.Simd(op = "simd_load_string_u8", args = args, type = "simd_vector_u8", source = source)
     elseif receiverType == "simd_species_u8" and method == "tail" and #raw == 1 then
         args[
@@ -1737,12 +1755,12 @@ function lower.expression(
     elseif kind == "trueExpr" or kind == "falseExpr" then
         return new scalarIR.Bool(op = "bool", value = kind == "trueExpr", type = "bool", source = lower.site(node))
     elseif kind == "nilExpr" then
-        kernel.usesLua = true
+        markLua(kernel, lower.site(node))
         return new scalarIR.LuaNil(op = "lua_nil", type = "lua_nil", source = lower.site(node))
     elseif kind == "string" then
         local token = (node as cst.StringLit).token
         local written = token ~= nil and (token as lexer.Token).text or "\"\""
-        kernel.usesLua = true
+        markLua(kernel, lower.site(node))
         return new scalarIR.LuaString(
             op = "lua_string",
             value = stringBytes(written),
@@ -1787,7 +1805,7 @@ function lower.expression(
                 #fields + 1
             ] = new scalarIR.LuaField(key = key, value = value, indexed = indexed, source = lower.site(raw))
         end
-        kernel.usesLua = true
+        markLua(kernel, lower.site(node))
         return new scalarIR.LuaNewTable(
             op = "lua_new_table",
             arrayCapacity = new scalarIR.Constant(
@@ -2491,7 +2509,7 @@ local function assignStmt(
                 value = value,
                 source = lower.site(stat)
             )
-            kernel.usesLua = true
+            markLua(kernel, lower.site(stat))
             return
         end
     end
@@ -2533,7 +2551,7 @@ local function assignStmt(
                 value = value,
                 source = lower.site(stat)
             )
-            kernel.usesLua = true
+            markLua(kernel, lower.site(stat))
             return
         end
         if output == nil or output.kind ~= "write_span" then
@@ -3712,6 +3730,18 @@ function lower.program(
     local body_ = lower.block(counted.body ~= nil and (counted.body as cst.Block).stats or {}, environment, kernel)
     if #body_ == 0 then
         context.reject(lower.site(counted.body or loop), "the native loop body may not be empty")
+    end
+    -- A counted native loop runs per element, and entering it is what the loop is
+    -- for -- so it is compiled with no VM to allocate against and enters as
+    -- `kernel` rather than as a builder, whatever it reached. A block body that
+    -- reaches a Lua value becomes a builder instead; this shape has no such door,
+    -- and saying so here is the difference between a refusal naming the line and
+    -- an IR verifier assertion escaping as a traceback with no source at all.
+    if kernel.usesLua then
+        context.reject(
+            kernel.luaSource or lower.site(counted.body or loop),
+            "a value only the VM can hold is not admitted in a counted native loop"
+        )
     end
 
     return new scalarIR.Program(
