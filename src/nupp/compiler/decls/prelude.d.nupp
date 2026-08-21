@@ -18,10 +18,9 @@ This file is parsed and checked by `nupp` itself, as is its Lua counterpart.
 --- A resource with a deterministic, consuming close operation.
 ---
 --- Declaring `is Closeable` makes construction and bare type annotations carry the
---- close obligation automatically. `flush` publishes pending work without consuming
---- that obligation.
+--- close obligation automatically. A resource that publishes pending work declares
+--- `flush` on its own contract; closing is the lifecycle common to all resources.
 affine interface Closeable
-    flush: nosuspend function(exclusive self: Closeable): nil
     terminal close: nosuspend function(takes self: Closeable): nil
 end
 

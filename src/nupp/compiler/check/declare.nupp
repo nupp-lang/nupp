@@ -955,6 +955,7 @@ function declare.install(
             )
         end
         -- A funcbody's type is a function, whatever a body in general may be.
+        e.body.constructorOwner = n
         local ft = c.checkFuncbody(e.body, n) as T.Func
         c.raises.check(e, e.body)
 
@@ -1717,7 +1718,8 @@ function declare.install(
                         )
                         capability = nil
                     end
-                    if c.ownershipKind(ft) == "affine" or c.ownershipKind(ft) == "pinned" then
+                    local fieldOwnership = T.containedOwnershipKind(ft)
+                    if fieldOwnership == "affine" or fieldOwnership == "pinned" then
                         n.affineFields = n.affineFields or {}
                         n.affineFields[#n.affineFields + 1] = e.name.text
                     end

@@ -819,7 +819,22 @@ function bindings.install(c: state.Checker): state.StatHandlers
                 if target.kind == "dotIndex" and target.obj and target.obj.kind == "name" and target.name then
                     local container = ownershipState((c.ownershipEntry(target.obj)))
                     local field = target.name.text
-                    if et and ownershipKind(et) == "affine" and tt and ownershipKind(tt) == "affine" and container then
+                    local constructor = c.constructorFieldStack[#c.constructorFieldStack]
+                    local constructorInit = target.obj.token
+                        and target.obj.token.text == "self"
+                        and constructor
+                        and not constructor.assigned[
+                        field
+                    ]
+                    if constructorInit then
+                        constructor.assigned[field] = true
+                        if et and ownershipKind(et) then
+                            moveExpression(written, et, "constructor field initialization", ownershipKind(et))
+                            partialReinit = true
+                        end
+                    elseif et and ownershipKind(
+                        et
+                    ) == "affine" and tt and ownershipKind(tt) == "affine" and container then
                         if not (container.movedFields and container.movedFields[field]) then
                             c.diag("NUPP2602", target, ("assignment overwrites live affine field %q"):format(field))
                         else

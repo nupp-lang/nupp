@@ -106,7 +106,6 @@ terminal:
 
 ```nupp
 affine interface Closeable
-    flush: nosuspend function(exclusive self: Closeable): nil
     terminal close: nosuspend function(takes self: Closeable): nil
 end
 ```
@@ -115,7 +114,8 @@ A record must explicitly state `is Closeable`; matching method names do not
 infer conformance. Construction then introduces `affine(T, T.close)` behavior,
 and a bare owned `T` annotation carries it. Borrow-qualified parameter and
 result positions refer to the representation instead of minting an owner.
-Calling `close()` consumes the obligation, while `flush()` keeps it live.
+Calling `close()` consumes the obligation. Resource-specific interfaces may
+add non-consuming operations such as `flush()`.
 
 An affine interface must declare one terminal. Its terminal consumes `self`,
 returns `nil`, is non-suspending, and may raise. Interface composition rejects

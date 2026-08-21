@@ -1040,7 +1040,8 @@ function calls.install(c: state.Checker): calls.Ops
                     end
                 end
                 local borrowedRoot = calleeT.borrowedRootFields and calleeT.borrowedRootFields[fname]
-                local storesCapability = c.ownershipKind(ft) == "affine" or c.ownershipKind(ft) == "pinned"
+                local fieldOwnership = T.containedOwnershipKind(ft)
+                local storesCapability = fieldOwnership == "affine" or fieldOwnership == "pinned"
                 if storesCapability and (c.ownershipKind(vt) == "affine" or c.ownershipKind(vt) == "pinned") then
                     affineValues[fname] = vt
                     if borrowedRoot then
@@ -1054,6 +1055,10 @@ function calls.install(c: state.Checker): calls.Ops
                 end
                 local expected = genericMap and substType(ft, genericMap) or ft
                 local checked = borrowedRoot and not storesCapability and rawType(vt) or vt
+                if storesCapability then
+                    checked = T.containedOwnershipPayload(checked)
+                    expected = T.containedOwnershipPayload(expected)
+                end
                 local physical = calleeT.declKind == "struct"
                 local ok, why, reported = c.fixedWidth.fits(checked, expected, value, physical)
                 if not ok and not reported then
@@ -1221,6 +1226,9 @@ function calls.install(c: state.Checker): calls.Ops
                         cleanups[#cleanups + 1] = cleanup
                         obligations[#obligations + 1] = T.cleanupObligation(cleanup, name)
                     end
+                end
+                if #obligations == 0 then
+                    return calleeT, {calleeT}
                 end
                 local owned = T.affine(calleeT, cleanups, transferOnly, T.aggregateObligation(obligations))
                 return owned, {owned}

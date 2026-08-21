@@ -78,22 +78,20 @@ producer may choose:
 
 ```nupp
 local record Client is Closeable
-    function flush(exclusive self): nil
-    end
-
     function close(takes self): nil
     end
 end
 
 local client = new Client()
-client:flush()
 -- `client:close()` runs automatically here.
 ```
 
 Conformance is explicit because it changes ownership. Construction and a bare
 owned `Client` annotation carry one close obligation; `borrows Client` and
 `exclusive Client` remain non-owning views. `close` consumes the owner and
-`flush` leaves it live. Both are non-suspending and `close` returns `nil`.
+is non-suspending and returns `nil`. A resource that can publish pending work
+may additionally declare `flush`; that operation is not part of every
+closeable lifecycle.
 
 Use general `affine(T, terminal)` when cleanup is not intrinsic to `T`, when a
 representation supports several policies, or when an obligation is
@@ -129,9 +127,10 @@ end
 The visible `session` is a non-escaping borrow. Its hidden owner always drops at
 the end of the body and cannot be moved or ended early.
 
-`affine(T)` is deliberately terminal-less. It may be forwarded to another owner
-or consuming parameter, returned, or released in `unsafe`; it cannot be dropped
-locally, because there is no function to call.
+`affine(T)` selects `T`'s inherent terminal when `T` is an affine interface or
+Closeable nominal type. Otherwise it is deliberately terminal-less: it may be
+forwarded to another owner or consuming parameter, returned, or released in
+`unsafe`, but it cannot be dropped locally because there is no function to call.
 
 ## Borrowing
 

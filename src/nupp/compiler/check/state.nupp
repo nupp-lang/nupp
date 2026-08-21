@@ -187,6 +187,9 @@ record state.Checker
     --- The affine fields a consuming function still has to discharge.
     consumingFieldStack: {any}
 
+    --- Fields initialized through `self` by the constructor currently checked.
+    constructorFieldStack: {any}
+
     --- Cleanup contracts already validated, so one is not re-reported.
     validatedCleanupContracts: any
 

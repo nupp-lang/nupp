@@ -3,9 +3,8 @@ local span = require("nupp.mem.span")
 
 local M = {}
 
-local record ProbeReader
+local record ProbeReader is nupp.io.Reader
     state: any
-    drop: nosuspend function(takes self: ProbeReader): nil
 
     function read(self, count: integer): (string?, string?)
         return ""
@@ -28,15 +27,13 @@ local record ProbeReader
         return 0
     end
 
-    function close(takes self): (boolean, string?)
+    function close(takes self): nil
         self.state.closes = self.state.closes + 1
-        return true
     end
 end
 
-local record ProbeWriter
+local record ProbeWriter is nupp.io.Writer
     state: any
-    drop: nosuspend function(takes self: ProbeWriter): nil
 
     function write(exclusive self, bytes: string): (boolean, string?)
         return true
@@ -50,21 +47,8 @@ local record ProbeWriter
         return true
     end
 
-    function close(takes self): (boolean, string?)
+    function close(takes self): nil
         self.state.closes = self.state.closes + 1
-        return true
-    end
-end
-
-function ProbeReader.drop(takes self: ProbeReader): nil
-    nosuspend do
-        self.state.drops = self.state.drops + 1
-    end
-end
-
-function ProbeWriter.drop(takes self: ProbeWriter): nil
-    nosuspend do
-        self.state.drops = self.state.drops + 1
     end
 end
 
@@ -215,27 +199,27 @@ function M.scalarAdaptersFinishTakenEndpointsExactlyOnce(): nil
     do
         local scalar = nupp.io.newScalarReader(new ProbeReader(state = readerDrop))
     end
-    assert(readerDrop.drops == 1 and readerDrop.closes == 0)
+    assert(readerDrop.closes == 1)
 
     local readerClose = {drops = 0, closes = 0}
     do
         local scalar = nupp.io.newScalarReader(new ProbeReader(state = readerClose))
         assert(scalar:close())
     end
-    assert(readerClose.drops == 0 and readerClose.closes == 1)
+    assert(readerClose.closes == 1)
 
     local writerDrop = {drops = 0, closes = 0}
     do
         local scalar = nupp.io.newScalarWriter(new ProbeWriter(state = writerDrop))
     end
-    assert(writerDrop.drops == 1 and writerDrop.closes == 0)
+    assert(writerDrop.closes == 1)
 
     local writerClose = {drops = 0, closes = 0}
     do
         local scalar = nupp.io.newScalarWriter(new ProbeWriter(state = writerClose))
         assert(scalar:close())
     end
-    assert(writerClose.drops == 0 and writerClose.closes == 1)
+    assert(writerClose.closes == 1)
 end
 
 return M

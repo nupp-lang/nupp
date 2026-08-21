@@ -576,9 +576,16 @@ function resolve.install(c: state.Checker): nil
                     )
                     return T.any
                 end
+                -- An explicit affine policy owns the written representation itself.
+                -- Do not first apply a nominal's inherent policy and then wrap that
+                -- owner in a second obligation.
+                local priorSuppression = c.suppressInherentOwner
+                c.suppressInherentOwner = true
                 local representation = c.resolveType(node.arguments[1])
+                c.suppressInherentOwner = priorSuppression
                 if argumentCount == 1 then
-                    local result = T.affine(representation, nil, true)
+                    local inherent = T.inherentOwner(representation)
+                    local result = inherent.tag == "affine" and inherent or T.affine(representation, nil, true)
                     node.resolvedType = result
                     return result
                 end
@@ -1277,9 +1284,10 @@ function resolve.install(c: state.Checker): nil
             c.resolveType(node.type)
             return T.boolean
         elseif kind == "tborrows" then
-            -- the body returns the plain value; the borrow wrapper and the argument it
-            -- is tied to are applied to the function type, the same way affine(T,
-            -- cleanup) wraps an annotated return
+            -- The body returns the plain value; the borrow wrapper and the argument it
+            -- is tied to are applied to the function type. An explicitly written
+            -- `affine(T)` retains T's inherent policy when the result both owns itself
+            -- and borrows backing storage.
             local priorSuppression = c.suppressInherentOwner
             c.suppressInherentOwner = true
             local result = c.resolveType(node.type)

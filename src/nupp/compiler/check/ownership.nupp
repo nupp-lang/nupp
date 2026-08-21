@@ -830,6 +830,15 @@ function ownership.install(c: state.Checker): ownership.Ops
         if dropOperation
             and expectedKind == "affine"
             and expr
+            and expr.kind == "name"
+            and expr.token
+            and expr.token.text == dropOperation.root
+        then
+            dropOperation.wholeMoved = true
+        end
+        if dropOperation
+            and expectedKind == "affine"
+            and expr
             and expr.kind == "dotIndex"
             and expr.obj
             and expr.obj.kind == "name"

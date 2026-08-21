@@ -22,8 +22,7 @@ local function tecsCallSites(options: process.Options, buffer: nupp.io.Buffer): 
         local bytes = buffer:readSpan()
         local fromBuffer, bufferReason = child.stdin:writeSpan(bytes)
         assert(fromBuffer, bufferReason)
-        local closed, closeReason = child.stdin:close()
-        assert(closed, closeReason)
+        child.stdin:close()
     end
 
     if child.stdout ~= nil then

@@ -853,6 +853,9 @@ function functions.install(c: state.Checker): state.StatHandlers
             consumingContext = {root = root, allowed = owned, done = {}}
         end
         c.consumingFieldStack[#c.consumingFieldStack + 1] = consumingContext or false
+        c.constructorFieldStack[
+            #c.constructorFieldStack + 1
+        ] = body.constructorOwner and {owner = body.constructorOwner, assigned = {}} or false
         -- Started here rather than with the scope: the parameters are bound by now, so
         -- the body reading one of them resolves inside the watch and is not a capture.
         local loopClosure = c.loops.begin(c.functionDepth - 1)
@@ -862,6 +865,7 @@ function functions.install(c: state.Checker): state.StatHandlers
         body.partitionResults = nil
         body.partitionReturnSeen = {}
         c.checkBlock(body.body, true) -- scope already pushed
+        c.constructorFieldStack[#c.constructorFieldStack] = nil
         c.closureCaptureStack[#c.closureCaptureStack] = nil
         if #captures > 0 and body.body and not body.captureBindingStat then
             local captureStat = {
@@ -955,7 +959,7 @@ function functions.install(c: state.Checker): state.StatHandlers
             end
         end
         c.consumingFieldStack[#c.consumingFieldStack] = nil
-        if consumingContext then
+        if consumingContext and not consumingContext.wholeMoved then
             for field in pairs(consumingContext.allowed) do
                 if not consumingContext.done[field] then
                     c.diag("NUPP2603", body, ("consuming function leaves owned field %q live"):format(field))

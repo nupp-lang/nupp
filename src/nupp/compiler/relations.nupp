@@ -686,6 +686,12 @@ local function check(a: Type, b: Type): boolean, string?
         end
         return fail(a, b)
     end
+    if btag == "affine" and a == T.nil_ then
+        local inner = b.inner
+        if inner.tag == "union" and inner.hasNil then
+            return true
+        end
+    end
     if btag == "affine" or btag == "borrowed" or btag == "pinned" then
         return fail(a, b)
     end

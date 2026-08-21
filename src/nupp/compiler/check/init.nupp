@@ -904,6 +904,7 @@ function checkMod.check(
         resumePackStack = {},
         protocolStack = {},
         consumingFieldStack = {},
+        constructorFieldStack = {},
         validatedCleanupContracts = {},
         unsafeDepth = 0,
         noSuspendDepth = 0,

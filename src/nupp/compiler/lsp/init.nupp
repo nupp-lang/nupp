@@ -1525,7 +1525,7 @@ function lsp.run(rootDir: string?): integer
     end
     local relayOptions: process.Options = {args = relayArgs, stdin = "inherit", stdout = "pipe", stderr = "inherit",}
     local relay = new process.Process(relayOptions)
-    local reader = assert(relay.stdout)
+    local reader = nupp.borrow(assert(relay.stdout))
     local buffered = ""
     local queued = {}
     local cancelled = {}

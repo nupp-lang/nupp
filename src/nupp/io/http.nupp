@@ -764,7 +764,7 @@ end
 ---
 --- Built by [](nupp.io.http.reader). A redirect cannot replay one, so a request
 --- carrying a reader body fails rather than following.
-record http.ReaderBody
+record http.ReaderBody is Closeable
     --- Where the body's bytes come from.
     reader: io.Reader
 
@@ -773,6 +773,10 @@ record http.ReaderBody
 
     --- The `content-type` to send, unless the request names one itself.
     contentType: string?
+
+    function close(takes self): nil
+        self.reader:close()
+    end
 end
 
 --- A request body read from a file as it is sent.
@@ -1223,9 +1227,8 @@ record http.Body is io.Reader
     --- @param self this body, spent by the call
     --- @return true
     --- @return nothing
-    function close(takes self): (boolean, string?)
+    function close(takes self): nil
         self:release()
-        return true
     end
 
     --- Cancels whatever is still being produced and marks the body closed.
@@ -1251,14 +1254,7 @@ function http.Body.drop(takes self: http.Body): nil
     end
 end
 
-local function destroyBody(takes body: http.Body): nil
-    if not body._closed then
-        body._closed = true
-        body._transfer:close()
-    end
-end
-
-local function makeBody(client: BodyClient, transfer: NativeTransfer): affine(http.Body, destroyBody)
+local function makeBody(client: BodyClient, transfer: NativeTransfer): http.Body
     return new http.Body(_client = client, _transfer = transfer, _closed = false, _reading = false)
 end
 
@@ -1318,7 +1314,7 @@ end
 ---     end
 --- end
 --- ```
-record http.Response
+record http.Response is Closeable
     --- The status the server answered with.
     status: integer
 
@@ -1330,7 +1326,7 @@ record http.Response
     url: uri.URI
 
     --- The response's bytes, owned by this response.
-    body: affine(http.Body, destroyBody)
+    body: http.Body
 
     _packed: string
     _values: {[string]: {string}}?
@@ -1453,28 +1449,17 @@ record http.Response
     --- @param self this response, spent by the call
     --- @return true
     --- @return nothing
-    function close(takes self): (boolean, string?)
+    function close(takes self): nil
         if self._closed then
-            return true
+            return
         end
         self._closed = true
         local body = self.body
-        destroyBody(body)
-
-        return true
+        body:close()
     end
 end
 
 function http.Response.drop(takes self: http.Response): nil
-    nosuspend do
-        if not self._closed then
-            self._closed = true
-            self.body:drop()
-        end
-    end
-end
-
-local function destroyResponse(takes self: http.Response): nil
     nosuspend do
         if not self._closed then
             self._closed = true
@@ -1489,7 +1474,7 @@ local function makeResponse(
     url: uri.URI,
     takes body: http.Body,
     packed: string
-): affine(http.Response, destroyResponse)
+): http.Response
     return new http.Response(
         status = status,
         version = version,
@@ -1597,7 +1582,7 @@ end
 --- @return the response, owned by the caller, or nil on failure
 --- @return a failure reason, when unsuccessful
 --- @raises when the request names no `http` or `https` URL
-function http.Client:send(request: http.Request): (affine(http.Response?, destroyResponse), string?)
+function http.Client:send(request: http.Request): (http.Response?, string?)
     if self._closed then
         return nil, "the HTTP client is closed"
     end
@@ -1916,7 +1901,7 @@ end
 --- @param contentType the `content-type` to send, unless the request names one
 --- @return the request body
 --- @raises when length is negative, or contentType is not a string
-function http.reader(reader: io.Reader, length: integer?, contentType: string?): http.ReaderBody
+function http.reader(takes reader: io.Reader, length: integer?, contentType: string?): http.ReaderBody
     if length ~= nil then
         whole(length, "reader body length", 0)
     end

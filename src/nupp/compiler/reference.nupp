@@ -1222,15 +1222,17 @@ return m
 `affine(T[, cleanup])` is a transparent compile-time type-generator call,
 written in a type position: `type HeldLock = affine(LockToken, unlock)`. Its
 identity combines `T` with the exact const cleanup function, and no wrapper is
-allocated. Cleanup has type `nosuspend function(takes T): nil`. `affine(T)` is
-transfer-only.
+allocated. Cleanup has type `nosuspend function(takes T): nil`. `affine(T)`
+selects the inherent terminal of an affine interface or Closeable nominal; for
+other types it is transfer-only.
 
 `Closeable` is the common nominal lifecycle. A record explicitly implementing
 it is inherently affine, so construction and bare annotations carry its
-`close` obligation without spelling `affine(T, T.close)`. `flush(exclusive
-self)` leaves the obligation live; `close(takes self)` is its non-suspending
-terminal. An affine interface declares one `terminal` member, and inherited
-interfaces may not contribute competing terminals.
+`close` obligation without spelling `affine(T, T.close)`.
+`close(takes self)` is its non-suspending terminal. Resource-specific
+interfaces may add non-consuming operations such as `flush(exclusive self)`.
+An affine interface declares one `terminal` member, and inherited interfaces
+may not contribute competing terminals.
 
 A known affine local is dropped at scope exit. `drop owner` invokes its selected
 terminal now, `takes` parameters and affine returns transfer it, and

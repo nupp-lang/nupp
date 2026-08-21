@@ -3493,6 +3493,90 @@ function M.closeableTypesCarryAnInherentCloseObligation()
    }, "\n"))
 end
 
+function M.affineOfAnAffineInterfaceSelectsItsInherentTerminal()
+   assertClean(table.concat({
+      "local affine interface Sink is Closeable",
+      "   terminal close: nosuspend function(takes self: Sink): nil",
+      "end",
+      "local record BufferSink is Sink",
+      "   anchor: any",
+      "   function close(takes self): nil end",
+      "end",
+      "local function open(borrows anchor: any): affine(Sink) borrows (anchor)",
+      "   return new BufferSink(anchor = anchor)",
+      "end",
+      "local anchor = {}",
+      "local sink = open(anchor)",
+      "sink:close()",
+   }, "\n"))
+end
+
+function M.constructorsMayInitializeCloseableFields()
+   assertClean(table.concat({
+      "local record Resource is Closeable",
+      "   function close(takes self): nil end",
+      "end",
+      "local record Pair",
+      "   first: Resource?",
+      "   second: Resource?",
+      "   constructor(self, first: boolean, second: boolean)",
+      "      if first then self.first = new Resource() end",
+      "      if second then self.second = new Resource() end",
+      "   end",
+      "end",
+      "local pair = new Pair(true, true)",
+   }, "\n"))
+end
+
+function M.consumingAggregatesMayForwardTheWholeOwner()
+   assertClean(table.concat({
+      "local record Resource is Closeable",
+      "   function close(takes self): nil end",
+      "end",
+      "local record Box",
+      "   value: Resource",
+      "   function finish(takes self): nil",
+      "      self.value:close()",
+      "   end",
+      "   function close(takes self): nil",
+      "      self:finish()",
+      "   end",
+      "end",
+      "local box = new Box(value = new Resource())",
+      "box:close()",
+   }, "\n"))
+end
+
+function M.aggregatesOwnTheAffineMemberActuallyStoredInAUnionField()
+   local source = table.concat({
+      "local calls = ''",
+      "local record Resource is Closeable",
+      "   name: string",
+      "   function close(takes self): nil calls = calls .. self.name end",
+      "end",
+      "local type Item = Resource | string",
+      "local record Box",
+      "   item: Item",
+      "end",
+      "do",
+      "   local box = new Box(item = new Resource(name = 'r'))",
+      "   print(box.item)",
+      "end",
+      "do",
+      "   local box = new Box(item = 'plain')",
+      "   print(box.item)",
+      "end",
+      "return calls",
+   }, "\n")
+   local result, diags = checked(source)
+   assertEq(#diags, 0, diags[1] and diags[1].msg or "check")
+   local code, genDiags = gen.generate(result, "ownership-test")
+   assertEq(#genDiags, 0)
+   local chunk, loadErr = loadstring(code, "@ownership-affine-union-field")
+   assert(chunk, tostring(loadErr) .. "\n" .. code)
+   assertEq(chunk(), "r", "only the affine union member is closed")
+end
+
 function M.affineInterfacesRequireOneValidTerminal()
    assertEq(codes(table.concat({
       "local affine interface Broken",

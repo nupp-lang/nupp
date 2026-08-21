@@ -231,7 +231,7 @@ function process.captureIsolated(argv: {string}, opts: process.Options?): intege
         timeoutMs = opts.timeoutMs,
     }
     local child = new native.Process(nativeOptions)
-    local reader = assert(child.stdout)
+    local reader = nupp.borrow(assert(child.stdout))
     reader:setTimeout(5)
     local chunks = {}
     local cancelled = false

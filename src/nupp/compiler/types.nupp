@@ -1534,7 +1534,23 @@ function types.intersection(members: {types.Type}): types.Type
 end
 
 --- `t` or nil: what an annotation writes `T?`.
+local function inherentCleanupOnly(cleanup: types.Cleanup): boolean
+    return cleanup.kind == "method" or cleanup.kind == "field" and cleanup.cleanup ~= nil and inherentCleanupOnly(
+        cleanup.cleanup
+    )
+end
+
 function types.optional(t: types.Type): types.Type
+    if t.tag == "affine" and #(t.cleanups or {}) > 0 then
+        for _, cleanup in ipairs(t.cleanups) do
+            if not inherentCleanupOnly(cleanup) then
+                return types.union({t, types.nil_})
+            end
+        end
+        local payload = types.union({types.unwrapOwnership(t), types.nil_})
+        return types.withOwnershipPayload(t, payload, {})
+    end
+
     return types.union({t, types.nil_})
 end
 
@@ -1694,9 +1710,42 @@ end
 function types.inherentOwner(t: types.Type): types.Type
     local raw = types.unwrapOwnership(t)
     local nominal = raw.tag == "nominal" and raw as types.Nominal or nil
-    local cleanup = nominal and nominal.inherentCleanup or nil
+    if not nominal and raw.tag == "union" and raw.hasNil then
+        for _, member in ipairs(raw.members) do
+            if member ~= types.nil_ then
+                if nominal or member.tag ~= "nominal" then
+                    nominal = nil
+                    break
+                end
+                nominal = member as types.Nominal
+            end
+        end
+    end
+    local cleanup = nominal and (
+        nominal.inherentCleanup or nominal.affineInterface and nominal.terminalMethod and types.methodCleanup(
+            nominal.terminalMethod
+        )
+    ) or nil
     if cleanup then
         return types.affine(raw, {cleanup})
+    end
+    if nominal and nominal.affineFields and #nominal.affineFields > 0 then
+        local cleanups, obligations, transferOnly = {}, {}, false
+        for j = #nominal.affineFields, 1, -1 do
+            local name = nominal.affineFields[j]
+            local field = nominal.byname[name]
+            local capability = field and types.capability(field) or nil
+            if capability and capability.obligation then
+                transferOnly = transferOnly or types.capabilityTransferOnly(capability)
+                obligations[#obligations + 1] = types.aggregateObligation({capability.obligation}, name)
+                for _, fieldCleanup in ipairs(types.capabilityCleanups(capability)) do
+                    cleanups[#cleanups + 1] = types.fieldCleanup(name, fieldCleanup)
+                end
+            end
+        end
+        if #obligations > 0 then
+            return types.affine(raw, cleanups, transferOnly, types.aggregateObligation(obligations))
+        end
     end
 
     return t
@@ -1879,6 +1928,48 @@ function types.capabilityKind(capability: types.Capability): string?
     end
 
     return nil
+end
+
+--- The capability a value may carry inside a sum type. This is used while laying out
+--- aggregate fields: the aggregate owns whichever member was actually placed there,
+--- even though the union itself has no unconditional cleanup to run.
+function types.containedOwnershipKind(t: types.Type): string?
+    local direct = types.capabilityKind(types.capability(t))
+    if direct then
+        return direct
+    end
+    if t.tag == "union" or t.tag == "intersection" then
+        local found: string? = nil
+        for _, member in ipairs(t.members) do
+            local kind = types.containedOwnershipKind(member)
+            if kind == "affine" then
+                return kind
+            elseif kind then
+                found = found or kind
+            end
+        end
+        return found
+    end
+
+    return nil
+end
+
+--- Erases ownership qualifiers at every arm of a sum type. Aggregate construction
+--- checks physical field values through this view after transferring their capability
+--- to the aggregate itself.
+function types.containedOwnershipPayload(t: types.Type): types.Type
+    if t.tag == "affine" or t.tag == "borrowed" or t.tag == "pinned" then
+        return types.containedOwnershipPayload(t.inner)
+    end
+    if t.tag == "union" then
+        local members = {}
+        for j, member in ipairs(t.members) do
+            members[j] = types.containedOwnershipPayload(member)
+        end
+        return types.union(members)
+    end
+
+    return t
 end
 
 function types.capabilityHasMovable(capability: types.Capability): boolean

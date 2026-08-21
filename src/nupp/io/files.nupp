@@ -448,8 +448,8 @@ end
 
 -- Declared ahead of the records because their methods reach them, and defined below
 -- because they name the records. The types are the contract either way.
-local newReaderOver: function(file: File): affine(FileReader, destroyOwner)
-local newWriterOver: function(file: File): affine(FileWriter, destroyOwner)
+local newReaderOver: function(file: File): FileReader
+local newWriterOver: function(file: File): FileWriter
 local scratch: function(self: FileReader, count: integer): any
 local usable: function(self: FileReader): (File?, string?)
 local writable: function(borrows self: FileWriter): (File?, string?)
@@ -522,7 +522,7 @@ export record File
     --- @param self this file
     --- @return the new reader
     --- @raises when the file is closed
-    function newReader(self): affine(FileReader, destroyOwner)
+    function newReader(self): FileReader
         if self._closed then
             error("nupp: io.files File is closed", 2)
         end
@@ -534,7 +534,7 @@ export record File
     --- @param self this file
     --- @return the new writer
     --- @raises when the file is closed
-    function newWriter(self): affine(FileWriter, destroyOwner)
+    function newWriter(self): FileWriter
         if self._closed then
             error("nupp: io.files File is closed", 2)
         end
@@ -655,7 +655,7 @@ end
 
 --- A forward-only reader over an open file.
 --- @export
-export record FileReader
+export record FileReader is io.Reader
     private _file: any
     private _scratch: any
     private _capacity: integer
@@ -776,18 +776,14 @@ export record FileReader
 
     --- Closes the reader without closing the file behind it.
     --- @param self this reader, spent by the call
-    --- @return true
-    --- @return nothing
-    function close(takes self): (boolean, string?)
+    function close(takes self): nil
         self:drop()
-
-        return true, nil
     end
 end
 
 --- An appending writer over an open file.
 --- @export
-export record FileWriter
+export record FileWriter is io.Writer
     private _file: any
     private _closed: boolean
 
@@ -852,12 +848,8 @@ export record FileWriter
 
     --- Closes the writer without closing the file behind it.
     --- @param self this writer, spent by the call
-    --- @return true
-    --- @return nothing
-    function close(takes self): (boolean, string?)
+    function close(takes self): nil
         self:drop()
-
-        return true, nil
     end
 end
 
@@ -957,11 +949,11 @@ function FileWriter.drop(takes self: FileWriter): nil
     state._closed = true
 end
 
-newReaderOver = function(file: File): affine(FileReader, destroyOwner)
+newReaderOver = function(file: File): FileReader
     return new FileReader(_file = file, _scratch = nil, _capacity = 0, _closed = false)
 end
 
-newWriterOver = function(file: File): affine(FileWriter, destroyOwner)
+newWriterOver = function(file: File): FileWriter
     return new FileWriter(_file = file, _closed = false)
 end
 
@@ -1544,7 +1536,7 @@ export function lines(path: string | paths.Path): (LineIterator?, string?)
         return nil, native.error()
     end
     local opened = new File(_handle = handle, _closed = false)
-    local reader = unsafe release opened:newReader()
+    local reader = opened:newReader()
     local held = ""
     local finished = false
     local function trimmed(line: string): string

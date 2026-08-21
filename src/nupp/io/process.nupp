@@ -344,8 +344,6 @@ end
 local progressed, releasePump, await, awaitTick, pumpOnce, readForCompletion
 local validateOptions: function(options: process.Options): nil
 local nativeBackend: function(): process.Backend
-local newReader: function(owner: any, handle: any): any
-local newWriter: function(owner: any, handle: any): any
 
 -- The backend `new process.Process(...)` uses, installed by whichever platform module
 -- is loaded. Kept internal: a caller naming its platform is a caller that has to change
@@ -433,8 +431,8 @@ record process.Reader is nupp.io.Reader
         end
         if why ~= nil then
             -- `release` is the internal ownership operation and answers nothing. Its
-            -- public `close` wrapper converts the raise back to a status; teardown is
-            -- already prepared to catch it here.
+            -- public `close` terminal lets the raise propagate; teardown is already
+            -- prepared to catch it here.
             error(("nupp: could not close a process stream: %s"):format(why), 0)
         end
     end
@@ -597,15 +595,8 @@ record process.Reader is nupp.io.Reader
         end
     end
 
-    function close(self): (boolean, string?)
-        local ok, problem = pcall(function(): nil
-            self:release()
-        end)
-        if not ok then
-            return false, problem == nil and "the process reader could not close" or tostring(problem)
-        end
-
-        return true
+    function close(takes self): nil
+        self:release()
     end
 end
 
@@ -800,15 +791,8 @@ record process.Writer is nupp.io.Writer
         return true
     end
 
-    function close(self): (boolean, string?)
-        local ok, problem = pcall(function(): nil
-            self:release()
-        end)
-        if not ok then
-            return false, problem == nil and "the process writer could not close" or tostring(problem)
-        end
-
-        return true
+    function close(takes self): nil
+        self:release()
     end
 end
 
@@ -821,6 +805,9 @@ end
 function process.asWriter(borrows source: process.Writer): nupp.io.Writer borrows (source)
     return source
 end
+
+local newReader: function(owner: any, handle: any): process.Reader
+local newWriter: function(owner: any, handle: any): process.Writer
 
 --- A running child.
 record process.Process
@@ -898,9 +885,6 @@ record process.Process
         if handle == nil then
             error(problem or "the process could not be started", 2)
         end
-        self.stdin = nil
-        self.stdout = nil
-        self.stderr = nil
         self.backend = backend as process.Backend
         self.handle = handle
         self.exit = nil
@@ -912,9 +896,15 @@ record process.Process
         self.timedOut = false
         self.pid = pid
         self.deadline = options.timeoutMs ~= nil and ((backend as process.Backend):now() + options.timeoutMs) or nil
-        self.stdin = newWriter(self, inHandle)
-        self.stdout = newReader(self, outHandle)
-        self.stderr = newReader(self, errHandle)
+        if inHandle ~= nil then
+            self.stdin = newWriter(self, inHandle)
+        end
+        if outHandle ~= nil then
+            self.stdout = newReader(self, outHandle)
+        end
+        if errHandle ~= nil then
+            self.stderr = newReader(self, errHandle)
+        end
     end
 
     --- Starts a child against an explicit backend for state-machine tests.
@@ -930,9 +920,6 @@ record process.Process
         if handle == nil then
             error(problem or "the process could not be started", 2)
         end
-        self.stdin = nil
-        self.stdout = nil
-        self.stderr = nil
         self.backend = backend
         self.handle = handle
         self.exit = nil
@@ -944,9 +931,15 @@ record process.Process
         self.timedOut = false
         self.pid = pid
         self.deadline = options.timeoutMs ~= nil and (backend:now() + options.timeoutMs) or nil
-        self.stdin = newWriter(self, inHandle)
-        self.stdout = newReader(self, outHandle)
-        self.stderr = newReader(self, errHandle)
+        if inHandle ~= nil then
+            self.stdin = newWriter(self, inHandle)
+        end
+        if outHandle ~= nil then
+            self.stdout = newReader(self, outHandle)
+        end
+        if errHandle ~= nil then
+            self.stderr = newReader(self, errHandle)
+        end
     end
 
     --- Releases the process when its owner leaves scope.
@@ -1018,7 +1011,9 @@ record process.Process
             if maximum < 0 then
                 error("nupp: process maximum output must not be negative", 2)
             end
-            local stdin, stdout, stderr = self.stdin, self.stdout, self.stderr
+            local stdin = nupp.borrow(self.stdin)
+            local stdout = nupp.borrow(self.stdout)
+            local stderr = nupp.borrow(self.stderr)
             local sent = 0
             local out, err = {}, {}
             local outputBytes = 0
@@ -1313,6 +1308,15 @@ end
 
 function process.Process.drop(takes self: process.Process): nil
     self:close()
+    if self.stdin ~= nil then
+        self.stdin:close()
+    end
+    if self.stdout ~= nil then
+        self.stdout:close()
+    end
+    if self.stderr ~= nil then
+        self.stderr:close()
+    end
 end
 
 -- Whether the child has ended since last asked.
@@ -1443,8 +1447,8 @@ end
 await = function(
     self: any,
     operation: string,
-    ready: function(): boolean,
-    interest: function(): process.Interest,
+    scoped ready: function(): boolean,
+    scoped interest: function(): process.Interest,
     stopAt: number?
 ): boolean
     if ready() then
@@ -1503,7 +1507,7 @@ end
 -- The shared Reader operation uses the concrete bounded poll but still waits through
 -- the same state machine as every other completion-oriented call. Keeping the limit
 -- here avoids a surplus buffer and its second notion of EOF.
-readForCompletion = function(source: process.Reader, limit: integer): (string?, string?)
+readForCompletion = function(borrows source: process.Reader, limit: integer): (string?, string?)
     if source.closed or source.eof then
         return nil
     end
@@ -1540,19 +1544,11 @@ readForCompletion = function(source: process.Reader, limit: integer): (string?, 
     return chunk
 end
 
-newReader = function(owner: any, handle: any): any
-    if handle == nil then
-        return nil
-    end
-
+newReader = function(owner: any, handle: any): process.Reader
     return new process.Reader(owner = owner, handle = handle, closed = false, eof = false, timeoutMs = 30000)
 end
 
-newWriter = function(owner: any, handle: any): any
-    if handle == nil then
-        return nil
-    end
-
+newWriter = function(owner: any, handle: any): process.Writer
     return new process.Writer(owner = owner, handle = handle, closed = false, gone = false, timeoutMs = 30000)
 end
 

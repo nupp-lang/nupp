@@ -258,7 +258,7 @@ function M.processViewsSatisfyTheSharedContracts()
       "local output = child.stdout as process.Reader",
       "local leaked: nupp.io.Reader? = nil",
       "leaked = process.asReader(output)",
-   }, "\n"))), "NUPP2608:5", "a view cannot escape its borrowed process stream")
+   }, "\n"))), "NUPP2001:5 NUPP2608:5", "a view cannot escape its borrowed process stream")
    assertEq((diagsOf(table.concat({
       "local process = require('nupp.io.process')",
       "local impossible: process.ReaderView = nil as any",
