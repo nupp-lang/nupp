@@ -503,6 +503,27 @@ function M.foldsExactPrimitiveComparisons()
       "folded comparison result")
 end
 
+-- Lua's grammar takes only a name, a parenthesized expression, or another
+-- suffixed expression as the prefix of a call or an index, and every fold puts a
+-- scalar literal there. Emitting the bare literal produced Lua that would not
+-- parse, which gen then reported as NUPP3005 against a program that was fine.
+function M.parenthesizesAFoldedCallOrIndexPrefix()
+   local written = "return ('abc'):find('b')"
+   local writtenCode = compile(written)
+   assertTrue(writtenCode:match('%("abc"%)%s*:%s*find') ~= nil,
+      "written parentheses survive the fold: " .. writtenCode)
+   assertEq(run(written), 2, "folded receiver still finds the byte")
+
+   local propagated = "const greeting = 'hello'\nreturn greeting:upper()"
+   local propagatedCode = compile(propagated)
+   assertTrue(propagatedCode:match('%("hello"%)%s*:%s*upper') ~= nil,
+      "a const receiver gains parentheses it never had: " .. propagatedCode)
+   assertEq(run(propagated), "HELLO", "folded const receiver still upper-cases")
+
+   local indexed = "const greeting = 'hello'\nreturn greeting.byte ~= nil"
+   assertEq(run(indexed), true, "a folded index prefix loads and reads")
+end
+
 function M.elidesConstantConditionalArms()
    local src = table.concat({
       "if false then",

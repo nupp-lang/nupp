@@ -834,6 +834,19 @@ end
 
 local foldBlock, foldFunction
 
+-- Lua's grammar takes only a name, a parenthesized expression, or another suffixed
+-- expression as the prefix of a call or an index, and every text this folder puts in
+-- place of an expression is a scalar literal. So a fold that reaches a prefix has to
+-- write the parentheses back, whether the source had them -- `("abc"):find("b")` --
+-- or never did, as in a const binding read as `GREETING:upper()`. Emitting the bare
+-- literal there produces Lua that does not parse, which `gen` then reports as
+-- NUPP3005 against a program that was fine.
+local function parenthesizeFoldedPrefix(node)
+    if node and not isToken(node) and node.folded then
+        node.folded = "(" .. node.folded .. ")"
+    end
+end
+
 local function foldExpr(node, current)
     if not node or isToken(node) then
         return nil
@@ -979,6 +992,7 @@ local function foldExpr(node, current)
         return nil
     elseif kind == "call" or kind == "safeCall" then
         foldExpr(node.obj, current)
+        parenthesizeFoldedPrefix(node.obj)
         local arguments, allNumbers = {}, true
         for _, arg in ipairs(node.args and node.args.exprs or {}) do
             local value = foldExpr(arg, current)
@@ -1000,11 +1014,13 @@ local function foldExpr(node, current)
         end
     elseif kind == "methodCall" then
         foldExpr(node.obj, current)
+        parenthesizeFoldedPrefix(node.obj)
         for _, arg in ipairs(node.args and node.args.exprs or {}) do
             foldExpr(arg, current)
         end
     elseif kind == "dotIndex" or kind == "safeIndex" then
         foldExpr(node.obj, current)
+        parenthesizeFoldedPrefix(node.obj)
         local value = resolvedLiteral(node) or lookupPath(current, textPath(node))
         if value and value.kind ~= "table" then
             node.folded = value.code
@@ -1012,6 +1028,7 @@ local function foldExpr(node, current)
         return value
     elseif kind == "bracketIndex" or kind == "safeBracket" then
         foldExpr(node.obj, current)
+        parenthesizeFoldedPrefix(node.obj)
         foldExpr(node.expr, current)
     elseif kind == "tableExpr" then
         local fields = {}
