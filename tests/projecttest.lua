@@ -161,6 +161,16 @@ function M.windowsMkdirUsesNativePathAndIsIdempotent()
    assertEq(table.concat(posix, " "), "mkdir -p build/nupp")
 end
 
+function M.windowsAbsolutePathsAreNotModulesUnderTheCurrentRoot()
+   local path = "C:/Users/runner/AppData/Local/Temp/backend/source/example.nupp"
+   assertEq(compilerEnv.moduleNameInRoots({"."}, path), nil,
+      "a drive path outside the project has no canonical module name")
+   assert(not compilerEnv.isProjectPath({roots = {"."}, config = {}, rootDir = "."}, path),
+      "a drive path outside the project is not project source")
+   assertEq(compilerEnv.moduleNameInRoots({"."}, "source/example.nupp"), "source.example",
+      "a relative path remains a module beneath the current root")
+end
+
 function M.isolatedProcessStopsAtItsWallClockDeadline()
    if jit.os == "Windows" then return end
    local code = process.captureIsolated(
