@@ -68,8 +68,8 @@ test("the active line appears only after the editor receives focus", () => {
 test("documentation playgrounds are inline and have dismissible output", () => {
   const docApp = readFileSync(new URL("../src/doc-app.js", import.meta.url), "utf8");
   assert.match(docApp, /customElements\.define\("nupp-playground"/);
-  assert.match(docApp, /:host \{[\s\S]*?position: relative;[\s\S]*?margin: 1\.75rem 0 \.75rem;/);
-  assert.match(docApp, /\.toolbar \{[\s\S]*?position: absolute;[\s\S]*?top: -1\.75rem;/);
+  assert.match(docApp, /:host \{[\s\S]*?position: relative;[\s\S]*?margin: 1\.875rem 0 \.75rem;/);
+  assert.match(docApp, /\.toolbar \{[\s\S]*?position: absolute;[\s\S]*?top: -1\.875rem;/);
   assert.match(docApp, /:host\(\[data-grouped\]\) \.toolbar \{[\s\S]*?position: static;/);
   assert.match(docApp, /:host\(\[data-grouped\]\) \.editor \{[\s\S]*?border: 0;[\s\S]*?border-radius: 0;/);
   assert.match(docApp, /\.editor \{[\s\S]*?border: 1px solid var\(--pg-border\);[\s\S]*?border-radius: var\(--pg-code-block-radius\);/);
