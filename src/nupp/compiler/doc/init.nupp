@@ -1197,9 +1197,16 @@ local function reconcileSiteFiles(output: string, written: {string}): boolean?, 
         path = normalize(path)
         if not current[path] and path:sub(1, #output + 1) == output .. "/" then
             removeReplaced(path)
+            -- A route directory that still holds something is the ordinary case, not a
+            -- contended one, and so is every directory above it: stop at the first that
+            -- stays rather than retrying it and then each of its parents. Retrying a
+            -- directory that is not empty costs two seconds and removes nothing, and a
+            -- build that renamed a hundred routes paid it a hundred times.
             local directory = dirname(path)
-            while directory ~= output and directory:sub(1, #output + 1) == output .. "/" do
-                removeReplaced(directory)
+            while directory ~= output and directory:sub(
+                1,
+                #output + 1
+            ) == output .. "/" and nupp.io.files.remove(directory) do
                 directory = dirname(directory)
             end
         end
