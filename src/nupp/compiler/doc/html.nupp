@@ -334,6 +334,14 @@ local function extractBlocks(text, links, rendered)
                 end
             end
             placeholder(codeGroupHtml(blocks, links))
+        elseif marker == "::: columns" then
+            local body, after = readContainer(lines, index)
+            if body then
+                index = after - 1
+                placeholder('<div class="nuppdoc-columns">' .. markdownHtml(body, links, 0) .. "</div>")
+            else
+                out[#out + 1] = line
+            end
         elseif directive and ADMONITION_TITLES[directive] then
             local body, after = readContainer(lines, index)
             if body then

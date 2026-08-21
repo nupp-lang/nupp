@@ -277,6 +277,33 @@ local Point = {} Point.__index = Point
 :::
 ````
 
+### Columns
+
+A columns block lays its headings and their bodies out side by side instead of
+stacked, three to a row:
+
+````markdown
+::: columns
+
+## Learning Nupp
+
+- [Installation](../getting-started/installation.md)
+- [Tour of Nupp](../getting-started/tour.md)
+
+## Language reference
+
+- [Type system](../type-system/overview.md)
+
+## Performance
+
+- [Performance](performance.md)
+
+:::
+````
+
+Each `##` inside opens its own column; a narrow viewport collapses the row
+back to a single stack.
+
 ### Admonitions
 
 An admonition is a titled aside whose body remains ordinary Lunamark Markdown:

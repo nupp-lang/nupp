@@ -322,6 +322,8 @@ return {
 
 <!-- /nupp:features -->
 
+::: columns
+
 ## Learning Nupp
 
 - [Installation](getting-started/installation.md)
@@ -342,8 +344,10 @@ return {
 - [Standard library](concepts/standard-library.md)
 - [Checked spans](nupp.mem.span)
 
-## Performance and profiling
+## Performance
 
 - [Performance](guides/performance.md)
 - [LuaJIT trace checking](guides/jit-trace-checking.md)
 - [Profiling](guides/profiling.md)
+
+:::

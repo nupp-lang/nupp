@@ -342,6 +342,57 @@
   border-top-width: 2px;
 }
 
+/* A `::: columns` block (see the home page's Learning Nupp / Language
+ * reference / Performance groups) reads as three peer lists rather than
+ * one long stack. Each heading still opens its own column, so the section
+ * divider moves to the block as a whole instead of repeating three times. */
+.nuppdoc-columns {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  grid-auto-flow: row dense;
+  column-gap: 2.75rem;
+  margin-top: 2.5rem;
+  padding-top: 2.5rem;
+  border-top: 2px solid var(--nuppdoc-border);
+}
+
+.nuppdoc-columns h2 {
+  margin-top: 0;
+  padding-top: 0;
+  border-top: 0;
+}
+
+.nuppdoc-columns h2:nth-of-type(1),
+.nuppdoc-columns ul:nth-of-type(1) {
+  grid-column: 1;
+}
+
+.nuppdoc-columns h2:nth-of-type(2),
+.nuppdoc-columns ul:nth-of-type(2) {
+  grid-column: 2;
+}
+
+.nuppdoc-columns h2:nth-of-type(3),
+.nuppdoc-columns ul:nth-of-type(3) {
+  grid-column: 3;
+}
+
+@media (max-width: 760px) {
+  .nuppdoc-columns {
+    grid-template-columns: 1fr;
+  }
+
+  /* :nth-of-type(1) already resolves to column 1; only the second and third
+   * groups need pulling back in, and matching that selector's specificity
+   * is what makes the reset actually win over the three-column rules above. */
+  .nuppdoc-columns h2:nth-of-type(2),
+  .nuppdoc-columns ul:nth-of-type(2),
+  .nuppdoc-columns h2:nth-of-type(3),
+  .nuppdoc-columns ul:nth-of-type(3) {
+    grid-column: 1;
+  }
+}
+
 @media (prefers-color-scheme: dark) {
   .nuppdoc-content h2,
   .nuppdoc-content hr {
