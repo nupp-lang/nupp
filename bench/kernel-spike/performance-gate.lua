@@ -13,15 +13,53 @@ local spans = require("nupp.mem.span")
 local PositionArray = ffi.typeof("$[?]", checked.Position)
 local VelocityArray = ffi.typeof("$[?]", checked.Velocity)
 
+--- One generated function's own text, from its `function` to the `end` that closes it.
+---
+--- These assertions are about what the wrapper does, and the module it lives in also
+--- carries the runtime preamble every generated module gets. Reading the whole file
+--- made the managed-cell sweep and the loader's module probe -- both ordinary `for`
+--- loops, neither anywhere near this wrapper -- read as per-element work in a wrapper
+--- that has never had a loop.
+local function generatedBody(generated, name)
+   local marker = "const " .. name .. "=function("
+   local from = assert(generated:find(marker, 1, true),
+      "generated module has no " .. name .. " wrapper")
+   -- Every word `end` closes: a function, an `if`, and the `do` that `for` and
+   -- `while` are written with. Counting `for` as well as its `do` would close the
+   -- wrapper twice over, and counting only `function` closed it at the first
+   -- `if ... end` -- which is what silently reduced this to reading a guard clause.
+   local OPENERS = {"function", "if", "do"}
+   local depth, at = 0, from
+   repeat
+      local closeFrom, closeTo = generated:find("%f[%w]end%f[%W]", at)
+      assert(closeFrom, name .. " is never closed")
+      local openFrom, openTo = nil, nil
+      for _, word in ipairs(OPENERS) do
+         local wordFrom, wordTo = generated:find("%f[%w]" .. word .. "%f[%W]", at)
+         if wordFrom and wordFrom < closeFrom and (not openFrom or wordFrom < openFrom) then
+            openFrom, openTo = wordFrom, wordTo
+         end
+      end
+      if openFrom then
+         depth, at = depth + 1, openTo + 1
+      else
+         depth, at = depth - 1, closeTo + 1
+      end
+   until depth == 0
+
+   return generated:sub(from, at - 1)
+end
+
 do
    local file = assert(io.open(build .. "/checked.lua", "rb"))
    local generated = file:read("*a")
    file:close()
-   assert(generated:find(".count~=", 1, true), "generated wrapper lost its equality guard")
-   assert(generated:find(":ref()", 1, true), "generated wrapper lost span projection")
-   assert(not generated:find("__nuppFfi.new", 1, true), "counted pointer wrapper allocates")
-   assert(not generated:find("count==0", 1, true), "counted pointer wrapper suppresses zero-count calls")
-   assert(not generated:find("for ", 1, true), "counted pointer wrapper contains per-element work")
+   local wrapper = generatedBody(generated, "ks_integrate_dynasm")
+   assert(wrapper:find(".count~=", 1, true), "generated wrapper lost its equality guard")
+   assert(wrapper:find(":ref()", 1, true), "generated wrapper lost span projection")
+   assert(not wrapper:find("__nuppFfi.new", 1, true), "counted pointer wrapper allocates")
+   assert(not wrapper:find("count==0", 1, true), "counted pointer wrapper suppresses zero-count calls")
+   assert(not wrapper:find("for ", 1, true), "counted pointer wrapper contains per-element work")
 end
 
 local function handwritten(positions, velocities, dt)
@@ -81,7 +119,7 @@ for _, count in ipairs({262144, 1048576}) do
    local manual = function() handwritten(writable, readable, 0.125) end
    local ratio = paired(tostring(count) .. " rows", generated, manual)
    assert(ratio <= 1.05, "generated counted pointer wrapper exceeds the 1.05 ratio gate")
-   writable:commit()
+   writable:drop()
 end
 
 do
@@ -95,5 +133,5 @@ do
       function() handwritten(writable, readable, 0.125) end
    )
    assert(added <= 50e-9, "generated zero-count wrapper exceeds the 50 ns gate")
-   writable:commit()
+   writable:drop()
 end
