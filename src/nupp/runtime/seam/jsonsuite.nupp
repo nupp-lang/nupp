@@ -56,6 +56,8 @@ function jsonSuite.test(provider: any): (boolean, string?)
         assert(provider.encode(provider.EMPTY_OBJECT) == "{}", "EMPTY_OBJECT must encode as {}")
         assert(provider.encode(provider.asArray({})) == "[]", "asArray must preserve an empty array")
         assert(provider.encode(provider.asObject({})) == "{}", "asObject must preserve an empty object")
+        assert(provider.encode({1, {answer = 42}, 3}) == '[1,{"answer":42},3]',
+            "ordinary consecutive numeric keys must encode as an array")
         assert(provider.encode(provider.NULL) == "null", "NULL must encode as null")
         assert(provider.decode("null", provider.NULL) == provider.NULL, "NULL must decode through its replacement")
 

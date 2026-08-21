@@ -22,6 +22,45 @@ json.NULL = {}
 json.EMPTY_ARRAY = setmetatable({}, ARRAY_MARKER)
 json.EMPTY_OBJECT = setmetatable({}, OBJECT_MARKER)
 
+local function classify(value: any): string, integer
+    local marker = getmetatable(value)
+    local numberKeys, stringKeys = false, false
+    local count: integer = 0
+    local highest: integer = 0
+    for key in pairs(value) do
+        count = count + 1
+        if type(key) == "number" and key >= 1 and key % 1 == 0 then
+            numberKeys = true
+            highest = math.max(highest, math.floor(key))
+        elseif type(key) == "string" then
+            stringKeys = true
+        else
+            error("JSON object keys must be strings and array indexes must be positive integers", 0)
+        end
+    end
+    if numberKeys and stringKeys then
+        error("a JSON container cannot mix array indexes and object keys", 0)
+    end
+    if marker == ARRAY_MARKER and stringKeys then
+        error("an array-marked table cannot contain object keys", 0)
+    end
+    if marker == OBJECT_MARKER and numberKeys then
+        error("an object-marked table cannot contain array indexes", 0)
+    end
+    if numberKeys then
+        if count ~= highest then
+            error("JSON arrays cannot contain holes", 0)
+        end
+
+        return "array", highest
+    end
+    if marker == ARRAY_MARKER then
+        return "array", 0
+    end
+
+    return "object", count
+end
+
 local function container(value: any, visiting: {[any]: boolean}): any
     if value == json.NULL then
         return value
@@ -34,9 +73,10 @@ local function container(value: any, visiting: {[any]: boolean}): any
     end
     visiting[value] = true
     local out = {}
-    if getmetatable(value) == ARRAY_MARKER then
-        out[0] = #value
-        for index = 1, #value do
+    local kind, length = classify(value)
+    if kind == "array" then
+        out[0] = length
+        for index = 1, length do
             out[index] = container(value[index], visiting)
         end
     else
