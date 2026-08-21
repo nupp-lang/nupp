@@ -9,6 +9,7 @@ implementation uses, not just code it generates for a checked program:
   - `0x...ULL`-style 64-bit cdata integer literals, in the content-hash
     function nupp.compiler.build.hash uses for incremental build caching
   - Nupp's `? :` and `??` expressions, in nupp.data.Bitset
+  - Nupp's `?.` safe navigation, when generated type tests inspect records
 
 These are found with the bootstrap compiler's OWN lexer — loaded from the very
 file being patched — rather than regexes, because a regex can't tell "real
@@ -138,7 +139,42 @@ local function failUnsupported(token)
     os.exit(1)
 end
 
-local syntaxEdits, ternaryCount, coalesceCount = {}, 0, 0
+local syntaxEdits, ternaryCount, coalesceCount, safeNavigationCount = {}, 0, 0, 0
+for i, token in ipairs(plainTokens) do
+    if token.text == "?." then
+        local closing = plainTokens[i - 1]
+        local member = plainTokens[i + 1]
+        local openingIndex
+        if closing and closing.text == ")" then
+            local depth = 0
+            for j = i - 1, 1, -1 do
+                local candidate = plainTokens[j]
+                if candidate.text == ")" then
+                    depth = depth + 1
+                elseif candidate.text == "(" then
+                    depth = depth - 1
+                    if depth == 0 then
+                        openingIndex = j
+                        break
+                    end
+                end
+            end
+        end
+        local callee = openingIndex and plainTokens[openingIndex - 1] or nil
+        if not callee or callee.kind ~= "name" or not member or member.kind ~= "name" then
+            failUnsupported(token)
+        end
+        local receiver = patched:sub(callee.offset, token.offset - 1)
+        syntaxEdits[#syntaxEdits + 1] = {
+            offset = callee.offset,
+            length = member.offset + #member.text - callee.offset,
+            replacement = "(function(__nuppBrowserValue) if __nuppBrowserValue ~= nil then return "
+                .. "__nuppBrowserValue." .. member.text .. " end end)(" .. receiver .. ")",
+        }
+        safeNavigationCount = safeNavigationCount + 1
+    end
+end
+
 for i, token in ipairs(plainTokens) do
     if token.text == "?" or token.text == "??" then
         local lineStart, lineEnd = lineBounds(patched, token.offset)
@@ -271,5 +307,7 @@ out:write(patched)
 out:close()
 
 io.stderr:write(string.format(
-    "patched %s -> %s (%d const, %d ULL-literal, %d ternary, %d coalescing, %d lambda edits)\n",
-    inputPath, outputPath, constCount, ullCount, ternaryCount, coalesceCount, lambdaCount))
+    "patched %s -> %s (%d const, %d ULL-literal, %d ternary, %d coalescing, "
+        .. "%d safe-navigation, %d lambda edits)\n",
+    inputPath, outputPath, constCount, ullCount, ternaryCount, coalesceCount,
+    safeNavigationCount, lambdaCount))
