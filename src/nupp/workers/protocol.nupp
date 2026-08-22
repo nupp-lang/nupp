@@ -1,0 +1,50 @@
+module nupp.workers.protocol
+
+--[[
+The type a worker entry's protocol has.
+
+A handle is built rather than declared: a comptime function constructs structural
+types and never a nominal one, so the entry's own name, carried as a literal
+field, is the only thing that can tell two handles apart.
+
+See [workers.md](docs/concepts/workers.md).
+]]
+
+local comptime function build(Name: type, Ops: type): type
+    local named = nupp.types.describe(Name)
+    if named.kind ~= "literal" or type(named.value) ~= "string" then
+        return nupp.types.error("a worker entry must be a string literal")
+    end
+    local operations = nupp.types.describe(Ops).fields
+    if operations == nil then
+        return nupp.types.error("a worker protocol must be a shape of operations")
+    end
+    local fields: {{
+        name: string,
+        read: type?,
+        write: type?
+    }} = {{name = "entry", read = Name}}
+    for _, field in ipairs(operations) do
+        local read = field.read
+        if read == nil or nupp.types.kind(read) ~= "function" then
+            return nupp.types.error("worker operation " .. field.name .. " must be a function")
+        end
+        local given = nupp.types.describe(nupp.types.parameters(read))
+        local head: {type} = {nupp.types.any}
+        for _, parameter in ipairs(given.head or {}) do
+            head[#head + 1] = parameter
+        end
+        fields[
+            #fields + 1
+        ] = {name = field.name, read = nupp.types.function_(nupp.types.pack(head), nupp.types.results(read)),}
+    end
+
+    return nupp.types.shape(fields)
+end
+
+--- The protocol one worker entry serves.
+---
+--- `N` is the entry's module name as a string literal and `Ops` a shape whose
+--- fields are its operations. Each becomes a method taking the same arguments
+--- after `self`.
+export type Handle<const N: string, Ops> = build(N, Ops)

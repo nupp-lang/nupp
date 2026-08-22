@@ -202,6 +202,7 @@ local RESOURCES = {
    {source = "src/nupp/reflectruntime.nupp", output = "nupp/compiler/nupp/reflectruntime.nupp"},
    {source = "src/nupp/io/process.nupp", output = "nupp/compiler/nupp/io/process.nupp"},
    {source = "src/nupp/workers.nupp", output = "nupp/compiler/nupp/workers.nupp"},
+   {source = "src/nupp/workers/protocol.nupp", output = "nupp/compiler/nupp/workers/protocol.nupp"},
    {source = "src/nupp/io/http.nupp", output = "nupp/compiler/nupp/io/http.nupp"},
    {source = "src/nupp/workers/native.d.nupp", output = "nupp/compiler/nupp/workers/native.d.nupp"},
    {source = "src/nupp/data/jsonnative.d.nupp", output = "nupp/compiler/nupp/data/jsonnative.d.nupp"},
