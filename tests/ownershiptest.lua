@@ -1649,6 +1649,28 @@ function M.ownedFieldsApplyToEveryOverload()
    }, "\n"))
 end
 
+-- Field access reads an owner through its qualifier, and method calls did not, so
+-- a misspelled method on an owned structural handle reported nothing at all. The
+-- terminal is still reached through the qualifier rather than found on the shape,
+-- which is why the cleanup's own name stays exempt.
+function M.aMisspelledMethodOnAnOwnedShapeIsReported()
+   assertEq(codes(table.concat({
+      "local type Handle = {run: function(held: any, value: integer): integer}",
+      "local function shut(takes self: Handle): nil end",
+      "local function make(): affine(Handle, shut) return nil as any end",
+      "local held = make()",
+      "print(held:missing())",
+   }, "\n")), "NUPP2004")
+
+   assertEq(codes(table.concat({
+      "local type Handle = {run: function(held: any, value: integer): integer}",
+      "local function shut(takes self: Handle): nil end",
+      "local function make(): affine(Handle, shut) return nil as any end",
+      "local held = make()",
+      "print(held:run(1))",
+   }, "\n")), "", "a declared method still resolves through the qualifier")
+end
+
 function M.affineRejectsMissingAndInexactCleanupFunctions()
    assertEq(codes(table.concat({
       "local record File",

@@ -2053,9 +2053,26 @@ function callexpr.install(c: state.Checker): state.ExprHandlers
             return first
         end
         if ot ~= T.any and ot ~= T.table_ and ot.tag ~= "map" then
-            if ot.tag == "shape" or ot.tag == "nominal" then
-                local fixes = c.edits.nameSpellingFix(member, c.fieldNames(ot))
-                c.diag("NUPP2004", member, ("no method %q in %s"):format(member.text, T.tostring(ot)), fixes, {
+            -- An owned structural shape is still the thing whose methods these are,
+            -- and field access already reads one through its qualifier. Without this
+            -- a misspelled method on such a handle reported nothing at all. An owned
+            -- nominal is left alone: its terminal is reached through the qualifier
+            -- rather than found on the record, so unwrapping would report `drop`.
+            local named = ot
+            if named.tag ~= "shape" and named.tag ~= "nominal" and rawType(ot).tag == "shape" then
+                local terminal = false
+                for _, cleanup in ipairs((ot as any).cleanups or {}) do
+                    if cleanup.name == member.text then
+                        terminal = true
+                    end
+                end
+                if not terminal then
+                    named = rawType(ot)
+                end
+            end
+            if named.tag == "shape" or named.tag == "nominal" then
+                local fixes = c.edits.nameSpellingFix(member, c.fieldNames(named))
+                c.diag("NUPP2004", member, ("no method %q in %s"):format(member.text, T.tostring(named)), fixes, {
                     help = fixes
                     and "use the suggested method spelling"
                     or "check the receiver type and available methods"
