@@ -46,6 +46,13 @@ jobs:
         shell: bash
         run: ./scripts/toolchain --all
 
+      - name: Install bootstrap LPeg
+        shell: bash
+        run: |
+          lua_dir=$(./scripts/toolchain luajit)
+          luarocks --lua-version=5.1 --tree=.rocks --lua-dir="$lua_dir" \
+            install lpeg 1.1.0-2
+
       - name: Install playground dependencies
         run: npm ci --prefix editors/playground
 
