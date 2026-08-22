@@ -2,6 +2,22 @@
 
 ## Unreleased
 
+- Reimplement the HTTP transport on libcurl. Tokio, reqwest and rustls are
+  replaced by a pinned libcurl over a pinned mbedTLS, both built by
+  `scripts/toolchain` from sources verified against a digest. One client owns one
+  multi handle and one thread to drive it, so two runtimes embedded in one host
+  do not share each other's limits, proxy or cancellation. That thread is the
+  only one that speaks to libcurl: pausing, resuming and cancelling are notes
+  left under a lock and read by the reactor, because `curl_easy_pause` on a
+  handle another thread is inside is not a call to make. `runtime/native` now
+  has no Rust dependencies at all.
+
+- Serialize spawning where the platform has no `pipe2`. Between `pipe` and the
+  `fcntl` that marks its ends close-on-exec, the descriptors are inheritable,
+  and a fork in that instant hands them to a child that did not ask for them --
+  after which the reader of that pipe never sees end of stream. What it looks
+  like is a command that finished and never returned.
+
 - Install the development native library by renaming rather than by writing over
   it. `bin/nupp` copied it into place, which leaves a window in which the file
   is half a shared library -- and the loader does not report that as a bad file:

@@ -38,3 +38,24 @@ SIMDJSON_SHA256=b091107844fe928158c5c2265c20360fff312889ddf7ebc4528a0f0f8f2ff9cd
 SIMDJSON_URL='https://github.com/simdjson/simdjson/archive/refs/tags/v${SIMDJSON_VERSION}.tar.gz'
 SIMDJSON_MARKER=singleheader/simdjson.cpp
 SIMDJSON_DIRECTORY='simdjson-${SIMDJSON_VERSION}'
+
+# The HTTP transport and the TLS under it. Pinned together: a libcurl is built
+# against one TLS backend, and the pair is what was tested.
+#
+# Owning these means owning their security updates. A CVE in either is a digest
+# change here and a release; that is the price of a build that does not depend
+# on what the machine happens to have.
+CURL_VERSION=8.11.1
+CURL_SHA256=a889ac9dbba3644271bd9d1302b5c22a088893719b72be3487bc3d401e5c4e80
+CURL_URL='https://curl.se/download/curl-${CURL_VERSION}.tar.gz'
+CURL_MARKER=configure
+CURL_DIRECTORY='curl-${CURL_VERSION}'
+
+# The long-term-support line, and the release tarball rather than the GitHub
+# archive: only the release carries the framework the build reads.
+MBEDTLS_VERSION=3.6.2
+MBEDTLS_SHA256=8b54fb9bcf4d5a7078028e0520acddefb7900b3e66fec7f7175bb5b7d85ccdca
+MBEDTLS_URL='https://github.com/Mbed-TLS/mbedtls/releases/download/mbedtls-${MBEDTLS_VERSION}/mbedtls-${MBEDTLS_VERSION}.tar.bz2'
+MBEDTLS_SUFFIX=.tar.bz2
+MBEDTLS_MARKER=Makefile
+MBEDTLS_DIRECTORY='mbedtls-${MBEDTLS_VERSION}'

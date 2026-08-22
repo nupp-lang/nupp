@@ -1152,6 +1152,39 @@ static char **build_environment(const NuppSpawnRequest *request) {
     return out;
 }
 
+/* Where `pipe2` is missing, one spawn at a time.
+ *
+ * `make_pipe` there is `pipe` and then `fcntl`, and between those two calls the
+ * descriptors are inheritable. A fork in that instant hands them to a child that
+ * did not ask for them -- and a long-lived child holding the write end of
+ * another child's pipe means the reader of that pipe never sees end of stream.
+ * That is not a theoretical window: a test suite spawning shards and a server
+ * concurrently walks into it, and what it looks like is a command that finished
+ * and never returned.
+ *
+ * So the window is closed by making it unreachable: no fork in this process
+ * happens while another spawn is between its two calls. It costs the spawns
+ * their concurrency, which is microseconds against starting a process, and it
+ * is only paid where the platform has no better answer. */
+#if defined(__linux__) || defined(__FreeBSD__) || defined(__NetBSD__) || defined(__OpenBSD__)
+#   define NUPP_SPAWN_NEEDS_LOCK 0
+#else
+#   define NUPP_SPAWN_NEEDS_LOCK 1
+static pthread_mutex_t spawn_lock = PTHREAD_MUTEX_INITIALIZER;
+#endif
+
+static void spawn_lock_take(void) {
+#if NUPP_SPAWN_NEEDS_LOCK
+    pthread_mutex_lock(&spawn_lock);
+#endif
+}
+
+static void spawn_lock_drop(void) {
+#if NUPP_SPAWN_NEEDS_LOCK
+    pthread_mutex_unlock(&spawn_lock);
+#endif
+}
+
 bool nupp_spawn(const NuppSpawnRequest *request, NuppSpawnResult *result) {
     /* Parent end, child end, per stream. -1 is "not a pipe". */
     int parentEnds[3] = {-1, -1, -1};
@@ -1165,6 +1198,7 @@ bool nupp_spawn(const NuppSpawnRequest *request, NuppSpawnResult *result) {
     bool merged = false;
 
     memset(result, 0, sizeof *result);
+    spawn_lock_take();
 
     /* Joining stderr to stdout has to be arranged before the spawn: the child's
      * two descriptors must already be the same pipe when it starts, and there is
@@ -1250,7 +1284,10 @@ bool nupp_spawn(const NuppSpawnRequest *request, NuppSpawnResult *result) {
         goto fail;
     }
     if (child == 0) {
-        /* Between here and the exec, only async-signal-safe calls. */
+        /* Between here and the exec, only async-signal-safe calls. The lock
+         * above is not unlocked here: this side of the fork is about to become
+         * another program, and touching a mutex whose owner is in another
+         * process is how a child hangs before it ever starts. */
         int failure = 0;
         for (which = 0; which < 3; which++) {
             if (childEnds[which] >= 0 && dup2(childEnds[which], (int)which) < 0) {
@@ -1272,6 +1309,8 @@ bool nupp_spawn(const NuppSpawnRequest *request, NuppSpawnResult *result) {
         }
         _exit(127);
     }
+
+    spawn_lock_drop();
 
     /* The parent keeps its ends and nothing else. */
     close(report[1]);
@@ -1328,6 +1367,7 @@ bool nupp_spawn(const NuppSpawnRequest *request, NuppSpawnResult *result) {
     return true;
 
 fail:
+    spawn_lock_drop();
     for (which = 0; which < 3; which++) {
         if (parentEnds[which] >= 0) {
             close(parentEnds[which]);

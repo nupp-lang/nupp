@@ -1,11 +1,10 @@
 //! Feature-gated native implementation for `nupp.data` and `nupp.io`.
 
-#[cfg(feature = "http")]
-mod http;
-
 use std::ffi::c_char;
-#[cfg(feature = "http")]
-use std::ffi::CString;
+
+
+
+
 
 /// The public name for one C entry point, forwarding into it.
 ///
@@ -35,6 +34,8 @@ mod files;
 mod digest;
 #[cfg(feature = "path")]
 mod path;
+#[cfg(feature = "http")]
+mod http;
 #[cfg(feature = "process")]
 mod process;
 #[cfg(feature = "uri")]
@@ -65,12 +66,6 @@ pub struct NuppBytes {
     _private: [u8; 0],
 }
 
-#[cfg(feature = "http")]
-fn set_error(error: impl ToString) {
-    let message = error.to_string().replace('\0', "\\0");
-    let text = CString::new(message).expect("NUL bytes were replaced");
-    unsafe { nupp_fail(text.as_ptr()) };
-}
 
 /// Roots the selected C ABI in a statically linked host.
 ///
@@ -163,6 +158,29 @@ pub fn retain_c_abi_exports() {
     #[cfg(feature = "uuid")]
     retain!(digest::nuppUuid4, digest::nuppUuid7);
 
+    #[cfg(feature = "http")]
+    retain!(
+        http::nuppHttpClientCreate,
+        http::nuppHttpClientDestroy,
+        http::nuppHttpClientSend,
+        http::nuppHttpClientPending,
+        http::nuppHttpMonotonicMs,
+        http::nuppHttpTransferCancel,
+        http::nuppHttpTransferDestroy,
+        http::nuppHttpTransferOffer,
+        http::nuppHttpTransferPollHeaders,
+        http::nuppHttpTransferError,
+        http::nuppHttpTransferTakeBody,
+        http::nuppHttpBodyArm,
+        http::nuppHttpBodyPeek,
+        http::nuppHttpBodyConsume,
+        http::nuppHttpBodyError,
+        http::nuppHttpBodyDestroy,
+        http::nuppHttpClientPoll,
+        http::nuppHttpClientWait,
+        http::nuppHttpReadyRelease,
+    );
+
     #[cfg(feature = "process")]
     retain!(
         process::nuppProcessMonotonicMs,
@@ -210,8 +228,7 @@ mod tests {
     #[allow(non_snake_case)]
     mod ported {
         use super::NuppBytes;
-        use std::ffi::c_char;
-
+        
         pub const STATUS_PENDING: i32 = 0;
         pub const STATUS_READY: i32 = 1;
         pub const STATUS_FAILED: i32 = 2;

@@ -35,7 +35,7 @@ usage: scripts/toolchain COMPONENT...
        scripts/toolchain --all
        scripts/toolchain --prefix
 
-Components: luajit lpeg luautf8 simdjson
+Components: luajit lpeg luautf8 simdjson mbedtls curl
 
 Prints the install prefix of each component named, building it first when it is
 not already cached. --all builds every component and prints nothing. --prefix
@@ -167,21 +167,21 @@ offline() {
 # is unpacked, so a mirror that served something else is refused rather than
 # compiled.
 archive() {
-    name=$1 url=$2 digest=$3
-    file="$ARCHIVES/$name.tar.gz"
+    name=$1 url=$2 digest=$3 suffix=${4:-.tar.gz}
+    file="$ARCHIVES/$name$suffix"
     if [ -f "$file" ] && [ "$(sha256 "$file")" = "$digest" ]; then
         printf '%s\n' "$file"
         return 0
     fi
 
     mkdir -p "$ARCHIVES"
-    if [ -n "$SOURCE_DIR" ] && [ -f "$SOURCE_DIR/$name.tar.gz" ]; then
-        cp "$SOURCE_DIR/$name.tar.gz" "$file.$$"
+    if [ -n "$SOURCE_DIR" ] && [ -f "$SOURCE_DIR/$name$suffix" ]; then
+        cp "$SOURCE_DIR/$name$suffix" "$file.$$"
     elif offline; then
-        die "NUPP_HOST_OFFLINE is set and $name.tar.gz is not cached; put the pinned archive in NUPP_HOST_SOURCE_DIR"
+        die "NUPP_HOST_OFFLINE is set and $name$suffix is not cached; put the pinned archive in NUPP_HOST_SOURCE_DIR"
     else
         if [ -n "$SOURCE_BASE_URL" ]; then
-            url="${SOURCE_BASE_URL%/}/$name.tar.gz"
+            url="${SOURCE_BASE_URL%/}/$name$suffix"
         fi
         note "fetching $name"
         download "$url" "$file.$$" || { rm -f "$file.$$"; die "cannot download $url"; }
@@ -199,21 +199,24 @@ archive() {
 # One extracted source tree. Extraction is into a temporary sibling and renamed,
 # so a killed run never leaves a half-unpacked tree a later one trusts.
 source_tree() {
-    name=$1 url=$2 digest=$3 marker=$4
+    name=$1 url=$2 digest=$3 marker=$4 suffix=${5:-.tar.gz}
     tree="$SOURCES/$name"
     if [ -f "$tree/$marker" ]; then
         printf '%s\n' "$tree"
         return 0
     fi
 
-    file=$(archive "$name" "$url" "$digest")
+    file=$(archive "$name" "$url" "$digest" "$suffix")
     mkdir -p "$SOURCES"
     staging="$SOURCES/.$name.$$"
     rm -rf "$staging"
     mkdir -p "$staging"
-    tar xzf "$file" -C "$staging"
+    case "$suffix" in
+        *.bz2) tar xjf "$file" -C "$staging" ;;
+        *)     tar xzf "$file" -C "$staging" ;;
+    esac
     [ -f "$staging/$name/$marker" ] \
-        || die "$name.tar.gz did not extract the expected $name/$marker"
+        || die "$name$suffix did not extract the expected $name/$marker"
     rm -rf "$tree"
     mv "$staging/$name" "$tree"
     rm -rf "$staging"
@@ -420,6 +423,64 @@ build_luautf8() {
     release_lock
 }
 
+build_mbedtls() {
+    out="$PREFIX/mbedtls"
+    take_lock mbedtls "$out/.complete" || return 0
+    [ -f "$out/.complete" ] && { release_lock; return 0; }
+
+    directory="mbedtls-$MBEDTLS_VERSION"
+    url="https://github.com/Mbed-TLS/mbedtls/releases/download/mbedtls-$MBEDTLS_VERSION/mbedtls-$MBEDTLS_VERSION.tar.bz2"
+    tree=$(source_tree "$directory" "$url" "$MBEDTLS_SHA256" "$MBEDTLS_MARKER" .tar.bz2)
+    verify_notice "$tree/LICENSE" mbedtls-LICENSE.txt
+
+    note "building mbedTLS with $CC"
+    rm -rf "$out"
+    mkdir -p "$out"
+    # `make lib` and nothing else: the programs and the test suite are most of
+    # the build and none of what is linked. `-fPIC` because this ends up inside
+    # a shared library.
+    "$MAKE" -C "$tree" clean >/dev/null 2>&1 || true
+    "$MAKE" -C "$tree" -j"${NUPP_TOOLCHAIN_JOBS:-4}" lib CC="$CC" CFLAGS="-O2 -fPIC" >&2
+    "$MAKE" -C "$tree" install DESTDIR="$out" >&2
+    printf 'done\n' > "$out/.complete"
+    release_lock
+}
+
+build_curl() {
+    out="$PREFIX/curl"
+    tls=$(build_mbedtls; printf '%s' "$PREFIX/mbedtls")
+    take_lock curl "$out/.complete" || return 0
+    [ -f "$out/.complete" ] && { release_lock; return 0; }
+
+    directory="curl-$CURL_VERSION"
+    url="https://curl.se/download/curl-$CURL_VERSION.tar.gz"
+    tree=$(source_tree "$directory" "$url" "$CURL_SHA256" "$CURL_MARKER")
+    verify_notice "$tree/COPYING" curl-COPYING.txt
+
+    note "building libcurl with $CC"
+    rm -rf "$out"
+    # Static, HTTP and its neighbours only, and everything optional left out:
+    # what is wanted here is a transport, and each thing switched on is another
+    # pinned source to own. The threaded resolver is what keeps a name lookup
+    # off the scheduler's frame without a second library to do it.
+    ( cd "$tree" && ./configure \
+        --prefix="$out" \
+        --disable-shared --enable-static \
+        --with-mbedtls="$tls" \
+        --without-libpsl --without-zlib --without-brotli --without-zstd \
+        --without-libidn2 --without-nghttp2 --without-ngtcp2 --without-librtmp \
+        --disable-ldap --disable-ldaps --disable-rtsp --disable-dict \
+        --disable-telnet --disable-tftp --disable-pop3 --disable-imap \
+        --disable-smb --disable-smtp --disable-gopher --disable-mqtt \
+        --disable-manual --disable-ntlm \
+        --enable-threaded-resolver \
+        CC="$CC" ) >&2
+    "$MAKE" -C "$tree" -j"${NUPP_TOOLCHAIN_JOBS:-4}" >&2
+    "$MAKE" -C "$tree" install >&2
+    printf 'done\n' > "$out/.complete"
+    release_lock
+}
+
 build_simdjson() {
     out="$PREFIX/simdjson"
     take_lock simdjson "$out/.complete" || return 0
@@ -455,6 +516,7 @@ case "$1" in
         build_lpeg
         build_luautf8
         build_simdjson
+        build_curl
         exit 0
         ;;
     -h|--help) usage ;;
@@ -466,6 +528,8 @@ for component in "$@"; do
         lpeg)     build_lpeg;     printf '%s\n' "$PREFIX/lpeg" ;;
         luautf8)  build_luautf8;  printf '%s\n' "$PREFIX/luautf8" ;;
         simdjson) build_simdjson; printf '%s\n' "$PREFIX/simdjson" ;;
+        mbedtls)  build_mbedtls;  printf '%s\n' "$PREFIX/mbedtls" ;;
+        curl)     build_curl;     printf '%s\n' "$PREFIX/curl" ;;
         *) note "unknown component $component"; usage ;;
     esac
 done
