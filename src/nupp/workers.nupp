@@ -106,6 +106,48 @@ record workers.Self
     serveOperations: function(workers.Self, any)
 end
 
+--- A request that has been sent and not yet answered.
+---
+--- A ticket is ordinary data. Awaiting one twice raises rather than answering the
+--- first reply again, because the reply is taken when it arrives.
+record workers.Ticket
+    --- The operation this request named.
+    operation: string
+
+    _id: integer
+    _slot: integer?
+end
+
+--- A fixed set of workers running one entry.
+---
+--- Requests go to whichever member has the fewest in flight. A member answers its
+--- own one at a time, so a pool overlaps work only across members, and only when
+--- its callers wait under a suspension handler: without one an await blocks the
+--- thread and a pool of any size behaves as a pool of one.
+record workers.Pool
+    --- The entry module every member of this pool runs.
+    entry: string
+
+    _workers: {any}
+    _inflight: {integer}
+    _destroyed: boolean
+
+    --- Sends a named request to a member and waits for its reply.
+    callOperation: function(workers.Pool, string, any): any
+
+    --- Sends a named request to a member and answers a ticket for its reply.
+    submit: function(workers.Pool, string, any): workers.Ticket
+
+    --- Waits for the reply a ticket stands for.
+    await: function(workers.Pool, workers.Ticket): any
+
+    --- Stops and releases every member. Idempotent.
+    stop: function(workers.Pool): nil
+
+    --- Stops the pool at scope exit.
+    drop: nosuspend function(takes self: workers.Pool): nil
+end
+
 --- A fresh Lua state running on a native thread.
 record workers.Worker
     _handle: any
@@ -136,6 +178,12 @@ record workers.Worker
     --- Sends a named request and waits for the matching reply.
     callOperation: function(workers.Worker, string, any): any
 
+    --- Sends a named request and answers a ticket for its reply.
+    submit: function(workers.Worker, string, any): workers.Ticket
+
+    --- Waits for the reply a ticket stands for.
+    await: function(workers.Worker, workers.Ticket): any
+
     --- Closes the worker inbox. Nonblocking and idempotent.
     close: function(workers.Worker)
 
@@ -151,6 +199,7 @@ end
 
 local ChannelMT: metatable<Channel> = {__index = Channel}
 local WorkerMT: metatable<workers.Worker> = {__index = workers.Worker}
+local PoolMT: metatable<workers.Pool> = {__index = workers.Pool}
 local SelfMT: metatable<workers.Self> = {__index = workers.Self}
 
 local function channel(handle: any, owned: boolean): Channel
@@ -407,7 +456,7 @@ function workers.Worker:receive(timeoutMs: integer?): any?
     return takeMessage(self)
 end
 
-local function request(self: workers.Worker, op: string?, value: any): any
+local function submitRequest(self: workers.Worker, op: string?, value: any): integer
     if self._closed or self._exit ~= nil then
         error("nupp: cannot call a closed worker", 3)
     end
@@ -422,6 +471,11 @@ local function request(self: workers.Worker, op: string?, value: any): any
     self._nextId = id + 1
     self._pendingIds[id] = true
     push(self._inbox, {kind = "request", op = op, id = id, payload = value})
+
+    return id
+end
+
+local function awaitRequest(self: workers.Worker, id: integer): any
     waitFor(self, "worker call", function(): boolean
         return self._replies[id] ~= nil
     end)
@@ -438,6 +492,10 @@ local function request(self: workers.Worker, op: string?, value: any): any
     return reply.payload
 end
 
+local function request(self: workers.Worker, op: string?, value: any): any
+    return awaitRequest(self, submitRequest(self, op, value))
+end
+
 function workers.Worker:call(value: any): any
     return request(self, nil, value)
 end
@@ -452,6 +510,30 @@ end
 --- @raises when the worker is closed, the payload cannot cross, or the entry failed
 function workers.Worker:callOperation(op: string, value: any): any
     return request(self, op, value)
+end
+
+--- Sends a named request and answers a ticket for its reply.
+---
+--- Nothing waits here, so a caller may have several requests in flight and await
+--- them in whatever order suits it. A worker answers them one at a time whatever
+--- order they were sent in, so several tickets to one worker queue rather than
+--- overlap; several workers are what makes them overlap.
+---
+--- @param op the operation the entry serves
+--- @param value the request payload
+--- @return a ticket for the reply
+--- @raises when the worker is closed or the payload cannot cross
+function workers.Worker:submit(op: string, value: any): workers.Ticket
+    return new workers.Ticket(operation = op, _id = submitRequest(self, op, value))
+end
+
+--- Waits for the reply a ticket stands for.
+---
+--- @param ticket the ticket a submit answered with
+--- @return whatever the entry answered
+--- @raises when the entry failed, ended first, or the ticket was already awaited
+function workers.Worker:await(ticket: workers.Ticket): any
+    return awaitRequest(self, ticket._id)
 end
 
 --- Answers a worker method, falling back to the operation of that name.
@@ -635,6 +717,131 @@ function workers.Self:serveOperations(implementation: any): nil
     end
 end
 
+--- The member with the fewest requests in flight, which is the one that will
+--- answer soonest when every member is equally fast.
+---
+--- @raises when the pool has already been stopped
+local function leastBusy(self: workers.Pool): integer
+    if self._destroyed then
+        error("nupp: cannot call a stopped worker pool", 3)
+    end
+    local slot: integer = 1
+    local fewest: integer = self._inflight[1]
+    for index = 2, #self._workers do
+        local count: integer = self._inflight[index]
+        if count < fewest then
+            slot = index
+            fewest = count
+        end
+    end
+
+    return slot
+end
+
+function workers.Pool:submit(op: string, value: any): workers.Ticket
+    local slot = leastBusy(self)
+    local worker = self._workers[slot] as workers.Worker
+    local id = submitRequest(worker, op, value)
+    self._inflight[slot] = self._inflight[slot] + 1
+
+    return new workers.Ticket(operation = op, _id = id, _slot = slot)
+end
+
+function workers.Pool:await(ticket: workers.Ticket): any
+    local slot = ticket._slot
+    if slot == nil or self._workers[slot] == nil then
+        error("nupp: that ticket did not come from this worker pool", 2)
+    end
+    local worker = self._workers[slot] as workers.Worker
+    local ok, answer = pcall(awaitRequest, worker, ticket._id)
+    self._inflight[slot] = self._inflight[slot] - 1
+    if not ok then
+        error(answer, 2)
+    end
+
+    return answer
+end
+
+function workers.Pool:callOperation(op: string, value: any): any
+    return self:await(self:submit(op, value))
+end
+
+function workers.Pool:stop(): nil
+    if self._destroyed then
+        return
+    end
+    self._destroyed = true
+    for index = 1, #self._workers do
+        local worker = self._workers[index] as workers.Worker
+        worker:stop()
+    end
+end
+
+function workers.Pool.drop(takes self: workers.Pool): nil
+    self:stop()
+end
+
+--- Stops and releases a pool, which is what every pool's contract names.
+---
+--- @param self the pool, spent by this call
+function workers.destroyPool(takes self: workers.Pool): nil
+    self:drop()
+end
+
+--- Answers a pool method, falling back to the operation of that name.
+local PoolDispatchMT: metatable<workers.Pool> = {
+    __index = function(self: workers.Pool, key: string): any
+        local member = (workers.Pool as {[string]: any})[key]
+        if member ~= nil then
+            return member
+        end
+
+        return function(receiver: workers.Pool, value: any): any
+            return receiver:callOperation(key, value)
+        end
+    end,
+}
+
+--- Prepares a pool to answer its entry's operations as methods.
+---
+--- @param pool the pool to prepare
+--- @return the same pool, answering its entry's operations
+function workers.poolDispatcher(pool: workers.Pool): workers.Pool
+    return setmetatable(pool as any, PoolDispatchMT) as workers.Pool
+end
+
+--- Starts `count` workers running `entry`, sharing the requests sent to them.
+---
+--- Every member runs the same entry, so the pool answers the same operations one
+--- worker does and adds only where a request goes. Its drop stops and joins every
+--- member.
+---
+--- @param entry the module name every member runs
+--- @param count how many members to start
+--- @return the pool, owed a stop
+--- @raises when the count is not a positive whole number, or a member cannot start
+function workers.pool(entry: string, count: integer): affine(workers.Pool, workers.destroyPool)
+    if type(count) ~= "number" or count < 1 or count % 1 ~= 0 then
+        error("nupp: a worker pool needs a positive whole number of workers", 2)
+    end
+    local members: {any} = {}
+    local inflight: {integer} = {}
+    for index = 1, count do
+        local worker = workers.spawn(entry)
+        unsafe do
+            -- The pool's stop is what discharges these now, and it runs from the
+            -- pool's own terminal however the scope holding it ends.
+            members[index] = unsafe release worker
+        end
+        inflight[index] = 0
+    end
+
+    return setmetatable(
+        {entry = entry, _workers = members, _inflight = inflight, _destroyed = false,},
+        PoolMT
+    ) as workers.Pool
+end
+
 --- Starts `entry` in a fresh LuaJIT state.
 ---
 --- The entry is a module name resolved out of the same stamped payload the spawner
@@ -707,6 +914,8 @@ function workers.current(): workers.Self
     return setmetatable({inbox = channel(inbox, false), outbox = channel(outbox, false),}, SelfMT) as workers.Self
 end
 
+workers.Ticket = workers.Ticket
+workers.Pool = workers.Pool
 workers.Worker = workers.Worker
 workers.Self = workers.Self
 workers.Exit = workers.Exit

@@ -689,7 +689,12 @@ export function release(takes self: Raw): nil
     workers.destroyWorker(worker)
 end
 
+export function releasePool(takes self: Raw): nil
+    workers.destroyPool(self as any as workers.Pool)
+end
+
 export type Handle = affine(Raw, release)
+export type PoolHandle = affine(Raw, releasePool)
 
 export function spawn(): Handle
     local worker = workers.spawn("jobs.hash")
@@ -697,6 +702,15 @@ export function spawn(): Handle
         local ready = workers.dispatcher(unsafe release worker) as any as Raw
 
         return unsafe adopt ready as Handle
+    end
+end
+
+export function startPool(count: integer): PoolHandle
+    local pool = workers.pool("jobs.hash", count)
+    unsafe do
+        local ready = workers.poolDispatcher(unsafe release pool) as any as Raw
+
+        return unsafe adopt ready as PoolHandle
     end
 end
 
@@ -775,6 +789,37 @@ end
 -- Every value is copied on the way across, so the copy the other state decodes has
 -- no cleanup and the original still owes its own. An owned message is refused where
 -- the protocol is written rather than left to fail at run time, or not at all.
+-- A pool answers the same operations one worker does, so it reads the same at the
+-- call site and the same handle type describes it. What it adds is where a request
+-- goes, which is not something the type has to say.
+function M.aTypedWorkerPoolCallChecksLikeAnOrdinaryCall()
+   withProject({
+      ["src/jobs/hash.nupp"] = TYPED_WORKER_ENTRY,
+      ["src/main.nupp"] = [[
+module main
+
+const jobs = require("jobs.hash")
+
+export function good(contents: string): uint64
+    local pool = jobs.startPool(4)
+
+    return pool:hash({name = "level1", bytes = contents}).hash
+end
+
+export function misspelled(): nil
+    local pool = jobs.startPool(4)
+    print(pool:missing())
+end
+]],
+   }, function(dir)
+      local path = dir .. "/src/main.nupp"
+      local diags = check.check(parser.parse(readFile(path), path), path, projectEnv(dir))
+      assertEq(#diags, 1, "only the misspelled pool operation is reported: "
+         .. (diags[1] and diags[1].msg or ""))
+      assertEq(diags[1] and diags[1].code, "NUPP2004", "and it is reported as a missing method")
+   end)
+end
+
 function M.aWorkerMessageCannotCarryAnObligation()
    withProject({
       ["src/jobs/held.nupp"] = [[

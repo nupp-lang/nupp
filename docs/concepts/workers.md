@@ -233,6 +233,40 @@ capacity, and it raises when either bound is full or the channel is closed,
 which keeps producer backpressure from introducing a second wait that could
 deadlock against the first.
 
+## Pools and tickets
+
+`Worker:submit` sends a request and answers a ticket instead of waiting, and
+`Worker:await` waits for the reply that ticket stands for. A worker answers its
+requests one at a time whatever order they were sent in, so several tickets to one
+worker queue rather than overlap.
+
+`workers.pool(entry, count)` starts several workers on one entry and sends each
+request to whichever member has the fewest in flight. A pool answers the same
+operations one worker does, so it reads the same at the call site and the same
+generated handle describes it:
+
+```nupp
+local pool = jobs.hash.startPool(4)
+local answer = pool:hash({name = "level1", bytes = contents})
+```
+
+Its drop stops and joins every member.
+
+::: note A pool overlaps work only under a handler
+Without a [suspension handler](suspension.md#hosts-supply-scheduling-policy) an
+await blocks the thread, so a pool of any size behaves as a pool of one. What a
+pool adds is somewhere for a second waiting caller to go, not a second thread of
+control inside one.
+:::
+
+### Job queues stop here
+
+Entries are fixed in the build target, so nothing registers a new kind of work at
+run time. A pool is one process on one machine with no durable queue and no retry
+across a restart, and each member serves sequentially, so throughput is member
+count rather than pipeline depth. Work that has to outlive the process belongs to
+[](nupp.io.process) and a broker.
+
 ## Waiting and stopping
 
 Ready operations return immediately. Without a suspension handler, an empty
