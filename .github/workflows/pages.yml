@@ -40,7 +40,7 @@ jobs:
       - name: Install build prerequisites
         run: |
           sudo apt-get update
-          sudo apt-get install -y libreadline-dev luarocks
+          sudo apt-get install -y libreadline-dev luajit luarocks
 
       - name: Build LuaJIT and simdjson
         shell: bash

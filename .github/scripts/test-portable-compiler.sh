@@ -28,8 +28,15 @@ make -C "$source" "$lua_target"
 
 cd "$root"
 ./bin/nupp build --target compiler
+case "$(uname -s)" in
+    Darwin*) json_library="$root/build/lib/libjsonNative.dylib" ;;
+    MINGW*|MSYS*|CYGWIN*) json_library="$root/build/lib/jsonNative.dll" ;;
+    *) json_library="$root/build/lib/libjsonNative.so" ;;
+esac
+test -f "$json_library"
 LUA_PATH="$root/build/?.lua;$root/.rocks/share/lua/5.1/?.lua;$root/.rocks/share/lua/5.1/?/init.lua;;" \
 LUA_CPATH="$root/.rocks/lib/lua/5.1/?.so;;" \
+NUPP_JSON_LIBRARY="$json_library" \
     luajit tests/portable-compiler/reference.lua > "$expected_json"
 ./bin/nupp build --target playgroundCompiler
 "$source/src/luac" -p build/playground/nupp-compiler.lua
