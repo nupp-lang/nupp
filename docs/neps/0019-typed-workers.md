@@ -251,3 +251,13 @@ a `const` parameter has no runtime form.
 Yes. The untyped `call` and `serve` remain for a worker whose protocol is not
 worth declaring, and for one-way `send` and `receive` messages, which are a
 separate protocol in the other direction.
+
+## Revisit, 2026-08-22
+
+The estimate attached to deriving a task from a module export was too high.
+Ordinary qualified function resolution already loads and types the export, so
+submission can take that function directly instead of projecting a protocol
+from an entry-name string. This removes the duplicated protocol, designated
+entry, serving loop, and per-entry pool while preserving isolated Lua states
+and copied values. [NEP 20](0020-structured-worker-tasks.md) records the
+replacement decision.

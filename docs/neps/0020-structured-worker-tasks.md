@@ -9,8 +9,8 @@ created: 2026-08-22
 CPU-parallel work is an ordinary exported function submitted to a structured
 scope. The scope owns every child task, the process owns one bounded scheduler,
 and each scheduler lane owns an isolated LuaJIT state. Arguments and results are
-copied. There is no worker declaration, entry module, protocol, dispatcher, or
-per-call thread.
+copied. There is no worker declaration, designated entry module, protocol,
+dispatcher, or per-call thread.
 
 ## Goals
 
@@ -125,8 +125,8 @@ return pack(callable(unpack(arguments, 1, count)))
 ## Alternatives considered
 
 **A `worker` declaration modifier.** It makes execution policy part of a
-function's identity and prevents the same function from being called normally.
-The isolation constraints still require a scheduler and copying, so the keyword
+function's identity even though the same body has a valid direct meaning. The
+isolation constraints still require a scheduler and copying, so the keyword
 removes no machinery.
 
 **Lua coroutine syntax and handles.** Coroutines provide the right ordinary-call

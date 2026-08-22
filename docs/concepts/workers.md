@@ -5,14 +5,14 @@ order: 150
 # Worker tasks
 
 `nupp.workers` runs ordinary exported functions in parallel on a shared,
-bounded scheduler. Each scheduler lane is a native thread with an isolated
-LuaJIT state. Arguments and results are copied, so no Lua heap, globals,
-closures, userdata, cdata, or mutable module state are shared.
+bounded scheduler whose lanes are native threads with isolated LuaJIT states.
+Arguments and results cross as copies, while Lua heaps and their globals,
+closures, userdata, cdata, and mutable module state stay isolated.
 
 ```nupp
 module jobs
 
-export function hash(bytes: string): uint64
+export function hash(bytes: string): string
     return nupp.data.fnv1a64(bytes)
 end
 ```
@@ -23,7 +23,7 @@ module main
 const jobs = require("jobs")
 const workers = require("nupp.workers")
 
-export function hashes(left: string, right: string): (uint64, uint64)
+export function hashes(left: string, right: string): (string, string)
     with scope = workers.scope() do
         const first = scope:spawn(jobs.hash, left)
         const second = scope:spawn(jobs.hash, right)
@@ -71,7 +71,7 @@ coroutine; without one they sleep on the native channel. Automatic cleanup
 uses a blocking native drain because an affine terminal may not suspend while
 ownership is being discharged.
 
-## One shared scheduler
+## Shared scheduler
 
 The first scope creates one scheduler for the process. Its lane count is the
 host's online processor count, capped at 64. Later and concurrent scopes reuse
@@ -88,8 +88,8 @@ internals across the heap boundary or risking that a lane waits on itself.
 Compose nested parallel work in the calling state and pass each leaf operation
 to the shared scheduler.
 
-This is an executor, not an actor system. A task is a stateless call whose
-inputs and results cross the boundary. Long-lived stateful ownership and
+This is an executor, not an actor system. A task is a request-and-response call
+whose inputs and results cross the boundary. Long-lived stateful ownership and
 mailboxes would be a separate abstraction.
 
 ## Functions that can be submitted
@@ -167,3 +167,6 @@ The same rule applies to nontermination: an infinite worker task makes its
 scope infinite. Worker tasks are for bounded CPU work. Durable work, retries
 across process failure, and jobs that outlive the caller belong to a broker or
 [](nupp.io.process), not this scheduler.
+
+See [NEP 20](../neps/0020-structured-worker-tasks.md) for the design tradeoffs
+behind structured worker tasks.

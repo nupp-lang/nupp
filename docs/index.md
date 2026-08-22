@@ -202,9 +202,9 @@ print(statuses[1], statuses[2])
 
 ## Distribute work across threads using workers
 
-Worker tasks run ordinary exported functions on fresh LuaJIT states behind one
-shared, bounded scheduler. Arguments and results are copied, failures cross
-back, and a structured scope waits for every child.
+Worker tasks run ordinary exported functions on persistent, isolated LuaJIT
+states behind one shared, bounded scheduler. Arguments and results are copied,
+failures cross back, and a structured scope waits for every child.
 
 ```nupp
 const jobs = require("jobs")
