@@ -5,8 +5,8 @@ local runtimeBackend = require("nupp.runtime.backend")
 local seam = {moduleName = "nupp.runtime.seam.workers", suiteModuleName = "nupp.runtime.seam.workerssuite",}
 local CONTRACT = common.contract("host.workers", {
     globalName = "__nuppWorkers",
-    requiredFunctions = {"current", "destroyWorker", "spawn"},
-    requiredValues = {"Exit", "Self", "Worker"},
+    requiredFunctions = {"scope"},
+    requiredValues = {"Scope", "ScopeToken"},
     suiteModule = seam.suiteModuleName,
     modules = {["nupp.workers"] = "",},
 })

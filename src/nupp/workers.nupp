@@ -1,69 +1,101 @@
 module nupp.workers
 
 --[[
-Isolated worker threads.
+Structured parallel tasks.
 
-Each worker owns a fresh LuaJIT state on a native thread. Values cross only as
-bounded `string.buffer` messages, so neither Lua heap, module state, globals,
-closures, userdata, nor cdata are shared.
-
-Worker entry modules run from the same stamped payload as their spawner:
-
-```nupp
-local workers = require("nupp.workers")
-
-do
-    local worker = workers.spawn("jobs.hash")
-    local answer = worker:call({bytes = contents})
-    print(answer.length)
-end -- automatic stop
-```
-
-The entry exports `main`, which a worker calls with its endpoints once its module
-has loaded, so the state that spawns it may require it for its declarations:
+An ordinary exported function may run locally or on the shared worker scheduler.
+The scheduler owns a bounded set of native threads, and every thread owns one
+isolated LuaJIT state. Arguments and results are copied; Lua heap identity is never
+shared.
 
 ```nupp
-local workers = require("nupp.workers")
+const workers = require("nupp.workers")
+const jobs = require("jobs")
 
-function jobs.hash.main(self: workers.Self): nil
-    self:serve(function(job: any): any
-        return {length = #job.bytes}
-    end)
+with scope = workers.scope() do
+    const left = scope:spawn(jobs.hash, first)
+    const right = scope:spawn(jobs.hash, second)
+    return left:await() .. right:await()
 end
 ```
 
-A ready receive returns inline. A wait blocks efficiently in an ordinary
-program and suspends under an installed handler. Closing is cooperative: it
-wakes a worker blocked in `Self:receive`, but a worker that ignores its closed
-inbox can keep `join` and `stop` waiting indefinitely.
-
-See [workers.md](docs/concepts/workers.md) for what may cross the boundary, and
-[suspension.md](docs/concepts/suspension.md) for what a wait does under an installed handler.
+Leaving the scope waits for every child, including children the body did not await.
+The first unobserved child failure is raised after all children have settled. A wait
+blocks efficiently in an ordinary program and parks under a suspension handler.
 ]]
 
-local buffer = require("string.buffer")
+local type Buffer = {
+    encode: nosuspend function(any): any,
+    decode: nosuspend function(string): any
+}
+local buffer = require("string.buffer") as Buffer
+local suspension = require("nupp.suspension")
+
 local type Native = {
-    channelCreate: function(): any,
-    channelDestroy: function(any),
-    channelClose: function(any),
-    channelPush: function(any, string): boolean,
-    channelPop: function(any, integer): string?,
-    channelCount: function(any): integer,
-    channelClosed: function(any): boolean,
-    workerSpawn: function(string, any, any): (any?, string?),
-    workerFinished: function(any): boolean,
-    workerJoin: function(any): (integer, string?),
-    current: function(): (any?, any?),
-    now: function(): number
+    channelCreate: nosuspend function(): any,
+    channelDestroy: nosuspend function(any),
+    channelClose: nosuspend function(any),
+    channelPush: nosuspend function(any, string): boolean,
+    channelPop: nosuspend function(any, integer): string?,
+    channelCount: nosuspend function(any): integer,
+    channelClosed: nosuspend function(any): boolean,
+    workerSpawn: nosuspend function(any, any): (any?, string?),
+    workerJoin: nosuspend function(any): (integer, string?),
+    workerParallelism: nosuspend function(): integer,
+    current: nosuspend function(): (any?, any?)
 }
 local native = require("nupp.workers.native") as Native
-local suspension = require("nupp.suspension")
 
 local workers = {}
 
+local type Packed = {
+    values: {any},
+    count: integer
+}
+
+local type Callable = function(...: any): any
+
+local comptime function Parameters(F: type): typepack
+    return nupp.types.parameters(F)
+end
+
+local comptime function TaskType(F: type): type
+    if nupp.types.kind(F) ~= "function" then
+        return nupp.types.error("a worker task must name a function type")
+    end
+    return nupp.types.shape({
+        {
+            name = "await",
+            read = nupp.types.function_(
+                nupp.types.pack({
+                    nupp.types.any
+                }),
+                nupp.types.results(F)
+            ),
+        },
+        {
+            name = "isDone",
+            read = nupp.types.function_(
+                nupp.types.pack({
+                    nupp.types.any
+                }),
+                nupp.types.pack({
+                    nupp.types.boolean
+                })
+            ),
+        },
+    })
+end
+
+--- The typed handle for one submitted function.
+type workers.Task<F is Callable> = TaskType(F)
+
+local function pack(...: any): Packed
+    return {values = {...}, count = select("#", ...)}
+end
+
 local type Frame = {
     kind: string,
-    op: string?,
     id: integer?,
     ok: boolean?,
     payload: any,
@@ -76,134 +108,61 @@ local record Channel
     destroyed: boolean
 end
 
---- How a worker ended.
-record workers.Exit
-    --- True when the entry module returned without an uncaught error.
-    succeeded: boolean
-
-    --- Zero for a clean return and nonzero for a load or runtime failure.
-    status: integer
-
-    --- The worker's load or runtime error, when it failed.
-    error: string?
-end
-
---- The worker-side endpoints.
-record workers.Self
+local record Lane
+    handle: any
     inbox: Channel
     outbox: Channel
-
-    --- Waits for and returns the next payload. Nil means the inbox closed and drained.
-    receive: function(workers.Self): any?
-
-    --- Sends an ordinary message to the spawner.
-    send: function(workers.Self, any)
-
-    --- Answers requests until the inbox closes.
-    serve: function(workers.Self, function(any): any)
-
-    --- Answers named requests from a table of operations until the inbox closes.
-    serveOperations: function(workers.Self, any)
+    nextId: integer
+    inflight: integer
+    pending: {[integer]: boolean}
+    replies: {[integer]: Frame}
 end
 
---- A request that has been sent and not yet answered.
----
---- A ticket is ordinary data. Awaiting one twice raises rather than answering the
---- first reply again, because the reply is taken when it arrives.
-record workers.Ticket
-    --- The operation this request named.
-    operation: string
+local record Scheduler
+    lanes: {Lane}
+end
 
+--- The runtime state of a child computation.
+local record TaskImpl
+    _lane: Lane
     _id: integer
-    _slot: integer?
+    _state: string
+    _values: {any}
+    _count: integer
+    _error: string?
+    _observed: boolean
+
+    --- Waits for the child and returns exactly the values its function returned.
+    await: function(TaskImpl): ...any
+
+    --- Whether the child has settled and its reply has reached this Lua state.
+    isDone: nosuspend function(TaskImpl): boolean
 end
 
---- A fixed set of workers running one entry.
----
---- Requests go to whichever member has the fewest in flight. A member answers its
---- own one at a time, so a pool overlaps work only across members, and only when
---- its callers wait under a suspension handler: without one an await blocks the
---- thread and a pool of any size behaves as a pool of one.
-record workers.Pool
-    --- The entry module every member of this pool runs.
-    entry: string
-
-    _workers: {any}
-    _inflight: {integer}
-    _destroyed: boolean
-
-    --- Sends a named request to a member and waits for its reply.
-    callOperation: function(workers.Pool, string, any): any
-
-    --- Sends a named request to a member and answers a ticket for its reply.
-    submit: function(workers.Pool, string, any): workers.Ticket
-
-    --- Waits for the reply a ticket stands for.
-    await: function(workers.Pool, workers.Ticket): any
-
-    --- Stops and releases every member. Idempotent.
-    stop: function(workers.Pool): nil
-
-    --- Stops the pool at scope exit.
-    drop: nosuspend function(takes self: workers.Pool): nil
+--- The cleanup contract a structured worker scope carries.
+affine interface workers.ScopeToken
+    terminal drop: nosuspend function(takes self: workers.ScopeToken): nil
 end
 
---- A fresh Lua state running on a native thread.
-record workers.Worker
-    --- The entry module this worker runs, which a typed handle reads as a literal.
-    entry: string
-
-    _handle: any
-    _inbox: Channel
-    _outbox: Channel
+--- A lexical family of parallel child tasks.
+record workers.Scope is workers.ScopeToken
+    _scheduler: Scheduler
+    _tasks: {any}
     _closed: boolean
-    _destroyed: boolean
-    _exit: workers.Exit?
-    _nextId: integer
-    _pendingIds: {[integer]: boolean}
-    _replies: {[integer]: Frame}
-    _messages: {any}
-    _firstMessage: integer
-    _lastMessage: integer
 
-    --- Queues a copied value without waiting for capacity.
-    send: function(workers.Worker, any)
+    --- Starts one ordinary exported function with copied arguments.
+    spawn: function<F is Callable>(workers.Scope, F, ...: unpackof Parameters(F)): workers.Task<F>
 
-    --- Takes a ready ordinary message without waiting.
-    tryReceive: function(workers.Worker): any?
+    --- Waits for every child. Idempotent.
+    close: function(workers.Scope): nil
 
-    --- Waits for an ordinary message, or up to `timeoutMs` when supplied.
-    receive: function(workers.Worker, integer?): any?
-
-    --- Sends a request and waits for the matching reply.
-    call: function(workers.Worker, any): any
-
-    --- Sends a named request and waits for the matching reply.
-    callOperation: function(workers.Worker, string, any): any
-
-    --- Sends a named request and answers a ticket for its reply.
-    submit: function(workers.Worker, string, any): workers.Ticket
-
-    --- Waits for the reply a ticket stands for.
-    await: function(workers.Worker, workers.Ticket): any
-
-    --- Closes the worker inbox. Nonblocking and idempotent.
-    close: function(workers.Worker)
-
-    --- Stops and releases the worker at scope exit.
-    drop: nosuspend function(takes self: workers.Worker): nil
-
-    --- Waits for the worker thread and records how it ended.
-    join: function(workers.Worker): workers.Exit
-
-    --- Closes, joins, and releases the worker. Idempotent.
-    stop: function(workers.Worker): workers.Exit
+    --- Closes the scope on every structured exit.
+    drop: nosuspend function(takes self: workers.Scope): nil
 end
 
 local ChannelMT: metatable<Channel> = {__index = Channel}
-local WorkerMT: metatable<workers.Worker> = {__index = workers.Worker}
-local PoolMT: metatable<workers.Pool> = {__index = workers.Pool}
-local SelfMT: metatable<workers.Self> = {__index = workers.Self}
+local TaskMT: metatable<TaskImpl> = {__index = TaskImpl}
+local ScopeMT: metatable<workers.Scope> = {__index = workers.Scope}
 
 local function channel(handle: any, owned: boolean): Channel
     return setmetatable({handle = handle, owned = owned, destroyed = false}, ChannelMT) as Channel
@@ -218,17 +177,13 @@ local function newChannel(): Channel
     return channel(handle, true)
 end
 
-local SENDABLE: {[string]: boolean} = {boolean = true, number = true, string = true,}
+local SENDABLE: {[string]: boolean} = {["nil"] = true, boolean = true, number = true, string = true,}
 
---- Names the first value that cannot cross. Repeated tables are rejected as
---- aliases as well as cycles because the encoding contract promises neither.
 local function unsendable(value: any, path: string, depth: integer, seen: {[any]: boolean}): string?
     local kind = type(value)
     if SENDABLE[kind] then
         return nil
     end
-    -- What is left once the sendable scalars are gone is the table this walks into,
-    -- and the checks below are what it has to hold up.
     @allow("exhaustiveness")
     if kind ~= "table" then
         return ("%s is a %s"):format(path, kind)
@@ -259,669 +214,391 @@ end
 local function encode(frame: Frame): string
     local rejected = unsendable(frame, "message", 0, {})
     if rejected ~= nil then
-        error("nupp: cannot send to a worker: " .. rejected, 3)
+        error("nupp: cannot copy a worker value: " .. rejected, 3)
     end
 
     return buffer.encode(frame as string) as string
 end
 
 local function decode(bytes: string): Frame
-    local ok, value = pcall(buffer.decode, bytes)
-    if not ok or type(value) ~= "table" or type((value as {[string]: any})["kind"]) ~= "string" then
-        error("nupp: a worker returned an invalid message frame", 3)
+    local value = buffer.decode(bytes)
+    if type(value) ~= "table" or type((value as {[string]: any})["kind"]) ~= "string" then
+        error("nupp: a worker returned an invalid task frame", 3)
     end
 
     return value as Frame
 end
 
-local function push(self: Channel, frame: Frame): nil
-    if self.destroyed or not native.channelPush(self.handle, encode(frame)) then
-        error("nupp: a worker channel is closed or its bounded queue is full", 3)
+local function push(target: Channel, frame: Frame): nil
+    if target.destroyed or not native.channelPush(target.handle, encode(frame)) then
+        error("nupp: a worker queue is closed or full", 3)
     end
 end
 
-local function pop(self: Channel, timeoutMs: integer): Frame?
-    if self.destroyed then
+local function pop(source: Channel, timeoutMs: integer): Frame?
+    if source.destroyed then
         return nil
     end
-    local bytes = native.channelPop(self.handle, timeoutMs)
+    local bytes = native.channelPop(source.handle, timeoutMs)
 
     return bytes ~= nil and decode(bytes) or nil
 end
 
-local function destroy(self: Channel): nil
-    if self.destroyed or not self.owned then
+local function destroy(value: Channel): nil
+    if value.destroyed or not value.owned then
         return
     end
-    self.destroyed = true
-    native.channelDestroy(self.handle)
-    self.handle = nil
+    value.destroyed = true
+    native.channelDestroy(value.handle)
+    value.handle = nil
 end
 
-local function takeMessage(self: workers.Worker): any?
-    if self._firstMessage > self._lastMessage then
-        return nil
-    end
-    local value = self._messages[self._firstMessage]
-    self._messages[self._firstMessage] = nil
-    if self._firstMessage == self._lastMessage then
-        self._firstMessage = 1
-        self._lastMessage = 0
-    else
-        self._firstMessage = self._firstMessage + 1
+local function startLane(): Lane
+    local inbox = newChannel()
+    local outbox = newChannel()
+    local handle, problem = native.workerSpawn(inbox.handle, outbox.handle)
+    if handle == nil then
+        destroy(inbox)
+        destroy(outbox)
+        error("nupp: cannot start the worker scheduler: " .. (problem or "unknown failure"), 3)
     end
 
-    return value
+    return new Lane(
+        handle = handle,
+        inbox = inbox,
+        outbox = outbox,
+        nextId = 1,
+        inflight = 0,
+        pending = {},
+        replies = {}
+    )
 end
 
-local function takeReply(self: workers.Worker, id: integer): Frame?
-    local reply = self._replies[id]
-    if reply ~= nil then
-        self._replies[id] = nil
-    end
+local sharedScheduler: Scheduler? = nil
 
-    return reply
+local function scheduler(): Scheduler
+    if sharedScheduler ~= nil then
+        return sharedScheduler
+    end
+    local workerInbox = native.current()
+    if workerInbox ~= nil then
+        error("nupp: a worker task cannot open another worker scope", 3)
+    end
+    local count = math.max(1, math.min(native.workerParallelism(), 64)) as integer
+    local lanes: {Lane} = {}
+    for index = 1, count do
+        local ok, lane = pcall(startLane)
+        if not ok then
+            for _, started in ipairs(lanes) do
+                native.channelClose(started.inbox.handle)
+                native.workerJoin(started.handle)
+                destroy(started.inbox)
+                destroy(started.outbox)
+            end
+            error(lane, 3)
+        end
+        lanes[index] = lane as Lane
+    end
+    sharedScheduler = new Scheduler(lanes = lanes)
+
+    return sharedScheduler
 end
 
---- Routes exactly one frame. Returns whether one was taken.
---- @raises when the worker supplied an unknown frame kind
-local function route(self: workers.Worker, timeoutMs: integer): boolean
-    local frame = pop(self._outbox, timeoutMs)
+local function route(lane: Lane, timeoutMs: integer): boolean
+    local frame = pop(lane.outbox, timeoutMs)
     if frame == nil then
         return false
     end
-    if frame.kind == "reply" and frame.id ~= nil then
-        if self._pendingIds[frame.id] then
-            self._pendingIds[frame.id] = nil
-            self._replies[frame.id] = frame
-        end
-    elseif frame.kind == "message" then
-        self._lastMessage = self._lastMessage + 1
-        self._messages[self._lastMessage] = frame.payload
-    else
-        error("nupp: a worker returned an unknown message frame", 3)
+    local id = frame.id
+    if frame.kind ~= "reply" or id == nil or not lane.pending[id] then
+        error("nupp: a worker returned an unknown task reply", 3)
     end
+    lane.pending[id] = nil
+    lane.replies[id] = frame
+    lane.inflight = lane.inflight - 1
 
     return true
 end
 
-local function ended(self: workers.Worker): boolean
-    return native.channelClosed(self._outbox.handle) and native.channelCount(self._outbox.handle) == 0
+local function ended(lane: Lane): boolean
+    return native.channelClosed(lane.outbox.handle) and native.channelCount(lane.outbox.handle) == 0
 end
 
---- Waits until `ready` succeeds. Without a handler the channel's condvar does
---- the sleeping. Under a handler one readiness source polls without entering
---- Lua from the worker thread.
-local function waitFor(
-    self: workers.Worker,
-    operation: string,
-    ready: function(): boolean,
-    timeoutMs: integer?
-): boolean
-    if ready() then
-        return true
-    end
-    if timeoutMs ~= nil and timeoutMs == 0 then
-        return false
-    end
-    local deadline = timeoutMs ~= nil and native.now() + timeoutMs or nil
-    if not suspension.handled() then
-        while not ready() do
-            local budget: integer = -1
-            if deadline ~= nil then
-                local remaining = math.ceil(deadline - native.now())
-                if remaining <= 0 then
-                    return false
-                end
-                budget = remaining as integer
-            end
-            if not route(self, budget) and ended(self) then
-                return ready()
-            end
-        end
-
-        return true
-    end
-
-    local function subscribe(resume: function(boolean), context: suspension.Context): function()
-        local source = context:source("nupp.workers", 50, function(): integer
-            local moved = route(self, 0)
-            if ready() or ended(self) or deadline ~= nil and native.now() >= deadline then
-                resume(true)
-
-                return 1
-            end
-
-            return moved and 1 or 0
-        end)
-
-        return function(): nil
-            source:release()
-        end
-    end
-
-    while not ready() do
-        if ended(self) then
-            return false
-        end
-        if deadline ~= nil and native.now() >= deadline then
-            return false
-        end
-        suspension.suspend(operation, subscribe)
-    end
-
-    return true
+local function ready(lane: Lane, id: integer): boolean
+    return lane.replies[id] ~= nil
 end
 
-function workers.Worker:send(value: any): nil
-    if self._closed or self._exit ~= nil then
-        error("nupp: cannot send to a closed worker", 2)
-    end
-    local rejected = unsendable(value, "value", 0, {})
-    if rejected ~= nil then
-        error("nupp: cannot send to a worker: " .. rejected, 2)
-    end
-    push(self._inbox, {kind = "message", payload = value})
-end
-
-function workers.Worker:tryReceive(): any?
-    local value = takeMessage(self)
-    if value ~= nil then
-        return value
-    end
-    while route(self, 0) do
-        value = takeMessage(self)
-        if value ~= nil then
-            return value
-        end
-    end
-
-    return nil
-end
-
-function workers.Worker:receive(timeoutMs: integer?): any?
-    if timeoutMs ~= nil and (timeoutMs < 0 or math.floor(timeoutMs) ~= timeoutMs) then
-        error("nupp: worker receive timeout must be a nonnegative integer", 2)
-    end
-    local value = self:tryReceive()
-    if value ~= nil then
-        return value
-    end
-    waitFor(
-        self,
-        "worker receive",
-        function(): boolean
-            return self._firstMessage <= self._lastMessage
-        end,
-        timeoutMs
-    )
-
-    return takeMessage(self)
-end
-
-local function submitRequest(self: workers.Worker, op: string?, value: any): integer
-    if self._closed or self._exit ~= nil then
-        error("nupp: cannot call a closed worker", 3)
-    end
-    local rejected = unsendable(value, "value", 0, {})
-    if rejected ~= nil then
-        error("nupp: cannot call a worker: " .. rejected, 3)
-    end
-    local id = self._nextId
-    if id > 9007199254740991 then
-        error("nupp: worker request identifiers are exhausted", 3)
-    end
-    self._nextId = id + 1
-    self._pendingIds[id] = true
-    push(self._inbox, {kind = "request", op = op, id = id, payload = value})
-
-    return id
-end
-
-local function awaitRequest(self: workers.Worker, id: integer): any
-    waitFor(self, "worker call", function(): boolean
-        return self._replies[id] ~= nil
-    end)
-    local reply = takeReply(self, id)
-    if reply == nil then
-        self._pendingIds[id] = nil
-        local exit = self:join()
-        error(exit.error or "nupp: worker ended before replying", 3)
-    end
-    if reply.ok ~= true then
-        error("nupp: worker call failed: " .. (reply.error or "without saying why"), 3)
-    end
-
-    return reply.payload
-end
-
-local function request(self: workers.Worker, op: string?, value: any): any
-    return awaitRequest(self, submitRequest(self, op, value))
-end
-
-function workers.Worker:call(value: any): any
-    return request(self, nil, value)
-end
-
---- Sends a request the entry routes by name, and waits for its reply.
----
---- A typed handle reaches this through its generated methods rather than by hand.
----
---- @param op the operation the entry serves
---- @param value the request payload
---- @return whatever the entry answered
---- @raises when the worker is closed, the payload cannot cross, or the entry failed
-function workers.Worker:callOperation(op: string, value: any): any
-    return request(self, op, value)
-end
-
---- Sends a named request and answers a ticket for its reply.
----
---- Nothing waits here, so a caller may have several requests in flight and await
---- them in whatever order suits it. A worker answers them one at a time whatever
---- order they were sent in, so several tickets to one worker queue rather than
---- overlap; several workers are what makes them overlap.
----
---- @param op the operation the entry serves
---- @param value the request payload
---- @return a ticket for the reply
---- @raises when the worker is closed or the payload cannot cross
-function workers.Worker:submit(op: string, value: any): workers.Ticket
-    return new workers.Ticket(operation = op, _id = submitRequest(self, op, value))
-end
-
---- Waits for the reply a ticket stands for.
----
---- @param ticket the ticket a submit answered with
---- @return whatever the entry answered
---- @raises when the entry failed, ended first, or the ticket was already awaited
-function workers.Worker:await(ticket: workers.Ticket): any
-    return awaitRequest(self, ticket._id)
-end
-
---- Answers a worker method, falling back to the operation of that name.
----
---- Reached only through a handle `dispatcher` prepared, so an ordinary worker keeps
---- raising for a name it does not have rather than sending a request nothing serves.
-local DispatchMT: metatable<workers.Worker> = {
-    __index = function(self: workers.Worker, key: string): any
-        local member = (workers.Worker as {[string]: any})[key]
-        if member ~= nil then
-            return member
-        end
-
-        return function(receiver: workers.Worker, value: any): any
-            return request(receiver, key, value)
-        end
-    end,
-}
-
---- Prepares a worker to answer its entry's operations as methods.
----
---- The handle a typed entry hands out is this same worker: the type says which
---- operations it has and this says how to reach them, so nothing is allocated and
---- `stop`, `join` and the ownership obligation are unchanged.
----
---- @param worker the worker to prepare
---- @return the same worker, answering its entry's operations
-function workers.dispatcher(worker: workers.Worker): workers.Worker
-    return setmetatable(worker as any, DispatchMT) as workers.Worker
-end
-
-function workers.Worker:close(): nil
-    if self._closed then
+local function waitFor(lane: Lane, id: integer): nil
+    if ready(lane, id) then
         return
     end
-    self._closed = true
-    native.channelClose(self._inbox.handle)
-end
-
-function workers.Worker:join(): workers.Exit
-    if self._exit ~= nil then
-        return self._exit
-    end
-    if suspension.handled() and not native.workerFinished(self._handle) then
-        suspension.suspend("worker join", function(resume: function(boolean), context: suspension.Context): function()
-            local source = context:source("nupp.workers.join", 50, function(): integer
-                if native.workerFinished(self._handle) then
+    if not suspension.handled() then
+        while not ready(lane, id) do
+            if not route(lane, -1) and ended(lane) then
+                break
+            end
+        end
+    else
+        local function subscribe(resume: function(boolean), context: suspension.Context): function()
+            local source = context:source("nupp.workers", 50, function(): integer
+                local moved = route(lane, 0)
+                if ready(lane, id) or ended(lane) then
                     resume(true)
-
                     return 1
                 end
 
-                return 0
+                return moved and 1 or 0
             end)
 
             return function(): nil
                 source:release()
             end
-        end)
+        end
+
+        while not ready(lane, id) and not ended(lane) do
+            suspension.suspend("worker task", subscribe)
+        end
     end
-    local status, failure = native.workerJoin(self._handle)
-    self._handle = nil
-    self._exit = new workers.Exit(succeeded = status == 0, status = status, error = failure)
-
-    return self._exit
-end
-
-function workers.Worker:stop(): workers.Exit
-    if self._destroyed then
-        return self._exit as workers.Exit
+    if not ready(lane, id) then
+        error("nupp: a worker thread ended before answering a task", 3)
     end
-    self:close()
-    local exit = self:join()
-    destroy(self._inbox)
-    destroy(self._outbox)
-    self._destroyed = true
-
-    return exit
 end
 
-function workers.Worker.drop(takes self: workers.Worker): nil
-    self:stop()
+local function callableAddress(fn: any): (string?, string?)
+    local found: {string} = {}
+    local loaded = package.loaded as {[any]: any}
+    for moduleName, moduleValue in pairs(loaded) do
+        if type(moduleName) == "string" and type(moduleValue) == "table" then
+            for member, value in pairs(moduleValue as {[any]: any}) do
+                if type(member) == "string" and value == fn then
+                    found[#found + 1] = moduleName .. "\0" .. member
+                end
+            end
+        end
+    end
+    table.sort(found)
+    local address = found[1]
+    if address == nil then
+        return nil, nil
+    end
+
+    return address:match("^(.-)%z(.*)$")
 end
 
---- Stops and releases a worker, which is what every worker's contract names.
----
---- Nothing calls this by hand. It is the terminal consumer `affine` carries, so a
---- scope boundary or an explicit `drop` reaches it.
----
---- @param self the worker, spent by this call
-function workers.destroyWorker(takes self: workers.Worker): nil
-    self:drop()
+local function leastBusy(value: Scheduler): Lane
+    local selected = value.lanes[1]
+    for index = 2, #value.lanes do
+        local candidate = value.lanes[index]
+        if candidate.inflight < selected.inflight then
+            selected = candidate
+        end
+    end
+
+    return selected
 end
 
-local function receiveSelf(self: workers.Self): Frame?
-    return pop(self.inbox, -1)
-end
-
-function workers.Self:receive(): any?
-    local frame = receiveSelf(self)
-
-    return frame and frame.payload or nil
-end
-
-function workers.Self:send(value: any): nil
-    local rejected = unsendable(value, "value", 0, {})
+function workers.Scope:spawn<F is Callable>(fn: F, ...: unpackof Parameters(F)): workers.Task<F>
+    if self._closed then
+        error("nupp: cannot spawn into a closed worker scope", 2)
+    end
+    local moduleName, member = callableAddress(fn)
+    if moduleName == nil or member == nil then
+        error(
+            "nupp: worker tasks must be exported functions; closures and private functions cannot cross an isolated Lua state",
+            2
+        )
+    end
+    local arguments = pack(...)
+    local rejected = unsendable(arguments.values, "arguments", 0, {})
     if rejected ~= nil then
-        error("nupp: cannot send from a worker: " .. rejected, 2)
+        error("nupp: cannot copy task arguments: " .. rejected, 2)
     end
-    push(self.outbox, {kind = "message", payload = value})
-end
-
---- Answers one request frame, or drops an ordinary message the handler took.
-local function reply(self: workers.Self, frame: Frame, ok: boolean, answer: any): nil
-    if frame.kind ~= "request" or frame.id == nil then
-        return
-    end
-    if not ok then
-        push(self.outbox, {kind = "reply", id = frame.id, ok = false, error = tostring(answer)})
-
-        return
-    end
-    local rejected = unsendable(answer, "result", 0, {})
-    if rejected == nil then
-        push(self.outbox, {kind = "reply", id = frame.id, ok = true, payload = answer})
-    else
-        push(self.outbox, {
-            kind = "reply",
-            id = frame.id,
-            ok = false,
-            error = "a call result cannot cross: " .. rejected,
+    local lane = leastBusy(self._scheduler)
+    local id = lane.nextId
+    lane.nextId = id + 1
+    lane.inflight = lane.inflight + 1
+    lane.pending[id] = true
+    local submitted, problem = pcall(function(): nil
+        push(lane.inbox, {
+            kind = "task",
+            id = id,
+            payload = {module = moduleName, member = member, arguments = arguments,},
         })
+    end)
+    if not submitted then
+        lane.pending[id] = nil
+        lane.inflight = lane.inflight - 1
+        error(problem, 2)
     end
+    local task = setmetatable(
+        {_lane = lane, _id = id, _state = "pending", _values = {}, _count = 0, _error = nil, _observed = false,},
+        TaskMT
+    ) as workers.Task<F>
+    self._tasks[#self._tasks + 1] = task
+
+    return task
 end
 
-function workers.Self:serve(handler: function(any): any): nil
-    while true do
-        local frame = receiveSelf(self)
-        if frame == nil then
-            return
-        end
-        local ok, answer = pcall(handler, frame.payload)
-        reply(self, frame, ok, answer)
+function TaskImpl:isDone(): boolean
+    if self._state ~= "pending" then
+        return true
     end
+    while route(self._lane, 0) do
+    end
+
+    return ready(self._lane, self._id)
 end
 
---- Answers named requests from a table of operations until the inbox closes.
----
---- Each request names the operation the caller's handle generated a method for, and
---- the table answers it. A handler error becomes a failed reply for that call and
---- the loop continues, which is what makes one bad request survivable.
----
---- Annotate the table with the same shape the handle was generated from, and the
---- operations are checked against it:
----
---- ```nupp
---- local implementation: Operations = {
----     hash = function(job: Job): Answer
----         return {name = job.name, hash = 0}
----     end,
---- }
---- workers.current():serveOperations(implementation)
---- ```
----
---- @param implementation the table of operations this entry answers
-function workers.Self:serveOperations(implementation: any): nil
-    local operations = implementation as {[string]: any}
-    while true do
-        local frame = receiveSelf(self)
-        if frame == nil then
-            return
-        end
-        local op = frame.op
-        local handler = op ~= nil and operations[op] or nil
-        if handler == nil then
-            reply(self, frame, false, ("nupp: no worker operation named %q"):format(tostring(op)))
+function TaskImpl:await(): ...any
+    self._observed = true
+    if self._state == "pending" then
+        waitFor(self._lane, self._id)
+        local reply = self._lane.replies[self._id] as Frame
+        self._lane.replies[self._id] = nil
+        if reply.ok == true then
+            local packed = reply.payload as Packed
+            self._values = packed.values
+            self._count = packed.count
+            self._state = "done"
         else
-            local ok, answer = pcall(handler, frame.payload)
-            reply(self, frame, ok, answer)
+            self._error = reply.error or "worker task failed without an error"
+            self._state = "failed"
+        end
+    end
+    if self._state == "failed" then
+        error("nupp: worker task failed: " .. (self._error or "unknown failure"), 2)
+    end
+
+    return unpack(self._values, 1, self._count)
+end
+
+local function waitForBlocking(lane: Lane, id: integer): nil
+    while not ready(lane, id) do
+        if not route(lane, -1) and ended(lane) then
+            error("nupp: a worker thread ended before answering a task", 3)
         end
     end
 end
 
---- The member with the fewest requests in flight, which is the one that will
---- answer soonest when every member is equally fast.
----
---- @raises when the pool has already been stopped
-local function leastBusy(self: workers.Pool): integer
-    if self._destroyed then
-        error("nupp: cannot call a stopped worker pool", 3)
-    end
-    local slot: integer = 1
-    local fewest: integer = self._inflight[1]
-    for index = 2, #self._workers do
-        local count: integer = self._inflight[index]
-        if count < fewest then
-            slot = index
-            fewest = count
+local function settleBlocking(task: any): string?
+    task._observed = true
+    if task._state == "pending" then
+        waitForBlocking(task._lane, task._id)
+        local reply = task._lane.replies[task._id] as Frame
+        task._lane.replies[task._id] = nil
+        if reply.ok == true then
+            local packed = reply.payload as Packed
+            task._values = packed.values
+            task._count = packed.count
+            task._state = "done"
+        else
+            task._error = reply.error or "worker task failed without an error"
+            task._state = "failed"
         end
     end
 
-    return slot
+    return task._state == "failed" and "nupp: worker task failed: " .. (task._error or "unknown failure") or nil
 end
 
-function workers.Pool:submit(op: string, value: any): workers.Ticket
-    local slot = leastBusy(self)
-    local worker = self._workers[slot] as workers.Worker
-    local id = submitRequest(worker, op, value)
-    self._inflight[slot] = self._inflight[slot] + 1
-
-    return new workers.Ticket(operation = op, _id = id, _slot = slot)
-end
-
-function workers.Pool:await(ticket: workers.Ticket): any
-    local slot = ticket._slot
-    if slot == nil or self._workers[slot] == nil then
-        error("nupp: that ticket did not come from this worker pool", 2)
-    end
-    local worker = self._workers[slot] as workers.Worker
-    local ok, answer = pcall(awaitRequest, worker, ticket._id)
-    self._inflight[slot] = self._inflight[slot] - 1
-    if not ok then
-        error(answer, 2)
-    end
-
-    return answer
-end
-
-function workers.Pool:callOperation(op: string, value: any): any
-    return self:await(self:submit(op, value))
-end
-
-function workers.Pool:stop(): nil
-    if self._destroyed then
+local function closeBlocking(takes self: workers.Scope): nil
+    if self._closed then
         return
     end
-    self._destroyed = true
-    for index = 1, #self._workers do
-        local worker = self._workers[index] as workers.Worker
-        worker:stop()
-    end
-end
-
-function workers.Pool.drop(takes self: workers.Pool): nil
-    self:stop()
-end
-
---- Stops and releases a pool, which is what every pool's contract names.
----
---- @param self the pool, spent by this call
-function workers.destroyPool(takes self: workers.Pool): nil
-    self:drop()
-end
-
---- Answers a pool method, falling back to the operation of that name.
-local PoolDispatchMT: metatable<workers.Pool> = {
-    __index = function(self: workers.Pool, key: string): any
-        local member = (workers.Pool as {[string]: any})[key]
-        if member ~= nil then
-            return member
+    self._closed = true
+    local firstFailure: any = nil
+    for _, task in ipairs(self._tasks) do
+        local observed = task._observed == true
+        local problem = settleBlocking(task)
+        if problem ~= nil and not observed and firstFailure == nil then
+            firstFailure = problem
         end
+    end
+    if firstFailure ~= nil then
+        error(firstFailure, 2)
+    end
+end
 
-        return function(receiver: workers.Pool, value: any): any
-            return receiver:callOperation(key, value)
+function workers.Scope:close(): nil
+    if self._closed then
+        return
+    end
+    self._closed = true
+    local firstFailure: any = nil
+    for _, task in ipairs(self._tasks) do
+        local observed = task._observed == true
+        local ok, problem = pcall(function(): nil
+            task:await()
+        end)
+        if not ok and not observed and firstFailure == nil then
+            firstFailure = problem
         end
-    end,
-}
-
---- Prepares a pool to answer its entry's operations as methods.
----
---- @param pool the pool to prepare
---- @return the same pool, answering its entry's operations
-function workers.poolDispatcher(pool: workers.Pool): workers.Pool
-    return setmetatable(pool as any, PoolDispatchMT) as workers.Pool
+    end
+    if firstFailure ~= nil then
+        error(firstFailure, 2)
+    end
 end
 
---- Starts `count` workers running `entry`, sharing the requests sent to them.
----
---- Every member runs the same entry, so the pool answers the same operations one
---- worker does and adds only where a request goes. Its drop stops and joins every
---- member.
----
---- @param entry the module name every member runs
---- @param count how many members to start
---- @return the pool, owed a stop
---- @raises when the count is not a positive whole number, or a member cannot start
-function workers.pool(entry: string, count: integer): affine(workers.Pool, workers.destroyPool)
-    if type(count) ~= "number" or count < 1 or count % 1 ~= 0 then
-        error("nupp: a worker pool needs a positive whole number of workers", 2)
+function workers.Scope.drop(takes self: workers.Scope): nil
+    closeBlocking(self)
+end
+
+--- Opens a structured family on the process-wide bounded worker scheduler.
+function workers.scope(): affine(workers.Scope)
+    return setmetatable({_scheduler = scheduler(), _tasks = {}, _closed = false,}, ScopeMT) as workers.Scope
+end
+
+local function workerReply(outbox: Channel, id: integer, ok: boolean, answer: any): nil
+    if not ok then
+        push(outbox, {kind = "reply", id = id, ok = false, error = tostring(answer)})
+        return
     end
-    local members: {any} = {}
-    local inflight: {integer} = {}
-    for index = 1, count do
-        local worker = workers.spawn(entry)
-        unsafe do
-            -- The pool's stop is what discharges these now, and it runs from the
-            -- pool's own terminal however the scope holding it ends.
-            members[index] = unsafe release worker
+    local rejected = unsendable(answer, "results", 0, {})
+    if rejected ~= nil then
+        push(outbox, {kind = "reply", id = id, ok = false, error = "results cannot be copied: " .. rejected})
+    else
+        push(outbox, {kind = "reply", id = id, ok = true, payload = answer})
+    end
+end
+
+--- Runs the scheduler loop inside a native worker state. Compiler-owned bootstrap only.
+--- @raises when called outside the compiler-owned worker bootstrap
+function workers.__runScheduler(): nil
+    local inHandle, outHandle = native.current()
+    if inHandle == nil or outHandle == nil then
+        error("nupp: worker scheduler started outside a worker state", 2)
+    end
+    local inbox = channel(inHandle, false)
+    local outbox = channel(outHandle, false)
+    while true do
+        local frame = pop(inbox, -1)
+        if frame == nil then
+            return
         end
-        inflight[index] = 0
-    end
+        local id = frame.id
+        local request = frame.payload as {[string]: any}
+        if frame.kind ~= "task" or id == nil or type(request) ~= "table" then
+            error("nupp: worker scheduler received an invalid task", 2)
+        end
+        local ok, answer = pcall(function(): Packed
+            local moduleName = request.module
+            local member = request.member
+            local arguments = request.arguments as Packed
+            if type(moduleName) ~= "string" or type(member) ~= "string" then
+                error("task has no callable address", 0)
+            end
+            local moduleValue = require(moduleName)
+            local callable = type(moduleValue) == "table" and (moduleValue as {[string]: any})[member] or nil
+            if type(callable) ~= "function" then
+                error(("%s.%s is no longer an exported function"):format(moduleName, member), 0)
+            end
 
-    return setmetatable(
-        {entry = entry, _workers = members, _inflight = inflight, _destroyed = false,},
-        PoolMT
-    ) as workers.Pool
+            return pack(callable(unpack(arguments.values, 1, arguments.count)))
+        end)
+        workerReply(outbox, id, ok, answer)
+    end
 end
 
---- Starts `entry` in a fresh LuaJIT state.
----
---- The entry is a module name resolved out of the same stamped payload the spawner
---- was built from, so a worker needs no separate build. It runs until its module
---- returns or its inbox closes and drains.
----
---- ```nupp
---- do
----     local worker = workers.spawn("jobs.hash")
----     local answer = worker:call({bytes = contents})
----     print(answer.length)
---- end -- the worker is closed, joined and released here
---- ```
----
---- @param entry the worker entry module's name
---- @return an owned worker that is stopped on every structured exit
---- @raises when the entry is not a nonempty module name, or the worker state cannot
----     be started
-function workers.spawn(entry: string): affine(workers.Worker, workers.destroyWorker)
-    if type(entry) ~= "string" or entry == "" then
-        error("nupp: a worker entry must be a nonempty module name", 2)
-    end
-    local inbox = newChannel()
-    local outbox = newChannel()
-    local handle, problem = native.workerSpawn(entry, inbox.handle, outbox.handle)
-    if handle == nil then
-        destroy(inbox)
-        destroy(outbox)
-        error("nupp: cannot spawn worker: " .. (problem or "unknown failure"), 2)
-    end
-
-    return setmetatable(
-        {
-            entry = entry,
-            _handle = handle,
-            _inbox = inbox,
-            _outbox = outbox,
-            _closed = false,
-            _destroyed = false,
-            _exit = nil,
-            _nextId = 1,
-            _pendingIds = {},
-            _replies = {},
-            _messages = {},
-            _firstMessage = 1,
-            _lastMessage = 0,
-        },
-        WorkerMT
-    ) as workers.Worker
-end
-
---- Answers the endpoints installed in the current worker state.
----
---- Only a worker entry module has these. The spawner side holds a
---- [](nupp.workers.Worker) instead.
----
---- ```nupp
---- workers.current():serve(function(job: any): any
----     return {length = #job.bytes}
---- end)
---- ```
----
---- @return the inbox and outbox endpoints for this worker
---- @raises outside a worker state
-function workers.current(): workers.Self
-    local inbox, outbox = native.current()
-    if inbox == nil or outbox == nil then
-        error("nupp: workers.current is only valid inside a worker", 2)
-    end
-
-    return setmetatable({inbox = channel(inbox, false), outbox = channel(outbox, false),}, SelfMT) as workers.Self
-end
-
-workers.Ticket = workers.Ticket
-workers.Pool = workers.Pool
-workers.Worker = workers.Worker
-workers.Self = workers.Self
-workers.Exit = workers.Exit
+workers.Scope = workers.Scope
+workers.ScopeToken = workers.ScopeToken
 
 export = workers

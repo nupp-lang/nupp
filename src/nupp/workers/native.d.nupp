@@ -6,20 +6,19 @@
 --- functions deliberately expose only opaque handles and serialized bytes, so
 --- nothing here can hand a Lua value from one state to another.
 local record native
-    channelCreate: function(): any
-    channelDestroy: function(any)
-    channelClose: function(any)
-    channelPush: function(any, string): boolean
-    channelPop: function(any, integer): string?
-    channelCount: function(any): integer
-    channelClosed: function(any): boolean
+    channelCreate: nosuspend function(): any
+    channelDestroy: nosuspend function(any)
+    channelClose: nosuspend function(any)
+    channelPush: nosuspend function(any, string): boolean
+    channelPop: nosuspend function(any, integer): string?
+    channelCount: nosuspend function(any): integer
+    channelClosed: nosuspend function(any): boolean
 
-    workerSpawn: function(string, any, any): (any?, string?)
-    workerFinished: function(any): boolean
-    workerJoin: function(any): (integer, string?)
+    workerSpawn: nosuspend function(any, any): (any?, string?)
+    workerJoin: nosuspend function(any): (integer, string?)
+    workerParallelism: nosuspend function(): integer
 
-    current: function(): (any?, any?)
-    now: function(): number
+    current: nosuspend function(): (any?, any?)
 end
 
 return native

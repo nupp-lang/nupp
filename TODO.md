@@ -62,21 +62,15 @@ longer than it had to be.
 
 ## Workers
 
-- [ ] **Check a spawn entry against the build target.** `workers.spawn` takes a
-      module name the build resolves at run time, so a name that is spelled
-      consistently but is not in the target's `entries` fails when it runs rather
-      than when it is built. A typed handle already catches a name that disagrees
-      with its protocol, so what is left is the build-config mistake, and catching
-      it means the checker can see the target's entry list -- which it cannot
-      today, and which a cached check would have to invalidate on.
-- [ ] **Encode a message from its declared type.** `unsendable` walks every value
-      before `buffer.encode` sees it, which a declared protocol makes unnecessary
-      for the parts it can decide. [NEP 15](docs/neps/0015-schema-driven-serde.md)
-      has the schema and binding, and `nupp.reflect.fieldCodec` the materializer;
-      what is missing is building a schema from a structural shape rather than a
-      record, and using its compatibility fingerprint as the handshake between
-      states. Depth, cycles and repeated aliases stay dynamic whatever happens: a
-      recursive shape is a valid type that builds a cyclic value.
+- [ ] **Encode transferred values from the submitted function type.**
+      `unsendable` walks every value before `buffer.encode` sees it, though a
+      task's parameter and result types decide part of that work statically.
+      [NEP 15](docs/neps/0015-schema-driven-serde.md) has the schema and binding,
+      and `nupp.reflect.fieldCodec` the materializer; what is missing is deriving
+      a schema from function type packs and using its compatibility fingerprint
+      as the handshake between states. Depth, cycles and repeated aliases stay
+      dynamic whatever happens: a recursive shape is a valid type that builds a
+      cyclic value.
 
 ## Dialect interop (`import-tl`)
 

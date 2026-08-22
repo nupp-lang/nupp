@@ -49,7 +49,6 @@ local MODULES = {
     ["nupp.workers"] = selected("host", "host.workers"),
     ["nupp.wasm"] = selected("host", "host.wasm"),
     ["nupp.wasm.memory"] = selected("host", "host.wasm"),
-    ["nupp.workers.protocol"] = selected("host", "host.workers"),
 }
 
 local FACILITIES = {

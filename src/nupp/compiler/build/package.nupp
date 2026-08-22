@@ -338,24 +338,21 @@ local function bundleText(
             #chunks + 1
         ] = interpolate("return {start=function() return require(%q) end,exports=__nuppExports}\nend}\n", mainName)
     elseif workerDispatch then
-        -- A worker runs the same immutable payload in a fresh state, but selects
-        -- another preloaded module instead of executing the ordinary entry. This
+        -- A scheduler lane runs the same immutable payload in a fresh state, but
+        -- selects the workers runtime instead of executing the ordinary entry. This
         -- branch is emitted only for the host-backed workers feature, so worker-free
         -- bundles retain their exact former bytes and startup path.
         chunks[#chunks + 1] = ("package.preload[%q] = function(...)\n"):format(mainName)
         chunks[#chunks + 1] = mainText
         chunks[#chunks + 1] = "\nend\n"
         chunks[#chunks + 1] = "local __nuppEntry = rawget(_G, \"__nuppWorkerEntry\")\n"
-        -- An entry module that serves at load cannot be required by the state that
-        -- spawns it, which is what a typed protocol needs it to be: the spawner names
-        -- the entry's own types. So a worker calls an exported entry point after
-        -- loading, leaving a module that served at load working as it did.
+        -- The workers runtime owns the scheduler loop. User callables remain ordinary
+        -- preloaded modules and are required by that loop when their first task runs.
         chunks[#chunks + 1] = ("local __nuppLoaded = require(__nuppEntry or %q)\n"):format(mainName)
-        chunks[#chunks + 1] = "if __nuppEntry ~= nil and type(__nuppLoaded) == \"table\" then\n"
-        chunks[#chunks + 1] = "local __nuppServe = rawget(__nuppLoaded, \"main\")\n"
-        chunks[#chunks + 1] = "if type(__nuppServe) == \"function\" then\n"
-        chunks[#chunks + 1] = "__nuppServe(require(\"nupp.workers\").current())\n"
-        chunks[#chunks + 1] = "end\nend\n"
+        chunks[#chunks + 1] = "if __nuppEntry == \"nupp.workers\" and type(__nuppLoaded) == \"table\" then\n"
+        chunks[#chunks + 1] = "local __nuppServe = rawget(__nuppLoaded, \"__runScheduler\")\n"
+        chunks[#chunks + 1] = "if type(__nuppServe) == \"function\" then __nuppServe() end\n"
+        chunks[#chunks + 1] = "end\n"
         chunks[#chunks + 1] = "return __nuppLoaded\n"
     else
         chunks[#chunks + 1] = mainText

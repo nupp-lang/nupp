@@ -4,19 +4,9 @@ module nupp.runtime.seam.workerssuite
 local suite = {}
 
 function suite.test(provider: any): (boolean, string?)
-    local ok, problem = pcall(function()
-        local valid, failure = pcall(provider.spawn, "")
-        assert(
-            not valid and tostring(failure):find("nonempty", 1, true),
-            "spawn must reject an empty entry before host work"
-        )
-        valid, failure = pcall(provider.current)
-        assert(not valid and tostring(failure):find("worker", 1, true), "current must reject a non-worker state")
-    end)
-    if not ok then
-        return false, tostring(problem)
+    if type(provider.scope) ~= "function" then
+        return false, "scope must be a function"
     end
-
     return true
 end
 

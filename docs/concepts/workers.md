@@ -2,310 +2,168 @@
 order: 150
 ---
 
-# Workers
+# Worker tasks
 
-`nupp.workers` runs a named module in a fresh LuaJIT state on a native thread.
-The states share no Lua heap, globals, loaded modules, closures, userdata, or
-cdata, and communicate by copying serialized values through bounded queues.
-
-```nupp
-local workers = require("nupp.workers")
-
-local worker = workers.spawn("jobs.hash")
-local answer = worker:call({name = "level1", bytes = "payload"})
-print(answer.hash)
-```
-
-::: note Workers need a compiler-owned binary
-Workers run only in a `binary` target whose `stub` is `"nupp"`. That host
-supplies the pinned LuaJIT, the stamped payload worker entries load from, and
-the early machine-code address-space reservation later LuaJIT states need.
-Builds refuse workers in module and bundle targets, and with a third-party
-binary stub. See [Compiler-native
-features](../guides/build.md#compiler-native-features) for the target setting.
-:::
-
-## Starting a worker
-
-List every independently loaded worker entry in the target so the build carries
-it in the binary:
-
-```lua [nupp.lua]
-return {
-   include = { "src" },
-   build = {
-      default = "app",
-      targets = {
-         app = {
-            kind = "binary",
-            stub = "nupp",
-            entries = { "main", "jobs.hash" },
-         },
-      },
-   },
-}
-```
-
-`spawn` returns an owned worker. Its drop operation closes the inbox, joins the
-thread, and releases the queues, and it runs on every structured exit from the
-scope holding the worker:
+`nupp.workers` runs ordinary exported functions in parallel on a shared,
+bounded scheduler. Each scheduler lane is a native thread with an isolated
+LuaJIT state. Arguments and results are copied, so no Lua heap, globals,
+closures, userdata, cdata, or mutable module state are shared.
 
 ```nupp
-local workers = require("nupp.workers")
+module jobs
 
-local function hash(bytes: string): string
-    local worker = workers.spawn("jobs.hash")
-
-    return worker:call({name = "level1", bytes = bytes}).hash
-end
-
-print(hash("payload"))
-```
-
-The worker is stopped as `hash` returns, and it is stopped the same way if the
-call raises instead. See [Ownership](ownership.md) for what the obligation means
-and how to discharge it early.
-
-::: deepdive
-Isolation is total because every ownership proof assumes single-threaded access.
-A shared heap would mean either extending the capability model to describe
-concurrent access, which is a much larger type system than the one Nupp has, or
-keeping proofs that are silently false the moment two threads touch the same
-value. Copying through a queue costs a serialization pass per message and keeps
-every proof on either side true.
-:::
-
-### Serving requests
-
-The entry exports `main`, which a worker calls with its own endpoints once the
-module has loaded, and serves request and reply calls until its inbox closes:
-
-```nupp [jobs/hash.nupp]
-local data = require("nupp.data")
-local workers = require("nupp.workers")
-
-function jobs.hash.main(self: workers.Self): nil
-    self:serve(function(job: any): any
-        return {name = job.name, hash = data.fnv1a64(job.bytes)}
-    end)
+export function hash(bytes: string): uint64
+    return nupp.data.fnv1a64(bytes)
 end
 ```
-
-A handler error becomes a failed reply for that call, and the serve loop
-continues.
-
-An entry that instead serves while its module loads still works, and is what
-`workers.current()` is for. It cannot be required by the state that spawns it,
-though, which is why an entry with a typed protocol exports `main`: the spawner
-names that module's types, so loading it must do nothing.
-
-### Exit status
-
-An uncaught entry error is recorded by `join` instead:
 
 ```nupp
-local workers = require("nupp.workers")
+module main
 
-local worker = workers.spawn("jobs.hash")
-local exit = worker:join()
-if not exit.succeeded then
-    io.stderr:write(exit.error or "worker failed", "\n")
-end
-```
+const jobs = require("jobs")
+const workers = require("nupp.workers")
 
-Calling `join` does not close a running worker. Use `stop` for explicit cleanup,
-or let ownership call it at the end of the worker's scope.
+export function hashes(left: string, right: string): (uint64, uint64)
+    with scope = workers.scope() do
+        const first = scope:spawn(jobs.hash, left)
+        const second = scope:spawn(jobs.hash, right)
 
-## Typed protocols
-
-`call` and `serve` above carry `any`. An entry that declares the operations it
-serves gets a handle whose methods are checked like ordinary ones, and the entry
-name is checked with them.
-
-The entry declares a shape of operations, generates its handle from that shape and
-its own module name, and pairs the handle with a terminal so it carries the
-obligation to stop the worker:
-
-```nupp [jobs/hash.nupp]
-local workers = require("nupp.workers")
-local protocol = require("nupp.workers.protocol")
-local data = require("nupp.data")
-
-local type Job = {name: string, bytes: string}
-local type Answer = {name: string, hash: uint64}
-
-local type Operations = {
-    hash: function(job: Job): Answer
-}
-
-local type Raw = protocol.Handle<"jobs.hash", Operations>
-
-local function release(takes self: Raw): nil
-    workers.destroyWorker(self as any as workers.Worker)
-end
-
-local type Handle = affine(Raw, release)
-
-local function spawn(): Handle
-    local worker = workers.spawn("jobs.hash")
-    unsafe do
-        local ready = workers.dispatcher(unsafe release worker) as any as Raw
-
-        return unsafe adopt ready as Handle
+        return first:await(), second:await()
     end
 end
+```
 
-function jobs.hash.main(self: workers.Self): nil
-    local implementation: Operations = {
-        hash = function(job: Job): Answer
-            return {name = job.name, hash = data.fnv1a64(job.bytes)}
-        end
-    }
-    self:serveOperations(implementation)
+`jobs.hash` is still an ordinary function. Calling `jobs.hash(bytes)` runs it
+in the current Lua state; passing it to `scope:spawn` runs it on the worker
+scheduler. There is no worker declaration or parallel version of the function.
+
+::: note Workers need a compiler-owned binary
+Workers run only in a `binary` target whose `stub` is `"nupp"`. The host
+supplies the pinned LuaJIT, stamped payload, native scheduler primitives, and
+early machine-code address-space reservation. Builds refuse workers in module
+and bundle targets and with third-party binary stubs. See [Compiler-native
+features](../guides/build.md#compiler-native-features).
+:::
+
+## Structured scopes
+
+Every task belongs to a `Scope`. Leaving the exact `with` extent waits for all
+of its children, including tasks the body never awaited and every path out by
+return or error.
+
+```nupp
+with scope = workers.scope() do
+    scope:spawn(jobs.rebuildIndex, snapshot)
+end -- rebuildIndex has settled here
+```
+
+`Task:await()` returns exactly the values the function returns. The argument
+list and complete result pack are inferred from that function, so wrong
+arguments and wrong result uses are ordinary type errors at the call site.
+
+Awaiting a settled task is repeatable. A failure is raised by `await`. If the
+body never observes a failed task, scope exit waits for every sibling and then
+raises the first unobserved failure.
+
+`Task:await()` and explicit `Scope:close()` are suspension-aware ordinary
+calls. With a [suspension handler](suspension.md) they park the current
+coroutine; without one they sleep on the native channel. Automatic cleanup
+uses a blocking native drain because an affine terminal may not suspend while
+ownership is being discharged.
+
+## One shared scheduler
+
+The first scope creates one scheduler for the process. Its lane count is the
+host's online processor count, capped at 64. Later and concurrent scopes reuse
+the same lanes rather than creating a pool or a thread per task.
+
+Submission chooses the lane with the fewest unsettled tasks. Each lane runs
+one task at a time in its own Lua state, while different lanes run in parallel.
+The lanes remain alive until process exit so repeated short scopes do not pay
+Lua-state startup for every task.
+
+A worker task cannot open another worker scope. Its isolated state cannot
+submit back into the parent scheduler without either exposing scheduler
+internals across the heap boundary or risking that a lane waits on itself.
+Compose nested parallel work in the calling state and pass each leaf operation
+to the shared scheduler.
+
+This is an executor, not an actor system. A task is a stateless call whose
+inputs and results cross the boundary. Long-lived stateful ownership and
+mailboxes would be a separate abstraction.
+
+## Functions that can be submitted
+
+The function must be directly exported by a loaded module:
+
+```nupp
+module image.jobs
+
+export function resize(input: string, width: integer): string
+    return resizeBytes(input, width)
 end
 ```
 
-The caller writes a method call, and every part of it is checked:
-
 ```nupp
-local hasher = jobs.hash.spawn()
-local answer = hasher:hash({name = "level1", bytes = contents})
+const imageJobs = require("image.jobs")
+const task = scope:spawn(imageJobs.resize, bytes, 320)
 ```
 
-A misspelled operation, a message missing a field, and a reply field that does not
-exist are each reported where they are written. The handle is the same worker with
-a metatable that routes an unknown method to the operation of that name, so nothing
-is allocated and `stop`, `join` and the obligation are unchanged.
+The function reference is also the build dependency. The binary automatically
+carries `image.jobs`; there is no list of worker entries in `nupp.lua`.
 
-::: note The handle's name is what discriminates
-A comptime function builds structural types and never a nominal one, so the entry
-name is carried as a literal field and two handles over different entries do not
-interconvert. `nupp.workers.protocol` refuses a name that is not a string literal.
-:::
-
-### Messages cannot carry an obligation
-
-An owned type in an operation's arguments or results is refused where the protocol
-is written. Every value is copied on the way across, so the copy the other state
-decodes has no cleanup and the original still owes its own.
-
-### Untyped in both directions
-
-`Worker:send`, `Worker:receive` and `Self:receive` stay `any`. They are a second
-protocol running the other way, with no request to name and no reply to match, and
-nothing about the operations shape describes them.
-
-## Messages
-
-`Worker:send` and `Self:send` carry ordinary one-way messages in either
-direction. On the handle, `receive()` waits for one, `receive(timeoutMs)` waits
-up to a nonnegative whole number of milliseconds, and `tryReceive()` polls
-without waiting; inside the entry, `Self:receive()` waits. Nil means the channel
-closed after its queued messages were drained.
+Private functions and closures are rejected at submission. A closure's
+upvalues belong to the parent Lua heap, and re-running module initialization in
+another state would not copy the current captured values. Make those values
+explicit arguments instead:
 
 ```nupp
-local workers = require("nupp.workers")
+-- Write this:
+scope:spawn(imageJobs.resize, bytes, requestedWidth)
 
-local worker = workers.spawn("jobs.stream")
-worker:send({name = "level1"})
-print(worker:receive(50))
+-- Not a closure capturing requestedWidth:
+scope:spawn(|| -> imageJobs.resize(bytes, requestedWidth))
 ```
 
-The entry on the other end answers with `Self:receive` and `Self:send`, and it
-is listed in the target's `entries` the same way `jobs.hash` is.
+The worker requires the module in its own state and invokes the named export.
+Top-level module initialization therefore runs once in each lane that first
+uses the module. Treat mutable module state as lane-local, not shared state.
 
-### Transferable values
+## Values crossing the boundary
 
-Transferable values are booleans, numbers, strings, and tables recursively made
-from those values with scalar keys. A top-level nil, function, thread, userdata,
-cdata value, metatable, table deeper than 32 levels, cycle, or repeated table
-alias is rejected before encoding, and the error names the first rejected path.
-Each receiver decodes an independent copy.
+Transferable values are nil, booleans, numbers, strings, and tables recursively
+made from those values with scalar keys. Each receiver decodes an independent
+copy. Nil positions in argument and result packs are retained.
 
-A repeated table is rejected as an alias for the same reason a cycle is: the
-encoding promises neither, so a message that arrived with two references to one
-table would arrive as two tables and diverge on the first write.
+The following are rejected before or while copying:
 
-### Queue bounds
+- functions, threads, userdata, and cdata;
+- tables with metatables;
+- affine owners and the nominal values that carry their metatables;
+- cycles and repeated table aliases;
+- tables deeper than 32 levels;
+- keys outside the transferable scalar set.
 
-Each direction holds at most 1024 messages and 256 MiB. Sending never waits for
-capacity, and it raises when either bound is full or the channel is closed,
-which keeps producer backpressure from introducing a second wait that could
-deadlock against the first.
+A repeated table is rejected because decoding it twice would silently turn one
+identity into two identities. Pass two explicit copies if that is the intended
+meaning.
 
-## Pools and tickets
+Each lane direction holds at most 1,024 messages and 256 MiB. Submission raises
+when a bounded queue is full rather than turning producer backpressure into an
+additional hidden wait.
 
-`Worker:submit` sends a request and answers a ticket instead of waiting, and
-`Worker:await` waits for the reply that ticket stands for. A worker answers its
-requests one at a time whatever order they were sent in, so several tickets to one
-worker queue rather than overlap.
+## Failure and termination
 
-`workers.pool(entry, count)` starts several workers on one entry and sends each
-request to whichever member has the fewest in flight. A pool answers the same
-operations one worker does, so it reads the same at the call site and the same
-generated handle describes it:
+An error raised by the submitted function becomes that task's failure and is
+raised in the parent by `await` or by scope exit when it was unobserved. Other
+tasks continue to settle so the structured scope never abandons live children.
 
-```nupp
-local pool = jobs.hash.startPool(4)
-local answer = pool:hash({name = "level1", bytes = contents})
-```
+A running task is not preempted. Lua and foreign code have no safe general
+interruption point, so leaving a scope waits for a task that is already running.
+Pending cancellation and deadlines can be added without changing the function,
+scope, and task surface, but do not exist today.
 
-Its drop stops and joins every member.
-
-::: note A pool overlaps work only under a handler
-Without a [suspension handler](suspension.md#hosts-supply-scheduling-policy) an
-await blocks the thread, so a pool of any size behaves as a pool of one. What a
-pool adds is somewhere for a second waiting caller to go, not a second thread of
-control inside one.
-:::
-
-### Job queues stop here
-
-Entries are fixed in the build target, so nothing registers a new kind of work at
-run time. A pool is one process on one machine with no durable queue and no retry
-across a restart, and each member serves sequentially, so throughput is member
-count rather than pipeline depth. Work that has to outlive the process belongs to
-[](nupp.io.process) and a broker.
-
-## Waiting and stopping
-
-Ready operations return immediately. Without a suspension handler, an empty
-receive sleeps on the native channel condition variable and `join` blocks the
-thread. With a [suspension
-handler](suspension.md#hosts-supply-scheduling-policy) installed, those same
-calls register readiness sources and park cooperatively, and their ordinary call
-syntax does not change.
-
-Closing is cooperative. It is nonblocking and wakes an entry waiting in
-`Self:receive` or `Self:serve`, and it cannot interrupt arbitrary worker code. A
-worker that ignores its closed inbox can therefore keep `join`, `stop`, and
-automatic cleanup waiting forever. Work that must be forcibly terminated, or
-isolated from native crashes, belongs in an operating-system process instead.
-
-## FAQ
-
-### Can a worker share a table with the thread that spawned it?
-
-No. Every value is serialized on the way out and decoded into an independent
-copy on the way in, so a write on one side is invisible to the other. See
-[Transferable values](#transferable-values) for what may cross at all.
-
-### Can a stuck worker be killed?
-
-No. Closing wakes an entry that is waiting on its inbox, and nothing interrupts
-a worker that is busy in its own code, so `stop` waits for it. Use
-[](nupp.io.process) for work that has to be terminated on demand.
-
-### Should concurrent work go to a worker or to a combinator?
-
-Use a [suspension combinator](suspension.md#combinators-interleave-waits) for
-work that is waiting, since interleaved coroutines in one state cost nothing to
-create and share their data directly. Use a worker for work that is computing,
-because that is the only form here that runs on a second core.
-
-::: seealso
-- [suspension.md](suspension.md) for blocking and handled waits
-- [ownership.md](ownership.md) for the cleanup a spawned worker owes
-- [build.md](../guides/build.md#compiler-native-features) for the target a
-  worker binary needs
-:::
+The same rule applies to nontermination: an infinite worker task makes its
+scope infinite. Worker tasks are for bounded CPU work. Durable work, retries
+across process failure, and jobs that outlive the caller belong to a broker or
+[](nupp.io.process), not this scheduler.

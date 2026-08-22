@@ -1,7 +1,7 @@
 /* Bounded byte channels and fresh-state worker threads.
  *
  * Lua owns validation, serialization and request routing. This owns only byte
- * copies, thread lifecycle, and bootstrapping the selected module in another
+ * copies, thread lifecycle, and bootstrapping a scheduler lane in another
  * LuaJIT state.
  */
 
@@ -16,6 +16,7 @@
 #   include <windows.h>
 #else
 #   include <pthread.h>
+#   include <unistd.h>
 #   include <sys/time.h>
 #   include <time.h>
 #endif
@@ -227,13 +228,10 @@ void nupp_host_workers_set_payload(const uint8_t *bytes, size_t length) {
 }
 
 typedef struct {
-    char *entry;
     Channel *inbox;
     Channel *outbox;
-    Mutex guard;
     char *failure;
     int status;
-    bool finished;
     Thread thread;
 } Worker;
 
@@ -252,7 +250,7 @@ static void worker_body(Worker *worker) {
         lua_setfield(state, LUA_GLOBALSINDEX, "__nuppWorkerIn");
         lua_pushlightuserdata(state, worker->outbox);
         lua_setfield(state, LUA_GLOBALSINDEX, "__nuppWorkerOut");
-        lua_pushstring(state, worker->entry);
+        lua_pushstring(state, "nupp.workers");
         lua_setfield(state, LUA_GLOBALSINDEX, "__nuppWorkerEntry");
         free(nupp_host_set_arguments(runtime, 0, NULL));
         problem = nupp_host_run(runtime, workerPayload, workerPayloadLength, "=nupp-worker");
@@ -262,11 +260,8 @@ static void worker_body(Worker *worker) {
      * worker that died is told rather than left waiting. */
     channel_close(worker->inbox);
     channel_close(worker->outbox);
-    MUTEX_LOCK(&worker->guard);
     worker->failure = problem;
     worker->status = problem != NULL ? 1 : 0;
-    worker->finished = true;
-    MUTEX_UNLOCK(&worker->guard);
 }
 
 #if defined(_WIN32)
@@ -346,17 +341,10 @@ static int channel_closed_entry(lua_State *state) {
 }
 
 static int worker_spawn(lua_State *state) {
-    size_t length = 0;
-    const char *entry = lua_tolstring(state, 1, &length);
-    Channel *inbox = lua_touserdata(state, 2);
-    Channel *outbox = lua_touserdata(state, 3);
+    Channel *inbox = lua_touserdata(state, 1);
+    Channel *outbox = lua_touserdata(state, 2);
     Worker *worker;
 
-    if (entry == NULL) {
-        lua_pushnil(state);
-        lua_pushstring(state, "worker entry must be a string");
-        return 2;
-    }
     if (workerPayload == NULL) {
         lua_pushnil(state);
         lua_pushstring(state, "workers require a stamped Nupp payload");
@@ -373,45 +361,20 @@ static int worker_spawn(lua_State *state) {
         lua_pushstring(state, "cannot start worker: out of memory");
         return 2;
     }
-    worker->entry = malloc(length + 1);
-    if (worker->entry == NULL) {
-        free(worker);
-        lua_pushnil(state);
-        lua_pushstring(state, "cannot start worker: out of memory");
-        return 2;
-    }
-    memcpy(worker->entry, entry, length);
-    worker->entry[length] = '\0';
     worker->inbox = inbox;
     worker->outbox = outbox;
-    MUTEX_INIT(&worker->guard);
-
 #if defined(_WIN32)
     worker->thread = CreateThread(NULL, 0, worker_trampoline, worker, 0, NULL);
     if (worker->thread == NULL) {
 #else
     if (pthread_create(&worker->thread, NULL, worker_trampoline, worker) != 0) {
 #endif
-        MUTEX_FREE(&worker->guard);
-        free(worker->entry);
         free(worker);
         lua_pushnil(state);
         lua_pushstring(state, "cannot start worker");
         return 2;
     }
     lua_pushlightuserdata(state, worker);
-    return 1;
-}
-
-static int worker_finished(lua_State *state) {
-    Worker *worker = lua_touserdata(state, 1);
-    bool finished = true;
-    if (worker != NULL) {
-        MUTEX_LOCK(&worker->guard);
-        finished = worker->finished;
-        MUTEX_UNLOCK(&worker->guard);
-    }
-    lua_pushboolean(state, finished ? 1 : 0);
     return 1;
 }
 
@@ -430,11 +393,9 @@ static int worker_join(lua_State *state) {
 #else
     pthread_join(worker->thread, NULL);
 #endif
-    MUTEX_LOCK(&worker->guard);
     failure = worker->failure;
     status = worker->status;
     worker->failure = NULL;
-    MUTEX_UNLOCK(&worker->guard);
     lua_pushinteger(state, status);
     if (failure != NULL) {
         lua_pushstring(state, failure);
@@ -442,8 +403,6 @@ static int worker_join(lua_State *state) {
     } else {
         lua_pushnil(state);
     }
-    MUTEX_FREE(&worker->guard);
-    free(worker->entry);
     free(worker);
     return 2;
 }
@@ -456,9 +415,19 @@ static int current(lua_State *state) {
     return 2;
 }
 
-static int now(lua_State *state) {
-    extern double nupp_monotonic_ms(void);
-    lua_pushnumber(state, nupp_monotonic_ms());
+static int worker_parallelism(lua_State *state) {
+    long count = 1;
+#if defined(_WIN32)
+    SYSTEM_INFO info;
+    GetSystemInfo(&info);
+    count = (long)info.dwNumberOfProcessors;
+#elif defined(_SC_NPROCESSORS_ONLN)
+    count = sysconf(_SC_NPROCESSORS_ONLN);
+#endif
+    if (count < 1) {
+        count = 1;
+    }
+    lua_pushinteger(state, (lua_Integer)count);
     return 1;
 }
 
@@ -468,7 +437,7 @@ static void field(lua_State *state, const char *name, lua_CFunction function) {
 }
 
 int nupp_host_workers_open(lua_State *state) {
-    lua_createtable(state, 0, 12);
+    lua_createtable(state, 0, 11);
     field(state, "channelCreate", channel_create);
     field(state, "channelDestroy", channel_destroy);
     field(state, "channelClose", channel_close_entry);
@@ -477,10 +446,9 @@ int nupp_host_workers_open(lua_State *state) {
     field(state, "channelCount", channel_count_entry);
     field(state, "channelClosed", channel_closed_entry);
     field(state, "workerSpawn", worker_spawn);
-    field(state, "workerFinished", worker_finished);
     field(state, "workerJoin", worker_join);
     field(state, "current", current);
-    field(state, "now", now);
+    field(state, "workerParallelism", worker_parallelism);
     return 1;
 }
 

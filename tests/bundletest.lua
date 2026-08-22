@@ -298,11 +298,67 @@ function M.aWorkerPayloadCarriesRuntimeModulesAndDispatchesItsEntry()
    assert(text:find('__nuppWorkerEntry', 1, true)
       and text:find('local __nuppLoaded = require(__nuppEntry or "main")', 1, true),
       "one dispatcher selects the worker or ordinary entry")
-   assert(text:find('rawget(__nuppLoaded, "main")', 1, true)
-      and text:find('require("nupp.workers").current()', 1, true),
-      "a worker calls the entry point its module exported")
-   assert(text:find('if __nuppEntry ~= nil and', 1, true),
+   assert(text:find('__nuppEntry == "nupp.workers"', 1, true)
+      and text:find('rawget(__nuppLoaded, "__runScheduler")', 1, true)
+      and text:find('then __nuppServe() end', 1, true),
+      "a scheduler worker selects the compiler-owned scheduler loop")
+   assert(text:find('local __nuppLoaded = require(__nuppEntry or "main")', 1, true)
+      and text:find('return __nuppLoaded', 1, true),
       "the ordinary entry is loaded and returned as it was")
+   os.execute("rm -rf '" .. dir .. "'")
+end
+
+function M.aStampedBinaryRunsStructuredTasksOnTheSharedScheduler()
+   local dir = tempProject({
+      ["nupp.lua"] = [[
+return {include = {"src"}, build = {default = "app", targets = {app = {
+   kind = "binary", stub = "nupp", entries = {"main"}, outDir = "build",
+}}}}
+]],
+      ["src/jobs.nupp"] = [[
+module jobs
+
+export function square(value: integer): integer
+    return value * value
+end
+
+export function pair(value: integer): (integer, string)
+    return value * 2, "done"
+end
+
+export function fail(): nil
+    error("deliberate worker failure", 0)
+end
+]],
+      ["src/main.nupp"] = [[
+const jobs = require("jobs")
+const workers = require("nupp.workers")
+
+with scope = workers.scope() do
+    const left = scope:spawn(jobs.square, 6)
+    const right = scope:spawn(jobs.square, 7)
+    const paired = scope:spawn(jobs.pair, 5)
+    local doubled, label = paired:await()
+    const leftValue = left:await()
+    print(leftValue, left:await(), right:await(), doubled, label)
+end
+
+
+local ok, problem = pcall(function(): nil
+    with scope = workers.scope() do
+        scope:spawn(jobs.fail)
+    end
+end)
+print(ok, tostring(problem):find("deliberate worker failure", 1, true) ~= nil)
+]],
+   })
+   local built, builtOk = run(dir, "'" .. NUPP .. "' build")
+   assert(builtOk, "the native worker binary builds: " .. built)
+   local executable = package.config:sub(1, 1) == "\\" and "build/app.exe" or "./build/app"
+   local output, ranOk = run(dir, executable)
+   assert(ranOk, "the native worker binary runs: " .. output)
+   assert(output == "36\t36\t49\t10\tdone\nfalse\ttrue\n",
+      "results are repeatable and unobserved failures cross structured cleanup: " .. output)
    os.execute("rm -rf '" .. dir .. "'")
 end
 
@@ -604,14 +660,13 @@ function M.theWorkersSurfaceIsTypedAndOwnedOutsideThisTree()
       ["nupp.lua"] = STD_MANIFEST,
       ["typed.nupp"] = [[
 local workers = require("nupp.workers")
-local wrong: integer = workers.current
+local wrong: integer = workers.scope
 return wrong
 ]],
       ["owned.nupp"] = [[
 local workers = require("nupp.workers")
-do
-    local worker = workers.spawn("job")
-    worker:close()
+with scope = workers.scope() do
+    print(scope)
 end
 return true
 ]],
@@ -621,7 +676,7 @@ return true
       "the workers surface is typed rather than gradual: " .. typed)
    local owned, ok = run(dir, "'" .. NUPP .. "' check --strict owned.nupp")
    assert(ok and not owned:find("NUPP2603", 1, true),
-      "a worker local carries its automatic stop obligation: " .. owned)
+      "a worker scope carries its automatic drain obligation: " .. owned)
    os.execute("rm -rf '" .. dir .. "'")
 end
 

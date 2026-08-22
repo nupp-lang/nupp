@@ -1,6 +1,6 @@
 ---
 title: Typed workers
-status: Accepted
+status: Superseded by NEP 20
 created: 2026-08-21
 ---
 

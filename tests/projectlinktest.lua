@@ -637,14 +637,12 @@ function M.anExportedSignatureDoesNotFreezeAnAliasItNames()
       ["src/holder.nupp"] = [[
 module holder
 
-const protocol = require("nupp.workers.protocol")
+const workers = require("nupp.workers")
 
-local type Operations = {hash: function(job: {name: string}): {ok: boolean}}
-
-export type Handle = protocol.Handle<"jobs.hash", Operations>
+export type Handle = workers.Task<function(): integer>
 
 export function uses(value: Handle): nil
-    print(value.entry)
+    print(value:isDone())
 end
 
 export function probe(): nil
@@ -664,81 +662,38 @@ end
    end)
 end
 
--- A worker entry declares the operations it serves, the generator turns them into
--- methods on a handle typed with the entry's own name, and the entry pairs that
--- with its own terminal so the handle carries the obligation to stop the worker.
--- What the caller then writes is an ordinary method call that is checked like one.
-local TYPED_WORKER_ENTRY = [[
+-- The function is the worker contract. Submission infers its complete argument and
+-- result packs, while the same declaration remains directly callable.
+local WORKER_JOBS = [[
 module jobs.hash
-
-const workers = require("nupp.workers")
-const protocol = require("nupp.workers.protocol")
 
 export type Job = {name: string, bytes: string}
 export type Answer = {name: string, hash: uint64}
 
-export type Operations = {
-    hash: function(job: Job): Answer,
-    verify: function(job: Job, digest: uint64): boolean
-}
-
-export type Raw = protocol.Handle<"jobs.hash", Operations>
-
-export function release(takes self: Raw): nil
-    local worker = self as any as workers.Worker
-    workers.destroyWorker(worker)
+export function hash(job: Job): Answer
+    return {name = job.name, hash = 0}
 end
 
-export function releasePool(takes self: Raw): nil
-    workers.destroyPool(self as any as workers.Pool)
-end
-
-export type Handle = affine(Raw, release)
-export type PoolHandle = affine(Raw, releasePool)
-
-export function spawn(): Handle
-    local worker = workers.spawn("jobs.hash")
-    unsafe do
-        local ready = workers.dispatcher(unsafe release worker) as any as Raw
-
-        return unsafe adopt ready as Handle
-    end
-end
-
-export function startPool(count: integer): PoolHandle
-    local pool = workers.pool("jobs.hash", count)
-    unsafe do
-        local ready = workers.poolDispatcher(unsafe release pool) as any as Raw
-
-        return unsafe adopt ready as PoolHandle
-    end
-end
-
-export function main(): nil
-    local implementation: Operations = {
-        hash = function(job: Job): Answer
-            return {name = job.name, hash = 0}
-        end,
-        verify = function(job: Job, digest: uint64): boolean
-            return digest == 0
-        end,
-    }
-    workers.current():serveOperations(implementation)
+export function pair(job: Job, digest: uint64): (Answer, boolean)
+    return hash(job), digest == 0
 end
 ]]
 
-function M.aTypedWorkerCallChecksLikeAnOrdinaryCall()
+function M.aWorkerTaskChecksLikeAnOrdinaryFunctionCall()
    withProject({
-      ["src/jobs/hash.nupp"] = TYPED_WORKER_ENTRY,
+      ["src/jobs/hash.nupp"] = WORKER_JOBS,
       ["src/main.nupp"] = [[
 module main
 
 const jobs = require("jobs.hash")
+const workers = require("nupp.workers")
 
 export function good(contents: string): uint64
-    local hasher = jobs.spawn()
+    with scope = workers.scope() do
+        const task = scope:spawn(jobs.hash, {name = "level1", bytes = contents})
 
-    return hasher:hash({name = "level1", bytes = contents}).hash
+        return task:await().hash
+    end
 end
 ]],
    }, function(dir)
@@ -746,32 +701,37 @@ end
       local parsed = parser.parse(readFile(path), path)
       assertEq(#parsed.errors, 0, "the caller parses")
       local diags = check.check(parsed, path, projectEnv(dir))
-      assertEq(#diags, 0, "a well-formed worker call checks: "
+      assertEq(#diags, 0, "a well-formed task submission checks: "
          .. (diags[1] and diags[1].msg or ""))
    end)
 end
 
-function M.aTypedWorkerCallReportsTheMistakesItExistsToCatch()
+function M.aWorkerTaskReportsArgumentAndResultMistakes()
    withProject({
-      ["src/jobs/hash.nupp"] = TYPED_WORKER_ENTRY,
+      ["src/jobs/hash.nupp"] = WORKER_JOBS,
       ["src/main.nupp"] = [[
 module main
 
 const jobs = require("jobs.hash")
+const workers = require("nupp.workers")
 
 export function misspelled(): nil
-    local hasher = jobs.spawn()
-    print(hasher:missing())
+    with scope = workers.scope() do
+        print(scope:spawn(jobs.missing))
+    end
 end
 
 export function wrongArgument(): nil
-    local hasher = jobs.spawn()
-    print(hasher:hash({name = "level1"}))
+    with scope = workers.scope() do
+        print(scope:spawn(jobs.hash, {name = "level1"}))
+    end
 end
 
 export function wrongResult(): nil
-    local hasher = jobs.spawn()
-    print(hasher:hash({name = "a", bytes = "b"}).nope)
+    with scope = workers.scope() do
+        const task = scope:spawn(jobs.hash, {name = "a", bytes = "b"})
+        print(task:await().nope)
+    end
 end
 ]],
    }, function(dir)
@@ -781,104 +741,56 @@ end
       for index, diag in ipairs(diags) do
          codes[index] = diag.code
       end
-      assertEq(table.concat(codes, ","), "NUPP2004,NUPP2006,NUPP2004",
-         "a misspelled method, a wrong argument, and a wrong result are each reported")
+      assertEq(table.concat(codes, ","), "NUPP2006,NUPP2004,NUPP2006,NUPP2004",
+         "a misspelled function, a wrong argument, and a wrong result are each reported")
    end)
 end
 
--- Every value is copied on the way across, so the copy the other state decodes has
--- no cleanup and the original still owes its own. An owned message is refused where
--- the protocol is written rather than left to fail at run time, or not at all.
--- A pool answers the same operations one worker does, so it reads the same at the
--- call site and the same handle type describes it. What it adds is where a request
--- goes, which is not something the type has to say.
-function M.aTypedWorkerPoolCallChecksLikeAnOrdinaryCall()
+function M.aWorkerTaskPreservesCompleteResultPacks()
    withProject({
-      ["src/jobs/hash.nupp"] = TYPED_WORKER_ENTRY,
+      ["src/jobs/hash.nupp"] = WORKER_JOBS,
       ["src/main.nupp"] = [[
 module main
 
 const jobs = require("jobs.hash")
+const workers = require("nupp.workers")
 
-export function good(contents: string): uint64
-    local pool = jobs.startPool(4)
-
-    return pool:hash({name = "level1", bytes = contents}).hash
-end
-
-export function misspelled(): nil
-    local pool = jobs.startPool(4)
-    print(pool:missing())
+export function good(contents: string): boolean
+    with scope = workers.scope() do
+        const task = scope:spawn(jobs.pair, {name = "level1", bytes = contents}, 0)
+        local answer, verified = task:await()
+        local name: string = answer.name
+        local ok: boolean = verified
+        return #name > 0 and ok
+    end
 end
 ]],
    }, function(dir)
       local path = dir .. "/src/main.nupp"
       local diags = check.check(parser.parse(readFile(path), path), path, projectEnv(dir))
-      assertEq(#diags, 1, "only the misspelled pool operation is reported: "
+      assertEq(#diags, 0, "a task retains every result type and position: "
          .. (diags[1] and diags[1].msg or ""))
-      assertEq(diags[1] and diags[1].code, "NUPP2004", "and it is reported as a missing method")
    end)
 end
 
--- The generated handle declares the entry name as a field, so the worker a spawn
--- answers with has to carry one. Losing it made the type promise something the
--- value did not have, which nothing but running it would have caught.
-function M.aSpawnedWorkerCarriesItsEntryName()
+function M.aWorkerScopeCarriesAutomaticCleanup()
    withProject({
       ["src/main.nupp"] = [[
 module main
 
 const workers = require("nupp.workers")
 
-export function named(): string
-    local worker = workers.spawn("jobs.hash")
-
-    return worker.entry
+export function opened(): nil
+    with scope = workers.scope() do
+        print(scope)
+    end
 end
 ]],
    }, function(dir)
       local path = dir .. "/src/main.nupp"
       local diags = check.check(parser.parse(readFile(path), path), path, projectEnv(dir))
-      assertEq(#diags, 0, "a worker exposes the entry it runs: "
+      assertEq(#diags, 0, "a worker scope is discharged on structured exit: "
          .. (diags[1] and diags[1].msg or ""))
-   end)
-end
-
-function M.aWorkerMessageCannotCarryAnObligation()
-   withProject({
-      ["src/jobs/held.nupp"] = [[
-module jobs.held
-
-const protocol = require("nupp.workers.protocol")
-
-local record Res
-    id: integer
-end
-
-local function dropRes(takes self: Res): nil
-    print(self.id)
-end
-
-local type Operations = {take: function(held: affine(Res, dropRes)): boolean}
-
-export type Raw = protocol.Handle<"jobs.held", Operations>
-
-export function probe(value: Raw): nil
-    print(value.entry)
-end
-]],
-   }, function(dir)
-      local path = dir .. "/src/jobs/held.nupp"
-      local diags = check.check(parser.parse(readFile(path), path), path, projectEnv(dir))
-      local refusal = nil
-      for _, diag in ipairs(diags) do
-         if diag.code == "NUPP2130" then
-            refusal = diag
-         end
-      end
-      assert(refusal, "an owned message is refused where the protocol is written")
-      assert(refusal.msg:find("copied rather than moved", 1, true),
-         "the refusal says why: " .. refusal.msg)
    end)
 end
 

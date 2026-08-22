@@ -202,19 +202,18 @@ print(statuses[1], statuses[2])
 
 ## Distribute work across threads using workers
 
-Workers run fresh LuaJIT states on native threads and exchange bounded,
-serialized messages. Calls read like functions, failures cross back, and
-ownership guarantees every worker is joined.
+Worker tasks run ordinary exported functions on fresh LuaJIT states behind one
+shared, bounded scheduler. Arguments and results are copied, failures cross
+back, and a structured scope waits for every child.
 
 ```nupp
-local workers = require("nupp.workers")
+const jobs = require("jobs")
+const workers = require("nupp.workers")
 
-do
-    local hasher = workers.spawn("workers.hash")
-    local answer = hasher:call({
-        name = "level1",
-        bytes = contents,
-    })
+with scope = workers.scope() do
+    const first = scope:spawn(jobs.hash, left)
+    const second = scope:spawn(jobs.hash, right)
+    print(first:await(), second:await())
 end
 ```
 
