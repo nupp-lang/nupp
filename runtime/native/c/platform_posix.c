@@ -348,6 +348,23 @@ bool nupp_fs_remove(const char *path, bool recursive) {
     return true;
 }
 
+bool nupp_fs_canonicalize(const char *path, NuppBuffer *into) {
+    /* A null destination asks realpath to allocate, which is the only spelling
+     * that cannot answer a path longer than the buffer somebody guessed at. */
+    char *resolved = realpath(path, NULL);
+    if (resolved == NULL) {
+        nupp_fail_errno(path, errno);
+        return false;
+    }
+    nupp_buffer_append(into, resolved, strlen(resolved));
+    free(resolved);
+    if (into->failed) {
+        nupp_fail("out of memory");
+        return false;
+    }
+    return true;
+}
+
 bool nupp_fs_rename(const char *from, const char *to) {
     if (rename(from, to) != 0) {
         nupp_fail_errno(from, errno);

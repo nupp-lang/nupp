@@ -4,18 +4,13 @@
 mod http;
 
 use std::ffi::c_char;
-#[cfg(any(
-    feature = "path",
-    feature = "uri",
-    feature = "process",
-    feature = "http"
-))]
+#[cfg(any(feature = "uri", feature = "process", feature = "http"))]
 use std::ffi::CString;
-#[cfg(any(feature = "path", feature = "uri", feature = "process", feature = "http"))]
+#[cfg(any(feature = "uri", feature = "process", feature = "http"))]
 use std::ptr;
-#[cfg(any(feature = "path", feature = "uri", feature = "sha256"))]
+#[cfg(feature = "uri")]
 use std::slice;
-#[cfg(any(feature = "path", feature = "uri"))]
+#[cfg(feature = "uri")]
 use std::str;
 
 /// The public name for one C entry point, forwarding into it.
@@ -42,6 +37,10 @@ macro_rules! forward {
 
 #[cfg(feature = "files")]
 mod files;
+#[cfg(any(feature = "sha256", feature = "uuid"))]
+mod digest;
+#[cfg(feature = "path")]
+mod path;
 
 // The shared surface, which lives in `c/common.c`.
 //
@@ -53,7 +52,6 @@ mod files;
 #[allow(dead_code)]
 extern "C" {
     fn nupp_fail(message: *const c_char);
-    fn nupp_bytes_copy(data: *const u8, length: usize) -> *mut NuppBytes;
 }
 
 forward! {
@@ -69,21 +67,11 @@ pub struct NuppBytes {
     _private: [u8; 0],
 }
 
-#[cfg(any(
-    feature = "path",
-    feature = "uri",
-    feature = "process",
-    feature = "http"
-))]
+#[cfg(any(feature = "uri", feature = "process", feature = "http"))]
 fn set_error(error: impl ToString) {
     let message = error.to_string().replace('\0', "\\0");
     let text = CString::new(message).expect("NUL bytes were replaced");
     unsafe { nupp_fail(text.as_ptr()) };
-}
-
-#[cfg(feature = "path")]
-fn output_bytes(bytes: Vec<u8>) -> *mut NuppBytes {
-    unsafe { nupp_bytes_copy(bytes.as_ptr(), bytes.len()) }
 }
 
 /// Roots the selected C ABI in a statically linked host.
@@ -146,6 +134,24 @@ pub fn retain_c_abi_exports() {
         files::nuppFsPending,
     );
 
+    #[cfg(feature = "path")]
+    retain!(
+        path::nuppPathJoin,
+        path::nuppPathNormalize,
+        path::nuppPathAbsolute,
+        path::nuppPathCanonicalize,
+        path::nuppPathRelative,
+        path::nuppPathPart,
+        path::nuppPathWith,
+        path::nuppPathIsAbsolute,
+    );
+
+    #[cfg(feature = "sha256")]
+    retain!(digest::nuppSha256);
+
+    #[cfg(feature = "uuid")]
+    retain!(digest::nuppUuid4, digest::nuppUuid7);
+
     #[cfg(feature = "process")]
     retain!(
         process::nuppProcessMonotonicMs,
@@ -172,7 +178,7 @@ pub fn retain_c_abi_exports() {
     );
 }
 
-#[cfg(any(feature = "path", feature = "uri"))]
+#[cfg(feature = "uri")]
 unsafe fn text<'a>(data: *const u8, length: usize, what: &str) -> Result<&'a str, String> {
     if data.is_null() && length != 0 {
         return Err(format!("{what} is null"));
@@ -187,180 +193,6 @@ unsafe fn text<'a>(data: *const u8, length: usize, what: &str) -> Result<&'a str
         return Err(format!("{what} contains a NUL byte"));
     }
     Ok(value)
-}
-
-#[cfg(feature = "path")]
-mod path {
-    use super::*;
-    use camino::{absolute_utf8, Utf8Component, Utf8Path, Utf8PathBuf};
-    use path_clean::PathClean;
-    use pathdiff::diff_utf8_paths;
-
-    #[repr(C)]
-    pub struct StringView {
-        data: *const u8,
-        length: usize,
-    }
-
-    unsafe fn input<'a>(data: *const u8, length: usize) -> Result<&'a Utf8Path, String> {
-        Ok(Utf8Path::new(unsafe { text(data, length, "path") }?))
-    }
-    fn output(path: impl Into<Utf8PathBuf>) -> *mut NuppBytes {
-        let mut text = path.into().into_string();
-        if cfg!(windows) {
-            text = text.replace('\\', "/");
-        }
-        output_bytes(text.into_bytes())
-    }
-    fn fail(error: impl ToString) -> *mut NuppBytes {
-        set_error(error);
-        ptr::null_mut()
-    }
-    fn converted(path: std::path::PathBuf) -> Result<Utf8PathBuf, String> {
-        Utf8PathBuf::from_path_buf(path).map_err(|_| "path result is not valid UTF-8".to_owned())
-    }
-
-    #[no_mangle]
-    pub unsafe extern "C" fn nuppPathJoin(
-        parts: *const StringView,
-        count: usize,
-    ) -> *mut NuppBytes {
-        if parts.is_null() && count != 0 {
-            return fail("path parts are null");
-        }
-        let parts = if count == 0 {
-            &[]
-        } else {
-            unsafe { slice::from_raw_parts(parts, count) }
-        };
-        let mut joined = Utf8PathBuf::new();
-        for part in parts {
-            match unsafe { input(part.data, part.length) } {
-                Ok(part) => joined.push(part),
-                Err(e) => return fail(e),
-            }
-        }
-        output(joined)
-    }
-    #[no_mangle]
-    pub unsafe extern "C" fn nuppPathNormalize(data: *const u8, length: usize) -> *mut NuppBytes {
-        let p = match unsafe { input(data, length) } {
-            Ok(v) => v,
-            Err(e) => return fail(e),
-        };
-        match converted(p.as_std_path().clean()) {
-            Ok(v) => output(v),
-            Err(e) => fail(e),
-        }
-    }
-    #[no_mangle]
-    pub unsafe extern "C" fn nuppPathAbsolute(data: *const u8, length: usize) -> *mut NuppBytes {
-        let p = match unsafe { input(data, length) } {
-            Ok(v) => v,
-            Err(e) => return fail(e),
-        };
-        match absolute_utf8(p) {
-            Ok(v) => output(v),
-            Err(e) => fail(e),
-        }
-    }
-    #[no_mangle]
-    pub unsafe extern "C" fn nuppPathCanonicalize(
-        data: *const u8,
-        length: usize,
-    ) -> *mut NuppBytes {
-        let p = match unsafe { input(data, length) } {
-            Ok(v) => v,
-            Err(e) => return fail(e),
-        };
-        match p.canonicalize_utf8() {
-            Ok(v) => output(v),
-            Err(e) => fail(e),
-        }
-    }
-    #[no_mangle]
-    pub unsafe extern "C" fn nuppPathRelative(
-        data: *const u8,
-        length: usize,
-        base: *const u8,
-        base_length: usize,
-    ) -> *mut NuppBytes {
-        let p = match unsafe { input(data, length) } {
-            Ok(v) => v,
-            Err(e) => return fail(e),
-        };
-        let b = match unsafe { input(base, base_length) } {
-            Ok(v) => v,
-            Err(e) => return fail(e),
-        };
-        match diff_utf8_paths(p, b) {
-            Some(v) => output(v),
-            None => fail("paths do not share a relative coordinate system"),
-        }
-    }
-    unsafe fn optional(data: *const u8, length: usize, kind: u32) -> *mut NuppBytes {
-        let p = match unsafe { input(data, length) } {
-            Ok(v) => v,
-            Err(e) => return fail(e),
-        };
-        let value = match kind {
-            0 => p.parent().map(|v| v.as_str()),
-            1 => p.file_name(),
-            2 => p.file_stem(),
-            _ => p.extension(),
-        };
-        value.map_or_else(ptr::null_mut, |v| output(Utf8PathBuf::from(v)))
-    }
-    #[no_mangle]
-    pub unsafe extern "C" fn nuppPathPart(
-        data: *const u8,
-        length: usize,
-        kind: u32,
-    ) -> *mut NuppBytes {
-        unsafe { optional(data, length, kind) }
-    }
-    fn normal(value: &Utf8Path) -> bool {
-        let mut c = value.components();
-        matches!(c.next(), Some(Utf8Component::Normal(_))) && c.next().is_none()
-    }
-    #[no_mangle]
-    pub unsafe extern "C" fn nuppPathWith(
-        data: *const u8,
-        length: usize,
-        value: *const u8,
-        value_length: usize,
-        extension: bool,
-    ) -> *mut NuppBytes {
-        let p = match unsafe { input(data, length) } {
-            Ok(v) => v,
-            Err(e) => return fail(e),
-        };
-        let v = match unsafe { input(value, value_length) } {
-            Ok(v) => v,
-            Err(e) => return fail(e),
-        };
-        if extension {
-            if !v.as_str().is_empty() && !normal(v) {
-                return fail("extension must be empty or one path component");
-            }
-            output(p.with_extension(v.as_str()))
-        } else {
-            if !normal(v) {
-                return fail("file name must be one non-empty path component");
-            }
-            output(p.with_file_name(v))
-        }
-    }
-    #[no_mangle]
-    pub unsafe extern "C" fn nuppPathIsAbsolute(data: *const u8, length: usize) -> bool {
-        match unsafe { input(data, length) } {
-            Ok(v) => v.is_absolute(),
-            Err(e) => {
-                set_error(e);
-                false
-            }
-        }
-    }
 }
 
 #[cfg(feature = "uri")]
@@ -609,58 +441,6 @@ pub(crate) mod uri {
         }
     }
 }
-
-#[cfg(feature = "uuid")]
-fn write_uuid(value: uuid::Uuid, output: *mut c_char) -> bool {
-    if output.is_null() {
-        return false;
-    }
-    let mut buffer = uuid::Uuid::encode_buffer();
-    let text = value.hyphenated().encode_lower(&mut buffer);
-    unsafe {
-        ptr::copy_nonoverlapping(text.as_ptr().cast(), output, 36);
-        *output.add(36) = 0;
-    }
-    true
-}
-#[cfg(feature = "uuid")]
-#[no_mangle]
-pub extern "C" fn nuppUuid4(output: *mut c_char) -> bool {
-    write_uuid(uuid::Uuid::new_v4(), output)
-}
-#[cfg(feature = "uuid")]
-#[no_mangle]
-pub extern "C" fn nuppUuid7(output: *mut c_char) -> bool {
-    write_uuid(uuid::Uuid::now_v7(), output)
-}
-
-#[cfg(feature = "sha256")]
-#[no_mangle]
-pub unsafe extern "C" fn nuppSha256(bytes: *const u8, length: usize, output: *mut c_char) -> bool {
-    use sha2::{Digest, Sha256};
-    if output.is_null() || (bytes.is_null() && length != 0) {
-        return false;
-    }
-    let input = if length == 0 {
-        &[]
-    } else {
-        unsafe { slice::from_raw_parts(bytes, length) }
-    };
-    let digest = Sha256::digest(input);
-    let hex = b"0123456789abcdef";
-    for (i, b) in digest.iter().enumerate() {
-        unsafe {
-            *output.add(i * 2) = hex[(b >> 4) as usize] as c_char;
-            *output.add(i * 2 + 1) = hex[(b & 15) as usize] as c_char
-        }
-    }
-    unsafe { *output.add(64) = 0 }
-    true
-}
-
-/// The immediate half of `nupp.io.files`: metadata, listing, and the directory
-/// operations that answer before a request could have been submitted. Transfers
-/// belong to the request lane, not here.
 
 /// Child processes: spawning them, moving bytes to and from them, and reaping them.
 ///
@@ -2127,7 +1907,7 @@ mod tests {
     #[test]
     fn sha256_matches_a_published_vector() {
         let mut output = [0 as c_char; 65];
-        assert!(unsafe { nuppSha256(b"abc".as_ptr(), 3, output.as_mut_ptr()) });
+        assert!(unsafe { digest::nuppSha256(b"abc".as_ptr(), 3, output.as_mut_ptr()) });
         let text = unsafe { CStr::from_ptr(output.as_ptr()) }.to_str().unwrap();
         assert_eq!(
             text,
@@ -2138,25 +1918,120 @@ mod tests {
     #[cfg(feature = "uuid")]
     #[test]
     fn uuid_generators_write_the_requested_versions() {
+        // The shape is `8-4-4-4-12` lowercase hex, the version is the first
+        // digit of the third group, and the variant is the first of the fourth.
+        fn checked(text: &str, version: char) {
+            let groups: Vec<&str> = text.split('-').collect();
+            assert_eq!(
+                groups.iter().map(|group| group.len()).collect::<Vec<_>>(),
+                vec![8, 4, 4, 4, 12],
+                "{text} is not shaped like a UUID"
+            );
+            assert!(
+                text.chars().all(|c| c == '-' || c.is_ascii_hexdigit() && !c.is_uppercase()),
+                "{text} is not lowercase hex"
+            );
+            assert_eq!(groups[2].chars().next(), Some(version), "{text} version");
+            assert!(
+                matches!(groups[3].chars().next(), Some('8' | '9' | 'a' | 'b')),
+                "{text} is not the RFC 4122 variant"
+            );
+        }
+
         let mut output = [0 as c_char; 37];
-        assert!(nuppUuid4(output.as_mut_ptr()));
+        assert!(unsafe { digest::nuppUuid4(output.as_mut_ptr()) });
         let text = unsafe { CStr::from_ptr(output.as_ptr()) }.to_str().unwrap();
-        assert_eq!(uuid::Uuid::parse_str(text).unwrap().get_version_num(), 4);
-        assert!(nuppUuid7(output.as_mut_ptr()));
+        checked(text, '4');
+        assert!(unsafe { digest::nuppUuid7(output.as_mut_ptr()) });
         let text = unsafe { CStr::from_ptr(output.as_ptr()) }.to_str().unwrap();
-        assert_eq!(uuid::Uuid::parse_str(text).unwrap().get_version_num(), 7);
+        checked(text, '7');
     }
 
     #[cfg(feature = "path")]
     #[test]
-    fn paths_normalize_lexically() {
-        let input = b"alpha/./beta/../file.txt";
-        let bytes = unsafe { path::nuppPathNormalize(input.as_ptr(), input.len()) };
-        assert!(!bytes.is_null());
-        let output =
-            unsafe { slice::from_raw_parts(nuppBytesData(bytes), nuppBytesLength(bytes)).to_vec() };
-        unsafe { nuppBytesDestroy(bytes) };
-        assert_eq!(output, b"alpha/file.txt");
+    fn paths_answer_the_documented_parts() {
+        // Reading a path is text, and the answers are the ones the standard
+        // library this replaced gave: `.` is normalised away where a path is
+        // rebuilt, and kept where one is sliced, because asking for a path's
+        // parent asks about that path rather than about a tidier one.
+        fn answered(bytes: *mut std::ffi::c_void) -> Option<String> {
+            let bytes = bytes as *mut NuppBytes;
+            if bytes.is_null() {
+                return None;
+            }
+            let text = unsafe {
+                String::from_utf8(
+                    slice::from_raw_parts(nuppBytesData(bytes), nuppBytesLength(bytes)).to_vec(),
+                )
+                .expect("UTF-8")
+            };
+            unsafe { nuppBytesDestroy(bytes) };
+            Some(text)
+        }
+        fn part(input: &str, kind: u32) -> Option<String> {
+            answered(unsafe { path::nuppPathPart(input.as_ptr(), input.len(), kind) })
+        }
+        fn normalized(input: &str) -> Option<String> {
+            answered(unsafe { path::nuppPathNormalize(input.as_ptr(), input.len()) })
+        }
+        fn with(input: &str, value: &str, extension: bool) -> Option<String> {
+            answered(unsafe {
+                path::nuppPathWith(
+                    input.as_ptr(), input.len(), value.as_ptr(), value.len(), extension,
+                )
+            })
+        }
+        fn relative(input: &str, base: &str) -> Option<String> {
+            answered(unsafe {
+                path::nuppPathRelative(input.as_ptr(), input.len(), base.as_ptr(), base.len())
+            })
+        }
+
+        let messy = "alpha/./beta/../file.tar.gz";
+        assert_eq!(normalized(messy).as_deref(), Some("alpha/file.tar.gz"));
+        assert_eq!(normalized("a/..").as_deref(), Some("."));
+        assert_eq!(normalized("../../a").as_deref(), Some("../../a"));
+        assert_eq!(normalized("/../a").as_deref(), Some("/a"));
+
+        assert_eq!(part(messy, 0).as_deref(), Some("alpha/./beta/.."));
+        assert_eq!(part(messy, 1).as_deref(), Some("file.tar.gz"));
+        assert_eq!(part(messy, 2).as_deref(), Some("file.tar"));
+        assert_eq!(part(messy, 3).as_deref(), Some("gz"));
+        assert_eq!(part("/", 0), None, "a root has no parent");
+        assert_eq!(part("foo", 0).as_deref(), Some(""));
+        assert_eq!(part("/foo", 0).as_deref(), Some("/"));
+        assert_eq!(part(".bashrc", 2).as_deref(), Some(".bashrc"));
+        assert_eq!(part(".bashrc", 3), None, "a leading dot is a name, not an extension");
+        assert_eq!(part("a.", 3).as_deref(), Some(""));
+        assert_eq!(part("noext", 3), None);
+        assert_eq!(part("a/..", 1), None, "`..` is not a file name");
+
+        assert_eq!(with(messy, "other.txt", false).as_deref(), Some("alpha/./beta/../other.txt"));
+        assert_eq!(with(messy, "bz2", true).as_deref(), Some("alpha/./beta/../file.tar.bz2"));
+        assert_eq!(with(messy, "", true).as_deref(), Some("alpha/./beta/../file.tar"));
+        assert_eq!(with("a/..", "c", false).as_deref(), Some("a/../c"));
+
+        assert_eq!(relative("/a/b/c", "/a/d").as_deref(), Some("../b/c"));
+        assert_eq!(relative("/a/b", "/a/b").as_deref(), Some(""));
+        // One anchored and one not do not share a coordinate system. An
+        // absolute target is still an answer -- it names where it is without
+        // reference to the base -- and a relative one against an absolute base
+        // is not.
+        assert_eq!(relative("/a/b", "a/b").as_deref(), Some("/a/b"));
+        assert_eq!(relative("a/b", "/a/b"), None);
+
+        assert!(unsafe { path::nuppPathIsAbsolute("/a".as_ptr(), 2) });
+        assert!(!unsafe { path::nuppPathIsAbsolute("a".as_ptr(), 1) });
+
+        let parts = [
+            (b"/a".as_ptr(), 2usize),
+            (b"/b".as_ptr(), 2usize),
+        ];
+        let views: Vec<(*const u8, usize)> = parts.to_vec();
+        let joined = answered(unsafe {
+            path::nuppPathJoin(views.as_ptr() as *const std::ffi::c_void, views.len())
+        });
+        assert_eq!(joined.as_deref(), Some("/b"), "an absolute part replaces what came before");
     }
 
     #[cfg(feature = "uri")]

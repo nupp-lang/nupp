@@ -14,10 +14,12 @@ use std::path::PathBuf;
 
 /// One ported feature: the Cargo feature that selects it, and the C the feature
 /// is. `common.c` is not here because it is not optional.
-const PORTED: &[(&str, &[&str])] = &[(
-    "FILES",
-    &["files.c", "glob.c", "fslane.c"],
-)];
+const PORTED: &[(&str, &[&str])] = &[
+    ("FILES", &["files.c", "glob.c", "fslane.c"]),
+    ("PATH", &["path.c"]),
+    ("SHA256", &["digest.c"]),
+    ("UUID", &["digest.c"]),
+];
 
 fn main() {
     println!("cargo:rerun-if-changed=build.rs");
@@ -35,7 +37,12 @@ fn main() {
             continue;
         }
         for file in *files {
-            sources.push(PathBuf::from("c").join(file));
+            // Two features can be the same translation unit, and compiling it
+            // twice is two definitions of everything in it.
+            let path = PathBuf::from("c").join(file);
+            if !sources.contains(&path) {
+                sources.push(path);
+            }
         }
     }
 

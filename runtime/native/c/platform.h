@@ -60,6 +60,10 @@ bool nupp_fs_replace(const char *from, const char *to);
 /* Copies contents and permission bits, creating or truncating the destination. */
 bool nupp_fs_copy(const char *from, const char *to);
 
+/* The path with every symbolic link resolved and every `..` applied, which needs
+ * the filesystem because a name can lead somewhere a lexical answer would not. */
+bool nupp_fs_canonicalize(const char *path, NuppBuffer *into);
+
 /* --- directory iteration ------------------------------------------------ */
 
 typedef struct NuppDirectory NuppDirectory;

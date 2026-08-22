@@ -2,6 +2,19 @@
 
 ## Unreleased
 
+- Reimplement paths, SHA-256 and the UUID generators in C. `nupp.io.path` reads
+  a path as components rather than by string arithmetic, and answers what it
+  answered before down to the spelling: a path rebuilt is normalised, one sliced
+  keeps the `.` the caller wrote. The digest is FIPS 180-4 directly and the two
+  identifier versions are the same random bytes with different stamps. Five more
+  crates -- `camino`, `path-clean`, `pathdiff`, `sha2` and `uuid` -- leave the
+  dependency list.
+
+- Rebuild the development native library when its sources change. `bin/nupp`
+  built it once and then never again, so an edit to a provider was picked up by
+  whoever next deleted the library by hand and every command in between ran
+  against the one before it.
+
 - Reimplement the file provider in C. `nupp.io.files` stands on
   `runtime/native/c` rather than on the Rust crate: metadata, listing, globbing,
   the open-file handles and the off-thread transfer lane, with the platform

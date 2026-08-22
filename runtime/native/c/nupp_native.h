@@ -135,4 +135,8 @@ void nupp_normalize_separators(char *path);
 /* Milliseconds on a clock that only moves forwards. */
 double nupp_monotonic_ms(void);
 
+/* Milliseconds since the Unix epoch, on the clock that tracks the world and can
+ * therefore step. What a timestamp is made of, as against a duration. */
+uint64_t nupp_unix_ms(void);
+
 #endif /* NUPP_NATIVE_H */

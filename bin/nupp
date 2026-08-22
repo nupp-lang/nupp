@@ -292,7 +292,18 @@ if [ "$needs_native" = yes ] && [ -z "${NUPP_JSON_SIMDJSON_ROOT:-}" ] \
     fi
 fi
 
-if [ "$needs_native" = yes ] && [ ! -f "$NUPP_NATIVE_LIBRARY" ]; then
+# The same rule the compiler gets: a source newer than the artifact means the
+# artifact has not seen that edit. Without this an edit to the provider was
+# picked up by whoever next deleted the library by hand, and everything in
+# between tested the one before it.
+native_is_current() {
+    [ -f "$NUPP_NATIVE_LIBRARY" ] || return 1
+    [ -z "$(find "$ROOT/runtime" -type f \
+        \( -name '*.rs' -o -name '*.c' -o -name '*.h' -o -name '*.toml' \) \
+        -newer "$NUPP_NATIVE_LIBRARY" 2>/dev/null | head -n 1)" ]
+}
+
+if [ "$needs_native" = yes ] && ! native_is_current; then
     build_native || exit 1
 fi
 

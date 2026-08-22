@@ -327,6 +327,22 @@ void nupp_normalize_separators(char *path) {
 #endif
 }
 
+uint64_t nupp_unix_ms(void) {
+#if NUPP_WINDOWS
+    FILETIME now;
+    ULARGE_INTEGER packed;
+    GetSystemTimeAsFileTime(&now);
+    packed.LowPart = now.dwLowDateTime;
+    packed.HighPart = now.dwHighDateTime;
+    /* Hundred-nanosecond intervals from 1601, wanted as milliseconds from 1970. */
+    return packed.QuadPart / 10000ull - 11644473600000ull;
+#else
+    struct timespec now;
+    clock_gettime(CLOCK_REALTIME, &now);
+    return (uint64_t)now.tv_sec * 1000ull + (uint64_t)(now.tv_nsec / 1000000);
+#endif
+}
+
 double nupp_monotonic_ms(void) {
 #if NUPP_WINDOWS
     static LARGE_INTEGER frequency;

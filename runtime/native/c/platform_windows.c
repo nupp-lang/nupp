@@ -548,6 +548,56 @@ bool nupp_fs_remove(const char *path, bool recursive) {
     return remove_one(path, false);
 }
 
+bool nupp_fs_canonicalize(const char *path, NuppBuffer *into) {
+    Wide wide;
+    HANDLE handle;
+    DWORD needed;
+    wchar_t *resolved;
+    bool ok;
+
+    if (!widen(&wide, path)) {
+        return false;
+    }
+    handle = CreateFileW(
+        wide.value, 0, FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE, NULL,
+        OPEN_EXISTING, FILE_FLAG_BACKUP_SEMANTICS, NULL);
+    wide_free(&wide);
+    if (handle == INVALID_HANDLE_VALUE) {
+        return fail_last(path);
+    }
+    needed = GetFinalPathNameByHandleW(handle, NULL, 0, FILE_NAME_NORMALIZED);
+    if (needed == 0) {
+        CloseHandle(handle);
+        return fail_last(path);
+    }
+    resolved = malloc((size_t)needed * sizeof(wchar_t));
+    if (resolved == NULL) {
+        CloseHandle(handle);
+        nupp_fail("out of memory");
+        return false;
+    }
+    if (GetFinalPathNameByHandleW(handle, resolved, needed, FILE_NAME_NORMALIZED) == 0) {
+        free(resolved);
+        CloseHandle(handle);
+        return fail_last(path);
+    }
+    CloseHandle(handle);
+    {
+        /* The answer is verbatim -- `\\?\C:\...` -- and a caller that asked
+         * for a path wants the one it can pass to anything else. The UNC form
+         * keeps its double separator, so only the drive form is unwrapped. */
+        const wchar_t *base = resolved;
+        if (wcsncmp(base, L"\\\\?\\UNC\\", 8) == 0) {
+            base += 6;
+        } else if (wcsncmp(base, L"\\\\?\\", 4) == 0) {
+            base += 4;
+        }
+        ok = narrow(into, base, -1);
+    }
+    free(resolved);
+    return ok;
+}
+
 static bool move_file(const char *from, const char *to, DWORD flags) {
     Wide source, destination;
     bool ok;
