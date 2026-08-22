@@ -12,7 +12,7 @@ local dialects = {}
 
 dialects.DEFAULT = "luajit"
 
-local SUPPORTED = {luajit = true, lua51 = true,}
+local SUPPORTED = {luajit = true, ["luajit-compat"] = true, lua51 = true,}
 
 --- Resolves an optional dialect name, using `luajit` when absent.
 function dialects.resolve(value: any, label: string?): string?, string?
@@ -21,7 +21,7 @@ function dialects.resolve(value: any, label: string?): string?, string?
         return dialects.DEFAULT
     end
     if type(value) ~= "string" or not SUPPORTED[value] then
-        return nil, at .. ' must be "luajit" or "lua51"'
+        return nil, at .. ' must be "luajit", "luajit-compat" or "lua51"'
     end
 
     return value
@@ -29,7 +29,14 @@ end
 
 --- Lists every supported dialect in stable display order.
 function dialects.names(): {string}
-    return {"luajit", "lua51"}
+    return {"luajit", "luajit-compat", "lua51"}
+end
+
+--- Whether this target lowers the newer LuaJIT 3.0 spellings instead of
+--- requiring the target VM to parse them. `luajit-compat` retains LuaJIT's
+--- runtime facilities; `lua51` additionally requires portable replacements.
+function dialects.lowersSyntax(dialect: string): boolean
+    return dialect == "luajit-compat" or dialect == "lua51"
 end
 
 export = dialects

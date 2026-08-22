@@ -18,13 +18,13 @@ local function requirement(name: string): any
 end
 
 local CONTRACTS = {
-    bitops = {native = {luajit = true}, seams = {lua51 = requirement("numeric.bitops"),},},
-    int64 = {native = {luajit = true}, seams = {lua51 = requirement("numeric.int64"),},},
-    cinterop = {native = {luajit = true}, seams = {},},
-    structvalue = {native = {luajit = true}, seams = {lua51 = requirement("representation.structvalue"),},},
-    cstorage = {native = {luajit = true}, seams = {},},
-    presize = {native = {luajit = true}, compiler = {lua51 = true}, seams = {},},
-    simd = {native = {luajit = true}, seams = {lua51 = requirement("numeric.simd"),},},
+    bitops = {native = {luajit = true, ["luajit-compat"] = true}, seams = {lua51 = requirement("numeric.bitops"),},},
+    int64 = {native = {luajit = true, ["luajit-compat"] = true}, seams = {lua51 = requirement("numeric.int64"),},},
+    cinterop = {native = {luajit = true, ["luajit-compat"] = true}, seams = {},},
+    structvalue = {native = {luajit = true, ["luajit-compat"] = true}, seams = {lua51 = requirement("representation.structvalue"),},},
+    cstorage = {native = {luajit = true, ["luajit-compat"] = true}, seams = {},},
+    presize = {native = {luajit = true, ["luajit-compat"] = true}, compiler = {lua51 = true}, seams = {},},
+    simd = {native = {luajit = true, ["luajit-compat"] = true}, seams = {lua51 = requirement("numeric.simd"),},},
 }
 
 --- Resolves every closed capability for one dialect and selected backend set.

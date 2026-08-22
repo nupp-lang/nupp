@@ -1,0 +1,6 @@
+module game
+
+--- Advances a position at a fixed speed.
+export function advance(position: number, speed: number, elapsed: number): number
+   return position + speed * elapsed
+end

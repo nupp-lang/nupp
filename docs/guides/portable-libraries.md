@@ -41,6 +41,12 @@ The `luajit` target is the default language path. It retains LuaJIT operators,
 FFI representations, and native intrinsics without a runtime dialect test. An
 explicit `dialect = "luajit"` produces the same Lua as omitting the dialect.
 
+`luajit-compat` retains those LuaJIT runtime facilities but lowers the newer
+LuaJIT spellings Nupp ordinarily passes through. Use it for an embedded LuaJIT
+such as LÖVE when its FFI is available but its parser is older than Nupp's
+default target floor. It is not portable Lua: FFI, `jit`, `bit`, and native
+struct representations remain available.
+
 The `lua51` target lowers syntax that Nupp can preserve across Lua 5.1 through
 5.4 and LuaJIT. This includes `const`, `continue`, compound assignment,
 optional access and calls, lambdas, digit separators, `table.new`,

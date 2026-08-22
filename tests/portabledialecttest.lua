@@ -67,6 +67,29 @@ function M.explicitNativeDialectChangesNoGeneratedByte()
       "explicit luajit output is byte-identical to the default")
 end
 
+function M.compatibilityDialectLowersSyntaxAndRetainsLuaJITCapabilities()
+   local source = table.concat({
+      "local struct Point",
+      "    x: float",
+      "end",
+      "local point = new Point(1)",
+      "point.x += 1",
+      "return (point?.x ?? 0) & 3",
+   }, "\n")
+   local result, diags = checked(source, "luajit-compat")
+   assertEq(#diags, 0, "compatibility output retains native LuaJIT capabilities")
+   local code, loweringDiags = gen.generate(result, "compatibility.nupp")
+   assertEq(#loweringDiags, 0, "compatibility source lowers")
+   for _, spelling in ipairs({"?.", "??", "+=", " & "}) do
+      assert(not code:find(spelling, 1, true),
+         "compatibility output retained " .. spelling .. ":\n" .. code)
+   end
+   assert(code:find('require("ffi")', 1, true),
+      "compatibility output retains LuaJIT FFI structs:\n" .. code)
+   assert(code:find('require("bit")', 1, true) and code:find(".band(", 1, true),
+      "compatibility output lowers operators through LuaJIT's BitOp module:\n" .. code)
+end
+
 function M.authoredJumpsAreRefusedOnlyByThePortableDialect()
    local source = table.concat({
       "local answer = 1",

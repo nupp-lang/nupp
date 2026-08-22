@@ -18,12 +18,12 @@ local options = {}
 --- `--strict`, for the commands that type-check.
 options.strict = {name = "--strict", help = "Treat strict checker rules as errors",}
 
---- `--dialect luajit|lua51`, for commands that check or generate source.
+--- `--dialect luajit|luajit-compat|lua51`, for commands that check or generate source.
 options.dialect = {
     name = "--dialect",
     value = "DIALECT",
     choices = require("nupp.compiler.dialects").names(),
-    help = "Source-lowering dialect: luajit (default) or lua51"
+    help = "Source-lowering dialect: luajit (default), luajit-compat or lua51"
 }
 
 -- The three spellings of one choice. They share a key, so giving two of them is caught

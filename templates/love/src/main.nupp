@@ -1,0 +1,21 @@
+local game = require("game")
+local love = require("lovehost")
+
+local x: number = 32
+const speed: number = 96
+
+function love.load()
+   love.graphics.setBackgroundColor(0.08, 0.1, 0.16)
+end
+
+function love.update(elapsed: number)
+   x = game.advance(x, speed, elapsed)
+   if x > 800 then
+      x = -32
+   end
+end
+
+function love.draw()
+   love.graphics.setColor(0.35, 0.8, 1)
+   love.graphics.rectangle("fill", x, 220, 48, 48)
+end

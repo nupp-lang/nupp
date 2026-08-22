@@ -104,9 +104,12 @@ paths beneath `outDir`, so `app.main` becomes `build/app/main.lua`.
 
 ### Dialect selection
 
-Every target resolves one source-lowering dialect. `luajit` is the default;
-`lua51` may be selected on the build table, inherited by its targets, or
-overridden by one target:
+Every target resolves one source-lowering dialect. `luajit` is the default.
+`luajit-compat` lowers newer LuaJIT syntax while retaining LuaJIT's FFI, JIT,
+and native representations. It is for LuaJIT hosts whose runtime facilities are
+available but whose parser does not meet Nupp's default floor. `lua51` may be
+selected on the build table, inherited by its targets, or overridden by one
+target:
 
 ```lua
 build = {
@@ -185,8 +188,8 @@ resources = {
 The manifest is validated before builds, checks, tests, and task queries.
 Validation covers dense string arrays, required target inputs, supported
 dependency kinds, named target and dependency references, and dependency
-cycles. A target's `dialect` is `"luajit"` or `"lua51"`. Configuration errors
-name the invalid field before any build work starts.
+cycles. A target's `dialect` is `"luajit"`, `"luajit-compat"` or `"lua51"`.
+Configuration errors name the invalid field before any build work starts.
 
 Every table in the manifest takes a closed set of keys, and one that is not in
 it is refused by name, with the nearest spelling when there is one:

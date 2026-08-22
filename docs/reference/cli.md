@@ -884,7 +884,7 @@ versions.
 Run checked backend conformance suites
 
 Usage:
-  nupp backend test <module> [--dialect luajit|lua51] [--runtime LUA] [--seam NAME] [--json]
+  nupp backend test <module> [--dialect luajit|luajit-compat|lua51] [--runtime LUA] [--seam NAME] [--json]
 
 Options:
   -h, --help  Show this help

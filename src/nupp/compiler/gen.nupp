@@ -41,6 +41,7 @@ local switchplan = require("nupp.compiler.switchplan")
 local stdlib = require("nupp.compiler.stdlib")
 local backends = require("nupp.compiler.backends")
 local capabilities = require("nupp.compiler.capabilities")
+local dialects = require("nupp.compiler.dialects")
 local cabi = require("nupp.compiler.cabi")
 local bit = require("nupp.compiler.bitops")
 
@@ -470,7 +471,9 @@ function gen.generate(
     local out = {}
     local capabilityResolution = capabilities.resolve(result.dialect or "luajit", backendResolution)
     local bitopsCapability = capabilities.get(capabilityResolution, "bitops")
-    local portableBitops = bitopsCapability.kind == "seam"
+    local compatibilityBitops = result.dialect == "luajit-compat"
+    local portableBitops = bitopsCapability.kind == "seam" or compatibilityBitops
+    local needsCompatibilityBitops = false
     local structvalueCapability = capabilities.get(capabilityResolution, "structvalue")
     local portableStructvalue = structvalueCapability.kind == "seam"
     local int64Capability = capabilities.get(capabilityResolution, "int64")
@@ -1668,7 +1671,7 @@ function gen.generate(
     -- instruments the largest function in the compiler and the module then will not
     -- load.
     local pluck = {
-        portable = result.dialect == "lua51",
+        portable = dialects.lowersSyntax(result.dialect or "luajit"),
         plans = {},
         statementActive = {},
         helpers = helpers,
@@ -1700,6 +1703,7 @@ function gen.generate(
         bitops = {
             portable = portableBitops,
             effect = bitopsCapability.effect,
+            compatibility = compatibilityBitops,
             methods = BITOP_METHOD,
             name = bitopsName,
         },
@@ -3454,7 +3458,11 @@ function gen.generate(
             local compoundBase = x.op and x.op.kind:sub(1, -2) or nil
             local bitMethod = pluck.bitops.portable and compoundBase and pluck.bitops.methods[compoundBase] or nil
             if bitMethod then
-                needRuntimeEffect(pluck.bitops.effect)
+                if pluck.bitops.compatibility then
+                    needsCompatibilityBitops = true
+                else
+                    needRuntimeEffect(pluck.bitops.effect)
+                end
             end
             if x.target.kind == "bracketIndex"
                 and x.target.indexedAccess
@@ -3908,7 +3916,11 @@ function gen.generate(
             end
         end
         if pluck.bitops.portable and kind == "unop" and x.op and x.op.kind == "~" and x.operand then
-            needRuntimeEffect(pluck.bitops.effect)
+            if pluck.bitops.compatibility then
+                needsCompatibilityBitops = true
+            else
+                needRuntimeEffect(pluck.bitops.effect)
+            end
             e(pluck.bitops.name .. ".bnot(", x.op.line)
             emit(x.operand)
             e(")")
@@ -3917,7 +3929,11 @@ function gen.generate(
         if pluck.bitops.portable and kind == "binop" and x.op and pluck.bitops.methods[
             x.op.kind
         ] and x.lhs and x.rhs then
-            needRuntimeEffect(pluck.bitops.effect)
+            if pluck.bitops.compatibility then
+                needsCompatibilityBitops = true
+            else
+                needRuntimeEffect(pluck.bitops.effect)
+            end
             e(pluck.bitops.name .. "." .. pluck.bitops.methods[x.op.kind] .. "(", x.op.line)
             emit(x.lhs)
             e(",")
@@ -7136,6 +7152,9 @@ function gen.generate(
     ) .. backends.bootstrap(runtimeEffects, backendResolution)
     if runtimeEffects[pluck.bitops.effect] then
         runtimeBootstrap = runtimeBootstrap .. ("local %s=_G.__nuppBitops;"):format(pluck.bitops.name)
+    end
+    if needsCompatibilityBitops then
+        runtimeBootstrap = runtimeBootstrap .. ("local %s=require(\"bit\");"):format(pluck.bitops.name)
     end
     if portableStructvalue and runtimeEffects["runtime.structvalue"] then
         runtimeBootstrap = runtimeBootstrap .. ("local %s=_G.__nuppStructvalue;"):format(structvalueName)

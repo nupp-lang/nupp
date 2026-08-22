@@ -772,14 +772,15 @@ return {include = {"src"}, build = {targets = {app = {
    end
 
    assert(load('"luajit"'), "the native dialect is accepted")
+   assert(load('"luajit-compat"'), "the compatibility LuaJIT dialect is accepted")
    assert(load('"lua51"'), "the portable dialect is accepted")
    local _, unsupported = load('"lua54"')
    assert(unsupported and unsupported:find(
-      'build.targets.app.dialect must be "luajit" or "lua51"', 1, true),
+      'build.targets.app.dialect must be "luajit", "luajit-compat" or "lua51"', 1, true),
       tostring(unsupported))
    local _, wrongType = load("true")
    assert(wrongType and wrongType:find(
-      'build.targets.app.dialect must be "luajit" or "lua51"', 1, true),
+      'build.targets.app.dialect must be "luajit", "luajit-compat" or "lua51"', 1, true),
       tostring(wrongType))
 
    local inherited = tempProject({["nupp.lua"] = [[

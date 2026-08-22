@@ -7,7 +7,7 @@ local spec = require("nupp.compiler.cli.spec")
 local command = spec.command{
     name = "backend",
     summary = "Run checked backend conformance suites",
-    usage = {"nupp backend test <module> [--dialect luajit|lua51] [--runtime LUA] [--seam NAME] [--json]"},
+    usage = {"nupp backend test <module> [--dialect luajit|luajit-compat|lua51] [--runtime LUA] [--seam NAME] [--json]"},
     universal = false,
     options = {{name = "-h", names = {"-h", "--help"}, help = "Show this help"}},
     positionals = {},
@@ -18,7 +18,7 @@ local command = spec.command{
             backend = {type = "string"},
             module = {type = "string"},
             digest = {type = "string"},
-            dialect = {type = "string", enum = {"luajit", "lua51"}},
+            dialect = {type = "string", enum = {"luajit", "luajit-compat", "lua51"}},
             runtime = {type = "string"},
             seams = {
                 type = "array",
