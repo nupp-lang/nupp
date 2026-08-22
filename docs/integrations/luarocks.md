@@ -1,5 +1,6 @@
 ---
 order: 520
+redirects: guides/luarocks
 ---
 
 # Working with LuaRocks
@@ -114,7 +115,7 @@ The build installs it into the project's `.rocks` tree. At run time,
 and in the language server, the same require reads the installed
 `nupp/string_tools.d.nupp`. Completion, hover, definition, and downstream
 interface invalidation therefore use the published contract. See [rock
-dependencies](build.md#rock-dependencies) for every field a pin takes.
+dependencies](../guides/build.md#rock-dependencies) for every field a pin takes.
 
 Project modules take precedence over installed declarations. This makes a local
 module an intentional override and keeps dependency trees from changing what
@@ -139,7 +140,7 @@ remains a warm incremental dependency.
 ## Native libraries
 
 A library implemented partly in C or Rust is still published as a rock. Use
-Nupp's [C](build.md#c-dependencies) or [Cargo](build.md#rust-dependencies)
+Nupp's [C](../guides/build.md#c-dependencies) or [Cargo](../guides/build.md#rust-dependencies)
 dependency providers to build the native implementation, expose an ordinary Lua
 module, and describe that Lua-facing module in `nupp/`. Consumers depend on the
 rock, not on Cargo.
@@ -155,9 +156,9 @@ no tree, so the dependency's `bundle` globs select the Lua modules carried into
 `package.preload`.
 
 ::: seealso
-- [build.md](build.md#carrying-a-rock-into-a-bundle) for choosing what a bundle
+- [build.md](../guides/build.md#carrying-a-rock-into-a-bundle) for choosing what a bundle
   carries out of a rock tree
-- [portable-libraries.md](portable-libraries.md#dependency-provided-backends)
+- [portable-libraries.md](../guides/portable-libraries.md#dependency-provided-backends)
   for shipping runtime providers and their checked backend source
 - [cli.md](../reference/cli.md#rock) for every `nupp rock` subcommand and its
   options

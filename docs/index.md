@@ -353,4 +353,11 @@ return {
 - [LuaJIT trace checking](guides/jit-trace-checking.md)
 - [Profiling](guides/profiling.md)
 
+## Integrations
+
+- [Integrations](integrations/index.md)
+- [LuaRocks](integrations/luarocks.md)
+- [LuaCATS definitions](integrations/luacats.md)
+- [LÖVE](integrations/love.md)
+
 :::

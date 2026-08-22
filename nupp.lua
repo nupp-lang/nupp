@@ -113,7 +113,6 @@ local TEMPLATE_FILES = {
    "love/README.md",
    "love/nupp.lua",
    "love/src/game.nupp",
-   "love/src/lovehost.lua",
    "love/src/main.nupp",
    "love/template.lua",
    "love/tests/run.lua",

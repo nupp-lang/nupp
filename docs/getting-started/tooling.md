@@ -30,7 +30,7 @@ Every command takes `-h`, and `nupp help <command>` prints the same reference.
 | `explain` | Describe a diagnostic code | [diagnostics.md](../reference/diagnostics.md) |
 | `lints` | List the lints and their levels | [lints.md](../reference/lints.md) |
 | `import-c` | Turn a C header into declarations | [c-interop.md](../concepts/c-interop.md) |
-| `rock` | Create and package typed Lua rocks | [luarocks.md](../guides/luarocks.md) |
+| `rock` | Create and package typed Lua rocks | [LuaRocks](../integrations/luarocks.md) |
 | `tasks` | List or inspect manifest targets | [build.md](../guides/build.md) |
 | `clean` | Remove configured build outputs | [build.md](../guides/build.md) |
 | `fixpoint` | Verify the self-hosting rebuild | [distribution.md](../reference/distribution.md) |

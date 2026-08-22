@@ -317,7 +317,7 @@ decoration.
 - [tour.md](../getting-started/tour.md) for a walk through the scaffolded
   project
 - [build.md](../guides/build.md) for the `nupp.lua` a template writes
-- [luarocks.md](../guides/luarocks.md) for the layout the `lib` template
+- [LuaRocks](../integrations/luarocks.md) for the layout the `lib` template
   scaffolds
 :::
 
@@ -1860,7 +1860,7 @@ what `require` is given:
      └── run.lua
 ```
 
-See [luarocks.md](../guides/luarocks.md) for the declaration's contents and for
+See [LuaRocks](../integrations/luarocks.md) for the declaration's contents and for
 publishing one.
 
 ### `lsp`

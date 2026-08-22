@@ -127,7 +127,7 @@ stored in compiler strings.
 
 ## Dependency-provided backends
 
-A [LuaRock dependency](luarocks.md#consume-a-typed-rock) may carry both a
+A [LuaRock dependency](../integrations/luarocks.md#consume-a-typed-rock) may carry both a
 runtime provider and the checked backend module that selects it. An HMAC rock
 can install this backend source as `nupp/acme/cryptobackend.nupp`:
 
@@ -348,7 +348,7 @@ capability with a value that only has the same name.
 ::: seealso
 - [build.md](build.md#dialect-selection) for target selection, cache behavior,
   and build output
-- [luarocks.md](luarocks.md) for packaging checked source and runtime modules
+- [LuaRocks](../integrations/luarocks.md) for packaging checked source and runtime modules
 - [cli.md](../reference/cli.md#backend) for every backend test option
 - [NEP 13](../neps/0013-dialects-and-capability-backends.md) for the design
   record behind dialects and seams

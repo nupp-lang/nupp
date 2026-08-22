@@ -829,7 +829,7 @@ that runs outside the build reads the tree the way LuaRocks trees are always
 read.
 
 An installed rock may also carry typed module declarations in its versioned
-`nupp/` directory. See [luarocks.md](luarocks.md) for authoring, packing,
+`nupp/` directory. See [LuaRocks](../integrations/luarocks.md) for authoring, packing,
 testing, and publishing that layout.
 
 ### Carrying a rock into a bundle
