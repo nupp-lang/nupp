@@ -38,6 +38,46 @@ work makes sense in.
         The one piece that has to land before then: `scripts/stub-catalog.py`
         has `record` and `catalog` but nothing that turns a published
         `stub-catalog.json` back into `stub_catalog.nupp`
+## Type-level computation
+
+Found while building the worker protocol generator ([NEP
+16](docs/neps/0016-typed-workers.md)). None of them blocked it; each made it
+longer than it had to be.
+
+- [ ] **`nupp.types` cannot read a nominal's fields.** `nupp.types.fields(R)` for
+      a record is `NUPP2415: needs a structural shape handle`, and
+      `describe(R).fields` is nil, so a generator that wants a declared record has
+      to switch to `nupp.reflect` and a different descriptor API. The payload a
+      nominal handle carries would have to gain its fields, which the semantic
+      fingerprint also reads, so this is not only a lookup change.
+- [ ] **A comptime type alias has no top-level form.** `local comptime type Field
+      = {name: string, read: type?, write: type?}` is rejected twice, `NUPP2119`
+      for having no visibility and `NUPP2421` for naming `type` outside comptime,
+      because `comptime type` is a member form. Every generator writing field
+      descriptors repeats that shape inline at each use.
+- [ ] **Field descriptors match exactly.** Annotating `{{name: string, read:
+      type?}}` and passing it to `nupp.types.shape` is `NUPP2006` against
+      `{{name: string, read: type?, write: type?}}`, so an unused optional still
+      has to be named.
+
+## Workers
+
+- [ ] **Check a spawn entry against the build target.** `workers.spawn` takes a
+      module name the build resolves at run time, so a name that is spelled
+      consistently but is not in the target's `entries` fails when it runs rather
+      than when it is built. A typed handle already catches a name that disagrees
+      with its protocol, so what is left is the build-config mistake, and catching
+      it means the checker can see the target's entry list -- which it cannot
+      today, and which a cached check would have to invalidate on.
+- [ ] **Encode a message from its declared type.** `unsendable` walks every value
+      before `buffer.encode` sees it, which a declared protocol makes unnecessary
+      for the parts it can decide. [NEP 15](docs/neps/0015-schema-driven-serde.md)
+      has the schema and binding, and `nupp.reflect.fieldCodec` the materializer;
+      what is missing is building a schema from a structural shape rather than a
+      record, and using its compatibility fingerprint as the handshake between
+      states. Depth, cycles and repeated aliases stay dynamic whatever happens: a
+      recursive shape is a valid type that builds a cyclic value.
+
 ## Dialect interop (`import-tl`)
 
 - [ ] source translator CLI (eject model, visible residue comments, `any`
