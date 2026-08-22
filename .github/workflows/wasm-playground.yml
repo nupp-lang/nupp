@@ -1,0 +1,96 @@
+name: Test Wasm playground candidate
+
+on:
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - ".github/scripts/test-portable-compiler.sh"
+      - ".github/workflows/wasm-playground.yml"
+      - "editors/playground/**"
+      - "nupp.lua"
+      - "src/nupp/compiler/browser.nupp"
+      - "tests/portable-compiler/**"
+
+permissions:
+  contents: read
+
+jobs:
+  candidate:
+    name: Portable compiler in Lua 5.1 Wasm
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Check out the repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: editors/playground/package-lock.json
+
+      - name: Set up Emscripten 6.0.8
+        uses: emscripten-core/setup-emsdk@v15
+        with:
+          version: 6.0.8
+          actions-cache-folder: emsdk-cache
+
+      - name: Build LuaJIT and native dependencies
+        run: .github/scripts/setup-luajit-posix.sh
+
+      - name: Install playground dependencies
+        run: npm ci --prefix editors/playground
+
+      - name: Test Node Wasm parity
+        run: npm run test:wasm --prefix editors/playground
+
+      - name: Record asset sizes
+        run: node editors/playground/tools/report-wasm-assets.mjs > wasm-sizes.json
+
+      - name: Start the playground server
+        env:
+          PORT: 8787
+        run: |
+          node editors/playground/serve.mjs > playground-server.log 2>&1 &
+          echo $! > playground-server.pid
+          for attempt in {1..30}; do
+            if curl --fail --silent http://127.0.0.1:8787/wasm-smoke.html >/dev/null; then
+              exit 0
+            fi
+            sleep 1
+          done
+          exit 1
+
+      - name: Test the Chromium Worker
+        run: |
+          google-chrome --headless --no-sandbox --disable-gpu \
+            --virtual-time-budget=60000 --dump-dom \
+            http://127.0.0.1:8787/wasm-smoke.html > chromium-smoke.html
+          node editors/playground/tools/read-browser-result.mjs \
+            chromium-smoke.html passed > chromium-smoke.json
+
+      - name: Measure the replacement gate
+        run: |
+          google-chrome --headless --no-sandbox --disable-gpu \
+            --virtual-time-budget=180000 --dump-dom \
+            http://127.0.0.1:8787/wasm-benchmark.html > chromium-timing.html
+          node editors/playground/tools/read-browser-result.mjs \
+            chromium-timing.html complete --require-gate > chromium-timing.json
+
+      - name: Stop the playground server
+        if: always()
+        run: kill "$(cat playground-server.pid)" || true
+
+      - name: Upload sizes and timing results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: wasm-playground-measurements
+          path: |
+            chromium-smoke.html
+            chromium-smoke.json
+            chromium-timing.html
+            chromium-timing.json
+            playground-server.log
+            wasm-sizes.json
