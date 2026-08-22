@@ -171,6 +171,10 @@ local PLAYGROUND_COMPILER_RESOURCES = {}
 for index, resource in ipairs(RESOURCES) do
    PLAYGROUND_COMPILER_RESOURCES[index] = resource
 end
+PLAYGROUND_COMPILER_RESOURCES[#PLAYGROUND_COMPILER_RESOURCES + 1] = {
+   source = "src/nupp/compiler/preludeimage.bin",
+   output = "nupp/compiler/preludeimage.bin",
+}
 for _, relative in ipairs(TEMPLATE_FILES) do
    RESOURCES[#RESOURCES + 1] = {
       source = "templates/" .. relative,

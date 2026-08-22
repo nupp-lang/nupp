@@ -1,8 +1,8 @@
 # Wasm playground feasibility
 
 The portable compiler runs unchanged in official Lua 5.1.5 and in the
-filesystem-free Wasm host. The Wasm replacement remains gated because its
-browser boot plus first check exceeds the live Fengari time budget.
+filesystem-free Wasm host. A checked prelude image removes the initialization
+cost that originally blocked the replacement.
 
 ```bash
 npm run test:wasm --prefix editors/playground
@@ -18,7 +18,7 @@ opener.
 
 The initial 7.6 MB browser-patched bootstrap did not parse. `luac -p` stopped
 at line 23646 on `goto continue`, before any runtime dependency loaded. The
-portable target replaces that artifact. Its 3,890,463 source bytes pass
+portable target replaces that artifact. Its source passes
 `luac -p`, `luaL_loadbuffer`, protected execution, and the compiler corpus
 without a transformation.
 
@@ -37,7 +37,8 @@ The measured candidate sizes are:
 
 | Artifact | Bytes |
 | --- | ---: |
-| Portable compiler source | 3,890,463 |
+| Portable compiler source and prelude image | 5,277,698 |
+| Brotli-compressed compiler asset | 612,122 |
 | Lua 5.1 Wasm host | 226,361 |
 | ES module loader | 12,478 |
 
@@ -46,29 +47,35 @@ the current build. The Node test compares check, compile, hover, and LuaJIT
 cross-dialect output against the native Lua 5.1 result. The Chromium smoke page
 exercises the same separately fetched bytes through a module Worker.
 
+## Checked prelude image
+
+Profiling separated bundle parsing from checker initialization. Official Lua
+5.1 parsed the compiler in about 28 ms, while constructing and checking the
+three standard prelude units took about 5 seconds. The portable target now
+carries the resulting immutable type graph as inert data. A small checked Nupp
+module hydrates that graph; no generated Lua is loaded or evaluated.
+
+The source declarations remain authoritative. The portable acceptance lane
+constructs the prelude normally, serializes it, and requires a byte-for-byte
+match with the tracked image. It then hydrates the image, serializes the
+result, and requires the same bytes again. The format preserves table keys,
+cycles, metatables, and shared object identity. Token trivia is deliberately
+excluded because the compiler does not expose the prelude source as an edited
+document.
+
+The source and image paths share no runtime dialect probe. Ordinary compiler
+entries still check the prelude from source. Only the portable browser entry
+selects the image when it creates an environment.
+
 ## Replacement gate
 
-The phase-zero baseline used the same Apple Silicon machine and in-app
-Chromium browser for both implementations. Five live Fengari samples had a
-median boot plus first check of about 6.08 seconds. The latest Wasm candidate
-had a three-sample median of 8.29 seconds and a slowest run of 8.34 seconds.
-The ratio against the phase-zero baseline is about 1.36, above the allowed
-1.20.
+The phase-zero baseline used the same Apple Silicon machine and Chromium
+browser for both implementations. The retained Fengari Worker took 6.46
+seconds median over three fresh workers. The image-backed Wasm Worker took 229
+ms median and 231 ms at its slowest, including boot and the first strict check.
+Its ratio of 0.035 is below the maximum 1.20.
 
-The current retained Fengari Worker has a three-sample median of 6.84 seconds.
-The same-page benchmark reports 1.211 against that slower current artifact,
-which also misses the replacement gate. The accepted baseline remains the
-phase-zero measurement rather than a later regression in the implementation
-being replaced.
-
-Wasm instantiation takes about 2 ms and loading the compiler source takes about
-105 ms in Node. The first `env.new` dominates the remaining time while it
-parses and checks `lua.d.nupp` and `prelude.d.nupp`. Removing more package
-preloads does not address that cost because only two lazy compiler modules load
-during the first check.
-
-`wasm-benchmark.html` runs three fresh workers for each implementation,
-records every sample, and computes the median, slowest run, and ratio. The Wasm
-Worker does not replace `worker.js` until that page reports a ratio at or below
-1.20. Reaching the gate requires a precomputed portable prelude environment or
-an equivalent reduction in prelude construction, not another host shim.
+The same operation under native official Lua 5.1 fell from about 6.8 seconds
+to 93 ms. Node completes the full Wasm differential corpus in about 351 ms.
+These are development-machine measurements rather than product guarantees;
+CI records its own raw samples and asset sizes.

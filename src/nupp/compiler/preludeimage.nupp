@@ -1,0 +1,102 @@
+@!internal
+
+module nupp.compiler.preludeimage
+
+--[[
+Hydrates the portable compiler's checked prelude graph.
+
+The image is data generated from the ordinary declaration checker. This module is the
+only implementation of its format: the generated resource contains no Lua source or
+executable fallback.
+]]
+
+local bundled = require("nupp.compiler.bundled")
+local image = {schema = 1,}
+
+local ROOT_NAMES = {
+    "annotationsByName",
+    "featureEffects",
+    "globalTypeDefs",
+    "globalTypes",
+    "globals",
+    "preludeComptimeFunctions",
+    "stringLib",
+}
+
+function image.new(): any
+    local data = assert(bundled.source("/preludeimage.bin"), "portable prelude image is absent")
+    local cursor: integer = 1
+    local function line(): string
+        local ending = assert(data:find("\n", cursor, true), "portable prelude image is truncated")
+        local value = data:sub(cursor, ending - 1)
+        cursor = ending + 1
+
+        return value
+    end
+
+    assert(line() == "NUPP-PRELUDE-1", "portable prelude image has an unsupported format")
+    local tableCount = assert(tonumber(line()), "portable prelude image has no table count")
+    local tables = {}
+    for index = 1, tableCount do
+        tables[index] = {}
+    end
+
+    local function value(): any
+        local tag = data:sub(cursor, cursor)
+        cursor = cursor + 1
+        if tag == "z" then
+            return nil
+        elseif tag == "f" then
+            return false
+        elseif tag == "t" then
+            return true
+        elseif tag == "r" then
+            return tables[assert(tonumber(line()), "portable prelude image has an invalid table reference")]
+        elseif tag == "n" then
+            local encoded = line()
+            if encoded == "nan" then
+                return 0 / 0
+            elseif encoded == "inf" then
+                return math.huge
+            elseif encoded == "-inf" then
+                return -math.huge
+            end
+
+            return assert(tonumber(encoded), "portable prelude image has an invalid number")
+        elseif tag == "s" then
+            local length = assert(tonumber(line()), "portable prelude image has an invalid string length") as integer
+            local result = data:sub(cursor, cursor + length - 1)
+            assert(#result == length, "portable prelude image is truncated inside a string")
+            cursor = cursor + length
+
+            return result
+        end
+        error("portable prelude image has an unknown value tag", 0)
+    end
+
+    local metatables = {}
+    for index = 1, tableCount do
+        local memberCount = assert(tonumber(line()), "portable prelude image has no member count")
+        local target = tables[index]
+        for _ = 1, memberCount do
+            target[value()] = value()
+        end
+        metatables[index] = assert(tonumber(line()), "portable prelude image has an invalid metatable")
+    end
+    for index, metatableIndex in ipairs(metatables) do
+        if metatableIndex ~= 0 then
+            setmetatable(tables[index], tables[metatableIndex])
+        end
+    end
+
+    local roots: any = {}
+    for _, name in ipairs(ROOT_NAMES) do
+        roots[name] = value()
+    end
+    roots.preludeRuntime = value()
+    assert(cursor == #data + 1, "portable prelude image has trailing bytes")
+
+    return roots
+end
+
+export = image

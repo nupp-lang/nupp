@@ -28,6 +28,7 @@ local gen = require("nupp.compiler.gen")
 local tree = require("nupp.compiler.lsp.tree")
 local T = require("nupp.compiler.types")
 local capabilities = require("nupp.compiler.capabilities")
+local preludeImage = require("nupp.compiler.preludeimage")
 
 local type BrowserOptions = {
     strict: boolean?,
@@ -165,6 +166,7 @@ function Session:environment(dialect: string): any
         nativeCompilerServices = false,
         config = {_target = {dialect = dialect, layoutTarget = "x86_64-unknown-linux-gnu",},},
         typeRoots = {},
+        preludeImage = preludeImage,
     })
     self.environments[dialect] = current
 
