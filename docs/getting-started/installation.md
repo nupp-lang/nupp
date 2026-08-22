@@ -5,8 +5,9 @@ order: 10
 # Installation
 
 Nupp is written in Nupp. A checkout carries a stage-0 compiler already lowered
-to Lua, so building the real one takes LuaJIT, LPeg, simdjson, and a C++17
-compiler.
+to Lua, and building the real one takes a C and a C++ compiler. The interpreter
+it runs on and the libraries it links are fetched from pinned sources and built
+by the checkout itself when the machine does not already have them.
 
 ```bash
 git clone https://github.com/nupp-lang/nupp
@@ -16,33 +17,57 @@ cd nupp
 
 ## Requirements
 
-A build needs LuaJIT, LPeg, and simdjson present before it starts. Everything
-after them buys one feature each.
+**A C and a C++ compiler**, either `clang` with `clang++` or `gcc` with `g++`,
+plus the shell, `tar` and a downloader. `NUPP_CC` and `NUPP_CXX` name them; with
+neither set, `clang`, `cc` and `gcc` are probed in that order, and the C++ names
+beside them.
+
+Everything else is provisioned. `scripts/toolchain` fetches LuaJIT, LPeg,
+luautf8 and simdjson by pinned revision, refuses any archive whose SHA-256 is
+not the one written down, builds each with that compiler pair, and caches the
+result beside the repository so every worktree shares one build. `bin/nupp` runs
+it for what is missing and nothing more.
 
 ### LuaJIT
 
 **LuaJIT 2.1.1784535649 or newer.** Generated Nupp is written in the LuaJIT 3.0
 syntax that 2.1 backported, meaning `?.`, `??`, `?:`, the bit operators and
 compound assignment, rather than in a lowering of it. That rolling version is
-the first build carrying those extensions. `bin/nupp` reads `luajit -v` and says
-which build is wanted, so an older interpreter fails with a sentence instead of
-a syntax error on a line nobody wrote.
+the first build carrying those extensions.
+
+`bin/nupp` reads `luajit -v` and uses what is on `PATH` when it is new enough.
+When it is not, the pinned LuaJIT is built and its `bin` goes on `PATH` ahead of
+the older one, so the comptime workers, the LSP relay and the test runner all
+reach the same interpreter.
+
+### simdjson
+
+**simdjson 4.6.4.** The JSON runtime links whatever `pkg-config` reports for
+`simdjson` and `luajit`; where it reports neither, the pinned simdjson is built
+and linked instead. `NUPP_JSON_SIMDJSON_ROOT` with `NUPP_JSON_LUAJIT_ROOT` names
+an installation that neither pkg-config nor the driver can discover, and wins
+over both.
 
 ### LPeg
 
 **LPeg 1.1.** The compiler reads its own doc comments and manifests with
-`nupp.peg`, which resolves native LPeg, so the module is loaded before the first
-build rather than by a later command:
+`nupp.peg`, which resolves native LPeg. A checkout gets it with the other rocks
+`nupp doc` installs; `scripts/toolchain lpeg` builds the pinned one for a host
+binary to link.
 
-```bash
-luarocks install lpeg
-```
+### Offline and mirrored builds
 
-### simdjson
+Three settings, shared with the host build's own fetching:
 
-**simdjson 4.6.4 or newer.** The compiler's JSON runtime links the installed
-library through pkg-config. For example, `brew install simdjson` or your system
-package manager's simdjson development package.
+| Setting | Effect |
+| --- | --- |
+| `NUPP_HOST_SOURCE_DIR` | a directory of already-downloaded pinned archives |
+| `NUPP_HOST_SOURCE_BASE_URL` | a flat mirror to fetch archives from |
+| `NUPP_HOST_OFFLINE` | refuse to reach the network |
+
+A digest is checked whichever of these supplied the bytes, so a mirror that
+served something else is refused rather than compiled. `NUPP_TOOLCHAIN_DIR`
+moves where the built components land.
 
 ### Optional components
 
@@ -50,12 +75,16 @@ package manager's simdjson development package.
 | --- | --- | --- |
 | `lunamark` | `nupp doc` | `nupp doc` |
 | `Scintillua` | highlighting in generated sites | `nupp doc` |
-| Rust toolchain | building the binary host stub | `rustup` |
+| Rust toolchain | the native providers and the binary host stub | `rustup` |
 
-That table is about a checkout. A stamped binary carries all three of the first
-ones already and needs nothing installed to check, compile, run or document a
-project. See [self-contained binary](#self-contained-binary) for what it carries
-and how to build one.
+The Rust row is temporary. [NEP 17](../neps/0017-c-only-toolchain.md)
+decides to reimplement both in C behind the ABI they already export, which
+leaves the compiler pair above as the whole requirement.
+
+That table is about a checkout. A stamped binary carries what it needs already
+and needs nothing installed to check, compile, run or document a project. See
+[self-contained binary](#self-contained-binary) for what it carries and how to
+build one.
 
 ## Building from a checkout
 

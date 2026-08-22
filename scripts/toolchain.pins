@@ -1,0 +1,40 @@
+# Pinned sources Nupp provisions for itself.
+#
+# One record per component: the version or revision, the SHA-256 of the exact
+# archive, the URL it comes from, and a file the archive is known to contain.
+# The digest authenticates the bytes; the URL only says where to look first, and
+# a mirror may replace it. Nothing here is committed to the tree, because a
+# generated dependency in the tree is one to keep current by hand.
+#
+# Bumping a pin means bumping its digest and, where the component ships a
+# licence Nupp redistributes, refreshing host/notices beside it. `scripts/toolchain`
+# refuses to build a source whose notice has drifted.
+
+# LuaJIT v2.1, at 2.1.1785763465. The floor is 2.1.1784535649, the first build
+# carrying the backported operators; anything older rejects generated Nupp at
+# parse time. This is why the pin lives here rather than trailing a package
+# manager: the interpreter has to be new enough to parse what the compiler emits.
+LUAJIT_REV=1edc3e52b67eaf6ce5f809be8e17d6862594b8bc
+LUAJIT_SHA256=85497ea149d136afbe2d7ef222e08849248e52cecc6dc8deefd8588e551e4e00
+LUAJIT_URL='https://github.com/LuaJIT/LuaJIT/archive/${LUAJIT_REV}.tar.gz'
+LUAJIT_MARKER=src/lj_arch.h
+LUAJIT_DIRECTORY='LuaJIT-${LUAJIT_REV}'
+
+LPEG_VERSION=1.1.0
+LPEG_SHA256=4b155d67d2246c1ffa7ad7bc466c1ea899bbc40fef0257cc9c03cecbaed4352a
+LPEG_URL='https://www.inf.puc-rio.br/~roberto/lpeg/lpeg-${LPEG_VERSION}.tar.gz'
+LPEG_MARKER=lptree.c
+LPEG_DIRECTORY='lpeg-${LPEG_VERSION}'
+
+# Lunamark's entity table needs a utf8.char that Lua 5.1 does not have.
+LUAUTF8_VERSION=0.2.1
+LUAUTF8_SHA256=ea52075cd960aed8c37512ab31cdc166aa77a6458504d29f33ae40b93d2d8594
+LUAUTF8_URL='https://github.com/starwing/luautf8/archive/refs/tags/${LUAUTF8_VERSION}.tar.gz'
+LUAUTF8_MARKER=lutf8lib.c
+LUAUTF8_DIRECTORY='luautf8-${LUAUTF8_VERSION}'
+
+SIMDJSON_VERSION=4.6.4
+SIMDJSON_SHA256=b091107844fe928158c5c2265c20360fff312889ddf7ebc4528a0f0f8f2ff9cd
+SIMDJSON_URL='https://github.com/simdjson/simdjson/archive/refs/tags/v${SIMDJSON_VERSION}.tar.gz'
+SIMDJSON_MARKER=singleheader/simdjson.cpp
+SIMDJSON_DIRECTORY='simdjson-${SIMDJSON_VERSION}'

@@ -44,6 +44,46 @@ if JSON_EXPLICIT_ROOTS then
    JSON_CFLAGS[#JSON_CFLAGS + 1] = "-DSIMDJSON_THREADS_ENABLED=1"
 end
 
+-- Where `scripts/toolchain` staged the pinned sources. The launcher exports this
+-- only when the machine had no installed simdjson and LuaJIT for pkg-config to
+-- find, so a development machine that has them keeps using them, and a clean one
+-- builds this dependency against sources Nupp fetched and verified itself.
+--
+-- Explicit roots still win. A caller that named both is describing an
+-- installation neither pkg-config nor the driver can discover.
+local JSON_STAGED_ROOT = not JSON_EXPLICIT_ROOTS
+   and os.getenv("NUPP_TOOLCHAIN_PREFIX") or nil
+local JSON_STAGED_INCLUDE
+if JSON_STAGED_ROOT then
+   -- LuaJIT installs its headers under a versioned directory, and the driver
+   -- writes down which one rather than leaving every reader to work it out.
+   local marker = io.open(JSON_STAGED_ROOT .. "/luajit/.include", "r")
+   if not marker then
+      error("NUPP_TOOLCHAIN_PREFIX names " .. JSON_STAGED_ROOT
+         .. ", which holds no staged LuaJIT. Run scripts/toolchain luajit.")
+   end
+   JSON_STAGED_INCLUDE = marker:read("*l")
+   marker:close()
+end
+
+-- The JSON module calls into the Lua C API, and the interpreter loading it is
+-- already carrying those symbols. Naming a LuaJIT library here instead would put
+-- a second virtual machine inside the process. Mach-O has to be told to defer the
+-- lookup; ELF leaves undefined symbols in a shared object alone; Windows has no
+-- deferred resolution and takes the import library.
+local function jsonStagedLinkFlags()
+   local flags = {JSON_STAGED_ROOT .. "/simdjson/lib/libsimdjson.a"}
+   local osName = (jit and jit.os or ""):lower()
+   if osName == "osx" then
+      flags[#flags + 1] = "-undefined"
+      flags[#flags + 1] = "dynamic_lookup"
+   elseif osName == "windows" then
+      flags[#flags + 1] = JSON_STAGED_ROOT .. "/luajit/lib/lua51.lib"
+   end
+
+   return flags
+end
+
 -- The built-in project templates `nupp init` scaffolds from.
 --
 -- They live outside `src` on purpose. A template's filenames carry the
@@ -204,16 +244,20 @@ return {
          includeDirs = JSON_EXPLICIT_ROOTS and {
             JSON_SIMDJSON_ROOT .. "/include",
             JSON_LUAJIT_ROOT,
+         } or JSON_STAGED_ROOT and {
+            JSON_STAGED_ROOT .. "/simdjson/include",
+            JSON_STAGED_INCLUDE,
          } or nil,
          cflags = JSON_CFLAGS,
          ldflags = JSON_EXPLICIT_ROOTS and {
             JSON_SIMDJSON_ROOT .. "/lib/simdjson.lib",
             JSON_LUAJIT_ROOT .. "/lua51.lib",
-         } or nil,
+         } or JSON_STAGED_ROOT and jsonStagedLinkFlags() or nil,
          -- One shell-compatible string keeps the stage-zero compiler able to build
          -- this dependency; the self-hosted builder splits it into the same two
          -- package names before invoking pkg-config without a shell.
-         pkgConfig = not JSON_EXPLICIT_ROOTS and "simdjson luajit" or nil,
+         pkgConfig = (not JSON_EXPLICIT_ROOTS and not JSON_STAGED_ROOT)
+            and "simdjson luajit" or nil,
       },
       -- Renders the markdown. Pulls in lpeg, cosmo, alt-getopt and luautf8,
       -- which LuaRocks resolves rather than this file listing them.

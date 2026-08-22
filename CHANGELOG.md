@@ -2,6 +2,18 @@
 
 ## Unreleased
 
+- Provision LuaJIT, LPeg, luautf8 and simdjson from pinned sources rather than
+  expecting them installed. `scripts/toolchain` fetches each by revision,
+  refuses any archive whose SHA-256 is not the one written down, builds it with
+  `NUPP_CC` and `NUPP_CXX`, and caches the result beside the repository so every
+  worktree shares one build. `bin/nupp` uses the interpreter on `PATH` when it
+  clears the syntax floor and builds the pinned one when it does not, putting it
+  on `PATH` so the comptime workers, the LSP relay and the test runner all reach
+  the same one; the JSON runtime links what pkg-config reports and falls back to
+  the staged simdjson where it reports nothing. A checkout's requirement is now
+  a C and a C++ compiler, plus a Rust toolchain until the native providers and
+  the binary host are ported.
+
 - Add schema-driven serde for records, fixed-layout structs, and run-time
   dynamic values. `@derive(nupp.derive.Serde)` produces one format-neutral
   schema and binding; prepared JSON profiles cache encoded keys and raw-byte

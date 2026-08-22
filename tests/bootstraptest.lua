@@ -34,6 +34,11 @@ function M.launcherFallsBackToTrackedBootstrap()
    assert(os.execute("mkdir -p '" .. dir .. "/bin'") == 0)
    assert(os.execute(("cp '%s/bin/nupp' '%s/bin/nupp'"):format(ROOT, dir)) == 0)
    assert(os.execute(("cp -R '%s/bootstrap' '%s/bootstrap'"):format(ROOT, dir)) == 0)
+   -- The launcher is `bin/nupp` and the scripts it reads. It selects an
+   -- interpreter before it runs anything, and provisions the pinned one where the
+   -- machine has none, so a tree carrying the bootstrap without them is not a
+   -- tree anybody has.
+   assert(os.execute(("cp -R '%s/scripts' '%s/scripts'"):format(ROOT, dir)) == 0)
 
    local p = assert(io.popen(("'%s/bin/nupp' --help 2>&1"):format(dir)))
    local out = p:read("*a")

@@ -1,0 +1,471 @@
+#!/bin/sh
+# Provisions the native prerequisites Nupp builds against.
+#
+# Nupp asks for a C and a C++ compiler. Everything else it needs to build itself
+# -- the LuaJIT the compiler runs on, the LPeg the documentation renderer parses
+# with, the utf8 library its entity table wants, and the simdjson the JSON
+# facility is -- is fetched here from a pinned source, verified against a digest,
+# built with that compiler pair, and cached.
+#
+# This is the only thing that builds those. A component is asked for by name and
+# answers with the prefix it was installed under, so a caller composes paths
+# rather than knowing the layout:
+#
+#     scripts/toolchain luajit          # -> /path/to/.nupp-cache/toolchain/<key>/luajit
+#     scripts/toolchain --all           # everything, quietly, for a cache warm
+#
+# Building is idempotent and cached: the second call is a directory test. The
+# cache is keyed by the compilers' own version output, so switching NUPP_CC from
+# clang to gcc builds beside the old answer rather than over it.
+
+set -eu
+
+ROOT=$(CDPATH= cd -- "$(dirname "$0")/.." && pwd)
+. "$ROOT/scripts/toolchain.pins"
+
+# Names shared with the archive fetching the host build already had, so a CI job
+# or an offline builder that supplies pinned archives keeps working unchanged.
+SOURCE_DIR=${NUPP_HOST_SOURCE_DIR:-}
+SOURCE_BASE_URL=${NUPP_HOST_SOURCE_BASE_URL:-}
+OFFLINE=${NUPP_HOST_OFFLINE:-}
+
+usage() {
+    cat >&2 <<'USAGE'
+usage: scripts/toolchain COMPONENT...
+       scripts/toolchain --all
+       scripts/toolchain --prefix
+
+Components: luajit lpeg luautf8 simdjson
+
+Prints the install prefix of each component named, building it first when it is
+not already cached. --all builds every component and prints nothing. --prefix
+prints the root the components are installed under without building anything.
+
+Environment:
+  NUPP_CC, NUPP_CXX          the compiler pair. Probed when unset.
+  NUPP_TOOLCHAIN_DIR         where to install. Defaults to the repository cache.
+  NUPP_HOST_SOURCE_DIR       a directory of already-downloaded pinned archives.
+  NUPP_HOST_SOURCE_BASE_URL  a flat mirror to fetch archives from.
+  NUPP_HOST_OFFLINE          refuse to reach the network.
+USAGE
+    exit 2
+}
+
+note() { printf 'toolchain: %s\n' "$*" >&2; }
+die() { printf 'toolchain: %s\n' "$*" >&2; exit 1; }
+
+# --- toolchain selection ----------------------------------------------------
+
+# `NUPP_NATIVE_CC` and `NUPP_JSON_CC` named the C and the C++ compiler back when
+# each build step chose its own. They are aliases now, and are read only where
+# the primary name is unset so a tree that sets both is not surprised by which
+# one won.
+probe() {
+    for candidate in "$@"; do
+        [ -n "$candidate" ] || continue
+        if command -v "$candidate" >/dev/null 2>&1; then
+            printf '%s\n' "$candidate"
+            return 0
+        fi
+    done
+    return 1
+}
+
+CC=${NUPP_CC:-${NUPP_NATIVE_CC:-}}
+[ -n "$CC" ] || CC=$(probe clang cc gcc) || die "no C compiler found. Name one with NUPP_CC"
+CXX=${NUPP_CXX:-${NUPP_JSON_CC:-}}
+[ -n "$CXX" ] || CXX=$(probe clang++ c++ g++) || die "no C++ compiler found. Name one with NUPP_CXX"
+
+command -v "$CC" >/dev/null 2>&1 || die "NUPP_CC names $CC, which is not on PATH"
+command -v "$CXX" >/dev/null 2>&1 || die "NUPP_CXX names $CXX, which is not on PATH"
+
+UNAME=$(uname -s 2>/dev/null || echo unknown)
+case "$UNAME" in
+    Darwin*)              PLATFORM=darwin ;;
+    MINGW*|MSYS*|CYGWIN*) PLATFORM=windows ;;
+    FreeBSD*|DragonFly*)  PLATFORM=bsd ;;
+    *)                    PLATFORM=posix ;;
+esac
+
+case "$PLATFORM" in
+    bsd) MAKE=${MAKE:-gmake} ;;
+    *)   MAKE=${MAKE:-make} ;;
+esac
+
+# --- digests ----------------------------------------------------------------
+
+# Whichever of these the machine has. All three answer the same question and no
+# platform reliably carries a particular one.
+if command -v shasum >/dev/null 2>&1; then
+    sha256_stdin() { shasum -a 256 | cut -d' ' -f1; }
+elif command -v sha256sum >/dev/null 2>&1; then
+    sha256_stdin() { sha256sum | cut -d' ' -f1; }
+elif command -v openssl >/dev/null 2>&1; then
+    sha256_stdin() { openssl dgst -sha256 | sed 's/.*= *//'; }
+else
+    die "no sha256 tool found; install one of shasum, sha256sum or openssl"
+fi
+sha256() { sha256_stdin < "$1"; }
+
+# --- where things go --------------------------------------------------------
+
+# Beside the repository's common git directory, so every worktree of this
+# checkout shares one build of LuaJIT rather than each paying for its own. A
+# source archive with no git metadata falls back to the checkout.
+if [ -n "${NUPP_TOOLCHAIN_DIR:-}" ]; then
+    CACHE=$NUPP_TOOLCHAIN_DIR
+else
+    COMMON=$(git -C "$ROOT" rev-parse --git-common-dir 2>/dev/null || true)
+    if [ -n "$COMMON" ]; then
+        case "$COMMON" in
+            /*|[A-Za-z]:*) ;;
+            *) COMMON="$ROOT/$COMMON" ;;
+        esac
+        CACHE="$(dirname "$COMMON")/.nupp-cache/toolchain"
+    else
+        CACHE="$ROOT/build/toolchain"
+    fi
+fi
+
+ARCHIVES="$CACHE/archives"
+SOURCES="$CACHE/sources"
+
+# What the answer depends on: the compilers, their versions, and the machine.
+# Two of these change without the tree changing, and a cache that ignored them
+# would hand a gcc build back to a clang one.
+key_material() {
+    printf '%s\n%s\n' "$CC" "$CXX"
+    "$CC" --version 2>&1 | head -n 2 || true
+    "$CXX" --version 2>&1 | head -n 2 || true
+    printf '%s %s\n' "$UNAME" "$(uname -m 2>/dev/null || echo unknown)"
+}
+KEY=$(key_material | sha256_stdin | cut -c1-16)
+PREFIX="$CACHE/$KEY"
+
+# --- fetching ---------------------------------------------------------------
+
+download() {
+    url=$1 destination=$2
+    if command -v curl >/dev/null 2>&1; then
+        curl --fail --location --silent --show-error --output "$destination" "$url"
+    elif command -v wget >/dev/null 2>&1; then
+        wget --quiet --output-document "$destination" "$url"
+    else
+        die "no downloader found; install curl or wget"
+    fi
+}
+
+offline() {
+    case "$OFFLINE" in
+        1|true|yes|on|TRUE|YES|ON) return 0 ;;
+        ""|0|false|no|off|FALSE|NO|OFF) return 1 ;;
+        *) die "NUPP_HOST_OFFLINE must be one of 1, true, yes, on, 0, false, no or off" ;;
+    esac
+}
+
+# One pinned archive, in the cache, verified. A digest is checked before a byte
+# is unpacked, so a mirror that served something else is refused rather than
+# compiled.
+archive() {
+    name=$1 url=$2 digest=$3
+    file="$ARCHIVES/$name.tar.gz"
+    if [ -f "$file" ] && [ "$(sha256 "$file")" = "$digest" ]; then
+        printf '%s\n' "$file"
+        return 0
+    fi
+
+    mkdir -p "$ARCHIVES"
+    if [ -n "$SOURCE_DIR" ] && [ -f "$SOURCE_DIR/$name.tar.gz" ]; then
+        cp "$SOURCE_DIR/$name.tar.gz" "$file.$$"
+    elif offline; then
+        die "NUPP_HOST_OFFLINE is set and $name.tar.gz is not cached; put the pinned archive in NUPP_HOST_SOURCE_DIR"
+    else
+        if [ -n "$SOURCE_BASE_URL" ]; then
+            url="${SOURCE_BASE_URL%/}/$name.tar.gz"
+        fi
+        note "fetching $name"
+        download "$url" "$file.$$" || { rm -f "$file.$$"; die "cannot download $url"; }
+    fi
+
+    found=$(sha256 "$file.$$")
+    if [ "$found" != "$digest" ]; then
+        rm -f "$file.$$"
+        die "$name has digest $found, expected $digest; refusing to cache or compile it"
+    fi
+    mv "$file.$$" "$file"
+    printf '%s\n' "$file"
+}
+
+# One extracted source tree. Extraction is into a temporary sibling and renamed,
+# so a killed run never leaves a half-unpacked tree a later one trusts.
+source_tree() {
+    name=$1 url=$2 digest=$3 marker=$4
+    tree="$SOURCES/$name"
+    if [ -f "$tree/$marker" ]; then
+        printf '%s\n' "$tree"
+        return 0
+    fi
+
+    file=$(archive "$name" "$url" "$digest")
+    mkdir -p "$SOURCES"
+    staging="$SOURCES/.$name.$$"
+    rm -rf "$staging"
+    mkdir -p "$staging"
+    tar xzf "$file" -C "$staging"
+    [ -f "$staging/$name/$marker" ] \
+        || die "$name.tar.gz did not extract the expected $name/$marker"
+    rm -rf "$tree"
+    mv "$staging/$name" "$tree"
+    rm -rf "$staging"
+    printf '%s\n' "$tree"
+}
+
+# --- notices ----------------------------------------------------------------
+
+# Each of these is MIT, and MIT asks that its notice travel with the copies. The
+# sources are fetched rather than committed, so the only copy this repository
+# ships is the one in `host/notices` -- and a copy that has drifted from the
+# source it claims to reproduce is a false statement about what was distributed.
+# Bumping a pin fails here until the notice beside it is updated too.
+verify_notice() {
+    source=$1 notice=$2
+    committed="$ROOT/host/notices/$notice"
+    [ -f "$source" ] || die "the pinned source has no $source to check $notice against"
+    [ -f "$committed" ] || die "host/notices/$notice is missing"
+    if ! cmp -s "$source" "$committed"; then
+        die "host/notices/$notice is not what $source says any more. Copy it across: the pinned source is what is distributed, and the notice beside it is what says so."
+    fi
+}
+
+# LPeg ships its licence inside its manual rather than as a file, so the notice
+# beside it is checked for the clauses instead of byte for byte.
+verify_embedded_notice() {
+    source=$1 notice=$2
+    committed="$ROOT/host/notices/$notice"
+    for text in '2007-2023 Lua.org, PUC-Rio' 'Permission is hereby granted' 'THE SOFTWARE IS PROVIDED'; do
+        grep -qF "$text" "$source" && grep -qF "$text" "$committed" \
+            || die "host/notices/$notice no longer agrees with $source"
+    done
+}
+
+# --- one build at a time ----------------------------------------------------
+
+# Two commands wanting the same component start together often enough -- a test
+# suite runs the launcher many times -- and they would otherwise be two makes
+# writing one source tree. `mkdir` is the lock because it is atomic wherever
+# this runs; the pid in it tells a held lock from one a killed build left.
+LOCK=""
+release_lock() { [ -n "$LOCK" ] && rm -rf "$LOCK"; LOCK=""; return 0; }
+
+take_lock() {
+    lock="$CACHE/.lock-$1"
+    waited=0
+    mkdir -p "$CACHE"
+    while ! mkdir "$lock" 2>/dev/null; do
+        holder=$(cat "$lock/pid" 2>/dev/null || true)
+        if [ -z "$holder" ] || ! kill -0 "$holder" 2>/dev/null; then
+            rm -rf "$lock"
+            continue
+        fi
+        # Whoever holds it is building what this one wants, so their answer is
+        # this one's answer.
+        [ -f "$2" ] && return 1
+        sleep 1
+        waited=$((waited + 1))
+        if [ "$waited" -ge 1800 ]; then
+            note "another run has held $lock for ${waited}s; building without it"
+            return 0
+        fi
+    done
+    printf '%s\n' "$$" > "$lock/pid"
+    LOCK=$lock
+    trap 'release_lock' EXIT
+    trap 'release_lock; exit 130' INT
+    trap 'release_lock; exit 143' TERM
+    return 0
+}
+
+# --- components -------------------------------------------------------------
+
+shared_flags() {
+    case "$PLATFORM" in
+        darwin)  printf '%s' "-bundle -undefined dynamic_lookup" ;;
+        windows) printf '%s' "-shared" ;;
+        *)       printf '%s' "-shared" ;;
+    esac
+}
+
+module_extension() {
+    case "$PLATFORM" in
+        windows) printf '%s' ".dll" ;;
+        *)       printf '%s' ".so" ;;
+    esac
+}
+
+build_luajit() {
+    out="$PREFIX/luajit"
+    take_lock luajit "$out/.complete" || return 0
+    [ -f "$out/.complete" ] && { release_lock; return 0; }
+
+    directory="LuaJIT-$LUAJIT_REV"
+    url="https://github.com/LuaJIT/LuaJIT/archive/$LUAJIT_REV.tar.gz"
+    tree=$(source_tree "$directory" "$url" "$LUAJIT_SHA256" "$LUAJIT_MARKER")
+    verify_notice "$tree/COPYRIGHT" LuaJIT-COPYRIGHT.txt
+
+    note "building LuaJIT with $CC"
+    rm -rf "$out"
+    # LuaJIT bakes its module search paths in at compile time, so the prefix has
+    # to be the one it is installed under rather than one it is copied to. It
+    # also refuses to guess an Apple deployment target, preferring to stop over
+    # producing something that runs here and nowhere else.
+    if [ "$PLATFORM" = darwin ] && [ -z "${MACOSX_DEPLOYMENT_TARGET:-}" ]; then
+        case "$(uname -m 2>/dev/null)" in
+            x86_64) MACOSX_DEPLOYMENT_TARGET=10.14 ;;
+            *)      MACOSX_DEPLOYMENT_TARGET=11.0 ;;
+        esac
+        export MACOSX_DEPLOYMENT_TARGET
+    fi
+    "$MAKE" -C "$tree" clean >/dev/null 2>&1 || true
+    "$MAKE" -C "$tree" PREFIX="$out" CC="$CC" HOST_CC="$CC" XCFLAGS=-fPIC >&2
+    "$MAKE" -C "$tree" PREFIX="$out" install >&2
+
+    # `luajit` itself is a versioned name plus a symlink upstream only makes on
+    # some platforms, and everything here runs the plain one.
+    if [ ! -x "$out/bin/luajit" ]; then
+        for candidate in "$out"/bin/luajit-*; do
+            [ -x "$candidate" ] || continue
+            ln -sf "$(basename "$candidate")" "$out/bin/luajit"
+            break
+        done
+    fi
+    [ -x "$out/bin/luajit" ] || die "LuaJIT installed no interpreter under $out/bin"
+
+    # Where the headers landed, which is a versioned directory, said once here so
+    # nothing downstream has to know the version.
+    include=$(find "$out/include" -maxdepth 1 -type d -name 'luajit-*' | head -n 1)
+    [ -n "$include" ] || include="$out/include"
+    printf '%s\n' "$include" > "$out/.include"
+    printf 'done\n' > "$out/.complete"
+    release_lock
+}
+
+luajit_include() {
+    build_luajit
+    cat "$PREFIX/luajit/.include"
+}
+
+# One Lua C module built straight from its sources. Neither LPeg nor luautf8
+# ships a makefile worth driving from here: both are a handful of files against
+# the Lua headers, and naming the files is shorter than teaching their build
+# systems where the staged LuaJIT is.
+build_lua_module() {
+    name=$1 out=$2 tree=$3 include=$4
+    shift 4
+    objects=""
+    for file in "$@"; do
+        object="$out/objects/$(basename "$file" .c).o"
+        mkdir -p "$out/objects"
+        "$CC" -c -O2 -fPIC -w -DNDEBUG -I"$include" -o "$object" "$tree/$file" >&2
+        objects="$objects $object"
+    done
+    mkdir -p "$out/lib"
+    # Both shapes, because both are wanted: a loadable module for an interpreter
+    # that requires it, and an archive for a host that links it in.
+    # shellcheck disable=SC2086
+    "$CC" $(shared_flags) -o "$out/lib/$name$(module_extension)" $objects >&2
+    # shellcheck disable=SC2086
+    ar rcs "$out/lib/lib$name.a" $objects
+}
+
+build_lpeg() {
+    out="$PREFIX/lpeg"
+    # Before the lock, not inside it: these locks do not nest, and building
+    # LuaJIT under the LPeg lock would release the LPeg one on its way out.
+    include=$(luajit_include)
+    take_lock lpeg "$out/.complete" || return 0
+    [ -f "$out/.complete" ] && { release_lock; return 0; }
+
+    directory="lpeg-$LPEG_VERSION"
+    url="https://www.inf.puc-rio.br/~roberto/lpeg/lpeg-$LPEG_VERSION.tar.gz"
+    tree=$(source_tree "$directory" "$url" "$LPEG_SHA256" "$LPEG_MARKER")
+    verify_embedded_notice "$tree/lpeg.html" LPeg-LICENSE.txt
+
+    note "building LPeg with $CC"
+    rm -rf "$out"
+    build_lua_module lpeg "$out" "$tree" "$include" \
+        lpvm.c lpcap.c lptree.c lpcode.c lpprint.c lpcset.c
+    # The official frontend is Lua, and a caller that wants `re` wants it beside
+    # the module it parses with.
+    mkdir -p "$out/share"
+    cp "$tree/re.lua" "$out/share/re.lua"
+    printf 'done\n' > "$out/.complete"
+    release_lock
+}
+
+build_luautf8() {
+    out="$PREFIX/luautf8"
+    include=$(luajit_include)
+    take_lock luautf8 "$out/.complete" || return 0
+    [ -f "$out/.complete" ] && { release_lock; return 0; }
+
+    directory="luautf8-$LUAUTF8_VERSION"
+    url="https://github.com/starwing/luautf8/archive/refs/tags/$LUAUTF8_VERSION.tar.gz"
+    tree=$(source_tree "$directory" "$url" "$LUAUTF8_SHA256" "$LUAUTF8_MARKER")
+    verify_notice "$tree/LICENSE" luautf8-LICENSE.txt
+
+    note "building luautf8 with $CC"
+    rm -rf "$out"
+    build_lua_module lua-utf8 "$out" "$tree" "$include" lutf8lib.c
+    printf 'done\n' > "$out/.complete"
+    release_lock
+}
+
+build_simdjson() {
+    out="$PREFIX/simdjson"
+    take_lock simdjson "$out/.complete" || return 0
+    [ -f "$out/.complete" ] && { release_lock; return 0; }
+
+    directory="simdjson-$SIMDJSON_VERSION"
+    url="https://github.com/simdjson/simdjson/archive/refs/tags/v$SIMDJSON_VERSION.tar.gz"
+    tree=$(source_tree "$directory" "$url" "$SIMDJSON_SHA256" "$SIMDJSON_MARKER")
+    verify_notice "$tree/LICENSE" simdjson-LICENSE.txt
+
+    note "building simdjson with $CXX"
+    rm -rf "$out"
+    mkdir -p "$out/lib" "$out/include"
+    # The single-header distribution, which is what this has always compiled: one
+    # translation unit, no CMake, and the same bytes the digest above pinned.
+    "$CXX" -c -std=c++17 -O3 -DNDEBUG -fPIC \
+        -I"$tree/singleheader" -o "$out/lib/simdjson.o" \
+        "$tree/singleheader/simdjson.cpp" >&2
+    ar rcs "$out/lib/libsimdjson.a" "$out/lib/simdjson.o"
+    cp "$tree/singleheader/simdjson.h" "$out/include/simdjson.h"
+    printf 'done\n' > "$out/.complete"
+    release_lock
+}
+
+# --- entry ------------------------------------------------------------------
+
+[ "$#" -ge 1 ] || usage
+
+case "$1" in
+    --prefix) printf '%s\n' "$PREFIX"; exit 0 ;;
+    --all)
+        build_luajit
+        build_lpeg
+        build_luautf8
+        build_simdjson
+        exit 0
+        ;;
+    -h|--help) usage ;;
+esac
+
+for component in "$@"; do
+    case "$component" in
+        luajit)   build_luajit;   printf '%s\n' "$PREFIX/luajit" ;;
+        lpeg)     build_lpeg;     printf '%s\n' "$PREFIX/lpeg" ;;
+        luautf8)  build_luautf8;  printf '%s\n' "$PREFIX/luautf8" ;;
+        simdjson) build_simdjson; printf '%s\n' "$PREFIX/simdjson" ;;
+        *) note "unknown component $component"; usage ;;
+    esac
+done
