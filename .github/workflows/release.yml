@@ -39,7 +39,7 @@ jobs:
       # builds, whatever interpreter drives the build itself.
       - name: Build LuaJIT and simdjson
         shell: bash
-        run: .github/scripts/setup-luajit-posix.sh
+        run: ./scripts/toolchain --all
 
       - name: Import the macOS Developer ID certificate
         if: runner.os == 'macOS' && startsWith(github.ref, 'refs/tags/')
@@ -74,20 +74,12 @@ jobs:
           # The stub runs the compiler, which reads its own doc comments
           # through nupp.peg, so it carries LPeg for the same reason it
           # carries the JSON runtime.
-          cargo build --release --manifest-path host/Cargo.toml \
-            --target-dir build/bootstrap-host --features json,lpeg
-          cargo build --release --manifest-path runtime/native/Cargo.toml \
-            --target-dir build/bootstrap-native --no-default-features \
-            --features files,process
-
-          case "$RUNNER_OS" in
-            macOS) native_library=build/bootstrap-native/release/libnupp_native.dylib ;;
-            *)     native_library=build/bootstrap-native/release/libnupp_native.so ;;
-          esac
+          bootstrap_host=$(./scripts/toolchain host json,lpeg)
+          native_library=$(./scripts/toolchain native files,process)
 
           # Stage 0 through the launcher, which stages the native file provider that
-          # listing the compiler's own sources reaches, so no worker has to wait on
-          # Cargo. Stage 1 through the stub, so the interpreter every standalone binary
+          # listing the compiler's own sources reaches. Stage 1 through the stub, so
+          # the interpreter every standalone binary
           # carries is the one that compiles the payload it will carry.
           ./bin/nupp build --target compiler
           cat > build/current-compiler.lua <<'LUA'
@@ -96,8 +88,8 @@ jobs:
           dofile(os.getenv("GITHUB_WORKSPACE") .. "/build/nupp/compiler/main.lua")
           LUA
           NUPP_COMPILER_ROOT="$GITHUB_WORKSPACE" \
-            NUPP_NATIVE_LIBRARY="$GITHUB_WORKSPACE/$native_library" \
-            build/bootstrap-host/release/nupp-host \
+            NUPP_NATIVE_LIBRARY="$native_library" \
+            "$bootstrap_host" \
             build/current-compiler.lua build --target dist
 
           mkdir -p release
@@ -114,10 +106,10 @@ jobs:
 
           # One universal compiler-owned host per platform. It is a raw immutable
           # catalog artifact; end-user archives carry the stamped compiler below.
-          cargo build --release --locked --manifest-path host/Cargo.toml \
-            --target-dir build/catalog-host --all-features
+          catalog_host=$(./scripts/toolchain host \
+            json,lpeg,lua-utf8,native-files,native-process,workers)
           stub="nupp-host-${{ matrix.platform }}"
-          cp build/catalog-host/release/nupp-host "release/$stub"
+          cp "$catalog_host" "release/$stub"
           chmod +x "release/$stub"
           mkdir -p "release/notices-${{ matrix.platform }}"
           cp host/NOTICE.md "release/notices-${{ matrix.platform }}/NOTICE.md"
@@ -243,11 +235,13 @@ jobs:
           path: release
 
       - name: Build the Windows host
-        shell: pwsh
+        shell: bash
         run: |
-          cargo build --release --locked --manifest-path host/Cargo.toml `
-            --target-dir build/release-host `
-            --all-features
+          set -euo pipefail
+          host=$(./scripts/toolchain host \
+            json,lpeg,lua-utf8,native-files,native-process,workers)
+          mkdir -p build/release-host/release
+          cp "$host" build/release-host/release/nupp-host.exe
 
       - name: Stamp and smoke-test the standalone binary
         shell: bash
@@ -387,7 +381,7 @@ jobs:
 
       - name: Build LuaJIT and simdjson
         shell: bash
-        run: .github/scripts/setup-luajit-posix.sh
+        run: ./scripts/toolchain --all
 
       - name: Download the immutable catalog
         uses: actions/download-artifact@v4

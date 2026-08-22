@@ -51,7 +51,7 @@ jobs:
           actions-cache-folder: emsdk-cache
 
       - name: Build LuaJIT and native dependencies
-        run: .github/scripts/setup-luajit-posix.sh
+        run: ./scripts/toolchain --all
 
       - name: Install playground dependencies
         run: npm ci --prefix editors/playground

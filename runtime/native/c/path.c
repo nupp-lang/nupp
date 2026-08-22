@@ -279,7 +279,7 @@ static void push_part(NuppBuffer *into, const char *part, size_t length) {
     components_free(&parsed);
 }
 
-NUPP_EXPORT NuppBytes *nuppcPathJoin(const NuppStringView *parts, size_t count) {
+NUPP_EXPORT NuppBytes *nuppPathJoin(const NuppStringView *parts, size_t count) {
     NuppBuffer out;
     size_t at;
     if (parts == NULL && count != 0) {
@@ -329,7 +329,7 @@ static void clean(Components *out, const Components *in) {
     }
 }
 
-NUPP_EXPORT NuppBytes *nuppcPathNormalize(const uint8_t *data, size_t length) {
+NUPP_EXPORT NuppBytes *nuppPathNormalize(const uint8_t *data, size_t length) {
     NuppText path;
     Components parsed, cleaned;
     NuppBytes *bytes;
@@ -361,7 +361,7 @@ NUPP_EXPORT NuppBytes *nuppcPathNormalize(const uint8_t *data, size_t length) {
  * and repeated separators. `..` is left alone: resolving it needs to know what
  * the names before it are, and a name can be a symbolic link pointing somewhere
  * a lexical answer would get wrong. */
-NUPP_EXPORT NuppBytes *nuppcPathAbsolute(const uint8_t *data, size_t length) {
+NUPP_EXPORT NuppBytes *nuppPathAbsolute(const uint8_t *data, size_t length) {
     NuppText path;
     NuppBuffer joined;
     Components parsed;
@@ -408,7 +408,7 @@ NUPP_EXPORT NuppBytes *nuppcPathAbsolute(const uint8_t *data, size_t length) {
     return bytes;
 }
 
-NUPP_EXPORT NuppBytes *nuppcPathCanonicalize(const uint8_t *data, size_t length) {
+NUPP_EXPORT NuppBytes *nuppPathCanonicalize(const uint8_t *data, size_t length) {
     NuppText path;
     NuppBuffer out;
     if (!nupp_text(&path, data, length, "path")) {
@@ -439,7 +439,7 @@ static bool same_component(const Component *left, const Component *right) {
  * share a coordinate system, and the only sound answer is the absolute one when
  * that is the target and nothing at all when it is the base.
  */
-NUPP_EXPORT NuppBytes *nuppcPathRelative(
+NUPP_EXPORT NuppBytes *nuppPathRelative(
     const uint8_t *data, size_t length, const uint8_t *base, size_t baseLength
 ) {
     NuppText target, from;
@@ -576,7 +576,7 @@ static void split_name(
     }
 }
 
-NUPP_EXPORT NuppBytes *nuppcPathPart(const uint8_t *data, size_t length, uint32_t kind) {
+NUPP_EXPORT NuppBytes *nuppPathPart(const uint8_t *data, size_t length, uint32_t kind) {
     NuppText path;
     Components parsed;
     const Component *name;
@@ -631,7 +631,7 @@ NUPP_EXPORT NuppBytes *nuppcPathPart(const uint8_t *data, size_t length, uint32_
 /* Replaces the final name, or the extension on it. The caller has already held
  * the replacement to one ordinary component, so what is left here is where it
  * goes. */
-NUPP_EXPORT NuppBytes *nuppcPathWith(
+NUPP_EXPORT NuppBytes *nuppPathWith(
     const uint8_t *data, size_t length,
     const uint8_t *value, size_t valueLength,
     bool extension
@@ -705,7 +705,7 @@ NUPP_EXPORT NuppBytes *nuppcPathWith(
     return answer(&out);
 }
 
-NUPP_EXPORT bool nuppcPathIsAbsolute(const uint8_t *data, size_t length) {
+NUPP_EXPORT bool nuppPathIsAbsolute(const uint8_t *data, size_t length) {
     NuppText path;
     Components parsed;
     bool absolute;

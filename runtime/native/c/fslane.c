@@ -148,7 +148,7 @@ static void settle(Slot *slot, uint8_t *data, size_t length, char *reason, int s
 /* The reason a worker failed, copied out of the error slot -- which is per
  * thread, and the thread that will read it is not this one. */
 static char *taken_reason(void) {
-    const char *text = nuppcNativeError();
+    const char *text = nuppNativeError();
     size_t length = strlen(text);
     char *copy = malloc(length + 1);
     if (copy == NULL) {
@@ -405,7 +405,7 @@ static char *owned_path(const uint8_t *data, size_t length, const char *what) {
 
 /* Submits a whole-file read. The file is sized on this thread, because a lane
  * that cannot price a transfer cannot bound itself. */
-NUPP_EXPORT NuppRequest *nuppcFsSubmitRead(const uint8_t *data, size_t length) {
+NUPP_EXPORT NuppRequest *nuppFsSubmitRead(const uint8_t *data, size_t length) {
     Job job;
     NuppFileInfo info;
     char *path = owned_path(data, length, "path");
@@ -424,7 +424,7 @@ NUPP_EXPORT NuppRequest *nuppcFsSubmitRead(const uint8_t *data, size_t length) {
 
 /* Submits a whole-file write. `mode` replaces, appends, or writes through a
  * temporary beside the destination, in that order. */
-NUPP_EXPORT NuppRequest *nuppcFsSubmitWrite(
+NUPP_EXPORT NuppRequest *nuppFsSubmitWrite(
     const uint8_t *data, size_t length,
     const uint8_t *bytes, size_t bytesLength,
     uint32_t mode
@@ -465,7 +465,7 @@ NUPP_EXPORT NuppRequest *nuppcFsSubmitWrite(
 
 /* Submits a copy. The bytes never reach this process, so the lane charges the
  * transfer a slot rather than a size. */
-NUPP_EXPORT NuppRequest *nuppcFsSubmitCopy(
+NUPP_EXPORT NuppRequest *nuppFsSubmitCopy(
     const uint8_t *from, size_t fromLength, const uint8_t *to, size_t toLength
 ) {
     Job job;
@@ -489,7 +489,7 @@ NUPP_EXPORT NuppRequest *nuppcFsSubmitCopy(
 /* --- observing ---------------------------------------------------------- */
 
 /* Answers whether a transfer is pending, ready, failed, or canceled. */
-NUPP_EXPORT int32_t nuppcFsStatus(const NuppRequest *request) {
+NUPP_EXPORT int32_t nuppFsStatus(const NuppRequest *request) {
     if (request == NULL) {
         return STATUS_FAILED;
     }
@@ -497,7 +497,7 @@ NUPP_EXPORT int32_t nuppcFsStatus(const NuppRequest *request) {
 }
 
 /* Answers a settled read's bytes. Valid until the transfer is destroyed. */
-NUPP_EXPORT const uint8_t *nuppcFsData(const NuppRequest *request) {
+NUPP_EXPORT const uint8_t *nuppFsData(const NuppRequest *request) {
     const uint8_t *data;
     if (request == NULL) {
         return NULL;
@@ -509,7 +509,7 @@ NUPP_EXPORT const uint8_t *nuppcFsData(const NuppRequest *request) {
 }
 
 /* Answers a settled read's byte count. */
-NUPP_EXPORT size_t nuppcFsLength(const NuppRequest *request) {
+NUPP_EXPORT size_t nuppFsLength(const NuppRequest *request) {
     size_t length;
     if (request == NULL) {
         return 0;
@@ -522,7 +522,7 @@ NUPP_EXPORT size_t nuppcFsLength(const NuppRequest *request) {
 
 /* Copies a failed transfer's reason into the shared error slot and answers it,
  * so every failure is read the same way. */
-NUPP_EXPORT const char *nuppcFsError(const NuppRequest *request) {
+NUPP_EXPORT const char *nuppFsError(const NuppRequest *request) {
     if (request != NULL) {
         nupp_mutex_lock(request->slot->guard);
         if (request->slot->reason != NULL) {
@@ -530,12 +530,12 @@ NUPP_EXPORT const char *nuppcFsError(const NuppRequest *request) {
         }
         nupp_mutex_unlock(request->slot->guard);
     }
-    return nuppcNativeError();
+    return nuppNativeError();
 }
 
 /* Abandons a pending transfer. The work still finishes; its result is dropped,
  * because a worker already reading cannot be recalled. */
-NUPP_EXPORT bool nuppcFsCancel(NuppRequest *request) {
+NUPP_EXPORT bool nuppFsCancel(NuppRequest *request) {
     int expected = STATUS_PENDING;
     if (request == NULL) {
         return false;
@@ -545,7 +545,7 @@ NUPP_EXPORT bool nuppcFsCancel(NuppRequest *request) {
 }
 
 /* Releases the caller's handle and its share of the lane's budget. */
-NUPP_EXPORT void nuppcFsDestroy(NuppRequest *request) {
+NUPP_EXPORT void nuppFsDestroy(NuppRequest *request) {
     if (request != NULL) {
         size_t charge = request->slot->charged;
         slot_release(request->slot);
@@ -556,7 +556,7 @@ NUPP_EXPORT void nuppcFsDestroy(NuppRequest *request) {
 
 /* Answers how many transfers settled since the last poll, without waiting. This
  * is the readiness pump a scheduler drives. */
-NUPP_EXPORT size_t nuppcFsPoll(void) {
+NUPP_EXPORT size_t nuppFsPoll(void) {
     if (atomic_load(&lane_started) != 1) {
         return 0;
     }
@@ -572,7 +572,7 @@ NUPP_EXPORT size_t nuppcFsPoll(void) {
  * The count is read under the same lock a worker raises it under, so a
  * settlement that lands between the check and the sleep is seen rather than
  * slept through. */
-NUPP_EXPORT size_t nuppcFsWait(uint64_t milliseconds) {
+NUPP_EXPORT size_t nuppFsWait(uint64_t milliseconds) {
     if (atomic_load(&lane_started) != 1) {
         return 0;
     }
@@ -586,6 +586,6 @@ NUPP_EXPORT size_t nuppcFsWait(uint64_t milliseconds) {
 }
 
 /* How many transfers the caller still holds. */
-NUPP_EXPORT size_t nuppcFsPending(void) {
+NUPP_EXPORT size_t nuppFsPending(void) {
     return atomic_load(&requests_live);
 }

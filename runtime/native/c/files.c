@@ -36,7 +36,7 @@ static NuppBytes *named(NuppBuffer *buffer) {
 /* Describes one path. `follow` resolves a symbolic link to its target, which is
  * the difference between asking what a name refers to and asking what the name
  * itself is. */
-NUPP_EXPORT bool nuppcFilesInfo(
+NUPP_EXPORT bool nuppFilesInfo(
     const uint8_t *data, size_t length, bool follow, NuppFileInfo *out
 ) {
     NuppText path;
@@ -54,7 +54,7 @@ NUPP_EXPORT bool nuppcFilesInfo(
 }
 
 /* Reads a symbolic link's target without resolving it. */
-NUPP_EXPORT NuppBytes *nuppcFilesReadLink(const uint8_t *data, size_t length) {
+NUPP_EXPORT NuppBytes *nuppFilesReadLink(const uint8_t *data, size_t length) {
     NuppText path;
     NuppBuffer target;
     if (!nupp_text(&path, data, length, "path")) {
@@ -72,7 +72,7 @@ NUPP_EXPORT NuppBytes *nuppcFilesReadLink(const uint8_t *data, size_t length) {
 
 /* Creates a symbolic link. `directory` selects Windows's directory link and is
  * ignored elsewhere, because only Windows distinguishes the two. */
-NUPP_EXPORT bool nuppcFilesCreateSymlink(
+NUPP_EXPORT bool nuppFilesCreateSymlink(
     const uint8_t *target, size_t targetLength,
     const uint8_t *link, size_t linkLength,
     bool directory
@@ -93,7 +93,7 @@ NUPP_EXPORT bool nuppcFilesCreateSymlink(
 }
 
 /* Sets or clears the read-only bit. */
-NUPP_EXPORT bool nuppcFilesSetReadOnly(const uint8_t *data, size_t length, bool readOnly) {
+NUPP_EXPORT bool nuppFilesSetReadOnly(const uint8_t *data, size_t length, bool readOnly) {
     NuppText path;
     bool ok;
     if (!nupp_text(&path, data, length, "path")) {
@@ -106,7 +106,7 @@ NUPP_EXPORT bool nuppcFilesSetReadOnly(const uint8_t *data, size_t length, bool 
 
 /* Creates a directory and every missing parent. An existing directory is
  * success, which is what a caller building a tree wants. */
-NUPP_EXPORT bool nuppcFilesCreateDirectory(const uint8_t *data, size_t length) {
+NUPP_EXPORT bool nuppFilesCreateDirectory(const uint8_t *data, size_t length) {
     NuppText path;
     bool ok;
     if (!nupp_text(&path, data, length, "path")) {
@@ -119,7 +119,7 @@ NUPP_EXPORT bool nuppcFilesCreateDirectory(const uint8_t *data, size_t length) {
 
 /* Removes a file, a symbolic link, or an empty directory. `recursive` removes a
  * directory's contents with it. */
-NUPP_EXPORT bool nuppcFilesRemove(const uint8_t *data, size_t length, bool recursive) {
+NUPP_EXPORT bool nuppFilesRemove(const uint8_t *data, size_t length, bool recursive) {
     NuppText path;
     bool ok;
     if (!nupp_text(&path, data, length, "path")) {
@@ -131,7 +131,7 @@ NUPP_EXPORT bool nuppcFilesRemove(const uint8_t *data, size_t length, bool recur
 }
 
 /* Renames a path, replacing an existing destination. */
-NUPP_EXPORT bool nuppcFilesRename(
+NUPP_EXPORT bool nuppFilesRename(
     const uint8_t *from, size_t fromLength, const uint8_t *to, size_t toLength
 ) {
     NuppText source, destination;
@@ -152,7 +152,7 @@ NUPP_EXPORT bool nuppcFilesRename(
 /* Lists a directory's immediate children as `kind` byte, name, NUL. The kind
  * comes from the directory entry rather than a second call per name, and
  * describes the entry itself, so a symbolic link reads as `l`. */
-NUPP_EXPORT NuppBytes *nuppcFilesList(const uint8_t *data, size_t length) {
+NUPP_EXPORT NuppBytes *nuppFilesList(const uint8_t *data, size_t length) {
     NuppText path;
     NuppDirectory *directory;
     NuppBuffer out;
@@ -206,7 +206,7 @@ NUPP_EXPORT NuppBytes *nuppcFilesList(const uint8_t *data, size_t length) {
 /* Creates a uniquely named file or directory and answers its path. The name is
  * created rather than merely proposed, so no second caller can win the same name
  * between the two steps. */
-NUPP_EXPORT NuppBytes *nuppcFilesCreateTemporary(
+NUPP_EXPORT NuppBytes *nuppFilesCreateTemporary(
     const uint8_t *directory, size_t directoryLength,
     const uint8_t *prefix, size_t prefixLength,
     const uint8_t *suffix, size_t suffixLength,
@@ -313,7 +313,7 @@ refuse_root:
 /* --- the environment ---------------------------------------------------- */
 
 /* Answers the process's current working directory. */
-NUPP_EXPORT NuppBytes *nuppcFilesCurrentDirectory(void) {
+NUPP_EXPORT NuppBytes *nuppFilesCurrentDirectory(void) {
     NuppBuffer out;
     nupp_buffer_init(&out);
     if (!nupp_fs_current_directory(&out)) {
@@ -327,7 +327,7 @@ NUPP_EXPORT NuppBytes *nuppcFilesCurrentDirectory(void) {
  * variables where they are set, and the platform's conventional names under the
  * home directory otherwise. A desktop that records its folders somewhere else is
  * not consulted, and a folder that does not exist is a failure. */
-NUPP_EXPORT NuppBytes *nuppcFilesUserFolder(uint32_t which) {
+NUPP_EXPORT NuppBytes *nuppFilesUserFolder(uint32_t which) {
     static const struct {
         const char *variable;
         const char *macos;
@@ -398,7 +398,7 @@ NUPP_EXPORT NuppBytes *nuppcFilesUserFolder(uint32_t which) {
 
 /* Opens a file. `mode` selects read, truncating write, append, and the three
  * update modes, in that order. */
-NUPP_EXPORT NuppFile *nuppcFileOpen(const uint8_t *data, size_t length, uint32_t mode) {
+NUPP_EXPORT NuppFile *nuppFileOpen(const uint8_t *data, size_t length, uint32_t mode) {
     NuppText path;
     NuppFile *file;
     if (!nupp_text(&path, data, length, "path")) {
@@ -411,7 +411,7 @@ NUPP_EXPORT NuppFile *nuppcFileOpen(const uint8_t *data, size_t length, uint32_t
 
 /* Reads at most `length` bytes. Answers zero at the end of the file and -1 on
  * failure, so a short read is progress rather than an error. */
-NUPP_EXPORT int64_t nuppcFileRead(NuppFile *file, uint8_t *into, size_t length) {
+NUPP_EXPORT int64_t nuppFileRead(NuppFile *file, uint8_t *into, size_t length) {
     if (file == NULL || (into == NULL && length != 0)) {
         nupp_fail("file read has no destination");
         return -1;
@@ -423,7 +423,7 @@ NUPP_EXPORT int64_t nuppcFileRead(NuppFile *file, uint8_t *into, size_t length) 
 }
 
 /* Writes every byte or fails, which is what a caller counting bytes wants. */
-NUPP_EXPORT int64_t nuppcFileWrite(NuppFile *file, const uint8_t *from, size_t length) {
+NUPP_EXPORT int64_t nuppFileWrite(NuppFile *file, const uint8_t *from, size_t length) {
     if (file == NULL || (from == NULL && length != 0)) {
         nupp_fail("file write has no source");
         return -1;
@@ -436,7 +436,7 @@ NUPP_EXPORT int64_t nuppcFileWrite(NuppFile *file, const uint8_t *from, size_t l
 
 /* Moves the cursor. `whence` is the start, the current position, or the end, in
  * that order. Answers the new position, or -1 on failure. */
-NUPP_EXPORT int64_t nuppcFileSeek(NuppFile *file, int64_t offset, uint32_t whence) {
+NUPP_EXPORT int64_t nuppFileSeek(NuppFile *file, int64_t offset, uint32_t whence) {
     if (file == NULL) {
         nupp_fail("file seek has no file");
         return -1;
@@ -445,7 +445,7 @@ NUPP_EXPORT int64_t nuppcFileSeek(NuppFile *file, int64_t offset, uint32_t whenc
 }
 
 /* Answers the file's byte length without moving the cursor. */
-NUPP_EXPORT int64_t nuppcFileSize(NuppFile *file) {
+NUPP_EXPORT int64_t nuppFileSize(NuppFile *file) {
     if (file == NULL) {
         nupp_fail("file size has no file");
         return -1;
@@ -454,7 +454,7 @@ NUPP_EXPORT int64_t nuppcFileSize(NuppFile *file) {
 }
 
 /* Pushes buffered writes at the operating system. */
-NUPP_EXPORT bool nuppcFileFlush(NuppFile *file) {
+NUPP_EXPORT bool nuppFileFlush(NuppFile *file) {
     if (file == NULL) {
         nupp_fail("file flush has no file");
         return false;
@@ -464,7 +464,7 @@ NUPP_EXPORT bool nuppcFileFlush(NuppFile *file) {
 
 /* Closes and releases the file. Repeated calls are the binding's problem, not
  * this one's: a released handle must not be passed again. */
-NUPP_EXPORT bool nuppcFileClose(NuppFile *file) {
+NUPP_EXPORT bool nuppFileClose(NuppFile *file) {
     if (file == NULL) {
         return true;
     }

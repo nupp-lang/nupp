@@ -36,6 +36,7 @@ usage: scripts/toolchain COMPONENT...
        scripts/toolchain --prefix
 
 Components: luajit lpeg luautf8 simdjson mbedtls curl
+            native FEATURES, host FEATURES, host-library FEATURES
 
 Prints the install prefix of each component named, building it first when it is
 not already cached. --all builds every component and prints nothing. --prefix
@@ -258,6 +259,8 @@ verify_embedded_notice() {
 # writing one source tree. `mkdir` is the lock because it is atomic wherever
 # this runs; the pid in it tells a held lock from one a killed build left.
 LOCK=""
+HOST_OUT=""
+NATIVE_OUT=""
 release_lock() { [ -n "$LOCK" ] && rm -rf "$LOCK"; LOCK=""; return 0; }
 
 take_lock() {
@@ -481,6 +484,47 @@ build_curl() {
     release_lock
 }
 
+# --- the compiler's own native code -------------------------------------
+
+# Which C a feature is. The names are the ones the compiler's feature registry
+# uses, so this file and that registry are the two halves of one list.
+provider_sources() {
+    printf '%s' "c/common.c c/digest.c"
+    case "$PLATFORM" in
+        windows) printf '%s' " c/platform_windows.c" ;;
+        *)       printf '%s' " c/platform_posix.c" ;;
+    esac
+    for feature in $1; do
+        case "$feature" in
+            files|native-files) printf '%s' " c/files.c c/glob.c c/fslane.c" ;;
+            path)              printf '%s' " c/path.c" ;;
+            uri)               printf '%s' " c/uri.c" ;;
+            process|native-process) printf '%s' " c/process.c" ;;
+            http)              printf '%s' " c/http.c" ;;
+            uuid|sha256) ;;
+            # Host-only features select no provider source of their own.
+            json|lpeg|lua-utf8|workers) ;;
+            *) die "unknown native feature $feature" ;;
+        esac
+    done
+}
+
+# The pinned LuaJIT's own `jit/vmdef.lua`, as a C array. A host carrying an
+# interpreter has to carry what its `jit` library reads: there is no directory
+# beside a single-file program to find it in.
+write_vmdef() {
+    luajit_prefix=$(build_luajit; printf '%s' "$PREFIX/luajit")
+    vmdef=$(find "$luajit_prefix/share" -name vmdef.lua | head -n 1)
+    [ -n "$vmdef" ] || die "the staged LuaJIT has no jit/vmdef.lua"
+    {
+        printf '/* Generated from the pinned LuaJIT jit/vmdef.lua. */\n'
+        printf 'const unsigned char nupp_host_vmdef[] = {\n'
+        od -An -v -tu1 "$vmdef" | sed 's/[0-9][0-9]*/&,/g'
+        printf '};\nconst unsigned int nupp_host_vmdef_length = %su;\n' \
+            "$(wc -c < "$vmdef" | tr -d ' ')"
+    } > "$1"
+}
+
 build_simdjson() {
     out="$PREFIX/simdjson"
     take_lock simdjson "$out/.complete" || return 0
@@ -505,6 +549,173 @@ build_simdjson() {
     release_lock
 }
 
+# --- the native provider -------------------------------------------------
+
+# Builds the provider as a shared library for one set of features, and answers
+# where it landed. This is what a program loads beside itself when it uses a
+# native facility, and what `bin/nupp` loads to list its own sources.
+build_native_library() {
+    features=$(printf '%s' "${1:-}" | tr ',' ' ')
+    sorted=$(printf '%s\n' $features | sort | tr '\n' ' ')
+    digest=$(printf '%s' "$sorted" | sha256_stdin | cut -c1-16)
+    out="$PREFIX/native/$digest"
+    include=$(luajit_include)
+    NATIVE_OUT="$out"
+
+    take_lock "native-$digest" "$out/.complete" || return 0
+    [ -f "$out/.complete" ] && { release_lock; return 0; }
+
+    note "building the native provider with $CC"
+    rm -rf "$out"
+    mkdir -p "$out/objects"
+
+    libraries=""
+    linker=$CC
+    for feature in $sorted; do
+        if [ "$feature" = http ]; then
+            curl_prefix=$(build_curl; printf '%s' "$PREFIX/curl")
+            libraries="$libraries $("$curl_prefix/bin/curl-config" --static-libs)"
+        fi
+    done
+
+    objects=""
+    for source in $(provider_sources "$sorted"); do
+        object="$out/objects/$(basename "$source" .c).o"
+        curlInclude=""
+        if [ -n "${curl_prefix:-}" ]; then
+            curlInclude="-I$curl_prefix/include"
+        fi
+        # shellcheck disable=SC2086
+        "$CC" -c -std=gnu11 -O2 -fPIC -DNDEBUG -Wall -Wextra \
+            -I"$ROOT/runtime/native/c" -I"$include" $curlInclude \
+            -o "$object" "$ROOT/runtime/native/$source" >&2
+        objects="$objects $object"
+    done
+
+    case "$PLATFORM" in
+        darwin)  shared="-dynamiclib"; name="libnupp_native.dylib"; extra="-undefined dynamic_lookup" ;;
+        windows) shared="-shared"; name="nupp_native.dll"; extra="-lbcrypt" ;;
+        *)       shared="-shared"; name="libnupp_native.so"; extra="-lpthread -ldl" ;;
+    esac
+    # shellcheck disable=SC2086
+    "$linker" $shared -o "$out/$name" $objects $libraries $extra >&2
+    printf '%s\n' "$name" > "$out/.filename"
+    printf 'done\n' > "$out/.complete"
+    release_lock
+}
+
+# --- the host ------------------------------------------------------------
+
+# Builds the stub, or the library an embedding application links, for one set of
+# features. Answers where it landed.
+#
+# The features are the compiler's host feature names, comma-separated. They
+# decide which C is compiled and which staged library is linked, so a program
+# that documents nothing carries no markdown renderer and one that parses no
+# JSON carries no simdjson.
+build_host() {
+    kind=$1
+    features=$(printf '%s' "${2:-}" | tr ',' ' ')
+    sorted=$(printf '%s\n' $features | sort | tr '\n' ' ')
+    digest=$(printf '%s|%s' "$kind" "$sorted" | sha256_stdin | cut -c1-16)
+    out="$PREFIX/host/$digest"
+    HOST_OUT="$out"
+
+    luajit_prefix=$(build_luajit; printf '%s' "$PREFIX/luajit")
+    include=$(cat "$PREFIX/luajit/.include")
+
+    take_lock "host-$digest" "$out/.complete" || return 0
+    [ -f "$out/.complete" ] && { release_lock; return 0; }
+
+    note "building the $kind host with $CC"
+    rm -rf "$out"
+    mkdir -p "$out/objects"
+    write_vmdef "$out/objects/vmdef.c"
+
+    defines="-DNUPP_FEATURE_JSON=0 -DNUPP_FEATURE_LPEG=0 -DNUPP_FEATURE_LUA_UTF8=0"
+    defines="$defines -DNUPP_FEATURE_WORKERS=0 -DNUPP_FEATURE_NATIVE_FILES=0"
+    defines="$defines -DNUPP_FEATURE_NATIVE_PROCESS=0"
+    libraries=""
+    # The C++ standard library comes in with simdjson, and only with it. A host
+    # that parses no JSON links no C++ runtime, which is the point of choosing
+    # the linker rather than always using the C++ driver.
+    linker=$CC
+    for feature in $sorted; do
+        case "$feature" in
+            json)
+                simdjson_prefix=$(build_simdjson; printf '%s' "$PREFIX/simdjson")
+                defines=$(printf '%s' "$defines" | sed 's/-DNUPP_FEATURE_JSON=0/-DNUPP_FEATURE_JSON=1/')
+                "$CXX" -c -std=c++17 -O2 -DNDEBUG -fPIC \
+                    -I"$simdjson_prefix/include" -I"$include" -I"$ROOT/runtime/json" \
+                    -o "$out/objects/json.o" "$ROOT/runtime/json/json.cpp" >&2
+                libraries="$libraries $out/objects/json.o $simdjson_prefix/lib/libsimdjson.a"
+                linker=$CXX
+                ;;
+            lpeg)
+                lpeg_prefix=$(build_lpeg; printf '%s' "$PREFIX/lpeg")
+                defines=$(printf '%s' "$defines" | sed 's/-DNUPP_FEATURE_LPEG=0/-DNUPP_FEATURE_LPEG=1/')
+                libraries="$libraries $lpeg_prefix/lib/liblpeg.a"
+                ;;
+            lua-utf8)
+                utf8_prefix=$(build_luautf8; printf '%s' "$PREFIX/luautf8")
+                defines=$(printf '%s' "$defines" | sed 's/-DNUPP_FEATURE_LUA_UTF8=0/-DNUPP_FEATURE_LUA_UTF8=1/')
+                libraries="$libraries $utf8_prefix/lib/liblua-utf8.a"
+                ;;
+            workers)
+                defines=$(printf '%s' "$defines" | sed 's/-DNUPP_FEATURE_WORKERS=0/-DNUPP_FEATURE_WORKERS=1/')
+                ;;
+            native-files)
+                defines=$(printf '%s' "$defines" | sed 's/-DNUPP_FEATURE_NATIVE_FILES=0/-DNUPP_FEATURE_NATIVE_FILES=1/')
+                ;;
+            native-process)
+                defines=$(printf '%s' "$defines" | sed 's/-DNUPP_FEATURE_NATIVE_PROCESS=0/-DNUPP_FEATURE_NATIVE_PROCESS=1/')
+                ;;
+            *) die "unknown host feature $feature" ;;
+        esac
+    done
+
+    "$CC" -c -O2 -o "$out/objects/vmdef.o" "$out/objects/vmdef.c" >&2
+    objects="$out/objects/vmdef.o"
+    hostSources="host/c/runtime.c host/c/payload.c host/c/hostpath.c host/c/embed.c"
+    hostSources="$hostSources host/c/workers.c host/c/mcode.c"
+    if [ "$kind" = stub ]; then
+        hostSources="$hostSources host/c/main.c"
+    fi
+    for source in $hostSources $(provider_sources "$sorted"); do
+        case "$source" in
+            host/*) full="$ROOT/$source" ;;
+            *)      full="$ROOT/runtime/native/$source" ;;
+        esac
+        object="$out/objects/$(printf '%s' "$source" | tr '/' '_').o"
+        # shellcheck disable=SC2086
+        "$CC" -c -std=gnu11 -O2 -DNDEBUG $defines \
+            -I"$ROOT/host/c" -I"$ROOT/host/include" -I"$ROOT/runtime/native/c" \
+            -I"$include" -o "$object" "$full" >&2
+        objects="$objects $object"
+    done
+    platform_libraries="-lm -lpthread"
+    case "$PLATFORM" in
+        darwin)  platform_libraries="-lm -lpthread" ;;
+        windows) platform_libraries="-lbcrypt" ;;
+        *)       platform_libraries="-lm -lpthread -ldl" ;;
+    esac
+
+    if [ "$kind" = library ]; then
+        # shellcheck disable=SC2086
+        ar rcs "$out/libnupp.a" $objects
+        cp "$luajit_prefix/lib/libluajit-5.1.a" "$out/libluajit.a" 2>/dev/null || true
+    else
+        mkdir -p "$out"
+        # shellcheck disable=SC2086
+        "$linker" -o "$out/nupp-host" \
+            $objects $libraries "$luajit_prefix/lib/libluajit-5.1.a" \
+            $platform_libraries >&2
+    fi
+    printf 'done\n' > "$out/.complete"
+    release_lock
+    HOST_OUT="$out"
+}
+
 # --- entry ------------------------------------------------------------------
 
 [ "$#" -ge 1 ] || usage
@@ -517,6 +728,21 @@ case "$1" in
         build_luautf8
         build_simdjson
         build_curl
+        exit 0
+        ;;
+    native)
+        build_native_library "${2:-}"
+        printf '%s\n' "$NATIVE_OUT/$(cat "$NATIVE_OUT/.filename")"
+        exit 0
+        ;;
+    host)
+        build_host stub "${2:-}"
+        printf '%s\n' "$HOST_OUT/nupp-host"
+        exit 0
+        ;;
+    host-library)
+        build_host library "${2:-}"
+        printf '%s\n' "$HOST_OUT"
         exit 0
         ;;
     -h|--help) usage ;;

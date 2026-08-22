@@ -39,25 +39,21 @@ jobs:
             .rocks
           key: >-
             nupp-tools-${{ runner.os }}-${{ runner.arch }}-${{
-            hashFiles('.github/scripts/setup-luajit-posix.sh') }}
+            hashFiles('scripts/toolchain.pins') }}
 
-      - name: Restore the Rust build
+      - name: Restore the provisioned toolchain
         uses: actions/cache@v4
         with:
-          path: |
-            ~/.cargo/registry
-            ~/.cargo/git
-            .nupp-cache/native-dev-all
-            runtime/native/target
+          path: .nupp-cache/toolchain
           key: >-
-            nupp-cargo-${{ runner.os }}-${{ runner.arch }}-${{
-            hashFiles('runtime/native/Cargo.lock') }}
+            nupp-toolchain-${{ runner.os }}-${{ runner.arch }}-${{
+            hashFiles('scripts/toolchain.pins', 'scripts/toolchain') }}
           restore-keys: |
-            nupp-cargo-${{ runner.os }}-${{ runner.arch }}-
+            nupp-toolchain-${{ runner.os }}-${{ runner.arch }}-
 
-      - name: Build LuaJIT and simdjson
+      - name: Provision the pinned toolchain
         shell: bash
-        run: .github/scripts/setup-luajit-posix.sh
+        run: ./scripts/toolchain --all
 
       - name: Bootstrap the compiler
         shell: bash
@@ -110,35 +106,30 @@ jobs:
             .rocks
           key: >-
             nupp-tools-${{ runner.os }}-${{ runner.arch }}-${{
-            hashFiles('.github/scripts/setup-luajit-posix.sh',
-            '.github/scripts/setup-luajit-windows.ps1') }}
+            hashFiles('scripts/toolchain.pins') }}
 
-      # Cargo validates what it restores, so an approximate match is useful
+      # Each entry validates its own content, so an approximate match is useful
       # here where it would not be above: a lock file that moved on rebuilds the
       # crates that changed and reuses the rest.
-      - name: Restore the Rust build
+      - name: Restore the provisioned toolchain
         uses: actions/cache@v4
         with:
-          path: |
-            ~/.cargo/registry
-            ~/.cargo/git
-            .nupp-cache/native-dev-all
-            runtime/native/target
+          path: .nupp-cache/toolchain
           key: >-
-            nupp-cargo-${{ runner.os }}-${{ runner.arch }}-${{
-            hashFiles('runtime/native/Cargo.lock') }}
+            nupp-toolchain-${{ runner.os }}-${{ runner.arch }}-${{
+            hashFiles('scripts/toolchain.pins', 'scripts/toolchain') }}
           restore-keys: |
-            nupp-cargo-${{ runner.os }}-${{ runner.arch }}-
+            nupp-toolchain-${{ runner.os }}-${{ runner.arch }}-
 
-      - name: Build LuaJIT and simdjson
+      - name: Provision the pinned toolchain
         if: runner.os != 'Windows'
         shell: bash
-        run: .github/scripts/setup-luajit-posix.sh
+        run: ./scripts/toolchain --all
 
-      - name: Build LuaJIT and simdjson
+      - name: Provision the pinned toolchain
         if: runner.os == 'Windows'
-        shell: pwsh
-        run: .github/scripts/setup-luajit-windows.ps1
+        shell: bash
+        run: ./scripts/toolchain --all
 
       - name: Bootstrap the compiler
         shell: bash
@@ -285,9 +276,3 @@ jobs:
       - name: Verify the self-hosting fixpoint
         shell: bash
         run: ./bin/nupp fixpoint
-
-      - name: Run every native provider test
-        shell: bash
-        run: >-
-          cargo test --locked --manifest-path runtime/native/Cargo.toml
-          --all-features

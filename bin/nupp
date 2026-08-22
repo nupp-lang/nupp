@@ -64,60 +64,21 @@ case "$(uname -s 2>/dev/null)" in
 esac
 export NUPP_JSON_LIBRARY="$LUA_ROOT/build/lib/$JSON_FILENAME"
 
-# Which makes Cargo a prerequisite for building Nupp at all, rather than only for
-# a target that asked for a native facility. Stage 0 reaches the provider while
-# listing the sources it is about to compile, so there is no ordering in which
-# the compiler builds it for itself first.
-NATIVE_MANIFEST="$ROOT/runtime/native/Cargo.toml"
-# Rust compilation is content-addressed, but a target directory inside `build`
-# makes every Git worktree pay the cold dependency build again. Keep this fixed
-# development feature set beside the repository's common Git directory, which
-# all of its worktrees resolve to the same place. A source archive with no Git
-# metadata retains the old checkout-local fallback, and callers may name an
-# explicit cache (CI commonly does) without having to imitate the layout.
-# A drive letter (`C:/...` or `C:\...`) is as absolute as a leading `/`; Git for
-# Windows' own commands answer in the POSIX form, but a caller-supplied override or
-# a faked one in a test may not.
-if [ -n "${NUPP_NATIVE_TARGET_DIR:-}" ]; then
-    case "$NUPP_NATIVE_TARGET_DIR" in
-        /*|[A-Za-z]:*) NATIVE_TARGET="$NUPP_NATIVE_TARGET_DIR" ;;
-        *)  NATIVE_TARGET="$ROOT/$NUPP_NATIVE_TARGET_DIR" ;;
-    esac
-else
-    NATIVE_COMMON_DIR=$(git -C "$ROOT" rev-parse --git-common-dir 2>/dev/null || true)
-    if [ -n "$NATIVE_COMMON_DIR" ]; then
-        case "$NATIVE_COMMON_DIR" in
-            /*|[A-Za-z]:*) ;;
-            *) NATIVE_COMMON_DIR="$ROOT/$NATIVE_COMMON_DIR" ;;
-        esac
-        NATIVE_REPOSITORY_ROOT=$(dirname "$NATIVE_COMMON_DIR")
-        NATIVE_TARGET="$NATIVE_REPOSITORY_ROOT/.nupp-cache/native-dev-all"
-    else
-        NATIVE_TARGET="$ROOT/build/native/nupp_native"
-    fi
-fi
-# Where the target directories for the compiler's own crates go, which the build
-# system reads when it stages a native facility for a project. Named from the
-# repository rather than from the checkout so worktrees share one, the same way
-# the development provider above does: these crates belong to the compiler, and a
-# project that reaches one should not be compiling `reqwest` again to get it.
-# A caller that named one keeps it, the way `NUPP_NATIVE_TARGET_DIR` above works.
-: "${NUPP_NATIVE_CACHE_DIR:=$(dirname "$NATIVE_TARGET")}"
-export NUPP_NATIVE_CACHE_DIR
-
+# Which makes a C compiler a prerequisite for building Nupp at all, rather than
+# only for a target that asked for a native facility. Stage 0 reaches the
+# provider while listing the sources it is about to compile, so there is no
+# ordering in which the compiler builds it for itself first.
+#
+# `scripts/toolchain` decides where the build lands and how it is cached, which
+# is why nothing here names a directory: the answer is keyed by the compiler
+# this machine has, and shared by every worktree of this checkout.
 build_native() {
-    command -v cargo >/dev/null 2>&1 || {
-        echo "nupp: cargo is not on PATH, and the compiler needs the native" \
-            "file provider to list its own sources" >&2
-        return 1
-    }
-    # `files` because stage 0 lists its own sources through it. The rest are optional
-    # stdlib facilities a program run by this launcher may select; unlike a packaged
-    # build, `nupp run` loads this one development provider rather than staging a
-    # target-specific union beside the program.
-    cargo build --release --manifest-path "$NATIVE_MANIFEST" \
-        --target-dir "$NATIVE_TARGET" --no-default-features --features files,process,http,path,uri,uuid,sha256 \
-        >/dev/null || return 1
+    # `files` because stage 0 lists its own sources through it. The rest are
+    # optional stdlib facilities a program run by this launcher may select;
+    # unlike a packaged build, `nupp run` loads this one development provider
+    # rather than staging a target-specific union beside the program.
+    built=$("$ROOT/scripts/toolchain" native files,process,http,path,uri,uuid,sha256) \
+        || return 1
     mkdir -p "$ROOT/build/lib"
     # Copied beside the destination and renamed onto it, never written in place.
     # A rename within one directory is atomic, so a command loading the library
@@ -125,14 +86,12 @@ build_native() {
     # leaves a window in which the file is neither: half a shared library, which
     # the loader does not report as a bad file -- on macOS the kernel refuses the
     # image and kills the process outright, some way from the cause.
-    if [ -f "$NATIVE_TARGET/release/$NATIVE_BUILT_FILENAME" ]; then
-        staged="$NUPP_NATIVE_LIBRARY.$$"
-        cp "$NATIVE_TARGET/release/$NATIVE_BUILT_FILENAME" "$staged" \
-            && mv -f "$staged" "$NUPP_NATIVE_LIBRARY" \
-            && return 0
-        rm -f "$staged"
+    staged="$NUPP_NATIVE_LIBRARY.$$"
+    if cp "$built" "$staged" && mv -f "$staged" "$NUPP_NATIVE_LIBRARY"; then
+        return 0
     fi
-    echo "nupp: cargo built no shared library for the file provider" >&2
+    rm -f "$staged"
+    echo "nupp: could not install the native provider" >&2
     return 1
 }
 

@@ -25,7 +25,7 @@
 
 static NUPP_THREAD_LOCAL char nupp_error[NUPP_ERROR_CAPACITY] = "no error";
 
-const char *nuppcNativeError(void) {
+const char *nuppNativeError(void) {
     return nupp_error;
 }
 
@@ -91,15 +91,15 @@ struct NuppBytes {
     size_t length;
 };
 
-const uint8_t *nuppcBytesData(const NuppBytes *bytes) {
+const uint8_t *nuppBytesData(const NuppBytes *bytes) {
     return bytes != NULL ? bytes->data : NULL;
 }
 
-size_t nuppcBytesLength(const NuppBytes *bytes) {
+size_t nuppBytesLength(const NuppBytes *bytes) {
     return bytes != NULL ? bytes->length : 0;
 }
 
-void nuppcBytesDestroy(NuppBytes *bytes) {
+void nuppBytesDestroy(NuppBytes *bytes) {
     if (bytes != NULL) {
         free(bytes->data);
         free(bytes);

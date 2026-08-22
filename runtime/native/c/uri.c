@@ -704,7 +704,7 @@ static NuppUri *reparse(UriParts *parts) {
 
 /* --- entry points ------------------------------------------------------- */
 
-NUPP_EXPORT NuppUri *nuppcUriParse(const uint8_t *data, size_t length) {
+NUPP_EXPORT NuppUri *nuppUriParse(const uint8_t *data, size_t length) {
     NuppText input;
     char *owned;
     if (!nupp_text(&input, data, length, "URI")) {
@@ -718,7 +718,7 @@ NUPP_EXPORT NuppUri *nuppcUriParse(const uint8_t *data, size_t length) {
     return parse_owned(owned, strlen(owned));
 }
 
-NUPP_EXPORT void nuppcUriDestroy(NuppUri *uri) {
+NUPP_EXPORT void nuppUriDestroy(NuppUri *uri) {
     if (uri != NULL) {
         free(uri->text);
         free(uri);
@@ -740,7 +740,7 @@ static const uint8_t *slice(
     return (const uint8_t *)uri->text + start;
 }
 
-NUPP_EXPORT const uint8_t *nuppcUriPart(const NuppUri *uri, uint32_t kind, size_t *length) {
+NUPP_EXPORT const uint8_t *nuppUriPart(const NuppUri *uri, uint32_t kind, size_t *length) {
     if (uri == NULL) {
         if (length != NULL) {
             *length = 0;
@@ -763,7 +763,7 @@ NUPP_EXPORT const uint8_t *nuppcUriPart(const NuppUri *uri, uint32_t kind, size_
     }
 }
 
-NUPP_EXPORT bool nuppcUriPort(const NuppUri *uri, uint16_t *port) {
+NUPP_EXPORT bool nuppUriPort(const NuppUri *uri, uint16_t *port) {
     if (uri == NULL || !uri->hasPort) {
         return false;
     }
@@ -773,7 +773,7 @@ NUPP_EXPORT bool nuppcUriPort(const NuppUri *uri, uint16_t *port) {
     return true;
 }
 
-NUPP_EXPORT NuppUri *nuppcUriWithText(
+NUPP_EXPORT NuppUri *nuppUriWithText(
     const NuppUri *uri, uint32_t kind, const uint8_t *value, size_t length, bool present
 ) {
     UriParts parts;
@@ -873,7 +873,7 @@ NUPP_EXPORT NuppUri *nuppcUriWithText(
     return reparse(&parts);
 }
 
-NUPP_EXPORT NuppUri *nuppcUriWithPort(const NuppUri *uri, int32_t port) {
+NUPP_EXPORT NuppUri *nuppUriWithPort(const NuppUri *uri, int32_t port) {
     UriParts parts;
     if (uri == NULL) {
         return refused("URI is null");
@@ -919,7 +919,7 @@ static char *joined_path(const char *base, const char *suffix) {
     return (char *)out.data;
 }
 
-NUPP_EXPORT NuppUri *nuppcUriConcatPath(
+NUPP_EXPORT NuppUri *nuppUriConcatPath(
     const NuppUri *uri, const uint8_t *suffix, size_t length
 ) {
     UriParts parts;
@@ -946,7 +946,7 @@ NUPP_EXPORT NuppUri *nuppcUriConcatPath(
     return reparse(&parts);
 }
 
-NUPP_EXPORT NuppUri *nuppcUriWithEndpoint(const NuppUri *uri, const NuppUri *endpoint) {
+NUPP_EXPORT NuppUri *nuppUriWithEndpoint(const NuppUri *uri, const NuppUri *endpoint) {
     UriParts parts;
     UriParts base;
     char *combined;
@@ -982,7 +982,7 @@ NUPP_EXPORT NuppUri *nuppcUriWithEndpoint(const NuppUri *uri, const NuppUri *end
 }
 
 /* RFC 3986 reference resolution: what a link on a page means, given the page. */
-NUPP_EXPORT NuppUri *nuppcUriResolve(
+NUPP_EXPORT NuppUri *nuppUriResolve(
     const NuppUri *uri, const uint8_t *reference, size_t length
 ) {
     NuppText text;

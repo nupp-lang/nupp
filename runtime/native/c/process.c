@@ -114,13 +114,13 @@ typedef struct NuppSpawn NuppSpawn;
 /* Milliseconds on a process-local monotonic clock. The zero is arbitrary:
  * deadlines only subtract readings, so an epoch with no wall-clock meaning is
  * exactly what they need. */
-NUPP_EXPORT double nuppcProcessMonotonicMs(void) {
+NUPP_EXPORT double nuppProcessMonotonicMs(void) {
     return nupp_monotonic_ms();
 }
 
 /* --- describing a spawn ------------------------------------------------- */
 
-NUPP_EXPORT NuppSpawn *nuppcProcessSpawnBegin(void) {
+NUPP_EXPORT NuppSpawn *nuppProcessSpawnBegin(void) {
     NuppSpawn *request = calloc(1, sizeof *request);
     if (request == NULL) {
         nupp_fail("out of memory");
@@ -133,7 +133,7 @@ NUPP_EXPORT NuppSpawn *nuppcProcessSpawnBegin(void) {
 }
 
 /* Adds one argument. The first is the program, resolved through `PATH`. */
-NUPP_EXPORT bool nuppcProcessSpawnArg(
+NUPP_EXPORT bool nuppProcessSpawnArg(
     NuppSpawn *request, const uint8_t *text, size_t length
 ) {
     if (request == NULL || (text == NULL && length != 0)) {
@@ -150,7 +150,7 @@ NUPP_EXPORT bool nuppcProcessSpawnArg(
 /* Adds one `KEY=VALUE`. The whole environment is built this way, including the
  * inherited one: there is no spelling for "inherit" once a child is being
  * described entry by entry, so every case is the same case. */
-NUPP_EXPORT bool nuppcProcessSpawnEnv(
+NUPP_EXPORT bool nuppProcessSpawnEnv(
     NuppSpawn *request, const uint8_t *text, size_t length
 ) {
     if (request == NULL || (text == NULL && length != 0)) {
@@ -173,7 +173,7 @@ NUPP_EXPORT bool nuppcProcessSpawnEnv(
  * Separate from adding entries, because otherwise the two questions collapse:
  * "cleared, with nothing in it" and "inherit" would be the same request, and one
  * of them would be unaskable. */
-NUPP_EXPORT bool nuppcProcessSpawnClearEnv(NuppSpawn *request, bool clear) {
+NUPP_EXPORT bool nuppProcessSpawnClearEnv(NuppSpawn *request, bool clear) {
     if (request == NULL) {
         return false;
     }
@@ -181,7 +181,7 @@ NUPP_EXPORT bool nuppcProcessSpawnClearEnv(NuppSpawn *request, bool clear) {
     return true;
 }
 
-NUPP_EXPORT bool nuppcProcessSpawnCwd(
+NUPP_EXPORT bool nuppProcessSpawnCwd(
     NuppSpawn *request, const uint8_t *text, size_t length
 ) {
     char *copy;
@@ -205,7 +205,7 @@ NUPP_EXPORT bool nuppcProcessSpawnCwd(
 
 /* How one of the child's three standard streams is connected. `which` is 0, 1 or
  * 2; joining to stdout is stderr's alone. */
-NUPP_EXPORT bool nuppcProcessSpawnStdio(NuppSpawn *request, uint8_t which, uint8_t mode) {
+NUPP_EXPORT bool nuppProcessSpawnStdio(NuppSpawn *request, uint8_t which, uint8_t mode) {
     if (request == NULL) {
         return false;
     }
@@ -225,7 +225,7 @@ static void spawn_free(NuppSpawn *request) {
 }
 
 /* Abandons a request that will not be run. */
-NUPP_EXPORT void nuppcProcessSpawnCancel(NuppSpawn *request) {
+NUPP_EXPORT void nuppProcessSpawnCancel(NuppSpawn *request) {
     if (request != NULL) {
         spawn_free(request);
     }
@@ -233,7 +233,7 @@ NUPP_EXPORT void nuppcProcessSpawnCancel(NuppSpawn *request) {
 
 /* Runs a request, consuming it. Answers the child, or NULL with the reason in
  * the error slot. */
-NUPP_EXPORT NuppChild *nuppcProcessSpawnRun(NuppSpawn *request) {
+NUPP_EXPORT NuppChild *nuppProcessSpawnRun(NuppSpawn *request) {
     NuppSpawnRequest platform;
     NuppChild *child;
 
@@ -296,7 +296,7 @@ static NuppStream *wrap_end(NuppPipeEnd *end, bool readable) {
  * it. Answers NULL for a stream that was not piped, or one already taken.
  *
  * `which` is 0 for stdin, 1 for stdout, 2 for stderr. */
-NUPP_EXPORT NuppStream *nuppcProcessTakeStream(NuppChild *child, uint8_t which) {
+NUPP_EXPORT NuppStream *nuppProcessTakeStream(NuppChild *child, uint8_t which) {
     NuppPipeEnd *end;
     if (child == NULL || which > 2) {
         return NULL;
@@ -319,7 +319,7 @@ NUPP_EXPORT NuppStream *nuppcProcessTakeStream(NuppChild *child, uint8_t which) 
 /* Reads up to `limit` bytes without waiting.
  *
  * Answers how many landed, or would-block, gone at end of stream, or failed. */
-NUPP_EXPORT intptr_t nuppcProcessTryRead(NuppStream *stream, uint8_t *buffer, size_t limit) {
+NUPP_EXPORT intptr_t nuppProcessTryRead(NuppStream *stream, uint8_t *buffer, size_t limit) {
     if (stream == NULL) {
         nupp_fail("no stream");
         return NUPP_FAILED;
@@ -344,7 +344,7 @@ NUPP_EXPORT intptr_t nuppcProcessTryRead(NuppStream *stream, uint8_t *buffer, si
  * Answers how many bytes went, or would-block, gone when nobody is reading and
  * nobody will, or failed. The two zeroes a naive interface conflates -- no room
  * yet, no reader ever -- are the whole reason gone is answered separately. */
-NUPP_EXPORT intptr_t nuppcProcessTryWrite(
+NUPP_EXPORT intptr_t nuppProcessTryWrite(
     NuppStream *stream, const uint8_t *buffer, size_t length
 ) {
     if (stream == NULL) {
@@ -380,7 +380,7 @@ NUPP_EXPORT intptr_t nuppcProcessTryWrite(
  * bytes. Neither answers gone, and that matters: gone is a fact about the far
  * end, and a stream this caller closed says nothing whatever about the child's
  * end of it. */
-NUPP_EXPORT uint8_t nuppcProcessCloseStream(NuppStream *stream) {
+NUPP_EXPORT uint8_t nuppProcessCloseStream(NuppStream *stream) {
     if (stream == NULL) {
         nupp_fail("no stream");
         return NOT_RELEASED;
@@ -395,7 +395,7 @@ NUPP_EXPORT uint8_t nuppcProcessCloseStream(NuppStream *stream) {
  * survives it is the allocation, so the handle can still be spoken to and the
  * answers stay sensible. Destroying ends the allocation, and there is nothing
  * left to speak to. */
-NUPP_EXPORT void nuppcProcessStreamDestroy(NuppStream *stream) {
+NUPP_EXPORT void nuppProcessStreamDestroy(NuppStream *stream) {
     if (stream != NULL) {
         nupp_pipe_destroy(stream->end);
         free(stream);
@@ -411,7 +411,7 @@ NUPP_EXPORT void nuppcProcessStreamDestroy(NuppStream *stream) {
  * its own callers leak handles. */
 static size_t uncollected;
 
-NUPP_EXPORT size_t nuppcProcessUncollectedTotal(void) {
+NUPP_EXPORT size_t nuppProcessUncollectedTotal(void) {
     return uncollected;
 }
 
@@ -419,7 +419,7 @@ NUPP_EXPORT size_t nuppcProcessUncollectedTotal(void) {
  *
  * Answers 1 when it has ended, filling in the status and whether a signal ended
  * it; 0 while it still runs; -1 on failure. */
-NUPP_EXPORT int32_t nuppcProcessPollExit(NuppChild *child, int32_t *code, bool *killed) {
+NUPP_EXPORT int32_t nuppProcessPollExit(NuppChild *child, int32_t *code, bool *killed) {
     if (child == NULL) {
         nupp_fail("no child");
         return -1;
@@ -448,12 +448,12 @@ NUPP_EXPORT int32_t nuppcProcessPollExit(NuppChild *child, int32_t *code, bool *
 }
 
 /* The child's process id, for a caller that has to name it to something else. */
-NUPP_EXPORT uint32_t nuppcProcessId(NuppChild *child) {
+NUPP_EXPORT uint32_t nuppProcessId(NuppChild *child) {
     return child != NULL ? (uint32_t)child->spawned.id : 0;
 }
 
 /* Asks the child to end, or insists. */
-NUPP_EXPORT bool nuppcProcessKill(NuppChild *child, bool force) {
+NUPP_EXPORT bool nuppProcessKill(NuppChild *child, bool force) {
     if (child == NULL) {
         nupp_fail("no child");
         return false;
@@ -470,7 +470,7 @@ NUPP_EXPORT bool nuppcProcessKill(NuppChild *child, bool force) {
  *
  * An id is reused as readily as a descriptor, so the caller has to be told
  * whether this one is still theirs to ask about. */
-NUPP_EXPORT uint8_t nuppcProcessReap(NuppChild *child) {
+NUPP_EXPORT uint8_t nuppProcessReap(NuppChild *child) {
     if (child == NULL) {
         nupp_fail("no child");
         return NOT_RELEASED;
@@ -498,7 +498,7 @@ NUPP_EXPORT uint8_t nuppcProcessReap(NuppChild *child) {
  * Insisting rather than asking, because there is nobody left to wait politely:
  * the handle is going away this instant, and a child given the chance to clean
  * up would simply be unowned instead. */
-NUPP_EXPORT void nuppcProcessDestroy(NuppChild *child) {
+NUPP_EXPORT void nuppProcessDestroy(NuppChild *child) {
     size_t at;
     if (child == NULL) {
         return;
@@ -538,7 +538,7 @@ NUPP_EXPORT void nuppcProcessDestroy(NuppChild *child) {
  * still names one it has finished with. A null entry inside the count is
  * refused, because skipping would turn a binding that built its array wrongly
  * into a wait that quietly watched fewer things than asked. */
-NUPP_EXPORT int32_t nuppcProcessWaitReady(
+NUPP_EXPORT int32_t nuppProcessWaitReady(
     NuppStream *const *readable, size_t readableCount,
     NuppStream *const *writable, size_t writableCount,
     int32_t timeoutMs

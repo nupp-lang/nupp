@@ -75,29 +75,21 @@ local function fakeCompiler(directory, name, version)
    return path
 end
 
--- The host build carries the same four pins while it exists. Two copies of a
--- digest is one copy too many, and this is what says so before a bump lands in
--- one of them and not the other.
-function M.pinsAgreeWithTheHostBuild()
+-- Every pinned source has a version and a digest, and the digest is what the
+-- driver refuses a mismatch against. A pin with one and not the other would be
+-- fetched and compiled without anything checking what arrived.
+function M.everyPinHasAVersionAndADigest()
    local recorded = pins()
-   local buildRs = read(ROOT .. "/host/build.rs")
-   local expected = {
-      LUAJIT_REV = "LUAJIT_REV",
-      LUAJIT_SHA256 = "LUAJIT_SHA256",
-      LPEG_VERSION = "LPEG_VERSION",
-      LPEG_SHA256 = "LPEG_SHA256",
-      LUAUTF8_VERSION = "LUAUTF8_VERSION",
-      LUAUTF8_SHA256 = "LUAUTF8_SHA256",
-      SIMDJSON_VERSION = "SIMDJSON_VERSION",
-      SIMDJSON_SHA256 = "SIMDJSON_SHA256",
-   }
-   for pin, constant in pairs(expected) do
-      local value = buildRs:match("const " .. constant .. ": &str = \"([^\"]+)\"")
-      assert(value, "host/build.rs has no " .. constant)
-      assert(recorded[pin], "scripts/toolchain.pins has no " .. pin)
-      assert(recorded[pin] == value,
-         ("%s is %s in scripts/toolchain.pins and %s in host/build.rs"):format(
-            pin, recorded[pin], value))
+   for _, component in ipairs({
+      "LUAJIT", "LPEG", "LUAUTF8", "SIMDJSON", "CURL", "MBEDTLS",
+   }) do
+      local marker = component == "LUAJIT" and "REV" or "VERSION"
+      assert(recorded[component .. "_" .. marker],
+         component .. " has no version or revision")
+      local digest = recorded[component .. "_SHA256"]
+      assert(digest and #digest == 64,
+         component .. " has no SHA-256, or one that is not 64 characters")
+      assert(digest:match("^%x+$"), component .. "'s digest is not hexadecimal")
    end
 end
 
@@ -106,8 +98,8 @@ end
 -- pin for which no notice exists would make that check unreachable.
 function M.everyPinnedSourceHasANotice()
    for _, notice in ipairs({
-      "LuaJIT-COPYRIGHT.txt", "LPeg-LICENSE.txt",
-      "luautf8-LICENSE.txt", "simdjson-LICENSE.txt",
+      "LuaJIT-COPYRIGHT.txt", "LPeg-LICENSE.txt", "luautf8-LICENSE.txt",
+      "simdjson-LICENSE.txt", "curl-COPYING.txt", "mbedtls-LICENSE.txt",
    }) do
       assert(io.open(ROOT .. "/host/notices/" .. notice, "rb"),
          "host/notices/" .. notice .. " is missing")

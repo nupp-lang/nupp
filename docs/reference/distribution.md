@@ -171,7 +171,7 @@ The compiler-owned host builds its pinned LuaJIT, simdjson, LPeg and luautf8
 sources rather than committing generated native artifacts or source archives.
 An ordinary cold build downloads the exact upstream archives and verifies their
 SHA-256 digests before extraction. An extracted source tree or archive already
-in Cargo's output directory is reused before any download.
+in the toolchain cache is reused before any download.
 
 Package managers, offline builders and CI caches may put the same canonically
 named archives in another directory and point the build at it:
@@ -179,7 +179,7 @@ named archives in another directory and point the build at it:
 ```sh
 NUPP_HOST_SOURCE_DIR=/opt/nupp-sources \
 NUPP_HOST_OFFLINE=1 \
-cargo build --release --manifest-path host/Cargo.toml
+./scripts/toolchain host json,lpeg,native-files,native-process,workers
 ```
 
 `NUPP_HOST_SOURCE_DIR` may be relative to `host/`, though an absolute path is
@@ -326,7 +326,7 @@ A distributed binary is deliberately none of these things.
   other end. Different problems that are easy to conflate.
 - **It does not absorb arbitrary native dependencies.** Self-contained means the
   program needs no LuaJIT and no engine installed. A project with its own C or
-  Rust library still ships that library beside the binary, unless it is linked
+  provider library still ships that library beside the binary, unless it is linked
   into a stub built for the purpose.
 
   Nupp's compiler payload detects three native modules, and its compiler-owned
@@ -336,7 +336,7 @@ A distributed binary is deliberately none of these things.
   The official `re.lua` module remains ordinary Lua in the payload. Another
   payload selects whatever its own code and bundled dependencies need; the
   format has no opinion.
-- **It does not make Nupp a Rust project.** The host is a component, built by
+- **It does not make Nupp a C project either.** The host is a component, built by
   the same machinery that already builds a project's other native dependencies.
 
 ::: seealso

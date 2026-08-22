@@ -1059,9 +1059,11 @@ function M.sharedNativeFacilitiesBuildOneFeatureGatedProvider()
    local originalCapture, originalCopy = process.capture, fs.copyFile
    local originalCompilerRoot = compilerEnv.compilerRoot
    local calls, copies = {}, {}
+   -- The driver answers with the path it built, which is the last line it
+   -- writes; anything before that is progress.
    process.capture = function(argv)
       calls[#calls + 1] = argv
-      return 0, ""
+      return 0, "building the native provider\n/built/libnupp_native.dylib\n"
    end
    fs.copyFile = function(source, destination)
       copies[#copies + 1] = {source, destination}
@@ -1076,13 +1078,15 @@ function M.sharedNativeFacilitiesBuildOneFeatureGatedProvider()
    compilerEnv.compilerRoot = originalCompilerRoot
    assert(ok, outputs)
    assert(outputs, problem)
-   assertEq(#calls, 1, "one Cargo provider build serves both facilities")
+   assertEq(#calls, 1, "one provider build serves both facilities")
    assertEq(#copies, 1, "the shared library is staged once")
    local command = table.concat(calls[1], "\n")
-   assert(command:find("--no-default-features", 1, true),
-      "provider disables unselected Cargo features")
+   assert(command:find("scripts/toolchain", 1, true),
+      "the provider is built by the toolchain driver")
    assert(command:find("path,sha256", 1, true),
       "provider enables the selected feature union")
+   assertEq(copies[1][1], "/built/libnupp_native.dylib",
+      "the driver's answer is what gets staged")
    assert(copies[1][2]:find("out/lib/nupp_native", 1, true),
       "provider has one stable public sidecar name")
 end

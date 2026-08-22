@@ -36,7 +36,7 @@ a C API. An embedded application can use both boundaries.
 ::: info
 The current SDK is built from a Nupp source checkout. It does not yet ship as
 an installed package with CMake or `pkg-config` metadata. The
-`host/include/nupp.h` header and the library built from `host/Cargo.toml` are
+`host/include/nupp.h` header and the library `scripts/toolchain` builds are
 the public embedding surface.
 :::
 
@@ -84,7 +84,7 @@ for Nupp records or closures.
 Build `libnupp` and the C host from the repository root:
 
 ```bash
-cargo build --release --manifest-path host/Cargo.toml --lib
+./scripts/toolchain host-library json,lpeg,native-files,native-process,workers
 cc -std=c11 -Ihost/include host/examples/embed.c \
   -Lbuild/host/release -lnupp -o build/embed-nupp
 ```
@@ -103,7 +103,7 @@ game.answer(41) = 42
 ```
 
 Use `LD_LIBRARY_PATH` instead of `DYLD_LIBRARY_PATH` on Linux. Static linking
-uses `libnupp.a` and also requires the platform libraries needed by the Rust
+uses `libnupp.a` and also requires the platform libraries needed by the
 runtime and the selected native providers.
 
 ## Runtime ownership

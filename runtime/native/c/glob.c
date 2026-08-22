@@ -404,7 +404,7 @@ static bool split(Walk *walk, const char *pattern, size_t length) {
 }
 
 /* Expands a filesystem glob into a NUL-separated, sorted list of paths. */
-NUPP_EXPORT NuppBytes *nuppcFilesGlob(const uint8_t *data, size_t length) {
+NUPP_EXPORT NuppBytes *nuppFilesGlob(const uint8_t *data, size_t length) {
     NuppText pattern;
     Walk walk;
     NuppBuffer prefix;

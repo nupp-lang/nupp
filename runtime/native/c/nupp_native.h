@@ -24,16 +24,6 @@
 #   define NUPP_WINDOWS 0
 #endif
 
-/* Every entry point here is spelled `nuppc...` where the ABI says `nupp...`.
- *
- * That is temporary and it is a linker's doing. While the provider is half C and
- * half Rust the library is Cargo's shared object, and Cargo builds one with an
- * export list naming the Rust crate's own symbols and nothing else -- a C symbol
- * linked into it is not on that list and is dropped. So the public name is a
- * Rust alias that forwards here, and this is the name it forwards to. When the
- * Rust half goes, the alias goes with it and these names lose the `c`.
- */
-
 /* --- the error slot ----------------------------------------------------- */
 
 /* One message per thread, replaced by each failure and read by the binding
@@ -41,7 +31,7 @@
  * gets whatever it last failed at, which is why every entry point that can fail
  * writes here before it answers.
  */
-NUPP_EXPORT const char *nuppcNativeError(void);
+NUPP_EXPORT const char *nuppNativeError(void);
 
 /* Records a failure. `nupp_fail_format` takes a printf format; `nupp_fail_errno`
  * appends the platform's text for an error number, which is what a system call
@@ -64,9 +54,9 @@ void nupp_platform_error_text(int number, char *into, size_t capacity);
  */
 typedef struct NuppBytes NuppBytes;
 
-NUPP_EXPORT const uint8_t *nuppcBytesData(const NuppBytes *bytes);
-NUPP_EXPORT size_t nuppcBytesLength(const NuppBytes *bytes);
-NUPP_EXPORT void nuppcBytesDestroy(NuppBytes *bytes);
+NUPP_EXPORT const uint8_t *nuppBytesData(const NuppBytes *bytes);
+NUPP_EXPORT size_t nuppBytesLength(const NuppBytes *bytes);
+NUPP_EXPORT void nuppBytesDestroy(NuppBytes *bytes);
 
 /* Takes ownership of `data`, which must have come from malloc. Answers NULL and
  * records a failure when the allocation cannot be made, freeing `data` first, so

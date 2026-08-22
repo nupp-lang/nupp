@@ -27,6 +27,6 @@ notice inside HTML, so that check verifies the identifying copyright, grant and
 warranty terms in both copies. Bumping a pin without updating the notice beside
 it therefore stops the build rather than shipping the wrong text.
 
-`json`, LPeg and `luautf8` are behind Cargo features. A host built without one does
+`json`, LPeg and `luautf8` are selected features. A host built without one does
 not link it and does not distribute it; the notice stays here either way,
 because which features a given binary carries is decided per build.

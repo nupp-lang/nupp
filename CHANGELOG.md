@@ -2,6 +2,19 @@
 
 ## Unreleased
 
+- Reimplement the binary host in C, and remove Cargo from the tree. Locating and
+  verifying the payload, starting LuaJIT, the component and handle lifecycle,
+  the embedding ABI in `host/include/nupp.h`, worker states and bounded byte
+  channels are `host/c`; `scripts/toolchain` builds them, feature by feature,
+  and builds the native provider the same way. `runtime/native/Cargo.toml`,
+  `host/Cargo.toml` and both crates are gone, and with them the transitional
+  Rust names the C entry points forwarded through.
+
+  A checkout now asks for a C and a C++ compiler and nothing else. LuaJIT, LPeg,
+  luautf8, simdjson, libcurl and mbedTLS are fetched from pinned sources,
+  verified against a digest, and built by the same driver. This completes
+  [NEP 17](docs/neps/0017-c-only-toolchain.md).
+
 - Reimplement the HTTP transport on libcurl. Tokio, reqwest and rustls are
   replaced by a pinned libcurl over a pinned mbedTLS, both built by
   `scripts/toolchain` from sources verified against a digest. One client owns one

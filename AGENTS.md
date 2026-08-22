@@ -15,7 +15,7 @@ lines under 72 characters.
 
 Use the repository helper so a new worktree links the ignored `.rocks`
 dependencies, seeds the content-validated compiler cache and test timings, and
-reuses the repository-wide native Cargo target:
+reuses the repository-wide toolchain cache:
 
 ```sh
 ./scripts/worktree example-task /private/tmp/nupp-example-task main

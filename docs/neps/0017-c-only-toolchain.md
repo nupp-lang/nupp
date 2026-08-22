@@ -1,6 +1,6 @@
 ---
 title: C-only toolchain
-status: Accepted
+status: Implemented
 created: 2026-08-21
 ---
 

@@ -254,7 +254,7 @@ function M.thePublicModuleSelectsOnlyItsPrivateProvider()
    ready()
    test.equal(native.forModule("nupp.io.process"), "native.process")
    local feature = assert(native.feature("native.process"))
-   test.equal(feature.cargoFeature, "process")
+   test.equal(feature.providerFeature, "process")
    local expanded = native.expand({["native.process"] = true})
    assert(expanded["runtime.suspension"])
 

@@ -116,7 +116,7 @@ static const char HEX[] = "0123456789abcdef";
 
 /* Writes the digest of `length` bytes as 64 lowercase hex digits and a
  * terminator, into storage the caller sized. */
-NUPP_EXPORT bool nuppcSha256(const uint8_t *bytes, size_t length, char *output) {
+NUPP_EXPORT bool nuppSha256(const uint8_t *bytes, size_t length, char *output) {
     uint8_t digest[32];
     size_t at;
     if (output == NULL || (bytes == NULL && length != 0)) {
@@ -165,7 +165,7 @@ static void stamp_version(uint8_t value[16], uint8_t version) {
 }
 
 /* Version 4: random everywhere the version and variant are not. */
-NUPP_EXPORT bool nuppcUuid4(char *output) {
+NUPP_EXPORT bool nuppUuid4(char *output) {
     uint8_t value[16];
     nupp_fs_random(value, sizeof value);
     stamp_version(value, 4);
@@ -174,7 +174,7 @@ NUPP_EXPORT bool nuppcUuid4(char *output) {
 
 /* Version 7: the Unix millisecond in the first six bytes, big-endian, so that
  * sorting the text sorts by when it was made, and random after it. */
-NUPP_EXPORT bool nuppcUuid7(char *output) {
+NUPP_EXPORT bool nuppUuid7(char *output) {
     uint8_t value[16];
     uint64_t milliseconds = nupp_unix_ms();
     unsigned at;

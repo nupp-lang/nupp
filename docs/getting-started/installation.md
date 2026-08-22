@@ -23,10 +23,11 @@ neither set, `clang`, `cc` and `gcc` are probed in that order, and the C++ names
 beside them.
 
 Everything else is provisioned. `scripts/toolchain` fetches LuaJIT, LPeg,
-luautf8 and simdjson by pinned revision, refuses any archive whose SHA-256 is
-not the one written down, builds each with that compiler pair, and caches the
-result beside the repository so every worktree shares one build. `bin/nupp` runs
-it for what is missing and nothing more.
+luautf8, simdjson, libcurl and mbedTLS by pinned revision, refuses any archive
+whose SHA-256 is not the one written down, builds each with that compiler pair,
+and caches the result beside the repository so every worktree shares one build.
+It also builds what Nupp itself is made of: the native providers and the binary
+host, both C. `bin/nupp` runs it for what is missing and nothing more.
 
 ### LuaJIT
 
@@ -75,11 +76,7 @@ moves where the built components land.
 | --- | --- | --- |
 | `lunamark` | `nupp doc` | `nupp doc` |
 | `Scintillua` | highlighting in generated sites | `nupp doc` |
-| Rust toolchain | the native providers and the binary host stub | `rustup` |
-
-The Rust row is temporary. [NEP 17](../neps/0017-c-only-toolchain.md)
-decides to reimplement both in C behind the ABI they already export, which
-leaves the compiler pair above as the whole requirement.
+| LuaRocks | installing those two | your package manager |
 
 That table is about a checkout. A stamped binary carries what it needs already
 and needs nothing installed to check, compile, run or document a project. See
@@ -97,38 +94,28 @@ next command rather than by the next person who remembers to build.
 ./bin/nupp check    # builds the compiler first if a source is newer
 ```
 
-### Shared native target directory
+### Shared toolchain cache
 
-Git worktrees share the native Rust target in a repository cache derived from
-Git's common directory, so each worktree does not rebuild the same dependencies.
-Two environment variables move those caches:
+Everything `scripts/toolchain` builds lands beside the repository's common Git
+directory, so every worktree of a checkout shares one build of LuaJIT, one
+libcurl, and one of each provider and host feature set. `NUPP_TOOLCHAIN_DIR`
+moves it:
 
 ```bash
-export NUPP_NATIVE_TARGET_DIR=/var/cache/nupp/target
-export NUPP_NATIVE_CACHE_DIR=/var/cache/nupp/crates
+export NUPP_TOOLCHAIN_DIR=/var/cache/nupp/toolchain
 ```
 
-A relative `NUPP_NATIVE_TARGET_DIR` is resolved from the checkout root.
-`scripts/worktree BRANCH PATH [START_POINT]` also seeds a new worktree with
-content-validated compiler caches and the test runner's last suite timings.
-Generated outputs remain local to each worktree.
+The cache is keyed by the compiler pair's own version output, so switching
+`NUPP_CC` from Clang to GCC builds beside the previous answer rather than over
+it. `scripts/worktree BRANCH PATH [START_POINT]` seeds a new worktree with
+content-validated compiler caches and the test runner's last suite timings;
+generated outputs remain local to each worktree.
 
-The crates a build stages for a project are the compiler's rather than the
-project's, both the native providers behind [](nupp.io.files) and its siblings
-and the executable a binary target is stamped into, so cargo keeps their target
-directories in that same repository cache rather than under each project's
-output directory. `NUPP_NATIVE_CACHE_DIR` names its root.
-
-::: deepdive
-The cache holds one directory per crate and feature set, because cargo names
-what it uplifts after the crate rather than after the feature set that built it.
-Two feature sets sharing a directory overwrite each other's library.
-
-The alternative is the project-local layout cargo gives by default, a target
-directory under each project's output. Without the shared cache, every project
-that reaches a native facility compiles that facility's dependencies from
-nothing, which for the http provider means `reqwest`, `rustls` and `tokio`.
-:::
+The native code a build stages for a project is the compiler's rather than the
+project's -- both the providers behind [](nupp.io.files) and its siblings, and
+the executable a binary target is stamped into -- which is why it is cached with
+the rest rather than under each project's output directory. Without that, every
+project reaching a native facility would compile that facility from nothing.
 
 ### Build locking
 

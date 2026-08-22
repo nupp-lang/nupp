@@ -114,7 +114,7 @@ typedef struct {
 
 /* The URI provider's accessor, so a request reads the normalised text the
  * caller's handle already holds rather than the text they typed. */
-extern const uint8_t *nuppcUriPart(const void *uri, uint32_t kind, size_t *length);
+extern const uint8_t *nuppUriPart(const void *uri, uint32_t kind, size_t *length);
 
 /* --- transfers ---------------------------------------------------------- */
 
@@ -826,7 +826,7 @@ static void client_release(NuppHttpClient *client) {
 
 /* --- the client --------------------------------------------------------- */
 
-NUPP_EXPORT NuppHttpClient *nuppcHttpClientCreate(const NuppHttpClientOptions *options) {
+NUPP_EXPORT NuppHttpClient *nuppHttpClientCreate(const NuppHttpClientOptions *options) {
     NuppHttpClient *client;
     if (options == NULL) {
         nupp_fail("HTTP client options are null");
@@ -890,7 +890,7 @@ NUPP_EXPORT NuppHttpClient *nuppcHttpClientCreate(const NuppHttpClientOptions *o
     return client;
 }
 
-NUPP_EXPORT void nuppcHttpClientDestroy(NuppHttpClient *client) {
+NUPP_EXPORT void nuppHttpClientDestroy(NuppHttpClient *client) {
     if (client == NULL) {
         return;
     }
@@ -903,7 +903,7 @@ NUPP_EXPORT void nuppcHttpClientDestroy(NuppHttpClient *client) {
     client_release(client);
 }
 
-NUPP_EXPORT size_t nuppcHttpClientPending(const NuppHttpClient *client) {
+NUPP_EXPORT size_t nuppHttpClientPending(const NuppHttpClient *client) {
     size_t active;
     if (client == NULL) {
         return 0;
@@ -914,7 +914,7 @@ NUPP_EXPORT size_t nuppcHttpClientPending(const NuppHttpClient *client) {
     return active;
 }
 
-NUPP_EXPORT double nuppcHttpMonotonicMs(void) {
+NUPP_EXPORT double nuppHttpMonotonicMs(void) {
     return nupp_monotonic_ms();
 }
 
@@ -955,7 +955,7 @@ static bool set_request_headers(NuppHttpTransfer *transfer, const NuppHttpReques
     return true;
 }
 
-NUPP_EXPORT const NuppHttpTransfer *nuppcHttpClientSend(
+NUPP_EXPORT const NuppHttpTransfer *nuppHttpClientSend(
     NuppHttpClient *client, const NuppHttpRequest *request
 ) {
     NuppHttpTransfer *transfer;
@@ -980,7 +980,7 @@ NUPP_EXPORT const NuppHttpTransfer *nuppcHttpClientSend(
     client->active++;
     nupp_mutex_unlock(client->guard);
 
-    url = nuppcUriPart(request->uri, 0, &urlLength);
+    url = nuppUriPart(request->uri, 0, &urlLength);
     if (url == NULL) {
         nupp_mutex_lock(client->guard);
         client->active--;
@@ -1166,7 +1166,7 @@ refuse:
 
 /* --- observing a transfer ----------------------------------------------- */
 
-NUPP_EXPORT uint32_t nuppcHttpTransferPollHeaders(
+NUPP_EXPORT uint32_t nuppHttpTransferPollHeaders(
     const NuppHttpTransfer *handle, NuppHttpResponseHead *output
 ) {
     NuppHttpTransfer *transfer = (NuppHttpTransfer *)handle;
@@ -1194,7 +1194,7 @@ NUPP_EXPORT uint32_t nuppcHttpTransferPollHeaders(
     return answer;
 }
 
-NUPP_EXPORT const char *nuppcHttpTransferError(const NuppHttpTransfer *handle) {
+NUPP_EXPORT const char *nuppHttpTransferError(const NuppHttpTransfer *handle) {
     NuppHttpTransfer *transfer = (NuppHttpTransfer *)handle;
     const char *text;
     if (transfer == NULL) {
@@ -1206,13 +1206,13 @@ NUPP_EXPORT const char *nuppcHttpTransferError(const NuppHttpTransfer *handle) {
     return text;
 }
 
-NUPP_EXPORT const char *nuppcHttpBodyError(const NuppHttpTransfer *handle) {
-    return nuppcHttpTransferError(handle);
+NUPP_EXPORT const char *nuppHttpBodyError(const NuppHttpTransfer *handle) {
+    return nuppHttpTransferError(handle);
 }
 
 /* A second handle on the same transfer, for the caller that hands the body on
  * while keeping the head. */
-NUPP_EXPORT const NuppHttpTransfer *nuppcHttpTransferTakeBody(const NuppHttpTransfer *handle) {
+NUPP_EXPORT const NuppHttpTransfer *nuppHttpTransferTakeBody(const NuppHttpTransfer *handle) {
     NuppHttpTransfer *transfer = (NuppHttpTransfer *)handle;
     if (transfer == NULL) {
         return NULL;
@@ -1223,11 +1223,11 @@ NUPP_EXPORT const NuppHttpTransfer *nuppcHttpTransferTakeBody(const NuppHttpTran
 
 /* Says the caller is reading the body, so a response nobody reads does not hold
  * its slot. */
-NUPP_EXPORT bool nuppcHttpBodyArm(const NuppHttpTransfer *handle) {
+NUPP_EXPORT bool nuppHttpBodyArm(const NuppHttpTransfer *handle) {
     return handle != NULL;
 }
 
-NUPP_EXPORT bool nuppcHttpBodyPeek(
+NUPP_EXPORT bool nuppHttpBodyPeek(
     const NuppHttpTransfer *handle, const uint8_t **data, size_t *length, uint32_t *state
 ) {
     NuppHttpTransfer *transfer = (NuppHttpTransfer *)handle;
@@ -1257,7 +1257,7 @@ NUPP_EXPORT bool nuppcHttpBodyPeek(
     return true;
 }
 
-NUPP_EXPORT bool nuppcHttpBodyConsume(const NuppHttpTransfer *handle, size_t count) {
+NUPP_EXPORT bool nuppHttpBodyConsume(const NuppHttpTransfer *handle, size_t count) {
     NuppHttpTransfer *transfer = (NuppHttpTransfer *)handle;
     bool resume = false;
     if (transfer == NULL) {
@@ -1301,7 +1301,7 @@ NUPP_EXPORT bool nuppcHttpBodyConsume(const NuppHttpTransfer *handle, size_t cou
 
 /* --- offering a request body -------------------------------------------- */
 
-NUPP_EXPORT int nuppcHttpTransferOffer(
+NUPP_EXPORT int nuppHttpTransferOffer(
     const NuppHttpTransfer *handle, const uint8_t *data, size_t length, bool finished
 ) {
     NuppHttpTransfer *transfer = (NuppHttpTransfer *)handle;
@@ -1363,7 +1363,7 @@ NUPP_EXPORT int nuppcHttpTransferOffer(
 
 /* --- ending a transfer -------------------------------------------------- */
 
-NUPP_EXPORT void nuppcHttpTransferCancel(const NuppHttpTransfer *handle) {
+NUPP_EXPORT void nuppHttpTransferCancel(const NuppHttpTransfer *handle) {
     NuppHttpTransfer *transfer = (NuppHttpTransfer *)handle;
     if (transfer == NULL) {
         return;
@@ -1401,21 +1401,21 @@ static void retire(NuppHttpTransfer *transfer) {
     nupp_mutex_unlock(client->guard);
 }
 
-NUPP_EXPORT void nuppcHttpTransferDestroy(const NuppHttpTransfer *handle) {
+NUPP_EXPORT void nuppHttpTransferDestroy(const NuppHttpTransfer *handle) {
     NuppHttpTransfer *transfer = (NuppHttpTransfer *)handle;
     if (transfer == NULL) {
         return;
     }
-    nuppcHttpTransferCancel(handle);
+    nuppHttpTransferCancel(handle);
     retire(transfer);
     transfer_release(transfer);
 }
 
-NUPP_EXPORT void nuppcHttpBodyDestroy(const NuppHttpTransfer *handle) {
+NUPP_EXPORT void nuppHttpBodyDestroy(const NuppHttpTransfer *handle) {
     transfer_release((NuppHttpTransfer *)handle);
 }
 
-NUPP_EXPORT void nuppcHttpReadyRelease(const NuppHttpTransfer *handle) {
+NUPP_EXPORT void nuppHttpReadyRelease(const NuppHttpTransfer *handle) {
     transfer_release((NuppHttpTransfer *)handle);
 }
 
@@ -1457,7 +1457,7 @@ static size_t drain(
     return count;
 }
 
-NUPP_EXPORT size_t nuppcHttpClientPoll(
+NUPP_EXPORT size_t nuppHttpClientPoll(
     NuppHttpClient *client, NuppHttpReady *output, size_t capacity, bool *more
 ) {
     if (client == NULL) {
@@ -1471,7 +1471,7 @@ NUPP_EXPORT size_t nuppcHttpClientPoll(
     return drain(client, output, capacity, more);
 }
 
-NUPP_EXPORT size_t nuppcHttpClientWait(
+NUPP_EXPORT size_t nuppHttpClientWait(
     NuppHttpClient *client, uint64_t milliseconds,
     NuppHttpReady *output, size_t capacity, bool *more
 ) {

@@ -46,10 +46,9 @@ function M.helperSeedsOnlyReusableWorktreeState()
    local origin, task, dirtyTask = parent .. "/origin", parent .. "/task",
       parent .. "/dirty-task"
    assert(os.execute(("mkdir -p %s/scripts %s/src %s/build/cache "
-      .. "%s/build/nupp/compiler %s/build/lib "
-      .. "%s/build/native/nupp_native/release/build/example %s/.rocks")
+      .. "%s/build/nupp/compiler %s/build/lib %s/.rocks")
       :format(quote(origin), quote(origin), quote(origin), quote(origin),
-         quote(origin), quote(origin), quote(origin))) == 0)
+         quote(origin), quote(origin))) == 0)
    assert(os.execute(("cp %s/scripts/worktree %s/scripts/worktree")
       :format(quote(ROOT), quote(origin))) == 0)
    assert(os.execute("chmod +x " .. quote(origin .. "/scripts/worktree")) == 0)
@@ -61,14 +60,6 @@ function M.helperSeedsOnlyReusableWorktreeState()
    write(origin .. "/build/lib/native", "library\n")
    write(origin .. "/build/.nupp-state.json", "{}\n")
    write(origin .. "/.rocks/sentinel", "rocks\n")
-   -- `.exe`, matching what Cargo actually names a Windows build script: Git Bash's
-   -- `test -x` there answers from the extension, not from a permission bit its own
-   -- `chmod` cannot reliably set on an NTFS mount, so an extension-less fixture was
-   -- never going to observe the migration succeeding on that platform.
-   local cargoExecutable = origin
-      .. "/build/native/nupp_native/release/build/example/build_script_build-example.exe"
-   write(cargoExecutable, "native-cache\n")
-   assert(os.execute("chmod +x " .. quote(cargoExecutable)) == 0)
    assert(os.execute(("git -C %s init -q && git -C %s config user.name Test "
       .. "&& git -C %s config user.email test@example.com && git -C %s add scripts src "
       .. "&& git -C %s commit -q -m initial")
@@ -89,13 +80,6 @@ function M.helperSeedsOnlyReusableWorktreeState()
    assert(os.execute(("test ! %s/src/main.nupp -nt %s/build/.nupp-complete")
       :format(quote(task), quote(task))) == 0,
       "the copied completion stamp remained older than a fresh checkout")
-   local shared = origin
-      .. "/.nupp-cache/native-dev-all/release/build/example/"
-      .. "build_script_build-example.exe"
-   assert(read(shared) == "native-cache\n", "the native target was not migrated")
-   assert(os.execute("test -x " .. quote(shared)) == 0,
-      "native build executables lost their mode while migrating")
-
    -- A current timestamp is not enough when the origin compiler was built from
    -- uncommitted source. Its incremental cache remains safe to seed, but its generated
    -- compiler must not be mistaken for output of the clean revision.
@@ -117,51 +101,46 @@ function M.helperSeedsOnlyReusableWorktreeState()
    os.execute("rm -rf " .. quote(parent))
 end
 
-function M.launcherUsesTheCommonNativeTargetAndHonoursItsOverride()
+-- The launcher builds the development provider by asking the toolchain driver
+-- for it, and installs the file the driver named. It does not know where that
+-- file came from or how it was cached: the driver keys that by the compiler
+-- this machine has, and every worktree of a checkout shares one answer.
+function M.launcherBuildsTheProviderThroughTheToolchainDriver()
    local root = temporary()
    local fake = root .. "/fake-bin"
-   assert(os.execute(("mkdir -p %s/bin %s/bootstrap %s/runtime/native %s")
-      :format(quote(root), quote(root), quote(root), quote(fake))) == 0)
+   assert(os.execute(("mkdir -p %s/bin %s/bootstrap %s/scripts %s/build/lib %s")
+      :format(quote(root), quote(root), quote(root), quote(root), quote(fake))) == 0)
    assert(os.execute(("cp %s/bin/nupp %s/bin/nupp && chmod +x %s/bin/nupp")
       :format(quote(ROOT), quote(root), quote(root))) == 0)
-   assert(os.execute(("cp -R %s/scripts %s/scripts")
+   assert(os.execute(("cp %s/scripts/luajit.sh %s/scripts/luajit.sh")
       :format(quote(ROOT), quote(root))) == 0)
    write(root .. "/bootstrap/nupp.lua", "return true\n")
-   write(root .. "/runtime/native/Cargo.toml", "[package]\nname='fake'\nversion='0.0.0'\n")
+   -- A driver that records what it was asked for and answers with a file it
+   -- made, which is the whole of the contract the launcher relies on.
+   write(root .. "/scripts/toolchain", [[#!/bin/sh
+printf '%s\n' "$*" > "$NUPP_TEST_RECORD"
+printf 'built\n' > "$NUPP_TEST_BUILT"
+printf '%s\n' "$NUPP_TEST_BUILT"
+]])
+   assert(os.execute("chmod +x " .. quote(root .. "/scripts/toolchain")) == 0)
    write(fake .. "/uname", "#!/bin/sh\necho Darwin\n")
    write(fake .. "/luajit", [[#!/bin/sh
 if [ "${1:-}" = -v ]; then echo 'LuaJIT 2.1.1784535650'; fi
 exit 0
 ]])
-   write(fake .. "/git", [[#!/bin/sh
-echo "$NUPP_TEST_COMMON"
-]])
-   write(fake .. "/cargo", [[#!/bin/sh
-target=
-while [ "$#" -gt 0 ]; do
-    if [ "$1" = --target-dir ]; then shift; target=$1; fi
-    shift
-done
-printf '%s\n' "$target" > "$NUPP_TEST_RECORD"
-mkdir -p "$target/release"
-: > "$target/release/libnupp_native.dylib"
-]])
    assert(os.execute("chmod +x " .. quote(fake) .. "/*") == 0)
 
-   local common, record = root .. "/common", root .. "/target.txt"
-   local environment = ("PATH=%s:$PATH NUPP_TEST_COMMON=%s NUPP_TEST_RECORD=%s ")
-      :format(quote(fake), quote(common), quote(record))
+   local record, built = root .. "/asked.txt", root .. "/provider.dylib"
+   local environment = ("PATH=%s:$PATH NUPP_TEST_RECORD=%s NUPP_TEST_BUILT=%s ")
+      :format(quote(fake), quote(record), quote(built))
    assert(os.execute(environment .. quote(root .. "/bin/nupp") .. " clean") == 0)
-   assert(posixDrive(read(record):match("^%s*(.-)%s*$"))
-      == posixDrive(root .. "/.nupp-cache/native-dev-all"),
-      "the launcher did not select the repository-common Cargo target")
-
-   os.remove(root .. "/build/lib/libnupp_native_dev.dylib")
-   assert(os.execute(environment .. "NUPP_NATIVE_TARGET_DIR=relative-target "
-      .. quote(root .. "/bin/nupp") .. " clean") == 0)
-   assert(posixDrive(read(record):match("^%s*(.-)%s*$"))
-      == posixDrive(root .. "/relative-target"),
-      "a relative native target override was not rooted at the checkout")
+   local asked = read(record):match("^%s*(.-)%s*$")
+   assert(asked:find("native", 1, true),
+      "the launcher did not ask the driver for the native provider: " .. asked)
+   assert(asked:find("files", 1, true),
+      "the launcher did not ask for the file provider stage 0 needs: " .. asked)
+   assert(read(root .. "/build/lib/libnupp_native_dev.dylib") == "built\n",
+      "the launcher did not install what the driver named")
    os.execute("rm -rf " .. quote(root))
 end
 

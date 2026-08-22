@@ -503,7 +503,7 @@ function M.theProviderIsSelectedOnlyByReachingIt()
    local recorded = native.forModule("nupp.io.files")
    test.equal(recorded, "native.files")
    local feature = assert(native.feature("native.files"))
-   test.equal(feature.cargoFeature, "files")
+   test.equal(feature.providerFeature, "files")
    test.equal(feature.library, "nupp_native")
    -- The declarations belong to the module that calls them rather than to the
    -- bootstrap, so selecting the feature stages the provider and installs nothing.

@@ -810,7 +810,7 @@ of the pointer and count.
 ::: seealso
 - [ownership.md](ownership.md) for the resource workflow a C boundary joins
 - [](nupp.mem.span) for the views a counted pointer projects
-- [build.md](../guides/build.md#c-dependencies) for C and Cargo provider
+- [build.md](../guides/build.md#c-dependencies) for C and Cargo dependency provider
   configuration
 - [embedding.md](../guides/embedding.md) for calling Nupp from a C host
 - [NEP 8](../neps/0008-c-interop-and-embedding.md) for the design record
