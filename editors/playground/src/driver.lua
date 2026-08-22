@@ -1,3 +1,4 @@
+require("nupp.runtime.backend.lunajson"):install()
 local json = require("jsonNative")
 local parser = require("nupp.compiler.parser")
 

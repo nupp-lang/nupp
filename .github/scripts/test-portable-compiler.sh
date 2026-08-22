@@ -25,10 +25,11 @@ make -C "$source" clean
 make -C "$source" "$lua_target"
 
 cd "$root"
-./bin/nupp build --target playgroundCompiler
+./bin/nupp build --target compiler
 LUA_PATH="$root/build/?.lua;$root/.rocks/share/lua/5.1/?.lua;$root/.rocks/share/lua/5.1/?/init.lua;;" \
 LUA_CPATH="$root/.rocks/lib/lua/5.1/?.so;;" \
     luajit tests/portable-compiler/reference.lua > "$expected_json"
+./bin/nupp build --target playgroundCompiler
 "$source/src/luac" -p build/playground/nupp-compiler.lua
 ${CC:-cc} -std=c99 -Wall -Wextra -Werror \
     -I"$source/src" \
