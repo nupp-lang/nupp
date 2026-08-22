@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+- Install the development native library by renaming rather than by writing over
+  it. `bin/nupp` copied it into place, which leaves a window in which the file
+  is half a shared library -- and the loader does not report that as a bad file:
+  on macOS the kernel refuses the image and kills the process, some way from the
+  cause. Rebuilding it whenever its sources change made that window reachable in
+  ordinary use.
+
 - Reimplement child processes in C. Spawning, the nonblocking pipes to and from
   a child, the readiness wait and the exit accounting move to
   `runtime/native/c/process.c` and the two platform files under it. The POSIX

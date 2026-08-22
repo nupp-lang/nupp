@@ -119,9 +119,18 @@ build_native() {
         --target-dir "$NATIVE_TARGET" --no-default-features --features files,process,http,path,uri,uuid,sha256 \
         >/dev/null || return 1
     mkdir -p "$ROOT/build/lib"
+    # Copied beside the destination and renamed onto it, never written in place.
+    # A rename within one directory is atomic, so a command loading the library
+    # while this runs sees the old file or the new one. Writing over it directly
+    # leaves a window in which the file is neither: half a shared library, which
+    # the loader does not report as a bad file -- on macOS the kernel refuses the
+    # image and kills the process outright, some way from the cause.
     if [ -f "$NATIVE_TARGET/release/$NATIVE_BUILT_FILENAME" ]; then
-        cp "$NATIVE_TARGET/release/$NATIVE_BUILT_FILENAME" "$NUPP_NATIVE_LIBRARY" \
+        staged="$NUPP_NATIVE_LIBRARY.$$"
+        cp "$NATIVE_TARGET/release/$NATIVE_BUILT_FILENAME" "$staged" \
+            && mv -f "$staged" "$NUPP_NATIVE_LIBRARY" \
             && return 0
+        rm -f "$staged"
     fi
     echo "nupp: cargo built no shared library for the file provider" >&2
     return 1

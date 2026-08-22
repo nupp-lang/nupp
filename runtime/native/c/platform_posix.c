@@ -1277,8 +1277,11 @@ bool nupp_spawn(const NuppSpawnRequest *request, NuppSpawnResult *result) {
     close(report[1]);
     report[1] = -1;
     for (which = 0; which < 3; which++) {
+        /* Each of these is closed once. `devNull` and the duplicate of stdout
+         * are shared with their own cleanup below, and the joined stderr is the
+         * same descriptor as stdout. */
         if (childEnds[which] >= 0 && childEnds[which] != devNull
-            && !(which == 2 && merged)) {
+            && childEnds[which] != inheritedStdout && !(which == 2 && merged)) {
             close(childEnds[which]);
         }
         childEnds[which] = -1;
@@ -1330,7 +1333,7 @@ fail:
             close(parentEnds[which]);
         }
         if (childEnds[which] >= 0 && childEnds[which] != devNull
-            && !(which == 2 && merged)) {
+            && childEnds[which] != inheritedStdout && !(which == 2 && merged)) {
             close(childEnds[which]);
         }
     }
@@ -1351,6 +1354,13 @@ fail:
 }
 
 bool nupp_child_kill(const NuppSpawnResult *child, bool force) {
+    /* `kill` reads zero as "every process in my own group" and a negative as a
+     * group id. Neither is ever what a child handle means, and either one would
+     * take the host down with whatever else it was running. */
+    if ((pid_t)child->child <= 0) {
+        nupp_fail("the child has no process to signal");
+        return false;
+    }
     if (kill((pid_t)child->child, force ? SIGKILL : SIGTERM) == 0) {
         return true;
     }
