@@ -1,16 +1,19 @@
 /* Whole-file transfers, off the calling thread.
  *
- * A transfer is submitted, settles on a worker, and is observed by polling.
- * Nothing here calls Lua and nothing here blocks the submitter, which is what
- * lets one caller wait by sleeping and another wait by parking a task and
- * pumping this from its frame.
+ * A transfer is submitted, settles on libuv's thread pool, and is observed by
+ * polling. Nothing here calls Lua and nothing here blocks the submitter, which
+ * is what lets one caller wait by sleeping and another wait by parking a task
+ * and pumping this from its frame.
  *
- * The lane is bounded in three directions -- how many transfers may be live, how
- * many bytes they may hold between them, and how large one may be -- because a
- * queue that grows with its callers eventually takes the process with it.
+ * The pool, the queue and the workers are libuv's. What is left is the lane's
+ * own accounting: how many transfers may be live, how many bytes they may hold
+ * between them, and how large one may be -- because a queue that grows with its
+ * callers eventually takes the process with it.
  */
 
-#include "platform.h"
+#include "nupp_native.h"
+
+#include <uv.h>
 
 #include <stdatomic.h>
 #include <stdio.h>
@@ -22,41 +25,33 @@
 #define STATUS_FAILED 2
 #define STATUS_CANCELED 3
 
-#define WORKERS 4
-#define QUEUE_DEPTH 256
 #define MAX_REQUESTS 128
 #define MAX_BYTES (256u * 1024u * 1024u)
 #define MAX_REQUEST_BYTES (256u * 1024u * 1024u)
 
-/* --- the shared state --------------------------------------------------- */
-
 typedef enum { WORK_READ, WORK_WRITE, WORK_COPY } WorkKind;
 
-/* One transfer's shared state, held by the caller's handle and by the worker
- * that will settle it, and released by whichever lets go last. */
+/* One transfer's shared state, held by the caller's handle and by the work
+ * running on the pool, released by whichever lets go last. */
 typedef struct {
     atomic_int status;
     atomic_int references;
+    uv_mutex_t guard;
 
-    /* Guards everything below, which a worker writes once and a caller reads
-     * after seeing a settled status. */
-    NuppMutex *guard;
-    uint8_t *data;
-    size_t length;
-    char *reason;
-
-    size_t charged;
-} Slot;
-
-typedef struct {
-    Slot *slot;
     WorkKind kind;
     char *first;
     char *second;
     uint8_t *contents;
     size_t contentsLength;
     uint32_t mode;
-} Job;
+
+    uint8_t *data;
+    size_t length;
+    char *reason;
+    size_t charged;
+
+    uv_work_t work;
+} Slot;
 
 struct NuppRequest {
     Slot *slot;
@@ -64,375 +59,428 @@ struct NuppRequest {
 
 typedef struct NuppRequest NuppRequest;
 
-static atomic_size_t requests_live;
-static atomic_size_t bytes_in_flight;
-static atomic_size_t settled_count;
+static atomic_size_t requestsLive;
+static atomic_size_t bytesInFlight;
+static atomic_size_t settledCount;
 
-/* The queue, its workers, and the arrival counter the pump reads, all created
- * on the first submission. A program that never touches a file never starts a
- * thread. */
-static NuppMutex *lane_guard;
-static NuppCondition *lane_not_empty;
-static NuppCondition *lane_not_full;
-static Job lane_queue[QUEUE_DEPTH];
-static size_t lane_head;
-static size_t lane_count;
-
-static NuppMutex *arrivals_guard;
-static NuppCondition *arrivals_signal;
+/* The lane's own loop, on its own thread, so a submission from Lua never waits
+ * on one. libuv's pool does the work; this exists only to have somewhere for
+ * its completions to be delivered. */
+static uv_loop_t laneLoop;
+static uv_async_t laneWake;
+static uv_thread_t laneThread;
+static uv_mutex_t arrivalsGuard;
+static uv_cond_t arrivalsSignal;
 static size_t arrivals;
-
-static atomic_int lane_started;
-
-/* --- lifetime ----------------------------------------------------------- */
+static atomic_int laneStarted;
 
 static void slot_release(Slot *slot) {
     if (atomic_fetch_sub(&slot->references, 1) != 1) {
         return;
     }
-    nupp_mutex_free(slot->guard);
+    uv_mutex_destroy(&slot->guard);
+    free(slot->first);
+    free(slot->second);
+    free(slot->contents);
     free(slot->data);
     free(slot->reason);
     free(slot);
 }
 
-static void job_free(Job *job) {
-    free(job->first);
-    free(job->second);
-    free(job->contents);
-}
-
-/* Returns a transfer's share of the budget.
- *
- * This is tied to the caller's handle rather than to the shared state, which is
- * the difference between a cap on what a program is holding and a cap on what
- * the workers have finished touching. The second cannot be observed without a
- * race: a worker publishes READY from inside the state both sides share, so a
- * caller releasing the instant it sees the result is still counted until the
- * worker gets around to dropping its own reference.
- *
- * The cost is that a cancelled transfer is refunded while its worker may still
- * be reading. Those bytes are transient and belong to work already in flight;
- * what the cap exists to bound is what a caller can keep accumulating. */
+/* Returns a transfer's share of the budget. Tied to the caller's handle rather
+ * than to the shared state, which is the difference between a cap on what a
+ * program is holding and a cap on what the pool has finished touching. */
 static void refund(size_t charge) {
-    atomic_fetch_sub(&requests_live, 1);
-    atomic_fetch_sub(&bytes_in_flight, charge);
+    atomic_fetch_sub(&requestsLive, 1);
+    atomic_fetch_sub(&bytesInFlight, charge);
 }
 
-/* --- settling ----------------------------------------------------------- */
-
-static void settle(Slot *slot, uint8_t *data, size_t length, char *reason, int status) {
+static void settle(Slot *slot, int status) {
     int expected = STATUS_PENDING;
-    nupp_mutex_lock(slot->guard);
-    slot->data = data;
-    slot->length = length;
-    slot->reason = reason;
     /* A canceled transfer keeps its verdict: the work finished, but nobody is
      * left who asked for it, so the bytes go nowhere. */
     if (!atomic_compare_exchange_strong(&slot->status, &expected, status)) {
+        uv_mutex_lock(&slot->guard);
         free(slot->data);
         free(slot->reason);
         slot->data = NULL;
         slot->length = 0;
         slot->reason = NULL;
+        uv_mutex_unlock(&slot->guard);
     }
-    nupp_mutex_unlock(slot->guard);
-
-    atomic_fetch_add(&settled_count, 1);
-    nupp_mutex_lock(arrivals_guard);
+    atomic_fetch_add(&settledCount, 1);
+    uv_mutex_lock(&arrivalsGuard);
     arrivals++;
-    nupp_condition_broadcast(arrivals_signal);
-    nupp_mutex_unlock(arrivals_guard);
+    uv_cond_broadcast(&arrivalsSignal);
+    uv_mutex_unlock(&arrivalsGuard);
 }
 
-/* The reason a worker failed, copied out of the error slot -- which is per
- * thread, and the thread that will read it is not this one. */
-static char *taken_reason(void) {
-    const char *text = nuppNativeError();
-    size_t length = strlen(text);
-    char *copy = malloc(length + 1);
-    if (copy == NULL) {
-        return NULL;
+static void fail_slot(Slot *slot, int code, const char *what) {
+    char scratch[512];
+    snprintf(scratch, sizeof scratch, "%s: %s", what, uv_strerror(code));
+    uv_mutex_lock(&slot->guard);
+    slot->reason = malloc(strlen(scratch) + 1);
+    if (slot->reason != NULL) {
+        strcpy(slot->reason, scratch);
     }
-    memcpy(copy, text, length + 1);
-    return copy;
+    uv_mutex_unlock(&slot->guard);
+    settle(slot, STATUS_FAILED);
+}
+
+/* --- the work ----------------------------------------------------------- */
+
+static bool read_whole(Slot *slot, int *code) {
+    uv_fs_t request;
+    int64_t size;
+    uint8_t *bytes;
+    int64_t got = 0;
+
+    uv_fs_open(NULL, &request, slot->first, UV_FS_O_RDONLY, 0, NULL);
+    if (request.result < 0) {
+        *code = (int)request.result;
+        uv_fs_req_cleanup(&request);
+        return false;
+    }
+    {
+        uv_file handle = (uv_file)request.result;
+        uv_fs_req_cleanup(&request);
+        uv_fs_fstat(NULL, &request, handle, NULL);
+        size = request.result < 0 ? 0 : (int64_t)request.statbuf.st_size;
+        uv_fs_req_cleanup(&request);
+        bytes = malloc((size_t)size + 1);
+        if (bytes == NULL) {
+            uv_fs_close(NULL, &request, handle, NULL);
+            uv_fs_req_cleanup(&request);
+            *code = UV_ENOMEM;
+            return false;
+        }
+        while (got < size) {
+            uv_buf_t buffer = uv_buf_init((char *)bytes + got, (unsigned)(size - got));
+            int64_t step;
+            uv_fs_read(NULL, &request, handle, &buffer, 1, got, NULL);
+            step = request.result;
+            uv_fs_req_cleanup(&request);
+            if (step < 0) {
+                free(bytes);
+                uv_fs_close(NULL, &request, handle, NULL);
+                uv_fs_req_cleanup(&request);
+                *code = (int)step;
+                return false;
+            }
+            if (step == 0) {
+                break;
+            }
+            got += step;
+        }
+        uv_fs_close(NULL, &request, handle, NULL);
+        uv_fs_req_cleanup(&request);
+    }
+    bytes[got] = 0;
+    slot->data = bytes;
+    slot->length = (size_t)got;
+    return true;
 }
 
 /* Writes through a temporary beside the destination and moves it into place, so
  * a reader sees either the previous contents or the new ones and never a
  * half-written file. */
-static bool write_atomic(const char *path, const uint8_t *contents, size_t length) {
+static bool write_atomic(Slot *slot, int *code) {
+    uv_fs_t request;
     NuppBuffer temporary;
-    const char *slash = strrchr(path, '/');
-    uint64_t stamp;
+    const char *slash = strrchr(slot->first, '/');
+    uint64_t stamp = 0;
     char stampText[17];
-    NuppFile *file;
-    bool taken = false;
-    bool ok;
+    uv_file handle;
+    bool ok = true;
 
     nupp_buffer_init(&temporary);
     if (slash != NULL) {
-        nupp_buffer_append(&temporary, path, (size_t)(slash - path) + 1);
+        nupp_buffer_append(&temporary, slot->first, (size_t)(slash - slot->first) + 1);
     }
-    nupp_fs_random(&stamp, sizeof stamp);
+    uv_random(NULL, NULL, &stamp, sizeof stamp, 0, NULL);
     snprintf(stampText, sizeof stampText, "%016llx", (unsigned long long)stamp);
     nupp_buffer_append(&temporary, ".nupp-write-", 12);
     nupp_buffer_append(&temporary, stampText, 16);
     nupp_buffer_push(&temporary, 0);
     if (temporary.failed) {
         nupp_buffer_free(&temporary);
-        nupp_fail("out of memory");
+        *code = UV_ENOMEM;
         return false;
     }
 
-    file = nupp_fs_create_new((const char *)temporary.data, &taken);
-    if (file == NULL) {
-        if (taken) {
-            nupp_fail("the temporary name for an atomic write was taken");
-        }
+    uv_fs_open(NULL, &request, (const char *)temporary.data,
+        UV_FS_O_WRONLY | UV_FS_O_CREAT | UV_FS_O_EXCL, 0600, NULL);
+    if (request.result < 0) {
+        *code = (int)request.result;
+        uv_fs_req_cleanup(&request);
         nupp_buffer_free(&temporary);
         return false;
     }
-    ok = nupp_fs_write(file, contents, length) >= 0 && nupp_fs_sync(file);
-    if (!nupp_fs_close(file)) {
-        ok = false;
+    handle = (uv_file)request.result;
+    uv_fs_req_cleanup(&request);
+    {
+        size_t written = 0;
+        while (written < slot->contentsLength) {
+            uv_buf_t buffer = uv_buf_init((char *)slot->contents + written,
+                (unsigned)(slot->contentsLength - written));
+            int64_t step;
+            uv_fs_write(NULL, &request, handle, &buffer, 1, (int64_t)written, NULL);
+            step = request.result;
+            uv_fs_req_cleanup(&request);
+            if (step < 0) {
+                *code = (int)step;
+                ok = false;
+                break;
+            }
+            written += (size_t)step;
+        }
     }
     if (ok) {
-        ok = nupp_fs_replace((const char *)temporary.data, path);
+        uv_fs_fsync(NULL, &request, handle, NULL);
+        if (request.result < 0) {
+            *code = (int)request.result;
+            ok = false;
+        }
+        uv_fs_req_cleanup(&request);
+    }
+    uv_fs_close(NULL, &request, handle, NULL);
+    uv_fs_req_cleanup(&request);
+    if (ok) {
+        uv_fs_rename(NULL, &request, (const char *)temporary.data, slot->first, NULL);
+        if (request.result < 0) {
+            *code = (int)request.result;
+            ok = false;
+        }
+        uv_fs_req_cleanup(&request);
     }
     if (!ok) {
-        nupp_fs_remove((const char *)temporary.data, false);
+        uv_fs_unlink(NULL, &request, (const char *)temporary.data, NULL);
+        uv_fs_req_cleanup(&request);
     }
     nupp_buffer_free(&temporary);
     return ok;
 }
 
-static void perform(Job *job) {
-    NuppBuffer out;
+static bool write_whole(Slot *slot, int *code) {
+    uv_fs_t request;
+    uv_file handle;
+    size_t written = 0;
+    bool ok = true;
+    int flags = slot->mode == 1
+        ? (UV_FS_O_WRONLY | UV_FS_O_CREAT | UV_FS_O_APPEND)
+        : (UV_FS_O_WRONLY | UV_FS_O_CREAT | UV_FS_O_TRUNC);
+
+    uv_fs_open(NULL, &request, slot->first, flags, 0666, NULL);
+    if (request.result < 0) {
+        *code = (int)request.result;
+        uv_fs_req_cleanup(&request);
+        return false;
+    }
+    handle = (uv_file)request.result;
+    uv_fs_req_cleanup(&request);
+    while (written < slot->contentsLength) {
+        uv_buf_t buffer = uv_buf_init((char *)slot->contents + written,
+            (unsigned)(slot->contentsLength - written));
+        int64_t step;
+        uv_fs_write(NULL, &request, handle, &buffer, 1,
+            slot->mode == 1 ? -1 : (int64_t)written, NULL);
+        step = request.result;
+        uv_fs_req_cleanup(&request);
+        if (step < 0) {
+            *code = (int)step;
+            ok = false;
+            break;
+        }
+        written += (size_t)step;
+    }
+    uv_fs_close(NULL, &request, handle, NULL);
+    uv_fs_req_cleanup(&request);
+    return ok;
+}
+
+/* Runs on one of libuv's pool threads. */
+static void perform(uv_work_t *work) {
+    Slot *slot = work->data;
+    int code = 0;
     bool ok;
-    switch (job->kind) {
-        case WORK_READ:
-            nupp_buffer_init(&out);
-            if (!nupp_fs_read_whole(job->first, &out)) {
-                nupp_buffer_free(&out);
-                settle(job->slot, NULL, 0, taken_reason(), STATUS_FAILED);
-                return;
-            }
-            {
-                size_t length = out.length;
-                uint8_t *data = out.data;
-                /* An empty file still answers an allocation, so the pointer the
-                 * binding reads is a real one whatever the length says. */
-                if (data == NULL) {
-                    data = malloc(1);
-                    if (data == NULL) {
-                        settle(job->slot, NULL, 0, taken_reason(), STATUS_FAILED);
-                        return;
-                    }
-                    data[0] = 0;
-                }
-                nupp_buffer_init(&out);
-                settle(job->slot, data, length, NULL, STATUS_READY);
-            }
-            return;
-
+    switch (slot->kind) {
+        case WORK_READ: ok = read_whole(slot, &code); break;
         case WORK_WRITE:
-            if (job->mode == 2) {
-                ok = write_atomic(job->first, job->contents, job->contentsLength);
-            } else {
-                ok = nupp_fs_write_whole(
-                    job->first, job->contents, job->contentsLength, job->mode == 1);
-            }
+            ok = slot->mode == 2 ? write_atomic(slot, &code) : write_whole(slot, &code);
             break;
-
-        case WORK_COPY:
-        default:
-            ok = nupp_fs_copy(job->first, job->second);
+        default: {
+            uv_fs_t request;
+            uv_fs_copyfile(NULL, &request, slot->first, slot->second, 0, NULL);
+            ok = request.result >= 0;
+            code = (int)request.result;
+            uv_fs_req_cleanup(&request);
             break;
+        }
     }
     if (ok) {
-        settle(job->slot, NULL, 0, NULL, STATUS_READY);
+        settle(slot, STATUS_READY);
     } else {
-        settle(job->slot, NULL, 0, taken_reason(), STATUS_FAILED);
+        fail_slot(slot, code, slot->first);
     }
 }
 
-static void worker(void *unused) {
+static void finished(uv_work_t *work, int status) {
+    Slot *slot = work->data;
+    if (status == UV_ECANCELED) {
+        settle(slot, STATUS_CANCELED);
+    }
+    slot_release(slot);
+}
+
+static void woken(uv_async_t *handle) {
+    (void)handle;
+}
+
+static void lane_thread(void *unused) {
     (void)unused;
-    for (;;) {
-        Job job;
-        nupp_mutex_lock(lane_guard);
-        while (lane_count == 0) {
-            nupp_condition_wait(lane_not_empty, lane_guard);
-        }
-        job = lane_queue[lane_head];
-        lane_head = (lane_head + 1) % QUEUE_DEPTH;
-        lane_count--;
-        nupp_condition_signal(lane_not_full);
-        nupp_mutex_unlock(lane_guard);
-
-        perform(&job);
-        job_free(&job);
-        slot_release(job.slot);
-    }
+    uv_run(&laneLoop, UV_RUN_DEFAULT);
 }
 
-/* --- starting ----------------------------------------------------------- */
-
-/* One lane per process, brought up the first time something is submitted.
- *
- * The double check is not an optimisation. Every caller into this library is on
- * the thread that owns the Lua state, so two submissions cannot race here; what
- * the flag prevents is the second submission paying for the check again. */
+/* One lane per process, brought up the first time something is submitted. Every
+ * caller into this library is on the thread that owns the Lua state, so two
+ * submissions cannot race here. */
 static bool ensure_lane(void) {
-    int index;
-    if (atomic_load(&lane_started) == 1) {
+    if (atomic_load(&laneStarted) == 1) {
         return true;
     }
-    lane_guard = nupp_mutex_new();
-    lane_not_empty = nupp_condition_new();
-    lane_not_full = nupp_condition_new();
-    arrivals_guard = nupp_mutex_new();
-    arrivals_signal = nupp_condition_new();
-    if (lane_guard == NULL || lane_not_empty == NULL || lane_not_full == NULL
-        || arrivals_guard == NULL || arrivals_signal == NULL) {
+    if (uv_loop_init(&laneLoop) != 0
+        || uv_async_init(&laneLoop, &laneWake, woken) != 0
+        || uv_mutex_init(&arrivalsGuard) != 0
+        || uv_cond_init(&arrivalsSignal) != 0
+        || uv_thread_create(&laneThread, lane_thread, NULL) != 0) {
         nupp_fail("cannot create the file transfer lane");
         return false;
     }
-    for (index = 0; index < WORKERS; index++) {
-        if (!nupp_thread_spawn(worker, NULL)) {
-            return false;
-        }
-    }
-    atomic_store(&lane_started, 1);
+    atomic_store(&laneStarted, 1);
     return true;
 }
 
 static bool admit(size_t charge) {
     size_t live, held;
     if (charge > MAX_REQUEST_BYTES) {
-        nupp_fail_format(
-            "the transfer is larger than the %u-byte limit", (unsigned)MAX_REQUEST_BYTES);
+        nupp_fail_format("the transfer is larger than the %u-byte limit",
+            (unsigned)MAX_REQUEST_BYTES);
         return false;
     }
-    live = atomic_fetch_add(&requests_live, 1) + 1;
+    live = atomic_fetch_add(&requestsLive, 1) + 1;
     if (live > MAX_REQUESTS) {
-        atomic_fetch_sub(&requests_live, 1);
+        atomic_fetch_sub(&requestsLive, 1);
         nupp_fail_format("more than %d transfers are in flight", MAX_REQUESTS);
         return false;
     }
-    held = atomic_fetch_add(&bytes_in_flight, charge) + charge;
+    held = atomic_fetch_add(&bytesInFlight, charge) + charge;
     if (held > MAX_BYTES) {
-        atomic_fetch_sub(&bytes_in_flight, charge);
-        atomic_fetch_sub(&requests_live, 1);
-        nupp_fail_format(
-            "transfers in flight would hold more than %u bytes", (unsigned)MAX_BYTES);
+        atomic_fetch_sub(&bytesInFlight, charge);
+        atomic_fetch_sub(&requestsLive, 1);
+        nupp_fail_format("transfers in flight would hold more than %u bytes",
+            (unsigned)MAX_BYTES);
         return false;
     }
     return true;
 }
 
-static NuppRequest *submit(Job *job, size_t charge) {
-    Slot *slot;
-    NuppRequest *request;
-
-    if (!ensure_lane()) {
-        job_free(job);
-        return NULL;
-    }
-    if (!admit(charge)) {
-        job_free(job);
-        return NULL;
-    }
-    slot = malloc(sizeof *slot);
-    request = malloc(sizeof *request);
-    if (slot == NULL || request == NULL) {
-        free(slot);
-        free(request);
-        job_free(job);
-        refund(charge);
-        nupp_fail("out of memory");
-        return NULL;
-    }
-    atomic_init(&slot->status, STATUS_PENDING);
-    atomic_init(&slot->references, 2); /* this handle, and the job */
-    slot->guard = nupp_mutex_new();
-    slot->data = NULL;
-    slot->length = 0;
-    slot->reason = NULL;
-    slot->charged = charge;
-    if (slot->guard == NULL) {
-        free(slot);
-        free(request);
-        job_free(job);
-        refund(charge);
-        nupp_fail("out of memory");
-        return NULL;
-    }
-    job->slot = slot;
-    request->slot = slot;
-
-    nupp_mutex_lock(lane_guard);
-    while (lane_count == QUEUE_DEPTH) {
-        nupp_condition_wait(lane_not_full, lane_guard);
-    }
-    lane_queue[(lane_head + lane_count) % QUEUE_DEPTH] = *job;
-    lane_count++;
-    nupp_condition_signal(lane_not_empty);
-    nupp_mutex_unlock(lane_guard);
-    return request;
-}
-
-/* --- submitting --------------------------------------------------------- */
-
-/* A path argument, copied because the job outlives the call that made it. */
-static char *owned_path(const uint8_t *data, size_t length, const char *what) {
+static char *owned(const uint8_t *data, size_t length, const char *what) {
     NuppText text;
     char *copy;
     if (!nupp_text(&text, data, length, what)) {
         return NULL;
     }
     copy = malloc(text.length + 1);
-    if (copy == NULL) {
-        nupp_text_free(&text);
+    if (copy != NULL) {
+        memcpy(copy, text.value, text.length + 1);
+    }
+    nupp_text_free(&text);
+    return copy;
+}
+
+static NuppRequest *submit(Slot *slot, size_t charge) {
+    NuppRequest *request;
+    if (!ensure_lane() || !admit(charge)) {
+        slot_release(slot);
+        return NULL;
+    }
+    request = malloc(sizeof *request);
+    if (request == NULL) {
+        refund(charge);
+        slot_release(slot);
         nupp_fail("out of memory");
         return NULL;
     }
-    memcpy(copy, text.value, text.length + 1);
-    nupp_text_free(&text);
-    return copy;
+    slot->charged = charge;
+    /* One for the caller, one for the work. */
+    atomic_store(&slot->references, 2);
+    slot->work.data = slot;
+    request->slot = slot;
+    if (uv_queue_work(&laneLoop, &slot->work, perform, finished) != 0) {
+        free(request);
+        refund(charge);
+        atomic_store(&slot->references, 1);
+        slot_release(slot);
+        nupp_fail("the file worker queue is gone");
+        return NULL;
+    }
+    uv_async_send(&laneWake);
+    return request;
+}
+
+static Slot *new_slot(WorkKind kind) {
+    Slot *slot = calloc(1, sizeof *slot);
+    if (slot == NULL) {
+        nupp_fail("out of memory");
+        return NULL;
+    }
+    atomic_init(&slot->status, STATUS_PENDING);
+    atomic_init(&slot->references, 1);
+    if (uv_mutex_init(&slot->guard) != 0) {
+        free(slot);
+        nupp_fail("out of memory");
+        return NULL;
+    }
+    slot->kind = kind;
+    return slot;
 }
 
 /* Submits a whole-file read. The file is sized on this thread, because a lane
  * that cannot price a transfer cannot bound itself. */
 NUPP_EXPORT NuppRequest *nuppFsSubmitRead(const uint8_t *data, size_t length) {
-    Job job;
-    NuppFileInfo info;
-    char *path = owned_path(data, length, "path");
+    uv_fs_t request;
+    Slot *slot;
+    char *path = owned(data, length, "path");
+    size_t charge;
     if (path == NULL) {
         return NULL;
     }
-    if (!nupp_fs_stat(path, true, &info)) {
+    uv_fs_stat(NULL, &request, path, NULL);
+    if (request.result < 0) {
+        nupp_fail_format("%s: %s", path, uv_strerror((int)request.result));
+        uv_fs_req_cleanup(&request);
         free(path);
         return NULL;
     }
-    memset(&job, 0, sizeof job);
-    job.kind = WORK_READ;
-    job.first = path;
-    return submit(&job, (size_t)info.size);
+    charge = (size_t)request.statbuf.st_size;
+    uv_fs_req_cleanup(&request);
+    slot = new_slot(WORK_READ);
+    if (slot == NULL) {
+        free(path);
+        return NULL;
+    }
+    slot->first = path;
+    return submit(slot, charge);
 }
 
 /* Submits a whole-file write. `mode` replaces, appends, or writes through a
  * temporary beside the destination, in that order. */
 NUPP_EXPORT NuppRequest *nuppFsSubmitWrite(
     const uint8_t *data, size_t length,
-    const uint8_t *bytes, size_t bytesLength,
-    uint32_t mode
+    const uint8_t *bytes, size_t bytesLength, uint32_t mode
 ) {
-    Job job;
+    Slot *slot;
     char *path;
-    uint8_t *contents;
-
     if (bytes == NULL && bytesLength != 0) {
         nupp_fail("file contents are null");
         return NULL;
@@ -441,26 +489,28 @@ NUPP_EXPORT NuppRequest *nuppFsSubmitWrite(
         nupp_fail("unknown write mode");
         return NULL;
     }
-    path = owned_path(data, length, "path");
+    path = owned(data, length, "path");
     if (path == NULL) {
         return NULL;
     }
-    contents = malloc(bytesLength + 1);
-    if (contents == NULL) {
+    slot = new_slot(WORK_WRITE);
+    if (slot == NULL) {
         free(path);
+        return NULL;
+    }
+    slot->first = path;
+    slot->contents = malloc(bytesLength + 1);
+    if (slot->contents == NULL) {
+        slot_release(slot);
         nupp_fail("out of memory");
         return NULL;
     }
     if (bytesLength != 0) {
-        memcpy(contents, bytes, bytesLength);
+        memcpy(slot->contents, bytes, bytesLength);
     }
-    memset(&job, 0, sizeof job);
-    job.kind = WORK_WRITE;
-    job.first = path;
-    job.contents = contents;
-    job.contentsLength = bytesLength;
-    job.mode = mode;
-    return submit(&job, bytesLength);
+    slot->contentsLength = bytesLength;
+    slot->mode = mode;
+    return submit(slot, bytesLength);
 }
 
 /* Submits a copy. The bytes never reach this process, so the lane charges the
@@ -468,55 +518,54 @@ NUPP_EXPORT NuppRequest *nuppFsSubmitWrite(
 NUPP_EXPORT NuppRequest *nuppFsSubmitCopy(
     const uint8_t *from, size_t fromLength, const uint8_t *to, size_t toLength
 ) {
-    Job job;
-    char *source = owned_path(from, fromLength, "path");
+    Slot *slot;
+    char *source = owned(from, fromLength, "path");
     char *destination;
     if (source == NULL) {
         return NULL;
     }
-    destination = owned_path(to, toLength, "destination path");
+    destination = owned(to, toLength, "destination path");
     if (destination == NULL) {
         free(source);
         return NULL;
     }
-    memset(&job, 0, sizeof job);
-    job.kind = WORK_COPY;
-    job.first = source;
-    job.second = destination;
-    return submit(&job, 0);
+    slot = new_slot(WORK_COPY);
+    if (slot == NULL) {
+        free(source);
+        free(destination);
+        return NULL;
+    }
+    slot->first = source;
+    slot->second = destination;
+    return submit(slot, 0);
 }
 
 /* --- observing ---------------------------------------------------------- */
 
-/* Answers whether a transfer is pending, ready, failed, or canceled. */
 NUPP_EXPORT int32_t nuppFsStatus(const NuppRequest *request) {
-    if (request == NULL) {
-        return STATUS_FAILED;
-    }
-    return (int32_t)atomic_load(&request->slot->status);
+    return request != NULL
+        ? (int32_t)atomic_load(&request->slot->status) : STATUS_FAILED;
 }
 
-/* Answers a settled read's bytes. Valid until the transfer is destroyed. */
 NUPP_EXPORT const uint8_t *nuppFsData(const NuppRequest *request) {
     const uint8_t *data;
     if (request == NULL) {
         return NULL;
     }
-    nupp_mutex_lock(request->slot->guard);
+    uv_mutex_lock(&request->slot->guard);
     data = request->slot->data;
-    nupp_mutex_unlock(request->slot->guard);
+    uv_mutex_unlock(&request->slot->guard);
     return data;
 }
 
-/* Answers a settled read's byte count. */
 NUPP_EXPORT size_t nuppFsLength(const NuppRequest *request) {
     size_t length;
     if (request == NULL) {
         return 0;
     }
-    nupp_mutex_lock(request->slot->guard);
+    uv_mutex_lock(&request->slot->guard);
     length = request->slot->length;
-    nupp_mutex_unlock(request->slot->guard);
+    uv_mutex_unlock(&request->slot->guard);
     return length;
 }
 
@@ -524,27 +573,27 @@ NUPP_EXPORT size_t nuppFsLength(const NuppRequest *request) {
  * so every failure is read the same way. */
 NUPP_EXPORT const char *nuppFsError(const NuppRequest *request) {
     if (request != NULL) {
-        nupp_mutex_lock(request->slot->guard);
+        uv_mutex_lock(&request->slot->guard);
         if (request->slot->reason != NULL) {
             nupp_fail(request->slot->reason);
         }
-        nupp_mutex_unlock(request->slot->guard);
+        uv_mutex_unlock(&request->slot->guard);
     }
     return nuppNativeError();
 }
 
-/* Abandons a pending transfer. The work still finishes; its result is dropped,
- * because a worker already reading cannot be recalled. */
+/* Abandons a pending transfer. The work still finishes if it has started; its
+ * result is dropped, because a pool thread already reading cannot be recalled. */
 NUPP_EXPORT bool nuppFsCancel(NuppRequest *request) {
     int expected = STATUS_PENDING;
     if (request == NULL) {
         return false;
     }
+    uv_cancel((uv_req_t *)&request->slot->work);
     return atomic_compare_exchange_strong(
         &request->slot->status, &expected, STATUS_CANCELED);
 }
 
-/* Releases the caller's handle and its share of the lane's budget. */
 NUPP_EXPORT void nuppFsDestroy(NuppRequest *request) {
     if (request != NULL) {
         size_t charge = request->slot->charged;
@@ -554,38 +603,35 @@ NUPP_EXPORT void nuppFsDestroy(NuppRequest *request) {
     }
 }
 
-/* Answers how many transfers settled since the last poll, without waiting. This
- * is the readiness pump a scheduler drives. */
+/* How many transfers settled since the last poll, without waiting. This is the
+ * readiness pump a scheduler drives. */
 NUPP_EXPORT size_t nuppFsPoll(void) {
-    if (atomic_load(&lane_started) != 1) {
+    if (atomic_load(&laneStarted) != 1) {
         return 0;
     }
-    nupp_mutex_lock(arrivals_guard);
+    uv_mutex_lock(&arrivalsGuard);
     arrivals = 0;
-    nupp_mutex_unlock(arrivals_guard);
-    return atomic_exchange(&settled_count, 0);
+    uv_mutex_unlock(&arrivalsGuard);
+    return atomic_exchange(&settledCount, 0);
 }
 
-/* The same, sleeping up to a deadline for the first settlement. This is what
- * keeps a program with no scheduler from spinning on a status.
- *
- * The count is read under the same lock a worker raises it under, so a
- * settlement that lands between the check and the sleep is seen rather than
- * slept through. */
+/* The same, sleeping up to a deadline for the first settlement. The count is
+ * read under the same lock a worker raises it under, so a settlement that lands
+ * between the check and the sleep is seen rather than slept through. */
 NUPP_EXPORT size_t nuppFsWait(uint64_t milliseconds) {
-    if (atomic_load(&lane_started) != 1) {
+    if (atomic_load(&laneStarted) != 1) {
         return 0;
     }
-    nupp_mutex_lock(arrivals_guard);
+    uv_mutex_lock(&arrivalsGuard);
     if (arrivals == 0) {
-        nupp_condition_wait_for(arrivals_signal, arrivals_guard, milliseconds);
+        uv_cond_timedwait(&arrivalsSignal, &arrivalsGuard,
+            milliseconds * (uint64_t)1000000);
     }
     arrivals = 0;
-    nupp_mutex_unlock(arrivals_guard);
-    return atomic_exchange(&settled_count, 0);
+    uv_mutex_unlock(&arrivalsGuard);
+    return atomic_exchange(&settledCount, 0);
 }
 
-/* How many transfers the caller still holds. */
 NUPP_EXPORT size_t nuppFsPending(void) {
-    return atomic_load(&requests_live);
+    return atomic_load(&requestsLive);
 }

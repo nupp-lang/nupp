@@ -283,3 +283,33 @@ The cost is the C++ standard. Ada 4 needs C++20 for `std::endian`, where
 simdjson needed C++17, so the floor stated above moves with it. GCC 10 and Clang
 10 are the first releases that carry it, both from 2020, and the supported
 compiler pairs are otherwise unchanged.
+
+## 2026-08-22: libuv owns the platform layer
+
+The first C provider put process, filesystem and threading primitives behind
+`platform_posix.c` and `platform_windows.c`. That kept platform branches out of
+the shared facilities, but it left 3234 lines whose least exercised half was
+also the most difficult half: Windows process inheritance, overlapped pipes and
+directory traversal. The split made the risk visible without reducing it.
+
+[libuv](https://libuv.org/) already owns that portability boundary for Node.js.
+It supplies the process and pipe lifecycle, filesystem calls, a bounded event
+loop, a thread pool and the few mutex, condition and thread primitives the HTTP
+reactor needs. Replacing the two platform files with it removes more code than
+the dependency adds to Nupp's tree, and puts the Windows behavior behind a
+library exercised on Windows outside this project rather than an implementation
+written here and judged only by this project's CI.
+
+This does not make libuv Nupp's general scheduler and does not move HTTP onto
+it. The process loop is pumped by the existing process seam, filesystem work is
+submitted through the existing lane, and libcurl still owns HTTP. The choice is
+the portability layer, not a new runtime architecture.
+
+The source is pinned and digest-verified like the other bootstrap dependencies.
+Building its explicit per-platform source list avoids adding CMake or autoconf
+to the setup promise; the cost is that a libuv update must compare that list
+with libuv's own build files. Keeping the handwritten layer was rejected because
+its line count and platform risk were already the reason to seek a portability
+library. Higher-level event and HTTP libraries were rejected because they do
+not cover files and child processes, or would replace libcurl as well and turn a
+platform change into a transport change.

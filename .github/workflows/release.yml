@@ -120,6 +120,8 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
+          luarocks=$(./scripts/toolchain luarocks)
+          export PATH="$luarocks/bin:$PATH"
           # The stub runs the compiler, which reads its own doc comments
           # through nupp.peg, so it carries LPeg for the same reason it
           # carries the JSON runtime.

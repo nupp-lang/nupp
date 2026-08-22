@@ -55,6 +55,11 @@ jobs:
         shell: bash
         run: ./scripts/toolchain --all
 
+      - name: Install official Lua build prerequisites
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libreadline-dev
+
       - name: Bootstrap the compiler
         shell: bash
         run: ./bin/nupp build
@@ -145,7 +150,10 @@ jobs:
       - name: Run the portable generated-output corpus
         if: runner.os == 'Linux'
         shell: bash
-        run: scripts/portable-lua-corpus.sh lua5.1 lua5.2 lua5.3 lua5.4 luajit
+        run: |
+          luajit=$(./scripts/toolchain luajit)
+          scripts/portable-lua-corpus.sh \
+            lua5.1 lua5.2 lua5.3 lua5.4 "$luajit/bin/luajit"
 
       - name: Build the same library for LuaJIT and Lua 5.1
         if: runner.os == 'Linux'

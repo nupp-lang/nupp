@@ -175,6 +175,15 @@ function M.creationFailureIsRaisedByTheConstructor()
    ready()
    local ok, reason = pcall(startProcess, {args = {"/no/such/nupp-program"}})
    assert(not ok and type(reason) == "string" and #reason > 0)
+
+   -- uv_spawn initializes its process handle before it can report that exec
+   -- failed. The failed handle must be closed rather than freed in place, or
+   -- the loop keeps a dangling entry that aliases this next child and can
+   -- leave its reaper cycling forever.
+   local child = assert(startProcess({args = shell("printf recovered"), stderr = "null"}))
+   local result = assert(child:communicate())
+   test.equal(result.output, "recovered")
+   assert(child:close())
 end
 
 -- A pipe accepts the same checked span contract as every other writer, copying into
