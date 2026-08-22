@@ -3,7 +3,8 @@ set -euo pipefail
 
 script_dir=$(cd "$(dirname "$0")" && pwd)
 repo=$(cd "$script_dir/../.." && pwd)
-lua_source=${NUPP_LUA51_SOURCE:-/tmp/nupp-portable-compiler/lua-5.1.5/src}
+temporary=${RUNNER_TEMP:-/tmp}
+lua_source=${NUPP_LUA51_SOURCE:-$temporary/nupp-portable-compiler/lua-5.1.5/src}
 emcc_command=${NUPP_WASM_CC:-${EMCC:-emcc}}
 scalar_project=$(mktemp -d "${TMPDIR:-/tmp}/nupp-wasm-aot-scalar.XXXXXX")
 simd_project=$(mktemp -d "${TMPDIR:-/tmp}/nupp-wasm-aot-simd.XXXXXX")

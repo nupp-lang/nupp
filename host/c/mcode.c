@@ -8,6 +8,10 @@
  * worker state is created, so later mappings cannot consume the window.
  */
 
+#if defined(__linux__) && !defined(_GNU_SOURCE)
+#define _GNU_SOURCE
+#endif
+
 #include "nupp_host.h"
 
 #if NUPP_FEATURE_WORKERS

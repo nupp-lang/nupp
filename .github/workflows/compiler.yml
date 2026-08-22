@@ -79,7 +79,7 @@ jobs:
         include:
           - name: Linux x64
             os: ubuntu-24.04
-            timeout: 30
+            timeout: 40
           - name: macOS arm64
             os: macos-15
             timeout: 30
@@ -145,7 +145,10 @@ jobs:
       - name: Run the portable generated-output corpus
         if: runner.os == 'Linux'
         shell: bash
-        run: scripts/portable-lua-corpus.sh lua5.1 lua5.2 lua5.3 lua5.4 luajit
+        run: |
+          luajit=$(./scripts/toolchain luajit)
+          scripts/portable-lua-corpus.sh \
+            lua5.1 lua5.2 lua5.3 lua5.4 "$luajit/bin/luajit"
 
       - name: Build the same library for LuaJIT and Lua 5.1
         if: runner.os == 'Linux'
@@ -161,7 +164,9 @@ jobs:
 
       - name: Install the development rocks
         shell: bash
-        run: ./bin/nupp build --target docs
+        run: |
+          ./bin/nupp build --target bootstrapCompiler
+          ./bin/nupp build --target docs
 
       - name: Check the compiler
         shell: bash

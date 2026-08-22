@@ -78,7 +78,8 @@ local function jsonStagedLinkFlags()
       flags[#flags + 1] = "-undefined"
       flags[#flags + 1] = "dynamic_lookup"
    elseif osName == "windows" then
-      flags[#flags + 1] = JSON_STAGED_ROOT .. "/luajit/lib/lua51.lib"
+      flags[#flags + 1] = JSON_STAGED_ROOT
+         .. "/luajit/lib/libluajit-5.1.dll.a"
    end
 
    return flags

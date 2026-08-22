@@ -19,7 +19,22 @@ const child = spawn(chrome, [
   `--user-data-dir=${profile}`,
   "--remote-debugging-port=0",
   url,
-], {stdio: ["ignore", "ignore", "pipe"]});
+], {
+  detached: process.platform !== "win32",
+  stdio: ["ignore", "ignore", "pipe"],
+});
+
+function terminateBrowser(signal) {
+  if (process.platform !== "win32") {
+    try {
+      process.kill(-child.pid, signal);
+      return;
+    } catch {
+      // Fall back to the browser process when its group has already exited.
+    }
+  }
+  if (child.exitCode === null) child.kill(signal);
+}
 
 const deadline = Date.now() + 90000;
 let browserSocket;
@@ -103,13 +118,19 @@ try {
   }
   process.stdout.write(JSON.stringify(result, null, 2) + "\n");
 } finally {
+  terminateBrowser("SIGTERM");
   if (child.exitCode === null) {
-    child.kill("SIGTERM");
     await Promise.race([
       new Promise((resolve) => child.once("exit", resolve)),
       delay(5000),
     ]);
   }
-  if (child.exitCode === null) child.kill("SIGKILL");
+  terminateBrowser("SIGKILL");
+  if (child.exitCode === null) {
+    await Promise.race([
+      new Promise((resolve) => child.once("exit", resolve)),
+      delay(5000),
+    ]);
+  }
   rmSync(profile, {recursive: true, force: true, maxRetries: 20, retryDelay: 100});
 }

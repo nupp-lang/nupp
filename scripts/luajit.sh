@@ -34,7 +34,15 @@ select_luajit() {
             "scripts/toolchain could not build the pinned one" >&2
         return 1
     }
-    PATH="$staged/bin:$PATH"
+    # Toolchain answers use drive-letter paths because native Windows programs
+    # consume them directly. PATH is still assembled by the MSYS shell, where
+    # that drive colon is a separator, so convert this one use back to a mount
+    # path before prepending it.
+    staged_path=$staged
+    case "$(uname -s 2>/dev/null)" in
+        MINGW*|MSYS*|CYGWIN*) staged_path=$(cygpath -u "$staged") || return 1 ;;
+    esac
+    PATH="$staged_path/bin:$PATH"
     export PATH
     luajit_is_usable || {
         echo "nupp: LuaJIT staged at $staged does not run" >&2

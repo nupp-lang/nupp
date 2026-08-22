@@ -30,6 +30,34 @@ ROCKS="$ROOT/.rocks"
 LUA_ROCKS="$LUA_ROOT/.rocks"
 LUA_PATH="$LUA_ROCKS/share/lua/5.1/?.lua;$LUA_ROCKS/share/lua/5.1/?/init.lua;${LUA_PATH:-;}"
 LUA_CPATH="$LUA_ROCKS/lib/lua/5.1/?.so;$LUA_ROCKS/lib/lua/5.1/?.dll;${LUA_CPATH:-;}"
+
+# A clean CI checkout has no development rock tree yet, but provisioning the
+# pinned toolchain has already built the exact LPeg the compiler needs. Use it
+# when it is complete without making the launcher provision anything itself.
+# That keeps help usable without a compiler and lets `.rocks` remain the normal
+# development source when it exists.
+TOOLCHAIN_PREFIX=$("$ROOT/scripts/toolchain" --prefix 2>/dev/null)
+case "$(uname -s 2>/dev/null)" in
+    MINGW*|MSYS*|CYGWIN*) TOOLCHAIN_PREFIX=$(cygpath -m "$TOOLCHAIN_PREFIX") ;;
+esac
+TOOLCHAIN_LPEG="$TOOLCHAIN_PREFIX/lpeg"
+if [ -f "$TOOLCHAIN_LPEG/.complete" ]; then
+    LUA_PATH="$TOOLCHAIN_LPEG/share/?.lua;$LUA_PATH"
+    LUA_CPATH="$TOOLCHAIN_LPEG/lib/?.so;$TOOLCHAIN_LPEG/lib/?.dll;$LUA_CPATH"
+fi
+TOOLCHAIN_LUAROCKS="$TOOLCHAIN_PREFIX/luarocks"
+if [ -f "$TOOLCHAIN_LUAROCKS/.complete" ] && [ -z "${NUPP_LUAROCKS:-}" ]; then
+    NUPP_LUAROCKS=$(cat "$TOOLCHAIN_LUAROCKS/.executable")
+    export NUPP_LUAROCKS
+    case "$(uname -s 2>/dev/null)" in
+        MINGW*|MSYS*|CYGWIN*)
+            TOOLCHAIN_LUAROCKS_BIN=$(cygpath -u "$TOOLCHAIN_LUAROCKS")
+            ;;
+        *) TOOLCHAIN_LUAROCKS_BIN="$TOOLCHAIN_LUAROCKS/bin" ;;
+    esac
+    PATH="$TOOLCHAIN_LUAROCKS_BIN:$PATH"
+    export PATH
+fi
 export LUA_PATH LUA_CPATH
 export NUPP_COMPILER_ROOT="$LUA_ROOT"
 
@@ -251,7 +279,7 @@ if [ "$needs_native" = yes ] && [ -z "${NUPP_JSON_SIMDJSON_ROOT:-}" ] \
     && [ -z "${NUPP_TOOLCHAIN_PREFIX:-}" ]; then
     if ! { command -v pkg-config >/dev/null 2>&1 \
         && pkg-config --exists simdjson luajit 2>/dev/null; }; then
-        NUPP_TOOLCHAIN_PREFIX=$("$ROOT/scripts/toolchain" --prefix) || exit 1
+        NUPP_TOOLCHAIN_PREFIX=$TOOLCHAIN_PREFIX
         export NUPP_TOOLCHAIN_PREFIX
         if [ ! -f "$NUPP_TOOLCHAIN_PREFIX/simdjson/.complete" ] \
             || [ ! -f "$NUPP_TOOLCHAIN_PREFIX/luajit/.complete" ]; then

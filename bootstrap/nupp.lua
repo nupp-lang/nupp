@@ -26092,6 +26092,7 @@ local deps = require ( "nupp.compiler.build.deps" )
 local stage = { }
 
 local join = fs . join
+local windows = package . config : sub ( 1 , 1 ) == "\\"
 
 
 
@@ -26100,7 +26101,10 @@ local join = fs . join
 
 
 local function driven ( compilerRoot , what , features ) 
-local argv = { join ( compilerRoot , "scripts/toolchain" ) , what , table . concat ( features , "," ) }
+local driver = join ( compilerRoot , "scripts/toolchain" )
+local argv = windows
+and { "sh.exe" , driver , what , table . concat ( features , "," ) }
+or { driver , what , table . concat ( features , "," ) }
 local code , text = process . capture ( argv )
 if code ~= 0 then
 return nil , text

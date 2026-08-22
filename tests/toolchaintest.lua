@@ -75,13 +75,38 @@ local function fakeCompiler(directory, name, version)
    return path
 end
 
+local function fakeWindowsUname(directory)
+   local path = directory .. "/uname"
+   write(path, [[#!/bin/sh
+if [ "$1" = "-m" ]; then
+   printf '%s\n' x86_64
+else
+   printf '%s\n' MINGW64_NT
+fi
+]])
+   assert(os.execute("chmod +x " .. quote(path)) == 0)
+end
+
+local function fakeCygpath(directory)
+   local path = directory .. "/cygpath"
+   write(path, [[#!/bin/sh
+case "$1" in
+   -m) printf 'C:%s\n' "$2" ;;
+   -u) printf '%s\n' "$NUPP_TEST_CYGPATH_U" ;;
+   *) exit 2 ;;
+esac
+]])
+   assert(os.execute("chmod +x " .. quote(path)) == 0)
+end
+
 -- Every pinned source has a version and a digest, and the digest is what the
 -- driver refuses a mismatch against. A pin with one and not the other would be
 -- fetched and compiled without anything checking what arrived.
 function M.everyPinHasAVersionAndADigest()
    local recorded = pins()
    for _, component in ipairs({
-      "LUAJIT", "LPEG", "LUAUTF8", "SIMDJSON", "CURL", "MBEDTLS", "ADA",
+      "LUAJIT", "LUAROCKS", "LPEG", "LUAUTF8", "SIMDJSON", "CURL",
+      "MBEDTLS", "ADA", "LIBUV",
    }) do
       local marker = component == "LUAJIT" and "REV" or "VERSION"
       assert(recorded[component .. "_" .. marker],
@@ -103,7 +128,7 @@ function M.everyPinnedSourceHasANotice()
    for _, notice in ipairs({
       "LuaJIT-COPYRIGHT.txt", "LPeg-LICENSE.txt", "luautf8-LICENSE.txt",
       "simdjson-LICENSE.txt", "curl-COPYING.txt", "mbedtls-LICENSE.txt",
-      "ada-LICENSE.txt",
+      "ada-LICENSE.txt", "libuv-LICENSE.txt",
    }) do
       assert(io.open(ROOT .. "/host/notices/" .. notice, "rb"),
          "host/notices/" .. notice .. " is missing")
@@ -178,6 +203,95 @@ function M.thePrefixFollowsTheToolchain()
    local repeatStatus, again = run(environment, "--prefix")
    assert(repeatStatus == 0, again)
    assert(again == one, "the same toolchain answered two prefixes")
+end
+
+-- The dependency builds use GNU make. Windows' hosted clang targets MSVC, so
+-- LuaJIT's makefile asks it to link Unix spellings such as `-lm` as MSVC
+-- libraries and the cold bootstrap stops. MinGW GCC is the compatible default;
+-- explicitly naming clang still remains the caller's choice.
+function M.windowsDefaultsToTheGnuCompilerPair()
+   local directory = temporary()
+   fakeWindowsUname(directory)
+   fakeCygpath(directory)
+   fakeCompiler(directory, "gcc", "gnu-c")
+   fakeCompiler(directory, "g++", "gnu-cxx")
+   fakeCompiler(directory, "clang", "msvc-c")
+   fakeCompiler(directory, "clang++", "msvc-cxx")
+   local environment = {
+      NUPP_TOOLCHAIN_DIR = directory .. "/cache",
+      PATH = directory .. ":" .. os.getenv("PATH"),
+   }
+
+   local status, automatic = run(environment, "--prefix")
+   assert(status == 0, automatic)
+
+   environment.NUPP_CC = "gcc"
+   environment.NUPP_CXX = "g++"
+   local gnuStatus, gnu = run(environment, "--prefix")
+   assert(gnuStatus == 0, gnu)
+   assert(automatic == gnu, "Windows did not select the MinGW compiler pair")
+
+   environment.NUPP_CC = "clang"
+   environment.NUPP_CXX = "clang++"
+   local clangStatus, msvc = run(environment, "--prefix")
+   assert(clangStatus == 0, msvc)
+   assert(automatic ~= msvc, "Windows selected the MSVC-targeting clang pair")
+end
+
+-- A path answered by Git Bash can be handed directly to the native compiler or
+-- LuaJIT. Those processes do not understand its `/c/...` mount spelling.
+function M.windowsAnswersNativePaths()
+   local directory = temporary()
+   fakeWindowsUname(directory)
+   fakeCygpath(directory)
+   fakeCompiler(directory, "gcc", "gnu-c")
+   fakeCompiler(directory, "g++", "gnu-cxx")
+
+   local status, prefix = run({
+      NUPP_TOOLCHAIN_DIR = directory .. "/cache",
+      PATH = directory .. ":" .. os.getenv("PATH"),
+   }, "--prefix")
+
+   assert(status == 0, prefix)
+   assert(prefix:match("^C:/"), "Windows answered an MSYS path: " .. prefix)
+end
+
+-- The native spelling belongs in compiler arguments, but not in the colon-
+-- separated PATH assembled by Git Bash. The selector converts that one use
+-- back before looking for the staged interpreter.
+function M.windowsNativeLuaJITPathIsConvertedForTheShellPath()
+   local directory = temporary()
+   local oldBin = directory .. "/old-bin"
+   local staged = directory .. "/staged"
+   local fakeRoot = directory .. "/root"
+   assert(os.execute(("mkdir -p %s %s %s")
+      :format(quote(oldBin), quote(staged .. "/bin"),
+         quote(fakeRoot .. "/scripts"))) == 0)
+   fakeWindowsUname(oldBin)
+   fakeCygpath(oldBin)
+   write(oldBin .. "/luajit", [[#!/bin/sh
+echo 'LuaJIT 2.1.1'
+]])
+   write(staged .. "/bin/luajit", [[#!/bin/sh
+echo 'LuaJIT 2.1.1784535650'
+]])
+   write(fakeRoot .. "/scripts/toolchain", [[#!/bin/sh
+printf '%s\n' 'C:/staged'
+]])
+   assert(os.execute("chmod +x " .. quote(oldBin .. "/luajit") .. " "
+      .. quote(staged .. "/bin/luajit") .. " "
+      .. quote(fakeRoot .. "/scripts/toolchain")) == 0)
+
+   local command = ("env PATH=%s NUPP_TEST_CYGPATH_U=%s sh -c %s")
+      :format(quote(oldBin .. ":" .. os.getenv("PATH")), quote(staged),
+         quote(". " .. quote(ROOT .. "/scripts/luajit.sh")
+            .. "; if select_luajit " .. quote(fakeRoot)
+            .. "; then command -v luajit; else exit 1; fi"))
+   local pipe = assert(io.popen(command))
+   local selected = pipe:read("*a")
+   pipe:close()
+   assert(selected:match("^" .. staged:gsub("([^%w])", "%%%1") .. "/bin/luajit"),
+      "the native path was split in PATH: " .. selected)
 end
 
 -- `NUPP_NATIVE_CC` and `NUPP_JSON_CC` named the C and the C++ compiler when each

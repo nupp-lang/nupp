@@ -3,7 +3,8 @@ set -euo pipefail
 
 script_dir=$(cd "$(dirname "$0")" && pwd)
 repo=$(cd "$script_dir/../.." && pwd)
-lua_source=${NUPP_LUA51_SOURCE:-/tmp/nupp-portable-compiler/lua-5.1.5/src}
+temporary=${RUNNER_TEMP:-/tmp}
+lua_source=${NUPP_LUA51_SOURCE:-$temporary/nupp-portable-compiler/lua-5.1.5/src}
 emcc_command=${NUPP_WASM_CC:-${EMCC:-emcc}}
 chrome_command=${CHROME:-google-chrome}
 port=${NUPP_BROWSER_TEST_PORT:-8791}

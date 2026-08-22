@@ -17,6 +17,7 @@ local deps = require("nupp.compiler.build.deps")
 local stage = {}
 
 local join = fs.join
+local windows = package.config:sub(1, 1) == "\\"
 
 --- Runs the toolchain driver and answers the path it printed.
 ---
@@ -25,7 +26,16 @@ local join = fs.join
 --- goes to standard error and its answer to standard output; the capture merges
 --- them, so the answer is the last line that says anything.
 local function driven(compilerRoot: string, what: string, features: {string}): (string?, string)
-    local argv = {join(compilerRoot, "scripts/toolchain"), what, table.concat(features, ",")}
+    local driver = join(compilerRoot, "scripts/toolchain")
+    -- os.execute reaches cmd.exe on Windows, which does not interpret a
+    -- shebang. The driver belongs to the Git Bash environment used to launch
+    -- Nupp, so name its shell explicitly there.
+    local argv = windows and {
+        "sh.exe",
+        driver,
+        what,
+        table.concat(features, ",")
+    } or {driver, what, table.concat(features, ",")}
     local code, text = process.capture(argv)
     if code ~= 0 then
         return nil, text

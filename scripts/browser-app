@@ -11,7 +11,8 @@ project=$1
 target=${2:-app}
 output=${3:-$project/dist/browser}
 runtime=${NUPP_BROWSER_RUNTIME:-$root/build/wasm-app-runtime}
-lua_source=${NUPP_LUA51_SOURCE:-/tmp/nupp-portable-compiler/lua-5.1.5/src}
+temporary=${RUNNER_TEMP:-/tmp}
+lua_source=${NUPP_LUA51_SOURCE:-$temporary/nupp-portable-compiler/lua-5.1.5/src}
 
 exec node "$root/runtime/wasm/package-browser-app.mjs" \
     --project "$project" \
