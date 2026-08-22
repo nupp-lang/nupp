@@ -18,6 +18,7 @@ const PORTED: &[(&str, &[&str])] = &[
     ("FILES", &["files.c", "glob.c", "fslane.c"]),
     ("PATH", &["path.c"]),
     ("SHA256", &["digest.c"]),
+    ("URI", &["uri.c"]),
     ("UUID", &["digest.c"]),
 ];
 

@@ -4,14 +4,10 @@
 mod http;
 
 use std::ffi::c_char;
-#[cfg(any(feature = "uri", feature = "process", feature = "http"))]
+#[cfg(any(feature = "process", feature = "http"))]
 use std::ffi::CString;
-#[cfg(any(feature = "uri", feature = "process", feature = "http"))]
+#[cfg(feature = "process")]
 use std::ptr;
-#[cfg(feature = "uri")]
-use std::slice;
-#[cfg(feature = "uri")]
-use std::str;
 
 /// The public name for one C entry point, forwarding into it.
 ///
@@ -41,6 +37,8 @@ mod files;
 mod digest;
 #[cfg(feature = "path")]
 mod path;
+#[cfg(feature = "uri")]
+mod uri;
 
 // The shared surface, which lives in `c/common.c`.
 //
@@ -67,7 +65,7 @@ pub struct NuppBytes {
     _private: [u8; 0],
 }
 
-#[cfg(any(feature = "uri", feature = "process", feature = "http"))]
+#[cfg(any(feature = "process", feature = "http"))]
 fn set_error(error: impl ToString) {
     let message = error.to_string().replace('\0', "\\0");
     let text = CString::new(message).expect("NUL bytes were replaced");
@@ -146,6 +144,19 @@ pub fn retain_c_abi_exports() {
         path::nuppPathIsAbsolute,
     );
 
+    #[cfg(feature = "uri")]
+    retain!(
+        uri::nuppUriParse,
+        uri::nuppUriPart,
+        uri::nuppUriPort,
+        uri::nuppUriWithText,
+        uri::nuppUriWithPort,
+        uri::nuppUriConcatPath,
+        uri::nuppUriResolve,
+        uri::nuppUriWithEndpoint,
+        uri::nuppUriDestroy,
+    );
+
     #[cfg(feature = "sha256")]
     retain!(digest::nuppSha256);
 
@@ -178,269 +189,6 @@ pub fn retain_c_abi_exports() {
     );
 }
 
-#[cfg(feature = "uri")]
-unsafe fn text<'a>(data: *const u8, length: usize, what: &str) -> Result<&'a str, String> {
-    if data.is_null() && length != 0 {
-        return Err(format!("{what} is null"));
-    }
-    let bytes = if length == 0 {
-        &[]
-    } else {
-        unsafe { slice::from_raw_parts(data, length) }
-    };
-    let value = str::from_utf8(bytes).map_err(|_| format!("{what} is not valid UTF-8"))?;
-    if value.as_bytes().contains(&0) {
-        return Err(format!("{what} contains a NUL byte"));
-    }
-    Ok(value)
-}
-
-#[cfg(feature = "uri")]
-pub(crate) mod uri {
-    use super::*;
-    use url::Url;
-    pub(crate) struct NuppUri {
-        url: Url,
-    }
-    fn output(url: Url) -> *mut NuppUri {
-        Box::into_raw(Box::new(NuppUri { url }))
-    }
-    fn fail(error: impl ToString) -> *mut NuppUri {
-        set_error(error);
-        ptr::null_mut()
-    }
-    pub(crate) unsafe fn clone_uri(uri: *const NuppUri) -> Result<Url, String> {
-        if uri.is_null() {
-            Err("URI is null".to_owned())
-        } else {
-            Ok(unsafe { &*uri }.url.clone())
-        }
-    }
-    fn part(value: Option<&str>, length: *mut usize) -> *const u8 {
-        match value {
-            Some(v) => {
-                if !length.is_null() {
-                    unsafe { *length = v.len() }
-                }
-                v.as_ptr()
-            }
-            None => {
-                if !length.is_null() {
-                    unsafe { *length = 0 }
-                }
-                ptr::null()
-            }
-        }
-    }
-    fn authority(url: &Url) -> Option<&str> {
-        let s = url.as_str();
-        let a = url.scheme().len() + 1;
-        let rest = s.get(a..)?;
-        if !rest.starts_with("//") {
-            return None;
-        }
-        let start = a + 2;
-        let tail = s.get(start..)?;
-        let length = tail.find(['/', '?', '#']).unwrap_or(tail.len());
-        s.get(start..start + length)
-    }
-    #[no_mangle]
-    pub unsafe extern "C" fn nuppUriParse(data: *const u8, length: usize) -> *mut NuppUri {
-        let s = match unsafe { text(data, length, "URI") } {
-            Ok(v) => v,
-            Err(e) => return fail(e),
-        };
-        match Url::parse(s) {
-            Ok(v) => output(v),
-            Err(e) => fail(e),
-        }
-    }
-    unsafe fn get(uri: *const NuppUri, kind: u32, length: *mut usize) -> *const u8 {
-        if uri.is_null() {
-            return part(None, length);
-        }
-        let u = &unsafe { &*uri }.url;
-        match kind {
-            0 => part(Some(u.as_str()), length),
-            1 => part(Some(u.scheme()), length),
-            2 => part(authority(u), length),
-            3 => part(Some(u.username()), length),
-            4 => part(u.password(), length),
-            5 => part(u.host_str(), length),
-            6 => part(Some(u.path()), length),
-            7 => part(u.query(), length),
-            _ => part(u.fragment(), length),
-        }
-    }
-    #[no_mangle]
-    pub unsafe extern "C" fn nuppUriPart(
-        uri: *const NuppUri,
-        kind: u32,
-        length: *mut usize,
-    ) -> *const u8 {
-        unsafe { get(uri, kind, length) }
-    }
-    #[no_mangle]
-    pub unsafe extern "C" fn nuppUriPort(uri: *const NuppUri, port: *mut u16) -> bool {
-        if uri.is_null() {
-            return false;
-        }
-        let Some(v) = unsafe { &*uri }.url.port() else {
-            return false;
-        };
-        if !port.is_null() {
-            unsafe { *port = v }
-        }
-        true
-    }
-    #[no_mangle]
-    pub unsafe extern "C" fn nuppUriWithText(
-        uri: *const NuppUri,
-        kind: u32,
-        value: *const u8,
-        length: usize,
-        present: bool,
-    ) -> *mut NuppUri {
-        let mut u = match unsafe { clone_uri(uri) } {
-            Ok(v) => v,
-            Err(e) => return fail(e),
-        };
-        let v = match unsafe { text(value, length, "URI component") } {
-            Ok(v) => v,
-            Err(e) => return fail(e),
-        };
-        let result = match kind {
-            0 => u
-                .set_scheme(v)
-                .map_err(|_| "URI scheme is invalid".to_owned()),
-            1 => {
-                let (a, b) = if !present {
-                    ("", None)
-                } else if let Some((a, b)) = v.split_once(':') {
-                    (a, Some(b))
-                } else {
-                    (v, None)
-                };
-                u.set_username(a)
-                    .map_err(|_| "URI user information is invalid".to_owned())
-                    .and_then(|_| {
-                        u.set_password(b)
-                            .map_err(|_| "URI user information is invalid".to_owned())
-                    })
-            }
-            2 => u.set_host(present.then_some(v)).map_err(|e| e.to_string()),
-            3 => {
-                u.set_path(v);
-                Ok(())
-            }
-            4 => {
-                u.set_query(present.then_some(v));
-                Ok(())
-            }
-            _ => {
-                u.set_fragment(present.then_some(v));
-                Ok(())
-            }
-        };
-        match result {
-            Ok(()) => output(u),
-            Err(e) => fail(e),
-        }
-    }
-    #[no_mangle]
-    pub unsafe extern "C" fn nuppUriWithPort(uri: *const NuppUri, port: i32) -> *mut NuppUri {
-        let mut u = match unsafe { clone_uri(uri) } {
-            Ok(v) => v,
-            Err(e) => return fail(e),
-        };
-        if !(-1..=u16::MAX as i32).contains(&port) {
-            return fail("URI port must be from 0 through 65535, or -1 for none");
-        }
-        match u.set_port(if port < 0 { None } else { Some(port as u16) }) {
-            Ok(()) => output(u),
-            Err(()) => fail("URI port is invalid for this scheme"),
-        }
-    }
-    #[no_mangle]
-    pub unsafe extern "C" fn nuppUriConcatPath(
-        uri: *const NuppUri,
-        suffix: *const u8,
-        length: usize,
-    ) -> *mut NuppUri {
-        let mut u = match unsafe { clone_uri(uri) } {
-            Ok(v) => v,
-            Err(e) => return fail(e),
-        };
-        let s = match unsafe { text(suffix, length, "URI path") } {
-            Ok(v) => v,
-            Err(e) => return fail(e),
-        };
-        let mut p = u.path().to_owned();
-        if p.ends_with('/') && s.starts_with('/') {
-            p.push_str(&s[1..])
-        } else if !p.ends_with('/') && !s.starts_with('/') {
-            p.push('/');
-            p.push_str(s)
-        } else {
-            p.push_str(s)
-        }
-        u.set_path(&p);
-        output(u)
-    }
-    #[no_mangle]
-    pub unsafe extern "C" fn nuppUriResolve(
-        uri: *const NuppUri,
-        reference: *const u8,
-        length: usize,
-    ) -> *mut NuppUri {
-        let u = match unsafe { clone_uri(uri) } {
-            Ok(v) => v,
-            Err(e) => return fail(e),
-        };
-        let r = match unsafe { text(reference, length, "URI reference") } {
-            Ok(v) => v,
-            Err(e) => return fail(e),
-        };
-        match u.join(r) {
-            Ok(v) => output(v),
-            Err(e) => fail(e),
-        }
-    }
-    #[no_mangle]
-    pub unsafe extern "C" fn nuppUriWithEndpoint(
-        uri: *const NuppUri,
-        endpoint: *const NuppUri,
-    ) -> *mut NuppUri {
-        let current = match unsafe { clone_uri(uri) } {
-            Ok(v) => v,
-            Err(e) => return fail(e),
-        };
-        let mut e = match unsafe { clone_uri(endpoint) } {
-            Ok(v) => v,
-            Err(e) => return fail(e),
-        };
-        let mut p = e.path().to_owned();
-        let s = current.path();
-        if p.ends_with('/') && s.starts_with('/') {
-            p.push_str(&s[1..])
-        } else if !p.ends_with('/') && !s.starts_with('/') {
-            p.push('/');
-            p.push_str(s)
-        } else {
-            p.push_str(s)
-        }
-        e.set_path(&p);
-        e.set_query(current.query());
-        e.set_fragment(current.fragment());
-        output(e)
-    }
-    #[no_mangle]
-    pub unsafe extern "C" fn nuppUriDestroy(uri: *mut NuppUri) {
-        if !uri.is_null() {
-            drop(unsafe { Box::from_raw(uri) })
-        }
-    }
-}
 
 /// Child processes: spawning them, moving bytes to and from them, and reaping them.
 ///

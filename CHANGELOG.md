@@ -2,6 +2,17 @@
 
 ## Unreleased
 
+- Reimplement URI parsing in C. A URI is held as one normalized serialization
+  plus the offsets of its parts, so reading a component slices storage the
+  handle already owns; deriving one takes the parts apart, replaces the one that
+  changed, writes the result out and parses it again, so one grammar decides
+  what is valid. `tests/uritest.lua` records the answers -- every component of
+  seventeen URIs, six malformed ones and their reasons, and every derivation,
+  concatenation, resolution and rerooting -- against the implementation this
+  replaces. The `url` crate leaves the dependency list for everything but the
+  HTTP transport, which still parses the handle's own text until it too is
+  ported.
+
 - Reimplement paths, SHA-256 and the UUID generators in C. `nupp.io.path` reads
   a path as components rather than by string arithmetic, and answers what it
   answered before down to the spelling: a path rebuilt is normalised, one sliced

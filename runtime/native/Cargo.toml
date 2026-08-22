@@ -12,6 +12,7 @@ default = []
 files = []
 http = [
     "dep:bytes",
+    "dep:url",
     "dep:reqwest",
     "dep:rustls",
     "dep:tokio",
@@ -21,7 +22,7 @@ http = [
 ]
 process = ["dep:libc", "dep:windows-sys"]
 path = []
-uri = ["dep:url"]
+uri = []
 uuid = []
 sha256 = []
 

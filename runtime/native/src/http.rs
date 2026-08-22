@@ -28,7 +28,33 @@ use tokio_stream::Stream;
 use tokio_util::io::ReaderStream;
 
 use super::set_error;
-use super::uri::{clone_uri, NuppUri};
+use std::ffi::c_void;
+
+/// One parsed URI, owned by the C provider.
+///
+/// The transport still parses with the `url` crate, so it reads the handle's
+/// normalised text back out and parses that. Both sides then agree by
+/// construction, and the reparse costs one allocation per request against a
+/// network round trip. It goes when the transport does.
+type NuppUri = c_void;
+
+extern "C" {
+    fn nuppcUriPart(uri: *const c_void, kind: u32, length: *mut usize) -> *const u8;
+}
+
+fn clone_uri(uri: *const NuppUri) -> Result<Url, String> {
+    if uri.is_null() {
+        return Err("URI is null".to_owned());
+    }
+    let mut length = 0usize;
+    let data = unsafe { nuppcUriPart(uri, 0, &mut length) };
+    if data.is_null() {
+        return Err("URI is null".to_owned());
+    }
+    let text = std::str::from_utf8(unsafe { std::slice::from_raw_parts(data, length) })
+        .map_err(|_| "URI is not valid UTF-8".to_owned())?;
+    Url::parse(text).map_err(|error| error.to_string())
+}
 
 const MAX_HEADER_BYTES: usize = 256 * 1024;
 const RESPONSE_WINDOW_BYTES: usize = 1024 * 1024;
@@ -542,7 +568,7 @@ unsafe fn own_request(
     request: &NuppHttpRequest,
     transfer: &Arc<Transfer>,
 ) -> Result<OwnedRequest, String> {
-    let url = unsafe { clone_uri(request.uri) }?;
+    let url = clone_uri(request.uri)?;
     if url.scheme() != "http" && url.scheme() != "https" {
         return Err("request URL must use http or https".to_owned());
     }

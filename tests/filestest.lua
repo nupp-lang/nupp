@@ -1,9 +1,10 @@
--- `nupp.io.files` against a real filesystem, through the real Rust provider.
+-- `nupp.io.files` against a real filesystem, through the real provider.
 --
 -- The launcher's provider is reused when available, and otherwise one is built for
 -- the suite. It is reached the way a generated program reaches it, so what is proved
--- here is the binding and ABI rather than a mock of either. Cargo is the one
--- prerequisite; without it the fallback skips rather than failing for another reason.
+-- here is the binding and ABI rather than a mock of either. Building one is the
+-- prerequisite; without it the fallback skips rather than failing for another
+-- reason.
 local test = require("assert")
 local native = require("nupp.compiler.native")
 local stdlib = require("nupp.compiler.stdlib")
