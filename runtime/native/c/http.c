@@ -16,7 +16,9 @@
  * another by parking a task and pumping this from its frame.
  */
 
-#include "platform.h"
+#include "nupp_native.h"
+
+#include <uv.h>
 
 #include <curl/curl.h>
 
@@ -135,7 +137,7 @@ typedef struct NuppHttpTransfer {
     struct curl_slist *requestHeaders;
     char *url;
 
-    NuppMutex *guard;
+    uv_mutex_t guard;
 
     uint32_t head;
     uint16_t status;
@@ -178,8 +180,9 @@ struct NuppHttpClient {
     atomic_int references;
 
     CURLM *multi;
-    NuppMutex *guard;
-    NuppCondition *arrived;
+    uv_mutex_t guard;
+    uv_cond_t arrived;
+    uv_thread_t thread;
 
     NuppHttpTransfer **incoming;
     size_t incomingCount;
@@ -260,13 +263,13 @@ static void raise_tokens(NuppHttpTransfer *transfer, uint32_t tokens) {
     if (wasQueued) {
         return;
     }
-    nupp_mutex_lock(client->guard);
+    uv_mutex_lock(&client->guard);
     if (client->readyCount == client->readyCapacity) {
         size_t next = client->readyCapacity < 64 ? 64 : client->readyCapacity * 2;
         NuppHttpTransfer **grown = malloc(next * sizeof *grown);
         size_t at;
         if (grown == NULL) {
-            nupp_mutex_unlock(client->guard);
+            uv_mutex_unlock(&client->guard);
             atomic_store(&transfer->queued, false);
             return;
         }
@@ -282,8 +285,8 @@ static void raise_tokens(NuppHttpTransfer *transfer, uint32_t tokens) {
     client->readyQueue[(client->readyHead + client->readyCount) % client->readyCapacity] =
         transfer;
     client->readyCount++;
-    nupp_condition_broadcast(client->arrived);
-    nupp_mutex_unlock(client->guard);
+    uv_cond_broadcast(&client->arrived);
+    uv_mutex_unlock(&client->guard);
 }
 
 /* --- libcurl callbacks, all on the reactor thread ----------------------- */
@@ -296,7 +299,7 @@ static size_t on_header(char *buffer, size_t size, size_t count, void *raw) {
     size_t length = size * count;
     bool complete = false;
 
-    nupp_mutex_lock(transfer->guard);
+    uv_mutex_lock(&transfer->guard);
     if (length <= 2 && (length == 0 || buffer[0] == '\r' || buffer[0] == '\n')) {
         complete = true;
     } else if (length > 5 && strncmp(buffer, "HTTP/", 5) == 0) {
@@ -309,12 +312,12 @@ static size_t on_header(char *buffer, size_t size, size_t count, void *raw) {
         if (transfer->rawHeaders.length > MAX_HEADER_BYTES) {
             record(transfer, "response headers exceeded 262144 bytes");
             transfer->head = HEAD_FAILED;
-            nupp_mutex_unlock(transfer->guard);
+            uv_mutex_unlock(&transfer->guard);
             raise_tokens(transfer, TOKEN_HEADERS | TOKEN_FAILED);
             return 0;
         }
     }
-    nupp_mutex_unlock(transfer->guard);
+    uv_mutex_unlock(&transfer->guard);
     (void)complete;
     return length;
 }
@@ -449,24 +452,24 @@ static size_t on_body(char *buffer, size_t size, size_t count, void *raw) {
     size_t length = size * count;
     Segment *segment;
 
-    nupp_mutex_lock(transfer->guard);
+    uv_mutex_lock(&transfer->guard);
     if (transfer->maxBytes != 0 && transfer->received + length > transfer->maxBytes) {
         record(transfer, "HTTP response exceeded maxBytes");
         transfer->bodyTerminal = BODY_FAILED;
-        nupp_mutex_unlock(transfer->guard);
+        uv_mutex_unlock(&transfer->guard);
         raise_tokens(transfer, TOKEN_BODY | TOKEN_FAILED);
         return 0;
     }
     if (transfer->buffered >= RESPONSE_WINDOW_BYTES) {
         transfer->writePaused = true;
-        nupp_mutex_unlock(transfer->guard);
+        uv_mutex_unlock(&transfer->guard);
         return CURL_WRITEFUNC_PAUSE;
     }
     segment = malloc(sizeof *segment + length);
     if (segment == NULL) {
         record(transfer, "out of memory");
         transfer->bodyTerminal = BODY_FAILED;
-        nupp_mutex_unlock(transfer->guard);
+        uv_mutex_unlock(&transfer->guard);
         raise_tokens(transfer, TOKEN_BODY | TOKEN_FAILED);
         return 0;
     }
@@ -482,7 +485,7 @@ static size_t on_body(char *buffer, size_t size, size_t count, void *raw) {
     transfer->bodyTail = segment;
     transfer->buffered += length;
     transfer->received += length;
-    nupp_mutex_unlock(transfer->guard);
+    uv_mutex_unlock(&transfer->guard);
     raise_tokens(transfer, TOKEN_BODY);
     return length;
 }
@@ -498,14 +501,14 @@ static size_t on_read(char *buffer, size_t size, size_t count, void *raw) {
     if (transfer->uploadFile != NULL) {
         return fread(buffer, 1, room, transfer->uploadFile);
     }
-    nupp_mutex_lock(transfer->guard);
+    uv_mutex_lock(&transfer->guard);
     if (transfer->uploadOffset == transfer->uploadLength) {
         if (transfer->uploadFinished) {
-            nupp_mutex_unlock(transfer->guard);
+            uv_mutex_unlock(&transfer->guard);
             return 0;
         }
         transfer->readPaused = true;
-        nupp_mutex_unlock(transfer->guard);
+        uv_mutex_unlock(&transfer->guard);
         return CURL_READFUNC_PAUSE;
     }
     moved = transfer->uploadLength - transfer->uploadOffset;
@@ -518,7 +521,7 @@ static size_t on_read(char *buffer, size_t size, size_t count, void *raw) {
         transfer->uploadOffset = 0;
         transfer->uploadLength = 0;
     }
-    nupp_mutex_unlock(transfer->guard);
+    uv_mutex_unlock(&transfer->guard);
     raise_tokens(transfer, TOKEN_UPLOAD_SPACE);
     return moved;
 }
@@ -527,7 +530,7 @@ static size_t on_read(char *buffer, size_t size, size_t count, void *raw) {
 
 static void settle_transfer(NuppHttpTransfer *transfer, CURLcode result) {
     uint32_t tokens = TOKEN_BODY;
-    nupp_mutex_lock(transfer->guard);
+    uv_mutex_lock(&transfer->guard);
     transfer->finished = true;
     if (result == CURLE_OK) {
         long status = 0;
@@ -565,7 +568,7 @@ static void settle_transfer(NuppHttpTransfer *transfer, CURLcode result) {
         }
         tokens |= TOKEN_FAILED;
     }
-    nupp_mutex_unlock(transfer->guard);
+    uv_mutex_unlock(&transfer->guard);
     raise_tokens(transfer, tokens | TOKEN_UPLOAD_SPACE);
 }
 
@@ -580,7 +583,7 @@ static void publish_head(NuppHttpTransfer *transfer) {
     char *effective = NULL;
     bool ready = false;
 
-    nupp_mutex_lock(transfer->guard);
+    uv_mutex_lock(&transfer->guard);
     if (transfer->head == HEAD_PENDING) {
         curl_easy_getinfo(transfer->easy, CURLINFO_RESPONSE_CODE, &status);
         curl_easy_getinfo(transfer->easy, CURLINFO_HTTP_VERSION, &version);
@@ -600,7 +603,7 @@ static void publish_head(NuppHttpTransfer *transfer) {
         }
         ready = true;
     }
-    nupp_mutex_unlock(transfer->guard);
+    uv_mutex_unlock(&transfer->guard);
     if (ready) {
         raise_tokens(transfer, TOKEN_HEADERS);
     }
@@ -625,24 +628,24 @@ static void reactor(void *raw) {
         size_t arrivalCount = 0;
         bool stopping;
 
-        nupp_mutex_lock(client->guard);
+        uv_mutex_lock(&client->guard);
         stopping = client->stopping;
         arrivals = client->incoming;
         arrivalCount = client->incomingCount;
         client->incoming = NULL;
         client->incomingCount = 0;
         client->incomingCapacity = 0;
-        nupp_mutex_unlock(client->guard);
+        uv_mutex_unlock(&client->guard);
 
         for (at = 0; at < arrivalCount; at++) {
             NuppHttpTransfer *transfer = arrivals[at];
             if (curl_multi_add_handle(client->multi, transfer->easy) != CURLM_OK) {
-                nupp_mutex_lock(transfer->guard);
+                uv_mutex_lock(&transfer->guard);
                 record(transfer, "the HTTP client could not start the transfer");
                 transfer->head = HEAD_FAILED;
                 transfer->bodyTerminal = BODY_FAILED;
                 transfer->finished = true;
-                nupp_mutex_unlock(transfer->guard);
+                uv_mutex_unlock(&transfer->guard);
                 raise_tokens(transfer, TOKEN_HEADERS | TOKEN_BODY | TOKEN_FAILED);
                 transfer_release(transfer);
                 continue;
@@ -671,20 +674,20 @@ static void reactor(void *raw) {
             NuppHttpTransfer *transfer = client->attached[at];
             bool resume = false;
             bool cancelled;
-            nupp_mutex_lock(transfer->guard);
+            uv_mutex_lock(&transfer->guard);
             resume = transfer->wantsResume;
             transfer->wantsResume = false;
             cancelled = transfer->cancelled;
-            nupp_mutex_unlock(transfer->guard);
+            uv_mutex_unlock(&transfer->guard);
             if (resume && !cancelled) {
                 curl_easy_pause(transfer->easy, CURLPAUSE_CONT);
             }
             if (cancelled && transfer->added) {
                 curl_multi_remove_handle(client->multi, transfer->easy);
                 transfer->added = false;
-                nupp_mutex_lock(transfer->guard);
+                uv_mutex_lock(&transfer->guard);
                 transfer->finished = true;
-                nupp_mutex_unlock(transfer->guard);
+                uv_mutex_unlock(&transfer->guard);
                 raise_tokens(transfer, TOKEN_BODY | TOKEN_UPLOAD_SPACE);
                 client->attached[at] = client->attached[--client->attachedCount];
                 at--;
@@ -734,12 +737,12 @@ static void reactor(void *raw) {
                     curl_multi_remove_handle(client->multi, transfer->easy);
                     transfer->added = false;
                 }
-                nupp_mutex_lock(transfer->guard);
+                uv_mutex_lock(&transfer->guard);
                 transfer->finished = true;
                 if (transfer->bodyTerminal == BODY_PENDING) {
                     transfer->bodyTerminal = BODY_CLOSED;
                 }
-                nupp_mutex_unlock(transfer->guard);
+                uv_mutex_unlock(&transfer->guard);
                 raise_tokens(transfer, TOKEN_BODY | TOKEN_UPLOAD_SPACE | TOKEN_HEADERS);
                 transfer_release(transfer);
             }
@@ -780,7 +783,7 @@ static void transfer_free(NuppHttpTransfer *transfer) {
         fclose(transfer->uploadFile);
     }
     nupp_buffer_free(&transfer->rawHeaders);
-    nupp_mutex_free(transfer->guard);
+    uv_mutex_destroy(&transfer->guard);
     free(transfer->url);
     free(transfer->effectiveUrl);
     free(transfer->headers);
@@ -807,8 +810,8 @@ static void client_free(NuppHttpClient *client) {
     if (client->multi != NULL) {
         curl_multi_cleanup(client->multi);
     }
-    nupp_mutex_free(client->guard);
-    nupp_condition_free(client->arrived);
+    uv_mutex_destroy(&client->guard);
+    uv_cond_destroy(&client->arrived);
     free(client->incoming);
     free(client->readyQueue);
     free(client->attached);
@@ -846,10 +849,19 @@ NUPP_EXPORT NuppHttpClient *nuppHttpClientCreate(const NuppHttpClientOptions *op
         return NULL;
     }
     atomic_init(&client->references, 1);
+    if (uv_mutex_init(&client->guard) != 0) {
+        free(client);
+        nupp_fail("cannot create an HTTP client");
+        return NULL;
+    }
+    if (uv_cond_init(&client->arrived) != 0) {
+        uv_mutex_destroy(&client->guard);
+        free(client);
+        nupp_fail("cannot create an HTTP client");
+        return NULL;
+    }
     client->multi = curl_multi_init();
-    client->guard = nupp_mutex_new();
-    client->arrived = nupp_condition_new();
-    if (client->multi == NULL || client->guard == NULL || client->arrived == NULL) {
+    if (client->multi == NULL) {
         client_free(client);
         nupp_fail("cannot create an HTTP client");
         return NULL;
@@ -881,7 +893,7 @@ NUPP_EXPORT NuppHttpClient *nuppHttpClientCreate(const NuppHttpClientOptions *op
 
     /* The reactor holds a reference of its own, released when it stops. */
     atomic_fetch_add(&client->references, 1);
-    if (!nupp_thread_spawn(reactor, client)) {
+    if (uv_thread_create(&client->thread, reactor, client) != 0) {
         atomic_fetch_sub(&client->references, 1);
         client_free(client);
         return NULL;
@@ -894,9 +906,9 @@ NUPP_EXPORT void nuppHttpClientDestroy(NuppHttpClient *client) {
     if (client == NULL) {
         return;
     }
-    nupp_mutex_lock(client->guard);
+    uv_mutex_lock(&client->guard);
     client->stopping = true;
-    nupp_mutex_unlock(client->guard);
+    uv_mutex_unlock(&client->guard);
     nudge(client);
     /* Whatever is still queued is the caller's to release; this hands back only
      * the handle they were given. */
@@ -908,9 +920,9 @@ NUPP_EXPORT size_t nuppHttpClientPending(const NuppHttpClient *client) {
     if (client == NULL) {
         return 0;
     }
-    nupp_mutex_lock(((NuppHttpClient *)client)->guard);
+    uv_mutex_lock(&((NuppHttpClient *)client)->guard);
     active = client->active;
-    nupp_mutex_unlock(((NuppHttpClient *)client)->guard);
+    uv_mutex_unlock(&((NuppHttpClient *)client)->guard);
     return active;
 }
 
@@ -966,34 +978,37 @@ NUPP_EXPORT const NuppHttpTransfer *nuppHttpClientSend(
         nupp_fail("HTTP client or request is null");
         return NULL;
     }
-    nupp_mutex_lock(client->guard);
+    uv_mutex_lock(&client->guard);
     if (client->stopping) {
-        nupp_mutex_unlock(client->guard);
+        uv_mutex_unlock(&client->guard);
         nupp_fail("the HTTP client is closed");
         return NULL;
     }
     if (client->maxPendingRequests != 0 && client->active >= client->maxPendingRequests) {
-        nupp_mutex_unlock(client->guard);
+        uv_mutex_unlock(&client->guard);
         nupp_fail("the HTTP client has reached maxPendingRequests");
         return NULL;
     }
     client->active++;
-    nupp_mutex_unlock(client->guard);
+    uv_mutex_unlock(&client->guard);
 
     url = nuppUriPart(request->uri, 0, &urlLength);
     if (url == NULL) {
-        nupp_mutex_lock(client->guard);
+        uv_mutex_lock(&client->guard);
         client->active--;
-        nupp_mutex_unlock(client->guard);
+        uv_mutex_unlock(&client->guard);
         nupp_fail("URI is null");
         return NULL;
     }
 
     transfer = calloc(1, sizeof *transfer);
-    if (transfer == NULL) {
-        nupp_mutex_lock(client->guard);
+    /* The transfer's lock comes up before it takes anything it would have to
+     * give back, so a refusal from here on has one shape. */
+    if (transfer == NULL || uv_mutex_init(&transfer->guard) != 0) {
+        free(transfer);
+        uv_mutex_lock(&client->guard);
         client->active--;
-        nupp_mutex_unlock(client->guard);
+        uv_mutex_unlock(&client->guard);
         nupp_fail("out of memory");
         return NULL;
     }
@@ -1004,14 +1019,13 @@ NUPP_EXPORT const NuppHttpTransfer *nuppHttpClientSend(
     atomic_init(&transfer->retired, false);
     transfer->client = client;
     atomic_fetch_add(&client->references, 1);
-    transfer->guard = nupp_mutex_new();
     transfer->easy = curl_easy_init();
     transfer->url = own(url, urlLength);
     transfer->head = HEAD_PENDING;
     transfer->bodyTerminal = BODY_PENDING;
     transfer->maxBytes = request->maxBytes;
     nupp_buffer_init(&transfer->rawHeaders);
-    if (transfer->guard == NULL || transfer->easy == NULL || transfer->url == NULL) {
+    if (transfer->easy == NULL || transfer->url == NULL) {
         goto refuse;
     }
 
@@ -1138,26 +1152,26 @@ NUPP_EXPORT const NuppHttpTransfer *nuppHttpClientSend(
             break;
     }
 
-    nupp_mutex_lock(client->guard);
+    uv_mutex_lock(&client->guard);
     if (client->incomingCount == client->incomingCapacity) {
         size_t next = client->incomingCapacity < 16 ? 16 : client->incomingCapacity * 2;
         NuppHttpTransfer **grown = realloc(client->incoming, next * sizeof *grown);
         if (grown == NULL) {
-            nupp_mutex_unlock(client->guard);
+            uv_mutex_unlock(&client->guard);
             goto refuse;
         }
         client->incoming = grown;
         client->incomingCapacity = next;
     }
     client->incoming[client->incomingCount++] = transfer;
-    nupp_mutex_unlock(client->guard);
+    uv_mutex_unlock(&client->guard);
     nudge(client);
     return transfer;
 
 refuse:
-    nupp_mutex_lock(client->guard);
+    uv_mutex_lock(&client->guard);
     client->active--;
-    nupp_mutex_unlock(client->guard);
+    uv_mutex_unlock(&client->guard);
     /* Both references, since neither side ever received it. */
     atomic_store(&transfer->references, 1);
     transfer_release(transfer);
@@ -1174,11 +1188,11 @@ NUPP_EXPORT uint32_t nuppHttpTransferPollHeaders(
     if (transfer == NULL) {
         return HEAD_FAILED;
     }
-    nupp_mutex_lock(transfer->guard);
+    uv_mutex_lock(&transfer->guard);
     answer = transfer->head;
     if (answer == HEAD_READY) {
         if (output == NULL) {
-            nupp_mutex_unlock(transfer->guard);
+            uv_mutex_unlock(&transfer->guard);
             nupp_fail("HTTP response head output is null");
             return HEAD_FAILED;
         }
@@ -1190,7 +1204,7 @@ NUPP_EXPORT uint32_t nuppHttpTransferPollHeaders(
         output->headers = transfer->headers;
         output->headersLength = transfer->headersLength;
     }
-    nupp_mutex_unlock(transfer->guard);
+    uv_mutex_unlock(&transfer->guard);
     return answer;
 }
 
@@ -1200,9 +1214,9 @@ NUPP_EXPORT const char *nuppHttpTransferError(const NuppHttpTransfer *handle) {
     if (transfer == NULL) {
         return NULL;
     }
-    nupp_mutex_lock(transfer->guard);
+    uv_mutex_lock(&transfer->guard);
     text = transfer->error;
-    nupp_mutex_unlock(transfer->guard);
+    uv_mutex_unlock(&transfer->guard);
     return text;
 }
 
@@ -1239,7 +1253,7 @@ NUPP_EXPORT bool nuppHttpBodyPeek(
     if (transfer == NULL) {
         return false;
     }
-    nupp_mutex_lock(transfer->guard);
+    uv_mutex_lock(&transfer->guard);
     *data = NULL;
     *length = 0;
     if (transfer->bodyHead != NULL) {
@@ -1250,7 +1264,7 @@ NUPP_EXPORT bool nuppHttpBodyPeek(
         *state = transfer->bodyTerminal;
     }
     finished = transfer->bodyHead == NULL && transfer->bodyTerminal != BODY_PENDING;
-    nupp_mutex_unlock(transfer->guard);
+    uv_mutex_unlock(&transfer->guard);
     if (finished) {
         retire(transfer);
     }
@@ -1263,14 +1277,14 @@ NUPP_EXPORT bool nuppHttpBodyConsume(const NuppHttpTransfer *handle, size_t coun
     if (transfer == NULL) {
         return false;
     }
-    nupp_mutex_lock(transfer->guard);
+    uv_mutex_lock(&transfer->guard);
     if (transfer->bodyHead == NULL) {
-        nupp_mutex_unlock(transfer->guard);
+        uv_mutex_unlock(&transfer->guard);
         nupp_fail("HTTP body has no bytes to consume");
         return false;
     }
     if (count > transfer->bodyHead->length - transfer->bodyHead->offset) {
-        nupp_mutex_unlock(transfer->guard);
+        uv_mutex_unlock(&transfer->guard);
         nupp_fail("HTTP body consume exceeds the preceding peek");
         return false;
     }
@@ -1292,7 +1306,7 @@ NUPP_EXPORT bool nuppHttpBodyConsume(const NuppHttpTransfer *handle, size_t coun
         transfer->wantsResume = true;
         resume = true;
     }
-    nupp_mutex_unlock(transfer->guard);
+    uv_mutex_unlock(&transfer->guard);
     if (resume && transfer->client != NULL) {
         nudge(transfer->client);
     }
@@ -1313,18 +1327,18 @@ NUPP_EXPORT int nuppHttpTransferOffer(
         nupp_fail("an HTTP upload chunk must contain 1 through 524288 bytes");
         return UPLOAD_CLOSED;
     }
-    nupp_mutex_lock(transfer->guard);
+    uv_mutex_lock(&transfer->guard);
     if (transfer->finished || transfer->cancelled) {
-        nupp_mutex_unlock(transfer->guard);
+        uv_mutex_unlock(&transfer->guard);
         return UPLOAD_CLOSED;
     }
     if (transfer->uploadFinished && length != 0) {
-        nupp_mutex_unlock(transfer->guard);
+        uv_mutex_unlock(&transfer->guard);
         nupp_fail("a finished HTTP upload must have an empty chunk");
         return UPLOAD_CLOSED;
     }
     if (length != 0 && transfer->uploadLength + length > UPLOAD_WINDOW_BYTES) {
-        nupp_mutex_unlock(transfer->guard);
+        uv_mutex_unlock(&transfer->guard);
         return UPLOAD_BACKPRESSURE;
     }
     if (length != 0) {
@@ -1336,7 +1350,7 @@ NUPP_EXPORT int nuppHttpTransferOffer(
             }
             grown = realloc(transfer->upload, next);
             if (grown == NULL) {
-                nupp_mutex_unlock(transfer->guard);
+                uv_mutex_unlock(&transfer->guard);
                 nupp_fail("out of memory");
                 return UPLOAD_CLOSED;
             }
@@ -1354,7 +1368,7 @@ NUPP_EXPORT int nuppHttpTransferOffer(
         transfer->wantsResume = true;
         resume = true;
     }
-    nupp_mutex_unlock(transfer->guard);
+    uv_mutex_unlock(&transfer->guard);
     if (resume && transfer->client != NULL) {
         nudge(transfer->client);
     }
@@ -1368,12 +1382,12 @@ NUPP_EXPORT void nuppHttpTransferCancel(const NuppHttpTransfer *handle) {
     if (transfer == NULL) {
         return;
     }
-    nupp_mutex_lock(transfer->guard);
+    uv_mutex_lock(&transfer->guard);
     transfer->cancelled = true;
     if (transfer->bodyTerminal == BODY_PENDING) {
         transfer->bodyTerminal = BODY_CLOSED;
     }
-    nupp_mutex_unlock(transfer->guard);
+    uv_mutex_unlock(&transfer->guard);
     /* The reactor takes it off the multi handle when it next looks; a transfer
      * cancelled from here must not be touching libcurl. */
     if (transfer->client != NULL) {
@@ -1393,12 +1407,12 @@ static void retire(NuppHttpTransfer *transfer) {
     if (client == NULL || atomic_exchange(&transfer->retired, true)) {
         return;
     }
-    nupp_mutex_lock(client->guard);
+    uv_mutex_lock(&client->guard);
     if (client->active != 0) {
         client->active--;
     }
-    nupp_condition_broadcast(client->arrived);
-    nupp_mutex_unlock(client->guard);
+    uv_cond_broadcast(&client->arrived);
+    uv_mutex_unlock(&client->guard);
 }
 
 NUPP_EXPORT void nuppHttpTransferDestroy(const NuppHttpTransfer *handle) {
@@ -1428,7 +1442,7 @@ static size_t drain(
     if (capacity > READY_BATCH) {
         capacity = READY_BATCH;
     }
-    nupp_mutex_lock(client->guard);
+    uv_mutex_lock(&client->guard);
     while (count < capacity && client->readyCount != 0) {
         NuppHttpTransfer *transfer = client->readyQueue[client->readyHead];
         uint32_t tokens;
@@ -1453,7 +1467,7 @@ static size_t drain(
     if (more != NULL) {
         *more = client->readyCount != 0;
     }
-    nupp_mutex_unlock(client->guard);
+    uv_mutex_unlock(&client->guard);
     return count;
 }
 
@@ -1488,10 +1502,11 @@ NUPP_EXPORT size_t nuppHttpClientWait(
     if (count != 0) {
         return count;
     }
-    nupp_mutex_lock(client->guard);
+    uv_mutex_lock(&client->guard);
     if (client->readyCount == 0) {
-        nupp_condition_wait_for(client->arrived, client->guard, milliseconds);
+        uv_cond_timedwait(&client->arrived, &client->guard,
+            (uint64_t)milliseconds * 1000000u);
     }
-    nupp_mutex_unlock(client->guard);
+    uv_mutex_unlock(&client->guard);
     return drain(client, output, capacity, more);
 }

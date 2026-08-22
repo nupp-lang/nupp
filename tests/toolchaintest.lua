@@ -75,13 +75,26 @@ local function fakeCompiler(directory, name, version)
    return path
 end
 
+local function fakeWindowsUname(directory)
+   local path = directory .. "/uname"
+   write(path, [[#!/bin/sh
+if [ "$1" = "-m" ]; then
+   printf '%s\n' x86_64
+else
+   printf '%s\n' MINGW64_NT
+fi
+]])
+   assert(os.execute("chmod +x " .. quote(path)) == 0)
+end
+
 -- Every pinned source has a version and a digest, and the digest is what the
 -- driver refuses a mismatch against. A pin with one and not the other would be
 -- fetched and compiled without anything checking what arrived.
 function M.everyPinHasAVersionAndADigest()
    local recorded = pins()
    for _, component in ipairs({
-      "LUAJIT", "LPEG", "LUAUTF8", "SIMDJSON", "CURL", "MBEDTLS", "ADA",
+      "LUAJIT", "LUAROCKS", "LPEG", "LUAUTF8", "SIMDJSON", "CURL",
+      "MBEDTLS", "ADA", "LIBUV",
    }) do
       local marker = component == "LUAJIT" and "REV" or "VERSION"
       assert(recorded[component .. "_" .. marker],
@@ -103,7 +116,7 @@ function M.everyPinnedSourceHasANotice()
    for _, notice in ipairs({
       "LuaJIT-COPYRIGHT.txt", "LPeg-LICENSE.txt", "luautf8-LICENSE.txt",
       "simdjson-LICENSE.txt", "curl-COPYING.txt", "mbedtls-LICENSE.txt",
-      "ada-LICENSE.txt",
+      "ada-LICENSE.txt", "libuv-LICENSE.txt",
    }) do
       assert(io.open(ROOT .. "/host/notices/" .. notice, "rb"),
          "host/notices/" .. notice .. " is missing")
@@ -178,6 +191,38 @@ function M.thePrefixFollowsTheToolchain()
    local repeatStatus, again = run(environment, "--prefix")
    assert(repeatStatus == 0, again)
    assert(again == one, "the same toolchain answered two prefixes")
+end
+
+-- The dependency builds use GNU make. Windows' hosted clang targets MSVC, so
+-- LuaJIT's makefile asks it to link Unix spellings such as `-lm` as MSVC
+-- libraries and the cold bootstrap stops. MinGW GCC is the compatible default;
+-- explicitly naming clang still remains the caller's choice.
+function M.windowsDefaultsToTheGnuCompilerPair()
+   local directory = temporary()
+   fakeWindowsUname(directory)
+   fakeCompiler(directory, "gcc", "gnu-c")
+   fakeCompiler(directory, "g++", "gnu-cxx")
+   fakeCompiler(directory, "clang", "msvc-c")
+   fakeCompiler(directory, "clang++", "msvc-cxx")
+   local environment = {
+      NUPP_TOOLCHAIN_DIR = directory .. "/cache",
+      PATH = directory .. ":" .. os.getenv("PATH"),
+   }
+
+   local status, automatic = run(environment, "--prefix")
+   assert(status == 0, automatic)
+
+   environment.NUPP_CC = "gcc"
+   environment.NUPP_CXX = "g++"
+   local gnuStatus, gnu = run(environment, "--prefix")
+   assert(gnuStatus == 0, gnu)
+   assert(automatic == gnu, "Windows did not select the MinGW compiler pair")
+
+   environment.NUPP_CC = "clang"
+   environment.NUPP_CXX = "clang++"
+   local clangStatus, msvc = run(environment, "--prefix")
+   assert(clangStatus == 0, msvc)
+   assert(automatic ~= msvc, "Windows selected the MSVC-targeting clang pair")
 end
 
 -- `NUPP_NATIVE_CC` and `NUPP_JSON_CC` named the C and the C++ compiler when each

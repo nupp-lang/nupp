@@ -35,7 +35,7 @@ usage: scripts/toolchain COMPONENT...
        scripts/toolchain --all
        scripts/toolchain --prefix
 
-Components: luajit lpeg luautf8 simdjson ada mbedtls curl
+Components: luajit luarocks lpeg luautf8 simdjson ada libuv mbedtls curl
             native FEATURES, host FEATURES, host-library FEATURES
 
 Prints the install prefix of each component named, building it first when it is
@@ -72,14 +72,6 @@ probe() {
     return 1
 }
 
-CC=${NUPP_CC:-${NUPP_NATIVE_CC:-}}
-[ -n "$CC" ] || CC=$(probe clang cc gcc) || die "no C compiler found. Name one with NUPP_CC"
-CXX=${NUPP_CXX:-${NUPP_JSON_CC:-}}
-[ -n "$CXX" ] || CXX=$(probe clang++ c++ g++) || die "no C++ compiler found. Name one with NUPP_CXX"
-
-command -v "$CC" >/dev/null 2>&1 || die "NUPP_CC names $CC, which is not on PATH"
-command -v "$CXX" >/dev/null 2>&1 || die "NUPP_CXX names $CXX, which is not on PATH"
-
 UNAME=$(uname -s 2>/dev/null || echo unknown)
 case "$UNAME" in
     Darwin*)              PLATFORM=darwin ;;
@@ -87,6 +79,29 @@ case "$UNAME" in
     FreeBSD*|DragonFly*)  PLATFORM=bsd ;;
     *)                    PLATFORM=posix ;;
 esac
+
+CC=${NUPP_CC:-${NUPP_NATIVE_CC:-}}
+CXX=${NUPP_CXX:-${NUPP_JSON_CC:-}}
+case "$PLATFORM" in
+    # This driver uses the dependencies' GNU make builds. The hosted Windows
+    # clang targets MSVC, where LuaJIT's makefile asks its linker for Unix
+    # libraries such as `-lm`; the MinGW pair is the compatible default.
+    windows)
+        [ -n "$CC" ] || CC=$(probe gcc cc clang) \
+            || die "no C compiler found. Name one with NUPP_CC"
+        [ -n "$CXX" ] || CXX=$(probe g++ c++ clang++) \
+            || die "no C++ compiler found. Name one with NUPP_CXX"
+        ;;
+    *)
+        [ -n "$CC" ] || CC=$(probe clang cc gcc) \
+            || die "no C compiler found. Name one with NUPP_CC"
+        [ -n "$CXX" ] || CXX=$(probe clang++ c++ g++) \
+            || die "no C++ compiler found. Name one with NUPP_CXX"
+        ;;
+esac
+
+command -v "$CC" >/dev/null 2>&1 || die "NUPP_CC names $CC, which is not on PATH"
+command -v "$CXX" >/dev/null 2>&1 || die "NUPP_CXX names $CXX, which is not on PATH"
 
 case "$PLATFORM" in
     bsd) MAKE=${MAKE:-gmake} ;;
@@ -122,7 +137,6 @@ sources_digest() {
             sha256 "$ROOT/$file"
         done | sha256_stdin | cut -c1-16
 }
-
 # --- where things go --------------------------------------------------------
 
 # Beside the repository's common git directory, so every worktree of this
@@ -382,6 +396,31 @@ build_luajit() {
     "$MAKE" -C "$tree" PREFIX="$out" CC="$CC" HOST_CC="$CC" XCFLAGS=-fPIC >&2
     "$MAKE" -C "$tree" PREFIX="$out" install >&2
 
+    # LuaJIT's top-level install recipe only knows the Unix artifact names.
+    # Its Windows build is deliberately dynamic so C modules bind to the same
+    # VM as the interpreter, but that leaves lua51.dll and its import library
+    # in the source tree. Stage both, then make the static archive separately:
+    # standalone Nupp hosts carry their VM and cannot depend on a sibling DLL.
+    if [ "$PLATFORM" = windows ]; then
+        [ -f "$tree/src/lua51.dll" ] \
+            || die "LuaJIT's Windows build produced no lua51.dll"
+        [ -f "$tree/src/libluajit-5.1.dll.a" ] \
+            || die "LuaJIT's Windows build produced no import library"
+        cp "$tree/src/lua51.dll" "$out/bin/lua51.dll"
+        cp "$tree/src/luajit.exe" "$out/bin/luajit.exe"
+        cp "$tree/src/libluajit-5.1.dll.a" \
+            "$out/lib/libluajit-5.1.dll.a"
+        cp "$tree/src/libluajit-5.1.dll.a" \
+            "$out/lib/liblua51.a"
+
+        "$MAKE" -C "$tree" clean >/dev/null 2>&1 || true
+        "$MAKE" -C "$tree" PREFIX="$out" CC="$CC" HOST_CC="$CC" \
+            XCFLAGS=-fPIC BUILDMODE=static >&2
+        [ -f "$tree/src/libluajit.a" ] \
+            || die "LuaJIT's Windows static build produced no archive"
+        cp "$tree/src/libluajit.a" "$out/lib/libluajit-5.1.a"
+    fi
+
     # `luajit` itself is a versioned name plus a symlink upstream only makes on
     # some platforms, and everything here runs the plain one.
     if [ ! -x "$out/bin/luajit" ]; then
@@ -407,6 +446,51 @@ luajit_include() {
     cat "$PREFIX/luajit/.include"
 }
 
+build_luarocks() {
+    out="$PREFIX/luarocks"
+    luajit=$(build_luajit; printf '%s' "$PREFIX/luajit")
+    include=$(cat "$luajit/.include")
+    take_lock luarocks "$out/.complete" || return 0
+    [ -f "$out/.complete" ] && { release_lock; return 0; }
+
+    directory="luarocks-$LUAROCKS_VERSION"
+    url="https://github.com/luarocks/luarocks/archive/refs/tags/v$LUAROCKS_VERSION.tar.gz"
+    tree=$(source_tree "$directory" "$url" "$LUAROCKS_SHA256" "$LUAROCKS_MARKER")
+
+    note "installing LuaRocks"
+    rm -rf "$out"
+    if [ "$PLATFORM" = windows ]; then
+        treeWindows=$(cygpath -w "$tree")
+        outWindows=$(cygpath -w "$out")
+        rocksWindows=$(cygpath -w "$ROOT/.rocks")
+        binWindows=$(cygpath -w "$luajit/bin")
+        includeWindows=$(cygpath -w "$include")
+        libWindows=$(cygpath -w "$luajit/lib")
+        cmd.exe //d //c call "$treeWindows\\install.bat" \
+            /P "$outWindows" /TREE "$rocksWindows" /CONFIG "$outWindows" \
+            /LV 5.1 /INC "$includeWindows" /LIB "$libWindows" \
+            /BIN "$binWindows" /MW /Q /F /NOREG /NOADMIN /FORCECONFIG >&2
+    else
+        (cd "$tree" && ./configure \
+            --prefix="$out" \
+            --rocks-tree="$ROOT/.rocks" \
+            --lua-version=5.1 \
+            --with-lua-bin="$luajit/bin" \
+            --with-lua-include="$include" \
+            --with-lua-lib="$luajit/lib" \
+            --with-lua-interpreter=luajit \
+            --force-config && "$MAKE" install) >&2
+    fi
+    case "$PLATFORM" in
+        windows) executable="$out/luarocks.bat" ;;
+        *) executable="$out/bin/luarocks" ;;
+    esac
+    [ -f "$executable" ] || die "LuaRocks installed no executable under $out"
+    printf '%s\n' "$executable" > "$out/.executable"
+    printf 'done\n' > "$out/.complete"
+    release_lock
+}
+
 # One Lua C module built straight from its sources. Neither LPeg nor luautf8
 # ships a makefile worth driving from here: both are a handful of files against
 # the Lua headers, and naming the files is shorter than teaching their build
@@ -425,7 +509,12 @@ build_lua_module() {
     # Both shapes, because both are wanted: a loadable module for an interpreter
     # that requires it, and an archive for a host that links it in.
     # shellcheck disable=SC2086
-    "$CC" $(shared_flags) -o "$out/lib/$name$(module_extension)" $objects >&2
+    luaLibrary=""
+    if [ "$PLATFORM" = windows ]; then
+        luaLibrary="$PREFIX/luajit/lib/libluajit-5.1.dll.a"
+    fi
+    "$CC" $(shared_flags) -o "$out/lib/$name$(module_extension)" \
+        $objects $luaLibrary >&2
     # shellcheck disable=SC2086
     ar rcs "$out/lib/lib$name.a" $objects
 }
@@ -491,7 +580,12 @@ build_mbedtls() {
     # a shared library.
     "$MAKE" -C "$tree" clean >/dev/null 2>&1 || true
     "$MAKE" -C "$tree" -j"${NUPP_TOOLCHAIN_JOBS:-4}" lib CC="$CC" CFLAGS="-O2 -fPIC" >&2
-    "$MAKE" -C "$tree" install DESTDIR="$out" >&2
+    mkdir -p "$out/include" "$out/lib"
+    cp -R "$tree/include/mbedtls" "$out/include/mbedtls"
+    cp -R "$tree/include/psa" "$out/include/psa"
+    cp "$tree/library/libmbedcrypto.a" "$out/lib/libmbedcrypto.a"
+    cp "$tree/library/libmbedx509.a" "$out/lib/libmbedx509.a"
+    cp "$tree/library/libmbedtls.a" "$out/lib/libmbedtls.a"
     printf 'done\n' > "$out/.complete"
     release_lock
 }
@@ -537,10 +631,6 @@ build_curl() {
 # uses, so this file and that registry are the two halves of one list.
 provider_sources() {
     printf '%s' "c/common.c c/digest.c"
-    case "$PLATFORM" in
-        windows) printf '%s' " c/platform_windows.c" ;;
-        *)       printf '%s' " c/platform_posix.c" ;;
-    esac
     for feature in $1; do
         case "$feature" in
             files|native-files) printf '%s' " c/files.c c/glob.c c/fslane.c" ;;
@@ -570,6 +660,90 @@ write_vmdef() {
         printf '};\nconst unsigned int nupp_host_vmdef_length = %su;\n' \
             "$(wc -c < "$vmdef" | tr -d ' ')"
     } > "$1"
+}
+
+# What libuv compiles, per platform. Taken from its CMakeLists, which is the
+# only place the answer is written down.
+libuv_sources() {
+    printf '%s' "src/fs-poll.c src/idna.c src/inet.c src/random.c src/strscpy.c"
+    printf '%s' " src/strtok.c src/thread-common.c src/threadpool.c src/timer.c"
+    printf '%s' " src/uv-common.c src/uv-data-getter-setters.c src/version.c"
+    case "$PLATFORM" in
+        windows)
+            printf '%s' " src/win/async.c src/win/core.c src/win/detect-wakeup.c"
+            printf '%s' " src/win/dl.c src/win/error.c src/win/fs-event.c src/win/fs.c"
+            printf '%s' " src/win/getaddrinfo.c src/win/getnameinfo.c src/win/handle.c"
+            printf '%s' " src/win/loop-watcher.c src/win/pipe.c src/win/poll.c"
+            printf '%s' " src/win/process-stdio.c src/win/process.c src/win/signal.c"
+            printf '%s' " src/win/snprintf.c src/win/stream.c src/win/tcp.c"
+            printf '%s' " src/win/thread.c src/win/tty.c src/win/udp.c src/win/util.c"
+            printf '%s' " src/win/winapi.c src/win/winsock.c"
+            ;;
+        *)
+            printf '%s' " src/unix/async.c src/unix/core.c src/unix/dl.c src/unix/fs.c"
+            printf '%s' " src/unix/getaddrinfo.c src/unix/getnameinfo.c"
+            printf '%s' " src/unix/loop-watcher.c src/unix/loop.c src/unix/pipe.c"
+            printf '%s' " src/unix/poll.c src/unix/process.c"
+            printf '%s' " src/unix/random-devurandom.c src/unix/signal.c"
+            printf '%s' " src/unix/stream.c src/unix/tcp.c src/unix/thread.c"
+            printf '%s' " src/unix/tty.c src/unix/udp.c src/unix/proctitle.c"
+            case "$PLATFORM" in
+                darwin)
+                    printf '%s' " src/unix/bsd-ifaddrs.c src/unix/kqueue.c"
+                    printf '%s' " src/unix/darwin.c src/unix/darwin-proctitle.c"
+                    printf '%s' " src/unix/fsevents.c src/unix/random-getentropy.c"
+                    ;;
+                *)
+                    printf '%s' " src/unix/linux.c src/unix/procfs-exepath.c"
+                    printf '%s' " src/unix/random-getrandom.c"
+                    printf '%s' " src/unix/random-sysctl-linux.c"
+                    ;;
+            esac
+            ;;
+    esac
+}
+
+build_libuv() {
+    out="$PREFIX/libuv"
+    take_lock libuv "$out/.complete" || return 0
+    [ -f "$out/.complete" ] && { release_lock; return 0; }
+
+    directory="libuv-$LIBUV_VERSION"
+    url="https://github.com/libuv/libuv/archive/refs/tags/v$LIBUV_VERSION.tar.gz"
+    tree=$(source_tree "$directory" "$url" "$LIBUV_SHA256" "$LIBUV_MARKER")
+    verify_notice "$tree/LICENSE" libuv-LICENSE.txt
+
+    note "building libuv with $CC"
+    rm -rf "$out"
+    mkdir -p "$out/lib/objects" "$out/include"
+    cp -R "$tree/include/." "$out/include/"
+
+    defines="-D_FILE_OFFSET_BITS=64 -D_LARGEFILE_SOURCE"
+    warnings=""
+    case "$PLATFORM" in
+        darwin) defines="$defines -D_DARWIN_UNLIMITED_SELECT=1 -D_DARWIN_USE_64_BIT_INODE=1" ;;
+        windows)
+            defines="$defines -DWIN32_LEAN_AND_MEAN -D_WIN32_WINNT=0x0602"
+            # libuv 1.52.1 passes a const char ** to an internal char ** helper.
+            # Clang warns; GCC 14 promotes the constraint warning to an error.
+            warnings="-Wno-error=incompatible-pointer-types"
+            ;;
+        *) defines="$defines -D_GNU_SOURCE" ;;
+    esac
+
+    objects=""
+    for source in $(libuv_sources); do
+        object="$out/lib/objects/$(printf '%s' "$source" | tr '/' '_').o"
+        # shellcheck disable=SC2086
+        "$CC" -c -O2 -fPIC $defines $warnings \
+            -I"$tree/include" -I"$tree/src" \
+            -o "$object" "$tree/$source" >&2
+        objects="$objects $object"
+    done
+    # shellcheck disable=SC2086
+    ar rcs "$out/lib/libuv.a" $objects
+    printf 'done\n' > "$out/.complete"
+    release_lock
 }
 
 build_ada() {
@@ -644,7 +818,9 @@ build_native_library() {
     rm -rf "$out"
     mkdir -p "$out/objects"
 
-    libraries=""
+    uv_prefix=$(build_libuv; printf '%s' "$PREFIX/libuv")
+    libraries="$uv_prefix/lib/libuv.a"
+    uvInclude="-I$uv_prefix/include"
     adaInclude=""
     linker=$CC
     for feature in $sorted; do
@@ -672,14 +848,19 @@ build_native_library() {
         fi
         # shellcheck disable=SC2086
         "$CC" -c -std=gnu11 -O2 -fPIC -DNDEBUG -Wall -Wextra \
-            -I"$ROOT/runtime/native/c" -I"$include" $curlInclude $adaInclude \
+            -I"$ROOT/runtime/native/c" -I"$include" $uvInclude $curlInclude $adaInclude \
             -o "$object" "$ROOT/runtime/native/$source" >&2
         objects="$objects $object"
     done
 
     case "$PLATFORM" in
         darwin)  shared="-dynamiclib"; name="libnupp_native.dylib"; extra="-undefined dynamic_lookup" ;;
-        windows) shared="-shared"; name="nupp_native.dll"; extra="-lbcrypt" ;;
+        windows)
+            shared="-shared"
+            name="nupp_native.dll"
+            extra="-lpsapi -luser32 -ladvapi32 -liphlpapi -luserenv"
+            extra="$extra -lws2_32 -ldbghelp -lole32 -lshell32 -lbcrypt"
+            ;;
         *)       shared="-shared"; name="libnupp_native.so"; extra="-lpthread -ldl" ;;
     esac
     # shellcheck disable=SC2086
@@ -717,6 +898,8 @@ build_host() {
     mkdir -p "$out/objects"
     write_vmdef "$out/objects/vmdef.c"
 
+    uv_prefix=$(build_libuv; printf '%s' "$PREFIX/libuv")
+    uvInclude="-I$uv_prefix/include"
     defines="-DNUPP_FEATURE_JSON=0 -DNUPP_FEATURE_LPEG=0 -DNUPP_FEATURE_LUA_UTF8=0"
     defines="$defines -DNUPP_FEATURE_WORKERS=0 -DNUPP_FEATURE_NATIVE_FILES=0"
     defines="$defines -DNUPP_FEATURE_NATIVE_PROCESS=0"
@@ -775,13 +958,18 @@ build_host() {
         # shellcheck disable=SC2086
         "$CC" -c -std=gnu11 -O2 -DNDEBUG $defines \
             -I"$ROOT/host/c" -I"$ROOT/host/include" -I"$ROOT/runtime/native/c" \
-            -I"$include" -o "$object" "$full" >&2
+            -I"$include" $uvInclude -o "$object" "$full" >&2
         objects="$objects $object"
     done
     platform_libraries="-lm -lpthread"
     case "$PLATFORM" in
         darwin)  platform_libraries="-lm -lpthread" ;;
-        windows) platform_libraries="-lbcrypt" ;;
+        windows)
+            platform_libraries="-lpsapi -luser32 -ladvapi32 -liphlpapi"
+            platform_libraries="$platform_libraries -luserenv -lws2_32"
+            platform_libraries="$platform_libraries -ldbghelp -lole32"
+            platform_libraries="$platform_libraries -lshell32 -lbcrypt"
+            ;;
         *)       platform_libraries="-lm -lpthread -ldl" ;;
     esac
 
@@ -793,8 +981,8 @@ build_host() {
         mkdir -p "$out"
         # shellcheck disable=SC2086
         "$linker" -o "$out/nupp-host" \
-            $objects $libraries "$luajit_prefix/lib/libluajit-5.1.a" \
-            $platform_libraries >&2
+            $objects $libraries "$uv_prefix/lib/libuv.a" \
+            "$luajit_prefix/lib/libluajit-5.1.a" $platform_libraries >&2
     fi
     printf 'done\n' > "$out/.complete"
     release_lock
@@ -809,10 +997,12 @@ case "$1" in
     --prefix) printf '%s\n' "$PREFIX"; exit 0 ;;
     --all)
         build_luajit
+        build_luarocks
         build_lpeg
         build_luautf8
         build_simdjson
         build_ada
+        build_libuv
         build_curl
         exit 0
         ;;
@@ -837,10 +1027,12 @@ esac
 for component in "$@"; do
     case "$component" in
         luajit)   build_luajit;   printf '%s\n' "$PREFIX/luajit" ;;
+        luarocks) build_luarocks; printf '%s\n' "$PREFIX/luarocks" ;;
         lpeg)     build_lpeg;     printf '%s\n' "$PREFIX/lpeg" ;;
         luautf8)  build_luautf8;  printf '%s\n' "$PREFIX/luautf8" ;;
         simdjson) build_simdjson; printf '%s\n' "$PREFIX/simdjson" ;;
         ada)      build_ada;      printf '%s\n' "$PREFIX/ada" ;;
+        libuv)    build_libuv;    printf '%s\n' "$PREFIX/libuv" ;;
         mbedtls)  build_mbedtls;  printf '%s\n' "$PREFIX/mbedtls" ;;
         curl)     build_curl;     printf '%s\n' "$PREFIX/curl" ;;
         *) note "unknown component $component"; usage ;;

@@ -10,6 +10,7 @@ expected_json="$work/portable-compiler-reference.json"
 generated_image="$work/preludeimage-source.bin"
 roundtrip_image="$work/preludeimage-roundtrip.bin"
 expected=2640fc56a795f29d28ef15e13c34a47e223960b0240e8cb0a82d9b0738695333
+luajit="$($root/scripts/toolchain luajit)/bin/luajit"
 
 mkdir -p "$work"
 if [ ! -f "$archive" ]; then
@@ -30,7 +31,7 @@ cd "$root"
 ./bin/nupp build --target compiler
 LUA_PATH="$root/build/?.lua;$root/.rocks/share/lua/5.1/?.lua;$root/.rocks/share/lua/5.1/?/init.lua;;" \
 LUA_CPATH="$root/.rocks/lib/lua/5.1/?.so;;" \
-    luajit tests/portable-compiler/reference.lua > "$expected_json"
+    "$luajit" tests/portable-compiler/reference.lua > "$expected_json"
 ./bin/nupp build --target playgroundCompiler
 "$source/src/luac" -p build/playground/nupp-compiler.lua
 "$source/src/lua" editors/playground/tools/generate-prelude-image.lua \

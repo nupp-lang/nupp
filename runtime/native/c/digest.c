@@ -5,7 +5,9 @@
  * begins with.
  */
 
-#include "platform.h"
+#include "nupp_native.h"
+
+#include <uv.h>
 
 #include <string.h>
 
@@ -167,7 +169,7 @@ static void stamp_version(uint8_t value[16], uint8_t version) {
 /* Version 4: random everywhere the version and variant are not. */
 NUPP_EXPORT bool nuppUuid4(char *output) {
     uint8_t value[16];
-    nupp_fs_random(value, sizeof value);
+    uv_random(NULL, NULL, value, sizeof value, 0, NULL);
     stamp_version(value, 4);
     return write_uuid(value, output);
 }
@@ -178,7 +180,7 @@ NUPP_EXPORT bool nuppUuid7(char *output) {
     uint8_t value[16];
     uint64_t milliseconds = nupp_unix_ms();
     unsigned at;
-    nupp_fs_random(value + 6, sizeof value - 6);
+    uv_random(NULL, NULL, value + 6, sizeof value - 6, 0, NULL);
     for (at = 0; at < 6; at++) {
         value[at] = (uint8_t)(milliseconds >> (8 * (5 - at)));
     }

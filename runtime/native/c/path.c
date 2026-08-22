@@ -15,7 +15,9 @@
  * point is that the system does not normalise it either.
  */
 
-#include "platform.h"
+#include "nupp_native.h"
+
+#include <uv.h>
 
 #include <stdlib.h>
 #include <string.h>
@@ -379,10 +381,18 @@ NUPP_EXPORT NuppBytes *nuppPathAbsolute(const uint8_t *data, size_t length) {
     parse(&parsed, path.value, path.length);
     if (!components_absolute(&parsed)) {
         components_free(&parsed);
-        if (!nupp_fs_current_directory(&joined)) {
-            nupp_buffer_free(&joined);
-            nupp_text_free(&path);
-            return NULL;
+        {
+            char here[4096];
+            size_t room = sizeof here;
+            int found = uv_cwd(here, &room);
+            if (found != 0) {
+                nupp_buffer_free(&joined);
+                nupp_text_free(&path);
+                nupp_fail_format("cannot read the current directory: %s",
+                    uv_strerror(found));
+                return NULL;
+            }
+            nupp_buffer_append(&joined, here, room);
         }
         push_part(&joined, path.value, path.length);
         if (joined.failed) {
@@ -415,10 +425,19 @@ NUPP_EXPORT NuppBytes *nuppPathCanonicalize(const uint8_t *data, size_t length) 
         return NULL;
     }
     nupp_buffer_init(&out);
-    if (!nupp_fs_canonicalize(path.value, &out)) {
-        nupp_buffer_free(&out);
-        nupp_text_free(&path);
-        return NULL;
+    {
+        uv_fs_t request;
+        uv_fs_realpath(NULL, &request, path.value, NULL);
+        if (request.result < 0) {
+            nupp_fail_format("%s: %s", path.value,
+                uv_strerror((int)request.result));
+            uv_fs_req_cleanup(&request);
+            nupp_buffer_free(&out);
+            nupp_text_free(&path);
+            return NULL;
+        }
+        nupp_buffer_append(&out, request.ptr, strlen(request.ptr));
+        uv_fs_req_cleanup(&request);
     }
     nupp_text_free(&path);
     return answer(&out);

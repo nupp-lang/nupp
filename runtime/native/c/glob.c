@@ -11,7 +11,9 @@
  * whatever order the platform walked the directories in.
  */
 
-#include "platform.h"
+#include "nupp_native.h"
+
+#include <uv.h>
 
 #include <stdlib.h>
 #include <string.h>
@@ -207,26 +209,23 @@ static const char *opening(NuppBuffer *prefix) {
 
 /* `**`: this directory, then every directory under it, each visited once. */
 static void recurse(Walk *walk, NuppBuffer *prefix, size_t component) {
-    NuppDirectory *directory;
+    uv_fs_t request;
+    uv_dirent_t entry;
     descend(walk, prefix, component + 1);
     if (walk->failed) {
         return;
     }
-    directory = nupp_fs_open_directory(opening(prefix));
-    if (directory == NULL) {
+    uv_fs_scandir(NULL, &request, opening(prefix), 0, NULL);
+    if (request.result < 0) {
         /* A directory that cannot be listed is not a match and not a failure:
          * the pattern asked what is under it, and the answer is nothing this
          * process can see. */
+        uv_fs_req_cleanup(&request);
         return;
     }
-    for (;;) {
-        const char *name;
-        char kind;
-        int step = nupp_fs_next_entry(directory, &name, &kind);
-        if (step <= 0) {
-            break;
-        }
-        if (kind != 'd') {
+    while (uv_fs_scandir_next(&request, &entry) != UV_EOF) {
+        const char *name = entry.name;
+        if (entry.type != UV_DIRENT_DIR) {
             continue;
         }
         {
@@ -246,7 +245,7 @@ static void recurse(Walk *walk, NuppBuffer *prefix, size_t component) {
             break;
         }
     }
-    nupp_fs_close_directory(directory);
+    uv_fs_req_cleanup(&request);
 }
 
 static void descend(Walk *walk, NuppBuffer *prefix, size_t component) {
@@ -257,12 +256,15 @@ static void descend(Walk *walk, NuppBuffer *prefix, size_t component) {
         return;
     }
     if (component == walk->count) {
-        NuppFileInfo info;
+        uv_fs_t request;
         /* The path is a match only if it is there. `**` and a literal component
          * both propose names without having looked. */
-        if (prefix->length != 0
-            && nupp_fs_stat(opening(prefix), false, &info)) {
-            collect(walk, (const char *)prefix->data, prefix->length);
+        if (prefix->length != 0) {
+            uv_fs_lstat(NULL, &request, opening(prefix), NULL);
+            if (request.result >= 0) {
+                collect(walk, (const char *)prefix->data, prefix->length);
+            }
+            uv_fs_req_cleanup(&request);
         }
         return;
     }
@@ -279,26 +281,23 @@ static void descend(Walk *walk, NuppBuffer *prefix, size_t component) {
         return;
     }
     {
-        NuppDirectory *directory = nupp_fs_open_directory(opening(prefix));
-        if (directory == NULL) {
+        uv_fs_t request;
+        uv_dirent_t entry;
+        uv_fs_scandir(NULL, &request, opening(prefix), 0, NULL);
+        if (request.result < 0) {
+            uv_fs_req_cleanup(&request);
             return;
         }
-        for (;;) {
-            const char *name;
-            char kind;
-            int step = nupp_fs_next_entry(directory, &name, &kind);
-            if (step <= 0) {
-                break;
-            }
-            if (!matches_name(text, length, name)) {
+        while (uv_fs_scandir_next(&request, &entry) != UV_EOF) {
+            if (!matches_name(text, length, entry.name)) {
                 continue;
             }
-            with_child(walk, prefix, name, strlen(name), component + 1);
+            with_child(walk, prefix, entry.name, strlen(entry.name), component + 1);
             if (walk->failed) {
                 break;
             }
         }
-        nupp_fs_close_directory(directory);
+        uv_fs_req_cleanup(&request);
     }
 }
 

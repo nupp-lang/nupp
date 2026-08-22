@@ -20,8 +20,9 @@ cd nupp
 **A C and a C++ compiler**, either `clang` with `clang++` or `gcc` with `g++`,
 plus the shell, `tar` and a downloader. The C++ half must understand C++20,
 which Clang 10 and GCC 10 were the first to do. `NUPP_CC` and `NUPP_CXX` name them; with
-neither set, `clang`, `cc` and `gcc` are probed in that order, and the C++ names
-beside them.
+neither set, Unix probes `clang`, `cc` and `gcc` in that order. Windows probes
+the MinGW `gcc` pair first because the provisioned dependencies use GNU make;
+the corresponding C++ names are probed beside each C compiler.
 
 Everything else is provisioned. `scripts/toolchain` fetches LuaJIT, LPeg,
 luautf8, simdjson, ada, libcurl and mbedTLS by pinned revision, refuses any archive
