@@ -6,6 +6,13 @@
  * wherever it has to.
  */
 
+/* `pipe2` is a Linux extension. Ask glibc for its declaration before any
+ * system header is included, without changing the feature-test choices of the
+ * other native translation units. */
+#if defined(__linux__) && !defined(_GNU_SOURCE)
+#   define _GNU_SOURCE
+#endif
+
 #include "platform.h"
 
 #if !NUPP_WINDOWS

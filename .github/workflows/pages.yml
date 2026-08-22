@@ -37,6 +37,11 @@ jobs:
           version: 6.0.8
           actions-cache-folder: emsdk-cache
 
+      - name: Install portable compiler prerequisites
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libreadline-dev
+
       - name: Build LuaJIT and simdjson
         shell: bash
         run: ./scripts/toolchain --all
