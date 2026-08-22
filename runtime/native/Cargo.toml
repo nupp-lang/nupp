@@ -20,7 +20,7 @@ http = [
     "dep:tokio-util",
     "uri",
 ]
-process = ["dep:libc", "dep:windows-sys"]
+process = []
 path = []
 uri = []
 uuid = []

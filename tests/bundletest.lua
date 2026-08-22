@@ -36,12 +36,32 @@ local function readFile(path)
    return text
 end
 
+-- What the launcher writes about its own progress, which is not what these cases
+-- are reading. Named exactly rather than matched by prefix: a diagnostic the
+-- compiler wrote is also spelled `nupp: ...`, and several cases below are
+-- checking for one.
+local LAUNCHER_NOTICES = {
+   "nupp: sources changed, building the compiler\n",
+   "nupp: falling back to the bootstrap compiler\n",
+   "nupp: the compiler did not build; running the last one that did\n",
+}
+
+-- What the program said, without what the launcher said about getting there.
+--
+-- These cases compare output exactly, and the launcher writes its own progress
+-- to standard error -- "sources changed, building the compiler" -- whenever a
+-- concurrent shard is mid-build and this tree looks unbuilt. That notice is
+-- about the toolchain rather than about the program, and a case that failed on
+-- it was reporting a race in the test runner as a fault in the bundle.
 local function run(dir, argv)
    local outfile = os.tmpname()
    local status = os.execute(("cd '%s' && %s > '%s' 2>&1")
       :format(dir, argv, outfile))
    local out = readFile(outfile) or ""
    os.remove(outfile)
+   for _, notice in ipairs(LAUNCHER_NOTICES) do
+      out = out:gsub(notice, "")
+   end
    return out, status == 0
 end
 

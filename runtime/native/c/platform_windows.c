@@ -16,7 +16,15 @@
 
 #if NUPP_WINDOWS
 
+/* Windows 7, which is what `CancelIoEx`, the process attribute list and
+ * `PIPE_REJECT_REMOTE_CLIENTS` are all new enough to need. Declared before the
+ * header rather than on the command line, so the file says what it stands on. */
+#ifndef _WIN32_WINNT
+#   define _WIN32_WINNT 0x0601
+#endif
+
 #include <windows.h>
+#include <wchar.h>
 #include <bcrypt.h>
 
 #include <stdio.h>
@@ -1026,6 +1034,695 @@ bool nupp_thread_spawn(void (*entry)(void *), void *argument) {
      * process does. */
     CloseHandle(thread);
     return true;
+}
+
+/* --- child processes ---------------------------------------------------- */
+
+/* Pipes here are named pipes with unique names rather than the anonymous kind.
+ *
+ * An anonymous pipe cannot be opened overlapped, and without overlap there is no
+ * nonblocking read, no nonblocking write and nothing for a readiness wait to
+ * wait on. A named pipe with a name nobody else will guess is the documented way
+ * to get an anonymous pipe that can do those three things: this process keeps
+ * the overlapped server end, and the child receives an ordinary inheritable
+ * client end that behaves exactly as it expects.
+ *
+ * Each end carries the buffer its pending operation is using. A read is issued
+ * ahead of being asked for, so that a readiness wait has an event to watch; a
+ * write copies the caller's bytes and reports them accepted, because an
+ * overlapped write cannot say how much it took until it finishes and a caller
+ * counting bytes cannot wait for that.
+ */
+
+#define NUPP_PIPE_BUFFER 65536
+
+struct NuppPipeEnd {
+    HANDLE handle;
+    HANDLE event;
+    OVERLAPPED overlapped;
+    bool closed;
+    bool reading;
+    bool pending;
+    bool broken;
+    uint8_t *buffer;
+    DWORD available;
+    DWORD consumed;
+};
+
+static NuppPipeEnd *wrap_handle(HANDLE handle, bool reading) {
+    NuppPipeEnd *end = calloc(1, sizeof *end);
+    if (end == NULL) {
+        CloseHandle(handle);
+        nupp_fail("out of memory");
+        return NULL;
+    }
+    end->handle = handle;
+    end->reading = reading;
+    end->buffer = malloc(NUPP_PIPE_BUFFER);
+    end->event = CreateEventW(NULL, TRUE, FALSE, NULL);
+    if (end->buffer == NULL || end->event == NULL) {
+        if (end->event != NULL) {
+            CloseHandle(end->event);
+        }
+        free(end->buffer);
+        free(end);
+        CloseHandle(handle);
+        nupp_fail("out of memory");
+        return NULL;
+    }
+    end->overlapped.hEvent = end->event;
+    return end;
+}
+
+bool nupp_pipe_is_closed(const NuppPipeEnd *end) {
+    return end == NULL || end->closed;
+}
+
+void nupp_pipe_close(NuppPipeEnd *end) {
+    if (end == NULL || end->closed) {
+        return;
+    }
+    if (end->pending) {
+        /* A cancelled operation still owns the buffer until the wait below says
+         * the kernel has let go of it. */
+        CancelIoEx(end->handle, &end->overlapped);
+        {
+            DWORD moved = 0;
+            GetOverlappedResult(end->handle, &end->overlapped, &moved, TRUE);
+        }
+        end->pending = false;
+    }
+    CloseHandle(end->handle);
+    end->handle = INVALID_HANDLE_VALUE;
+    end->closed = true;
+}
+
+void nupp_pipe_destroy(NuppPipeEnd *end) {
+    if (end != NULL) {
+        nupp_pipe_close(end);
+        if (end->event != NULL) {
+            CloseHandle(end->event);
+        }
+        free(end->buffer);
+        free(end);
+    }
+}
+
+/* Issues the read this end will be asked for, so the wait has something to
+ * watch. Answers false when the pipe has ended or failed. */
+static bool begin_read(NuppPipeEnd *end) {
+    DWORD moved = 0;
+    if (end->pending || end->broken || end->available > end->consumed) {
+        return true;
+    }
+    end->available = 0;
+    end->consumed = 0;
+    ResetEvent(end->event);
+    end->overlapped.Offset = 0;
+    end->overlapped.OffsetHigh = 0;
+    if (ReadFile(end->handle, end->buffer, NUPP_PIPE_BUFFER, &moved, &end->overlapped)) {
+        end->available = moved;
+        if (moved == 0) {
+            end->broken = true;
+        }
+        return true;
+    }
+    if (GetLastError() == ERROR_IO_PENDING) {
+        end->pending = true;
+        return true;
+    }
+    /* A closed far end is the ordinary way a read finishes, not a failure. */
+    if (GetLastError() == ERROR_BROKEN_PIPE || GetLastError() == ERROR_PIPE_NOT_CONNECTED) {
+        end->broken = true;
+        return true;
+    }
+    return false;
+}
+
+/* Collects a pending operation when it has finished. */
+static bool settle(NuppPipeEnd *end, bool wait) {
+    DWORD moved = 0;
+    if (!end->pending) {
+        return true;
+    }
+    if (GetOverlappedResult(end->handle, &end->overlapped, &moved, wait ? TRUE : FALSE)) {
+        end->pending = false;
+        if (end->reading) {
+            end->available = moved;
+            if (moved == 0) {
+                end->broken = true;
+            }
+        }
+        return true;
+    }
+    if (GetLastError() == ERROR_IO_INCOMPLETE) {
+        return true;
+    }
+    end->pending = false;
+    if (GetLastError() == ERROR_BROKEN_PIPE || GetLastError() == ERROR_PIPE_NOT_CONNECTED) {
+        end->broken = true;
+        return true;
+    }
+    return false;
+}
+
+intptr_t nupp_pipe_read(NuppPipeEnd *end, uint8_t *into, size_t length) {
+    DWORD ready;
+    if (!settle(end, false)) {
+        fail_last("cannot read from the child");
+        return NUPP_FAILED;
+    }
+    if (end->available == end->consumed) {
+        if (end->broken) {
+            return NUPP_GONE;
+        }
+        if (!begin_read(end)) {
+            fail_last("cannot read from the child");
+            return NUPP_FAILED;
+        }
+        if (end->pending) {
+            return NUPP_WOULD_BLOCK;
+        }
+        if (end->broken && end->available == 0) {
+            return NUPP_GONE;
+        }
+    }
+    ready = end->available - end->consumed;
+    if (ready == 0) {
+        return end->broken ? NUPP_GONE : NUPP_WOULD_BLOCK;
+    }
+    if ((size_t)ready > length) {
+        ready = (DWORD)length;
+    }
+    memcpy(into, end->buffer + end->consumed, ready);
+    end->consumed += ready;
+    return (intptr_t)ready;
+}
+
+intptr_t nupp_pipe_write(NuppPipeEnd *end, const uint8_t *from, size_t length) {
+    DWORD moved = 0;
+    DWORD wanted;
+    if (!settle(end, false)) {
+        if (end->broken) {
+            return NUPP_GONE;
+        }
+        fail_last("cannot write to the child");
+        return NUPP_FAILED;
+    }
+    if (end->broken) {
+        return NUPP_GONE;
+    }
+    if (end->pending) {
+        return NUPP_WOULD_BLOCK;
+    }
+    /* The bytes are copied and reported accepted. An overlapped write cannot say
+     * how much it took until it finishes, and a caller counting bytes cannot
+     * wait for that -- so this end owns them until they land, which is what a
+     * pipe buffer would have done anyway. */
+    wanted = length > NUPP_PIPE_BUFFER ? NUPP_PIPE_BUFFER : (DWORD)length;
+    memcpy(end->buffer, from, wanted);
+    ResetEvent(end->event);
+    end->overlapped.Offset = 0;
+    end->overlapped.OffsetHigh = 0;
+    if (WriteFile(end->handle, end->buffer, wanted, &moved, &end->overlapped)) {
+        return (intptr_t)wanted;
+    }
+    if (GetLastError() == ERROR_IO_PENDING) {
+        end->pending = true;
+        return (intptr_t)wanted;
+    }
+    if (GetLastError() == ERROR_BROKEN_PIPE || GetLastError() == ERROR_NO_DATA) {
+        end->broken = true;
+        return NUPP_GONE;
+    }
+    fail_last("cannot write to the child");
+    return NUPP_FAILED;
+}
+
+/* One pipe: an overlapped server end this process keeps, and an inheritable
+ * client end the child receives. */
+static bool make_pipe(HANDLE *parentEnd, HANDLE *childEnd, bool parentReads) {
+    static LONG counter;
+    wchar_t name[128];
+    SECURITY_ATTRIBUTES inheritable;
+    HANDLE server, client;
+
+    _snwprintf(name, sizeof name / sizeof name[0], L"\\\\.\\pipe\\nupp-%lu-%ld",
+        (unsigned long)GetCurrentProcessId(), InterlockedIncrement(&counter));
+    server = CreateNamedPipeW(
+        name,
+        (parentReads ? PIPE_ACCESS_INBOUND : PIPE_ACCESS_OUTBOUND) | FILE_FLAG_OVERLAPPED
+            | FILE_FLAG_FIRST_PIPE_INSTANCE,
+        PIPE_TYPE_BYTE | PIPE_WAIT | PIPE_REJECT_REMOTE_CLIENTS,
+        1, NUPP_PIPE_BUFFER, NUPP_PIPE_BUFFER, 0, NULL);
+    if (server == INVALID_HANDLE_VALUE) {
+        return fail_last("cannot create a pipe");
+    }
+    inheritable.nLength = sizeof inheritable;
+    inheritable.lpSecurityDescriptor = NULL;
+    inheritable.bInheritHandle = TRUE;
+    client = CreateFileW(
+        name, parentReads ? GENERIC_WRITE : GENERIC_READ, 0, &inheritable,
+        OPEN_EXISTING, 0, NULL);
+    if (client == INVALID_HANDLE_VALUE) {
+        CloseHandle(server);
+        return fail_last("cannot open the child's end of a pipe");
+    }
+    *parentEnd = server;
+    *childEnd = client;
+    return true;
+}
+
+/* One argument, quoted the way `CommandLineToArgvW` reads it back. */
+static void quote_argument(NuppBuffer *into, const char *argument) {
+    size_t at;
+    bool needs = argument[0] == '\0';
+    for (at = 0; argument[at] != '\0'; at++) {
+        if (argument[at] == ' ' || argument[at] == '\t' || argument[at] == '"') {
+            needs = true;
+        }
+    }
+    if (!needs) {
+        nupp_buffer_append(into, argument, strlen(argument));
+        return;
+    }
+    nupp_buffer_push(into, '"');
+    for (at = 0; argument[at] != '\0'; at++) {
+        size_t slashes = 0;
+        while (argument[at] == '\\') {
+            slashes++;
+            at++;
+        }
+        if (argument[at] == '\0') {
+            /* Backslashes before the closing quote are doubled, so the quote is
+             * read as a quote rather than escaped by the last of them. */
+            size_t step;
+            for (step = 0; step < slashes * 2; step++) {
+                nupp_buffer_push(into, '\\');
+            }
+            break;
+        }
+        {
+            size_t step;
+            size_t doubled = argument[at] == '"' ? slashes * 2 + 1 : slashes;
+            for (step = 0; step < doubled; step++) {
+                nupp_buffer_push(into, '\\');
+            }
+        }
+        nupp_buffer_push(into, (uint8_t)argument[at]);
+    }
+    nupp_buffer_push(into, '"');
+}
+
+/* The environment block: NUL-separated entries, double-NUL terminated, in
+ * UTF-16. Entries modify the inherited environment rather than replacing it,
+ * unless the request cleared first. */
+static wchar_t *build_environment(const NuppSpawnRequest *request) {
+    NuppBuffer flat;
+    wchar_t *wide;
+    int needed;
+    size_t at;
+
+    nupp_buffer_init(&flat);
+    if (!request->clearEnv) {
+        LPWCH inherited = GetEnvironmentStringsW();
+        LPWCH scan = inherited;
+        while (inherited != NULL && *scan != L'\0') {
+            size_t length = wcslen(scan);
+            NuppBuffer entry;
+            nupp_buffer_init(&entry);
+            if (narrow(&entry, scan, (int)length)) {
+                /* An entry the request also names is dropped here and added
+                 * below, so the request wins without the block holding both. */
+                bool replaced = false;
+                if (request->envp != NULL) {
+                    const char *equals = memchr(entry.data, '=', entry.length);
+                    size_t nameLength = equals != NULL
+                        ? (size_t)(equals - (const char *)entry.data) : entry.length;
+                    for (at = 0; request->envp[at] != NULL; at++) {
+                        if (strncmp(request->envp[at], (const char *)entry.data, nameLength) == 0
+                            && request->envp[at][nameLength] == '=') {
+                            replaced = true;
+                            break;
+                        }
+                    }
+                }
+                /* A block begins with `=C:=...` drive entries the process needs
+                 * kept; they have an empty name and never collide. */
+                if (!replaced) {
+                    nupp_buffer_append(&flat, entry.data, entry.length);
+                    nupp_buffer_push(&flat, 0);
+                }
+            }
+            nupp_buffer_free(&entry);
+            scan += length + 1;
+        }
+        if (inherited != NULL) {
+            FreeEnvironmentStringsW(inherited);
+        }
+    }
+    if (request->envp != NULL) {
+        for (at = 0; request->envp[at] != NULL; at++) {
+            nupp_buffer_append(&flat, request->envp[at], strlen(request->envp[at]));
+            nupp_buffer_push(&flat, 0);
+        }
+    }
+    nupp_buffer_push(&flat, 0);
+    if (flat.failed) {
+        nupp_buffer_free(&flat);
+        nupp_fail("out of memory");
+        return NULL;
+    }
+    /* One conversion of the whole block, terminators included, which is why the
+     * length is given rather than letting the call stop at the first NUL. */
+    needed = MultiByteToWideChar(CP_UTF8, 0, (const char *)flat.data, (int)flat.length, NULL, 0);
+    if (needed <= 0) {
+        nupp_buffer_free(&flat);
+        nupp_fail("the environment is not representable");
+        return NULL;
+    }
+    wide = malloc(((size_t)needed + 1) * sizeof(wchar_t));
+    if (wide == NULL) {
+        nupp_buffer_free(&flat);
+        nupp_fail("out of memory");
+        return NULL;
+    }
+    MultiByteToWideChar(
+        CP_UTF8, 0, (const char *)flat.data, (int)flat.length, wide, needed);
+    wide[needed] = L'\0';
+    nupp_buffer_free(&flat);
+    return wide;
+}
+
+bool nupp_spawn(const NuppSpawnRequest *request, NuppSpawnResult *result) {
+    HANDLE parentEnds[3] = {INVALID_HANDLE_VALUE, INVALID_HANDLE_VALUE, INVALID_HANDLE_VALUE};
+    HANDLE childEnds[3] = {INVALID_HANDLE_VALUE, INVALID_HANDLE_VALUE, INVALID_HANDLE_VALUE};
+    HANDLE devNull = INVALID_HANDLE_VALUE;
+    HANDLE inherited[3];
+    DWORD inheritedCount = 0;
+    NuppBuffer command;
+    Wide wideCommand;
+    Wide wideCwd;
+    wchar_t *environment = NULL;
+    STARTUPINFOEXW startup;
+    PROCESS_INFORMATION information;
+    SIZE_T attributeSize = 0;
+    LPPROC_THREAD_ATTRIBUTE_LIST attributes = NULL;
+    bool merged = false;
+    bool haveCwd = false;
+    size_t which;
+    size_t at;
+
+    memset(result, 0, sizeof *result);
+    memset(&startup, 0, sizeof startup);
+    memset(&information, 0, sizeof information);
+    nupp_buffer_init(&command);
+    wideCommand.value = wideCommand.inlined;
+    wideCommand.heap = false;
+    wideCwd.value = wideCwd.inlined;
+    wideCwd.heap = false;
+
+    for (which = 0; which < 3; which++) {
+        uint8_t mode = request->modes[which];
+        if (which == 2 && mode == NUPP_MODE_STDOUT) {
+            continue;
+        }
+        if (mode == NUPP_MODE_PIPE) {
+            if (!make_pipe(&parentEnds[which], &childEnds[which], which != 0)) {
+                goto fail;
+            }
+        } else if (mode == NUPP_MODE_NULL) {
+            if (devNull == INVALID_HANDLE_VALUE) {
+                SECURITY_ATTRIBUTES inheritable;
+                inheritable.nLength = sizeof inheritable;
+                inheritable.lpSecurityDescriptor = NULL;
+                inheritable.bInheritHandle = TRUE;
+                devNull = CreateFileW(
+                    L"NUL", GENERIC_READ | GENERIC_WRITE,
+                    FILE_SHARE_READ | FILE_SHARE_WRITE, &inheritable, OPEN_EXISTING,
+                    0, NULL);
+                if (devNull == INVALID_HANDLE_VALUE) {
+                    fail_last("cannot open NUL");
+                    goto fail;
+                }
+            }
+            childEnds[which] = devNull;
+        } else {
+            /* Inherit: the child receives this process's own standard handle. */
+            childEnds[which] = GetStdHandle(
+                which == 0 ? STD_INPUT_HANDLE
+                    : which == 1 ? STD_OUTPUT_HANDLE : STD_ERROR_HANDLE);
+        }
+    }
+    if (request->modes[2] == NUPP_MODE_STDOUT) {
+        /* Both of the child's streams land in one pipe with one reader, or in
+         * whatever destination stdout already had. */
+        childEnds[2] = childEnds[1];
+        merged = request->modes[1] == NUPP_MODE_PIPE;
+    }
+
+    for (at = 0; at < 3; at++) {
+        if (childEnds[at] != INVALID_HANDLE_VALUE && childEnds[at] != NULL) {
+            size_t scan;
+            bool already = false;
+            for (scan = 0; scan < inheritedCount; scan++) {
+                if (inherited[scan] == childEnds[at]) {
+                    already = true;
+                    break;
+                }
+            }
+            if (!already) {
+                inherited[inheritedCount++] = childEnds[at];
+            }
+        }
+    }
+
+    for (at = 0; request->argv[at] != NULL; at++) {
+        if (at != 0) {
+            nupp_buffer_push(&command, ' ');
+        }
+        quote_argument(&command, request->argv[at]);
+    }
+    nupp_buffer_push(&command, 0);
+    if (command.failed) {
+        nupp_fail("out of memory");
+        goto fail;
+    }
+    if (!widen(&wideCommand, (const char *)command.data)) {
+        goto fail;
+    }
+    if (request->cwd != NULL) {
+        if (!widen(&wideCwd, request->cwd)) {
+            goto fail;
+        }
+        haveCwd = true;
+    }
+    environment = build_environment(request);
+    if (environment == NULL) {
+        goto fail;
+    }
+
+    /* Naming the handles the child may inherit, rather than letting it inherit
+     * every inheritable handle this process happens to hold. That is what
+     * close-on-exec buys on POSIX, and without it a concurrent spawn's pipe ends
+     * travel into this child and hold them open against a reader waiting for end
+     * of stream. */
+    InitializeProcThreadAttributeList(NULL, 1, 0, &attributeSize);
+    attributes = malloc(attributeSize);
+    if (attributes == NULL) {
+        nupp_fail("out of memory");
+        goto fail;
+    }
+    if (!InitializeProcThreadAttributeList(attributes, 1, 0, &attributeSize)) {
+        fail_last("cannot describe the child's handles");
+        goto fail;
+    }
+    if (inheritedCount != 0 && !UpdateProcThreadAttribute(
+            attributes, 0, PROC_THREAD_ATTRIBUTE_HANDLE_LIST, inherited,
+            inheritedCount * sizeof inherited[0], NULL, NULL)) {
+        fail_last("cannot name the child's handles");
+        goto fail;
+    }
+
+    startup.StartupInfo.cb = sizeof startup;
+    startup.StartupInfo.dwFlags = STARTF_USESTDHANDLES;
+    startup.StartupInfo.hStdInput = childEnds[0];
+    startup.StartupInfo.hStdOutput = childEnds[1];
+    startup.StartupInfo.hStdError = childEnds[2];
+    startup.lpAttributeList = attributes;
+
+    if (!CreateProcessW(
+            NULL, wideCommand.value, NULL, NULL, TRUE,
+            EXTENDED_STARTUPINFO_PRESENT | CREATE_UNICODE_ENVIRONMENT,
+            environment, haveCwd ? wideCwd.value : NULL,
+            &startup.StartupInfo, &information)) {
+        fail_last(request->argv[0]);
+        goto fail;
+    }
+
+    DeleteProcThreadAttributeList(attributes);
+    free(attributes);
+    free(environment);
+    nupp_buffer_free(&command);
+    wide_free(&wideCommand);
+    wide_free(&wideCwd);
+    CloseHandle(information.hThread);
+
+    for (which = 0; which < 3; which++) {
+        if (request->modes[which] == NUPP_MODE_PIPE
+            && !(which == 2 && request->modes[2] == NUPP_MODE_STDOUT)) {
+            CloseHandle(childEnds[which]);
+        }
+    }
+    if (devNull != INVALID_HANDLE_VALUE) {
+        CloseHandle(devNull);
+    }
+
+    result->child = (uintptr_t)information.hProcess;
+    result->id = information.dwProcessId;
+    result->merged = merged;
+    for (which = 0; which < 3; which++) {
+        if (parentEnds[which] != INVALID_HANDLE_VALUE) {
+            result->ends[which] = wrap_handle(parentEnds[which], which != 0);
+            if (result->ends[which] == NULL) {
+                return false;
+            }
+        }
+    }
+    return true;
+
+fail:
+    if (attributes != NULL) {
+        DeleteProcThreadAttributeList(attributes);
+        free(attributes);
+    }
+    free(environment);
+    nupp_buffer_free(&command);
+    wide_free(&wideCommand);
+    wide_free(&wideCwd);
+    for (which = 0; which < 3; which++) {
+        if (parentEnds[which] != INVALID_HANDLE_VALUE) {
+            CloseHandle(parentEnds[which]);
+        }
+        if (request->modes[which] == NUPP_MODE_PIPE
+            && childEnds[which] != INVALID_HANDLE_VALUE
+            && !(which == 2 && request->modes[2] == NUPP_MODE_STDOUT)) {
+            CloseHandle(childEnds[which]);
+        }
+    }
+    if (devNull != INVALID_HANDLE_VALUE) {
+        CloseHandle(devNull);
+    }
+    return false;
+}
+
+bool nupp_child_kill(const NuppSpawnResult *child, bool force) {
+    /* Windows has no polite request to end, so both forms are the same act. A
+     * child that has already ended is not a failure: what was asked for has
+     * happened. */
+    (void)force;
+    if (TerminateProcess((HANDLE)child->child, 1)) {
+        return true;
+    }
+    if (GetLastError() == ERROR_ACCESS_DENIED) {
+        DWORD code = 0;
+        if (GetExitCodeProcess((HANDLE)child->child, &code) && code != STILL_ACTIVE) {
+            return true;
+        }
+    }
+    return fail_last("cannot signal the child");
+}
+
+int nupp_child_poll(NuppSpawnResult *child, int32_t *code, bool *killed) {
+    DWORD status = 0;
+    DWORD waited = WaitForSingleObject((HANDLE)child->child, 0);
+    if (waited == WAIT_TIMEOUT) {
+        return 0;
+    }
+    if (waited != WAIT_OBJECT_0) {
+        fail_last("cannot ask after the child");
+        return -1;
+    }
+    if (!GetExitCodeProcess((HANDLE)child->child, &status)) {
+        fail_last("cannot read the child's exit");
+        return -1;
+    }
+    /* There is no signal here, so nothing was killed in the sense the ABI means
+     * -- a terminated child reports the code the terminator gave it. */
+    *code = (int32_t)status;
+    *killed = false;
+    return 1;
+}
+
+void nupp_child_release(NuppSpawnResult *child) {
+    if (child->child != 0) {
+        CloseHandle((HANDLE)child->child);
+        child->child = 0;
+    }
+}
+
+int nupp_pipe_wait(
+    NuppPipeEnd *const *readable, size_t readableCount,
+    NuppPipeEnd *const *writable, size_t writableCount,
+    int32_t timeoutMs
+) {
+    HANDLE events[MAXIMUM_WAIT_OBJECTS];
+    DWORD count = 0;
+    size_t at;
+    DWORD waited;
+    int ready = 0;
+
+    for (at = 0; at < readableCount && count < MAXIMUM_WAIT_OBJECTS; at++) {
+        NuppPipeEnd *end = readable[at];
+        if (end == NULL || end->closed) {
+            continue;
+        }
+        settle(end, false);
+        /* Bytes already in hand, or a pipe that has ended, are ready now. */
+        if (end->available > end->consumed || end->broken) {
+            ready++;
+            continue;
+        }
+        if (!begin_read(end)) {
+            continue;
+        }
+        if (!end->pending) {
+            ready++;
+            continue;
+        }
+        events[count++] = end->event;
+    }
+    for (at = 0; at < writableCount && count < MAXIMUM_WAIT_OBJECTS; at++) {
+        NuppPipeEnd *end = writable[at];
+        if (end == NULL || end->closed) {
+            continue;
+        }
+        settle(end, false);
+        /* An end with no write in flight can take bytes this instant. */
+        if (!end->pending || end->broken) {
+            ready++;
+            continue;
+        }
+        events[count++] = end->event;
+    }
+    if (ready > 0) {
+        return ready;
+    }
+    if (count == 0) {
+        /* Nothing to watch, so this is a bounded sleep and nothing else, which
+         * is what waiting on the child alone amounts to. */
+        Sleep(timeoutMs < 0 ? 0 : (DWORD)timeoutMs);
+        return 0;
+    }
+    waited = WaitForMultipleObjects(count, events, FALSE, timeoutMs < 0 ? 0 : (DWORD)timeoutMs);
+    if (waited == WAIT_TIMEOUT) {
+        return 0;
+    }
+    if (waited >= WAIT_OBJECT_0 && waited < WAIT_OBJECT_0 + count) {
+        return 1;
+    }
+    fail_last("cannot wait for the child's streams");
+    return -1;
 }
 
 #endif /* NUPP_WINDOWS */

@@ -18,7 +18,10 @@
 #include <stdlib.h>
 #include <string.h>
 #include <sys/stat.h>
+#include <poll.h>
+#include <signal.h>
 #include <sys/types.h>
+#include <sys/wait.h>
 #include <time.h>
 #include <unistd.h>
 
@@ -829,6 +832,625 @@ bool nupp_thread_spawn(void (*entry)(void *), void *argument) {
         return false;
     }
     return true;
+}
+
+/* --- child processes ---------------------------------------------------- */
+
+/* `F_SETNOSIGPIPE`, where the platform has it.
+ *
+ * Per target, because the number is per target and nothing about it is
+ * guessable: Darwin says 73 and NetBSD says 14, and issuing one platform's
+ * number on the other does not fail harmlessly -- it performs whatever that
+ * number means there. */
+#if defined(__APPLE__)
+#   define NUPP_F_SETNOSIGPIPE 73
+#   define NUPP_QUIETS_PER_DESCRIPTOR 1
+#elif defined(__NetBSD__)
+#   define NUPP_F_SETNOSIGPIPE 14
+#   define NUPP_QUIETS_PER_DESCRIPTOR 1
+#else
+#   define NUPP_QUIETS_PER_DESCRIPTOR 0
+#endif
+
+struct NuppPipeEnd {
+    int descriptor;
+    bool closed;
+};
+
+/* Makes a descriptor nonblocking, and on the platforms that can, quiet about
+ * `SIGPIPE`.
+ *
+ * Only ever applied to an end this process keeps. `O_NONBLOCK` lives on the open
+ * file description, so a descriptor shared with the child would make the child's
+ * own stdin or stdout nonblocking -- and a child that gets `EAGAIN` from what it
+ * believes is a plain write usually fails. */
+static bool prepare_end(int descriptor) {
+    int flags = fcntl(descriptor, F_GETFL, 0);
+    if (flags < 0) {
+        nupp_fail_errno("cannot read the pipe's flags", errno);
+        return false;
+    }
+    if (fcntl(descriptor, F_SETFL, flags | O_NONBLOCK) < 0) {
+        nupp_fail_errno("cannot make the pipe nonblocking", errno);
+        return false;
+    }
+#if NUPP_QUIETS_PER_DESCRIPTOR
+    /* A descriptor that will not raise `SIGPIPE` is strictly better than a
+     * signal mask held across every write: set once, scoped to a descriptor this
+     * process owns, and it leaves the host's disposition alone. Its failure is
+     * reported rather than shrugged at, because this is the whole of the
+     * protection on these platforms. */
+    if (fcntl(descriptor, NUPP_F_SETNOSIGPIPE, 1) < 0) {
+        nupp_fail_errno("cannot quiet the pipe", errno);
+        return false;
+    }
+#endif
+    return true;
+}
+
+static NuppPipeEnd *wrap_descriptor(int descriptor) {
+    NuppPipeEnd *end = malloc(sizeof *end);
+    if (end == NULL) {
+        close(descriptor);
+        nupp_fail("out of memory");
+        return NULL;
+    }
+    end->descriptor = descriptor;
+    end->closed = false;
+    return end;
+}
+
+bool nupp_pipe_is_closed(const NuppPipeEnd *end) {
+    return end == NULL || end->closed;
+}
+
+void nupp_pipe_close(NuppPipeEnd *end) {
+    if (end != NULL && !end->closed) {
+        close(end->descriptor);
+        end->closed = true;
+        end->descriptor = -1;
+    }
+}
+
+void nupp_pipe_destroy(NuppPipeEnd *end) {
+    if (end != NULL) {
+        nupp_pipe_close(end);
+        free(end);
+    }
+}
+
+intptr_t nupp_pipe_read(NuppPipeEnd *end, uint8_t *into, size_t length) {
+    for (;;) {
+        ssize_t got = read(end->descriptor, into, length);
+        if (got > 0) {
+            return (intptr_t)got;
+        }
+        if (got == 0) {
+            return NUPP_GONE;
+        }
+        if (errno == EINTR) {
+            return NUPP_WOULD_BLOCK;
+        }
+        if (errno == EAGAIN || errno == EWOULDBLOCK) {
+            return NUPP_WOULD_BLOCK;
+        }
+        nupp_fail_errno("cannot read from the child", errno);
+        return NUPP_FAILED;
+    }
+}
+
+/* Writes without letting a broken pipe reach the host.
+ *
+ * On a platform with `F_SETNOSIGPIPE` the descriptor was quieted when it was
+ * prepared and this is an ordinary write. Everywhere else the signal is blocked
+ * for the duration, and this is the sequence that has to be got exactly right:
+ *
+ * 1. Block `SIGPIPE` on this thread, keeping the old mask.
+ * 2. Read `sigpending` -- after the block, because an unblocked signal is
+ *    delivered rather than left pending, so a check taken first answers "not
+ *    pending" for one about to arrive.
+ * 3. Write.
+ * 4. If the write reported `EPIPE` and `SIGPIPE` was not already pending at step
+ *    2, consume the one it raised.
+ * 5. Restore the mask, on every path out.
+ *
+ * Step 4's condition is the careful part. Standard signals are not queued, so a
+ * `SIGPIPE` already pending when the write began is indistinguishable from the
+ * one the write raised, and consuming it steals a signal the host was going to
+ * handle. When it was already there, it is left alone: `EPIPE` still comes back,
+ * which is all this needs.
+ *
+ * What this never does is install a disposition. Ignoring `SIGPIPE`
+ * process-wide would be permanent, global, and the host's choice rather than a
+ * library's. */
+intptr_t nupp_pipe_write(NuppPipeEnd *end, const uint8_t *from, size_t length) {
+    ssize_t written;
+    int failure = 0;
+#if !NUPP_QUIETS_PER_DESCRIPTOR
+    sigset_t blocked, previous, pending;
+    bool already;
+    int blocking;
+
+    sigemptyset(&blocked);
+    sigaddset(&blocked, SIGPIPE);
+    /* `pthread_sigmask` reports through its return value, not `errno`. */
+    blocking = pthread_sigmask(SIG_BLOCK, &blocked, &previous);
+    if (blocking != 0) {
+        nupp_fail_errno("cannot block SIGPIPE for the write", blocking);
+        return NUPP_FAILED;
+    }
+    sigemptyset(&pending);
+    if (sigpending(&pending) != 0) {
+        /* Without knowing whether a `SIGPIPE` was already waiting there is no
+         * safe way to finish: consume afterwards and this may steal the host's,
+         * decline to and a signal this write raised is delivered the moment the
+         * mask comes off. So the write does not happen. */
+        int inspection = errno;
+        int restoring = pthread_sigmask(SIG_SETMASK, &previous, NULL);
+        nupp_fail_errno(
+            restoring != 0 ? "cannot restore the signal mask" : "cannot inspect pending signals",
+            restoring != 0 ? restoring : inspection);
+        return NUPP_FAILED;
+    }
+    already = sigismember(&pending, SIGPIPE) == 1;
+#endif
+
+    written = write(end->descriptor, from, length);
+    if (written < 0) {
+        failure = errno;
+    }
+
+#if !NUPP_QUIETS_PER_DESCRIPTOR
+    if (!already && written < 0 && failure == EPIPE) {
+        struct timespec immediately = {0, 0};
+        for (;;) {
+            if (sigtimedwait(&blocked, NULL, &immediately) >= 0) {
+                break;
+            }
+            if (errno == EINTR) {
+                continue;
+            }
+            if (errno == EAGAIN) {
+                /* Nothing was pending after all, which is the ordinary answer
+                 * when the write failed for a reason other than a broken pipe
+                 * reaching this thread. */
+                break;
+            }
+            /* A `SIGPIPE` this write raised, still pending, and no way to take
+             * it. Restoring the mask now delivers it, and under the default
+             * disposition that ends the process -- so the mask stays as it is
+             * and the caller is told. A thread with `SIGPIPE` blocked is a
+             * changed host, which is bad; a dead host is worse. */
+            nupp_fail_errno("cannot consume the SIGPIPE this write raised", errno);
+            return NUPP_FAILED;
+        }
+    }
+    {
+        /* A failed restore outranks a successful write. The bytes did go, and
+         * saying so while leaving the host's mask changed would trade a fact the
+         * caller can recover from for one it cannot even see. */
+        int restoring = pthread_sigmask(SIG_SETMASK, &previous, NULL);
+        if (restoring != 0) {
+            nupp_fail_errno("cannot restore the signal mask", restoring);
+            return NUPP_FAILED;
+        }
+    }
+#endif
+
+    if (written >= 0) {
+        return (intptr_t)written;
+    }
+    if (failure == EINTR || failure == EAGAIN || failure == EWOULDBLOCK) {
+        return NUPP_WOULD_BLOCK;
+    }
+    if (failure == EPIPE) {
+        return NUPP_GONE;
+    }
+    nupp_fail_errno("cannot write to the child", failure);
+    return NUPP_FAILED;
+}
+
+/* One pipe, close-on-exec on both ends.
+ *
+ * Close-on-exec matters on both: it does not stop the child receiving the ends
+ * it is given -- `dup2` clears the flag on what it creates -- but it does stop
+ * anything else in the host spawning concurrently from inheriting copies and
+ * holding the pipe open against a reader waiting for end of stream.
+ *
+ * Where `pipe2` exists the descriptors are close-on-exec from the instant they
+ * do. macOS has none, so there the flag is set just afterwards and a window
+ * really is open between the two calls: a concurrent spawn in that instant
+ * inherits them. That is a constraint on the host rather than something this can
+ * close, and it is written down instead of papered over. */
+static bool make_pipe(int ends[2]) {
+#if defined(__linux__) || defined(__FreeBSD__) || defined(__NetBSD__) || defined(__OpenBSD__)
+    if (pipe2(ends, O_CLOEXEC) != 0) {
+        nupp_fail_errno("cannot create a pipe", errno);
+        return false;
+    }
+#else
+    int which;
+    if (pipe(ends) != 0) {
+        nupp_fail_errno("cannot create a pipe", errno);
+        return false;
+    }
+    for (which = 0; which < 2; which++) {
+        if (fcntl(ends[which], F_SETFD, FD_CLOEXEC) < 0) {
+            nupp_fail_errno("cannot mark a pipe close-on-exec", errno);
+            close(ends[0]);
+            close(ends[1]);
+            return false;
+        }
+    }
+#endif
+    return true;
+}
+
+/* A close-on-exec copy of one of this process's own descriptors, for a child
+ * that should write where this one does rather than to the slot of the same
+ * number. */
+static int duplicate_cloexec(int descriptor) {
+    int copy = fcntl(descriptor, F_DUPFD_CLOEXEC, 0);
+    if (copy < 0) {
+        nupp_fail_errno("cannot duplicate a descriptor for the child", errno);
+    }
+    return copy;
+}
+
+extern char **environ;
+
+/* The environment the child receives.
+ *
+ * Entries modify rather than replace unless the request cleared first, which is
+ * what makes "run this with one variable set" a one-line request rather than a
+ * copy of everything the host happens to hold. */
+static char **build_environment(const NuppSpawnRequest *request) {
+    size_t inherited = 0;
+    size_t added = 0;
+    size_t capacity;
+    char **out;
+    size_t count = 0;
+    size_t at;
+
+    if (!request->clearEnv && environ != NULL) {
+        while (environ[inherited] != NULL) {
+            inherited++;
+        }
+    }
+    if (request->envp != NULL) {
+        while (request->envp[added] != NULL) {
+            added++;
+        }
+    }
+    capacity = inherited + added + 1;
+    out = malloc(capacity * sizeof *out);
+    if (out == NULL) {
+        nupp_fail("out of memory");
+        return NULL;
+    }
+    for (at = 0; at < inherited; at++) {
+        out[count++] = environ[at];
+    }
+    for (at = 0; at < added; at++) {
+        char *entry = request->envp[at];
+        const char *equals = strchr(entry, '=');
+        size_t nameLength = equals != NULL ? (size_t)(equals - entry) : strlen(entry);
+        size_t scan;
+        bool replaced = false;
+        for (scan = 0; scan < count; scan++) {
+            if (strncmp(out[scan], entry, nameLength) == 0 && out[scan][nameLength] == '=') {
+                out[scan] = entry;
+                replaced = true;
+                break;
+            }
+        }
+        if (!replaced) {
+            out[count++] = entry;
+        }
+    }
+    out[count] = NULL;
+    return out;
+}
+
+bool nupp_spawn(const NuppSpawnRequest *request, NuppSpawnResult *result) {
+    /* Parent end, child end, per stream. -1 is "not a pipe". */
+    int parentEnds[3] = {-1, -1, -1};
+    int childEnds[3] = {-1, -1, -1};
+    int report[2] = {-1, -1};
+    int devNull = -1;
+    int inheritedStdout = -1;
+    char **childEnvironment = NULL;
+    pid_t child;
+    size_t which;
+    bool merged = false;
+
+    memset(result, 0, sizeof *result);
+
+    /* Joining stderr to stdout has to be arranged before the spawn: the child's
+     * two descriptors must already be the same pipe when it starts, and there is
+     * no merging a pipe that was made separately. So one pipe is made here, its
+     * write end is handed to the child twice, and the single read end is what
+     * this process keeps. */
+    for (which = 0; which < 3; which++) {
+        uint8_t mode = request->modes[which];
+        if (which == 2 && mode == NUPP_MODE_STDOUT) {
+            continue;
+        }
+        if (mode == NUPP_MODE_PIPE) {
+            int ends[2];
+            if (!make_pipe(ends)) {
+                goto fail;
+            }
+            if (which == 0) {
+                childEnds[0] = ends[0];
+                parentEnds[0] = ends[1];
+            } else {
+                parentEnds[which] = ends[0];
+                childEnds[which] = ends[1];
+            }
+            if (!prepare_end(parentEnds[which])) {
+                goto fail;
+            }
+        } else if (mode == NUPP_MODE_NULL) {
+            if (devNull < 0) {
+                devNull = open("/dev/null", O_RDWR);
+                if (devNull < 0) {
+                    nupp_fail_errno("cannot open /dev/null", errno);
+                    goto fail;
+                }
+            }
+            childEnds[which] = devNull;
+        }
+        /* Inherit leaves the child end at -1, which the fork reads as "keep the
+         * one you were given". */
+    }
+
+    if (request->modes[2] == NUPP_MODE_STDOUT) {
+        switch (request->modes[1]) {
+            case NUPP_MODE_PIPE:
+                /* The same write end twice, so both of the child's streams land
+                 * in one pipe with one reader. */
+                childEnds[2] = childEnds[1];
+                merged = true;
+                break;
+            case NUPP_MODE_NULL:
+                /* Both discarded, which really is the same destination. */
+                childEnds[2] = childEnds[1];
+                break;
+            default:
+                /* Inheriting is per descriptor, and handing the child this
+                 * process's descriptor 2 is only stdout's destination when the
+                 * two happen to point at the same place. A parent whose own
+                 * stdout is redirected and whose stderr is not would have its
+                 * child's streams land in two places, having asked for one. So
+                 * stderr becomes a duplicate of descriptor 1 -- the
+                 * destination, not the slot. */
+                inheritedStdout = duplicate_cloexec(STDOUT_FILENO);
+                if (inheritedStdout < 0) {
+                    goto fail;
+                }
+                childEnds[2] = inheritedStdout;
+                break;
+        }
+    }
+
+    childEnvironment = build_environment(request);
+    if (childEnvironment == NULL) {
+        goto fail;
+    }
+    /* How the child says it could not start. Close-on-exec, so a successful exec
+     * closes it and the parent reads end of file rather than a reason. */
+    if (!make_pipe(report)) {
+        goto fail;
+    }
+
+    child = fork();
+    if (child < 0) {
+        nupp_fail_errno("cannot fork", errno);
+        goto fail;
+    }
+    if (child == 0) {
+        /* Between here and the exec, only async-signal-safe calls. */
+        int failure = 0;
+        for (which = 0; which < 3; which++) {
+            if (childEnds[which] >= 0 && dup2(childEnds[which], (int)which) < 0) {
+                failure = errno;
+                break;
+            }
+        }
+        if (failure == 0 && request->cwd != NULL && chdir(request->cwd) != 0) {
+            failure = errno;
+        }
+        if (failure == 0) {
+            environ = childEnvironment;
+            execvp(request->argv[0], request->argv);
+            failure = errno;
+        }
+        {
+            ssize_t ignored = write(report[1], &failure, sizeof failure);
+            (void)ignored;
+        }
+        _exit(127);
+    }
+
+    /* The parent keeps its ends and nothing else. */
+    close(report[1]);
+    report[1] = -1;
+    for (which = 0; which < 3; which++) {
+        if (childEnds[which] >= 0 && childEnds[which] != devNull
+            && !(which == 2 && merged)) {
+            close(childEnds[which]);
+        }
+        childEnds[which] = -1;
+    }
+    if (devNull >= 0) {
+        close(devNull);
+        devNull = -1;
+    }
+    if (inheritedStdout >= 0) {
+        close(inheritedStdout);
+        inheritedStdout = -1;
+    }
+
+    {
+        int failure = 0;
+        ssize_t got;
+        do {
+            got = read(report[0], &failure, sizeof failure);
+        } while (got < 0 && errno == EINTR);
+        close(report[0]);
+        report[0] = -1;
+        if (got == (ssize_t)sizeof failure) {
+            int status;
+            while (waitpid(child, &status, 0) < 0 && errno == EINTR) {
+                /* The child exists and is about to be collected. */
+            }
+            nupp_fail_errno(request->argv[0], failure);
+            goto fail;
+        }
+    }
+
+    free(childEnvironment);
+    result->child = (uintptr_t)child;
+    result->id = (unsigned long)child;
+    result->merged = merged;
+    for (which = 0; which < 3; which++) {
+        if (parentEnds[which] >= 0) {
+            result->ends[which] = wrap_descriptor(parentEnds[which]);
+            if (result->ends[which] == NULL) {
+                return false;
+            }
+        }
+    }
+    return true;
+
+fail:
+    for (which = 0; which < 3; which++) {
+        if (parentEnds[which] >= 0) {
+            close(parentEnds[which]);
+        }
+        if (childEnds[which] >= 0 && childEnds[which] != devNull
+            && !(which == 2 && merged)) {
+            close(childEnds[which]);
+        }
+    }
+    if (devNull >= 0) {
+        close(devNull);
+    }
+    if (inheritedStdout >= 0) {
+        close(inheritedStdout);
+    }
+    if (report[0] >= 0) {
+        close(report[0]);
+    }
+    if (report[1] >= 0) {
+        close(report[1]);
+    }
+    free(childEnvironment);
+    return false;
+}
+
+bool nupp_child_kill(const NuppSpawnResult *child, bool force) {
+    if (kill((pid_t)child->child, force ? SIGKILL : SIGTERM) == 0) {
+        return true;
+    }
+    /* The child ended between the poll and this signal, which is a race nothing
+     * can close and not a failure: what was asked for has happened. */
+    if (errno == ESRCH) {
+        return true;
+    }
+    nupp_fail_errno("cannot signal the child", errno);
+    return false;
+}
+
+int nupp_child_poll(NuppSpawnResult *child, int32_t *code, bool *killed) {
+    int status = 0;
+    pid_t answered;
+    do {
+        answered = waitpid((pid_t)child->child, &status, WNOHANG);
+    } while (answered < 0 && errno == EINTR);
+    if (answered == 0) {
+        return 0;
+    }
+    if (answered < 0) {
+        /* A host that reaps its own children -- `SIGCHLD` set to `SIG_IGN`, or
+         * its own handler -- leaves nothing here to wait for, and reading that
+         * as "still running" would report a leak that did not happen. */
+        if (errno == ECHILD) {
+            *code = 0;
+            *killed = false;
+            return 1;
+        }
+        nupp_fail_errno("cannot ask after the child", errno);
+        return -1;
+    }
+    if (WIFSIGNALED(status)) {
+        /* A signal leaves no exit code of its own. 128 plus the signal is what a
+         * shell reports, and what this ABI's callers already read. */
+        *code = 128 + WTERMSIG(status);
+        *killed = true;
+    } else {
+        *code = WIFEXITED(status) ? WEXITSTATUS(status) : 0;
+        *killed = false;
+    }
+    return 1;
+}
+
+void nupp_child_release(NuppSpawnResult *child) {
+    /* `waitpid` already collected the status, so the id is gone and there is
+     * nothing left for the platform to hold. */
+    (void)child;
+}
+
+int nupp_pipe_wait(
+    NuppPipeEnd *const *readable, size_t readableCount,
+    NuppPipeEnd *const *writable, size_t writableCount,
+    int32_t timeoutMs
+) {
+    struct pollfd *slots;
+    size_t count = 0;
+    size_t at;
+    int ready;
+
+    slots = malloc((readableCount + writableCount + 1) * sizeof *slots);
+    if (slots == NULL) {
+        nupp_fail("out of memory");
+        return -1;
+    }
+    for (at = 0; at < readableCount; at++) {
+        if (readable[at] == NULL || readable[at]->closed) {
+            continue;
+        }
+        slots[count].fd = readable[at]->descriptor;
+        slots[count].events = POLLIN;
+        slots[count].revents = 0;
+        count++;
+    }
+    for (at = 0; at < writableCount; at++) {
+        if (writable[at] == NULL || writable[at]->closed) {
+            continue;
+        }
+        slots[count].fd = writable[at]->descriptor;
+        slots[count].events = POLLOUT;
+        slots[count].revents = 0;
+        count++;
+    }
+    /* A negative timeout means "forever" to `poll`, which is the one thing this
+     * must never do: every caller above is bounded, and the usual way to arrive
+     * here negative is a deadline that has already passed -- which asks for no
+     * wait at all rather than an endless one. */
+    ready = poll(slots, (nfds_t)count, timeoutMs < 0 ? 0 : timeoutMs);
+    free(slots);
+    if (ready >= 0) {
+        return ready;
+    }
+    /* Interrupted before anything was ready, which is a wait that ended early
+     * rather than one that failed: the caller re-checks and waits again. */
+    if (errno == EINTR) {
+        return 0;
+    }
+    nupp_fail_errno("cannot wait for the child's streams", errno);
+    return -1;
 }
 
 #endif /* !NUPP_WINDOWS */

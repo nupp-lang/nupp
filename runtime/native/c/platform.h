@@ -128,6 +128,73 @@ const char *nupp_environment(const char *name);
 /* Bytes with no pattern to them, for a temporary name. */
 void nupp_fs_random(void *into, size_t length);
 
+/* --- child processes ---------------------------------------------------- */
+
+/* How a child's stream was asked to be connected. The numbers are the ABI's. */
+#define NUPP_MODE_PIPE 0
+#define NUPP_MODE_INHERIT 1
+#define NUPP_MODE_NULL 2
+#define NUPP_MODE_STDOUT 3
+
+/* What a nonblocking read or write answers when it moved no bytes. Negative, so
+ * a caller reads a count and these apart without a second result. */
+#define NUPP_WOULD_BLOCK ((intptr_t)-1)
+#define NUPP_GONE ((intptr_t)-2)
+#define NUPP_FAILED ((intptr_t)-3)
+
+/* One end of a pipe this process kept. A descriptor on POSIX and a handle on
+ * Windows, and the difference is exactly why this is opaque: one of them does
+ * not fit in an `int` and one of them does not answer readiness on the pipe
+ * itself. */
+typedef struct NuppPipeEnd NuppPipeEnd;
+
+intptr_t nupp_pipe_read(NuppPipeEnd *end, uint8_t *into, size_t length);
+intptr_t nupp_pipe_write(NuppPipeEnd *end, const uint8_t *from, size_t length);
+
+/* Releases the descriptor, leaving the handle alive and safe to name. */
+void nupp_pipe_close(NuppPipeEnd *end);
+void nupp_pipe_destroy(NuppPipeEnd *end);
+bool nupp_pipe_is_closed(const NuppPipeEnd *end);
+
+/* What a spawn was asked for. The vectors are NUL-terminated strings in a
+ * NULL-terminated array, which is what both platforms want in the end. */
+typedef struct {
+    char **argv;
+    char **envp;
+    bool clearEnv;
+    const char *cwd;
+    uint8_t modes[3];
+} NuppSpawnRequest;
+
+/* What a spawn produced: the child, and this process's end of each pipe it
+ * asked for. `merged` says stderr was joined onto stdout, so `ends[1]` carries
+ * both and `ends[2]` is nothing. */
+typedef struct {
+    uintptr_t child;
+    unsigned long id;
+    NuppPipeEnd *ends[3];
+    bool merged;
+} NuppSpawnResult;
+
+bool nupp_spawn(const NuppSpawnRequest *request, NuppSpawnResult *result);
+
+/* Asks the child to end, or insists. */
+bool nupp_child_kill(const NuppSpawnResult *child, bool force);
+
+/* 1 when it has ended, with the status and whether a signal ended it; 0 while it
+ * still runs; -1 on failure. */
+int nupp_child_poll(NuppSpawnResult *child, int32_t *code, bool *killed);
+
+/* Gives up whatever the platform still holds for the child. */
+void nupp_child_release(NuppSpawnResult *child);
+
+/* Waits until one of the named ends is ready, for at most `timeoutMs`. A closed
+ * end is skipped. Answers how many became ready, or -1. */
+int nupp_pipe_wait(
+    NuppPipeEnd *const *readable, size_t readableCount,
+    NuppPipeEnd *const *writable, size_t writableCount,
+    int32_t timeoutMs);
+
 /* --- threads ------------------------------------------------------------ */
 
 /* Enough of a threading interface for the work that has to leave the calling

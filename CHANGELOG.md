@@ -2,6 +2,17 @@
 
 ## Unreleased
 
+- Reimplement child processes in C. Spawning, the nonblocking pipes to and from
+  a child, the readiness wait and the exit accounting move to
+  `runtime/native/c/process.c` and the two platform files under it. The POSIX
+  half keeps what the Rust one had got right and says so in the same places: the
+  `SIGPIPE` block-inspect-write-consume-restore sequence, close-on-exec on both
+  ends of every pipe, and stderr joined to stdout as one pipe handed to the
+  child twice rather than two streams merged afterwards. The Windows half uses
+  uniquely named overlapped pipes, because an anonymous pipe cannot be read
+  without blocking and has nothing a readiness wait can wait on. `libc` and
+  `windows-sys` leave the dependency list.
+
 - Reimplement URI parsing in C. A URI is held as one normalized serialization
   plus the offsets of its parts, so reading a component slices storage the
   handle already owns; deriving one takes the parts apart, replaces the one that
