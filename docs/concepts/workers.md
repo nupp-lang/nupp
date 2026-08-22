@@ -77,21 +77,27 @@ every proof on either side true.
 
 ### Serving requests
 
-The entry obtains its own endpoints with `current` and serves request and reply
-calls until its inbox closes:
+The entry exports `main`, which a worker calls with its own endpoints once the
+module has loaded, and serves request and reply calls until its inbox closes:
 
 ```nupp [jobs/hash.nupp]
 local data = require("nupp.data")
 local workers = require("nupp.workers")
-local self = workers.current()
 
-self:serve(function(job: any): any
-    return {name = job.name, hash = data.fnv1a64(job.bytes)}
-end)
+function jobs.hash.main(self: workers.Self): nil
+    self:serve(function(job: any): any
+        return {name = job.name, hash = data.fnv1a64(job.bytes)}
+    end)
+end
 ```
 
 A handler error becomes a failed reply for that call, and the serve loop
 continues.
+
+An entry that instead serves while its module loads still works, and is what
+`workers.current()` is for. It cannot be required by the state that spawns it,
+though, which is why an entry with a typed protocol exports `main`: the spawner
+names that module's types, so loading it must do nothing.
 
 ### Exit status
 
@@ -149,12 +155,14 @@ local function spawn(): Handle
     end
 end
 
-local implementation: Operations = {
-    hash = function(job: Job): Answer
-        return {name = job.name, hash = data.fnv1a64(job.bytes)}
-    end
-}
-workers.current():serveOperations(implementation)
+function jobs.hash.main(self: workers.Self): nil
+    local implementation: Operations = {
+        hash = function(job: Job): Answer
+            return {name = job.name, hash = data.fnv1a64(job.bytes)}
+        end
+    }
+    self:serveOperations(implementation)
+end
 ```
 
 The caller writes a method call, and every part of it is checked:

@@ -346,7 +346,17 @@ local function bundleText(
         chunks[#chunks + 1] = mainText
         chunks[#chunks + 1] = "\nend\n"
         chunks[#chunks + 1] = "local __nuppEntry = rawget(_G, \"__nuppWorkerEntry\")\n"
-        chunks[#chunks + 1] = ("return require(__nuppEntry or %q)\n"):format(mainName)
+        -- An entry module that serves at load cannot be required by the state that
+        -- spawns it, which is what a typed protocol needs it to be: the spawner names
+        -- the entry's own types. So a worker calls an exported entry point after
+        -- loading, leaving a module that served at load working as it did.
+        chunks[#chunks + 1] = ("local __nuppLoaded = require(__nuppEntry or %q)\n"):format(mainName)
+        chunks[#chunks + 1] = "if __nuppEntry ~= nil and type(__nuppLoaded) == \"table\" then\n"
+        chunks[#chunks + 1] = "local __nuppServe = rawget(__nuppLoaded, \"main\")\n"
+        chunks[#chunks + 1] = "if type(__nuppServe) == \"function\" then\n"
+        chunks[#chunks + 1] = "__nuppServe(require(\"nupp.workers\").current())\n"
+        chunks[#chunks + 1] = "end\nend\n"
+        chunks[#chunks + 1] = "return __nuppLoaded\n"
     else
         chunks[#chunks + 1] = mainText
     end

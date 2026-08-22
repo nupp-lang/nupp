@@ -19,14 +19,17 @@ do
 end -- automatic stop
 ```
 
-The entry obtains its endpoints independently:
+The entry exports `main`, which a worker calls with its endpoints once its module
+has loaded, so the state that spawns it may require it for its declarations:
 
 ```nupp
 local workers = require("nupp.workers")
 
-workers.current():serve(function(job: any): any
-    return {length = #job.bytes}
-end)
+function jobs.hash.main(self: workers.Self): nil
+    self:serve(function(job: any): any
+        return {length = #job.bytes}
+    end)
+end
 ```
 
 A ready receive returns inline. A wait blocks efficiently in an ordinary

@@ -296,8 +296,13 @@ function M.aWorkerPayloadCarriesRuntimeModulesAndDispatchesItsEntry()
    assert(text:find('package.preload["main"]', 1, true),
       "the ordinary entry becomes selectable")
    assert(text:find('__nuppWorkerEntry', 1, true)
-      and text:find('return require(__nuppEntry or "main")', 1, true),
+      and text:find('local __nuppLoaded = require(__nuppEntry or "main")', 1, true),
       "one dispatcher selects the worker or ordinary entry")
+   assert(text:find('rawget(__nuppLoaded, "main")', 1, true)
+      and text:find('require("nupp.workers").current()', 1, true),
+      "a worker calls the entry point its module exported")
+   assert(text:find('if __nuppEntry ~= nil and', 1, true),
+      "the ordinary entry is loaded and returned as it was")
    os.execute("rm -rf '" .. dir .. "'")
 end
 
