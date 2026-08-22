@@ -81,12 +81,15 @@ end
 function M.everyPinHasAVersionAndADigest()
    local recorded = pins()
    for _, component in ipairs({
-      "LUAJIT", "LPEG", "LUAUTF8", "SIMDJSON", "CURL", "MBEDTLS",
+      "LUAJIT", "LPEG", "LUAUTF8", "SIMDJSON", "CURL", "MBEDTLS", "ADA",
    }) do
       local marker = component == "LUAJIT" and "REV" or "VERSION"
       assert(recorded[component .. "_" .. marker],
          component .. " has no version or revision")
+      -- ada is three loose files rather than an archive, so its digests are
+      -- named for the file each one authenticates.
       local digest = recorded[component .. "_SHA256"]
+         or recorded[component .. "_CPP_SHA256"]
       assert(digest and #digest == 64,
          component .. " has no SHA-256, or one that is not 64 characters")
       assert(digest:match("^%x+$"), component .. "'s digest is not hexadecimal")
@@ -100,6 +103,7 @@ function M.everyPinnedSourceHasANotice()
    for _, notice in ipairs({
       "LuaJIT-COPYRIGHT.txt", "LPeg-LICENSE.txt", "luautf8-LICENSE.txt",
       "simdjson-LICENSE.txt", "curl-COPYING.txt", "mbedtls-LICENSE.txt",
+      "ada-LICENSE.txt",
    }) do
       assert(io.open(ROOT .. "/host/notices/" .. notice, "rb"),
          "host/notices/" .. notice .. " is missing")

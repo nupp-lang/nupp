@@ -18,12 +18,13 @@ cd nupp
 ## Requirements
 
 **A C and a C++ compiler**, either `clang` with `clang++` or `gcc` with `g++`,
-plus the shell, `tar` and a downloader. `NUPP_CC` and `NUPP_CXX` name them; with
+plus the shell, `tar` and a downloader. The C++ half must understand C++20,
+which Clang 10 and GCC 10 were the first to do. `NUPP_CC` and `NUPP_CXX` name them; with
 neither set, `clang`, `cc` and `gcc` are probed in that order, and the C++ names
 beside them.
 
 Everything else is provisioned. `scripts/toolchain` fetches LuaJIT, LPeg,
-luautf8, simdjson, libcurl and mbedTLS by pinned revision, refuses any archive
+luautf8, simdjson, ada, libcurl and mbedTLS by pinned revision, refuses any archive
 whose SHA-256 is not the one written down, builds each with that compiler pair,
 and caches the result beside the repository so every worktree shares one build.
 It also builds what Nupp itself is made of: the native providers and the binary

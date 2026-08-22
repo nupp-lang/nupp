@@ -258,3 +258,28 @@ requirement without a port, by checking in compiled artifacts. Rejected: it
 makes the tree unbuildable from source on any platform nobody prebuilt for, and
 moves the toolchain requirement onto whoever cuts a release rather than
 removing it.
+
+## 2026-08-22: the URI parser is ada, and C++ moves to C++20
+
+The URI facility was reimplemented by hand rather than taken from a library,
+because the two obvious candidates did not fit: curl's URL API has no
+representation for an opaque path, so `mailto:`, `urn:` and `data:` -- all three
+of them documented on [](nupp.io.uri) -- could not be expressed at all.
+
+[ada](https://github.com/ada-url/ada) is the WHATWG parser Node.js uses, ships a
+C API, and implements the model this library documents. Checked against the
+table recorded from the implementation being replaced, it agrees on every one of
+seventeen URIs and eleven components each, refuses the same six malformed
+inputs, and answers identically to every derivation, concatenation, resolution
+and rerooting. So the hand-written parser is gone and 1123 lines of the most
+specification-sensitive code in the tree went with it.
+
+What ada does not answer is *why* a URI is invalid, which a caller validating
+text from outside the program shows to a person. Three faults are worth telling
+apart -- no scheme, an empty host where the scheme requires one, an unclosed
+IPv6 bracket -- and those are classified here, on the failure path only.
+
+The cost is the C++ standard. Ada 4 needs C++20 for `std::endian`, where
+simdjson needed C++17, so the floor stated above moves with it. GCC 10 and Clang
+10 are the first releases that carry it, both from 2020, and the supported
+compiler pairs are otherwise unchanged.

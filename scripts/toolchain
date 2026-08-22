@@ -35,7 +35,7 @@ usage: scripts/toolchain COMPONENT...
        scripts/toolchain --all
        scripts/toolchain --prefix
 
-Components: luajit lpeg luautf8 simdjson mbedtls curl
+Components: luajit lpeg luautf8 simdjson ada mbedtls curl
             native FEATURES, host FEATURES, host-library FEATURES
 
 Prints the install prefix of each component named, building it first when it is
@@ -197,6 +197,37 @@ archive() {
     printf '%s\n' "$file"
 }
 
+# One pinned file, verified. Not every source is an archive: a single-header
+# library is a handful of loose files, and unpacking one would mean requiring an
+# archive tool this does not otherwise need.
+pinned_file() {
+    name=$1 url=$2 digest=$3
+    file="$ARCHIVES/$name"
+    if [ -f "$file" ] && [ "$(sha256 "$file")" = "$digest" ]; then
+        printf '%s\n' "$file"
+        return 0
+    fi
+    mkdir -p "$ARCHIVES"
+    if [ -n "$SOURCE_DIR" ] && [ -f "$SOURCE_DIR/$name" ]; then
+        cp "$SOURCE_DIR/$name" "$file.$$"
+    elif offline; then
+        die "NUPP_HOST_OFFLINE is set and $name is not cached; put the pinned file in NUPP_HOST_SOURCE_DIR"
+    else
+        if [ -n "$SOURCE_BASE_URL" ]; then
+            url="${SOURCE_BASE_URL%/}/$name"
+        fi
+        note "fetching $name"
+        download "$url" "$file.$$" || { rm -f "$file.$$"; die "cannot download $url"; }
+    fi
+    found=$(sha256 "$file.$$")
+    if [ "$found" != "$digest" ]; then
+        rm -f "$file.$$"
+        die "$name has digest $found, expected $digest; refusing to cache or compile it"
+    fi
+    mv "$file.$$" "$file"
+    printf '%s\n' "$file"
+}
+
 # One extracted source tree. Extraction is into a temporary sibling and renamed,
 # so a killed run never leaves a half-unpacked tree a later one trusts.
 source_tree() {
@@ -232,23 +263,24 @@ source_tree() {
 # source it claims to reproduce is a false statement about what was distributed.
 # Bumping a pin fails here until the notice beside it is updated too.
 verify_notice() {
-    source=$1 notice=$2
+    noticeSource=$1 notice=$2
     committed="$ROOT/host/notices/$notice"
-    [ -f "$source" ] || die "the pinned source has no $source to check $notice against"
+    [ -f "$noticeSource" ] \
+        || die "the pinned source has no $noticeSource to check $notice against"
     [ -f "$committed" ] || die "host/notices/$notice is missing"
-    if ! cmp -s "$source" "$committed"; then
-        die "host/notices/$notice is not what $source says any more. Copy it across: the pinned source is what is distributed, and the notice beside it is what says so."
+    if ! cmp -s "$noticeSource" "$committed"; then
+        die "host/notices/$notice is not what $noticeSource says any more. Copy it across: the pinned source is what is distributed, and the notice beside it is what says so."
     fi
 }
 
 # LPeg ships its licence inside its manual rather than as a file, so the notice
 # beside it is checked for the clauses instead of byte for byte.
 verify_embedded_notice() {
-    source=$1 notice=$2
+    noticeSource=$1 notice=$2
     committed="$ROOT/host/notices/$notice"
     for text in '2007-2023 Lua.org, PUC-Rio' 'Permission is hereby granted' 'THE SOFTWARE IS PROVIDED'; do
-        grep -qF "$text" "$source" && grep -qF "$text" "$committed" \
-            || die "host/notices/$notice no longer agrees with $source"
+        grep -qF "$text" "$noticeSource" && grep -qF "$text" "$committed" \
+            || die "host/notices/$notice no longer agrees with $noticeSource"
     done
 }
 
@@ -525,6 +557,34 @@ write_vmdef() {
     } > "$1"
 }
 
+build_ada() {
+    out="$PREFIX/ada"
+    take_lock ada "$out/.complete" || return 0
+    [ -f "$out/.complete" ] && { release_lock; return 0; }
+
+    base="https://github.com/ada-url/ada/releases/download/v$ADA_VERSION"
+    amalgamation=$(pinned_file "ada-$ADA_VERSION.cpp" "$base/ada.cpp" "$ADA_CPP_SHA256")
+    header=$(pinned_file "ada-$ADA_VERSION.h" "$base/ada.h" "$ADA_H_SHA256")
+    api=$(pinned_file "ada_c-$ADA_VERSION.h" "$base/ada_c.h" "$ADA_C_H_SHA256")
+    licence=$(pinned_file "ada-$ADA_VERSION-LICENSE-MIT" \
+        "https://raw.githubusercontent.com/ada-url/ada/v$ADA_VERSION/LICENSE-MIT" \
+        "$ADA_LICENSE_SHA256")
+    verify_notice "$licence" ada-LICENSE.txt
+
+    note "building ada with $CXX"
+    rm -rf "$out"
+    mkdir -p "$out/lib" "$out/include"
+    cp "$header" "$out/include/ada.h"
+    cp "$api" "$out/include/ada_c.h"
+    # C++20, for `std::endian`. It is the only thing here that asks for more
+    # than C++17, and it is why the documented floor moved.
+    "$CXX" -c -std=c++20 -O2 -DNDEBUG -fPIC -I"$out/include" \
+        -o "$out/lib/ada.o" "$amalgamation" >&2
+    ar rcs "$out/lib/libada.a" "$out/lib/ada.o"
+    printf 'done\n' > "$out/.complete"
+    release_lock
+}
+
 build_simdjson() {
     out="$PREFIX/simdjson"
     take_lock simdjson "$out/.complete" || return 0
@@ -570,12 +630,22 @@ build_native_library() {
     mkdir -p "$out/objects"
 
     libraries=""
+    adaInclude=""
     linker=$CC
     for feature in $sorted; do
-        if [ "$feature" = http ]; then
-            curl_prefix=$(build_curl; printf '%s' "$PREFIX/curl")
-            libraries="$libraries $("$curl_prefix/bin/curl-config" --static-libs)"
-        fi
+        case "$feature" in
+            http)
+                curl_prefix=$(build_curl; printf '%s' "$PREFIX/curl")
+                libraries="$libraries $("$curl_prefix/bin/curl-config" --static-libs)"
+                ;;
+            uri)
+                ada_prefix=$(build_ada; printf '%s' "$PREFIX/ada")
+                adaInclude="-I$ada_prefix/include"
+                libraries="$libraries $ada_prefix/lib/libada.a"
+                # ada is C++, and the C++ runtime comes in with it.
+                linker=$CXX
+                ;;
+        esac
     done
 
     objects=""
@@ -587,7 +657,7 @@ build_native_library() {
         fi
         # shellcheck disable=SC2086
         "$CC" -c -std=gnu11 -O2 -fPIC -DNDEBUG -Wall -Wextra \
-            -I"$ROOT/runtime/native/c" -I"$include" $curlInclude \
+            -I"$ROOT/runtime/native/c" -I"$include" $curlInclude $adaInclude \
             -o "$object" "$ROOT/runtime/native/$source" >&2
         objects="$objects $object"
     done
@@ -727,6 +797,7 @@ case "$1" in
         build_lpeg
         build_luautf8
         build_simdjson
+        build_ada
         build_curl
         exit 0
         ;;
@@ -754,6 +825,7 @@ for component in "$@"; do
         lpeg)     build_lpeg;     printf '%s\n' "$PREFIX/lpeg" ;;
         luautf8)  build_luautf8;  printf '%s\n' "$PREFIX/luautf8" ;;
         simdjson) build_simdjson; printf '%s\n' "$PREFIX/simdjson" ;;
+        ada)      build_ada;      printf '%s\n' "$PREFIX/ada" ;;
         mbedtls)  build_mbedtls;  printf '%s\n' "$PREFIX/mbedtls" ;;
         curl)     build_curl;     printf '%s\n' "$PREFIX/curl" ;;
         *) note "unknown component $component"; usage ;;

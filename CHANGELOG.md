@@ -2,6 +2,15 @@
 
 ## Unreleased
 
+- Parse URIs with [ada](https://github.com/ada-url/ada) rather than by hand. It
+  is the WHATWG parser Node.js uses and the model `nupp.io.uri` documents, and
+  checked against the table recorded from the implementation it replaces it
+  agrees on every one of seventeen URIs and eleven components each, refuses the
+  same six malformed inputs, and answers identically to every derivation,
+  resolution and rerooting. 1123 lines of hand-written parsing leave the tree.
+  Why a URI is invalid is still answered here, because ada reports only that one
+  is. Ada needs C++20, so the documented C++ floor moves from C++17.
+
 - Reimplement the binary host in C, and remove Cargo from the tree. Locating and
   verifying the payload, starting LuaJIT, the component and handle lifecycle,
   the embedding ABI in `host/include/nupp.h`, worker states and bounded byte
