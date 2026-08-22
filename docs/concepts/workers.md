@@ -110,6 +110,83 @@ end
 Calling `join` does not close a running worker. Use `stop` for explicit cleanup,
 or let ownership call it at the end of the worker's scope.
 
+## Typed protocols
+
+`call` and `serve` above carry `any`. An entry that declares the operations it
+serves gets a handle whose methods are checked like ordinary ones, and the entry
+name is checked with them.
+
+The entry declares a shape of operations, generates its handle from that shape and
+its own module name, and pairs the handle with a terminal so it carries the
+obligation to stop the worker:
+
+```nupp [jobs/hash.nupp]
+local workers = require("nupp.workers")
+local protocol = require("nupp.workers.protocol")
+local data = require("nupp.data")
+
+local type Job = {name: string, bytes: string}
+local type Answer = {name: string, hash: uint64}
+
+local type Operations = {
+    hash: function(job: Job): Answer
+}
+
+local type Raw = protocol.Handle<"jobs.hash", Operations>
+
+local function release(takes self: Raw): nil
+    workers.destroyWorker(self as any as workers.Worker)
+end
+
+local type Handle = affine(Raw, release)
+
+local function spawn(): Handle
+    local worker = workers.spawn("jobs.hash")
+    unsafe do
+        local ready = workers.dispatcher(unsafe release worker) as any as Raw
+
+        return unsafe adopt ready as Handle
+    end
+end
+
+local implementation: Operations = {
+    hash = function(job: Job): Answer
+        return {name = job.name, hash = data.fnv1a64(job.bytes)}
+    end
+}
+workers.current():serveOperations(implementation)
+```
+
+The caller writes a method call, and every part of it is checked:
+
+```nupp
+local hasher = jobs.hash.spawn()
+local answer = hasher:hash({name = "level1", bytes = contents})
+```
+
+A misspelled operation, a message missing a field, and a reply field that does not
+exist are each reported where they are written. The handle is the same worker with
+a metatable that routes an unknown method to the operation of that name, so nothing
+is allocated and `stop`, `join` and the obligation are unchanged.
+
+::: note The handle's name is what discriminates
+A comptime function builds structural types and never a nominal one, so the entry
+name is carried as a literal field and two handles over different entries do not
+interconvert. `nupp.workers.protocol` refuses a name that is not a string literal.
+:::
+
+### Messages cannot carry an obligation
+
+An owned type in an operation's arguments or results is refused where the protocol
+is written. Every value is copied on the way across, so the copy the other state
+decodes has no cleanup and the original still owes its own.
+
+### Untyped in both directions
+
+`Worker:send`, `Worker:receive` and `Self:receive` stay `any`. They are a second
+protocol running the other way, with no request to name and no reply to match, and
+nothing about the operations shape describes them.
+
 ## Messages
 
 `Worker:send` and `Self:send` carry ordinary one-way messages in either

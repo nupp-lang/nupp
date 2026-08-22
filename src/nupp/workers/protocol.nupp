@@ -10,6 +10,40 @@ field, is the only thing that can tell two handles apart.
 See [workers.md](docs/concepts/workers.md).
 ]]
 
+--- Names the first owned type reachable from a message, if there is one.
+---
+--- Every value is copied on the way across, so an obligation cannot travel with
+--- one: the copy the other state decodes has no cleanup and the original still owes
+--- its own. A walk rather than a top-level test, because a shape holding an owner
+--- is the same problem one layer down.
+local comptime function owned(T: type, what: string): string?
+    local pending = {T}
+    local seen = 0
+    while #pending > 0 and seen < 256 do
+        local current = pending[#pending]
+        pending[#pending] = nil
+        seen = seen + 1
+        local kind = nupp.types.kind(current)
+        if kind == "affine" or kind == "borrowed" or kind == "pinned" then
+            return what .. " is " .. kind .. ", and a message is copied rather than moved"
+        end
+        local described = nupp.types.describe(current)
+        for _, field in ipairs(described.fields or {}) do
+            if field.read ~= nil then
+                pending[#pending + 1] = field.read
+            end
+        end
+        for _, member in ipairs(described.members or {}) do
+            pending[#pending + 1] = member
+        end
+        if described.element ~= nil then
+            pending[#pending + 1] = described.element
+        end
+    end
+
+    return nil
+end
+
 local comptime function build(Name: type, Ops: type): type
     local named = nupp.types.describe(Name)
     if named.kind ~= "literal" or type(named.value) ~= "string" then
@@ -32,7 +66,17 @@ local comptime function build(Name: type, Ops: type): type
         local given = nupp.types.describe(nupp.types.parameters(read))
         local head: {type} = {nupp.types.any}
         for _, parameter in ipairs(given.head or {}) do
+            local rejected = owned(parameter, "an argument of " .. field.name)
+            if rejected ~= nil then
+                return nupp.types.error(rejected)
+            end
             head[#head + 1] = parameter
+        end
+        for _, result in ipairs(nupp.types.describe(nupp.types.results(read)).head or {}) do
+            local rejected = owned(result, "a result of " .. field.name)
+            if rejected ~= nil then
+                return nupp.types.error(rejected)
+            end
         end
         fields[
             #fields + 1

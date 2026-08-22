@@ -664,6 +664,155 @@ end
    end)
 end
 
+-- A worker entry declares the operations it serves, the generator turns them into
+-- methods on a handle typed with the entry's own name, and the entry pairs that
+-- with its own terminal so the handle carries the obligation to stop the worker.
+-- What the caller then writes is an ordinary method call that is checked like one.
+local TYPED_WORKER_ENTRY = [[
+module jobs.hash
+
+const workers = require("nupp.workers")
+const protocol = require("nupp.workers.protocol")
+
+export type Job = {name: string, bytes: string}
+export type Answer = {name: string, hash: uint64}
+
+export type Operations = {
+    hash: function(job: Job): Answer,
+    verify: function(job: Job, digest: uint64): boolean
+}
+
+export type Raw = protocol.Handle<"jobs.hash", Operations>
+
+export function release(takes self: Raw): nil
+    local worker = self as any as workers.Worker
+    workers.destroyWorker(worker)
+end
+
+export type Handle = affine(Raw, release)
+
+export function spawn(): Handle
+    local worker = workers.spawn("jobs.hash")
+    unsafe do
+        local ready = workers.dispatcher(unsafe release worker) as any as Raw
+
+        return unsafe adopt ready as Handle
+    end
+end
+
+export function main(): nil
+    local implementation: Operations = {
+        hash = function(job: Job): Answer
+            return {name = job.name, hash = 0}
+        end,
+        verify = function(job: Job, digest: uint64): boolean
+            return digest == 0
+        end,
+    }
+    workers.current():serveOperations(implementation)
+end
+]]
+
+function M.aTypedWorkerCallChecksLikeAnOrdinaryCall()
+   withProject({
+      ["src/jobs/hash.nupp"] = TYPED_WORKER_ENTRY,
+      ["src/main.nupp"] = [[
+module main
+
+const jobs = require("jobs.hash")
+
+export function good(contents: string): uint64
+    local hasher = jobs.spawn()
+
+    return hasher:hash({name = "level1", bytes = contents}).hash
+end
+]],
+   }, function(dir)
+      local path = dir .. "/src/main.nupp"
+      local parsed = parser.parse(readFile(path), path)
+      assertEq(#parsed.errors, 0, "the caller parses")
+      local diags = check.check(parsed, path, projectEnv(dir))
+      assertEq(#diags, 0, "a well-formed worker call checks: "
+         .. (diags[1] and diags[1].msg or ""))
+   end)
+end
+
+function M.aTypedWorkerCallReportsTheMistakesItExistsToCatch()
+   withProject({
+      ["src/jobs/hash.nupp"] = TYPED_WORKER_ENTRY,
+      ["src/main.nupp"] = [[
+module main
+
+const jobs = require("jobs.hash")
+
+export function misspelled(): nil
+    local hasher = jobs.spawn()
+    print(hasher:missing())
+end
+
+export function wrongArgument(): nil
+    local hasher = jobs.spawn()
+    print(hasher:hash({name = "level1"}))
+end
+
+export function wrongResult(): nil
+    local hasher = jobs.spawn()
+    print(hasher:hash({name = "a", bytes = "b"}).nope)
+end
+]],
+   }, function(dir)
+      local path = dir .. "/src/main.nupp"
+      local diags = check.check(parser.parse(readFile(path), path), path, projectEnv(dir))
+      local codes = {}
+      for index, diag in ipairs(diags) do
+         codes[index] = diag.code
+      end
+      assertEq(table.concat(codes, ","), "NUPP2004,NUPP2006,NUPP2004",
+         "a misspelled method, a wrong argument, and a wrong result are each reported")
+   end)
+end
+
+-- Every value is copied on the way across, so the copy the other state decodes has
+-- no cleanup and the original still owes its own. An owned message is refused where
+-- the protocol is written rather than left to fail at run time, or not at all.
+function M.aWorkerMessageCannotCarryAnObligation()
+   withProject({
+      ["src/jobs/held.nupp"] = [[
+module jobs.held
+
+const protocol = require("nupp.workers.protocol")
+
+local record Res
+    id: integer
+end
+
+local function dropRes(takes self: Res): nil
+    print(self.id)
+end
+
+local type Operations = {take: function(held: affine(Res, dropRes)): boolean}
+
+export type Raw = protocol.Handle<"jobs.held", Operations>
+
+export function probe(value: Raw): nil
+    print(value.entry)
+end
+]],
+   }, function(dir)
+      local path = dir .. "/src/jobs/held.nupp"
+      local diags = check.check(parser.parse(readFile(path), path), path, projectEnv(dir))
+      local refusal = nil
+      for _, diag in ipairs(diags) do
+         if diag.code == "NUPP2130" then
+            refusal = diag
+         end
+      end
+      assert(refusal, "an owned message is refused where the protocol is written")
+      assert(refusal.msg:find("copied rather than moved", 1, true),
+         "the refusal says why: " .. refusal.msg)
+   end)
+end
+
 -- An affine type is only usable by another module if the terminal it names
 -- resolves there too, and three separate things have to line up for that: the
 -- prefix a consumer writes is the local name it bound the module to rather than

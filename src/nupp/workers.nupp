@@ -60,6 +60,7 @@ local workers = {}
 
 local type Frame = {
     kind: string,
+    op: string?,
     id: integer?,
     ok: boolean?,
     payload: any,
@@ -97,6 +98,9 @@ record workers.Self
 
     --- Answers requests until the inbox closes.
     serve: function(workers.Self, function(any): any)
+
+    --- Answers named requests from a table of operations until the inbox closes.
+    serveOperations: function(workers.Self, any)
 end
 
 --- A fresh Lua state running on a native thread.
@@ -125,6 +129,9 @@ record workers.Worker
 
     --- Sends a request and waits for the matching reply.
     call: function(workers.Worker, any): any
+
+    --- Sends a named request and waits for the matching reply.
+    callOperation: function(workers.Worker, string, any): any
 
     --- Closes the worker inbox. Nonblocking and idempotent.
     close: function(workers.Worker)
@@ -397,21 +404,21 @@ function workers.Worker:receive(timeoutMs: integer?): any?
     return takeMessage(self)
 end
 
-function workers.Worker:call(value: any): any
+local function request(self: workers.Worker, op: string?, value: any): any
     if self._closed or self._exit ~= nil then
-        error("nupp: cannot call a closed worker", 2)
+        error("nupp: cannot call a closed worker", 3)
     end
     local rejected = unsendable(value, "value", 0, {})
     if rejected ~= nil then
-        error("nupp: cannot call a worker: " .. rejected, 2)
+        error("nupp: cannot call a worker: " .. rejected, 3)
     end
     local id = self._nextId
     if id > 9007199254740991 then
-        error("nupp: worker request identifiers are exhausted", 2)
+        error("nupp: worker request identifiers are exhausted", 3)
     end
     self._nextId = id + 1
     self._pendingIds[id] = true
-    push(self._inbox, {kind = "request", id = id, payload = value})
+    push(self._inbox, {kind = "request", op = op, id = id, payload = value})
     waitFor(self, "worker call", function(): boolean
         return self._replies[id] ~= nil
     end)
@@ -419,13 +426,58 @@ function workers.Worker:call(value: any): any
     if reply == nil then
         self._pendingIds[id] = nil
         local exit = self:join()
-        error(exit.error or "nupp: worker ended before replying", 2)
+        error(exit.error or "nupp: worker ended before replying", 3)
     end
     if reply.ok ~= true then
-        error("nupp: worker call failed: " .. (reply.error or "without saying why"), 2)
+        error("nupp: worker call failed: " .. (reply.error or "without saying why"), 3)
     end
 
     return reply.payload
+end
+
+function workers.Worker:call(value: any): any
+    return request(self, nil, value)
+end
+
+--- Sends a request the entry routes by name, and waits for its reply.
+---
+--- A typed handle reaches this through its generated methods rather than by hand.
+---
+--- @param op the operation the entry serves
+--- @param value the request payload
+--- @return whatever the entry answered
+--- @raises when the worker is closed, the payload cannot cross, or the entry failed
+function workers.Worker:callOperation(op: string, value: any): any
+    return request(self, op, value)
+end
+
+--- Answers a worker method, falling back to the operation of that name.
+---
+--- Reached only through a handle `dispatcher` prepared, so an ordinary worker keeps
+--- raising for a name it does not have rather than sending a request nothing serves.
+local DispatchMT: metatable<workers.Worker> = {
+    __index = function(self: workers.Worker, key: string): any
+        local member = (workers.Worker as {[string]: any})[key]
+        if member ~= nil then
+            return member
+        end
+
+        return function(receiver: workers.Worker, value: any): any
+            return request(receiver, key, value)
+        end
+    end,
+}
+
+--- Prepares a worker to answer its entry's operations as methods.
+---
+--- The handle a typed entry hands out is this same worker: the type says which
+--- operations it has and this says how to reach them, so nothing is allocated and
+--- `stop`, `join` and the ownership obligation are unchanged.
+---
+--- @param worker the worker to prepare
+--- @return the same worker, answering its entry's operations
+function workers.dispatcher(worker: workers.Worker): workers.Worker
+    return setmetatable(worker as any, DispatchMT) as workers.Worker
 end
 
 function workers.Worker:close(): nil
@@ -509,6 +561,29 @@ function workers.Self:send(value: any): nil
     push(self.outbox, {kind = "message", payload = value})
 end
 
+--- Answers one request frame, or drops an ordinary message the handler took.
+local function reply(self: workers.Self, frame: Frame, ok: boolean, answer: any): nil
+    if frame.kind ~= "request" or frame.id == nil then
+        return
+    end
+    if not ok then
+        push(self.outbox, {kind = "reply", id = frame.id, ok = false, error = tostring(answer)})
+
+        return
+    end
+    local rejected = unsendable(answer, "result", 0, {})
+    if rejected == nil then
+        push(self.outbox, {kind = "reply", id = frame.id, ok = true, payload = answer})
+    else
+        push(self.outbox, {
+            kind = "reply",
+            id = frame.id,
+            ok = false,
+            error = "a call result cannot cross: " .. rejected,
+        })
+    end
+end
+
 function workers.Self:serve(handler: function(any): any): nil
     while true do
         local frame = receiveSelf(self)
@@ -516,22 +591,43 @@ function workers.Self:serve(handler: function(any): any): nil
             return
         end
         local ok, answer = pcall(handler, frame.payload)
-        if frame.kind == "request" and frame.id ~= nil then
-            if ok then
-                local rejected = unsendable(answer, "result", 0, {})
-                if rejected == nil then
-                    push(self.outbox, {kind = "reply", id = frame.id, ok = true, payload = answer})
-                else
-                    push(self.outbox, {
-                        kind = "reply",
-                        id = frame.id,
-                        ok = false,
-                        error = "a call result cannot cross: " .. rejected,
-                    })
-                end
-            else
-                push(self.outbox, {kind = "reply", id = frame.id, ok = false, error = tostring(answer),})
-            end
+        reply(self, frame, ok, answer)
+    end
+end
+
+--- Answers named requests from a table of operations until the inbox closes.
+---
+--- Each request names the operation the caller's handle generated a method for, and
+--- the table answers it. A handler error becomes a failed reply for that call and
+--- the loop continues, which is what makes one bad request survivable.
+---
+--- Annotate the table with the same shape the handle was generated from, and the
+--- operations are checked against it:
+---
+--- ```nupp
+--- local implementation: Operations = {
+---     hash = function(job: Job): Answer
+---         return {name = job.name, hash = 0}
+---     end,
+--- }
+--- workers.current():serveOperations(implementation)
+--- ```
+---
+--- @param implementation the table of operations this entry answers
+function workers.Self:serveOperations(implementation: any): nil
+    local operations = implementation as {[string]: any}
+    while true do
+        local frame = receiveSelf(self)
+        if frame == nil then
+            return
+        end
+        local op = frame.op
+        local handler = op ~= nil and operations[op] or nil
+        if handler == nil then
+            reply(self, frame, false, ("nupp: no worker operation named %q"):format(tostring(op)))
+        else
+            local ok, answer = pcall(handler, frame.payload)
+            reply(self, frame, ok, answer)
         end
     end
 end
