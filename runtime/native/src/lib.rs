@@ -3,77 +3,87 @@
 #[cfg(feature = "http")]
 mod http;
 
-use std::cell::RefCell;
-use std::ffi::{c_char, CString};
-use std::ptr;
+use std::ffi::c_char;
 #[cfg(any(
     feature = "path",
     feature = "uri",
-    feature = "sha256",
-    feature = "files"
+    feature = "process",
+    feature = "http"
 ))]
+use std::ffi::CString;
+#[cfg(any(feature = "path", feature = "uri", feature = "process", feature = "http"))]
+use std::ptr;
+#[cfg(any(feature = "path", feature = "uri", feature = "sha256"))]
 use std::slice;
-#[cfg(any(feature = "path", feature = "uri", feature = "files"))]
+#[cfg(any(feature = "path", feature = "uri"))]
 use std::str;
 
-thread_local! {
-    static LAST_ERROR: RefCell<CString> =
-        RefCell::new(CString::new("no error").expect("static text has no NUL"));
+/// The public name for one C entry point, forwarding into it.
+///
+/// Cargo builds this crate's shared library with an export list naming the
+/// crate's own symbols and nothing else, so a C symbol linked into it is dropped
+/// rather than exported. The name the ABI promises is therefore defined on this
+/// side and the implementation stays in C. Every use of this goes when the Rust
+/// half does.
+macro_rules! forward {
+    ($($name:ident = $target:ident($($argument:ident: $type:ty),* $(,)?) -> $answer:ty;)*) => {
+        extern "C" {
+            $(fn $target($($argument: $type),*) -> $answer;)*
+        }
+
+        $(
+            #[no_mangle]
+            pub unsafe extern "C" fn $name($($argument: $type),*) -> $answer {
+                unsafe { $target($($argument),*) }
+            }
+        )*
+    };
+}
+
+#[cfg(feature = "files")]
+mod files;
+
+// The shared surface, which lives in `c/common.c`.
+//
+// The error slot and the returned byte buffer are what every facility answers
+// through, and both halves of a half-ported provider have to answer through the
+// same one. Defining them here as well would give the linker two of each and a
+// caller whichever it resolved -- an error written by the Rust half and read
+// through the C half is an error nobody sees.
+#[allow(dead_code)]
+extern "C" {
+    fn nupp_fail(message: *const c_char);
+    fn nupp_bytes_copy(data: *const u8, length: usize) -> *mut NuppBytes;
+}
+
+forward! {
+    nuppNativeError = nuppcNativeError() -> *const c_char;
+    nuppBytesData = nuppcBytesData(bytes: *const NuppBytes) -> *const u8;
+    nuppBytesLength = nuppcBytesLength(bytes: *const NuppBytes) -> usize;
+    nuppBytesDestroy = nuppcBytesDestroy(bytes: *mut NuppBytes) -> ();
+}
+
+/// The returned byte buffer, opaque on this side. Its contents are C's.
+#[repr(C)]
+pub struct NuppBytes {
+    _private: [u8; 0],
 }
 
 #[cfg(any(
     feature = "path",
     feature = "uri",
-    feature = "files",
     feature = "process",
     feature = "http"
 ))]
 fn set_error(error: impl ToString) {
     let message = error.to_string().replace('\0', "\\0");
-    LAST_ERROR.with(|slot| {
-        *slot.borrow_mut() = CString::new(message).expect("NUL bytes were replaced");
-    });
+    let text = CString::new(message).expect("NUL bytes were replaced");
+    unsafe { nupp_fail(text.as_ptr()) };
 }
 
-#[no_mangle]
-pub extern "C" fn nuppNativeError() -> *const c_char {
-    LAST_ERROR.with(|slot| slot.borrow().as_ptr())
-}
-
-pub struct NuppBytes {
-    bytes: Box<[u8]>,
-}
-
-#[cfg(any(feature = "path", feature = "files"))]
+#[cfg(feature = "path")]
 fn output_bytes(bytes: Vec<u8>) -> *mut NuppBytes {
-    Box::into_raw(Box::new(NuppBytes {
-        bytes: bytes.into_boxed_slice(),
-    }))
-}
-
-#[no_mangle]
-pub unsafe extern "C" fn nuppBytesData(bytes: *const NuppBytes) -> *const u8 {
-    if bytes.is_null() {
-        ptr::null()
-    } else {
-        unsafe { &*bytes }.bytes.as_ptr()
-    }
-}
-
-#[no_mangle]
-pub unsafe extern "C" fn nuppBytesLength(bytes: *const NuppBytes) -> usize {
-    if bytes.is_null() {
-        0
-    } else {
-        unsafe { &*bytes }.bytes.len()
-    }
-}
-
-#[no_mangle]
-pub unsafe extern "C" fn nuppBytesDestroy(bytes: *mut NuppBytes) {
-    if !bytes.is_null() {
-        drop(unsafe { Box::from_raw(bytes) });
-    }
+    unsafe { nupp_bytes_copy(bytes.as_ptr(), bytes.len()) }
 }
 
 /// Roots the selected C ABI in a statically linked host.
@@ -85,6 +95,7 @@ pub unsafe extern "C" fn nuppBytesDestroy(bytes: *mut NuppBytes) {
 /// the retained symbols to `ffi.C`.
 #[doc(hidden)]
 pub fn retain_c_abi_exports() {
+    #[allow(unused_macros)]
     macro_rules! retain {
         ($($symbol:path),+ $(,)?) => {
             std::hint::black_box([$($symbol as *const ()),+]);
@@ -98,6 +109,8 @@ pub fn retain_c_abi_exports() {
         nuppBytesDestroy,
     );
 
+    // The implementations are C, but the names are the forwarders above them,
+    // and a forwarder is Rust the release build sees as bitcode with no caller.
     #[cfg(feature = "files")]
     retain!(
         files::nuppFilesInfo,
@@ -119,18 +132,18 @@ pub fn retain_c_abi_exports() {
         files::nuppFileSize,
         files::nuppFileFlush,
         files::nuppFileClose,
-        files::lane::nuppFsSubmitRead,
-        files::lane::nuppFsSubmitWrite,
-        files::lane::nuppFsSubmitCopy,
-        files::lane::nuppFsStatus,
-        files::lane::nuppFsData,
-        files::lane::nuppFsLength,
-        files::lane::nuppFsError,
-        files::lane::nuppFsCancel,
-        files::lane::nuppFsDestroy,
-        files::lane::nuppFsPoll,
-        files::lane::nuppFsWait,
-        files::lane::nuppFsPending,
+        files::nuppFsSubmitRead,
+        files::nuppFsSubmitWrite,
+        files::nuppFsSubmitCopy,
+        files::nuppFsStatus,
+        files::nuppFsData,
+        files::nuppFsLength,
+        files::nuppFsError,
+        files::nuppFsCancel,
+        files::nuppFsDestroy,
+        files::nuppFsPoll,
+        files::nuppFsWait,
+        files::nuppFsPending,
     );
 
     #[cfg(feature = "process")]
@@ -159,7 +172,7 @@ pub fn retain_c_abi_exports() {
     );
 }
 
-#[cfg(any(feature = "path", feature = "uri", feature = "files"))]
+#[cfg(any(feature = "path", feature = "uri"))]
 unsafe fn text<'a>(data: *const u8, length: usize, what: &str) -> Result<&'a str, String> {
     if data.is_null() && length != 0 {
         return Err(format!("{what} is null"));
@@ -648,1066 +661,6 @@ pub unsafe extern "C" fn nuppSha256(bytes: *const u8, length: usize, output: *mu
 /// The immediate half of `nupp.io.files`: metadata, listing, and the directory
 /// operations that answer before a request could have been submitted. Transfers
 /// belong to the request lane, not here.
-#[cfg(feature = "files")]
-pub mod files {
-    use super::*;
-    use std::fs;
-    use std::hash::{BuildHasher, Hasher, RandomState};
-    use std::path::{Path, PathBuf};
-    use std::time::UNIX_EPOCH;
-
-    pub const KIND_FILE: u32 = 1;
-    pub const KIND_DIRECTORY: u32 = 2;
-    pub const KIND_OTHER: u32 = 3;
-    pub const KIND_SYMLINK: u32 = 4;
-
-    const ATTEMPTS: u32 = 64;
-
-    /// What one resolved path is. Mirrored by `NuppFileInfo` in the Lua binding,
-    /// so field order and widths are part of the ABI.
-    #[repr(C)]
-    pub struct FileInfo {
-        pub kind: u32,
-        pub read_only: bool,
-        pub size: u64,
-        pub modified: f64,
-    }
-
-    unsafe fn at<'a>(data: *const u8, length: usize) -> Result<&'a Path, String> {
-        Ok(Path::new(unsafe { text(data, length, "path") }?))
-    }
-
-    fn refused(error: impl ToString) -> bool {
-        set_error(error);
-        false
-    }
-
-    fn missing(error: impl ToString) -> *mut NuppBytes {
-        set_error(error);
-        ptr::null_mut()
-    }
-
-    fn settled<T>(result: std::io::Result<T>) -> bool {
-        match result {
-            Ok(_) => true,
-            Err(error) => refused(error),
-        }
-    }
-
-    fn named(path: PathBuf) -> *mut NuppBytes {
-        match path.into_os_string().into_string() {
-            Ok(mut text) => {
-                if cfg!(windows) {
-                    text = text.replace('\\', "/");
-                }
-                output_bytes(text.into_bytes())
-            }
-            Err(_) => missing("path is not valid UTF-8"),
-        }
-    }
-
-    /// Describes one path. `follow` resolves a symbolic link to its target, which
-    /// is the difference between asking what a name refers to and asking what the
-    /// name itself is.
-    #[no_mangle]
-    pub unsafe extern "C" fn nuppFilesInfo(
-        data: *const u8,
-        length: usize,
-        follow: bool,
-        out: *mut FileInfo,
-    ) -> bool {
-        if out.is_null() {
-            return refused("file info output is null");
-        }
-        let path = match unsafe { at(data, length) } {
-            Ok(value) => value,
-            Err(error) => return refused(error),
-        };
-        let metadata = if follow {
-            fs::metadata(path)
-        } else {
-            fs::symlink_metadata(path)
-        };
-        let metadata = match metadata {
-            Ok(value) => value,
-            Err(error) => return refused(error),
-        };
-        let kind = if metadata.is_symlink() {
-            KIND_SYMLINK
-        } else if metadata.is_file() {
-            KIND_FILE
-        } else if metadata.is_dir() {
-            KIND_DIRECTORY
-        } else {
-            KIND_OTHER
-        };
-        let modified = metadata
-            .modified()
-            .ok()
-            .and_then(|value| match value.duration_since(UNIX_EPOCH) {
-                Ok(since) => Some(since.as_secs_f64()),
-                Err(before) => Some(-before.duration().as_secs_f64()),
-            })
-            .unwrap_or(0.0);
-        unsafe {
-            *out = FileInfo {
-                kind,
-                read_only: metadata.permissions().readonly(),
-                size: metadata.len(),
-                modified,
-            }
-        };
-        true
-    }
-
-    /// Reads a symbolic link's target without resolving it.
-    #[no_mangle]
-    pub unsafe extern "C" fn nuppFilesReadLink(data: *const u8, length: usize) -> *mut NuppBytes {
-        let path = match unsafe { at(data, length) } {
-            Ok(value) => value,
-            Err(error) => return missing(error),
-        };
-        match fs::read_link(path) {
-            Ok(target) => named(target),
-            Err(error) => missing(error),
-        }
-    }
-
-    /// Creates a symbolic link. `directory` selects Windows's directory link and
-    /// is ignored elsewhere, because only Windows distinguishes the two.
-    #[no_mangle]
-    pub unsafe extern "C" fn nuppFilesCreateSymlink(
-        target: *const u8,
-        target_length: usize,
-        link: *const u8,
-        link_length: usize,
-        directory: bool,
-    ) -> bool {
-        let target = match unsafe { at(target, target_length) } {
-            Ok(value) => value,
-            Err(error) => return refused(error),
-        };
-        let link = match unsafe { at(link, link_length) } {
-            Ok(value) => value,
-            Err(error) => return refused(error),
-        };
-        #[cfg(windows)]
-        let made = if directory {
-            std::os::windows::fs::symlink_dir(target, link)
-        } else {
-            std::os::windows::fs::symlink_file(target, link)
-        };
-        #[cfg(not(windows))]
-        let made = {
-            let _ = directory;
-            std::os::unix::fs::symlink(target, link)
-        };
-        settled(made)
-    }
-
-    /// Sets or clears the read-only bit.
-    #[no_mangle]
-    pub unsafe extern "C" fn nuppFilesSetReadOnly(
-        data: *const u8,
-        length: usize,
-        read_only: bool,
-    ) -> bool {
-        let path = match unsafe { at(data, length) } {
-            Ok(value) => value,
-            Err(error) => return refused(error),
-        };
-        let mut permissions = match fs::metadata(path) {
-            Ok(value) => value.permissions(),
-            Err(error) => return refused(error),
-        };
-        permissions.set_readonly(read_only);
-        settled(fs::set_permissions(path, permissions))
-    }
-
-    /// Creates a directory and every missing parent. An existing directory is
-    /// success, which is what a caller building a tree wants.
-    #[no_mangle]
-    pub unsafe extern "C" fn nuppFilesCreateDirectory(data: *const u8, length: usize) -> bool {
-        let path = match unsafe { at(data, length) } {
-            Ok(value) => value,
-            Err(error) => return refused(error),
-        };
-        settled(fs::create_dir_all(path))
-    }
-
-    /// Removes a file, a symbolic link, or an empty directory. `recursive`
-    /// removes a directory's contents with it.
-    #[no_mangle]
-    pub unsafe extern "C" fn nuppFilesRemove(
-        data: *const u8,
-        length: usize,
-        recursive: bool,
-    ) -> bool {
-        let path = match unsafe { at(data, length) } {
-            Ok(value) => value,
-            Err(error) => return refused(error),
-        };
-        let metadata = match fs::symlink_metadata(path) {
-            Ok(value) => value,
-            Err(error) => return refused(error),
-        };
-        if metadata.is_dir() {
-            settled(if recursive {
-                fs::remove_dir_all(path)
-            } else {
-                fs::remove_dir(path)
-            })
-        } else {
-            settled(fs::remove_file(path))
-        }
-    }
-
-    /// Renames a path, replacing an existing destination.
-    #[no_mangle]
-    pub unsafe extern "C" fn nuppFilesRename(
-        from: *const u8,
-        from_length: usize,
-        to: *const u8,
-        to_length: usize,
-    ) -> bool {
-        let from = match unsafe { at(from, from_length) } {
-            Ok(value) => value,
-            Err(error) => return refused(error),
-        };
-        let to = match unsafe { at(to, to_length) } {
-            Ok(value) => value,
-            Err(error) => return refused(error),
-        };
-        settled(fs::rename(from, to))
-    }
-
-    /// Lists a directory's immediate children as `kind` byte, name, NUL. The kind
-    /// comes from the directory entry rather than a second call per name, and
-    /// describes the entry itself, so a symbolic link reads as `l`.
-    #[no_mangle]
-    pub unsafe extern "C" fn nuppFilesList(data: *const u8, length: usize) -> *mut NuppBytes {
-        let path = match unsafe { at(data, length) } {
-            Ok(value) => value,
-            Err(error) => return missing(error),
-        };
-        let entries = match fs::read_dir(path) {
-            Ok(value) => value,
-            Err(error) => return missing(error),
-        };
-        let mut out: Vec<u8> = Vec::new();
-        for entry in entries {
-            let entry = match entry {
-                Ok(value) => value,
-                Err(error) => return missing(error),
-            };
-            let name = match entry.file_name().into_string() {
-                Ok(value) => value,
-                Err(_) => return missing("directory entry name is not valid UTF-8"),
-            };
-            if name.as_bytes().contains(&0) {
-                return missing("directory entry name contains a NUL byte");
-            }
-            let kind = match entry.file_type() {
-                Ok(value) if value.is_symlink() => b'l',
-                Ok(value) if value.is_dir() => b'd',
-                Ok(value) if value.is_file() => b'f',
-                Ok(_) => b'o',
-                Err(error) => return missing(error),
-            };
-            out.push(kind);
-            out.extend_from_slice(name.as_bytes());
-            out.push(0);
-        }
-        output_bytes(out)
-    }
-
-    /// Expands a filesystem glob. The glob crate reports a malformed pattern
-    /// before it begins walking, while an error encountered during the walk is
-    /// returned at the point it is found. Either is an ordinary failed query on
-    /// this ABI. Sorting here makes one pattern answer independently of the
-    /// platform directory order it walked through.
-    #[no_mangle]
-    pub unsafe extern "C" fn nuppFilesGlob(data: *const u8, length: usize) -> *mut NuppBytes {
-        let pattern = match unsafe { text(data, length, "glob pattern") } {
-            Ok(value) => value,
-            Err(error) => return missing(error),
-        };
-        let paths = match glob::glob(pattern) {
-            Ok(value) => value,
-            Err(error) => return missing(error),
-        };
-        let mut matches = Vec::new();
-        for path in paths {
-            let path = match path {
-                Ok(value) => value,
-                Err(error) => return missing(error),
-            };
-            let path = match path.into_os_string().into_string() {
-                Ok(value) => value,
-                Err(_) => return missing("glob match is not valid UTF-8"),
-            };
-            matches.push(path);
-        }
-        matches.sort();
-        output_bytes(matches.join("\0").into_bytes())
-    }
-
-    /// Creates a uniquely named file or directory and answers its path. The name
-    /// is created rather than merely proposed, so no second caller can win the
-    /// same name between the two steps.
-    #[no_mangle]
-    pub unsafe extern "C" fn nuppFilesCreateTemporary(
-        directory: *const u8,
-        directory_length: usize,
-        prefix: *const u8,
-        prefix_length: usize,
-        suffix: *const u8,
-        suffix_length: usize,
-        as_directory: bool,
-    ) -> *mut NuppBytes {
-        let root = if directory_length == 0 {
-            std::env::temp_dir()
-        } else {
-            match unsafe { at(directory, directory_length) } {
-                Ok(value) => value.to_path_buf(),
-                Err(error) => return missing(error),
-            }
-        };
-        let prefix = match unsafe { text(prefix, prefix_length, "temporary prefix") } {
-            Ok(value) => value,
-            Err(error) => return missing(error),
-        };
-        let suffix = match unsafe { text(suffix, suffix_length, "temporary suffix") } {
-            Ok(value) => value,
-            Err(error) => return missing(error),
-        };
-        for _ in 0..ATTEMPTS {
-            let stamp = RandomState::new().build_hasher().finish();
-            let candidate = root.join(format!("{prefix}{stamp:016x}{suffix}"));
-            let made = if as_directory {
-                fs::create_dir(&candidate)
-            } else {
-                fs::OpenOptions::new()
-                    .write(true)
-                    .create_new(true)
-                    .open(&candidate)
-                    .map(drop)
-            };
-            match made {
-                Ok(()) => return named(candidate),
-                Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => continue,
-                Err(error) => return missing(error),
-            }
-        }
-        missing("no unused temporary name was found")
-    }
-
-    unsafe fn borrowed<'a>(data: *const u8, length: usize) -> &'a [u8] {
-        if length == 0 {
-            &[]
-        } else {
-            unsafe { slice::from_raw_parts(data, length) }
-        }
-    }
-
-    /// An open file. Owned by the caller, which is what makes closing it a
-    /// checked obligation rather than a habit.
-    pub struct NuppFile {
-        handle: fs::File,
-    }
-
-    /// Opens a file. `mode` selects read, truncating write, append, and the
-    /// three update modes, in that order.
-    #[no_mangle]
-    pub unsafe extern "C" fn nuppFileOpen(
-        data: *const u8,
-        length: usize,
-        mode: u32,
-    ) -> *mut NuppFile {
-        let path = match unsafe { at(data, length) } {
-            Ok(value) => value,
-            Err(error) => {
-                set_error(error);
-                return ptr::null_mut();
-            }
-        };
-        let mut options = fs::OpenOptions::new();
-        match mode {
-            0 => options.read(true),
-            1 => options.write(true).create(true).truncate(true),
-            2 => options.append(true).create(true),
-            3 => options.read(true).write(true),
-            4 => options.read(true).write(true).create(true).truncate(true),
-            5 => options.read(true).append(true).create(true),
-            _ => {
-                set_error("unknown file mode");
-                return ptr::null_mut();
-            }
-        };
-        match options.open(path) {
-            Ok(handle) => Box::into_raw(Box::new(NuppFile { handle })),
-            Err(error) => {
-                set_error(error);
-                ptr::null_mut()
-            }
-        }
-    }
-
-    /// Reads at most `length` bytes. Answers zero at the end of the file and -1
-    /// on failure, so a short read is progress rather than an error.
-    #[no_mangle]
-    pub unsafe extern "C" fn nuppFileRead(
-        file: *mut NuppFile,
-        into: *mut u8,
-        length: usize,
-    ) -> i64 {
-        use std::io::Read;
-        if file.is_null() || (into.is_null() && length != 0) {
-            set_error("file read has no destination");
-            return -1;
-        }
-        let file = unsafe { &mut *file };
-        let destination = if length == 0 {
-            &mut [][..]
-        } else {
-            unsafe { slice::from_raw_parts_mut(into, length) }
-        };
-        match file.handle.read(destination) {
-            Ok(count) => count as i64,
-            Err(error) => {
-                set_error(error);
-                -1
-            }
-        }
-    }
-
-    /// Writes every byte or fails, which is what a caller counting bytes wants.
-    #[no_mangle]
-    pub unsafe extern "C" fn nuppFileWrite(
-        file: *mut NuppFile,
-        from: *const u8,
-        length: usize,
-    ) -> i64 {
-        use std::io::Write;
-        if file.is_null() || (from.is_null() && length != 0) {
-            set_error("file write has no source");
-            return -1;
-        }
-        let file = unsafe { &mut *file };
-        match file.handle.write_all(unsafe { borrowed(from, length) }) {
-            Ok(()) => length as i64,
-            Err(error) => {
-                set_error(error);
-                -1
-            }
-        }
-    }
-
-    /// Moves the cursor. `whence` is the start, the current position, or the
-    /// end, in that order. Answers the new position, or -1 on failure.
-    #[no_mangle]
-    pub unsafe extern "C" fn nuppFileSeek(file: *mut NuppFile, offset: i64, whence: u32) -> i64 {
-        use std::io::{Seek, SeekFrom};
-        if file.is_null() {
-            set_error("file seek has no file");
-            return -1;
-        }
-        let file = unsafe { &mut *file };
-        let target = match whence {
-            0 => SeekFrom::Start(offset.max(0) as u64),
-            1 => SeekFrom::Current(offset),
-            2 => SeekFrom::End(offset),
-            _ => {
-                set_error("unknown seek origin");
-                return -1;
-            }
-        };
-        match file.handle.seek(target) {
-            Ok(position) => position as i64,
-            Err(error) => {
-                set_error(error);
-                -1
-            }
-        }
-    }
-
-    /// Answers the file's byte length without moving the cursor.
-    #[no_mangle]
-    pub unsafe extern "C" fn nuppFileSize(file: *mut NuppFile) -> i64 {
-        if file.is_null() {
-            set_error("file size has no file");
-            return -1;
-        }
-        let file = unsafe { &*file };
-        match file.handle.metadata() {
-            Ok(metadata) => metadata.len() as i64,
-            Err(error) => {
-                set_error(error);
-                -1
-            }
-        }
-    }
-
-    /// Pushes buffered writes at the operating system.
-    #[no_mangle]
-    pub unsafe extern "C" fn nuppFileFlush(file: *mut NuppFile) -> bool {
-        use std::io::Write;
-        if file.is_null() {
-            return refused("file flush has no file");
-        }
-        settled(unsafe { &mut *file }.handle.flush())
-    }
-
-    /// Closes and releases the file. Repeated calls are the binding's problem,
-    /// not this one's: a released handle must not be passed again.
-    #[no_mangle]
-    pub unsafe extern "C" fn nuppFileClose(file: *mut NuppFile) -> bool {
-        if file.is_null() {
-            return true;
-        }
-        drop(unsafe { Box::from_raw(file) });
-        true
-    }
-
-    /// Whole-file transfers, off the calling thread.
-    ///
-    /// A transfer is submitted, settles on a worker, and is observed by polling.
-    /// Nothing here calls Lua and nothing here blocks the submitter, which is
-    /// what lets one caller wait by sleeping and another wait by parking a task
-    /// and pumping this from its frame.
-    ///
-    /// The lane is bounded in three directions — how many transfers may be live,
-    /// how many bytes they may hold between them, and how large one may be —
-    /// because a queue that grows with its callers eventually takes the process
-    /// with it.
-    pub mod lane {
-        use super::*;
-        use std::sync::atomic::{AtomicI32, AtomicUsize, Ordering};
-        use std::sync::mpsc::{sync_channel, Receiver, SyncSender};
-        use std::sync::{Arc, Condvar, Mutex, OnceLock};
-        use std::thread;
-        use std::time::Duration;
-
-        pub const STATUS_PENDING: i32 = 0;
-        pub const STATUS_READY: i32 = 1;
-        pub const STATUS_FAILED: i32 = 2;
-        pub const STATUS_CANCELED: i32 = 3;
-
-        const WORKERS: usize = 4;
-        const QUEUE_DEPTH: usize = 256;
-        const MAX_REQUESTS: usize = 128;
-        const MAX_BYTES: usize = 256 * 1024 * 1024;
-        const MAX_REQUEST_BYTES: usize = 256 * 1024 * 1024;
-
-        static REQUESTS: AtomicUsize = AtomicUsize::new(0);
-        static IN_FLIGHT: AtomicUsize = AtomicUsize::new(0);
-        static SETTLED: AtomicUsize = AtomicUsize::new(0);
-
-        fn arrivals() -> &'static (Mutex<usize>, Condvar) {
-            static ARRIVALS: OnceLock<(Mutex<usize>, Condvar)> = OnceLock::new();
-            ARRIVALS.get_or_init(|| (Mutex::new(0), Condvar::new()))
-        }
-
-        enum Outcome {
-            Waiting,
-            Ready(Vec<u8>),
-            Failed(CString),
-        }
-
-        /// One transfer's shared state.
-        pub struct Slot {
-            status: AtomicI32,
-            outcome: Mutex<Outcome>,
-            charged: usize,
-        }
-
-        /// Returns a transfer's share of the budget.
-        ///
-        /// This is tied to the caller's handle rather than to the shared state,
-        /// which is the difference between a cap on what a program is holding
-        /// and a cap on what the workers have finished touching. The second
-        /// cannot be observed without a race: a worker publishes `READY` from
-        /// inside the state both sides share, so a caller releasing the instant
-        /// it sees the result is still counted until the worker gets around to
-        /// dropping its own reference.
-        ///
-        /// The cost is that a cancelled transfer is refunded while its worker
-        /// may still be reading. Those bytes are transient and belong to work
-        /// already in flight; what the cap exists to bound is what a caller can
-        /// keep accumulating.
-        fn refund(charge: usize) {
-            REQUESTS.fetch_sub(1, Ordering::AcqRel);
-            IN_FLIGHT.fetch_sub(charge, Ordering::AcqRel);
-        }
-
-        /// The caller's handle on a transfer.
-        pub struct NuppRequest {
-            slot: Arc<Slot>,
-        }
-
-        enum Work {
-            Read(PathBuf),
-            Write {
-                path: PathBuf,
-                contents: Vec<u8>,
-                mode: u32,
-            },
-            Copy {
-                from: PathBuf,
-                to: PathBuf,
-            },
-        }
-
-        struct Job {
-            slot: Arc<Slot>,
-            work: Work,
-        }
-
-        fn settle(slot: &Arc<Slot>, outcome: Outcome, status: i32) {
-            // A canceled transfer keeps its verdict: the work finished, but
-            // nobody is left who asked for it, so the bytes go nowhere.
-            let mut answer = slot.outcome.lock().expect("outcome mutex");
-            *answer = outcome;
-            if slot
-                .status
-                .compare_exchange(
-                    STATUS_PENDING,
-                    status,
-                    Ordering::AcqRel,
-                    Ordering::Acquire,
-                )
-                .is_err()
-            {
-                *answer = Outcome::Waiting;
-            }
-            drop(answer);
-            SETTLED.fetch_add(1, Ordering::AcqRel);
-            let (count, waiters) = arrivals();
-            *count.lock().expect("arrivals mutex") += 1;
-            waiters.notify_all();
-        }
-
-        fn write_atomic(path: &Path, contents: &[u8]) -> std::io::Result<()> {
-            use std::io::Write;
-            let directory = path.parent().unwrap_or(Path::new("."));
-            let stamp = RandomState::new().build_hasher().finish();
-            let temporary = directory.join(format!(".nupp-write-{stamp:016x}"));
-            let written = fs::OpenOptions::new()
-                .write(true)
-                .create_new(true)
-                .open(&temporary)
-                .and_then(|mut file| {
-                    file.write_all(contents)?;
-                    file.sync_all().map_err(|error| {
-                        std::io::Error::new(
-                            error.kind(),
-                            format!("cannot sync atomic temporary file: {error}"),
-                        )
-                    })
-                })
-                .and_then(|()| {
-                    replace_file(&temporary, path).map_err(|error| {
-                        std::io::Error::new(
-                            error.kind(),
-                            format!("cannot replace atomic destination: {error}"),
-                        )
-                    })
-                });
-            if written.is_err() {
-                let _ = fs::remove_file(&temporary);
-            }
-            written
-        }
-
-        #[cfg(not(windows))]
-        fn replace_file(from: &Path, to: &Path) -> std::io::Result<()> {
-            fs::rename(from, to)
-        }
-
-        #[cfg(windows)]
-        fn replace_file(from: &Path, to: &Path) -> std::io::Result<()> {
-            use std::os::windows::ffi::OsStrExt;
-
-            #[link(name = "kernel32")]
-            extern "system" {
-                fn MoveFileExW(existing: *const u16, replacement: *const u16, flags: u32) -> i32;
-            }
-
-            const REPLACE_EXISTING: u32 = 0x1;
-            let existing: Vec<u16> = from.as_os_str().encode_wide().chain(Some(0)).collect();
-            let replacement: Vec<u16> = to.as_os_str().encode_wide().chain(Some(0)).collect();
-            if unsafe {
-                MoveFileExW(
-                    existing.as_ptr(),
-                    replacement.as_ptr(),
-                    REPLACE_EXISTING,
-                )
-            } != 0
-            {
-                Ok(())
-            } else {
-                Err(std::io::Error::last_os_error())
-            }
-        }
-
-        fn perform(work: Work) -> std::io::Result<Vec<u8>> {
-            use std::io::Write;
-            match work {
-                Work::Read(path) => fs::read(path),
-                Work::Write {
-                    path,
-                    contents,
-                    mode,
-                } => match mode {
-                    2 => write_atomic(&path, &contents).map(|()| Vec::new()),
-                    1 => fs::OpenOptions::new()
-                        .append(true)
-                        .create(true)
-                        .open(&path)
-                        .and_then(|mut file| file.write_all(&contents))
-                        .map(|()| Vec::new()),
-                    _ => fs::write(&path, &contents).map(|()| Vec::new()),
-                },
-                Work::Copy { from, to } => fs::copy(from, to).map(|_| Vec::new()),
-            }
-        }
-
-        fn worker(jobs: Arc<Mutex<Receiver<Job>>>) {
-            loop {
-                let job = {
-                    let queue = jobs.lock().expect("job queue mutex");
-                    match queue.recv() {
-                        Ok(job) => job,
-                        Err(_) => return,
-                    }
-                };
-                match perform(job.work) {
-                    Ok(bytes) => settle(&job.slot, Outcome::Ready(bytes), STATUS_READY),
-                    Err(error) => {
-                        let text = error.to_string().replace('\0', "\\0");
-                        let text = CString::new(text).expect("NUL bytes were replaced");
-                        settle(&job.slot, Outcome::Failed(text), STATUS_FAILED)
-                    }
-                }
-            }
-        }
-
-        fn queue() -> &'static SyncSender<Job> {
-            static QUEUE: OnceLock<SyncSender<Job>> = OnceLock::new();
-            QUEUE.get_or_init(|| {
-                let (sender, receiver) = sync_channel(QUEUE_DEPTH);
-                let shared = Arc::new(Mutex::new(receiver));
-                for _ in 0..WORKERS {
-                    let jobs = Arc::clone(&shared);
-                    thread::Builder::new()
-                        .name("nupp-files".to_owned())
-                        .spawn(move || worker(jobs))
-                        .expect("file worker thread");
-                }
-                sender
-            })
-        }
-
-        fn admit(charge: usize) -> Result<(), String> {
-            if charge > MAX_REQUEST_BYTES {
-                return Err(format!(
-                    "the transfer is larger than the {MAX_REQUEST_BYTES}-byte limit"
-                ));
-            }
-            let live = REQUESTS.fetch_add(1, Ordering::AcqRel) + 1;
-            if live > MAX_REQUESTS {
-                REQUESTS.fetch_sub(1, Ordering::AcqRel);
-                return Err(format!("more than {MAX_REQUESTS} transfers are in flight"));
-            }
-            let held = IN_FLIGHT.fetch_add(charge, Ordering::AcqRel) + charge;
-            if held > MAX_BYTES {
-                IN_FLIGHT.fetch_sub(charge, Ordering::AcqRel);
-                REQUESTS.fetch_sub(1, Ordering::AcqRel);
-                return Err(format!(
-                    "transfers in flight would hold more than {MAX_BYTES} bytes"
-                ));
-            }
-            Ok(())
-        }
-
-        fn submit(work: Work, charge: usize) -> *mut NuppRequest {
-            if let Err(reason) = admit(charge) {
-                set_error(reason);
-                return ptr::null_mut();
-            }
-            let slot = Arc::new(Slot {
-                status: AtomicI32::new(STATUS_PENDING),
-                outcome: Mutex::new(Outcome::Waiting),
-                charged: charge,
-            });
-            let job = Job {
-                slot: Arc::clone(&slot),
-                work,
-            };
-            if queue().send(job).is_err() {
-                refund(charge);
-                set_error("the file worker queue is gone");
-                return ptr::null_mut();
-            }
-            Box::into_raw(Box::new(NuppRequest { slot }))
-        }
-
-        /// Submits a whole-file read. The file is sized on this thread, because
-        /// a lane that cannot price a transfer cannot bound itself.
-        #[no_mangle]
-        pub unsafe extern "C" fn nuppFsSubmitRead(
-            data: *const u8,
-            length: usize,
-        ) -> *mut NuppRequest {
-            let path = match unsafe { at(data, length) } {
-                Ok(value) => value.to_path_buf(),
-                Err(error) => {
-                    set_error(error);
-                    return ptr::null_mut();
-                }
-            };
-            let charge = match fs::metadata(&path) {
-                Ok(metadata) => metadata.len() as usize,
-                Err(error) => {
-                    set_error(error);
-                    return ptr::null_mut();
-                }
-            };
-            submit(Work::Read(path), charge)
-        }
-
-        /// Submits a whole-file write. `mode` replaces, appends, or writes
-        /// through a temporary beside the destination, in that order.
-        #[no_mangle]
-        pub unsafe extern "C" fn nuppFsSubmitWrite(
-            data: *const u8,
-            length: usize,
-            bytes: *const u8,
-            bytes_length: usize,
-            mode: u32,
-        ) -> *mut NuppRequest {
-            let path = match unsafe { at(data, length) } {
-                Ok(value) => value.to_path_buf(),
-                Err(error) => {
-                    set_error(error);
-                    return ptr::null_mut();
-                }
-            };
-            if bytes.is_null() && bytes_length != 0 {
-                set_error("file contents are null");
-                return ptr::null_mut();
-            }
-            if mode > 2 {
-                set_error("unknown write mode");
-                return ptr::null_mut();
-            }
-            let contents = unsafe { borrowed(bytes, bytes_length) }.to_vec();
-            submit(
-                Work::Write {
-                    path,
-                    contents,
-                    mode,
-                },
-                bytes_length,
-            )
-        }
-
-        /// Submits a copy. The bytes never reach this process, so the lane
-        /// charges the transfer a slot rather than a size.
-        #[no_mangle]
-        pub unsafe extern "C" fn nuppFsSubmitCopy(
-            from: *const u8,
-            from_length: usize,
-            to: *const u8,
-            to_length: usize,
-        ) -> *mut NuppRequest {
-            let from = match unsafe { at(from, from_length) } {
-                Ok(value) => value.to_path_buf(),
-                Err(error) => {
-                    set_error(error);
-                    return ptr::null_mut();
-                }
-            };
-            let to = match unsafe { at(to, to_length) } {
-                Ok(value) => value.to_path_buf(),
-                Err(error) => {
-                    set_error(error);
-                    return ptr::null_mut();
-                }
-            };
-            submit(Work::Copy { from, to }, 0)
-        }
-
-        fn slot_of<'a>(request: *const NuppRequest) -> Option<&'a Arc<Slot>> {
-            if request.is_null() {
-                None
-            } else {
-                Some(&unsafe { &*request }.slot)
-            }
-        }
-
-        /// Answers whether a transfer is pending, ready, failed, or canceled.
-        #[no_mangle]
-        pub unsafe extern "C" fn nuppFsStatus(request: *const NuppRequest) -> i32 {
-            match slot_of(request) {
-                Some(slot) => slot.status.load(Ordering::Acquire),
-                None => STATUS_FAILED,
-            }
-        }
-
-        /// Answers a settled read's bytes. Valid until the transfer is
-        /// destroyed.
-        #[no_mangle]
-        pub unsafe extern "C" fn nuppFsData(request: *const NuppRequest) -> *const u8 {
-            match slot_of(request) {
-                Some(slot) => match &*slot.outcome.lock().expect("outcome mutex") {
-                    Outcome::Ready(bytes) => bytes.as_ptr(),
-                    _ => ptr::null(),
-                },
-                None => ptr::null(),
-            }
-        }
-
-        /// Answers a settled read's byte count.
-        #[no_mangle]
-        pub unsafe extern "C" fn nuppFsLength(request: *const NuppRequest) -> usize {
-            match slot_of(request) {
-                Some(slot) => match &*slot.outcome.lock().expect("outcome mutex") {
-                    Outcome::Ready(bytes) => bytes.len(),
-                    _ => 0,
-                },
-                None => 0,
-            }
-        }
-
-        /// Copies a failed transfer's reason into the shared error slot and
-        /// answers it, so every failure is read the same way.
-        #[no_mangle]
-        pub unsafe extern "C" fn nuppFsError(request: *const NuppRequest) -> *const c_char {
-            if let Some(slot) = slot_of(request) {
-                if let Outcome::Failed(text) = &*slot.outcome.lock().expect("outcome mutex") {
-                    set_error(text.to_string_lossy());
-                }
-            }
-            nuppNativeError()
-        }
-
-        /// Abandons a pending transfer. The work still finishes; its result is
-        /// dropped, because a worker already reading cannot be recalled.
-        #[no_mangle]
-        pub unsafe extern "C" fn nuppFsCancel(request: *mut NuppRequest) -> bool {
-            match slot_of(request) {
-                Some(slot) => slot
-                    .status
-                    .compare_exchange(
-                        STATUS_PENDING,
-                        STATUS_CANCELED,
-                        Ordering::AcqRel,
-                        Ordering::Acquire,
-                    )
-                    .is_ok(),
-                None => false,
-            }
-        }
-
-        /// Releases the caller's handle and its share of the lane's budget.
-        #[no_mangle]
-        pub unsafe extern "C" fn nuppFsDestroy(request: *mut NuppRequest) {
-            if !request.is_null() {
-                let held = unsafe { Box::from_raw(request) };
-                refund(held.slot.charged);
-                drop(held);
-            }
-        }
-
-        /// Answers how many transfers settled since the last poll, without
-        /// waiting. This is the readiness pump a scheduler drives.
-        #[no_mangle]
-        pub extern "C" fn nuppFsPoll() -> usize {
-            let (count, _) = arrivals();
-            let mut guard = count.lock().expect("arrivals mutex");
-            *guard = 0;
-            SETTLED.swap(0, Ordering::AcqRel)
-        }
-
-        /// The same, sleeping up to a deadline for the first settlement. This is
-        /// what keeps a program with no scheduler from spinning on a status.
-        ///
-        /// The count is read under the same lock a worker raises it under, so a
-        /// settlement that lands between the check and the sleep is seen rather
-        /// than slept through.
-        #[no_mangle]
-        pub extern "C" fn nuppFsWait(milliseconds: u64) -> usize {
-            let (count, waiters) = arrivals();
-            let mut guard = count.lock().expect("arrivals mutex");
-            if *guard == 0 {
-                let (settled, _) = waiters
-                    .wait_timeout(guard, Duration::from_millis(milliseconds))
-                    .expect("arrivals condvar");
-                guard = settled;
-            }
-            *guard = 0;
-            drop(guard);
-            SETTLED.swap(0, Ordering::AcqRel)
-        }
-
-        /// How many transfers the caller still holds.
-        #[no_mangle]
-        pub extern "C" fn nuppFsPending() -> usize {
-            REQUESTS.load(Ordering::Acquire)
-        }
-    }
-
-    /// Answers the process's current working directory.
-    #[no_mangle]
-    pub extern "C" fn nuppFilesCurrentDirectory() -> *mut NuppBytes {
-        match std::env::current_dir() {
-            Ok(path) => named(path),
-            Err(error) => missing(error),
-        }
-    }
-
-    /// Answers a well-known user folder. Resolved from the environment — the XDG
-    /// variables where they are set, and the platform's conventional names under
-    /// the home directory otherwise. A desktop that records its folders somewhere
-    /// else is not consulted, and a folder that does not exist is a failure.
-    #[no_mangle]
-    pub extern "C" fn nuppFilesUserFolder(which: u32) -> *mut NuppBytes {
-        let home = match std::env::var_os(if cfg!(windows) {
-            "USERPROFILE"
-        } else {
-            "HOME"
-        }) {
-            Some(value) if !value.is_empty() => PathBuf::from(value),
-            _ => return missing("the home directory is not set in the environment"),
-        };
-        if which == 0 {
-            return named(home);
-        }
-        let (variable, macos, other) = match which {
-            1 => ("XDG_DOCUMENTS_DIR", "Documents", "Documents"),
-            2 => ("XDG_DOWNLOAD_DIR", "Downloads", "Downloads"),
-            3 => ("XDG_DESKTOP_DIR", "Desktop", "Desktop"),
-            4 => ("XDG_PICTURES_DIR", "Pictures", "Pictures"),
-            5 => ("XDG_MUSIC_DIR", "Music", "Music"),
-            6 => ("XDG_VIDEOS_DIR", "Movies", "Videos"),
-            _ => return missing("unknown user folder"),
-        };
-        let resolved = if cfg!(any(windows, target_os = "macos")) {
-            None
-        } else {
-            std::env::var_os(variable).filter(|value| !value.is_empty())
-        };
-        let folder = match resolved {
-            Some(value) => PathBuf::from(value),
-            None => home.join(if cfg!(target_os = "macos") { macos } else { other }),
-        };
-        if !folder.is_dir() {
-            return missing("the platform has no such folder");
-        }
-        named(folder)
-    }
-}
 
 /// Child processes: spawning them, moving bytes to and from them, and reaping them.
 ///
@@ -2951,6 +1904,57 @@ mod tests {
     use super::*;
     use std::ffi::CStr;
 
+    /// The ported half of the provider is C, so its tests reach it the way every
+    /// other caller does: through the ABI, by name.
+    #[cfg(feature = "files")]
+    #[allow(non_snake_case)]
+    mod ported {
+        use super::NuppBytes;
+        use std::ffi::c_char;
+
+        pub const STATUS_PENDING: i32 = 0;
+        pub const STATUS_READY: i32 = 1;
+        pub const STATUS_FAILED: i32 = 2;
+        pub const STATUS_CANCELED: i32 = 3;
+
+        #[repr(C)]
+        pub struct NuppRequest {
+            _private: [u8; 0],
+        }
+
+        extern "C" {
+            pub fn nuppFilesGlob(data: *const u8, length: usize) -> *mut NuppBytes;
+            pub fn nuppFsSubmitRead(data: *const u8, length: usize) -> *mut NuppRequest;
+            pub fn nuppFsSubmitWrite(
+                data: *const u8,
+                length: usize,
+                bytes: *const u8,
+                bytes_length: usize,
+                mode: u32,
+            ) -> *mut NuppRequest;
+            pub fn nuppFsStatus(request: *const NuppRequest) -> i32;
+            pub fn nuppFsData(request: *const NuppRequest) -> *const u8;
+            pub fn nuppFsLength(request: *const NuppRequest) -> usize;
+            pub fn nuppFsError(request: *const NuppRequest) -> *const c_char;
+            pub fn nuppFsCancel(request: *mut NuppRequest) -> bool;
+            pub fn nuppFsDestroy(request: *mut NuppRequest);
+            #[link_name = "nuppFsWait"]
+            fn wait_for(milliseconds: u64) -> usize;
+            #[link_name = "nuppFsPending"]
+            fn pending() -> usize;
+        }
+
+        /// The two the lane offers without a handle to get wrong, so a test that
+        /// only waits and counts reads like the safe calls they replaced.
+        pub fn nuppFsWait(milliseconds: u64) -> usize {
+            unsafe { wait_for(milliseconds) }
+        }
+
+        pub fn nuppFsPending() -> usize {
+            unsafe { pending() }
+        }
+    }
+
     #[cfg(feature = "files")]
     #[test]
     fn globs_recurse_sort_and_report_invalid_patterns() {
@@ -2965,7 +1969,7 @@ mod tests {
         std::fs::write(root.join("nested/deep/ignored.lua"), "ignored").expect("other file");
 
         let pattern = root.join("**/*.nupp").into_os_string().into_string().expect("UTF-8 path");
-        let handle = unsafe { files::nuppFilesGlob(pattern.as_ptr(), pattern.len()) };
+        let handle = unsafe { ported::nuppFilesGlob(pattern.as_ptr(), pattern.len()) };
         assert!(!handle.is_null(), "the pattern expanded");
         let result = unsafe {
             String::from_utf8(slice::from_raw_parts(nuppBytesData(handle), nuppBytesLength(handle)).to_vec())
@@ -2983,7 +1987,7 @@ mod tests {
         assert_eq!(result.split('\0').collect::<Vec<_>>(), expected);
 
         let flat = root.join("*.nupp").into_os_string().into_string().expect("UTF-8 path");
-        let handle = unsafe { files::nuppFilesGlob(flat.as_ptr(), flat.len()) };
+        let handle = unsafe { ported::nuppFilesGlob(flat.as_ptr(), flat.len()) };
         assert!(!handle.is_null(), "the flat pattern expanded");
         let result = unsafe {
             String::from_utf8(slice::from_raw_parts(nuppBytesData(handle), nuppBytesLength(handle)).to_vec())
@@ -2993,7 +1997,7 @@ mod tests {
         assert_eq!(result, root.join("root.nupp").to_string_lossy());
 
         let invalid = root.join("[").into_os_string().into_string().expect("UTF-8 path");
-        assert!(unsafe { files::nuppFilesGlob(invalid.as_ptr(), invalid.len()) }.is_null());
+        assert!(unsafe { ported::nuppFilesGlob(invalid.as_ptr(), invalid.len()) }.is_null());
         assert!(!unsafe { CStr::from_ptr(nuppNativeError()) }.to_bytes().is_empty());
         std::fs::remove_dir_all(root).expect("remove test directory");
     }
@@ -3003,7 +2007,7 @@ mod tests {
     #[cfg(feature = "files")]
     #[test]
     fn the_lane_settles_bounds_and_refunds_transfers() {
-        use files::lane::*;
+        use ported::*;
         use std::hash::{BuildHasher, Hasher, RandomState};
 
         let stamp = RandomState::new().build_hasher().finish();

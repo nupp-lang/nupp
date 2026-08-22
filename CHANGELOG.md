@@ -2,6 +2,15 @@
 
 ## Unreleased
 
+- Reimplement the file provider in C. `nupp.io.files` stands on
+  `runtime/native/c` rather than on the Rust crate: metadata, listing, globbing,
+  the open-file handles and the off-thread transfer lane, with the platform
+  halves in `platform_posix.c` and `platform_windows.c` rather than one file
+  with the differences threaded through it. The ABI is unchanged, so nothing
+  above it moved. This is the first facility ported under
+  [NEP 17](docs/neps/0017-c-only-toolchain.md); the rest of the provider and the
+  binary host are still Rust.
+
 - Provision LuaJIT, LPeg, luautf8 and simdjson from pinned sources rather than
   expecting them installed. `scripts/toolchain` fetches each by revision,
   refuses any archive whose SHA-256 is not the one written down, builds it with
