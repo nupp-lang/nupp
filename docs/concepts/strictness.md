@@ -63,7 +63,7 @@ end
 
 Malformed or unsupported comment types recover locally to `any` and report a
 `NUPP1008` warning. There is no setting that disables comment ingestion. See
-[Annotated Lua](../guides/annotated-lua.md) for migration and compatibility.
+[LuaCATS](../integrations/luacats.md) for migration and compatibility.
 
 A `.d.nupp` file is gradual because it describes an interface somebody else
 implements, where `any` is often the type the interface actually has:

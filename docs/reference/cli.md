@@ -1787,7 +1787,7 @@ is removed. An existing destination is never replaced.
 ```
 
 The annotated-Lua guide describes [always-on comment
-ingestion](../guides/annotated-lua.md) and the shared command/editor migration
+ingestion](../integrations/luacats.md) and the shared command/editor migration
 planner. `--check` reports the complete plan without writing or removing files.
 
 ### `export-c`
