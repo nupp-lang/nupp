@@ -108,6 +108,21 @@ else
 fi
 sha256() { sha256_stdin < "$1"; }
 
+# The digest of the C this repository compiles itself, in a fixed order. The
+# build directories below are keyed on it as well as on their feature list,
+# because a cache keyed on the request alone answers an edited source tree with
+# the artifact built from the source it replaced -- and mtimes cannot see that
+# either, since the artifact is copied into place and looks newer than the edit
+# that should have rebuilt it.
+sources_digest() {
+    (cd "$ROOT" && find runtime/native host/c host/include \
+        -type f \( -name '*.c' -o -name '*.h' \) 2>/dev/null) \
+        | LC_ALL=C sort | while IFS= read -r file; do
+            printf '%s ' "$file"
+            sha256 "$ROOT/$file"
+        done | sha256_stdin | cut -c1-16
+}
+
 # --- where things go --------------------------------------------------------
 
 # Beside the repository's common git directory, so every worktree of this
@@ -617,7 +632,7 @@ build_simdjson() {
 build_native_library() {
     features=$(printf '%s' "${1:-}" | tr ',' ' ')
     sorted=$(printf '%s\n' $features | sort | tr '\n' ' ')
-    digest=$(printf '%s' "$sorted" | sha256_stdin | cut -c1-16)
+    digest=$(printf '%s|%s' "$sorted" "$(sources_digest)" | sha256_stdin | cut -c1-16)
     out="$PREFIX/native/$digest"
     include=$(luajit_include)
     NATIVE_OUT="$out"
@@ -687,7 +702,7 @@ build_host() {
     kind=$1
     features=$(printf '%s' "${2:-}" | tr ',' ' ')
     sorted=$(printf '%s\n' $features | sort | tr '\n' ' ')
-    digest=$(printf '%s|%s' "$kind" "$sorted" | sha256_stdin | cut -c1-16)
+    digest=$(printf '%s|%s|%s' "$kind" "$sorted" "$(sources_digest)" | sha256_stdin | cut -c1-16)
     out="$PREFIX/host/$digest"
     HOST_OUT="$out"
 
