@@ -506,6 +506,14 @@ local function finalizeBoundary(c: state.Checker)
         for name, ft in pairs(c.moduleFields) do
             local qualified = qualifyExport(ft, c.moduleFieldValues[name])
             c.moduleFields[name] = qualified as Type
+            -- The export table was filled while the declaration was checked, before
+            -- effect inference had settled, so it holds the unqualified type. A
+            -- consuming module reads that table rather than this file's summaries,
+            -- which is why a terminal named across a module boundary was refused for
+            -- suspending however plainly its body did not.
+            if c.moduleExports and c.moduleExports.values and c.moduleExports.values[name] then
+                c.moduleExports.values[name] = qualified as Type
+            end
             if c.moduleFieldConst[name] then
                 fields[#fields + 1] = {name = name, read = qualified}
             else

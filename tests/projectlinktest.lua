@@ -626,6 +626,49 @@ return res
    end)
 end
 
+-- An affine type is only usable by another module if the terminal it names
+-- resolves there too, and three separate things have to line up for that: the
+-- prefix a consumer writes is the local name it bound the module to rather than
+-- the module's own name, the qualifier the terminal check reads lives on the
+-- exported type rather than in this file's summaries, and the key both sides
+-- compare under has to be the declaring module's.
+function M.aTerminalIsNamedThroughAModuleAlias()
+   withProject({
+      ["src/gate.nupp"] = [[
+module gate
+
+export record Ticket
+    id: integer
+end
+
+export function release(takes self: Ticket): nil
+    print(self.id)
+end
+
+export function issue(): affine(Ticket, release)
+    return nil as any
+end
+]],
+      ["src/hall.nupp"] = [[
+module hall
+
+const turnstile = require("gate")
+
+export function admit(): nil
+    local ticket: affine(turnstile.Ticket, turnstile.release) = turnstile.issue()
+    print(ticket.id)
+end
+]],
+   }, function(dir)
+      local path = dir .. "/src/hall.nupp"
+      local parsed = parser.parse(readFile(path), path)
+      assertEq(#parsed.errors, 0, "the consumer parses")
+      local diags = check.check(parsed, path, projectEnv(dir))
+      assertEq(#diags, 0, "a terminal reached through an alias resolves, "
+         .. "qualifies, and compares equal: " .. (diags[1] and diags[1].msg or ""))
+   end)
+end
+
 -- A constructor rides the nominal, which is the road a metamethod contract
 -- already travels, and lands on the record's runtime table, which is the one
 -- thing about a record that a consuming module already reaches. Its result

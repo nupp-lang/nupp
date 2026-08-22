@@ -298,7 +298,11 @@ function ownership.install(c: state.Checker): ownership.Ops
             local exported = exports and exports.values and exports.values[exportName] or nil
             local exportedDefinition = exports and exports.valueDefs and exports.valueDefs[exportName] or nil
             if exported and exportedDefinition then
-                return {t = exported, definition = exportedDefinition}
+                -- The key a terminal is compared under has to be the one its declaring
+                -- module registered. Reaching it through an alias would otherwise make
+                -- `affine(T, gate.release)` a different type from the `affine(T,
+                -- release)` that module returns.
+                return {t = exported, definition = exportedDefinition, canonicalName = exportName}
             end
             return nil
         end
@@ -335,7 +339,7 @@ function ownership.install(c: state.Checker): ownership.Ops
         local origin = stableOrigin(
             definitionModule or definition and definition.filename or c.result.moduleName or c.filename or "<module>"
         )
-        local key = cleanupKey(origin, name, definition)
+        local key = cleanupKey(origin, entry.canonicalName or name, definition)
         local bound = entry and entry.t or nil
         if bound and bound.tag == "func" then
             addRegistration(definition.token, T.functionCleanup(key, name, bound), false)
@@ -358,7 +362,7 @@ function ownership.install(c: state.Checker): ownership.Ops
         local origin = stableOrigin(
             definitionModule or definition and definition.filename or c.result.moduleName or c.filename or "<module>"
         )
-        local key = cleanupKey(origin, name, definition)
+        local key = cleanupKey(origin, entry and entry.canonicalName or name, definition)
         local cleanup = T.functionCleanup(key, name, knownType or entry and entry.t or nil)
         addRegistration(registrationNode, cleanup, after == true)
 
