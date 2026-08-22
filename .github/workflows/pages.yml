@@ -49,6 +49,9 @@ jobs:
       - name: Install playground dependencies
         run: npm ci --prefix editors/playground
 
+      - name: Install documentation dependencies
+        run: ./bin/nupp build --target docs
+
       - name: Build the website
         run: node scripts/build-pages.mjs
 
