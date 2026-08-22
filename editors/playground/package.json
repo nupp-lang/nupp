@@ -7,7 +7,9 @@
   "type": "module",
   "scripts": {
     "build": "node build.mjs",
-    "test": "node build.mjs && node --test test/*.test.js",
+    "build:wasm": "node build.mjs --wasm-candidate",
+    "test": "node build.mjs && node --test test/host-runtime.test.js test/lua-output.test.js test/markup.test.js test/nupp-lang.test.js",
+    "test:wasm": "node build.mjs --wasm-candidate && node --test test/wasm-runtime.test.js",
     "watch": "node build.mjs --watch",
     "serve": "npm run build && node serve.mjs"
   },
