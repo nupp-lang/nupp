@@ -150,6 +150,9 @@ end
 
 --- A fresh Lua state running on a native thread.
 record workers.Worker
+    --- The entry module this worker runs, which a typed handle reads as a literal.
+    entry: string
+
     _handle: any
     _inbox: Channel
     _outbox: Channel
@@ -875,6 +878,7 @@ function workers.spawn(entry: string): affine(workers.Worker, workers.destroyWor
 
     return setmetatable(
         {
+            entry = entry,
             _handle = handle,
             _inbox = inbox,
             _outbox = outbox,

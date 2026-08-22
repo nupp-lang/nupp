@@ -820,6 +820,30 @@ end
    end)
 end
 
+-- The generated handle declares the entry name as a field, so the worker a spawn
+-- answers with has to carry one. Losing it made the type promise something the
+-- value did not have, which nothing but running it would have caught.
+function M.aSpawnedWorkerCarriesItsEntryName()
+   withProject({
+      ["src/main.nupp"] = [[
+module main
+
+const workers = require("nupp.workers")
+
+export function named(): string
+    local worker = workers.spawn("jobs.hash")
+
+    return worker.entry
+end
+]],
+   }, function(dir)
+      local path = dir .. "/src/main.nupp"
+      local diags = check.check(parser.parse(readFile(path), path), path, projectEnv(dir))
+      assertEq(#diags, 0, "a worker exposes the entry it runs: "
+         .. (diags[1] and diags[1].msg or ""))
+   end)
+end
+
 function M.aWorkerMessageCannotCarryAnObligation()
    withProject({
       ["src/jobs/held.nupp"] = [[
