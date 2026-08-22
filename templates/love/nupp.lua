@@ -1,6 +1,18 @@
 return {
    include = { "src" },
 
+   dependencies = {
+      love = {
+         kind = "types",
+         format = "luacats",
+         source = {
+            git = "https://github.com/LuaCATS/love2d.git",
+            rev = "c630dd883cda128a19d850bd5e3911110b271609",
+         },
+         path = "library",
+      },
+   },
+
    build = {
       outDir = "build",
       default = "game",

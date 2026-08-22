@@ -380,6 +380,29 @@ local function buildC(root, outDir, name, dep, previous, childResults)
     return {key = key, output = output, binding = binding, reference = reference}
 end
 
+--- Fetches a type-only source and records the directory the checker may read. Nothing
+--- from this tree is generated, required, copied, or put on Lua's runtime paths.
+local function buildTypes(root, _, name, dep)
+    local checkout, fetchErr = fetchGit(root, name, dep.source)
+    if not checkout then
+        return nil, fetchErr
+    end
+    local typesRoot = join(checkout, dep.path or ".")
+    if not exists(typesRoot) then
+        return nil, "type dependency " .. name .. " names a path that is not there: " .. (dep.path or ".")
+    end
+    local files = {}
+    for _, path in ipairs(listFiles(typesRoot)) do
+        if path:match("%.lua$") then
+            files[#files + 1] = path
+        end
+    end
+    if #files == 0 then
+        return nil, "type dependency " .. name .. " has no Lua declaration files under " .. (dep.path or ".")
+    end
+    return {key = hash.digest(stable(dep) .. "\0" .. hashFiles(files)), typesRoot = typesRoot}
+end
+
 local function cargoSourceFiles(crateDir)
     local files = {}
     for _, path in ipairs(listFiles(crateDir)) do
@@ -910,7 +933,7 @@ local function rockModules(root: string, config: Config, target: Target?): {deps
     return selected
 end
 
-local PROVIDERS = {c = buildC, cargo = buildCargo, rust = buildCargo, luarocks = buildRock}
+local PROVIDERS = {c = buildC, cargo = buildCargo, rust = buildCargo, luarocks = buildRock, types = buildTypes}
 
 -- The target is passed rather than read off the config for the one caller that has no
 -- build to hang it on: `nupp doc` renders straight from the manifest, and the docs
@@ -958,7 +981,17 @@ local function buildDependencies(
         return result
     end
 
+    -- Type-only declarations are ambient project inputs, not target artifacts. Every
+    -- target gets the same checker surface while runtime providers remain opt-in.
     local targetDeps = (target or config._target or {}).dependencies or {}
+    for name, dep in pairs(config.dependencies or {}) do
+        if dep.kind == "types" then
+            local _, err = buildOne(name)
+            if err then
+                return nil, err
+            end
+        end
+    end
     for _, name in ipairs(targetDeps) do
         local _, err = buildOne(name)
         if err then
@@ -969,9 +1002,29 @@ local function buildDependencies(
     return results
 end
 
+--- The checked-only declaration roots configured by the project. This lookup never
+--- fetches: editors can use a previous checkout immediately, while build/check resolve
+--- the pinned revision through `buildDependencies` first.
+local function typeRoots(root: string, config: Config, records: {[string]: cache.DependencyRecord}?): {string}
+    local roots = {}
+    for name, dep in pairs(config.dependencies or {}) do
+        if dep.kind == "types" then
+            local record = records and records[name] or nil
+            local checkout = join(root, ".nupp/deps/" .. name)
+            local path = record and record.typesRoot or join(checkout, dep.path or ".")
+            if exists(path) then
+                roots[#roots + 1] = path
+            end
+        end
+    end
+    table.sort(roots)
+    return roots
+end
+
 deps.expandGlob = expandGlob
 deps.build = buildDependencies
 deps.rockPaths = rockPaths
+deps.typeRoots = typeRoots
 deps.runtimeModuleOwner = runtimeModuleOwner
 deps.rockModules = rockModules
 

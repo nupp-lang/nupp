@@ -604,6 +604,7 @@ local function openSession(
     end
     envConfig.include[#envConfig.include + 1] = join(outDir, "generated")
     local rocks = deps.rockPaths(root, config, target, dependencies)
+    local ambientTypeRoots = deps.typeRoots(root, config, dependencies)
     local checkMs: {[string]: number} = {}
     local open: {{
         startedAt: number,
@@ -650,6 +651,7 @@ local function openSession(
             dialect = target.dialect,
             nativeCompilerServices = target.dialect ~= "lua51",
             typeRoots = rocks and rocks.typeRoots or {},
+            ambientTypeRoots = ambientTypeRoots,
             observe = observer,
         }),
         checkMs = checkMs

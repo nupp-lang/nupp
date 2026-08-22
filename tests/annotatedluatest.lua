@@ -3,6 +3,7 @@ local check = require("fragment")
 local annotated = require("nupp.compiler.annotatedlua")
 local migrate = require("nupp.compiler.migrate")
 local T = require("nupp.compiler.types")
+local envMod = require("nupp.compiler.env")
 
 local function assertEq(got, want, label)
    if got ~= want then
@@ -194,6 +195,29 @@ return assigned
       "assignment type was not migrated")
    local migrated = parser.parse(plan.text, plan.destination)
    assertEq(#migrated.errors, 0, migrated.errors[1] and migrated.errors[1].msg)
+end
+
+function M.ambientLuaCATSRootsDeclareGlobalsWithoutBecomingModules()
+   local root = os.tmpname()
+   os.remove(root)
+   assert(os.execute("mkdir -p '" .. root .. "/types'") == 0)
+   local path = root .. "/types/host.lua"
+   local f = assert(io.open(path, "wb"))
+   f:write([[
+---@class Host
+---@field answer fun(): integer
+---@type Host
+host = {answer = function() return 42 end}
+]])
+   f:close()
+
+   local env = envMod.new(root, {cache = false, ambientTypeRoots = {root .. "/types"}})
+   local parsed = parser.parse("local answer: integer = host.answer()\n", root .. "/main.nupp")
+   local diagnostics = check.check(parsed, root .. "/main.nupp", env)
+   assertEq(#diagnostics, 0, diagnostics[1] and diagnostics[1].msg)
+   assert(envMod.findRuntimeModulePath(env, "host") == nil,
+      "an ambient type dependency became a runtime module")
+   os.execute("rm -rf '" .. root .. "'")
 end
 
 function M.multipleLocalTypesAreMigratedPositionally()

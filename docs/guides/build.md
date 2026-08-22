@@ -154,9 +154,9 @@ dependencies = {
 ```
 
 Each kind has its own keys: see [C dependencies](#c-dependencies), [Rust
-dependencies](#rust-dependencies), and [rock
-dependencies](#rock-dependencies). The `test` action names the target to build
-first and the command to run:
+dependencies](#rust-dependencies), [rock dependencies](#rock-dependencies),
+and [type dependencies](#type-dependencies). The `test` action names the target
+to build first and the command to run:
 
 ```lua
 test = {
@@ -560,6 +560,36 @@ script is as quiet as it has always been. `--progress=always` reports anyway,
 `never` or `auto` for the builds nothing passes a flag to, including the rebuild
 `bin/nupp` runs before every other command. `nupp build --json` carries the same
 numbers in a `timing` object rather than writing a report.
+
+## Type dependencies
+
+`kind = "types"` supplies checker-only declarations. A type dependency is
+ambient for the whole project, rather than named by a build target: Nupp reads
+it while checking, but never executes it, adds it to `package.path`, or copies
+it to the output.
+
+```lua
+love = {
+   kind = "types",
+   format = "luacats",
+   source = {
+      git = "https://github.com/LuaCATS/love2d.git",
+      rev = "<full commit id>",
+   },
+   path = "library",
+}
+```
+
+The first supported format is `luacats`. Its Lua files are parsed as annotated
+declarations, so a definition of a global such as `love` becomes available to
+Nupp source without a local adapter. The Git revision is mandatory and must be
+a full commit id. Nupp caches the checkout under `.nupp/deps/<name>`; an editor
+uses an existing checkout without fetching, while `nupp check` and `nupp build`
+resolve the pinned revision before checking.
+
+Future type providers use the same `kind = "types"` lifecycle and choose their
+reader through `format`, so a Teal importer does not need a separate dependency
+system.
 
 ## C dependencies
 

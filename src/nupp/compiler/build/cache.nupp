@@ -110,7 +110,10 @@ type cache.DependencyRecord = {
     cpath: string?,
 
     --- Where this installed rock carries its Nupp module declarations.
-    typeRoot: string?
+    typeRoot: string?,
+
+    --- A checked-only declaration tree supplied by a `kind = "types"` dependency.
+    typesRoot: string?
 }
 
 --- Everything one build wrote down about what it did.

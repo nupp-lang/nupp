@@ -415,6 +415,38 @@ return {dependencies = {native = {kind = "c", pkgConfig = {"simdjson", ""}}},
    remove(invalid)
 end
 
+function M.manifestValidatesTypeDependenciesSeparatelyFromTargets()
+   local valid = tempProject({["nupp.lua"] = [[
+return {
+   dependencies = {
+      host = {
+         kind = "types",
+         format = "luacats",
+         source = {
+            git = "https://example.invalid/host.git",
+            rev = "0123456789012345678901234567890123456789",
+         },
+         path = "library",
+      },
+   },
+   build = {entries = {"main"}},
+}
+]], ["main.nupp"] = "local value = 1\n"})
+   assert(project.loadManifest(valid), "a pinned LuaCATS dependency is valid")
+   remove(valid)
+
+   local invalid = tempProject({["nupp.lua"] = [[
+return {
+   dependencies = {
+      host = {kind = "types", format = "teal", source = {git = "https://example.invalid/host.git", rev = "short"}},
+   },
+}
+]]})
+   local _, err = project.loadManifest(invalid)
+   assert(err and err:find("format", 1, true), "the importer format is validated")
+   remove(invalid)
+end
+
 function M.manifestValidatesTheCompileTimeLayoutTarget()
    local valid = tempProject({["nupp.lua"] = [[
 return {build = {entries = {"main"},

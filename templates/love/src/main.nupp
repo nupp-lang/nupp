@@ -1,5 +1,4 @@
 local game = require("game")
-local love = require("lovehost")
 
 local x: number = 32
 const speed: number = 96

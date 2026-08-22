@@ -91,7 +91,7 @@ type manifest.Resource = {
 --- what a rock takes have nothing else in common, and each provider in
 --- `nupp.compiler.build.deps` reads its own.
 type manifest.Dependency = {
-    --- "c", "cargo", "rust" or "luarocks".
+    --- "c", "cargo", "rust", "luarocks" or "types".
     kind: string?,
 
     dependencies: {string}?,
@@ -383,6 +383,7 @@ local DEPENDENCY_KEYS: {
         "luarocks",
         "bundle"
     },
+    types = {"kind", "format", "source", "path"},
 }
 
 -- The generated FFI binding a C or Cargo dependency asks for by naming a header.
@@ -906,8 +907,8 @@ local function validateManifest(config: manifest.Config): boolean?, string?
             return nil, "dependencies." .. name .. " must be a table"
         end
         local kind = dep.kind or ""
-        if kind ~= "c" and kind ~= "cargo" and kind ~= "rust" and kind ~= "luarocks" then
-            return nil, "dependencies." .. name .. ".kind must be \"c\", \"cargo\", \"rust\", or \"luarocks\""
+        if kind ~= "c" and kind ~= "cargo" and kind ~= "rust" and kind ~= "luarocks" and kind ~= "types" then
+            return nil, "dependencies." .. name .. ".kind must be \"c\", \"cargo\", \"rust\", \"luarocks\", or \"types\""
         end
         valid, err = validateKeys(dep, DEPENDENCY_KEYS[kind], "dependencies." .. name)
         if not valid then
@@ -970,6 +971,20 @@ local function validateManifest(config: manifest.Config): boolean?, string?
             valid, err = validateRock(dep, "dependencies." .. name)
             if not valid then
                 return nil, err
+            end
+        end
+        if dep.kind == "types" then
+            if dep.format ~= "luacats" then
+                return nil, "dependencies." .. name .. ".format must be \"luacats\""
+            end
+            if type(dep.source) ~= "table" or type(dep.source.git) ~= "string" or dep.source.git == "" then
+                return nil, "dependencies." .. name .. ".source.git must be a non-empty string"
+            end
+            if type(dep.source.rev) ~= "string" or not dep.source.rev:match("^[0-9a-fA-F]+$") or #dep.source.rev < 40 then
+                return nil, "dependencies." .. name .. ".source.rev must be a full Git commit id"
+            end
+            if dep.path ~= nil and (type(dep.path) ~= "string" or dep.path == "") then
+                return nil, "dependencies." .. name .. ".path must be a non-empty string"
             end
         end
         for _, child in ipairs(dep.dependencies or {}) do
