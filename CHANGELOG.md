@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+- Restore the path parity suite. `nupp.io.path`'s recorded answers lived in the
+  provider crate's own tests, and went with the crate; `tests/pathtest.lua` is
+  that table, reached the way a program reaches the module. It pins the
+  distinction the facility rests on: a path that is rebuilt is normalized, and
+  one that is sliced keeps the spelling the caller wrote.
+
 - Parse URIs with [ada](https://github.com/ada-url/ada) rather than by hand. It
   is the WHATWG parser Node.js uses and the model `nupp.io.uri` documents, and
   checked against the table recorded from the implementation it replaces it
