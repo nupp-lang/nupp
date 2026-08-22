@@ -57,6 +57,12 @@ const target.TIERS = {
     --- aarch64, whose 16-byte NEON registers are mandatory rather than optional
     --- and which pairs them for a 32-byte value without an ABI question.
     ["neon"] = 32,
+
+    --- WebAssembly SIMD has one portable 128-bit vector register shape.
+    ["simd128"] = 16,
+
+    --- Scalar WebAssembly deliberately admits no lane rewrite.
+    ["scalar"] = 0,
 }
 
 --- The tier a target gets when nothing selected one.
@@ -65,7 +71,12 @@ const target.TIERS = {
 --- machine without it, and a default that assumed otherwise would produce
 --- artifacts that fail on hardware the triple says they support. Asking for
 --- lanes there is asking for a tier.
-const target.DEFAULT_TIERS = {["x86_64"] = "baseline", ["i686"] = "baseline", ["aarch64"] = "neon",}
+const target.DEFAULT_TIERS = {
+    ["x86_64"] = "baseline",
+    ["i686"] = "baseline",
+    ["aarch64"] = "neon",
+    ["wasm32"] = "scalar",
+}
 
 --- One target the backend may compile for.
 record target.Target
@@ -99,7 +110,9 @@ end
 --- what it decides is how a shared library is produced and what it is called,
 --- which belong to where the artifact will run.
 function target.system(triple: string): string
-    if triple:find("darwin", 1, true) ~= nil then
+    if triple:find("emscripten", 1, true) ~= nil then
+        return "emscripten"
+    elseif triple:find("darwin", 1, true) ~= nil then
         return "darwin"
     elseif triple:find("windows", 1, true) ~= nil then
         return "windows"
@@ -110,7 +123,9 @@ end
 
 --- The tiers an architecture may select, widest last.
 function target.tiers(architecture: string): {string}
-    if architecture == "aarch64" then
+    if architecture == "wasm32" then
+        return {"scalar", "simd128"}
+    elseif architecture == "aarch64" then
         return {"neon"}
     elseif architecture == "x86_64" then
         return {"baseline", "avx2", "avx512f"}

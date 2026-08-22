@@ -49,6 +49,7 @@ end
 local LP64 = {pointer = scalar(8), int64 = scalar(8), number = scalar(8)}
 local ILP32_SYSV = {pointer = scalar(4), int64 = scalar(8, 4), number = scalar(8, 4)}
 local ILP32_MSVC = {pointer = scalar(4), int64 = scalar(8), number = scalar(8)}
+local WASM32 = {pointer = scalar(4), int64 = scalar(8), number = scalar(8)}
 
 local MODELS: {[string]: Model} = {}
 
@@ -71,6 +72,7 @@ install(
 )
 install({"i686-unknown-linux-gnu"}, ILP32_SYSV)
 install({"i686-pc-windows-msvc"}, ILP32_MSVC)
+install({"wasm32-unknown-emscripten"}, WASM32)
 
 local ORDERED_KEYS = {
     "aarch64-apple-darwin",
@@ -78,6 +80,7 @@ local ORDERED_KEYS = {
     "aarch64-unknown-linux-gnu",
     "i686-pc-windows-msvc",
     "i686-unknown-linux-gnu",
+    "wasm32-unknown-emscripten",
     "x86_64-apple-darwin",
     "x86_64-pc-windows-msvc",
     "x86_64-unknown-linux-gnu",

@@ -1,0 +1,208 @@
+module nupp.compiler.aot.wasmemit
+
+--[[Lua 5.1 C closures that bind generated kernels to opaque Wasm spans.]]
+
+local scalarIR = require("nupp.compiler.aot.scalar")
+local target = require("nupp.compiler.aot.target")
+
+local wasmemit = {}
+
+local C_TYPES = {bool = "bool", f32 = "float", f64 = "double", i32 = "int32_t", u32 = "uint32_t",}
+
+local function ctype(kind: string, sourceType: string?): string
+    if kind:match("^struct:") then
+        return "Ks" .. tostring(kind:match("^struct:(.+)$"))
+    end
+    return C_TYPES[kind] or (sourceType == "float" and "float" or "double")
+end
+
+local function checkedCount(index: integer, name: string): string
+    return "ks_wasm_count(L, " .. tostring(index) .. ", \"" .. name .. "\")"
+end
+
+local function pushResult(lines: {string}, expression: string, kind: string): nil
+    if kind == "bool" then
+        lines[#lines + 1] = "    lua_pushboolean(L, " .. expression .. " ? 1 : 0);"
+    else
+        lines[#lines + 1] = "    lua_pushnumber(L, (double)(" .. expression .. "));"
+    end
+end
+
+--- Refuses entry modes and span surfaces the stock Wasm host cannot bind.
+function wasmemit.validate(programs: {scalarIR.Program}): string?
+    for _, program in ipairs(programs) do
+        if program.entryMode == "lua-builder" then
+            return "Wasm AOT supports pointer kernels; Lua-builder entries still require the native LuaJIT host"
+        else
+            assert(program.entryMode == "kernel")
+        end
+        for _, param in ipairs(program.params) do
+            if (param.kind == "write_span" or param.kind == "read_span") and param.spanModule ~= "nupp.wasm" then
+                return "Wasm AOT kernel " .. program.name .. " must use nupp.wasm spans"
+            end
+        end
+    end
+
+    return nil
+end
+
+--- Appends Lua-callable closures and one deterministic registrar to a kernel C unit.
+function wasmemit.registrar(programs: {scalarIR.Program}, unit: string, tier: string): string
+    local lines: {
+        string
+    } = {
+        "",
+        "/* Stock Lua 5.1 Wasm host binding. */",
+        "typedef struct lua_State lua_State;",
+        "typedef int (*lua_CFunction)(lua_State *L);",
+        "extern double luaL_checknumber(lua_State *L, int narg);",
+        "extern int luaL_error(lua_State *L, const char *format, ...);",
+        "extern int lua_type(lua_State *L, int index);",
+        "extern int lua_toboolean(lua_State *L, int index);",
+        "extern void lua_getfield(lua_State *L, int index, const char *key);",
+        "extern void lua_setfield(lua_State *L, int index, const char *key);",
+        "extern void lua_createtable(lua_State *L, int narr, int nrec);",
+        "extern void lua_pushnumber(lua_State *L, double value);",
+        "extern void lua_pushboolean(lua_State *L, int value);",
+        "extern void lua_pushcclosure(lua_State *L, lua_CFunction function, int upvalues);",
+        "extern void lua_settop(lua_State *L, int index);",
+        "extern void *nupp_wasm_pointer_address(lua_State *L, int index, size_t bytes);",
+        "#define KS_LUA_GLOBALSINDEX (-10002)",
+        "#define KS_LUA_TTABLE 5",
+        "static size_t ks_wasm_count(lua_State *L, int index, const char *name) {",
+        "    double value = luaL_checknumber(L, index);",
+        "    if (!(value >= 0.0) || value > (double)SIZE_MAX || floor(value) != value)",
+        "        luaL_error(L, \"Wasm AOT span count for %s is invalid\", name);",
+        "    return (size_t)value;",
+        "}",
+    }
+
+    for _, program in ipairs(programs) do
+        local wrapper = "ks_wasm_call_" .. program.symbol
+        lines[#lines + 1] = "static int " .. wrapper .. "(lua_State *L) {"
+        local countPosition = #program.params + 1
+        local commonCount: string? = nil
+        local independent = program.body ~= nil
+        if not independent then
+            commonCount = "count"
+            lines[#lines + 1] = "    size_t count = " .. checkedCount(countPosition, "shared") .. ";"
+        end
+        local arguments: {string} = {}
+        local counts: {string} = {}
+        for position, param in ipairs(program.params) do
+            if param.kind == "write_span" or param.kind == "read_span" then
+                local count = commonCount
+                if independent then
+                    count = "count_" .. param.name
+                    lines[
+                        #lines + 1
+                    ] = "    size_t " .. tostring(count) .. " = " .. checkedCount(countPosition, param.name) .. ";"
+                    countPosition = countPosition + 1
+                    counts[#counts + 1] = tostring(count)
+                end
+                local element = ctype(param.type, param.sourceType)
+                lines[
+                    #lines + 1
+                ] = "    if (KS_COUNT_OVERFLOWS(" .. tostring(
+                    count
+                ) .. ", sizeof(" .. element .. "))) return luaL_error(L, \"Wasm AOT span byte size overflows\");"
+                local qualifier = param.kind == "read_span" and "const " or ""
+                lines[
+                    #lines + 1
+                ] = "    "
+                    .. qualifier
+                    .. element
+                    .. " *p_"
+                    .. param.name
+                    .. " = ("
+                    .. qualifier
+                    .. element
+                    .. " *)nupp_wasm_pointer_address(L, "
+                    .. tostring(
+                    position
+                ) .. ", " .. tostring(count) .. " * sizeof(" .. element .. "));"
+                arguments[#arguments + 1] = "p_" .. param.name
+            else
+                local physical = ctype(param.type, param.sourceType)
+                local read = param.type == "bool" and "(lua_toboolean(L, " .. tostring(
+                    position
+                ) .. ") != 0)" or "(" .. physical .. ")luaL_checknumber(L, " .. tostring(position) .. ")"
+                lines[#lines + 1] = "    " .. physical .. " p_" .. param.name .. " = " .. read .. ";"
+                arguments[#arguments + 1] = "p_" .. param.name
+            end
+        end
+        if independent then
+            for _, count in ipairs(counts) do
+                arguments[#arguments + 1] = count
+            end
+        else
+            arguments[#arguments + 1] = tostring(commonCount)
+        end
+        local call = target.symbol(program.symbol, tier) .. "(" .. table.concat(arguments, ", ") .. ")"
+        local resultTypes = program.resultTypes or {}
+        if #resultTypes == 0 then
+            lines[#lines + 1] = "    " .. call .. ";"
+        elseif #resultTypes == 1 then
+            pushResult(lines, call, resultTypes[1])
+        else
+            local resultName = scalarIR.cIdentifier("KsResult", program.symbol)
+            lines[#lines + 1] = "    " .. resultName .. " result = " .. call .. ";"
+            for position, resultType in ipairs(resultTypes) do
+                pushResult(lines, "result.v" .. tostring(position), resultType)
+            end
+        end
+        lines[#lines + 1] = "    return " .. tostring(#resultTypes) .. ";"
+        lines[#lines + 1] = "}"
+    end
+
+    local registrar = "nupp_wasm_register_" .. unit
+    lines[#lines + 1] = "__attribute__((used, visibility(\"default\"))) int " .. registrar .. "(lua_State *L) {"
+    lines[#lines + 1] = "    lua_getfield(L, KS_LUA_GLOBALSINDEX, \"__nuppWasmAot\");"
+    lines[
+        #lines + 1
+    ] = "    if (lua_type(L, -1) != KS_LUA_TTABLE) return luaL_error(L, \"Wasm AOT registry is not installed\");"
+    lines[#lines + 1] = "    lua_createtable(L, 0, " .. tostring(#programs + 1) .. ");"
+    for _, program in ipairs(programs) do
+        lines[#lines + 1] = "    lua_pushcclosure(L, ks_wasm_call_" .. program.symbol .. ", 0);"
+        lines[#lines + 1] = "    lua_setfield(L, -2, \"" .. program.symbol .. "\");"
+    end
+    local layouts: {[string]: scalarIR.Layout} = {}
+    local orderedLayouts: {scalarIR.Layout} = {}
+    for _, program in ipairs(programs) do
+        for _, layout in ipairs(program.layouts or {}) do
+            if layouts[layout.name] == nil then
+                layouts[layout.name] = layout
+                orderedLayouts[#orderedLayouts + 1] = layout
+            end
+        end
+    end
+    for _, layout in ipairs(orderedLayouts) do
+        lines[#lines + 1] = "    lua_createtable(L, 0, " .. tostring(#layout.fields + 2) .. ");"
+        lines[
+            #lines + 1
+        ] = "    lua_pushnumber(L, (double)sizeof(" .. layout.cName .. ")); lua_setfield(L, -2, \"size\");"
+        lines[
+            #lines + 1
+        ] = "    lua_pushnumber(L, (double)_Alignof(" .. layout.cName .. ")); lua_setfield(L, -2, \"alignment\");"
+        for _, field in ipairs(layout.fields) do
+            lines[
+                #lines + 1
+            ] = "    lua_pushnumber(L, (double)offsetof("
+                .. layout.cName
+                .. ", "
+                .. field.name
+                .. ")); lua_setfield(L, -2, \""
+                .. field.name
+                .. "\");"
+        end
+        lines[#lines + 1] = "    lua_setfield(L, -2, \"layout:" .. layout.name .. "\");"
+    end
+    lines[#lines + 1] = "    lua_setfield(L, -2, \"" .. unit .. "\");"
+    lines[#lines + 1] = "    lua_settop(L, -2);"
+    lines[#lines + 1] = "    return 0;"
+    lines[#lines + 1] = "}"
+
+    return table.concat(lines, "\n") .. "\n"
+end
+
+export = wasmemit

@@ -1,0 +1,12 @@
+--[[Opaque memory tokens supplied by the stock Lua 5.1 Wasm host.]]
+
+local record memory
+    allocate: function(bytes: integer): any
+    pointer: function(allocation: any, byteOffset: integer, stride: integer): any
+    offset: function(pointer: any, elements: integer): any
+    load: function(pointer: any, byteOffset: integer, kind: string): any
+    store: function(pointer: any, byteOffset: integer, kind: string, value: any): nil
+    copy: function(destination: any, source: any, bytes: integer): nil
+end
+
+return memory

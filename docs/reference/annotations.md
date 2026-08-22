@@ -433,8 +433,10 @@ end
 A target's `aot` build policy says what happens with it: `off`, the default,
 does nothing; `emit-c` writes the generated C beside the build; `require`
 compiles that C into the project's own shared library and fails the build when
-it cannot. Under `require` the function is replaced where it was written by a
-checked wrapper that calls the compiled symbol.
+it cannot. Lua 5.1 targets use `emit-wasm` to package pointer kernels as Wasm
+side modules or `require-wasm` to replace their bodies with checked calls into
+those modules. See [wasm-aot.md](../guides/wasm-aot.md) for that host and its
+limits.
 
 A closure, table, interpolated string, vararg, `goto`, dynamic call, or unsafe
 operation inside the body reports `NUPP2903` at the construct. Stacking it with

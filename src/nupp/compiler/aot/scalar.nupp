@@ -28,7 +28,7 @@ local scalarIR = {}
 ---
 --- Carried in the IR and checked when it is read back, so an IR written by an
 --- older compiler is refused rather than half-understood.
-const scalarIR.VERSION = 10
+const scalarIR.VERSION = 11
 
 --- The calling convention selected for one complete AOT entry.
 ---
@@ -828,6 +828,11 @@ record scalarIR.Param
     name: string
     type: scalarIR.Type
     sourceType: string?
+
+    --- The checked span module whose ownership contract admitted this parameter.
+    --- Native and Wasm spans share the IR memory semantics but not their runtime
+    --- pointer representation, so the binding must preserve this distinction.
+    spanModule: string?
 
     --- Lua-builder scalar arguments use their positive VM stack index here.
     cName: string?

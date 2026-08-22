@@ -150,6 +150,20 @@ local RESOURCES = {
       output = "nupp/compiler/nupp/runtime/provider/scalarsimd.nupp",
    },
    {
+      source = "src/nupp/runtime/provider/wasmstoragefactory.nupp",
+      output = "nupp/compiler/nupp/runtime/provider/wasmstoragefactory.nupp",
+   },
+   {
+      source = "src/nupp/runtime/provider/wasmstorage.nupp",
+      output = "nupp/compiler/nupp/runtime/provider/wasmstorage.nupp",
+   },
+   {
+      source = "src/nupp/runtime/provider/wasmbackend.nupp",
+      output = "nupp/compiler/nupp/runtime/provider/wasmbackend.nupp",
+   },
+   {source = "src/nupp/wasm.nupp", output = "nupp/compiler/nupp/wasm.nupp"},
+   {source = "src/nupp/wasm/memory.d.nupp", output = "nupp/compiler/nupp/wasm/memory.d.nupp"},
+   {
       source = "src/nupp/runtime/seam/json.nupp",
       output = "nupp/compiler/nupp/runtime/seam/json.nupp",
    },
@@ -188,7 +202,7 @@ local RESOURCES = {
 local SEAM_FACTORY_RESOURCES = {
    "registry", "module", "bitset", "files", "hash", "hmacsha256", "http",
    "int64", "iobytes", "path", "peg", "process", "sha256", "simd",
-   "structvalue", "suspension", "uri", "utf8", "uuid", "workers",
+   "structvalue", "suspension", "uri", "utf8", "uuid", "wasm", "workers",
 }
 for _, name in ipairs(SEAM_FACTORY_RESOURCES) do
    RESOURCES[#RESOURCES + 1] = {
@@ -199,7 +213,7 @@ end
 local SEAM_SUITE_RESOURCES = {
    "bitset", "files", "hash", "hmacsha256", "http", "int64", "iobytes",
    "path", "peg", "process", "sha256", "simd", "structvalue", "suspension",
-   "uri", "utf8", "uuid", "workers",
+   "uri", "utf8", "uuid", "wasm", "workers",
 }
 for _, name in ipairs(SEAM_SUITE_RESOURCES) do
    RESOURCES[#RESOURCES + 1] = {

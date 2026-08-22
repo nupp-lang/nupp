@@ -1,6 +1,6 @@
 ---
 title: WebAssembly from AOT IR
-status: Draft
+status: Superseded by NEP 18
 created: 2026-08-20
 ---
 

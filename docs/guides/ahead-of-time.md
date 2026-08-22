@@ -21,8 +21,9 @@ end
 something the backend could not compile is an error rather than a surprise
 later, and a check never needs a C compiler. [Build policy](#build-policy)
 selects what a build does with the result: `off` by default, `emit-c` to write
-the C beside the build, `require` to compile it into the project's own shared
-library and call it.
+the C beside the build, and `require` to compile it into the project's own
+shared library and call it. Lua 5.1 applications have corresponding
+[`emit-wasm` and `require-wasm`](wasm-aot.md) policies for pointer kernels.
 
 Pure numeric and span bodies keep the small `kernel` ABI, and a body that
 constructs fresh Lua values uses the separate `lua-builder` ABI. Nothing in the
@@ -1214,6 +1215,10 @@ targets = {
   compiling it.
 - `require` does everything `emit-c` does, then compiles the result into
   `<outDir>/lib/`, and fails the build when it cannot.
+- `emit-wasm` compiles pointer kernels into content-addressed Wasm side modules
+  while retaining their ordinary Lua bodies.
+- `require-wasm` packages those modules and replaces the Lua bodies with calls
+  through the Lua-in-Wasm binding.
 
 `emit-c` adds an artifact; it does not replace one. The ordinary Lua body is
 still emitted and is still what runs. A module with no `@aot` function produces
@@ -1469,9 +1474,10 @@ little arithmetic per byte it touches to pay for assembling the vectors.
 
 ### Does a project need a C compiler?
 
-Only under `aot = "require"`. `off` is the default and `nupp check` never
-compiles C, so validating `@aot` source needs no toolchain at all. See
-[Accepting a C compiler](#accepting-a-c-compiler).
+Only under `aot = "require"`, `emit-wasm`, or `require-wasm`. `off` is the
+default and `nupp check` never compiles C, so validating `@aot` source needs no
+toolchain at all. See [Accepting a C compiler](#accepting-a-c-compiler) and
+[Wasm AOT applications](wasm-aot.md).
 
 ::: seealso
 - [jit-trace-checking.md](jit-trace-checking.md) for deciding whether LuaJIT

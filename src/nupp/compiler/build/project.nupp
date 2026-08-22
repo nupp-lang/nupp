@@ -336,6 +336,13 @@ local function buildOne(root: string?, opts: project.BuildOptions?): integer
     -- policy checks through it before the module build does. It reads the
     -- dependencies just resolved, which is why it cannot be opened any earlier.
     local session = modules.session(root, outDir, config, target, dependencies, strict, report)
+    -- AOT consumes checked trees before the module pass. Give that shared graph
+    -- the target's backend resolution now, so a portable standard surface reached
+    -- by an AOT source is checked under the same seams as the later overlay.
+    local earlyBackend = backends.resolve(session.inc, target.backends)
+    if earlyBackend ~= nil then
+        session.inc.setBackendResolution(earlyBackend)
+    end
     -- The AOT policy runs before the modules it affects. `off` is the default
     -- and looks for nothing, so a project that has not asked for native code
     -- never depends on a C compiler being present -- but `require` replaces
@@ -352,9 +359,15 @@ local function buildOne(root: string?, opts: project.BuildOptions?): integer
     -- project need a C compiler that building it is what actually requires.
     local aotOverlays: {[string]: string}? = nil
     local aotLibrary: string? = nil
-    if not opts.checkOnly and (target.aot == "emit-c" or target.aot == "require") then
+    local aotManifest: string? = nil
+    local aotWasmModules: {string} = {}
+    if not opts.checkOnly and aotPolicy.POLICIES[target.aot or "off"] and target.aot ~= nil and target.aot ~= "off" then
         report:at("aot")
-        report:step(target.aot == "require" and "compiling ahead-of-time code" or "emitting ahead-of-time C")
+        report:step(
+            (
+                target.aot == "require" or target.aot == "require-wasm"
+            ) and "compiling ahead-of-time code" or "emitting ahead-of-time code"
+        )
 
         local produced, aotErr = aotPolicy.apply(
             target.aot as string,
@@ -388,11 +401,21 @@ local function buildOne(root: string?, opts: project.BuildOptions?): integer
         newState.aot = keys
         if (produced as any).manifest ~= nil then
             newState.outputs[(produced as any).manifest] = true
+            aotManifest = (produced as any).manifest as string
         end
         if (produced as any).library ~= nil then
             newState.outputs[(produced as any).library] = true
             newState.aotLibrary = (produced as any).libraryKey
             aotLibrary = (produced as any).library as string?
+        end
+        for _, output in ipairs((produced as any).wasmModules or {}) do
+            newState.outputs[output] = true
+            if output:match("%.wasm$") then
+                aotWasmModules[#aotWasmModules + 1] = output
+            end
+        end
+        if (produced as any).libraryKey ~= nil then
+            newState.aotLibrary = (produced as any).libraryKey
         end
         aotOverlays = (produced as any).dispatch as {[string]: string}?
     end
@@ -559,6 +582,43 @@ local function buildOne(root: string?, opts: project.BuildOptions?): integer
                 return 1
             end
             newState.outputs[beside] = true
+        end
+        -- A Lua-in-Wasm artifact keeps its side modules and loader manifest
+        -- beside the bundle under the same relative paths the manifest names.
+        -- The Wasm filenames carry their content digests, so the VM, Lua bundle,
+        -- and kernels remain independently cacheable.
+        if #aotWasmModules > 0 and aotManifest ~= nil then
+            local builtRoot = normalize(join(outDir, "aot")) .. "/"
+            local packagedRoot = join(dirname(output), "aot")
+            for _, source in ipairs(aotWasmModules) do
+                local normalizedSource = normalize(source)
+                if normalizedSource:sub(1, #builtRoot) ~= builtRoot then
+                    io.stderr:write("nupp: Wasm AOT output escaped its build directory: " .. source .. "\n")
+                    return 1
+                end
+                local beside = join(packagedRoot, normalizedSource:sub(#builtRoot + 1))
+                if normalize(beside) ~= normalizedSource then
+                    local copied, copyErr = copyFile(source, beside)
+                    if not copied then
+                        io.stderr:write(
+                            ("nupp: cannot put the Wasm AOT module beside %s: %s\n"):format(output, tostring(copyErr))
+                        )
+                        return 1
+                    end
+                end
+                newState.outputs[beside] = true
+            end
+            local packagedManifest = join(packagedRoot, "units.json")
+            if normalize(packagedManifest) ~= normalize(aotManifest as string) then
+                local copied, copyErr = copyFile(aotManifest as string, packagedManifest)
+                if not copied then
+                    io.stderr:write(
+                        ("nupp: cannot put the Wasm AOT manifest beside %s: %s\n"):format(output, tostring(copyErr))
+                    )
+                    return 1
+                end
+            end
+            newState.outputs[packagedManifest] = true
         end
         -- A dependency's library is the same case: its binding names it relative
         -- to whatever loads that binding, and here that is the artifact. One

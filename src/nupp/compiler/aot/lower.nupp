@@ -451,6 +451,9 @@ record lower.Element
 
     --- The reified layout, for a struct element.
     layout: scalarIR.Layout?
+
+    --- The sealed span contract that proved the pointer/count pair.
+    spanModule: string
 end
 
 --- The element type a span spelling names, or nothing when it is not that span.
@@ -467,14 +470,9 @@ function lower.spanElement(
 ): lower.Element?
     if context.checked then
         local span, origin = nominal(resolved)
-        if span == nil
-            or origin == nil
-            or origin.moduleName ~= "nupp.mem.span"
-            or origin.name ~= expected
-            or span.typeArgs == nil
-            or span.typeArgs[
-            1
-        ] == nil then
+        if span == nil or origin == nil or (
+            origin.moduleName ~= "nupp.mem.span" and origin.moduleName ~= "nupp.wasm"
+        ) or origin.name ~= expected or span.typeArgs == nil or span.typeArgs[1] == nil then
             return nil
         end
         local elementType = span.typeArgs[1]
@@ -483,7 +481,8 @@ function lower.spanElement(
             return new lower.Element(
                 kind = "scalar",
                 type = storage as string,
-                sourceType = sourceSpelling(elementType)
+                sourceType = sourceSpelling(elementType),
+                spanModule = origin.moduleName
             )
         end
         local _, elementOrigin = nominal(elementType)
@@ -497,25 +496,35 @@ function lower.spanElement(
         return new lower.Element(
             kind = "struct",
             type = "struct:" .. elementOrigin.name,
-            layout = lower.layout(elementOrigin.name, elementType, at, declarations, layouts, context)
+            layout = lower.layout(elementOrigin.name, elementType, at, declarations, layouts, context),
+            spanModule = origin.moduleName
         )
     end
 
-    local prefix = expected == "WriteSpan" and "span%.WriteSpan" or "span%.Span"
-    local element = spelling:match("^" .. prefix .. "<(.+)>$")
+    local suffix = expected == "WriteSpan" and "WriteSpan" or "Span"
+    local module, element = spelling:match("^(span)%." .. suffix .. "<(.+)>$")
+    if element == nil then
+        module, element = spelling:match("^(wasm)%." .. suffix .. "<(.+)>$")
+    end
     if element == nil then
         return nil
     end
 
     local storage = admit.STORAGE[element as string]
     if storage ~= nil then
-        return new lower.Element(kind = "scalar", type = storage as string, sourceType = element as string)
+        return new lower.Element(
+            kind = "scalar",
+            type = storage as string,
+            sourceType = element as string,
+            spanModule = module == "wasm" and "nupp.wasm" or "nupp.mem.span"
+        )
     end
 
     return new lower.Element(
         kind = "struct",
         type = "struct:" .. (element as string),
-        layout = lower.layout(element as string, nil, at, declarations, layouts, context)
+        layout = lower.layout(element as string, nil, at, declarations, layouts, context),
+        spanModule = module == "wasm" and "nupp.wasm" or "nupp.mem.span"
     )
 end
 
@@ -2951,6 +2960,7 @@ function lower.parameters(
                 name = name as string,
                 type = (writeElement as lower.Element).type,
                 sourceType = (writeElement as lower.Element).sourceType,
+                spanModule = (writeElement as lower.Element).spanModule,
                 region = region,
                 access = "readwrite",
                 ownership = "exclusive",
@@ -2968,6 +2978,7 @@ function lower.parameters(
                 name = name as string,
                 type = (readElement as lower.Element).type,
                 sourceType = (readElement as lower.Element).sourceType,
+                spanModule = (readElement as lower.Element).spanModule,
                 region = region,
                 access = "read",
                 ownership = "shared",

@@ -50,9 +50,9 @@ local function describe(t: Type): indexed.Descriptor?
         return nil
     end
 
-    if moduleName == "nupp.mem.span" and (
-        name == "Span" or name == "FixedSpan" or name == "WriteSpan" or name == "FixedWriteSpan"
-    ) then
+    if (
+        moduleName == "nupp.mem.span" or moduleName == "nupp.wasm"
+    ) and (name == "Span" or name == "FixedSpan" or name == "WriteSpan" or name == "FixedWriteSpan") then
         return new indexed.Descriptor(
             adapter = "span",
             element = element,

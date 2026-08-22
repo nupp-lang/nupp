@@ -1,0 +1,8 @@
+module nupp.runtime.provider.wasmstorage
+
+--[[The stock Lua 5.1 Wasm host's opaque memory and struct-value provider.]]
+
+local factory = require("nupp.runtime.provider.wasmstoragefactory")
+local memory = require("nupp.wasm.memory")
+
+export = factory.new(memory)

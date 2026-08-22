@@ -7,12 +7,23 @@ on:
       - ".github/scripts/test-portable-compiler.sh"
       - ".github/workflows/wasm-playground.yml"
       - "editors/playground/**"
+      - "runtime/wasm/**"
       - "nupp.lua"
       - "src/nupp/compiler/browser.nupp"
+      - "src/nupp/compiler/aot/**"
+      - "src/nupp/compiler/build/aot.nupp"
+      - "src/nupp/compiler/build/manifest.nupp"
+      - "src/nupp/compiler/build/project.nupp"
       - "src/nupp/compiler/env.nupp"
+      - "src/nupp/compiler/indexedviews.nupp"
       - "src/nupp/compiler/preludeimage.bin"
       - "src/nupp/compiler/preludeimage.nupp"
+      - "src/nupp/runtime/provider/wasm*.nupp"
+      - "src/nupp/runtime/seam/wasm*.nupp"
+      - "src/nupp/wasm.nupp"
+      - "src/nupp/wasm/**"
       - "tests/portable-compiler/**"
+      - "tests/wasm-aot/**"
 
 permissions:
   contents: read
@@ -47,6 +58,9 @@ jobs:
 
       - name: Test Node Wasm parity
         run: npm run test:wasm --prefix editors/playground
+
+      - name: Test Lua 5.1 Wasm struct AOT
+        run: tests/wasm-aot/run.sh
 
       - name: Record asset sizes
         run: node editors/playground/tools/report-wasm-assets.mjs > wasm-sizes.json

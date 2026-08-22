@@ -65,7 +65,7 @@ local function aotOptions(): {any}
         name = "--features",
         key = "features",
         value = "TIER",
-        help = "The CPU feature tier to promise: baseline, avx2, avx512f, or neon",
+        help = "The CPU feature tier to promise: baseline, avx2, avx512f, neon, scalar, or simd128",
     }
     list[
         #list + 1
@@ -84,7 +84,8 @@ local command = spec.command{
     summary = "Show what the @aot functions in a file compile to",
     usage = {"nupp aot [--emit ir|c|binding] [--check] [--target TRIPLE] [--features TIER] <file>",},
     intro = "Reports what the ahead-of-time backend produces for one file, without writing it. "
-    .. "A build emits the same artifacts under `aot = \"emit-c\"` or `aot = \"require\"`.",
+    .. "A native build emits the same artifacts under `aot = \"emit-c\"` or `aot = \"require\"`; "
+    .. "Lua 5.1 Wasm applications use `emit-wasm` or `require-wasm`.",
     options = aotOptions(),
     schema = {
         type = "object",

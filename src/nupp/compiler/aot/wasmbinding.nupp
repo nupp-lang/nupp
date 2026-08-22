@@ -1,0 +1,178 @@
+module nupp.compiler.aot.wasmbinding
+
+--[[Checked source wrappers for Lua functions registered by a Wasm AOT side module.]]
+
+local scalarIR = require("nupp.compiler.aot.scalar")
+
+local wasmbinding = {}
+
+local function sourceType(param: scalarIR.Param): string
+    return param.sourceType or (
+        param.type == "f32"
+        and "float"
+        or param.type == "f64"
+        and "number"
+        or param.type == "u32"
+        and "uint32"
+        or param.type == "i32"
+        and "int32"
+        or param.type == "bool"
+        and "boolean"
+        or param.type
+    )
+end
+
+local function logical(param: scalarIR.Param): string
+    local element = param.type:match("^struct:(.+)$") or sourceType(param)
+    if param.kind == "write_span" then
+        return "exclusive " .. param.name .. ": wasm.WriteSpan<" .. tostring(element) .. ">"
+    elseif param.kind == "read_span" then
+        return "borrows " .. param.name .. ": wasm.Span<" .. tostring(element) .. ">"
+    else
+        return param.name .. ": " .. sourceType(param)
+    end
+end
+
+local function cast(value: string, named: string): string
+    if named == "uint32" then
+        return "nupp.math.u32.wrap(" .. value .. " as integer)"
+    elseif named == "int32" then
+        return "nupp.math.i32.wrap(" .. value .. " as integer)"
+    end
+
+    return value .. " as " .. named
+end
+
+--- Replaces one source declaration with a call into its pre-registered side module.
+function wasmbinding.replacement(program: scalarIR.Program, unit: string): string
+    local prefix = "__nuppWasm_" .. program.symbol
+    local lines: {
+        string
+    } = {
+        "local "
+        .. prefix
+        .. "Registry: any = assert(rawget(_G, \"__nuppWasmAot\"), \"Wasm AOT registry is not installed\")",
+        "local "
+        .. prefix
+        .. "Unit: any = assert("
+        .. prefix
+        .. "Registry[\""
+        .. unit
+        .. "\"], \"Wasm AOT unit "
+        .. unit
+        .. " is not loaded\")",
+        "local "
+        .. prefix
+        .. "Native: any = assert("
+        .. prefix
+        .. "Unit[\""
+        .. program.symbol
+        .. "\"], \"Wasm AOT kernel "
+        .. program.name
+        .. " is not registered\")",
+    }
+    for _, layout in ipairs(program.layouts or {}) do
+        local variable = prefix .. "Layout" .. layout.name
+        lines[
+            #lines + 1
+        ] = "local "
+            .. variable
+            .. ": any = assert("
+            .. prefix
+            .. "Unit[\"layout:"
+            .. layout.name
+            .. "\"], \"Wasm AOT layout is not registered\")"
+        lines[#lines + 1] = "local " .. variable .. "Expected: any = wasm.layout(new " .. layout.name .. "())"
+        lines[
+            #lines + 1
+        ] = "assert("
+            .. variable
+            .. ".size == "
+            .. variable
+            .. "Expected.size and "
+            .. variable
+            .. ".alignment == "
+            .. variable
+            .. "Expected.alignment, \"Wasm AOT layout mismatch for "
+            .. layout.name
+            .. "\")"
+        for _, field in ipairs(layout.fields) do
+            lines[
+                #lines + 1
+            ] = "assert("
+                .. variable
+                .. "[\""
+                .. field.name
+                .. "\"] == "
+                .. variable
+                .. "Expected.offsets[\""
+                .. field.name
+                .. "\"], \"Wasm AOT field layout mismatch for "
+                .. layout.name
+                .. "."
+                .. field.name
+                .. "\")"
+        end
+    end
+    local params: {string} = {}
+    for position, param in ipairs(program.params) do
+        params[position] = logical(param)
+    end
+    lines[#lines + 1] = "local function " .. program.name .. "("
+    for position, param in ipairs(params) do
+        lines[#lines + 1] = "    " .. param .. (position < #params and "," or "")
+    end
+    local results = program.resultSourceTypes or {}
+    local result = #results == 0 and "nil" or #results == 1 and results[1] or "(" .. table.concat(results, ", ") .. ")"
+    lines[#lines + 1] = "): " .. result
+    local arguments: {string} = {}
+    local counts: {string} = {}
+    local primary: string? = nil
+    for _, param in ipairs(program.params) do
+        if param.kind == "write_span" or param.kind == "read_span" then
+            local token = prefix .. "_" .. param.name
+            local count = prefix .. "_" .. param.name .. "Count"
+            lines[#lines + 1] = "    local " .. token .. ", " .. count .. " = " .. param.name .. ":ref()"
+            if primary == nil then
+                primary = count
+            elseif program.body == nil then
+                lines[
+                    #lines + 1
+                ] = "    if " .. count .. " ~= " .. tostring(
+                    primary
+                ) .. " then error(\"Wasm AOT spans have incompatible lengths\", 2) end"
+            end
+            arguments[#arguments + 1] = token
+            counts[#counts + 1] = count
+        else
+            arguments[#arguments + 1] = param.name
+        end
+    end
+    if program.body ~= nil then
+        for _, count in ipairs(counts) do
+            arguments[#arguments + 1] = count
+        end
+    else
+        arguments[#arguments + 1] = tostring(primary)
+    end
+    local call = prefix .. "Native(" .. table.concat(arguments, ", ") .. ")"
+    if #results == 0 then
+        lines[#lines + 1] = "    " .. call
+    elseif #results == 1 then
+        lines[#lines + 1] = "    return " .. cast(call, results[1])
+    else
+        local names: {string} = {}
+        local values: {string} = {}
+        for position, named in ipairs(results) do
+            names[position] = prefix .. "Result" .. tostring(position)
+            values[position] = cast(names[position], named)
+        end
+        lines[#lines + 1] = "    local " .. table.concat(names, ", ") .. " = " .. call
+        lines[#lines + 1] = "    return " .. table.concat(values, ", ")
+    end
+    lines[#lines + 1] = "end"
+
+    return table.concat(lines, "\n")
+end
+
+export = wasmbinding

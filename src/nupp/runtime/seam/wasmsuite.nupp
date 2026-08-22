@@ -1,0 +1,34 @@
+@!internal
+
+module nupp.runtime.seam.wasmsuite
+
+--[[Behavioral vectors for the opaque Wasm-memory host contract.]]
+
+local suite = {}
+
+function suite.test(provider: any): (boolean, string?)
+    local ok, problem = pcall(function()
+        local allocation = provider.allocate(16)
+        local first = provider.pointer(allocation, 0, 4)
+        provider.store(first, 0, "uint32", 4294967297)
+        assert(provider.load(first, 0, "uint32") == 1, "uint32 stores must wrap")
+        local second = provider.offset(first, 1)
+        provider.store(second, 0, "float", 16777217)
+        assert(provider.load(second, 0, "float") == 16777216, "float stores must narrow")
+        provider.copy(provider.offset(first, 2), first, 8)
+        assert(provider.load(provider.offset(first, 2), 0, "uint32") == 1, "copies must preserve bytes")
+        assert(
+            not pcall(function()
+                return provider.load(provider.offset(first, 4), 0, "uint8")
+            end),
+            "out-of-bounds pointers must fail"
+        )
+    end)
+    if not ok then
+        return false, tostring(problem)
+    end
+
+    return true
+end
+
+export = suite

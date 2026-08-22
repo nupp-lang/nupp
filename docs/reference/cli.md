@@ -397,7 +397,7 @@ Show what the @aot functions in a file compile to
 Usage:
   nupp aot [--emit ir|c|binding] [--check] [--target TRIPLE] [--features TIER] <file>
 
-Reports what the ahead-of-time backend produces for one file, without writing it. A build emits the same artifacts under `aot = "emit-c"` or `aot = "require"`.
+Reports what the ahead-of-time backend produces for one file, without writing it. A native build emits the same artifacts under `aot = "emit-c"` or `aot = "require"`; Lua 5.1 Wasm applications use `emit-wasm` or `require-wasm`.
 
 Options:
   --format FORMAT  Output format: text (default) or json
@@ -407,8 +407,8 @@ Options:
   --check          Exit non-zero for a map loop that wanted lanes and ran one
                    iteration at a time
   --target TRIPLE  The target triple to compile for; the host's by default
-  --features TIER  The CPU feature tier to promise: baseline, avx2, avx512f, or
-                   neon
+  --features TIER  The CPU feature tier to promise: baseline, avx2, avx512f,
+                   neon, scalar, or simd128
   --library PATH   Where the compiled object will be found, for the generated
                    binding
   --schema         Print the JSON Schema of --json output and exit

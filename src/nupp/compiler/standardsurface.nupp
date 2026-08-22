@@ -47,6 +47,8 @@ local MODULES = {
     ["nupp.simd"] = selected("compile", "numeric.simd"),
     ["nupp.suspension"] = {kind = "common"},
     ["nupp.workers"] = selected("host", "host.workers"),
+    ["nupp.wasm"] = selected("host", "host.wasm"),
+    ["nupp.wasm.memory"] = selected("host", "host.wasm"),
 }
 
 local FACILITIES = {

@@ -289,6 +289,9 @@ function M.computesLayoutForTheDeclaredTargetRatherThanTheHost()
 
    local ilp32 = runIn(LAYOUT_SOURCE, layoutEnv("i686-unknown-linux-gnu"))
    assertEq(table.concat(ilp32, ","), "36,4,4,16,4,4,36,4", "i686 SysV layout")
+
+   local wasm32 = runIn(LAYOUT_SOURCE, layoutEnv("wasm32-unknown-emscripten"))
+   assertEq(table.concat(wasm32, ","), "40,8,8,20,4,4,40,4", "wasm32 layout")
 end
 
 function M.compilerTypeIntrinsicsRequireTheNuppNamespace()

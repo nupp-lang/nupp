@@ -436,12 +436,13 @@ local function preamble(program: scalarIR.Program): {string}
             lines[
                 #lines + 1
             ] = (
-                "  %s %s:%s source(%s) region(%s) %s %s"
+                "  %s %s:%s source(%s) span(%s) region(%s) %s %s"
             ):format(
                 param.kind,
                 param.name,
                 param.type,
                 tostring(param.sourceType),
+                tostring(param.spanModule),
                 tostring(param.region),
                 tostring(param.access),
                 at(param.source)

@@ -349,6 +349,7 @@ return {
 ## Performance
 
 - [Performance](guides/performance.md)
+- [Wasm AOT applications](guides/wasm-aot.md)
 - [LuaJIT trace checking](guides/jit-trace-checking.md)
 - [Profiling](guides/profiling.md)
 

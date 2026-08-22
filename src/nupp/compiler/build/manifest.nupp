@@ -656,8 +656,21 @@ local function validateTarget(target, label, dependencies)
         if not valid then
             return nil, err
         end
-        if target.aot ~= "off" and target.aot ~= "emit-c" and target.aot ~= "require" then
-            return nil, label .. ".aot must be \"off\", \"emit-c\" or \"require\""
+        if target.aot ~= "off"
+            and target.aot ~= "emit-c"
+            and target.aot ~= "require"
+            and target.aot ~= "emit-wasm"
+            and target.aot ~= "require-wasm"
+        then
+            return nil, label .. ".aot must be \"off\", \"emit-c\", \"require\", \"emit-wasm\" or \"require-wasm\""
+        end
+        if (target.aot == "emit-wasm" or target.aot == "require-wasm") and target.dialect ~= "lua51" then
+            return nil, label .. ".aot = \"" .. target.aot .. "\" requires dialect = \"lua51\""
+        end
+        if (
+            target.aot == "emit-wasm" or target.aot == "require-wasm"
+        ) and target.aotTarget ~= nil and target.aotTarget ~= "wasm32-unknown-emscripten" then
+            return nil, label .. ".aot = \"" .. target.aot .. "\" fixes aotTarget to wasm32-unknown-emscripten"
         end
     end
     if target.aotTarget ~= nil then
@@ -691,7 +704,10 @@ local function validateTarget(target, label, dependencies)
         if not valid then
             return nil, err
         end
-        local _, tierErr = aotTargets.select(target.aotTarget as string?, target.aotFeatures as string)
+        local featureTarget = (
+            target.aot == "emit-wasm" or target.aot == "require-wasm"
+        ) and "wasm32-unknown-emscripten" or target.aotTarget as string?
+        local _, tierErr = aotTargets.select(featureTarget, target.aotFeatures as string)
         if tierErr ~= nil then
             return nil, label .. ".aotFeatures: " .. tostring(tierErr)
         end

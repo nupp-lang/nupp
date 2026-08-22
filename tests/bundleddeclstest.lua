@@ -34,6 +34,7 @@ local BUNDLED = {
    "jit.util", "jit.profile", "jit.zone", "jit.vmdef",
    "nupp.managed",
    "nupp.mem.span", "nupp.mem.heap",
+   "nupp.wasm", "nupp.wasm.memory",
    "nupp.profile.zone", "nupp.profile",
 }
 
@@ -106,6 +107,7 @@ function M.aTreeInSyncReportsNothingStale()
       "/decls/stringbuffer.d.nupp",
       "/nupp/data/jsonnative.d.nupp",
       "/nupp/mem/span.nupp",
+      "/nupp/wasm/memory.d.nupp",
    }) do
       assert(bundled.source(relative), "the compiler carries " .. relative)
    end
@@ -124,6 +126,7 @@ function M.everyCarriedDeclarationResolvesToItsSource()
       "/decls/jit/util.d.nupp",
       "/nupp/data/jsonnative.d.nupp",
       "/nupp/mem/span.nupp",
+      "/nupp/wasm/memory.d.nupp",
    }) do
       local path = bundled.sourcePathFor(relative)
       assert(path, "a checkout was found for " .. relative)

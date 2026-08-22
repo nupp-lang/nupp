@@ -1,0 +1,47 @@
+local wasm = require("nupp.wasm")
+local wasmProvider = require("nupp.runtime.provider.wasmstorage")
+local wasmSuite = require("nupp.runtime.seam.wasmsuite")
+
+local seamOk, seamWhy = wasmSuite.test(wasmProvider)
+assert(seamOk, seamWhy)
+
+local struct Sample
+    value: float
+    bias: number
+    weight: float
+end
+
+@aot(lanes = false)
+local function scale(
+    exclusive output: wasm.WriteSpan<Sample>,
+    borrows input: wasm.Span<Sample>,
+    factor: number,
+    enabled: boolean
+): nil
+    if #output ~= #input then
+        error("length mismatch", 2)
+    end
+    for index = 1, #output do
+        if enabled then
+            output[index].value = input[index].value * factor
+            output[index].bias = input[index].bias + factor
+            output[index].weight = input[index].weight + factor
+        end
+    end
+end
+
+local input = wasm.array(new Sample(), 3)
+local inputRows = input:write()
+inputRows[1] = new Sample(2, 10, 1)
+inputRows[2] = new Sample(3, 20, 4)
+inputRows[3] = new Sample(5, 30, 7)
+inputRows:drop()
+
+local output = wasm.array(new Sample(), 3)
+scale(output:write(), input:read(), 2, true)
+
+local rows = output:read()
+assert(#rows == 3)
+assert(rows[1].value == 4 and rows[1].bias == 12 and rows[1].weight == 3)
+assert(rows[2].value == 6 and rows[2].bias == 22 and rows[2].weight == 6)
+assert(rows[3].value == 10 and rows[3].bias == 32 and rows[3].weight == 9)

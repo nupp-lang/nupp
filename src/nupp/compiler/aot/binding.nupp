@@ -181,10 +181,11 @@ end
 --- How the wrapper spells one parameter, which is how the source spelled it.
 local function logical(param: scalarIR.Param): string
     local element = param.type:match("^struct:(.+)$") or sourceType(param.type, param.sourceType)
+    local spanName = param.spanModule == "nupp.wasm" and "wasm" or "span"
     if param.kind == "write_span" then
-        return "exclusive " .. param.name .. ": span.WriteSpan<" .. tostring(element) .. ">"
+        return "exclusive " .. param.name .. ": " .. spanName .. ".WriteSpan<" .. tostring(element) .. ">"
     elseif param.kind == "read_span" then
-        return "borrows " .. param.name .. ": span.Span<" .. tostring(element) .. ">"
+        return "borrows " .. param.name .. ": " .. spanName .. ".Span<" .. tostring(element) .. ">"
     else
         return param.name .. ": " .. tostring(param.sourceType)
     end

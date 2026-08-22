@@ -1,0 +1,12 @@
+module nupp.runtime.provider.wasmbackend
+
+--[[The checked backend selected by a Lua 5.1 artifact using `nupp.wasm`.]]
+
+const runtimeBackend = require("nupp.runtime.backend")
+const structvalue = require("nupp.runtime.seam.structvalue")
+const wasm = require("nupp.runtime.seam.wasm")
+
+export = runtimeBackend.new("nupp.wasm", {
+    structvalue.seam("nupp.runtime.provider.wasmstorage"),
+    wasm.seam("nupp.runtime.provider.wasmstorage"),
+})

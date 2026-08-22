@@ -21,6 +21,7 @@ local CONTRACTS: {
         binding = "compile",
         factoryModule = "nupp.runtime.seam.structvalue"
     },
+    {name = "host.wasm", effect = "runtime.wasm", binding = "runtime", factoryModule = "nupp.runtime.seam.wasm"},
     {name = "numeric.int64", effect = "runtime.int64", binding = "compile", factoryModule = "nupp.runtime.seam.int64"},
     {name = "numeric.simd", effect = "runtime.simd", binding = "compile", factoryModule = "nupp.runtime.seam.simd"},
     {

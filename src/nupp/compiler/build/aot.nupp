@@ -32,6 +32,8 @@ to.
 ]]
 
 local bindingRules = require("nupp.compiler.aot.binding")
+local wasmBinding = require("nupp.compiler.aot.wasmbinding")
+local wasmEmitter = require("nupp.compiler.aot.wasmemit")
 local compile = require("nupp.compiler.aot.compile")
 local emitter = require("nupp.compiler.aot.emit")
 local diagnosticMod = require("nupp.compiler.diagnostics")
@@ -47,11 +49,21 @@ local isFatal = diagnosticMod.isFatal
 local aot = {}
 
 --- The policies a target may select.
-const aot.POLICIES = {["off"] = true, ["emit-c"] = true, ["require"] = true}
+const aot.POLICIES = {
+    ["off"] = true,
+    ["emit-c"] = true,
+    ["require"] = true,
+    ["emit-wasm"] = true,
+    ["require-wasm"] = true,
+}
 
 --- Whether a policy has to produce native code to succeed.
 function aot.linksNative(policy: string?): boolean
     return policy == "require"
+end
+
+function aot.linksWasm(policy: string?): boolean
+    return policy == "emit-wasm" or policy == "require-wasm"
 end
 
 --- A C toolchain this backend can use.
@@ -104,7 +116,7 @@ const aot.DIALECT_FLAGS = {["clang"] = {"-Wno-parentheses-equality"}, ["gcc"] = 
 --- an oversight: `target` already decided whether a gang exists, and a flag
 --- here that decided it a second time could disagree with the code it is
 --- compiling.
-const aot.TIER_FLAGS = {["avx2"] = "-mavx2", ["avx512f"] = "-mavx512f"}
+const aot.TIER_FLAGS = {["avx2"] = "-mavx2", ["avx512f"] = "-mavx512f", ["simd128"] = "-msimd128"}
 
 --- Which backend produced an artifact.
 ---
@@ -269,6 +281,13 @@ record aot.Emitted
 
     --- True for the compiler-owned baseline feature detector unit.
     detector: boolean?
+
+    --- The side-module C and Wasm artifact when a Wasm policy selected them.
+    wasmSource: string?
+
+    wasm: string?
+    registrar: string?
+    unit: string?
 end
 
 --- The commands to try, in order, when nothing named one.
@@ -480,6 +499,134 @@ function aot.dispatch(
     end
 
     return rewritten
+end
+
+--- The source with every Wasm AOT declaration replaced by a registry closure.
+function aot.wasmDispatch(source: string, programs: {scalarIR.Program}, sites: {compile.Site}, unit: string): string
+    local rewritten = source
+    for position = #programs, 1, -1 do
+        local site = sites[position]
+        if site ~= nil then
+            rewritten = rewritten:sub(
+                1,
+                site.from - 1
+            ) .. wasmBinding.replacement(programs[position], unit) .. rewritten:sub(site.to + 1)
+        end
+    end
+
+    return rewritten
+end
+
+--- Locates the pinned Emscripten compiler used for side modules.
+function aot.wasmToolchain(): (string?, string?)
+    local command = os.getenv("NUPP_WASM_CC") or "emcc"
+    local code, printed = process.capture({command, "--version"})
+    if code ~= 0 then
+        return nil, "Wasm AOT needs Emscripten emcc; name it with NUPP_WASM_CC"
+    end
+    local first = printed:match("^[^\n]*") or ""
+    if first:lower():find("emscripten", 1, true) == nil then
+        return nil, tostring(command) .. " is not Emscripten"
+    end
+    local release = first:match("(%d+%.%d+%.%d+)")
+    if release ~= "6.0.8" then
+        return nil, "Wasm AOT requires Emscripten 6.0.8, found " .. tostring(release or "unknown")
+    end
+
+    return command, first
+end
+
+--- Compiles each emitted source as one independently cacheable side module.
+function aot.compileWasm(
+    emitted: {aot.Emitted},
+    produced: {[string]: compile.Artifacts},
+    extra: {string}?
+): ({string}?, string?, string?, string?)
+    local command, version = aot.wasmToolchain()
+    if command == nil then
+        return nil, version, nil, nil
+    end
+    local outputs: {string} = {}
+    local keys: {string} = {version as string}
+    for _, one in ipairs(emitted) do
+        if one.detector ~= true then
+            local artifacts = produced[one.cacheKey]
+            if artifacts == nil then
+                return nil, "missing Wasm AOT artifacts for " .. one.source, nil, nil
+            end
+            local validation = wasmEmitter.validate((artifacts as compile.Artifacts).programs)
+            if validation ~= nil then
+                return nil, validation, nil, nil
+            end
+            local unit = "u" .. one.key:sub(1, 16)
+            local registrar = "nupp_wasm_register_" .. unit
+            local source = one.output:gsub("%.c$", ".side.c")
+            local bytes = (
+                artifacts as compile.Artifacts
+            ).c .. wasmEmitter.registrar((artifacts as compile.Artifacts).programs, unit, one.tier)
+            if fs.readFile(source) ~= bytes then
+                local wrote, writeErr = fs.writeFile(source, bytes)
+                if not wrote then
+                    return nil, tostring(writeErr), nil, nil
+                end
+            end
+            local argv: {
+                string
+            } = {
+                command as string,
+                source,
+                "-std=c11",
+                "-O3",
+                "-ffp-contract=off",
+                "-fno-fast-math",
+                "-Wall",
+                "-Wextra",
+                "-Werror",
+                "-Wno-parentheses-equality",
+                "-sSIDE_MODULE=2",
+                "-sFILESYSTEM=0",
+            }
+            local tierFlag = aot.TIER_FLAGS[one.tier]
+            if tierFlag ~= nil then
+                argv[#argv + 1] = tierFlag as string
+            end
+            for _, flag in ipairs(extra or {}) do
+                argv[#argv + 1] = flag
+            end
+            local staged = one.output:gsub("%.c$", ".wasm.tmp")
+            argv[#argv + 1] = "-o"
+            argv[#argv + 1] = staged
+            os.remove(staged)
+            local code, printed = process.capture(argv)
+            if code ~= 0 then
+                os.remove(staged)
+                return nil, "compiling Wasm AOT side module failed:\n" .. printed, nil, nil
+            end
+            local wasm, readErr = fs.readFile(staged)
+            os.remove(staged)
+            if wasm == nil then
+                return nil, tostring(readErr), nil, nil
+            end
+            local wasmDigest = hash.digest(wasm as string)
+            local output = one.output:gsub("%.c$", "." .. wasmDigest:sub(1, 16) .. ".wasm")
+            if fs.readFile(output) ~= wasm then
+                local wrote, writeErr = fs.writeFile(output, wasm as string)
+                if not wrote then
+                    return nil, tostring(writeErr), nil, nil
+                end
+            end
+            one.wasmSource = source
+            one.wasm = output
+            one.registrar = registrar
+            one.unit = unit
+            outputs[#outputs + 1] = source
+            outputs[#outputs + 1] = output
+            keys[#keys + 1] = one.key
+            keys[#keys + 1] = wasmDigest
+        end
+    end
+
+    return outputs, nil, hash.digest(table.concat(keys, "\0")), version
 end
 
 --- What the compiled library is called, without saying where it is.
@@ -775,6 +922,9 @@ record aot.Result
     --- wrappers that call the compiled code. Empty unless the policy links, so
     --- `emit-c` leaves every module exactly as it was written.
     dispatch: {[string]: string}
+
+    --- Side-module C and Wasm paths, in deterministic source order.
+    wasmModules: {string}?
 end
 
 --- Writes the portable handoff for an `emit-c` consumer.
@@ -797,10 +947,13 @@ function aot.writeUnitsManifest(outDir: string, triple: string, emitted: {aot.Em
             tier = one.tier,
             cflags = nupp.data.json.asArray(flags),
             detector = one.detector == true,
+            wasm = one.wasm and (one.wasm as string):gsub("^" .. prefix:gsub("%p", "%%%0"), "") or nil,
+            registrar = one.registrar,
+            unit = one.unit,
         }
     end
     local document = nupp.data.json.encode({
-        schemaVersion = 1,
+        schemaVersion = 2,
         target = triple,
         units = nupp.data.json.asArray(units),
     }) .. "\n"
@@ -838,6 +991,11 @@ function aot.apply(
     triple: string?,
     cflags: {string}?
 ): (aot.Result?, string?)
+    local wasmPolicy = aot.linksWasm(policy)
+    if wasmPolicy then
+        triple = "wasm32-unknown-emscripten"
+        features = features or "scalar"
+    end
     local emitted, emitErr, produced = aot.emitC(root, outDir, roots, previous, session, features, triple)
     if emitted == nil then
         return nil, emitErr
@@ -859,6 +1017,45 @@ function aot.apply(
     )
     if manifestErr ~= nil then
         return nil, manifestErr
+    end
+    if wasmPolicy then
+        local wasmModules, wasmErr, wasmKey, wasmToolchain = aot.compileWasm(emitted as {aot.Emitted}, produced, cflags)
+        if wasmModules == nil then
+            return nil, wasmErr
+        end
+        manifest, manifestErr = aot.writeUnitsManifest(
+            outDir,
+            (selectedForManifest as {targets.Target})[1].triple,
+            emitted as {aot.Emitted}
+        )
+        if manifestErr ~= nil then
+            return nil, manifestErr
+        end
+        local dispatch: {[string]: string} = {}
+        if policy == "require-wasm" then
+            for _, one in ipairs(emitted as {aot.Emitted}) do
+                local artifacts = produced[one.source]
+                local source = fs.readFile(one.source)
+                if one.detector ~= true and artifacts ~= nil and source ~= nil then
+                    dispatch[
+                        one.source
+                    ] = aot.wasmDispatch(
+                        source as string,
+                        (artifacts as compile.Artifacts).programs,
+                        (artifacts as compile.Artifacts).sites,
+                        one.unit as string
+                    )
+                end
+            end
+        end
+        return new aot.Result(
+            emitted = emitted as {aot.Emitted},
+            libraryKey = wasmKey,
+            toolchain = wasmToolchain,
+            manifest = manifest,
+            dispatch = dispatch,
+            wasmModules = wasmModules
+        ), nil
     end
     if not aot.linksNative(policy) or #(emitted as {aot.Emitted}) == 0 then
         return new aot.Result(emitted = emitted as {aot.Emitted}, manifest = manifest, dispatch = {}), nil

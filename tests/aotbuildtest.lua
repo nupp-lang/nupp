@@ -698,7 +698,28 @@ function M.anUnknownPolicyIsRejected()
    local dir = project("sometimes")
    local out, code = build(dir)
    test.equal(code, 1, out)
-   assert(out:find('must be "off", "emit-c" or "require"', 1, true), out)
+   assert(out:find('must be "off", "emit-c", "require", "emit-wasm" or "require-wasm"', 1, true), out)
+end
+
+function M.wasmPoliciesRequireThePortableDialect()
+   local dir = project("emit-wasm")
+   local out, code = build(dir)
+   test.equal(code, 1, out)
+   assert(out:find('aot = "emit-wasm" requires dialect = "lua51"', 1, true), out)
+end
+
+function M.wasmPoliciesFixTheirTargetAndFeatureVocabulary()
+   local dir = project("emit-wasm")
+   withKeys(dir, 'dialect = "lua51", aotTarget = "x86_64-unknown-linux-gnu",')
+   local out, code = build(dir)
+   test.equal(code, 1, out)
+   assert(out:find("fixes aotTarget to wasm32-unknown-emscripten", 1, true), out)
+
+   dir = project("emit-wasm")
+   withKeys(dir, 'dialect = "lua51", aotFeatures = "avx2",')
+   out, code = build(dir)
+   test.equal(code, 1, out)
+   assert(out:find("wasm32 has no feature tier avx2; it has scalar, simd128", 1, true), out)
 end
 
 

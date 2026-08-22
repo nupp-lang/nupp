@@ -15,6 +15,7 @@ local sha256Seam = require("nupp.runtime.seam.sha256")
 local uuidSeam = require("nupp.runtime.seam.uuid")
 local bitsetSeam = require("nupp.runtime.seam.bitset")
 local suspensionSeam = require("nupp.runtime.seam.suspension")
+local wasmSeam = require("nupp.runtime.seam.wasm")
 local optimize = require("nupp.compiler.optimize")
 local gen = require("nupp.compiler.gen")
 
@@ -85,6 +86,27 @@ local function structResolution(backendModule)
       }}},
       seams = {['representation.structvalue'] = {name = "representation.structvalue", version = 1, effect = "runtime.structvalue", module = backendModule}},
       byEffect = {['runtime.structvalue'] = backendModule},
+   }
+end
+
+local function wasmResolution(backendModule)
+   local struct = {
+      name = "representation.structvalue", version = 1,
+      effect = "runtime.structvalue", effects = {"runtime.structvalue"},
+      binding = "compile", runtimeModule = "nupp.runtime.provider.wasmstorage",
+   }
+   local memory = {
+      name = "host.wasm", version = 1,
+      effect = "runtime.wasm", effects = {"runtime.wasm"},
+      binding = "runtime", runtimeModule = "nupp.runtime.provider.wasmstorage",
+   }
+   return {
+      modules = {{name = "wasm", module = backendModule, fingerprint = "wasm-digest", seams = {struct, memory}}},
+      seams = {
+         [struct.name] = {name = struct.name, version = 1, effect = struct.effect, module = backendModule},
+         [memory.name] = {name = memory.name, version = 1, effect = memory.effect, module = backendModule},
+      },
+      byEffect = {[struct.effect] = backendModule, [memory.effect] = backendModule},
    }
 end
 
@@ -167,6 +189,36 @@ function M.tableStructProviderPassesItsIsolatedContract()
    assert(passed, "table struct provider passes its checked suite: " .. tostring(why))
 end
 
+function M.wasmViewsLowerThroughTheOpaqueCheckedSurface()
+   local source = [[
+local wasm = require("nupp.wasm")
+local struct Sample
+   value: float
+end
+local values = wasm.array(new Sample(), 2)
+local writable = values:write()
+writable[1] = new Sample(3)
+writable:drop()
+local readable = values:read()
+return #readable, readable[1].value
+]]
+   local resolution = wasmResolution("fixtures.wasm_backend")
+   local tree = parser.parse(source, "wasm-view.nupp")
+   assertEq(#check.check(tree, "wasm-view.nupp", sharedEnv, {
+      dialect = "lua51", backendResolution = resolution,
+   }), 0, "Wasm views check through both required seams")
+   local code, diags = gen.generate(tree, "wasm-view.nupp", nil, nil, resolution)
+   assertEq(#diags, 0, "Wasm views lower")
+   assert(code:find("writable%s*:set%s*%(%s*1"), code)
+   assert(code:find("readable%s*%.count"), code)
+   assert(code:find("readable%s*:get%s*%(%s*1%s*%)%s*%.value"), code)
+   assert(not code:find("require(\"ffi\")", 1, true), code)
+end
+
+function M.wasmSeamNamesItsIsolatedContractSuite()
+   assertEq(wasmSeam.suiteModuleName, "nupp.runtime.seam.wasmsuite")
+end
+
 function M.bundledSuspensionPassesTheReplaceableSeamContract()
    local passed, why = suspensionSeam.backend("nupp.suspension"):test()
    assert(passed, "the bundled suspension policy passes the public seam suite: " .. tostring(why))
@@ -184,7 +236,7 @@ function M.standardSurfaceRequiresExactPortableSeams()
       "   data.sha256('abc'), data.uuid4(), data.uuid7(), data.WORD_BITS",
    }, "\n"), {dialect = "lua51", backendResolution = selected})
    local classified = standardsurface.all()
-   for _, name in ipairs({"nupp.data.json", "nupp.data.serde", "nupp.data.utf8", "nupp.io.files", "nupp.io.http", "nupp.io.process", "nupp.io.path", "nupp.io.uri", "nupp.mem", "nupp.native", "nupp.simd", "nupp.workers"}) do
+   for _, name in ipairs({"nupp.data.json", "nupp.data.serde", "nupp.data.utf8", "nupp.io.files", "nupp.io.http", "nupp.io.process", "nupp.io.path", "nupp.io.uri", "nupp.mem", "nupp.native", "nupp.simd", "nupp.wasm", "nupp.workers"}) do
       assert(classified[name], "public standard module is classified: " .. name)
    end
    local serde = diagsOf("local serde = require('nupp.data.serde')", {dialect = "lua51"})
