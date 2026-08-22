@@ -114,6 +114,48 @@ Content-addressed filenames let a host cache the Lua VM, Lua bundle, and kernels
 independently. `emit-wasm` writes and packages the same Wasm artifacts but keeps
 the ordinary Lua bodies active; `require-wasm` installs the compiled wrappers.
 
+## Browser package
+
+`scripts/browser-app` builds a Lua 5.1 bundle and writes everything a static
+server needs. Name the project, target, and destination:
+
+```bash
+NUPP_WASM_CC=/opt/emsdk/upstream/emscripten/emcc \
+NUPP_LUA51_SOURCE=/opt/src/lua-5.1.5/src \
+  scripts/browser-app . app dist/browser
+```
+
+The destination contains one manifest and entry module beside independently
+cacheable assets:
+
+```text
+dist/browser/nupp-browser-app.mjs
+dist/browser/nupp-browser-app.json
+dist/browser/app-<digest>.lua
+dist/browser/nupp-app-<digest>.mjs
+dist/browser/nupp-app-<digest>.wasm
+dist/browser/aot/<unit>.<digest>.wasm
+```
+
+An HTML module can start the application by importing the entry:
+
+```js
+const application = await import("./nupp-browser-app.mjs");
+await application.ready;
+```
+
+The command builds the reusable host under `build/wasm-app-runtime` once and
+reuses it for later applications. Set `NUPP_BROWSER_RUNTIME` to a separately
+built runtime package to share the same host across projects. The package
+includes Lua's copyright notice and records the exact Emscripten version,
+digests, and byte sizes of the host assets. Tagged releases publish the same
+package as `nupp-browser-runtime.tar.gz`.
+
+The browser loader verifies the Lua bundle, host Wasm, and side-module bytes
+before execution. Chromium acceptance runs plain Lua 5.1, scalar struct AOT,
+and SIMD struct AOT through an HTTP server; it also requires runtime errors and
+missing side modules to fail predictably.
+
 ## Application host
 
 `runtime/wasm/build-app-host.sh` builds official Lua 5.1 with the memory bridge
@@ -150,6 +192,10 @@ Pure Lua dependencies work when the bundle selects them. A facility such as
 HTTP, hashing, suspension, or storage still needs a backend provider that can
 run in this host; selecting Wasm storage does not invent providers for unrelated
 seams.
+
+Applications currently run synchronously to completion. The host has no
+browser scheduler, event resumption ABI, or structured output channel yet;
+those belong to the application lifecycle rather than the packaging path.
 
 ::: seealso
 - [ahead-of-time.md](ahead-of-time.md) for the admitted kernel subset and

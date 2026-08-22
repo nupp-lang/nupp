@@ -3,6 +3,7 @@ import { spawn } from "node:child_process";
 import { mkdtempSync, rmSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
+import { setTimeout as delay } from "node:timers/promises";
 
 const [url] = process.argv.slice(2);
 if (!url) throw new Error("usage: run-browser-smoke.mjs URL");
@@ -43,9 +44,14 @@ async function waitFor(test, description) {
 
 function evaluate(socket, expression, id) {
   return new Promise((resolve, reject) => {
+    const timer = setTimeout(() => {
+      socket.removeEventListener("message", receive);
+      reject(new Error("timed out waiting for Chrome DevTools evaluation"));
+    }, 5000);
     const receive = (event) => {
       const message = JSON.parse(event.data);
       if (message.id !== id) return;
+      clearTimeout(timer);
       socket.removeEventListener("message", receive);
       if (message.error) reject(new Error(message.error.message));
       else resolve(message.result.result.value);
@@ -97,6 +103,13 @@ try {
   }
   process.stdout.write(JSON.stringify(result, null, 2) + "\n");
 } finally {
-  child.kill("SIGTERM");
-  rmSync(profile, {recursive: true, force: true});
+  if (child.exitCode === null) {
+    child.kill("SIGTERM");
+    await Promise.race([
+      new Promise((resolve) => child.once("exit", resolve)),
+      delay(5000),
+    ]);
+  }
+  if (child.exitCode === null) child.kill("SIGKILL");
+  rmSync(profile, {recursive: true, force: true, maxRetries: 20, retryDelay: 100});
 }

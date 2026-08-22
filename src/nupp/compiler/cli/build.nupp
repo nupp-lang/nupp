@@ -81,6 +81,14 @@ local command = spec.command{
                 items = {type = "string"},
                 description = "Every output path the build produced, sorted."
             },
+            artifact = {
+                type = "string",
+                description = "The transportable artifact written by a bundle, binary, or component target."
+            },
+            aotManifest = {
+                type = "string",
+                description = "The packaged Wasm AOT manifest beside the transportable artifact."
+            },
             materializations = {
                 type = "array",
                 description = "Materialized expressions and their versioned provider and backend facts.",
@@ -319,7 +327,9 @@ local function run(parsed: any): integer
         selectedPlatform: string?,
         platformResults: {any}?,
         distributionReady: boolean?,
-        notice: string?
+        notice: string?,
+        artifact: string?,
+        aotManifest: string?
     ): integer
         if asJson then
             reportMod.write({
@@ -332,6 +342,8 @@ local function run(parsed: any): integer
                 distributionReady = distributionReady,
                 notice = notice,
                 written = outputs,
+                artifact = artifact,
+                aotManifest = aotManifest,
                 materializations = observed or materializations,
                 derives = observedDerives or derives,
                 backends = selectedBackends,
@@ -373,7 +385,9 @@ local function run(parsed: any): integer
             produced.platform,
             produced.platforms,
             produced.distributionReady,
-            produced.notice
+            produced.notice,
+            produced.artifact,
+            produced.aotManifest
         )
     end
     local process = require("nupp.compiler.build.process")

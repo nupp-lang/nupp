@@ -13,6 +13,55 @@ permissions:
   contents: read
 
 jobs:
+  build-browser-runtime:
+    name: Browser application runtime
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Check out the repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Set up Emscripten 6.0.8
+        uses: emscripten-core/setup-emsdk@v15
+        with:
+          version: 6.0.8
+          actions-cache-folder: emsdk-cache
+
+      - name: Fetch official Lua 5.1.5
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/nupp-lua"
+          archive="$RUNNER_TEMP/nupp-lua/lua-5.1.5.tar.gz"
+          curl -fsSL https://www.lua.org/ftp/lua-5.1.5.tar.gz -o "$archive"
+          printf '%s  %s\n' \
+            2640fc56a795f29d28ef15e13c34a47e223960b0240e8cb0a82d9b0738695333 \
+            "$archive" | sha256sum -c -
+          tar -xzf "$archive" -C "$RUNNER_TEMP/nupp-lua"
+
+      - name: Build the reusable runtime package
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p release
+          node runtime/wasm/build-runtime-package.mjs \
+            release/browser-runtime \
+            "$RUNNER_TEMP/nupp-lua/lua-5.1.5/src"
+          tar -czf release/nupp-browser-runtime.tar.gz \
+            -C release/browser-runtime .
+
+      - name: Upload the browser runtime
+        uses: actions/upload-artifact@v4
+        with:
+          name: nupp-browser-runtime
+          path: release/nupp-browser-runtime.tar.gz
+          if-no-files-found: error
+
   build-unix:
     name: ${{ matrix.name }}
     strategy:
@@ -482,6 +531,7 @@ jobs:
     name: Add binaries to the release
     if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/')
     needs:
+      - build-browser-runtime
       - build-unix
       - build-windows
       - catalog

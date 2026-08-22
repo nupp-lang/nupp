@@ -8,6 +8,7 @@ on:
       - ".github/workflows/wasm-playground.yml"
       - "editors/playground/**"
       - "runtime/wasm/**"
+      - "scripts/browser-app"
       - "nupp.lua"
       - "src/nupp/compiler/browser.nupp"
       - "src/nupp/compiler/aot/**"
@@ -62,6 +63,12 @@ jobs:
       - name: Test Lua 5.1 Wasm struct AOT
         run: tests/wasm-aot/run.sh
 
+      - name: Test browser application manifests
+        run: node --test tests/wasm-aot/runtime.test.mjs
+
+      - name: Test browser applications in Chromium
+        run: tests/wasm-aot/run-browser.sh > wasm-app-browser-smoke.json
+
       - name: Record asset sizes
         run: node editors/playground/tools/report-wasm-assets.mjs > wasm-sizes.json
 
@@ -101,5 +108,6 @@ jobs:
           name: wasm-playground-measurements
           path: |
             chromium-smoke.json
+            wasm-app-browser-smoke.json
             playground-server.log
             wasm-sizes.json

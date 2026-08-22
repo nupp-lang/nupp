@@ -489,6 +489,8 @@ local function buildOne(root: string?, opts: project.BuildOptions?): integer
     end
     -- A bundle is a modules build and then one more file: everything it just compiled,
     -- folded into a chunk that runs with nothing beside it.
+    local primaryArtifact: string? = nil
+    local packagedAotManifest: string? = nil
     if target.kind == "bundle" or target.kind == "binary" or target.kind == "component" then
         report:at("bundle")
         report:step("bundling " .. (target.name or target.kind))
@@ -565,6 +567,7 @@ local function buildOne(root: string?, opts: project.BuildOptions?): integer
                 return 1
             end
         end
+        primaryArtifact = output
         newState.outputs[output] = true
         -- A single-artifact target is something someone carries somewhere, and
         -- the compiled code has to go with it. The wrapper looks for the library
@@ -619,6 +622,7 @@ local function buildOne(root: string?, opts: project.BuildOptions?): integer
                 end
             end
             newState.outputs[packagedManifest] = true
+            packagedAotManifest = packagedManifest
         end
         -- A dependency's library is the same case: its binding names it relative
         -- to whatever loads that binding, and here that is the artifact. One
@@ -670,6 +674,8 @@ local function buildOne(root: string?, opts: project.BuildOptions?): integer
         opts.produced.target = target.name or opts.target or "default"
         opts.produced.dialect = dialect
         opts.produced.platform = selectedPlatform
+        opts.produced.artifact = primaryArtifact
+        opts.produced.aotManifest = packagedAotManifest
         if selectedPlatform == "aarch64-apple-darwin" then
             opts.produced.distributionReady = false
             opts.produced.notice = "the macOS binary must be signed on macOS and has not passed notarization"
