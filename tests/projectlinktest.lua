@@ -626,6 +626,44 @@ return res
    end)
 end
 
+-- Exported signatures are published before bodies are checked, and that pre-pass
+-- runs before a top-level `require` has been bound. An alias naming a type
+-- through one therefore answers `any` while it runs. Answering that early is the
+-- conservative behaviour the pre-pass already accepts; committing it froze the
+-- alias, so every later use of it -- in the same module as well as in a consuming
+-- one -- read the placeholder instead of the type.
+function M.anExportedSignatureDoesNotFreezeAnAliasItNames()
+   withProject({
+      ["src/holder.nupp"] = [[
+module holder
+
+const protocol = require("nupp.workers.protocol")
+
+local type Operations = {hash: function(job: {name: string}): {ok: boolean}}
+
+export type Handle = protocol.Handle<"jobs.hash", Operations>
+
+export function uses(value: Handle): nil
+    print(value.entry)
+end
+
+export function probe(): nil
+    local wrong: Handle = 42
+    print(wrong)
+end
+]],
+   }, function(dir)
+      local path = dir .. "/src/holder.nupp"
+      local parsed = parser.parse(readFile(path), path)
+      assertEq(#parsed.errors, 0, "the holder parses")
+      local diags = check.check(parsed, path, projectEnv(dir))
+      assertEq(#diags, 1, "the alias still resolves once an exported signature names it: "
+         .. (diags[1] and diags[1].msg or "nothing reported"))
+      assertEq(diags[1] and diags[1].code, "NUPP2001",
+         "the wrong initializer is what is reported")
+   end)
+end
+
 -- An affine type is only usable by another module if the terminal it names
 -- resolves there too, and three separate things have to line up for that: the
 -- prefix a consumer writes is the local name it bound the module to rather than

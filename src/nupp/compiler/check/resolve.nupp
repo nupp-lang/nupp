@@ -1762,6 +1762,15 @@ function resolve.install(c: state.Checker): nil
             end
         end
         c.scope = saved
+        -- The pre-pass that publishes exported signatures runs before a top-level
+        -- `require` has been bound, so an alias naming a type through one resolves to
+        -- `any` there. Answering that early is the conservative behaviour the pre-pass
+        -- already accepts; committing it is not, because every later use of the alias
+        -- would read the placeholder. Leave it pending so the ordinary pass resolves
+        -- the alias against a scope that has the require in it.
+        if c.hoisting then
+            return t
+        end
         owner.pending[name] = nil
         owner.types[name] = t
         waiting.resolved = t
