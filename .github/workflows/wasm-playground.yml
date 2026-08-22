@@ -1,4 +1,4 @@
-name: Test Wasm playground candidate
+name: Test Wasm playground
 
 on:
   workflow_dispatch:
@@ -9,6 +9,9 @@ on:
       - "editors/playground/**"
       - "nupp.lua"
       - "src/nupp/compiler/browser.nupp"
+      - "src/nupp/compiler/env.nupp"
+      - "src/nupp/compiler/preludeimage.bin"
+      - "src/nupp/compiler/preludeimage.nupp"
       - "tests/portable-compiler/**"
 
 permissions:
@@ -48,14 +51,19 @@ jobs:
       - name: Record asset sizes
         run: node editors/playground/tools/report-wasm-assets.mjs > wasm-sizes.json
 
+      - name: Build the generated Pages artifact
+        env:
+          NUPP_PLAYGROUND_ALREADY_BUILT: 1
+        run: node scripts/build-pages.mjs
+
       - name: Start the playground server
         env:
           PORT: 8787
         run: |
-          node editors/playground/serve.mjs > playground-server.log 2>&1 &
+          node editors/playground/serve.mjs build/pages > playground-server.log 2>&1 &
           echo $! > playground-server.pid
           for attempt in {1..30}; do
-            if curl --fail --silent http://127.0.0.1:8787/wasm-smoke.html >/dev/null; then
+            if curl --fail --silent http://127.0.0.1:8787/playground/wasm-smoke.html >/dev/null; then
               exit 0
             fi
             sleep 1
@@ -64,19 +72,9 @@ jobs:
 
       - name: Test the Chromium Worker
         run: |
-          google-chrome --headless --no-sandbox --disable-gpu \
-            --virtual-time-budget=60000 --dump-dom \
-            http://127.0.0.1:8787/wasm-smoke.html > chromium-smoke.html
-          node editors/playground/tools/read-browser-result.mjs \
-            chromium-smoke.html passed > chromium-smoke.json
-
-      - name: Measure the replacement gate
-        run: |
-          google-chrome --headless --no-sandbox --disable-gpu \
-            --virtual-time-budget=180000 --dump-dom \
-            http://127.0.0.1:8787/wasm-benchmark.html > chromium-timing.html
-          node editors/playground/tools/read-browser-result.mjs \
-            chromium-timing.html complete --require-gate > chromium-timing.json
+          node editors/playground/tools/run-browser-smoke.mjs \
+            http://127.0.0.1:8787/playground/wasm-smoke.html \
+            > chromium-smoke.json
 
       - name: Stop the playground server
         if: always()
@@ -88,9 +86,6 @@ jobs:
         with:
           name: wasm-playground-measurements
           path: |
-            chromium-smoke.html
             chromium-smoke.json
-            chromium-timing.html
-            chromium-timing.json
             playground-server.log
             wasm-sizes.json

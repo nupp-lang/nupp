@@ -27,6 +27,7 @@ const checkTimeEl = el("check-time");
 const compileButton = el("compile-button");
 const exampleSelect = el("example-select");
 const examplePicker = el("example-picker");
+const dialectSelect = el("dialect-select");
 const diagListEl = el("diagnostics");
 const outputHost = el("output-editor");
 const outputEl = el("output");
@@ -49,7 +50,7 @@ const shareButton = el("share-button");
 // switch is right there for anyone who wants the gradual one. Kept as one
 // object because it travels as one: into every worker request, into a shared
 // link, out of a fragment.
-const OPTION_DEFAULTS = { strict: true, optimize: true };
+const OPTION_DEFAULTS = { strict: true, optimize: true, dialect: "lua51" };
 
 const OPTION_FIELDS = [
   {
@@ -72,10 +73,10 @@ const options = { ...OPTION_DEFAULTS };
 
 // --- Worker request/response plumbing -------------------------------------
 
-// A documentation page can carry dozens of playground iframes. The iframe itself is
-// lazy-loaded by the browser; within an embed, defer the substantially more expensive
-// Fengari VM and self-hosted compiler until the reader actually engages with it. The
-// full playground has only one instance and starts eagerly below.
+// A documentation page can carry dozens of playground iframes. The browser
+// lazy-loads each iframe; within an embed, defer the Lua VM and self-hosted
+// compiler until the reader engages with it. The full playground has one
+// instance and starts eagerly below.
 let worker = null;
 let workerReady = null;
 let resolveWorkerReady = null;
@@ -222,6 +223,9 @@ const inlined = typeof params.source === "string" ? params.source : null;
 for (const field of OPTION_FIELDS) {
   if (params[field.key] !== undefined) options[field.key] = params[field.key] === "1";
 }
+if (params.dialect === "lua51" || params.dialect === "luajit") {
+  options.dialect = params.dialect;
+}
 
 // Everything needed to reopen this buffer elsewhere. `location.hash = ...` is
 // not used to publish it — the page never rewrites its own address, so a reader
@@ -232,6 +236,9 @@ function fragmentFor(source) {
     if (options[field.key] !== OPTION_DEFAULTS[field.key]) {
       parts.push(`${field.key}=${options[field.key] ? "1" : "0"}`);
     }
+  }
+  if (options.dialect !== OPTION_DEFAULTS.dialect) {
+    parts.push(`dialect=${options.dialect}`);
   }
   return "#" + parts.join("&");
 }
@@ -269,7 +276,7 @@ const outputView = outputHost
       parent: outputHost,
       state: EditorState.create({
         doc: "",
-        // Generated output is plain LuaJIT, a subset of what nuppLanguage
+        // Generated output is plain Lua, a subset of what nuppLanguage
         // highlights — reusing it here means one language definition covers
         // both panels rather than a second one for a subset of the first.
         //
@@ -680,6 +687,15 @@ if (exampleSelect && wantsExampleMenu) {
   exampleSelect.addEventListener("change", () => loadExample(exampleSelect.value));
 } else {
   if (examplePicker) examplePicker.hidden = true;
+}
+
+if (dialectSelect) {
+  dialectSelect.value = options.dialect;
+  dialectSelect.addEventListener("change", () => {
+    options.dialect = dialectSelect.value;
+    setOutput("");
+    checkNow();
+  });
 }
 
 // --- Options menu -----------------------------------------------------------

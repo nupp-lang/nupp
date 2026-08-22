@@ -37,8 +37,8 @@ The measured candidate sizes are:
 
 | Artifact | Bytes |
 | --- | ---: |
-| Portable compiler source and prelude image | 5,277,698 |
-| Brotli-compressed compiler asset | 612,122 |
+| Portable compiler source and prelude image | 5,277,642 |
+| Brotli-compressed compiler asset | 612,219 |
 | Lua 5.1 Wasm host | 226,361 |
 | ES module loader | 12,478 |
 

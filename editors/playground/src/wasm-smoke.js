@@ -1,6 +1,6 @@
 const output = document.querySelector("#result");
 const started = performance.now();
-const worker = new Worker(new URL("./wasm-worker.js", import.meta.url), {
+const worker = new Worker(new URL("./worker.js", import.meta.url), {
   type: "module",
 });
 let nextId = 1;

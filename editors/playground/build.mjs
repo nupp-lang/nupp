@@ -4,7 +4,6 @@ import { build, context } from "esbuild";
 import {
   copyFileSync,
   cpSync,
-  existsSync,
   mkdirSync,
   readFileSync,
   readdirSync,
@@ -16,25 +15,11 @@ import { execFileSync } from "node:child_process";
 import { createHash } from "node:crypto";
 import { fileURLToPath } from "node:url";
 import path from "node:path";
-import { lauxlib, lua, to_luastring } from "fengari";
 
 const root = path.dirname(fileURLToPath(import.meta.url));
 const repoRoot = path.join(root, "../..");
 const dist = path.join(root, "dist");
 const watch = process.argv.includes("--watch");
-const wasmCandidate = process.argv.includes("--wasm-candidate");
-
-function verifyFengariSyntax(filename) {
-  const state = lauxlib.luaL_newstate();
-  const source = readFileSync(filename, "utf8");
-  const status = lauxlib.luaL_loadstring(state, to_luastring(source));
-  if (status !== lua.LUA_OK) {
-    const message = lua.lua_tojsstring(state, -1);
-    lua.lua_close(state);
-    throw new Error(`Fengari cannot parse ${filename}: ${message}`);
-  }
-  lua.lua_close(state);
-}
 
 function sha256(bytes) {
   return createHash("sha256").update(bytes).digest("hex");
@@ -126,21 +111,8 @@ const shared = {
   logLevel: "info",
 };
 
-const nodeOnly = ["fs", "path", "os", "child_process", "crypto", "readline-sync", "tmp"];
-const fengariShared = {
-  ...shared,
-  loader: { ...shared.loader, ".lua": "text" },
-  alias: Object.fromEntries(
-    nodeOnly.map((name) => [name, path.join(root, "src/empty-shim.js")])
-  ),
-  define: {
-    process: "undefined",
-    "process.env.FENGARICONF": "undefined",
-  },
-};
-
 async function runBuild() {
-  const manifest = wasmCandidate ? prepareCompilerAsset() : null;
+  const manifest = prepareCompilerAsset();
   const appOpts = {
     ...shared,
     entryPoints: [path.join(root, "src/app.js")],
@@ -152,28 +124,18 @@ async function runBuild() {
     outfile: path.join(dist, "doc-app.js"),
   };
   const workerOpts = {
-    ...fengariShared,
-    entryPoints: [path.join(root, "src/worker.js")],
-    outfile: path.join(dist, "worker.js"),
-  };
-  const wasmWorkerOpts = manifest && {
     ...shared,
     entryPoints: [path.join(root, "src/wasm-worker.js")],
-    outfile: path.join(dist, "wasm-worker.js"),
+    outfile: path.join(dist, "worker.js"),
     define: {
       __NUPP_COMPILER_ASSET__: JSON.stringify(manifest.compiler),
       __NUPP_COMPILER_SHA256__: JSON.stringify(manifest.compilerSha256),
     },
   };
-  const wasmSmokeOpts = manifest && {
+  const wasmSmokeOpts = {
     ...shared,
     entryPoints: [path.join(root, "src/wasm-smoke.js")],
     outfile: path.join(dist, "wasm-smoke.js"),
-  };
-  const wasmBenchmarkOpts = manifest && {
-    ...shared,
-    entryPoints: [path.join(root, "src/wasm-benchmark.js")],
-    outfile: path.join(dist, "wasm-benchmark.js"),
   };
 
   if (watch) {
@@ -181,14 +143,8 @@ async function runBuild() {
       context(appOpts),
       context(docAppOpts),
       context(workerOpts),
+      context(wasmSmokeOpts),
     ];
-    if (wasmCandidate) {
-      builds.push(
-        context(wasmWorkerOpts),
-        context(wasmSmokeOpts),
-        context(wasmBenchmarkOpts),
-      );
-    }
     const contexts = await Promise.all(builds);
     await Promise.all(contexts.map((entry) => entry.watch()));
     console.log("watching for changes…");
@@ -197,36 +153,12 @@ async function runBuild() {
       build(appOpts),
       build(docAppOpts),
       build(workerOpts),
+      build(wasmSmokeOpts),
     ];
-    if (wasmCandidate) {
-      builds.push(
-        build(wasmWorkerOpts),
-        build(wasmSmokeOpts),
-        build(wasmBenchmarkOpts),
-      );
-    }
     await Promise.all(builds);
   }
 
   cpSync(path.join(root, "static"), dist, { recursive: true });
-
-  const bootstrapSource = path.join(repoRoot, "bootstrap/nupp.lua");
-  if (!existsSync(bootstrapSource)) {
-    throw new Error(`expected ${bootstrapSource} — run from a full checkout`);
-  }
-  const rocks = path.join(repoRoot, ".rocks");
-  run("luajit", [
-    path.join(root, "tools/patch-bootstrap-for-browser.lua"),
-    bootstrapSource,
-    path.join(dist, "nupp-bootstrap.lua"),
-  ], {
-    env: {
-      ...process.env,
-      LUA_PATH: `${rocks}/share/lua/5.1/?.lua;${rocks}/share/lua/5.1/?/init.lua;${process.env.LUA_PATH || ";"}`,
-      LUA_CPATH: `${rocks}/lib/lua/5.1/?.so;${rocks}/lib/lua/5.1/?.dll;${process.env.LUA_CPATH || ";"}`,
-    },
-  });
-  verifyFengariSyntax(path.join(dist, "nupp-bootstrap.lua"));
   copyFileSync(path.join(root, "README.md"), path.join(dist, "README.md"));
 }
 

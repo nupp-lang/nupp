@@ -27,7 +27,9 @@ function htmlFiles(directory) {
 }
 
 run(path.join(root, "bin/nupp"), ["doc", "site"]);
-run(process.execPath, ["build.mjs"], path.join(root, "editors/playground"));
+if (process.env.NUPP_PLAYGROUND_ALREADY_BUILT !== "1") {
+  run(process.execPath, ["build.mjs"], path.join(root, "editors/playground"));
+}
 
 rmSync(output, { force: true, recursive: true });
 mkdirSync(path.join(output, "playground"), { recursive: true });

@@ -1,6 +1,5 @@
 // Runs the exact stock-Lua compiler bundle tested during the build inside a
-// filesystem-free Lua 5.1 VM compiled to Wasm. This remains a gated candidate
-// until its measured boot plus first check is within the replacement budget.
+// filesystem-free Lua 5.1 VM compiled to Wasm.
 import { createCompilerHost } from "./wasm-runtime.js";
 
 let host = null;

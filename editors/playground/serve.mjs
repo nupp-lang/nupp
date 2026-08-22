@@ -6,7 +6,8 @@ import { createReadStream, existsSync, statSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
-const root = path.join(path.dirname(fileURLToPath(import.meta.url)), "dist");
+const defaultRoot = path.join(path.dirname(fileURLToPath(import.meta.url)), "dist");
+const root = path.resolve(process.argv[2] || defaultRoot);
 const port = Number(process.env.PORT || 8787);
 
 const TYPES = {
@@ -37,4 +38,4 @@ http
     res.writeHead(200, { "content-type": TYPES[path.extname(file)] || "application/octet-stream" });
     createReadStream(file).pipe(res);
   })
-  .listen(port, () => console.log(`serving dist/ on http://localhost:${port}`));
+  .listen(port, () => console.log(`serving ${root} on http://localhost:${port}`));

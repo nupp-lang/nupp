@@ -1,6 +1,6 @@
 ---
 title: Portable compiler and Lua-in-Wasm host
-status: Accepted
+status: Implemented
 created: 2026-08-21
 ---
 

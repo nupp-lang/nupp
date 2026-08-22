@@ -20,6 +20,13 @@
            offers can't drift apart. -->
       <select id="example-select" class="select" aria-label="Choose an example"></select>
     </label>
+    <label class="dialect-picker">
+      <span>Output</span>
+      <select id="dialect-select" class="select" aria-label="Choose an output dialect">
+        <option value="lua51">Lua 5.1</option>
+        <option value="luajit">LuaJIT</option>
+      </select>
+    </label>
     <span id="status" class="status">starting…</span>
     <button id="options-button" class="icon-button" type="button" title="Options"
             aria-label="Options" aria-expanded="false" aria-controls="options-panel">

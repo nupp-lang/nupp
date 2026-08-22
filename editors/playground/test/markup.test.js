@@ -149,18 +149,30 @@ test("documentation playgrounds check only after the reader engages", () => {
 });
 
 test("playground codegen drops effects removed by optimization", () => {
-  const driver = readFileSync(new URL("../src/driver.lua", import.meta.url), "utf8");
-  assert.match(driver, /pcall\(optimize\.run, result,/);
-  assert.match(driver, /result\.effects = optimize\.liveEffects\(result\)/);
+  const browser = readFileSync(
+    new URL("../../../src/nupp/compiler/browser.nupp", import.meta.url),
+    "utf8",
+  );
+  assert.match(browser, /optimize\.run\(result,/);
+  assert.match(browser, /result\.effects = optimize\.liveEffects\(result\)/);
   assert.ok(
-    driver.indexOf("optimize.liveEffects(result)") < driver.indexOf("gen.generate, result"),
+    browser.indexOf("optimize.liveEffects(result)") < browser.indexOf("gen.generate(result"),
     "live effects must be recomputed before generation",
   );
 });
 
-test("the playground build rejects bootstrap syntax Fengari cannot parse", () => {
+test("the playground build publishes only native-tested compiler bytes", () => {
   const build = readFileSync(new URL("../build.mjs", import.meta.url), "utf8");
-  assert.match(build, /function verifyFengariSyntax\(filename\)/);
-  assert.match(build, /lauxlib\.luaL_loadstring\(state, to_luastring\(source\)\)/);
-  assert.match(build, /verifyFengariSyntax\(path\.join\(dist, "nupp-bootstrap\.lua"\)\)/);
+  assert.match(build, /test-portable-compiler\.sh/);
+  assert.match(build, /if \(sha256\(after\) !== digest \|\| !after\.equals\(before\)\)/);
+  assert.match(build, /if \(!copied\.equals\(before\)\)/);
+});
+
+test("the full playground exposes both output dialects", () => {
+  const html = readFileSync(new URL("../static/index.html", import.meta.url), "utf8");
+  const app = readFileSync(new URL("../src/app.js", import.meta.url), "utf8");
+  assert.match(html, /id="dialect-select"/);
+  assert.match(html, /value="lua51">Lua 5\.1/);
+  assert.match(html, /value="luajit">LuaJIT/);
+  assert.match(app, /dialect: "lua51"/);
 });

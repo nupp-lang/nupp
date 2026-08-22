@@ -7,9 +7,9 @@
   "type": "module",
   "scripts": {
     "build": "node build.mjs",
-    "build:wasm": "node build.mjs --wasm-candidate",
-    "test": "node build.mjs && node --test test/host-runtime.test.js test/lua-output.test.js test/markup.test.js test/nupp-lang.test.js",
-    "test:wasm": "node build.mjs --wasm-candidate && node --test test/wasm-runtime.test.js",
+    "build:wasm": "node build.mjs",
+    "test": "node build.mjs && node --test test/lua-output.test.js test/markup.test.js test/nupp-lang.test.js test/wasm-runtime.test.js",
+    "test:wasm": "node build.mjs && node --test test/wasm-runtime.test.js",
     "watch": "node build.mjs --watch",
     "serve": "npm run build && node serve.mjs"
   },
@@ -21,8 +21,7 @@
     "@codemirror/state": "^6.7.1",
     "@codemirror/view": "^6.43.8",
     "@lezer/highlight": "^1.2.3",
-    "codemirror": "^6.0.2",
-    "fengari": "^0.1.5"
+    "codemirror": "^6.0.2"
   },
   "devDependencies": {
     "esbuild": "^0.28.2"
