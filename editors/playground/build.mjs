@@ -64,7 +64,10 @@ function prepareCompilerAsset() {
   ]);
   run(vectorBinary, []);
 
-  const luaSource = process.env.NUPP_LUA51_SOURCE || "/tmp/nupp-portable-compiler/lua-5.1.5/src";
+  const luaSource = process.env.NUPP_LUA51_SOURCE || path.join(
+    process.env.RUNNER_TEMP || "/tmp",
+    "nupp-portable-compiler/lua-5.1.5/src"
+  );
   run(path.join(root, "tools/build-wasm-host.sh"), [
     digest,
     path.join(dist, "nupp-playground.mjs"),
