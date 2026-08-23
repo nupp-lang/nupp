@@ -10,7 +10,7 @@ resolution, servers, and publication; Nupp adds a typed module surface beside
 the Lua that `require` loads.
 
 ```bash
-nupp rock init string-tools
+nupp init lib string-tools
 cd string-tools
 ```
 
@@ -24,14 +24,14 @@ string-tools/
 ├── nupp.lua
 ├── string-tools-dev-1.rockspec
 ├── src/
-│   └── string_tools.nupp
+│   └── stringtools.nupp
 ├── nupp/
-│   └── string_tools.d.nupp
+│   └── stringtools.d.nupp
 └── tests/
     └── run.lua
 ```
 
-The source builds to `build/string_tools.lua`, which LuaRocks installs as an
+The source builds to `build/stringtools.lua`, which LuaRocks installs as an
 ordinary Lua 5.1 module. The rockspec's `copy_directories = { "nupp" }` carries
 the declaration inside that rock's versioned installation, where Nupp finds it
 without putting it on Lua's runtime path.
@@ -97,7 +97,7 @@ Pin the rock in `nupp.lua` and put it on the target that uses it:
 return {
    include = { "src" },
    dependencies = {
-      string_tools = {
+      stringtools = {
          kind = "luarocks",
          rock = "string-tools",
          version = "1.0-1",
@@ -105,15 +105,15 @@ return {
    },
    build = {
       entries = { "app.main" },
-      dependencies = { "string_tools" },
+      dependencies = { "stringtools" },
    },
 }
 ```
 
 The build installs it into the project's `.rocks` tree. At run time,
-`require("string_tools")` follows LuaRocks' normal `LUA_PATH`; during checking
+`require("stringtools")` follows LuaRocks' normal `LUA_PATH`; during checking
 and in the language server, the same require reads the installed
-`nupp/string_tools.d.nupp`. Completion, hover, definition, and downstream
+`nupp/stringtools.d.nupp`. Completion, hover, definition, and downstream
 interface invalidation therefore use the published contract. See [rock
 dependencies](../guides/build.md#rock-dependencies) for every field a pin takes.
 
@@ -125,7 +125,7 @@ For local development, pin a rockspec and source directory instead of a server
 version:
 
 ```lua
-string_tools = {
+stringtools = {
    kind = "luarocks",
    rock = "string-tools",
    path = "vendor/string-tools",

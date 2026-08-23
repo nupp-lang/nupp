@@ -140,15 +140,6 @@ record template.Plan
     dropped: {string}
 end
 
---- How much of an existing destination is tolerated.
----
---- `absent` is what `nupp.compiler.rock` has always enforced and is kept for it:
---- relaxing a published command's refusal as a side effect of moving it onto
---- shared code is a worse trade than carrying this parameter. `emptyOrGitOnly`
---- is what `nupp init` takes, because `mkdir g && cd g && git init && nupp init .`
---- is how people start and refusing it teaches nothing.
-type template.Policy = 'absent' | 'emptyOrGitOnly'
-
 --- Resolution
 ---
 --- Lexical on purpose. A rule that consults the filesystem would make the same
@@ -705,23 +696,23 @@ local function componentsAreSafe(path: string): boolean, string?
     return true
 end
 
-local function destinationIsFree(destination: string, policy: template.Policy): boolean, string?
+--- Whether a destination is free enough to write into.
+---
+--- A directory holding nothing but `.git` counts, because
+--- `mkdir g && cd g && git init && nupp init .` is how people start and
+--- refusing it teaches nothing.
+local function destinationIsFree(destination: string): boolean, string?
     local entries = nupp.io.files.list(destination)
     if not entries then
         return true
     end
-    if policy == "absent" then
-        return false, destination .. " already exists"
-    else
-        -- `emptyOrGitOnly`: the repository made a moment before typing this.
-        for _, entry in ipairs(entries) do
-            if entry.name ~= ".git" then
-                return false, destination .. " is not empty"
-            end
+    for _, entry in ipairs(entries) do
+        if entry.name ~= ".git" then
+            return false, destination .. " is not empty"
         end
-
-        return true
     end
+
+    return true
 end
 
 --- Works out everything a scaffold would write, and refuses everything it should,
@@ -729,17 +720,16 @@ end
 ---
 --- @param source the resolved source, already fetched when it is remote
 --- @param destination the directory to create
---- @param opts the project name, `--set` values, and the destination policy
+--- @param opts the project name and `--set` values
 --- @return the plan, or nil when the template or the destination is refused
 --- @return why, ready to print
 function template.plan(source: template.Source, destination: string, opts: {
     name: string?,
-    set: {[string]: string}?,
-    policy: template.Policy?
+    set: {[string]: string}?
 }?): template.Plan?, string?
     local asked = opts or {}
     destination = normalize(destination)
-    local free, freeErr = destinationIsFree(destination, asked.policy or "emptyOrGitOnly")
+    local free, freeErr = destinationIsFree(destination)
     if not free then
         return nil, freeErr
     end

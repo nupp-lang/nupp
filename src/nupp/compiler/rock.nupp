@@ -43,42 +43,6 @@ local function quote(value)
     return string.format("%q", value)
 end
 
---- Creates a complete, deliberately small library project.
----
---- The layout is the built-in `lib` template, and this scaffolds it rather than
---- carrying a second copy: `nupp init lib` and `nupp rock init` wrote the same
---- five files by two routes, which is an arrangement that lasts until one of them
---- is edited.
----
---- What it keeps of its own is the `absent` destination policy. `nupp init` also
---- accepts an empty directory, and relaxing this command's refusal as a side
---- effect of moving it onto shared code would be changing a published contract
---- for a reason that has nothing to do with it. The name constraint is not kept
---- here: the template declares it, in the same words, which is what a template
---- being able to declare one is for.
----
---- @param name the rock name
---- @param directory where to write it, defaulting to the name
---- @return true, or nil when the name or the destination is refused
---- @return why, ready to print
-function rock.init(name: string, directory: string?): boolean?, string?
-    local template = require("nupp.compiler.template")
-    local source, resolveErr = template.resolve("lib")
-    if not source then
-        return nil, resolveErr
-    end
-    local plan, planErr = template.plan(source, normalize(directory or name), {name = name, policy = "absent",})
-    if not plan then
-        return nil, planErr
-    end
-    local written, writeErr = template.write(plan)
-    if not written then
-        return nil, writeErr
-    end
-
-    return true
-end
-
 local function rootRockspec(root, asked): string?, string?
     if asked then
         local path = join(root, asked)

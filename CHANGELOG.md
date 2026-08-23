@@ -2,6 +2,15 @@
 
 ## Unreleased
 
+- Scaffold a library with `nupp init lib` rather than `nupp rock init`. That
+  command was `nupp rock`'s own copy of the layout from before templates
+  existed, and has been scaffolding the built-in `lib` template since they
+  arrived; what goes is the second spelling of one thing, and with it the
+  `absent` destination policy `nupp.compiler.template` carried for the sake of
+  a published refusal `nupp init` never made. `nupp rock` is `pack` and `test`,
+  the two things LuaRocks needs a Nupp-aware step for, and `rock init` says
+  where scaffolding went rather than reporting an unknown operation.
+
 - Restore the path parity suite. `nupp.io.path`'s recorded answers lived in the
   provider crate's own tests, and went with the crate; `tests/pathtest.lua` is
   that table, reached the way a program reaches the module. It pins the

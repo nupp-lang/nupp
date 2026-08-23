@@ -81,7 +81,7 @@ skip, and `E` for a failure, and its summary reports every outcome and elapsed
 time. Output from passing tests is captured, and printed for failures or with
 `--verbose`.
 
-It is not installed for you. `nupp rock init` writes a manifest whose
+It is not installed for you. The `lib` template writes a manifest whose
 `test.argv` names `tests/run.lua`, and puts a two-line assertion script at that
 path to replace; a project that wants this runner copies it and
 `tests/assert.lua` out of the Nupp repository.

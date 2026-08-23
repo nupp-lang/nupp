@@ -531,7 +531,8 @@ Usage:
 
 Options:
   --strict           Treat strict checker rules as errors
-  --dialect DIALECT  Source-lowering dialect: luajit (default) or lua51
+  --dialect DIALECT  Source-lowering dialect: luajit (default), luajit-compat
+                     or lua51
   --target NAME      Check a named manifest target
   --platform NAME    Check one configured binary platform, or all
   --format FORMAT    Output format: text (default) or json
@@ -742,7 +743,8 @@ Options:
   --out-dir DIR      Override the manifest target's output directory
   -o DIR             Output directory for explicit source-file builds
   --strict           Treat strict checker rules as errors
-  --dialect DIALECT  Source-lowering dialect: luajit (default) or lua51
+  --dialect DIALECT  Source-lowering dialect: luajit (default), luajit-compat
+                     or lua51
   -O0, -O1, -O2      Optimization level (default -O0, which rewrites nothing)
   --remarks          Report what the optimizer did and what it declined to do
   --relax=GUARANTEE  Allow optimizations to change one named observable
@@ -1822,10 +1824,9 @@ what a struct has to be for a header to be exportable from it.
 ### `rock`
 
 ```text [nupp rock --help]
-Create and package typed LuaRocks libraries
+Package and check typed LuaRocks libraries
 
 Usage:
-  nupp rock init <name> [directory]
   nupp rock pack [rockspec]
   nupp rock test [rockspec]
 
@@ -1835,14 +1836,18 @@ Options:
 A Nupp rock installs runtime Lua normally and carries matching public
 declarations in its versioned `nupp/` directory. `pack` validates and builds that
 layout; `test` installs the result into a fresh tree and checks a fresh consumer.
+`nupp init lib <name>` writes a project already in that shape.
 ```
 
-`init` scaffolds the layout from the built-in `lib` template, so
-`nupp rock init string-tools` and `nupp init lib string-tools` write the same
-files:
+Starting one is [`init`](#init) with the built-in `lib` template:
 
-```text [nupp rock init string-tools]
-Created string-tools
+```text [nupp init lib string-tools]
+Created string-tools from built-in template lib
+
+Next:
+  cd string-tools
+  nupp check
+  nupp test
 ```
 
 The rock keeps its hyphens and the module drops them, since the module name is
@@ -2044,7 +2049,7 @@ Commands:
   import-c         Generate typed Nupp bindings from a C header
   migrate          Migrate typed foreign source into gradual Nupp
   export-c         Export canonical C declarations for Nupp structs
-  rock             Create and package typed LuaRocks libraries
+  rock             Package and check typed LuaRocks libraries
   lsp              Language-server and semantic source operations
   help             Show general or command-specific help
 

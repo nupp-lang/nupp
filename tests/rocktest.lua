@@ -1,4 +1,5 @@
 local rock = require("nupp.compiler.rock")
+local template = require("nupp.compiler.template")
 
 local function assertEq(got, want, label)
    if got ~= want then
@@ -26,25 +27,27 @@ end
 
 local M = {}
 
-function M.initCreatesTheTypedRockContract()
+-- What `nupp init lib` writes, which is the layout pack and test are about.
+local function scaffold(name, dir)
+   local source = assert(template.resolve("lib"))
+   local plan = assert(template.plan(source, dir, { name = name }))
+   assert(template.write(plan))
+end
+
+function M.theLibTemplateWritesTheTypedRockContract()
    local dir = tempDirectory()
-   local ok, err = rock.init("sample-rock", dir)
-   assert(ok, err)
+   scaffold("sample-rock", dir)
    assert(exists(dir .. "/nupp.lua"), "the project manifest was written")
    assert(exists(dir .. "/src/samplerock.nupp"), "the runtime source was written")
    assert(exists(dir .. "/nupp/samplerock.d.nupp"),
       "the matching declaration was written")
    assert(exists(dir .. "/sample-rock-dev-1.rockspec"), "the rockspec was written")
-   local again, againErr = rock.init("sample-rock", dir)
-   assertEq(again, nil, "init refuses to overwrite its directory")
-   assert(againErr:find("already exists", 1, true), againErr)
    remove(dir)
 end
 
 function M.packAndTestAProjectFromACleanRockTree()
    local dir = tempDirectory()
-   local ok, err = rock.init("sample-rock", dir)
-   assert(ok, err)
+   scaffold("sample-rock", dir)
    local packed, packErr = rock.pack(dir)
    assert(packed, packErr)
    assert(exists(packed), "pack wrote the rock LuaRocks named")

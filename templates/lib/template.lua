@@ -1,10 +1,9 @@
 -- A typed LuaRocks library: runtime Lua as ordinary rock modules, with matching
 -- public declarations in a versioned `nupp/` directory.
 --
--- This is what `nupp rock init` writes, and it writes it by scaffolding this
--- template. The pattern is `nupp.compiler.rock`'s own rule for a rock name,
--- which is stricter than a directory name has to be and is the reason a
--- template can declare one at all.
+-- The pattern is the rule for a rock name, which is stricter than a directory
+-- name has to be and is the reason a template can declare one at all. `nupp
+-- rock pack` is what packages what this writes.
 return {
    description = "A typed library packaged as a LuaRocks rock",
 

@@ -333,27 +333,24 @@ function M.twoFilesBecomingOnePathIsRefused()
    }, "a collision produces no plan", "both become")
 end
 
-function M.theTwoDestinationPoliciesDisagreeAboutAnEmptyDirectory()
+function M.aDestinationIsFreeWhenItHoldsNothingButGit()
    local dir = templateDirectory({["template.lua"] = "return {}", ["a.txt"] = "x"})
    local source = {kind = "directory", path = dir}
 
    local empty = tempDirectory()
    os.execute("mkdir -p '" .. empty .. "'")
-   assert(template.plan(source, empty, {policy = "emptyOrGitOnly"}),
+   assert(template.plan(source, empty),
       "init accepts a directory somebody has already made")
-   local refused, err = template.plan(source, empty, {policy = "absent"})
-   assertEq(refused, nil, "rock init does not")
-   assert(err:find("already exists", 1, true), err)
 
    local withGit = tempDirectory()
    os.execute("mkdir -p '" .. withGit .. "/.git'")
-   assert(template.plan(source, withGit, {policy = "emptyOrGitOnly"}),
+   assert(template.plan(source, withGit),
       "a directory holding only .git is the ordinary case")
 
    local occupied = tempDirectory()
    os.execute("mkdir -p '" .. occupied .. "'")
    write(occupied .. "/something.txt", "x")
-   local no, occupiedErr = template.plan(source, occupied, {policy = "emptyOrGitOnly"})
+   local no, occupiedErr = template.plan(source, occupied)
    assertEq(no, nil, "a directory with a file in it is refused")
    assert(occupiedErr:find("not empty", 1, true), occupiedErr)
 
