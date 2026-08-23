@@ -773,6 +773,133 @@ end
    end)
 end
 
+-- What a copy between isolated states can and cannot reproduce, decided from the
+-- submitted signature rather than from the values one call happens to pass.
+local COPY_JOBS = [[
+module jobs.copy
+
+export record Point
+    x: integer
+    y: integer
+end
+
+export function scalars(name: string, size: integer): string
+    return name
+end
+
+export function shaped(value: {name: string, size: integer}): integer
+    return value.size
+end
+
+export function record_(value: Point): integer
+    return value.x
+end
+
+export function gradual(value: any): integer
+    return 1
+end
+
+export function hooked(value: {name: string, hook: function(): nil}): integer
+    return 1
+end
+
+export function threaded(value: thread): integer
+    return 1
+end
+
+export function returnsFunction(name: string): function(): nil
+    return || -> nil
+end
+
+export record Node
+    label: string
+    next: Node?
+end
+
+export type Tree = {value: integer, children: {Tree}}
+
+export function recursive(value: Node): integer
+    return 1
+end
+
+export function structural(value: Tree): integer
+    return value.value
+end
+]]
+
+function M.aWorkerTaskAcceptsWhatACopyCanReproduce()
+   -- A record and `any` are decided when the value is copied: neither says from its
+   -- type alone that no copy of it could arrive.
+   withProject({
+      ["src/jobs/copy.nupp"] = COPY_JOBS,
+      ["src/main.nupp"] = [[
+module main
+
+const jobs = require("jobs.copy")
+const workers = require("nupp.workers")
+
+export function run(): nil
+    with scope = workers.scope() do
+        print(scope:spawn(jobs.scalars, "a", 1):await())
+        print(scope:spawn(jobs.shaped, {name = "a", size = 1}):await())
+        print(scope:spawn(jobs.record_, {x = 1, y = 2} as jobs.Point):await())
+        print(scope:spawn(jobs.gradual, 1):await())
+        print(scope:spawn(jobs.recursive, {label = "a"} as jobs.Node):await())
+        print(scope:spawn(jobs.structural, {value = 1, children = {}} as jobs.Tree):await())
+    end
+end
+]],
+   }, function(dir)
+      local path = dir .. "/src/main.nupp"
+      local diags = check.check(parser.parse(readFile(path), path), path, projectEnv(dir))
+      assertEq(#diags, 0, "a copyable signature checks: "
+         .. (diags[1] and diags[1].msg or ""))
+   end)
+end
+
+function M.aWorkerTaskRefusesASignatureNoCopyCanCross()
+   withProject({
+      ["src/jobs/copy.nupp"] = COPY_JOBS,
+      ["src/main.nupp"] = [[
+module main
+
+const jobs = require("jobs.copy")
+const workers = require("nupp.workers")
+
+export function nested(): nil
+    with scope = workers.scope() do
+        print(scope:spawn(jobs.hooked, {name = "a", hook = || -> nil}))
+    end
+end
+
+export function thread_(): nil
+    with scope = workers.scope() do
+        print(scope:spawn(jobs.threaded, coroutine.create(|| -> nil)))
+    end
+end
+
+export function result(): nil
+    with scope = workers.scope() do
+        print(scope:spawn(jobs.returnsFunction, "a"))
+    end
+end
+]],
+   }, function(dir)
+      local path = dir .. "/src/main.nupp"
+      local diags = check.check(parser.parse(readFile(path), path), path, projectEnv(dir))
+      assertEq(#diags, 3, "each submission is refused once: "
+         .. (diags[1] and diags[1].msg or "nothing reported"))
+      -- The path names the field rather than the argument, since a signature can bury
+      -- what cannot cross several levels down.
+      assert(diags[1].msg:find("argument 1.hook is a function", 1, true),
+         "the nested field is named: " .. diags[1].msg)
+      assert(diags[2].msg:find("argument 1 is a thread", 1, true),
+         "the thread is named: " .. diags[2].msg)
+      assert(diags[3].msg:find("result 1 is a function", 1, true),
+         "the result is named: " .. diags[3].msg)
+   end)
+end
+
 function M.aWorkerScopeCarriesAutomaticCleanup()
    withProject({
       ["src/main.nupp"] = [[

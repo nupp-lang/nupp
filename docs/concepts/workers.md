@@ -289,11 +289,28 @@ Transferable values are nil, booleans, numbers, strings, and tables recursively
 made from those values with scalar keys. Each receiver decodes an independent
 copy. Nil positions in argument and result packs are retained.
 
-The following are rejected before or while copying:
+A submitted signature is held to this where it is written. A parameter or a
+result no copy could reproduce is refused at the call site, and the message
+names the path to it rather than the argument:
 
-- functions, threads, userdata, and cdata;
+```
+main.nupp:9:9: error: NUPP2006: argument 1.hook is a function, which cannot
+  cross into another Lua state
+```
+
+Refused this way: functions, threads, userdata, cdata, C pointers, and any
+parameter carrying an ownership mode, wherever one of them sits inside an
+array, a tuple, a union, or a shape.
+
+A type that says nothing definite is left to the copy. `any`, a bare `table`,
+and a record all describe values that may or may not be copyable -- a record
+built from a table literal is a plain table, while one built with `new` carries
+its metatable -- so the type alone cannot refuse them.
+
+The following are therefore still rejected while copying:
+
+- an unsendable value that arrived through `any`, `table`, or a record;
 - tables with metatables;
-- affine owners and the nominal values that carry their metatables;
 - cycles and repeated table aliases;
 - tables deeper than 32 levels;
 - keys outside the transferable scalar set.
@@ -325,9 +342,12 @@ end
 
 A record is a nominal value carrying a metatable, so widening it to its
 structural shape does not make it transferable: build the plain table the lane
-should receive. A repeated table is rejected because decoding it twice would
-silently turn one identity into two identities. Pass two explicit copies if
-that is the intended meaning.
+should receive.
+
+Identity is a property of values rather than of types, which is why these stay
+here whatever a signature said. A repeated table is rejected because decoding it
+twice would silently turn one identity into two identities. Pass two explicit
+copies if that is the intended meaning.
 
 Each lane direction holds at most 1,024 messages and 256 MiB. Submission raises
 when a bounded queue is full rather than turning producer backpressure into an

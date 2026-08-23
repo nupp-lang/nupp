@@ -63,14 +63,23 @@ longer than it had to be.
 ## Workers
 
 - [ ] **Encode transferred values from the submitted function type.**
-      `unsendable` walks every value before `buffer.encode` sees it, though a
-      task's parameter and result types decide part of that work statically.
+      A signature that can never cross is now refused where it is written
+      ([NEP 22](docs/neps/0022-static-worker-signatures.md)), but the copy is
+      unchanged: `unsendable` still walks every value, and `spawn` walks its
+      arguments a second time inside `encode`.
       [NEP 15](docs/neps/0015-schema-driven-serde.md) has the schema and binding,
       and `nupp.reflect.fieldCodec` the materializer; what is missing is deriving
       a schema from function type packs and using its compatibility fingerprint
       as the handshake between states. Depth, cycles and repeated aliases stay
       dynamic whatever happens: a recursive shape is a valid type that builds a
       cyclic value.
+
+- [ ] **Re-attach a record's metatable in the receiving lane.**
+      Whether a record crosses depends on how the value was built: a table
+      literal is a plain table and `new` carries a metatable, which the copy
+      refuses. The lane already requires the module to find its entry point, so
+      the metatable is `require(module)[name]` away. Until then a record cannot
+      be refused or accepted from its type.
 
 ## Dialect interop (`import-tl`)
 
