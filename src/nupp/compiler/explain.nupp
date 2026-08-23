@@ -190,7 +190,7 @@ local ENTRIES: {any} = {
         .. "ambiguous, unsupported, or ownership-incomplete foreign type recovers "
         .. "at the smallest affected position, usually as any, and checking continues.",
         related = {"NUPP1006", "NUPP2101"},
-        docs = "docs/guides/annotated-lua.md#recovery",
+        docs = "docs/integrations/luacats.md#recovery",
     },
     {
         code = "NUPP2001",
