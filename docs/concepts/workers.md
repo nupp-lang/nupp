@@ -112,10 +112,11 @@ const task = scope:spawn(imageJobs.resize, bytes, 320)
 The function reference is also the build dependency. The binary automatically
 carries `image.jobs`; there is no list of worker entries in `nupp.lua`.
 
-Private functions and closures are rejected at submission. A closure's
-upvalues belong to the parent Lua heap, and re-running module initialization in
-another state would not copy the current captured values. Make those values
-explicit arguments instead:
+Private functions and closures are refused where they are written. `spawn` takes
+an `addressable function`, the type of a callable a module exports, and a
+closure has no name for another state to resolve: its upvalues belong to the
+parent Lua heap, and re-running module initialization elsewhere would not
+reproduce the values it captured. Make those values explicit arguments instead:
 
 ```nupp
 -- Write this:
@@ -124,6 +125,19 @@ scope:spawn(imageJobs.resize, bytes, requestedWidth)
 -- Not a closure capturing requestedWidth:
 scope:spawn(|| -> imageJobs.resize(bytes, requestedWidth))
 ```
+
+A callable held as a value keeps the guarantee only where the type says so, so a
+dispatch table names it:
+
+```nupp
+const handlers: {[string]: addressable function(string): string} = {
+    hash = jobs.hash,
+    resize = jobs.resize,
+}
+```
+
+`nupp reference --section addressable-callables` says where the fact comes from
+and how it travels.
 
 The worker requires the module in its own state and invokes the named export.
 Top-level module initialization therefore runs once in each lane that first

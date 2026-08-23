@@ -53,7 +53,19 @@ local type Packed = {
     count: integer
 }
 
+-- A task is named across the boundary rather than sent: the parent resolves the value
+-- to a module member and the lane requires that module. `addressable` is that fact in
+-- the type, so a closure or a private function is refused where it is written instead
+-- of when it is submitted.
+-- What a handle is parameterized by: any function, since a task type is derived from
+-- the signature alone and says nothing about where the function came from.
 local type Callable = function(...: any): any
+
+-- What may actually be submitted. A task is named across the boundary rather than sent:
+-- the parent resolves the value to a module member and the lane requires that module.
+-- `addressable` is that fact in the type, so a closure or a private function is refused
+-- where it is written rather than when it is submitted.
+local type Submittable = addressable function(...: any): any
 
 local comptime function Parameters(F: type): typepack
     return nupp.types.parameters(F)
@@ -151,7 +163,7 @@ record workers.Scope is workers.ScopeToken
     _closed: boolean
 
     --- Starts one ordinary exported function with copied arguments.
-    spawn: function<F is Callable>(workers.Scope, F, ...: unpackof Parameters(F)): workers.Task<F>
+    spawn: function<F is Submittable>(workers.Scope, F, ...: unpackof Parameters(F)): workers.Task<F>
 
     --- Waits for every child. Idempotent.
     close: function(workers.Scope): nil
@@ -397,7 +409,7 @@ local function leastBusy(value: Scheduler): Lane
     return selected
 end
 
-function workers.Scope:spawn<F is Callable>(fn: F, ...: unpackof Parameters(F)): workers.Task<F>
+function workers.Scope:spawn<F is Submittable>(fn: F, ...: unpackof Parameters(F)): workers.Task<F>
     if self._closed then
         error("nupp: cannot spawn into a closed worker scope", 2)
     end
