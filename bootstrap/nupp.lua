@@ -21676,6 +21676,9 @@ local cache = { }
 
 
 
+
+
+
 local function jsonArray ( items ) 
 return json . asArray ( items )
 end
@@ -22464,6 +22467,29 @@ end
 return { key = key , output = output , binding = binding , reference = reference }
 end
 
+
+
+local function buildTypes ( root , _ , name , dep ) 
+local checkout , fetchErr = fetchGit ( root , name , dep . source )
+if not checkout then
+return nil , fetchErr
+end
+local typesRoot = join ( checkout , dep . path or "." )
+if not exists ( typesRoot ) then
+return nil , "type dependency " .. name .. " names a path that is not there: " .. ( dep . path or "." )
+end
+local files = { }
+for _ , path in ipairs ( listFiles ( typesRoot ) ) do
+if path : match ( "%.lua$" ) then
+files [ # files + 1 ] = path
+end
+end
+if # files == 0 then
+return nil , "type dependency " .. name .. " has no Lua declaration files under " .. ( dep . path or "." )
+end
+return { key = hash . digest ( stable ( dep ) .. "\0" .. hashFiles ( files ) ) , typesRoot = typesRoot }
+end
+
 local function cargoSourceFiles ( crateDir ) 
 local files = { }
 for _ , path in ipairs ( listFiles ( crateDir ) ) do
@@ -22994,7 +23020,7 @@ end )
 return selected
 end
 
-local PROVIDERS = { c = buildC , cargo = buildCargo , rust = buildCargo , luarocks = buildRock }
+local PROVIDERS = { c = buildC , cargo = buildCargo , rust = buildCargo , luarocks = buildRock , types = buildTypes }
 
 
 
@@ -23042,7 +23068,17 @@ results [ name ] = result
 return result
 end
 
+
+
 local targetDeps = ( target or config . _target or { } ) . dependencies or { }
+for name , dep in pairs ( config . dependencies or { } ) do
+if dep . kind == "types" then
+local _ , err = buildOne ( name )
+if err then
+return nil , err
+end
+end
+end
 for _ , name in ipairs ( targetDeps ) do
 local _ , err = buildOne ( name )
 if err then
@@ -23053,9 +23089,29 @@ end
 return results
 end
 
+
+
+
+local function typeRoots ( root , config , records ) 
+local roots = { }
+for name , dep in pairs ( config . dependencies or { } ) do
+if dep . kind == "types" then
+local record = records and records [ name ] or nil
+local checkout = join ( root , ".nupp/deps/" .. name )
+local path = record and record . typesRoot or join ( checkout , dep . path or "." )
+if exists ( path ) then
+roots [ # roots + 1 ] = path
+end
+end
+end
+table . sort ( roots )
+return roots
+end
+
 deps . expandGlob = expandGlob
 deps . build = buildDependencies
 deps . rockPaths = rockPaths
+deps . typeRoots = typeRoots
 deps . runtimeModuleOwner = runtimeModuleOwner
 deps . rockModules = rockModules
 
@@ -23757,6 +23813,7 @@ luarocks = {
 "luarocks" ,
 "bundle"
 } ,
+types = { "kind" , "format" , "source" , "path" } ,
 }
 
 
@@ -24280,8 +24337,8 @@ if type ( dep ) ~= "table" then
 return nil , "dependencies." .. name .. " must be a table"
 end
 local kind = dep . kind or ""
-if kind ~= "c" and kind ~= "cargo" and kind ~= "rust" and kind ~= "luarocks" then
-return nil , "dependencies." .. name .. ".kind must be \"c\", \"cargo\", \"rust\", or \"luarocks\""
+if kind ~= "c" and kind ~= "cargo" and kind ~= "rust" and kind ~= "luarocks" and kind ~= "types" then
+return nil , "dependencies." .. name .. ".kind must be \"c\", \"cargo\", \"rust\", \"luarocks\", or \"types\""
 end
 valid , err = validateKeys ( dep , DEPENDENCY_KEYS [ kind ] , "dependencies." .. name )
 if not valid then
@@ -24344,6 +24401,20 @@ if dep . kind == "luarocks" then
 valid , err = validateRock ( dep , "dependencies." .. name )
 if not valid then
 return nil , err
+end
+end
+if dep . kind == "types" then
+if dep . format ~= "luacats" then
+return nil , "dependencies." .. name .. ".format must be \"luacats\""
+end
+if type ( dep . source ) ~= "table" or type ( dep . source . git ) ~= "string" or dep . source . git == "" then
+return nil , "dependencies." .. name .. ".source.git must be a non-empty string"
+end
+if type ( dep . source . rev ) ~= "string" or not dep . source . rev : match ( "^[0-9a-fA-F]+$" ) or # dep . source . rev < 40 then
+return nil , "dependencies." .. name .. ".source.rev must be a full Git commit id"
+end
+if dep . path ~= nil and ( type ( dep . path ) ~= "string" or dep . path == "" ) then
+return nil , "dependencies." .. name .. ".path must be a non-empty string"
 end
 end
 for _ , child in ipairs ( dep . dependencies or { } ) do
@@ -25246,6 +25317,7 @@ envConfig . include [ # envConfig . include + 1 ] = include
 end
 envConfig . include [ # envConfig . include + 1 ] = join ( outDir , "generated" )
 local rocks = deps . rockPaths ( root , config , target , dependencies )
+local ambientTypeRoots = deps . typeRoots ( root , config , dependencies )
 local checkMs = { }
 local open
 
@@ -25292,6 +25364,7 @@ strict = strict ,
 dialect = target . dialect ,
 nativeCompilerServices = target . dialect ~= "lua51" ,
 typeRoots = rocks and rocks . typeRoots or { } ,
+ambientTypeRoots = ambientTypeRoots ,
 observe = observer ,
 } ) ,  checkMs =
 checkMs }, modules.Session)
@@ -26580,7 +26653,14 @@ chunks [ # chunks + 1 ] = ( "package.preload[%q] = function(...)\n" ) : format (
 chunks [ # chunks + 1 ] = mainText
 chunks [ # chunks + 1 ] = "\nend\n"
 chunks [ # chunks + 1 ] = "local __nuppEntry = rawget(_G, \"__nuppWorkerEntry\")\n"
-chunks [ # chunks + 1 ] = ( "return require(__nuppEntry or %q)\n" ) : format ( mainName )
+
+
+chunks [ # chunks + 1 ] = ( "local __nuppLoaded = require(__nuppEntry or %q)\n" ) : format ( mainName )
+chunks [ # chunks + 1 ] = "if __nuppEntry == \"nupp.workers\" and type(__nuppLoaded) == \"table\" then\n"
+chunks [ # chunks + 1 ] = "local __nuppServe = rawget(__nuppLoaded, \"__runScheduler\")\n"
+chunks [ # chunks + 1 ] = "if type(__nuppServe) == \"function\" then __nuppServe() end\n"
+chunks [ # chunks + 1 ] = "end\n"
+chunks [ # chunks + 1 ] = "return __nuppLoaded\n"
 else
 chunks [ # chunks + 1 ] = mainText
 end
@@ -28172,6 +28252,8 @@ newState . outputs [ output ] = true
 end
 
 
+local primaryArtifact = nil
+local packagedAotManifest = nil
 if target . kind == "bundle" or target . kind == "binary" or target . kind == "component" then
 report : at ( "bundle" )
 report : step ( "bundling " .. ( target . name or target . kind ) )
@@ -28248,6 +28330,7 @@ io . stderr : write ( "nupp: " .. tostring ( writeErr ) .. "\n" )
 return 1
 end
 end
+primaryArtifact = output
 newState . outputs [ output ] = true
 
 
@@ -28302,6 +28385,7 @@ return 1
 end
 end
 newState . outputs [ packagedManifest ] = true
+packagedAotManifest = packagedManifest
 end
 
 
@@ -28353,6 +28437,8 @@ if opts . produced then
 opts . produced . target = target . name or opts . target or "default"
 opts . produced . dialect = dialect
 opts . produced . platform = selectedPlatform
+opts . produced . artifact = primaryArtifact
+opts . produced . aotManifest = packagedAotManifest
 if selectedPlatform == "aarch64-apple-darwin" then
 opts . produced . distributionReady = false
 opts . produced . notice = "the macOS binary must be signed on macOS and has not passed notarization"
@@ -30461,13 +30547,13 @@ return { name = seam . name , version = seam . version , effect = seam . effect 
 end
 
 local CONTRACTS = {
-bitops = { native = { luajit = true } , seams = { lua51 = requirement ( "numeric.bitops" ) , } , } ,
-int64 = { native = { luajit = true } , seams = { lua51 = requirement ( "numeric.int64" ) , } , } ,
-cinterop = { native = { luajit = true } , seams = { } , } ,
-structvalue = { native = { luajit = true } , seams = { lua51 = requirement ( "representation.structvalue" ) , } , } ,
-cstorage = { native = { luajit = true } , seams = { } , } ,
-presize = { native = { luajit = true } , compiler = { lua51 = true } , seams = { } , } ,
-simd = { native = { luajit = true } , seams = { lua51 = requirement ( "numeric.simd" ) , } , } ,
+bitops = { native = { luajit = true , [ "luajit-compat" ] = true } , seams = { lua51 = requirement ( "numeric.bitops" ) , } , } ,
+int64 = { native = { luajit = true , [ "luajit-compat" ] = true } , seams = { lua51 = requirement ( "numeric.int64" ) , } , } ,
+cinterop = { native = { luajit = true , [ "luajit-compat" ] = true } , seams = { } , } ,
+structvalue = { native = { luajit = true , [ "luajit-compat" ] = true } , seams = { lua51 = requirement ( "representation.structvalue" ) , } , } ,
+cstorage = { native = { luajit = true , [ "luajit-compat" ] = true } , seams = { } , } ,
+presize = { native = { luajit = true , [ "luajit-compat" ] = true } , compiler = { lua51 = true } , seams = { } , } ,
+simd = { native = { luajit = true , [ "luajit-compat" ] = true } , seams = { lua51 = requirement ( "numeric.simd" ) , } , } ,
 }
 
 
@@ -32173,6 +32259,14 @@ local fields = { }
 for name , ft in pairs ( c . moduleFields ) do
 local qualified = qualifyExport ( ft , c . moduleFieldValues [ name ] )
 c . moduleFields [ name ] = qualified
+
+
+
+
+
+if c . moduleExports and c . moduleExports . values and c . moduleExports . values [ name ] then
+c . moduleExports . values [ name ] = qualified
+end
 if c . moduleFieldConst [ name ] then
 fields [ # fields + 1 ] = { name = name , read = qualified }
 else
@@ -38388,9 +38482,26 @@ node . valuePack = pack or ( rets and T . pack ( rets ) or T . pack ( { } , { ki
 return first
 end
 if ot ~= T . any and ot ~= T . table_ and ot . tag ~= "map" then
-if ot . tag == "shape" or ot . tag == "nominal" then
-local fixes = c . edits . nameSpellingFix ( member , c . fieldNames ( ot ) )
-c . diag ( "NUPP2004" , member , ( "no method %q in %s" ) : format ( member . text , T . tostring ( ot ) ) , fixes , {
+
+
+
+
+
+local named = ot
+if named . tag ~= "shape" and named . tag ~= "nominal" and rawType ( ot ) . tag == "shape" then
+local terminal = false
+for _ , cleanup in ipairs ( ( ot ) . cleanups or { } ) do
+if cleanup . name == member . text then
+terminal = true
+end
+end
+if not terminal then
+named = rawType ( ot )
+end
+end
+if named . tag == "shape" or named . tag == "nominal" then
+local fixes = c . edits . nameSpellingFix ( member , c . fieldNames ( named ) )
+c . diag ( "NUPP2004" , member , ( "no method %q in %s" ) : format ( member . text , T . tostring ( named ) ) , fixes , {
 help = fixes
 and "use the suggested method spelling"
 or "check the receiver type and available methods"
@@ -39060,15 +39171,37 @@ end
 
 
 
+local function boundHelp ( wanted , actual ) 
+if wanted . tag ~= "func" or actual . tag ~= "func" then
+return nil
+end
+if not ( wanted ) . addressable or ( actual ) . addressable then
+return nil
+end
+
+return "pass a function a module exports, with the values it would have captured as arguments"
+end
+
+
+
+
+
 
 function ops . validateTypeBounds ( params , bounds , map , node ) 
 for j , tv in ipairs ( params or { } ) do
 local bound = bounds and bounds [ j ]
 local actual = map [ tv ]
 if bound and actual and actual ~= T . any then
-local ok , why = isA ( actual , substType ( bound , map , nil , c . reductionControl ) )
+local wanted = substType ( bound , map , nil , c . reductionControl )
+local ok , why = isA ( actual , wanted )
 if not ok then
-c . diag ( "NUPP2116" , node , ( "type argument %s for %s: %s" ) : format ( T . tostring ( actual ) , tv . name , why ) )
+c . diag (
+"NUPP2116" ,
+node ,
+( "type argument %s for %s: %s" ) : format ( T . tostring ( actual ) , tv . name , why ) ,
+nil ,
+{ help = boundHelp ( wanted , actual ) }
+)
 end
 end
 end
@@ -39131,12 +39264,15 @@ for j , tv in ipairs ( ft . typeParams or { } ) do
 local bound = ft . typeBounds and ft . typeBounds [ j ]
 local actual = map [ tv ]
 if bound and actual then
-local ok , why = isA ( actual , substType ( bound , map , nil , c . reductionControl ) )
+local wanted = substType ( bound , map , nil , c . reductionControl )
+local ok , why = isA ( actual , wanted )
 if not ok then
 c . diag (
 "NUPP2116" ,
 site ,
-( "type argument %s for %s: %s" ) : format ( T . tostring ( actual ) , tv . name , why )
+( "type argument %s for %s: %s" ) : format ( T . tostring ( actual ) , tv . name , why ) ,
+nil ,
+{ help = boundHelp ( wanted , actual ) }
 )
 end
 end
@@ -40162,7 +40298,9 @@ if not ok then
 c . diag (
 "NUPP2116" ,
 node ,
-( "type argument %s for %s: %s" ) : format ( T . tostring ( actual ) , tv . name , why )
+( "type argument %s for %s: %s" ) : format ( T . tostring ( actual ) , tv . name , why ) ,
+nil ,
+{ help = boundHelp ( expected , actual ) }
 )
 end
 end
@@ -51344,7 +51482,22 @@ end
 return nil
 end
 
-handlers . dotIndex = function ( node ) 
+
+
+local function moduleHolder ( holderName ) 
+if holderName == "" then
+return false
+end
+if c . moduleLocal and holderName == c . moduleLocal then
+return true
+end
+local holder = c . lookupEntry ( holderName )
+
+return holder ~= nil and holder . requiredModule ~= nil
+end
+
+local fieldOf
+fieldOf = function ( node ) 
 local kind = node . kind
 local member = node . name
 local target = node . obj
@@ -51814,7 +51967,26 @@ memberName
 
 return out
 end
-handlers . safeIndex = handlers . dotIndex
+
+
+
+
+
+handlers . dotIndex = function ( node ) 
+local out = fieldOf ( node )
+if node . kind ~= "dotIndex" or node . writeContext or out . tag ~= "func" then
+return out
+end
+local target = node . obj
+local holderTok = target and target . kind == "name" and target . token or nil
+if not moduleHolder ( holderTok and holderTok . text or "" ) then
+return out
+end
+
+return T . withAddressable ( out )
+end
+
+handlers . safeIndex = fieldOf
 
 handlers . bracketIndex = function ( node ) 
 local kind = node . kind
@@ -54443,6 +54615,19 @@ local ownerName , member = name : match ( "^(.*)%.([^.]*)$" )
 local owner = ownerName and c . lookupType ( ownerName ) or nil
 if not owner or owner . tag ~= "nominal" then
 local moduleName , exportName = name : match ( "^(.*)%.([^.]+)$" )
+
+
+
+
+
+if moduleName then
+local first = moduleName : match ( "^[^.]+" )
+local holder = first and c . lookupEntry ( first ) or nil
+if holder and holder . requiredModule then
+local firstName = first
+moduleName = holder . requiredModule .. moduleName : sub ( # firstName + 1 )
+end
+end
 local exports = moduleName and c . env and c . env . resolveModuleExports and c . env . resolveModuleExports (
 c . env ,
 moduleName
@@ -54450,7 +54635,11 @@ moduleName
 local exported = exports and exports . values and exports . values [ exportName ] or nil
 local exportedDefinition = exports and exports . valueDefs and exports . valueDefs [ exportName ] or nil
 if exported and exportedDefinition then
-return { t = exported , definition = exportedDefinition }
+
+
+
+
+return { t = exported , definition = exportedDefinition , canonicalName = exportName }
 end
 return nil
 end
@@ -54487,7 +54676,7 @@ definition . filename
 local origin = stableOrigin (
 definitionModule or definition and definition . filename or c . result . moduleName or c . filename or "<module>"
 )
-local key = cleanupKey ( origin , name , definition )
+local key = cleanupKey ( origin , entry . canonicalName or name , definition )
 local bound = entry and entry . t or nil
 if bound and bound . tag == "func" then
 addRegistration ( definition . token , T . functionCleanup ( key , name , bound ) , false )
@@ -54510,7 +54699,7 @@ definition . filename
 local origin = stableOrigin (
 definitionModule or definition and definition . filename or c . result . moduleName or c . filename or "<module>"
 )
-local key = cleanupKey ( origin , name , definition )
+local key = cleanupKey ( origin , entry and entry . canonicalName or name , definition )
 local cleanup = T . functionCleanup ( key , name , knownType or entry and entry . t or nil )
 addRegistration ( registrationNode , cleanup , after == true )
 
@@ -57453,7 +57642,11 @@ written [ result ] = true
 end
 
 return written
-end ) ( ) or nil
+end ) ( ) or nil ,
+
+
+
+node . addressable
 )
 if node . comptimeOnly then
 c . comptimeFunctionDepth = c . comptimeFunctionDepth - 1
@@ -57558,6 +57751,15 @@ c . own . validateCleanups ( t , cleanups , decl , "NUPP2615" )
 end
 end
 c . scope = saved
+
+
+
+
+
+
+if c . hoisting then
+return t
+end
 owner . pending [ name ] = nil
 owner . types [ name ] = t
 waiting . resolved = t
@@ -59511,7 +59713,7 @@ local spec = require ( "nupp.compiler.cli.spec" )
 local command = spec . command {
 name = "backend" ,
 summary = "Run checked backend conformance suites" ,
-usage = { "nupp backend test <module> [--dialect luajit|lua51] [--runtime LUA] [--seam NAME] [--json]" } ,
+usage = { "nupp backend test <module> [--dialect luajit|luajit-compat|lua51] [--runtime LUA] [--seam NAME] [--json]" } ,
 universal = false ,
 options = { { name = "-h" , names = { "-h" , "--help" } , help = "Show this help" } } ,
 positionals = { } ,
@@ -59522,7 +59724,7 @@ ok = { type = "boolean" } ,
 backend = { type = "string" } ,
 module = { type = "string" } ,
 digest = { type = "string" } ,
-dialect = { type = "string" , enum = { "luajit" , "lua51" } } ,
+dialect = { type = "string" , enum = { "luajit" , "luajit-compat" , "lua51" } } ,
 runtime = { type = "string" } ,
 seams = {
 type = "array" ,
@@ -60266,6 +60468,14 @@ type = "array" ,
 items = { type = "string" } ,
 description = "Every output path the build produced, sorted."
 } ,
+artifact = {
+type = "string" ,
+description = "The transportable artifact written by a bundle, binary, or component target."
+} ,
+aotManifest = {
+type = "string" ,
+description = "The packaged Wasm AOT manifest beside the transportable artifact."
+} ,
 materializations = {
 type = "array" ,
 description = "Materialized expressions and their versioned provider and backend facts." ,
@@ -60504,7 +60714,9 @@ timing ,
 selectedPlatform ,
 platformResults ,
 distributionReady ,
-notice
+notice ,
+artifact ,
+aotManifest
 ) 
 if asJson then
 reportMod . write ( {
@@ -60517,6 +60729,8 @@ platforms = platformResults ,
 distributionReady = distributionReady ,
 notice = notice ,
 written = outputs ,
+artifact = artifact ,
+aotManifest = aotManifest ,
 materializations = observed or materializations ,
 derives = observedDerives or derives ,
 backends = selectedBackends ,
@@ -60558,7 +60772,9 @@ produced . timing ,
 produced . platform ,
 produced . platforms ,
 produced . distributionReady ,
-produced . notice
+produced . notice ,
+produced . artifact ,
+produced . aotManifest
 )
 end
 local process = require ( "nupp.compiler.build.process" )
@@ -64473,7 +64689,7 @@ options . dialect = {
 name = "--dialect" ,
 value = "DIALECT" ,
 choices = require ( "nupp.compiler.dialects" ) . names ( ) ,
-help = "Source-lowering dialect: luajit (default) or lua51"
+help = "Source-lowering dialect: luajit (default), luajit-compat or lua51"
 }
 
 
@@ -65479,17 +65695,20 @@ _G.assert(_G.loadstring("local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppM
 
 
 
+
+
 local spec = require ( "nupp.compiler.cli.spec" )
 
 local command = spec . command {
 name = "rock" ,
-summary = "Create and package typed LuaRocks libraries" ,
-usage = { "nupp rock init <name> [directory]" , "nupp rock pack [rockspec]" , "nupp rock test [rockspec]" , } ,
+summary = "Package and check typed LuaRocks libraries" ,
+usage = { "nupp rock pack [rockspec]" , "nupp rock test [rockspec]" } ,
 universal = false ,
 options = { spec . helpOption } ,
 detail = [[A Nupp rock installs runtime Lua normally and carries matching public
 declarations in its versioned `nupp/` directory. `pack` validates and builds that
-layout; `test` installs the result into a fresh tree and checks a fresh consumer.]] ,
+layout; `test` installs the result into a fresh tree and checks a fresh consumer.
+`nupp init lib <name>` writes a project already in that shape.]] ,
 }
 
 local function operation ( name , summary , usage , detail ) 
@@ -65504,12 +65723,6 @@ detail = detail ,
 }
 end
 
-local INIT = operation (
-"init" ,
-"Create a typed Nupp library rock" ,
-"nupp rock init <name> [directory]" ,
-"The directory defaults to the rock name and must not already exist."
-)
 local PACK = operation (
 "pack" ,
 "Build and pack the current Nupp library" ,
@@ -65523,7 +65736,7 @@ local TEST = operation (
 "Packs first, installs into a temporary tree, and checks every declared module."
 )
 
-local OPERATIONS = { init = INIT , pack = PACK , test = TEST }
+local OPERATIONS = { pack = PACK , test = TEST }
 
 local function parsed ( operation , args ) 
 local result , err = operation : parse ( args )
@@ -65546,6 +65759,12 @@ return 0
 end
 local operation = OPERATIONS [ name ]
 if not operation then
+
+
+if name == "init" then
+return command : usageError ( "rock init is now nupp init lib <name>" )
+end
+
 return command : usageError ( "unknown rock operation " .. name )
 end
 local result , answered = parsed ( operation , args )
@@ -65554,21 +65773,6 @@ return answered
 end
 local positional = result . positional
 local library = require ( "nupp.compiler.rock" )
-if name == "init" then
-if not positional [ 1 ] then
-return operation : usageError ( "a rock name is required" )
-end
-if positional [ 3 ] then
-return operation : usageError ( "init accepts a name and optional directory" )
-end
-local ok , err = library . init ( positional [ 1 ] , positional [ 2 ] )
-if not ok then
-io . stderr : write ( "nupp: " .. tostring ( err ) .. "\n" )
-return 1
-end
-io . write ( "Created " .. ( positional [ 2 ] or positional [ 1 ] ) .. "\n" )
-return 0
-end
 if positional [ 2 ] then
 return operation : usageError ( name .. " accepts at most one rockspec" )
 end
@@ -72806,6 +73010,15 @@ cst.Tfunc = {} cst.Tfunc.__index = cst.Tfunc
 
 
 
+
+
+
+
+
+
+
+
+
 cst.TfuncParam = {} cst.TfuncParam.__index = cst.TfuncParam
 
 
@@ -73676,7 +73889,7 @@ local dialects = { }
 
 dialects . DEFAULT = "luajit"
 
-local SUPPORTED = { luajit = true , lua51 = true , }
+local SUPPORTED = { luajit = true , [ "luajit-compat" ] = true , lua51 = true , }
 
 
 function dialects . resolve ( value , label ) 
@@ -73685,7 +73898,7 @@ if value == nil then
 return dialects . DEFAULT
 end
 if type ( value ) ~= "string" or not SUPPORTED [ value ] then
-return nil , at .. ' must be "luajit" or "lua51"'
+return nil , at .. ' must be "luajit", "luajit-compat" or "lua51"'
 end
 
 return value
@@ -73693,7 +73906,14 @@ end
 
 
 function dialects . names ( ) 
-return { "luajit" , "lua51" }
+return { "luajit" , "luajit-compat" , "lua51" }
+end
+
+
+
+
+function dialects . lowersSyntax ( dialect ) 
+return dialect == "luajit-compat" or dialect == "lua51"
 end
 
 const __nuppExportValue= dialects ;__nuppExports=__nuppExportValue
@@ -82015,6 +82235,14 @@ local envMod = { }
 
 
 
+
+
+
+
+
+
+
+
 local modulePatterns = {
 "/%s.d.nupp" ,
 "/%s.nupp" ,
@@ -82754,8 +82982,63 @@ if path : sub ( 1 , # root + 1 ) == root .. "/" then
 return true
 end
 end
+for _ , rawRoot in ipairs ( env . ambientTypeRoots or { } ) do
+local root = normalizePath ( rawRoot )
+if path : sub ( 1 , # root + 1 ) == root .. "/" then
+return true
+end
+end
 
 return false
+end
+
+
+
+
+
+local function loadAmbientTypeRoots ( env , roots ) 
+if # roots == 0 then
+return
+end
+local listFiles = compilerPrivate ( "fs" ) . listFiles
+for _ , root in ipairs ( roots ) do
+local files = { }
+for _ , path in ipairs ( listFiles ( root ) ) do
+if path : match ( "%.lua$" ) then
+files [ # files + 1 ] = path
+end
+end
+table . sort ( files )
+for _ , path in ipairs ( files ) do
+local source , readErr = readFile ( path )
+if not source then
+error ( "cannot read type declaration " .. path .. ": " .. tostring ( readErr ) , 0 )
+end
+local result = parser . parse ( source , path )
+if # result . errors > 0 then
+local problem = result . errors [ 1 ]
+error ( "cannot parse type declaration " .. path .. ": " .. tostring ( problem . msg ) , 0 )
+end
+local diags = check . check ( result , path , env , {
+declareGlobals = true ,
+declarationFile = true ,
+strict = false ,
+} )
+for _ , diagnostic in ipairs ( diags ) do
+if diagnostics . isFatal ( diagnostic ) then
+error (
+"cannot import type declaration "
+.. path
+.. ": "
+.. tostring ( diagnostic . code )
+.. " "
+.. tostring ( diagnostic . msg ) ,
+0
+)
+end
+end
+end
+end
 end
 
 
@@ -83206,6 +83489,15 @@ env . typeRoots = { }
 for _ , dir in ipairs ( typeRoots or { } ) do
 env . typeRoots [ # env . typeRoots + 1 ] = normalizePath ( dir )
 end
+local ambientTypeRoots = opts and opts . ambientTypeRoots or nil
+if not ambientTypeRoots and not memoryOnly then
+local depsMod = selectedTarget and buildPrivate ( "deps" ) or nil
+ambientTypeRoots = depsMod and depsMod . typeRoots ( rootDir , env . config ) or { }
+end
+env . ambientTypeRoots = { }
+for _ , dir in ipairs ( ambientTypeRoots or { } ) do
+env . ambientTypeRoots [ # env . ambientTypeRoots + 1 ] = normalizePath ( dir )
+end
 
 env . roots = envMod . projectRoots ( rootDir , env . config )
 local seenRoot = { }
@@ -83362,6 +83654,8 @@ env . featureEffects = native . decorateGlobals ( env . globals )
 env . bootstrapping = nil
 end
 end
+
+loadAmbientTypeRoots ( env , env . ambientTypeRoots )
 
 
 
@@ -83757,7 +84051,7 @@ rule = "Type comments in a .lua file are always read. A malformed, "
 .. "ambiguous, unsupported, or ownership-incomplete foreign type recovers "
 .. "at the smallest affected position, usually as any, and checking continues." ,
 related = { "NUPP1006" , "NUPP2101" } ,
-docs = "docs/guides/annotated-lua.md#recovery" ,
+docs = "docs/integrations/luacats.md#recovery" ,
 } ,
 {
 code = "NUPP2001" ,
@@ -88584,6 +88878,7 @@ local switchplan = require ( "nupp.compiler.switchplan" )
 local stdlib = require ( "nupp.compiler.stdlib" )
 local backends = require ( "nupp.compiler.backends" )
 local capabilities = require ( "nupp.compiler.capabilities" )
+local dialects = require ( "nupp.compiler.dialects" )
 local cabi = require ( "nupp.compiler.cabi" )
 local bit = require ( "nupp.compiler.bitops" )
 
@@ -89013,7 +89308,9 @@ validatingHostDialect
 local out = { }
 local capabilityResolution = capabilities . resolve ( result . dialect or "luajit" , backendResolution )
 local bitopsCapability = capabilities . get ( capabilityResolution , "bitops" )
-local portableBitops = bitopsCapability . kind == "seam"
+local compatibilityBitops = result . dialect == "luajit-compat"
+local portableBitops = bitopsCapability . kind == "seam" or compatibilityBitops
+local needsCompatibilityBitops = false
 local structvalueCapability = capabilities . get ( capabilityResolution , "structvalue" )
 local portableStructvalue = structvalueCapability . kind == "seam"
 local int64Capability = capabilities . get ( capabilityResolution , "int64" )
@@ -90211,7 +90508,7 @@ end
 
 
 local pluck = {
-portable = result . dialect == "lua51" ,
+portable = dialects . lowersSyntax ( result . dialect or "luajit" ) ,
 plans = { } ,
 statementActive = { } ,
 helpers = helpers ,
@@ -90243,6 +90540,7 @@ region = "the protected body reads and writes this region's own owners and flags
 bitops = {
 portable = portableBitops ,
 effect = bitopsCapability . effect ,
+compatibility = compatibilityBitops ,
 methods = BITOP_METHOD ,
 name = bitopsName ,
 } ,
@@ -91997,7 +92295,11 @@ elseif kind == "compoundAssign" and x . target then
 local compoundBase = x . op and x . op . kind : sub ( 1 , - 2 ) or nil
 local bitMethod = pluck . bitops . portable and compoundBase and pluck . bitops . methods [ compoundBase ] or nil
 if bitMethod then
+if pluck . bitops . compatibility then
+needsCompatibilityBitops = true
+else
 needRuntimeEffect ( pluck . bitops . effect )
+end
 end
 if x . target . kind == "bracketIndex"
 and x . target . indexedAccess
@@ -92451,7 +92753,11 @@ return
 end
 end
 if pluck . bitops . portable and kind == "unop" and x . op and x . op . kind == "~" and x . operand then
+if pluck . bitops . compatibility then
+needsCompatibilityBitops = true
+else
 needRuntimeEffect ( pluck . bitops . effect )
+end
 e ( pluck . bitops . name .. ".bnot(" , x . op . line )
 emit ( x . operand )
 e ( ")" )
@@ -92460,7 +92766,11 @@ end
 if pluck . bitops . portable and kind == "binop" and x . op and pluck . bitops . methods [
 x . op . kind
 ] and x . lhs and x . rhs then
+if pluck . bitops . compatibility then
+needsCompatibilityBitops = true
+else
 needRuntimeEffect ( pluck . bitops . effect )
+end
 e ( pluck . bitops . name .. "." .. pluck . bitops . methods [ x . op . kind ] .. "(" , x . op . line )
 emit ( x . lhs )
 e ( "," )
@@ -95679,6 +95989,9 @@ hotState ~= nil
 ) .. backends . bootstrap ( runtimeEffects , backendResolution )
 if runtimeEffects [ pluck . bitops . effect ] then
 runtimeBootstrap = runtimeBootstrap .. ( "local %s=_G.__nuppBitops;" ) : format ( pluck . bitops . name )
+end
+if needsCompatibilityBitops then
+runtimeBootstrap = runtimeBootstrap .. ( "local %s=require(\"bit\");" ) : format ( pluck . bitops . name )
 end
 if portableStructvalue and runtimeEffects [ "runtime.structvalue" ] then
 runtimeBootstrap = runtimeBootstrap .. ( "local %s=_G.__nuppStructvalue;" ) : format ( structvalueName )
@@ -117342,7 +117655,11 @@ end
 
 
 
-if kind == "name" and cur ( ) . text == "nosuspend" and tokens [ i + 1 ] and tokens [ i + 1 ] . kind == "function" then
+if kind == "name" and cur ( ) . text == "nosuspend" and tokens [
+i + 1
+] and (
+tokens [ i + 1 ] . kind == "function" or tokens [ i + 1 ] . kind == "name" and tokens [ i + 1 ] . text == "addressable"
+) then
 local keyword = advance ( )
 keyword . contextualOp = true
 local inner = parseTypePrimary ( )
@@ -117351,6 +117668,23 @@ inner . noSuspend = true
 end
 
 
+table . insert ( inner , 1 , keyword )
+return inner
+end
+
+
+
+if kind == "name" and cur ( ) . text == "addressable" and tokens [
+i + 1
+] and (
+tokens [ i + 1 ] . kind == "function" or tokens [ i + 1 ] . kind == "name" and tokens [ i + 1 ] . text == "nosuspend"
+) then
+local keyword = advance ( )
+keyword . contextualOp = true
+local inner = parseTypePrimary ( )
+if inner . kind == "tfunc" then
+inner . addressable = true
+end
 table . insert ( inner , 1 , keyword )
 return inner
 end
@@ -122890,6 +123224,65 @@ return m
 , setmetatable({ title =
 
 
+"Addressable callables" ,  codes =
+{ "NUPP2116" } ,  body =
+[=[
+`addressable function(...)` is a callable that can be named: a member of a
+loaded module, reachable as `require(module)[member]` from any Lua state rather
+than only from the one holding the value.
+
+The fact is minted where a member of a required module is read, and it rides on
+the type from there, so a binding, a field, or a parameter keeps it without
+being told. Write the modifier only where a callable is held as a value and its
+provenance is no longer visible -- a dispatch table, or a helper that takes a
+function and passes it on.
+
+Like `nosuspend`, it is a positive guarantee that participates in identity,
+subtyping, aliasing and substitution. An `addressable function` fits an ordinary
+slot, but not conversely, and a choice between a named and an unnamed reading
+promises only what both did.
+
+A closure and a private function have no address. A closure's upvalues belong to
+one Lua heap, so re-running a module elsewhere would not reproduce what it
+captured; the values that vary per call are arguments instead.
+
+`nupp.workers` is what asks for this today: a task is named across an isolated
+state rather than sent to it. See [workers.md](docs/concepts/workers.md).
+]=] ,  context =
+{
+[
+"jobs.nupp"
+] = [=[
+module jobs
+
+export function hash(value: string): string
+    return value
+end
+
+export function upper(value: string): string
+    return value:upper()
+end
+]=]
+} ,  example =
+[=[
+local m = {}
+
+const jobs = require("jobs")
+
+const handlers: {[string]: addressable function(string): string} = {
+    hash = jobs.hash,
+    upper = jobs.upper,
+}
+
+function m.named(name: string): addressable function(string): string
+    return handlers[name] or jobs.hash
+end
+
+return m
+]=] }, reference.Section)
+, setmetatable({ title =
+
+
 "Allocation and raising regions" ,  codes =
 { "NUPP2710" , "NUPP2711" , "NUPP2112" } ,  body =
 [=[
@@ -125438,6 +125831,12 @@ end
 
 
 
+if b . addressable and not a . addressable then
+return false , ( "%s is not %s (it has no module address)" ) : format ( T . tostring ( a ) , T . tostring ( b ) )
+end
+
+
+
 if # a . params > # b . params and not b . vararg then
 return false , (
 "%s is not a %s (parameter count %d vs %d)"
@@ -125637,42 +126036,6 @@ end
 
 local function quote ( value ) 
 return string . format ( "%q" , value )
-end
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-function rock . init ( name , directory ) 
-local template = require ( "nupp.compiler.template" )
-local source , resolveErr = template . resolve ( "lib" )
-if not source then
-return nil , resolveErr
-end
-local plan , planErr = template . plan ( source , normalize ( directory or name ) , { name = name , policy = "absent" , } )
-if not plan then
-return nil , planErr
-end
-local written , writeErr = template . write ( plan )
-if not written then
-return nil , writeErr
-end
-
-return true
 end
 
 local function rootRockspec ( root , asked ) 
@@ -127466,15 +127829,6 @@ template.Plan = {} template.Plan.__index = template.Plan
 
 
 
-
-
-
-
-
-
-
-
-
 local function isPathSpelling ( spelling ) 
 return spelling : sub (
 1 ,
@@ -128024,15 +128378,16 @@ end
 return true
 end
 
-local function destinationIsFree ( destination , policy ) 
+
+
+
+
+
+local function destinationIsFree ( destination ) 
 local entries = __nuppModule .list ( destination )
 if not entries then
 return true
 end
-if policy == "absent" then
-return false , destination .. " already exists"
-else
-
 for _ , entry in ipairs ( entries ) do
 if entry . name ~= ".git" then
 return false , destination .. " is not empty"
@@ -128040,7 +128395,6 @@ end
 end
 
 return true
-end
 end
 
 
@@ -128054,11 +128408,10 @@ end
 function template . plan ( source , destination , opts
 
 
-
 ) 
 local asked = opts or { }
 destination = normalize ( destination )
-local free , freeErr = destinationIsFree ( destination , asked . policy or "emptyOrGitOnly" )
+local free , freeErr = destinationIsFree ( destination )
 if not free then
 return nil , freeErr
 end
@@ -130100,6 +130453,15 @@ types.Func = {} types.Func.__index = types.Func
 
 
 
+
+
+
+
+
+
+
+
+
 types.Literal = {} types.Literal.__index = types.Literal
 
 
@@ -130971,6 +131333,9 @@ local prior = flat [ at ]
 if prior ~= t then
 
 
+
+
+local nameable = prior . addressable and ( t ) . addressable or nil
 local merged = types . func (
 prior . params ,
 prior . rets ,
@@ -130998,7 +131363,8 @@ prior . constParams ,
 prior . paramKinds ,
 prior . partitionResults ,
 prior . comptimeOnly ,
-prior . explicitPreserves
+prior . explicitPreserves ,
+nameable
 )
 seen [ prior ] = nil
 seen [ merged ] = true
@@ -132210,7 +132576,8 @@ constParams ,
 paramKinds ,
 partitionResults ,
 comptimeOnly ,
-explicitPreserves
+explicitPreserves ,
+addressable
 ) 
 
 
@@ -132344,6 +132711,12 @@ if comptimeOnly then
 key = key .. "|comptime"
 end
 local unlabeledId = key
+
+
+
+if addressable then
+key = key .. "|addressable"
+end
 if explicitPreserves then
 local written = { }
 for result = 1 , # rets do
@@ -132396,7 +132769,8 @@ constParams ,  paramKinds =
 paramKinds ,  yieldPack =
 yieldPack ,  resumePack =
 resumePack ,  comptimeOnly =
-comptimeOnly or nil }, types.Func)
+comptimeOnly or nil ,  addressable =
+addressable or nil }, types.Func)
 
 )
 end
@@ -132449,7 +132823,57 @@ fn . constParams ,
 fn . paramKinds ,
 fn . partitionResults ,
 fn . comptimeOnly ,
-fn . explicitPreserves
+fn . explicitPreserves ,
+fn . addressable
+)
+end
+
+
+
+
+
+
+
+
+
+function types . withAddressable ( ft ) 
+if ft . tag ~= "func" then
+return ft
+end
+local fn = ft
+if fn . addressable then
+return ft
+end
+
+return types . func (
+fn . params ,
+fn . rets ,
+fn . vararg ,
+fn . paramModes ,
+fn . predicate ,
+fn . typeParams ,
+fn . typeBounds ,
+fn . borrowsParam ,
+fn . borrowsSelf ,
+fn . borrowsParams ,
+fn . ffiOut ,
+fn . varargType ,
+fn . noreturn ,
+fn . paramPack ,
+fn . retPack ,
+fn . packParams ,
+fn . yieldPack ,
+fn . resumePack ,
+fn . noYield ,
+fn . paramNames ,
+fn . preservesResults ,
+fn . foreign ,
+fn . constParams ,
+fn . paramKinds ,
+fn . partitionResults ,
+fn . comptimeOnly ,
+fn . explicitPreserves ,
+true
 )
 end
 
@@ -132490,7 +132914,8 @@ fn . constParams ,
 fn . paramKinds ,
 fn . partitionResults ,
 fn . comptimeOnly ,
-fn . explicitPreserves
+fn . explicitPreserves ,
+fn . addressable
 )
 end
 
@@ -132533,7 +132958,8 @@ fn . constParams ,
 fn . paramKinds ,
 fn . partitionResults ,
 fn . comptimeOnly ,
-fn . explicitPreserves
+fn . explicitPreserves ,
+fn . addressable
 )
 end
 
@@ -132573,7 +132999,8 @@ fn . constParams ,
 fn . paramKinds ,
 partitionResults ,
 fn . comptimeOnly ,
-fn . explicitPreserves
+fn . explicitPreserves ,
+fn . addressable
 )
 end
 
@@ -133199,7 +133626,12 @@ for _ , cv in ipairs ( t . constParams or { } ) do
 binders [ # binders + 1 ] = "const " .. cv . name .. ": " .. cv . domain
 end
 local generic = # binders > 0 and "<" .. table . concat ( binders , ", " ) .. ">" or ""
-return "function" .. generic .. "(" .. table . concat ( ps , ", " ) .. ")" .. ret .. protocol
+
+
+
+local nameable = t . addressable and "addressable " or ""
+
+return nameable .. "function" .. generic .. "(" .. table . concat ( ps , ", " ) .. ")" .. ret .. protocol
 elseif tag == "protocolThread" then
 return "thread<" .. types . tostringPack (
 t . startPack
@@ -156837,8 +157269,8 @@ local runtimeBackend = require ( "nupp.runtime.backend" )
 local seam = { moduleName = "nupp.runtime.seam.workers" , suiteModuleName = "nupp.runtime.seam.workerssuite" , }
 local CONTRACT = common . contract ( "host.workers" , {
 globalName = "__nuppWorkers" ,
-requiredFunctions = { "current" , "destroyWorker" , "spawn" } ,
-requiredValues = { "Exit" , "Self" , "Worker" } ,
+requiredFunctions = { "scope" } ,
+requiredValues = { "Scope" , "ScopeToken" } ,
 suiteModule = seam . suiteModuleName ,
 modules = { [ "nupp.workers" ] = "" , } ,
 } )
@@ -156865,19 +157297,9 @@ _G.assert(_G.loadstring("local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppM
 local suite = { }
 
 function suite . test ( provider ) 
-local ok , problem = pcall ( function ( ) 
-local valid , failure = pcall ( provider . spawn , "" )
-assert (
-not valid and tostring ( failure ) : find ( "nonempty" , 1 , true ) ,
-"spawn must reject an empty entry before host work"
-)
-valid , failure = pcall ( provider . current )
-assert ( not valid and tostring ( failure ) : find ( "worker" , 1 , true ) , "current must reject a non-worker state" )
-end )
-if not ok then
-return false , tostring ( problem )
+if type ( provider . scope ) ~= "function" then
+return false , "scope must be a function"
 end
-
 return true
 end
 
@@ -158409,17 +158831,7 @@ return memory
 
 end
 package.preload["nupp.workers"] = function(...)
-_G.assert(_G.loadstring("local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppMath=rawget(__nupp,\"math\")or{};rawset(__nupp,\"math\",__nuppMath) local function __nuppCloseFile(handle)if io.type(handle)==\"closed file\"then return end;local ok,reason=handle:close();if not ok then error(reason or \"the file could not be closed\",0)end end local __nuppManagedBrand=_G.__nuppManagedBrand if not __nuppManagedBrand then __nuppManagedBrand={};_G.__nuppManagedBrand=__nuppManagedBrand end local __nuppManagedCells=_G.__nuppManagedCells if not __nuppManagedCells then __nuppManagedCells=setmetatable({},{__mode=\"k\"});_G.__nuppManagedCells=__nuppManagedCells end local __nuppManagedOwner={};__nuppManagedOwner.__index=__nuppManagedOwner;local __nuppManagedAlias={};__nuppManagedAlias.__index=__nuppManagedAlias local function __nuppManagedError(code,message)return{code=code,message=message}end local function __nuppManagedProblem(cell) if type(cell)~=\"table\"or cell._brand~=__nuppManagedBrand then return __nuppManagedError(\"NUPP2614\",\"value is not a managed alias\")end if cell._state==\"taken\"then return __nuppManagedError(\"NUPP2614\",\"managed ownership was already taken\")end if cell._state==\"closed\"or cell._state==\"closing\"then return __nuppManagedError(\"NUPP2614\",\"managed resource is closed\")end return nil end local function __nuppManagedClose(cell,checked) local problem=__nuppManagedProblem(cell);if problem then if checked then return problem end;return nil end if cell._borrows~=0 or cell._exclusive then local busy=__nuppManagedError(\"NUPP2620\",\"managed resource has an active borrow\");if checked then return busy end;error(busy.message,0)end cell._state=\"closing\";local value,cleanup=cell._value,cell._cleanup;cell._value=nil;cell._cleanup=nil local ok,reason=pcall(cleanup,value);cell._state=\"closed\";if not ok then error(reason,0)end;return nil end function __nuppManagedOwner:alias()return setmetatable({_cell=self,_brand=__nuppManagedBrand},__nuppManagedAlias)end function __nuppManagedOwner:close()return __nuppManagedClose(self,false)end local function __nuppAliasCell(self) if type(self)~=\"table\"or self._brand~=__nuppManagedBrand or getmetatable(self)~=__nuppManagedAlias then return nil,__nuppManagedError(\"NUPP2614\",\"value is not a managed alias\")end local cell=self._cell;local problem=__nuppManagedProblem(cell);if problem then return nil,problem end;return cell,nil end function __nuppManagedAlias:with(callback) local cell,problem=__nuppAliasCell(self);if not cell then return nil,problem end if cell._exclusive then return nil,__nuppManagedError(\"NUPP2620\",\"managed resource is exclusively borrowed\")end cell._borrows=cell._borrows+1;cell._state=\"shared-borrowed(\"..cell._borrows..\")\" local ok,result=pcall(callback,cell._value);cell._borrows=cell._borrows-1;cell._state=cell._borrows>0 and(\"shared-borrowed(\"..cell._borrows..\")\")or\"live\" if not ok then error(result,0)end;return result,nil end function __nuppManagedAlias:withExclusive(callback) local cell,problem=__nuppAliasCell(self);if not cell then return nil,problem end if cell._exclusive or cell._borrows~=0 then return nil,__nuppManagedError(\"NUPP2620\",\"managed resource is already borrowed\")end cell._exclusive=true;cell._state=\"exclusive-borrowed\";local ok,result=pcall(callback,cell._value);cell._exclusive=false;cell._state=\"live\" if not ok then error(result,0)end;return result,nil end function __nuppManagedAlias:take() local cell,problem=__nuppAliasCell(self);if not cell then return nil,problem end if cell._exclusive or cell._borrows~=0 then return nil,__nuppManagedError(\"NUPP2620\",\"managed resource has an active borrow\")end cell._state=\"taken\";local value=cell._value;cell._value=nil;cell._cleanup=nil;return value,nil end function __nuppManagedAlias:close() local cell,problem=__nuppAliasCell(self);if not cell then return problem end;return __nuppManagedClose(cell,true)end function __nuppManagedAlias:_downcast(policy) local cell,problem=__nuppAliasCell(self);if not cell then return nil,problem end if cell._policy~=policy then return nil,__nuppManagedError(\"NUPP2613\",\"managed alias has the wrong type or cleanup policy\")end return self,nil end function __nupp.__manage(value,cleanup,policy) local cell=setmetatable({_brand=__nuppManagedBrand,_value=value,_cleanup=cleanup,_policy=policy,_state=\"live\",_borrows=0,_exclusive=false},__nuppManagedOwner);__nuppManagedCells[cell]=true;return cell end function __nupp.__recoverAlias(value) if type(value)~=\"table\"or value._brand~=__nuppManagedBrand or getmetatable(value)~=__nuppManagedAlias then return nil,__nuppManagedError(\"NUPP2614\",\"value is not a managed alias\")end local cell,problem=__nuppAliasCell(value);if not cell then return nil,problem end;return value,nil end _G.__nuppManagedPolicyCount=function(policy)local count=0;for cell in pairs(__nuppManagedCells)do if cell._policy==policy and(cell._state==\"live\"or cell._state:match(\"borrowed\"))then count=count+1 end end;return count end;\n","@nupp-prelude"))();local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppMath=rawget(__nupp,"math")or{};rawset(__nupp,"math",__nuppMath) local function __nuppCloseFile(handle)if io.type(handle)=="closed file"then return end;local ok,reason=handle:close();if not ok then error(reason or "the file could not be closed",0)end end local __nuppManagedBrand=_G.__nuppManagedBrand if not __nuppManagedBrand then __nuppManagedBrand={};_G.__nuppManagedBrand=__nuppManagedBrand end local __nuppManagedCells=_G.__nuppManagedCells if not __nuppManagedCells then __nuppManagedCells=setmetatable({},{__mode="k"});_G.__nuppManagedCells=__nuppManagedCells end local __nuppManagedOwner={};__nuppManagedOwner.__index=__nuppManagedOwner;local __nuppManagedAlias={};__nuppManagedAlias.__index=__nuppManagedAlias local function __nuppManagedError(code,message)return{code=code,message=message}end local function __nuppManagedProblem(cell) if type(cell)~="table"or cell._brand~=__nuppManagedBrand then return __nuppManagedError("NUPP2614","value is not a managed alias")end if cell._state=="taken"then return __nuppManagedError("NUPP2614","managed ownership was already taken")end if cell._state=="closed"or cell._state=="closing"then return __nuppManagedError("NUPP2614","managed resource is closed")end return nil end local function __nuppManagedClose(cell,checked) local problem=__nuppManagedProblem(cell);if problem then if checked then return problem end;return nil end if cell._borrows~=0 or cell._exclusive then local busy=__nuppManagedError("NUPP2620","managed resource has an active borrow");if checked then return busy end;error(busy.message,0)end cell._state="closing";local value,cleanup=cell._value,cell._cleanup;cell._value=nil;cell._cleanup=nil local ok,reason=pcall(cleanup,value);cell._state="closed";if not ok then error(reason,0)end;return nil end function __nuppManagedOwner:alias()return setmetatable({_cell=self,_brand=__nuppManagedBrand},__nuppManagedAlias)end function __nuppManagedOwner:close()return __nuppManagedClose(self,false)end local function __nuppAliasCell(self) if type(self)~="table"or self._brand~=__nuppManagedBrand or getmetatable(self)~=__nuppManagedAlias then return nil,__nuppManagedError("NUPP2614","value is not a managed alias")end local cell=self._cell;local problem=__nuppManagedProblem(cell);if problem then return nil,problem end;return cell,nil end function __nuppManagedAlias:with(callback) local cell,problem=__nuppAliasCell(self);if not cell then return nil,problem end if cell._exclusive then return nil,__nuppManagedError("NUPP2620","managed resource is exclusively borrowed")end cell._borrows=cell._borrows+1;cell._state="shared-borrowed("..cell._borrows..")" local ok,result=pcall(callback,cell._value);cell._borrows=cell._borrows-1;cell._state=cell._borrows>0 and("shared-borrowed("..cell._borrows..")")or"live" if not ok then error(result,0)end;return result,nil end function __nuppManagedAlias:withExclusive(callback) local cell,problem=__nuppAliasCell(self);if not cell then return nil,problem end if cell._exclusive or cell._borrows~=0 then return nil,__nuppManagedError("NUPP2620","managed resource is already borrowed")end cell._exclusive=true;cell._state="exclusive-borrowed";local ok,result=pcall(callback,cell._value);cell._exclusive=false;cell._state="live" if not ok then error(result,0)end;return result,nil end function __nuppManagedAlias:take() local cell,problem=__nuppAliasCell(self);if not cell then return nil,problem end if cell._exclusive or cell._borrows~=0 then return nil,__nuppManagedError("NUPP2620","managed resource has an active borrow")end cell._state="taken";local value=cell._value;cell._value=nil;cell._cleanup=nil;return value,nil end function __nuppManagedAlias:close() local cell,problem=__nuppAliasCell(self);if not cell then return problem end;return __nuppManagedClose(cell,true)end function __nuppManagedAlias:_downcast(policy) local cell,problem=__nuppAliasCell(self);if not cell then return nil,problem end if cell._policy~=policy then return nil,__nuppManagedError("NUPP2613","managed alias has the wrong type or cleanup policy")end return self,nil end function __nupp.__manage(value,cleanup,policy) local cell=setmetatable({_brand=__nuppManagedBrand,_value=value,_cleanup=cleanup,_policy=policy,_state="live",_borrows=0,_exclusive=false},__nuppManagedOwner);__nuppManagedCells[cell]=true;return cell end function __nupp.__recoverAlias(value) if type(value)~="table"or value._brand~=__nuppManagedBrand or getmetatable(value)~=__nuppManagedAlias then return nil,__nuppManagedError("NUPP2614","value is not a managed alias")end local cell,problem=__nuppAliasCell(value);if not cell then return nil,problem end;return value,nil end _G.__nuppManagedPolicyCount=function(policy)local count=0;for cell in pairs(__nuppManagedCells)do if cell._policy==policy and(cell._state=="live"or cell._state:match("borrowed"))then count=count+1 end end;return count end;local __nuppCleanups=_G.__nuppCleanupRegistry;if __nuppCleanups==nil then __nuppCleanups={};_G.__nuppCleanupRegistry=__nuppCleanups end;local __nuppExports;local __nuppOk,__nuppWhy=pcall(function()
-
-
-
-
-
-
-
-
-
-
+_G.assert(_G.loadstring("local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppMath=rawget(__nupp,\"math\")or{};rawset(__nupp,\"math\",__nuppMath) local function __nuppCloseFile(handle)if io.type(handle)==\"closed file\"then return end;local ok,reason=handle:close();if not ok then error(reason or \"the file could not be closed\",0)end end local __nuppManagedBrand=_G.__nuppManagedBrand if not __nuppManagedBrand then __nuppManagedBrand={};_G.__nuppManagedBrand=__nuppManagedBrand end local __nuppManagedCells=_G.__nuppManagedCells if not __nuppManagedCells then __nuppManagedCells=setmetatable({},{__mode=\"k\"});_G.__nuppManagedCells=__nuppManagedCells end local __nuppManagedOwner={};__nuppManagedOwner.__index=__nuppManagedOwner;local __nuppManagedAlias={};__nuppManagedAlias.__index=__nuppManagedAlias local function __nuppManagedError(code,message)return{code=code,message=message}end local function __nuppManagedProblem(cell) if type(cell)~=\"table\"or cell._brand~=__nuppManagedBrand then return __nuppManagedError(\"NUPP2614\",\"value is not a managed alias\")end if cell._state==\"taken\"then return __nuppManagedError(\"NUPP2614\",\"managed ownership was already taken\")end if cell._state==\"closed\"or cell._state==\"closing\"then return __nuppManagedError(\"NUPP2614\",\"managed resource is closed\")end return nil end local function __nuppManagedClose(cell,checked) local problem=__nuppManagedProblem(cell);if problem then if checked then return problem end;return nil end if cell._borrows~=0 or cell._exclusive then local busy=__nuppManagedError(\"NUPP2620\",\"managed resource has an active borrow\");if checked then return busy end;error(busy.message,0)end cell._state=\"closing\";local value,cleanup=cell._value,cell._cleanup;cell._value=nil;cell._cleanup=nil local ok,reason=pcall(cleanup,value);cell._state=\"closed\";if not ok then error(reason,0)end;return nil end function __nuppManagedOwner:alias()return setmetatable({_cell=self,_brand=__nuppManagedBrand},__nuppManagedAlias)end function __nuppManagedOwner:close()return __nuppManagedClose(self,false)end local function __nuppAliasCell(self) if type(self)~=\"table\"or self._brand~=__nuppManagedBrand or getmetatable(self)~=__nuppManagedAlias then return nil,__nuppManagedError(\"NUPP2614\",\"value is not a managed alias\")end local cell=self._cell;local problem=__nuppManagedProblem(cell);if problem then return nil,problem end;return cell,nil end function __nuppManagedAlias:with(callback) local cell,problem=__nuppAliasCell(self);if not cell then return nil,problem end if cell._exclusive then return nil,__nuppManagedError(\"NUPP2620\",\"managed resource is exclusively borrowed\")end cell._borrows=cell._borrows+1;cell._state=\"shared-borrowed(\"..cell._borrows..\")\" local ok,result=pcall(callback,cell._value);cell._borrows=cell._borrows-1;cell._state=cell._borrows>0 and(\"shared-borrowed(\"..cell._borrows..\")\")or\"live\" if not ok then error(result,0)end;return result,nil end function __nuppManagedAlias:withExclusive(callback) local cell,problem=__nuppAliasCell(self);if not cell then return nil,problem end if cell._exclusive or cell._borrows~=0 then return nil,__nuppManagedError(\"NUPP2620\",\"managed resource is already borrowed\")end cell._exclusive=true;cell._state=\"exclusive-borrowed\";local ok,result=pcall(callback,cell._value);cell._exclusive=false;cell._state=\"live\" if not ok then error(result,0)end;return result,nil end function __nuppManagedAlias:take() local cell,problem=__nuppAliasCell(self);if not cell then return nil,problem end if cell._exclusive or cell._borrows~=0 then return nil,__nuppManagedError(\"NUPP2620\",\"managed resource has an active borrow\")end cell._state=\"taken\";local value=cell._value;cell._value=nil;cell._cleanup=nil;return value,nil end function __nuppManagedAlias:close() local cell,problem=__nuppAliasCell(self);if not cell then return problem end;return __nuppManagedClose(cell,true)end function __nuppManagedAlias:_downcast(policy) local cell,problem=__nuppAliasCell(self);if not cell then return nil,problem end if cell._policy~=policy then return nil,__nuppManagedError(\"NUPP2613\",\"managed alias has the wrong type or cleanup policy\")end return self,nil end function __nupp.__manage(value,cleanup,policy) local cell=setmetatable({_brand=__nuppManagedBrand,_value=value,_cleanup=cleanup,_policy=policy,_state=\"live\",_borrows=0,_exclusive=false},__nuppManagedOwner);__nuppManagedCells[cell]=true;return cell end function __nupp.__recoverAlias(value) if type(value)~=\"table\"or value._brand~=__nuppManagedBrand or getmetatable(value)~=__nuppManagedAlias then return nil,__nuppManagedError(\"NUPP2614\",\"value is not a managed alias\")end local cell,problem=__nuppAliasCell(value);if not cell then return nil,problem end;return value,nil end _G.__nuppManagedPolicyCount=function(policy)local count=0;for cell in pairs(__nuppManagedCells)do if cell._policy==policy and(cell._state==\"live\"or cell._state:match(\"borrowed\"))then count=count+1 end end;return count end;\n","@nupp-prelude"))();local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppMath=rawget(__nupp,"math")or{};rawset(__nupp,"math",__nuppMath) local function __nuppCloseFile(handle)if io.type(handle)=="closed file"then return end;local ok,reason=handle:close();if not ok then error(reason or "the file could not be closed",0)end end local __nuppManagedBrand=_G.__nuppManagedBrand if not __nuppManagedBrand then __nuppManagedBrand={};_G.__nuppManagedBrand=__nuppManagedBrand end local __nuppManagedCells=_G.__nuppManagedCells if not __nuppManagedCells then __nuppManagedCells=setmetatable({},{__mode="k"});_G.__nuppManagedCells=__nuppManagedCells end local __nuppManagedOwner={};__nuppManagedOwner.__index=__nuppManagedOwner;local __nuppManagedAlias={};__nuppManagedAlias.__index=__nuppManagedAlias local function __nuppManagedError(code,message)return{code=code,message=message}end local function __nuppManagedProblem(cell) if type(cell)~="table"or cell._brand~=__nuppManagedBrand then return __nuppManagedError("NUPP2614","value is not a managed alias")end if cell._state=="taken"then return __nuppManagedError("NUPP2614","managed ownership was already taken")end if cell._state=="closed"or cell._state=="closing"then return __nuppManagedError("NUPP2614","managed resource is closed")end return nil end local function __nuppManagedClose(cell,checked) local problem=__nuppManagedProblem(cell);if problem then if checked then return problem end;return nil end if cell._borrows~=0 or cell._exclusive then local busy=__nuppManagedError("NUPP2620","managed resource has an active borrow");if checked then return busy end;error(busy.message,0)end cell._state="closing";local value,cleanup=cell._value,cell._cleanup;cell._value=nil;cell._cleanup=nil local ok,reason=pcall(cleanup,value);cell._state="closed";if not ok then error(reason,0)end;return nil end function __nuppManagedOwner:alias()return setmetatable({_cell=self,_brand=__nuppManagedBrand},__nuppManagedAlias)end function __nuppManagedOwner:close()return __nuppManagedClose(self,false)end local function __nuppAliasCell(self) if type(self)~="table"or self._brand~=__nuppManagedBrand or getmetatable(self)~=__nuppManagedAlias then return nil,__nuppManagedError("NUPP2614","value is not a managed alias")end local cell=self._cell;local problem=__nuppManagedProblem(cell);if problem then return nil,problem end;return cell,nil end function __nuppManagedAlias:with(callback) local cell,problem=__nuppAliasCell(self);if not cell then return nil,problem end if cell._exclusive then return nil,__nuppManagedError("NUPP2620","managed resource is exclusively borrowed")end cell._borrows=cell._borrows+1;cell._state="shared-borrowed("..cell._borrows..")" local ok,result=pcall(callback,cell._value);cell._borrows=cell._borrows-1;cell._state=cell._borrows>0 and("shared-borrowed("..cell._borrows..")")or"live" if not ok then error(result,0)end;return result,nil end function __nuppManagedAlias:withExclusive(callback) local cell,problem=__nuppAliasCell(self);if not cell then return nil,problem end if cell._exclusive or cell._borrows~=0 then return nil,__nuppManagedError("NUPP2620","managed resource is already borrowed")end cell._exclusive=true;cell._state="exclusive-borrowed";local ok,result=pcall(callback,cell._value);cell._exclusive=false;cell._state="live" if not ok then error(result,0)end;return result,nil end function __nuppManagedAlias:take() local cell,problem=__nuppAliasCell(self);if not cell then return nil,problem end if cell._exclusive or cell._borrows~=0 then return nil,__nuppManagedError("NUPP2620","managed resource has an active borrow")end cell._state="taken";local value=cell._value;cell._value=nil;cell._cleanup=nil;return value,nil end function __nuppManagedAlias:close() local cell,problem=__nuppAliasCell(self);if not cell then return problem end;return __nuppManagedClose(cell,true)end function __nuppManagedAlias:_downcast(policy) local cell,problem=__nuppAliasCell(self);if not cell then return nil,problem end if cell._policy~=policy then return nil,__nuppManagedError("NUPP2613","managed alias has the wrong type or cleanup policy")end return self,nil end function __nupp.__manage(value,cleanup,policy) local cell=setmetatable({_brand=__nuppManagedBrand,_value=value,_cleanup=cleanup,_policy=policy,_state="live",_borrows=0,_exclusive=false},__nuppManagedOwner);__nuppManagedCells[cell]=true;return cell end function __nupp.__recoverAlias(value) if type(value)~="table"or value._brand~=__nuppManagedBrand or getmetatable(value)~=__nuppManagedAlias then return nil,__nuppManagedError("NUPP2614","value is not a managed alias")end local cell,problem=__nuppAliasCell(value);if not cell then return nil,problem end;return value,nil end _G.__nuppManagedPolicyCount=function(policy)local count=0;for cell in pairs(__nuppManagedCells)do if cell._policy==policy and(cell._state=="live"or cell._state:match("borrowed"))then count=count+1 end end;return count end;local __nuppExports;local __nuppOk,__nuppWhy=pcall(function()
 
 
 
@@ -158450,6 +158862,7 @@ _G.assert(_G.loadstring("local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppM
 
 
 local buffer = require ( "string.buffer" )
+local suspension = require ( "nupp.suspension" )
 
 
 
@@ -158465,9 +158878,66 @@ local buffer = require ( "string.buffer" )
 
 
 local native = require ( "nupp.workers.native" )
-local suspension = require ( "nupp.suspension" )
 
 local workers = { }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+local function pack ( ... ) 
+return { values = { ... } , count = select ( "#" , ... ) }
+end
 
 
 
@@ -158483,9 +158953,7 @@ const Channel = {} Channel.__index = Channel
 
 
 
-
-workers.Exit = {} workers.Exit.__index = workers.Exit
-
+const Lane = {} Lane.__index = Lane
 
 
 
@@ -158495,23 +158963,12 @@ workers.Exit = {} workers.Exit.__index = workers.Exit
 
 
 
-
-workers.Self = {} workers.Self.__index = workers.Self
-
+const Scheduler = {} Scheduler.__index = Scheduler
 
 
 
 
-
-
-
-
-
-
-
-
-
-workers.Worker = {} workers.Worker.__index = workers.Worker
+const TaskImpl = {} TaskImpl.__index = TaskImpl
 
 
 
@@ -158533,9 +158990,7 @@ workers.Worker = {} workers.Worker.__index = workers.Worker
 
 
 
-
-
-
+workers.Scope = {} workers.Scope.__index = workers.Scope
 
 
 
@@ -158551,8 +159006,8 @@ workers.Worker = {} workers.Worker.__index = workers.Worker
 
 
 local ChannelMT = { __index = Channel }
-local WorkerMT = { __index = workers . Worker }
-local SelfMT = { __index = workers . Self }
+local TaskMT = { __index = TaskImpl }
+local ScopeMT = { __index = workers . Scope }
 
 local function channel ( handle , owned ) 
 return setmetatable ( { handle = handle , owned = owned , destroyed = false } , ChannelMT )
@@ -158567,17 +159022,13 @@ end
 return channel ( handle , true )
 end
 
-local SENDABLE = { boolean = true , number = true , string = true , }
-
-
+local SENDABLE = { [ "nil" ] = true , boolean = true , number = true , string = true , }
 
 local function unsendable ( value , path , depth , seen ) 
 local kind = type ( value )
 if SENDABLE [ kind ] then
 return nil
 end
-
-
 
 if kind ~= "table" then
 return ( "%s is a %s" ) : format ( path , kind )
@@ -158608,136 +159059,136 @@ end
 local function encode ( frame ) 
 local rejected = unsendable ( frame , "message" , 0 , { } )
 if rejected ~= nil then
-error ( "nupp: cannot send to a worker: " .. rejected , 3 )
+error ( "nupp: cannot copy a worker value: " .. rejected , 3 )
 end
 
 return buffer . encode ( frame )
 end
 
 local function decode ( bytes ) 
-local ok , value = pcall ( buffer . decode , bytes )
-if not ok or type ( value ) ~= "table" or type ( ( value ) [ "kind" ] ) ~= "string" then
-error ( "nupp: a worker returned an invalid message frame" , 3 )
+local value = buffer . decode ( bytes )
+if type ( value ) ~= "table" or type ( ( value ) [ "kind" ] ) ~= "string" then
+error ( "nupp: a worker returned an invalid task frame" , 3 )
 end
 
 return value
 end
 
-local function push ( self , frame ) 
-if self . destroyed or not native . channelPush ( self . handle , encode ( frame ) ) then
-error ( "nupp: a worker channel is closed or its bounded queue is full" , 3 )
+local function push ( target , frame ) 
+if target . destroyed or not native . channelPush ( target . handle , encode ( frame ) ) then
+error ( "nupp: a worker queue is closed or full" , 3 )
 end
 end
 
-local function pop ( self , timeoutMs ) 
-if self . destroyed then
+local function pop ( source , timeoutMs ) 
+if source . destroyed then
 return nil
 end
-local bytes = native . channelPop ( self . handle , timeoutMs )
+local bytes = native . channelPop ( source . handle , timeoutMs )
 
 return bytes ~= nil and decode ( bytes ) or nil
 end
 
-local function destroy ( self ) 
-if self . destroyed or not self . owned then
+local function destroy ( value ) 
+if value . destroyed or not value . owned then
 return
 end
-self . destroyed = true
-native . channelDestroy ( self . handle )
-self . handle = nil
+value . destroyed = true
+native . channelDestroy ( value . handle )
+value . handle = nil
 end
 
-local function takeMessage ( self ) 
-if self . _firstMessage > self . _lastMessage then
-return nil
-end
-local value = self . _messages [ self . _firstMessage ]
-self . _messages [ self . _firstMessage ] = nil
-if self . _firstMessage == self . _lastMessage then
-self . _firstMessage = 1
-self . _lastMessage = 0
-else
-self . _firstMessage = self . _firstMessage + 1
+local function startLane ( ) 
+local inbox = newChannel ( )
+local outbox = newChannel ( )
+local handle , problem = native . workerSpawn ( inbox . handle , outbox . handle )
+if handle == nil then
+destroy ( inbox )
+destroy ( outbox )
+error ( "nupp: cannot start the worker scheduler: " .. ( problem or "unknown failure" ) , 3 )
 end
 
-return value
+return setmetatable({ handle =
+handle ,  inbox =
+inbox ,  outbox =
+outbox ,  nextId =
+1 ,  inflight =
+0 ,  pending =
+{ } ,  replies =
+{ } }, Lane)
+
 end
 
-local function takeReply ( self , id ) 
-local reply = self . _replies [ id ]
-if reply ~= nil then
-self . _replies [ id ] = nil
+local sharedScheduler = nil
+
+local function scheduler ( ) 
+if sharedScheduler ~= nil then
+return sharedScheduler
+end
+local workerInbox = native . current ( )
+if workerInbox ~= nil then
+error ( "nupp: a worker task cannot open another worker scope" , 3 )
+end
+local count = math . max ( 1 , math . min ( native . workerParallelism ( ) , 64 ) )
+local lanes = { }
+for index = 1 , count do
+local ok , lane = pcall ( startLane )
+if not ok then
+for _ , started in ipairs ( lanes ) do
+native . channelClose ( started . inbox . handle )
+native . workerJoin ( started . handle )
+destroy ( started . inbox )
+destroy ( started . outbox )
+end
+error ( lane , 3 )
+end
+lanes [ index ] = lane
+end
+sharedScheduler = setmetatable({ lanes =  lanes }, Scheduler)
+
+return sharedScheduler
 end
 
-return reply
-end
-
-
-
-local function route ( self , timeoutMs ) 
-local frame = pop ( self . _outbox , timeoutMs )
+local function route ( lane , timeoutMs ) 
+local frame = pop ( lane . outbox , timeoutMs )
 if frame == nil then
 return false
 end
-if frame . kind == "reply" and frame . id ~= nil then
-if self . _pendingIds [ frame . id ] then
-self . _pendingIds [ frame . id ] = nil
-self . _replies [ frame . id ] = frame
+local id = frame . id
+if frame . kind ~= "reply" or id == nil or not lane . pending [ id ] then
+error ( "nupp: a worker returned an unknown task reply" , 3 )
 end
-elseif frame . kind == "message" then
-self . _lastMessage = self . _lastMessage + 1
-self . _messages [ self . _lastMessage ] = frame . payload
-else
-error ( "nupp: a worker returned an unknown message frame" , 3 )
-end
+lane . pending [ id ] = nil
+lane . replies [ id ] = frame
+lane . inflight = lane . inflight - 1
 
 return true
 end
 
-local function ended ( self ) 
-return native . channelClosed ( self . _outbox . handle ) and native . channelCount ( self . _outbox . handle ) == 0
+local function ended ( lane ) 
+return native . channelClosed ( lane . outbox . handle ) and native . channelCount ( lane . outbox . handle ) == 0
 end
 
-
-
-
-local function waitFor (
-self ,
-operation ,
-ready ,
-timeoutMs
-) 
-if ready ( ) then
-return true
+local function ready ( lane , id ) 
+return lane . replies [ id ] ~= nil
 end
-if timeoutMs ~= nil and timeoutMs == 0 then
-return false
+
+local function waitFor ( lane , id ) 
+if ready ( lane , id ) then
+return
 end
-local deadline = timeoutMs ~= nil and native . now ( ) + timeoutMs or nil
 if not suspension . handled ( ) then
-while not ready ( ) do
-local budget = - 1
-if deadline ~= nil then
-local remaining = math . ceil ( deadline - native . now ( ) )
-if remaining <= 0 then
-return false
-end
-budget = remaining
-end
-if not route ( self , budget ) and ended ( self ) then
-return ready ( )
+while not ready ( lane , id ) do
+if not route ( lane , - 1 ) and ended ( lane ) then
+break
 end
 end
-
-return true
-end
-
+else
 local function subscribe ( resume , context ) 
 local source = context : source ( "nupp.workers" , 50 , function ( ) 
-local moved = route ( self , 0 )
-if ready ( ) or ended ( self ) or deadline ~= nil and native . now ( ) >= deadline then
+local moved = route ( lane , 0 )
+if ready ( lane , id ) or ended ( lane ) then
 resume ( true )
-
 return 1
 end
 
@@ -158749,279 +159200,251 @@ source : release ( )
 end
 end
 
-while not ready ( ) do
-if ended ( self ) then
-return false
+while not ready ( lane , id ) and not ended ( lane ) do
+suspension . suspend ( "worker task" , subscribe )
 end
-if deadline ~= nil and native . now ( ) >= deadline then
-return false
 end
-suspension . suspend ( operation , subscribe )
+if not ready ( lane , id ) then
+error ( "nupp: a worker thread ended before answering a task" , 3 )
+end
 end
 
+local function callableAddress ( fn ) 
+local found = { }
+local loaded = package . loaded
+for moduleName , moduleValue in pairs ( loaded ) do
+if type ( moduleName ) == "string" and type ( moduleValue ) == "table" then
+for member , value in pairs ( moduleValue ) do
+if type ( member ) == "string" and value == fn then
+found [ # found + 1 ] = moduleName .. "\0" .. member
+end
+end
+end
+end
+table . sort ( found )
+local address = found [ 1 ]
+if address == nil then
+return nil , nil
+end
+
+return address : match ( "^(.-)%z(.*)$" )
+end
+
+local function leastBusy ( value ) 
+local selected = value . lanes [ 1 ]
+for index = 2 , # value . lanes do
+local candidate = value . lanes [ index ]
+if candidate . inflight < selected . inflight then
+selected = candidate
+end
+end
+
+return selected
+end
+
+function workers . Scope : spawn ( fn , ... ) 
+if self . _closed then
+error ( "nupp: cannot spawn into a closed worker scope" , 2 )
+end
+local moduleName , member = callableAddress ( fn )
+if moduleName == nil or member == nil then
+error (
+"nupp: worker tasks must be exported functions; closures and private functions cannot cross an isolated Lua state" ,
+2
+)
+end
+local arguments = pack ( ... )
+local rejected = unsendable ( arguments . values , "arguments" , 0 , { } )
+if rejected ~= nil then
+error ( "nupp: cannot copy task arguments: " .. rejected , 2 )
+end
+local lane = leastBusy ( self . _scheduler )
+local id = lane . nextId
+lane . nextId = id + 1
+lane . inflight = lane . inflight + 1
+lane . pending [ id ] = true
+local submitted , problem = pcall ( function ( ) 
+push ( lane . inbox , {
+kind = "task" ,
+id = id ,
+payload = { module = moduleName , member = member , arguments = arguments , } ,
+} )
+end )
+if not submitted then
+lane . pending [ id ] = nil
+lane . inflight = lane . inflight - 1
+error ( problem , 2 )
+end
+local task = setmetatable (
+{ _lane = lane , _id = id , _state = "pending" , _values = { } , _count = 0 , _error = nil , _observed = false , } ,
+TaskMT
+)
+self . _tasks [ # self . _tasks + 1 ] = task
+
+return task
+end
+
+function TaskImpl : isDone ( ) 
+if self . _state ~= "pending" then
 return true
 end
-
-function workers . Worker : send ( value ) 
-if self . _closed or self . _exit ~= nil then
-error ( "nupp: cannot send to a closed worker" , 2 )
-end
-local rejected = unsendable ( value , "value" , 0 , { } )
-if rejected ~= nil then
-error ( "nupp: cannot send to a worker: " .. rejected , 2 )
-end
-push ( self . _inbox , { kind = "message" , payload = value } )
+while route ( self . _lane , 0 ) do
 end
 
-function workers . Worker : tryReceive ( ) 
-local value = takeMessage ( self )
-if value ~= nil then
-return value
+return ready ( self . _lane , self . _id )
 end
-while route ( self , 0 ) do
-value = takeMessage ( self )
-if value ~= nil then
-return value
+
+function TaskImpl : await ( ) 
+self . _observed = true
+if self . _state == "pending" then
+waitFor ( self . _lane , self . _id )
+local reply = self . _lane . replies [ self . _id ]
+self . _lane . replies [ self . _id ] = nil
+if reply . ok == true then
+local packed = reply . payload
+self . _values = packed . values
+self . _count = packed . count
+self . _state = "done"
+else
+self . _error = reply . error or "worker task failed without an error"
+self . _state = "failed"
+end
+end
+if self . _state == "failed" then
+error ( "nupp: worker task failed: " .. ( self . _error or "unknown failure" ) , 2 )
+end
+
+return unpack ( self . _values , 1 , self . _count )
+end
+
+local function waitForBlocking ( lane , id ) 
+while not ready ( lane , id ) do
+if not route ( lane , - 1 ) and ended ( lane ) then
+error ( "nupp: a worker thread ended before answering a task" , 3 )
+end
 end
 end
 
-return nil
+local function settleBlocking ( task ) 
+task . _observed = true
+if task . _state == "pending" then
+waitForBlocking ( task . _lane , task . _id )
+local reply = task . _lane . replies [ task . _id ]
+task . _lane . replies [ task . _id ] = nil
+if reply . ok == true then
+local packed = reply . payload
+task . _values = packed . values
+task . _count = packed . count
+task . _state = "done"
+else
+task . _error = reply . error or "worker task failed without an error"
+task . _state = "failed"
+end
 end
 
-function workers . Worker : receive ( timeoutMs ) 
-if timeoutMs ~= nil and ( timeoutMs < 0 or math . floor ( timeoutMs ) ~= timeoutMs ) then
-error ( "nupp: worker receive timeout must be a nonnegative integer" , 2 )
-end
-local value = self : tryReceive ( )
-if value ~= nil then
-return value
-end
-waitFor (
-self ,
-"worker receive" ,
-function ( ) 
-return self . _firstMessage <= self . _lastMessage
-end ,
-timeoutMs
-)
-
-return takeMessage ( self )
+return task . _state == "failed" and "nupp: worker task failed: " .. ( task . _error or "unknown failure" ) or nil
 end
 
-function workers . Worker : call ( value ) 
-if self . _closed or self . _exit ~= nil then
-error ( "nupp: cannot call a closed worker" , 2 )
-end
-local rejected = unsendable ( value , "value" , 0 , { } )
-if rejected ~= nil then
-error ( "nupp: cannot call a worker: " .. rejected , 2 )
-end
-local id = self . _nextId
-if id > 9007199254740991 then
-error ( "nupp: worker request identifiers are exhausted" , 2 )
-end
-self . _nextId = id + 1
-self . _pendingIds [ id ] = true
-push ( self . _inbox , { kind = "request" , id = id , payload = value } )
-waitFor ( self , "worker call" , function ( ) 
-return self . _replies [ id ] ~= nil
-end )
-local reply = takeReply ( self , id )
-if reply == nil then
-self . _pendingIds [ id ] = nil
-local exit = self : join ( )
-error ( exit . error or "nupp: worker ended before replying" , 2 )
-end
-if reply . ok ~= true then
-error ( "nupp: worker call failed: " .. ( reply . error or "without saying why" ) , 2 )
-end
-
-return reply . payload
-end
-
-function workers . Worker : close ( ) 
+local function closeBlocking ( self ) 
 if self . _closed then
 return
 end
 self . _closed = true
-native . channelClose ( self . _inbox . handle )
+local firstFailure = nil
+for _ , task in ipairs ( self . _tasks ) do
+local observed = task . _observed == true
+local problem = settleBlocking ( task )
+if problem ~= nil and not observed and firstFailure == nil then
+firstFailure = problem
+end
+end
+if firstFailure ~= nil then
+error ( firstFailure , 2 )
+end
 end
 
-function workers . Worker : join ( ) 
-if self . _exit ~= nil then
-return self . _exit
+function workers . Scope : close ( ) 
+if self . _closed then
+return
 end
-if suspension . handled ( ) and not native . workerFinished ( self . _handle ) then
-suspension . suspend ( "worker join" , function ( resume , context ) 
-local source = context : source ( "nupp.workers.join" , 50 , function ( ) 
-if native . workerFinished ( self . _handle ) then
-resume ( true )
-
-return 1
-end
-
-return 0
+self . _closed = true
+local firstFailure = nil
+for _ , task in ipairs ( self . _tasks ) do
+local observed = task . _observed == true
+local ok , problem = pcall ( function ( ) 
+task : await ( )
 end )
-
-return function ( ) 
-source : release ( )
+if not ok and not observed and firstFailure == nil then
+firstFailure = problem
 end
-end )
 end
-local status , failure = native . workerJoin ( self . _handle )
-self . _handle = nil
-self . _exit = setmetatable({ succeeded =  status == 0 ,  status =  status ,  error =  failure }, workers.Exit)
-
-return self . _exit
+if firstFailure ~= nil then
+error ( firstFailure , 2 )
+end
 end
 
-function workers . Worker : stop ( ) 
-if self . _destroyed then
-return self . _exit
-end
-self : close ( )
-local exit = self : join ( )
-destroy ( self . _inbox )
-destroy ( self . _outbox )
-self . _destroyed = true
-
-return exit
-end
-
-function workers . Worker . drop ( self ) 
-self : stop ( )
+function workers . Scope . drop ( self ) 
+closeBlocking ( self )
 end
 
 
-
-
-
-
-
-function workers . destroyWorker ( self ) 
-self : drop ( )
-end ;__nuppCleanups["nupp.workers#workers.destroyWorker"]=workers.destroyWorker
-
-local function receiveSelf ( self ) 
-return pop ( self . inbox , - 1 )
+function workers . scope ( ) 
+return setmetatable ( { _scheduler = scheduler ( ) , _tasks = { } , _closed = false , } , ScopeMT )
 end
 
-function workers . Self : receive ( ) 
-local frame = receiveSelf ( self )
-
-return frame and frame . payload or nil
+local function workerReply ( outbox , id , ok , answer ) 
+if not ok then
+push ( outbox , { kind = "reply" , id = id , ok = false , error = tostring ( answer ) } )
+return
 end
-
-function workers . Self : send ( value ) 
-local rejected = unsendable ( value , "value" , 0 , { } )
+local rejected = unsendable ( answer , "results" , 0 , { } )
 if rejected ~= nil then
-error ( "nupp: cannot send from a worker: " .. rejected , 2 )
+push ( outbox , { kind = "reply" , id = id , ok = false , error = "results cannot be copied: " .. rejected } )
+else
+push ( outbox , { kind = "reply" , id = id , ok = true , payload = answer } )
 end
-push ( self . outbox , { kind = "message" , payload = value } )
 end
 
-function workers . Self : serve ( handler ) 
+
+
+function workers . __runScheduler ( ) 
+local inHandle , outHandle = native . current ( )
+if inHandle == nil or outHandle == nil then
+error ( "nupp: worker scheduler started outside a worker state" , 2 )
+end
+local inbox = channel ( inHandle , false )
+local outbox = channel ( outHandle , false )
 while true do
-local frame = receiveSelf ( self )
+local frame = pop ( inbox , - 1 )
 if frame == nil then
 return
 end
-local ok , answer = pcall ( handler , frame . payload )
-if frame . kind == "request" and frame . id ~= nil then
-if ok then
-local rejected = unsendable ( answer , "result" , 0 , { } )
-if rejected == nil then
-push ( self . outbox , { kind = "reply" , id = frame . id , ok = true , payload = answer } )
-else
-push ( self . outbox , {
-kind = "reply" ,
-id = frame . id ,
-ok = false ,
-error = "a call result cannot cross: " .. rejected ,
-} )
+local id = frame . id
+local request = frame . payload
+if frame . kind ~= "task" or id == nil or type ( request ) ~= "table" then
+error ( "nupp: worker scheduler received an invalid task" , 2 )
 end
-else
-push ( self . outbox , { kind = "reply" , id = frame . id , ok = false , error = tostring ( answer ) , } )
+local ok , answer = pcall ( function ( ) 
+local moduleName = request . module
+local member = request . member
+local arguments = request . arguments
+if type ( moduleName ) ~= "string" or type ( member ) ~= "string" then
+error ( "task has no callable address" , 0 )
 end
-end
-end
+local moduleValue = require ( moduleName )
+local callable = type ( moduleValue ) == "table" and ( moduleValue ) [ member ] or nil
+if type ( callable ) ~= "function" then
+error ( ( "%s.%s is no longer an exported function" ) : format ( moduleName , member ) , 0 )
 end
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-function workers . spawn ( entry ) __nuppCleanups["nupp.workers#workers.destroyWorker"]=workers.destroyWorker; 
-if type ( entry ) ~= "string" or entry == "" then
-error ( "nupp: a worker entry must be a nonempty module name" , 2 )
+return pack ( callable ( unpack ( arguments . values , 1 , arguments . count ) ) )
+end )
+workerReply ( outbox , id , ok , answer )
 end
-local inbox = newChannel ( )
-local outbox = newChannel ( )
-local handle , problem = native . workerSpawn ( entry , inbox . handle , outbox . handle )
-if handle == nil then
-destroy ( inbox )
-destroy ( outbox )
-error ( "nupp: cannot spawn worker: " .. ( problem or "unknown failure" ) , 2 )
 end
 
-return setmetatable (
-{
-_handle = handle ,
-_inbox = inbox ,
-_outbox = outbox ,
-_closed = false ,
-_destroyed = false ,
-_exit = nil ,
-_nextId = 1 ,
-_pendingIds = { } ,
-_replies = { } ,
-_messages = { } ,
-_firstMessage = 1 ,
-_lastMessage = 0 ,
-} ,
-WorkerMT
-)
-end
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-function workers . current ( ) 
-local inbox , outbox = native . current ( )
-if inbox == nil or outbox == nil then
-error ( "nupp: workers.current is only valid inside a worker" , 2 )
-end
-
-return setmetatable ( { inbox = channel ( inbox , false ) , outbox = channel ( outbox , false ) , } , SelfMT )
-end
-
-workers . Worker = workers . Worker
-workers . Self = workers . Self
-workers . Exit = workers . Exit
+workers . Scope = workers . Scope
+workers . ScopeToken = workers . ScopeToken
 
 const __nuppExportValue= workers ;__nuppExports=__nuppExportValue
  end);if not __nuppOk then package.loaded["nupp.workers"]=nil;error(__nuppWhy,0) end;package.loaded["nupp.workers"]=__nuppExports;return __nuppExports
@@ -159035,7 +159458,6 @@ _G.assert(_G.loadstring("local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppM
 
 
 const native = {} native.__index = native
-
 
 
 
@@ -186388,8 +186810,8 @@ local runtimeBackend = require("nupp.runtime.backend")
 local seam = {moduleName = "nupp.runtime.seam.workers", suiteModuleName = "nupp.runtime.seam.workerssuite",}
 local CONTRACT = common.contract("host.workers", {
     globalName = "__nuppWorkers",
-    requiredFunctions = {"current", "destroyWorker", "spawn"},
-    requiredValues = {"Exit", "Self", "Worker"},
+    requiredFunctions = {"scope"},
+    requiredValues = {"Scope", "ScopeToken"},
     suiteModule = seam.suiteModuleName,
     modules = {["nupp.workers"] = "",},
 })
@@ -186415,19 +186837,9 @@ module nupp.runtime.seam.workerssuite
 local suite = {}
 
 function suite.test(provider: any): (boolean, string?)
-    local ok, problem = pcall(function()
-        local valid, failure = pcall(provider.spawn, "")
-        assert(
-            not valid and tostring(failure):find("nonempty", 1, true),
-            "spawn must reject an empty entry before host work"
-        )
-        valid, failure = pcall(provider.current)
-        assert(not valid and tostring(failure):find("worker", 1, true), "current must reject a non-worker state")
-    end)
-    if not ok then
-        return false, tostring(problem)
+    if type(provider.scope) ~= "function" then
+        return false, "scope must be a function"
     end
-
     return true
 end
 
@@ -187957,62 +188369,110 @@ return memory
 module nupp.workers
 
 --[[
-Isolated worker threads.
+Structured parallel tasks.
 
-Each worker owns a fresh LuaJIT state on a native thread. Values cross only as
-bounded `string.buffer` messages, so neither Lua heap, module state, globals,
-closures, userdata, nor cdata are shared.
-
-Worker entry modules run from the same stamped payload as their spawner:
-
-```nupp
-local workers = require("nupp.workers")
-
-do
-    local worker = workers.spawn("jobs.hash")
-    local answer = worker:call({bytes = contents})
-    print(answer.length)
-end -- automatic stop
-```
-
-The entry obtains its endpoints independently:
+An ordinary exported function may run locally or on the shared worker scheduler.
+The scheduler owns a bounded set of native threads, and every thread owns one
+isolated LuaJIT state. Arguments and results are copied; Lua heap identity is never
+shared.
 
 ```nupp
-local workers = require("nupp.workers")
+const workers = require("nupp.workers")
+const jobs = require("jobs")
 
-workers.current():serve(function(job: any): any
-    return {length = #job.bytes}
-end)
+with scope = workers.scope() do
+    const left = scope:spawn(jobs.hash, first)
+    const right = scope:spawn(jobs.hash, second)
+    return left:await() .. right:await()
+end
 ```
 
-A ready receive returns inline. A wait blocks efficiently in an ordinary
-program and suspends under an installed handler. Closing is cooperative: it
-wakes a worker blocked in `Self:receive`, but a worker that ignores its closed
-inbox can keep `join` and `stop` waiting indefinitely.
-
-See [workers.md](docs/concepts/workers.md) for what may cross the boundary, and
-[suspension.md](docs/concepts/suspension.md) for what a wait does under an installed handler.
+Leaving the scope waits for every child, including children the body did not await.
+The first unobserved child failure is raised after all children have settled. A wait
+blocks efficiently in an ordinary program and parks under a suspension handler.
 ]]
 
-local buffer = require("string.buffer")
-local type Native = {
-    channelCreate: function(): any,
-    channelDestroy: function(any),
-    channelClose: function(any),
-    channelPush: function(any, string): boolean,
-    channelPop: function(any, integer): string?,
-    channelCount: function(any): integer,
-    channelClosed: function(any): boolean,
-    workerSpawn: function(string, any, any): (any?, string?),
-    workerFinished: function(any): boolean,
-    workerJoin: function(any): (integer, string?),
-    current: function(): (any?, any?),
-    now: function(): number
+local type Buffer = {
+    encode: nosuspend function(any): any,
+    decode: nosuspend function(string): any
 }
-local native = require("nupp.workers.native") as Native
+local buffer = require("string.buffer") as Buffer
 local suspension = require("nupp.suspension")
 
+local type Native = {
+    channelCreate: nosuspend function(): any,
+    channelDestroy: nosuspend function(any),
+    channelClose: nosuspend function(any),
+    channelPush: nosuspend function(any, string): boolean,
+    channelPop: nosuspend function(any, integer): string?,
+    channelCount: nosuspend function(any): integer,
+    channelClosed: nosuspend function(any): boolean,
+    workerSpawn: nosuspend function(any, any): (any?, string?),
+    workerJoin: nosuspend function(any): (integer, string?),
+    workerParallelism: nosuspend function(): integer,
+    current: nosuspend function(): (any?, any?)
+}
+local native = require("nupp.workers.native") as Native
+
 local workers = {}
+
+local type Packed = {
+    values: {any},
+    count: integer
+}
+
+-- A task is named across the boundary rather than sent: the parent resolves the value
+-- to a module member and the lane requires that module. `addressable` is that fact in
+-- the type, so a closure or a private function is refused where it is written instead
+-- of when it is submitted.
+-- What a handle is parameterized by: any function, since a task type is derived from
+-- the signature alone and says nothing about where the function came from.
+local type Callable = function(...: any): any
+
+-- What may actually be submitted. A task is named across the boundary rather than sent:
+-- the parent resolves the value to a module member and the lane requires that module.
+-- `addressable` is that fact in the type, so a closure or a private function is refused
+-- where it is written rather than when it is submitted.
+local type Submittable = addressable function(...: any): any
+
+local comptime function Parameters(F: type): typepack
+    return nupp.types.parameters(F)
+end
+
+local comptime function TaskType(F: type): type
+    if nupp.types.kind(F) ~= "function" then
+        return nupp.types.error("a worker task must name a function type")
+    end
+    return nupp.types.shape({
+        {
+            name = "await",
+            read = nupp.types.function_(
+                nupp.types.pack({
+                    nupp.types.any
+                }),
+                nupp.types.results(F)
+            ),
+        },
+        {
+            name = "isDone",
+            read = nupp.types.function_(
+                nupp.types.pack({
+                    nupp.types.any
+                }),
+                nupp.types.pack({
+                    nupp.types.boolean
+                })
+            ),
+        },
+    })
+end
+
+--- The typed handle for one submitted function.
+type workers.Task<F is Callable> = TaskType(F)
+
+local function pack(...: any): Packed
+    return {values = {...}, count = select("#", ...)}
+end
 
 local type Frame = {
     kind: string,
@@ -188028,76 +188488,61 @@ local record Channel
     destroyed: boolean
 end
 
---- How a worker ended.
-record workers.Exit
-    --- True when the entry module returned without an uncaught error.
-    succeeded: boolean
-
-    --- Zero for a clean return and nonzero for a load or runtime failure.
-    status: integer
-
-    --- The worker's load or runtime error, when it failed.
-    error: string?
-end
-
---- The worker-side endpoints.
-record workers.Self
+local record Lane
+    handle: any
     inbox: Channel
     outbox: Channel
-
-    --- Waits for and returns the next payload. Nil means the inbox closed and drained.
-    receive: function(workers.Self): any?
-
-    --- Sends an ordinary message to the spawner.
-    send: function(workers.Self, any)
-
-    --- Answers requests until the inbox closes.
-    serve: function(workers.Self, function(any): any)
+    nextId: integer
+    inflight: integer
+    pending: {[integer]: boolean}
+    replies: {[integer]: Frame}
 end
 
---- A fresh Lua state running on a native thread.
-record workers.Worker
-    _handle: any
-    _inbox: Channel
-    _outbox: Channel
+local record Scheduler
+    lanes: {Lane}
+end
+
+--- The runtime state of a child computation.
+local record TaskImpl
+    _lane: Lane
+    _id: integer
+    _state: string
+    _values: {any}
+    _count: integer
+    _error: string?
+    _observed: boolean
+
+    --- Waits for the child and returns exactly the values its function returned.
+    await: function(TaskImpl): ...any
+
+    --- Whether the child has settled and its reply has reached this Lua state.
+    isDone: nosuspend function(TaskImpl): boolean
+end
+
+--- The cleanup contract a structured worker scope carries.
+affine interface workers.ScopeToken
+    terminal drop: nosuspend function(takes self: workers.ScopeToken): nil
+end
+
+--- A lexical family of parallel child tasks.
+record workers.Scope is workers.ScopeToken
+    _scheduler: Scheduler
+    _tasks: {any}
     _closed: boolean
-    _destroyed: boolean
-    _exit: workers.Exit?
-    _nextId: integer
-    _pendingIds: {[integer]: boolean}
-    _replies: {[integer]: Frame}
-    _messages: {any}
-    _firstMessage: integer
-    _lastMessage: integer
 
-    --- Queues a copied value without waiting for capacity.
-    send: function(workers.Worker, any)
+    --- Starts one ordinary exported function with copied arguments.
+    spawn: function<F is Submittable>(workers.Scope, F, ...: unpackof Parameters(F)): workers.Task<F>
 
-    --- Takes a ready ordinary message without waiting.
-    tryReceive: function(workers.Worker): any?
+    --- Waits for every child. Idempotent.
+    close: function(workers.Scope): nil
 
-    --- Waits for an ordinary message, or up to `timeoutMs` when supplied.
-    receive: function(workers.Worker, integer?): any?
-
-    --- Sends a request and waits for the matching reply.
-    call: function(workers.Worker, any): any
-
-    --- Closes the worker inbox. Nonblocking and idempotent.
-    close: function(workers.Worker)
-
-    --- Stops and releases the worker at scope exit.
-    drop: nosuspend function(takes self: workers.Worker): nil
-
-    --- Waits for the worker thread and records how it ended.
-    join: function(workers.Worker): workers.Exit
-
-    --- Closes, joins, and releases the worker. Idempotent.
-    stop: function(workers.Worker): workers.Exit
+    --- Closes the scope on every structured exit.
+    drop: nosuspend function(takes self: workers.Scope): nil
 end
 
 local ChannelMT: metatable<Channel> = {__index = Channel}
-local WorkerMT: metatable<workers.Worker> = {__index = workers.Worker}
-local SelfMT: metatable<workers.Self> = {__index = workers.Self}
+local TaskMT: metatable<TaskImpl> = {__index = TaskImpl}
+local ScopeMT: metatable<workers.Scope> = {__index = workers.Scope}
 
 local function channel(handle: any, owned: boolean): Channel
     return setmetatable({handle = handle, owned = owned, destroyed = false}, ChannelMT) as Channel
@@ -188112,17 +188557,13 @@ local function newChannel(): Channel
     return channel(handle, true)
 end
 
-local SENDABLE: {[string]: boolean} = {boolean = true, number = true, string = true,}
+local SENDABLE: {[string]: boolean} = {["nil"] = true, boolean = true, number = true, string = true,}
 
---- Names the first value that cannot cross. Repeated tables are rejected as
---- aliases as well as cycles because the encoding contract promises neither.
 local function unsendable(value: any, path: string, depth: integer, seen: {[any]: boolean}): string?
     local kind = type(value)
     if SENDABLE[kind] then
         return nil
     end
-    -- What is left once the sendable scalars are gone is the table this walks into,
-    -- and the checks below are what it has to hold up.
     @allow("exhaustiveness")
     if kind ~= "table" then
         return ("%s is a %s"):format(path, kind)
@@ -188153,420 +188594,392 @@ end
 local function encode(frame: Frame): string
     local rejected = unsendable(frame, "message", 0, {})
     if rejected ~= nil then
-        error("nupp: cannot send to a worker: " .. rejected, 3)
+        error("nupp: cannot copy a worker value: " .. rejected, 3)
     end
 
     return buffer.encode(frame as string) as string
 end
 
 local function decode(bytes: string): Frame
-    local ok, value = pcall(buffer.decode, bytes)
-    if not ok or type(value) ~= "table" or type((value as {[string]: any})["kind"]) ~= "string" then
-        error("nupp: a worker returned an invalid message frame", 3)
+    local value = buffer.decode(bytes)
+    if type(value) ~= "table" or type((value as {[string]: any})["kind"]) ~= "string" then
+        error("nupp: a worker returned an invalid task frame", 3)
     end
 
     return value as Frame
 end
 
-local function push(self: Channel, frame: Frame): nil
-    if self.destroyed or not native.channelPush(self.handle, encode(frame)) then
-        error("nupp: a worker channel is closed or its bounded queue is full", 3)
+local function push(target: Channel, frame: Frame): nil
+    if target.destroyed or not native.channelPush(target.handle, encode(frame)) then
+        error("nupp: a worker queue is closed or full", 3)
     end
 end
 
-local function pop(self: Channel, timeoutMs: integer): Frame?
-    if self.destroyed then
+local function pop(source: Channel, timeoutMs: integer): Frame?
+    if source.destroyed then
         return nil
     end
-    local bytes = native.channelPop(self.handle, timeoutMs)
+    local bytes = native.channelPop(source.handle, timeoutMs)
 
     return bytes ~= nil and decode(bytes) or nil
 end
 
-local function destroy(self: Channel): nil
-    if self.destroyed or not self.owned then
+local function destroy(value: Channel): nil
+    if value.destroyed or not value.owned then
         return
     end
-    self.destroyed = true
-    native.channelDestroy(self.handle)
-    self.handle = nil
+    value.destroyed = true
+    native.channelDestroy(value.handle)
+    value.handle = nil
 end
 
-local function takeMessage(self: workers.Worker): any?
-    if self._firstMessage > self._lastMessage then
-        return nil
-    end
-    local value = self._messages[self._firstMessage]
-    self._messages[self._firstMessage] = nil
-    if self._firstMessage == self._lastMessage then
-        self._firstMessage = 1
-        self._lastMessage = 0
-    else
-        self._firstMessage = self._firstMessage + 1
+local function startLane(): Lane
+    local inbox = newChannel()
+    local outbox = newChannel()
+    local handle, problem = native.workerSpawn(inbox.handle, outbox.handle)
+    if handle == nil then
+        destroy(inbox)
+        destroy(outbox)
+        error("nupp: cannot start the worker scheduler: " .. (problem or "unknown failure"), 3)
     end
 
-    return value
+    return new Lane(
+        handle = handle,
+        inbox = inbox,
+        outbox = outbox,
+        nextId = 1,
+        inflight = 0,
+        pending = {},
+        replies = {}
+    )
 end
 
-local function takeReply(self: workers.Worker, id: integer): Frame?
-    local reply = self._replies[id]
-    if reply ~= nil then
-        self._replies[id] = nil
-    end
+local sharedScheduler: Scheduler? = nil
 
-    return reply
+local function scheduler(): Scheduler
+    if sharedScheduler ~= nil then
+        return sharedScheduler
+    end
+    local workerInbox = native.current()
+    if workerInbox ~= nil then
+        error("nupp: a worker task cannot open another worker scope", 3)
+    end
+    local count = math.max(1, math.min(native.workerParallelism(), 64)) as integer
+    local lanes: {Lane} = {}
+    for index = 1, count do
+        local ok, lane = pcall(startLane)
+        if not ok then
+            for _, started in ipairs(lanes) do
+                native.channelClose(started.inbox.handle)
+                native.workerJoin(started.handle)
+                destroy(started.inbox)
+                destroy(started.outbox)
+            end
+            error(lane, 3)
+        end
+        lanes[index] = lane as Lane
+    end
+    sharedScheduler = new Scheduler(lanes = lanes)
+
+    return sharedScheduler
 end
 
---- Routes exactly one frame. Returns whether one was taken.
---- @raises when the worker supplied an unknown frame kind
-local function route(self: workers.Worker, timeoutMs: integer): boolean
-    local frame = pop(self._outbox, timeoutMs)
+local function route(lane: Lane, timeoutMs: integer): boolean
+    local frame = pop(lane.outbox, timeoutMs)
     if frame == nil then
         return false
     end
-    if frame.kind == "reply" and frame.id ~= nil then
-        if self._pendingIds[frame.id] then
-            self._pendingIds[frame.id] = nil
-            self._replies[frame.id] = frame
-        end
-    elseif frame.kind == "message" then
-        self._lastMessage = self._lastMessage + 1
-        self._messages[self._lastMessage] = frame.payload
-    else
-        error("nupp: a worker returned an unknown message frame", 3)
+    local id = frame.id
+    if frame.kind ~= "reply" or id == nil or not lane.pending[id] then
+        error("nupp: a worker returned an unknown task reply", 3)
     end
+    lane.pending[id] = nil
+    lane.replies[id] = frame
+    lane.inflight = lane.inflight - 1
 
     return true
 end
 
-local function ended(self: workers.Worker): boolean
-    return native.channelClosed(self._outbox.handle) and native.channelCount(self._outbox.handle) == 0
+local function ended(lane: Lane): boolean
+    return native.channelClosed(lane.outbox.handle) and native.channelCount(lane.outbox.handle) == 0
 end
 
---- Waits until `ready` succeeds. Without a handler the channel's condvar does
---- the sleeping. Under a handler one readiness source polls without entering
---- Lua from the worker thread.
-local function waitFor(
-    self: workers.Worker,
-    operation: string,
-    ready: function(): boolean,
-    timeoutMs: integer?
-): boolean
-    if ready() then
-        return true
-    end
-    if timeoutMs ~= nil and timeoutMs == 0 then
-        return false
-    end
-    local deadline = timeoutMs ~= nil and native.now() + timeoutMs or nil
-    if not suspension.handled() then
-        while not ready() do
-            local budget: integer = -1
-            if deadline ~= nil then
-                local remaining = math.ceil(deadline - native.now())
-                if remaining <= 0 then
-                    return false
-                end
-                budget = remaining as integer
-            end
-            if not route(self, budget) and ended(self) then
-                return ready()
-            end
-        end
-
-        return true
-    end
-
-    local function subscribe(resume: function(boolean), context: suspension.Context): function()
-        local source = context:source("nupp.workers", 50, function(): integer
-            local moved = route(self, 0)
-            if ready() or ended(self) or deadline ~= nil and native.now() >= deadline then
-                resume(true)
-
-                return 1
-            end
-
-            return moved and 1 or 0
-        end)
-
-        return function(): nil
-            source:release()
-        end
-    end
-
-    while not ready() do
-        if ended(self) then
-            return false
-        end
-        if deadline ~= nil and native.now() >= deadline then
-            return false
-        end
-        suspension.suspend(operation, subscribe)
-    end
-
-    return true
+local function ready(lane: Lane, id: integer): boolean
+    return lane.replies[id] ~= nil
 end
 
-function workers.Worker:send(value: any): nil
-    if self._closed or self._exit ~= nil then
-        error("nupp: cannot send to a closed worker", 2)
-    end
-    local rejected = unsendable(value, "value", 0, {})
-    if rejected ~= nil then
-        error("nupp: cannot send to a worker: " .. rejected, 2)
-    end
-    push(self._inbox, {kind = "message", payload = value})
-end
-
-function workers.Worker:tryReceive(): any?
-    local value = takeMessage(self)
-    if value ~= nil then
-        return value
-    end
-    while route(self, 0) do
-        value = takeMessage(self)
-        if value ~= nil then
-            return value
-        end
-    end
-
-    return nil
-end
-
-function workers.Worker:receive(timeoutMs: integer?): any?
-    if timeoutMs ~= nil and (timeoutMs < 0 or math.floor(timeoutMs) ~= timeoutMs) then
-        error("nupp: worker receive timeout must be a nonnegative integer", 2)
-    end
-    local value = self:tryReceive()
-    if value ~= nil then
-        return value
-    end
-    waitFor(
-        self,
-        "worker receive",
-        function(): boolean
-            return self._firstMessage <= self._lastMessage
-        end,
-        timeoutMs
-    )
-
-    return takeMessage(self)
-end
-
-function workers.Worker:call(value: any): any
-    if self._closed or self._exit ~= nil then
-        error("nupp: cannot call a closed worker", 2)
-    end
-    local rejected = unsendable(value, "value", 0, {})
-    if rejected ~= nil then
-        error("nupp: cannot call a worker: " .. rejected, 2)
-    end
-    local id = self._nextId
-    if id > 9007199254740991 then
-        error("nupp: worker request identifiers are exhausted", 2)
-    end
-    self._nextId = id + 1
-    self._pendingIds[id] = true
-    push(self._inbox, {kind = "request", id = id, payload = value})
-    waitFor(self, "worker call", function(): boolean
-        return self._replies[id] ~= nil
-    end)
-    local reply = takeReply(self, id)
-    if reply == nil then
-        self._pendingIds[id] = nil
-        local exit = self:join()
-        error(exit.error or "nupp: worker ended before replying", 2)
-    end
-    if reply.ok ~= true then
-        error("nupp: worker call failed: " .. (reply.error or "without saying why"), 2)
-    end
-
-    return reply.payload
-end
-
-function workers.Worker:close(): nil
-    if self._closed then
+local function waitFor(lane: Lane, id: integer): nil
+    if ready(lane, id) then
         return
     end
-    self._closed = true
-    native.channelClose(self._inbox.handle)
-end
-
-function workers.Worker:join(): workers.Exit
-    if self._exit ~= nil then
-        return self._exit
-    end
-    if suspension.handled() and not native.workerFinished(self._handle) then
-        suspension.suspend("worker join", function(resume: function(boolean), context: suspension.Context): function()
-            local source = context:source("nupp.workers.join", 50, function(): integer
-                if native.workerFinished(self._handle) then
+    if not suspension.handled() then
+        while not ready(lane, id) do
+            if not route(lane, -1) and ended(lane) then
+                break
+            end
+        end
+    else
+        local function subscribe(resume: function(boolean), context: suspension.Context): function()
+            local source = context:source("nupp.workers", 50, function(): integer
+                local moved = route(lane, 0)
+                if ready(lane, id) or ended(lane) then
                     resume(true)
-
                     return 1
                 end
 
-                return 0
+                return moved and 1 or 0
             end)
 
             return function(): nil
                 source:release()
             end
-        end)
-    end
-    local status, failure = native.workerJoin(self._handle)
-    self._handle = nil
-    self._exit = new workers.Exit(succeeded = status == 0, status = status, error = failure)
-
-    return self._exit
-end
-
-function workers.Worker:stop(): workers.Exit
-    if self._destroyed then
-        return self._exit as workers.Exit
-    end
-    self:close()
-    local exit = self:join()
-    destroy(self._inbox)
-    destroy(self._outbox)
-    self._destroyed = true
-
-    return exit
-end
-
-function workers.Worker.drop(takes self: workers.Worker): nil
-    self:stop()
-end
-
---- Stops and releases a worker, which is what every worker's contract names.
----
---- Nothing calls this by hand. It is the terminal consumer `affine` carries, so a
---- scope boundary or an explicit `drop` reaches it.
----
---- @param self the worker, spent by this call
-function workers.destroyWorker(takes self: workers.Worker): nil
-    self:drop()
-end
-
-local function receiveSelf(self: workers.Self): Frame?
-    return pop(self.inbox, -1)
-end
-
-function workers.Self:receive(): any?
-    local frame = receiveSelf(self)
-
-    return frame and frame.payload or nil
-end
-
-function workers.Self:send(value: any): nil
-    local rejected = unsendable(value, "value", 0, {})
-    if rejected ~= nil then
-        error("nupp: cannot send from a worker: " .. rejected, 2)
-    end
-    push(self.outbox, {kind = "message", payload = value})
-end
-
-function workers.Self:serve(handler: function(any): any): nil
-    while true do
-        local frame = receiveSelf(self)
-        if frame == nil then
-            return
         end
-        local ok, answer = pcall(handler, frame.payload)
-        if frame.kind == "request" and frame.id ~= nil then
-            if ok then
-                local rejected = unsendable(answer, "result", 0, {})
-                if rejected == nil then
-                    push(self.outbox, {kind = "reply", id = frame.id, ok = true, payload = answer})
-                else
-                    push(self.outbox, {
-                        kind = "reply",
-                        id = frame.id,
-                        ok = false,
-                        error = "a call result cannot cross: " .. rejected,
-                    })
+
+        while not ready(lane, id) and not ended(lane) do
+            suspension.suspend("worker task", subscribe)
+        end
+    end
+    if not ready(lane, id) then
+        error("nupp: a worker thread ended before answering a task", 3)
+    end
+end
+
+local function callableAddress(fn: any): (string?, string?)
+    local found: {string} = {}
+    local loaded = package.loaded as {[any]: any}
+    for moduleName, moduleValue in pairs(loaded) do
+        if type(moduleName) == "string" and type(moduleValue) == "table" then
+            for member, value in pairs(moduleValue as {[any]: any}) do
+                if type(member) == "string" and value == fn then
+                    found[#found + 1] = moduleName .. "\0" .. member
                 end
-            else
-                push(self.outbox, {kind = "reply", id = frame.id, ok = false, error = tostring(answer),})
             end
         end
     end
-end
-
---- Starts `entry` in a fresh LuaJIT state.
----
---- The entry is a module name resolved out of the same stamped payload the spawner
---- was built from, so a worker needs no separate build. It runs until its module
---- returns or its inbox closes and drains.
----
---- ```nupp
---- do
----     local worker = workers.spawn("jobs.hash")
----     local answer = worker:call({bytes = contents})
----     print(answer.length)
---- end -- the worker is closed, joined and released here
---- ```
----
---- @param entry the worker entry module's name
---- @return an owned worker that is stopped on every structured exit
---- @raises when the entry is not a nonempty module name, or the worker state cannot
----     be started
-function workers.spawn(entry: string): affine(workers.Worker, workers.destroyWorker)
-    if type(entry) ~= "string" or entry == "" then
-        error("nupp: a worker entry must be a nonempty module name", 2)
-    end
-    local inbox = newChannel()
-    local outbox = newChannel()
-    local handle, problem = native.workerSpawn(entry, inbox.handle, outbox.handle)
-    if handle == nil then
-        destroy(inbox)
-        destroy(outbox)
-        error("nupp: cannot spawn worker: " .. (problem or "unknown failure"), 2)
+    table.sort(found)
+    local address = found[1]
+    if address == nil then
+        return nil, nil
     end
 
-    return setmetatable(
-        {
-            _handle = handle,
-            _inbox = inbox,
-            _outbox = outbox,
-            _closed = false,
-            _destroyed = false,
-            _exit = nil,
-            _nextId = 1,
-            _pendingIds = {},
-            _replies = {},
-            _messages = {},
-            _firstMessage = 1,
-            _lastMessage = 0,
-        },
-        WorkerMT
-    ) as workers.Worker
+    return address:match("^(.-)%z(.*)$")
 end
 
---- Answers the endpoints installed in the current worker state.
----
---- Only a worker entry module has these. The spawner side holds a
---- [](nupp.workers.Worker) instead.
----
---- ```nupp
---- workers.current():serve(function(job: any): any
----     return {length = #job.bytes}
---- end)
---- ```
----
---- @return the inbox and outbox endpoints for this worker
---- @raises outside a worker state
-function workers.current(): workers.Self
-    local inbox, outbox = native.current()
-    if inbox == nil or outbox == nil then
-        error("nupp: workers.current is only valid inside a worker", 2)
+local function leastBusy(value: Scheduler): Lane
+    local selected = value.lanes[1]
+    for index = 2, #value.lanes do
+        local candidate = value.lanes[index]
+        if candidate.inflight < selected.inflight then
+            selected = candidate
+        end
     end
 
-    return setmetatable({inbox = channel(inbox, false), outbox = channel(outbox, false),}, SelfMT) as workers.Self
+    return selected
 end
 
-workers.Worker = workers.Worker
-workers.Self = workers.Self
-workers.Exit = workers.Exit
+function workers.Scope:spawn<F is Submittable>(fn: F, ...: unpackof Parameters(F)): workers.Task<F>
+    if self._closed then
+        error("nupp: cannot spawn into a closed worker scope", 2)
+    end
+    local moduleName, member = callableAddress(fn)
+    if moduleName == nil or member == nil then
+        error(
+            "nupp: worker tasks must be exported functions; closures and private functions cannot cross an isolated Lua state",
+            2
+        )
+    end
+    local arguments = pack(...)
+    local rejected = unsendable(arguments.values, "arguments", 0, {})
+    if rejected ~= nil then
+        error("nupp: cannot copy task arguments: " .. rejected, 2)
+    end
+    local lane = leastBusy(self._scheduler)
+    local id = lane.nextId
+    lane.nextId = id + 1
+    lane.inflight = lane.inflight + 1
+    lane.pending[id] = true
+    local submitted, problem = pcall(function(): nil
+        push(lane.inbox, {
+            kind = "task",
+            id = id,
+            payload = {module = moduleName, member = member, arguments = arguments,},
+        })
+    end)
+    if not submitted then
+        lane.pending[id] = nil
+        lane.inflight = lane.inflight - 1
+        error(problem, 2)
+    end
+    local task = setmetatable(
+        {_lane = lane, _id = id, _state = "pending", _values = {}, _count = 0, _error = nil, _observed = false,},
+        TaskMT
+    ) as workers.Task<F>
+    self._tasks[#self._tasks + 1] = task
+
+    return task
+end
+
+function TaskImpl:isDone(): boolean
+    if self._state ~= "pending" then
+        return true
+    end
+    while route(self._lane, 0) do
+    end
+
+    return ready(self._lane, self._id)
+end
+
+function TaskImpl:await(): ...any
+    self._observed = true
+    if self._state == "pending" then
+        waitFor(self._lane, self._id)
+        local reply = self._lane.replies[self._id] as Frame
+        self._lane.replies[self._id] = nil
+        if reply.ok == true then
+            local packed = reply.payload as Packed
+            self._values = packed.values
+            self._count = packed.count
+            self._state = "done"
+        else
+            self._error = reply.error or "worker task failed without an error"
+            self._state = "failed"
+        end
+    end
+    if self._state == "failed" then
+        error("nupp: worker task failed: " .. (self._error or "unknown failure"), 2)
+    end
+
+    return unpack(self._values, 1, self._count)
+end
+
+local function waitForBlocking(lane: Lane, id: integer): nil
+    while not ready(lane, id) do
+        if not route(lane, -1) and ended(lane) then
+            error("nupp: a worker thread ended before answering a task", 3)
+        end
+    end
+end
+
+local function settleBlocking(task: any): string?
+    task._observed = true
+    if task._state == "pending" then
+        waitForBlocking(task._lane, task._id)
+        local reply = task._lane.replies[task._id] as Frame
+        task._lane.replies[task._id] = nil
+        if reply.ok == true then
+            local packed = reply.payload as Packed
+            task._values = packed.values
+            task._count = packed.count
+            task._state = "done"
+        else
+            task._error = reply.error or "worker task failed without an error"
+            task._state = "failed"
+        end
+    end
+
+    return task._state == "failed" and "nupp: worker task failed: " .. (task._error or "unknown failure") or nil
+end
+
+local function closeBlocking(takes self: workers.Scope): nil
+    if self._closed then
+        return
+    end
+    self._closed = true
+    local firstFailure: any = nil
+    for _, task in ipairs(self._tasks) do
+        local observed = task._observed == true
+        local problem = settleBlocking(task)
+        if problem ~= nil and not observed and firstFailure == nil then
+            firstFailure = problem
+        end
+    end
+    if firstFailure ~= nil then
+        error(firstFailure, 2)
+    end
+end
+
+function workers.Scope:close(): nil
+    if self._closed then
+        return
+    end
+    self._closed = true
+    local firstFailure: any = nil
+    for _, task in ipairs(self._tasks) do
+        local observed = task._observed == true
+        local ok, problem = pcall(function(): nil
+            task:await()
+        end)
+        if not ok and not observed and firstFailure == nil then
+            firstFailure = problem
+        end
+    end
+    if firstFailure ~= nil then
+        error(firstFailure, 2)
+    end
+end
+
+function workers.Scope.drop(takes self: workers.Scope): nil
+    closeBlocking(self)
+end
+
+--- Opens a structured family on the process-wide bounded worker scheduler.
+function workers.scope(): affine(workers.Scope)
+    return setmetatable({_scheduler = scheduler(), _tasks = {}, _closed = false,}, ScopeMT) as workers.Scope
+end
+
+local function workerReply(outbox: Channel, id: integer, ok: boolean, answer: any): nil
+    if not ok then
+        push(outbox, {kind = "reply", id = id, ok = false, error = tostring(answer)})
+        return
+    end
+    local rejected = unsendable(answer, "results", 0, {})
+    if rejected ~= nil then
+        push(outbox, {kind = "reply", id = id, ok = false, error = "results cannot be copied: " .. rejected})
+    else
+        push(outbox, {kind = "reply", id = id, ok = true, payload = answer})
+    end
+end
+
+--- Runs the scheduler loop inside a native worker state. Compiler-owned bootstrap only.
+--- @raises when called outside the compiler-owned worker bootstrap
+function workers.__runScheduler(): nil
+    local inHandle, outHandle = native.current()
+    if inHandle == nil or outHandle == nil then
+        error("nupp: worker scheduler started outside a worker state", 2)
+    end
+    local inbox = channel(inHandle, false)
+    local outbox = channel(outHandle, false)
+    while true do
+        local frame = pop(inbox, -1)
+        if frame == nil then
+            return
+        end
+        local id = frame.id
+        local request = frame.payload as {[string]: any}
+        if frame.kind ~= "task" or id == nil or type(request) ~= "table" then
+            error("nupp: worker scheduler received an invalid task", 2)
+        end
+        local ok, answer = pcall(function(): Packed
+            local moduleName = request.module
+            local member = request.member
+            local arguments = request.arguments as Packed
+            if type(moduleName) ~= "string" or type(member) ~= "string" then
+                error("task has no callable address", 0)
+            end
+            local moduleValue = require(moduleName)
+            local callable = type(moduleValue) == "table" and (moduleValue as {[string]: any})[member] or nil
+            if type(callable) ~= "function" then
+                error(("%s.%s is no longer an exported function"):format(moduleName, member), 0)
+            end
+
+            return pack(callable(unpack(arguments.values, 1, arguments.count)))
+        end)
+        workerReply(outbox, id, ok, answer)
+    end
+end
+
+workers.Scope = workers.Scope
+workers.ScopeToken = workers.ScopeToken
 
 export = workers
 ]=],
@@ -188579,20 +188992,19 @@ export = workers
 --- functions deliberately expose only opaque handles and serialized bytes, so
 --- nothing here can hand a Lua value from one state to another.
 local record native
-    channelCreate: function(): any
-    channelDestroy: function(any)
-    channelClose: function(any)
-    channelPush: function(any, string): boolean
-    channelPop: function(any, integer): string?
-    channelCount: function(any): integer
-    channelClosed: function(any): boolean
+    channelCreate: nosuspend function(): any
+    channelDestroy: nosuspend function(any)
+    channelClose: nosuspend function(any)
+    channelPush: nosuspend function(any, string): boolean
+    channelPop: nosuspend function(any, integer): string?
+    channelCount: nosuspend function(any): integer
+    channelClosed: nosuspend function(any): boolean
 
-    workerSpawn: function(string, any, any): (any?, string?)
-    workerFinished: function(any): boolean
-    workerJoin: function(any): (integer, string?)
+    workerSpawn: nosuspend function(any, any): (any?, string?)
+    workerJoin: nosuspend function(any): (integer, string?)
+    workerParallelism: nosuspend function(): integer
 
-    current: function(): (any?, any?)
-    now: function(): number
+    current: nosuspend function(): (any?, any?)
 end
 
 return native
@@ -188741,10 +189153,9 @@ end
 -- A typed LuaRocks library: runtime Lua as ordinary rock modules, with matching
 -- public declarations in a versioned `nupp/` directory.
 --
--- This is what `nupp rock init` writes, and it writes it by scaffolding this
--- template. The pattern is `nupp.compiler.rock`'s own rule for a rock name,
--- which is stricter than a directory name has to be and is the reason a
--- template can declare one at all.
+-- The pattern is the rule for a rock name, which is stricter than a directory
+-- name has to be and is the reason a template can declare one at all. `nupp
+-- rock pack` is what packages what this writes.
 return {
    description = "A typed library packaged as a LuaRocks rock",
 
@@ -188762,6 +189173,124 @@ return {
 ["/templates/lib/tests/run.lua"] = [[
 local library = require("${moduleName}")
 assert(library.greet("Nupp") == "Hello, Nupp!")
+]],
+["/templates/love/.gitignore"] = [[
+/build/
+]],
+["/templates/love/README.md"] = [[
+# ${name}
+
+A small LÖVE game written in Nupp.
+
+```sh
+nupp check      # type-check the game and its LÖVE API boundary
+nupp build      # compile the game into build/
+nupp test       # build, then test game logic without LÖVE
+nupp task play  # build, then start the game with LÖVE
+```
+
+The target uses `luajit-compat`: it lowers Nupp's newer LuaJIT syntax for an
+embedded runtime while retaining LuaJIT FFI and native representations.
+
+The full LÖVE API surface comes from the pinned LuaCATS `kind = "types"`
+dependency in `nupp.lua`. Nupp fetches it into `.nupp/deps/love` and reads its
+annotations only: it is neither executed nor copied into `build/`.
+]],
+["/templates/love/nupp.lua"] = [[
+return {
+   include = { "src" },
+
+   dependencies = {
+      love = {
+         kind = "types",
+         format = "luacats",
+         source = {
+            git = "https://github.com/LuaCATS/love2d.git",
+            rev = "c630dd883cda128a19d850bd5e3911110b271609",
+         },
+         path = "library",
+      },
+   },
+
+   build = {
+      outDir = "build",
+      default = "game",
+      targets = {
+         game = {
+            kind = "modules",
+            description = "Build ${name} for LÖVE",
+            dialect = "luajit-compat",
+            entries = { "main" },
+         },
+      },
+   },
+
+   test = {
+      build = "game",
+      argv = { "luajit", "tests/run.lua" },
+      env = { LUA_PATH = "build/?.lua;;" },
+   },
+
+   tasks = {
+      play = {
+         build = "game",
+         description = "Build ${name} and start it with LÖVE",
+         argv = { "love", "build" },
+      },
+   },
+}
+]],
+["/templates/love/src/game.nupp"] = [[
+module game
+
+--- Advances a position at a fixed speed.
+export function advance(position: number, speed: number, elapsed: number): number
+   return position + speed * elapsed
+end
+]],
+["/templates/love/src/main.nupp"] = [[
+local game = require("game")
+
+local x: number = 32
+const speed: number = 96
+
+function love.load()
+   love.graphics.setBackgroundColor(0.08, 0.1, 0.16)
+end
+
+function love.update(elapsed: number)
+   x = game.advance(x, speed, elapsed)
+   if x > 800 then
+      x = -32
+   end
+end
+
+function love.draw()
+   love.graphics.setColor(0.35, 0.8, 1)
+   love.graphics.rectangle("fill", x, 220, 48, 48)
+end
+]],
+["/templates/love/template.lua"] = [[
+return {
+   description = "A small LÖVE game using Nupp's LuaJIT compatibility target",
+
+   variables = {
+      name = {
+         pattern = "^[a-z0-9][a-z0-9_-]*$",
+         invalid = "a project name must use lowercase letters, digits,"
+            .. " hyphens, or underscores",
+      },
+   },
+
+   after = { "git" },
+}
+]],
+["/templates/love/tests/run.lua"] = [[
+local game = require("game")
+
+assert(game.advance(10, 8, 0.5) == 14)
+
+print("ok")
 ]],
 }
 end

@@ -209,7 +209,22 @@ function index.install(c: state.Checker): state.ExprHandlers
         return nil
     end
 
-    handlers.dotIndex = function(node: cst.DotIndex | cst.SafeIndex): Type
+    --- Whether a name stands for a loaded module's table: one this file required, or
+    --- the table this module exports. A member read off either is reachable by name.
+    local function moduleHolder(holderName: string): boolean
+        if holderName == "" then
+            return false
+        end
+        if c.moduleLocal and holderName == c.moduleLocal then
+            return true
+        end
+        local holder = c.lookupEntry(holderName)
+
+        return holder ~= nil and holder.requiredModule ~= nil
+    end
+
+    local fieldOf: function(node: cst.DotIndex | cst.SafeIndex): Type
+    fieldOf = function(node: cst.DotIndex | cst.SafeIndex): Type
         local kind = node.kind
         local member = node.name
         local target = node.obj
@@ -679,7 +694,26 @@ function index.install(c: state.Checker): state.ExprHandlers
 
         return out
     end
-    handlers.safeIndex = handlers.dotIndex
+
+    --- `jobs.hash` is reachable as `require("jobs").hash` from any Lua state, so
+    --- reading it mints the fact on the type. Wrapping the whole rule rather than one
+    --- of its exits: a member read leaves by whichever answer settled it first, and
+    --- every one of them read the same module.
+    handlers.dotIndex = function(node: cst.DotIndex | cst.SafeIndex): Type
+        local out = fieldOf(node)
+        if node.kind ~= "dotIndex" or node.writeContext or out.tag ~= "func" then
+            return out
+        end
+        local target = node.obj
+        local holderTok = target and target.kind == "name" and target.token or nil
+        if not moduleHolder(holderTok and holderTok.text or "") then
+            return out
+        end
+
+        return T.withAddressable(out)
+    end
+
+    handlers.safeIndex = fieldOf
 
     handlers.bracketIndex = function(node: cst.BracketIndex | cst.SafeBracket): Type
         local kind = node.kind

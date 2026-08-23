@@ -1657,7 +1657,11 @@ function resolve.install(c: state.Checker): nil
                     end
 
                     return written
-                end)() or nil
+                end)() or nil,
+                -- `addressable function(...)`: the way to require a nameable callable
+                -- of something whose provenance is not visible here, such as a
+                -- parameter or a field.
+                node.addressable
             )
             if node.comptimeOnly then
                 c.comptimeFunctionDepth = c.comptimeFunctionDepth - 1

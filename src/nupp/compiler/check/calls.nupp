@@ -637,6 +637,21 @@ function calls.install(c: state.Checker): calls.Ops
     --- A method's type as a plain function, receiver removed.
 
     ---------------------------------------------------------------------
+
+    --- What to do about a bound one type argument failed. A bound asking to name the
+    --- value is the case worth spelling out: the two types print alike apart from the
+    --- modifier, so the reason alone does not say what the author should write instead.
+    local function boundHelp(wanted: T.Type, actual: T.Type): string?
+        if wanted.tag ~= "func" or actual.tag ~= "func" then
+            return nil
+        end
+        if not (wanted as T.Func).addressable or (actual as T.Func).addressable then
+            return nil
+        end
+
+        return "pass a function a module exports, with the values it would have captured as arguments"
+    end
+
     -- Generic instantiation
     ---------------------------------------------------------------------
 
@@ -647,9 +662,16 @@ function calls.install(c: state.Checker): calls.Ops
             local bound = bounds and bounds[j]
             local actual = map[tv]
             if bound and actual and actual ~= T.any then
-                local ok, why = isA(actual, substType(bound, map, nil, c.reductionControl))
+                local wanted = substType(bound, map, nil, c.reductionControl)
+                local ok, why = isA(actual, wanted)
                 if not ok then
-                    c.diag("NUPP2116", node, ("type argument %s for %s: %s"):format(T.tostring(actual), tv.name, why))
+                    c.diag(
+                        "NUPP2116",
+                        node,
+                        ("type argument %s for %s: %s"):format(T.tostring(actual), tv.name, why),
+                        nil,
+                        {help = boundHelp(wanted, actual)}
+                    )
                 end
             end
         end
@@ -712,12 +734,15 @@ function calls.install(c: state.Checker): calls.Ops
                 local bound = ft.typeBounds and ft.typeBounds[j]
                 local actual = map[tv]
                 if bound and actual then
-                    local ok, why = isA(actual, substType(bound, map, nil, c.reductionControl))
+                    local wanted = substType(bound, map, nil, c.reductionControl)
+                    local ok, why = isA(actual, wanted)
                     if not ok then
                         c.diag(
                             "NUPP2116",
                             site,
-                            ("type argument %s for %s: %s"):format(T.tostring(actual), tv.name, why)
+                            ("type argument %s for %s: %s"):format(T.tostring(actual), tv.name, why),
+                            nil,
+                            {help = boundHelp(wanted, actual)}
                         )
                     end
                 end
@@ -1743,7 +1768,9 @@ function calls.install(c: state.Checker): calls.Ops
                         c.diag(
                             "NUPP2116",
                             node,
-                            ("type argument %s for %s: %s"):format(T.tostring(actual), tv.name, why)
+                            ("type argument %s for %s: %s"):format(T.tostring(actual), tv.name, why),
+                            nil,
+                            {help = boundHelp(expected, actual)}
                         )
                     end
                 end

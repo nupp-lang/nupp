@@ -2372,6 +2372,15 @@ record cst.Tfunc is cst.Hints
     --- aliasing, and substitution like everything else a type says.
     noSuspend: boolean?
 
+    --- Written `addressable function(...)`: the value is a member of a loaded module,
+    --- so it can be named by module and member rather than only held.
+    ---
+    --- A positive guarantee like `noSuspend`, minted where a module member is read and
+    --- carried by the type from there, so a binding, a field, and a parameter can all
+    --- state it. An isolated Lua state resolves a callable by that name; a value with
+    --- no name cannot cross into one.
+    addressable: boolean?
+
     --- Written `comptime function(...)`: the callable exists only while evaluating
     --- compile-time code and may mention compiler-only handle types.
     comptimeOnly: boolean?

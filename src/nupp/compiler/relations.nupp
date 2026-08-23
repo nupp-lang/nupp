@@ -1198,6 +1198,12 @@ local function check(a: Type, b: Type): boolean, string?
         if b.noYield and not a.noYield then
             return false, ("%s is not a %s (it may suspend)"):format(T.tostring(a), T.tostring(b))
         end
+        -- Being nameable is a guarantee on the same footing. A callable read from a
+        -- required module satisfies a slot that accepts any function; one nobody proved
+        -- reachable does not satisfy a slot that has to name it later.
+        if b.addressable and not a.addressable then
+            return false, ("%s is not %s (it has no module address)"):format(T.tostring(a), T.tostring(b))
+        end
         -- Ignoring arguments is ordinary Lua: a callback that takes the value and not
         -- the key is usable wherever both are passed. Wanting more than will ever be
         -- supplied is not, since the extra ones read as nil.

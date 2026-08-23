@@ -1972,6 +1972,65 @@ return m
     ),
 
     new reference.Section(
+        title = "Addressable callables",
+        codes = {"NUPP2116"},
+        body = [=[
+`addressable function(...)` is a callable that can be named: a member of a
+loaded module, reachable as `require(module)[member]` from any Lua state rather
+than only from the one holding the value.
+
+The fact is minted where a member of a required module is read, and it rides on
+the type from there, so a binding, a field, or a parameter keeps it without
+being told. Write the modifier only where a callable is held as a value and its
+provenance is no longer visible -- a dispatch table, or a helper that takes a
+function and passes it on.
+
+Like `nosuspend`, it is a positive guarantee that participates in identity,
+subtyping, aliasing and substitution. An `addressable function` fits an ordinary
+slot, but not conversely, and a choice between a named and an unnamed reading
+promises only what both did.
+
+A closure and a private function have no address. A closure's upvalues belong to
+one Lua heap, so re-running a module elsewhere would not reproduce what it
+captured; the values that vary per call are arguments instead.
+
+`nupp.workers` is what asks for this today: a task is named across an isolated
+state rather than sent to it. See [workers.md](docs/concepts/workers.md).
+]=],
+        context = {
+            [
+                "jobs.nupp"
+            ] = [=[
+module jobs
+
+export function hash(value: string): string
+    return value
+end
+
+export function upper(value: string): string
+    return value:upper()
+end
+]=]
+        },
+        example = [=[
+local m = {}
+
+const jobs = require("jobs")
+
+const handlers: {[string]: addressable function(string): string} = {
+    hash = jobs.hash,
+    upper = jobs.upper,
+}
+
+function m.named(name: string): addressable function(string): string
+    return handlers[name] or jobs.hash
+end
+
+return m
+]=]
+    ),
+
+    new reference.Section(
         title = "Allocation and raising regions",
         codes = {"NUPP2710", "NUPP2711", "NUPP2112"},
         body = [=[

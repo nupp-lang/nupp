@@ -421,6 +421,15 @@ record types.Func
     --- whether calling this may suspend.
     noYield: boolean?
 
+    --- Whether the value is reachable by module and member name.
+    ---
+    --- A positive guarantee like `noYield`: omitting it is the conservative answer, so
+    --- a callable nobody proved reachable stays unnameable. Minted where a member of a
+    --- required module is read, and carried by the type from there, which is what lets
+    --- a binding, a field, or a parameter state the same fact. An isolated Lua state
+    --- can only resolve a callable by that name.
+    addressable: boolean?
+
     --- Per-parameter ownership mode, "plain" unless stated otherwise.
     paramModes: {string}
 
@@ -1362,7 +1371,10 @@ local function pushUnionMember(
         local prior = flat[at] as types.Func
         if prior ~= t then
             -- A value selected from differently labeled functions can still be
-            -- called positionally, but no label is guaranteed by both branches.
+            -- called positionally, but no label is guaranteed by both branches. A
+            -- guarantee neither branch promised alone is not promised by the choice
+            -- between them, so being nameable survives only when both readings were.
+            local nameable = prior.addressable and (t as types.Func).addressable or nil
             local merged = types.func(
                 prior.params,
                 prior.rets,
@@ -1390,7 +1402,8 @@ local function pushUnionMember(
                 prior.paramKinds,
                 prior.partitionResults,
                 prior.comptimeOnly,
-                prior.explicitPreserves
+                prior.explicitPreserves,
+                nameable
             )
             seen[prior] = nil
             seen[merged] = true
@@ -2602,7 +2615,8 @@ function types.func(
     paramKinds: {string}?,
     partitionResults: {[integer]: {[string]: string}}?,
     comptimeOnly: boolean?,
-    explicitPreserves: {[integer]: boolean}?
+    explicitPreserves: {[integer]: boolean}?,
+    addressable: boolean?
 ): types.Type
     -- A single declared result of `never` is a promise the call never comes back, the
     -- same promise `noreturn` records; deriving it here means a signature only has to
@@ -2736,6 +2750,12 @@ function types.func(
         key = key .. "|comptime"
     end
     local unlabeledId = key
+    -- After `unlabeledId`, so that two readings of one function -- named through its
+    -- module in one branch and merely held in the other -- still merge into a single
+    -- callable rather than an uncallable union of two contracts.
+    if addressable then
+        key = key .. "|addressable"
+    end
     if explicitPreserves then
         local written = {}
         for result = 1, #rets do
@@ -2788,7 +2808,8 @@ function types.func(
             paramKinds = paramKinds,
             yieldPack = yieldPack,
             resumePack = resumePack,
-            comptimeOnly = comptimeOnly or nil
+            comptimeOnly = comptimeOnly or nil,
+            addressable = addressable or nil
         )
     )
 end
@@ -2841,7 +2862,57 @@ function types.withYields(ft: types.Type, mayYield: boolean): types.Type
         fn.paramKinds,
         fn.partitionResults,
         fn.comptimeOnly,
-        fn.explicitPreserves
+        fn.explicitPreserves,
+        fn.addressable
+    )
+end
+
+--- The same function, marked reachable by module and member name.
+---
+--- Minted where a member of a required module is read, so that a value nobody can name
+--- and one that a lane can require differ in their types rather than only at the moment
+--- somebody tries to submit one.
+---
+--- @param ft the callable
+--- @return the same type when it already says this, otherwise its interned variant
+function types.withAddressable(ft: types.Type): types.Type
+    if ft.tag ~= "func" then
+        return ft
+    end
+    local fn = ft as types.Func
+    if fn.addressable then
+        return ft
+    end
+
+    return types.func(
+        fn.params,
+        fn.rets,
+        fn.vararg,
+        fn.paramModes,
+        fn.predicate,
+        fn.typeParams,
+        fn.typeBounds,
+        fn.borrowsParam,
+        fn.borrowsSelf,
+        fn.borrowsParams,
+        fn.ffiOut,
+        fn.varargType,
+        fn.noreturn,
+        fn.paramPack,
+        fn.retPack,
+        fn.packParams,
+        fn.yieldPack,
+        fn.resumePack,
+        fn.noYield,
+        fn.paramNames,
+        fn.preservesResults,
+        fn.foreign,
+        fn.constParams,
+        fn.paramKinds,
+        fn.partitionResults,
+        fn.comptimeOnly,
+        fn.explicitPreserves,
+        true
     )
 end
 
@@ -2882,7 +2953,8 @@ function types.foreignFunction(ft: types.Type): types.Type
         fn.paramKinds,
         fn.partitionResults,
         fn.comptimeOnly,
-        fn.explicitPreserves
+        fn.explicitPreserves,
+        fn.addressable
     )
 end
 
@@ -2925,7 +2997,8 @@ function types.withFirstResult(ft: types.Type, first: types.Type): types.Type
         fn.paramKinds,
         fn.partitionResults,
         fn.comptimeOnly,
-        fn.explicitPreserves
+        fn.explicitPreserves,
+        fn.addressable
     )
 end
 
@@ -2965,7 +3038,8 @@ function types.withPartitionResults(ft: types.Type, partitionResults: {[integer]
         fn.paramKinds,
         partitionResults,
         fn.comptimeOnly,
-        fn.explicitPreserves
+        fn.explicitPreserves,
+        fn.addressable
     )
 end
 
@@ -3591,7 +3665,12 @@ function types.tostring(t: types.Type): string
             binders[#binders + 1] = "const " .. cv.name .. ": " .. cv.domain
         end
         local generic = #binders > 0 and "<" .. table.concat(binders, ", ") .. ">" or ""
-        return "function" .. generic .. "(" .. table.concat(ps, ", ") .. ")" .. ret .. protocol
+        -- Printed, where the suspension guarantee is not, because this one is the whole
+        -- subject of the message that reports it: two functions of the same shape
+        -- differ only in whether the reader can see which one has a name.
+        local nameable = t.addressable and "addressable " or ""
+
+        return nameable .. "function" .. generic .. "(" .. table.concat(ps, ", ") .. ")" .. ret .. protocol
     elseif tag == "protocolThread" then
         return "thread<" .. types.tostringPack(
             t.startPack
