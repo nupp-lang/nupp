@@ -2,8 +2,6 @@
 
 # Nupp
 
-*A typed programming language for LuaJIT.*
-
 Nupp is a gradually typed superset of LuaJIT's Lua dialect, implementing every
 [LuaJIT 3.0 syntax extension](https://github.com/LuaJIT/LuaJIT/issues/1475) and
 adding to them rather than subtracting ([docs/grammar.abnf](docs/grammar.abnf)).
