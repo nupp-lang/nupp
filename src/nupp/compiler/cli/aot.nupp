@@ -144,6 +144,13 @@ local command = spec.command{
                                 unrolledIterations = {type = "integer"},
                                 removedStatements = {type = "integer"},
                                 iterations = {type = "integer"},
+                                ruleApplications = {
+                                    type = "array",
+                                    items = {
+                                        type = "object",
+                                        properties = {id = {type = "string"}, count = {type = "integer"},},
+                                    },
+                                },
                             },
                         },
                         loops = {

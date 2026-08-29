@@ -177,6 +177,34 @@ function M.astOutputMatchesItsSchema()
    os.execute("rm -rf '" .. dir .. "'")
 end
 
+function M.aotOutputMatchesItsSchemaAndOrdersRuleApplications()
+   local dir = tempProject({
+      ["nupp.lua"] = 'return {include = {"."}}\n',
+      ["rules.nupp"] = [[
+@aot
+local function identity(value: number): number
+    return value
+end
+
+@aot
+local function simplified(value: number): number
+    return (value + -0.0) * 1.0
+end
+
+return {identity = identity, simplified = simplified}
+]],
+   })
+   local decoded = agrees(dir, "aot rules.nupp")
+   assert(json.isArray(decoded.functions[1].optimization.ruleApplications))
+   assert(#decoded.functions[1].optimization.ruleApplications == 0)
+   local applications = decoded.functions[2].optimization.ruleApplications
+   for index = 2, #applications do
+      assert(applications[index - 1].id < applications[index].id,
+         "rule applications are sorted by stable ID")
+   end
+   os.execute("rm -rf '" .. dir .. "'")
+end
+
 function M.cleanOutputMatchesItsSchema()
    local dir = tempProject({["nupp.lua"] =
       'return {include = {"."}, build = {outDir = "out"}}\n'})
