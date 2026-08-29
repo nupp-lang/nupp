@@ -2,6 +2,14 @@
 
 ## Unreleased
 
+- AOT scalar optimization now uses one exhaustive child mapper and a
+  deterministic pattern catalog. Fixed-width arithmetic, bitwise identities,
+  and safe modular reassociation are attributed by stable rule ID in `nupp aot
+  --json`; ordinary binary64 keeps its signed-zero, NaN, contraction, and
+  reassociation guarantees. Signed 64-bit arithmetic now wraps through
+  `uint64_t`, and wide constant folding no longer accepts a host-rounded result
+  at the binary64 exactness boundary.
+
 - A build no longer changes which compiler every other command in the tree runs.
   A build removes the completion stamp before it writes anything, and `bin/nupp`
   read the stamp's absence as "there is no compiler here" and ran the bootstrap

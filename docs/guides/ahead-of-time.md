@@ -69,10 +69,11 @@ LuaJIT is a tracing JIT: it compiles what it observes, it gives up on shapes it
 cannot record, and a hot loop that aborts a trace runs interpreted however hot
 it gets.
 
-The body's numeric meaning is pinned. Ordinary Nupp arithmetic is binary64 and
-is neither contracted nor reassociated, so an AOT function's answers are a
-property of what was written rather than of the target that compiled it. Ask for
-a relaxation per function with
+The body's numeric meaning is pinned. Ordinary binary64 Nupp arithmetic is
+neither contracted nor reassociated, so an AOT function's answers are a
+property of what was written rather than of the target that compiled it.
+Explicit wrapping integer operations may be reassociated because their modular
+answer does not depend on grouping. Ask for a relaxation per function with
 [`@relax`](../reference/annotations.md#relaxing-observable-guarantees).
 
 And a body that is one map loop over spans may be lowered lane-parallel. That is
@@ -860,6 +861,14 @@ entry; a larger, dynamic, exiting, or over-budget loop keeps its scalar nested
 shape. The JSON report counts expanded loops and iterations under
 `optimization`.
 
+That `optimization` object also reports `beforeNodes`, `afterNodes`, `folds`,
+`propagatedConstants`, `specializedHelperCalls`, `unrolledLoops`,
+`unrolledIterations`, `removedStatements`, and `iterations`. Its
+`ruleApplications` array contains `{id, count}` entries for the expression
+rules that actually applied, sorted by stable rule ID; rules with a zero count
+are omitted. The aggregate fields are retained for dashboards that do not need
+per-rule attribution.
+
 Where it cannot, the body still compiles: it keeps its scalar loop, and the
 refusal names the construct that stopped it. A loop that does not vectorize is a
 performance property rather than a wrong answer, so it is not a build error.
@@ -1194,6 +1203,20 @@ which is why the examples name their aggregates before operating on them.
 | `nupp.math.f32.add(a, b)` | binary32, one rounding | exact, see below |
 | `nupp.math.f32.min`/`max`/`fma` | binary32, corrected | a helper repairs NaN behavior |
 | `nupp.math.i32.add(a, b)` | wrapping int32 | wraps in unsigned, comes back |
+| `nupp.math.u32.add(a, b)` | wrapping uint32 | native unsigned modular arithmetic |
+| `int64` `+`, `-`, `*` in AOT | wrapping int64 | operates as uint64, then converts back |
+| `uint64` `+`, `-`, `*` in AOT | wrapping uint64 | native unsigned modular arithmetic |
+
+Ordinary floating-point arithmetic assumes round-to-nearest-even. Signed zero
+and numeric NaN behavior are preserved. NaN signaling state, payload bits, and
+floating-point exception flags are not observable guarantees. The bit-level
+surface of `nupp.math.f32`, including its canonical NaN behavior, retains the
+stronger guarantees described below.
+
+Signed wrapping arithmetic is performed in the corresponding unsigned C type.
+For int32 and int64 the modular result is converted back to the signed type;
+generated native code relies on GCC 9 and Clang's documented modular
+unsigned-to-signed conversion behavior.
 
 The binary32 operations lower to native single-precision instructions, and this
 is exact rather than a relaxation: a binary32 operation over binary32 operands

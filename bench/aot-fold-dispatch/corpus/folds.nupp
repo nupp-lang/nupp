@@ -1,0 +1,17 @@
+local function affine(value: number, scale: number, offset: number): number
+    return value * scale + offset
+end
+
+@aot
+local function scalar(value: number): number
+    return affine(value, 2.5, 0.25) + (9.0 - 4.0)
+end
+
+@aot
+local function fixed(left: int32, right: uint32): number
+    local signed = nupp.math.i32.add(left, nupp.math.i32.wrap(7))
+    local unsigned = nupp.math.u32.add(right, nupp.math.u32.wrap(3))
+    return signed + unsigned
+end
+
+return {scalar = scalar, fixed = fixed}
