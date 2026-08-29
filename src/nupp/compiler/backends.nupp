@@ -1,0 +1,379 @@
+module nupp.compiler.backends
+
+--[[
+Static backend descriptors and generated backend selection.
+
+A manifest names checked modules, never individual provider strings. A backend
+module exports one declarative `Backend.new` expression whose seam constructors
+carry the exact runtime dependencies. This reader extracts only that restricted
+syntax after the ordinary checker has typed it; it never executes the backend or
+requires the third-party modules it names.
+]]
+
+local backends = {}
+
+local RUNTIME_BACKEND_MODULE = "nupp.runtime.backend"
+
+local FACTORIES = {}
+for _, contract in ipairs(require("nupp.runtime.seam.registry").all()) do
+    FACTORIES[contract.factoryModule] = {seam = contract,}
+end
+
+local function literalString(node: any): string?
+    local token = node and node.kind == "string" and node.token or nil
+    if not token then
+        return nil
+    end
+    local chunk = loadstring("return " .. token.text)
+    if not chunk then
+        return nil
+    end
+    local ok, value = pcall(chunk)
+
+    return ok and type(value) == "string" and value or nil
+end
+
+local function callParts(node: any): any?, {any}
+    if not node or node.kind ~= "call" or not node.args or node.args.kind ~= "args" then
+        return nil, {}
+    end
+
+    return node.obj, node.args.exprs or {}
+end
+
+local function requiredModule(node: any): string?
+    -- The checker records this only when the callee resolves to the immutable
+    -- prelude `require` and its sole argument is a string literal. Reading that
+    -- annotation keeps descriptor discovery static without mistaking a local
+    -- function named `require` for a module import.
+    return node and node.requiredModule or nil
+end
+
+local function importsOf(root: any): {[string]: string}
+    local imports = {}
+    for _, block in ipairs(root.blocks or {}) do
+        for _, stat in ipairs(block.stats or {}) do
+            if stat.kind == "localStmt" and stat.isConst and #(stat.names or {}) == 1 and #(stat.exprs or {}) == 1 then
+                local moduleName = requiredModule(stat.exprs[1])
+                if moduleName then
+                    imports[stat.names[1].text] = moduleName
+                end
+            end
+        end
+    end
+
+    return imports
+end
+
+local function importedCall(node: any, imports: {[string]: string}): string?, string?, {any}
+    local callee, args = callParts(node)
+    if not callee or callee.kind ~= "dotIndex" or not callee.obj or callee.obj.kind ~= "name" then
+        return nil, nil, {}
+    end
+    local localToken = callee.obj.token
+    local memberToken = callee.name
+    if not localToken or not memberToken then
+        return nil, nil, {}
+    end
+    local moduleName = imports[localToken.text]
+    if not moduleName then
+        return nil, nil, {}
+    end
+
+    return moduleName, memberToken.text, args
+end
+
+local function fingerprint(descriptor: any): string
+    local parts = {descriptor.name}
+    for _, seam in ipairs(descriptor.seams) do
+        parts[
+            #parts + 1
+        ] = table.concat(
+            {seam.name, tostring(seam.version), seam.effect, seam.binding or "runtime", seam.runtimeModule},
+            "\0"
+        )
+    end
+
+    return table.concat(parts, "\0")
+end
+
+--- Reads a declarative backend export. A non-backend module returns no problem.
+function backends.inspect(root: any, moduleName: string?): any?, string?
+    local imports = importsOf(root)
+    local exported = require("nupp.compiler.cst").exportAssignment(root)
+    local value = exported and exported.value or nil
+    local calledModule, member, args = importedCall(value, imports)
+    if calledModule ~= RUNTIME_BACKEND_MODULE or member ~= "new" then
+        return nil
+    end
+    if #args ~= 2 then
+        return nil, "Backend.new must receive a constant name and a literal seam list"
+    end
+    local name = literalString(args[1])
+    if not name or name == "" then
+        return nil, "Backend.new must receive a non-empty constant name"
+    end
+    local seamList = args[2]
+    if not seamList or seamList.kind ~= "tableExpr" then
+        return nil, "Backend.new must receive a literal seam list"
+    end
+
+    local descriptor = {name = name, module = moduleName, seams = {},}
+    local seen = {}
+    for _, field in ipairs(seamList.fields or {}) do
+        if field.kind ~= "fieldItem" then
+            return nil, "a backend seam list may contain only positional constructor calls"
+        end
+        local factoryModule, factoryMember, seamArgs = importedCall(field.value, imports)
+        local factory = factoryModule and FACTORIES[factoryModule]
+        local contract = factory and factory[factoryMember]
+        if not contract then
+            return nil, "backend seam entries must call a compiler-owned seam constructor"
+        end
+        if #seamArgs ~= 1 then
+            return nil, contract.name .. " must name exactly one runtime module"
+        end
+        local runtimeModule = literalString(seamArgs[1])
+        if not runtimeModule or runtimeModule == "" then
+            return nil, contract.name .. " must name a non-empty constant runtime module"
+        end
+        if seen[contract.name] then
+            return nil, "backend " .. name .. " supplies seam " .. contract.name .. " more than once"
+        end
+        seen[contract.name] = true
+        descriptor.seams[
+            #descriptor.seams + 1
+        ] = {
+            name = contract.name,
+            version = contract.version,
+            effect = contract.effect,
+            effects = contract.effects or {contract.effect},
+            modules = contract.modules,
+            implementationModules = contract.implementationModules,
+            exports = contract.exports,
+            binding = contract.binding or "runtime",
+            factoryModule = factoryModule,
+            suiteModule = contract.suiteModule,
+            runtimeModule = runtimeModule,
+        }
+    end
+    if #descriptor.seams == 0 then
+        return nil, "backend " .. name .. " must supply at least one seam"
+    end
+    descriptor.fingerprint = fingerprint(descriptor)
+    descriptor.digest = require("nupp.compiler.hash").digest(descriptor.fingerprint)
+
+    return descriptor
+end
+
+--- Validates the manifest's ordered collection of backend module names.
+function backends.validate(selected: any, label: string): boolean?, string?
+    if selected == nil then
+        return true
+    end
+    if type(selected) ~= "table" then
+        return nil, label .. " must be an array of module names"
+    end
+    local seen = {}
+    for index, moduleName in ipairs(selected) do
+        if type(moduleName) ~= "string" or moduleName == "" then
+            return nil, label .. "[" .. index .. "] must be a non-empty module name"
+        end
+        if seen[moduleName] then
+            return nil, label .. " names backend module " .. moduleName .. " more than once"
+        end
+        seen[moduleName] = true
+    end
+    for key in pairs(selected) do
+        if type(key) ~= "number" or key < 1 or key > #selected or key % 1 ~= 0 then
+            return nil, label .. " must be an array of module names"
+        end
+    end
+
+    return true
+end
+
+--- Resolves checked backend modules from their static interface metadata.
+function backends.resolve(inc: any, selected: {string}?): any?, string?, any?
+    local resolved = {modules = {}, seams = {}, byEffect = {},}
+    local fingerprints = {}
+    for _, moduleName in ipairs(selected or {}) do
+        local path = inc.modulePath(moduleName)
+        if not path then
+            return nil, "backend module not found: " .. moduleName, {module = moduleName}
+        end
+        local checked = inc.checkFile(path)
+        local descriptor = checked and checked.backend or nil
+        local problem = checked and checked.backendProblem or nil
+        if not descriptor then
+            return nil, "backend module " .. moduleName .. ": " .. (
+                problem or "must export a declarative Backend.new value"
+            ), {module = moduleName, path = path}
+        end
+        descriptor.module = moduleName
+        local fs: any = require("nupp.compiler." .. "fs")
+        local source = fs.readFile(path)
+        if source ~= nil then
+            descriptor.digest = require("nupp.compiler.hash").digest(source)
+        end
+        resolved.modules[#resolved.modules + 1] = descriptor
+        fingerprints[#fingerprints + 1] = moduleName .. "\0" .. descriptor.digest
+        for _, seam in ipairs(descriptor.seams) do
+            local prior = resolved.seams[seam.name]
+            if prior then
+                return nil, "backend seam conflict for "
+                    .. seam.name
+                    .. ": "
+                    .. prior.module
+                    .. " and "
+                    .. moduleName, {
+                    module = moduleName,
+                    path = path,
+                }
+            end
+            local selectedSeam = {
+                name = seam.name,
+                version = seam.version,
+                effect = seam.effect,
+                binding = seam.binding or "runtime",
+                factoryModule = seam.factoryModule,
+                suiteModule = seam.suiteModule,
+                modules = seam.modules,
+                implementationModules = seam.implementationModules,
+                exports = seam.exports,
+                runtimeModule = seam.runtimeModule,
+                backend = descriptor.name,
+                module = moduleName,
+            }
+            resolved.seams[seam.name] = selectedSeam
+            for _, effect in ipairs(seam.effects or {seam.effect}) do
+                resolved.byEffect[effect] = moduleName
+            end
+        end
+    end
+    resolved.fingerprint = table.concat(fingerprints, "\0")
+
+    return resolved
+end
+
+--- Returns the exact reached seam records written into a generated artifact.
+function backends.reached(effects: {[string]: any}?, resolved: any?): {any}
+    local reached = {}
+    local seen = {}
+    for effect in pairs(effects or {}) do
+        local moduleName = resolved and resolved.byEffect[effect] or nil
+        if moduleName then
+            for _, descriptor in ipairs(resolved.modules or {}) do
+                if descriptor.module == moduleName then
+                    for _, seam in ipairs(descriptor.seams or {}) do
+                        local matches = false
+                        for _, candidate in ipairs(seam.effects or {seam.effect}) do
+                            matches = matches or candidate == effect
+                        end
+                        if matches and not seen[seam.name] then
+                            seen[seam.name] = true
+                            reached[
+                                #reached + 1
+                            ] = {
+                                name = seam.name,
+                                version = seam.version,
+                                binding = seam.binding or "runtime",
+                                backend = moduleName,
+                                backendDigest = descriptor.digest or require(
+                                    "nupp.compiler.hash"
+                                ).digest(descriptor.fingerprint or ""),
+                                runtimeModule = seam.runtimeModule,
+                                runtimeDependency = seam.runtimeDependency,
+                            }
+                        end
+                    end
+                end
+            end
+        end
+    end
+    table.sort(reached, function(a, b)
+        return a.name < b.name
+    end)
+
+    return reached
+end
+
+--- Emits a data-only audit comment. It asserts resolution, never certification.
+function backends.artifact(effects: {[string]: any}?, resolved: any?): string
+    local parts = {}
+    for _, seam in ipairs(backends.reached(effects, resolved)) do
+        local owner = seam.runtimeDependency
+        parts[
+            #parts + 1
+        ] = table.concat(
+            {
+                seam.name,
+                tostring(seam.version),
+                seam.binding,
+                seam.backend,
+                seam.backendDigest,
+                seam.runtimeModule,
+                owner and owner.package or "",
+                owner and owner.version or "",
+            },
+            "|"
+        )
+    end
+    if #parts == 0 then
+        return ""
+    end
+
+    return "--[[nupp-backends: resolved=" .. table.concat(parts, ";") .. "]]"
+end
+
+--- The public module name a resolved seam has one module standing in for.
+---
+--- A seam may replace a complete public module with an exact provider module, and a
+--- rule the compiler states about the public module is a rule about whichever module
+--- supplies it. Answers the name it was given wherever nothing replaces one.
+function backends.publicModule(resolved: any?, moduleName: string?): string?
+    if moduleName == nil then
+        return nil
+    end
+    for _, seam in pairs(resolved and resolved.seams or {}) do
+        if seam.runtimeModule == moduleName then
+            for target, member in pairs(seam.modules or {}) do
+                if member == "" then
+                    return target
+                end
+            end
+        end
+    end
+
+    return moduleName
+end
+
+--- Removes native features replaced by selected backend seams.
+function backends.withoutNative(effects: {[string]: boolean}, resolved: any?): {[string]: boolean}
+    for effect in pairs(resolved and resolved.byEffect or {}) do
+        effects[effect] = nil
+    end
+
+    return effects
+end
+
+--- Emits only installation of selected backend modules reached by this output.
+function backends.bootstrap(effects: {[string]: any}?, resolved: any?): string
+    local selected, seen = {}, {}
+    for effect in pairs(effects or {}) do
+        local moduleName = resolved and resolved.byEffect[effect] or nil
+        if moduleName and not seen[moduleName] then
+            selected[#selected + 1] = moduleName
+            seen[moduleName] = true
+        end
+    end
+    table.sort(selected)
+    local out = {}
+    for _, moduleName in ipairs(selected) do
+        out[#out + 1] = ("(require(%q)):install();"):format(moduleName)
+    end
+
+    return table.concat(out)
+end
+
+export = backends

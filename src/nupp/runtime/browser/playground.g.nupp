@@ -1,0 +1,38 @@
+@!internal
+module nupp.runtime.browser.playground
+
+-- Installed only in the playground application VM. The generated program is
+-- loaded from the compiler's exact output bytes, and this checked runner owns
+-- output capture without synthesizing Lua source in JavaScript.
+
+local json = require("nupp.runtime.provider.lunajson")
+local lines: {string} = {}
+local outputBytes = 0
+local OUTPUT_LIMIT = 1048576
+
+_G.print = function(...: any): nil
+    local values: {string} = {}
+    for index = 1, select("#", ...) do
+        values[index] = tostring(select(index, ...))
+    end
+    local line = table.concat(values, "\t")
+    outputBytes = outputBytes + #line + (#lines > 0 and 1 or 0)
+    if outputBytes > OUTPUT_LIMIT then
+        error("nupp: playground output exceeded 1048576 bytes", 0)
+    end
+    lines[#lines + 1] = line
+end
+
+_G.__nuppPlaygroundRun = function(source: string): string
+    lines = {}
+    outputBytes = 0
+    local chunk, problem = loadstring(source, "@playground.nupp")
+    if chunk == nil then
+        error(problem or "generated Lua did not load", 0)
+    end
+    chunk()
+
+    return json.encode({stdout = table.concat(lines, "\n"),})
+end
+
+export = {}

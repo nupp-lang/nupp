@@ -1,0 +1,49 @@
+#!/bin/sh
+# Builds the portable compiler bundle, generating the prelude image it carries.
+#
+# The image is the compiler's own declaration checker, serialized as inert data
+# for a host that cannot run the checker. It is therefore derived from the
+# compiler and stale whenever the compiler moves. It used to be committed, which
+# meant every change to the checker had to be followed by a regeneration nobody
+# was reminded to do: `check`, `test` and `fixpoint` all pass with a stale image,
+# and only the portable-compiler job compares them.
+#
+# So it is made here instead, in two passes. The first bundle carries no image,
+# which is all `source` mode needs -- it reads the checker and never hydrates
+# one. The second carries what the first produced.
+#
+# The interpreter matters: the encoding is `%.17g` and a Lua with integers does
+# not write the same bytes as one without. NUPP_PRELUDE_LUA names one; the
+# default is the pinned LuaJIT, which is Lua 5.1.
+
+set -eu
+
+ROOT=$(CDPATH= cd -- "$(dirname "$0")/.." && pwd)
+IMAGE="$ROOT/build/playground/preludeimage.bin"
+GENERATOR="$ROOT/editors/playground/tools/generate-prelude-image.lua"
+
+if [ -n "${NUPP_PRELUDE_LUA:-}" ]; then
+    LUA=$NUPP_PRELUDE_LUA
+else
+    LUA="$("$ROOT/scripts/toolchain" luajit)/bin/luajit"
+fi
+[ -x "$LUA" ] || { echo "prelude-image: no interpreter at $LUA" >&2; exit 1; }
+
+"$ROOT/bin/nupp" build --target playgroundCompilerWithoutPrelude
+
+mkdir -p "$(dirname "$IMAGE")"
+"$LUA" "$GENERATOR" \
+    "$ROOT/build/playground-bootstrap/nupp-compiler.lua" "$IMAGE" source
+
+"$ROOT/bin/nupp" build --target playgroundCompiler
+
+# The bundle now carries the image, so it can be asked to hydrate one and write
+# it back. That is the property worth checking and the one a committed file only
+# stood in for: what the checker produced and what a host reads back are the
+# same graph.
+roundtrip=$(mktemp)
+trap 'rm -f "$roundtrip"' EXIT
+"$LUA" "$GENERATOR" \
+    "$ROOT/build/playground/nupp-compiler.lua" "$roundtrip" image
+cmp "$IMAGE" "$roundtrip" \
+    || { echo "prelude-image: the image does not survive a round trip" >&2; exit 1; }

@@ -1,0 +1,1308 @@
+module nupp.compiler.build.aot
+
+--[[
+The build's ahead-of-time policy.
+
+A build selects one policy before it looks at any `@aot` body, and an artifact
+records the one it was built under. There is deliberately no mode that quietly
+mixes compiled functions with ordinary fallbacks: disabling compilation changes
+performance and packaging, never an answer, and a build that had silently done
+half of each would be a build whose speed nobody could reason about.
+
+- `off` does not look for `@aot` at all. It is the default, so a project that
+  has not asked for native code never depends on a C compiler.
+- `emit-c` verifies the IR and writes the C beside the build, without compiling
+  it. A platform build can hand that to its own vendor compiler, and a reviewer
+  can read what the backend actually produced.
+- `require` compiles that C into the project's own shared library, and fails the
+  build when it cannot. Choosing it is how a project accepts a C compiler as a
+  dependency; nothing else in Nupp makes a project depend on one.
+
+Code is linked, never mapped at run time. A shared library the loader already
+brought in needs no W^X policy, no `MAP_JIT`, no executable-memory budget and no
+code retirement, and all of those exist only because code is mapped at run time.
+They return if and when direct machine-code emission does.
+
+This pass finds its work by reading sources rather than the module build's
+bookkeeping, so it cannot be wrong about which source produced which artifact.
+What it lowers is the checked tree of each of those sources, taken from the same
+query graph the module build then uses: a parse says how a parameter, a call
+target or an annotation was spelled, and only a check says what each resolved
+to.
+]]
+
+local bindingRules = require("nupp.compiler.aot.binding")
+local wasmBinding = require("nupp.compiler.aot.wasmbinding")
+local wasmEmitter = require("nupp.compiler.aot.wasmemit")
+local compile = require("nupp.compiler.aot.compile")
+local emitter = require("nupp.compiler.aot.emit")
+local diagnosticMod = require("nupp.compiler.diagnostics")
+local fs = require("nupp.compiler.fs")
+local cache = require("nupp.compiler.build.cache")
+local hash = require("nupp.compiler.build.hash")
+local process = require("nupp.compiler.build.process")
+local scalarIR = require("nupp.compiler.aot.scalar")
+local targets = require("nupp.compiler.aot.target")
+
+local isFatal = diagnosticMod.isFatal
+
+local aot = {}
+
+--- The policies a target may select.
+const aot.POLICIES = {
+    ["off"] = true,
+    ["emit-c"] = true,
+    ["require"] = true,
+    ["emit-wasm"] = true,
+    ["require-wasm"] = true,
+}
+
+--- Whether a policy has to produce native code to succeed.
+function aot.linksNative(policy: string?): boolean
+    return policy == "require"
+end
+
+function aot.linksWasm(policy: string?): boolean
+    return policy == "emit-wasm" or policy == "require-wasm"
+end
+
+--- A C toolchain this backend can use.
+record aot.Toolchain
+    --- The command that runs it.
+    command: string
+
+    --- The first line it printed when asked. This is what pins an artifact to
+    --- it: the same `cc` is two compilers on two machines, and one compiler
+    --- answers to several names, so the name alone says nothing.
+    version: string
+
+    --- Whose warning vocabulary it speaks, which decides the dialect flags.
+    dialect: string
+end
+
+--- What the generated C needs from a compiler.
+---
+--- `vector_size` and `__builtin_convertvector` are in GCC 9 and later and in
+--- every Clang. MSVC has neither.
+---
+--- That is a statement about a compiler rather than about a platform. Windows is
+--- an ordinary target here: Clang and MinGW GCC both run there and both have the
+--- two extensions, and a Windows project that has one needs nothing further. A
+--- project whose only compiler is MSVC selects `emit-c` and hands the C to it --
+--- which is what `emit-c` is for -- or installs one of the two.
+const aot.NEEDS = "__attribute__((vector_size)) and __builtin_convertvector"
+
+--- The oldest GCC that has them.
+const aot.OLDEST_GCC = 9
+
+--- How the generated C is compiled.
+---
+--- `-Werror` because this is compiler-generated C: a warning in it is a defect
+--- in the backend, not a style opinion about someone's source. The one that
+--- matters most is `-Wpsabi`, which is how a vector with no register class
+--- announces itself, and silencing it would make the target model pointless.
+---
+--- `-ffp-contract=off` and `-fno-fast-math` are the numeric contract. A body
+--- that asked for contraction carries its own pragma, so the flag is a floor
+--- rather than a ceiling.
+const aot.CFLAGS = {"-std=c11", "-O3", "-ffp-contract=off", "-fno-fast-math", "-Wall", "-Wextra", "-Werror",}
+
+--- Warnings only one dialect knows the name of.
+const aot.DIALECT_FLAGS = {["clang"] = {"-Wno-parentheses-equality"}, ["gcc"] = {}}
+
+--- The flag that gives a feature tier its instructions.
+---
+--- A tier with no entry compiles for the architecture's baseline. That is not
+--- an oversight: `target` already decided whether a gang exists, and a flag
+--- here that decided it a second time could disagree with the code it is
+--- compiling.
+const aot.TIER_FLAGS = {["avx2"] = "-mavx2", ["avx512f"] = "-mavx512f", ["simd128"] = "-msimd128"}
+
+--- Which backend produced an artifact.
+---
+--- Part of the key because two backends can lower one IR to two correct
+--- answers, and an artifact from either must not be mistaken for the other's.
+const aot.BACKEND = "generated-c"
+
+--- The key one artifact was built under.
+---
+--- Everything that can change the bytes: the verified IR, the vocabulary it is
+--- written in, what its arithmetic means, the target it was chosen for, the
+--- backend that lowered it, and the compiler that did all of that.
+---
+--- Deliberately not the source text. Two sources that lower to one IR produce
+--- one artifact, and a comment edit is not a rebuild.
+---
+--- Deliberately not the C toolchain either. The C is the same C whoever
+--- compiles it; what the toolchain changes is the library, which
+--- `aot.libraryKey` covers.
+function aot.key(irText: string, selected: targets.Target): string
+    return hash.digest(
+        cache.stable({
+            ir = irText,
+            irVersion = scalarIR.VERSION,
+            numericContract = scalarIR.NUMERIC_CONTRACT,
+            triple = selected.triple,
+            tier = selected.tier,
+            backend = aot.BACKEND,
+            compiler = cache.toolFingerprint(),
+        })
+    )
+end
+
+--- Every flag the generated C is compiled with, in the order it is given them.
+---
+--- One function so the flags that are compiled with and the flags that are
+--- keyed on cannot come apart. A relink that used a flag the key never saw
+--- would produce a library the build could not account for.
+function aot.compileFlags(selected: targets.Target, chain: aot.Toolchain, extra: {string}?): {string}
+    local flags: {string} = {}
+    for _, flag in ipairs(aot.CFLAGS) do
+        flags[#flags + 1] = flag
+    end
+    -- Only when the triple is not this machine's. Clang cross-compiles from one
+    -- installation and takes `-target`; GCC does not, and passing it a flag it
+    -- has never heard of to say "produce what you already produce" would refuse
+    -- every ordinary build to serve the uncommon one.
+    if selected.triple ~= targets.hostTriple() and chain.dialect == "clang" then
+        flags[#flags + 1] = "-target"
+        flags[#flags + 1] = selected.triple
+    end
+    if targets.system(selected.triple) ~= "windows" then
+        flags[#flags + 1] = "-fPIC"
+    end
+    -- Last, so a project can override what is above it, and part of what the
+    -- library is keyed on because a flag that changes the output has to.
+    for _, flag in ipairs(extra or {}) do
+        flags[#flags + 1] = flag
+    end
+    for _, flag in ipairs(aot.DIALECT_FLAGS[chain.dialect] or {}) do
+        flags[#flags + 1] = flag
+    end
+    local tier = aot.TIER_FLAGS[selected.tier]
+    if tier ~= nil then
+        flags[#flags + 1] = tier as string
+    end
+
+    return flags
+end
+
+--- Rejects project flags that could make the baseline unit non-baseline.
+---
+--- Tier flags belong to the compiler once several objects share a library.
+--- Allowing `-march=native` or LTO to cross those object boundaries would make
+--- the fallback carry instructions its name says it does not. Sysroots,
+--- include paths, deployment targets and ordinary vendor flags remain valid.
+function aot.multiversionFlagError(extra: {string}?): string?
+    for _, flag in ipairs(extra or {}) do
+        local lower = flag:lower()
+        if lower:match(
+            "^%-march"
+        ) ~= nil or lower:match(
+            "^%-mcpu"
+        ) ~= nil or lower:match(
+            "^%-mtune"
+        ) ~= nil or lower:match(
+            "^%-mavx"
+        ) ~= nil or lower:match(
+            "^%-mno%-avx"
+        ) ~= nil or lower:match(
+            "^%-msse"
+        ) ~= nil or lower:match("^%-mfma") ~= nil or lower:match("^%-flto") ~= nil or lower:match("^/arch:") ~= nil then
+            return "aotCflags entry " .. flag .. " changes the CPU tier; multiversion builds own ISA and LTO flags"
+        end
+    end
+
+    return nil
+end
+
+--- Flags used only while linking already tiered objects.
+function aot.linkFlags(selected: targets.Target, chain: aot.Toolchain, extra: {string}?): {string}
+    local flags: {string} = {}
+    if selected.triple ~= targets.hostTriple() and chain.dialect == "clang" then
+        flags[#flags + 1] = "-target"
+        flags[#flags + 1] = selected.triple
+    end
+    for _, flag in ipairs(extra or {}) do
+        flags[#flags + 1] = flag
+    end
+
+    return flags
+end
+
+--- The key the linked library was built under.
+---
+--- The artifact keys it was built from, plus what turned them into a library:
+--- the compiler that ran, the flags it ran with, and the platform whose linkage
+--- was asked for. The artifact keys already carry the IR and the target, so
+--- this does not repeat them.
+function aot.libraryKey(keys: {string}, chain: aot.Toolchain, flags: {string}, linkage: {string}): string
+    local ordered: {string} = {}
+    for _, one in ipairs(keys) do
+        ordered[#ordered + 1] = one
+    end
+    -- Sorted because the order sources are discovered in is the file system's,
+    -- and a library that relinked when a directory listing changed order would
+    -- be a cache that never hit.
+    table.sort(ordered)
+
+    return hash.digest(
+        cache.stable({
+            artifacts = ordered,
+            toolchain = chain.version,
+            flags = flags,
+            linkage = linkage,
+        })
+    )
+end
+
+--- What one source produced.
+record aot.Emitted
+    --- The source it came from.
+    source: string
+
+    --- The feature tier this translation unit was lowered and compiled for.
+    tier: string
+
+    --- The stable state key, distinct for every `(source, tier)` pair.
+    cacheKey: string
+
+    --- Where the C was written.
+    output: string
+
+    --- How many `@aot` functions it holds.
+    functions: integer
+
+    --- The key it was built under, which the next build compares against.
+    key: string
+
+    --- The compiled object, when the policy links rather than only emitting C.
+    object: string?
+
+    --- True for the compiler-owned baseline feature detector unit.
+    detector: boolean?
+
+    --- The side-module C and Wasm artifact when a Wasm policy selected them.
+    wasmSource: string?
+
+    wasm: string?
+    registrar: string?
+    unit: string?
+end
+
+--- The commands to try, in order, when nothing named one.
+---
+--- Clang first because the emitter's contraction pragma is Clang's, so a body
+--- that asked for contraction gets it. GCC compiles the same C correctly and
+--- declines to contract, which is slower and never wrong.
+const aot.CANDIDATES = {"clang", "cc", "gcc"}
+
+--- The same list where Clang is not the one to reach for first.
+---
+--- On Windows a plain `clang` targets MSVC and links with `link.exe`, which
+--- cannot read the GNU import library that a MinGW build of LuaJIT leaves --
+--- and a MinGW build is what Nupp provisions for itself. The entry has to be
+--- linked by a toolchain that can bind to the interpreter about to open it, so
+--- the interpreter's own toolchain goes first. `NUPP_NATIVE_CC` still names
+--- whichever one a machine with an MSVC LuaJIT wants.
+const aot.WINDOWS_CANDIDATES = {"gcc", "cc", "clang"}
+
+--- What a compiler said about itself, read as a dialect and a version.
+---
+--- Parsed from `--version` rather than from the command name, because a `cc`
+--- that is Clang and a `clang` that is a GCC wrapper are both ordinary.
+function aot.identify(text: string): (string?, integer?)
+    local first = text:match("^[^\n]*") or ""
+    if first:lower():find("clang", 1, true) ~= nil then
+        return "clang", tonumber(first:match("version (%d+)")) as integer?
+    end
+    -- GCC puts its version after the distribution's parenthetical, and what
+    -- comes after that varies: Debian stops there, Red Hat adds a build date and
+    -- a second parenthetical. Reading the number that follows the first `)` gets
+    -- all of them, where matching the end of the line only gets some -- and
+    -- failing to read a version is refusing a compiler that works.
+    if first:lower():find("gcc", 1, true) ~= nil or first:find("Free Software Foundation") ~= nil then
+        local after = first:match("%)%s*(%d+)%.%d+")
+        return "gcc", tonumber(after or first:match("(%d+)%.%d+")) as integer?
+    end
+
+    return nil, nil
+end
+
+--- Finds a C compiler that can build the generated C.
+---
+--- `NUPP_NATIVE_CC` names one outright, and naming one that cannot build this C
+--- is an error rather than a reason to look elsewhere: a build that quietly
+--- used a different compiler than it was told to would produce an artifact
+--- nobody could account for.
+---
+--- @return the toolchain, or nothing and why there is none
+function aot.toolchain(): (aot.Toolchain?, string?)
+    local named = os.getenv("NUPP_NATIVE_CC")
+    local onWindows = (jit and jit.os or ""):lower() == "windows"
+    local preferred = onWindows and aot.WINDOWS_CANDIDATES or aot.CANDIDATES
+    local candidates = named ~= nil and {named as string} or preferred
+    local refusals: {string} = {}
+    for _, command in ipairs(candidates) do
+        local code, text = process.capture({command, "--version"})
+        if code ~= 0 then
+            refusals[#refusals + 1] = command .. " could not be run"
+        else
+            local dialect, version = aot.identify(text)
+            if dialect == nil then
+                refusals[
+                    #refusals + 1
+                ] = ("%s is not GCC or Clang, and %s needs %s"):format(command, "the generated C", aot.NEEDS)
+            elseif dialect == "gcc" and (version or 0) < aot.OLDEST_GCC then
+                refusals[
+                    #refusals + 1
+                ] = ("%s is GCC %s; %s arrived in GCC %d"):format(command, tostring(version), aot.NEEDS, aot.OLDEST_GCC)
+            else
+                return new aot.Toolchain(
+                    command = command,
+                    version = (text:match("^[^\n]*") or command) as string,
+                    dialect = dialect as string
+                ), nil
+            end
+        end
+    end
+
+    return nil, "aot = \"require\" needs a C compiler: " .. table.concat(
+        refusals,
+        "; "
+    ) .. ". Name one with NUPP_NATIVE_CC, or select aot = \"emit-c\" to write the C without building it"
+end
+
+--- Whether a source is worth parsing for `@aot` at all.
+---
+--- A substring test rather than a parse. It is allowed to say yes wrongly -- a
+--- comment mentioning the annotation costs one parse that finds nothing -- and
+--- it must never say no wrongly, which is why it looks for the bare word rather
+--- than trying to tell an annotation from prose.
+local function mentionsAot(text: string): boolean
+    return text:find("@aot", 1, true) ~= nil
+end
+
+--- One source's checked tree, or nothing when there is no sound one to lower.
+---
+--- The tree the checker produced rather than a fresh parse of the same bytes.
+--- What the backend needs from a parameter, a call target or an annotation is
+--- what each of those resolved to, and only a checked tree carries that; a parse
+--- carries the spelling and leaves the backend to guess the rest.
+---
+--- Nothing, rather than an error, when the source does not check. The module
+--- build checks the same file through the same graph a moment later and reports
+--- it there, in the one place a source error is reported. Lowering it here would
+--- either say the same thing twice or describe a program the checker has already
+--- refused.
+---
+--- The exception is `unused-binding`, which is returned rather than dropped. A
+--- linking policy replaces each `@aot` declaration with its wrapper before the
+--- module build checks the file, so by then the removed body is not there to be
+--- the reader of anything, and that lint would report a binding the author can
+--- see being used. This check is the one that read the file as written, so its
+--- verdict is the answer, and it is carried to the module build to report in
+--- place of the rewritten source's.
+---
+--- @return the checked tree, and what it said about bindings nothing reads
+local function checkedTree(
+    session: nupp.compiler.build.modules.Session,
+    source: string
+): (nupp.compiler.parser.ParseResult?, {any})
+    local checked = session.inc.checkFile(source)
+    if checked.missing == true or checked.syntax == true or checked.result == nil then
+        return nil, {}
+    end
+    local authored: {any} = {}
+    for _, diagnostic in ipairs(checked.diags or {}) do
+        if isFatal(diagnostic) then
+            return nil, {}
+        end
+        if (diagnostic as any).code == "NUPP2507" then
+            authored[#authored + 1] = diagnostic
+        end
+    end
+
+    return checked.result as nupp.compiler.parser.ParseResult, authored
+end
+
+--- How this host spells a shared library, and what it takes to produce one.
+---
+--- The host's rather than the selected target's: `require` builds something
+--- this build's own loader will open. Cross-compiling to a target whose objects
+--- this machine cannot load is `emit-c`, which is what it is for.
+--- The Lua import library a Windows link needs, or nothing.
+---
+--- An entry that drives the VM calls `lua_*`. POSIX leaves those undefined in a
+--- shared library and the loader binds them to the host that opened it, so
+--- nothing has to be found. Windows resolves every symbol at link time, so the
+--- same entry needs the import library of the interpreter that will open it --
+--- and one from a different Lua would link and then call into the wrong VM.
+---
+--- Named directly by NUPP_LUA_LIB. Otherwise taken from beside the `luajit` on
+--- PATH, which is the interpreter about to load this, and where LuaJIT's own
+--- MSVC build leaves `lua51.lib`.
+function aot.luaImportLibrary(): string?
+    local named = os.getenv("NUPP_LUA_LIB")
+    if named ~= nil and named ~= "" then
+        return named as string
+    end
+    -- The interpreter Nupp provisioned for itself, when it did. That is exactly
+    -- the one about to open this entry, and it is not on PATH: the launcher runs
+    -- it by name rather than putting its directory there, so a search of PATH
+    -- looked past the only LuaJIT that mattered.
+    local provisioned = os.getenv("NUPP_TOOLCHAIN_LUAJIT")
+    if provisioned ~= nil and provisioned ~= "" then
+        local root = (tostring(provisioned):gsub("\\", "/"):gsub("/+$", ""))
+        for _, name in ipairs({"lib/liblua51.a", "lib/libluajit-5.1.dll.a", "bin/lua51.lib", "lib/lua51.lib",}) do
+            if fs.exists(root .. "/" .. name) then
+                return root .. "/" .. name
+            end
+        end
+    end
+
+    -- Two spellings, because two toolchains build LuaJIT on this platform and
+    -- each writes the one its own linker reads. MSVC leaves `lua51.lib` beside
+    -- the interpreter; MinGW leaves `liblua51.a` in a sibling `lib`, which is
+    -- where Nupp's own provisioning puts it. Looking for only the first found
+    -- nothing on a machine that had the second, and the link then failed on
+    -- every `lua_*` the entry calls.
+    for entry in (tostring(os.getenv("PATH") or "") .. ";"):gmatch("([^;]*);") do
+        local directory = (entry:gsub("\\", "/"):gsub("/+$", ""))
+        if directory ~= "" then
+            local beside = {
+                directory .. "/lua51.lib",
+                directory .. "/luajit.lib",
+                directory .. "/../lib/liblua51.a",
+                directory .. "/../lib/libluajit-5.1.dll.a",
+            }
+            for _, candidate in ipairs(beside) do
+                if fs.exists(candidate) then
+                    return candidate
+                end
+            end
+        end
+    end
+
+    return nil
+end
+
+--- @return the flags a shared object is linked with
+--- @return the suffix its file takes
+--- @return a library to name after the objects, when the platform needs one
+function aot.linkage(selected: targets.Target, needsLua: boolean?): ({string}, string, string?)
+    local system = targets.system(selected.triple)
+    if system == "darwin" then
+        if needsLua then
+            return {"-dynamiclib", "-undefined", "dynamic_lookup"}, ".dylib"
+        end
+        return {"-dynamiclib"}, ".dylib"
+    elseif system == "windows" then
+        -- No `-lm`: the math functions are in the C runtime there rather than in
+        -- a library to link, and asking for one that does not exist is an error
+        -- rather than a no-op.
+        local flags: {string} = {"-shared"}
+        -- The import library is returned to be put after the objects rather than
+        -- added here. GNU ld resolves a link line left to right and takes from a
+        -- library only what something to its left already wanted, so one named
+        -- before the objects that call `lua_*` is read while nothing wants
+        -- anything and then dropped. MSVC's linker does not care about the
+        -- order, which is why this stayed hidden until a MinGW toolchain was
+        -- preferred here.
+        return flags, ".dll", needsLua and aot.luaImportLibrary() or nil
+    end
+
+    -- `-lm` because the emitted C calls `sqrt`, `fabs` and friends, which glibc
+    -- keeps outside libc proper.
+
+    return {"-shared", "-fPIC", "-lm"}, ".so"
+end
+
+--- The source with every `@aot` declaration replaced by its wrapper.
+---
+--- Substitution rather than a companion module, because a companion only
+--- reaches callers who know to ask for it. A function replaced where it was
+--- written is reached by every call in the file and by every importer, which is
+--- what `@aot` says happens.
+---
+--- Back to front, so replacing one declaration does not move the next one's
+--- offsets. Nothing is inserted anywhere else: the wrapper's `cdef` and layout
+--- checks go where the function was, which is necessarily after the struct it
+--- reifies was declared.
+---
+--- @param sites where each program was written, in the same order
+--- @return the rewritten source
+function aot.dispatch(
+    source: string,
+    programs: {scalarIR.Program},
+    sites: {compile.Site},
+    library: string,
+    tiers: {string}?
+): string
+    local rewritten = source
+    for position = #programs, 1, -1 do
+        local site = sites[position]
+        if site ~= nil then
+            rewritten = rewritten:sub(
+                1,
+                site.from - 1
+            ) .. bindingRules.replacement(
+                programs[position],
+                library,
+                tiers,
+                position == 1
+            ) .. rewritten:sub(site.to + 1)
+        end
+    end
+
+    return rewritten
+end
+
+--- The source with every Wasm AOT declaration replaced by a registry closure.
+function aot.wasmDispatch(source: string, programs: {scalarIR.Program}, sites: {compile.Site}, unit: string): string
+    local rewritten = source
+    for position = #programs, 1, -1 do
+        local site = sites[position]
+        if site ~= nil then
+            rewritten = rewritten:sub(
+                1,
+                site.from - 1
+            ) .. wasmBinding.replacement(programs[position], unit) .. rewritten:sub(site.to + 1)
+        end
+    end
+
+    return rewritten
+end
+
+--- Locates the pinned Emscripten compiler used for side modules.
+function aot.wasmToolchain(): (string?, string?)
+    local command = os.getenv("NUPP_WASM_CC") or "emcc"
+    local code, printed = process.capture({command, "--version"})
+    if code ~= 0 then
+        return nil, "Wasm AOT needs Emscripten emcc; name it with NUPP_WASM_CC"
+    end
+    local first = printed:match("^[^\n]*") or ""
+    if first:lower():find("emscripten", 1, true) == nil then
+        return nil, tostring(command) .. " is not Emscripten"
+    end
+    local release = first:match("(%d+%.%d+%.%d+)")
+    if release ~= "6.0.8" then
+        return nil, "Wasm AOT requires Emscripten 6.0.8, found " .. tostring(release or "unknown")
+    end
+
+    return command, first
+end
+
+--- Compiles each emitted source as one independently cacheable side module.
+function aot.compileWasm(
+    emitted: {aot.Emitted},
+    produced: {[string]: compile.Artifacts},
+    extra: {string}?
+): ({string}?, string?, string?, string?)
+    local command, version = aot.wasmToolchain()
+    if command == nil then
+        return nil, version, nil, nil
+    end
+    local outputs: {string} = {}
+    local keys: {string} = {version as string}
+    for _, one in ipairs(emitted) do
+        if one.detector ~= true then
+            local artifacts = produced[one.cacheKey]
+            if artifacts == nil then
+                return nil, "missing Wasm AOT artifacts for " .. one.source, nil, nil
+            end
+            local validation = wasmEmitter.validate((artifacts as compile.Artifacts).programs)
+            if validation ~= nil then
+                return nil, validation, nil, nil
+            end
+            local unit = "u" .. one.key:sub(1, 16)
+            local registrar = "nupp_wasm_register_" .. unit
+            local source = one.output:gsub("%.c$", ".side.c")
+            local bytes = (
+                artifacts as compile.Artifacts
+            ).c .. wasmEmitter.registrar((artifacts as compile.Artifacts).programs, unit, one.tier)
+            if fs.readFile(source) ~= bytes then
+                local wrote, writeErr = fs.writeFile(source, bytes)
+                if not wrote then
+                    return nil, tostring(writeErr), nil, nil
+                end
+            end
+            local argv: {
+                string
+            } = {
+                command as string,
+                source,
+                "-std=c11",
+                "-O3",
+                "-ffp-contract=off",
+                "-fno-fast-math",
+                "-Wall",
+                "-Wextra",
+                "-Werror",
+                "-Wno-parentheses-equality",
+                "-sSIDE_MODULE=2",
+                "-sFILESYSTEM=0",
+            }
+            local tierFlag = aot.TIER_FLAGS[one.tier]
+            if tierFlag ~= nil then
+                argv[#argv + 1] = tierFlag as string
+            end
+            for _, flag in ipairs(extra or {}) do
+                argv[#argv + 1] = flag
+            end
+            local staged = one.output:gsub("%.c$", ".wasm.tmp")
+            argv[#argv + 1] = "-o"
+            argv[#argv + 1] = staged
+            os.remove(staged)
+            local code, printed = process.capture(argv)
+            if code ~= 0 then
+                os.remove(staged)
+                return nil, "compiling Wasm AOT side module failed:\n" .. printed, nil, nil
+            end
+            local wasm, readErr = fs.readFile(staged)
+            os.remove(staged)
+            if wasm == nil then
+                return nil, tostring(readErr), nil, nil
+            end
+            local wasmDigest = hash.digest(wasm as string)
+            local output = one.output:gsub("%.c$", "." .. wasmDigest:sub(1, 16) .. ".wasm")
+            if fs.readFile(output) ~= wasm then
+                local wrote, writeErr = fs.writeFile(output, wasm as string)
+                if not wrote then
+                    return nil, tostring(writeErr), nil, nil
+                end
+            end
+            one.wasmSource = source
+            one.wasm = output
+            one.registrar = registrar
+            one.unit = unit
+            outputs[#outputs + 1] = source
+            outputs[#outputs + 1] = output
+            keys[#keys + 1] = one.key
+            keys[#keys + 1] = wasmDigest
+        end
+    end
+
+    return outputs, nil, hash.digest(table.concat(keys, "\0")), version
+end
+
+--- What the compiled library is called, without saying where it is.
+function aot.libraryFile(name: string, suffix: string): string
+    local stem = name:gsub("[^%w_]", "_")
+    if suffix == ".dll" then
+        return stem .. "_aot" .. suffix
+    end
+
+    return "lib" .. stem .. "_aot" .. suffix
+end
+
+--- Where a project's compiled `@aot` code goes.
+function aot.libraryPath(outDir: string, name: string, suffix: string): string
+    return outDir .. "/lib/" .. aot.libraryFile(name, suffix)
+end
+
+--- How the generated wrapper names that library.
+---
+--- Relative to the module that loads it and marked with `@`, so the runtime
+--- resolves it against the chunk rather than handing it to the platform loader.
+---
+--- A path decided at build time would be relative to where the build ran, which
+--- ships a program that only runs from one directory, or absolute, which ships
+--- one that only runs on one machine. Neither is something to hand to anyone.
+---
+--- No directory depth in it. The runtime walks up from the module, so one
+--- spelling serves a module at whatever nesting its name gives it and the same
+--- module inlined at the root of a bundle.
+function aot.libraryReference(name: string, suffix: string): string
+    return "@lib/" .. aot.libraryFile(name, suffix)
+end
+
+--- Compiles the emitted C into one shared library.
+---
+--- One library for the project rather than one per source, because the loader
+--- opens it once and the wrappers all name the same object. Sources are sorted
+--- so two builds of one project produce the same command line.
+---
+--- Written through a staged path and installed only after the compiler
+--- succeeded, so a failed link leaves the previous library in place rather than
+--- a truncated one the loader would happily open.
+---
+--- @param emitted the tiered C translation units the emitter wrote
+--- @param output where the library goes
+--- @return nothing, or what went wrong
+function aot.link(
+    chain: aot.Toolchain,
+    selected: targets.Target,
+    emitted: {aot.Emitted},
+    output: string,
+    extra: {string}?,
+    needsLua: boolean?
+): string?
+    if not fs.mkdir(fs.dirname(output)) then
+        return "could not create " .. fs.dirname(output)
+    end
+
+    local objects: {string} = {}
+    for _, one in ipairs(emitted) do
+        local tierTarget, tierErr = targets.select(selected.triple, one.tier)
+        if tierTarget == nil then
+            return tostring(tierErr)
+        end
+        local object = one.output:gsub("%.c$", ".o")
+        local stagedObject = object .. ".tmp"
+        local argv: {string} = {chain.command}
+        for _, flag in ipairs(aot.compileFlags(tierTarget as targets.Target, chain, extra)) do
+            argv[#argv + 1] = flag
+        end
+        argv[#argv + 1] = "-c"
+        argv[#argv + 1] = one.output
+        argv[#argv + 1] = "-o"
+        argv[#argv + 1] = stagedObject
+        os.remove(stagedObject)
+        local code, text = process.capture(argv)
+        if code ~= 0 then
+            os.remove(stagedObject)
+            local hint = ""
+            if selected.triple ~= targets.hostTriple() then
+                hint = (
+                    "\ncompiling for %s on %s needs that target's headers and libraries: "
+                ):format(
+                    selected.triple,
+                    tostring(targets.hostTriple())
+                ) .. "give the sysroot through aotCflags, or select aot = \"emit-c\" and build the C where it runs"
+            end
+
+            return "compiling the generated " .. one.tier .. " C failed:\n" .. text .. hint
+        end
+        local objectBytes, objectErr = fs.readFile(stagedObject)
+        os.remove(stagedObject)
+        if objectBytes == nil then
+            return tostring(objectErr)
+        end
+        local wrote, writeErr = fs.writeFile(object, objectBytes as string)
+        if not wrote then
+            return tostring(writeErr)
+        end
+        one.object = object
+        objects[#objects + 1] = object
+    end
+    table.sort(objects)
+
+    local shared, _, trailing = aot.linkage(selected, needsLua)
+    local argv: {string} = {chain.command}
+    for _, flag in ipairs(shared) do
+        argv[#argv + 1] = flag
+    end
+    for _, flag in ipairs(aot.linkFlags(selected, chain, extra)) do
+        argv[#argv + 1] = flag
+    end
+    argv[#argv + 1] = "-o"
+    local staged = output .. ".tmp"
+    argv[#argv + 1] = staged
+    for _, object in ipairs(objects) do
+        argv[#argv + 1] = object
+    end
+    if trailing ~= nil then
+        argv[#argv + 1] = trailing as string
+    end
+    os.remove(staged)
+    local code, text = process.capture(argv)
+    if code ~= 0 then
+        os.remove(staged)
+        local hint = ""
+        if needsLua and targets.system(selected.triple) == "windows" and aot.luaImportLibrary() == nil then
+            hint = "\nthis entry drives the Lua VM, and a Windows library resolves every "
+                .. "symbol as it links: name the interpreter's import library through "
+                .. "NUPP_LUA_LIB, or put the `luajit` this will run under on PATH"
+        end
+
+        return "linking the generated C failed:\n" .. text .. hint
+    end
+
+    local binary, readErr = fs.readFile(staged)
+    os.remove(staged)
+    if binary == nil then
+        return tostring(readErr)
+    end
+    local ok, writeErr = fs.writeFile(output, binary as string)
+    if not ok then
+        return tostring(writeErr)
+    end
+
+    return nil
+end
+
+--- The assembly one generated translation unit compiles to.
+---
+--- The same C an artifact is built from, given the same flags, stopped one step
+--- before the assembler encodes it. That is deliberately not a disassembly of
+--- the built library: the two say the same thing about a body, and only this one
+--- needs no second tool installed and produces no addresses for two runs to
+--- differ by.
+---
+--- Nothing is cached. This compiles for a person reading the answer, not for a
+--- build, so it costs one compilation of one file and leaves nothing behind that
+--- a later build could mistake for its own.
+---
+--- @param c the generated translation unit
+--- @param extra project flags, which are part of what the artifact was compiled
+---   with wherever a target names them
+--- @return the assembly, or nothing and what the compiler said
+--- @raises never; a compiler that refused the C is reported, not thrown
+function aot.assemble(chain: aot.Toolchain, selected: targets.Target, c: string, extra: {string}?): (string?, string?)
+    local base = os.tmpname()
+    os.remove(base)
+    local source = base .. ".c"
+    local output = base .. ".s"
+    local wrote, writeErr = fs.writeFile(source, c)
+    if not wrote then
+        return nil, tostring(writeErr)
+    end
+
+    local argv: {string} = {chain.command}
+    for _, flag in ipairs(aot.compileFlags(selected, chain, extra)) do
+        argv[#argv + 1] = flag
+    end
+    argv[#argv + 1] = "-S"
+    argv[#argv + 1] = source
+    argv[#argv + 1] = "-o"
+    argv[#argv + 1] = output
+    local code, text = process.capture(argv)
+    os.remove(source)
+    if code ~= 0 then
+        os.remove(output)
+
+        return nil, "compiling the generated " .. selected.tier .. " C failed:\n" .. text
+    end
+    local assembly, readErr = fs.readFile(output)
+    os.remove(output)
+    if assembly == nil then
+        return nil, tostring(readErr)
+    end
+
+    return assembly as string, nil
+end
+
+--- Writes the C for every `@aot` function the project builds.
+---
+--- Scoped by the project's module roots rather than by the target's entries,
+--- because an entry is a module name and an `@aot` function is in a file. Every
+--- module the project could build is a module the policy applies to.
+---
+--- @param roots the project's include directories
+--- @param outDir where the build is writing, which the C goes beside
+--- @param session the graph the sources are checked through, shared with the
+---   module build that follows so each import is answered once
+--- @return what was written, or nothing and the first reason it could not be
+--- @raises never; a source the subset refuses is reported, not thrown
+function aot.emitC(
+    root: string,
+    outDir: string,
+    roots: {string},
+    previous: {[string]: string},
+    session: nupp.compiler.build.modules.Session,
+    features: string?,
+    triple: string?
+): ({aot.Emitted}?, string?, {[string]: compile.Artifacts}, {[string]: {any}})
+    local produced: {[string]: compile.Artifacts} = {}
+    -- Kept for every source read here, and used only for the ones that end up
+    -- rewritten, since only those are checked again as something else.
+    local authoredUnused: {[string]: {any}} = {}
+    local selected, targetErr = targets.buildTiers(triple, features)
+    if selected == nil then
+        return nil, tostring(targetErr), produced, authoredUnused
+    end
+
+    local emitted: {aot.Emitted} = {}
+    local seen: {[string]: boolean} = {}
+    for _, directory in ipairs(roots) do
+        for _, source in ipairs(fs.listFiles(fs.join(root, directory))) do
+            if not seen[source] and source:match("%.nupp$") ~= nil then
+                seen[source] = true
+
+                local text = fs.readFile(source)
+                local tree: nupp.compiler.parser.ParseResult? = nil
+                if text ~= nil and mentionsAot(text as string) then
+                    local checkedSource, unusedHere = checkedTree(session, source)
+                    tree = checkedSource
+                    authoredUnused[source] = unusedHere
+                end
+                if tree ~= nil then
+                    for tierPosition, tierTarget in ipairs(selected as {targets.Target}) do
+                        local artifacts, diagnostics = compile.artifacts(
+                            text as string,
+                            source,
+                            tree as nupp.compiler.parser.ParseResult,
+                            "<object>",
+                            tierTarget,
+                            tierTarget.tier
+                        )
+                        if artifacts == nil then
+                            -- A file that only mentioned the annotation is not
+                            -- an error. Every tier lowers from the same checked
+                            -- source, so only the first can discover that case.
+                            local first = diagnostics[1]
+                            if first ~= nil and first.message ~= "no @aot function was found" then
+                                return nil, compile.renderDiagnostic(first), produced, authoredUnused
+                            end
+                            break
+                        else
+                            -- Where the generated C goes, which has to be
+                            -- under `outDir` for every source the project
+                            -- reaches, including the ones it reaches by
+                            -- including a directory outside itself.
+                            --
+                            -- This used to strip the project root off the
+                            -- source with a pattern, and `root` is usually
+                            -- ".", whose pattern `^%./?` matches the first
+                            -- dot of a leading "..". A source two directories
+                            -- up came back as "./../src/x" and landed inside
+                            -- the build directory by luck; three up came back
+                            -- as "./../../src/x" and landed in the project's
+                            -- own source tree. Taking the path apart at the
+                            -- include directory it was listed under answers
+                            -- both: the traversal is spelled out rather than
+                            -- joined, so nothing escapes, and the directory
+                            -- stays in the name, so two includes offering the
+                            -- same module path cannot land on one file.
+                            -- Both sides without a leading "./", because
+                            -- `fs.join` writes one for a root of "." and the
+                            -- listed source does not carry it.
+                            local base = fs.join(root, directory):gsub("^%./", "")
+                            local listed = source:gsub("^%./", "")
+                            local relative = listed
+                            if listed:sub(1, #base + 1) == base .. "/" then
+                                relative = listed:sub(#base + 2)
+                            end
+                            local prefix = directory:gsub("^%./", ""):gsub("%.%./", "up/"):gsub("/$", "")
+                            local stem = (prefix == "" and relative or prefix .. "/" .. relative):gsub("%.nupp$", "")
+                            local output = outDir .. "/aot/" .. stem .. "." .. tierTarget.tier .. ".c"
+                            local cacheKey = source .. "#" .. tierTarget.tier
+                            local key = aot.key(artifacts.irText, tierTarget)
+
+                            -- The state is evidence, not authority: the bytes
+                            -- still have to be the ones this compiler emitted.
+                            local reused = previous[cacheKey] == key and fs.readFile(output) == artifacts.c
+                            if not reused then
+                                local ok, err = fs.writeFile(output, artifacts.c)
+                                if not ok then
+                                    return nil, tostring(err), produced, authoredUnused
+                                end
+                            end
+                            emitted[
+                                #emitted + 1
+                            ] = new aot.Emitted(
+                                source = source,
+                                tier = tierTarget.tier,
+                                cacheKey = cacheKey,
+                                output = output,
+                                functions = #artifacts.programs,
+                                key = key
+                            )
+                            produced[cacheKey] = artifacts as compile.Artifacts
+                            if tierPosition == 1 then
+                                -- Wrappers have one logical program and bind it
+                                -- to the physical entries every tier exported.
+                                produced[source] = artifacts as compile.Artifacts
+                            end
+                        end
+                    end
+                end
+            end
+        end
+    end
+
+    -- One compiler-owned baseline unit asks which optional x86-64 state the
+    -- destination enabled. It exists only when there is something to select.
+    if #emitted > 0 and #(selected as {targets.Target}) > 1 then
+        local detector = emitter.featureDetector()
+        local output = outDir .. "/aot/features.c"
+        local cacheKey = "@feature-detector"
+        local key = hash.digest(
+            cache.stable({
+                c = detector,
+                triple = (selected as {targets.Target})[1].triple,
+                compiler = cache.toolFingerprint(),
+            })
+        )
+        if previous[cacheKey] ~= key or fs.readFile(output) ~= detector then
+            local ok, err = fs.writeFile(output, detector)
+            if not ok then
+                return nil, tostring(err), produced, authoredUnused
+            end
+        end
+        emitted[
+            #emitted + 1
+        ] = new aot.Emitted(
+            source = "<feature-detector>",
+            tier = "baseline",
+            cacheKey = cacheKey,
+            output = output,
+            functions = 0,
+            key = key,
+            detector = true
+        )
+    end
+
+    return emitted, nil, produced, authoredUnused
+end
+
+--- What one build of the policy produced.
+record aot.Result
+    --- The C, one entry per source that carried an `@aot` function.
+    emitted: {aot.Emitted}
+
+    --- The shared library, when the policy asked for one.
+    library: string?
+
+    --- The key that library was linked under.
+    libraryKey: string?
+
+    --- The compiler that linked it, for a build that wants to say so.
+    toolchain: string?
+
+    --- Machine-readable instructions for compiling the emitted tiered units.
+    manifest: string?
+
+    --- Source path -> that source with its `@aot` functions replaced by the
+    --- wrappers that call the compiled code. Empty unless the policy links, so
+    --- `emit-c` leaves every module exactly as it was written.
+    dispatch: {[string]: string}
+
+    --- Source path -> what reading that source as written said about bindings
+    --- nothing uses. The module build reports these instead of what the
+    --- rewritten source says, which cannot see the readers the wrapper replaced.
+    authoredUnused: {[string]: {any}}?
+
+    --- Side-module C and Wasm paths, in deterministic source order.
+    wasmModules: {string}?
+end
+
+--- Writes the portable handoff for an `emit-c` consumer.
+function aot.writeUnitsManifest(outDir: string, triple: string, emitted: {aot.Emitted}): (string?, string?)
+    if #emitted == 0 then
+        return nil, nil
+    end
+    local units: {unknown} = {}
+    local prefix = outDir .. "/aot/"
+    for _, one in ipairs(emitted) do
+        local flags: {string} = {}
+        local tierFlag = aot.TIER_FLAGS[one.tier]
+        if tierFlag ~= nil and one.detector ~= true then
+            flags[#flags + 1] = tierFlag as string
+        end
+        units[
+            #units + 1
+        ] = {
+            source = one.output:gsub("^" .. prefix:gsub("%p", "%%%0"), ""),
+            tier = one.tier,
+            cflags = nupp.data.json.asArray(flags),
+            detector = one.detector == true,
+            wasm = one.wasm and (one.wasm as string):gsub("^" .. prefix:gsub("%p", "%%%0"), "") or nil,
+            registrar = one.registrar,
+            unit = one.unit,
+        }
+    end
+    local document = nupp.data.json.encode({
+        schemaVersion = 2,
+        target = triple,
+        units = nupp.data.json.asArray(units),
+    }) .. "\n"
+    local output = outDir .. "/aot/units.json"
+    if fs.readFile(output) ~= document then
+        local ok, err = fs.writeFile(output, document)
+        if not ok then
+            return nil, tostring(err)
+        end
+    end
+
+    return output, nil
+end
+
+--- Applies a target's ahead-of-time policy.
+---
+--- `emit-c` stops after writing the C. `require` goes on to compile it, and a
+--- project that selected `require` and has no `@aot` function anywhere gets a
+--- successful build with no library rather than an empty one: the policy says
+--- what to do with `@aot` code, not that there must be some.
+---
+--- @param policy the target's `aot` value
+--- @param name the target's name, which the library is named after
+--- @return what was produced, or nothing and the first reason it could not be
+function aot.apply(
+    policy: string,
+    root: string,
+    outDir: string,
+    roots: {string},
+    name: string,
+    previous: {[string]: string},
+    previousLibraryKey: string?,
+    session: nupp.compiler.build.modules.Session,
+    features: string?,
+    triple: string?,
+    cflags: {string}?
+): (aot.Result?, string?)
+    local wasmPolicy = aot.linksWasm(policy)
+    if wasmPolicy then
+        triple = "wasm32-unknown-emscripten"
+        features = features or "scalar"
+    end
+    local emitted, emitErr, produced, authoredUnused = aot.emitC(
+        root,
+        outDir,
+        roots,
+        previous,
+        session,
+        features,
+        triple
+    )
+    if emitted == nil then
+        return nil, emitErr
+    end
+    local selectedForManifest, selectedErr = targets.buildTiers(triple, features)
+    if selectedForManifest == nil then
+        return nil, tostring(selectedErr)
+    end
+    if #(selectedForManifest as {targets.Target}) > 1 then
+        local flagErr = aot.multiversionFlagError(cflags)
+        if flagErr ~= nil then
+            return nil, flagErr
+        end
+    end
+    local manifest, manifestErr = aot.writeUnitsManifest(
+        outDir,
+        (selectedForManifest as {targets.Target})[1].triple,
+        emitted as {aot.Emitted}
+    )
+    if manifestErr ~= nil then
+        return nil, manifestErr
+    end
+    if wasmPolicy then
+        local wasmModules, wasmErr, wasmKey, wasmToolchain = aot.compileWasm(emitted as {aot.Emitted}, produced, cflags)
+        if wasmModules == nil then
+            return nil, wasmErr
+        end
+        manifest, manifestErr = aot.writeUnitsManifest(
+            outDir,
+            (selectedForManifest as {targets.Target})[1].triple,
+            emitted as {aot.Emitted}
+        )
+        if manifestErr ~= nil then
+            return nil, manifestErr
+        end
+        local dispatch: {[string]: string} = {}
+        if policy == "require-wasm" then
+            for _, one in ipairs(emitted as {aot.Emitted}) do
+                local artifacts = produced[one.source]
+                local source = fs.readFile(one.source)
+                if one.detector ~= true and artifacts ~= nil and source ~= nil then
+                    dispatch[
+                        one.source
+                    ] = aot.wasmDispatch(
+                        source as string,
+                        (artifacts as compile.Artifacts).programs,
+                        (artifacts as compile.Artifacts).sites,
+                        one.unit as string
+                    )
+                end
+            end
+        end
+        return new aot.Result(
+            emitted = emitted as {aot.Emitted},
+            libraryKey = wasmKey,
+            toolchain = wasmToolchain,
+            manifest = manifest,
+            dispatch = dispatch,
+            authoredUnused = authoredUnused,
+            wasmModules = wasmModules
+        ), nil
+    end
+    if not aot.linksNative(policy) or #(emitted as {aot.Emitted}) == 0 then
+        return new aot.Result(emitted = emitted as {aot.Emitted}, manifest = manifest, dispatch = {}), nil
+    end
+
+    local chain, chainErr = aot.toolchain()
+    if chain == nil then
+        return nil, tostring(chainErr)
+    end
+    local selectedTiers, targetErr = targets.buildTiers(triple, features)
+    if selectedTiers == nil then
+        return nil, tostring(targetErr)
+    end
+
+    local selected = (selectedTiers as {targets.Target})[1]
+    local keys: {string} = {}
+    local needsLua = false
+    for _, one in ipairs(emitted as {aot.Emitted}) do
+        keys[#keys + 1] = one.key
+        local artifact = produced[one.cacheKey]
+        for _, program in ipairs(artifact ~= nil and (artifact as compile.Artifacts).programs or {}) do
+            needsLua = needsLua or program.entryMode == "lua-builder"
+        end
+    end
+
+    local shared, suffix = aot.linkage(selected, needsLua)
+    local library = aot.libraryPath(outDir, name, suffix)
+    local reference = aot.libraryReference(name, suffix)
+    local keyedFlags: {string} = {}
+    for _, one in ipairs(emitted as {aot.Emitted}) do
+        local tierTarget = targets.select(selected.triple, one.tier)
+        keyedFlags[#keyedFlags + 1] = "tier=" .. one.tier
+        for _, flag in ipairs(aot.compileFlags(tierTarget as targets.Target, chain as aot.Toolchain, cflags)) do
+            keyedFlags[#keyedFlags + 1] = flag
+        end
+    end
+    keyedFlags[#keyedFlags + 1] = "link"
+    for _, flag in ipairs(aot.linkFlags(selected, chain as aot.Toolchain, cflags)) do
+        keyedFlags[#keyedFlags + 1] = flag
+    end
+    local key = aot.libraryKey(keys, chain as aot.Toolchain, keyedFlags, shared)
+
+    -- Same rule the C artifacts follow: the key is compared, and then the
+    -- library it describes has to still be there. A relink costs seconds; a
+    -- stale library loaded because a digest agreed costs a wrong answer.
+    if previousLibraryKey ~= key or not fs.exists(library) then
+        local linkErr = aot.link(chain as aot.Toolchain, selected, emitted as {aot.Emitted}, library, cflags, needsLua)
+        if linkErr ~= nil then
+            return nil, tostring(linkErr)
+        end
+    end
+
+    -- Written after the library exists rather than before, so a build that
+    -- failed to link never leaves modules rewritten to call an object that is
+    -- not there.
+    local dispatch: {[string]: string} = {}
+    local tierNames: {string} = {}
+    for _, tierTarget in ipairs(selectedTiers as {targets.Target}) do
+        tierNames[#tierNames + 1] = tierTarget.tier
+    end
+    local dispatched: {[string]: boolean} = {}
+    for _, one in ipairs(emitted as {aot.Emitted}) do
+        local artifacts = produced[one.source]
+        local text = fs.readFile(one.source)
+        if not dispatched[one.source] and artifacts ~= nil and text ~= nil then
+            dispatched[one.source] = true
+            dispatch[
+                one.source
+            ] = aot.dispatch(
+                text as string,
+                (artifacts as compile.Artifacts).programs,
+                (artifacts as compile.Artifacts).sites,
+                reference,
+                tierNames
+            )
+        end
+    end
+
+    return new aot.Result(
+        emitted = emitted as {aot.Emitted},
+        library = library,
+        libraryKey = key,
+        toolchain = (chain as aot.Toolchain).version,
+        manifest = manifest,
+        dispatch = dispatch,
+        authoredUnused = authoredUnused
+    ), nil
+end
+
+export = aot

@@ -1,0 +1,17 @@
+host/notices/*.txt text eol=lf
+
+# `nupp fmt` writes LF and `nupp fmt --check` holds this tree to what it writes,
+# so a checkout that translates line endings has an unformatted tree by the time
+# anything reads it. Windows is where that happens.
+*.nupp text eol=lf
+
+# The formatter corpus is bytes under test: a case exists to prove what the
+# formatter does with the line endings it was given, so nothing normalizes them.
+tests/fmtcorpus/** -text
+
+# Sourced and run by Git Bash on Windows. A checkout that translates line
+# endings leaves every value in a sourced file with a trailing carriage return:
+# `toolchain.pins` then answers a digest of sixty-five characters and a revision
+# that puts a return in the middle of the archive name it builds.
+scripts/** text eol=lf
+.github/scripts/** text eol=lf

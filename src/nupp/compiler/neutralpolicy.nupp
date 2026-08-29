@@ -1,0 +1,36 @@
+--[[
+The audited policy for a blocked type-level term at compiler boundaries.
+
+This table is deliberately executable documentation.  A new consumer category must
+choose one of reduce, preserve, or reject here and in its implementation; the focused
+test keeps the inventory complete and prevents a neutral term from silently acquiring
+runtime meaning.
+]]
+
+module nupp.compiler.neutralpolicy
+
+export const relations = "reduce at entry; relate identical blocked terms only"
+export const substitution = "preserve under rebind; reduce after closed substitution"
+export const rendering = "preserve as bounded source-like text"
+export const fingerprints = "preserve canonical semantic structure"
+export const ownership = "reject as an unclosed boundary type"
+export const narrowing = "preserve until a relation requests reduction"
+export const methodSlots = "reduce before member enumeration"
+export const documentation = "show the written alias and shortened reduced form"
+export const lsp = "reduce with the checker-revision memo before semantic answers"
+export const optimization = "reject before runtime lowering"
+export const codegen = "reject before runtime lowering"
+
+export const required = {
+    "relations",
+    "substitution",
+    "rendering",
+    "fingerprints",
+    "ownership",
+    "narrowing",
+    "methodSlots",
+    "documentation",
+    "lsp",
+    "optimization",
+    "codegen",
+}

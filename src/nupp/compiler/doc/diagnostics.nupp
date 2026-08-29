@@ -1,0 +1,221 @@
+module nupp.compiler.doc.diagnostics
+
+--[[
+The diagnostic index: every code the compiler reports, on one page.
+
+A reader holding a code from terminal output has one question, and it is not
+which chapter covers the area. Each code is a section of its own that states the
+rule, shows the program that reports it, and shows the same program corrected.
+That is `nupp explain` rendered as a page rather than said a second time, so the
+two can not disagree.
+
+The index is appended to the handwritten page that says what a diagnostic is,
+which the manifest names as `source`. One page rather than two, because a reader
+learning the format and a reader holding a code are the same reader a minute
+apart. One page rather than one page per code, because an index is a thing a
+reader searches: the browser's own find reaches every code, rule and program at
+once, and the whole set stays open in one tab. That is also why the programs are
+highlighted text rather than embedded editors. Text inside an editor frame is
+not findable, so each carries a link that opens it in the playground instead.
+
+Codes that resolve only through their family are left out. The family answers
+for all of them at once, and a section under a number that adds nothing to it
+would be padding.
+]]
+
+local explainMod = require("nupp.compiler.explain")
+local htmlMod = require("nupp.compiler.doc.html")
+local lintsMod = require("nupp.compiler.lints")
+
+local diagnostics = {}
+
+--- The generated page: the route it is written to, its title, its markdown, and the
+--- handwritten file whose prose opens it.
+type diagnostics.Page = {
+    markdown: string,
+    path: string,
+    redirects: {string}?,
+    source: string?,
+    symbols: {[string]: string}?,
+    title: string
+}
+
+--- Where a manifest asked the index to live, what to call it, and the handwritten page
+--- it opens with. `source` is the repository path, which the site uses to resolve links
+--- written against it; `prose` is that file already read, because this module assembles
+--- markdown rather than reading files.
+type diagnostics.Settings = {
+    path: string?,
+    prose: string?,
+    redirects: {string}?,
+    source: string?,
+    title: string?
+}
+
+--- The repository paths the site has a page for, which is what says whether a
+--- reference a code carries can be linked or only named.
+type diagnostics.Published = {[string]: boolean}
+
+-- The heading slug the renderer gives `#### NUPP2107`, which is what an in-page
+-- link to that code has to spell.
+local function anchor(code: string): string
+    return "#" .. code:lower()
+end
+
+local function lintFor(code: string): any
+    for _, candidate in ipairs(lintsMod.all) do
+        if candidate.code == code then
+            return candidate
+        end
+    end
+
+    return nil
+end
+
+local function fence(caption: string, source: string): string
+    return "```nupp [" .. caption .. "]\n" .. source:gsub("%s+$", "") .. "\n```"
+end
+
+local function section(
+    code: string,
+    entry: explainMod.Entry,
+    listed: {[string]: boolean},
+    published: diagnostics.Published
+): {string}
+    local out = {"#### " .. code, "", entry.summary .. ".", ""}
+    if entry.wrong then
+        out[#out + 1] = fence("Reported", entry.wrong)
+        out[#out + 1] = ""
+    end
+    out[#out + 1] = entry.rule
+    out[#out + 1] = ""
+    if entry.strict then
+        out[#out + 1] = "This applies only under `--strict`, or in a `.nupp` file."
+        out[#out + 1] = ""
+    end
+    if entry.right then
+        out[#out + 1] = fence("Accepted", entry.right)
+        out[#out + 1] = ""
+    elseif entry.family then
+        out[
+            #out + 1
+        ] = "This code has no example pair of its own. The rule above is "
+            .. "its family's, which is what the compiler knows about it."
+        out[#out + 1] = ""
+    end
+    local lint = lintFor(code)
+    if lint then
+        out[
+            #out + 1
+        ] = "Reported by the `"
+            .. lint.name
+            .. "` lint, category `"
+            .. lint.category
+            .. "`, at `"
+            .. lint.level
+            .. "` by default. Configure it by name or by category."
+        out[#out + 1] = ""
+    end
+    local trail = {}
+    if #entry.related > 0 then
+        local names = {}
+        for _, other in ipairs(entry.related) do
+            names[
+                #names + 1
+            ] = listed[other] and ("[**" .. other .. "**](" .. anchor(other) .. ")") or ("**" .. other .. "**")
+        end
+        trail[#trail + 1] = "Related: " .. table.concat(names, ", ") .. "."
+    end
+    local target = entry.docs:match("^([^#]+)") or entry.docs
+    if published[target] then
+        trail[#trail + 1] = "Reference: [" .. entry.docs .. "](" .. entry.docs .. ")."
+    elseif not target:find("/", 1, true) then
+        -- A module name rather than a page path: the rule is written in that module's
+        -- own blurb, and the symbol index is what turns the name into its page.
+        trail[#trail + 1] = "Reference: [](" .. entry.docs .. ")."
+    else
+        trail[#trail + 1] = "Reference: `" .. entry.docs .. "` in the repository."
+    end
+    if entry.wrong then
+        trail[
+            #trail + 1
+        ] = "[Open the reported program in the playground](/playground/#source=" .. htmlMod.urlFragmentEscape(
+            (entry.wrong:gsub("%s+$", ""))
+        ) .. ")."
+    end
+    out[#out + 1] = table.concat(trail, " ")
+    out[#out + 1] = ""
+
+    return out
+end
+
+--- Every documented code as one page, or nil when the manifest asked for no index.
+function diagnostics.page(settings: diagnostics.Settings?, published: diagnostics.Published?): diagnostics.Page?
+    if not settings then
+        return nil
+    end
+    local known = published or {}
+    local title = settings.title or "Diagnostic index"
+    local codes = explainMod.documented()
+    local listed: {[string]: boolean} = {}
+    for _, code in ipairs(codes) do
+        listed[code] = true
+    end
+
+    local out: {string} = {}
+    if settings.prose then
+        out[#out + 1] = (settings.prose:gsub("%s+$", ""))
+        out[#out + 1] = ""
+    else
+        out[#out + 1] = "# " .. title
+        out[#out + 1] = ""
+    end
+    out[#out + 1] = "## Diagnostic index"
+    out[#out + 1] = ""
+    out[
+        #out + 1
+    ] = "Every code the compiler reports specifically, with the rule it enforces "
+        .. "and, where one is known, the program that reports it beside the same "
+        .. "program corrected. `nupp explain <code>` prints the same thing in a "
+        .. "terminal."
+    out[#out + 1] = ""
+    out[
+        #out + 1
+    ] = "A code that resolves only through its family is not here. The families "
+        .. "are the leading digit, and each one answers for every code under it."
+    out[#out + 1] = ""
+    local byFamily: {[string]: {string}} = {}
+    local order: {string} = {}
+    for _, code in ipairs(codes) do
+        local family = explainMod.familyTitle(code) or "Other"
+        local bucket = byFamily[family]
+        if not bucket then
+            bucket = {}
+            byFamily[family], order[#order + 1] = bucket, family
+        end
+        bucket[#bucket + 1] = code
+    end
+    for _, family in ipairs(order) do
+        out[#out + 1] = "### " .. family
+        out[#out + 1] = ""
+        for _, code in ipairs(byFamily[family] or {}) do
+            local entry = explainMod.lookup(code)
+            if entry then
+                for _, line in ipairs(section(code, entry, listed, known)) do
+                    out[#out + 1] = line
+                end
+            end
+        end
+    end
+
+    return {
+        path = settings.path or "diagnostics",
+        title = title,
+        source = settings.source,
+        redirects = settings.redirects,
+        markdown = table.concat(out, "\n"),
+        symbols = nil
+    }
+end
+
+export = diagnostics

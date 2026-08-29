@@ -1,0 +1,65 @@
+{
+  "$schema": "https://raw.githubusercontent.com/martinring/tmlanguage/master/tmlanguage.json",
+  "name": "Nupp PEG",
+  "scopeName": "source.nupp.peg",
+  "patterns": [
+    { "include": "#comments" },
+    { "include": "#strings" },
+    { "include": "#definitions" },
+    { "include": "#classes" },
+    { "include": "#predefined" },
+    { "include": "#operators" }
+  ],
+  "repository": {
+    "comments": {
+      "name": "comment.line.double-dash.nupp-peg",
+      "match": "--.*$"
+    },
+    "strings": {
+      "patterns": [
+        {
+          "name": "string.quoted.single.nupp-peg",
+          "begin": "'",
+          "end": "'"
+        },
+        {
+          "name": "string.quoted.double.nupp-peg",
+          "begin": "\\\"",
+          "end": "\\\""
+        }
+      ]
+    },
+    "definitions": {
+      "patterns": [
+        {
+          "name": "entity.name.function.rule.nupp-peg",
+          "match": "\\b[A-Za-z_][A-Za-z0-9_]*\\b(?=\\s*<-)"
+        },
+        {
+          "name": "entity.name.function.reference.nupp-peg",
+          "match": "(?<=<)\\b[A-Za-z_][A-Za-z0-9_]*\\b(?=>)"
+        },
+        {
+          "name": "entity.name.function.capture.nupp-peg",
+          "match": "(?:->|=>|>>|~>)\\s*([A-Za-z_][A-Za-z0-9_]*)\\b",
+          "captures": {
+            "1": { "name": "entity.name.function.capture.nupp-peg" }
+          }
+        }
+      ]
+    },
+    "classes": {
+      "name": "string.regexp.character-class.nupp-peg",
+      "begin": "\\[",
+      "end": "\\]"
+    },
+    "predefined": {
+      "name": "constant.character.class.nupp-peg",
+      "match": "%[A-Za-z]+"
+    },
+    "operators": {
+      "name": "keyword.operator.nupp-peg",
+      "match": "<-|=>|>>|~>|->|[./!?*+^|&=]"
+    }
+  }
+}

@@ -1,0 +1,77 @@
+module jobs
+
+-- Ordinary exported functions. Nothing here names a worker: submitting one is what
+-- runs it on a lane, and calling it runs it in whichever state made the call.
+
+local tasks = require("nupp.tasks")
+local time = require("nupp.time")
+local workers = require("nupp.workers")
+
+export record Reading
+    label: string
+    value: integer
+end
+
+--- A small pure fold, so a lane is doing arithmetic rather than waiting.
+export function checksum(bytes: string, rounds: integer): integer
+    local total: integer = 0
+    for _ = 1, rounds do
+        for index = 1, #bytes do
+            total = (total * 31 + bytes:byte(index)) % 1000003
+        end
+    end
+
+    return total
+end
+
+--- Returns nothing at all, so the empty result pack has to survive the crossing.
+export function acknowledge(label: string): nil
+end
+
+--- Reads and rebuilds a record, so a lane has to receive the declaration metatable.
+export function louder(reading: Reading): Reading
+    return new Reading(label = reading.label:upper(), value = reading.value + 1)
+end
+
+--- Counts what it was handed. Its parameter says nothing definite about the values,
+--- so whether they can cross is left to the copy rather than to the signature.
+export function count(rows: {any}): integer
+    return #rows
+end
+
+--- Raises where it runs, which is what a task failure is.
+export function refuse(label: string): string
+    error("cannot hash " .. label, 0)
+end
+
+--- Waits inside the lane, which is what keeps one busy while others queue behind it.
+export function patient(pauseMs: integer): integer
+    time.sleep(pauseMs)
+
+    return pauseMs
+end
+
+--- Waits in bounded steps, checkpointing between them, which is where a running
+--- lane observes that its cancellation was requested.
+export function cooperative(rounds: integer, pauseMs: integer): integer
+    local total: integer = 0
+    for index = 1, rounds do
+        tasks.checkpoint()
+        time.sleep(pauseMs)
+        total = total + index
+    end
+
+    return total
+end
+
+--- Submitting this raises where it runs: a worker task cannot open another scope.
+export function nested(shards: integer): integer
+    with scope = workers.scope() do
+        return shards
+    end
+end
+
+--- A value no copy could reproduce, refused by the lane rather than by the caller.
+export function unsendableResult(label: string): any
+    return {label = label, hook = function(): nil end,}
+end

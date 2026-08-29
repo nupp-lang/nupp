@@ -1,0 +1,436 @@
+module nupp.runtime.provider.lunajson
+
+--[[
+The `data.json` contract over Nupp's vendored pure-Lua Lunajson codec.
+
+Lunajson owns JSON parsing, Unicode handling, number validation, string escaping and
+encoding. This checked adapter supplies Nupp's explicit empty-container identities,
+projection, verified fragments and streaming-writer surface.
+]]
+
+-- The package root eagerly loads its optional file-backed SAX parser. Use the
+-- independent codec factories so this adapter needs no `io` library.
+local newDecoder = require(
+    "nupp.runtime.vendor.lunajson.decoder"
+) as function(): function(string, integer?, any?, boolean?): any
+local newEncoder = require("nupp.runtime.vendor.lunajson.encoder") as function(): function(any, any?): string
+local core = {decode = newDecoder(), encode = newEncoder(),}
+local json = {}
+
+local ARRAY_MARKER, OBJECT_MARKER, ARRAY_SHAPE = {}, {}, {}
+local ENCODED_VALUE, ENCODED_STRING = {}, {}
+local encodedStrings: any = setmetatable({}, {__mode = "v"})
+local verifiedStrings: any = setmetatable({}, {__mode = "v"})
+
+local function validUtf8(text: string): boolean
+    local at, length = 1, #text
+    while at <= length do
+        local first = text:byte(at) as integer
+        if first < 128 then
+            at = at + 1
+        else
+            local count = first >= 194
+                and first <= 223
+                and 1
+                or first >= 224
+                and first <= 239
+                and 2
+                or first >= 240
+                and first <= 244
+                and 3
+                or 0
+            if count == 0 or at + count > length then
+                return false
+            end
+            local second = text:byte(at + 1) as integer
+            if second < 128
+                or second > 191
+                or first == 224
+                and second < 160
+                or first == 237
+                and second > 159
+                or first == 240
+                and second < 144
+                or first == 244
+                and second > 143
+            then
+                return false
+            end
+            for offset = 2, count do
+                local continuation = text:byte(at + offset) as integer
+                if continuation < 128 or continuation > 191 then
+                    return false
+                end
+            end
+            at = at + count + 1
+        end
+    end
+
+    return true
+end
+
+json.NULL = {}
+json.EMPTY_ARRAY = setmetatable({}, ARRAY_MARKER)
+json.EMPTY_OBJECT = setmetatable({}, OBJECT_MARKER)
+
+local function classify(value: any): string, integer
+    local marker = getmetatable(value)
+    local numberKeys, stringKeys = false, false
+    local count: integer = 0
+    local highest: integer = 0
+    for key in pairs(value) do
+        count = count + 1
+        if type(key) == "number" and key >= 1 and key % 1 == 0 then
+            numberKeys = true
+            highest = math.max(highest, math.floor(key))
+        elseif type(key) == "string" then
+            stringKeys = true
+        else
+            error("JSON object keys must be strings and array indexes must be positive integers", 0)
+        end
+    end
+    if numberKeys and stringKeys then
+        error("a JSON container cannot mix array indexes and object keys", 0)
+    end
+    if marker == ARRAY_MARKER and stringKeys then
+        error("an array-marked table cannot contain object keys", 0)
+    end
+    if marker == OBJECT_MARKER and numberKeys then
+        error("an object-marked table cannot contain array indexes", 0)
+    end
+    if numberKeys then
+        if count ~= highest then
+            error("JSON arrays cannot contain holes", 0)
+        end
+
+        return "array", highest
+    end
+    if marker == ARRAY_MARKER then
+        return "array", 0
+    end
+
+    return "object", count
+end
+
+local function container(value: any, visiting: {[any]: boolean}): any
+    if value == json.NULL then
+        return value
+    end
+    if type(value) ~= "table" then
+        return value
+    end
+    if visiting[value] then
+        error("cannot serialize a cyclic Lua table", 0)
+    end
+    visiting[value] = true
+    local out = {}
+    local kind, length = classify(value)
+    if kind == "array" then
+        out[0] = length
+        for index = 1, length do
+            out[index] = container(value[index], visiting)
+        end
+    else
+        for key, child in pairs(value) do
+            if type(key) ~= "string" then
+                error("JSON object keys must be strings", 0)
+            end
+            out[key] = container(child, visiting)
+        end
+    end
+    visiting[value] = nil
+
+    return out
+end
+
+local function mark(value: any): any
+    if type(value) ~= "table" or value == json.NULL then
+        return value
+    end
+    local length = value[0]
+    if type(length) == "number" then
+        value[0] = nil
+        setmetatable(value, ARRAY_MARKER)
+        local into = 1
+        for index = 1, length do
+            local child = value[index]
+            value[index] = nil
+            if child ~= nil then
+                value[into] = mark(child)
+                into = into + 1
+            end
+        end
+    else
+        setmetatable(value, OBJECT_MARKER)
+        for key, child in pairs(value) do
+            value[key] = mark(child)
+        end
+    end
+
+    return value
+end
+
+function json.asArray(value: any): any
+    if type(value) ~= "table" then
+        error("json.asArray needs a table", 2)
+    end
+    for key in pairs(value) do
+        if type(key) ~= "number" or key < 1 or key % 1 ~= 0 or key > #value then
+            error("an array-marked table must contain consecutive positive indexes", 2)
+        end
+    end
+
+    return setmetatable(value, ARRAY_MARKER)
+end
+
+function json.asObject(value: any): any
+    if type(value) ~= "table" then
+        error("json.asObject needs a table", 2)
+    end
+    for key in pairs(value) do
+        if type(key) ~= "string" then
+            error("an object-marked table must contain string keys", 2)
+        end
+    end
+
+    return setmetatable(value, OBJECT_MARKER)
+end
+
+function json.arrayOf(shape: any?): any
+    return {[ARRAY_SHAPE] = shape == nil and true or shape,}
+end
+
+function json.encode(value: any, nullValue: any?): string
+    return core.encode(container(value, {}), nullValue == nil and json.NULL or nullValue)
+end
+
+json.serialize = json.encode
+
+function json.decode(text: string, nullValue: any?): any
+    if not validUtf8(text) then
+        error("invalid UTF-8 in JSON", 0)
+    end
+    return mark(core.decode(text, nil, nullValue, true))
+end
+
+function json.isArray(value: any): boolean
+    if type(value) ~= "table" then
+        return false
+    end
+    local kind = classify(value)
+
+    return kind == "array"
+end
+
+local function project(value: any, shape: any): any
+    if shape == true then
+        return value
+    end
+    if type(shape) ~= "table" then
+        error("pull shape entries must be true, object shapes, or array shapes", 0)
+    end
+    local itemShape = shape[ARRAY_SHAPE]
+    if itemShape ~= nil then
+        if type(value) ~= "table" then
+            error("pull array shape matched a non-array value", 0)
+        end
+        local out = json.asArray({})
+        for _, item in ipairs(value) do
+            out[#out + 1] = project(item, itemShape)
+        end
+
+        return out
+    end
+    if type(value) ~= "table" then
+        error("pull object shape matched a non-object value", 0)
+    end
+    local out = json.asObject({})
+    for key, childShape in pairs(shape) do
+        if value[key] ~= nil then
+            out[key] = project(value[key], childShape)
+        end
+    end
+
+    return out
+end
+
+function json.pull(text: string, shape: any, nullValue: any?): any
+    return project(json.decode(text, nullValue), shape)
+end
+
+function json.encoded(value: any, nullValue: any?): any
+    return setmetatable({bytes = json.encode(value, nullValue),}, ENCODED_VALUE)
+end
+
+function json.encodedString(value: string): any
+    local prior = encodedStrings[value]
+    if prior ~= nil then
+        return prior
+    end
+    local encoded = setmetatable({bytes = core.encode(value),}, ENCODED_STRING)
+    encodedStrings[value] = encoded
+
+    return encoded
+end
+
+function json.verified(text: string): any
+    json.decode(text, json.NULL)
+
+    return setmetatable({bytes = text,}, ENCODED_VALUE)
+end
+
+function json.verifiedString(text: string): any
+    local prior = verifiedStrings[text]
+    if prior ~= nil then
+        return prior
+    end
+    local value = json.decode(text, json.NULL)
+    if type(value) ~= "string" then
+        error("a verified JSON string is required", 2)
+    end
+
+    local verified = setmetatable({bytes = text,}, ENCODED_STRING)
+    verifiedStrings[text] = verified
+
+    return verified
+end
+
+function json.writer(out: any, nullValue: any?): any
+    local parts, stack, root, closed = {}, {}, false, false
+    local pending = 0
+    local writer = {}
+    local function add(text: string): nil
+        parts[#parts + 1] = text
+        pending = pending + #text
+        if pending >= 65536 then
+            out:put(table.concat(parts))
+            parts = {}
+            pending = 0
+        end
+    end
+
+    local function prepare(): nil
+        if closed then
+            error("writer is already closed", 2)
+        end
+        if #stack == 0 then
+            if root then
+                error("writer already has a root value", 2)
+            end
+            root = true
+
+            return
+        end
+        local frame = stack[#stack]
+        if frame.kind == "array" then
+            if not frame.first then
+                add(",")
+            end
+            frame.first = false
+        elseif not frame.value then
+            error("an object value must follow key()", 2)
+        else
+            frame.value = false
+        end
+    end
+
+    function writer:startArray(): any
+        prepare()
+        add("[")
+        stack[#stack + 1] = {kind = "array", first = true,}
+
+        return self
+    end
+
+    function writer:startObject(): any
+        prepare()
+        add("{")
+        stack[#stack + 1] = {kind = "object", first = true, value = false,}
+
+        return self
+    end
+
+    function writer:key(name: any): any
+        local frame = stack[#stack]
+        if closed or not frame or frame.kind ~= "object" or frame.value then
+            error("key() requires an open object with no pending key", 2)
+        end
+        if not frame.first then
+            add(",")
+        end
+        frame.first = false
+        add(getmetatable(name) == ENCODED_STRING and name.bytes or core.encode(name))
+        add(":")
+        frame.value = true
+
+        return self
+    end
+
+    function writer:write(value: any): any
+        prepare()
+        local marker = getmetatable(value)
+        add((marker == ENCODED_VALUE or marker == ENCODED_STRING) and value.bytes or json.encode(value, nullValue))
+
+        return self
+    end
+
+    function writer:null(): any
+        prepare()
+        add("null")
+
+        return self
+    end
+
+    local function finish(kind: string, name: string): any
+        local frame = stack[#stack]
+        if closed or not frame or frame.kind ~= kind then
+            error(name .. " requires an open " .. kind, 2)
+        end
+        if frame.value then
+            error("the final object key has no value", 2)
+        end
+        stack[#stack] = nil
+        add(kind == "array" and "]" or "}")
+
+        return writer
+    end
+
+    function writer:endArray(): any
+        return finish("array", "endArray()")
+    end
+
+    function writer:endObject(): any
+        return finish("object", "endObject()")
+    end
+
+    function writer:flush(): nil
+        if closed then
+            error("writer is already closed", 2)
+        end
+        if #parts > 0 then
+            out:put(table.concat(parts))
+            parts = {}
+            pending = 0
+        end
+    end
+
+    function writer:close(): nil
+        if closed then
+            error("writer is already closed", 2)
+        end
+        closed = true
+        if not root or #stack > 0 then
+            parts = {}
+            error("close() requires one complete root value", 2)
+        end
+        if #parts > 0 then
+            out:put(table.concat(parts))
+            parts = {}
+            pending = 0
+        end
+    end
+
+    return writer
+end
+
+export = json

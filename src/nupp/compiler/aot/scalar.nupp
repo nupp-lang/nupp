@@ -1,0 +1,1301 @@
+module nupp.compiler.aot.scalar
+
+--[[
+The scalar half of the AOT IR.
+
+One `@aot` body lowers to this: an admitted signature, the layouts its spans hold,
+and one loop over them. It is what the lane rewrite reads and what a body that
+declined lane lowering is emitted from directly.
+
+There is one record per operation and `Expr` is their union, discriminated by
+`op`, the way the concrete syntax tree is discriminated by `kind`. A pass that
+dispatches on the tag is checked against the vocabulary rather than trusted with
+it, and a module boundary that took `any` instead would put every one of these
+rules back in the consumer's hands -- which `--strict` refuses outright, and is
+right to.
+
+Numeric meaning is written down here rather than left to whatever a C compiler
+does. Ordinary Nupp arithmetic is binary64; `float`, `int32` and `uint32` are
+storage and establishment facts, so a physical load widens and a physical store
+narrows, and neither is an operator's business. The `f32_` and `i32_` operations
+are the released fixed-width surface, where the source asked for a width
+explicitly and the answer changes accordingly.
+]]
+
+local scalarIR = {}
+
+--- What this vocabulary is on.
+---
+--- Carried in the IR and checked when it is read back, so an IR written by an
+--- older compiler is refused rather than half-understood.
+const scalarIR.VERSION = 20
+
+--- The calling convention selected for one complete AOT entry.
+---
+--- A kernel has no VM authority. A Lua builder is entered as a Lua C function
+--- and may use only the construction operations represented below.
+type scalarIR.EntryMode = 'kernel' | 'lua-builder'
+
+--- What the arithmetic in an admitted body means.
+---
+--- Separate from `VERSION`, which is the shape of the IR. Two compilers can
+--- agree about every field of a program and disagree about whether an operator
+--- contracts, and an artifact built under one contract must not be reused under
+--- another. Bumped when the meaning changes, never when the spelling does.
+const scalarIR.NUMERIC_CONTRACT = 1
+
+--- The C symbol one `@aot` function exports.
+---
+--- Derived rather than chosen, and derived in one place, because the generated
+--- C, the foreign declaration, and the layout reporters all have to agree about
+--- it and none of them is in a position to check the others.
+function scalarIR.privateSymbol(name: string): string
+    local snake = name:gsub("(%u)(%u%l)", "%1_%2"):gsub("(%l)(%u)", "%1_%2")
+
+    return "ks_" .. snake:gsub("[^%w_]", "_"):lower()
+end
+
+--- The C name of one local, which is not its source name: two source scopes may
+--- use one name and C has no scope to tell them apart.
+function scalarIR.cIdentifier(prefix: string, name: string): string
+    return prefix .. "_" .. name:gsub("[^%w_]", "_")
+end
+
+--- Where an operation came from, for a diagnostic that has to name it.
+record scalarIR.Source
+    line: integer
+    column: integer
+end
+
+--- The value types a scalar expression may have.
+---
+--- `f64` is what ordinary arithmetic produces. `f32`, `i32` and `u32` are
+--- refinements a value has to have been established in, not spellings it may
+--- claim. `bool` is what a comparison produces, and `multi` is a call with more
+--- than one result, which only a multiple binding may consume.
+type scalarIR.Type = 'f64' | 'f32' | 'i32' | 'u32' | 'i64' | 'u64' | 'bool' | 'multi' | string
+
+--- A finite decimal literal, always binary64.
+record scalarIR.Constant
+    op: 'constant'
+
+    --- Kept as written, so the emitter reproduces the literal rather than a
+    --- reformatting of it.
+    value: string
+
+    type: scalarIR.Type
+    source: scalarIR.Source?
+end
+
+--- An exact integer literal, for a position that needs one.
+record scalarIR.IntConstant
+    op: 'constant_i32'
+    value: string
+    type: scalarIR.Type
+    source: scalarIR.Source?
+end
+
+--- An exact integer literal wider than the lane transform's 32-bit constants.
+--- Introduced by partial evaluation only when binary64 represented the source
+--- integer exactly, so the decimal spelling reaches C without a second round.
+record scalarIR.Int64Constant
+    op: 'constant_i64'
+    value: string
+    type: 'i64' | 'u64'
+    source: scalarIR.Source?
+end
+
+--- `true` or `false`.
+record scalarIR.Bool
+    op: 'bool'
+    value: boolean
+    type: scalarIR.Type
+    source: scalarIR.Source?
+end
+
+--- Lua nil, used as a primitive result or construction value.
+record scalarIR.LuaNil
+    op: 'lua_nil'
+    type: 'lua_nil'
+    source: scalarIR.Source?
+end
+
+--- Bytes an admitted body reads that are known when it is compiled.
+---
+--- A `const` bound to a string literal, reached from inside the body. The
+--- emitter writes these out as static C data, so a table an author keeps in a
+--- packed string is indexed as one rather than read back out of a rooted Lua
+--- string the backend knows nothing about -- which is the difference between a
+--- load it can align and fold and a `memcpy` from a pointer it cannot.
+record scalarIR.ConstantBytes
+    --- The name the emitted array takes, which the reads already spell as
+    --- `ks_bytes_<cName>` and `ks_length_<cName>`, exactly as they do for a
+    --- rooted argument. That is why nothing between here and the read had to
+    --- learn about this.
+    cName: string
+
+    value: string
+end
+
+--- A source string literal copied into ordinary Lua-owned storage.
+record scalarIR.LuaString
+    op: 'lua_string'
+    value: string
+    type: 'lua_string'
+    source: scalarIR.Source?
+end
+
+--- Concatenates two ordinary Lua strings through the VM construction entry.
+record scalarIR.LuaConcat
+    op: 'lua_concat'
+    left: scalarIR.Expr
+    right: scalarIR.Expr
+    type: 'lua_string'
+    source: scalarIR.Source?
+end
+
+--- Copies one Lua-style inclusive substring into ordinary Lua-owned storage.
+record scalarIR.LuaSubstring
+    op: 'lua_substring'
+    bytes: scalarIR.Expr
+    first: scalarIR.Expr
+    last: scalarIR.Expr?
+    type: 'lua_string'
+    source: scalarIR.Source?
+end
+
+--- Reads one Lua-style one-based byte from rooted string storage.
+record scalarIR.LuaStringByte
+    op: 'lua_string_byte_lua'
+    bytes: scalarIR.Expr
+    index: scalarIR.Expr
+    type: 'f64'
+    source: scalarIR.Source?
+end
+
+--- Reads one numeric entry from a fresh, rooted Lua table.
+record scalarIR.LuaTableGet
+    op: 'lua_table_get_index'
+    table: scalarIR.Expr
+    key: scalarIR.Expr
+    type: 'f64'
+    source: scalarIR.Source?
+end
+
+--- Starts a Lua-owned byte accumulator for an ordinary local string.
+record scalarIR.LuaStringBuffer
+    op: 'lua_string_buffer'
+    initial: scalarIR.Expr
+    type: 'lua_string_buffer'
+    source: scalarIR.Source?
+end
+
+--- Publishes one Lua-owned byte accumulator as a string.
+record scalarIR.LuaStringBufferFinish
+    op: 'lua_string_buffer_finish'
+    buffer: scalarIR.Expr
+    type: 'lua_string'
+    source: scalarIR.Source?
+end
+
+--- One authored field of a fresh table literal.
+record scalarIR.LuaField
+    key: scalarIR.Expr
+    value: scalarIR.Expr
+    indexed: boolean
+    source: scalarIR.Source?
+end
+
+--- A fresh, unpublished Lua table rooted on the C entry's Lua stack.
+---
+--- This is an effectful expression and is consequently admitted only as the
+--- value of a `let`. The verifier rejects it anywhere an emitter could evaluate
+--- it twice or move it across another allocation.
+record scalarIR.LuaNewTable
+    op: 'lua_new_table'
+    arrayCapacity: scalarIR.Expr
+    hashCapacity: scalarIR.Expr
+    fields: {scalarIR.LuaField}?
+    type: 'lua_table'
+    source: scalarIR.Source?
+end
+
+--- Builds one ordinary Lua value graph from a bounds-checked, pointer-free
+--- preorder tree representation. The format belongs to `nupp.data.valuebuilder`;
+--- codecs produce it without receiving VM authority, and this operation is the
+--- single VM-aware consumption boundary.
+record scalarIR.LuaTree
+    op: 'lua_tree'
+    nodes: scalarIR.Expr
+    links: scalarIR.Expr
+    sourceBytes: scalarIR.Expr
+    root: scalarIR.Expr
+    nullValue: scalarIR.Expr
+    type: 'lua_value'
+    source: scalarIR.Source?
+end
+
+--- Starts one bounded, stack-rooted stream of ordinary Lua values.
+---
+--- The handle is native construction state, not a Lua value. It may be used
+--- only by the value-stream statements below and finished exactly once.
+record scalarIR.LuaBuilder
+    op: 'lua_builder'
+    mode: 'eager' | 'pull' | 'serde'
+    nullValue: scalarIR.Expr
+    maxDepth: scalarIR.Expr?
+    stringCapacity: scalarIR.Expr?
+    arrayMarker: scalarIR.Expr?
+    objectMarker: scalarIR.Expr?
+    selectionShape: scalarIR.Expr?
+    arrayShapeMarker: scalarIR.Expr?
+    serdeMarkers: scalarIR.Expr?
+    type: 'lua_builder'
+    source: scalarIR.Source?
+end
+
+--- One bounded, stack-rooted native uint32 work buffer.
+---
+--- The handle is local construction state. Its storage is Lua-owned userdata,
+--- so a builder entry may use it across allocations without exposing a raw
+--- pointer to Nupp source.
+record scalarIR.LuaScratchU32
+    op: 'lua_scratch_u32'
+    capacity: scalarIR.Expr
+
+    --- The word count, where the buffer is fixed: every word readable and
+    --- writable from the moment it exists, so its bound is this number rather
+    --- than a length that grows. Absent for an appending buffer.
+    ---
+    --- What this buys is not a check removed -- the check is still emitted, and
+    --- still refuses an index outside the buffer. It is that the bound stops
+    --- being a load. A write through the buffer may alias its length field as
+    --- far as the C compiler can tell, so it reloads the bound after every
+    --- store; a constant it cannot alias, and it discharges the comparison
+    --- itself wherever the index is a counted loop's.
+    ---
+    --- That is worth more than deleting the checks. Ablated on `bench/sha256`'s
+    --- generated C: 0.847x the hand-written C as emitted, 0.919x with the
+    --- checks gone entirely, 0.940x with them kept against a literal bound.
+    fixed: integer?
+
+    type: 'lua_scratch_u32'
+    source: scalarIR.Source?
+end
+
+--- Reads one word from a local native scratch buffer.
+record scalarIR.LuaScratchU32Get
+    op: 'lua_scratch_u32_get' | 'lua_scratch_u32_escape_get'
+    scratch: scalarIR.Expr
+    index: scalarIR.Expr
+
+    --- A zero-based local authorized by a dominating comparison against this
+    --- scratch's tracked initialized length. When present, emission reads the
+    --- word directly; the verifier re-establishes the proof from the branch.
+    cursor: string?
+
+    cursorCName: string?
+
+    --- The fixed buffer's word count, carried to the access so the emitted
+    --- comparison names a constant.
+    fixedBound: integer?
+
+    type: 'u32'
+    source: scalarIR.Source?
+end
+
+--- Reads the initialized length of a local word scratch.
+record scalarIR.LuaScratchU32Length
+    op: 'lua_scratch_u32_length' | 'lua_scratch_u32_escape_length'
+    scratch: scalarIR.Expr
+    type: 'u32'
+    source: scalarIR.Source?
+end
+
+--- Appends every set-bit position from a 64-bit mask to one word scratch.
+record scalarIR.LuaScratchU32AppendBits
+    op: 'lua_scratch_u32_append_bits' | 'lua_scratch_u32_append_bits_eager'
+    scratch: scalarIR.Expr
+    index: scalarIR.Expr
+    base: scalarIR.Expr
+    bits: scalarIR.Expr
+    type: 'u32'
+    source: scalarIR.Source?
+end
+
+--- Appends JSON events and packs carried string-escape state into bit 31.
+record scalarIR.LuaScratchU32AppendStringBits
+    op: 'lua_scratch_u32_append_string_bits'
+    scratch: scalarIR.Expr
+    escapeScratch: scalarIR.Expr?
+    index: scalarIR.Expr
+    base: scalarIR.Expr
+    events: scalarIR.Expr
+    quotes: scalarIR.Expr
+    slashes: scalarIR.Expr
+    slashCarry: scalarIR.Expr?
+    slashOdd: scalarIR.Expr?
+    sharedEscapes: boolean?
+    inString: scalarIR.Expr
+    stringEscaped: scalarIR.Expr
+    type: 'u32'
+    source: scalarIR.Source?
+end
+
+record scalarIR.LuaScratchU8
+    op: 'lua_scratch_u8'
+    capacity: scalarIR.Expr
+
+    --- The byte count, where the buffer is fixed: every byte readable and
+    --- writable from the moment it exists, so its bound is this number rather
+    --- than a length that grows. Absent for an appending buffer.
+    ---
+    --- What it buys is what the same field buys on a word buffer -- a bound the
+    --- C compiler can discharge rather than a field it has to reload after
+    --- every store -- and one thing more, because a byte buffer's storage is
+    --- allocated per call where a word buffer's small enough was already
+    --- inline: a fixed capacity is a literal, so the storage can be a C array
+    --- at the call site and nothing is allocated at all. `bench/sha256` put the
+    --- two together at about a hundred nanoseconds of a short digest.
+    fixed: integer?
+
+    type: 'lua_scratch_u8'
+    source: scalarIR.Source?
+end
+
+record scalarIR.LuaScratchU8Get
+    op: 'lua_scratch_u8_get'
+    scratch: scalarIR.Expr
+    index: scalarIR.Expr
+
+    --- The fixed buffer's byte count, carried to the access so the emitted
+    --- comparison names a constant.
+    fixedBound: integer?
+
+    type: 'u32'
+    source: scalarIR.Source?
+end
+
+--- Reads rooted Lua string storage without creating a substring.
+record scalarIR.LuaBytes
+    op: 'lua_string_byte' | 'lua_string_byte_at' | 'lua_string_u32' | 'lua_string_length'
+    bytes: scalarIR.Expr
+    index: scalarIR.Expr?
+    cursor: string?
+    cursorCName: string?
+    type: 'u32'
+    source: scalarIR.Source?
+end
+
+--- Publishes the single completed value produced by a stream builder.
+record scalarIR.LuaBuilderFinish
+    op: 'lua_builder_finish'
+    builder: scalarIR.Expr
+    mode: 'eager' | 'pull' | 'serde'
+    type: 'lua_value'
+    source: scalarIR.Source?
+end
+
+--- Inspects the current container of a direct value stream.
+record scalarIR.LuaBuilderQuery
+    op: 'lua_builder_depth' | 'lua_builder_kind' | 'lua_builder_count' | 'lua_builder_state'
+    builder: scalarIR.Expr
+    mode: 'eager' | 'pull' | 'serde'
+    type: 'u32'
+    source: scalarIR.Source?
+end
+
+--- Validates, converts, and publishes one complete JSON number token.
+---
+--- The low 31 bits are the byte position at which parsing stopped. Bit 31 is set
+--- on success and clear on a grammar error, so source can preserve its normal
+--- error-position contract without splitting the fused native operation.
+record scalarIR.LuaBuilderNumberToken
+    op: 'lua_builder_number_token'
+    builder: scalarIR.Expr
+    mode: 'eager' | 'pull' | 'serde'
+    sourceBytes: scalarIR.Expr
+    start: scalarIR.Expr
+    limit: scalarIR.Expr
+    type: 'u32'
+    source: scalarIR.Source?
+end
+
+--- A local, a uniform parameter, or a helper's parameter.
+---
+--- Three operations rather than one because they are emitted differently and
+--- because only a local may be assigned to.
+record scalarIR.Name
+    op: 'local' | 'uniform' | 'helper_param'
+    name: string
+
+    --- The name this takes in generated C, which is not the source name: two
+    --- source scopes may use one name and C has no scope to tell them apart.
+    cName: string?
+
+    mutable: boolean?
+    lengthOf: string?
+    builderMode: ('eager' | 'pull' | 'serde')?
+    type: scalarIR.Type
+    source: scalarIR.Source?
+end
+
+--- The checked count of one span parameter.
+record scalarIR.SpanCount
+    op: 'span_count'
+    span: string
+    type: 'f64'
+    source: scalarIR.Source?
+end
+
+--- One element of a span holding scalars.
+record scalarIR.Load
+    op: 'load'
+    span: string
+
+    --- The loop index. Consecutive access is the whole of the lane rewrite's
+    --- licence to run several iterations at once, so nothing else is admitted.
+    index: string
+
+    indexCName: string?
+
+    --- A zero-based append/read cursor authorized by a dominating
+    --- `cursor < #span` branch. The source access is `cursor + 1`.
+    cursor: string?
+
+    cursorCName: string?
+
+    type: scalarIR.Type
+    source: scalarIR.Source?
+end
+
+--- A pointer to one element of a span holding reified structs.
+record scalarIR.ElementRef
+    op: 'element_ref'
+    span: string
+    index: string
+    indexCName: string?
+    cursor: string?
+    cursorCName: string?
+    layout: string
+
+    --- Whether this element may be written, which follows from whether its span
+    --- was declared exclusive.
+    mutable: boolean
+
+    type: scalarIR.Type
+    source: scalarIR.Source?
+end
+
+--- One field of a struct element.
+record scalarIR.FieldLoad
+    op: 'field_load'
+    object: scalarIR.Expr
+    layout: string
+    field: string
+    type: scalarIR.Type
+    sourceType: string?
+    source: scalarIR.Source?
+end
+
+--- Binary64 arithmetic, and the comparisons over it.
+---
+--- Not contracted and not reassociated: `a * b + c` is two roundings unless the
+--- source asked for one, because an AOT function's answer should be a property
+--- of what was written rather than of the target that compiled it.
+record scalarIR.Binary
+    op: 'add'
+        | 'sub'
+        | 'mul'
+        | 'div'
+        | 'mod'
+        | 'pow'
+        | 'lt'
+        | 'le'
+        | 'gt'
+        | 'ge'
+        | 'eq'
+        | 'ne'
+        | 'and'
+        | 'or'
+        | 'band'
+        | 'bor'
+        | 'bxor'
+        | 'lshift'
+        | 'rshift'
+        | 'arshift'
+    left: scalarIR.Expr
+    right: scalarIR.Expr
+    type: scalarIR.Type
+    source: scalarIR.Source?
+end
+
+--- Negation, logical negation, and bitwise complement.
+record scalarIR.Unary
+    op: 'neg' | 'not' | 'bnot'
+    value: scalarIR.Expr
+    type: scalarIR.Type
+    source: scalarIR.Source?
+end
+
+--- One operation from the closed math set.
+record scalarIR.Math
+    op: 'math'
+    intrinsic: string
+    args: {scalarIR.Expr}
+    type: scalarIR.Type
+    source: scalarIR.Source?
+end
+
+--- One explicitly binary32 or wrapping int32 operation.
+---
+--- A binary32 operation over binary32 operands computed in binary64 and rounded
+--- once is bit-identical to the native single-precision instruction, because 53
+--- is at least twice 24 plus 2. That is what lets these lower directly rather
+--- than being a relaxation. `f32_min`, `f32_max` and `f32_fma` are not covered by
+--- that argument and carry a correction instead.
+record scalarIR.Fixed
+    op: 'f32_add'
+        | 'f32_sub'
+        | 'f32_mul'
+        | 'f32_div'
+        | 'i32_add'
+        | 'i32_sub'
+        | 'i32_mul'
+        | 'u32_add'
+        | 'u32_sub'
+        | 'u32_mul'
+        | 'u32_and'
+        | 'u32_or'
+        | 'u32_xor'
+        | 'u32_shl'
+        | 'u32_shr'
+    left: scalarIR.Expr
+    right: scalarIR.Expr
+    type: scalarIR.Type
+    source: scalarIR.Source?
+end
+
+--- `nupp.math.f32.sqrt`, which takes one operand.
+record scalarIR.FixedUnary
+    op: 'f32_sqrt' | 'u32_not' | 'u32_popcount' | 'u32_ctz' | 'u32_clz'
+    value: scalarIR.Expr
+    type: scalarIR.Type
+    source: scalarIR.Source?
+end
+
+--- `min`, `max` and `fma`, through the helper that repairs their NaN behaviour.
+record scalarIR.Corrected
+    op: 'f32_min' | 'f32_max' | 'f32_fma'
+
+    --- Present for the two-operand forms.
+    left: scalarIR.Expr?
+
+    right: scalarIR.Expr?
+
+    --- Present for the three-operand form.
+    args: {scalarIR.Expr}?
+
+    type: scalarIR.Type
+    source: scalarIR.Source?
+end
+
+--- A conversion between representations.
+---
+--- These are where a width changes, and the only places it does. An operator
+--- never changes one, which is what keeps `float` a storage fact rather than an
+--- arithmetic type.
+record scalarIR.Convert
+    op: 'narrow_f64_f32' | 'widen_f32_f64' | 'int_to_f64' | 'numeric_cast'
+    value: scalarIR.Expr
+    type: scalarIR.Type
+    source: scalarIR.Source?
+end
+
+--- A call to a visible pure helper.
+record scalarIR.HelperCall
+    op: 'helper_call'
+    helper: string
+    cName: string
+    args: {scalarIR.Expr}
+
+    --- One entry per result. More than one makes the call's own type `multi`.
+    resultTypes: {scalarIR.Type}?
+
+    type: scalarIR.Type
+    source: scalarIR.Source?
+end
+
+--- One source-visible SIMD operation. Its abstract vector and mask types are
+--- specialized to the selected artifact tier only when C is emitted.
+record scalarIR.Simd
+    op: 'simd_species_u8'
+        | 'simd_lanes'
+        | 'simd_load_u8'
+        | 'simd_load_string_u8'
+        | 'simd_load_stride3_u8'
+        | 'simd_splat_u8'
+        | 'simd_shr_u8'
+        | 'simd_shl_u8'
+        | 'simd_table_u8x16'
+        | 'simd_lookup16_u8'
+        | 'simd_lookup64_u8'
+        | 'simd_store4_u8'
+        | 'simd_align_bytes_u8'
+        | 'simd_padded_string_u8'
+        | 'simd_padded_length'
+        | 'simd_padded_full_length'
+        | 'simd_padded_tail_length'
+        | 'simd_padded_load_full_u8'
+        | 'simd_padded_load_tail_u8'
+        | 'simd_block64_load_u8'
+        | 'simd_block64_and_byte_u8'
+        | 'simd_block64_and_u8'
+        | 'simd_block64_shr_u8'
+        | 'simd_block64_lookup16_u8'
+        | 'simd_block64_any_bits_u8'
+        | 'simd_block64_last_u8'
+        | 'simd_block64_utf8_errors_u8'
+        | 'simd_block64_eq_u8'
+        | 'simd_block64_eq_any6_u8'
+        | 'simd_block64_range_u8'
+        | 'simd_block64_outside_range_u8'
+        | 'simd_tail_u8'
+        | 'simd_eq_u8'
+        | 'simd_range_u8'
+        | 'simd_vec_and'
+        | 'simd_vec_or'
+        | 'simd_vec_xor'
+        | 'simd_vec_not'
+        | 'simd_mask_and'
+        | 'simd_mask_or'
+        | 'simd_mask_xor'
+        | 'simd_mask_not'
+        | 'simd_select_u8'
+        | 'simd_any'
+        | 'simd_all'
+        | 'simd_count'
+        | 'simd_bits'
+        | 'simd_mask64'
+        | 'simd_mask64_add'
+        | 'simd_mask64_and'
+        | 'simd_mask64_or'
+        | 'simd_mask64_xor'
+        | 'simd_mask64_not'
+        | 'simd_mask64_shl'
+        | 'simd_mask64_shr'
+        | 'simd_mask64_prefix_xor'
+        | 'simd_mask64_low'
+        | 'simd_mask64_high'
+        | 'simd_mask64_any'
+        | 'simd_mask64_count'
+        | 'simd_mask64_first'
+        | 'simd_mask64_clear_first'
+    args: {scalarIR.Expr}
+    span: string?
+    type: scalarIR.Type
+    source: scalarIR.Source?
+end
+
+--- Every scalar expression.
+type scalarIR.Expr = scalarIR.Constant
+    | scalarIR.IntConstant
+    | scalarIR.Int64Constant
+    | scalarIR.Bool
+    | scalarIR.LuaNil
+    | scalarIR.LuaString
+    | scalarIR.LuaConcat
+    | scalarIR.LuaSubstring
+    | scalarIR.LuaStringByte
+    | scalarIR.LuaTableGet
+    | scalarIR.LuaStringBuffer
+    | scalarIR.LuaStringBufferFinish
+    | scalarIR.LuaNewTable
+    | scalarIR.LuaTree
+    | scalarIR.LuaBuilder
+    | scalarIR.LuaScratchU32
+    | scalarIR.LuaScratchU32Get
+    | scalarIR.LuaScratchU32Length
+    | scalarIR.LuaScratchU32AppendBits
+    | scalarIR.LuaScratchU32AppendStringBits
+    | scalarIR.LuaScratchU8
+    | scalarIR.LuaScratchU8Get
+    | scalarIR.LuaBytes
+    | scalarIR.LuaBuilderFinish
+    | scalarIR.LuaBuilderQuery
+    | scalarIR.LuaBuilderNumberToken
+    | scalarIR.LuaBuild
+    | scalarIR.LuaScratchU32Set
+    | scalarIR.LuaScratchU8Set
+    | scalarIR.Name
+    | scalarIR.SpanCount
+    | scalarIR.Load
+    | scalarIR.ElementRef
+    | scalarIR.FieldLoad
+    | scalarIR.Binary
+    | scalarIR.Unary
+    | scalarIR.Math
+    | scalarIR.Fixed
+    | scalarIR.FixedUnary
+    | scalarIR.Corrected
+    | scalarIR.Convert
+    | scalarIR.HelperCall
+    | scalarIR.Simd
+
+--- Where one assignment puts its value: a local, or one field of a struct
+--- element reached through a span.
+record scalarIR.Target
+    kind: 'local' | 'field'
+    name: string?
+    cName: string?
+    object: scalarIR.Expr?
+    layout: string?
+    field: string?
+    type: scalarIR.Type?
+    sourceType: string?
+end
+
+--- One target and the value going into it.
+record scalarIR.Assignment
+    target: scalarIR.Target
+    value: scalarIR.Expr
+end
+
+--- Declaring a local.
+record scalarIR.Let
+    op: 'let'
+    name: string
+    cName: string
+    value: scalarIR.Expr
+    type: scalarIR.Type
+    source: scalarIR.Source?
+end
+
+--- A name the body introduced, as the environment records it.
+---
+--- Not an expression: reading one produces a `local`, and this is what that
+--- `local` was resolved against.
+record scalarIR.Binding
+    kind: 'local'
+    name: string
+    cName: string
+    type: scalarIR.Type
+
+    --- Whether what it was bound to may be written through, which is how a
+    --- name bound to `getMut(i)` stays writable at its uses.
+    mutable: boolean?
+
+    lengthOf: string?
+    builderMode: ('eager' | 'pull' | 'serde')?
+
+    source: scalarIR.Source?
+end
+
+--- One binding per result of a call that returns several.
+record scalarIR.MultiLet
+    op: 'multi_let'
+    call: scalarIR.HelperCall
+    bindings: {scalarIR.Binding}
+    source: scalarIR.Source?
+end
+
+--- Simultaneous assignment: every value computed before any is stored.
+record scalarIR.Assign
+    op: 'assign'
+    values: {scalarIR.Assignment}
+    source: scalarIR.Source?
+end
+
+--- Storing through a span that holds scalars.
+record scalarIR.Store
+    op: 'store'
+    span: string
+    index: string
+    indexCName: string?
+    cursor: string?
+    cursorCName: string?
+    value: scalarIR.Expr
+    source: scalarIR.Source?
+end
+
+--- A raw-equivalent write into a fresh unpublished Lua table.
+---
+--- The target remains a rooted logical handle. The C backend maps it to a Lua
+--- stack slot and uses the public raw-set API, which performs the VM barrier
+--- without invoking a metatable.
+record scalarIR.LuaSet
+    op: 'lua_set_index' | 'lua_set_key'
+    table: scalarIR.Expr
+    key: scalarIR.Expr
+    value: scalarIR.Expr
+    source: scalarIR.Source?
+end
+
+--- Appends one string expression to a Lua-owned byte accumulator.
+record scalarIR.LuaStringBufferAppend
+    op: 'lua_string_buffer_append'
+    buffer: scalarIR.Expr
+    value: scalarIR.Expr
+    source: scalarIR.Source?
+end
+
+--- One direct construction event applied to a bounded value stream.
+---
+--- `sourceBytes`, `start`, `length`, and `escaped` belong to string/key and
+--- number-slice events. `value` belongs to boolean/number events. `capacity`
+--- belongs to container openings. Keeping one record makes the legal shapes
+--- explicit in the verifier while avoiding an open-ended call opcode.
+record scalarIR.LuaBuild
+    op: 'lua_builder_open_array'
+        | 'lua_builder_open_object'
+        | 'lua_builder_key'
+        | 'lua_builder_string'
+        | 'lua_builder_number'
+        | 'lua_builder_number_slice'
+        | 'lua_builder_integer_slice'
+        | 'lua_builder_integer64'
+        | 'lua_builder_decimal64'
+        | 'lua_builder_boolean'
+        | 'lua_builder_null'
+        | 'lua_builder_close'
+        | 'lua_builder_key_scratch'
+        | 'lua_builder_string_scratch'
+        | 'lua_builder_key_escapes'
+        | 'lua_builder_string_escapes'
+    builder: scalarIR.Expr
+    mode: 'eager' | 'pull' | 'serde'
+    sourceBytes: scalarIR.Expr?
+    start: scalarIR.Expr?
+    length: scalarIR.Expr?
+    escaped: scalarIR.Expr?
+    value: scalarIR.Expr?
+    negative: scalarIR.Expr?
+    exponent: scalarIR.Expr?
+    exact: scalarIR.Expr?
+    capacity: scalarIR.Expr?
+    scratch: scalarIR.Expr?
+    escapeScratch: scalarIR.Expr?
+    escapeIndex: scalarIR.Expr?
+    escapeCount: scalarIR.Expr?
+    type: 'lua_effect'
+    source: scalarIR.Source?
+end
+
+--- Writes one word in a local native scratch buffer.
+record scalarIR.LuaScratchU32Set
+    op: 'lua_scratch_u32_set'
+    scratch: scalarIR.Expr
+    index: scalarIR.Expr
+
+    --- The fixed buffer's word count. See the read above.
+    fixedBound: integer?
+
+    value: scalarIR.Expr
+    type: 'lua_effect'
+    source: scalarIR.Source?
+end
+
+record scalarIR.LuaScratchU8Set
+    op: 'lua_scratch_u8_set' | 'lua_scratch_u8_set4' | 'lua_scratch_u8_reset'
+    scratch: scalarIR.Expr
+    index: scalarIR.Expr?
+
+    --- The fixed buffer's byte count. See the read above.
+    fixedBound: integer?
+
+    value: scalarIR.Expr?
+    type: 'lua_effect'
+    source: scalarIR.Source?
+end
+
+--- One arm of a conditional.
+record scalarIR.Clause
+    condition: scalarIR.Expr
+    body: {scalarIR.Statement}
+    cursorBounds: {[string]: string}?
+    source: scalarIR.Source?
+end
+
+--- One exact label on an AOT switch annotation. It is data on an ordinary `If`,
+--- not a statement opcode: every consumer which ignores it retains the comparison
+--- chain's complete semantics.
+record scalarIR.SwitchLabel
+    value: string
+    type: 'i32' | 'u32'
+    source: scalarIR.Source?
+end
+
+record scalarIR.SwitchArm
+    labels: {scalarIR.SwitchLabel}
+end
+
+record scalarIR.NativeSwitch
+    selector: scalarIR.Expr
+    arms: {scalarIR.SwitchArm}
+end
+
+record scalarIR.If
+    op: 'if'
+    clauses: {scalarIR.Clause}
+    elseBody: {scalarIR.Statement}?
+    source: scalarIR.Source?
+    nativeSwitch: scalarIR.NativeSwitch?
+end
+
+record scalarIR.While
+    op: 'while'
+    condition: scalarIR.Expr
+    body: {scalarIR.Statement}
+    cursorBounds: {[string]: string}?
+    source: scalarIR.Source?
+end
+
+record scalarIR.Fornum
+    op: 'fornum'
+    binding: scalarIR.Binding
+    from: scalarIR.Expr
+    to: scalarIR.Expr
+    body: {scalarIR.Statement}
+
+    --- The span whose count is this loop's inclusive upper bound. Present only
+    --- when `from` is one and `to` is that span's checked count; it is the proof
+    --- that accesses through this induction variable are in bounds.
+    boundSpan: string?
+
+    source: scalarIR.Source?
+end
+
+record scalarIR.Block
+    op: 'block'
+    body: {scalarIR.Statement}
+    source: scalarIR.Source?
+end
+
+--- Leaving the enclosing loop, or the current iteration of it.
+---
+--- Two records rather than one with two tags, because a tag that could be either
+--- narrows to neither.
+record scalarIR.Break
+    op: 'break'
+    source: scalarIR.Source?
+end
+
+record scalarIR.Continue
+    op: 'continue'
+    source: scalarIR.Source?
+end
+
+--- Returning from a general block kernel.
+record scalarIR.Return
+    op: 'return'
+    values: {scalarIR.Expr}
+    source: scalarIR.Source?
+end
+
+--- Every scalar statement.
+---
+--- `Simd` is here because one SIMD operation writes rather than produces:
+--- `simd_store4_u8` carries `lua_effect` and stands where a statement stands.
+--- Admitting it makes that sayable rather than merely emitted.
+type scalarIR.Statement = scalarIR.Simd
+    | scalarIR.Let
+    | scalarIR.MultiLet
+    | scalarIR.Assign
+    | scalarIR.Store
+    | scalarIR.LuaSet
+    | scalarIR.LuaStringBufferAppend
+    | scalarIR.LuaBuild
+    | scalarIR.LuaScratchU32Set
+    | scalarIR.LuaScratchU8Set
+    | scalarIR.If
+    | scalarIR.While
+    | scalarIR.Fornum
+    | scalarIR.Block
+    | scalarIR.Break
+    | scalarIR.Continue
+    | scalarIR.Return
+
+--- One stored field of a reified struct.
+record scalarIR.Field
+    name: string
+    type: scalarIR.Type
+
+    --- The physical source storage. It differs from `type` for narrow integer
+    --- fields, whose loads establish i32/u32 values and whose stores narrow.
+    sourceType: string?
+
+    source: scalarIR.Source?
+end
+
+--- A reified struct a span holds elements of.
+---
+--- The C name is carried rather than derived, so the generated module and the
+--- generated C cannot disagree about what to call it.
+record scalarIR.Layout
+    name: string
+    cName: string
+    fields: {scalarIR.Field}
+
+    --- The same fields by name, filled in when the layout is verified so a
+    --- later lookup is one index rather than a scan.
+    fieldTypes: {[string]: scalarIR.Type}?
+
+    --- The physical storage spellings by field name.
+    fieldSourceTypes: {[string]: string}?
+
+    source: scalarIR.Source?
+end
+
+--- A range the source guarded, proved in bounds before lowering.
+---
+--- The generated loop reads it rather than checking it again, which is only
+--- sound because the guard was checked and not merely written. The check itself
+--- moves to the generated wrapper, where it runs once per call rather than once
+--- per element.
+record scalarIR.RangeGuard
+    first: string
+    last: string
+
+    --- The span the range is a range of, whose length the wrapper compares
+    --- against.
+    count: string
+
+    source: scalarIR.Source?
+end
+
+--- One parameter of an admitted signature.
+---
+--- Two types rather than one. `type` is what the value is physically, which the
+--- generated C and the foreign declaration agree on; `sourceType` is how the
+--- source spelled it, which the generated wrapper's own signature keeps so a
+--- caller sees the type it wrote rather than the ABI underneath it.
+record scalarIR.Param
+    kind: 'write_span' | 'read_span' | 'uniform' | 'scalar'
+    name: string
+    type: scalarIR.Type
+    sourceType: string?
+
+    --- The checked span module whose ownership contract admitted this parameter.
+    --- Native and Wasm spans share the IR memory semantics but not their runtime
+    --- pointer representation, so the binding must preserve this distinction.
+    spanModule: string?
+
+    --- Lua-builder scalar arguments use their positive VM stack index here.
+    cName: string?
+
+    --- Spans only: the borrow region this parameter is, which alias facts and
+    --- region declarations refer to by name.
+    region: string?
+
+    --- What the body may do through it, which follows from the borrow.
+    access: ('read' | 'readwrite')?
+
+    --- Which borrow the source wrote, so the region declaration can cite it.
+    ownership: ('exclusive' | 'shared')?
+
+    --- What a span holds, as the front end admitted it. Carried so a load
+    --- through this span does not have to parse the written type again.
+    element: any?
+
+    source: scalarIR.Source?
+end
+
+--- One span's borrow, restated as something the backend can name.
+record scalarIR.Region
+    id: string
+    param: string
+    access: 'read' | 'readwrite'
+
+    --- The borrow this region's access was derived from, carried so the claim
+    --- can be checked rather than assumed.
+    proof: string
+
+    source: scalarIR.Source?
+end
+
+--- What ownership settled about one pair of regions.
+---
+--- Two shared borrows may overlap; anything involving an exclusive one may not.
+--- This is where that becomes a fact the C compiler is allowed to use, and the
+--- verifier requires the matrix to be complete rather than partial: a pair with
+--- no fact would be a pair whose `restrict` nobody justified.
+record scalarIR.AliasFact
+    relation: 'disjoint' | 'may_alias'
+    left: string
+    right: string
+    proof: 'exclusive_borrow' | 'shared_borrows'
+end
+
+--- A length agreement the source proved between two spans.
+record scalarIR.Guard
+    op: 'equal_count'
+    left: string
+    right: string
+    source: scalarIR.Source?
+end
+
+--- One visible pure helper the body may call.
+record scalarIR.Helper
+    name: string
+    cName: string
+    params: {scalarIR.Name}
+
+    --- One expression per result. A helper is a return list and nothing else,
+    --- which is what makes inlining it into a lane body sound. Empty for a
+    --- native call, which has no body here to inline.
+    values: {scalarIR.Expr}
+
+    --- Whether this names another compiled entry rather than a body to inline.
+    --- The call becomes an ordinary C call to that entry's own symbol, so the
+    --- callee is compiled once and keeps its own contract, and the lane rewriter
+    --- declines rather than inventing a per-lane meaning for it.
+    native: boolean?
+
+    resultType: scalarIR.Type
+    resultTypes: {scalarIR.Type}
+
+    --- The C struct one result per field, for a helper returning more than one.
+    --- Filled in when the helper is emitted, because it is a fact about the
+    --- generated C and not about the source.
+    cResult: string?
+
+    source: scalarIR.Source?
+end
+
+--- The single loop an admitted body is.
+---
+--- `first` is `1` for a whole span and the name of a proved bound otherwise.
+record scalarIR.Loop
+    index: string
+    first: integer | string
+    last: string
+
+    --- The span whose length bounds the loop, which is the primary output.
+    count: string
+
+    statements: {scalarIR.Statement}
+    source: scalarIR.Source?
+end
+
+--- The lane-parallel rewrite of the loop body, when one was made and kept.
+record scalarIR.LaneBody
+    lanes: integer
+    shape: string
+    statements: {any}
+
+    --- Whether any explicit fixed-width operation was performed wider and
+    --- rounded, because this gang does not carry that element exactly. Three
+    --- instructions where an exact one is a single instruction, so a body full
+    --- of them gains far less from lanes than its operation count suggests.
+    rounded: boolean?
+end
+
+--- One whole admitted `@aot` function.
+---
+--- Everything downstream -- the generated C, the generated wrapper, the
+--- verifier -- is written from this and only this, so none of them can disagree
+--- about what the function is.
+record scalarIR.Program
+    --- Bumped when the shape changes, so an IR written by an older compiler is
+    --- refused rather than half-understood.
+    version: integer
+
+    name: string
+    symbol: string
+
+    --- The private ABI. Omitted IR from version 5 and earlier is refused by the
+    --- version check rather than being guessed here.
+    entryMode: scalarIR.EntryMode
+
+    --- The single stream-builder contract proved for this entry. Unlike the
+    --- VM ABI, this is a compile-time fact consumed by emission; it is absent
+    --- for kernels and VM-aware entries which do not use a value stream.
+    builderMode: ('eager' | 'pull' | 'serde')?
+
+    --- The byte scratch this entry may take from the reuse cache, by its C
+    --- name, or nothing when none may.
+    ---
+    --- A reused buffer is handed back where the entry publishes it, which is
+    --- only sound when nothing writes it afterwards. That is a fact about this
+    --- program, so it is proved once here and verified, rather than decided by
+    --- the backend that consumes it. `visit.reusableScratch` is the derivation
+    --- and the verifier re-runs it.
+    reusableScratch: string?
+
+    --- The public runtime ABI family required by a VM-aware entry.
+    runtimeAbi: string?
+
+    --- The exported registrar which returns the Lua C closure.
+    registrar: string?
+
+    --- Conservative additional Lua stack slots required by verified
+    --- construction. Builders check this once on entry.
+    maxStack: integer?
+
+    params: {scalarIR.Param}
+    layouts: {scalarIR.Layout}?
+    regions: {scalarIR.Region}
+    aliasFacts: {scalarIR.AliasFact}
+    guards: {scalarIR.Guard}
+    helpers: {scalarIR.Helper}?
+
+    --- Compile-time byte tables the body reads, in the order they were reached.
+    constants: {scalarIR.ConstantBytes}?
+
+    --- The original map-shaped form, or a general structured scalar body.
+    --- Exactly one is present. Keeping the map form preserves its established
+    --- lane transform and private ABI while block kernels grow independently.
+    loop: scalarIR.Loop?
+
+    body: {scalarIR.Statement}?
+
+    --- Top-level scalar results. Empty is the existing `nil` ABI; several use
+    --- one compiler-owned native result aggregate at the private boundary.
+    resultTypes: {scalarIR.Type}?
+
+    resultSourceTypes: {string}?
+    usesSimd: boolean?
+    usesNumberToken: boolean?
+    simdWidth: integer?
+    rangeGuard: scalarIR.RangeGuard?
+    lanes: scalarIR.LaneBody?
+
+    --- Whether lane lowering was asked for at all, which is separate from
+    --- whether one was produced.
+    wantsLanes: boolean?
+
+    --- Whether it is taken whatever the arithmetic-intensity estimate says.
+    lanesRequired: boolean?
+
+    --- Arithmetic operations per byte the loop body touches, and the two counts
+    --- it came from. What decides whether running several iterations at once is
+    --- worth assembling and taking apart the vectors.
+    intensity: number?
+
+    operations: number?
+    touchedBytes: number?
+
+    --- Whether the estimate saw field traffic across consecutive AoS elements.
+    --- A declined streaming loop can act on this by projecting SoA columns.
+    stridedFields: boolean?
+
+    --- Whether lane lowering was declined rather than attempted and refused.
+    --- The two are different: a declined loop is one nobody expected to
+    --- vectorise, and a refused one is a loop that wanted to and could not.
+    lanesDeclined: boolean?
+
+    --- Whether it was declined by the intensity estimate specifically.
+    thin: boolean?
+
+    --- Why the loop ran one iteration at a time, when it wanted not to.
+    laneRefusals: {any}?
+
+    --- Whether the source asked for fused multiply-add. Part of what the
+    --- function answers rather than only how fast it gets there, which is why
+    --- it travels with the IR rather than with the build.
+    fpContract: boolean?
+
+    source: scalarIR.Source?
+end
+
+export = scalarIR

@@ -1,0 +1,9 @@
+local m = {}
+
+local function count(rows: {string}): integer
+    if #rows == 0 then return 0 end
+    return #rows
+end
+
+m.count = count
+return m

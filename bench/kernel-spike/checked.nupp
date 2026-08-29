@@ -1,0 +1,26 @@
+-- A checked native-kernel boundary using the standard span capability types.
+
+cdef struct Position
+    x: float
+    y: float
+end
+
+cdef struct Velocity
+    x: float
+    y: float
+end
+
+cdef function ks_init(): int32 from"bench/kernel-spike/build/libkernel_spike"
+
+cdef function ks_integrate_dynasm(
+    borrows positions: Position* countedBy(count),
+    borrows velocities: const Velocity* countedBy(count),
+    count: uint64,
+    dt: float
+) from"bench/kernel-spike/build/libkernel_spike"
+
+if ks_init() == 0 then
+    error("DynASM kernel initialization failed", 0)
+end
+
+return {Position = Position, Velocity = Velocity, integrate = ks_integrate_dynasm,}

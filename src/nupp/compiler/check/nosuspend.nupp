@@ -1,0 +1,285 @@
+module nupp.compiler.check.nosuspend
+
+--[[
+Regions in which suspending is refused.
+
+`nosuspend do ... end` is lexical and static: it erases to an ordinary block and
+its whole effect is that a call inside it which may suspend is a diagnostic
+rather than a run-time surprise. tecs raises the same refusal today, from
+`checkWait`, in a frame, in a game; this is the same fact found while compiling.
+
+The check runs after effect inference rather than during the walk, for the
+reason `unused` and `discard` also do: a summary settles only once the file has
+been read, and asking early gets an answer that is merely early. So a call
+inside a region registers a candidate where it stands -- which is also where its
+`@allow` is still in scope -- and the verdict arrives at the sweep.
+
+Two sources answer, and which one applies is not a preference:
+
+- a callee this file can see is answered by its inferred summary, because the
+  qualifier on a function type is set at the module boundary and a local
+  function never crosses one;
+- a callee reached through a type -- another module's export, an alias, a
+  parameter -- is answered by `noYield` on that type, which is what
+  `docs/neps/0005-suspension.md` S0 put there.
+
+Neither is a fallback for the other. A local function has no qualified type and
+a foreign one has no summary here.
+
+See `docs/neps/0005-suspension.md`.
+]]
+
+local cst = require("nupp.compiler.cst")
+local state = require("nupp.compiler.check.state")
+
+local nosuspend = {}
+
+--- How deep a chain a diagnostic will describe before it stops naming links. A caller
+--- four modules from the suspension needs the path; one that needs forty is being told
+--- to read the call graph, which the compiler is supposed to have done for them.
+local MAX_CHAIN = 8
+
+--- What `install` answers with.
+type nosuspend.Ops = {
+    readonly call: function(any),
+    readonly callback: function(any, string),
+    readonly cleanup: function(any, any),
+    readonly sweep: function(any)
+}
+
+--- Installs the region check on one run.
+---
+--- @param c the run's state
+--- @return the operations the walk and the end of the file call
+function nosuspend.install(c: state.Checker): nosuspend.Ops
+    local ops = {}
+
+    -- Calls made inside a region, in source order, judged once inference has settled.
+    local candidates: {any} = {}
+
+    --- Registers a call to judge at the end of the file, if a region encloses it.
+    ---
+    --- @param call the call expression
+    function ops.call(call: any)
+        if c.noSuspendDepth <= 0 or not call then
+            return
+        end
+        candidates[
+            #candidates + 1
+        ] = {call = call, calleeType = call.calleeType or call.signatureType, code = "NUPP2701"}
+    end
+
+    -- Callback bodies invoked from C, registered as implicit regions.
+    local callbackRegions: {any} = {}
+    local cleanupContracts: {any} = {}
+
+    --- Registers a cleanup contract. Visible bodies are checked after effect inference;
+    --- bodyless declarations are part of the trusted boundary and their promise is
+    --- accepted, exactly as foreign ownership annotations are.
+    function ops.cleanup(cleanup: any, at: any)
+        cleanupContracts[#cleanupContracts + 1] = {cleanup = cleanup, at = at}
+    end
+
+    --- Registers a function body that C will call, and which therefore cannot suspend.
+    ---
+    --- The boundary belongs to the *invocation*, not to the kind of body: what makes
+    --- this one unable to yield is that `table.sort` or `string.gsub` is on the stack
+    --- when it runs, not anything about the function itself.
+    ---
+    --- @param body the callback's body
+    --- @param where what will be calling it, named in the diagnostic
+    function ops.callback(body: any, where: string)
+        if not body then
+            return
+        end
+        callbackRegions[#callbackRegions + 1] = {body = body, where = where}
+    end
+
+    -- The chain from a call to the suspension it reaches, as related locations.
+    --
+    -- A one-line "this may suspend" is not actionable when the suspension is four
+    -- functions away. The path is found by walking each callee's body for the first
+    -- call that also suspends, resolved the same way the verdict resolves one: a
+    -- summary records that a body yields, not which of its callees made it yield, so
+    -- the edge has to be re-found rather than read off.
+    local function firstSuspendingCall(queries, body)
+        local found = nil
+        local function walk(node)
+            if not node or found or cst.isToken(node) then
+                return
+            end
+            local kind = node.kind
+            if kind == "call" or kind == "safeCall" or kind == "methodCall" then
+                local reached = queries.callee and queries.callee(node) or nil
+                if reached and reached.summary and reached.summary.yields then
+                    found = {info = reached, at = node}
+                    return
+                end
+            end
+            for _, child in ipairs(node) do
+                walk(child)
+            end
+        end
+
+        walk(body)
+
+        return found
+    end
+
+    local function chain(queries, info)
+        local related, seen, current = {}, {}, info
+        while current and #related < MAX_CHAIN do
+            if seen[current] or not current.body then
+                break
+            end
+            seen[current] = true
+            local step = firstSuspendingCall(queries, current.body)
+            if not step then
+                break
+            end
+            local callee = step.at.obj
+            local token = callee and (callee.token or callee.name) or nil
+            if token then
+                related[
+                    #related + 1
+                ] = {
+                    line = token.line,
+                    col = token.col,
+                    offset = token.offset,
+                    length = #token.text,
+                    msg = ("%s may suspend"):format(token.text),
+                }
+            end
+            current = step.info
+        end
+
+        return related
+    end
+
+    -- Every call written inside a body, so a callback's region can be judged without
+    -- the walk having had to know it was one.
+    local function callsWithin(body: any, into: {any})
+        if not body or cst.isToken(body) then
+            return
+        end
+        local kind = body.kind
+        if kind == "funcExpr" or kind == "shortfn" or kind == "localFuncStmt" or kind == "funcStmt" then
+            return
+        end
+        if kind == "call" or kind == "safeCall" or kind == "methodCall" then
+            into[#into + 1] = body
+        end
+        for _, child in ipairs(body.stats or {}) do
+            callsWithin(child, into)
+        end
+        for _, child in ipairs(body) do
+            callsWithin(child, into)
+        end
+    end
+
+    --- Judges every registered call once effect inference has settled.
+    ---
+    --- @param queries the analysis query surface, or nil when nothing was analyzed
+    function ops.sweep(queries: any)
+        for _, candidate in ipairs(cleanupContracts) do
+            local cleanup = candidate.cleanup
+            local token = cleanup and cleanup.token
+            local info = token and queries and queries.known and queries.known(token) or nil
+            local mayYield = false
+            if cleanup and cleanup.functionType and cleanup.functionType.foreign then
+                mayYield = false
+            elseif info and info.summary then
+                mayYield = info.summary.top == true or info.summary.external == true or info.summary.yields == true
+                if mayYield and info.body then
+                    local calls = {}
+                    callsWithin(info.body, calls)
+                    local allTypedNonYielding = #calls > 0
+                    for _, call in ipairs(calls) do
+                        local target = call.calleeType or call.signatureType
+                        -- An ownership intrinsic is not a call to something that could
+                        -- yield: it lowers to generated code that calls the terminals
+                        -- named in it, and those are judged as the cleanups they are.
+                        if call.ownershipIntrinsic then
+                            target = nil
+                        elseif not target or target.tag ~= "func" or not target.noYield then
+                            allTypedNonYielding = false
+                        end
+                    end
+                    if allTypedNonYielding then
+                        mayYield = false
+                    end
+                end
+            elseif cleanup and cleanup.functionType and cleanup.functionType.tag == "func" then
+                mayYield = cleanup.functionType.noYield ~= true and cleanup.visibleBody == true
+            end
+            if mayYield then
+                c.diag(
+                    "NUPP2701",
+                    candidate.at,
+                    ("cleanup %q may suspend while an obligation is being discharged"):format(cleanup.name),
+                    nil,
+                    {help = "make every cleanup call non-suspending, or move the suspension before cleanup begins"}
+                )
+            end
+        end
+        for _, region in ipairs(callbackRegions) do
+            local found: {any} = {}
+            callsWithin(region.body, found)
+            for _, call in ipairs(found) do
+                candidates[
+                    #candidates + 1
+                ] = {call = call, calleeType = call.calleeType, code = "NUPP2702", where = region.where,}
+            end
+        end
+        for _, candidate in ipairs(candidates) do
+            local call = candidate.call
+            local callee = call.obj
+            local token = callee and (callee.token or callee.name) or nil
+            local info = queries and queries.callee and queries.callee(call) or nil
+            local mayYield, why = nil, nil
+            if info and info.summary and not info.external then
+                -- Seen here: the summary is the answer, and a widened one is a callee
+                -- that reached something this file could not follow.
+                if info.summary.top then
+                    mayYield, why = true, "reaches code with unknown effects"
+                else
+                    mayYield = info.summary.yields == true
+                    why = "may suspend"
+                end
+            else
+                local target = candidate.calleeType
+                if target and target.tag == "func" then
+                    mayYield = not target.noYield
+                    why = "may suspend"
+                else
+                    -- Nothing resolved it at all. A call the compiler cannot follow is
+                    -- the case a region exists to be careful about.
+                    mayYield, why = true, "cannot be resolved, so it may suspend"
+                end
+            end
+            if mayYield then
+                local named = token and ("`" .. token.text .. "`") or "this call"
+                local message
+                if candidate.code == "NUPP2702" then
+                    -- The boundary belongs to the invocation. Saying which call reaches
+                    -- this body is the whole of the explanation: the same function is
+                    -- free to suspend anywhere else.
+                    message = (
+                        "%s %s, and %s cannot yield across the C call that reaches it"
+                    ):format(named, why, candidate.where)
+                else
+                    message = ("%s %s, and this region forbids suspending"):format(named, why)
+                end
+                c.diag(candidate.code, callee or call, message, nil, {
+                    help = "call something that cannot suspend, declare the callee's type "
+                    .. "`nosuspend function(...)`, or move this out of the region",
+                    related = info and chain(queries, info) or nil,
+                })
+            end
+        end
+    end
+
+    return ops as nosuspend.Ops
+end
+
+export = nosuspend

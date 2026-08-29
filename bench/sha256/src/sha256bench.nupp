@@ -1,0 +1,21 @@
+module sha256bench
+
+--[[
+What the benchmark measures, behind one name.
+
+`digest` is [](nupp.data.digest) reached through this target's build, so which
+implementation it is depends on the target: `sha256` compiles the `@aot` entry
+and calls it, `sha256-scalar` runs the same source on LuaJIT. Nothing here
+chooses; the manifest does.
+]]
+
+local digest = require("nupp.data.digest")
+
+local bench = {}
+
+--- @export
+function bench.sha256(value: string): string
+    return digest.sha256(value)
+end
+
+export = bench

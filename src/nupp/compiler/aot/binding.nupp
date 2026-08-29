@@ -1,0 +1,632 @@
+module nupp.compiler.aot.binding
+
+--[[
+The Nupp module that stands in front of a compiled `@aot` function.
+
+Generated C is not callable from Nupp on its own: something has to declare the
+symbol, hand a span's pointer across, and say what the caller may pass. That is
+this, and it is written from the same program the C was, so the two cannot
+drift apart.
+
+Three things happen here that are worth stating outright.
+
+A struct crossing the boundary is checked, not trusted. The wrapper asks
+`layoutof` for the size and offset of every field and compares them against what
+the compiled object reports, at load, before anything is callable. A C compiler
+that laid the struct out differently is a load error rather than a silent
+misread of memory.
+
+The unsafe call and immediate unpacking are one block wide. Everything around it -- the range check,
+the length agreement between spans -- is ordinary checked Nupp, and the `unsafe
+do` block holds the foreign call and nothing else.
+
+The wrapper's own signature is spelled the way the source spelled it, over
+spans and reified structs, while the foreign declaration underneath is spelled
+in pointers and counts. A caller writes against the first and never sees the
+second.
+]]
+
+local scalarIR = require("nupp.compiler.aot.scalar")
+local target = require("nupp.compiler.aot.target")
+
+local binding = {}
+
+--- How a storage type is spelled in Nupp source.
+const binding.SOURCE_TYPE = {["f64"] = "number", ["f32"] = "float", ["i32"] = "int32", ["u32"] = "uint32",}
+
+--- The source storage spelling carried by the IR, or its canonical spelling.
+local function sourceType(valueType: string, physicalType: string?): string
+    return physicalType or tostring(binding.SOURCE_TYPE[valueType])
+end
+
+--- The exact pointer type a span contributes to the foreign ABI.
+---
+--- This preserves constness for spans over immutable storage such as strings;
+--- erasing every span to `voidptr` asks LuaJIT FFI to discard const on the call.
+local function pointerType(param: scalarIR.Param): string
+    local layout = param.type:match("^struct:(.+)$")
+    local element = layout or sourceType(param.type, param.sourceType)
+    local prefix = param.kind == "read_span" and "const " or ""
+
+    return prefix .. tostring(element) .. "*"
+end
+
+--- How a uniform parameter is spelled in a `cdef`, where the ABI type is what
+--- matters rather than the source spelling.
+const binding.ABI_TYPE = {
+    ["f64"] = "number",
+    ["f32"] = "float",
+    ["u32"] = "uint32",
+    ["i32"] = "int32",
+    ["bool"] = "boolean",
+}
+
+--- The library clause a `cdef` ends with.
+local function from(library: string): string
+    return "from\"" .. library .. "\""
+end
+
+local function resultName(program: scalarIR.Program): string
+    return scalarIR.cIdentifier("KsResult", program.symbol)
+end
+
+--- The private aggregate a multi-result C entry returns.
+function binding.resultStruct(program: scalarIR.Program): {string}
+    local lines: {string} = {"cdef struct " .. resultName(program)}
+    for position, resultType in ipairs(program.resultTypes or {}) do
+        lines[#lines + 1] = "    v" .. tostring(position) .. ": " .. tostring(binding.ABI_TYPE[resultType] or "int32")
+    end
+    lines[#lines + 1] = "end"
+
+    return lines
+end
+
+--- One reified struct, declared in Nupp so `layoutof` has something to measure.
+function binding.struct(layout: scalarIR.Layout): {string}
+    local lines: {string} = {"local struct " .. layout.name}
+    for _, field in ipairs(layout.fields) do
+        lines[#lines + 1] = "    " .. field.name .. ": " .. sourceType(field.type, field.sourceType)
+    end
+    lines[#lines + 1] = "end"
+
+    return lines
+end
+
+--- Declaring what the compiled object says one struct's layout is.
+---
+--- The object exports a function per measurement rather than a table of
+--- numbers, so the answers come from the C compiler that actually laid the
+--- struct out.
+function binding.layoutReporters(symbol: string, layout: scalarIR.Layout, library: string): {string}
+    local prefix = "cdef function " .. symbol .. "_layout_" .. layout.name
+    local lines: {string} = {prefix .. "_size(): uint64 " .. from(library)}
+    for _, field in ipairs(layout.fields) do
+        lines[#lines + 1] = prefix .. "_offset_" .. field.name .. "(): uint64 " .. from(library)
+        lines[#lines + 1] = prefix .. "_size_" .. field.name .. "(): uint64 " .. from(library)
+    end
+
+    return lines
+end
+
+--- Comparing the two layouts at load.
+---
+--- Every field, both offset and size, and the struct's own size. A mismatch
+--- raises before the wrapper is returned, so a module that loads is a module
+--- whose struct the C compiler agreed with.
+function binding.layoutChecks(symbol: string, layout: scalarIR.Layout): {string}
+    -- Named after the symbol as well as the struct. Two `@aot` functions in one
+    -- file that reify the same struct each check it against their own object's
+    -- reporters, and one name per struct would declare the constant twice --
+    -- which does not compile, and is what this file used to emit.
+    local name = symbol .. "_" .. layout.name .. "Layout"
+    local reporter = symbol .. "_layout_" .. layout.name
+
+    --- One comparison, raising with `mismatch` when the two sides disagree.
+    local function agrees(measured: string, reported: string, mismatch: string): string
+        local raise = "error(\"native struct " .. mismatch .. " mismatch\", 0)"
+
+        return "if " .. measured .. " ~= " .. reported .. " then " .. raise .. " end"
+    end
+
+    local lines: {string} = {"const " .. name .. " = layoutof(" .. layout.name .. ")"}
+    lines[#lines + 1] = agrees(name .. ".size", reporter .. "_size()", "layout size")
+    for position, field in ipairs(layout.fields) do
+        local at = name .. ".fields[" .. tostring(position) .. "]"
+        lines[#lines + 1] = agrees(at .. ".offset", reporter .. "_offset_" .. field.name .. "()", "field offset")
+        lines[#lines + 1] = agrees(at .. ".size", reporter .. "_size_" .. field.name .. "()", "field size")
+    end
+
+    return lines
+end
+
+--- The foreign declaration of the kernel itself.
+---
+--- Spans arrive as `voidptr` and their shared length as one trailing count,
+--- which is what the generated C takes. The ownership annotations are carried
+--- across so the unsafe call is still governed by them.
+function binding.foreign(program: scalarIR.Program, library: string, symbol: string?): {string}
+    local params: {string} = {}
+    for _, param in ipairs(program.params) do
+        if param.kind == "write_span" then
+            params[#params + 1] = "exclusive " .. param.name .. ": " .. pointerType(param)
+        elseif param.kind == "read_span" then
+            params[#params + 1] = "borrows " .. param.name .. ": " .. pointerType(param)
+        else
+            params[#params + 1] = param.name .. ": " .. tostring(binding.ABI_TYPE[param.type] or "int32")
+        end
+    end
+    if program.body ~= nil then
+        for _, param in ipairs(program.params) do
+            if param.kind == "write_span" or param.kind == "read_span" then
+                params[#params + 1] = "count_" .. param.name .. ": uint64"
+            end
+        end
+    else
+        params[#params + 1] = "count: uint64"
+    end
+
+    local lines: {string} = {"cdef function " .. (symbol or program.symbol) .. "("}
+    for position, param in ipairs(params) do
+        lines[#lines + 1] = "    " .. param .. (position < #params and "," or "")
+    end
+    local resultTypes = program.resultTypes or {}
+    local result = #resultTypes == 0 and "" or ": " .. (
+        #resultTypes > 1 and resultName(program) or tostring(binding.ABI_TYPE[resultTypes[1]] or "int32")
+    )
+    lines[#lines + 1] = ")" .. result .. " " .. from(library)
+
+    return lines
+end
+
+--- How the wrapper spells one parameter, which is how the source spelled it.
+local function logical(param: scalarIR.Param): string
+    local element = param.type:match("^struct:(.+)$") or sourceType(param.type, param.sourceType)
+    local spanName = param.spanModule == "nupp.wasm" and "wasm" or "span"
+    if param.kind == "write_span" then
+        return "exclusive " .. param.name .. ": " .. spanName .. ".WriteSpan<" .. tostring(element) .. ">"
+    elseif param.kind == "read_span" then
+        return "borrows " .. param.name .. ": " .. spanName .. ".Span<" .. tostring(element) .. ">"
+    else
+        return param.name .. ": " .. tostring(param.sourceType)
+    end
+end
+
+--- Re-checking the range the kernel loop was allowed to skip.
+---
+--- Once per call rather than once per element. The generated loop reads these
+--- bounds without comparing them, which is sound because of this.
+function binding.range(rangeGuard: scalarIR.RangeGuard?): {string}
+    if rangeGuard == nil then
+        return {}
+    end
+
+    local first, last = rangeGuard.first, rangeGuard.last
+    local outOfBounds = {
+        first .. " < 1",
+        last .. " > #" .. rangeGuard.count,
+        -- One past the end is how an empty range is spelled, so it is allowed.
+        first .. " > " .. last .. " + 1",
+    }
+
+    return {
+        "    if " .. table.concat(outOfBounds, " or ") .. " then",
+        "        error(\"native range out of bounds\", 2)",
+        "    end",
+    }
+end
+
+--- Taking each span's pointer, and proving they describe the same length.
+---
+--- The kernel indexes every span with one loop counter, so spans of differing
+--- lengths would read past the end of the shorter. The first span's count is
+--- what is passed; the rest are compared against it and the call is refused if
+--- they disagree.
+function binding.spanArguments(params: {scalarIR.Param}, independent: boolean?): ({string}, {string}, string?)
+    local lines: {string} = {}
+    local arguments: {string} = {}
+    local counts: {string} = {}
+    local primary: string? = nil
+    for _, param in ipairs(params) do
+        if param.kind == "write_span" or param.kind == "read_span" then
+            local pointer = "native_" .. param.name
+            local count = "native_" .. param.name .. "Count"
+            lines[#lines + 1] = "    local " .. pointer .. ", " .. count .. " = " .. param.name .. ":ref()"
+            if primary == nil then
+                primary = count
+            elseif not independent and count ~= primary then
+                lines[
+                    #lines + 1
+                ] = "    if " .. count .. " ~= " .. tostring(
+                    primary
+                ) .. " then error(\"native spans have incompatible lengths\", 2) end"
+            end
+            arguments[#arguments + 1] = pointer .. " as " .. pointerType(param)
+            counts[#counts + 1] = count
+        else
+            arguments[#arguments + 1] = param.name
+        end
+    end
+
+    if independent then
+        for _, count in ipairs(counts) do
+            arguments[#arguments + 1] = count
+        end
+    else
+        arguments[#arguments + 1] = tostring(primary)
+    end
+
+    return lines, arguments, primary
+end
+
+--- The checked wrapper the caller actually sees.
+function binding.wrapper(program: scalarIR.Program, nativeSymbol: string?): {string}
+    local params: {string} = {}
+    for position, param in ipairs(program.params) do
+        params[position] = logical(param)
+    end
+
+    local lines: {string} = {"local function " .. program.name .. "("}
+    for position, param in ipairs(params) do
+        lines[#lines + 1] = "    " .. param .. (position < #params and "," or "")
+    end
+    local resultSourceTypes = program.resultSourceTypes or {}
+    local result = #resultSourceTypes == 0 and "nil" or #resultSourceTypes == 1 and resultSourceTypes[
+        1
+    ] or "(" .. table.concat(resultSourceTypes, ", ") .. ")"
+    lines[#lines + 1] = "): " .. result
+    for _, line in ipairs(binding.range(program.rangeGuard)) do
+        lines[#lines + 1] = line
+    end
+
+    local taken, arguments = binding.spanArguments(program.params, program.body ~= nil)
+    for _, line in ipairs(taken) do
+        lines[#lines + 1] = line
+    end
+    lines[#lines + 1] = "    unsafe do"
+    if #resultSourceTypes > 1 then
+        lines[
+            #lines + 1
+        ] = "        local nativeResult = " .. (
+            nativeSymbol or program.symbol
+        ) .. "(" .. table.concat(arguments, ", ") .. ")"
+        local values: {string} = {}
+        for position in ipairs(resultSourceTypes) do
+            values[position] = "nativeResult.v" .. tostring(position)
+        end
+        lines[#lines + 1] = "        return " .. table.concat(values, ", ")
+    else
+        lines[
+            #lines + 1
+        ] = "        " .. (
+            #resultSourceTypes == 0 and "" or "return "
+        ) .. (nativeSymbol or program.symbol) .. "(" .. table.concat(arguments, ", ") .. ")"
+    end
+    lines[#lines + 1] = "    end"
+    lines[#lines + 1] = "end"
+
+    return lines
+end
+
+--- Loads one VM-aware entry through the platform's supported Lua module path.
+---
+--- `@lib/` has the same relocatable meaning as it does for generated FFI
+--- bindings. `package.loadlib` needs the resolved filesystem path, so this
+--- small loader performs the same bounded upward search and caches the closure
+--- in the generated module local.
+function binding.builderLoader(program: scalarIR.Program, library: string, tiers: {string}?): {string}
+    local prefix = program.symbol .. "_builder"
+    local relative = library:match("^@(.+)$") or library
+    local registrar = tostring(program.registrar)
+    local lines: {string} = {}
+    if tiers ~= nil and #tiers > 0 then
+        registrar = target.symbol(registrar, tiers[1])
+        lines[#lines + 1] = "local " .. prefix .. "Registrar = \"" .. registrar .. "\""
+        for position = 2, #tiers do
+            local tier = tiers[position]
+            lines[
+                #lines + 1
+            ] = "if ks_aot_feature_tier() >= " .. tostring(
+                target.rank(tier)
+            ) .. " then " .. prefix .. "Registrar = \"" .. target.symbol(tostring(program.registrar), tier) .. "\" end"
+        end
+    else
+        lines[#lines + 1] = "local " .. prefix .. "Registrar = \"" .. registrar .. "\""
+    end
+    local loader = {
+        "local function " .. prefix .. "Load()",
+        "    local modules: any = rawget(_G, \"__nuppAotBuilderModules\") or {}",
+        "    rawset(_G, \"__nuppAotBuilderModules\", modules)",
+        "    local here = debug.getinfo(1, \"S\").source:match(\"^@(.*)$\")",
+        "    local directory = here and here:match(\"^(.*)[/\\\\]\") or \".\"",
+        "    local started = directory",
+        "    for _ = 0, 8 do",
+        "        local path = directory .. \"/" .. relative .. "\"",
+        "        local cacheKey = path .. \"\\0\" .. " .. prefix .. "Registrar",
+        "        local registered: any = modules[cacheKey]",
+        "        if registered then return registered[\"" .. program.name .. "\"] end",
+        "        local probe = io.open(path, \"rb\")",
+        "        if probe then",
+        "            probe:close()",
+        "            local loadlib = rawget(package, \"loadlib\")",
+        "            local open, why = loadlib(path, " .. prefix .. "Registrar)",
+        "            if not open then error(\"cannot register AOT builder: \" .. tostring(why), 0) end",
+        "            registered = open()",
+        "            if type(registered) ~= \"table\" or type(registered[\""
+        .. program.name
+        .. "\"]) ~= \"function\" then error(\"malformed AOT builder registration\", 0) end",
+        "            modules[cacheKey] = registered",
+        "            return registered[\"" .. program.name .. "\"]",
+        "        end",
+        "        directory = directory .. \"/..\"",
+        "    end",
+        "    error(\"cannot find "
+        .. relative
+        .. " at or above \" .. started"
+        .. " .. \"; the compiled library has to travel with the module that calls it\", 0)",
+        "end",
+        "local " .. prefix .. " = " .. prefix .. "Load()",
+    }
+    for _, line in ipairs(loader) do
+        lines[#lines + 1] = line
+    end
+
+    return lines
+end
+
+-- What a result read back out of the loaded symbol has to become to satisfy the
+-- wrapper's own declared type. `loadlib` hands back `any`, and returning that
+-- from a function declared `uint32` is NUPP2011 against generated text, which
+-- reads as an error on whatever line of the author's file the position lands on.
+-- The fixed widths need establishing; the rest need the cast their name implies.
+local function established(resultType: string, name: string): string
+    if resultType == "uint32" then
+        return "nupp.math.u32.wrap(" .. name .. " as integer)"
+    elseif resultType == "int32" then
+        return "nupp.math.i32.wrap(" .. name .. " as integer)"
+    elseif resultType == "boolean" then
+        return name .. " as boolean"
+    elseif resultType == "number" or resultType == "float" or resultType == "integer" then
+        return name .. " as " .. resultType
+    end
+
+    return name
+end
+
+--- The source-level wrapper around one registered Lua C closure.
+function binding.builderWrapper(program: scalarIR.Program): {string}
+    local params: {string} = {}
+    local arguments: {string} = {}
+    for position, param in ipairs(program.params) do
+        params[position] = logical(param)
+        arguments[position] = param.name
+    end
+    local results = program.resultSourceTypes or {}
+    local result = #results == 0 and "nil" or #results == 1 and results[1] or "(" .. table.concat(results, ", ") .. ")"
+    local lines: {string} = {"local function " .. program.name .. "("}
+    for position, param in ipairs(params) do
+        lines[#lines + 1] = "    " .. param .. (position < #params and "," or "")
+    end
+    lines[#lines + 1] = "): " .. result
+    local call = program.symbol .. "_builder(" .. table.concat(arguments, ", ") .. ")"
+    if #results == 0 then
+        lines[#lines + 1] = "    " .. call
+    elseif #results == 1 then
+        local converted = established(results[1], "native1")
+        if converted == "native1" then
+            lines[#lines + 1] = "    return " .. call
+        else
+            lines[#lines + 1] = "    local native1 = " .. call
+            lines[#lines + 1] = "    return " .. converted
+        end
+    else
+        local names: {string} = {}
+        local values: {string} = {}
+        for position, resultType in ipairs(results) do
+            names[position] = "native" .. tostring(position)
+            values[position] = established(resultType, names[position])
+        end
+        lines[#lines + 1] = "    local " .. table.concat(names, ", ") .. " = " .. call
+        lines[#lines + 1] = "    return " .. table.concat(values, ", ")
+    end
+    lines[#lines + 1] = "end"
+
+    return lines
+end
+
+--- Records that one authored declaration was replaced by compiled code.
+---
+--- A caller may keep a separately authored scalar path and select it when AOT
+--- is off. Keying the registry by the replacement closure avoids publishing
+--- compiler symbols or requiring native and Wasm loaders to expose the same
+--- implementation details.
+function binding.compiledMarker(program: scalarIR.Program): {string}
+    return {
+        "local " .. program.symbol .. "_compiledEntries: any = rawget(_G, \"__nuppAotCompiled\")",
+        "if " .. program.symbol .. "_compiledEntries == nil then",
+        "    " .. program.symbol .. "_compiledEntries = setmetatable({}, {__mode = \"k\"})",
+        "    rawset(_G, \"__nuppAotCompiled\", " .. program.symbol .. "_compiledEntries)",
+        "end",
+        program.symbol .. "_compiledEntries[" .. program.name .. "] = true",
+    }
+end
+
+--- The one runtime feature query shared by all selections in a source module.
+function binding.featureDetector(library: string): {string}
+    return {"cdef function ks_aot_feature_tier(): int32 " .. from(library)}
+end
+
+--- Declares every physical tier entry and binds the widest admitted one.
+---
+--- The local has the logical symbol plus a suffix so the source-level wrapper
+--- can retain the function's original name. All tier declarations have the
+--- same checked foreign type, which makes reassignment a type-checked claim
+--- rather than an FFI cast.
+function binding.multiversion(program: scalarIR.Program, library: string, tiers: {string}): ({string}, string)
+    local lines: {string} = {}
+    local native = program.symbol .. "_native"
+    for _, tier in ipairs(tiers) do
+        local symbol = target.symbol(program.symbol, tier)
+        for _, line in ipairs(binding.foreign(program, library, symbol)) do
+            lines[#lines + 1] = line
+        end
+    end
+    lines[#lines + 1] = "local " .. native .. " = " .. target.symbol(program.symbol, tiers[1])
+    for position = 2, #tiers do
+        local tier = tiers[position]
+        lines[
+            #lines + 1
+        ] = "if ks_aot_feature_tier() >= " .. tostring(
+            target.rank(tier)
+        ) .. " then " .. native .. " = " .. target.symbol(program.symbol, tier) .. " end"
+    end
+
+    return lines, native
+end
+
+--- What stands in for one `@aot` declaration in the source it was written in.
+---
+--- Everything `binding.module` emits for one program except the struct
+--- declarations and the module's exports, both of which the source already has.
+--- Written where the declaration was, so the wrapper is declared under the same
+--- name, at the same point, with the same signature -- and every later reference
+--- to it, exported or internal, reaches the compiled code without knowing it.
+---
+--- This is ordinary Nupp. It goes through the checker like anything else, which
+--- is what makes substituting it safe: the ownership annotations, the range
+--- guard and the narrow `unsafe do` are all checked rather than trusted.
+--- @raises when passed malformed or unverified IR
+function binding.replacement(
+    program: scalarIR.Program,
+    library: string,
+    tiers: {string}?,
+    includeDetector: boolean?
+): string
+    local lines: {string} = {}
+    if includeDetector == true and tiers ~= nil and #tiers > 1 then
+        for _, line in ipairs(binding.featureDetector(library)) do
+            lines[#lines + 1] = line
+        end
+        lines[#lines + 1] = ""
+    end
+    if program.entryMode == "lua-builder" then
+        for _, line in ipairs(binding.builderLoader(program, library, tiers)) do
+            lines[#lines + 1] = line
+        end
+        lines[#lines + 1] = ""
+        for _, line in ipairs(binding.builderWrapper(program)) do
+            lines[#lines + 1] = line
+        end
+        lines[#lines + 1] = ""
+        for _, line in ipairs(binding.compiledMarker(program)) do
+            lines[#lines + 1] = line
+        end
+
+        return table.concat(lines, "\n")
+    elseif program.entryMode == "kernel" then
+        -- Continue through the established FFI binding path below.
+    else
+        error("unknown AOT entry mode", 0)
+    end
+    if #(program.resultTypes or {}) > 1 then
+        for _, line in ipairs(binding.resultStruct(program)) do
+            lines[#lines + 1] = line
+        end
+        lines[#lines + 1] = ""
+    end
+    local reporterSymbol = program.symbol
+    if tiers ~= nil and #tiers > 0 then
+        reporterSymbol = target.symbol(program.symbol, tiers[1])
+    end
+    for _, layout in ipairs(program.layouts or {}) do
+        for _, line in ipairs(binding.layoutReporters(reporterSymbol, layout, library)) do
+            lines[#lines + 1] = line
+        end
+        for _, line in ipairs(binding.layoutChecks(reporterSymbol, layout)) do
+            lines[#lines + 1] = line
+        end
+        lines[#lines + 1] = ""
+    end
+    local native: string? = nil
+    if tiers ~= nil and #tiers > 0 then
+        local declarations, selected = binding.multiversion(program, library, tiers)
+        native = selected
+        for _, line in ipairs(declarations) do
+            lines[#lines + 1] = line
+        end
+    else
+        for _, line in ipairs(binding.foreign(program, library)) do
+            lines[#lines + 1] = line
+        end
+    end
+    lines[#lines + 1] = ""
+    for _, line in ipairs(binding.wrapper(program, native)) do
+        lines[#lines + 1] = line
+    end
+    lines[#lines + 1] = ""
+    for _, line in ipairs(binding.compiledMarker(program)) do
+        lines[#lines + 1] = line
+    end
+
+    return table.concat(lines, "\n")
+end
+
+--- The whole generated module: structs, their layout checks, the foreign
+--- declaration, the wrapper, and what all of it exports.
+function binding.module(programs: {scalarIR.Program}, library: string): string
+    local lines: {
+        string
+    } = {"-- Generated from verified test-only native C IR.", "", "local span = require(\"nupp.mem.span\")", "",}
+
+    local function append(more: {string}): nil
+        for _, line in ipairs(more) do
+            lines[#lines + 1] = line
+        end
+    end
+
+    -- One declaration per struct however many functions reify it, and one set
+    -- of layout checks per function, because a reporter is named after the
+    -- symbol whose wrapper checks it.
+    local declared: {[string]: boolean} = {}
+    local exports: {string} = {}
+    for _, program in ipairs(programs) do
+        for _, layout in ipairs(program.layouts or {}) do
+            if not declared[layout.name] then
+                declared[layout.name] = true
+                append(binding.struct(layout))
+                lines[#lines + 1] = ""
+                exports[#exports + 1] = layout.name .. " = " .. layout.name
+            end
+            append(binding.layoutReporters(program.symbol, layout, library))
+            append(binding.layoutChecks(program.symbol, layout))
+            lines[#lines + 1] = ""
+        end
+    end
+
+    for _, program in ipairs(programs) do
+        if program.entryMode == "lua-builder" then
+            append(binding.builderLoader(program, library))
+            lines[#lines + 1] = ""
+            append(binding.builderWrapper(program))
+            append(binding.compiledMarker(program))
+            lines[#lines + 1] = ""
+            exports[#exports + 1] = program.name .. " = " .. program.name
+        else
+            if #(program.resultTypes or {}) > 1 then
+                append(binding.resultStruct(program))
+                lines[#lines + 1] = ""
+            end
+            append(binding.foreign(program, library))
+            lines[#lines + 1] = ""
+            append(binding.wrapper(program))
+            append(binding.compiledMarker(program))
+            lines[#lines + 1] = ""
+            exports[#exports + 1] = program.name .. " = " .. program.name
+        end
+    end
+
+    lines[#lines + 1] = "return {" .. table.concat(exports, ", ") .. ",}"
+
+    return table.concat(lines, "\n") .. "\n"
+end
+
+export = binding

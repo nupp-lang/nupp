@@ -1,0 +1,1803 @@
+module nupp.compiler.lsp
+
+--[[
+The Language Server Protocol server, over stdio.
+
+Diagnostics, navigation, hover, completion, signature help, references, rename,
+semantic tokens, formatting, and code actions. Everything flows through the
+incremental query engine: an open document is a text overlay on the file, and a
+dependent module rechecks only when an interface really changed.
+
+This module is the session, the handlers, and the loop. What each handler answers
+with is next door.
+]]
+
+local incremental = require("nupp.compiler.incremental")
+
+local cst = require("nupp.compiler.cst")
+local fs = require("nupp.compiler.fs")
+local envMod = require("nupp.compiler.env")
+local fmt = require("nupp.compiler.fmt")
+local lexer = require("nupp.compiler.lexer")
+local T = require("nupp.compiler.types")
+local annotationMod = require("nupp.compiler.annotations")
+
+local lsp = {}
+
+-- The parts of the server that need no session: positions and edits over a document's
+-- bytes, and what an editor asks of a parse.
+local text = require("nupp.compiler.lsp.text")
+local lspDiagnostics = require("nupp.compiler.lsp.diagnostics")
+local navigate = require("nupp.compiler.lsp.navigate")
+local tree = require("nupp.compiler.lsp.tree")
+local wire = require("nupp.compiler.lsp.wire")
+local symbols = require("nupp.compiler.lsp.symbols")
+local complete = require("nupp.compiler.lsp.complete")
+local semantic = require("nupp.compiler.lsp.semantic")
+
+local documentationAt = tree.documentationAt
+local enclosingChain = tree.enclosingChain
+local functionSignature = tree.functionSignature
+local lineHunks = text.lineHunks
+local lineStarts = text.lineStarts
+local memberOccurrences = tree.memberOccurrences
+local offsetAtPosition = text.offsetAtPosition
+local positionAtOffset = text.positionAtOffset
+local splitLines = text.splitLines
+local symbolKey = tree.symbolKey
+local tokenAt = tree.tokenAt
+local tokenRange = text.tokenRange
+local pathToUri = text.pathToUri
+local QUICKFIX = "quickfix"
+local SYMBOL_KINDS = symbols.SYMBOL_KINDS
+local documentSymbols = symbols.documentSymbols
+local foldableSpans = symbols.foldableSpans
+local semanticModifiers = semantic.semanticModifiers
+local semanticTypes = semantic.semanticTypes
+local signatureAt = complete.signatureAt
+local uriToPath = text.uriToPath
+
+type lsp.Session = {
+    dispatch: function(any),
+    running: function(): boolean
+}
+
+--- The transport, as the work running above it sees it.
+---
+--- A session answers one message at a time, so anything that arrives while a request is
+--- being answered is read by the transport and not by the session. That is what makes
+--- both cancellation and staleness possible at all: the news arrives during the work
+--- rather than after it.
+type lsp.Host = {
+    --- Reads whatever has arrived without blocking. Called by long work at the points
+    --- it can be abandoned or its answer discarded.
+    pump: function(): nil,
+
+    --- Whether the request being answered right now has been cancelled.
+    cancelled: function(): boolean,
+
+    cancel: function(any): nil,
+    isCancelled: function(any): boolean,
+    clearCancelled: function(any): nil,
+
+    --- The newest version of a document the transport has read, which may be newer than
+    --- the one the session has applied. Nil for a document nothing has been read about.
+    documentVersion: function(string): integer?,
+
+    --- What abandoned work raises, so a session can tell a cancellation from a fault.
+    cancellation: any,
+
+    --- The id of the request being answered, or nil between requests.
+    currentId: any
+}
+
+-- The codec and its array marker are configured once, on the wire.
+local json = wire.json
+
+--- Creates one language-server session whose outgoing protocol messages are handed to
+--- `emit`. The stdio server and the command-line language operations share this session
+--- so there is only one implementation of semantic behavior.
+function lsp.newSession(rootDir: string?, emit: function(any), host: lsp.Host?): lsp.Session
+    rootDir = rootDir or "."
+    -- One session's whole state, so the handlers below reach it through `s` rather than
+    -- by being lexically inside this function. `inc` and `folders` are rebound when a
+    -- client adds or drops a workspace folder, or when a request is about a document
+    -- another folder owns, which is why they are fields: a module that captured the old
+    -- value would go on answering from it.
+    local s = {
+        root = rootDir,
+        -- The folders this session answers for, as the client named them. A client that
+        -- opened more than one names them at `initialize` and again whenever the user
+        -- adds or drops one; a client that names none leaves this empty and the session
+        -- is the one root it was launched against.
+        folders = {},
+        documents = {},
+        -- The last lex of each file, so a handler that only needs tokens does not
+        -- reparse.
+        lexed = {},
+    }
+
+    local running = true
+
+    local send = emit
+
+    --- Sends one notification. Defined here rather than beside `respond`, because
+    --- building a graph reports what it is fetching and that happens first.
+    local function notify(method: string, params: any): nil
+        send({jsonrpc = "2.0", method = method, params = params})
+    end
+
+    -- Whether a root's type dependencies have been resolved in this session, so a
+    -- graph rebuilt after an edit does not go back to the network, and a fetch that
+    -- failed is reported once rather than retried on every keystroke.
+    local resolvedDeps: {[string]: boolean} = {}
+
+    --- Resolves the pinned type-only dependencies of one project.
+    ---
+    --- A `kind = "types"` dependency names an exact commit, so resolving one is
+    --- fetching a tree the project already chose rather than deciding anything: the
+    --- answer is the same whether a build asks for it or an editor does. An editor
+    --- that would not ask is an editor that types the project differently from the
+    --- build, which is the one thing a language server must not do.
+    ---
+    --- The cost is paid once per project. A checkout already at the pinned revision
+    --- is confirmed locally and nothing is fetched, so this is a directory read on
+    --- every open after the first.
+    local function resolveTypeDependencies(root: string): nil
+        if resolvedDeps[root] then
+            return
+        end
+        resolvedDeps[root] = true
+        local manifest: any = require("nupp.compiler.build.manifest")
+        -- A manifest that does not load is the checker's news to break, and it breaks
+        -- it with a position in the file. Saying so again here, without one, helps
+        -- nobody; there is simply nothing to resolve until it loads.
+        local config = manifest.load(root)
+        if not config then
+            return
+        end
+        local pending = {}
+        for name, dep in pairs(config.dependencies or {}) do
+            if type(dep) == "table" and (dep as any).kind == "types" then
+                if not fs.exists(fs.join(root, ".nupp/deps/" .. name .. "/.git/HEAD")) then
+                    pending[#pending + 1] = name
+                end
+            end
+        end
+        table.sort(pending)
+        if #pending > 0 then
+            -- Sent before the fetch rather than after it, because the fetch is the
+            -- part that takes the time: this is what says the server is working.
+            notify("window/logMessage", {
+                type = 3,
+                message = "nupp: fetching type dependencies for " .. root .. ": " .. table.concat(pending, ", "),
+            })
+        end
+        local outDir = config.build and config.build.outDir or "build"
+        local ok, built, err = pcall((require("nupp.compiler.build.deps") as any).build, root, outDir, config, {}, nil)
+        if not ok then
+            notify("window/logMessage", {type = 1, message = "nupp: " .. tostring(built)})
+        elseif not built then
+            notify("window/logMessage", {type = 1, message = "nupp: " .. tostring(err)})
+        elseif #pending > 0 then
+            notify("window/logMessage", {type = 3, message = "nupp: type dependencies ready for " .. root,})
+        end
+    end
+
+    -- One graph per project, rather than one graph over every folder.
+    --
+    -- A project is a `nupp.lua`: its own dependencies, lint levels, strictness and
+    -- target. Answering for a file out of the folder that was launched first meant a
+    -- file was checked differently depending on which window opened it, which is the
+    -- one thing a language server must not do. So each project gets its own
+    -- environment, and a document is answered by the one that owns it.
+    --
+    -- Each still *searches* the others, because a module named across projects resolved
+    -- before this and has to go on resolving: what a project owns is the configuration
+    -- a file is read under, not which files exist.
+    --
+    -- Built when something first asks for one. A client that opens five folders and
+    -- edits in one pays for one; the four it never touches cost the list entry they are
+    -- named in.
+    local function graphFor(entry)
+        if not entry.inc then
+            resolveTypeDependencies(entry.root)
+            local others = {}
+            for _, other in ipairs(s.roots) do
+                if other.root ~= entry.root then
+                    others[#others + 1] = other.root
+                end
+            end
+            local inc = incremental.new(entry.root, {folders = others, traceInspection = true})
+            inc.env.host = host
+            -- A declaration file a type dependency carries that the importer could not
+            -- take. The build reports these as warnings against the file; an editor
+            -- says it in the log, because a project's Problems list is about the source
+            -- the project owns and these files are not that. Silence would be the wrong
+            -- answer either way: an API this compiler did not import is an API whose
+            -- absence is otherwise indistinguishable from a typo.
+            for _, problem in ipairs(inc.env.ambientTypeProblems or {}) do
+                notify("window/logMessage", {
+                    type = 2,
+                    message = "nupp: type dependency declaration not imported: " .. problem.path .. ":" .. tostring(
+                        problem.line
+                    ) .. ": " .. problem.msg,
+                })
+            end
+            -- What the editor is showing is what every folder reads. A buffer open in
+            -- one folder can be the module another folder requires, and a graph that
+            -- read that file off disk would be answering from text nobody has.
+            for uri, doc in pairs(s.documents) do
+                inc.openDocument(uriToPath(uri), doc.text)
+            end
+            entry.inc = inc
+        end
+
+        return entry.inc
+    end
+
+    --- Does something to every graph that has been built. Overlays, closes and watched
+    --- file events are facts about what the editor is showing rather than about one
+    --- project, so they reach all of them; a graph built later picks the same facts up
+    --- as it is built.
+    local function eachGraph(fn: function(any): nil)
+        for _, entry in ipairs(s.roots) do
+            if entry.inc then
+                fn(entry.inc)
+            end
+        end
+    end
+
+    --- The project directory a path is read under: the deepest directory at or above
+    --- it holding a `nupp.lua`, no higher than the folder the client opened.
+    ---
+    --- A folder the client opened is not always one project. A checkout can hold
+    --- several -- a workspace of packages, a template beside the compiler that builds
+    --- it -- and each has its own manifest, so its own dependencies, lint levels,
+    --- strictness and target. Reading a file under one of them through the outer
+    --- folder's manifest checks it as part of a project it is not part of: its module
+    --- name is derived from the wrong base, and the types its own manifest declares
+    --- are not there at all.
+    ---
+    --- Memoized by the file's directory, because this answers a filesystem question
+    --- about a tree that does not change while nothing is watching it, and it is asked
+    --- of every request.
+    local nestedRoots: {[string]: string} = {}
+
+    local function projectRootFor(folder: string, path: string): string
+        local dir = fs.dirname(path)
+        local memo = nestedRoots[dir]
+        if memo ~= nil then
+            return memo
+        end
+        -- A relative root is the working directory, which every relative path is
+        -- already under, so only a named folder bounds the walk.
+        local bounded = folder ~= "" and folder ~= "."
+        local found, at = folder, dir
+        while at ~= "" and at ~= "." and at ~= folder do
+            if bounded and at:sub(1, #folder + 1) ~= folder .. "/" then
+                break
+            end
+            if fs.exists(fs.join(at, "nupp.lua")) then
+                found = at
+                break
+            end
+            local up = fs.dirname(at)
+            if up == at then
+                break
+            end
+            at = up
+        end
+        nestedRoots[dir] = found
+
+        return found
+    end
+
+    --- Re-declares the folders this session answers for, dropping every graph built for
+    --- the previous set. The launch root is always among them: a document under none of
+    --- the client's folders is still a document this session was started against.
+    local function setRoots(folders)
+        s.folders = folders
+        s.roots = {}
+        nestedRoots = {}
+        local seen = {}
+        for _, root in ipairs(folders) do
+            if not seen[root] then
+                seen[root] = true
+                s.roots[#s.roots + 1] = {root = root}
+            end
+        end
+        if not seen[rootDir] then
+            table.insert(s.roots, 1, {root = rootDir})
+        end
+        s.inc = graphFor(s.roots[1])
+    end
+
+    --- Which project owns a path: the folder it lies under, narrowed to the nested
+    --- project inside that folder when there is one. A project found this way joins
+    --- the session's roots, so the graphs already built keep answering and the next
+    --- file under the same project reaches the same one.
+    local function rootFor(path: string): any
+        local owner, longest = nil, -1
+        for _, entry in ipairs(s.roots) do
+            local root = entry.root
+            if (path == root or path:sub(1, #root + 1) == root .. "/") and #root > longest then
+                owner, longest = entry, #root
+            end
+        end
+        owner = owner or s.roots[1]
+        local nested = projectRootFor(owner.root, path)
+        if nested == owner.root then
+            return owner
+        end
+        for _, entry in ipairs(s.roots) do
+            if entry.root == nested then
+                return entry
+            end
+        end
+        local entry = {root = nested}
+        s.roots[#s.roots + 1] = entry
+
+        return entry
+    end
+
+    --- Points the session at the graph that owns a path, and answers whose it is. Every
+    --- handler below reads `s.inc`, so this is the whole of routing a request to a
+    --- folder.
+    function s.useRoot(path: string?): string
+        local entry = path and rootFor(path) or s.roots[1]
+        s.inc = graphFor(entry)
+        s.currentRoot = entry.root
+
+        return entry.root
+    end
+
+    setRoots({})
+
+    -- The document a request is about and the version of it the answer is being worked
+    -- out from, recorded when the request is taken up and read when it is answered.
+    -- Nil between requests and for the ones that name no document.
+    local answering = nil
+
+    --- Whether the answer being sent is about text the client has already replaced.
+    ---
+    --- Requests are taken up in the order they are read, so an edit that had already
+    --- arrived when this one was is part of the same burst the client sent and is not
+    --- what makes an answer stale. What does is an edit arriving *while* the answer was
+    --- being worked out, which the transport reads at the points long work offers it.
+    --- Positions in that answer are measured against text the client no longer has, so
+    --- the protocol's answer is to say so and let the client ask again.
+    local function overtaken(): boolean
+        if not answering or not host or not answering.version then
+            return false
+        end
+        local arrived = host.documentVersion(answering.uri)
+
+        return arrived ~= nil and arrived > answering.version
+    end
+
+    local function respond(id, result)
+        if host and host.isCancelled(id) then
+            host.clearCancelled(id)
+            send({jsonrpc = "2.0", id = id, error = {code = -32800, message = "request cancelled"}})
+            return
+        end
+        if overtaken() then
+            send({jsonrpc = "2.0", id = id, error = {code = -32801, message = "document changed while answering"}})
+            return
+        end
+        send({jsonrpc = "2.0", id = id, result = result})
+    end
+
+    local function respondError(id, code, message)
+        send({jsonrpc = "2.0", id = id, error = {code = code, message = message}})
+    end
+
+    s.notify, s.respond, s.respondError = notify, respond, respondError
+
+    -- The questions a handler asks, each answered by its own module and reached through
+    -- the session it was installed on.
+    local diags = lspDiagnostics.install(s)
+    local toLspDiagnostics = diags.toLspDiagnostics
+    local checkAndPublish = diags.checkAndPublish
+    local refreshOpenDocuments = diags.refreshOpenDocuments
+
+    local nav = navigate.install(s)
+    local fileTokens, sourceForPath = nav.fileTokens, nav.sourceForPath
+    local definitionLocation = nav.definitionLocation
+    local documentationFor, documentAt = nav.documentationFor, nav.documentAt
+    local symbolAt = nav.symbolAt
+    local isProjectDefinition = nav.isProjectDefinition
+    local referencesFor = nav.referencesFor
+    local memberDeclaration, memberAt = nav.memberDeclaration, nav.memberAt
+    local memberLocation, memberReferences = nav.memberLocation, nav.memberReferences
+    local memberHover = nav.memberHover
+
+    local completions = complete.install(s, nav)
+    local completionItems = completions.completionItems
+
+    local tokens = semantic.install(s)
+    local semanticEntries, encodeSemanticEntries = tokens.semanticEntries, tokens.encodeSemanticEntries
+    local rememberTokens, tokenEdits = tokens.rememberTokens, tokens.tokenEdits
+    local lastSentTokens = tokens.lastSent
+
+    -- Which folders a session answers for decides which project a file is read under,
+    -- what a module name resolves to, which file list a rename runs over, and which
+    -- declarations a name can mean, everything the query graphs were built around. So
+    -- a folder change rebuilds them rather than patching them, and the open buffers are
+    -- handed back as overlays so the editor's unsaved text is still what the new graph
+    -- reads. Diagnostics are then republished unconditionally: a file can be clean
+    -- under one set of folders and not under another, and the editor has no way to know
+    -- the ground moved.
+    local function reroot(nextFolders)
+        setRoots(nextFolders)
+        local uris = {}
+        for uri, doc in pairs(s.documents) do
+            uris[#uris + 1] = uri
+            doc.checkResult = nil
+        end
+        table.sort(uris)
+        for _, uri in ipairs(uris) do
+            checkAndPublish(uri, true)
+        end
+    end
+
+    --- The folder paths in an `initialize` or `didChangeWorkspaceFolders` list.
+    local function folderPaths(list)
+        local paths = {}
+        for _, folder in ipairs(list or {}) do
+            local uri = type(folder) == "table" and folder.uri or folder
+            if type(uri) == "string" and uri:match("^file://") then
+                paths[#paths + 1] = uriToPath(uri)
+            end
+        end
+
+        return paths
+    end
+
+    -- A definition holds a token from whichever parse produced it, and that parse can
+    -- predate the file the editor now shows: the prelude is read once when the server
+    -- starts and is rebuilt underneath it. Resolving a definition therefore works from
+    -- the file as it currently reads, and confirms the token is still where it was
+    -- recorded instead of trusting an offset that may now point into the middle of
+    -- something else.
+
+    local handlers = {}
+
+    handlers["initialize"] = function(id, params)
+        -- The s.folders the client opened, which are what it will send changes against.
+        -- A client that names none has one workspace and it is the root the server was
+        -- launched with, so nothing is added.
+        local opened = folderPaths(params and params.workspaceFolders)
+        if #opened == 0 and params and params.rootUri then
+            opened = folderPaths({params.rootUri})
+        end
+        if #opened > 0 then
+            reroot(opened)
+        end
+        respond(id, {
+            capabilities = {
+                textDocumentSync = 1, -- full-document sync
+                definitionProvider = true,
+                hoverProvider = true,
+                completionProvider = {
+                    triggerCharacters = wire.array({
+                        ".",
+                        ":"
+                    }),
+                },
+                signatureHelpProvider = {triggerCharacters = wire.array({"(", ","}),},
+                referencesProvider = true,
+                renameProvider = {prepareProvider = true},
+                semanticTokensProvider = {
+                    legend = {tokenTypes = semanticTypes, tokenModifiers = semanticModifiers,},
+                    full = {delta = true},
+                    range = true,
+                },
+                documentFormattingProvider = true,
+                documentRangeFormattingProvider = true,
+                documentSymbolProvider = true,
+                workspaceSymbolProvider = true,
+                documentHighlightProvider = true,
+                foldingRangeProvider = true,
+                selectionRangeProvider = true,
+                codeActionProvider = {codeActionKinds = wire.array({QUICKFIX}),},
+                workspace = {workspaceFolders = {supported = true, changeNotifications = true,},},
+            },
+            serverInfo = {name = "nupp-lsp", version = "0.1"},
+        })
+    end
+
+    handlers["initialized"] = function()
+    end
+
+    handlers["workspace/didChangeWorkspaceFolders"] = function(_, params)
+        local event = params and params.event or {}
+        local removed = {}
+        for _, path in ipairs(folderPaths(event.removed)) do
+            removed[path] = true
+        end
+        local next_, seen = {}, {}
+        local function keep(path)
+            if removed[path] or seen[path] then
+                return
+            end
+            seen[path] = true
+            next_[#next_ + 1] = path
+        end
+
+        for _, path in ipairs(s.folders) do
+            keep(path)
+        end
+        for _, path in ipairs(folderPaths(event.added)) do
+            keep(path)
+        end
+        reroot(next_)
+    end
+
+    handlers["workspace/didChangeWatchedFiles"] = function(_, params)
+        -- `.nupp/` is where a dependency is checked out, and resolving one writes a
+        -- whole tree at once. A client watching the project sees every file in it
+        -- appear; none of them is an edit, and every graph read the tree as it was
+        -- built. So they are dropped here, which also keeps a manifest a dependency
+        -- happens to carry from being read as this project's.
+        --
+        -- A manifest of this project's own appearing, changing or going away moves the
+        -- boundary between projects, and with it which project every file under it is
+        -- read as part of. Nothing a graph holds survives that, so the set is rebuilt
+        -- rather than patched, the same way a folder change rebuilds it.
+        local changes = {}
+        for _, change in ipairs(params.changes or {}) do
+            local uri = type(change.uri) == "string" and change.uri or ""
+            if uri:match("^file://") and not uri:find("/%.nupp/") then
+                if uri:match("/nupp%.lua$") then
+                    -- A manifest is where dependencies are named, so what was resolved
+                    -- under the old one says nothing about the new one. Confirming a
+                    -- checkout already at its pinned revision is a local read, so this
+                    -- costs one of those per project rather than a fetch.
+                    resolvedDeps = {}
+                    reroot(s.folders)
+
+                    return
+                end
+                changes[#changes + 1] = change
+            end
+        end
+        -- Graph-major rather than change-major, so the loop holds no function to build.
+        -- The graphs are independent, so telling one about every change before telling
+        -- the next is the same news in the same order.
+        eachGraph(function(inc)
+            for _, change in ipairs(changes) do
+                inc.diskChanged(uriToPath(change.uri), change.type)
+            end
+        end)
+        refreshOpenDocuments(nil)
+    end
+
+    handlers["textDocument/didOpen"] = function(_, params)
+        local doc = params.textDocument
+        s.documents[doc.uri] = {text = doc.text, version = doc.version}
+        eachGraph(function(inc)
+            inc.openDocument(uriToPath(doc.uri), doc.text)
+        end)
+        refreshOpenDocuments(doc.uri)
+    end
+
+    handlers["textDocument/didChange"] = function(_, params)
+        local changes = params.contentChanges
+        if changes and changes[1] and changes[1].text then
+            local uri = params.textDocument.uri
+            local doc = s.documents[uri] or {}
+            doc.text = changes[1].text
+            -- What the client calls this edit. Carried back on the diagnostics
+            -- published for it, so an editor holding newer text knows to ignore them.
+            doc.version = params.textDocument.version
+            s.documents[uri] = doc
+            eachGraph(function(inc)
+                inc.changeDocument(uriToPath(uri), changes[1].text)
+            end)
+            refreshOpenDocuments(uri)
+        end
+    end
+
+    handlers["textDocument/definition"] = function(id, params)
+        local uri = params and params.textDocument and params.textDocument.uri
+        local doc = uri and s.documents[uri]
+        if not doc or not doc.result or not params.position then
+            respond(id, json.NULL)
+            return
+        end
+        local offset = offsetAtPosition(doc.text, params.position)
+        if not offset then
+            respond(id, json.NULL);
+            return
+        end
+        for _, tok in ipairs(doc.result.tokens) do
+            if tok.kind ~= "eof" and offset >= tok.offset and offset < tok.offset + #tok.text then
+                local member = memberAt(doc, offset)
+                if member then
+                    respond(id, memberLocation(member))
+                    return
+                end
+                if tok.additionalDefinitions and #tok.additionalDefinitions > 1 then
+                    local locations = wire.array({})
+                    for _, definition in ipairs(tok.additionalDefinitions) do
+                        local found = definitionLocation(definition)
+                        if found ~= json.NULL then
+                            locations[#locations + 1] = found
+                        end
+                    end
+                    if #locations > 0 then
+                        respond(id, locations)
+                        return
+                    end
+                end
+                local location = definitionLocation(tok.definition)
+                if location == json.NULL then
+                    local member = memberAt(doc, offset)
+                    if member then
+                        location = memberLocation(member)
+                    end
+                end
+                respond(id, location)
+                return
+            end
+        end
+        respond(id, json.NULL)
+    end
+
+    local function capabilityDetail(t): string?
+        local capability = T.capability(t)
+        local kind = T.capabilityKind(capability)
+        if not kind then
+            return nil
+        end
+        local parts = {}
+        if capability.obligation then
+            if T.capabilityTransferOnly(capability) then
+                parts[#parts + 1] = "transfer-only obligation"
+            end
+            local names = {}
+            for _, cleanup in ipairs(T.capabilityCleanups(capability)) do
+                names[#names + 1] = cleanup.name or cleanup.key or cleanup.id
+            end
+            if #names > 0 then
+                parts[#parts + 1] = "cleanup `" .. table.concat(names, "`, then `") .. "`"
+            end
+        end
+        if #capability.loans > 0 then
+            parts[#parts + 1] = capability.loans[1].access .. " rooted loan"
+        end
+        if #capability.anchors > 0 then
+            parts[#parts + 1] = "pinned anchor"
+        end
+        if #capability.retentions > 0 then
+            parts[#parts + 1] = "foreign retention"
+        end
+
+        return #parts > 0 and table.concat(parts, "; ") or kind
+    end
+
+    handlers["textDocument/hover"] = function(id, params)
+        local _, doc, tok, offset = symbolAt(params)
+        local comptimeNode = doc and offset and tree.comptimeAt(doc.result, offset) or nil
+        if comptimeNode and comptimeNode.comptimeResultType then
+            local hoverOffset = offset as integer
+            local from, to = tree.nodeBounds(comptimeNode)
+            local value = "```nupp\ncomptime: " .. T.tostring(comptimeNode.comptimeResultType) .. "\n```"
+            local literal = comptimeNode.comptimeValue
+            if literal then
+                if #literal > 160 then
+                    literal = literal:sub(1, 157) .. "..."
+                end
+                value = value .. "\n\nCanonical value: `" .. literal:gsub("`", "\\`") .. "`"
+            elseif comptimeNode.materializationObservation then
+                local observation = comptimeNode.materializationObservation
+                value = value .. (
+                    "\n\nMaterialized by `%s` (`%s`, %d-byte blueprint)."
+                ):format(tostring(observation.provider), tostring(observation.backend), observation.blueprintSize or 0)
+            end
+            respond(id, {
+                contents = {kind = "markdown", value = value},
+                range = {
+                    start = positionAtOffset(doc.text, from or hoverOffset),
+                    ["end"] = positionAtOffset(doc.text, to or hoverOffset),
+                },
+            })
+            return
+        end
+        local def = tok and tok.definition
+        local t = tok and (tok.inferredType or def and def.type)
+        -- A plain module member has a type now that a module's surface is published,
+        -- but the surface is a shape and a shape carries no declaration sites. Where
+        -- the checker cannot say where something was written, the declaration as
+        -- written is still the better answer.
+        if tok then
+            local member = memberAt(doc, offset)
+            local value = member and memberHover(member)
+            if value then
+                local deprecated = annotationMod.deprecationMarkdown(def and def.deprecated)
+                if deprecated then
+                    value = value .. "\n\n" .. deprecated
+                end
+                respond(id, {contents = {kind = "markdown", value = value}, range = tokenRange(doc.text, tok),})
+                return
+            end
+        end
+        if tok and def and def.doc and (def.kind == "annotation" or def.kind == "property") then
+            -- A built-in annotation, or a member of one, has no declaration in the
+            -- project to show as hover; its own one-line blurb, plus a link to where
+            -- it is actually documented, is the useful answer instead of nothing.
+            local label = def.kind == "annotation" and (
+                "@" .. (def.name or tok.text)
+            ) or (def.name or tok.text) .. (t and (": " .. T.tostring(t)) or "")
+            local value = "```nupp\n" .. label .. "\n```\n\n" .. def.doc
+            if def.docsPath then
+                value = value .. "\n\n[Reference on nupp.org](https://nupp.org/" .. def.docsPath .. ")"
+            end
+            respond(id, {contents = {kind = "markdown", value = value}, range = tokenRange(doc.text, tok),})
+            return
+        end
+        if not tok or not t then
+            respond(id, json.NULL);
+            return
+        end
+        local name = def and def.name or tok.text
+        local prefix = def and def.cdef and "cdef " or def and def.constant and "const " or ""
+        local capability = capabilityDetail(t)
+        local displayed = capability and T.tostring(T.unwrapOwnership(t)) or T.tostring(t)
+        local value = "```nupp\n" .. prefix .. name .. ": " .. displayed .. "\n```"
+        if capability then
+            value = value .. "\n\nCapability: " .. capability .. "."
+        end
+        if def and def.generatedBy then
+            value = value .. (
+                "\n\nGenerated by `@derive(%s)` for `%s`."
+            ):format(def.generatedBy, def.generatedOwner or "<anonymous>")
+            if def.generatedInterface then
+                value = value .. "\n\nImplements `" .. def.generatedInterface .. "`."
+            end
+            if def.generatedHelper then
+                value = value .. "\n\nForwards to `" .. def.generatedHelper .. "`."
+            end
+            if def.generatedRecipeFingerprint then
+                value = value .. "\n\nRecipe fingerprint: `" .. def.generatedRecipeFingerprint .. "`."
+            end
+        end
+        local automatic = def and def.automaticCleanup
+        if automatic then
+            if automatic.status == "moved" then
+                value = value .. "\n\nOwnership moves before the lexical cleanup boundary."
+            else
+                value = value .. (
+                    "\n\nAutomatically destroyed after line %d with `%s`."
+                ):format(automatic.line, table.concat(automatic.cleanups or {}, "`, then `"))
+            end
+        end
+        local docs = documentationFor(def)
+        if docs then
+            value = value .. "\n\n" .. docs
+        end
+        local deprecated = annotationMod.deprecationMarkdown(def and def.deprecated)
+        if deprecated then
+            value = value .. "\n\n" .. deprecated
+        end
+        respond(id, {contents = {kind = "markdown", value = value}, range = tokenRange(doc.text, tok),})
+    end
+
+    -- Rich symbol information for command-line and agent clients. LSP hover is
+    -- intentionally presentation-shaped Markdown; this private request keeps the
+    -- underlying facts structured without changing the public LSP surface.
+
+    --- What state a projection is in, beside the spelling it was written as.
+    ---
+    --- The spelling is kept rather than replaced. `ScalarComponent<number>.Value` and
+    --- `number` are not the same question: reducing the first away throws out which
+    --- declaration the reader pointed at, which is the one thing hover is for. So the
+    --- answer is added, never substituted.
+    local function associatedState(t: any): string?
+        if not t or t.tag ~= "projection" then
+            return nil
+        end
+        local generics = require("nupp.compiler.generics")
+        local associated = require("nupp.compiler.associated")
+        local reduced = generics.normalize(t)
+        if reduced.cycle then
+            return "cyclic: " .. table.concat(reduced.cycle, " -> ")
+        end
+        if reduced.gradual and #reduced.gradual > 0 then
+            return "gradual"
+        end
+        if reduced.type.tag ~= "projection" then
+            return "resolves to " .. T.tostring(reduced.type)
+        end
+        local found = associated.lookup(t.of, t.name)
+        if found.bound then
+            return "opaque with bound " .. T.tostring(found.bound)
+        end
+
+        return "opaque"
+    end
+
+    handlers["$/nupp/inspect"] = function(id, params)
+        local _, doc, tok, offset = symbolAt(params)
+        if not tok then
+            respond(id, json.NULL);
+            return
+        end
+        local member = memberAt(doc, offset)
+        if member then
+            local path, memberTok, stat = memberDeclaration(member.moduleName, member.name)
+            local documentation = nil
+            local source = path and sourceForPath(path)
+            if source and memberTok then
+                local tokens = fileTokens(path, source)
+                for index, candidate in ipairs(tokens) do
+                    if candidate.offset == memberTok.offset then
+                        documentation = documentationAt(tokens, index)
+                        break
+                    end
+                end
+            end
+            respond(id, {
+                name = member.name,
+                kind = "function",
+                detail = stat and functionSignature(stat) or nil,
+                documentation = documentation,
+                definition = memberLocation(member),
+                range = tokenRange(doc.text, tok),
+                root = s.currentRoot,
+            })
+            return
+        end
+        local def = tok.definition
+        local t = tok.inferredType or def and def.type
+        if not t then
+            respond(id, json.NULL);
+            return
+        end
+        respond(
+            id,
+            {
+                name = def and def.name or tok.text,
+                kind = def and def.kind or "variable",
+                type = T.tostring(t),
+                capability = capabilityDetail(t),
+                associated = associatedState(t),
+                documentation = documentationFor(def),
+                definition = definitionLocation(def),
+                range = tokenRange(doc.text, tok),
+                automaticCleanup = def and def.automaticCleanup or nil,
+                deprecated = def and def.deprecated or nil,
+                generatedBy = def and def.generatedBy or nil,
+                generatedOwner = def and def.generatedOwner or nil,
+                generatedNamespace = def and def.generatedNamespace or nil,
+                generatedRecipeFingerprint = def and def.generatedRecipeFingerprint or nil,
+                soaColumn = tok.soaColumn,
+                -- Which project answered. With a folder per project, the same name can
+                -- be read under different configuration in two windows, and a caller
+                -- comparing two answers has to be able to see which is which.
+                root = s.currentRoot,
+            }
+        )
+    end
+
+    -- One-shot trace eligibility for the smallest checked function containing the
+    -- cursor. This reads the document overlay already checked by the language server;
+    -- it neither adds @jit nor compiles or executes a temporary program.
+    handlers["$/nupp/traceCheck"] = function(id, params)
+        local _, doc = documentAt(params)
+        local position = params and params.position
+        local offset = doc and position and offsetAtPosition(doc.text, position) or nil
+        local analysis = doc and doc.result and doc.result.traceAnalysis or nil
+        if not offset or not analysis then
+            respond(id, json.NULL)
+            return
+        end
+        local selected, selectedFrom, selectedTo
+        for _, info in ipairs(analysis.functions or {}) do
+            local from, to = tree.nodeBounds(info.node)
+            if from and to and offset >= from and offset <= to and (
+                not selected or to - from < selectedTo - selectedFrom
+            ) then
+                selected, selectedFrom, selectedTo = info, from, to
+            end
+        end
+        if not selected then
+            respond(id, json.NULL)
+            return
+        end
+        local findings = wire.array({})
+        for _, finding in ipairs(selected.traceFindings or {}) do
+            local from, to = tree.nodeBounds(finding.at or finding.callAt)
+            local range = nil
+            if from and to then
+                range = {start = positionAtOffset(doc.text, from), ["end"] = positionAtOffset(doc.text, to as integer),}
+            end
+            findings[
+                #findings + 1
+            ] = {
+                reason = finding.reason,
+                class = finding.class,
+                message = finding.message,
+                help = finding.help,
+                callPath = wire.array(finding.callPath or {}),
+                range = range,
+            }
+        end
+        local profile = analysis.profile
+        local addContract = nil
+        if not (selected.body and selected.body.jitRequired) then
+            local lineStart = selectedFrom
+            while lineStart > 1 and doc.text:sub(lineStart - 1, lineStart - 1) ~= "\n" do
+                lineStart = lineStart - 1
+            end
+            local indent = doc.text:sub(lineStart, selectedFrom - 1)
+            addContract = {
+                range = {
+                    start = positionAtOffset(doc.text, selectedFrom),
+                    ["end"] = positionAtOffset(doc.text, selectedFrom),
+                },
+                newText = "@jit\n" .. indent,
+            }
+        end
+        respond(id, {
+            name = selected.traceName,
+            range = {
+                start = positionAtOffset(doc.text, selectedFrom),
+                ["end"] = positionAtOffset(doc.text, selectedTo),
+            },
+            findings = findings,
+            traceProfile = profile,
+            reasonCatalog = analysis.reasonCatalog,
+            contract = selected.body and selected.body.jitRequired and "@jit" or "inspection",
+            addContract = addContract,
+        })
+    end
+
+    -- A one-shot planner for Lua documents. The current bytes travel with the request,
+    -- so LuaLS can continue to own synchronization and every ordinary Lua feature.
+    handlers["$/nupp/migrateAnnotatedLua"] = function(id, params)
+        local document = params and params.textDocument
+        local uri = type(document) == "table" and document.uri or nil
+        local source = params and params.text
+        if type(uri) ~= "string" or type(source) ~= "string" then
+            respond(id, {ok = false, error = "a file URI and current document text are required"})
+            return
+        end
+        local plan, problem = require("nupp.compiler.migrate").plan(source, uriToPath(uri), params.dialect or "auto")
+        if not plan then
+            respond(id, {ok = false, error = problem})
+            return
+        end
+        respond(id, {
+            ok = true,
+            sourceUri = uri,
+            destinationUri = pathToUri(plan.destination),
+            text = plan.text,
+            edits = wire.array(plan.edits),
+            warnings = wire.array(plan.warnings),
+            dialect = plan.dialect,
+        })
+    end
+
+    handlers["textDocument/completion"] = function(id, params)
+        local _, doc = documentAt(params)
+        if not doc or not doc.result or not params.position then
+            respond(id, json.asArray({}))
+            return
+        end
+        local offset = offsetAtPosition(doc.text, params.position) or 1
+        respond(id, completionItems(doc, offset))
+    end
+
+    handlers["textDocument/signatureHelp"] = function(id, params)
+        local _, doc = documentAt(params)
+        if not doc or not doc.result or not params.position then
+            respond(id, json.NULL)
+            return
+        end
+        local offset = offsetAtPosition(doc.text, params.position)
+        local call = offset and signatureAt(doc.result, offset)
+        if not call then
+            respond(id, json.NULL);
+            return
+        end
+        local ft = call.signatureType
+        local candidates = call.overloadCandidates or {ft}
+        local name = "call"
+        if call.kind == "methodCall" and call.name then
+            name = call.name.text
+        elseif call.obj and call.obj.kind == "name" then
+            name = call.obj.token.text
+        end
+        local activeParameter = 0
+        for _, child in ipairs(call.args or {}) do
+            if cst.isToken(child) and child.kind == "," and child.offset < offset then
+                activeParameter = activeParameter + 1
+            end
+        end
+        local signatures = wire.array({})
+        local activeSignature: integer = 0
+        for candidateIndex, candidate in ipairs(candidates) do
+            local parameters = wire.array({})
+            for index, param in ipairs(candidate.paramPack.head or {}) do
+                local mode = candidate.paramPack.modes[index]
+                parameters[
+                    #parameters + 1
+                ] = {label = (mode and mode ~= "plain" and mode .. " " or "") .. T.tostring(param)}
+            end
+            if candidate.paramPack.tail then
+                local tail = candidate.paramPack.tail
+                parameters[
+                    #parameters + 1
+                ] = {
+                    label = tail.kind == "homogeneous" and (
+                        "...: " .. T.tostring(tail.type)
+                    ) or tail.kind == "generic" and (
+                        tail.var.name .. "..."
+                    ) or tail.kind == "computed" and ("...: unpackof " .. T.tostring(tail.type)) or "..."
+                }
+            end
+            signatures[#signatures + 1] = {label = name .. ": " .. T.tostring(candidate), parameters = parameters,}
+            if call.overloadWinner == candidate then
+                activeSignature = candidateIndex - 1
+            end
+        end
+        local active = candidates[activeSignature + 1]
+        local parameterCount = active and #active.paramPack.head or 0
+        if parameterCount > 0 then
+            activeParameter = math.min(activeParameter, parameterCount - 1)
+        else
+            activeParameter = 0
+        end
+        respond(id, {signatures = signatures, activeSignature = activeSignature, activeParameter = activeParameter,})
+    end
+
+    handlers["textDocument/references"] = function(id, params)
+        local _, doc, tok, offset = symbolAt(params)
+        if not tok then
+            respond(id, json.asArray({}));
+            return
+        end
+        local includeDeclaration = params.context and params.context.includeDeclaration or false
+        local member = memberAt(doc, offset)
+        if member then
+            respond(id, memberReferences(member, includeDeclaration))
+            return
+        end
+        respond(id, referencesFor(tok.definition, includeDeclaration))
+    end
+
+    -- A member is declared in the module that carries it, so it is renameable on
+    -- exactly the condition every other project symbol is: this session can rewrite the
+    -- file the declaration lives in.
+    local function unaliasedPatternDefinition(tok)
+        local definition = tok and tok.definition
+        local declaration = definition and definition.token
+        local path = definition and definition.filename
+        if not declaration or not path then
+            return nil
+        end
+        local source, result
+        for uri, open in pairs(s.documents) do
+            if uriToPath(uri) == path then
+                source, result = open.text, open.result
+                break
+            end
+        end
+        if not result then
+            source = s.inc.fileText(path)
+            local checked = source and s.inc.checkFile(path) or nil
+            result = checked and checked.result or nil
+        end
+        local entry = nil
+        if result then
+            tree.walkNodes(result.root, function(node)
+                if not entry
+                    and node.kind == "bindingEntry"
+                    and not node.alias
+                    and node.sourceName
+                    and node.sourceName.offset == declaration.offset
+                then
+                    entry = node
+                end
+            end)
+        end
+
+        return entry, source, pathToUri(path)
+    end
+
+    local function renameSubject(params)
+        local _, doc, tok, offset = symbolAt(params)
+        if not tok then
+            return doc, nil, nil, nil
+        end
+        if tok.definition and tok.definition.generatedBy then
+            return doc, nil, nil, tok.definition
+        end
+        local member = memberAt(doc, offset)
+        local path = member and s.inc.modulePath(member.moduleName)
+        if path then
+            for _, projectPath in ipairs(s.inc.projectFiles()) do
+                if projectPath == path then
+                    return doc, tok, function(includeDeclaration)
+                        return memberReferences(member, includeDeclaration)
+                    end
+                end
+            end
+        end
+        if tok.definition and isProjectDefinition(tok.definition) then
+            return doc, tok, function(includeDeclaration)
+                return referencesFor(tok.definition, includeDeclaration)
+            end
+        end
+
+        return doc, nil, nil, nil
+    end
+
+    handlers["textDocument/prepareRename"] = function(id, params)
+        local doc, tok = renameSubject(params)
+        if not tok then
+            respond(id, json.NULL);
+            return
+        end
+        respond(id, {range = tokenRange(doc.text, tok), placeholder = tok.text,})
+    end
+
+    handlers["textDocument/rename"] = function(id, params)
+        local newName = params and params.newName
+        if not newName or not newName:match("^[A-Za-z_][A-Za-z0-9_]*$") or lexer.KEYWORDS[newName] then
+            respondError(id, -32602, "new name is not a valid identifier")
+            return
+        end
+        local _, tok, references, generated = renameSubject(params)
+        if not tok then
+            if generated then
+                respondError(
+                    id,
+                    -32602,
+                    (
+                        "generated member %q cannot be renamed; change or remove @derive(%s)"
+                    ):format(generated.name, generated.generatedBy)
+                )
+            else
+                respondError(id, -32602, "symbol cannot be renamed")
+            end
+            return
+        end
+        local patternEntry, patternSource, patternUri = unaliasedPatternDefinition(tok)
+        local patternRange = patternEntry and patternSource and tokenRange(
+            patternSource,
+            patternEntry.sourceName
+        ) or nil
+        local changes = {}
+        for _, location in ipairs(references(true)) do
+            local edits = changes[location.uri]
+            if not edits then
+                edits = wire.array({})
+                changes[location.uri] = edits
+            end
+            local declarationEdit = patternRange
+                and location.uri == patternUri
+                and location.range.start.line == patternRange.start.line
+                and location.range.start.character == patternRange.start.character
+            edits[
+                #edits + 1
+            ] = {
+                range = location.range,
+                newText = declarationEdit and (patternEntry.sourceName.text .. " as " .. newName) or newName,
+            }
+        end
+        respond(id, {changes = changes})
+    end
+
+    -- Offsets are into the document as it stands, so every edit of one action is
+    -- measured against the same text and the client may apply them in any order.
+    local function toTextEdits(source, edits)
+        local out = wire.array({})
+        for _, edit in ipairs(edits) do
+            out[
+                #out + 1
+            ] = {
+                range = {
+                    start = positionAtOffset(source, edit.offset),
+                    ["end"] = positionAtOffset(source, edit.offset + edit.length),
+                },
+                newText = edit.newText,
+            }
+        end
+
+        return out
+    end
+
+    handlers["textDocument/codeAction"] = function(id, params)
+        local uri, doc = documentAt(params)
+        local range = params and params.range
+        if not doc or not doc.result or not range then
+            respond(id, json.asArray({}))
+            return
+        end
+        local from = offsetAtPosition(doc.text, range.start)
+        local to = offsetAtPosition(doc.text, range["end"]) or from
+        if not from then
+            respond(id, json.asArray({}))
+            return
+        end
+
+        local wanted = nil
+        for _, kind in ipairs(params.context and params.context.only or {}) do
+            wanted = wanted or {}
+            wanted[kind] = true
+        end
+        local offers = wire.array({})
+        local function offer(kind, title, edits, diagnostic)
+            if wanted and not wanted[kind] then
+                return
+            end
+            if not edits or #edits == 0 then
+                return
+            end
+            offers[#offers + 1] = {
+                title = title,
+                kind = kind,
+                diagnostics = diagnostic and wire.array({
+                    diagnostic
+                }) or nil,
+                edit = {changes = {[uri] = toTextEdits(doc.text, edits)}},
+            }
+        end
+
+        -- A diagnostic is reported at one offset but the author is pointing at a name,
+        -- so a fix is offered anywhere in the token that carries it rather than only
+        -- under its first byte.
+        local diagnostics = doc.checkResult and doc.checkResult.diags or {}
+        for _, e in ipairs(diagnostics) do
+            if e.fixes and e.offset and e.offset > 0 then
+                local tok = tokenAt(doc.result, e.offset)
+                local start = tok and tok.offset or e.offset
+                local stop = tok and tok.offset + #tok.text or e.offset + 1
+                if start <= to and from <= stop then
+                    local reported = toLspDiagnostics({e}, doc.text)[1]
+                    for _, fix in ipairs(e.fixes) do
+                        offer(QUICKFIX, fix.title, fix.edits, reported)
+                    end
+                end
+            end
+        end
+
+        respond(id, offers)
+    end
+
+    handlers["textDocument/semanticTokens/full"] = function(id, params)
+        local uri, doc = documentAt(params)
+        if not doc or not doc.result then
+            respond(id, {data = json.asArray({})})
+            return
+        end
+        local data = encodeSemanticEntries(semanticEntries(doc))
+        respond(id, {resultId = rememberTokens(uri, data), data = data})
+    end
+
+    handlers["textDocument/semanticTokens/full/delta"] = function(id, params)
+        local uri, doc = documentAt(params)
+        if not doc or not doc.result then
+            respond(id, {data = json.asArray({})})
+            return
+        end
+        local data = encodeSemanticEntries(semanticEntries(doc))
+        local previous = lastSentTokens(uri)
+        -- A client asking about a revision this server no longer holds gets the whole
+        -- file rather than an edit against something neither of them has.
+        if not previous or previous.resultId ~= params.previousResultId then
+            respond(id, {resultId = rememberTokens(uri, data), data = data})
+            return
+        end
+        local edits = tokenEdits(previous.data, data)
+        respond(id, {resultId = rememberTokens(uri, data), edits = edits})
+    end
+
+    handlers["textDocument/semanticTokens/range"] = function(id, params)
+        local _, doc = documentAt(params)
+        local range = params and params.range
+        if not doc or not doc.result or not range then
+            respond(id, {data = json.asArray({})})
+            return
+        end
+        local within = {}
+        for _, entry in ipairs(semanticEntries(doc)) do
+            -- Whole tokens, by the line they start on: the protocol has no way to say
+            -- half of one, and a token the range cuts through is a token the range is
+            -- about.
+            if entry.line >= range.start.line and entry.line <= range["end"].line then
+                within[#within + 1] = entry
+            end
+        end
+        respond(id, {data = encodeSemanticEntries(within)})
+    end
+
+    --- The formatted text, or nil when the formatter refused. A file that does not
+    --- parse is left exactly as it is: rewriting a half-written file is how an editor
+    --- loses work.
+    local function formattedText(uri, doc)
+        local path = uriToPath(uri)
+        local formatted, errors = fmt.format(
+            doc.text,
+            path,
+            {
+                annotations = s.inc.env.annotations,
+                resolveAnnotation = function(name)
+                    return s.inc.env.resolveProjectAnnotation(s.inc.env, path, name)
+                end,
+                methodParens = envMod.fmtMethodParensDefault(s.inc.env),
+            }
+        )
+        if #errors > 0 or formatted == doc.text then
+            return nil
+        end
+
+        return formatted
+    end
+
+    --- The formatting edits for a document, one per run of lines that changed.
+    ---
+    --- The whole document could be handed back as a single edit and often was, but a
+    --- client applying that loses every cursor, fold and mark in the file to rewrite
+    --- lines that did not change. Line runs are the granularity the formatter actually
+    --- works at: it never joins lines, so a line either came through as it was or did
+    --- not.
+    local function formattingEdits(uri, doc)
+        local formatted = formattedText(uri, doc)
+        if not formatted then
+            return nil
+        end
+        local before, after = splitLines(doc.text), splitLines(formatted)
+        local starts = lineStarts(doc.text)
+        local edits = {}
+        for _, hunk in ipairs(lineHunks(before, after)) do
+            local from = starts[hunk.from] or (#doc.text + 1)
+            local to = starts[hunk.to] or (#doc.text + 1)
+            edits[
+                #edits + 1
+            ] = {
+                fromLine = hunk.from - 1,
+                toLine = hunk.to - 1,
+                range = {start = positionAtOffset(doc.text, from), ["end"] = positionAtOffset(doc.text, to),},
+                newText = table.concat(hunk.lines),
+            }
+        end
+
+        return edits
+    end
+
+    local function respondWithEdits(id, edits, keep)
+        if not edits then
+            respond(id, json.asArray({}));
+            return
+        end
+        local out = wire.array({})
+        for _, edit in ipairs(edits) do
+            if not keep or keep(edit) then
+                out[#out + 1] = {range = edit.range, newText = edit.newText}
+            end
+        end
+        respond(id, out)
+    end
+
+    handlers["textDocument/formatting"] = function(id, params)
+        local uri, doc = documentAt(params)
+        if not doc then
+            respond(id, json.asArray({}));
+            return
+        end
+        respondWithEdits(id, formattingEdits(uri, doc))
+    end
+
+    handlers["textDocument/rangeFormatting"] = function(id, params)
+        local uri, doc = documentAt(params)
+        local range = params and params.range
+        if not doc or not range then
+            respond(id, json.asArray({}));
+            return
+        end
+        -- The formatter is a whole-document formatter, which is what makes its output
+        -- canonical, so a range is served by keeping the edits that fall inside it. A
+        -- run of changed lines reaching past the selection is a change the request did
+        -- not ask for, so it is not offered: formatting a selection must not rewrite
+        -- the lines around it.
+        respondWithEdits(id, formattingEdits(uri, doc), function(edit)
+            return edit.fromLine >= range.start.line and edit.toLine <= range["end"].line + 1
+        end)
+    end
+
+    handlers["textDocument/documentSymbol"] = function(id, params)
+        local _, doc = documentAt(params)
+        if not doc or not doc.result then
+            respond(id, json.asArray({}))
+            return
+        end
+        respond(id, documentSymbols(doc.result, doc.text))
+    end
+
+    handlers["workspace/symbol"] = function(id, params)
+        local query = params and params.query or ""
+        local found = wire.array({})
+        -- The index holds declarations, which is what a workspace search is for: a
+        -- plain `function m.f` is a member of one module and is found through that
+        -- module, not by sweeping the project for its name.
+        for name, entries in pairs(s.inc.projectIndex().byName or {}) do
+            if query == "" or name:lower():find(query:lower(), 1, true) then
+                for _, entry in ipairs(entries) do
+                    local location = definitionLocation(entry.definition)
+                    if location ~= json.NULL then
+                        found[#found + 1] = {
+                            name = name,
+                            kind = SYMBOL_KINDS[entry.kind] or SYMBOL_KINDS.variable,
+                            containerName = entry.moduleName,
+                            location = location,
+                            -- A workspace search crosses folders, and a name found in
+                            -- two of them is two declarations under two configurations.
+                            -- The folder each was found in travels with it.
+                            data = {root = rootFor(uriToPath(location.uri)).root},
+                        }
+                    end
+                end
+            end
+        end
+        table.sort(found, function(a, b)
+            if a.name ~= b.name then
+                return a.name < b.name
+            end
+            return a.location.uri < b.location.uri
+        end)
+        respond(id, found)
+    end
+
+    handlers["textDocument/documentHighlight"] = function(id, params)
+        local _, doc, tok, offset = symbolAt(params)
+        if not tok then
+            respond(id, json.asArray({}));
+            return
+        end
+        local highlights = wire.array({})
+        local member = memberAt(doc, offset)
+        local wanted = not member and symbolKey(tok.definition) or nil
+        if wanted then
+            for _, other in ipairs(doc.result.tokens or {}) do
+                if symbolKey(other.definition) == wanted then
+                    highlights[#highlights + 1] = {range = tokenRange(doc.text, other)}
+                end
+            end
+        else
+            for _, hit in ipairs(member and memberOccurrences(doc.result, member.moduleName, member.name) or {}) do
+                highlights[#highlights + 1] = {range = tokenRange(doc.text, hit.token)}
+            end
+        end
+        respond(id, highlights)
+    end
+
+    handlers["textDocument/foldingRange"] = function(id, params)
+        local _, doc = documentAt(params)
+        if not doc or not doc.result then
+            respond(id, json.asArray({}))
+            return
+        end
+        local ranges, seen = wire.array({}), {}
+        for _, span in ipairs(foldableSpans(doc.result)) do
+            local from = positionAtOffset(doc.text, span[1])
+            local to = positionAtOffset(doc.text, span[2])
+            -- The closing line stays visible, which is what makes a collapsed block
+            -- still read as a block rather than as a missing one.
+            local key = from.line .. ":" .. to.line
+            if to.line > from.line and not seen[key] then
+                seen[key] = true
+                ranges[#ranges + 1] = {startLine = from.line, endLine = to.line - 1,}
+            end
+        end
+        table.sort(ranges, function(a, b)
+            if a.startLine ~= b.startLine then
+                return a.startLine < b.startLine
+            end
+            return a.endLine > b.endLine
+        end)
+        respond(id, ranges)
+    end
+
+    handlers["textDocument/selectionRange"] = function(id, params)
+        local _, doc = documentAt(params)
+        if not doc or not doc.result or not params.positions then
+            respond(id, json.asArray({}))
+            return
+        end
+        local out = wire.array({})
+        for _, position in ipairs(params.positions) do
+            local offset = offsetAtPosition(doc.text, position)
+            local chain = offset and enclosingChain(doc.result, offset) or {}
+            -- Built outward, so each range's parent is the next one that contains it:
+            -- expanding a selection is walking back up the tree.
+            local built = nil
+            for index = 1, #chain do
+                local span = chain[index]
+                local range = {
+                    start = positionAtOffset(doc.text, span.from),
+                    ["end"] = positionAtOffset(doc.text, span.to),
+                }
+                built = {range = range, parent = built}
+            end
+            out[#out + 1] = built or {range = {start = position, ["end"] = position,}}
+        end
+        respond(id, out)
+    end
+
+    -- A cancellation read before the request it names is dispatched answers that
+    -- request outright. One read while the request is being answered stops the work at
+    -- the next point it offers, which is every module and every file header the answer
+    -- needed. Either way the id stays marked until it is answered, because the
+    -- transport reads ahead of the session and the order the two see things in is not
+    -- the same.
+    handlers["$/cancelRequest"] = function(_, params)
+        if host and params then
+            host.cancel(params.id)
+        end
+    end
+    handlers["$/setTrace"] = function()
+    end
+
+    handlers["textDocument/didClose"] = function(_, params)
+        local uri = params.textDocument.uri
+        s.documents[uri] = nil
+        eachGraph(function(inc)
+            inc.closeDocument(uriToPath(uri))
+        end)
+        refreshOpenDocuments(nil)
+        notify("textDocument/publishDiagnostics", {uri = uri, diagnostics = json.asArray({}),})
+    end
+
+    -- An editor session works out the same project index every command-line run does,
+    -- and then used to throw it away. Written on shutdown rather than as it goes,
+    -- because a session lasts hours and what a store is for is what the next process
+    -- finds, not this one.
+    --
+    -- A session that is killed rather than shut down leaves nothing behind, which costs
+    -- the next command the index and costs correctness nothing.
+    handlers["shutdown"] = function(id)
+        eachGraph(function(inc)
+            pcall(function()
+                inc.persist()
+            end)
+        end)
+        respond(id, json.NULL)
+    end
+
+    handlers["exit"] = function()
+        running = false
+    end
+
+    --- Which document a message is about, if any. Every request that names one names it
+    --- the same way, so routing it to the folder that owns it and remembering the
+    --- version it is being answered from are both decided here rather than in each of
+    --- twenty handlers.
+    local function subject(msg): string?
+        local textDocument = type(msg.params) == "table" and msg.params.textDocument or nil
+        local uri = type(textDocument) == "table" and textDocument.uri or nil
+
+        return type(uri) == "string" and uri or nil
+    end
+
+    local function dispatch(msg)
+        if type(msg) == "table" and msg.method then
+            if msg.id and host and host.isCancelled(msg.id) then
+                host.clearCancelled(msg.id)
+                send({jsonrpc = "2.0", id = msg.id, error = {code = -32800, message = "request cancelled"}})
+                return
+            end
+            local uri = subject(msg)
+            s.useRoot(uri and uriToPath(uri) or nil)
+            -- The version to measure staleness against is the newest the transport had
+            -- read when this request was taken up, not the newest the session had
+            -- applied: an edit already read is one the client sent in the same burst as
+            -- the request, and answering it is what the client asked for.
+            answering = msg.id and uri and {uri = uri, version = host and host.documentVersion(uri) or nil} or nil
+            local handler = handlers[msg.method]
+            if handler then
+                local hOk, err = pcall(handler, msg.id, msg.params)
+                answering = nil
+                if not hOk and host and err == host.cancellation then
+                    -- Work that gave up because the request was cancelled. Nothing was
+                    -- computed and nothing is wrong; the client is told what it asked
+                    -- for, which is that this request is over.
+                    if msg.id then
+                        host.clearCancelled(msg.id)
+                        send({jsonrpc = "2.0", id = msg.id, error = {code = -32800, message = "request cancelled"}})
+                    end
+                elseif not hOk then
+                    io.stderr:write("nupp-lsp: error in " .. msg.method .. ": " .. tostring(err) .. "\n")
+                    if msg.id then
+                        send({jsonrpc = "2.0", id = msg.id, error = {code = -32603, message = tostring(err)}})
+                    end
+                end
+            elseif msg.id then
+                -- unknown request: MethodNotFound (notifications are ignored)
+                send({jsonrpc = "2.0", id = msg.id, error = {code = -32601, message = "method not found"}})
+            end
+        end
+    end
+
+    return {
+        dispatch = dispatch,
+        running = function()
+            return running
+        end,
+    }
+end
+
+--- Blocking input half of the stdio transport. The server starts this as a child so
+--- its own process can poll complete frames while a comptime worker is in flight.
+function lsp.readerMain(): integer
+    io.stdout:setvbuf("no")
+    while true do
+        local contentLength = nil
+        while true do
+            local line = io.stdin:read("*l")
+            if line == nil then
+                return 0
+            end
+            line = line:gsub("\r$", "")
+            if line == "" then
+                break
+            end
+            local length = line:match("^[Cc]ontent%-[Ll]ength:%s*(%d+)")
+            if length then
+                contentLength = tonumber(length)
+            end
+        end
+        if not contentLength then
+            return 1
+        end
+        local body = io.stdin:read(contentLength)
+        if body == nil then
+            return 0
+        end
+        io.stdout:write("Content-Length: " .. #body .. "\r\n\r\n" .. body)
+    end
+end
+
+function lsp.run(rootDir: string?): integer
+    io.stdout:setvbuf("no")
+    local function send(msg)
+        local body = json.encode(msg)
+        io.stdout:write("Content-Length: " .. #body .. "\r\n\r\n" .. body)
+    end
+
+    local process = require("nupp.io.process")
+    local compilerRoot = os.getenv("NUPP_COMPILER_ROOT")
+    local executable = compilerRoot and compilerRoot .. "/bin/nupp" or type(
+        arg
+    ) == "table" and type(arg[0]) == "string" and arg[0] or nil
+    if not executable then
+        io.stderr:write("nupp-lsp: cannot identify the current executable\n")
+        return 1
+    end
+    local relayArgs = {executable, "__lsp-reader"}
+    if compilerRoot and package.config:sub(1, 1) == "\\" then
+        local path = ("package.path=%q .. package.path"):format(compilerRoot .. "/build/?.lua;")
+        relayArgs = {"luajit", "-e", path, compilerRoot .. "/build/nupp/compiler/main.lua", "__lsp-reader",}
+    end
+    local relayOptions: process.Options = {args = relayArgs, stdin = "inherit", stdout = "pipe", stderr = "inherit",}
+    local relay = new process.Process(relayOptions)
+    local reader = nupp.borrow(assert(relay.stdout))
+    local buffered = ""
+    local queued = {}
+    local cancelled = {}
+    -- The newest version of each document the client has told this process about,
+    -- recorded as the message is read rather than as it is handled. Long work asks
+    -- about it to find out that what it is answering has already been replaced.
+    local versions = {}
+    local host: lsp.Host
+
+    local function takeMessage(): any
+        local headerEnd = buffered:find("\r\n\r\n", 1, true)
+        if not headerEnd then
+            return nil
+        end
+        local header = buffered:sub(1, headerEnd - 1)
+        local length = tonumber(header:match("[Cc]ontent%-[Ll]ength:%s*(%d+)"))
+        if not length then
+            buffered = ""
+            return nil
+        end
+        local bodyAt = headerEnd + 4
+        if #buffered < bodyAt + length - 1 then
+            return nil
+        end
+        local body = buffered:sub(bodyAt, bodyAt + length - 1)
+        buffered = buffered:sub(bodyAt + length)
+        local ok, message = pcall(json.decode, body, json.NULL)
+
+        return ok and message or nil
+    end
+
+    local function harvest(): nil
+        while true do
+            local message = takeMessage()
+            if not message then
+                break
+            end
+            if message.method == "$/cancelRequest" and message.params then
+                cancelled[message.params.id] = true
+            else
+                local document = type(message.params) == "table" and message.params.textDocument or nil
+                local version = type(document) == "table" and tonumber(document.version) or nil
+                if version and type(document.uri) == "string" then
+                    local known = versions[document.uri]
+                    if not known or version > known then
+                        versions[document.uri] = version
+                    end
+                end
+                queued[#queued + 1] = message
+            end
+        end
+    end
+
+    local function pump(): nil
+        while true do
+            local chunk = reader:poll()
+            if chunk == nil or #chunk == 0 then
+                break
+            end
+            buffered = buffered .. chunk
+        end
+        harvest()
+    end
+
+    host = {
+        currentId = nil,
+        cancellation = {},
+        pump = pump,
+        cancelled = function(): boolean
+            return host.currentId ~= nil and cancelled[host.currentId] == true
+        end,
+        cancel = function(id): nil
+            cancelled[id] = true
+        end,
+        isCancelled = function(id): boolean
+            return cancelled[id] == true
+        end,
+        clearCancelled = function(id): nil
+            cancelled[id] = nil
+        end,
+        documentVersion = function(uri): integer?
+            return versions[uri]
+        end,
+    }
+
+    local session = lsp.newSession(rootDir, send, host)
+    -- One exit, so the relay is closed once. Two `close` calls on paths that cannot
+    -- both
+    -- run is still two discharges of one owner as far as the checker can see, and it is
+    -- right to say so: nothing here proves the reader ending is the end of the loop.
+    local ended = false
+    while session.running() and not ended do
+        pump()
+        while #queued == 0 do
+            local chunk = reader:next()
+            if chunk == nil then
+                ended = true
+                break
+            end
+            buffered = buffered .. chunk
+            harvest()
+        end
+        if not ended then
+            local msg = table.remove(queued, 1)
+            host.currentId = msg.id
+            session.dispatch(msg)
+            host.currentId = nil
+        end
+    end
+    relay:close()
+
+    return 0
+end
+
+export = lsp

@@ -1,0 +1,2150 @@
+module nupp.compiler.check.callexpr
+
+--[[
+Applying something to arguments.
+
+The type of a call is the type its callee returns, but getting there means
+answering what the callee is first: an intrinsic the compiler implements, a
+`require` whose module can be resolved to a type, a contract like `pairs` whose
+result depends on what it was handed, or an ordinary function whose signature
+says. The FFI intrinsics are next door; everything else is here.
+
+A method call is the same thing with the receiver threaded in as the first
+argument, which is all `:` means.
+]]
+
+local T = require("nupp.compiler.types")
+local relations = require("nupp.compiler.relations")
+local generics = require("nupp.compiler.generics")
+local lexer = require("nupp.compiler.lexer")
+local cst = require("nupp.compiler.cst")
+local ffiMod = require("nupp.compiler.check.ffi")
+local methodslots = require("nupp.compiler.methodslots")
+local native = require("nupp.compiler.native")
+local luaFormat = require("nupp.compiler.luaformat") as {analyze: function(string): (any, string?)}
+local reflection = require("nupp.compiler.reflection")
+local targetLayout = require("nupp.compiler.targetlayout")
+local fixedWidth = require("nupp.compiler.fixedwidth")
+local indexedViews = require("nupp.compiler.indexedviews")
+local state = require("nupp.compiler.check.state")
+local pegTyping = require(
+    "nupp.compiler.materialize.peg"
+) as {inferSourceResult: function(string, T.Type?): (T.Pack?, any)}
+local runtimeSurface = require("nupp.compiler.runtimesurface")
+local backends = require("nupp.compiler.backends")
+
+local isA = relations.isA
+local packIsA = relations.packIsA
+local rawType = T.unwrapOwnership
+local dropSelf = generics.dropSelf
+local specializeSelf = generics.specializeSelf
+local specializeReceiver = generics.specializeReceiver
+
+local callexpr: {install: function(state.Checker): state.ExprHandlers} = {}
+
+-- Which ownership intrinsic a callee is, once the names in it have been resolved.
+--
+-- A bare name is one only while nothing has bound it, so a local called `drop`
+-- shadows the intrinsic the way it shadows anything else. A qualified one is one only
+-- while `nupp` still means the compiler's own table: resolving it to the entry the
+-- globals hold is what says no local has taken that name either.
+local function ownershipIntrinsic(c, callee)
+    local name, qualified = cst.ownershipIntrinsicSpelling(callee)
+    if not name then
+        return nil
+    end
+    if not qualified then
+        return not c.lookupEntry(name) and name or nil
+    end
+    local globals = c.env and c.env.globals
+
+    return globals and c.lookupEntry("nupp") == globals["nupp"] and name or nil
+end
+
+--- The severity a logging call site carries, as the runtime numbers them.
+local LOG_SEVERITY: {[string]: integer} = {error = 1, warn = 2, info = 3, debug = 4}
+
+-- Which severity `nupp.log.<name>` names, or nil for anything else.
+--
+-- Marking the node rather than answering the call's type is deliberate: the call goes
+-- on to be checked like any other, so the format directives and their arguments are
+-- reported the ordinary way and the member access records the feature effect. All this
+-- decides is whether generation may lower the site rather than call it.
+local function logIntrinsic(c, callee): integer?
+    if not callee or callee.kind ~= "dotIndex" or not callee.name then
+        return nil
+    end
+    local severity = LOG_SEVERITY[callee.name.text]
+    if not severity then
+        return nil
+    end
+    -- `nupp.log` is an ordinary declared module now, reached by a qualified path rather
+    -- than as a field of the ambient table. The spelling a site must have is unchanged,
+    -- so what identifies the intrinsic is still the shape of the path and an unshadowed
+    -- `nupp` root: the export the path resolves to is not recorded yet when the call is
+    -- checked, and keying on it would silently stop every site from lowering.
+    local path = callee.obj
+    if not path or path.kind ~= "dotIndex" or not path.name or path.name.text ~= "log" then
+        return nil
+    end
+    local root = path.obj
+    local token = root and root.kind == "name" and root.token or nil
+    if not token or token.text ~= "nupp" then
+        return nil
+    end
+    local global = c.env and c.env.globals and c.env.globals.nupp
+    local resolved = c.lookupEntry(token.text)
+
+    return global and resolved and resolved.definition == global.definition and severity or nil
+end
+
+-- Whether this is the prelude's `string.format`, rather than a field on a local table
+-- which happens to use the same spelling.
+local function stringFormatIntrinsic(c, callee): boolean
+    if not callee or callee.kind ~= "dotIndex" or not callee.name or callee.name.text ~= "format" then
+        return false
+    end
+    local base = callee.obj
+    local token = base and base.kind == "name" and base.token or nil
+    local global = c.env and c.env.globals and c.env.globals.string
+    local resolved = token and c.lookupEntry(token.text) or nil
+
+    return token ~= nil
+        and token.text == "string"
+        and global ~= nil
+        and resolved ~= nil
+        and resolved.definition == global.definition
+end
+
+local function debugFormatPlan(format: string): any
+    local parsed = luaFormat.analyze(format)
+    for _, debug in ipairs(parsed and parsed.debugArguments or {}) do
+        if debug then
+            return parsed
+        end
+    end
+
+    return nil
+end
+
+-- Which zone-stack operation `push` or `pop` names, when the receiver is a plain
+-- identifier statically known to hold the module `require("nupp.profile.zone")`
+-- returns, or nil for anything else.
+--
+-- A local's own type is read rather than re-inferred, so a receiver more elaborate than
+-- a name, whether a field, a call, or an interface a future session could swap in, is
+-- one this does not chase and stays an ordinary call. Marking the node rather than
+-- answering the call's type is the same deliberateness as logIntrinsic above: the call
+-- still goes on to be checked like any other.
+local function zoneIntrinsic(c, callee): string?
+    if not callee or callee.kind ~= "dotIndex" or not callee.name then
+        return nil
+    end
+    local name = callee.name.text
+    if name ~= "push" and name ~= "pop" then
+        return nil
+    end
+    local base = callee.obj
+    if not base or base.kind ~= "name" or not base.token then
+        return nil
+    end
+    local baseType = c.lookupVar(base.token.text)
+    if not baseType then
+        return nil
+    end
+    local zoneType = c.env and c.env.resolveModule and c.env.resolveModule(c.env, "nupp.profile.zone")
+    if not zoneType then
+        return nil
+    end
+    local owner = rawType(baseType)
+    if owner.tag == "nominal" then
+        owner = owner.origin or owner
+    end
+
+    return owner == zoneType and name or nil
+end
+
+--- A type, as nupp.compiler.types builds them.
+local type Type = T.Type
+
+--- A node of the tree being checked.
+local type Node = cst.Node
+
+--- A token, as the lexer produced it.
+local type Token = lexer.Token
+
+--- Builds the same declared-field specification as `layoutof`, but marks it for the
+--- SoA runtime rather than exposing an AoS byte stride. Kept here because an aliased
+--- `soa.allocate` has no syntactic relationship to the global layout intrinsic.
+local function soaLayoutSpec(c: state.Checker, subject: Type, at: Node): any?
+    if subject.tag ~= "nominal" or subject.declKind ~= "struct" then
+        c.diag("NUPP2403", at, "SoA storage requires a reified struct type", nil, {
+            help = "pass ffi.typeof<Struct>() for a struct whose fields have fixed C storage"
+        })
+        return nil
+    end
+
+    local owner = subject as T.Nominal
+    local function expand(t: Type?): string?
+        if not t then
+            return nil
+        end
+        if t.tag == "nominal" and t.declKind == "struct" then
+            local inner = {}
+            for _, name in ipairs(t.fieldOrder or {}) do
+                local one = expand(t.byname[name])
+                if not one then
+                    return nil
+                end
+                inner[#inner + 1] = name .. ":" .. one
+            end
+            return "{" .. table.concat(inner, ",") .. "}"
+        end
+
+        return T.cName(t)
+    end
+
+    local parts, nested, printed = {}, {}, {}
+    for _, name in ipairs(owner.fieldOrder or {}) do
+        local fieldType = owner.byname and owner.byname[name] or nil
+        local definition = owner.fieldDefs and owner.fieldDefs[name] or nil
+        if definition and definition.bitWidth then
+            c.diag("NUPP2403", definition, ("SoA field %q is a bitfield and cannot form a column"):format(name))
+            return nil
+        end
+        local spelling = fieldType and T.cName(fieldType) or nil
+        local elementOf = fieldType and fieldType.tag == "carray" and fieldType.count and fieldType.elem or nil
+        local byValue = fieldType and (
+            (
+                fieldType.tag == "nominal" and fieldType.declKind == "struct"
+            ) or (elementOf and elementOf.tag == "nominal" and elementOf.declKind == "struct")
+        )
+        if not spelling then
+            c.diag(
+                "NUPP2403",
+                definition or at,
+                ("SoA field %q of %s has no fixed C storage type"):format(name, owner.name)
+            )
+            return nil
+        end
+        parts[#parts + 1] = name .. ":" .. (byValue and ("$" .. spelling) or spelling)
+        printed[#printed + 1] = name .. ":" .. (expand(fieldType) or spelling)
+        if byValue then
+            nested[#nested + 1] = elementOf and (elementOf as T.Nominal).name or spelling
+        end
+    end
+    if #parts == 0 then
+        c.diag("NUPP2403", at, ("%s declares no stored fields"):format(owner.name))
+        return nil
+    end
+
+    return {name = owner.name, spec = table.concat(parts, ","), printed = table.concat(printed, ","), nested = nested,}
+end
+
+--- Installs the call expressions on one run.
+---
+--- @param c the run's state
+--- @return the expression kinds this family answers
+function callexpr.install(c: state.Checker): state.ExprHandlers
+    local inferFfiIntrinsic = ffiMod.install(c)
+
+    local handlers = {}
+
+    local lpegEmpty = T.array(T.never)
+    local lpegUnknown = T.array(T.any)
+
+    local function lpegPatternOrigin(callee: Node?): T.Nominal?
+        if not callee or callee.kind ~= "dotIndex" or not callee.obj then
+            return nil
+        end
+        local owner = rawType(c.infer(callee.obj))
+        if owner.tag == "metatable" or owner.tag == "typeobject" then
+            owner = rawType(owner.of)
+        end
+        if owner.tag ~= "nominal" or not owner.lpegLibrary then
+            return nil
+        end
+        local pattern = owner.lpegPatternOrigin
+        if pattern and pattern.tag == "nominal" and pattern.lpegPattern then
+            return pattern
+        end
+
+        return nil
+    end
+
+    local function lpegCapturesFromPack(pack: T.Pack, skip: integer?): Type
+        local evaluated = generics.evaluatePack(pack, c.reductionControl)
+        if evaluated.error or evaluated.pack.alternatives then
+            return lpegUnknown
+        end
+        local concrete, why = generics.expandComputedPack(evaluated.pack, c.reductionControl)
+        if why then
+            return lpegUnknown
+        end
+        local values = {}
+        for index = (skip or 0) + 1, #concrete.head do
+            values[#values + 1] = concrete.head[index]
+        end
+        if concrete.tail then
+            if #values == 0 and concrete.tail.kind == "homogeneous" then
+                return T.array(concrete.tail.type)
+            end
+            return lpegUnknown
+        end
+
+        return #values == 0 and lpegEmpty or T.tuple(values)
+    end
+
+    local function lpegPattern(origin: T.Nominal, captures: Type): Type
+        local parameter = origin.typeParams and origin.typeParams[1]
+        return parameter and generics.instantiate(origin, {[parameter] = captures}) or origin
+    end
+
+    local function specializeLpegCall(callee: Node?, memberName: string, argumentPack: T.Pack?): Type?
+        local origin = lpegPatternOrigin(callee)
+        if not origin or not argumentPack then
+            return nil
+        end
+        if memberName == "Cc" then
+            return lpegPattern(origin, lpegCapturesFromPack(argumentPack))
+        elseif memberName == "Cmt" then
+            local callback = T.packAt(argumentPack, 2)
+            if callback and callback.tag == "func" then
+                return lpegPattern(origin, lpegCapturesFromPack(callback.retPack, 1))
+            end
+        elseif memberName == "P" then
+            local callback = T.packAt(argumentPack, 1)
+            if callback and callback.tag == "func" then
+                return lpegPattern(origin, lpegCapturesFromPack(callback.retPack, 1))
+            elseif callback and callback.tag == "nominal" and (
+                (callback.origin or callback) as T.Nominal
+            ).lpegPattern then
+                return callback
+            elseif callback and (isA(callback, T.string) or isA(callback, T.number) or isA(callback, T.boolean)) then
+                return lpegPattern(origin, lpegEmpty)
+            end
+        end
+
+        return nil
+    end
+
+    local function literalToken(token: Token?): string?
+        if not token then
+            return nil
+        end
+        local chunk = loadstring("return " .. token.text)
+        if not chunk then
+            return nil
+        end
+        local ok, value = pcall(chunk)
+
+        return ok and type(value) == "string" and value or nil
+    end
+
+    local function literalString(expr: Node?): string?
+        local token = expr and expr.kind == "string" and expr.token or nil
+
+        return literalToken(token)
+    end
+
+    local function readableField(t: Type?, name: string): Type?
+        if not t then
+            return nil
+        elseif t.tag == "literal" then
+            return readableField(t.base, name)
+        elseif t.tag == "shape" or t.tag == "nominal" then
+            return t.byname and t.byname[name] or nil
+        elseif t.tag == "union" then
+            local members = {}
+            for _, member in ipairs(t.members) do
+                if member ~= T.nil_ then
+                    local field = readableField(member, name)
+                    if field then
+                        members[#members + 1] = field
+                    end
+                end
+            end
+
+            return #members > 0 and T.union(members) or nil
+        end
+
+        return nil
+    end
+
+    local function pegCompilePath(callee: Node?): boolean
+        if not callee or callee.kind ~= "dotIndex" or not callee.name or callee.name.text ~= "compile" then
+            return false
+        end
+        local pegPath = callee.obj
+        if not pegPath or pegPath.kind ~= "dotIndex" or not pegPath.name or pegPath.name.text ~= "peg" then
+            return false
+        end
+        local root = pegPath.obj
+        local token = root and root.kind == "name" and root.token or nil
+        local global = c.env and c.env.globals and c.env.globals.nupp
+        local resolved = token and c.lookupEntry(token.text) or nil
+
+        return token ~= nil
+            and token.text == "nupp"
+            and global ~= nil
+            and resolved ~= nil
+            and resolved.definition == global.definition
+    end
+
+    local function pegMatcher(result: T.Pack): Type?
+        local pegTypes = c.env and c.env.globalTypes and c.env.globalTypes["nupp.peg"]
+        local matcher = pegTypes and pegTypes.nestedTypes and pegTypes.nestedTypes.Peg
+        local binder = matcher and matcher.packParams and matcher.packParams[1]
+
+        return matcher and binder and generics.instantiate(matcher, {[binder] = result}) or nil
+    end
+
+    --- Selects the replacement entry point only when both the concrete built-in PEG
+    --- receiver and the replacement's runtime representation are statically known.
+    --- An interface implementation or a string/function union must retain the public
+    --- dispatching method because either can choose another implementation at run time.
+    local function pegReplacementMember(receiver: Type, name: string, replacement: Type?): string?
+        if (name ~= "replace" and name ~= "replaceAll") or not replacement then
+            return nil
+        end
+        local pegTypes = c.env and c.env.globalTypes and c.env.globalTypes["nupp.peg"]
+        local matcher = pegTypes and pegTypes.nestedTypes and pegTypes.nestedTypes.Peg
+        local owner = rawType(receiver)
+        if not matcher or owner.tag ~= "nominal" or (owner.origin or owner) ~= matcher then
+            return nil
+        end
+
+        local suffix
+        local replacementType = rawType(replacement)
+        if replacement ~= T.any and replacement ~= T.unknown and isA(replacement, T.string) then
+            suffix = "Literal"
+        elseif replacementType.tag == "func" then
+            suffix = "Callback"
+        else
+            return nil
+        end
+
+        return "__nuppPegReplace" .. (name == "replaceAll" and "All" or "") .. suffix
+    end
+
+    local function withoutNil(t: Type): Type
+        if t.tag ~= "union" then
+            return t
+        end
+        local nonnil = {}
+        for _, member in ipairs(t.members) do
+            if member ~= T.nil_ then
+                nonnil[#nonnil + 1] = member
+            end
+        end
+
+        return T.union(nonnil)
+    end
+
+    local function managedGeneric(name: string, payload: Type): Type
+        local declared = c.lookupType("nupp." .. name)
+        if declared and declared.tag == "nominal" and declared.typeParams and declared.typeParams[1] then
+            local core = (declared.origin or declared) as T.Nominal
+            if name == "Managed" then
+                core.managedCell = true
+            else
+                core.managedAlias = true
+            end
+            return generics.instantiate(declared, {[declared.typeParams[1]] = payload})
+        end
+
+        return T.any
+    end
+
+    local function policyFor(value: Type): string
+        local policy = {T.tostring(value)}
+        for _, cleanup in ipairs(T.capabilityCleanups(T.capability(value))) do
+            policy[#policy + 1] = cleanup.id
+        end
+
+        return table.concat(policy, "|")
+    end
+
+    -- Resolves an expression-shaped type path without inferring it as a runtime value.
+    -- `nupp.reflect` and the layout intrinsics share this spelling and dependency
+    -- behavior.
+    local function concreteTypePath(argument: Node?, typePosition: boolean?): string?, Type?
+        if argument and typePosition then
+            local key = cst.textOf(argument):gsub("%s+", "")
+            return key, c.resolveType(argument)
+        end
+        local key = argument and c.pathKey(argument) or nil
+        local resolved = key and c.lookupType(key) or nil
+        if not resolved and key and not key:find(".", 1, true) then
+            local builtin = (T as any)[key]
+            if type(builtin) == "table" and builtin.tag then
+                resolved = builtin
+            end
+        end
+        if not resolved and key and c.env and c.env.resolveQualifiedType then
+            local moduleName, typeName = key:match("^(.*)%.([^.]+)$")
+            if moduleName and typeName then
+                local first = moduleName:match("^[^.]+")
+                local holder = first and c.lookupEntry(first) or nil
+                if holder and holder.requiredModule then
+                    local firstName = first as string
+                    moduleName = holder.requiredModule .. moduleName:sub(#firstName + 1)
+                end
+                resolved = c.env.resolveQualifiedType(c.env, c.filename, moduleName, typeName)
+            end
+        end
+
+        return key, resolved
+    end
+
+    handlers.call = function(node: cst.Call | cst.SafeCall): Type
+        -- The intrinsic dispatch below asks the same three questions of every call,
+        -- what is being called, what it is dotted off, and what was passed, so they
+        -- are answered once here. An empty name matches nothing, which is what a callee
+        -- of another shape is.
+        local callee = node.obj
+        local calleeName, baseName, memberName = "", "", ""
+        local typeArg: Node? = nil
+        if callee then
+            if callee.kind == "name" then
+                local calleeTok = callee.token
+                calleeName = calleeTok and calleeTok.text or ""
+            elseif callee.kind == "dotIndex" then
+                local memberTok = callee.name
+                memberName = memberTok and memberTok.text or ""
+                typeArg = callee.ffiTypeArg
+                local base = callee.obj
+                if base and base.kind == "name" then
+                    local baseTok = base.token
+                    baseName = baseTok and baseTok.text or ""
+                end
+            end
+        end
+        local argsNode = node.args
+        local argExprs: {Node} = {}
+        local argStr: lexer.Token? = nil
+        local argTable: Node? = nil
+        local callArgs = argsNode and argsNode.kind == "args" and argsNode as cst.Args or nil
+        if callArgs then
+            argExprs = callArgs.exprs or {}
+            argStr = callArgs.str
+            argTable = callArgs.table
+        end
+        if baseName ~= "" and memberName == "range" then
+            local holder = c.lookupEntry(baseName)
+            if holder and holder.requiredModule == "nupp.mem.span" then
+                c.diag("NUPP2403", node, "span.range was replaced by indexed.range", nil, {
+                    help = "require nupp.mem.indexed and call indexed.range(first, last, view, ...)"
+                })
+                return T.any
+            end
+        end
+        local deriveIntrinsic = callee and cst.textOf(callee):gsub("%s+", ""):match("^nupp%.derive%.[%w_]+$")
+        if deriveIntrinsic and (c.comptimeFunctionDepth or 0) == 0 then
+            c.diag("NUPP2809", node, "nupp.derive builders are available only inside a comptime provider")
+            return T.any
+        end
+        -- Resolve the standard-library binding rather than trusting the spelling, so a
+        -- project table called `jit` changes nothing. With no argument LuaJIT disables
+        -- the containing function; with one it disables that named function value.
+        if baseName == "jit" and memberName == "off" and not argStr and not argTable then
+            local globalJit = c.env and c.env.globals and c.env.globals.jit or nil
+            local resolvedJit = c.lookupEntry("jit")
+            if globalJit and resolvedJit == globalJit then
+                local subject = argExprs[1]
+                if not subject then
+                    local body = c.functionBodies[#c.functionBodies]
+                    if body then
+                        body.jitDisabled = true
+                    end
+                elseif subject.kind == "name" and subject.token then
+                    local entry = c.lookupEntry(subject.token.text)
+                    local definition = entry and (entry.jitTarget or entry.definition) or nil
+                    if definition then
+                        definition.jitDisabled = true
+                    end
+                elseif subject.kind == "funcExpr" or subject.kind == "shortfn" then
+                    local body = subject.body or subject
+                    body.jitDisabled = true
+                elseif subject.kind == "dotIndex" and subject.name and subject.name.definition then
+                    subject.name.definition.jitDisabled = true
+                end
+            end
+        end
+        local comptimeIntrinsic, intrinsicQualified = cst.comptimeTypeIntrinsicSpelling(callee)
+        local layoutIntrinsic = intrinsicQualified and comptimeIntrinsic ~= "reflect" and comptimeIntrinsic or nil
+        if layoutIntrinsic and not argStr and not argTable then
+            if (c.comptimeDepth or 0) == 0 then
+                c.diag("NUPP2419", node, "nupp." .. layoutIntrinsic .. " is available only inside a comptime block")
+                return T.any
+            end
+            local globals = c.env and c.env.globals
+            local stable = globals and c.lookupEntry("nupp") == globals.nupp
+            local expected = layoutIntrinsic == "offsetof" and 2 or 1
+            if not stable or #argExprs ~= expected then
+                c.diag(
+                    "NUPP2419",
+                    node,
+                    ("nupp.%s expects %d argument%s"):format(layoutIntrinsic, expected, expected == 1 and "" or "s")
+                )
+                return T.any
+            end
+            local typeArgument = callArgs and callArgs.typeArg or argExprs[1]
+            local key, subject = concreteTypePath(typeArgument, callArgs and callArgs.typeArg ~= nil)
+            if not key or not subject then
+                c.diag(
+                    "NUPP2419",
+                    argExprs[1] or node,
+                    "nupp." .. layoutIntrinsic .. " expects one concrete type name",
+                    nil,
+                    {help = "pass a declared or qualified type, not a runtime value"}
+                )
+                return T.any
+            end
+            local target = c.env and c.env.layoutTarget or nil
+            if not target then
+                c.diag("NUPP2419", node, "nupp." .. layoutIntrinsic .. " needs an explicit build layout target", nil, {
+                    help = "set layoutTarget on the selected build target in nupp.lua"
+                })
+                return T.any
+            end
+            local measured, why = targetLayout.of(subject, target)
+            if not measured then
+                c.diag(
+                    "NUPP2419",
+                    argExprs[1] or node,
+                    ("%s has no layout for %s: %s"):format(key, target, tostring(why))
+                )
+                return T.any
+            end
+            if layoutIntrinsic == "offsetof" then
+                local fieldType = argExprs[2] and c.infer(argExprs[2]) or nil
+                local fieldName = literalString(argExprs[2])
+                if not fieldName and fieldType and fieldType.tag == "literal" and type(
+                    fieldType.constant
+                ) == "string" then
+                    fieldName = fieldType.constant
+                end
+                if not fieldName then
+                    c.diag(
+                        "NUPP2419",
+                        argExprs[2] or node,
+                        "nupp.offsetof field name must be a compile-time-known string"
+                    )
+                    return T.any
+                end
+                if measured.offsets[fieldName] == nil then
+                    c.diag("NUPP2419", argExprs[2] or node, ("%s has no field %q"):format(key, fieldName))
+                    return T.any
+                end
+            end
+            node.targetLayout, node.targetLayoutKey = measured, key
+
+            return T.integer
+        end
+        if comptimeIntrinsic == "reflect" and intrinsicQualified and #argExprs == 1 and not argStr and not argTable then
+            if (c.comptimeDepth or 0) == 0 then
+                c.diag("NUPP2418", node, "nupp.reflect is available only inside a comptime block")
+                return T.any
+            end
+            local globals = c.env and c.env.globals
+            local stable = globals and c.lookupEntry("nupp") == globals.nupp
+            local typeArgument = callArgs and callArgs.typeArg or argExprs[1]
+            local key, reflected = concreteTypePath(typeArgument, callArgs and callArgs.typeArg ~= nil)
+            if not stable or not reflected then
+                c.diag("NUPP2418", argExprs[1] or node, "nupp.reflect expects one concrete type name", nil, {
+                    help = "pass a declared or qualified type, not a runtime value"
+                })
+                return T.any
+            end
+            local descriptor = reflection.describe(reflected, key)
+            node.reflectedType, node.reflectedTypeKey = descriptor, key
+            local reflectTypes = c.env and c.env.globalTypes and c.env.globalTypes["nupp.reflect"]
+            local typeInfo = reflectTypes and reflectTypes.nestedTypes and reflectTypes.nestedTypes.Info
+
+            return typeInfo or T.any
+        end
+        -- A logging site lowers only when its format is a literal, because that is what
+        -- makes the message buildable at the site rather than by parsing something the
+        -- runtime was handed. Everything else keeps the ordinary call, which means the
+        -- same thing.
+        local severity = logIntrinsic(c, callee)
+        if severity and not argTable and not argStr then
+            local format = argExprs[1]
+            -- A named or plucked argument is positional only after the adjustment the
+            -- ordinary call path performs, and lowering goes around that path. Rather
+            -- than repeat it here, those spellings keep their call.
+            local positional = true
+            for _, argument in ipairs(argExprs) do
+                if argument.kind == "namedArg" or argument.kind == "pluckArg" then
+                    positional = false
+                end
+            end
+            if positional and format and format.kind == "string" then
+                node.logIntrinsic = severity
+                node.logFormatIntrinsic = debugFormatPlan(literalString(format) or "")
+            end
+        end
+        -- push always carries exactly one name and pop none, so the arity check
+        -- doubles as the arg-count contract the ordinary call below still enforces.
+        local zoneOp = zoneIntrinsic(c, callee)
+        if zoneOp and not argTable and not argStr then
+            local positional = true
+            for _, argument in ipairs(argExprs) do
+                if argument.kind == "namedArg" or argument.kind == "pluckArg" then
+                    positional = false
+                end
+            end
+            if positional then
+                if zoneOp == "push" and #argExprs == 1 then
+                    node.zoneIntrinsic = "push"
+                elseif zoneOp == "pop" and #argExprs == 0 then
+                    node.zoneIntrinsic = "pop"
+                end
+            end
+        end
+        local intrinsic = node.ownershipSyntax or ownershipIntrinsic(c, callee)
+        if intrinsic then
+            local args = argExprs
+            if intrinsic == "manage" then
+                local valueT = args[1] and c.infer(args[1]) or T.any
+                local entry = args[1] and c.ownershipEntry(args[1]) or nil
+                local capability = c.capabilityOf(valueT, entry)
+                local selfContained = #args == 1 and capability and T.capabilityHasMovable(
+                    capability
+                ) and not T.capabilityTransferOnly(
+                    capability
+                ) and #T.capabilityCleanups(
+                    capability
+                ) > 0 and #capability.loans == 0 and #capability.anchors == 0 and #capability.retentions == 0
+                if not selfContained then
+                    c.diag(
+                        "NUPP2612",
+                        args[1] or node,
+                        "nupp.manage requires one self-contained owner with an exact cleanup policy",
+                        nil,
+                        {
+                            help = "remove borrows, pins, foreign retention, or transfer-only leaves before managing the value"
+                        }
+                    )
+                    return T.any
+                end
+                c.moveExpression(args[1], valueT, "nupp.manage")
+                node.ownershipIntrinsic = "manage"
+                node.managedCleanups = T.capabilityCleanups(capability)
+                node.managedPolicy = policyFor(valueT)
+                local cell = managedGeneric("Managed", valueT)
+                local owned = T.affine(cell, {T.methodCleanup("close")})
+                node.valuePack = T.pack({owned})
+                c.lastCallRets = {owned}
+                return owned
+            elseif intrinsic == "borrow" then
+                local valueT = args[1] and c.infer(args[1]) or T.any
+                if #args ~= 1 or c.ownershipKind(valueT) ~= "affine" then
+                    c.diag("NUPP2602", node, "borrow expects one live owned value")
+                end
+                node.ownershipIntrinsic = "borrow"
+                c.own.capabilityFacts(node).roots = {c.borrowRoot((c.ownershipEntry(args[1])))}
+                return T.borrowed(rawType(valueT))
+            elseif intrinsic == "borrowFrom" then
+                local valueT = args[1] and c.infer(args[1]) or T.any
+                if args[2] then
+                    c.infer(args[2])
+                end
+                local source = args[2] and c.ownershipEntry(args[2]) or nil
+                if #args ~= 2 or c.ownershipKind(valueT) or not c.pointerShaped(valueT) or not source then
+                    c.diag("NUPP2602", node, "borrowFrom expects a raw pointer and a named source")
+                end
+                if c.unsafeDepth == 0 then
+                    c.diag("NUPP2604", node, "borrowFrom requires an unsafe do block")
+                end
+                node.ownershipIntrinsic = "borrowFrom"
+                c.own.capabilityFacts(node).roots = {c.borrowRoot(source)}
+                return T.borrowed(rawType(valueT))
+            elseif intrinsic == "partition" then
+                if args[1] then
+                    c.infer(args[1])
+                end
+                local leftT = args[2] and c.infer(args[2]) or T.any
+                local rightT = args[3] and c.infer(args[3]) or T.any
+                local parent = args[1] and c.ownershipEntry(args[1]) or nil
+                local root, parentPath = args[1] and c.regionOf(args[1]) or nil, ""
+                if root then
+                    local _, foundPath = c.regionOf(args[1])
+                    parentPath = foundPath or ""
+                end
+                if #args ~= 3 or not parent then
+                    c.diag("NUPP2602", node, "partition expects a named writable parent and two children")
+                end
+                if c.ownershipKind(leftT) or c.ownershipKind(rightT) then
+                    c.diag("NUPP2602", node, "partition children must not already carry ownership")
+                end
+                if rawType(leftT).id ~= rawType(rightT).id then
+                    c.diag("NUPP2602", node, "partition children must have the same type")
+                end
+                if c.unsafeDepth == 0 then
+                    c.diag("NUPP2604", node, "partition requires an unsafe do block")
+                end
+                node.ownershipIntrinsic = "partition"
+                local partitionRoot = root or c.borrowRoot(parent)
+                local leftFacts = c.own.capabilityFacts(node, 1)
+                leftFacts.roots = {parent}
+                leftFacts.exclusive = true
+                leftFacts.regionRoot = partitionRoot
+                leftFacts.regionPath = T.regionPartition(parentPath, "left")
+                local rightFacts = c.own.capabilityFacts(node, 2)
+                rightFacts.roots = {parent}
+                rightFacts.exclusive = true
+                rightFacts.regionRoot = partitionRoot
+                rightFacts.regionPath = T.regionPartition(parentPath, "right")
+                local left = T.borrowed(rawType(leftT))
+                local right = T.borrowed(rawType(rightT))
+                node.valuePack = T.pack({left, right})
+                c.lastCallRets = {left, right}
+                return left
+            elseif intrinsic == "region" then
+                if args[1] then
+                    c.infer(args[1])
+                end
+                local childT = args[2] and c.infer(args[2]) or T.any
+                local parent = args[1] and c.ownershipEntry(args[1]) or nil
+                local root, parentPath = args[1] and c.regionOf(args[1]) or nil, ""
+                if root then
+                    local _, foundPath = c.regionOf(args[1])
+                    parentPath = foundPath or ""
+                end
+                local firstT = args[3] and c.infer(args[3]) or nil
+                local lastT = args[4] and c.infer(args[4]) or nil
+                local first = firstT and firstT.tag == "literal" and type(
+                    firstT.constant
+                ) == "number" and firstT.constant % 1 == 0 and firstT.constant or nil
+                local last = lastT and lastT.tag == "literal" and type(
+                    lastT.constant
+                ) == "number" and lastT.constant % 1 == 0 and lastT.constant or nil
+                if #args ~= 4 or not parent then
+                    c.diag("NUPP2602", node, "region expects a named parent, child, first index, and last index")
+                elseif c.ownershipKind(childT) then
+                    c.diag("NUPP2602", node, "region child must not already carry ownership")
+                elseif first and last and last < first - 1 then
+                    c.diag("NUPP2602", node, "region range ends before it begins")
+                end
+                if c.unsafeDepth == 0 then
+                    c.diag("NUPP2604", node, "region requires an unsafe do block after runtime bounds validation")
+                end
+                node.ownershipIntrinsic = "region"
+                local regionFacts = c.own.capabilityFacts(node, 1)
+                regionFacts.roots = {parent}
+                regionFacts.exclusive = true
+                regionFacts.regionRoot = root or c.borrowRoot(parent)
+                regionFacts.regionPath = T.regionRange(parentPath, first, last)
+                local child = T.borrowed(rawType(childT))
+                node.valuePack = T.pack({child})
+                c.lastCallRets = {child}
+                return child
+            elseif intrinsic == "pin" then
+                local pointerT = args[1] and c.infer(args[1]) or T.any
+                if args[2] then
+                    c.infer(args[2])
+                end
+                if #args ~= 2 or not c.pointerShaped(pointerT) then
+                    c.diag("NUPP2602", node, "pin expects a pointer and its managed anchor")
+                end
+                if c.unsafeDepth == 0 then
+                    local pointerRoots = args[1] and c.own.capabilityFacts(args[1], nil, false).roots
+                    local pointerOwner = pointerRoots and pointerRoots[1]
+                    local anchorEntry = args[2] and c.ownershipEntry(args[2])
+                    if c.ownershipKind(pointerT) ~= "borrowed" or not pointerOwner or pointerOwner ~= anchorEntry then
+                        c.diag(
+                            "NUPP2604",
+                            node,
+                            "pin must prove the pointer derives from its anchor; "
+                            .. "use unsafe do for an opaque derivation"
+                        )
+                    end
+                end
+                node.ownershipIntrinsic = "pin"
+                return T.pinned(rawType(pointerT))
+            elseif intrinsic == "attemptAll" then
+                -- An ordered list of operations, as one terminal. `drop` stops where a
+                -- cleanup raises, which is right for a single one and wrong for a list:
+                -- the steps after the failure are obligations of their own, and
+                -- skipping them leaks whatever they release. This attempts every one,
+                -- so a terminal written with it behaves like automatic destruction and
+                -- like a resource set, which both attempt everything.
+                local valueT = args[1] and c.infer(args[1]) or T.any
+                local cleanups = {}
+                if #args < 2 then
+                    c.diag("NUPP2602", node, "attemptAll expects a value and at least one operation")
+                end
+                for j = 2, #args do
+                    local operationT = c.infer(args[j])
+                    local operationNode = args[j]
+                    local operationTok = operationNode.kind == "name" and operationNode.token or nil
+                    if not operationTok then
+                        c.diag("NUPP2602", args[j], "attemptAll operations must be function names")
+                    else
+                        cleanups[#cleanups + 1] = operationTok.text
+                    end
+                    if operationT ~= T.any and (
+                        operationT.tag ~= "func" or not operationT.params[
+                            1
+                        ] or not isA(rawType(valueT), operationT.params[1])
+                    ) then
+                        c.diag("NUPP2602", args[j], "an attemptAll operation must accept the value")
+                    end
+                    -- Only the last step may consume it. An earlier one that takes the
+                    -- value leaves every step after it running on something released.
+                    if operationT ~= T.any
+                        and operationT.tag == "func"
+                        and operationT.paramModes
+                        and operationT.paramModes[
+                        1
+                    ] == "takes" and j < #args then
+                        c.diag("NUPP2615", args[j], "only the final attemptAll operation may take the value")
+                    end
+                end
+                c.moveExpression(args[1] or node, valueT, "attemptAll", nil, true)
+                node.ownershipIntrinsic = "attemptAll"
+                -- The operations are reached through the runtime cleanup registry, and
+                -- nothing else here declares them, so this call is what publishes them.
+                node.ownerCleanups = c.own.resolveCleanups(cleanups, node, node)
+
+                return T.nil_
+            elseif intrinsic == "drop" then
+                local valueT = args[1] and c.infer(args[1]) or T.any
+                -- Dropping something that is not an owner is reported below rather
+                -- than refused here, so the cleanup list is read off whatever was
+                -- passed and comes back empty when there is none.
+                local dropped = valueT as T.Affine
+                if #args ~= 1 then
+                    c.diag("NUPP2602", node, "drop expects one owned value")
+                end
+                c.moveExpression(args[1] or node, valueT, "drop", nil, true)
+                if c.ownershipKind(valueT) == "affine" and #(dropped.cleanups or {}) == 0 then
+                    c.diag(
+                        "NUPP2602",
+                        args[1] or node,
+                        "drop needs a named terminal; transfer this owner " .. "to a declared takes parameter"
+                    )
+                end
+                node.ownershipIntrinsic = "drop"
+                node.ownerCleanups = {}
+                local state = args[1] and c.ownershipState((c.ownershipEntry(args[1]))) or nil
+                for _, cleanup in ipairs(dropped.cleanups or {}) do
+                    if not (
+                        cleanup.kind == "field" and state and state.movedFields and state.movedFields[cleanup.field]
+                    ) then
+                        node.ownerCleanups[#node.ownerCleanups + 1] = cleanup
+                    end
+                end
+                return T.nil_
+            end
+        end
+        if calleeName ~= "" then
+            local entry = c.lookupEntry(calleeName)
+            node.cdefCall = entry and entry.definition and entry.definition.cdef or false
+            node.cdefIdentity = node.cdefCall and entry.definition.cdefIdentity or nil
+        end
+        -- require("mod") resolves to the module's type when the module can be found. An
+        -- undeclared Lua module stays gradual by default, but strict checking exposes
+        -- that untyped boundary as unknown so it must be narrowed or cast.
+        local requireGlobal = c.env and c.env.globals and c.env.globals.require
+        local requireEntry = calleeName == "require" and c.lookupEntry("require") or nil
+        local stableRequire = requireGlobal and requireEntry and requireGlobal.definition == requireEntry.definition
+        if calleeName == "require" and stableRequire and c.env and c.env.resolveModule then
+            local tok = nil
+            if argsNode then
+                local e1 = argExprs[1]
+                if e1 and e1.kind == "string" then
+                    tok = e1.token
+                end
+                if argStr then
+                    tok = argStr
+                end
+            end
+            if tok then
+                local text = tok.text
+                local modname = text:match('^"(.*)"$') or text:match("^'(.*)'$")
+                if modname then
+                    runtimeSurface.requireModule(c, modname, tok)
+                    local portableEffect = require("nupp.compiler.standardsurface").requireModule(c, modname, tok)
+                    node.requiredModule = modname
+                    local modulePath = c.env.findModulePath and c.env.findModulePath(c.env, modname) or nil
+                    local canonical = modulePath and c.env.moduleNameForPath and c.env.moduleNameForPath(
+                        c.env,
+                        modulePath
+                    ) or nil
+                    local projectIndex = canonical and c.env.ensureProjectIndex and c.env.ensureProjectIndex(
+                        c.env
+                    ) or nil
+                    if canonical
+                        and canonical ~= modname
+                        and projectIndex
+                        and projectIndex.declaredModules
+                        and projectIndex.declaredModules[
+                        canonical
+                    ] then
+                        c.diag(
+                            "NUPP1002",
+                            tok,
+                            ("module %q is an alias; require its canonical name %q"):format(modname, canonical)
+                        )
+                        node.requiredModule = canonical
+                        modname = canonical
+                    end
+                    local effect = portableEffect or native.forModule(modname)
+                    if effect and c.recordEffect then
+                        (node as any).compilerFeatureEffect = effect
+                        c.recordEffect(effect)
+                    end
+                    local mt = c.env.resolveModule(c.env, modname)
+                    if mt then
+                        return mt
+                    end
+                end
+            end
+            return c.opts and c.opts.strict and T.unknown or T.any
+        end
+        -- The same operations written the way LuaJIT has always been written: a
+        -- constant type string is read by the compiler, so existing FFI code gets types
+        -- without being rewritten. A string built at run time yields cdata rather than
+        -- any, which keeps leaving the typed path visible.
+        local intrinsic = inferFfiIntrinsic(node, calleeName, baseName, memberName, typeArg, argExprs, argStr)
+        if intrinsic then
+            return intrinsic
+        end
+        if callee and callee.kind == "dotIndex" then
+            callee.callCallee = true
+        end
+        local calleeT = callee and c.infer(callee) or T.any
+        local selectedExport = callee and callee.exactCallExport or nil
+        if selectedExport
+            and #c.functionBodies == 0
+            and c.env
+            and c.env.moduleInitializing
+            and c.env.moduleInitializing(
+            c.env,
+            selectedExport.module
+        ) then
+            c.diag(
+                "NUPP1002",
+                callee,
+                (
+                    "eager module cycle calls %s before module %q has finished initializing"
+                ):format(selectedExport.identity, selectedExport.module),
+                nil,
+                {help = "move this call behind an exported function so it runs after module initialization"}
+            )
+        end
+        if callee and callee.fixedWidthCallableUntrusted == true then
+            node.fixedWidthUntrustedResult = true
+        end
+        if callee and c.ownershipKind(calleeT) == "affine" and rawType(calleeT).tag == "func" then
+            if node.kind == "safeCall" then
+                c.diag("NUPP2602", callee, "an affine closure call cannot be conditional; narrow it first")
+            else
+                c.moveExpression(callee, calleeT, "affine closure call", "affine")
+                if callee.automaticOwnerMove then
+                    node.automaticOwnerMoves = node.automaticOwnerMoves or {}
+                    node.automaticOwnerMoves[#node.automaticOwnerMoves + 1] = callee.automaticOwnerMove
+                end
+            end
+            node.affineClosureCall = true
+            calleeT = rawType(calleeT)
+        elseif c.ownershipKind(calleeT) == "borrowed" and rawType(calleeT).tag == "func" then
+            calleeT = rawType(calleeT)
+        end
+        if calleeT.tag == "func" and calleeT.foreign then
+            node.cdefCall = true
+        end
+        if node.kind == "safeCall" then
+            calleeT = withoutNil(calleeT)
+        end
+        node.calleeType = rawType(calleeT)
+        node.scalarIntrinsic = callee
+            and callee.scalarIntrinsic
+            or callee
+            and callee.kind == "name"
+            and callee.token
+            and callee.token.definition
+            and callee.token.definition.scalarIntrinsic
+        c.nosuspend.call(node)
+        -- A raw yield has nobody responsible for it: the coroutine may never be resumed
+        -- and the cleanup would never run. A *handled* suspension is different -- a
+        -- handler took the resume and the cancellation, and its contract is to do one
+        -- or
+        -- the other -- which is why this refuses the first and says nothing about the
+        -- second.
+        --
+        -- By definition rather than by spelling: a local named `coroutine` is somebody
+        -- else's table, and refusing a call through it would be refusing the wrong
+        -- thing while a genuinely raw yield through an alias went unnoticed.
+        if memberName == "yield" and callee and callee.kind == "dotIndex" then
+            local base = callee.obj
+            local baseTok = base and base.kind == "name" and base.token or nil
+            local coroutineGlobal = c.env and c.env.globals and c.env.globals.coroutine or nil
+            local resolved = baseTok and c.lookupEntry(baseTok.text) or nil
+            -- The same table, however it was reached: the global itself, or a local
+            -- bound to it. A local named `coroutine` that is somebody else's table
+            -- resolves to a different entry and is left alone.
+            local isCoroutine = false
+            if resolved ~= nil and resolved.coroutineLibrary == true then
+                -- A local bound to the library, however many hops back.
+                isCoroutine = true
+            elseif baseTok and coroutineGlobal then
+                if resolved ~= nil then
+                    isCoroutine = resolved == coroutineGlobal or (
+                        resolved.definition ~= nil and resolved.definition == coroutineGlobal.definition
+                    )
+                else
+                    isCoroutine = baseTok.text == "coroutine"
+                end
+            end
+            if isCoroutine then
+                local obligation = c.liveSuspensionObligation()
+                if obligation then
+                    c.diag(
+                        "NUPP2603",
+                        node,
+                        ("cannot suspend while temporal obligation %q is live"):format(obligation),
+                        nil,
+                        {
+                            help = "suspend inside a `handle suspension` region, where a "
+                            .. "handler is responsible for resuming or cancelling it",
+                        }
+                    )
+                end
+            end
+        end
+
+        -- Callbacks C invokes. The boundary belongs to the invocation rather than to
+        -- the kind of body, so what is registered is this argument in this position:
+        -- the same function passed anywhere else may suspend perfectly well.
+        --
+        -- Recognized by definition and never by spelling, so a local named `table` or a
+        -- string library somebody replaced is not mistaken for the prelude's.
+        local function bodyOfArgument(index)
+            local argument = argExprs[index]
+            if not argument or cst.isToken(argument) then
+                return nil
+            end
+            if argument.kind == "funcExpr" or argument.kind == "shortfn" then
+                return argument.body or argument
+            end
+
+            return nil
+        end
+
+        -- Definition identity is the whole guard: a local named `table` resolves to a
+        -- different definition and is left alone. An immutable-path requirement would
+        -- be stricter than the question -- the prelude's fields are writable, and
+        -- replacing `table.sort` does not make the replacement able to yield through C.
+        if node.kind == "call" and callee and callee.kind == "dotIndex" then
+            local base = callee.obj
+            local baseTok = base and base.kind == "name" and base.token or nil
+            local globals = c.env and c.env.globals or {}
+            local isPrelude = function(name)
+                local entry = globals[name]
+
+                return baseTok ~= nil and entry ~= nil and baseTok.definition == entry.definition
+            end
+            if memberName == "sort" and isPrelude("table") then
+                c.nosuspend.callback(bodyOfArgument(2), "`table.sort`")
+            elseif memberName == "gsub" and isPrelude("string") then
+                c.nosuspend.callback(bodyOfArgument(3), "`string.gsub`")
+            end
+        end
+        local wrappedEntry = calleeName ~= "" and c.lookupEntry(calleeName) or nil
+        if wrappedEntry and wrappedEntry.wrappedProtocol then
+            local protocol = wrappedEntry.wrappedProtocol
+            local input = wrappedEntry.wrappedPhase == "new" and protocol.startPack or protocol.resumePack
+            local output = T.packUnion({protocol.yieldPack, protocol.returnPack})
+            calleeT = T.func(
+                input.head,
+                output.head,
+                input.tail ~= nil,
+                input.modes,
+                nil,
+                nil,
+                nil,
+                nil,
+                nil,
+                nil,
+                nil,
+                nil,
+                nil,
+                input,
+                output
+            )
+            node.calleeType = calleeT
+        end
+        -- None of these are members of `table` before startup: LuaJIT keeps `new` and
+        -- `clear` in builtin modules, and `clone` is Nupp's own. Each lowers to a
+        -- binding gen emits. Recognize the stable prelude path by definition, never by
+        -- spelling: a local named `table` remains an ordinary call.
+        local tableGlobal = c.env and c.env.globals and c.env.globals.table or nil
+        local tableBase = callee and callee.kind == "dotIndex" and callee.obj or nil
+        local tableToken = tableBase and tableBase.kind == "name" and tableBase.token or nil
+        if node.kind == "call"
+            and callee
+            and callee.kind == "dotIndex"
+            and callee.immutablePath
+            and tableToken
+            and tableGlobal
+            and tableToken.definition == tableGlobal.definition
+            and (
+            memberName == "new" or memberName == "clear" or memberName == "clone"
+        ) then
+            node.tableIntrinsic = memberName
+        end
+        local knownAts = nil
+        -- LuaJIT's pairs accepts every table, including nominal record instances.
+        -- Preserve the precise map overload from the prelude, but use an erased
+        -- iterator contract for records.
+        local pairParams = calleeT.tag == "func" and calleeT.typeParams
+        local pairMap = calleeT.tag == "func" and calleeT.params[1]
+        local isPairsContract = calleeName == "pairs"
+            and pairParams
+            and #pairParams == 2
+            and pairMap
+            and pairMap.tag == "map"
+            and pairMap.key == pairParams[
+            1
+        ] and pairMap.value == pairParams[2]
+        if isPairsContract then
+            local args = argExprs
+            if #args == 1 then
+                local at = c.infer(args[1])
+                if at.tag == "nominal" or (at.tag == "typevar" and at.bound and at.bound.tag == "nominal") then
+                    local iterator = T.func({}, {T.any, T.any}, false)
+                    c.lastCallRets = {iterator}
+                    return iterator
+                end
+                knownAts = {at}
+            end
+        end
+        -- Every metatable literal is checked where it meets a `metatable<T>`, which is
+        -- what the prelude declares `setmetatable` to take. A run with no prelude has
+        -- no such parameter to read the receiver off, and the name is then the only
+        -- thing saying this argument is a metatable at all -- enough to spell its keys,
+        -- which is what that run could check before.
+        if calleeName == "setmetatable" and calleeT.tag ~= "func" then
+            c.checkMetatableLiteral(argExprs[2], nil, T.metatable(T.any))
+        end
+        local first, rets, pack = c.inferCall(node, calleeT, node.args, knownAts)
+        if node.kind == "call" and stringFormatIntrinsic(c, callee) then
+            local format = literalString(argExprs[1])
+            local plan = format and debugFormatPlan(format) or nil
+            local positional = true
+            for _, argument in ipairs(argExprs) do
+                if argument.kind == "namedArg" or argument.kind == "pluckArg" then
+                    positional = false
+                end
+            end
+            if positional and plan then
+                node.formatIntrinsic = {format = plan.format, debugArguments = plan.debugArguments, argumentOffset = 1,}
+            end
+        end
+        local preciseLpeg = specializeLpegCall(callee, memberName, node.argumentPack)
+        if preciseLpeg then
+            first, rets, pack = preciseLpeg, {preciseLpeg}, T.pack({preciseLpeg})
+        end
+        if callee and callee.staticOverloadOwner and callee.staticOverloadName and node.overloadWinner then
+            local owner = callee.staticOverloadOwner
+            local name = callee.staticOverloadName
+            local selectedMember = methodslots.member(name, node.overloadWinner)
+            for _, entry in ipairs(owner.staticEntries and owner.staticEntries[name] or {}) do
+                local candidate = specializeSelf(owner, entry.signature, owner)
+                if candidate.id == node.overloadWinner.id or entry.member == selectedMember then
+                    callee.overloadMember = entry.member
+                    break
+                end
+            end
+            callee.overloadMember = callee.overloadMember or selectedMember
+        end
+        if wrappedEntry and wrappedEntry.wrappedProtocol then
+            wrappedEntry.wrappedPhase = "started"
+        end
+        local globalEntry = calleeName ~= "" and c.env and c.env.globals and c.env.globals[calleeName] or nil
+        local localEntry = calleeName ~= "" and c.lookupEntry(calleeName) or nil
+        local stableGlobal = globalEntry and localEntry and globalEntry.definition == localEntry.definition
+        if stableGlobal and calleeName == "select" and node.argumentPack then
+            local source = node.argumentPack
+            local selector = argExprs[1]
+            local selectorToken = selector and (
+                selector.kind == "string" or selector.kind == "number"
+            ) and selector.token or nil
+            local selectorText = selectorToken and selectorToken.text or ""
+            if selector and selector.kind == "string" and (selectorText == '"#"' or selectorText == "'#'") then
+                pack = T.pack({T.integer})
+                local discarded = {}
+                for j = 2, #source.head do
+                    discarded[#discarded + 1] = source.head[j]
+                end
+                c.checkPackDiscard(T.pack(discarded, source.tail), 1, node)
+            else
+                local selected: integer? = nil
+                if selector and selector.kind == "number" then
+                    selected = tonumber((selectorText:gsub("_", ""))) as integer
+                elseif selector
+                    and selector.kind == "unop"
+                    and selector.op
+                    and selector.op.kind == "-"
+                    and selector.operand
+                    and selector.operand.kind == "number"
+                    and selector.operand.token
+                then
+                    selected = -(assert(tonumber((selector.operand.token.text:gsub("_", "")))) as integer)
+                end
+                local values = {}
+                for j = 2, #source.head do
+                    values[#values + 1] = source.head[j]
+                end
+                local valuePack = T.pack(values, source.tail)
+                if selected then
+                    local start = selected < 0 and #values + selected + 1 or selected
+                    if not source.tail and (selected == 0 or start < 1 or start > #values) then
+                        c.diag("NUPP2010", selector, "select index is outside its statically known argument pack")
+                    end
+                    local discarded = {}
+                    for j = 1, math.max(start - 1, 0) do
+                        discarded[#discarded + 1] = values[j]
+                    end
+                    c.checkPackDiscard(
+                        T.pack(discarded, source.tail and start > #values and source.tail or nil),
+                        1,
+                        selector or node
+                    )
+                    local sliced = {}
+                    for j = math.max(start, 1), #values do
+                        sliced[#sliced + 1] = values[j]
+                    end
+                    pack = T.pack(sliced, valuePack.tail)
+                else
+                    local members = {}
+                    for _, value in ipairs(values) do
+                        members[#members + 1] = value
+                    end
+                    if source.tail and source.tail.type then
+                        members[#members + 1] = source.tail.type
+                    end
+                    pack = T.pack({}, {kind = "homogeneous", type = #members > 0 and T.union(members) or T.any})
+                    c.checkPackDiscard(valuePack, 1, selector or node)
+                end
+            end
+            first, rets = T.packAt(pack, 1) or T.nil_, pack.head
+        end
+        if stableGlobal and calleeName == "unpack" and node.argumentPack then
+            local tableType = T.packAt(node.argumentPack, 1)
+            local elements, elementType = {}, nil
+            if tableType and tableType.tag == "tuple" then
+                for j, value in ipairs(tableType.elems) do
+                    elements[j] = value
+                end
+            elseif tableType and tableType.tag == "array" then
+                elementType = tableType.elem
+            end
+            if #elements > 0 or elementType then
+                local function integerLiteral(expr): integer?
+                    local tok = expr and expr.kind == "number" and expr.token or nil
+                    if not tok then
+                        return nil
+                    end
+
+                    return tonumber((tok.text:gsub("_", ""))) as integer
+                end
+
+                local from = integerLiteral(argExprs[2]) or 1
+                local through = integerLiteral(argExprs[3])
+                if #elements > 0 and (
+                    not argExprs[2] or integerLiteral(argExprs[2])
+                ) and (not argExprs[3] or through) then
+                    through = through or #elements
+                    local sliced = {}
+                    for j = from, through do
+                        sliced[#sliced + 1] = elements[j] or T.nil_
+                    end
+                    pack = T.pack(sliced)
+                elseif elementType then
+                    pack = T.pack({}, {kind = "homogeneous", type = elementType})
+                else
+                    pack = T.pack({}, {kind = "homogeneous", type = T.union(elements)})
+                end
+                first, rets = T.packAt(pack, 1) or T.nil_, pack.head
+            end
+        end
+        local tableEntry = baseName ~= "" and c.env and c.env.globals and c.env.globals[baseName] or nil
+        local baseEntry = baseName ~= "" and c.lookupEntry(baseName) or nil
+        local stableMember = tableEntry and baseEntry and tableEntry.definition == baseEntry.definition
+        if stableMember and baseName == "coroutine" then
+            node.coroutineIntrinsic = memberName
+            local actual = node.argumentPack or T.pack({})
+            local function unknownPack()
+                return T.pack({}, {kind = "unknown", type = T.any})
+            end
+
+            local function checkProtocol(expected, offset: integer)
+                local head = {}
+                for j = offset + 1, #actual.head do
+                    head[#head + 1] = actual.head[j]
+                end
+                local supplied = T.pack(head, actual.tail)
+                local ok, why = packIsA(supplied, expected)
+                local exact = expected.alternatives
+                    or expected.tail
+                    or not supplied.tail
+                    and #supplied.head == #expected.head
+                if not ok or not exact then
+                    c.diag(
+                        "NUPP2010",
+                        argExprs[offset + 1] or node,
+                        why or ("coroutine pack has %d values, expected %d"):format(#supplied.head, #expected.head)
+                    )
+                end
+            end
+
+            if memberName == "create" then
+                local bodyType = T.packAt(actual, 1)
+                if bodyType and bodyType.tag == "func" then
+                    first = T.protocolThread(
+                        bodyType.paramPack,
+                        bodyType.resumePack or unknownPack(),
+                        bodyType.yieldPack or unknownPack(),
+                        bodyType.retPack
+                    )
+                    pack, rets = T.pack({first}), {first}
+                end
+            elseif memberName == "resume" then
+                local threadType = T.packAt(actual, 1)
+                if threadType and threadType.tag == "protocolThread" then
+                    local threadArg = argExprs[1]
+                    local threadEntry = threadArg and threadArg.kind == "name" and threadArg.token and c.lookupEntry(
+                        threadArg.token.text
+                    ) or nil
+                    -- A local handle starts with the callback's Start pack. After the
+                    -- first transfer it can no longer be new, even when control later
+                    -- joins and its suspended/dead phase is unknown, so subsequent
+                    -- transfers use Resume. Escaped or erased handles accept either.
+                    local phase = threadEntry and threadEntry.threadPhase or "unknown"
+                    if phase == "dead" then
+                        c.diag("NUPP2010", threadArg or node, "a coroutine narrowed to dead cannot be resumed")
+                    end
+                    local accepted = phase == "new"
+                        and threadType.startPack
+                        or phase == "started"
+                        and threadType.resumePack
+                        or phase == "dead"
+                        and threadType.resumePack
+                        or T.packUnion(
+                        {
+                            threadType.startPack,
+                            threadType.resumePack
+                        }
+                    )
+                    if accepted.alternatives then
+                        local fits = false
+                        local suppliedHead = {}
+                        for j = 2, #actual.head do
+                            suppliedHead[#suppliedHead + 1] = actual.head[j]
+                        end
+                        local supplied = T.pack(suppliedHead, actual.tail)
+                        for _, arm in ipairs(accepted.alternatives) do
+                            local armFits = packIsA(
+                                supplied,
+                                arm
+                            ) and (arm.tail ~= nil or not supplied.tail and #supplied.head == #arm.head)
+                            fits = fits or armFits
+                        end
+                        if not fits then
+                            checkProtocol(threadType.startPack, 1)
+                        end
+                    else
+                        checkProtocol(accepted, 1)
+                    end
+                    if threadEntry then
+                        threadEntry.threadPhase = "started"
+                    end
+                    local function successful(values)
+                        local head = {T.literal(true, T.boolean)}
+                        for _, value in ipairs(values.head) do
+                            head[#head + 1] = value
+                        end
+
+                        return T.pack(head, values.tail)
+                    end
+
+                    pack = T.packUnion({
+                        successful(threadType.yieldPack),
+                        successful(threadType.returnPack),
+                        T.pack({
+                            T.literal(false, T.boolean),
+                            T.any
+                        })
+                    })
+                    first, rets = T.packAt(pack, 1) or T.boolean, pack.head
+                end
+            elseif memberName == "yield" then
+                local expected = c.yieldPackStack[#c.yieldPackStack]
+                local resumed = c.resumePackStack[#c.resumePackStack]
+                if expected then
+                    checkProtocol(expected, 0)
+                end
+                local protocol = c.protocolStack[#c.protocolStack]
+                if protocol and not expected then
+                    protocol.yieldPacks[#protocol.yieldPacks + 1] = actual
+                end
+                if resumed then
+                    pack, rets = resumed, resumed.head
+                    first = T.packAt(resumed, 1) or T.nil_
+                end
+            elseif memberName == "status" then
+                local threadArg = argExprs[1]
+                local threadEntry = threadArg and threadArg.kind == "name" and threadArg.token and c.lookupEntry(
+                    threadArg.token.text
+                ) or nil
+                if threadArg and threadArg.kind == "name" and threadArg.token then
+                    node.coroutineStatusName = threadArg.token.text
+                end
+                local phase = threadEntry and threadEntry.threadPhase or "unknown"
+                local statuses = {}
+                if phase == "new" then
+                    statuses[1] = T.literal("suspended", T.string)
+                elseif phase == "dead" then
+                    statuses[1] = T.literal("dead", T.string)
+                elseif phase == "started" then
+                    statuses = {T.literal("suspended", T.string), T.literal("dead", T.string)}
+                else
+                    statuses = {
+                        T.literal("suspended", T.string),
+                        T.literal("running", T.string),
+                        T.literal("normal", T.string),
+                        T.literal("dead", T.string)
+                    }
+                end
+                first = T.union(statuses)
+                pack, rets = T.pack({first}), {first}
+            elseif memberName == "wrap" then
+                local bodyType = T.packAt(actual, 1)
+                if bodyType and bodyType.tag == "func" then
+                    local wrappedReturns = T.packUnion({bodyType.yieldPack or unknownPack(), bodyType.retPack})
+                    first = T.func(
+                        bodyType.paramPack.head,
+                        wrappedReturns.head,
+                        bodyType.paramPack.tail ~= nil,
+                        bodyType.paramPack.modes,
+                        nil,
+                        nil,
+                        nil,
+                        nil,
+                        nil,
+                        nil,
+                        nil,
+                        nil,
+                        nil,
+                        bodyType.paramPack,
+                        wrappedReturns,
+                        nil,
+                        nil,
+                        nil,
+                        nil,
+                        bodyType.paramNames
+                    )
+                    node.wrappedProtocol = T.protocolThread(
+                        bodyType.paramPack,
+                        bodyType.resumePack or unknownPack(),
+                        bodyType.yieldPack or unknownPack(),
+                        bodyType.retPack
+                    )
+                    pack, rets = T.pack({first}), {first}
+                end
+            end
+        end
+        -- A literal grammar has already told the compiler its capture shape. Ask the
+        -- canonical PEG frontend for that shape after the ordinary call checker has
+        -- typed the options table, then replace only the result of `compile`. Invalid
+        -- literals deliberately remain runtime errors, preserving `pcall` workflows.
+        if node.kind == "call" and pegCompilePath(callee) then
+            local source = literalString(argExprs[1]) or literalToken(argStr)
+            local sourceType = node.argumentPack and T.packAt(node.argumentPack, 1) or nil
+            if not source and sourceType and sourceType.tag == "literal" and type(sourceType.constant) == "string" then
+                source = sourceType.constant
+            end
+            if source then
+                local options = node.argumentPack and T.packAt(node.argumentPack, 2) or nil
+                local definitions = readableField(options, "definitions") or readableField(options, "actions")
+                local result = pegTyping.inferSourceResult(source, definitions)
+                local matcher = result and pegMatcher(result)
+                if matcher then
+                    first, rets, pack = matcher, {matcher}, T.pack({matcher})
+                end
+            end
+        end
+        local soaExport = node.kind == "call" and callee and callee.exactCallExport or nil
+        if soaExport and backends.publicModule(
+            c.opts and c.opts.backendResolution,
+            soaExport.module
+        ) == "nupp.workers" and soaExport.member == "scope" and not c.suppressed("blocking-worker-drop") then
+            c.diag(
+                "blocking-worker-drop",
+                callee,
+                "a direct worker scope drains synchronously if terminal cleanup reaches it",
+                nil,
+                {
+                    help = "inside a handled application task, use scope:workers(); otherwise call close before terminal cleanup"
+                }
+            )
+        end
+        if soaExport and soaExport.module == "nupp.mem.soa" and (
+            soaExport.member == "allocate" or soaExport.member == "layoutof"
+        ) then
+            local witness = argExprs[1] and rawType(c.infer(argExprs[1])) or nil
+            local subject = witness and witness.tag == "ctype" and witness.of or nil
+            if not subject then
+                c.diag("NUPP2403", argExprs[1] or node, "SoA storage needs a concrete ctype witness")
+            else
+                local spec = soaLayoutSpec(c, subject, argExprs[1] or node)
+                if spec then
+                    node.soaLayout = spec
+                    node.soaOperation = soaExport.member
+                end
+            end
+        end
+        local indexedExport = node.kind == "call" and callee and callee.exactCallExport or nil
+        if indexedExport and indexedExport.module == "nupp.mem.indexed" and indexedExport.member == "range" then
+            local views, valid = {}, #argExprs >= 3
+            for position = 3, #argExprs do
+                local argument = argExprs[position]
+                local descriptor = argument and indexedViews.describe(c.infer(argument)) or nil
+                local definition = argument
+                    and argument.kind == "name"
+                    and argument.token
+                    and argument.token.definition
+                    or nil
+                if not descriptor then
+                    valid = false
+                    c.diag("NUPP2403", argument or node, "indexed.range requires a standard Span or SoA view")
+                elseif not definition or not definition.constant then
+                    valid = false
+                    c.diag("NUPP2403", argument or node, "indexed.range views must be const names", nil, {
+                        help = "bind the stable view to const before validating its range"
+                    })
+                else
+                    views[definition] = descriptor
+                end
+            end
+            if #argExprs < 3 then
+                c.diag("NUPP2403", node, "indexed.range requires at least one indexed view")
+            end
+            if valid then
+                node.indexedRangeCall = {views = views,}
+            end
+        end
+        local indexedProducer = node.kind == "call"
+            and callee
+            and callee.exactCallExport
+            and indexedViews.exportProducer(
+            callee.exactCallExport.module,
+            callee.exactCallExport.member,
+            first
+        ) or nil
+        if indexedProducer then
+            node.indexedViewProducer = {producer = indexedProducer, source = argExprs[1], count = argExprs[2],}
+        end
+        local globals = c.env and c.env.globals
+        local stableNupp = globals and c.lookupEntry("nupp") == globals.nupp
+        if stableNupp and baseName == "nupp" and memberName == "recoverAlias" then
+            if #argExprs == 1 then
+                local aliasType = managedGeneric("Alias", T.unknown)
+                first = T.optional(aliasType)
+                rets = {first, rets and rets[2] or T.any}
+                pack = T.pack(rets)
+                node.recoverManagedAlias = true
+            end
+        end
+        if node.kind == "safeCall" then
+            local calledPack = pack or (rets and T.pack(rets) or T.pack({}, {kind = "unknown", type = T.any}))
+            pack = T.packUnion({calledPack, T.pack({T.nil_})})
+            first = T.optional(first)
+            rets = pack.head
+        end
+        c.lastCallRets = rets
+        node.valuePack = pack or (rets and T.pack(rets) or T.pack({}, {kind = "unknown", type = T.any}))
+
+        return first
+    end
+    handlers.safeCall = handlers.call
+
+    handlers.methodCall = function(node: cst.MethodCall): Type
+        local receiver, member = node.obj, node.name
+        if not receiver or not member then
+            return T.any
+        end
+        local ot = c.infer(receiver)
+        -- `o?.:m()` tolerates a nil receiver and `o:m?.()` a nil method; either check
+        -- makes the whole call optional, and both drop the nil they check for before
+        -- the lookup that follows.
+        local optional = node.safeObj ~= nil or node.safeMethod ~= nil
+        if node.safeObj then
+            ot = withoutNil(ot)
+        end
+        local rawReceiver = rawType(ot)
+        local indexedView = indexedViews.describe(rawReceiver)
+        if indexedView and member.text == "slice" then
+            node.indexedViewOperation = {kind = "slice", descriptor = indexedView,}
+        elseif indexedView and member.text == "shared" then
+            node.indexedViewOperation = {kind = "shared", descriptor = indexedView,}
+        end
+        if indexedView and (member.text == "get" or member.text == "getMut" or member.text == "set") then
+            local replacement = member.text == "set"
+                and "use view[index] = value"
+                or member.text == "getMut"
+                and "use view[index].field as the writable place"
+                or "use view[index]"
+            c.diag(
+                "NUPP2004",
+                member,
+                ("indexed views no longer expose %q; %s"):format(member.text, replacement),
+                nil,
+                {help = replacement}
+            )
+            local args = node.args and node.args.kind == "args" and (node.args as cst.Args).exprs or {}
+            for _, argument in ipairs(args) do
+                c.infer(argument)
+            end
+            node.valuePack = T.pack({T.any})
+            return T.any
+        end
+        local staticOwner = (
+            rawReceiver.tag == "metatable" or rawReceiver.tag == "typeobject"
+        ) and rawType(rawReceiver.of) or nil
+        local static = staticOwner
+            and staticOwner.tag == "nominal"
+            and staticOwner.staticByname
+            and staticOwner.staticByname[
+            member.text
+        ]
+        if static then
+            local owner = staticOwner as T.Nominal
+            c.diag(
+                "NUPP2004",
+                member,
+                ("%q is a static function and does not accept a receiver"):format(member.text),
+                nil,
+                {help = ("call it with `%s.%s(...)`"):format(owner.name, member.text)}
+            )
+            local first, rets, pack = c.inferCall(node, static, node.args)
+            c.nosuspend.call(node)
+            c.lastCallRets = rets
+            node.valuePack = pack or (rets and T.pack(rets) or T.pack({}, {kind = "unknown", type = T.any}))
+            return first
+        end
+        local mt, fieldDef, fieldDefs = c.fieldType(ot, member.text)
+        if mt and node.safeMethod then
+            mt = withoutNil(mt)
+        end
+        if mt then
+            local callable = mt.tag == "func"
+            local receiverMode = mt.tag == "func" and mt.paramModes[1] or "plain"
+            if mt.tag == "intersection" then
+                callable = true
+                for _, signature in ipairs(mt.members) do
+                    if signature.tag ~= "func" then
+                        callable = false
+                        break
+                    end
+                end
+            end
+            c.markToken(member, fieldDef, mt, callable and "method" or "property")
+            member.additionalDefinitions = fieldDefs
+            -- o:m(...) desugars to m(o, ...): drop the self parameter
+            local methodType = callable and specializeReceiver(mt, ot) or mt
+            local nominal = rawReceiver.tag == "nominal" and rawReceiver as T.Nominal or nil
+            if not nominal and rawReceiver.tag == "intersection" then
+                for _, candidate in ipairs(rawReceiver.members) do
+                    if candidate.tag == "nominal" then
+                        local candidateNominal = candidate as T.Nominal
+                        local candidateOrigin = (candidateNominal.origin or candidateNominal) as T.Nominal
+                        if (
+                            candidateOrigin.moduleName or candidateNominal.moduleName or candidateOrigin.sealedModule
+                        ) == "nupp.mem.soa" and candidateOrigin.name == "WriteSpan" then
+                            nominal = candidateNominal
+                            break
+                        end
+                    end
+                end
+            end
+            local origin = nominal and ((nominal.origin or nominal) as T.Nominal) or nil
+            local spanElement = nil
+            if nominal and origin and origin.moduleName == "nupp.mem.span" and nominal.typeArgs then
+                spanElement = nominal.typeArgs[1]
+            end
+            if callable and member.text == "set" and spanElement and fixedWidth.isPhysical(spanElement) then
+                -- `self` has already been dropped below, so the stored value is the
+                -- second explicit argument: index is first, value is second.
+                node.fixedWidthPhysicalParameters = {[2] = true}
+            end
+            local callArgs = node.args
+            -- Scope.spawn's library signature keeps the generic callable first because
+            -- a variadic type pack cannot precede a named parameter. Its source API
+            -- puts the callable last. Reorder only the checker view, then restore the
+            -- tree so lowering can retain source evaluation order.
+            -- A selected `host.workers` seam declares this surface in its own provider
+            -- module, and the reorder below is a property of the surface rather than of
+            -- whichever module supplies it.
+            local workerSpawn = origin and backends.publicModule(
+                c.opts and c.opts.backendResolution,
+                origin.moduleName or (nominal and nominal.moduleName) or origin.sealedModule
+            ) == "nupp.workers" and origin.name == "Scope" and member.text == "spawn"
+            local taskWorkers = origin and (
+                origin.moduleName or (nominal and nominal.moduleName) or origin.sealedModule
+            ) == "nupp.tasks" and origin.name == "Scope" and member.text == "workers"
+            if taskWorkers and c.recordEffect then
+                c.recordEffect("native.workers");
+                (node as any).compilerFeatureEffect = "native.workers"
+            end
+            local originalExprs = callArgs and callArgs.kind == "args" and (callArgs as cst.Args).exprs or nil
+            if workerSpawn and originalExprs and #originalExprs > 0 then
+                local callableArgument = originalExprs[#originalExprs]
+                if callableArgument.kind == "funcExpr" or callableArgument.kind == "shortfn" then
+                    local sendableArgument: any = callableArgument
+                    sendableArgument.sendableContext = true
+                end
+                local reordered = {callableArgument}
+                for index = 1, #originalExprs - 1 do
+                    reordered[#reordered + 1] = originalExprs[index]
+                end
+                (callArgs as cst.Args).exprs = reordered
+                local workerNode: any = node
+                workerNode.workerSpawnTrailing = true
+            end
+            local first, rets, pack = c.inferCall(node, callable and dropSelf(methodType) or methodType, callArgs)
+            if workerSpawn and originalExprs then
+                (callArgs as cst.Args).exprs = originalExprs
+            end
+            local indexedProducer = callable and indexedViews.methodProducer(rawReceiver, member.text, first) or nil
+            if indexedProducer then
+                node.indexedViewProducer = {producer = indexedProducer, source = receiver,}
+            end
+            local literal = receiver
+            while literal and literal.kind == "paren" do
+                literal = literal.expr
+            end
+            local positional = true
+            local methodArgs = node.args and node.args.kind == "args" and (node.args as cst.Args).exprs or {}
+            for _, argument in ipairs(methodArgs) do
+                if argument.kind == "namedArg" or argument.kind == "pluckArg" then
+                    positional = false
+                end
+            end
+            if origin and (
+                origin.moduleName or (nominal and nominal.moduleName) or origin.sealedModule
+            ) == "nupp.mem.soa" and (
+                origin.name == "Span" or origin.name == "WriteSpan"
+            ) and member.text == "field" then
+                local fieldArgument = methodArgs[1]
+                local fieldName = literalString(fieldArgument)
+                local element = nominal and nominal.typeArgs and nominal.typeArgs[1] or nil
+                local ordinal = nil
+                if fieldName and element and element.tag == "nominal" then
+                    for position, name in ipairs(element.fieldOrder or {}) do
+                        if name == fieldName then
+                            ordinal = position
+                            break
+                        end
+                    end
+                end
+                if not fieldName then
+                    c.diag("NUPP2403", fieldArgument or node, "SoA field projection requires a string literal", nil, {
+                        help = "name one stored struct field so the compiler can select its typed column"
+                    })
+                elseif not ordinal then
+                    c.diag(
+                        "NUPP2403",
+                        fieldArgument or node,
+                        (
+                            "%s has no stored SoA field %q"
+                        ):format(element and T.tostring(element) or "the element type", fieldName)
+                    )
+                else
+                    local resolvedName = fieldName as string
+                    local fieldType = c.fieldType(element, resolvedName)
+                    node.soaFieldProjection = {
+                        name = resolvedName,
+                        ordinal = ordinal,
+                        writable = origin.name == "WriteSpan",
+                    }
+                    local definition = element and element.tag == "nominal" and element.fieldDefs and element.fieldDefs[
+                        resolvedName
+                    ] or nil
+                    local token = fieldArgument and fieldArgument.kind == "string" and fieldArgument.token or nil
+                    if token then
+                        c.markToken(token, definition, fieldType, "property")
+                        token.soaColumn = {
+                            identity = (element as T.Nominal).name .. "." .. resolvedName,
+                            ordinal = ordinal,
+                            access = origin.name == "WriteSpan" and "read-write" or "read-only",
+                        }
+                    end
+                    local exports = c.env and c.env.resolveModuleExports and c.env.resolveModuleExports(
+                        c.env,
+                        "nupp.mem.span"
+                    ) or nil
+                    local exported = exports and exports.types and exports.types[
+                        origin.name == "WriteSpan" and "Writable" or "Span"
+                    ] or nil
+                    local projected = nil
+                    if exported and exported.tag == "genericAlias" and exported.typeParams[1] then
+                        projected = generics.materialize(exported.body, {[exported.typeParams[1]] = fieldType})
+                    elseif exported and exported.tag == "nominal" and exported.typeParams and exported.typeParams[
+                        1
+                    ] then
+                        projected = generics.instantiate(exported, {[exported.typeParams[1]] = fieldType})
+                    end
+                    if projected then
+                        first, rets, pack = projected, {projected}, T.pack({projected})
+                        local descriptor = indexedViews.describe(projected)
+                        if descriptor then
+                            node.indexedViewOperation = {kind = "field", descriptor = descriptor, ordinal = ordinal,}
+                        end
+                    end
+                end
+            end
+            if positional and not optional and member.text == "format" and literal and literal.kind == "string" then
+                local format = literalString(literal)
+                local plan = format and debugFormatPlan(format) or nil
+                if plan then
+                    node.formatIntrinsic = {
+                        format = plan.format,
+                        debugArguments = plan.debugArguments,
+                        argumentOffset = 0,
+                    }
+                end
+            end
+            c.nosuspend.call(node)
+            local owner = rawType(ot)
+            node.overloadMember = pegReplacementMember(
+                ot,
+                member.text,
+                node.argumentPack and T.packAt(node.argumentPack, 2) or nil
+            )
+            local aliasDeclaration = c.lookupType("nupp.Alias")
+            local aliasOrigin = aliasDeclaration and aliasDeclaration.tag == "nominal" and (
+                (aliasDeclaration.origin or aliasDeclaration) as T.Nominal
+            ) or nil
+            if origin and aliasOrigin and origin == aliasOrigin and member.text == "take" then
+                local capability = nominal and nominal.typeArgs and nominal.typeArgs[1] or nil
+                if capability and c.ownershipKind(capability) == "affine" then
+                    local returned = T.withOwnershipPayload(capability, T.optional(rawType(capability)))
+                    first = returned
+                    rets = {returned, rets and rets[2] or T.any}
+                    pack = T.pack(rets)
+                    node.resourceCapability = capability
+                end
+            elseif origin and aliasOrigin and origin == aliasOrigin and member.text == "downcast" then
+                local typeArgs = node.typeArgs or {}
+                if #typeArgs ~= 1 then
+                    c.diag("NUPP2613", node, "alias.downcast expects one explicit target type")
+                else
+                    local requested = c.resolveType(typeArgs[1])
+                    local capability = c.capabilityOf(requested)
+                    if #T.capabilityCleanups(capability) == 0 then
+                        c.diag("NUPP2613", typeArgs[1], "alias.downcast requires an exactly droppable owner type")
+                    else
+                        local aliasType = managedGeneric("Alias", requested)
+                        first = T.optional(aliasType)
+                        rets = {first, rets and rets[2] or T.any}
+                        pack = T.pack(rets)
+                        node.managedAliasPolicy = policyFor(requested)
+                    end
+                end
+            end
+            if owner.tag == "nominal" and owner.overloadedMethods and owner.overloadedMethods[
+                member.text
+            ] and node.overloadWinner then
+                local selectedMember = methodslots.member(member.text, node.overloadWinner)
+                local dispatch = owner.methodDispatchEntries and owner.methodDispatchEntries[
+                    member.text
+                ] or (owner.methodEntries and owner.methodEntries[member.text]) or {}
+                for _, entry in ipairs(dispatch) do
+                    local candidate = dropSelf(specializeSelf(owner, entry.signature, owner))
+                    if candidate.id == node.overloadWinner.id or entry.member == selectedMember then
+                        receiverMode = entry.signature.paramModes[1] or "plain"
+                        node.overloadMember = entry.member
+                        node.methodEntry = entry
+                        c.markToken(member, entry.definition, specializeSelf(owner, entry.signature, owner), "method")
+                        member.additionalDefinitions = nil
+                        break
+                    end
+                end
+                node.overloadMember = node.overloadMember or selectedMember
+            end
+            if receiverMode == "takes" then
+                if node.safeObj or node.safeMethod then
+                    c.diag("NUPP2602", receiver, "a conditional method call cannot take its receiver; narrow it first")
+                else
+                    c.moveExpression(receiver, ot, "method receiver")
+                    if receiver.automaticOwnerMove then
+                        node.automaticOwnerMoves = node.automaticOwnerMoves or {}
+                        node.automaticOwnerMoves[#node.automaticOwnerMoves + 1] = receiver.automaticOwnerMove
+                    end
+                end
+            elseif receiverMode == "exclusive" then
+                local entry, nameNode = c.ownershipEntry(receiver)
+                entry = c.ownershipState(entry)
+                local entryFacts = entry and c.own.capabilityFacts(entry, nil, false) or nil
+                local regionRoot, regionPath = c.regionOf(receiver)
+                if node.soaFieldProjection then
+                    regionPath = T.regionField(regionPath, node.soaFieldProjection.name)
+                end
+                local roots = entry and {entry} or c.own.provenanceOwners(receiver)
+                if #roots == 0 then
+                    c.diag("NUPP2602", receiver, "an exclusive receiver requires a named or rooted value")
+                else
+                    for _, root in ipairs(roots) do
+                        local blocked = (root.activeBorrows or 0) > 0
+                        if regionRoot and regionPath and regionPath ~= "" then
+                            blocked = false
+                            for activePath, count in pairs(regionRoot.activeRegions or {}) do
+                                local own = entry
+                                    and entryFacts
+                                    and entryFacts.regionRoot == regionRoot
+                                    and entryFacts.regionPath == regionPath
+                                    and 1
+                                    or 0
+                                if (
+                                    activePath == regionPath and count > own
+                                ) or (
+                                    activePath ~= regionPath and c.regionsOverlap(
+                                        activePath,
+                                        regionPath
+                                    ) and not c.regionContains(activePath, regionPath)
+                                ) then
+                                    blocked = true
+                                    break
+                                end
+                            end
+                        end
+                        if blocked then
+                            c.diag(
+                                "NUPP2607",
+                                nameNode or receiver,
+                                "an exclusive receiver cannot invalidate a value while a derived borrow is live",
+                                nil,
+                                c.own.conflictDetails(regionRoot or root, regionPath)
+                            )
+                            break
+                        end
+                    end
+                end
+                if c.ownershipKind(first) then
+                    local resultFacts = c.own.capabilityFacts(node, 1)
+                    resultFacts.exclusive = true
+                    if regionRoot and regionPath and regionPath ~= "" then
+                        resultFacts.regionRoot = regionRoot
+                        resultFacts.regionPath = regionPath
+                    end
+                end
+            elseif receiverMode == "borrows" then
+                local entry, nameNode = c.ownershipEntry(receiver)
+                entry = c.ownershipState(entry)
+                local entryFacts = entry and c.own.capabilityFacts(entry, nil, false) or nil
+                local regionRoot, regionPath = c.regionOf(receiver)
+                if node.soaFieldProjection then
+                    regionPath = T.regionField(regionPath, node.soaFieldProjection.name)
+                end
+                local roots = entry and {entry} or c.own.provenanceOwners(receiver)
+                for _, root in ipairs(roots) do
+                    local blocked = (root.activeExclusiveBorrows or 0) > 0
+                    if regionRoot and regionPath and regionPath ~= "" then
+                        blocked = false
+                        for activePath, count in pairs(regionRoot.activeExclusiveRegions or {}) do
+                            local own = entry
+                                and entryFacts
+                                and entryFacts.regionRoot == regionRoot
+                                and entryFacts.regionPath == regionPath
+                                and 1
+                                or 0
+                            if (
+                                activePath == regionPath and count > own
+                            ) or (
+                                activePath ~= regionPath and c.regionsOverlap(
+                                    activePath,
+                                    regionPath
+                                ) and not c.regionContains(activePath, regionPath)
+                            ) then
+                                blocked = true
+                                break
+                            end
+                        end
+                    end
+                    if blocked then
+                        c.diag(
+                            "NUPP2607",
+                            nameNode or receiver,
+                            "a shared receiver cannot overlap a live exclusive view",
+                            nil,
+                            c.own.conflictDetails(regionRoot or root, regionPath, true)
+                        )
+                        break
+                    end
+                end
+                if regionRoot and regionPath and regionPath ~= "" and c.ownershipKind(first) then
+                    local resultFacts = c.own.capabilityFacts(node)
+                    resultFacts.regionRoot = regionRoot
+                    resultFacts.regionPath = regionPath
+                end
+            end
+            if optional then
+                local calledPack = pack or (rets and T.pack(rets) or T.pack({}, {kind = "unknown", type = T.any}))
+                pack = T.packUnion({calledPack, T.pack({T.nil_})})
+                first = T.optional(first)
+                rets = pack.head
+            end
+            c.lastCallRets = rets
+            node.valuePack = pack or (rets and T.pack(rets) or T.pack({}, {kind = "unknown", type = T.any}))
+            return first
+        end
+        if ot ~= T.any and ot ~= T.table_ and ot.tag ~= "map" then
+            -- An owned structural shape is still the thing whose methods these are,
+            -- and field access already reads one through its qualifier. Without this
+            -- a misspelled method on such a handle reported nothing at all. An owned
+            -- nominal is left alone: its terminal is reached through the qualifier
+            -- rather than found on the record, so unwrapping would report `drop`.
+            local named = ot
+            if named.tag ~= "shape" and named.tag ~= "nominal" and rawType(ot).tag == "shape" then
+                local terminal = false
+                for _, cleanup in ipairs((ot as any).cleanups or {}) do
+                    if cleanup.name == member.text then
+                        terminal = true
+                    end
+                end
+                if not terminal then
+                    named = rawType(ot)
+                end
+            end
+            if named.tag == "shape" or named.tag == "nominal" then
+                local fixes = c.edits.nameSpellingFix(member, c.fieldNames(named))
+                c.diag("NUPP2004", member, ("no method %q in %s"):format(member.text, T.tostring(named)), fixes, {
+                    help = fixes
+                    and "use the suggested method spelling"
+                    or "check the receiver type and available methods"
+                })
+            end
+        end
+        if node.args then
+            c.inferCall(node, T.any, node.args)
+        end
+        c.nosuspend.call(node)
+        -- Nothing is known about what an unresolvable method returns, which includes
+        -- how many values, so the pack this call publishes stays open the way an
+        -- untyped call's does.
+        c.lastCallRets = nil
+        node.valuePack = T.pack({}, {kind = "unknown", type = T.any})
+
+        return T.any
+    end
+
+    return handlers
+end
+
+export = callexpr

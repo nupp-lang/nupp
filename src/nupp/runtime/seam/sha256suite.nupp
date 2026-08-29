@@ -1,0 +1,28 @@
+@!internal
+module nupp.runtime.seam.sha256suite
+local suite = {}
+function suite.test(provider: any): (boolean, string?)
+    local ok, problem = pcall(function()
+        assert(
+            provider.sha256("") == "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+            "sha256 must hash the empty message"
+        )
+        assert(
+            provider.sha256("abc") == "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad",
+            "sha256 must return the lowercase hexadecimal SHA-256 digest"
+        )
+        assert(
+            provider.sha256(
+                "abcdbcdecdefdefgefghfghighijhijkijkljklmklmnlmnomnopnopq"
+            ) == "248d6a61d20638b8e5c026930c3e6039a33ce45964ff2167f6ecedd419db06c1",
+            "sha256 must process more than one compression block"
+        )
+    end)
+    if not ok then
+        return false, tostring(problem)
+    end
+
+    return true
+end
+
+export = suite

@@ -1,0 +1,179 @@
+module nupp.compiler.check.aot
+
+--[[
+The source subset an `@aot` body is allowed to be.
+
+`@aot` promises that a whole function compiles ahead of time rather than being
+left to LuaJIT, so the constructs it may contain are the ones the AOT IR can
+represent. This pass is the source-local half of that promise: it runs on a
+checked body and names what the IR could not have taken, so a programmer hears
+"a nested function has no AOT IR opcode" at the closure rather than
+"lowering failed" from a backend three phases later.
+
+It is deliberately structural. A construct declined here is declined because it
+has no representation at all -- a closure, a table, varargs, `goto` -- and that
+is visible in the tree without asking what anything's type is. The value-level
+subset in `docs/neps/0009-ahead-of-time-compilation.md` is the other half and belongs with the IR,
+which is where a type is actually needed to say that some `number` is admitted
+and some `any` is not. Reporting the structural half here keeps that later pass
+from having to re-explain constructs it never saw.
+
+A method call is deliberately not refused here, even though a dynamic one has no
+AOT IR opcode. `span[i]` is the memory boundary the
+whole feature is built on and are lowered directly rather than dispatched, so
+whether a call resolves is a question about its receiver's type and belongs to
+the pass that has one. Refusing the syntax would refuse the subset's own
+vocabulary. An optional call is refused, because `?:` is dynamic by
+construction whatever it is called on.
+
+Each declined construct reports once and the walk does not descend into it. A
+closure containing three tables is one problem with one fix, and listing the
+tables inside a function that cannot be there at all is noise.
+
+See `docs/neps/0009-ahead-of-time-compilation.md`.
+]]
+
+local cst = require("nupp.compiler.cst")
+local state = require("nupp.compiler.check.state")
+
+local aot = {}
+
+--- A node of the tree being checked.
+local type Node = cst.Node
+
+--- What `install` answers with.
+type aot.Ops = {readonly body: function(any)}
+
+--- The constructs with no AOT IR representation, and what to call each one where a
+--- diagnostic has to name it. A kind absent from here is not thereby admitted; it is
+--- only not refused on its shape alone.
+local DECLINED: {
+    [string]: string
+} = {
+    funcExpr = "a nested function",
+    shortfn = "a nested function",
+    funcStmt = "a nested function",
+    localFuncStmt = "a nested function",
+    vararg = "varargs",
+    gotoStmt = "`goto`",
+    labelStmt = "a label",
+    istring = "an interpolated string",
+    safeCall = "an optional call",
+    safeIndex = "an optional index",
+    safeBracket = "an optional index",
+    newExpr = "a constructor call",
+    handleStmt = "suspension handling",
+    unsafeStmt = "an `unsafe` region",
+    unsafeOwnershipExpr = "an unsafe memory operation",
+}
+
+--- Why each declined construct is declined, in the terms the AOT contract uses. The
+--- diagnostic carries this so removing the construct is an obvious next step rather
+--- than a guess at what the compiler wanted instead.
+local BECAUSE: {
+    [string]: string
+} = {
+    funcExpr = "an AOT body has no closure, upvalue, or dynamic call",
+    shortfn = "an AOT body has no closure, upvalue, or dynamic call",
+    funcStmt = "an AOT body has no closure, upvalue, or dynamic call",
+    localFuncStmt = "an AOT body has no closure, upvalue, or dynamic call",
+    vararg = "an AOT function has a fixed admitted signature",
+    gotoStmt = "AOT IR source maps do not yet model arbitrary jumps",
+    labelStmt = "AOT IR source maps do not yet model arbitrary jumps",
+    istring = "interpolated construction is not admitted; use explicit string concatenation",
+    safeCall = "an AOT call must resolve statically",
+    safeIndex = "an AOT body indexes only spans, structs, and fixed arrays",
+    safeBracket = "an AOT body indexes only spans, structs, and fixed arrays",
+    newExpr = "an AOT body creates no owner and allocates nothing",
+    handleStmt = "an AOT function is non-suspending by construction",
+    unsafeStmt = "`@aot` is a checked contract and does not admit unsafe operations",
+    unsafeOwnershipExpr = "`@aot` is a checked contract and does not admit unsafe operations",
+}
+
+--- Installs the AOT subset walk on one run.
+---
+--- @param c the run's state
+--- @return the operation the pragma calls once a body has been checked
+function aot.install(c: state.Checker): aot.Ops
+    local ops = {}
+
+    --- Reports one declined construct.
+    local function decline(node: Node, kind: string): nil
+        local at = cst.firstToken(node) or node
+        c.diag("NUPP2903", at, ("%s has no AOT IR representation; %s"):format(DECLINED[kind], BECAUSE[kind]))
+    end
+
+    --- Walks a checked `@aot` body and reports every construct the IR cannot take.
+    ---
+    --- @param node the body, or a node within it
+    function ops.body(node: any): nil
+        if node == nil or cst.isToken(node) then
+            return
+        end
+        -- Exactly one top-level numeric loop is the shape lane lowering can take.
+        -- It is recorded rather than required: a body of another shape is an
+        -- ordinary `@aot` function that compiles scalar, and only the
+        -- vectorisation check has anything to say about it.
+        local body = (node as any).body
+        local loops = 0
+        for _, statement in ipairs(body and body.stats or {}) do
+            if statement.kind == "fornumStmt" then
+                loops = loops + 1
+            end
+        end
+        (node as any).aotMapLoop = loops == 1
+        local function walk(current: any): nil
+            if current == nil or cst.isToken(current) then
+                return
+            end
+            local kind = (current as Node).kind
+            if kind == "call" then
+                local callee = (current as cst.Call).obj
+                local exact = callee ~= nil and (callee as any).exactCallExport or nil
+                if exact == nil and callee ~= nil and callee.kind == "dotIndex" then
+                    local indexed = callee as cst.DotIndex
+                    local base = indexed.obj
+                    local token = base ~= nil and base.kind == "name" and (base as cst.NameExpr).token or nil
+                    local definition = token ~= nil and (token as any).definition or nil
+                    local moduleName = definition ~= nil and definition.requiredModule or nil
+                    if moduleName ~= nil and indexed.name ~= nil then
+                        exact = {identity = moduleName .. "." .. indexed.name.text,}
+                    end
+                end
+                if exact == nil and callee ~= nil and callee.kind == "name" then
+                    local token = (callee as cst.NameExpr).token
+                    local definition = token ~= nil and (token as any).definition or nil
+                    exact = definition ~= nil and definition.exactCallExport or nil
+                end
+                local selected = c.env.config and c.env.config._target or nil
+                if selected ~= nil
+                    and selected.aot == "off"
+                    and exact ~= nil
+                    and exact.identity == "nupp.simd.preferredU8"
+                    and c.opts.dialect ~= "lua51"
+                then
+                    c.diag(
+                        "NUPP2903",
+                        callee or current,
+                        "simd.preferredU8 creates an AOT-only value and cannot run with aot=off; "
+                        .. "select aot=emit-c or aot=require"
+                    )
+                end
+            end
+            if kind and DECLINED[kind] then
+                decline(current as Node, kind)
+
+                return
+            end
+            for _, child in ipairs(current as {any}) do
+                walk(child)
+            end
+        end
+
+        walk(node)
+    end
+
+    return ops
+end
+
+export = aot

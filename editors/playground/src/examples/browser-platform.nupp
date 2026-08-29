@@ -1,0 +1,18 @@
+-- Browser providers keep the Nupp API in checked source. Their work crosses
+-- one suspension boundary to the application Worker and its browser APIs.
+
+local crypto = require("nupp.browser.crypto")
+local storage = require("nupp.browser.storage")
+local time = require("nupp.time")
+local hmac = require("nupp.data.hmac")
+
+time.sleep(10)
+local key = crypto.uuid4()
+local digest = crypto.sha256(crypto.randomBytes(32))
+storage.set(key, digest)
+print(key, storage.get(key))
+print(hmac.hex("key", "browser message"))
+storage.remove(key)
+
+-- try breaking it: pass a negative count to randomBytes, or an empty storage
+-- key, and read the checked provider error

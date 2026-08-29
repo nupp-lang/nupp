@@ -1,0 +1,66 @@
+-- Nupp implements every LuaJIT 3.0 syntax extension. Most of it is written straight
+-- through to the output, because LuaJIT 2.1 backported it — hit Run and read the
+-- generated Lua beside this.
+
+local function map<V, W>(xs: {V}, f: function(V): W): {W}
+    local out: {W} = {}
+    for _, x in ipairs(xs) do
+        table.insert(out, f(x))
+    end
+
+    return out
+end
+
+-- Short functions: `|params| -> expression`. The parameters may be annotated or
+-- inferred, there may be none, and the body is the one expression.
+local double = |n: number| -> n * 2
+local half = |n| -> n / 2
+local area = |w: number, h: number| -> w * h
+local zero = || -> 0
+
+-- Which is what makes them worth having: a callback reads as the expression it is,
+-- rather than as `function(n) return ... end` wrapped around one.
+local readings = {4, 16, 36}
+local doubled = map(readings, |n: number| -> n * 2)
+local labels = map(readings, |n: number| -> "reading " .. n)
+
+local record Sensor
+    name: string
+    site: {city: string}?
+end
+
+local function summarize(counts: {number}, label: string?): string
+    local total = 0
+    for _, n in ipairs(counts) do
+        if n == 0 then
+            continue
+        end -- skip the rest of this iteration
+        total += n -- compound assignment
+    end
+
+    local name = label ?? "unnamed" -- nil-coalescing
+    local size = total > 100 ? "large" : "small" -- ternary
+
+    return name .. ": " .. total .. " (" .. size .. ")"
+end
+
+local intake = new Sensor(name = "intake")
+local city = intake.site?.city ?? "elsewhere" -- safe navigation
+
+-- `!`, `&&`, `||` and `!=` are legal but linted, because Lua already spells these
+-- `not`, `and`, `or` and `~=`, and two spellings of one thing drift apart across a
+-- codebase. @allow says this statement means it.
+local function isEmpty(counts: {number}): boolean
+    @allow("customary-operator")
+    return #counts == 0 || counts[1] == nil
+end
+
+const settings = {retries = 3} -- an immutable binding
+
+print(summarize({4, 0, 7, 120}, "batch"), city)
+print(double(21), half(10), area(3, 4), zero())
+print(#doubled, labels[1], isEmpty({}), settings.retries)
+
+-- try breaking it: pass `|s: string| -> #s` to map over these numbers, put a statement
+-- in a short function's body, assign to `settings`, or drop the
+-- @allow above and see the lint it draws

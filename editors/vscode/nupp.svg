@@ -1,0 +1,140 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128" role="img" aria-labelledby="title desc">
+  <title id="title">Nupp programming language icon</title>
+  <desc id="desc">A nuppeppo yokai rendered as a flat silhouette inside a circle,
+    with drooping closed eyes and a small mouth, standing in golden grass before
+    blue-teal pines, under a warm full moon in a deep blue-teal night sky.</desc>
+
+  <defs>
+    <!-- Two small, close-set feet. -->
+    <path id="foot-l" d="M42 98c-10 1-17 8-16 16 1 6 7 9 12 5 3 5 10 5 13 0 4 4 11 1 11-5 0-8-8-16-20-16Z"/>
+    <path id="foot-r" d="M86 98c10 1 17 8 16 16-1 6-7 9-12 5-3 5-10 5-13 0-4 4-11 1-11-5 0-8 8-16 20-16Z"/>
+
+    <!-- Heavy, round-bottomed torso, like a gourd rather than an egg. -->
+    <path id="torso" d="M61 10
+             C82 8 95 24 96 46
+             C97 59 103 70 108 85
+             C110 98 102 106 94 111
+             C82 117 46 117 34 111
+             C26 106 18 98 20 85
+             C25 70 31 59 32 47
+             C31 26 42 12 61 10Z"/>
+
+    <!-- Two low arms merge into the torso. -->
+    <path id="arm-l" d="M37 55c-8 8-14 18-19 28-4 8-1 16 6 18 4 1 7-2 7-6 1 5 6 6 9 2 2 4 7 2 8-2 2-8-3-28-11-40Z"/>
+    <path id="arm-r" d="M92 54c9 8 15 18 19 29 3 9 0 17-7 19-4 1-7-2-6-6-2 5-7 5-10 1-3 4-8 2-9-2-2-9 5-29 13-41Z"/>
+
+    <!-- A three-tiered fir on a short trunk, rooted at the origin and forty
+         tall, so a scale is a height in the viewBox's own units. -->
+    <path id="pine" d="M0 -40 L4.5 -29 L2 -29 L8 -18 L4 -18 L11 -5 L1.6 -5 L1.6 0
+             L-1.6 0 L-1.6 -5 L-11 -5 L-4 -18 L-8 -18 L-2 -29 L-4.5 -29 Z"/>
+
+    <!-- One grass blade, rooted at the origin and leaning left, and the tuft of
+         six it grows in; mirror a tuft with scale(-1,1) to turn the fan round. -->
+    <path id="blade" d="M0 0 C0.6 -6 0.4 -11 -3.4 -18 C1 -12 2.5 -6 2.7 0 Z"/>
+    <g id="tuft">
+      <use href="#blade" transform="rotate(-40) scale(0.7)"/>
+      <use href="#blade" transform="rotate(-22) scale(0.9)"/>
+      <use href="#blade" transform="rotate(-8) scale(1.1)"/>
+      <use href="#blade" transform="rotate(9) scale(1)"/>
+      <use href="#blade" transform="rotate(24) scale(0.85)"/>
+      <use href="#blade" transform="rotate(42) scale(0.65)"/>
+    </g>
+
+    <!-- The scene never spills past the disc. -->
+    <clipPath id="disc"><circle cx="64" cy="64" r="62"/></clipPath>
+  </defs>
+
+  <!-- Night sky behind the whole scene. -->
+  <circle cx="64" cy="64" r="62" fill="#0d2931"/>
+
+  <g clip-path="url(#disc)">
+
+    <!-- Full moon, clear of the figure in the upper right. -->
+    <circle cx="97" cy="27" r="10.5" fill="#d7bd72"/>
+
+    <!-- Two ranks of pines: a paler distant treeline, then a darker near one
+         whose tallest fir crosses the moon. -->
+    <g fill="#2b4943">
+      <use href="#pine" transform="translate(6,114) scale(1.45)"/>
+      <use href="#pine" transform="translate(23,115) scale(1.15)"/>
+      <use href="#pine" transform="translate(40,114) scale(1.15)"/>
+      <use href="#pine" transform="translate(58,115) scale(0.95)"/>
+      <use href="#pine" transform="translate(76,114) scale(1.2)"/>
+      <use href="#pine" transform="translate(94,115) scale(1.05)"/>
+      <use href="#pine" transform="translate(112,114) scale(1.3)"/>
+    </g>
+
+    <g fill="#081e27">
+      <use href="#pine" transform="translate(0,119) scale(1.6)"/>
+      <use href="#pine" transform="translate(17,120) scale(1.5)"/>
+      <use href="#pine" transform="translate(34,119) scale(1.6)"/>
+      <use href="#pine" transform="translate(52,120) scale(1.3)"/>
+      <use href="#pine" transform="translate(70,119) scale(1.55)"/>
+      <use href="#pine" transform="translate(90,120) scale(1.35)"/>
+      <use href="#pine" transform="translate(110,119) scale(1.9)"/>
+      <use href="#pine" transform="translate(126,120) scale(1.4)"/>
+    </g>
+
+    <g transform="translate(58,70) scale(0.7) translate(-65.5,-63.5)"
+       stroke-linejoin="round" stroke-linecap="round">
+
+      <!-- Outer edge: the same shapes, drawn behind at a heavier weight. Feet
+           are scaled down around their attach point so the heavier outline
+           doesn't also inflate the feet themselves. -->
+      <g fill="#2b4943" stroke="#2b4943">
+        <use href="#foot-l" stroke-width="16.5" transform="translate(43,103) scale(0.85) translate(-43,-98)"/>
+        <use href="#foot-r" stroke-width="16.5" transform="translate(85,103) scale(0.85) translate(-85,-98)"/>
+        <use href="#torso"  stroke-width="16.5"/>
+        <use href="#arm-l"  stroke-width="14.5"/>
+        <use href="#arm-r"  stroke-width="14.5"/>
+      </g>
+
+      <!-- The nuppeppo, flattened to a single silhouette colour. -->
+      <g fill="#f4f3ed" stroke="#f4f3ed">
+        <use href="#foot-l" stroke-width="3.2" transform="translate(43,103) scale(0.85) translate(-43,-98)"/>
+        <use href="#foot-r" stroke-width="3.2" transform="translate(85,103) scale(0.85) translate(-85,-98)"/>
+        <use href="#torso"  stroke-width="5"/>
+        <use href="#arm-l"  stroke-width="3.8"/>
+        <use href="#arm-r"  stroke-width="3.8"/>
+      </g>
+
+      <!-- Sunken eyes: tapered lid strokes, outer corners drooping, and a small mouth. -->
+      <g fill="#79aabe" stroke="none">
+        <path d="M35 63 Q46 39 59 50 Q46 53 35 63 Z"/>
+        <path d="M41 70 Q50 57 60 61 Q50 65 41 70 Z"/>
+        <path d="M93 63 Q82 39 69 50 Q82 53 93 63 Z"/>
+        <path d="M87 70 Q78 57 68 61 Q78 65 87 70 Z"/>
+        <path d="M53 77 Q65 96 79 77 Q65 85 53 77 Z"/>
+      </g>
+    </g>
+
+    <!-- Dry grass he stands in: a dark bank of blades, then a tan stand of
+         them in front of his feet. -->
+    <g fill="#4a3a1e">
+      <use href="#tuft" transform="translate(4,114) scale(1.1)"/>
+      <use href="#tuft" transform="translate(20,115) scale(-0.95,0.95)"/>
+      <use href="#tuft" transform="translate(35,113) scale(1.15)"/>
+      <use href="#tuft" transform="translate(51,115) scale(-1.05,1.05)"/>
+      <use href="#tuft" transform="translate(67,113) scale(1)"/>
+      <use href="#tuft" transform="translate(83,115) scale(-1.15,1.15)"/>
+      <use href="#tuft" transform="translate(99,114) scale(1.05)"/>
+      <use href="#tuft" transform="translate(116,115) scale(-1,1)"/>
+      <path d="M0 128 V114 C22 111 42 117 64 114 C86 111 108 117 128 113 V128 Z"/>
+    </g>
+
+    <g fill="#d7a45a">
+      <use href="#tuft" transform="translate(0,121) scale(1.15)"/>
+      <use href="#tuft" transform="translate(16,122) scale(-1,1)"/>
+      <use href="#tuft" transform="translate(31,121) scale(1.2)"/>
+      <use href="#tuft" transform="translate(47,122) scale(-1.1,1.1)"/>
+      <use href="#tuft" transform="translate(63,120) scale(1.05)"/>
+      <use href="#tuft" transform="translate(79,122) scale(-1.2,1.2)"/>
+      <use href="#tuft" transform="translate(95,121) scale(1.1)"/>
+      <use href="#tuft" transform="translate(111,122) scale(-1.05,1.05)"/>
+      <use href="#tuft" transform="translate(127,121) scale(1.15)"/>
+      <path d="M0 128 V121 C24 118 44 124 68 121 C92 118 110 123 128 120 V128 Z"/>
+    </g>
+  </g>
+
+</svg>

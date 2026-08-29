@@ -1,0 +1,18 @@
+local m = {}
+
+function m.pick(n: integer): integer
+    if n > 0 then
+        -- Deliberately empty: a branch whose whole body is a comment.
+    elseif n == 0 then
+        -- what the zero case means
+        return 0
+        -- and what it leaves behind
+    else
+        -- the last arm
+        return -n
+    end
+
+    return n
+end
+
+return m

@@ -1,0 +1,249 @@
+module nupp.mem.heap
+
+--[[
+Owned, malloc-backed C arrays.
+
+The returned array is affine and is released with `free` at scope exit. Its
+logical element count moves with the allocation and its pointer is available
+only through checked span views.
+
+```nupp
+local heap = require("nupp.mem.heap")
+
+do
+    local values = heap.allocate(ffi.typeof<int32>(), 4)
+    local writable = values:write()
+    writable[1] = 42 as int32
+    drop writable
+    local readable = values:read()
+    print(readable[1], #readable)
+end -- free runs here
+```
+
+An allocation here sits outside LuaJIT's GC allocation limit, which is the
+reason to reach for one over a `carray`. Reading and writing are the operations
+[](nupp.mem.span) defines, and a live reader and a live writer over one array
+report `NUPP2607`.
+
+::: tip Nonescaping views at -O1
+A nonescaping `read` or `write` can remain virtual, so no span wrapper is
+allocated. An escape or an opaque call materializes the same checked span.
+:::
+
+See [c-interop.md](docs/concepts/c-interop.md#c-arrays) for how this sits beside
+`carray`, and [ownership.md](docs/type-system/ownership.md) for the borrow rules
+the views are written against.
+]]
+
+local heap = {}
+local ffi = require("ffi")
+local span = require("nupp.mem.span")
+
+cdef function malloc(size: uint64): voidptr
+cdef function free(takes pointer: voidptr)
+local free_nosuspend = free as nosuspend function(takes pointer: voidptr): nil
+
+local function finish_array(takes self: any): nil
+    nosuspend do
+        local raw = unsafe release self
+        local pointer = unsafe adopt raw.pointer as affine(voidptr, free_nosuspend)
+        -- The husk outlives the free wherever a dynamic reference still sees
+        -- it, and a nil pointer is what marks the allocation gone.
+        raw.pointer = nil
+        free_nosuspend(pointer)
+    end
+end
+
+local finish_array_nosuspend = finish_array as nosuspend function(takes self: any): nil
+
+sealed interface heap.ArrayToken
+    close: nosuspend function(takes self: ArrayToken): nil
+end
+
+--- Frees an allocation, which is what every heap array's contract names.
+---
+--- Nothing calls this by hand. It is the terminal consumer `affine` carries, so a
+--- scope boundary or an explicit `drop` reaches it.
+---
+--- @param self the array, spent by this call
+--- @export
+function heap.destroyArray<T is heap.ArrayToken>(takes self: T): nil
+    self:close()
+end
+
+--- An owned contiguous native allocation whose logical count cannot be separated
+--- from its pointer in checked code.
+--- @export
+record heap.Array<T> is heap.ArrayToken
+    private pointer: T[?]
+
+    --- How many elements the allocation holds.
+    readonly count: integer
+
+    --- Releases the allocation. Scope exit invokes this automatically.
+    drop: nosuspend function(takes self: Array<T>): nil
+
+    --- Frees the allocation. `drop` and scope exit both reach this.
+    close: nosuspend function(takes self: Array<T>): nil
+
+    --- Borrows the whole allocation as a shared checked span.
+    ---
+    --- The borrow lasts as long as the span does, so a writer cannot be taken out
+    --- while one is live.
+    read: function(borrows self: Array<T>): span.Span<T> borrows (self)
+
+    --- Borrows the whole allocation as an affine checked write span.
+    ---
+    --- Exclusive for as long as the writer is live, so `read` reports `NUPP2607`
+    --- until the writer is dropped.
+    write: function(exclusive self: Array<T>): span.Writable<T> borrows (self)
+end
+
+function heap.Array.read<T>(borrows self: heap.Array<T>): span.Span<T> borrows (self)
+    return span.fromCarray(self.pointer, self.count)
+end
+
+function heap.Array.close<T>(takes self: heap.Array<T>): nil
+    finish_array_nosuspend(self)
+end
+
+function heap.Array.drop<T>(takes self: heap.Array<T>): nil
+    self:close()
+end
+
+function heap.Array.write<T>(exclusive self: heap.Array<T>): span.Writable<T> borrows (self)
+    return span.writeCarray(self.pointer, self.count)
+end
+
+--- Allocates `count` contiguous values of `element` outside LuaJIT's GC allocation
+--- limit.
+---
+--- The result owns the allocation and frees it at its lexical boundary. The bytes
+--- are not zeroed, so a program that reads before it writes reads whatever was
+--- there.
+---
+--- ```nupp
+--- do
+---     local values = heap.allocate(ffi.typeof<int32>(), 1000000)
+---     print(values.count)
+--- end
+--- ```
+---
+--- @param element the ctype of one element
+--- @param count how many elements to allocate
+--- @return the array, owned by the caller
+--- @export
+--- @raises when count is negative, the byte size overflows a Lua integer, or malloc
+---     fails
+function heap.allocate<T>(element: ctype<T>, count: integer): affine(heap.Array<T>, heap.destroyArray)
+    if count < 0 then
+        error("heap array count cannot be negative", 2)
+    end
+
+    local width = ffi.sizeof(element)
+    if width <= 0 or (count > 0 and count > 9007199254740991 // width) then
+        error("heap array byte size is too large", 2)
+    end
+
+    local bytes = width * count
+    if bytes == 0 then
+        bytes = 1
+    end
+    local raw = malloc(bytes as uint64)
+    if raw == nil then
+        error("heap array allocation failed", 2)
+    end
+
+    -- A variable spec keeps this on LuaJIT's dynamic-ctype path. The static assertion
+    -- records the relationship already established by the ctype<T> argument.
+    local pointerSpec = "$ *"
+    local pointerType = ffi.typeof(pointerSpec, element)
+    unsafe do
+        local pointer = ffi.cast(pointerType, raw) as T[?]
+        local array = new heap.Array(pointer = pointer, count = count) as heap.Array<T>
+        return array
+    end
+end
+
+-- Private hooks for the worker transport: recognizing an owned array as a moved
+-- transfer leaf, taking its allocation apart for a message attachment, and
+-- rebuilding the one owner around a received pointer. The tag vocabulary is
+-- positional and must agree with the comptime walk in nupp.workers; a receiver
+-- that cannot honor a tag gets nil and fails the task rather than
+-- reinterpreting memory. Kept off the authored surface. See NEP 23.
+local MOVABLE_ELEMENTS: {
+    string
+} = {"uint8_t", "int8_t", "uint16_t", "int16_t", "uint32_t", "int32_t", "uint64_t", "int64_t", "float", "double",}
+local tagByPointerType: {[string]: integer} = {}
+local pointerTypeByTag: {[integer]: any} = {}
+for tag, element in ipairs(MOVABLE_ELEMENTS) do
+    local pointerType = ffi.typeof(element .. " *")
+    tagByPointerType[tostring(pointerType)] = tag
+    pointerTypeByTag[tag] = pointerType
+end
+
+local pointerBox = ffi.new("void *[1]")
+local POINTER_SIZE = ffi.sizeof("void *") as integer
+
+local getmetatable_nosuspend = getmetatable as nosuspend function(any): any
+local movedProbe = heap.allocate(ffi.typeof<int32>(), 0)
+local arrayMetatable: any = nil
+nosuspend do
+    local raw = unsafe release movedProbe
+    arrayMetatable = getmetatable_nosuspend(raw)
+    local pointer = unsafe adopt raw.pointer as affine(voidptr, free_nosuspend)
+    free_nosuspend(pointer)
+end
+
+local function movableTag(value: any): integer?
+    local raw = value as {[string]: any}
+    local pointer = raw.pointer
+    if pointer == nil then
+        return nil
+    end
+
+    return tagByPointerType[tostring(ffi.typeof(pointer))]
+end
+
+rawset(_G.nupp, "__heapArrayMetatable", arrayMetatable)
+rawset(heap as table, "__heapArrayMovable", movableTag)
+
+-- Takes the allocation: the pointer leaves as native-width bytes, the husk is
+-- neutralized so no later path frees storage the message now owns.
+rawset(heap as table, "__heapArrayParts", function(value: any): (string?, integer?, integer?)
+    local tag = movableTag(value)
+    if tag == nil then
+        return nil, nil, nil
+    end
+    local raw = value as {[string]: any}
+    pointerBox[0] = raw.pointer
+    local bytes = ffi.string(pointerBox, POINTER_SIZE)
+    raw.pointer = nil
+
+    return bytes, raw.count as integer, tag
+end)
+
+rawset(heap as table, "__heapArrayFromParts", function(pointer: any, count: integer, tag: integer): any
+    local pointerType = pointerTypeByTag[tag]
+    if pointerType == nil or count < 0 then
+        return nil
+    end
+
+    return setmetatable({pointer = ffi.cast(pointerType, pointer), count = count}, arrayMetatable)
+end)
+
+-- Frees a moved allocation that never reached an owner: a send that failed
+-- after extraction, or a received layout tag this lane cannot honor. Accepts
+-- the pointer as the extracted native-width bytes or as the popped pointer.
+rawset(heap as table, "__heapArrayFree", function(pointer: any): nil
+    local raw = pointer
+    if type(pointer) == "string" then
+        raw = (ffi.cast("void * const *", pointer) as any)[0]
+    end
+    nosuspend do
+        local owned = unsafe adopt(ffi.cast("void *", raw)) as affine(voidptr, free_nosuspend)
+        free_nosuspend(owned)
+    end
+end)
+
+export = heap

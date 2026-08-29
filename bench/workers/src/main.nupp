@@ -1,0 +1,450 @@
+const jobs = require("jobs")
+const ffi = require("ffi")
+const workers = require("nupp.workers")
+local workerRuntime = workers as any
+
+ffi.cdef[[double nuppTimeMonotonicMs(void);]]
+const C = ffi.C
+
+-- The host clock is part of this benchmark fixture, not measured work.
+const SAMPLES = 9
+const LATENCY_TASKS = 1000
+const PAYLOAD_TASKS = 300
+const CPU_TARGET_MS = 20
+
+local type Row = {
+    name: string,
+    medianMs: number,
+    operations: integer,
+    bytes: integer,
+    note: string
+}
+
+local function now(): number
+    return tonumber(C.nuppTimeMonotonicMs()) as number
+end
+
+local function median(values: {number}): number
+    table.sort(values)
+
+    return values[math.ceil(#values / 2)] as number
+end
+
+local function report(row: Row): nil
+    local micros = row.medianMs * 1000 / row.operations
+    local throughput = row.bytes > 0 and row.bytes * row.operations / row.medianMs / 1048.576 or 0
+    print(("%-18s %9.2f us/op %9.2f MiB/s  %s"):format(row.name, micros, throughput, row.note))
+end
+
+local rows: {Row} = {}
+local sink = 0.0
+
+local coldStarted = now()
+with scope = workers.scope() do
+end
+const coldMs = now() - coldStarted
+const lanes = math.max(1, math.min(workerRuntime.__parallelism(), 64)) as integer
+print(("worker benchmark: %d lanes, median of %d samples"):format(lanes, SAMPLES))
+print(("cold scheduler     %9.2f ms       %9s  first scope"):format(coldMs, "-"))
+
+local latencySamples: {number} = {}
+for sample = 1, SAMPLES + 2 do
+    local started = now()
+    with scope = workers.scope() do
+        for index = 1, LATENCY_TASKS do
+            sink = sink + scope:spawn(index, jobs.identity):await()
+        end
+    end
+    if sample > 2 then
+        latencySamples[#latencySamples + 1] = now() - started
+    end
+end
+rows[
+    #rows + 1
+] = {
+    name = "scalar round-trip",
+    medianMs = median(latencySamples),
+    operations = LATENCY_TASKS,
+    bytes = 0,
+    note = "sequential warm spawn + await"
+}
+
+local text = ("abcdefgh"):rep(512)
+local textSamples: {number} = {}
+for sample = 1, SAMPLES + 2 do
+    local started = now()
+    with scope = workers.scope() do
+        for _ = 1, PAYLOAD_TASKS do
+            sink = sink + #scope:spawn(text, jobs.echoText):await()
+        end
+    end
+    if sample > 2 then
+        textSamples[#textSamples + 1] = now() - started
+    end
+end
+rows[
+    #rows + 1
+] = {
+    name = "text 4 KiB",
+    medianMs = median(textSamples),
+    operations = PAYLOAD_TASKS,
+    bytes = #text * 2,
+    note = "request + response bytes"
+}
+
+local payload = new jobs.Payload(id = 7, label = "payload", bytes = text)
+local recordSamples: {number} = {}
+for sample = 1, SAMPLES + 2 do
+    local started = now()
+    with scope = workers.scope() do
+        for _ = 1, PAYLOAD_TASKS do
+            const returned = scope:spawn(payload, jobs.echoPayload):await()
+            sink = sink + returned.id + #returned.bytes
+        end
+    end
+    if sample > 2 then
+        recordSamples[#recordSamples + 1] = now() - started
+    end
+end
+rows[
+    #rows + 1
+] = {
+    name = "record 4 KiB",
+    medianMs = median(recordSamples),
+    operations = PAYLOAD_TASKS,
+    bytes = #text * 2,
+    note = "record metatable + fields"
+}
+
+local anyRecordSamples: {number} = {}
+for sample = 1, SAMPLES + 2 do
+    local started = now()
+    with scope = workers.scope() do
+        for _ = 1, PAYLOAD_TASKS do
+            const returned = scope:spawn(payload, jobs.echoDynamic):await()
+            sink = sink + returned.id + #returned.bytes
+        end
+    end
+    if sample > 2 then
+        anyRecordSamples[#anyRecordSamples + 1] = now() - started
+    end
+end
+rows[
+    #rows + 1
+] = {
+    name = "record via any",
+    medianMs = median(anyRecordSamples),
+    operations = PAYLOAD_TASKS,
+    bytes = #text * 2,
+    note = "exact record detected at runtime"
+}
+
+local plainTable = {id = 7, label = "payload", bytes = text}
+local dynamicRecordSamples: {number} = {}
+for sample = 1, SAMPLES + 2 do
+    local started = now()
+    with scope = workers.scope() do
+        for _ = 1, PAYLOAD_TASKS do
+            const returned = scope:spawn(plainTable, jobs.echoDynamic):await()
+            sink = sink + returned.id + #returned.bytes
+        end
+    end
+    if sample > 2 then
+        dynamicRecordSamples[#dynamicRecordSamples + 1] = now() - started
+    end
+end
+rows[
+    #rows + 1
+] = {
+    name = "record dynamic",
+    medianMs = median(dynamicRecordSamples),
+    operations = PAYLOAD_TASKS,
+    bytes = #text * 2,
+    note = "plain table through the codec fallback"
+}
+
+local sparse = new jobs.Sparse(id = 7, label = "payload", bytes = text)
+with scope = workers.scope() do
+    const bare = scope:spawn(sparse, jobs.echoSparse):await()
+    if bare.note ~= nil or bare.id ~= 7 or #bare.bytes ~= #text then
+        error("an optional-field record round trip corrupted its fields")
+    end
+    const noted = scope:spawn(new jobs.Sparse(id = 8, label = "n", bytes = "b", note = "kept"), jobs.echoSparse):await()
+    if noted.note ~= "kept" or noted.id ~= 8 then
+        error("a present optional field did not survive the round trip")
+    end
+end
+local sparseSamples: {number} = {}
+for sample = 1, SAMPLES + 2 do
+    local started = now()
+    with scope = workers.scope() do
+        for _ = 1, PAYLOAD_TASKS do
+            const returned = scope:spawn(sparse, jobs.echoSparse):await()
+            sink = sink + returned.id + #returned.bytes
+        end
+    end
+    if sample > 2 then
+        sparseSamples[#sparseSamples + 1] = now() - started
+    end
+end
+rows[
+    #rows + 1
+] = {
+    name = "optional 4 KiB",
+    medianMs = median(sparseSamples),
+    operations = PAYLOAD_TASKS,
+    bytes = #text * 2,
+    note = "record with an absent optional field"
+}
+
+const sharedbytes = require("nupp.mem.sharedbytes")
+
+local lined = ("abcdefg\n"):rep(131072)
+local corpus = sharedbytes.copy(lined)
+local expectedLines = 131072
+
+if corpus:slice(9, 16):text() ~= "abcdefg\n" then
+    error("a region slice read the wrong bytes")
+end
+if corpus:slice(1, corpus:size()) ~= corpus then
+    error("region extent equality failed")
+end
+with scope = workers.scope() do
+    const counted = scope:spawn(corpus, 1, corpus:size(), jobs.countRange):await()
+    if counted ~= expectedLines then
+        error("a region crossing miscounted: " .. tostring(counted))
+    end
+end
+
+local bigTextSamples: {number} = {}
+for sample = 1, SAMPLES + 2 do
+    local started = now()
+    with scope = workers.scope() do
+        for _ = 1, PAYLOAD_TASKS do
+            sink = sink + #scope:spawn(lined, jobs.echoText):await()
+        end
+    end
+    if sample > 2 then
+        bigTextSamples[#bigTextSamples + 1] = now() - started
+    end
+end
+rows[
+    #rows + 1
+] = {
+    name = "text 1 MiB",
+    medianMs = median(bigTextSamples),
+    operations = PAYLOAD_TASKS,
+    bytes = #lined * 2,
+    note = "request + response bytes"
+}
+
+local regionSamples: {number} = {}
+for sample = 1, SAMPLES + 2 do
+    local started = now()
+    with scope = workers.scope() do
+        for _ = 1, PAYLOAD_TASKS do
+            sink = sink + scope:spawn(corpus, jobs.regionSize):await()
+        end
+    end
+    if sample > 2 then
+        regionSamples[#regionSamples + 1] = now() - started
+    end
+end
+rows[
+    #rows + 1
+] = {
+    name = "region 1 MiB",
+    medianMs = median(regionSamples),
+    operations = PAYLOAD_TASKS,
+    bytes = #lined * 2,
+    note = "engine region crossed by reference"
+}
+
+const SCAN_TASKS = 30
+local regionScanSamples: {number} = {}
+for sample = 1, SAMPLES + 2 do
+    local started = now()
+    with scope = workers.scope() do
+        for _ = 1, SCAN_TASKS do
+            sink = sink + scope:spawn(corpus, 1, corpus:size(), jobs.countRange):await()
+        end
+    end
+    if sample > 2 then
+        regionScanSamples[#regionScanSamples + 1] = now() - started
+    end
+end
+rows[
+    #rows + 1
+] = {
+    name = "region scan 1 MiB",
+    medianMs = median(regionScanSamples),
+    operations = SCAN_TASKS,
+    bytes = #lined * 2,
+    note = "worker counts newlines through a view"
+}
+
+local textScanSamples: {number} = {}
+for sample = 1, SAMPLES + 2 do
+    local started = now()
+    with scope = workers.scope() do
+        for _ = 1, SCAN_TASKS do
+            sink = sink + scope:spawn(lined, jobs.countText):await()
+        end
+    end
+    if sample > 2 then
+        textScanSamples[#textScanSamples + 1] = now() - started
+    end
+end
+rows[
+    #rows + 1
+] = {
+    name = "text scan 1 MiB",
+    medianMs = median(textScanSamples),
+    operations = SCAN_TASKS,
+    bytes = #lined * 2,
+    note = "worker counts newlines in a copied string"
+}
+
+const heap = require("nupp.mem.heap")
+
+local small = heap.allocate(ffi.typeof<uint8>(), 4096)
+with scope = workers.scope() do
+    small = scope:spawn(small, 7, jobs.bump):await()
+end
+do
+    local readable = small:read()
+    if small.count ~= 4096 or readable[1] ~= 7 then
+        error("a moved buffer lost its write across the lane crossing")
+    end
+end
+
+local smallMoveSamples: {number} = {}
+for sample = 1, SAMPLES + 2 do
+    local started = now()
+    with scope = workers.scope() do
+        for _ = 1, PAYLOAD_TASKS do
+            small = scope:spawn(small, jobs.bounce):await()
+        end
+    end
+    if sample > 2 then
+        smallMoveSamples[#smallMoveSamples + 1] = now() - started
+    end
+end
+drop small
+rows[
+    #rows + 1
+] = {
+    name = "moved 4 KiB",
+    medianMs = median(smallMoveSamples),
+    operations = PAYLOAD_TASKS,
+    bytes = 4096 * 2,
+    note = "owned buffer moved there and back"
+}
+
+const MOVE_TASKS = 30
+const FRAME_BYTES = 8 * 1048576
+local frame = heap.allocate(ffi.typeof<uint8>(), FRAME_BYTES)
+local movedSamples: {number} = {}
+for sample = 1, SAMPLES + 2 do
+    local started = now()
+    with scope = workers.scope() do
+        for _ = 1, MOVE_TASKS do
+            frame = scope:spawn(frame, jobs.bounce):await()
+        end
+    end
+    if sample > 2 then
+        movedSamples[#movedSamples + 1] = now() - started
+    end
+end
+if frame.count ~= FRAME_BYTES then
+    error("a moved buffer changed size across lanes")
+end
+drop frame
+rows[
+    #rows + 1
+] = {
+    name = "moved 8 MiB",
+    medianMs = median(movedSamples),
+    operations = MOVE_TASKS,
+    bytes = FRAME_BYTES * 2,
+    note = "owned buffer moved there and back"
+}
+
+local big = ("abcdefgh"):rep(FRAME_BYTES // 8)
+local bigMoveSamples: {number} = {}
+for sample = 1, SAMPLES + 2 do
+    local started = now()
+    with scope = workers.scope() do
+        for _ = 1, MOVE_TASKS do
+            sink = sink + #scope:spawn(big, jobs.echoText):await()
+        end
+    end
+    if sample > 2 then
+        bigMoveSamples[#bigMoveSamples + 1] = now() - started
+    end
+end
+rows[
+    #rows + 1
+] = {
+    name = "text 8 MiB",
+    medianMs = median(bigMoveSamples),
+    operations = MOVE_TASKS,
+    bytes = FRAME_BYTES * 2,
+    note = "the same working set copied both ways"
+}
+
+local iterations: integer = 1000
+while true do
+    const started = now()
+    sink = sink + jobs.burn(iterations)
+    if now() - started >= CPU_TARGET_MS then
+        break
+    end
+    iterations = (iterations * 2) as integer
+end
+
+-- Compile the hot worker loop in every lane before measuring it.
+with scope = workers.scope() do
+    local warm: {workers.Task<function(integer): number>} = {}
+    for index = 1, lanes do
+        warm[index] = scope:spawn(iterations, jobs.burn)
+    end
+    for index = 1, lanes do
+        sink = sink + warm[index]:await()
+    end
+end
+
+local serialSamples: {number} = {}
+local parallelSamples: {number} = {}
+for _ = 1, SAMPLES do
+    local serialStarted = now()
+    for _ = 1, lanes do
+        sink = sink + jobs.burn(iterations)
+    end
+    serialSamples[#serialSamples + 1] = now() - serialStarted
+
+    local parallelStarted = now()
+    with scope = workers.scope() do
+        local tasks: {workers.Task<function(integer): number>} = {}
+        for index = 1, lanes do
+            tasks[index] = scope:spawn(iterations, jobs.burn)
+        end
+        for index = 1, lanes do
+            sink = sink + tasks[index]:await()
+        end
+    end
+    parallelSamples[#parallelSamples + 1] = now() - parallelStarted
+end
+
+for _, row in ipairs(rows) do
+    report(row)
+end
+const serialMs = median(serialSamples)
+const parallelMs = median(parallelSamples)
+print(("CPU serial         %9.2f ms       %9s  %d jobs"):format(serialMs, "-", lanes))
+print(("CPU parallel       %9.2f ms       %9s  %.2fx speedup"):format(parallelMs, "-", serialMs / parallelMs))
+
+-- Keep every result observable after the measured loops.
+if sink == 0 then
+    error("worker benchmark produced no result")
+end

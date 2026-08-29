@@ -1,0 +1,11 @@
+local m = {}
+
+local plan = {
+    name = "build",
+    steps = {{id = 1, run = "compile", inputs = {"a.nupp", "b.nupp"}}, {id = 2, run = "link"}},
+    retries = 2
+}
+
+local shallow = {inner = {1, 2, 3}}
+
+return m, plan, shallow

@@ -1,0 +1,402 @@
+#!/bin/sh
+# The nupp launcher.
+#
+# Runs build/nupp/compiler when it is there and no source is newer than it, and builds it
+# first when it is not, so an edit to the compiler is picked up by the next
+# command rather than by the next person who remembers to build.
+#
+# What it cannot do is start from nothing. The compiler is written in Nupp, so
+# compiling it needs a Nupp compiler; bootstrap/nupp.lua is that compiler,
+# already lowered to Lua, and it is the one thing here that does not itself need
+# building. A checkout without it has no way in.
+ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+LUA_ROOT="$ROOT"
+case "$(uname -s 2>/dev/null)" in
+    MINGW*|MSYS*|CYGWIN*) LUA_ROOT="$(cygpath -m "$ROOT")" ;;
+esac
+BUILT="$ROOT/build/nupp/compiler/main.lua"
+STAMP="$ROOT/build/.nupp-complete"
+BOOTSTRAP="$ROOT/bootstrap/nupp.lua"
+LUA_BUILT="$LUA_ROOT/build/nupp/compiler/main.lua"
+LUA_BOOTSTRAP="$LUA_ROOT/bootstrap/nupp.lua"
+LUAPATH="package.path=\"$LUA_ROOT/build/?.lua;\" .. package.path"
+
+# The project's own rock tree, written by a build that declares a luarocks
+# dependency -- `nupp build --target bootstrapCompiler` and `--target docs`
+# between them install every rock this repository develops against. Exported
+# rather than passed
+# with -e, because the toolchain starts other interpreters — `nupp run`, the
+# configured test command — and a library the compiler can see should be one
+# they can see too. A trailing empty entry is where Lua substitutes the default
+# path, so nothing already installed is hidden.
+ROCKS="$ROOT/.rocks"
+LUA_ROCKS="$LUA_ROOT/.rocks"
+LUA_PATH="$LUA_ROCKS/share/lua/5.1/?.lua;$LUA_ROCKS/share/lua/5.1/?/init.lua;${LUA_PATH:-;}"
+LUA_CPATH="$LUA_ROCKS/lib/lua/5.1/?.so;$LUA_ROCKS/lib/lua/5.1/?.dll;${LUA_CPATH:-;}"
+
+# A clean CI checkout has no development rock tree yet, but provisioning the
+# pinned toolchain has already built the exact LPeg the compiler needs. Use it
+# when it is complete without making the launcher provision anything itself.
+# That keeps help usable without a compiler and lets `.rocks` remain the normal
+# development source when it exists.
+# Worked out once per process tree rather than once per command.
+#
+# The prefix is a hash of the compiler pair, their version output, the machine
+# and the provisioning rules, so asking for it runs both compilers and hashes
+# two files: about sixty milliseconds, which is a third of what checking a small
+# project costs. Every nested command pays it again for an answer that cannot
+# have changed, and the test suite runs this launcher thousands of times.
+#
+# Carried in the environment, since that is what a child inherits and a shell
+# variable is not. Keyed by everything the answer depends on that a caller can
+# move -- the checkout and the four variables `scripts/toolchain` reads -- so a
+# command run under a different compiler works its own answer out rather than
+# being handed somebody else's.
+TOOLCHAIN_CACHE_KEY="$ROOT|${NUPP_CC:-}|${NUPP_CXX:-}|${NUPP_TOOLCHAIN_DIR:-}"
+if [ "${NUPP_LAUNCHER_TOOLCHAIN_KEY:-}" = "$TOOLCHAIN_CACHE_KEY" ] \
+    && [ -n "${NUPP_LAUNCHER_TOOLCHAIN_PREFIX:-}" ]; then
+    TOOLCHAIN_PREFIX=$NUPP_LAUNCHER_TOOLCHAIN_PREFIX
+else
+    TOOLCHAIN_PREFIX=$("$ROOT/scripts/toolchain" --prefix 2>/dev/null)
+    case "$(uname -s 2>/dev/null)" in
+        MINGW*|MSYS*|CYGWIN*) TOOLCHAIN_PREFIX=$(cygpath -m "$TOOLCHAIN_PREFIX") ;;
+    esac
+fi
+NUPP_LAUNCHER_TOOLCHAIN_KEY=$TOOLCHAIN_CACHE_KEY
+NUPP_LAUNCHER_TOOLCHAIN_PREFIX=$TOOLCHAIN_PREFIX
+export NUPP_LAUNCHER_TOOLCHAIN_KEY NUPP_LAUNCHER_TOOLCHAIN_PREFIX
+TOOLCHAIN_LPEG="$TOOLCHAIN_PREFIX/lpeg"
+if [ -f "$TOOLCHAIN_LPEG/.complete" ]; then
+    LUA_PATH="$TOOLCHAIN_LPEG/share/?.lua;$LUA_PATH"
+    LUA_CPATH="$TOOLCHAIN_LPEG/lib/?.so;$TOOLCHAIN_LPEG/lib/?.dll;$LUA_CPATH"
+fi
+# The interpreter this launcher is about to run under is the one an `@aot` entry
+# will be opened by, and on Windows such an entry has to name its import library
+# at link time. Say where it is rather than leaving it to be found on a PATH the
+# interpreter is not on.
+TOOLCHAIN_LUAJIT="$TOOLCHAIN_PREFIX/luajit"
+if [ -f "$TOOLCHAIN_LUAJIT/.complete" ]; then
+    NUPP_TOOLCHAIN_LUAJIT="$TOOLCHAIN_LUAJIT"
+    export NUPP_TOOLCHAIN_LUAJIT
+fi
+
+TOOLCHAIN_LUAROCKS="$TOOLCHAIN_PREFIX/luarocks"
+if [ -f "$TOOLCHAIN_LUAROCKS/.complete" ] && [ -z "${NUPP_LUAROCKS:-}" ]; then
+    NUPP_LUAROCKS=$(cat "$TOOLCHAIN_LUAROCKS/.executable")
+    export NUPP_LUAROCKS
+    case "$(uname -s 2>/dev/null)" in
+        MINGW*|MSYS*|CYGWIN*)
+            TOOLCHAIN_LUAROCKS_BIN=$(cygpath -u "$TOOLCHAIN_LUAROCKS")
+            ;;
+        *) TOOLCHAIN_LUAROCKS_BIN="$TOOLCHAIN_LUAROCKS/bin" ;;
+    esac
+    PATH="$TOOLCHAIN_LUAROCKS_BIN:$PATH"
+    export PATH
+fi
+export LUA_PATH LUA_CPATH
+export NUPP_COMPILER_ROOT="$LUA_ROOT"
+
+# A compiler rebuild happens before the requested command can parse its options,
+# but colour is meant to cover the whole command, including that rebuild. Keep
+# the one colour spelling the caller chose so the temporary `build` invocation
+# and the launcher notice use the same policy as the command that follows.
+BUILD_COLOR_ARG=
+BUILD_COLOR_CONFLICT=no
+for argument in "$@"; do
+    case "$argument" in
+        --color) wanted_color=always ;;
+        --color=always|--color=never|--color=auto) wanted_color=${argument#--color=} ;;
+        --no-color) wanted_color=never ;;
+        *) wanted_color= ;;
+    esac
+    if [ -n "$wanted_color" ]; then
+        if [ -n "$BUILD_COLOR_ARG" ] \
+            && [ "$BUILD_COLOR_ARG" != "--color=$wanted_color" ]; then
+            BUILD_COLOR_CONFLICT=yes
+        else
+            BUILD_COLOR_ARG="--color=$wanted_color"
+        fi
+    fi
+done
+if [ "$BUILD_COLOR_CONFLICT" = yes ]; then
+    BUILD_COLOR_ARG=
+fi
+
+launcher_color_enabled() {
+    case "$BUILD_COLOR_ARG" in
+        --color=always) return 0 ;;
+        --color=never) return 1 ;;
+    esac
+    [ -n "${NO_COLOR:-}" ] && [ "${NO_COLOR:-}" != 0 ] && return 1
+    [ -n "${CLICOLOR_FORCE:-}" ] && [ "${CLICOLOR_FORCE:-}" != 0 ] && return 0
+    [ "${TERM:-}" != dumb ] && [ -t 2 ]
+}
+
+launcher_notice() {
+    if launcher_color_enabled; then
+        printf '\033[1;36mnupp:\033[0m %s\n' "$1" >&2
+    else
+        printf 'nupp: %s\n' "$1" >&2
+    fi
+}
+
+# The compiler lists directories through `nupp.io.files`, so it needs that
+# facility's native provider the way any other program using one does. A built
+# program finds its library beside itself; the compiler's own output tree puts
+# `build/lib` one level further out than the generated loader looks, so name it
+# outright. Windows requires the real `.dll` filename; keeping the platform
+# filename everywhere also makes this override agree with the generated loader.
+# Keep the launcher's broad development provider separate from the feature-matched
+# provider a build target stages. Otherwise rebuilding the compiler can replace the
+# library under a later `nupp run` with a narrower union.
+case "$(uname -s 2>/dev/null)" in
+    MINGW*|MSYS*|CYGWIN*)
+        NATIVE_BUILT_FILENAME=nupp_native.dll
+        NATIVE_FILENAME=nupp_native_dev.dll
+        ;;
+    Darwin*)
+        NATIVE_BUILT_FILENAME=libnupp_native.dylib
+        NATIVE_FILENAME=libnupp_native_dev.dylib
+        ;;
+    *)
+        NATIVE_BUILT_FILENAME=libnupp_native.so
+        NATIVE_FILENAME=libnupp_native_dev.so
+        ;;
+esac
+export NUPP_NATIVE_LIBRARY="$LUA_ROOT/build/lib/$NATIVE_FILENAME"
+
+# Which makes a C compiler a prerequisite for building Nupp at all, rather than
+# only for a target that asked for a native facility. Stage 0 reaches the
+# provider while listing the sources it is about to compile, so there is no
+# ordering in which the compiler builds it for itself first.
+#
+# `scripts/toolchain` decides where the build lands and how it is cached, which
+# is why nothing here names a directory: the answer is keyed by the compiler
+# this machine has, and shared by every worktree of this checkout.
+build_native() {
+    # `files` because stage 0 lists its own sources through it. The rest are
+    # optional stdlib facilities a program run by this launcher may select;
+    # unlike a packaged build, `nupp run` loads this one development provider
+    # rather than staging a target-specific union beside the program.
+    built=$("$ROOT/scripts/toolchain" native files,net,tls,process,http,filesystem,uri,uuid) \
+        || return 1
+    mkdir -p "$ROOT/build/lib"
+    # Copied beside the destination and renamed onto it, never written in place.
+    # A rename within one directory is atomic, so a command loading the library
+    # while this runs sees the old file or the new one. Writing over it directly
+    # leaves a window in which the file is neither: half a shared library, which
+    # the loader does not report as a bad file -- on macOS the kernel refuses the
+    # image and kills the process outright, some way from the cause.
+    staged="$NUPP_NATIVE_LIBRARY.$$"
+    if cp "$built" "$staged" && mv -f "$staged" "$NUPP_NATIVE_LIBRARY"; then
+        return 0
+    fi
+    rm -f "$staged"
+    echo "nupp: could not install the native provider" >&2
+    return 1
+}
+
+. "$ROOT/scripts/luajit.sh"
+select_luajit "$ROOT" || exit 1
+
+built_exists() {
+    [ -f "$STAMP" ] && [ -f "$BUILT" ]
+}
+
+# The stamp is rewritten by every build, warm ones included, so one source
+# newer than it means the build has not seen that edit. Checking mtimes rather
+# than asking the build system costs ten milliseconds where a warm build costs
+# two seconds, and this runs before every command.
+built_is_current() {
+    built_exists || return 1
+    [ -z "$(find "$ROOT/src" -name '*.nupp' -newer "$STAMP" 2>/dev/null \
+        | head -n 1)" ]
+}
+
+# One build at a time, per tree.
+#
+# A build removes the completion stamp before it writes anything, so while one is
+# running every other process sees a tree that looks like it was never built --
+# and each of them starts its own over the same output directory. A test suite
+# whose own build takes a minute is enough: every command a test runs in that
+# minute becomes another compiler compiling the same files, and none of them
+# finish because the others keep moving the files under them.
+#
+# `mkdir` is the lock because it is atomic wherever this script runs. The pid in
+# it is what tells a lock somebody is holding from one a killed build left
+# behind.
+BUILD_LOCK="$ROOT/build/.nupp-build-lock"
+BUILD_LOCK_HELD=no
+
+# How long to wait for another build before deciding it is not coming back. A
+# cold build of this compiler is about twenty seconds and a bootstrap one a few
+# minutes, so this is minutes past anything legitimate.
+BUILD_LOCK_WAIT=900
+
+release_build_lock() {
+    [ "$BUILD_LOCK_HELD" = yes ] || return 0
+    BUILD_LOCK_HELD=no
+    rm -rf "$BUILD_LOCK"
+}
+
+lock_holder_alive() {
+    holder=$(cat "$BUILD_LOCK/pid" 2>/dev/null) || return 1
+    [ -n "$holder" ] || return 1
+    kill -0 "$holder" 2>/dev/null
+}
+
+# 0 holding the lock and with a build still to do, 1 when somebody else's build
+# has already produced what this one was going to.
+take_build_lock() {
+    waited=0
+    while :; do
+        mkdir -p "$ROOT/build" 2>/dev/null
+        if mkdir "$BUILD_LOCK" 2>/dev/null; then
+            printf '%s\n' "$$" > "$BUILD_LOCK/pid"
+            BUILD_LOCK_HELD=yes
+            trap 'release_build_lock' EXIT
+            trap 'release_build_lock; exit 130' INT
+            trap 'release_build_lock; exit 143' TERM
+            return 0
+        fi
+        if ! lock_holder_alive; then
+            rm -rf "$BUILD_LOCK"
+            continue
+        fi
+        sleep 1
+        waited=$((waited + 1))
+        # Whoever holds it is building the same sources this needs built, so
+        # their answer is this one's answer.
+        built_is_current && return 1
+        if [ "$waited" -ge "$BUILD_LOCK_WAIT" ]; then
+            echo "nupp: another build has held $BUILD_LOCK for ${waited}s;" \
+                "building without it" >&2
+            return 0
+        fi
+    done
+}
+
+# With the best compiler available: the built one when there is one, since a
+# compiler that has kept up with the sources is likelier to compile them than a
+# bundle from whenever it was last refreshed.
+#
+# The built one is chosen on whether it is there, not on whether the stamp says
+# the last build finished. Those differ exactly while a build is running, and
+# answering "there is no compiler here" then sent every concurrent command to
+# the stage-0 bootstrap -- the slowest compiler in the tree -- to build the
+# whole thing from nothing, when a working compiler was sitting right there.
+#
+# When that one cannot build, the bootstrap gets a turn. A build can succeed and
+# still leave a compiler that does not run — that is an ordinary afternoon when
+# the thing being edited is the compiler — and without the second attempt the
+# only way out is knowing to delete build/ by hand.
+build_now() {
+    # Announced only by the process that is going to do it.
+    #
+    # Said before taking the lock, this was said by every command that arrived
+    # while somebody else was building -- and a build removes the completion
+    # stamp before it writes anything, so that window is the whole build. Under
+    # the test suite that is dozens of commands, each announcing a build it then
+    # waits for rather than does, into whatever output the test was capturing.
+    # Two suites compare that output against what the command is documented to
+    # print, and failed on the announcement.
+    take_build_lock || return 0
+    launcher_notice "sources changed, building the compiler"
+    build_status=1
+    if [ -f "$BUILT" ]; then
+        if [ -n "$BUILD_COLOR_ARG" ]; then
+            (cd "$ROOT" && luajit -e "$LUAPATH" "$LUA_BUILT" build "$BUILD_COLOR_ARG")
+        else
+            (cd "$ROOT" && luajit -e "$LUAPATH" "$LUA_BUILT" build)
+        fi
+        if [ "$?" -eq 0 ]; then
+            release_build_lock
+            return 0
+        fi
+        if [ -f "$BOOTSTRAP" ]; then
+            echo "nupp: falling back to the bootstrap compiler" >&2
+        fi
+    fi
+    if [ -f "$BOOTSTRAP" ]; then
+        if [ -n "$BUILD_COLOR_ARG" ]; then
+            (cd "$ROOT" && luajit "$LUA_BOOTSTRAP" build "$BUILD_COLOR_ARG")
+        else
+            (cd "$ROOT" && luajit "$LUA_BOOTSTRAP" build)
+        fi
+        build_status=$?
+    fi
+    release_build_lock
+
+    return "$build_status"
+}
+
+# `build` and `clean` are the build; running one before them would be doing
+# their job twice or undoing it. `help` and a bare invocation answer without
+# reading a single source file.
+#
+# A comptime worker is a child of a build that is already running: it is handed
+# one request by the compiler that started it and answers that. Letting it ask
+# whether the tree needs building meant every worker a build spawned started a
+# second build of the same tree, while its parent was still writing the files.
+is_worker=no
+case "${1:-}" in
+    ""|-h|--help|help) rebuild=no ;;
+    __comptime-worker|__comptime-worker-service) rebuild=no; is_worker=yes ;;
+    build|clean)       rebuild=no ;;
+    *)                 rebuild=yes ;;
+esac
+
+# Help never reads a source file, so it must keep working in a tree that has the
+# tracked bootstrap and nothing else. Everything else reaches the provider the
+# moment it lists a directory, and saying so beats an ffi.load traceback.
+needs_native=yes
+case "${1:-}" in
+    ""|-h|--help|help) needs_native=no ;;
+esac
+for argument in "$@"; do
+    case "$argument" in
+        -h|--help) needs_native=no ;;
+    esac
+done
+
+# The same rule the compiler gets: a source newer than the artifact means the
+# artifact has not seen that edit. Without this an edit to the provider was
+# picked up by whoever next deleted the library by hand, and everything in
+# between tested the one before it.
+native_is_current() {
+    [ -f "$NUPP_NATIVE_LIBRARY" ] || return 1
+    [ -z "$(find "$ROOT/runtime" -type f \
+        \( -name '*.rs' -o -name '*.c' -o -name '*.h' -o -name '*.toml' \) \
+        -newer "$NUPP_NATIVE_LIBRARY" 2>/dev/null | head -n 1)" ]
+}
+
+if [ "$needs_native" = yes ] && ! native_is_current; then
+    build_native || exit 1
+fi
+
+if [ "$rebuild" = yes ] && ! built_is_current; then
+    if ! build_now; then
+        # Mid-edit the compiler often does not compile, and that is no reason
+        # for the rest of the toolchain to stop working. The last compiler that
+        # did build still runs; it is just running behind, and says so.
+        echo "nupp: the compiler did not build; running the last one that did" >&2
+    fi
+fi
+
+# A worker is a child of a build that is running, and the compiler running it is
+# the one in build/ -- stamp or no stamp, because that build removed the stamp
+# before it started writing. Answering with the bootstrap instead has one
+# compiler's questions answered by another one, and the comptime value that comes
+# back is a value the asking compiler does not recognize: a build rejecting its
+# own source with "unknown is not a Handler", intermittently, depending on which
+# modules needed a worker.
+if built_exists || { [ "$is_worker" = yes ] && [ -f "$BUILT" ]; }; then
+    exec luajit -e "$LUAPATH" "$LUA_BUILT" "$@"
+fi
+
+if [ -f "$BOOTSTRAP" ]; then
+    exec luajit "$LUA_BOOTSTRAP" "$@"
+fi
+
+echo "nupp: no completed build or bootstrap compiler found" >&2
+exit 1

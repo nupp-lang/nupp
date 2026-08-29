@@ -1,0 +1,252 @@
+local jobs = require("jobs")
+local tasks = require("nupp.tasks")
+local time = require("nupp.time")
+local workers = require("nupp.workers")
+
+-- The smoke page reads one JSON document, and `nupp.data.json` is not part of the
+-- portable browser surface, so this writes the few scalars it reports itself.
+local report: {string} = {}
+
+local function record(name: string, value: string): nil
+    report[#report + 1] = ("%q:%s"):format(name, value)
+end
+
+local function boolean(name: string, value: boolean): nil
+    record(name, value and "true" or "false")
+end
+
+local function number(name: string, value: number): nil
+    record(name, ("%.14g"):format(value))
+end
+
+local function text(name: string, value: string): nil
+    record(name, ("%q"):format(value))
+end
+
+local function raised(body: function(): nil): string?
+    local ok, problem = pcall(body)
+    if ok then
+        return nil
+    end
+
+    return tostring(problem)
+end
+
+----------------------------------------------------------------------------
+-- Copies crossing in both directions, on lanes that run at the same time
+----------------------------------------------------------------------------
+
+local expected = jobs.checksum("browser-worker", 64)
+local fanned: {integer} = {}
+with scope = workers.scope() do
+    local submitted: {workers.Task<function(string, integer): integer>} = {}
+    for index = 1, 8 do
+        submitted[index] = scope:spawn("browser-worker", 64, jobs.checksum)
+    end
+    for index, task in ipairs(submitted) do
+        fanned[index] = task:await()
+    end
+end
+local matched = #fanned == 8
+for _, value in ipairs(fanned) do
+    matched = matched and value == expected
+end
+boolean("fannedOut", matched)
+
+with scope = workers.scope() do
+    local reading = new jobs.Reading(label = "left", value = 41)
+    local answer = scope:spawn(reading, jobs.louder):await()
+    boolean("recordCrossed", answer.label == "LEFT" and answer.value == 42)
+
+    scope:spawn("done", jobs.acknowledge):await()
+    boolean("emptyResultCrossed", true)
+end
+
+----------------------------------------------------------------------------
+-- Leaving the scope waits for a child the body never awaited
+----------------------------------------------------------------------------
+
+local cleanupStarted = time.now()
+with scope = workers.scope() do
+    scope:spawn(150, jobs.patient)
+end
+local cleanupElapsed = time.now() - cleanupStarted
+boolean("scopeWaitedForUnawaited", cleanupElapsed >= 100)
+number("scopeCleanupMs", cleanupElapsed)
+
+----------------------------------------------------------------------------
+-- A failure is raised by await, and its siblings still settle
+----------------------------------------------------------------------------
+
+with scope = workers.scope() do
+    local good = scope:spawn("browser-worker", 1, jobs.checksum)
+    local bad = scope:spawn("beta", jobs.refuse)
+    local problem = raised(function(): nil
+        bad:await()
+    end)
+    boolean("failureObserved", problem ~= nil and problem:find("cannot hash beta", 1, true) ~= nil)
+    boolean("siblingStillRan", good:await() == jobs.checksum("browser-worker", 1))
+    text("failedStatus", bad:status())
+end
+
+boolean("unobservedFailureRaised", raised(function(): nil
+    with scope = workers.scope() do
+        scope:spawn("gamma", jobs.refuse)
+    end
+end) ~= nil)
+
+----------------------------------------------------------------------------
+-- A lane refuses a result no copy could reproduce
+----------------------------------------------------------------------------
+
+with scope = workers.scope() do
+    local task = scope:spawn("alpha", jobs.unsendableResult)
+    local problem = raised(function(): nil
+        task:await()
+    end)
+    boolean("unsendableResultRefused", problem ~= nil and problem:find("cannot be copied", 1, true) ~= nil)
+end
+
+-- And the caller is refused before anything is submitted at all.
+with scope = workers.scope() do
+    local shared = {name = "a"}
+    local function submitAnAlias(): nil
+        scope:spawn({shared, shared}, jobs.count)
+    end
+    local problem = raised(submitAnAlias)
+    boolean(
+        "unsendableArgumentRefusedAtTheCallSite",
+        problem ~= nil and problem:find("repeats a table already present", 1, true) ~= nil
+    )
+end
+
+----------------------------------------------------------------------------
+-- A worker task cannot open another worker scope
+----------------------------------------------------------------------------
+
+with scope = workers.scope() do
+    local task = scope:spawn(4, jobs.nested)
+    local problem = raised(function(): nil
+        task:await()
+    end)
+    boolean("nestedScopeRefused", problem ~= nil and problem:find("another worker scope", 1, true) ~= nil)
+end
+
+----------------------------------------------------------------------------
+-- Cancellation, and the running task a cancellation does not interrupt
+----------------------------------------------------------------------------
+
+with scope = workers.scope() do
+    -- More waiting tasks than any browser pool has lanes, so the tail is still
+    -- queued when the first of them settles, and cancelling it is a cancellation
+    -- that never loads or invokes its function.
+    local busy: {workers.Task<function(integer): integer>} = {}
+    for index = 1, 32 do
+        busy[index] = scope:spawn(60, jobs.patient)
+    end
+    local queued = busy[32]
+    busy[1]:await()
+    boolean("cancelRequested", queued:cancel("the test asked"))
+    boolean("cancelIsIdempotent", not queued:cancel("again"))
+    local problem = raised(function(): nil
+        queued:await()
+    end)
+    boolean("queuedCancelled", problem ~= nil and problem:find("was cancelled", 1, true) ~= nil)
+    text("cancelledStatus", queued:status())
+end
+
+with scope = workers.scope() do
+    -- A settled task leaves a lane booted and idle, so the next submission is
+    -- running by the time anything else happens.
+    scope:spawn("warm", 1, jobs.checksum):await()
+    local running = scope:spawn(200, jobs.patient)
+    time.sleep(50)
+    running:cancel("too late")
+
+    -- It has no checkpoint, so it is not interrupted and keeps its result.
+    boolean("runningTaskNotInterrupted", running:await() == 200)
+end
+
+----------------------------------------------------------------------------
+-- Hard limits: the queue is bounded, and submission raises rather than waiting
+----------------------------------------------------------------------------
+
+with scope = workers.scope() do
+    local submitted: integer = 0
+    local refused: string? = nil
+    local function submit(): nil
+        scope:spawn("x", 1, jobs.checksum)
+    end
+    for _ = 1, 1100 do
+        refused = raised(submit)
+        if refused ~= nil then
+            break
+        end
+        submitted = submitted + 1
+    end
+    number("queueBound", submitted)
+    boolean("queueRefusedAtBound", refused ~= nil and refused:find("closed or full", 1, true) ~= nil)
+end
+
+----------------------------------------------------------------------------
+-- A running lane observes the cancellation its checkpoint asks about
+----------------------------------------------------------------------------
+
+with scope = workers.scope() do
+    -- A settled task leaves a lane booted and idle, so the next submission is
+    -- running by the time anything else happens.
+    scope:spawn("warm", 1, jobs.checksum):await()
+    local cooperating = scope:spawn(400, 25, jobs.cooperative)
+    time.sleep(50)
+    cooperating:cancel("the test asked")
+    local problem = raised(function(): nil
+        cooperating:await()
+    end)
+    boolean("checkpointObservedCancellation", problem ~= nil and problem:find("was cancelled", 1, true) ~= nil)
+end
+
+----------------------------------------------------------------------------
+-- An application task scope owns worker children and their deadline
+----------------------------------------------------------------------------
+
+local coroutineChildren: integer = 0
+tasks.run(function(scope: tasks.Scope): nil
+    local first = scope:spawn(function(): integer
+        tasks.checkpoint()
+
+        return 1
+    end)
+    local second = scope:spawn(function(): integer
+        time.sleep(5)
+
+        return 2
+    end)
+    coroutineChildren = first:await() + second:await()
+end)
+boolean("coroutineChildrenRan", coroutineChildren == 3)
+
+local owned: integer = 0
+tasks.run(function(scope: tasks.Scope): nil
+    local parallel = scope:workers()
+    owned = parallel:spawn("browser-worker", 1, jobs.checksum):await()
+end)
+boolean("taskScopeOwnsWorkers", owned == jobs.checksum("browser-worker", 1))
+
+-- The scope's deadline reaches the lane, and the checkpoint is where it lands.
+local deadlineStarted = time.now()
+local function bounded(): nil
+    tasks.runFor(250, function(inner: tasks.Scope): nil
+        local parallel = inner:workers()
+        parallel:spawn(400, 25, jobs.cooperative):await()
+    end)
+end
+local deadlineProblem = raised(bounded)
+text(
+    "deadlineOutcome",
+    deadlineProblem == nil and "completed" or (
+        deadlineProblem:find("was cancelled", 1, true) ~= nil and "cancelled" or "failed"
+    )
+)
+number("deadlineMs", time.now() - deadlineStarted)
+
+return "{" .. table.concat(report, ",") .. "}"

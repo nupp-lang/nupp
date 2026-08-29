@@ -1,0 +1,760 @@
+local m = {}
+
+local json = require("nupp.data.json")
+local serde = require("nupp.data.serde")
+local native = require("serde_spike_native")
+local buffer = require("string.buffer")
+
+local type FieldKind = "string" | "integer" | "number" | "boolean"
+
+local record Member
+    index: integer
+    name: string
+    kind: FieldKind
+    jsonKey: nupp.data.json.EncodedString
+end
+
+local record Schema
+    members: {Member}
+    native: any
+end
+
+local interface Serializer
+    beginStruct: function(self, schema: Schema): nil
+    writeString: function(self, member: Member, value: string): nil
+    writeInteger: function(self, member: Member, value: integer): nil
+    writeNumber: function(self, member: Member, value: number): nil
+    writeBoolean: function(self, member: Member, value: boolean): nil
+    endStruct: function(self): nil
+    finish: function(self): string
+end
+
+local record JsonSerializer is Serializer
+    out: string.buffer.Buffer
+    -- This benchmark keeps its pre-nupp.Closeable callback harness intentionally
+    -- untyped; the production prepared path below uses the affine API normally.
+    writer: any
+
+    function beginStruct(self, schema: Schema): nil
+        self.writer:startObject()
+    end
+
+    function writeString(self, member: Member, value: string): nil
+        self.writer:key(member.jsonKey):write(value)
+    end
+
+    function writeInteger(self, member: Member, value: integer): nil
+        self.writer:key(member.jsonKey):write(value)
+    end
+
+    function writeNumber(self, member: Member, value: number): nil
+        self.writer:key(member.jsonKey):write(value)
+    end
+
+    function writeBoolean(self, member: Member, value: boolean): nil
+        self.writer:key(member.jsonKey):write(value)
+    end
+
+    function endStruct(self): nil
+        self.writer:endObject()
+    end
+
+    function finish(self): string
+        self.writer:close()
+        return self.out:tostring()
+    end
+end
+
+local function member(index: integer, name: string, kind: FieldKind): Member
+    return new Member(index = index, name = name, kind = kind, jsonKey = json.encodedString(name))
+end
+
+local function schema(members: {Member}): Schema
+    local fields: {any} = {}
+    for index, item in ipairs(members) do
+        fields[index] = {name = item.name, wire = item.name, kind = item.kind,}
+    end
+
+    return new Schema(members = members, native = native.compile(fields))
+end
+
+local function serializer(): JsonSerializer
+    local out = buffer.new()
+    return new JsonSerializer(out = out, writer = json.writer(out))
+end
+
+local function genericEncode(value: any, description: Schema, slots: boolean): string
+    local target = serializer()
+    target:beginStruct(description)
+    for _, item in ipairs(description.members) do
+        local field: any
+        if slots then
+            field = value[item.index]
+        else
+            field = rawget(value, item.name)
+        end
+        if item.kind == "string" then
+            target:writeString(item, field as string)
+        elseif item.kind == "integer" then
+            target:writeInteger(item, field as integer)
+        elseif item.kind == "number" then
+            target:writeNumber(item, field as number)
+        else
+            target:writeBoolean(item, field as boolean)
+        end
+    end
+    target:endStruct()
+
+    return target:finish()
+end
+
+-- The allocating shared renderer removed by the schema-driven Debug path. Keep a
+-- benchmark-local copy so old and new mechanisms run in the same process and against
+-- the same values. This deliberately retains the former string-per-value and
+-- table.concat shape instead of sharing the new buffer writer.
+local legacyDebugValue: function(value: any, spec: any, state: any): string
+local legacyDebugRecord: function(value: any, spec: any, state: any?): string
+
+local function legacySortedKeys(value: any): {any}
+    local keys: {any} = {}
+    for key in pairs(value) do
+        keys[#keys + 1] = key
+    end
+    table.sort(keys, function(a: any, b: any): boolean
+        return tostring(a) < tostring(b)
+    end)
+    return keys
+end
+
+legacyDebugValue = function(value: any, spec: any, state: any): string
+    if spec.kind == "record" then
+        return legacyDebugRecord(value, spec, state)
+    elseif spec.kind == "string" then
+        return string.format("%q", value)
+    elseif spec.kind == "nil"
+        or spec.kind == "boolean"
+        or spec.kind == "number"
+        or spec.kind == "integer"
+        or spec.kind == "float"
+        or (spec.kind as string):match("^u?int") ~= nil
+    then
+        return tostring(value)
+    end
+    if type(value) ~= "table" then
+        return "<" .. type(value) .. ">"
+    end
+    if state.active[value] then
+        return "<cycle>"
+    end
+    state.active[value] = true
+    local parts: {string} = {}
+    if spec.kind == "array" then
+        for index = 1, #value do
+            parts[index] = legacyDebugValue(value[index], spec.value, state)
+        end
+    elseif spec.kind == "map" then
+        for _, key in ipairs(legacySortedKeys(value)) do
+            parts[
+                #parts + 1
+            ] = "[" .. legacyDebugValue(key, spec.key, state) .. "] = " .. legacyDebugValue(
+                value[key],
+                spec.value,
+                state
+            )
+        end
+    end
+    state.active[value] = nil
+    return "{" .. table.concat(parts, ", ") .. "}"
+end
+
+legacyDebugRecord = function(value: any, spec: any, state: any?): string
+    local open = state or {active = {}}
+    if open.active[value] then
+        return "<cycle>"
+    end
+    open.active[value] = true
+    local parts: {string} = {}
+    for _, field in ipairs(spec.fields) do
+        parts[
+            #parts + 1
+        ] = field.name .. " = " .. legacyDebugValue(rawget(value, field.name), field.value, open)
+    end
+    open.active[value] = nil
+    return spec.name .. " { " .. table.concat(parts, ", ") .. " }"
+end
+
+local smallMembers = {member(1, "id", "integer"), member(2, "active", "boolean"), member(3, "name", "string"),}
+local smallSchema = schema(smallMembers)
+
+@derive(nupp.derive.JSON, nupp.derive.Serde, nupp.derive.Debug)
+local record Small
+    id: integer
+    active: boolean
+    name: string
+
+    function serializeSerde(self, target: Serializer): nil
+        target:beginStruct(smallSchema)
+        target:writeInteger(smallMembers[1], self.id)
+        target:writeBoolean(smallMembers[2], self.active)
+        target:writeString(smallMembers[3], self.name)
+        target:endStruct()
+    end
+end
+
+local mediumMembers = {
+    member(1, "id", "integer"),
+    member(2, "active", "boolean"),
+    member(3, "name", "string"),
+    member(4, "count", "integer"),
+    member(5, "score", "number"),
+    member(6, "region", "string"),
+    member(7, "enabled", "boolean"),
+    member(8, "version", "integer"),
+    member(9, "ratio", "number"),
+    member(10, "owner", "string"),
+    member(11, "retries", "integer"),
+    member(12, "cached", "boolean"),
+}
+local mediumSchema = schema(mediumMembers)
+
+@derive(nupp.derive.JSON, nupp.derive.Serde, nupp.derive.Debug)
+@json(unknown = "ignore")
+local record Medium
+    id: integer
+    active: boolean
+    name: string
+    count: integer
+    score: number
+    region: string
+    enabled: boolean
+    version: integer
+    ratio: number
+    owner: string
+    retries: integer
+    cached: boolean
+
+    function serializeSerde(self, target: Serializer): nil
+        target:beginStruct(mediumSchema)
+        target:writeInteger(mediumMembers[1], self.id)
+        target:writeBoolean(mediumMembers[2], self.active)
+        target:writeString(mediumMembers[3], self.name)
+        target:writeInteger(mediumMembers[4], self.count)
+        target:writeNumber(mediumMembers[5], self.score)
+        target:writeString(mediumMembers[6], self.region)
+        target:writeBoolean(mediumMembers[7], self.enabled)
+        target:writeInteger(mediumMembers[8], self.version)
+        target:writeNumber(mediumMembers[9], self.ratio)
+        target:writeString(mediumMembers[10], self.owner)
+        target:writeInteger(mediumMembers[11], self.retries)
+        target:writeBoolean(mediumMembers[12], self.cached)
+        target:endStruct()
+    end
+end
+
+local smallValue = new Small(id = 41, active = true, name = "Ada")
+local smallSlots: {any} = {41, true, "Ada"}
+local mediumValue = new Medium(
+    id = 41,
+    active = true,
+    name = "Ada",
+    count = 1701,
+    score = 98.25,
+    region = "us-east-1",
+    enabled = false,
+    version = 7,
+    ratio = 0.625,
+    owner = "example-owner",
+    retries = 3,
+    cached = true
+)
+local mediumSlots: {any} = {41, true, "Ada", 1701, 98.25, "us-east-1", false, 7, 0.625, "example-owner", 3, true,}
+
+-- Every field is either fixed by its literal type or constructed from a
+-- default. Its measured cost is the ceiling on what write fusion can remove
+-- from the ordinary twelve-field record above.
+@derive(nupp.derive.Serde)
+local record ConstantMedium
+    id: 41
+    active: true
+    name: "Ada"
+    count: 1701
+    score: number = 98.25
+    region: "us-east-1"
+    enabled: false
+    version: 7
+    ratio: number = 0.625
+    owner: "example-owner"
+    retries: 3
+    cached: true
+end
+
+local constantMediumValue = new ConstantMedium(
+    id = 41,
+    active = true,
+    name = "Ada",
+    count = 1701,
+    region = "us-east-1",
+    enabled = false,
+    version = 7,
+    owner = "example-owner",
+    retries = 3,
+    cached = true
+)
+
+local productionCodec = serde.json{unknownMembers = "ignore"}
+local preparedSmall = productionCodec:prepare(serde.of(Small))
+local preparedMedium = productionCodec:prepare(serde.of(Medium))
+local preparedConstantMedium = productionCodec:prepare(serde.of(ConstantMedium))
+local preparedDebugSmall = serde.prepareDebug(serde.of(Small))
+local preparedDebugMedium = serde.prepareDebug(serde.of(Medium))
+local preparedOutput = buffer.new()
+
+local scalarString = {kind = "string"}
+local scalarInteger = {kind = "integer"}
+local scalarNumber = {kind = "number"}
+local scalarBoolean = {kind = "boolean"}
+local legacySmall = {
+    kind = "record",
+    name = "Small",
+    fields = {
+        {name = "id", value = scalarInteger},
+        {name = "active", value = scalarBoolean},
+        {name = "name", value = scalarString},
+    },
+}
+local legacyMedium = {
+    kind = "record",
+    name = "Medium",
+    fields = {
+        {name = "id", value = scalarInteger},
+        {name = "active", value = scalarBoolean},
+        {name = "name", value = scalarString},
+        {name = "count", value = scalarInteger},
+        {name = "score", value = scalarNumber},
+        {name = "region", value = scalarString},
+        {name = "enabled", value = scalarBoolean},
+        {name = "version", value = scalarInteger},
+        {name = "ratio", value = scalarNumber},
+        {name = "owner", value = scalarString},
+        {name = "retries", value = scalarInteger},
+        {name = "cached", value = scalarBoolean},
+    },
+}
+
+@derive(nupp.derive.JSON, nupp.derive.Serde)
+local record Payload
+    data: string
+end
+
+local preparedPayload = productionCodec:prepare(serde.of(Payload))
+local payload4KiB = new Payload(data = string.rep("x", 4 * 1024))
+local payload64KiB = new Payload(data = string.rep("x", 64 * 1024))
+
+@derive(nupp.derive.JSON, nupp.derive.Serde, nupp.derive.Debug)
+local record NestedChild
+    label: string
+    scores: {integer}
+end
+
+@derive(nupp.derive.JSON, nupp.derive.Serde, nupp.derive.Debug)
+local record NestedEnvelope
+    id: integer
+    child: NestedChild
+    children: {NestedChild}
+    labels: {[string]: string}
+end
+
+local nestedValue = new NestedEnvelope(
+    id = 41,
+    child = new NestedChild(label = "primary", scores = {1, 2, 3}),
+    children = {new NestedChild(label = "first", scores = {4, 5}), new NestedChild(label = "second", scores = {6, 7}),},
+    labels = {region = "us-east-1", owner = "example"}
+)
+local preparedNested = productionCodec:prepare(serde.of(NestedEnvelope))
+local preparedDebugNested = serde.prepareDebug(serde.of(NestedEnvelope))
+local nestedJson = preparedNested:encode(nestedValue)
+local legacyNestedChild: any = {
+    kind = "record",
+    name = "NestedChild",
+    fields = {
+        {name = "label", value = scalarString},
+        {name = "scores", value = {kind = "array", value = scalarInteger}},
+    },
+}
+local legacyNested = {
+    kind = "record",
+    name = "NestedEnvelope",
+    fields = {
+        {name = "id", value = scalarInteger},
+        {name = "child", value = legacyNestedChild},
+        {name = "children", value = {kind = "array", value = legacyNestedChild}},
+        {name = "labels", value = {kind = "map", key = scalarString, value = scalarString}},
+    },
+}
+
+function m.legacyDebugSmall(): string
+    return legacyDebugRecord(smallValue, legacySmall)
+end
+
+function m.derivedDebugSmall(): string
+    return smallValue:debug()
+end
+
+function m.preparedDebugSmall(): string
+    return preparedDebugSmall:format(smallValue)
+end
+
+function m.bufferedDebugSmall(): integer
+    preparedOutput:reset()
+    preparedDebugSmall:write(smallValue, preparedOutput)
+    return #preparedOutput
+end
+
+function m.legacyDebugMedium(): string
+    return legacyDebugRecord(mediumValue, legacyMedium)
+end
+
+function m.derivedDebugMedium(): string
+    return mediumValue:debug()
+end
+
+function m.preparedDebugMedium(): string
+    return preparedDebugMedium:format(mediumValue)
+end
+
+function m.bufferedDebugMedium(): integer
+    preparedOutput:reset()
+    preparedDebugMedium:write(mediumValue, preparedOutput)
+    return #preparedOutput
+end
+
+function m.legacyDebugNested(): string
+    return legacyDebugRecord(nestedValue, legacyNested)
+end
+
+function m.derivedDebugNested(): string
+    return nestedValue:debug()
+end
+
+function m.preparedDebugNested(): string
+    return preparedDebugNested:format(nestedValue)
+end
+
+function m.bufferedDebugNested(): integer
+    preparedOutput:reset()
+    preparedDebugNested:write(nestedValue, preparedOutput)
+    return #preparedOutput
+end
+
+function m.currentEncodeSmall(): string
+    return json.encodeAs(Small, smallValue)
+end
+
+function m.documentEncodeSmall(): string
+    return json.encode(smallValue)
+end
+
+function m.directEncodeSmall(): string
+    local target = serializer()
+    target.writer:startObject()
+    target.writer:key(smallMembers[1].jsonKey):write(smallValue.id)
+    target.writer:key(smallMembers[2].jsonKey):write(smallValue.active)
+    target.writer:key(smallMembers[3].jsonKey):write(smallValue.name)
+    target.writer:endObject()
+    target.writer:close()
+
+    return target.out:tostring()
+end
+
+function m.serdeEncodeSmall(): string
+    local target = serializer()
+    smallValue:serializeSerde(target)
+    return target:finish()
+end
+
+function m.genericEncodeSmall(): string
+    return genericEncode(smallValue, smallSchema, false)
+end
+
+function m.dynamicEncodeSmall(): string
+    return genericEncode(smallSlots, smallSchema, true)
+end
+
+function m.nativeEncodeSmall(): string
+    return native.encodeRecord(smallSchema.native, smallValue) as string
+end
+
+function m.nativeDynamicEncodeSmall(): string
+    return native.encodeSlots(smallSchema.native, smallSlots) as string
+end
+
+function m.preparedEncodeSmall(): string
+    return preparedSmall:encode(smallValue)
+end
+
+function m.preparedWriteSmall(): integer
+    preparedOutput:reset()
+    preparedSmall:write(smallValue, preparedOutput)
+    return #preparedOutput
+end
+
+function m.preparedWriterSmall(): integer
+    preparedOutput:reset()
+    local writer = json.writer(preparedOutput)
+    preparedSmall:write(smallValue, writer)
+    writer:close()
+
+    return #preparedOutput
+end
+
+function m.coldPreparedEncodeSmall(): string
+    return serde.json{unknownMembers = "ignore"}:prepare(serde.of(Small)):encode(smallValue)
+end
+
+function m.preparedCopiedWriteSmall(): integer
+    preparedOutput:reset()
+    preparedOutput:put(preparedSmall:encode(smallValue))
+    return #preparedOutput
+end
+
+function m.currentEncodeMedium(): string
+    return json.encodeAs(Medium, mediumValue)
+end
+
+function m.documentEncodeMedium(): string
+    return json.encode(mediumValue)
+end
+
+function m.serdeEncodeMedium(): string
+    local target = serializer()
+    mediumValue:serializeSerde(target)
+    return target:finish()
+end
+
+function m.genericEncodeMedium(): string
+    return genericEncode(mediumValue, mediumSchema, false)
+end
+
+function m.dynamicEncodeMedium(): string
+    return genericEncode(mediumSlots, mediumSchema, true)
+end
+
+function m.nativeEncodeMedium(): string
+    return native.encodeRecord(mediumSchema.native, mediumValue) as string
+end
+
+function m.nativeDynamicEncodeMedium(): string
+    return native.encodeSlots(mediumSchema.native, mediumSlots) as string
+end
+
+function m.preparedEncodeMedium(): string
+    return preparedMedium:encode(mediumValue)
+end
+
+function m.preparedEncodeConstantMedium(): string
+    return preparedConstantMedium:encode(constantMediumValue)
+end
+
+function m.preparedWriteMedium(): integer
+    preparedOutput:reset()
+    preparedMedium:write(mediumValue, preparedOutput)
+    return #preparedOutput
+end
+
+function m.preparedCopiedWriteMedium(): integer
+    preparedOutput:reset()
+    preparedOutput:put(preparedMedium:encode(mediumValue))
+    return #preparedOutput
+end
+
+function m.currentEncodePayload4KiB(): string
+    return json.encodeAs(Payload, payload4KiB)
+end
+
+function m.preparedEncodePayload4KiB(): string
+    return preparedPayload:encode(payload4KiB)
+end
+
+function m.preparedCopiedWritePayload4KiB(): integer
+    preparedOutput:reset()
+    preparedOutput:put(preparedPayload:encode(payload4KiB))
+    return #preparedOutput
+end
+
+function m.preparedWritePayload4KiB(): integer
+    preparedOutput:reset()
+    preparedPayload:write(payload4KiB, preparedOutput)
+    return #preparedOutput
+end
+
+function m.currentEncodePayload64KiB(): string
+    return json.encodeAs(Payload, payload64KiB)
+end
+
+function m.preparedEncodePayload64KiB(): string
+    return preparedPayload:encode(payload64KiB)
+end
+
+function m.preparedCopiedWritePayload64KiB(): integer
+    preparedOutput:reset()
+    preparedOutput:put(preparedPayload:encode(payload64KiB))
+    return #preparedOutput
+end
+
+function m.preparedWritePayload64KiB(): integer
+    preparedOutput:reset()
+    preparedPayload:write(payload64KiB, preparedOutput)
+    return #preparedOutput
+end
+
+function m.preparedWriterPayload64KiB(): integer
+    preparedOutput:reset()
+    local writer = json.writer(preparedOutput)
+    preparedPayload:write(payload64KiB, writer)
+    writer:close()
+
+    return #preparedOutput
+end
+
+function m.currentEncodeNested(): string
+    return json.encodeAs(NestedEnvelope, nestedValue)
+end
+
+function m.preparedEncodeNested(): string
+    return preparedNested:encode(nestedValue)
+end
+
+function m.preparedWriteNested(): integer
+    preparedOutput:reset()
+    preparedNested:write(nestedValue, preparedOutput)
+    return #preparedOutput
+end
+
+function m.preparedWriterNested(): integer
+    preparedOutput:reset()
+    local writer = json.writer(preparedOutput)
+    preparedNested:write(nestedValue, writer)
+    writer:close()
+
+    return #preparedOutput
+end
+
+function m.currentDecodeNested(): NestedEnvelope
+    return assert(NestedEnvelope.fromJSON(nestedJson))
+end
+
+function m.preparedDecodeNested(): NestedEnvelope
+    return assert(preparedNested:decode(nestedJson))
+end
+
+local smallJson = m.nativeEncodeSmall()
+local mediumJson = m.nativeEncodeMedium()
+local payload64KiBJson = preparedPayload:encode(payload64KiB)
+local smallInput = buffer.new()
+smallInput:put(smallJson)
+local mediumInput = buffer.new()
+mediumInput:put(mediumJson)
+local nestedInput = buffer.new()
+nestedInput:put(nestedJson)
+local payload64KiBInput = buffer.new()
+payload64KiBInput:put(payload64KiBJson)
+local mediumReverseJson = [[{"cached":true,"retries":3,"owner":"example-owner","ratio":0.625,"version":7,"enabled":false,"region":"us-east-1","score":98.25,"count":1701,"name":"Ada","active":true,"id":41}]]
+local mediumUnknownJson = [[{"ignored":{"nested":[1,2,3]},"id":41,"active":true,"name":"Ada","count":1701,"score":98.25,"region":"us-east-1","enabled":false,"version":7,"ratio":0.625,"owner":"example-owner","retries":3,"cached":true}]]
+
+function m.currentDecodeSmall(): Small
+    return assert(Small.fromJSON(smallJson))
+end
+
+function m.documentDecodeSmall(): any
+    return json.decode(smallJson)
+end
+
+function m.nativeDecodeSmall(): Small
+    return native.decodeRecord(smallSchema.native, smallJson, Small) as Small
+end
+
+function m.nativeDynamicDecodeSmall(): any
+    return native.decodeSlots(smallSchema.native, smallJson)
+end
+
+function m.preparedDecodeSmall(): Small
+    return assert(preparedSmall:decode(smallJson))
+end
+
+function m.preparedDecodeSmallBuffer(): Small
+    return assert(preparedSmall:decodeBuffer(smallInput))
+end
+
+function m.currentDecodeMedium(): Medium
+    return assert(Medium.fromJSON(mediumJson))
+end
+
+function m.documentDecodeMedium(): any
+    return json.decode(mediumJson)
+end
+
+function m.nativeDecodeMedium(): Medium
+    return native.decodeRecord(mediumSchema.native, mediumJson, Medium) as Medium
+end
+
+function m.nativeDynamicDecodeMedium(): any
+    return native.decodeSlots(mediumSchema.native, mediumJson)
+end
+
+function m.preparedDecodeMedium(): Medium
+    return assert(preparedMedium:decode(mediumJson))
+end
+
+function m.preparedDecodeMediumBuffer(): Medium
+    return assert(preparedMedium:decodeBuffer(mediumInput))
+end
+
+function m.preparedDecodeNestedBuffer(): NestedEnvelope
+    return assert(preparedNested:decodeBuffer(nestedInput))
+end
+
+function m.currentDecodePayload64KiB(): Payload
+    return assert(Payload.fromJSON(payload64KiBJson))
+end
+
+function m.preparedDecodePayload64KiB(): Payload
+    return assert(preparedPayload:decode(payload64KiBJson))
+end
+
+function m.preparedDecodePayload64KiBBuffer(): Payload
+    return assert(preparedPayload:decodeBuffer(payload64KiBInput))
+end
+
+function m.nativeDecodeMediumReverse(): Medium
+    return native.decodeRecord(mediumSchema.native, mediumReverseJson, Medium) as Medium
+end
+
+function m.preparedDecodeMediumReverse(): Medium
+    return assert(preparedMedium:decode(mediumReverseJson))
+end
+
+function m.nativeDecodeMediumUnknown(): Medium
+    return native.decodeRecord(mediumSchema.native, mediumUnknownJson, Medium) as Medium
+end
+
+function m.preparedDecodeMediumUnknown(): Medium
+    return assert(preparedMedium:decode(mediumUnknownJson))
+end
+
+function m.currentDecodeMediumReverse(): Medium
+    return assert(Medium.fromJSON(mediumReverseJson))
+end
+
+function m.currentDecodeMediumUnknown(): Medium
+    return assert(Medium.fromJSON(mediumUnknownJson))
+end
+
+function m.smallJson(): string
+    return smallJson
+end
+
+function m.mediumJson(): string
+    return mediumJson
+end
+
+return m

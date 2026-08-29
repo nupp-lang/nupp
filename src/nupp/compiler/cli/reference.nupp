@@ -1,0 +1,281 @@
+module nupp.compiler.cli.reference
+
+--[[
+`nupp reference`: Nupp, small enough to hand to a reader in one piece.
+
+The reference is compiled into the binary rather than fetched, so what prints
+belongs to the compiler being run. That is the whole reason this is a command and
+not a file on a website: a reader holding a reference from a different version is
+worse off than one holding none, because they cannot tell.
+
+Three renderings of one document. `markdown` is the document; `skill` wraps it in
+the frontmatter an agent harness loads it by; `json` hands over the chapters and
+sections themselves, for a consumer that would rather render its own.
+]]
+
+local spec = require("nupp.compiler.cli.spec")
+
+local command = spec.command{
+    name = "reference",
+    summary = "List or print a focused Nupp reference chapter",
+    usage = {
+        "nupp reference [language|cli|performance|all] [--format markdown|skill|json] [-o PATH]",
+        "nupp reference --section NAME | --for CODE",
+    },
+    positionals = {{name = "chapter", choices = {"language", "cli", "performance", "all"}}},
+    intro = [[With no chapter, lists the available focused references and the sections
+inside them. `all` is the complete Nupp reference, meant to be pasted whole.
+
+A chapter is thousands of words. `--section` prints one section, named by its
+heading or by any `docs` pointer at it, and `--for` prints whichever sections
+explain a diagnostic code -- which is what a reader holding one actually has.
+
+  nupp reference cli
+  nupp reference language
+  nupp reference --section affine-resources
+  nupp reference --section docs/concepts/modules.md#modules
+  nupp reference --for NUPP2004
+  nupp reference cli --format skill -o .claude/skills/nupp-cli/SKILL.md
+  nupp reference performance --format skill -o .claude/skills/nupp-performance/SKILL.md
+  nupp reference --format skill -o .claude/skills/nupp/SKILL.md]],
+    options = {
+        {
+            name = "--format",
+            value = "FORMAT",
+            choices = {"markdown", "skill", "json"},
+            duplicate = "output format was specified more than once",
+            help = "Output format: markdown (default), skill, or json"
+        },
+        {
+            name = "--skill",
+            key = "format",
+            constant = "skill",
+            duplicate = "output format was specified more than once",
+            help = "Shorthand for --format skill"
+        },
+        {
+            name = "--json",
+            key = "format",
+            constant = "json",
+            duplicate = "output format was specified more than once",
+            help = "Shorthand for --format json"
+        },
+        {
+            name = "--section",
+            value = "NAME",
+            key = "section",
+            duplicate = "a section was named more than once",
+            help = "Print one section, by heading or by a docs pointer at it"
+        },
+        {
+            name = "--for",
+            value = "CODE",
+            key = "forCode",
+            duplicate = "a code was named more than once",
+            help = "Print whichever sections explain that diagnostic code"
+        },
+        {
+            names = {"-o", "--output"},
+            value = "PATH",
+            key = "output",
+            help = "Write to this file rather than to standard output"
+        },
+    },
+    detail = [[The skill's description is what a harness keeps in context permanently;
+the body loads when something is actually being written. The documentation site
+instead presents the same subjects as focused pages for human browsing.]],
+    schema = {
+        type = "object",
+        properties = {
+            title = {type = "string"},
+            sections = {
+                type = "array",
+                items = {
+                    type = "object",
+                    properties = {
+                        title = {type = "string", description = "The heading, and its anchor."},
+                        body = {type = "string", description = "What the construct is for, as markdown."},
+                        example = {
+                            type = "string",
+                            description = "A complete module using it. Every one "
+                            .. "is compiled by the compiler's own tests."
+                        },
+                        codes = {
+                            type = "array",
+                            items = {type = "string"},
+                            description = "The codes that report getting it "
+                            .. "wrong. 'nupp explain <code>' says more."
+                        },
+                    },
+                    required = {"title", "body", "codes"},
+                },
+            },
+            chapters = {
+                type = "array",
+                description = "Top-level reference chapters, each containing sections.",
+                items = {type = "object"},
+            },
+            tooling = {type = "string", description = "How to drive the toolchain, as markdown."},
+            markdown = {type = "string", description = "The whole document, as `--format markdown` writes it."},
+        },
+        required = {"title", "sections", "chapters", "tooling", "markdown"},
+    },
+}
+
+local function run(parsed: any): integer
+    local reference = require("nupp.compiler.reference")
+    local format = parsed.values.format or "markdown"
+    local positional: {string} = parsed.positional
+    if #positional > 1 then
+        return command:usageError("at most one reference chapter is required")
+    end
+    local topic = positional[1]
+    local wantedSection = parsed.values.section
+    local wantedCode = parsed.values.forCode
+    if wantedSection and wantedCode then
+        return command:usageError("--section and --for name the same thing two ways")
+    end
+    if (wantedSection or wantedCode) and topic then
+        return command:usageError("--section and --for already say which part to print")
+    end
+
+    -- One section, or the sections covering one code. Both answer the question a
+    -- reader actually arrived with, rather than handing over the chapter it lives in.
+    if wantedSection or wantedCode then
+        local chosen: {any} = {}
+        if wantedSection then
+            local section, chapter = reference.findSection(wantedSection)
+            if not section then
+                return command:usageError(
+                    "no reference section named " .. wantedSection .. "; `nupp reference` lists them"
+                )
+            end
+            chosen[1] = {section = section, chapter = chapter}
+        else
+            for _, found in ipairs(reference.sectionsFor(wantedCode)) do
+                chosen[#chosen + 1] = found
+            end
+            if #chosen == 0 then
+                -- The code may still be real and simply not be what any section is
+                -- about; `explain` is where a code always answers.
+                return command:usageError(
+                    "no reference section covers " .. wantedCode .. "; try `nupp explain " .. wantedCode .. "`"
+                )
+            end
+        end
+        local parts: {string} = {}
+        for _, found in ipairs(chosen) do
+            parts[#parts + 1] = reference.sectionMarkdown(found.section, found.chapter)
+        end
+        local rendered = table.concat(parts, "\n\n")
+        if format == "json" then
+            local sections: {any} = {}
+            for _, found in ipairs(chosen) do
+                sections[
+                    #sections + 1
+                ] = {
+                    title = found.section.title,
+                    body = found.section.body,
+                    example = found.section.example,
+                    codes = found.section.codes,
+                }
+            end
+            local payload = {
+                title = sections[1].title,
+                sections = sections,
+                chapters = {},
+                tooling = reference.tooling,
+                markdown = rendered,
+            }
+            if parsed.values.output then
+                local file, err = io.open(parsed.values.output, "w")
+                if not file then
+                    io.stderr:write(tostring(err) .. "\n")
+                    return 1
+                end
+                file:write(require("nupp.compiler.cli.report").encode(payload), "\n")
+                file:close()
+                return 0
+            end
+            require("nupp.compiler.cli.report").write(payload)
+            return 0
+        end
+        if parsed.values.output then
+            local file, err = io.open(parsed.values.output, "w")
+            if not file then
+                io.stderr:write(tostring(err) .. "\n")
+                return 1
+            end
+            file:write(rendered, "\n")
+            file:close()
+            return 0
+        end
+        io.write(rendered, "\n")
+
+        return 0
+    end
+
+    if not topic and not parsed.values.format and not parsed.values.output then
+        io.write(reference.catalog(), "\n")
+        return 0
+    end
+    local chapter = topic and topic ~= "all" and reference.chapter(topic) or nil
+    if topic and topic ~= "all" and not chapter then
+        return command:usageError("unknown reference chapter " .. topic)
+    end
+    local text
+    if format == "skill" then
+        text = reference.skill(chapter)
+    elseif chapter then
+        text = reference.chapterMarkdown(chapter)
+    else
+        text = reference.markdown()
+    end
+
+    if format == "json" then
+        local sections: {any} = {}
+        for _, section in ipairs(chapter and chapter.sections or reference.sections) do
+            sections[
+                #sections + 1
+            ] = {title = section.title, body = section.body, example = section.example, codes = section.codes,}
+        end
+        local payload = {
+            title = chapter and "Nupp " .. chapter.title .. " reference" or "Nupp reference",
+            sections = sections,
+            chapters = chapter and {chapter} or reference.chapters,
+            tooling = reference.tooling,
+            markdown = text,
+        }
+        if chapter then
+            payload.chapter = chapter
+        end
+        if parsed.values.output then
+            local file, err = io.open(parsed.values.output, "w")
+            if not file then
+                io.stderr:write(tostring(err) .. "\n")
+                return 1
+            end
+            file:write(require("nupp.compiler.cli.report").encode(payload), "\n")
+            file:close()
+            return 0
+        end
+        require("nupp.compiler.cli.report").write(payload)
+        return 0
+    end
+
+    if parsed.values.output then
+        local file, err = io.open(parsed.values.output, "w")
+        if not file then
+            io.stderr:write(tostring(err) .. "\n")
+            return 1
+        end
+        file:write(text, "\n")
+        file:close()
+        return 0
+    end
+    io.write(text, "\n")
+
+    return 0
+end
+
+export = new spec.Handler(spec = command, run = run)

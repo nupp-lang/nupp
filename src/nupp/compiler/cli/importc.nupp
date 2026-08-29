@@ -1,0 +1,164 @@
+module nupp.compiler.cli.importc
+
+--[[
+`nupp import-c`: a C header, as typed Nupp declarations.
+
+What comes out is a module rather than a declaration file: its cdef statements
+generate the ffi bindings at runtime, so the result is something a program
+requires, not something the checker merely reads.
+]]
+
+local spec = require("nupp.compiler.cli.spec")
+
+local command = spec.command{
+    name = "import-c",
+    summary = "Generate typed Nupp bindings from a C header",
+    usage = {
+        "nupp import-c [-o FILE] [-l NAME|--lib NAME] [--bridge-out FILE] [--inspect]"
+        .. " [--format text|json] <header.h>"
+    },
+    options = require(
+        "nupp.compiler.cli.options"
+    ).join(
+        {name = "-o", value = "FILE", key = "out", help = "Write the generated module to FILE"},
+        {names = {"-l", "--lib"}, value = "NAME", key = "lib", help = "Name the native library loaded by the bindings"},
+        {
+            name = "--bridge-out",
+            value = "FILE",
+            key = "bridgeOut",
+            help = "Emit C wrappers for eligible static inline functions"
+        },
+        {name = "--inspect", key = "inspect", help = "Report declaration dispositions without writing output"},
+        require("nupp.compiler.cli.options").format()
+    ),
+    schema = {
+        type = "object",
+        properties = {
+            ok = {type = "boolean"},
+            output = {
+                type = "string",
+                description = "Where the generated module was written. Absent " .. "when nothing was generated."
+            },
+            warnings = {
+                type = "array",
+                items = {type = "string"},
+                description = "What the header contained that the bindings "
+                .. "could not represent. Present whether or not it "
+                .. "succeeded; a warning is not a failure."
+            },
+            bridgeOutput = {type = "string"},
+            direct = {type = "integer"},
+            bridged = {type = "integer"},
+            skipped = {type = "integer"},
+            dispositions = {type = "array", items = {type = "object"}},
+        },
+        required = {"ok", "warnings"},
+    },
+}
+
+local function run(parsed: any): integer
+    local paths: {string} = parsed.positional
+    if #paths ~= 1 then
+        return command:usageError("exactly one C header is required")
+    end
+    local header = paths[1]
+    local asJson = parsed.values.format == "json"
+    local reportMod = require("nupp.compiler.cli.report")
+    local importc = require("nupp.compiler.importc")
+    local out = parsed.values.out or ((header:match("([^/\\]+)%.h$") or "out") .. ".nupp")
+    local config = require("nupp.compiler.build.manifest").load(".")
+    local envMod = require("nupp.compiler.env")
+    local moduleName = envMod.moduleNameInRoots(envMod.projectRoots(".", config), out)
+    if not parsed.values.inspect and not moduleName then
+        return command:usageError("output must be a .nupp file beneath the project root or an include root")
+    end
+    local text, warnings, details = importc.import(header, {
+        module = moduleName,
+        lib = parsed.values.lib,
+        bridge = parsed.values.bridgeOut ~= nil,
+    })
+    local function fail(): integer
+        if asJson then
+            reportMod.write({ok = false, warnings = warnings})
+        else
+            for _, warning in ipairs(warnings) do
+                io.stderr:write("nupp: " .. warning .. "\n")
+            end
+        end
+
+        return 1
+    end
+
+    if not text then
+        return fail()
+    end
+    if not asJson then
+        for _, warning in ipairs(warnings) do
+            io.stderr:write("nupp: warning: " .. warning .. "\n")
+        end
+    end
+    if parsed.values.inspect then
+        if asJson then
+            reportMod.write({
+                ok = true,
+                warnings = warnings,
+                direct = details and details.direct or 0,
+                bridged = details and details.bridged or 0,
+                skipped = details and details.skipped or 0,
+                dispositions = details and details.dispositions or {},
+            })
+        else
+            io.write(
+                (
+                    "direct %d, bridged %d, skipped %d\n"
+                ):format(
+                    details and details.direct or 0,
+                    details and details.bridged or 0,
+                    details and details.skipped or 0
+                )
+            )
+        end
+
+        return 0
+    end
+
+    local bridgeOut = parsed.values.bridgeOut
+    if bridgeOut and details and details.bridgeSource then
+        local bridgeHandle, bridgeErr = io.open(bridgeOut, "wb")
+        if not bridgeHandle then
+            warnings[#warnings + 1] = tostring(bridgeErr)
+            return fail()
+        end
+        bridgeHandle:write(details.bridgeSource)
+        bridgeHandle:close()
+    end
+    local handle, writeErr = io.open(out, "wb")
+    if not handle then
+        if asJson then
+            warnings[#warnings + 1] = tostring(writeErr)
+            return fail()
+        end
+        io.stderr:write("nupp: " .. tostring(writeErr) .. "\n")
+        return 1
+    end
+    handle:write(text)
+    handle:close()
+    if asJson then
+        reportMod.write({
+            ok = true,
+            output = out,
+            bridgeOutput = bridgeOut and details and details.bridgeSource and bridgeOut or nil,
+            warnings = warnings,
+            direct = details and details.direct or 0,
+            bridged = details and details.bridged or 0,
+            skipped = details and details.skipped or 0,
+            dispositions = details and details.dispositions or {},
+        })
+    else
+        io.write(out .. "\n")
+    end
+
+    return 0
+end
+
+export = new spec.Handler(spec = command, run = run)

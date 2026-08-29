@@ -1,0 +1,9 @@
+local m = {}
+
+function m.decide(alpha: boolean, beta: boolean, gamma: boolean, delta: boolean, epsilon: boolean): boolean
+    local answer = alpha and beta and gamma and delta and epsilon and not alpha and not beta and not gamma
+    local text = "the first part of it" .. "the second part of it" .. "the third part of it" .. "and the fourth"
+    return answer and #text > 0
+end
+
+return m

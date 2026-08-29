@@ -1,0 +1,133 @@
+name: Test Wasm playground
+
+on:
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - ".github/scripts/test-portable-compiler.sh"
+      - ".github/workflows/wasm-playground.yml"
+      - "editors/playground/**"
+      - "runtime/wasm/**"
+      - "scripts/browser-app"
+      - "templates/browser/**"
+      - "templates/browser-simd/**"
+      - "tests/browser-templates/**"
+      - "nupp.lua"
+      - "src/nupp/compiler/backends.nupp"
+      - "src/nupp/compiler/browser.nupp"
+      - "src/nupp/compiler/aot/**"
+      - "src/nupp/compiler/build/aot.nupp"
+      - "src/nupp/compiler/build/manifest.nupp"
+      - "src/nupp/compiler/build/modules.nupp"
+      - "src/nupp/compiler/build/package.nupp"
+      - "src/nupp/compiler/build/project.nupp"
+      - "src/nupp/compiler/check/callexpr.nupp"
+      - "src/nupp/compiler/env.nupp"
+      - "src/nupp/compiler/gen.nupp"
+      - "src/nupp/compiler/relations.nupp"
+      - "src/nupp/compiler/standardsurface.nupp"
+      - "src/nupp/compiler/indexedviews.nupp"
+      - "src/nupp/compiler/preludeimage.bin"
+      - "src/nupp/compiler/preludeimage.nupp"
+      - "src/nupp/runtime/backend/browser.nupp"
+      - "src/nupp/runtime/browser/**"
+      - "src/nupp/runtime/provider/browser*.nupp"
+      - "src/nupp/runtime/provider/wasm*.nupp"
+      - "src/nupp/runtime/seam/registry.nupp"
+      - "src/nupp/runtime/seam/suspension.nupp"
+      - "src/nupp/runtime/seam/wasm*.nupp"
+      - "src/nupp/runtime/seam/workers*.nupp"
+      - "src/nupp/wasm.nupp"
+      - "src/nupp/wasm/**"
+      - "tests/portable-compiler/**"
+      - "tests/wasm-aot/**"
+
+permissions:
+  contents: read
+
+jobs:
+  candidate:
+    name: Portable compiler in Lua 5.1 Wasm
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Check out the repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: editors/playground/package-lock.json
+
+      - name: Set up Emscripten 6.0.8
+        uses: emscripten-core/setup-emsdk@v15
+        with:
+          version: 6.0.8
+          actions-cache-folder: emsdk-cache
+
+      - name: Build LuaJIT and native dependencies
+        run: ./scripts/toolchain --all
+
+      - name: Install playground dependencies
+        run: npm ci --prefix editors/playground
+
+      - name: Test Node Wasm parity
+        run: npm run test:wasm --prefix editors/playground
+
+      - name: Test Lua 5.1 Wasm struct AOT
+        run: tests/wasm-aot/run.sh
+
+      - name: Test browser application manifests
+        run: node --test tests/wasm-aot/runtime.test.mjs
+
+      - name: Test browser applications in Chromium
+        run: tests/wasm-aot/run-browser.sh > wasm-app-browser-smoke.json
+
+      - name: Test initialized browser applications in Chromium
+        run: tests/browser-templates/run.sh > browser-template-smoke.json
+
+      - name: Record asset sizes
+        run: node editors/playground/tools/report-wasm-assets.mjs > wasm-sizes.json
+
+      - name: Build the generated Pages artifact
+        env:
+          NUPP_PLAYGROUND_ALREADY_BUILT: 1
+        run: node scripts/build-pages.mjs
+
+      - name: Start the playground server
+        env:
+          PORT: 8787
+        run: |
+          node editors/playground/serve.mjs build/pages > playground-server.log 2>&1 &
+          echo $! > playground-server.pid
+          for attempt in {1..30}; do
+            if curl --fail --silent http://127.0.0.1:8787/playground/wasm-smoke.html >/dev/null; then
+              exit 0
+            fi
+            sleep 1
+          done
+          exit 1
+
+      - name: Test the Chromium Worker
+        run: |
+          node editors/playground/tools/run-browser-smoke.mjs \
+            http://127.0.0.1:8787/playground/wasm-smoke.html \
+            > chromium-smoke.json
+
+      - name: Stop the playground server
+        if: always()
+        run: kill "$(cat playground-server.pid)" || true
+
+      - name: Upload sizes and timing results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: wasm-playground-measurements
+          path: |
+            chromium-smoke.json
+            browser-template-smoke.json
+            wasm-app-browser-smoke.json
+            playground-server.log
+            wasm-sizes.json

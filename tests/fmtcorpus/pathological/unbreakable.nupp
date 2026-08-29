@@ -1,0 +1,6 @@
+local m = {}
+
+local address = "https://example.invalid/a/very/long/path/that/cannot/be/broken/anywhere/at/all/because/it/is/one/token"
+local identifier = anExceptionallyLongReceiverName.anExceptionallyLongFieldName.andAnotherExceptionallyLongFieldName
+
+return m, address, identifier

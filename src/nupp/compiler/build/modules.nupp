@@ -1,0 +1,1561 @@
+module nupp.compiler.build.modules
+
+--[[
+Compiling the modules a target reaches, and writing them out.
+
+The entry points name a graph; this walks it, checks and generates each module
+that is not already current, and copies the resources the target declared. What
+"already current" means is the fingerprint of everything the module saw -- its
+own text, the interfaces it imported, the compiler that would compile it -- so a
+change anywhere in that set rebuilds it and a change anywhere else does not.
+]]
+
+local envMod = require("nupp.compiler.env")
+local gen = require("nupp.compiler.gen")
+local optimize = require("nupp.compiler.optimize")
+local hash = require("nupp.compiler.build.hash")
+local incremental = require("nupp.compiler.incremental")
+local diagnosticMod = require("nupp.compiler.diagnostics")
+local fs = require("nupp.compiler.fs")
+local cache = require("nupp.compiler.build.cache")
+local deps = require("nupp.compiler.build.deps")
+local materializeObserve = require("nupp.compiler.materialize.observe")
+local progress = require("nupp.compiler.build.progress")
+local backends = require("nupp.compiler.backends")
+local native = require("nupp.compiler.native")
+
+local normalize, join = fs.normalize, fs.join
+local readFile, writeFile = fs.readFile, fs.writeFile
+local stable, hashFile, jsonArray = cache.stable, cache.hashFile, cache.jsonArray
+local expandGlob = deps.expandGlob
+local isFatal, printErrors = diagnosticMod.isFatal, diagnosticMod.report
+
+local modules = {}
+
+local function hiddenDirectory(name: string): boolean
+    return name:sub(1, 1) == "."
+end
+
+--- The source set one explicitly scoped target owns.
+---
+--- `sources` has always meant project-relative files or directories to the docs
+--- target. Module targets use the same spelling and recursion here; the only
+--- difference is the file kinds they can compile. A glob may select files, while a
+--- directory selected without a glob is walked recursively. Every selection has to
+--- name something so a misspelling cannot quietly produce a smaller artifact.
+local function selectedSourceFiles(root: string, target: Target): ({string}?, string?)
+    if target.sources == nil then
+        return nil
+    end
+
+    local selected, seen = {}, {}
+    for _, source in ipairs(target.sources) do
+        local normalized = normalize(source)
+        if normalized == "" or normalized:sub(
+            1,
+            1
+        ) == "/" or normalized:match("^[A-Za-z]:/") or ("/" .. normalized .. "/"):find("/../", 1, true) then
+            return nil, "build.sources must stay inside the project: " .. source
+        end
+        local matches = expandGlob(root, normalized)
+        if #matches == 0 then
+            return nil, "build.sources matched nothing: " .. source
+        end
+        local candidates = {}
+        for _, matched in ipairs(matches) do
+            local info = nupp.io.files.info(matched)
+            if info and info.kind == "directory" then
+                for _, path in ipairs(fs.listFiles(matched, hiddenDirectory)) do
+                    candidates[#candidates + 1] = path
+                end
+            else
+                candidates[#candidates + 1] = matched
+            end
+        end
+        local accepted = 0
+        for _, path in ipairs(candidates) do
+            path = normalize(path)
+            if (path:match("%.nupp$") and not path:match("%.d%.nupp$")) or path:match("%.lua$") then
+                accepted = accepted + 1
+                if not seen[path] then
+                    seen[path] = true
+                    selected[#selected + 1] = path
+                end
+            end
+        end
+        if accepted == 0 then
+            return nil, "build.sources selected no compilable source: " .. source
+        end
+    end
+    table.sort(selected)
+
+    return selected
+end
+
+local function exportDefinitionFingerprint(exports: any): string
+    local items = {}
+    for _, field in ipairs({"typeDefs", "valueDefs"}) do
+        for name, definition in pairs(exports and exports[field] or {}) do
+            local deprecated = definition.deprecated
+            if deprecated then
+                items[
+                    #items + 1
+                ] = field .. ":" .. name .. ":" .. stable(deprecated.reason) .. ":" .. stable(deprecated.replacement)
+            end
+            if definition.comptimeOnly then
+                items[#items + 1] = field .. ":" .. name .. ":comptime"
+            end
+        end
+    end
+    table.sort(items)
+
+    return table.concat(items, "\0")
+end
+
+-- Named by module path rather than required: what these say is wanted at compile time
+-- and nothing of them is at run time.
+local type Config = nupp.compiler.build.manifest.Config
+local type Target = nupp.compiler.build.manifest.Target
+local type State = nupp.compiler.build.cache.State
+
+--- What a build did, for a caller that would otherwise only be able to observe that
+--- something got faster.
+---
+--- The three are set before anything is compiled, so a caller passes an empty table and
+--- reads it back filled in. A check counts the same way a build does, which is what
+--- lets a test say "this edit rechecked one module".
+type modules.Stats = {
+    checkedModules: number,
+    generatedModules: number,
+    reusedModules: number,
+    [string]: any
+}
+
+--- What a modules build wrote, as a set of paths.
+---
+--- A check produces none of them and says so with an empty one, which is what lets the
+--- caller treat both the same way.
+type modules.Result = {
+    outputs: {[string]: boolean},
+
+    materializations: {any},
+    derives: {any},
+
+    --- Every native feature the built modules asked for, merged.
+    effects: {[string]: any}?,
+
+    --- Checked static descriptors for the target's selected backend modules.
+    backends: any?
+}
+
+--- A check asked about named files rather than about the project.
+---
+--- `paths` is what it was asked about, and `unchecked` is filled in with the ones this
+--- walk cannot reach: a declaration file, a `.lua`, a file from outside the project.
+--- Those are still worth checking and the caller still has to, so they are handed back
+--- rather than refused. It is filled in as they are found, not on the way out, because
+--- a run whose named files have errors returns early and the caller needs the list
+--- either way.
+type modules.Narrow = {
+    paths: {string},
+    unchecked: {string}
+}
+
+--- The query graph one build checks through, and what checking charged where.
+---
+--- One per build rather than one per phase. The ahead-of-time policy checks the
+--- sources it lowers before the module build checks the project, and those
+--- sources import most of what the project imports; a second graph would answer
+--- every one of those imports again and answer it the same way.
+record modules.Session
+    --- The graph.
+    inc: nupp.compiler.incremental.Inc
+
+    --- What each file's own check cost, by path, with the dependencies it pulled
+    --- in charged to themselves. A module's check reaches its imports through
+    --- the query graph, so the inclusive time of the first module compiled is
+    --- most of the build and naming it the slowest would be true of whichever
+    --- module happened to go first. Subtracting what the nested checks announced
+    --- is what makes the number the module's own.
+    checkMs: {[string]: number}
+
+    --- Materializes one compiler-carried module into this build's staging tree and
+    --- answers where it landed, or nil when the compiler carries no such module. A
+    --- module the project can already reach answers its own path and stages nothing.
+    ---
+    --- On the session because two phases need it and they run in order: the
+    --- ahead-of-time pass resolves the target's backends before the module build
+    --- does, and a backend the compiler ships has no path until it is staged. One
+    --- owner of the tree is also what keeps the second phase from emptying it under
+    --- the first.
+    stageBundled: function(string): string?
+end
+
+--- Canonical binder numbering for one fingerprint: the number each binder was given,
+--- and how many have been handed out. Numbering by first encounter rather than by
+--- name is what makes two binders that shadow each other compare unequal, and what
+--- keeps renaming one from reading as a changed interface.
+local type Binders = {
+    order: {[any]: integer},
+    count: integer
+}
+
+local function binderFingerprint(binder: any, binders: Binders, prefix: string): string
+    local at = binders.order[binder]
+    if not at then
+        at = binders.count + 1
+        binders.count = at
+        binders.order[binder] = at
+    end
+
+    return prefix .. "#" .. at
+end
+
+local function constFingerprint(term: nupp.compiler.types.ConstTerm?, binders: Binders): string
+    if not term then
+        return "nil"
+    end
+    if term.tag == "constLiteral" then
+        return "const(" .. term.domain .. ":" .. stable(term.value) .. ")"
+    elseif term.tag == "constVar" then
+        return binderFingerprint(term, binders, "constvar") .. ":" .. term.domain
+    end
+    local operands = {}
+    for j, operand in ipairs(term.operands) do
+        operands[j] = constFingerprint(operand, binders)
+    end
+
+    return "constop(" .. term.operation .. ":" .. table.concat(operands, ",") .. ")"
+end
+
+local typeFingerprint: function(nupp.compiler.types.Type?, {[nupp.compiler.types.Type]: boolean}?, Binders?): string
+
+local function packFingerprint(
+    pack: nupp.compiler.types.Pack,
+    active: {[nupp.compiler.types.Type]: boolean},
+    binders: Binders
+): string
+    if pack.alternatives then
+        local alternatives = {}
+        for j, alternative in ipairs(pack.alternatives) do
+            alternatives[j] = packFingerprint(alternative, active, binders)
+        end
+        return "packunion(" .. table.concat(alternatives, "|") .. ")"
+    end
+    local head = {}
+    for j, member in ipairs(pack.head) do
+        head[j] = (pack.modes[j] or "plain") .. ":" .. typeFingerprint(member, active, binders)
+    end
+    local tail = pack.tail
+    local tailFingerprint = "-"
+    if tail and tail.kind == "generic" then
+        tailFingerprint = "generic:" .. binderFingerprint(tail.var, binders, "packvar")
+    elseif tail and tail.type then
+        tailFingerprint = tail.kind .. ":" .. (
+            tail.mode or "plain"
+        ) .. ":" .. typeFingerprint(tail.type, active, binders)
+    end
+
+    return "pack(" .. table.concat(head, ",") .. ";" .. tailFingerprint .. ")"
+end
+
+typeFingerprint = function(
+    t: nupp.compiler.types.Type?,
+    active: {[nupp.compiler.types.Type]: boolean}?,
+    binders: Binders?
+): string
+    if not t then
+        return "nil"
+    end
+    active = active or {}
+    binders = binders or {order = {}, count = 0}
+    if active[t] then
+        -- Only some tags carry a name. One that does not is identified by its tag,
+        -- which every type has, and asking is what the cast is for.
+        local named = t as {name: string?}
+        return "@" .. (named.name or t.tag)
+    end
+    active[t] = true
+    local tag, value = t.tag, nil
+    if tag == "nominal" then
+        -- A nominal is its declaration: one identity per declaration, never shared with
+        -- another of the same shape. So naming the declaration identifies it
+        -- completely, and its members are deliberately not expanded here.
+        --
+        -- Expanding them is not merely redundant, it does not terminate usefully: a
+        -- member's type reaches other nominals, whose members reach further, and
+        -- fingerprinting this compiler that way runs out of memory. A changed record
+        -- is caught by the keyed project-index dependency of each module that read it.
+        --
+        -- This loop used to read `t.fields`, which nominals stopped having when the
+        -- member map was renamed to `byname`, so it had been contributing nothing for
+        -- some time. Saying so is the fix; putting the members back in is not.
+        local arguments = {}
+        for _, argument in ipairs(t.typeArgs or {}) do
+            arguments[#arguments + 1] = typeFingerprint(argument, active, binders)
+        end
+        for _, argument in ipairs(t.packArgs or {}) do
+            arguments[#arguments + 1] = packFingerprint(argument, active, binders)
+        end
+        for _, argument in ipairs(t.constArgs or {}) do
+            arguments[#arguments + 1] = constFingerprint(argument, binders)
+        end
+        value = "nominal(" .. tostring(
+            t.declKind
+        ) .. ":" .. tostring(t.name) .. (#arguments > 0 and "<" .. table.concat(arguments, ",") .. ">" or "") .. ")"
+    elseif tag == "shape" then
+        local fields = {}
+        for _, field in ipairs(t.fields or {}) do
+            fields[
+                #fields + 1
+            ] = field.name .. ":r=" .. typeFingerprint(
+                field.read,
+                active,
+                binders
+            ) .. ":w=" .. typeFingerprint(field.write, active, binders)
+        end
+        fields[
+            #fields + 1
+        ] = "index:r=" .. typeFingerprint(
+            t.indexReadKey,
+            active,
+            binders
+        ) .. ":" .. typeFingerprint(
+            t.indexReadValue,
+            active,
+            binders
+        ) .. ":w=" .. typeFingerprint(
+            t.indexWriteKey,
+            active,
+            binders
+        ) .. ":" .. typeFingerprint(t.indexWriteValue, active, binders)
+        value = "shape(" .. table.concat(fields, ",") .. ")"
+    elseif tag == "func" then
+        local params, returns = {}, {}
+        local typeAt: integer, packAt: integer, constAt: integer = 1, 1, 1
+        for _, kind in ipairs(t.paramKinds or {}) do
+            if kind == "type" then
+                binderFingerprint((t.typeParams or {})[typeAt], binders, "typevar")
+                typeAt = typeAt + 1
+            elseif kind == "pack" then
+                binderFingerprint((t.packParams or {})[packAt], binders, "packvar")
+                packAt = packAt + 1
+            elseif kind == "const" then
+                binderFingerprint((t.constParams or {})[constAt], binders, "constvar")
+                constAt = constAt + 1
+            end
+        end
+        for index, item in ipairs(t.params or {}) do
+            params[
+                #params + 1
+            ] = tostring(
+                t.paramNames and t.paramNames[index] or ""
+            ) .. "=" .. tostring(
+                t.paramModes and t.paramModes[index] or "plain"
+            ) .. ":" .. typeFingerprint(item, active, binders)
+        end
+        for _, item in ipairs(t.rets or {}) do
+            returns[#returns + 1] = typeFingerprint(item, active, binders)
+        end
+        -- The suspension guarantee is part of the boundary a dependent compiled
+        -- against, so a body that starts yielding has to invalidate a reuse of it. The
+        -- interning key carries the same qualifier for the in-memory cutoff; these are
+        -- two identity mechanisms and both need telling.
+        local partitions = {}
+        for result, fields in pairs(t.partitionResults or {}) do
+            for name, region in pairs(fields) do
+                partitions[#partitions + 1] = tostring(result) .. ":" .. name .. "=" .. region
+            end
+        end
+        table.sort(partitions)
+        value = "fn(" .. table.concat(
+            params,
+            ","
+        ) .. (
+            t.vararg and ",..." or ""
+        ) .. ")->(" .. table.concat(
+            returns,
+            ","
+        ) .. ")" .. (
+            #partitions > 0 and "!partition(" .. table.concat(partitions, ",") .. ")" or ""
+        ) .. (t.noYield and "!noyield" or "") .. (t.comptimeOnly and "!comptime" or "")
+    elseif tag == "array" or tag == "ptr" then
+        value = tag .. "(" .. typeFingerprint(t.elem, active, binders) .. ")"
+    elseif tag == "carray" then
+        value = "carray(" .. typeFingerprint(
+            t.elem,
+            active,
+            binders
+        ) .. ":" .. constFingerprint(t.countTerm, binders) .. ")"
+    elseif tag == "affine" then
+        local cleanupIds = {}
+        for j, cleanup in ipairs(t.cleanups or {}) do
+            cleanupIds[j] = cleanup.id
+        end
+        value = tag .. "(" .. table.concat(
+            cleanupIds,
+            ","
+        ) .. (t.transferOnly and ":transfer" or "") .. "," .. typeFingerprint(t.inner, active, binders) .. ")"
+    elseif tag == "borrowed" or tag == "pinned" then
+        value = tag .. "(" .. typeFingerprint(t.inner, active, binders) .. ")"
+    elseif tag == "map" then
+        value = "map(r=" .. (
+            t.readable and typeFingerprint(t.key, active, binders) or "nil"
+        ) .. ":" .. (
+            t.readable and typeFingerprint(t.value, active, binders) or "nil"
+        ) .. ",w=" .. typeFingerprint(
+            t.writeKey,
+            active,
+            binders
+        ) .. ":" .. typeFingerprint(t.writeValue, active, binders) .. ")"
+    elseif tag == "tuple" then
+        local items = {}
+        for _, item in ipairs(t.elems or {}) do
+            items[#items + 1] = typeFingerprint(item, active, binders)
+        end
+        value = "tuple(" .. table.concat(items, ",") .. ")"
+    elseif tag == "union" or tag == "intersection" then
+        local items = {}
+        for _, item in ipairs(t.members or {}) do
+            items[#items + 1] = typeFingerprint(item, active, binders)
+        end
+        table.sort(items);
+        value = tag .. "(" .. table.concat(items, tag == "union" and "|" or "&") .. ")"
+    elseif tag == "projection" then
+        -- Through the canonical head, so two projections off binders that share a name
+        -- are two boundaries. Without a case here a projection renders as its bare tag
+        -- and every one of them compares equal, which is the collision the binder
+        -- numbering above exists to prevent.
+        value = "proj(" .. typeFingerprint(t.of, active, binders) .. "," .. t.name .. ")"
+    elseif tag == "typeHandle" then
+        value = "typeHandle(" .. typeFingerprint(t.bound, active, binders) .. ")"
+    elseif tag == "packResult" then
+        value = "packResult(" .. packFingerprint(t.pack, active, binders) .. ")"
+    elseif tag == "literal" then
+        value = "literal(" .. stable(t.constant) .. ":" .. typeFingerprint(t.base, active, binders) .. ")"
+    elseif tag == "neutral" then
+        local templates, comptimeArguments = {}, {}
+        for _, part in ipairs(t.templateParts or {}) do
+            templates[
+                #templates + 1
+            ] = type(
+                part
+            ) == "string" and "text(" .. stable(
+                part
+            ) .. ")" or typeFingerprint(part as nupp.compiler.types.Type, active, binders)
+        end
+        for _, argument in ipairs(t.comptimeArguments or {}) do
+            if argument.kind == "type" then
+                comptimeArguments[#comptimeArguments + 1] = "type=" .. typeFingerprint(argument.value, active, binders)
+            elseif argument.kind == "typepack" then
+                comptimeArguments[#comptimeArguments + 1] = "pack=" .. packFingerprint(argument.value, active, binders)
+            else
+                comptimeArguments[#comptimeArguments + 1] = "const=" .. constFingerprint(argument.value, binders)
+            end
+        end
+        value = "neutral#1(" .. t.op .. ":" .. tostring(
+            t.capability or "-"
+        ) .. ":subject=" .. typeFingerprint(
+            t.subject,
+            active,
+            binders
+        ) .. ":key=" .. typeFingerprint(
+            t.key,
+            active,
+            binders
+        ) .. ":binder=" .. typeFingerprint(
+            t.binder,
+            active,
+            binders
+        ) .. ":keys=" .. typeFingerprint(
+            t.keys,
+            active,
+            binders
+        ) .. ":value=" .. typeFingerprint(
+            t.value,
+            active,
+            binders
+        ) .. ":remap=" .. typeFingerprint(
+            t.remap,
+            active,
+            binders
+        ) .. ":const=" .. constFingerprint(
+            t.constTerm,
+            binders
+        ) .. ":template=" .. table.concat(
+            templates,
+            ","
+        ) .. ":comptime=" .. tostring(
+            t.comptimeIdentity or "-"
+        ) .. "(" .. table.concat(comptimeArguments, ",") .. "):" .. (t.comptimeResultPack and "pack" or "type") .. ")"
+    elseif tag == "genericAlias" then
+        local parameters = {}
+        for _, parameter in ipairs(t.typeParams or {}) do
+            parameters[#parameters + 1] = typeFingerprint(parameter, active, binders)
+        end
+        for _, parameter in ipairs(t.packParams or {}) do
+            parameters[#parameters + 1] = binderFingerprint(parameter, binders, "packvar")
+        end
+        for _, parameter in ipairs(t.constParams or {}) do
+            parameters[#parameters + 1] = binderFingerprint(parameter, binders, "constvar") .. ":" .. parameter.domain
+        end
+        value = "alias(" .. table.concat(parameters, ",") .. ":" .. typeFingerprint(t.body, active, binders) .. ")"
+    elseif tag == "typevar" then
+        -- By position rather than by name. A binder's name is not its identity: two
+        -- that shadow each other are two types and have to compare unequal, or an
+        -- interface that changed compares unchanged and nothing downstream rebuilds.
+        -- Numbering in first-encounter order also means renaming one is not a change,
+        -- and neither is moving the declaration, which the interned identity records
+        -- by source position.
+        value = binderFingerprint(t, binders, "typevar")
+    else
+        value = tag or tostring(t)
+    end
+    active[t] = nil
+
+    return value
+end
+
+--- A path as a progress line should say it: relative to the project root, so a
+--- step reads the same wherever the project was checked out.
+local function shortPath(root: string, path: string): string
+    local rootPrefix = normalize(root)
+    if rootPrefix ~= "." and path:sub(1, #rootPrefix + 1) == rootPrefix .. "/" then
+        return path:sub(#rootPrefix + 2)
+    end
+
+    return path
+end
+
+local function resourceRelative(config: Config, path: string, root: string): string
+    local normalized = normalize(path)
+    local rootPrefix = normalize(root)
+    if rootPrefix ~= "." and normalized:sub(1, #rootPrefix + 1) == rootPrefix .. "/" then
+        normalized = normalized:sub(#rootPrefix + 2)
+    end
+    local best = normalized
+    for _, include in ipairs(config.include or {}) do
+        include = normalize(include)
+        if normalized:sub(1, #include + 1) == include .. "/" then
+            local relative = normalized:sub(#include + 2)
+            if #relative < #best then
+                best = relative
+            end
+        end
+    end
+
+    return best
+end
+
+local function resourceOutput(
+    config: Config,
+    resource: string | nupp.compiler.build.manifest.Resource,
+    source: string,
+    root: string
+): string
+    if type(resource) == "table" then
+        return normalize((resource as nupp.compiler.build.manifest.Resource).output)
+    end
+
+    return resourceRelative(config, source, root)
+end
+
+local function copyModuleRecord(record)
+    local dependencies = jsonArray({})
+    for _, name in ipairs(record.dependencies or {}) do
+        dependencies[#dependencies + 1] = name
+    end
+    local effects = jsonArray({})
+    for _, effect in ipairs(record.effects or {}) do
+        effects[#effects + 1] = effect
+    end
+    local projectDependencies = jsonArray({})
+    for _, dependency in ipairs(record.projectDependencies or {}) do
+        projectDependencies[
+            #projectDependencies + 1
+        ] = {name = dependency.name, key = dependency.key, fingerprint = dependency.fingerprint,}
+    end
+
+    return {
+        sourceHash = record.sourceHash,
+        interfaceHash = record.interfaceHash,
+        artifactHash = record.artifactHash,
+        dependencies = dependencies,
+        projectDependencies = projectDependencies,
+        effects = effects,
+        output = record.output,
+        external = record.external,
+        diags = record.diags,
+        coverage = record.coverage,
+        materializations = record.materializations,
+        derives = record.derives,
+        backend = record.backend,
+        backendHash = record.backendHash,
+    }
+end
+
+--- Opens the query graph a build checks through.
+---
+--- Separate from the build so the phases that run before it can check through the
+--- same graph. `strict` holds every file to the strict floor whatever it is named;
+--- nil lets each file's extension decide.
+local function openSession(
+    root: string,
+    outDir: string,
+    config: Config,
+    target: Target,
+    dependencies: {[string]: nupp.compiler.build.cache.DependencyRecord},
+    strict: boolean?,
+    reporter: nupp.compiler.build.progress.Reporter?
+): modules.Session
+    local report = reporter or progress.new("never")
+    local envConfig = {}
+    for key, value in pairs(config) do
+        envConfig[key] = value
+    end
+    envConfig.include = {}
+    for _, include in ipairs(config.include or {}) do
+        envConfig.include[#envConfig.include + 1] = include
+    end
+    envConfig.include[#envConfig.include + 1] = join(outDir, "generated")
+    local rocks = deps.rockPaths(root, config, target, dependencies)
+    local ambientTypeRoots = deps.typeRoots(root, config, dependencies)
+    local checkMs: {[string]: number} = {}
+    local stagedRoot = join(root, join(outDir, "cache/backend-runtime-source"))
+    local stagedReady = false
+    local open: {{
+        startedAt: number,
+        children: number
+    }} = {}
+    -- What the build was doing when the outermost check began, to go back to when it
+    -- ends.
+    local resumeActivity = "scan"
+    local observer: nupp.compiler.incremental.Observer = {
+        checking = function(path: string): nil
+            -- Checking is charged wherever it happens rather than only where this file
+            -- calls for it. Deciding a module can be reused reaches the checker too, so
+            -- a build that compiles nothing at all would otherwise report its whole
+            -- runtime as bookkeeping.
+            if #open == 0 then
+                resumeActivity = report.activity
+                report:at("check")
+            end
+            open[#open + 1] = {startedAt = progress.now(), children = 0}
+            report:step("checking " .. shortPath(root, path))
+        end,
+        checked = function(path: string): nil
+            local frame = open[#open]
+            if not frame then
+                return
+            end
+            open[#open] = nil
+            local spent = progress.now() - frame.startedAt
+            local parent = open[#open]
+            if parent then
+                parent.children = parent.children + spent
+            end
+            checkMs[path] = (checkMs[path] or 0) + spent - frame.children
+            if #open == 0 then
+                report:at(resumeActivity)
+            end
+        end,
+    }
+
+    local inc = incremental.new(root, {
+        config = envConfig,
+        strict = strict,
+        dialect = target.dialect,
+        nativeCompilerServices = target.dialect ~= "lua51",
+        typeRoots = rocks and rocks.typeRoots or {},
+        ambientTypeRoots = ambientTypeRoots,
+        observe = observer,
+    })
+
+    -- Built-in backends are checked source carried by the compiler, just like
+    -- dependency backends are checked source carried by a rock. Materialize a
+    -- selected built-in before descriptor resolution so an installed compiler can
+    -- select it without the application copying Nupp's own source tree.
+    local function stageBundled(name: string): string?
+        local existing = inc.modulePath(name)
+        if existing ~= nil then
+            return existing
+        end
+        local carried = require("nupp.compiler.bundled")
+        local source: string? = nil
+        local resource = ""
+        -- `.lua` last and included at all because a checked provider may be the layer
+        -- over a vendored library, and that library is plain Lua the compiler carries
+        -- rather than Nupp it compiles. Staging it is what puts it on the ordinary
+        -- path: linked like any dependency, carried into the artifact like any module.
+        for _, suffix in ipairs({".nupp", ".g.nupp", "/init.nupp", ".lua"}) do
+            resource = "/" .. name:gsub("%.", "/") .. suffix
+            source = carried.source(resource)
+            if source ~= nil then
+                break
+            end
+        end
+        if source == nil then
+            return nil
+        end
+        if not stagedReady then
+            nupp.io.files.remove(stagedRoot, true)
+            assert(fs.mkdir(stagedRoot), "cannot create backend runtime source staging tree")
+            inc.env.roots[#inc.env.roots + 1] = stagedRoot
+            stagedReady = true
+        end
+        local suffix = resource:match("%.g%.nupp$") and ".g.nupp" or resource:match("%.lua$") and ".lua" or ".nupp"
+        local path = join(stagedRoot, name:gsub("%.", "/") .. suffix)
+        local wrote, problem = writeFile(path, source)
+        assert(wrote, problem)
+        inc.openDocument(path, source)
+
+        return path
+    end
+
+    return new modules.Session(inc = inc, checkMs = checkMs, stageBundled = stageBundled)
+end
+
+local function buildModules(root: string, outDir: string, config: Config, target: Target, oldState: State, newState: State, checkOnly: boolean?, strict: boolean?, stats: modules.Stats?, diagnostics: {
+    any
+}?, checkState: nupp.compiler.build.store.Value?,
+
+    --- Set when a check was asked about named files rather than about the project. Only
+    --- a check narrows: a build compiles the whole source set, because a module nobody
+    --- requires is still part of the program.
+    narrow: modules.Narrow?,
+
+    --- Where what this is doing, and what it costs, is said. A run given none still
+    --- measures itself into a reporter that shows nothing, so there is one code path
+    --- rather than a nil test at every step.
+    reporter: nupp.compiler.build.progress.Reporter?,
+
+    --- Source path -> the text to compile instead of what is on disk. How the
+    --- ahead-of-time policy puts a wrapper in front of an `@aot` function: the
+    --- substitute is checked and hashed exactly like a file, so nothing
+    --- downstream has to know one happened.
+    overlays: {[string]: string}?,
+
+    --- Source path -> what reading that path as written said about bindings
+    --- nothing uses. One thing downstream does have to know a substitution
+    --- happened: a wrapper replaces the body, so the rewritten source cannot see
+    --- the readers that body was, and its answer to that lint is about a file
+    --- nobody wrote. These are reported in its place.
+    authoredUnused: {[string]: {any}}?,
+
+    --- The graph to check through, when an earlier phase already opened one. A
+    --- build given none opens its own, so there is one way a session is built
+    --- rather than two that could drift.
+    session: modules.Session?): modules.Result?, string?
+    local report = reporter or progress.new("never")
+    local opened = session or openSession(root, outDir, config, target, newState.dependencies, strict, reporter)
+    local inc = opened.inc
+    local checkMs = opened.checkMs
+    local substituted: {[string]: string} = {}
+    for path, text in pairs(overlays or {}) do
+        local at = normalize(path)
+        substituted[at] = text
+        inc.openDocument(at, text)
+    end
+    -- Keyed the way the substitutions are, since the two are looked up together
+    -- and the policy spells a path however it walked to it.
+    local authoredLints: {[string]: {any}} = {}
+    for path, diagnostics in pairs(authoredUnused or {}) do
+        authoredLints[normalize(path)] = diagnostics
+    end
+
+    -- A declaration file a type dependency carries that the importer could not take.
+    -- Reported once, as a warning against the file itself, because that is where the
+    -- reader can see what was skipped; the API the rest of the tree declares is
+    -- checked either way.
+    for _, problem in ipairs(inc.env.ambientTypeProblems or {}) do
+        local diagnostic = {
+            filename = problem.path,
+            line = problem.line,
+            col = problem.col,
+            offset = 0,
+            length = 1,
+            severity = "warning",
+            code = "NUPP1009",
+            msg = "type dependency declaration not imported: " .. problem.msg,
+            help = "the declarations beside it were imported; pin a revision this "
+            .. "compiler can read, or report the construct",
+            docs = "docs/guides/integrations/luacats.md",
+        }
+        if diagnostics ~= nil then
+            diagnostics[#diagnostics + 1] = diagnostic
+        else
+            require("nupp.compiler.diagnostics").report({diagnostic})
+        end
+    end
+
+    -- Built-in backends are checked source carried by the compiler, just like
+    -- dependency backends are checked source carried by a rock. Materialize a
+    -- selected built-in before descriptor resolution so an installed compiler
+    -- can select it without the application copying Nupp's own source tree.
+    local linkedModules: {[string]: boolean} = {}
+    local stageBundled = opened.stageBundled
+
+    for _, name in ipairs(target.backends or {}) do
+        stageBundled(name)
+    end
+    local backendResolution, backendErr, backendFailure = backends.resolve(inc, target.backends)
+    if not backendResolution then
+        local diagnostic = {
+            filename = backendFailure and backendFailure.path or join(root, "nupp.lua"),
+            line = 1,
+            col = 1,
+            offset = 0,
+            length = 1,
+            code = "NUPP3008",
+            msg = backendErr,
+            help = "select a checked module exporting one declarative Backend.new value",
+            docs = "docs/neps/0013-dialects-and-capability-backends.md",
+        }
+        if diagnostics ~= nil then
+            diagnostics[#diagnostics + 1] = diagnostic
+        else
+            require("nupp.compiler.diagnostics").report({diagnostic})
+        end
+
+        return nil, "project has errors"
+    end
+    for _, descriptor in ipairs(backendResolution.modules or {}) do
+        for _, seam in ipairs(descriptor.seams or {}) do
+            local owner = deps.runtimeModuleOwner(root, config, target, newState.dependencies, seam.runtimeModule)
+            seam.runtimeDependency = owner
+            if backendResolution.seams[seam.name] then
+                backendResolution.seams[seam.name].runtimeDependency = owner
+            end
+        end
+    end
+    inc.setBackendResolution(backendResolution)
+
+    -- A selected backend is executable runtime support, including when its checked
+    -- source came from a rock's versioned `nupp/` root. Compile that source for this
+    -- target and materialize the compiler-owned factories it requires as ordinary Lua
+    -- files beside the application. The staging tree contains real `.nupp` source and
+    -- is never part of the artifact; it exists only because bundled compiler sources
+    -- have no project path of their own.
+    -- The tree itself is the session's, made where the first module is staged into
+    -- it. Every backend reaches at least the three compiler-owned modules below.
+    local hasBackends = #(backendResolution.modules or {}) > 0
+
+    -- A checked standard-library facade reached through a selected seam is runtime
+    -- support too. Its source is normally an external compiler type root, but an
+    -- artifact cannot depend on the compiler's own build tree. Link each real source
+    -- dependency of a module that reaches a selected effect, then let the ordinary
+    -- dependency walk close over it. Declaration-only `.d.nupp` modules still describe
+    -- third-party runtime modules and therefore remain external.
+
+    --- Whether a selected seam replaces this whole public module with a provider.
+    ---
+    --- What the artifact requires there is the provider, so the module it stands in
+    --- for is not compiled for this target -- and usually could not be, which is why
+    --- the seam exists.
+    local function seamReplaces(dependency: string): boolean
+        for _, seam in pairs(backendResolution.seams or {}) do
+            if seam.modules and seam.modules[dependency] ~= nil then
+                return true
+            end
+            -- An implementation the seam replaces without replacing the declared
+            -- interface at that name. The default one is not compiled, because a
+            -- provider was selected instead of it; what a caller is checked against
+            -- is the contract, which stays where it was declared.
+            if seam.implementationModules and seam.implementationModules[dependency] ~= nil then
+                return true
+            end
+        end
+
+        return false
+    end
+
+    local linkingRuntimeSource: {[string]: boolean} = {}
+    local linkedRuntimeSource: {[string]: boolean} = {}
+    -- Whether this target is a different one from the compiler's own build. A module
+    -- the compiler carries is staged from that build for a `luajit` target, which is
+    -- the same artifact it would compile; for `lua51` it is not, so those modules are
+    -- compiled here instead.
+    local portableTarget = target.dialect == "lua51"
+
+    local linkRuntimeSource: function(name: string): nil
+    linkRuntimeSource = function(name: string): nil
+        if linkedRuntimeSource[name] or linkingRuntimeSource[name] or seamReplaces(name) then
+            return
+        end
+        linkingRuntimeSource[name] = true
+        local path = inc.modulePath(name) or stageBundled(name)
+        if path ~= nil and not path:match("%.d%.nupp$") then
+            linkedModules[name] = true
+            -- Asking for the semantic dependencies may check this module before all
+            -- of them have been staged. Each `openDocument` invalidates that query;
+            -- the ordinary compile below therefore sees the complete closure.
+            for _, dependency in ipairs(inc.moduleDependencies(path)) do
+                linkRuntimeSource(dependency)
+            end
+        end
+        linkingRuntimeSource[name] = nil
+        linkedRuntimeSource[name] = true
+    end
+
+    -- What a portable compiler-provided feature is implemented in, for a target the
+    -- compiler did not build itself for.
+    --
+    -- These modules are not reached by any `require` the source wrote: generation
+    -- emits the require for them, so the dependency walk never sees them and the
+    -- staging that would otherwise cover them copies the compiler's own `luajit`
+    -- artifact. Reading the effects a module recorded finds them where the walk
+    -- cannot, and compiling them here puts a `lua51` lowering in a `lua51` payload.
+    --
+    -- Only the features that say their runtime is portable. Most of the others are
+    -- what a native target reaches for, `ffi` and all, and a portable target carries
+    -- them without loading them.
+    -- Assigned once the work queue exists, below. Staging a module puts its source
+    -- on the path; compiling it is a separate step, and a module nothing requires
+    -- reaches the queue only by being put there.
+    local enqueueLinked: function(string): nil
+
+    local function linkFeatureRuntime(effects: any): nil
+        if not portableTarget then
+            return
+        end
+        local named: {[string]: boolean} = {}
+        for _, effect in ipairs(effects) do
+            named[effect] = true
+        end
+        for effect in pairs(native.expand(named)) do
+            local feature = native.feature(effect)
+            if feature ~= nil and feature.runtimeModule ~= nil and feature.portableRuntime then
+                local runtimeModule = feature.runtimeModule as string
+                linkRuntimeSource(runtimeModule)
+                if linkedModules[runtimeModule] and enqueueLinked ~= nil then
+                    enqueueLinked(runtimeModule)
+                end
+            end
+        end
+    end
+
+    local function linkSelectedDependencies(name: string, names: any, effects: any): nil
+        linkFeatureRuntime(effects)
+        local selected = linkedModules[name] == true
+        for _, effect in ipairs(effects) do
+            selected = selected or backendResolution.byEffect[effect] ~= nil
+        end
+        if not selected then
+            return
+        end
+        for _, dependency in ipairs(names) do
+            linkRuntimeSource(dependency)
+        end
+    end
+
+    if hasBackends then
+        for _, name in ipairs({"nupp.runtime.backend", "nupp.runtime.seam.registry", "nupp.runtime.seam.module",}) do
+            linkedModules[name] = true
+            stageBundled(name)
+        end
+    end
+    for _, descriptor in ipairs(backendResolution.modules or {}) do
+        linkedModules[descriptor.module] = true
+        for _, seam in ipairs(descriptor.seams or {}) do
+            linkedModules[seam.factoryModule] = true
+            stageBundled(seam.factoryModule)
+            local providerPath = inc.modulePath(seam.runtimeModule)
+            if providerPath and providerPath:match("%.nupp$") then
+                linkedModules[seam.runtimeModule] = true
+            elseif providerPath == nil and stageBundled(seam.runtimeModule) ~= nil then
+                linkedModules[seam.runtimeModule] = true
+            end
+        end
+    end
+
+    --- What a module's record is keyed on: its substitute when it has one, and
+    --- the file otherwise. Hashing the file while compiling something else would
+    --- make a rebuild reuse an artifact built from different source.
+    local function sourceContentHash(path: string): string?
+        local text = substituted[path]
+        if text ~= nil then
+            return hash.digest(text as string)
+        end
+
+        return hashFile(path)
+    end
+
+    -- A check reuses on the same terms a build does. It used to be excluded, and had to
+    -- be: reuse produced no diagnostics, so the second `nupp check` over a project with
+    -- an error would have said nothing was wrong. Now a record carries what the file
+    -- had to say, so replaying it says the same thing the check would have.
+    local cacheCompatible = oldState.moduleCompilerHash == newState.moduleCompilerHash
+        and oldState.configHash == newState.configHash
+    -- Everything the project is written in, not the closure of its entries.
+    --
+    -- A compiler compiles its source set. Deciding what to compile by walking require
+    -- edges out from an entry answers three questions with one walk, what to compile,
+    -- what to check, and what a bundle carries, and gets two of them wrong. A module
+    -- nothing requires goes unchecked, so `nupp check` stops meaning "this project is
+    -- well typed" and starts meaning "the part I could reach is". And a module reached
+    -- only by `require(name)`, where the name is computed, is absent from the build and
+    -- therefore from the binary, which fails at run time in front of a user with a
+    -- filesystem search path that means nothing inside one file.
+    --
+    -- Eliminating dead code is a linker's job and should be invisible when it happens.
+    -- Measured on this compiler, the walk was removing one module out of seventy-one.
+    --
+    -- Entries still say where execution starts, and for a bundle which chunk becomes
+    -- the body. They no longer say what exists.
+    local queue, queuedPaths = {}, {}
+    local function seed(name, path)
+        path = normalize(path)
+        if queuedPaths[path] then
+            return
+        end
+        queuedPaths[path] = true
+        queue[#queue + 1] = {name = name, path = path}
+    end
+
+    -- A check of named files is that same walk started somewhere smaller. What it
+    -- reaches from there -- what the file requires, and what those require -- is
+    -- checked
+    -- and recorded the way a whole-project run would, because the named file's answer
+    -- depends on them. What it never reaches is left alone: unmentioned, unreported,
+    -- and
+    -- still in the stored state, which is what `asked` carries down to the two places
+    -- that would otherwise treat "not visited" as "not there".
+    local asked = nil
+    if checkOnly and narrow and #narrow.paths > 0 then
+        asked = {}
+        for _, path in ipairs(narrow.paths) do
+            local file = normalize(path)
+            local name = envMod.moduleNameForPath(inc.env, file)
+            if name then
+                asked[name] = true
+                seed(name, file)
+            else
+                narrow.unchecked[#narrow.unchecked + 1] = path
+            end
+        end
+    else
+        for _, entry in ipairs(target.entries or {}) do
+            local path, name
+            if entry:match("%.nupp$") or entry:find("[/\\]") then
+                path = join(root, entry)
+                name = envMod.moduleNameForPath(inc.env, path)
+            else
+                name = entry
+                path = inc.modulePath(entry)
+            end
+            if not path then
+                return nil, "entry not found: " .. entry
+            end
+            if not name then
+                return nil, "cannot determine module name for " .. path
+            end
+            seed(name, path)
+        end
+        if #queue == 0 then
+            return nil, "build.entries must contain at least one entry"
+        end
+
+        -- An entry may live outside the include roots, as a file named on the command
+        -- line does, so it is seeded first and the source set is added around it. A
+        -- target that names `sources` owns exactly that selected set plus dependencies
+        -- discovered below; an ordinary target retains the whole-project contract.
+        local sourceSet, sourceSetErr = selectedSourceFiles(root, target)
+        if sourceSetErr then
+            return nil, sourceSetErr
+        end
+        for _, path in ipairs(sourceSet or envMod.listSourceFiles(inc.env, false)) do
+            local name = envMod.moduleNameForPath(inc.env, path)
+            if name then
+                seed(name, path)
+            elseif sourceSet then
+                return nil, "cannot determine module name for selected source " .. path
+            end
+        end
+        for name in pairs(linkedModules) do
+            local path = inc.modulePath(name)
+            if path ~= nil then
+                seed(name, path)
+            end
+        end
+    end
+
+    local records, reused, codeFor, paths = {}, {}, {}, {}
+    local order, queued, cursor = {}, {}, 1
+    -- What the queue holds now is the whole source set; dependencies discovered later
+    -- can still add to it, which the step line accounts for by never counting past the
+    -- total it is showing.
+    report:expect(#queue)
+    -- Generation, by module name. Kept apart from the check times until the end because
+    -- one is keyed by path and the other by name, and the summary wants them added
+    -- together under the name.
+    local generateMs: {[string]: number} = {}
+    stats = (stats or {}) as modules.Stats
+    stats.checkedModules, stats.generatedModules, stats.reusedModules = 0, 0, 0
+
+    -- Everything one module had to say, by module name, rather than one list everything
+    -- is appended to. A module reused early can be invalidated and recompiled later,
+    -- and what it says the second time replaces what it said the first rather than
+    -- joining it.
+    local said = {}
+
+    local function enqueue(name, path)
+        if queued[name] or records[name] then
+            return
+        end
+        if inc.runtimeProjectedModule(name) then
+            return
+        end
+        path = path or inc.modulePath(name)
+        if path then
+            queued[name] = true
+            queue[#queue + 1] = {name = name, path = normalize(path)}
+        end
+    end
+
+    enqueueLinked = function(name: string): nil
+        enqueue(name)
+    end
+
+    -- A note or a warning is said and stepped over. Only an error stops the build, and
+    -- only an error withholds the file's generated Lua: advice about a program is not a
+    -- reason to refuse to compile it.
+    local function isFatalIn(diags)
+        for _, diag in ipairs(diags or {}) do
+            if isFatal(diag) then
+                return true
+            end
+        end
+
+        return false
+    end
+
+    local function compile(name, path, sourceHash)
+        local external = envMod.isDependencyTypePath(inc.env, path) and not linkedModules[name]
+        local result = inc.checkFile(path)
+        stats.checkedModules = stats.checkedModules + 1
+        local mine = {}
+        -- An `@aot` policy that links hands the checker this source with each
+        -- compiled declaration replaced by the wrapper that calls it, body and
+        -- all. A binding the removed body was the only reader of then has no
+        -- reader in the text being checked, and `unused-binding` says so against
+        -- a line the author would find still using the name.
+        --
+        -- That lint describes the shape of a file somebody wrote, and a rewritten
+        -- one is not that file, so its answer is dropped and the one the policy
+        -- took from the file as written is reported instead. The lint is not
+        -- lost, and it is not answered twice.
+        local rewritten = substituted[normalize(path)] ~= nil
+        for _, diag in ipairs(result.diags or {}) do
+            if not (rewritten and diag.code == "NUPP2507") then
+                mine[#mine + 1] = diag
+            end
+        end
+        if rewritten then
+            for _, diag in ipairs(authoredLints[normalize(path)] or {}) do
+                mine[#mine + 1] = diag
+            end
+        end
+        local fatal = isFatalIn(mine)
+        local depNames = inc.moduleDependencies(path)
+        local effectNames = {}
+        if fatal or checkOnly or external then
+            for effect in pairs(result.result.effects or {}) do
+                effectNames[#effectNames + 1] = effect
+            end
+            table.sort(effectNames)
+        end
+        local output = external and nil or join(root, join(outDir, name:gsub("%.", "/") .. ".lua"))
+        local artifactHash, code, coverage
+        if not external and not fatal and not checkOnly then
+            report:at("generate")
+            report:step("generating " .. name)
+            local startedGenerating = progress.now()
+            local genDiags
+            local remarks = optimize.run(result.result, {
+                level = config._optLevel or 0,
+                filename = path,
+                disabled = config._disabledPasses,
+                relaxed = config._relaxedGuarantees,
+                dialect = (config._target or {}).dialect
+            })
+            if config._remarks then
+                for _, note in ipairs(remarks) do
+                    mine[#mine + 1] = note
+                end
+            end
+            local emittedEffects
+            code, genDiags, coverage, emittedEffects = gen.generate(
+                result.result,
+                path,
+                config._coverage and {path = path} or nil,
+                nil,
+                backendResolution
+            )
+            -- Generation is the last word on runtime reachability: it has now seen
+            -- which checked nodes survived folding, comptime erasure, materialization,
+            -- and lowering. Persist the same set that selected the generated prologue
+            -- so packaging cannot retain a backend seam the Lua does not use.
+            result.result.effects = emittedEffects
+            for effect in pairs(emittedEffects) do
+                effectNames[#effectNames + 1] = effect
+            end
+            table.sort(effectNames)
+            stats.generatedModules = stats.generatedModules + 1
+            for _, diag in ipairs(genDiags or {}) do
+                mine[#mine + 1] = diag
+            end
+            if #genDiags == 0 then
+                artifactHash = hash.digest(code)
+            end
+            generateMs[name] = (generateMs[name] or 0) + (progress.now() - startedGenerating)
+        end
+        said[name] = mine
+        local materializations = materializeObserve.collect(result.result and result.result.root, path)
+        local derives = result.result and result.result.deriveObservations or {}
+        local projectDependencies = inc.projectDependencies(path)
+        local checkedExports = result.exports or {}
+        records[name] = {
+            sourceHash = sourceHash,
+            interfaceHash = hash.digest(
+                typeFingerprint(
+                    result.moduleType
+                ) .. "\0definitions\0" .. exportDefinitionFingerprint(
+                    checkedExports
+                ) .. "\0nominal-callables:" .. (
+                    checkedExports.nominalEffectFingerprint or ""
+                ) .. "\0derives:" .. (
+                    checkedExports.deriveInterfaceFingerprint or ""
+                ) .. "\0comptime-functions:" .. (
+                    checkedExports.comptimeFunctionFingerprint or ""
+                ) .. "\0backend:" .. (
+                    result.backend and result.backend.fingerprint or ""
+                ) .. (external and ("\0" .. sourceHash) or "")
+            ),
+            artifactHash = artifactHash,
+            dependencies = jsonArray(depNames),
+            projectDependencies = jsonArray(projectDependencies),
+            effects = jsonArray(effectNames),
+            output = output,
+            external = external or nil,
+            -- Only what checking found. Generation runs once per artifact and a reused
+            -- module does not run it again, so its remarks belong to the run that
+            -- produced them and not to the record.
+            diags = jsonArray(result.diags or {}),
+            coverage = coverage,
+            materializations = jsonArray(materializations),
+            derives = jsonArray(derives),
+            backend = result.backend,
+            backendHash = backendResolution.fingerprint,
+        }
+        codeFor[name] = code
+        reused[name] = nil
+        linkSelectedDependencies(name, depNames, effectNames)
+        for _, depName in ipairs(depNames) do
+            if linkedModules[name] then
+                linkRuntimeSource(depName)
+            elseif portableTarget and inc.modulePath(depName) == nil then
+                -- Carried, and this target is not the one the compiler built itself
+                -- for. Staging that artifact would put a `luajit` lowering in a
+                -- `lua51` payload -- `const` where `local` belongs, before anything
+                -- subtler -- and the payload would not even parse.
+                linkRuntimeSource(depName)
+            end
+            enqueue(depName)
+        end
+    end
+
+    local function processQueue()
+        while cursor <= #queue do
+            local item = queue[cursor]
+            cursor = cursor + 1
+            queued[item.name] = nil
+            if not records[item.name] then
+                local path = item.path
+                paths[item.name] = path
+                order[#order + 1] = item.name
+                -- Deciding whether a module can be reused is reading and hashing files,
+                -- which on a build that reuses everything is the whole of the run. It
+                -- is its own activity so a warm build can say so.
+                report:at("scan")
+                report:step(item.name)
+                local sourceHash = sourceContentHash(path)
+                local previous = oldState.modules[item.name]
+                local external = envMod.isDependencyTypePath(inc.env, path) and not linkedModules[item.name]
+                local output = external and nil or join(root, join(outDir, item.name:gsub("%.", "/") .. ".lua"))
+                -- A build has to find the artifact it would have written still sitting
+                -- there and still what it wrote; a check writes no artifact and so has
+                -- nothing to confirm but the record.
+                local usable = cacheCompatible
+                    and previous
+                    and previous.sourceHash == sourceHash
+                    and previous.backendHash == backendResolution.fingerprint
+                    and previous.interfaceHash
+                    and type(
+                    previous.dependencies
+                ) == "table" and type(
+                    previous.projectDependencies
+                ) == "table" and type(
+                    previous.effects
+                ) == "table" and type(
+                    previous.diags
+                ) == "table" and type(previous.materializations) == "table" and type(previous.derives) == "table"
+                if usable and previous then
+                    for _, dependency in ipairs(previous.projectDependencies or {}) do
+                        if type(dependency) ~= "table" then
+                            usable = false
+                            break
+                        end
+                        local dependencyName = dependency.name
+                        local dependencyKey = dependency.key
+                        local dependencyFingerprint = dependency.fingerprint
+                        if type(
+                            dependencyName
+                        ) ~= "string" or type(dependencyKey) ~= "string" or type(dependencyFingerprint) ~= "string" then
+                            usable = false
+                            break
+                        end
+                        if inc.projectDependencyFingerprint(
+                            dependencyName as string,
+                            dependencyKey as string
+                        ) ~= dependencyFingerprint then
+                            usable = false
+                            break
+                        end
+                    end
+                end
+                if usable and previous and not checkOnly and not external then
+                    usable = previous.artifactHash and hashFile(output) == previous.artifactHash
+                end
+                if usable and previous then
+                    records[item.name] = copyModuleRecord(previous)
+                    records[item.name].output = output
+                    records[item.name].external = external or nil
+                    reused[item.name] = true
+                    -- A file that is still exactly as it was still has whatever it had
+                    -- to say about itself. Silent reuse would make `nupp check` mean
+                    -- "nothing changed" rather than "nothing is wrong", and the second
+                    -- run over a project with an error in it would pass.
+                    said[item.name] = previous.diags
+                    linkSelectedDependencies(item.name, previous.dependencies or {}, previous.effects or {})
+                    for _, depName in ipairs(previous.dependencies or {}) do
+                        enqueue(depName)
+                    end
+                else
+                    compile(item.name, path, sourceHash)
+                end
+                report:resolved()
+            end
+        end
+    end
+
+    processQueue()
+    local invalidated = true
+    while invalidated do
+        invalidated = false
+        for _, name in ipairs(order) do
+            local record = records[name]
+            if reused[name] and record then
+                local dependencyChanged = false
+                for _, depName in ipairs(record.dependencies or {}) do
+                    local depPath = inc.modulePath(depName)
+                    if depPath then
+                        local current = records[depName]
+                        local previous = oldState.modules[depName]
+                        if not current or not previous or current.interfaceHash ~= previous.interfaceHash then
+                            dependencyChanged = true
+                            break
+                        end
+                    end
+                end
+                if dependencyChanged then
+                    compile(name, paths[name], record.sourceHash)
+                    invalidated = true
+                end
+            end
+        end
+        processQueue()
+    end
+
+    -- Counted here rather than where reuse is decided, because a module reused early
+    -- can be invalidated by a dependency later and recompiled; only once the loop above
+    -- settles is `reused` the answer. A check counts the same way a build does, which
+    -- is what lets a test say "this edit rechecked one module" instead of timing it.
+    for _, name in ipairs(order) do
+        if reused[name] then
+            stats.reusedModules = stats.reusedModules + 1
+        end
+    end
+    -- The same answer, and the two halves of each module's cost added up under the one
+    -- name a reader would look for it by.
+    report:counted(#order - stats.reusedModules, stats.reusedModules)
+    for _, name in ipairs(order) do
+        local spent = (checkMs[paths[name] or ""] or 0) + (generateMs[name] or 0)
+        if spent > 0 then
+            report:spent(name, spent)
+        end
+    end
+
+    -- Everything this run learned is written here, which is before the diagnostics are
+    -- judged rather than after. A run that ends in errors learned exactly as much as
+    -- one that did not -- what every file declares, what each module's interface is,
+    -- and what each had to say -- and a project with an error in it is precisely the
+    -- one somebody is about to check again.
+    report:at("persist")
+    report:step("saving what this run worked out")
+    inc.persist()
+    if checkOnly and checkState then
+        local checked = {}
+        -- A run that looked at the whole source set keeps only what it looked at, which
+        -- is how a module that was deleted stops being remembered. A run asked about
+        -- named files looked at a corner of the project on purpose, so it carries the
+        -- rest of the last run's record forward untouched -- dropping it would make one
+        -- narrow check throw away the work of every earlier one, and the next
+        -- whole-project check would start cold. Nothing stale survives either way: a
+        -- carried record is re-validated against its source and its dependencies before
+        -- anything is reused from it.
+        if asked then
+            for name, record in pairs(oldState.modules or {}) do
+                checked[name] = record
+            end
+        end
+        for _, name in ipairs(order) do
+            checked[name] = records[name]
+        end
+        newState.modules = checked
+        checkState.set(newState)
+        checkState.save()
+    end
+
+    -- Everything gathered is said, in the order the modules were reached, so the report
+    -- reads the same whether a module was checked this run or read back from the last
+    -- one.
+    --
+    -- A check of named files says what is wrong with those files. It reached their
+    -- dependencies and has opinions about them, and reporting those would answer a
+    -- question nobody asked -- name one file, hear about thirty. Whether the project as
+    -- a whole is well typed is what `nupp check` with no files means.
+    local errors = {}
+    for _, name in ipairs(order) do
+        if not asked or asked[name] then
+            for _, diag in ipairs(said[name] or {}) do
+                errors[#errors + 1] = diag
+            end
+        end
+    end
+    local fatal, checkFailed = false, false
+    for _, e in ipairs(errors) do
+        if isFatal(e) then
+            fatal = true
+            -- A generation failure is not the project being wrong about itself, and
+            -- says so differently.
+            if not e.code or e.code:sub(1, 5) ~= "NUPP3" then
+                checkFailed = true
+            end
+        end
+    end
+    if diagnostics then
+        for _, diagnostic in ipairs(errors) do
+            diagnostics[#diagnostics + 1] = diagnostic
+        end
+    elseif #errors > 0 then
+        -- A step line is rewritten in place, so anything printed over it would leave
+        -- half of it behind and above whatever came next.
+        report:clear()
+        printErrors(errors)
+    end
+    if fatal then
+        return nil, checkFailed and "project has errors" or "code generation failed"
+    end
+    local materializations = {}
+    local derives = {}
+    for _, name in ipairs(order) do
+        for _, observation in ipairs(records[name].materializations or {}) do
+            materializations[#materializations + 1] = observation
+        end
+        for _, observation in ipairs(records[name].derives or {}) do
+            derives[#derives + 1] = observation
+        end
+    end
+    if checkOnly then
+        return {outputs = {}, materializations = materializations, derives = derives, backends = backendResolution}
+    end
+
+    -- Every module compiled, with no closure to prune it back to. A stale dependency
+    -- list can still enqueue a name, but a name that is not a source file has no path
+    -- and never entered the queue, and one that is a source file belongs in the build
+    -- regardless of who does or does not require it.
+    local pending, outputs = {}, {}
+    local effects = {}
+    newState.modules = {}
+    for _, name in ipairs(order) do
+        local record = records[name]
+        newState.modules[name] = record
+        for _, effect in ipairs(record.effects or {}) do
+            effects[effect] = true
+        end
+        if record.output then
+            outputs[record.output] = true
+        end
+        if not record.external and not reused[name] then
+            local code = codeFor[name]
+            if code and hashFile(record.output) ~= record.artifactHash then
+                pending[#pending + 1] = {path = record.output, text = code}
+            end
+        end
+    end
+
+    for _, name in ipairs(order) do
+        if not records[name].external and not records[name].artifactHash then
+            return nil, "code generation failed"
+        end
+    end
+
+    for _, resource in ipairs(target.resources or {}) do
+        local pattern: string
+        if type(resource) == "table" then
+            pattern = (resource as nupp.compiler.build.manifest.Resource).source
+        else
+            pattern = resource as string
+        end
+        for _, source in ipairs(expandGlob(root, pattern)) do
+            local output = join(root, join(outDir, resourceOutput(config, resource, source, root)))
+            local text, err = readFile(source)
+            if not text then
+                return nil, err
+            end
+            outputs[output] = true
+            if hashFile(output) ~= hash.digest(text) then
+                pending[#pending + 1] = {path = output, text = text}
+            end
+        end
+    end
+    report:at("write")
+    for _, item in ipairs(pending) do
+        report:step("writing " .. shortPath(root, item.path))
+        local ok, err = writeFile(item.path, item.text)
+        if not ok then
+            return nil, err
+        end
+    end
+
+    -- Once the modules on disk are the ones this build decided on, and not
+    -- before: the cache is named by what was written, so writing it first would
+    -- name something that is not there yet.
+    require("nupp.compiler.bytecodecache").refresh(join(root, outDir), newState.modules)
+
+    return {
+        outputs = outputs,
+        effects = effects,
+        materializations = materializations,
+        derives = derives,
+        backends = backendResolution,
+    }
+end
+
+modules.typeFingerprint = typeFingerprint
+modules.resourceRelative = resourceRelative
+modules.resourceOutput = resourceOutput
+modules.build = buildModules
+modules.session = openSession
+
+export = modules

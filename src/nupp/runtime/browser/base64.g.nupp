@@ -1,0 +1,57 @@
+@!internal
+module nupp.runtime.browser.base64
+
+local base64 = {}
+local ALPHABET = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/"
+local DECODE: {[string]: integer} = {}
+for index = 1, #ALPHABET do
+    DECODE[ALPHABET:sub(index, index)] = index - 1
+end
+
+function base64.encode(bytes: string): string
+    local out: {string} = {}
+    for at = 1, #bytes, 3 do
+        local first, second, third = bytes:byte(at, at + 2)
+        second = second or 0
+        third = third or 0
+        local value = first * 65536 + second * 256 + third
+        out[#out + 1] = ALPHABET:sub(math.floor(value / 262144) % 64 + 1, math.floor(value / 262144) % 64 + 1)
+        out[#out + 1] = ALPHABET:sub(math.floor(value / 4096) % 64 + 1, math.floor(value / 4096) % 64 + 1)
+        out[
+            #out + 1
+        ] = at + 1 <= #bytes and ALPHABET:sub(math.floor(value / 64) % 64 + 1, math.floor(value / 64) % 64 + 1) or "="
+        out[#out + 1] = at + 2 <= #bytes and ALPHABET:sub(value % 64 + 1, value % 64 + 1) or "="
+    end
+
+    return table.concat(out)
+end
+
+function base64.decode(text: string): string
+    if #text % 4 ~= 0 then
+        error("nupp: browser effect contains invalid base64", 2)
+    end
+    local out: {string} = {}
+    for at = 1, #text, 4 do
+        local a = DECODE[text:sub(at, at)]
+        local b = DECODE[text:sub(at + 1, at + 1)]
+        local ctext = text:sub(at + 2, at + 2)
+        local dtext = text:sub(at + 3, at + 3)
+        local c = ctext == "=" and 0 or DECODE[ctext]
+        local d = dtext == "=" and 0 or DECODE[dtext]
+        if a == nil or b == nil or c == nil or d == nil then
+            error("nupp: browser effect contains invalid base64", 2)
+        end
+        local value = a * 262144 + b * 4096 + c * 64 + d
+        out[#out + 1] = string.char(math.floor(value / 65536) % 256)
+        if ctext ~= "=" then
+            out[#out + 1] = string.char(math.floor(value / 256) % 256)
+        end
+        if dtext ~= "=" then
+            out[#out + 1] = string.char(value % 256)
+        end
+    end
+
+    return table.concat(out)
+end
+
+export = base64

@@ -1,0 +1,5 @@
+-- Test fixture: a declaration file for an (imaginary) untyped Lua/C module.
+local add: function(a: number, b: number): number
+local greet: function(name: string): string
+
+return {add = add, greet = greet}

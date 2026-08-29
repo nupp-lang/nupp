@@ -1,0 +1,305 @@
+module nupp.compiler.aot.effects
+
+--[[
+The observable behaviour of scalar AOT operations.
+
+Optimisation is allowed to discard or reorder an operation only after this
+module has classified it.  The vocabulary is deliberately closed: adding an
+opcode to the IR without adding it here makes optimisation fail rather than
+quietly treating the new operation as pure.
+
+These are root effects.  A consumer combines them with the effects of an
+operation's operands; keeping the two separate lets a rewrite replace operands
+without manufacturing a claim about the enclosing operation.
+]]
+
+local effects = {}
+
+record effects.Facts
+    observable: boolean
+    mayRaise: boolean
+    readsNative: boolean
+    writesNative: boolean
+    usesLua: boolean
+    allocatesLua: boolean
+end
+
+local function facts(
+    observable: boolean,
+    mayRaise: boolean,
+    readsNative: boolean,
+    writesNative: boolean,
+    usesLua: boolean,
+    allocatesLua: boolean
+): effects.Facts
+    return new effects.Facts(
+        observable = observable,
+        mayRaise = mayRaise,
+        readsNative = readsNative,
+        writesNative = writesNative,
+        usesLua = usesLua,
+        allocatesLua = allocatesLua
+    )
+end
+
+const PURE = facts(false, false, false, false, false, false)
+const NATIVE_READ = facts(false, false, true, false, false, false)
+const LUA_READ = facts(false, true, true, false, true, false)
+const LUA_ALLOCATE = facts(true, true, false, false, true, true)
+const LUA_MUTATE = facts(true, true, true, true, true, false)
+const NATIVE_WRITE = facts(true, false, false, true, false, false)
+const CONTROL = facts(true, false, false, false, false, false)
+
+--- Operations with no root effect. Their operands may still have effects.
+local PURE_OPS: {
+    [string]: boolean
+} = {
+    constant = true,
+    constant_i32 = true,
+    constant_i64 = true,
+    bool = true,
+    lua_nil = true,
+    lua_string = true,
+    ["local"] = true,
+    uniform = true,
+    helper_param = true,
+    span_count = true,
+    add = true,
+    sub = true,
+    mul = true,
+    div = true,
+    mod = true,
+    pow = true,
+    lt = true,
+    le = true,
+    gt = true,
+    ge = true,
+    eq = true,
+    ne = true,
+    ["and"] = true,
+    ["or"] = true,
+    band = true,
+    bor = true,
+    bxor = true,
+    lshift = true,
+    rshift = true,
+    arshift = true,
+    neg = true,
+    ["not"] = true,
+    bnot = true,
+    math = true,
+    f32_add = true,
+    f32_sub = true,
+    f32_mul = true,
+    f32_div = true,
+    i32_add = true,
+    i32_sub = true,
+    i32_mul = true,
+    u32_add = true,
+    u32_sub = true,
+    u32_mul = true,
+    u32_and = true,
+    u32_or = true,
+    u32_xor = true,
+    u32_shl = true,
+    u32_shr = true,
+    u64_add = true,
+    u64_sub = true,
+    u64_mul = true,
+    i64_add = true,
+    i64_sub = true,
+    i64_mul = true,
+    f32_sqrt = true,
+    u32_not = true,
+    u32_popcount = true,
+    u32_ctz = true,
+    u32_clz = true,
+    f32_min = true,
+    f32_max = true,
+    f32_fma = true,
+    narrow_f64_f32 = true,
+    widen_f32_f64 = true,
+    int_to_f64 = true,
+    numeric_cast = true,
+    helper_call = true,
+    simd_species_u8 = true,
+    simd_lanes = true,
+    simd_splat_u8 = true,
+    simd_shr_u8 = true,
+    simd_shl_u8 = true,
+    simd_table_u8x16 = true,
+    simd_lookup16_u8 = true,
+    simd_lookup64_u8 = true,
+    simd_align_bytes_u8 = true,
+    simd_block64_and_byte_u8 = true,
+    simd_block64_and_u8 = true,
+    simd_block64_shr_u8 = true,
+    simd_block64_lookup16_u8 = true,
+    simd_block64_any_bits_u8 = true,
+    simd_block64_last_u8 = true,
+    simd_block64_utf8_errors_u8 = true,
+    simd_block64_eq_u8 = true,
+    simd_block64_eq_any6_u8 = true,
+    simd_block64_range_u8 = true,
+    simd_block64_outside_range_u8 = true,
+    simd_tail_u8 = true,
+    simd_eq_u8 = true,
+    simd_range_u8 = true,
+    simd_vec_and = true,
+    simd_vec_or = true,
+    simd_vec_xor = true,
+    simd_vec_not = true,
+    simd_mask_and = true,
+    simd_mask_or = true,
+    simd_mask_xor = true,
+    simd_mask_not = true,
+    simd_select_u8 = true,
+    simd_any = true,
+    simd_all = true,
+    simd_count = true,
+    simd_bits = true,
+    simd_mask64 = true,
+    simd_mask64_add = true,
+    simd_mask64_and = true,
+    simd_mask64_or = true,
+    simd_mask64_xor = true,
+    simd_mask64_not = true,
+    simd_mask64_shl = true,
+    simd_mask64_shr = true,
+    simd_mask64_prefix_xor = true,
+    simd_mask64_low = true,
+    simd_mask64_high = true,
+    simd_mask64_any = true,
+    simd_mask64_count = true,
+    simd_mask64_first = true,
+    simd_mask64_clear_first = true,
+}
+
+local NATIVE_READ_OPS: {[string]: boolean} = {load = true, element_ref = true, field_load = true, simd_load_u8 = true,}
+
+local LUA_READ_OPS: {
+    [string]: boolean
+} = {
+    lua_scratch_u32_get = true,
+    lua_scratch_u32_escape_get = true,
+    lua_scratch_u32_length = true,
+    lua_scratch_u32_escape_length = true,
+    lua_scratch_u8_get = true,
+    lua_string_byte = true,
+    lua_string_byte_at = true,
+    lua_string_u32 = true,
+    lua_string_length = true,
+    lua_string_byte_lua = true,
+    lua_table_get_index = true,
+    lua_builder_depth = true,
+    lua_builder_kind = true,
+    lua_builder_count = true,
+    lua_builder_state = true,
+    simd_load_string_u8 = true,
+    simd_load_stride3_u8 = true,
+    simd_padded_string_u8 = true,
+    simd_padded_length = true,
+    simd_padded_full_length = true,
+    simd_padded_tail_length = true,
+    simd_padded_load_full_u8 = true,
+    simd_padded_load_tail_u8 = true,
+    simd_block64_load_u8 = true,
+}
+
+local LUA_ALLOCATE_OPS: {
+    [string]: boolean
+} = {
+    lua_new_table = true,
+    lua_tree = true,
+    lua_builder = true,
+    lua_scratch_u32 = true,
+    lua_scratch_u8 = true,
+    lua_concat = true,
+    lua_substring = true,
+    lua_string_buffer = true,
+}
+
+local LUA_MUTATE_OPS: {
+    [string]: boolean
+} = {
+    lua_builder_finish = true,
+    lua_builder_number_token = true,
+    lua_scratch_u32_append_bits = true,
+    lua_scratch_u32_append_bits_eager = true,
+    lua_scratch_u32_append_string_bits = true,
+    lua_set_index = true,
+    lua_set_key = true,
+    lua_string_buffer_finish = true,
+    lua_string_buffer_append = true,
+    lua_builder_open_array = true,
+    lua_builder_open_object = true,
+    lua_builder_key = true,
+    lua_builder_string = true,
+    lua_builder_number = true,
+    lua_builder_number_slice = true,
+    lua_builder_integer_slice = true,
+    lua_builder_integer64 = true,
+    lua_builder_decimal64 = true,
+    lua_builder_boolean = true,
+    lua_builder_null = true,
+    lua_builder_close = true,
+    lua_builder_key_scratch = true,
+    lua_builder_string_scratch = true,
+    lua_builder_key_escapes = true,
+    lua_builder_string_escapes = true,
+    lua_scratch_u32_set = true,
+    lua_scratch_u8_set = true,
+    lua_scratch_u8_set4 = true,
+    simd_store4_u8 = true,
+    lua_scratch_u8_reset = true,
+}
+
+local NATIVE_WRITE_OPS: {[string]: boolean} = {store = true, assign = true,}
+
+local CONTROL_OPS: {
+    [string]: boolean
+} = {
+    let = true,
+    multi_let = true,
+    ["if"] = true,
+    ["while"] = true,
+    fornum = true,
+    block = true,
+    ["break"] = true,
+    ["continue"] = true,
+    ["return"] = true,
+}
+
+--- Classifies one expression opcode. Unknown means compiler bug, never pure.
+--- @raises when the opcode is not in the closed AOT vocabulary
+function effects.expression(op: string): effects.Facts
+    if PURE_OPS[op] == true then
+        return PURE
+    elseif NATIVE_READ_OPS[op] == true then
+        return NATIVE_READ
+    elseif LUA_READ_OPS[op] == true then
+        return LUA_READ
+    elseif LUA_ALLOCATE_OPS[op] == true then
+        return LUA_ALLOCATE
+    elseif LUA_MUTATE_OPS[op] == true then
+        return LUA_MUTATE
+    end
+
+    error("unclassified AOT expression opcode " .. op, 2)
+end
+
+--- Classifies one statement opcode. Unknown means compiler bug, never pure.
+--- @raises when the opcode is not in the closed AOT vocabulary
+function effects.statement(op: string): effects.Facts
+    if LUA_MUTATE_OPS[op] == true then
+        return LUA_MUTATE
+    elseif NATIVE_WRITE_OPS[op] == true then
+        return NATIVE_WRITE
+    elseif CONTROL_OPS[op] == true then
+        return CONTROL
+    end
+
+    error("unclassified AOT statement opcode " .. op, 2)
+end
+
+export = effects

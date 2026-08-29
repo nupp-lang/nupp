@@ -1,0 +1,13 @@
+{
+  "$schema": "https://raw.githubusercontent.com/martinring/tmlanguage/master/tmlanguage.json",
+  "name": "Nupp embedded GLSL",
+  "scopeName": "source.nupp.embedded.glsl",
+  "patterns": [
+    { "include": "source.glsl" },
+    { "name": "comment.line.double-slash.glsl", "match": "//.*$" },
+    { "name": "string.quoted.double.glsl", "begin": "\\\"", "end": "\\\"" },
+    { "name": "keyword.control.glsl", "match": "\\b(?:break|continue|discard|do|else|for|if|return|switch|while)\\b" },
+    { "name": "storage.type.glsl", "match": "\\b(?:bool|float|int|uint|vec[234]|mat[234]|void)\\b" },
+    { "name": "keyword.other.directive.glsl", "match": "^\\s*#[A-Za-z_][A-Za-z0-9_]*" }
+  ]
+}

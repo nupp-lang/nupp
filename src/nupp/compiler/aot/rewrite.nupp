@@ -1,0 +1,1897 @@
+module nupp.compiler.aot.rewrite
+
+--[[
+Rewriting one scalar expression to run several iterations at once.
+
+The loop body was already lowered, typed and bound as scalar IR, so nothing here
+decides what anything means. What is left is a choice about how many iterations
+happen at a time, which is the kind of decision an IR pass should own.
+
+A value that depends on the loop index becomes a vector; one that does not stays
+scalar and broadcasts where it meets one. That distinction is the whole of it,
+and `State.varyingLocals` is where it is recorded -- worked out in a pass over the
+body before this one runs, because whether a name varies has to be settled before
+any read of it is rewritten.
+
+Widths are not chosen here either. The gang was picked before this ran, and an
+operation that cannot be carried in it refuses rather than being computed wider:
+an explicitly binary32 multiply in a binary64 gang would round somewhere the
+source did not ask for, and answering differently is not an optimisation.
+]]
+
+local lane = require("nupp.compiler.aot.lane")
+local scalarIR = require("nupp.compiler.aot.scalar")
+
+local rewrite = {}
+
+--- What rewriting one expression needs to know.
+---
+--- Passed rather than closed over, because the same rewrite runs for each shape
+--- the pass tries and a closure would have to be rebuilt for each attempt.
+record rewrite.State
+    --- The gang this body is being lowered to.
+    shape: lane.Shape
+
+    --- The loop's own index. A span access at any other index is not
+    --- consecutive, and consecutive access is the whole licence for running
+    --- several iterations at once.
+    index: string
+
+    --- Locals whose value depends on the loop index, by name.
+    varyingLocals: {[string]: boolean}
+
+    --- Locals bound to one element of a span, by name, to the element they were
+    --- bound to.
+    refBindings: {[string]: any}
+
+    --- Helper parameters bound to lane vectors while one call is inlined.
+    helperBindings: {[string]: rewrite.Value?}
+
+    --- Pure helpers by name, for inlining a call into the lane body.
+    helpers: {[string]: any}
+
+    --- Span parameters by name, for scalar-span lane loads and stores.
+    spans: {[string]: scalarIR.Param}
+
+    --- Reports a construct this pass cannot represent.
+    reject: function(string): nil
+
+    --- Whether any explicit fixed-width operation had to be rounded because this
+    --- gang carries the element wider than it is.
+    ---
+    --- Worth knowing downstream: a rounded operation is three instructions where
+    --- an exact one is a single instruction, so the arithmetic-intensity
+    --- estimate -- which counts operations, not instructions -- overstates what
+    --- lanes will be worth for a body full of them.
+    rounded: boolean?
+end
+
+--- The scalar types that name a lane element.
+---
+--- A scalar type is wider than this: it also covers `multi` for a call with
+--- several results and the layout names a span element takes. Neither is
+--- something a lane carries, so crossing from one to the other is a check
+--- rather than a cast.
+const rewrite.ELEMENTS = {["f64"] = true, ["f32"] = true, ["i32"] = true, ["u32"] = true, ["bool"] = true,}
+
+--- The lane element a scalar type names, when it names one.
+function rewrite.asElement(scalarType: scalarIR.Type): lane.Element?
+    if rewrite.ELEMENTS[scalarType] == true then
+        return scalarType as lane.Element
+    end
+
+    return nil
+end
+
+--- Whether a scalar constant is exactly the value `element` would hold.
+---
+--- Comparing a binary32 lane against a literal only means the same thing when
+--- this holds; otherwise the literal stays binary64 and takes the loop with it.
+--- The round trip is the test rather than a range check, because the question is
+--- representability and not magnitude.
+function rewrite.constantFits(node: scalarIR.Expr, element: lane.Element): boolean
+    if node.op ~= "constant" then
+        return false
+    end
+    local number = tonumber((node as scalarIR.Constant).value)
+    if number == nil then
+        return false
+    elseif element == "i32" then
+        return number % 1 == 0 and number >= -2147483648 and number <= 2147483647
+    elseif element == "u32" then
+        return number % 1 == 0 and number >= 0 and number <= 4294967295
+    elseif element == "f32" then
+        -- The language already owns what binary32 rounding means, so this asks
+        -- it rather than reaching for a storage slot of its own and having a
+        -- second answer to the same question.
+        return nupp.math.f32.narrow(number) == number
+    end
+
+    return element == "f64"
+end
+
+--- The vector this gang carries `element` in, or nothing when it carries it at
+--- all.
+function rewrite.vectorFor(state: rewrite.State, element: lane.Element): string?
+    return state.shape.vectorFor[element]
+end
+
+--- Whether an explicit fixed-width operation can happen in this gang.
+---
+--- It can only where the gang's lanes are that width. Computing it wider would
+--- drop a rounding the source asked for, so a gang without those lanes declines
+--- the loop and lets one that has them take it.
+function rewrite.carriesExactly(state: rewrite.State, element: lane.Element): boolean
+    return state.shape.vectorFor[element] == element .. "x" .. tostring(state.shape.lanes)
+end
+
+--- The element a comparison compares, which is not its own type.
+---
+--- A comparison produces a mask whatever it compares, so the width comes from
+--- the operands. Mixed ones were widened by the front end; a literal on one side
+--- adopts the other's width when it is exactly representable there, which is
+--- what keeps `zxSquared + zySquared > 4.0` in binary32 lanes.
+function rewrite.comparisonElement(left: scalarIR.Expr, right: scalarIR.Expr): lane.Element
+    local leftElement = rewrite.asElement(left.type)
+    local rightElement = rewrite.asElement(right.type)
+    if leftElement == nil or rightElement == nil then
+        return "f64"
+    elseif leftElement == rightElement then
+        return leftElement
+    elseif rewrite.constantFits(right, leftElement) then
+        return leftElement
+    elseif rewrite.constantFits(left, rightElement) then
+        return rightElement
+    end
+
+    return "f64"
+end
+
+--- A rewritten value: a vector where the expression varied with the loop index,
+--- and the scalar it already was where it did not.
+type rewrite.Value = lane.Expr | scalarIR.Expr
+
+--- The scalar operations that become one elementwise lane operation, and the
+--- verb each becomes. Comparisons are separate because their result is a mask
+--- whatever they compare, so the width comes from the operands rather than the
+--- operation.
+const rewrite.ARITHMETIC = {["add"] = "add", ["sub"] = "sub", ["mul"] = "mul", ["div"] = "div",}
+
+const rewrite.COMPARISON = {["lt"] = "lt", ["le"] = "le", ["gt"] = "gt", ["ge"] = "ge", ["eq"] = "eq", ["ne"] = "ne",}
+
+--- Bitwise operations on flag words, which an entity query is made of.
+const rewrite.BITWISE = {
+    ["band"] = "and",
+    ["bor"] = "or",
+    ["bxor"] = "xor",
+    ["bnot"] = "not",
+    ["lshift"] = "shl",
+    ["rshift"] = "shr",
+    ["arshift"] = "sar",
+}
+
+--- The explicitly fixed-width operations, and the element each happens in.
+const rewrite.FIXED = {
+    ["f32_add"] = {verb = "add", element = "f32"},
+    ["f32_sub"] = {verb = "sub", element = "f32"},
+    ["f32_mul"] = {verb = "mul", element = "f32"},
+    ["f32_div"] = {verb = "div", element = "f32"},
+    ["i32_add"] = {verb = "add", element = "i32"},
+    ["i32_sub"] = {verb = "sub", element = "i32"},
+    ["i32_mul"] = {verb = "mul", element = "i32"},
+    ["u32_add"] = {verb = "add", element = "u32"},
+    ["u32_sub"] = {verb = "sub", element = "u32"},
+    ["u32_mul"] = {verb = "mul", element = "u32"},
+}
+
+--- The three whose native instruction is right about the value and wrong about
+--- NaN, with the helper that repairs each.
+const rewrite.CORRECTED = {
+    ["f32_min"] = {helper = "nupp_f32_min", arity = 2},
+    ["f32_max"] = {helper = "nupp_f32_max", arity = 2},
+    ["f32_fma"] = {helper = "nupp_f32_fma", arity = 3},
+}
+
+--- Whether an expression's value depends on which iteration this is.
+---
+--- The whole rewrite turns on this. A varying value becomes a vector; a uniform
+--- one stays scalar and broadcasts where it meets one, which is what keeps a
+--- loop-invariant subexpression out of every lane.
+function rewrite.varying(node: scalarIR.Expr, state: rewrite.State): boolean
+    if node == nil then
+        return false
+    end
+    local operation = node.op
+    if operation == "element_ref" or operation == "load" then
+        return (node as scalarIR.Load).index == state.index
+    elseif operation == "local" then
+        local name = (node as scalarIR.Name).name
+
+        return state.varyingLocals[name] == true or state.refBindings[name] ~= nil
+    elseif operation == "helper_param" then
+        return state.helperBindings[(node as scalarIR.Name).name] ~= nil
+    elseif operation == "uniform"
+        or operation == "constant"
+        or operation == "constant_i32"
+        or operation == "constant_i64"
+        or operation == "bool"
+    then
+        return false
+    elseif operation == "field_load" then
+        return rewrite.varying((node as scalarIR.FieldLoad).object, state)
+    end
+
+    -- Anything else varies exactly when one of its operands does.
+    local binary = node as scalarIR.Binary
+    if binary.left ~= nil or binary.right ~= nil then
+        return rewrite.varying(binary.left, state) or rewrite.varying(binary.right, state)
+    end
+    local unary = node as scalarIR.Unary
+    if unary.value ~= nil then
+        return rewrite.varying(unary.value, state)
+    end
+    for _, argument in ipairs((node as scalarIR.Math).args or {}) do
+        if rewrite.varying(argument, state) then
+            return true
+        end
+    end
+
+    return false
+end
+
+--- Brings a uniform scalar to the element its gang carries it in.
+---
+--- A binary64 gang widens everything, because every int32 and uint32 is an exact
+--- binary64 value and so is every binary32 one. A 32-bit gang has nothing to
+--- widen to, so a binary64 uniform is refused rather than narrowed: narrowing
+--- would change an answer the source did not ask to change.
+local function asElement(node: scalarIR.Expr, element: lane.Element, state: rewrite.State): scalarIR.Expr
+    if node.type == element then
+        return node
+    end
+    if element == "f64" then
+        if node.type == "f32" then
+            return new scalarIR.Convert(op = "widen_f32_f64", value = node, type = "f64", source = node.source)
+        elseif node.type == "i32" or node.type == "u32" then
+            return new scalarIR.Convert(op = "int_to_f64", value = node, type = "f64", source = node.source)
+        end
+    end
+    if element == "i32" and node.type == "u32" then
+        return node
+    end
+    -- An exact literal establishes the value, so it may enter directly.
+    if rewrite.constantFits(node, element) then
+        if element == "i32" or element == "u32" then
+            return new scalarIR.IntConstant(
+                op = "constant_i32",
+                value = (node as scalarIR.Constant).value,
+                type = element,
+                source = node.source
+            )
+        else
+            return new scalarIR.Convert(op = "narrow_f64_f32", value = node, type = "f32", source = node.source)
+        end
+    end
+    state.reject("a uniform " .. tostring(node.type) .. " cannot enter " .. state.shape.name)
+
+    return node
+end
+
+--- The element a vector's name says it carries.
+local function elementOf(vector: string): lane.Element
+    return (vector:match("^(%a%d+)x") or "f64") as lane.Element
+end
+
+--- Broadcasts a uniform into every lane.
+function rewrite.splat(node: scalarIR.Expr, scalarType: lane.Element, state: rewrite.State): lane.Splat
+    local vector = state.shape.vectorFor[scalarType]
+    if vector == nil or vector == state.shape.mask then
+        state.reject("a uniform " .. tostring(node.type) .. " cannot enter " .. state.shape.name)
+    end
+    local element = elementOf(vector as string)
+
+    return new lane.Splat(
+        op = "vsplat",
+        args = {asElement(node, element, state)},
+        element = element,
+        type = vector as string,
+        source = node.source
+    )
+end
+
+--- The element a span holds, when a name is bound to one of its elements.
+---
+--- Consecutive access is the whole licence for running several iterations at
+--- once, so a reference at any other index is not one this pass can take.
+local function resolveRef(node: scalarIR.Expr, state: rewrite.State): any
+    if node == nil then
+        return nil
+    elseif node.op == "element_ref" then
+        return node
+    elseif node.op == "local" then
+        return state.refBindings[(node as scalarIR.Name).name]
+    end
+
+    return nil
+end
+
+--- The three halves of one walk, declared before any is written.
+local expression: function(scalarIR.Expr, rewrite.State): rewrite.Value
+
+local numericVector: function(scalarIR.Expr, lane.Element, rewrite.State): lane.Expr
+local conditionMask: function(scalarIR.Expr, rewrite.State): lane.Expr
+local inlineHelper: function(scalarIR.HelperCall, rewrite.State): {rewrite.Value}
+
+--- A vector of `want` lanes, whether the expression varied or has to broadcast.
+numericVector = function(node: scalarIR.Expr, want: lane.Element, state: rewrite.State): lane.Expr
+    local vector = state.shape.vectorFor[want]
+    if rewrite.varying(node, state) then
+        local value = expression(node, state)
+        if value.type ~= vector then
+            state.reject("a varying " .. tostring(node.type) .. " cannot enter " .. tostring(vector) .. " SIMD")
+        end
+
+        return value as lane.Expr
+    end
+
+    return rewrite.splat(node, want, state)
+end
+
+--- A mask, whether the condition varied or has to broadcast.
+conditionMask = function(node: scalarIR.Expr, state: rewrite.State): lane.Expr
+    if rewrite.varying(node, state) then
+        local value = expression(node, state)
+        if value.type ~= state.shape.mask then
+            state.reject("a varying condition did not produce a mask")
+        end
+
+        return value as lane.Expr
+    end
+
+    return new lane.BoolSplat(op = "vbool_splat", args = {node}, type = state.shape.mask, source = node.source)
+end
+
+--- Rewrites a helper call to the helper's own result expressions.
+---
+--- A helper is a parameter list and a list of results over those parameters, so
+--- inlining one is substitution. The body is already verified scalar IR, so
+--- nothing about what the helper means is decided again -- only that this call's
+--- arguments are what its parameters are. Bindings are saved and restored around
+--- the call, so a helper called twice cannot see the wrong ones.
+inlineHelper = function(node: scalarIR.HelperCall, state: rewrite.State): {rewrite.Value}
+    local helper = state.helpers[node.helper]
+    if helper ~= nil and helper.native == true then
+        -- A compiled entry takes one set of scalars and answers once. There is no
+        -- per-lane form of that, so the loop keeps its scalar shape rather than
+        -- being given a meaning the callee never agreed to.
+        state.reject("a lane-parallel body cannot call a compiled entry")
+    end
+    if helper == nil then
+        state.reject("a lane-parallel call has no visible helper")
+
+        return {}
+    end
+    if #node.args ~= #helper.params then
+        state.reject("a lane-parallel helper call has the wrong argument count")
+    end
+    local bound, saved = {}, {}
+    for position, parameter in ipairs(helper.params) do
+        bound[parameter.name] = numericVector(node.args[position], parameter.type, state)
+    end
+    for name, value in pairs(bound) do
+        saved[name] = state.helperBindings[name]
+        state.helperBindings[name] = value
+    end
+    local values: {rewrite.Value} = {}
+    for position, value in ipairs(helper.values) do
+        values[position] = expression(value, state)
+    end
+    for name in pairs(bound) do
+        state.helperBindings[name] = saved[name]
+    end
+
+    return values
+end
+
+--- Rewrites one expression, returning it unchanged where it is uniform.
+expression = function(node: scalarIR.Expr, state: rewrite.State): rewrite.Value
+    if not rewrite.varying(node, state) then
+        return node
+    end
+    local shape = state.shape
+    local mask = shape.mask
+    local operation = node.op
+
+    if operation == "local" then
+        local name = node as scalarIR.Name
+        local vector = shape.vectorFor[rewrite.asElement(node.type) or "bool"]
+        if vector == nil then
+            state.reject("a varying local of a type no lane carries")
+        end
+
+        return new lane.Local(
+            op = "local",
+            name = name.name,
+            cName = name.cName or "",
+            type = vector as string,
+            source = node.source
+        )
+    elseif operation == "load" then
+        local load = node as scalarIR.Load
+        local root = state.spans[load.span]
+        local element = rewrite.asElement(node.type)
+        local vector = element ~= nil and shape.vectorFor[element] or nil
+        if root == nil or load.index ~= state.index or vector == nil then
+            state.reject("a lane-parallel span load reads consecutive admitted scalar elements only")
+        end
+
+        return new lane.SpanLoad(
+            op = "vspan_load",
+            span = load.span,
+            lanes = shape.lanes,
+            scalarType = element as lane.Element,
+            sourceType = (root as scalarIR.Param).sourceType,
+            type = vector as string,
+            source = node.source
+        )
+    elseif operation == "field_load" then
+        local field = node as scalarIR.FieldLoad
+        local object = resolveRef(field.object, state)
+        if object == nil or object.index ~= state.index then
+            state.reject("a lane-parallel field load reads consecutive elements only")
+        end
+        -- A field's storage decides the lane it loads into. The binary64 gang
+        -- widens every one of them; the 32-bit gang loads float storage straight
+        -- into binary32 lanes, which is the whole point of it.
+        local element = rewrite.asElement(node.type)
+        local vector = element ~= nil and shape.vectorFor[element] or nil
+        if vector == nil then
+            state.reject("a " .. tostring(node.type) .. " field cannot enter " .. shape.name)
+        end
+
+        return new lane.FieldLoad(
+            op = "vfield_load",
+            span = object.span,
+            layout = object.layout,
+            field = field.field,
+            lanes = shape.lanes,
+            scalarType = element as lane.Element,
+            sourceType = field.sourceType,
+            type = vector as string,
+            source = node.source
+        )
+    elseif operation == "widen_f32_f64" or operation == "int_to_f64" then
+        -- Widening is exact. Where the gang carries both elements in one vector
+        -- the value is already in the lanes a binary64 consumer wants and this
+        -- is nothing; where it carries them apart, it is the conversion.
+        return rewrite.atWidth(expression((node as scalarIR.Convert).value, state), "f64", state)
+    elseif operation == "narrow_f64_f32" then
+        -- Narrowing rounds once, which is what the source asked for, and lands
+        -- in whatever lanes this gang keeps binary32 in.
+        return rewrite.atWidth(expression((node as scalarIR.Convert).value, state), "f32", state)
+    elseif operation == "numeric_cast" then
+        -- Storage conversions stay attached to the field they store through, the
+        -- way ordinary Nupp widens a physical load and narrows a physical store.
+        return expression((node as scalarIR.Convert).value, state)
+    elseif operation == "helper_param" then
+        local bound = state.helperBindings[(node as scalarIR.Name).name]
+        if bound == nil then
+            state.reject("a helper parameter escaped its call")
+        end
+
+        return bound as lane.Expr
+    elseif operation == "helper_call" then
+        local inlined = inlineHelper(node as scalarIR.HelperCall, state)
+        if #inlined ~= 1 then
+            state.reject("a multiple-result helper is not one value")
+        end
+
+        return inlined[1]
+    elseif operation == "and" or operation == "or" then
+        -- Every expression this subset admits is pure and total: span bounds
+        -- were proved before this pass, arithmetic does not trap, and calls
+        -- resolve to the closed math set. The opcode records that fact rather
+        -- than a future effectful right side being quietly eager.
+        local binary = node as scalarIR.Binary
+
+        return new lane.ShortCircuit(
+            op = "vshort",
+            verb = operation == "and" and "and" or "or",
+            args = {conditionMask(binary.left, state), conditionMask(binary.right, state)},
+            effect = "pure_total",
+            type = mask,
+            source = node.source
+        )
+    elseif operation == "not" then
+        return new lane.MaskOp(
+            op = "vmask",
+            verb = "not",
+            args = {expression((node as scalarIR.Unary).value, state) as lane.Expr},
+            type = mask,
+            source = node.source
+        )
+    end
+
+    return rewrite.arithmetic(node, state)
+end
+
+--- The elementwise families: arithmetic, comparison, the explicitly fixed-width
+--- operations, the three corrected ones, bitwise work, and the closed math set.
+---
+--- Separate from the dispatch above only because that one is long enough.
+--- An explicit fixed-width binary operation, in whatever width this gang has.
+---
+--- A gang that carries the element exactly performs it directly. A gang that
+--- carries it wider performs it wide and rounds the result once, which is
+--- bit-identical to the narrow instruction by the same argument the scalar
+--- lowering rests on: a binary32 operation over binary32 operands computed in
+--- binary64 and rounded once is what the native instruction produces, because 53
+--- is at least twice 24 plus 2.
+---
+--- Rounding rather than refusing is what lets a loop mixing explicit binary32
+--- with one binary64 value run four lanes instead of one. Without it neither
+--- gang takes it: the 32-bit one refuses the binary64 value and the binary64 one
+--- refuses the explicit binary32 operation.
+function rewrite.fixedWidth(
+    node: scalarIR.Expr,
+    verb: lane.BinaryVerb,
+    element: lane.Element,
+    state: rewrite.State
+): rewrite.Value
+    local shape = state.shape
+    local binary = node as scalarIR.Binary
+    local exact = rewrite.carriesExactly(state, element)
+    local narrow = (shape.rounding or {})[element]
+    if not exact and narrow == nil then
+        state.reject(
+            "an explicit " .. element .. " operation needs " .. element .. " lanes, and " .. shape.name .. " has none"
+        )
+    end
+
+    -- The operands are already this element, rounded where they came from a
+    -- fixed-width operation and exact where they came from a literal or a load.
+    -- Only the result needs rounding, which is the one place the wider lanes
+    -- would otherwise keep a value the narrow instruction would not.
+    local wide = shape.vectorFor[element] as string
+    local computed = new lane.Binary(
+        op = "vbinary",
+        verb = verb,
+        element = exact and element or "f64",
+        args = {numericVector(binary.left, element, state), numericVector(binary.right, element, state),},
+        type = wide,
+        source = node.source
+    )
+    if exact then
+        return computed
+    end
+    state.rounded = true
+
+    return new lane.Round(
+        op = "vround",
+        element = element,
+        narrow = narrow as string,
+        args = {computed},
+        type = wide,
+        source = node.source
+    )
+end
+
+function rewrite.arithmetic(node: scalarIR.Expr, state: rewrite.State): rewrite.Value
+    local shape = state.shape
+    local operation = node.op
+    local binary = node as scalarIR.Binary
+
+    local fixed = rewrite.FIXED[operation]
+    if fixed ~= nil then
+        return rewrite.fixedWidth(node, fixed.verb, fixed.element, state)
+    end
+
+    local corrected = rewrite.CORRECTED[operation]
+    if corrected ~= nil then
+        if not rewrite.carriesExactly(state, "f32") then
+            state.reject("an explicit f32 operation needs f32 lanes, and " .. shape.name .. " has none")
+        end
+        local args: {lane.Expr} = {}
+        if corrected.arity == 3 then
+            for position, argument in ipairs((node as scalarIR.Corrected).args or {}) do
+                args[position] = numericVector(argument, "f32", state)
+            end
+        else
+            args[1] = numericVector(binary.left, "f32", state)
+            args[2] = numericVector(binary.right, "f32", state)
+        end
+
+        return new lane.Corrected(
+            op = "vcorrected",
+            helper = corrected.helper,
+            args = args,
+            element = "f32",
+            type = shape.vectorFor["f32"] as string,
+            source = node.source
+        )
+    end
+
+    local bitwise = rewrite.BITWISE[operation]
+    if bitwise ~= nil then
+        return rewrite.bitwise(node, bitwise, state)
+    end
+
+    if operation == "math" then
+        local args: {lane.Expr} = {}
+        for position, argument in ipairs((node as scalarIR.Math).args) do
+            args[position] = numericVector(argument, "f64", state)
+        end
+
+        return new lane.Math(
+            op = "vmath",
+            intrinsic = (node as scalarIR.Math).intrinsic,
+            args = args,
+            type = shape.vectorFor["f64"] as string,
+            source = node.source
+        )
+    elseif operation == "neg" then
+        local element = rewrite.asElement(node.type) or "f64"
+
+        return new lane.Unary(
+            op = "vunary",
+            verb = "neg",
+            element = element,
+            args = {numericVector((node as scalarIR.Unary).value, element, state)},
+            type = shape.vectorFor[element] as string,
+            source = node.source
+        )
+    elseif operation == "f32_sqrt" then
+        return new lane.Unary(
+            op = "vunary",
+            verb = "sqrt",
+            element = "f32",
+            args = {numericVector((node as scalarIR.FixedUnary).value, "f32", state)},
+            type = shape.vectorFor["f32"] as string,
+            source = node.source
+        )
+    end
+
+    local verb = rewrite.ARITHMETIC[operation]
+    if verb ~= nil then
+        -- Ordinary operators are binary64 and the scalar IR already typed them
+        -- that way, so the element is the result type.
+        local element = rewrite.asElement(node.type) or "f64"
+
+        return new lane.Binary(
+            op = "vbinary",
+            verb = verb,
+            element = element,
+            args = {numericVector(binary.left, element, state), numericVector(binary.right, element, state),},
+            type = shape.vectorFor[element] as string,
+            source = node.source
+        )
+    end
+
+    local comparison = rewrite.COMPARISON[operation]
+    if comparison ~= nil then
+        -- A comparison's own type is bool; its width comes from what it
+        -- compares.
+        local element = rewrite.comparisonElement(binary.left, binary.right)
+
+        local compared = new lane.Binary(
+            op = "vbinary",
+            verb = comparison,
+            element = element,
+            args = {numericVector(binary.left, element, state), numericVector(binary.right, element, state),},
+            type = rewrite.nativeMask(shape, element),
+            source = node.source
+        )
+
+        -- Straight to the gang's own width, so everything downstream combines
+        -- masks of one type and only the two boundaries know there are more.
+        return rewrite.maskAt(compared, shape.mask, node.source)
+    end
+
+    state.reject("operation " .. tostring(operation) .. " has no lane-parallel form")
+
+    return node
+end
+
+--- One bitwise operation, in the vector this gang does bitwise work in.
+---
+--- A gang carrying integers in binary64 lanes converts out and back, which
+--- changes nothing because every uint32 is an exact binary64 value; a 32-bit
+--- gang is already there and converts nothing.
+function rewrite.bitwise(
+    node: scalarIR.Expr,
+    verb: 'and' | 'or' | 'xor' | 'shl' | 'shr' | 'sar' | 'not',
+    state: rewrite.State
+): rewrite.Value
+    local shape = state.shape
+    local bits = shape.bits
+    local binary = node as scalarIR.Binary
+
+    local function asBits(operand: scalarIR.Expr): lane.Expr
+        local want = operand.type == "f64" and "f64" or "i32"
+        local vector = numericVector(operand, want as lane.Element, state)
+        if vector.type == bits then
+            return vector
+        end
+
+        return new lane.BitConvert(op = "vbits", direction = "to", args = {vector}, type = bits, source = node.source)
+    end
+
+    local args = {asBits(binary.left)}
+    if binary.right ~= nil then
+        args[2] = asBits(binary.right)
+    end
+    local computed = new lane.Bitwise(op = "vbitwise", verb = verb, args = args, type = bits, source = node.source)
+    local carrier = shape.vectorFor["i32"]
+    if carrier == bits then
+        return computed
+    end
+
+    return new lane.BitConvert(
+        op = "vbits",
+        direction = "from",
+        args = {computed},
+        type = carrier as string,
+        source = node.source
+    )
+end
+
+--- Rewrites one expression to run several iterations at once.
+---
+--- Returns the expression unchanged where it does not depend on the iteration:
+--- a uniform value stays scalar and broadcasts where it meets a vector, which is
+--- what keeps a loop-invariant subexpression out of every lane.
+---
+--- @param node the scalar expression
+--- @param state what this rewrite carries
+--- @raises when the expression has no lane-parallel form
+function rewrite.expression(node: scalarIR.Expr, state: rewrite.State): rewrite.Value
+    return expression(node, state)
+end
+
+--- A lane-local binding: the name a mask takes in IR and in generated C.
+record rewrite.Binding
+    kind: 'local'
+    name: string
+    cName: string
+    type: string
+    source: scalarIR.Source?
+end
+
+--- Which lanes a statement applies to.
+---
+--- A branch mask records which lanes entered the branch; a loop's executing mask
+--- records which of those have not since broken or continued. Both facts are
+--- needed for every later statement in a nested block, which is why they combine
+--- rather than one replacing the other.
+record rewrite.LoopContext
+    --- Lanes still in the loop at all.
+    live: rewrite.Binding
+
+    --- Lanes still running this iteration.
+    executing: rewrite.Binding
+
+    --- Whether a retired lane may compute lane-local state that is dead after
+    --- the loop, which costs nothing and saves a select.
+    speculate: boolean
+
+    --- Names whose value is read after the loop, so speculating on them would be
+    --- observable.
+    observable: {[string]: boolean}
+end
+
+--- One value in the lanes this gang keeps that element in.
+---
+--- Nothing where it is already there, which is every gang carrying one width and
+--- every value already at the right one. A uniform stays uniform: it is a scalar
+--- the C converts where it is broadcast, not a vector to convert first.
+function rewrite.atWidth(value: rewrite.Value, element: lane.Element, state: rewrite.State): rewrite.Value
+    local want = state.shape.vectorFor[element]
+    if want == nil or value.type == nil or value.type == want then
+        return value
+    end
+    -- A vector name is what tells a lane value from a uniform one that stayed
+    -- scalar. A uniform needs no conversion: it is broadcast at the width it is
+    -- broadcast into.
+    if tostring(value.type):match("^[fmiu]%d+x%d+$") == nil then
+        return value
+    end
+
+    return new lane.Convert(op = "vconvert", args = {value as lane.Expr}, type = want as string, source = value.source)
+end
+
+--- The mask width a select between values of this vector needs.
+---
+--- A select is bitwise over the lanes it chooses between, so its mask has to be
+--- as wide as they are.
+function rewrite.selectMask(shape: lane.Shape, vector: string): string
+    for element, carried in pairs(shape.vectorFor) do
+        if carried == vector then
+            return rewrite.nativeMask(shape, element)
+        end
+    end
+
+    return shape.mask
+end
+
+--- The mask a comparison of this element produces before any conversion.
+function rewrite.nativeMask(shape: lane.Shape, element: lane.Element?): string
+    local native = element ~= nil and (shape.maskFor or {})[element as lane.Element] or nil
+
+    return (native or shape.mask) as string
+end
+
+--- One mask at the width something else needs it in.
+---
+--- Nothing where it is already that width, which is every gang that carries one.
+function rewrite.maskAt(value: lane.Expr, want: string, source: lane.Source?): lane.Expr
+    if value.type == want then
+        return value
+    end
+
+    return new lane.MaskCast(op = "vmask_cast", args = {value}, type = want, source = source)
+end
+
+--- Reads a mask binding as an expression.
+function rewrite.maskLocal(binding: rewrite.Binding, source: scalarIR.Source?, state: rewrite.State): lane.Local
+    return new lane.Local(
+        op = "local",
+        name = binding.name,
+        cName = binding.cName,
+        type = state.shape.mask,
+        source = source
+    )
+end
+
+--- Both masks at once, where both apply.
+function rewrite.maskAnd(left: lane.Expr?, right: lane.Expr, source: scalarIR.Source?, state: rewrite.State): lane.Expr
+    if left == nil then
+        return right
+    end
+
+    return new lane.MaskOp(
+        op = "vmask",
+        verb = "and",
+        args = {left as lane.Expr, right},
+        type = state.shape.mask,
+        source = source
+    )
+end
+
+--- The lanes a mask does not cover.
+function rewrite.maskNot(value: lane.Expr, source: scalarIR.Source?, state: rewrite.State): lane.Expr
+    return new lane.MaskOp(op = "vmask", verb = "not", args = {value}, type = state.shape.mask, source = source)
+end
+
+--- The mask a statement actually runs under.
+---
+--- Outside a lane loop that is just the branch mask. Inside one it is the branch
+--- mask narrowed to the lanes still executing this iteration, because a lane
+--- that broke or continued is not running the rest of the block whatever branch
+--- it entered.
+function rewrite.activeMask(
+    mask: lane.Expr?,
+    loopContext: rewrite.LoopContext?,
+    source: scalarIR.Source?,
+    state: rewrite.State
+): lane.Expr?
+    if loopContext == nil then
+        return mask
+    end
+    local context = loopContext as rewrite.LoopContext
+    local executing = rewrite.maskLocal(context.executing, source, state)
+    if mask == nil then
+        return executing
+    end
+    local given = mask as lane.Expr
+    if given.op == "local" and (given as lane.Local).name == context.executing.name then
+        return given
+    end
+
+    return rewrite.maskAnd(given, executing, source, state)
+end
+
+--- Statement counterparts, and what a rewritten block is made of.
+type rewrite.Statement = any
+
+--- What the block rewrite needs beyond the expression state.
+---
+--- Kept separate because the expression half does not need any of it, and a
+--- record that carried both would let one reach for the other's business.
+record rewrite.BlockState
+    --- Fresh names for the masks this pass introduces.
+    serial: integer
+
+    --- Reports which names a suffix of a block reads, so the loop rewrite knows
+    --- what is observable after it.
+    readsAfter: function({any}, integer): {[string]: boolean}
+
+    --- Whether a block contains a `continue`, which stops a retired lane being
+    --- allowed to compute dead state.
+    containsContinue: function({any}): boolean
+
+    --- Records that a name is bound to one element of a span.
+    bindRef: function(string, scalarIR.Expr): nil
+end
+
+--- A fresh mask binding, named so two never collide.
+function rewrite.internalMask(
+    label: string,
+    source: scalarIR.Source?,
+    block: rewrite.BlockState,
+    state: rewrite.State
+): rewrite.Binding
+    block.serial = block.serial + 1
+    local serial = tostring(block.serial)
+
+    return new rewrite.Binding(
+        kind = "local",
+        name = "$" .. label .. serial,
+        cName = "lm" .. serial .. "_" .. label,
+        type = state.shape.mask,
+        source = source
+    )
+end
+
+--- Whether an assignment to a lane-local may skip its select.
+---
+--- A retired lane may compute arbitrary pure lane-local state in the
+--- unconditional body of a lane loop when that state is dead after it. No lane
+--- crosses into another and the value cannot be observed once the lane retires,
+--- so selecting the old value back would only add register pressure.
+---
+--- Branch masks keep their effect. Speculating across a branch could change a
+--- lane that is still live and did not take it, which is a different thing
+--- entirely from a lane that has already stopped.
+function rewrite.maySpeculate(targetName: string, mask: lane.Expr?, loopContext: rewrite.LoopContext?): boolean
+    if loopContext == nil or mask == nil then
+        return false
+    end
+    local context = loopContext as rewrite.LoopContext
+    local given = mask as lane.Expr
+    if given.op ~= "local" then
+        return false
+    end
+
+    return (
+        given as lane.Local
+    ).name == context.executing.name and context.speculate and context.observable[targetName] ~= true
+end
+
+--- Names an expression reads.
+local function exprReads(node: scalarIR.Expr, reads: {[string]: boolean}): nil
+    if node == nil then
+        return
+    end
+    if node.op == "local" then
+        reads[(node as scalarIR.Name).name] = true
+    end
+    local unary = node as scalarIR.Unary
+    exprReads(unary.value, reads)
+    local binary = node as scalarIR.Binary
+    exprReads(binary.left, reads)
+    exprReads(binary.right, reads)
+    for _, argument in ipairs((node as scalarIR.Math).args or {}) do
+        exprReads(argument, reads)
+    end
+    exprReads((node as scalarIR.FieldLoad).object, reads)
+end
+
+--- Names a statement reads, including everything nested in it.
+local statementReads: function(any, {[string]: boolean}): nil
+
+statementReads = function(statement: any, reads: {[string]: boolean}): nil
+    local operation = statement.op
+    if operation == "let" then
+        exprReads(statement.value, reads)
+    elseif operation == "assign" then
+        for _, assignment in ipairs(statement.values) do
+            exprReads(assignment.value, reads)
+            exprReads(assignment.target.object, reads)
+        end
+    elseif operation == "store" then
+        exprReads(statement.value, reads)
+    elseif operation == "if" then
+        for _, clause in ipairs(statement.clauses) do
+            exprReads(clause.condition, reads)
+            for _, inner in ipairs(clause.body) do
+                statementReads(inner, reads)
+            end
+        end
+        for _, inner in ipairs(statement.elseBody or {}) do
+            statementReads(inner, reads)
+        end
+    elseif operation == "while" then
+        exprReads(statement.condition, reads)
+        for _, inner in ipairs(statement.body) do
+            statementReads(inner, reads)
+        end
+    elseif operation == "fornum" then
+        exprReads(statement.from, reads)
+        exprReads(statement.to, reads)
+        for _, inner in ipairs(statement.body) do
+            statementReads(inner, reads)
+        end
+    elseif operation == "block" then
+        for _, inner in ipairs(statement.body) do
+            statementReads(inner, reads)
+        end
+    end
+end
+
+--- What each position in a block is followed by reading.
+---
+--- Walked backwards, so each entry is the set of names the statements after it
+--- read. That is what says whether a lane-local's value is observable once a
+--- lane retires, and so whether the assignment to it needs its select.
+---
+--- @param statements one block of scalar IR
+--- @param following names read after the block itself
+--- @return one read set per position
+function rewrite.readsAfter(statements: {any}, following: {[string]: boolean}): {{[string]: boolean}}
+    local suffix: {[string]: boolean} = {}
+    for name in pairs(following or {}) do
+        suffix[name] = true
+    end
+    local perPosition: {{[string]: boolean}} = {}
+    for position = #statements, 1, -1 do
+        local snapshot: {[string]: boolean} = {}
+        for name in pairs(suffix) do
+            snapshot[name] = true
+        end
+        perPosition[position] = snapshot
+        statementReads(statements[position], suffix)
+    end
+
+    return perPosition
+end
+
+--- Whether a block contains a `continue` anywhere within it.
+---
+--- A `continue` means a lane can stop part way through an iteration and resume
+--- the next one, so its state is live across the boundary and speculating on it
+--- would be observable.
+---
+--- Nested bodies are searched too, including nested loops -- whose `continue`
+--- arguably belongs to them rather than to this loop. Nothing turns on it today
+--- because a nested loop is refused before this runs, and narrowing it would be
+--- a change of behaviour rather than a move of it.
+function rewrite.containsContinue(statements: {any}): boolean
+    for _, statement in ipairs(statements) do
+        if statement.op == "continue" then
+            return true
+        elseif statement.op == "if" then
+            for _, clause in ipairs(statement.clauses) do
+                if rewrite.containsContinue(clause.body) then
+                    return true
+                end
+            end
+            if statement.elseBody ~= nil and rewrite.containsContinue(statement.elseBody) then
+                return true
+            end
+        elseif statement.body ~= nil and rewrite.containsContinue(statement.body) then
+            return true
+        end
+    end
+
+    return false
+end
+
+--- Rewriting one block, and everything nested in it.
+---
+--- The mask threading is the whole of this. A branch mask is captured into its
+--- own binding before the branch body runs, so changing a condition operand
+--- inside the body cannot change which lanes execute the statements after it --
+--- an ordinary `if` reads its condition once, and a lane rewrite that
+--- re-evaluated it would not.
+---
+--- `break` and `continue` become per-lane retirement rather than control flow:
+--- the masked lanes leave the iteration, and a `break` leaves the loop too. The
+--- loop ends when no lane is live, which is a horizontal test on a mask rather
+--- than a branch any lane takes.
+record rewrite.Block
+    --- Statements produced so far.
+    out: {any}
+
+    --- Which lanes this block runs under, or nothing at the top level where
+    --- every lane is active and no select is needed.
+    mask: lane.Expr?
+
+    --- The enclosing lane loop, when there is one.
+    loopContext: rewrite.LoopContext?
+end
+
+--- Declaring a lane local.
+---
+--- A binding the pre-pass marked varying takes a vector, broadcasting where its
+--- value does not vary; one it did not stays exactly as the scalar IR had it.
+function rewrite.let(statement: scalarIR.Let, state: rewrite.State): lane.Let
+    local varies = state.varyingLocals[statement.name] == true or rewrite.varying(statement.value, state)
+    if not varies then
+        return new lane.Let(
+            op = "let",
+            name = statement.name,
+            cName = statement.cName,
+            value = statement.value,
+            type = statement.type,
+            source = statement.source
+        )
+    end
+    local value = rewrite.varying(
+        statement.value,
+        state
+    ) and rewrite.expression(
+        statement.value,
+        state
+    ) or rewrite.splat(statement.value, rewrite.asElement(statement.value.type) or "f64", state)
+
+    return new lane.Let(
+        op = "let",
+        name = statement.name,
+        cName = statement.cName,
+        value = value,
+        type = value.type,
+        source = statement.source
+    )
+end
+
+--- The value an assignment stores, with its select where one is needed.
+---
+--- An inactive lane keeps what it had, which is what makes a conditional a mask
+--- rather than a branch: the old value is read back and selected against. A
+--- field target reads its own current lanes for the same reason.
+function rewrite.assignedValue(
+    value: lane.Expr,
+    target: lane.Target,
+    assignmentMask: lane.Expr?,
+    source: scalarIR.Source?,
+    state: rewrite.State
+): lane.Expr
+    if assignmentMask == nil then
+        return value
+    end
+    local previous: lane.Expr
+    if target.kind == "local" then
+        local localTarget = target as lane.LocalTarget
+        previous = new lane.Local(
+            op = "local",
+            name = localTarget.name,
+            cName = localTarget.cName,
+            type = value.type,
+            source = source
+        )
+    elseif target.kind == "vfield" then
+        local fieldTarget = target as lane.FieldTarget
+        previous = new lane.FieldLoad(
+            op = "vfield_load",
+            span = fieldTarget.span,
+            layout = fieldTarget.layout,
+            field = fieldTarget.field,
+            lanes = state.shape.lanes,
+            scalarType = fieldTarget.scalarType,
+            sourceType = fieldTarget.sourceType,
+            type = value.type,
+            source = source
+        )
+    else
+        local spanTarget = target as lane.SpanTarget
+        previous = new lane.SpanLoad(
+            op = "vspan_load",
+            span = spanTarget.span,
+            lanes = state.shape.lanes,
+            scalarType = spanTarget.scalarType,
+            sourceType = spanTarget.sourceType,
+            type = value.type,
+            source = source
+        )
+    end
+
+    return new lane.Select(
+        op = "vselect",
+        args = {
+            rewrite.maskAt(assignmentMask as lane.Expr, rewrite.selectMask(state.shape, value.type), source),
+            value,
+            previous,
+        },
+        type = value.type,
+        source = source
+    )
+end
+
+--- The clause masks of one conditional, in order.
+---
+--- Each arm runs under the lanes that reached the conditional and match its own
+--- condition; the arm after it runs under those that reached it and did not. The
+--- mask is captured into its own binding before the arm's body is rewritten,
+--- because a body may assign to a name the condition read -- and an ordinary
+--- `if` evaluates its condition once, so a lane rewrite that re-read it would
+--- change which lanes ran the statements after the assignment.
+---
+--- @param clauses the conditional's arms
+--- @param reaching the mask that reaches the conditional, or nothing at the top
+--- @param block where the introduced mask bindings are numbered from
+--- @param state what this rewrite carries
+--- @return one binding and one entry mask per arm, and the mask the else arm
+---   runs under
+function rewrite.branchMasks(
+    clauses: {scalarIR.Clause},
+    reaching: lane.Expr?,
+    block: rewrite.BlockState,
+    state: rewrite.State
+): ({any}, lane.Expr?)
+    local arms: {any} = {}
+    local remaining = reaching
+    for position, clause in ipairs(clauses) do
+        local condition = conditionMask(clause.condition, state)
+        local entry = rewrite.maskAnd(remaining, condition, clause.source, state)
+        local binding = rewrite.internalMask("if", clause.source, block, state)
+        arms[position] = {binding = binding, entry = entry, clause = clause}
+        local captured = rewrite.maskLocal(binding, clause.source, state)
+        remaining = rewrite.maskAnd(remaining, rewrite.maskNot(captured, clause.source, state), clause.source, state)
+    end
+
+    return arms, remaining
+end
+
+--- The context a lane loop's body is rewritten under.
+---
+--- `live` holds the lanes still in the loop and `executing` those still running
+--- this iteration. They differ the moment one lane breaks or continues, and both
+--- are needed: a lane that continued is not running the rest of this iteration
+--- but is still in the loop.
+---
+--- Speculation is allowed only when the body contains no `continue`. With one, a
+--- lane can stop part way through an iteration and resume the next, so its state
+--- is live across that boundary and assigning to it unmasked would be observable.
+function rewrite.loopContext(
+    statement: scalarIR.While,
+    observable: {[string]: boolean},
+    block: rewrite.BlockState,
+    state: rewrite.State
+): rewrite.LoopContext
+    return new rewrite.LoopContext(
+        live = rewrite.internalMask("live", statement.source, block, state),
+        executing = rewrite.internalMask("exec", statement.source, block, state),
+        observable = observable,
+        speculate = not rewrite.containsContinue(statement.body)
+    )
+end
+
+--- Leaving a loop, or the current iteration of it, for the masked lanes.
+---
+--- Retirement rather than control flow: no lane branches anywhere, the masks
+--- simply stop covering it. A `break` clears both, a `continue` clears only the
+--- executing mask, and the loop ends when nothing is live.
+function rewrite.exit(statement: scalarIR.Statement, mask: lane.Expr, loopContext: rewrite.LoopContext): lane.Statement
+    if statement.op == "break" then
+        return new lane.Break(
+            op = "vbreak",
+            mask = mask,
+            live = loopContext.live,
+            executing = loopContext.executing,
+            source = statement.source
+        )
+    end
+
+    return new lane.Continue(
+        op = "vcontinue",
+        mask = mask,
+        live = loopContext.live,
+        executing = loopContext.executing,
+        source = statement.source
+    )
+end
+
+--- Marks every local whose value depends on the iteration.
+---
+--- Two things make a local vary: a value that varies, and being assigned under
+--- a condition that varies -- because the lanes that took the branch and the
+--- lanes that did not then hold different values, whatever was assigned.
+---
+--- Runs to a fixed point. A local assigned a varying value inside a loop is
+--- varying on every iteration, including the ones already walked before the
+--- assignment was seen.
+function rewrite.markVarying(statements: {any}, state: rewrite.State): nil
+    --- Whether this block leaves its loop early under a condition that varies.
+    ---
+    --- Nested loops are not descended into: their `break` is theirs. A `break`
+    --- under a varying condition means lanes leave on different iterations, so
+    --- everything the loop assigns differs between them by the time it ends --
+    --- including a counter whose own arithmetic is uniform.
+    local function divergentExit(body: {any}, controlled: boolean): boolean
+        for _, statement in ipairs(body) do
+            local op = statement.op
+            if (op == "break" or op == "continue") and controlled then
+                return true
+            elseif op == "if" then
+                local branchControlled = controlled
+                for _, clause in ipairs(statement.clauses) do
+                    branchControlled = branchControlled or rewrite.varying(clause.condition, state)
+                    if divergentExit(clause.body, branchControlled) then
+                        return true
+                    end
+                end
+                if statement.elseBody ~= nil and divergentExit(statement.elseBody, branchControlled) then
+                    return true
+                end
+            elseif op == "block" and divergentExit(statement.body, controlled) then
+                return true
+            end
+        end
+
+        return false
+    end
+
+    --- One pass over a block, under whether control already varies here.
+    local function mark(body: {any}, controlled: boolean): nil
+        for _, statement in ipairs(body) do
+            local op = statement.op
+            if op == "let" then
+                if controlled or rewrite.varying(statement.value, state) then
+                    state.varyingLocals[statement.name] = true
+                end
+            elseif op == "multi_let" then
+                -- Every result of one call varies together: the call is inlined
+                -- whole, so if any argument varies then all of its results do.
+                -- Decided here rather than while rewriting, because a later read
+                -- of one of these names is rewritten on the answer.
+                if controlled or rewrite.varying(statement.call, state) then
+                    for _, bound in ipairs(statement.bindings) do
+                        state.varyingLocals[bound.name] = true
+                    end
+                end
+            elseif op == "assign" then
+                for _, entry in ipairs(statement.values) do
+                    if entry.target.kind == "local" and (controlled or rewrite.varying(entry.value, state)) then
+                        state.varyingLocals[entry.target.name] = true
+                    end
+                end
+            elseif op == "if" then
+                local branchControlled = controlled
+                for _, clause in ipairs(statement.clauses) do
+                    branchControlled = branchControlled or rewrite.varying(clause.condition, state)
+                    mark(clause.body, branchControlled)
+                end
+                if statement.elseBody ~= nil then
+                    mark(statement.elseBody, branchControlled)
+                end
+            elseif op == "while" then
+                local diverges = rewrite.varying(statement.condition, state) or divergentExit(statement.body, false)
+                mark(statement.body, controlled or diverges)
+            elseif op == "block" then
+                mark(statement.body, controlled)
+            elseif op == "fornum" then
+                local bounds = rewrite.varying(statement.from, state) or rewrite.varying(statement.to, state)
+                mark(statement.body, controlled or bounds)
+            end
+        end
+    end
+
+    --- How many locals are known to vary.
+    local function counted(): integer
+        local total: integer = 0
+        for _ in pairs(state.varyingLocals) do
+            total = total + 1
+        end
+
+        return total
+    end
+
+    local before = -1
+    while counted() ~= before do
+        before = counted()
+        mark(statements, false)
+    end
+end
+
+--- A uniform boolean, broadcast to every lane of the mask.
+function rewrite.boolMask(node: scalarIR.Expr, state: rewrite.State): lane.BoolSplat
+    return new lane.BoolSplat(op = "vbool_splat", args = {node}, type = state.shape.mask, source = node.source)
+end
+
+--- `node` as a vector of the type the gang uses for `want`, or for the node's
+--- own scalar type when the caller has no opinion.
+---
+--- A uniform value is broadcast. A varying one is rewritten and then checked
+--- against the width the caller asked for, because a gang that does not carry
+--- that element would otherwise silently produce a vector of the wrong one.
+function rewrite.numericVector(node: scalarIR.Expr, want: scalarIR.Type?, state: rewrite.State): rewrite.Value
+    local scalarType = want or node.type
+    local element = rewrite.asElement(scalarType) or "f64"
+    if not rewrite.varying(node, state) then
+        return rewrite.splat(node, element, state)
+    end
+
+    local value = rewrite.expression(node, state)
+    if value.type ~= rewrite.vectorFor(state, element) then
+        state.reject(
+            "a varying " .. tostring(
+                node.type
+            ) .. " cannot enter " .. tostring(rewrite.vectorFor(state, element)) .. " SIMD"
+        )
+    end
+
+    return value
+end
+
+--- One condition, as the mask of lanes that satisfy it.
+function rewrite.conditionMask(node: scalarIR.Expr, state: rewrite.State): lane.Expr
+    if not rewrite.varying(node, state) then
+        return rewrite.boolMask(node, state)
+    end
+
+    -- A mask, or the rewrite is refused: the check above is what lets this be
+    -- read as one downstream rather than as whatever the expression produced.
+    local value = rewrite.expression(node, state)
+    if value.type ~= state.shape.mask then
+        state.reject("a varying condition did not produce a mask")
+    end
+
+    return value as lane.Expr
+end
+
+--- The span element a name was bound to, if it was bound to one.
+---
+--- `span[i]` binds a reference that field accesses later go through. The
+--- reference itself has no lane-parallel form -- four elements are four
+--- addresses -- but every use of it does, so the binding is resolved at each
+--- use rather than emitted.
+function rewrite.resolveRef(node: scalarIR.Expr?, state: rewrite.State): scalarIR.ElementRef?
+    if node == nil then
+        return nil
+    end
+    if node.op == "element_ref" then
+        return node
+    end
+    if node.op == "local" then
+        return state.refBindings[(node as scalarIR.Name).name]
+    end
+
+    return nil
+end
+
+--- Rewrites a helper call to the helper's own result expressions, with each
+--- parameter bound to the lane vector its argument produced.
+---
+--- The helper body is already verified scalar IR over `helper_param` nodes, so
+--- nothing here decides what the helper means -- it decides only that this
+--- call's arguments are what its parameters are. Bindings are saved and restored
+--- around the call, so a helper called twice, or a helper calling another,
+--- cannot see the wrong ones.
+function rewrite.inlineHelper(node: scalarIR.HelperCall, state: rewrite.State): {rewrite.Value}
+    local helper = state.helpers[node.helper]
+    if helper ~= nil and helper.native == true then
+        -- A compiled entry takes one set of scalars and answers once. There is no
+        -- per-lane form of that, so the loop keeps its scalar shape rather than
+        -- being given a meaning the callee never agreed to.
+        state.reject("a lane-parallel body cannot call a compiled entry")
+    end
+    if helper == nil then
+        state.reject("a lane-parallel call has no visible helper")
+    end
+    if #node.args ~= #helper.params then
+        state.reject("a lane-parallel helper call has the wrong argument count")
+    end
+
+    local bound: {[string]: rewrite.Value} = {}
+    local saved: {[string]: rewrite.Value?} = {}
+    for position, param in ipairs(helper.params) do
+        bound[param.name] = rewrite.numericVector(node.args[position], param.type, state)
+    end
+    for name, value in pairs(bound) do
+        saved[name] = state.helperBindings[name]
+        state.helperBindings[name] = value
+    end
+
+    local values: {rewrite.Value} = {}
+    for position, value in ipairs(helper.values) do
+        values[position] = rewrite.expression(value, state)
+    end
+    for name in pairs(bound) do
+        state.helperBindings[name] = saved[name]
+    end
+
+    return values
+end
+
+--- The lane form of one multiple binding.
+---
+--- One declaration per result rather than one statement. The scalar form needs
+--- a single statement because a C call returns once; inlined, the results are
+--- ordinary expressions and there is nothing to hold together.
+local function multiLet(statement: any, state: rewrite.State): {any}
+    -- A call whose arguments do not vary produces the same results for every
+    -- lane, so it stays exactly the statement it was. The lane body already
+    -- carries uniform values -- a binding it did not have to broadcast is one it
+    -- reads as a scalar -- and a call is no different from any other of them.
+    if not rewrite.varying(statement.call, state) then
+        return {statement}
+    end
+
+    -- Varying, so the call is inlined and its results become ordinary
+    -- expressions. One declaration per result rather than one statement: the
+    -- scalar form needs a single statement because a C call returns once, and
+    -- inlined there is nothing left to hold together.
+    local values = rewrite.inlineHelper(statement.call, state)
+    local out: {any} = {}
+    for position, bound in ipairs(statement.bindings) do
+        local value = values[position]
+        out[
+            position
+        ] = {
+            op = "let",
+            name = bound.name,
+            cName = bound.cName,
+            value = value,
+            type = value.type,
+            source = statement.source,
+        }
+    end
+
+    return out
+end
+
+--- Where one assignment's lanes go, and what they are worth.
+local function laneAssignment(
+    entry: any,
+    statement: any,
+    mask: lane.Expr?,
+    statementMask: lane.Expr?,
+    loopContext: rewrite.LoopContext?,
+    state: rewrite.State
+): any
+    local target = entry.target
+    local targetVaries = target.kind == "field" or state.varyingLocals[target.name] == true
+    local varies = rewrite.varying(entry.value, state)
+    local value = varies and rewrite.expression(entry.value, state) or entry.value
+    if not varies and targetVaries then
+        value = rewrite.splat(entry.value, rewrite.asElement(entry.value.type) or "f64", state)
+    end
+
+    local assignmentMask = statementMask
+    if assignmentMask ~= nil and target.kind == "local" and rewrite.maySpeculate(target.name, mask, loopContext) then
+        assignmentMask = nil
+    end
+
+    -- The lane target is worked out once, then used both to read the old value
+    -- back for the select and to say where the store goes.
+    local laneTarget: any
+    if target.kind == "field" then
+        local object = rewrite.resolveRef(target.object, state)
+        if object == nil or object.index ~= state.index then
+            state.reject("a lane-parallel field store writes consecutive elements only")
+        end
+        laneTarget = new lane.FieldTarget(
+            kind = "vfield",
+            span = (object as scalarIR.ElementRef).span,
+            layout = target.layout,
+            field = target.field,
+            scalarType = target.type,
+            sourceType = target.sourceType
+        )
+    else
+        laneTarget = new lane.LocalTarget(kind = "local", name = target.name, cName = target.cName)
+    end
+
+    return {
+        target = target.kind == "field" and laneTarget or target,
+        value = rewrite.assignedValue(value, laneTarget, assignmentMask, statement.source, state),
+    }
+end
+
+--- Whether this block leaves its loop early at all, however it decides to.
+---
+--- `rewrite.markVarying` asks a narrower question -- whether the exit is under a
+--- varying condition, which is what makes lanes diverge. This one is about
+--- whether there is an exit to represent: a loop with none and a uniform
+--- condition needs no masks, and one with any needs them whether or not lanes
+--- disagree about when.
+---
+--- Nested loops are not descended into: their exits are theirs.
+function rewrite.containsExit(statements: {any}): boolean
+    for _, statement in ipairs(statements) do
+        local op = statement.op
+        if op == "break" or op == "continue" then
+            return true
+        elseif op == "if" then
+            for _, clause in ipairs(statement.clauses) do
+                if rewrite.containsExit(clause.body) then
+                    return true
+                end
+            end
+            if statement.elseBody ~= nil and rewrite.containsExit(statement.elseBody) then
+                return true
+            end
+        elseif op == "block" and rewrite.containsExit(statement.body) then
+            return true
+        end
+    end
+
+    return false
+end
+
+--- Rewrites a block of statements to run several iterations at once.
+---
+--- @param mask which lanes this block runs under, or nothing at the top level
+--- @param loopContext the enclosing lane loop, when there is one
+--- @param following which locals are read after this block
+--- @param block where the introduced mask bindings are numbered from
+function rewrite.block(
+    statements: {any},
+    mask: lane.Expr?,
+    loopContext: rewrite.LoopContext?,
+    following: {[string]: boolean}?,
+    block: rewrite.BlockState,
+    state: rewrite.State
+): {any}
+    local out: {any} = {}
+    local readsAfter = rewrite.readsAfter(statements, following or {})
+
+    --- Appends everything a nested block produced.
+    local function append(produced: {any}): nil
+        for _, statement in ipairs(produced) do
+            out[#out + 1] = statement
+        end
+    end
+
+    for position, statement in ipairs(statements) do
+        local statementMask = rewrite.activeMask(mask, loopContext, statement.source, state)
+        local op = statement.op
+        if op == "let" and statement.value.op == "element_ref" and statement.value.index == state.index then
+            state.refBindings[statement.name] = statement.value
+        elseif op == "let" then
+            out[#out + 1] = rewrite.let(statement, state)
+        elseif op == "multi_let" then
+            append(multiLet(statement, state))
+        elseif op == "assign" then
+            local assignments: {any} = {}
+            for index, entry in ipairs(statement.values) do
+                assignments[index] = laneAssignment(entry, statement, mask, statementMask, loopContext, state)
+            end
+            out[#out + 1] = {op = "vassign", values = assignments, source = statement.source}
+        elseif op == "store" then
+            local root = state.spans[statement.span]
+            local scalarType = root ~= nil and rewrite.asElement((root as scalarIR.Param).type) or nil
+            if root == nil or root.kind ~= "write_span" or statement.index ~= state.index or scalarType == nil then
+                state.reject("a lane-parallel scalar store writes consecutive admitted elements only")
+            end
+            local target = new lane.SpanTarget(
+                kind = "vspan",
+                span = statement.span,
+                scalarType = scalarType as lane.Element,
+                sourceType = (root as scalarIR.Param).sourceType
+            )
+            local varies = rewrite.varying(statement.value, state)
+            local value = varies and rewrite.expression(
+                statement.value,
+                state
+            ) or rewrite.splat(statement.value, scalarType as lane.Element, state)
+            out[
+                #out + 1
+            ] = {
+                op = "vassign",
+                values = {
+                    {
+                        target = target,
+                        value = rewrite.assignedValue(
+                            value as lane.Expr,
+                            target,
+                            statementMask,
+                            statement.source,
+                            state
+                        ),
+                    }
+                },
+                source = statement.source,
+            }
+        elseif op == "if" then
+            -- Each arm's mask is captured into its own binding before the arm
+            -- runs, so a body that assigns to a name the condition read cannot
+            -- change which lanes execute the statements after it.
+            local arms, remaining = rewrite.branchMasks(statement.clauses, statementMask, block, state)
+            for _, arm in ipairs(arms) do
+                out[
+                    #out + 1
+                ] = {
+                    op = "let",
+                    name = arm.binding.name,
+                    cName = arm.binding.cName,
+                    value = arm.entry,
+                    type = state.shape.mask,
+                    source = arm.clause.source,
+                }
+                append(
+                    rewrite.block(
+                        arm.clause.body,
+                        rewrite.maskLocal(arm.binding, arm.clause.source, state),
+                        loopContext,
+                        readsAfter[position],
+                        block,
+                        state
+                    )
+                )
+            end
+            if statement.elseBody ~= nil then
+                append(rewrite.block(statement.elseBody, remaining, loopContext, readsAfter[position], block, state))
+            end
+        elseif op == "block" then
+            append(rewrite.block(statement.body, statementMask, loopContext, readsAfter[position], block, state))
+        elseif op == "while" then
+            -- A loop every lane runs the same number of times needs no masks:
+            -- the condition does not vary and nothing leaves early, so no lane
+            -- can be at a different iteration from any other. Masking it would
+            -- be correct and would pay a select per assignment and a horizontal
+            -- test per iteration to prove something that was never in doubt.
+            if not rewrite.varying(statement.condition, state) and not rewrite.containsExit(statement.body) then
+                out[
+                    #out + 1
+                ] = new lane.UniformWhile(
+                    op = "vwhile_uniform",
+                    condition = statement.condition,
+                    body = rewrite.block(statement.body, mask, loopContext, readsAfter[position], block, state),
+                    source = statement.source
+                )
+            else
+                local context = rewrite.loopContext(statement, readsAfter[position] or {}, block, state)
+                local condition = rewrite.conditionMask(statement.condition, state)
+                out[
+                    #out + 1
+                ] = new lane.While(
+                    op = "vwhile",
+                    live = context.live,
+                    executing = context.executing,
+                    initial = rewrite.maskAnd(statementMask, condition, statement.source, state),
+                    condition = condition,
+                    body = rewrite.block(
+                        statement.body,
+                        rewrite.maskLocal(context.executing, statement.source, state),
+                        context,
+                        nil,
+                        block,
+                        state
+                    ),
+                    source = statement.source
+                )
+            end
+        elseif op == "fornum" then
+            state.reject("a nested numeric loop is not lane-controlled yet")
+        elseif op == "break" or op == "continue" then
+            if loopContext == nil then
+                state.reject(tostring(op) .. " applies to the outer map loop and is not admitted")
+            end
+            out[#out + 1] = rewrite.exit(statement, statementMask as lane.Expr, loopContext as rewrite.LoopContext)
+        else
+            state.reject("statement " .. tostring(op) .. " has no lane-parallel form")
+        end
+    end
+
+    return out
+end
+
+--- Rewrites one verified loop body to run `shape.lanes` iterations at once.
+---
+--- Builds fresh IR and touches nothing else, so a declined attempt costs a retry
+--- and leaves no state behind for the next shape to trip over.
+---
+--- @param reject reports a construct this pass cannot represent
+function rewrite.loop(program: scalarIR.Program, shape: lane.Shape, reject: function(string): nil): scalarIR.LaneBody
+    local loop = program.loop as scalarIR.Loop
+    local helpers: {[string]: any} = {}
+    for _, helper in ipairs(program.helpers or {}) do
+        helpers[helper.name] = helper
+    end
+
+    local state = new rewrite.State(
+        shape = shape,
+        index = loop.index,
+        varyingLocals = {},
+        refBindings = {},
+        helperBindings = {},
+        helpers = helpers,
+        spans = (function(): {[string]: scalarIR.Param}
+            local byName: {[string]: scalarIR.Param} = {}
+            for _, param in ipairs(program.params) do
+                if param.kind == "read_span" or param.kind == "write_span" then
+                    byName[param.name] = param
+                end
+            end
+
+            return byName
+        end)(),
+        reject = reject
+    )
+    rewrite.markVarying(loop.statements, state)
+
+    local statements = rewrite.block(loop.statements, nil, nil, nil, new rewrite.BlockState(serial = 0), state)
+
+    return new scalarIR.LaneBody(
+        lanes = shape.lanes,
+        shape = shape.name,
+        statements = statements,
+        rounded = state.rounded == true
+    )
+end
+
+--- What one attempt at a gang width came to.
+record rewrite.Attempt
+    --- The gang that was tried.
+    shape: string
+
+    --- Why it was refused. Empty when it was taken.
+    refusals: {string}
+end
+
+--- The sentinel a refusal unwinds with, so a refused attempt is told apart from
+--- a real error rather than swallowing one.
+local REFUSED = {}
+
+--- Rewrites the loop to the gang that runs the most iterations at once.
+---
+--- Most lanes first. The 32-bit gang refuses the moment any varying value turns
+--- out to be binary64, so a loop written with ordinary operators lands on the
+--- binary64 gang exactly as it would have, and a loop whose values the source
+--- established as `float` or `int32` gets twice the lanes for the same
+--- registers. Each attempt builds fresh IR and touches nothing else, so a
+--- refused one costs a retry and leaves no state behind.
+---
+--- Order comes from the shapes rather than from the order they arrive in.
+--- Preference used to be positional -- the caller passed them widest last -- and
+--- that was fine while there were two. With a 16-byte pair beside the 32-byte
+--- one it would silently prefer four narrow lanes to eight wide ones, so the
+--- rule is written down instead of arranged.
+---
+--- A body that cannot lower at any width is not an error: it keeps its scalar
+--- loop, and the refusals say which construct stopped it.
+---
+--- @param shapes the gangs this target can hold, in any order. Empty when it can
+---   hold none, in which case there is nothing to try.
+--- @return one entry per gang that was refused, in the order they were tried.
+---   Empty when the first one took it.
+--- @raises when an attempt fails for any reason other than refusing the loop,
+---   which is a compiler bug rather than a width that does not fit
+function rewrite.select(program: scalarIR.Program, shapes: {lane.Shape}): {rewrite.Attempt}
+    local ordered: {lane.Shape} = {}
+    for _, shape in ipairs(shapes) do
+        ordered[#ordered + 1] = shape
+    end
+    -- More lanes wins. At equal lanes the narrower gang goes first, so an
+    -- all-32-bit loop takes f32x8 without making its masks and values 64 bytes;
+    -- it refuses a binary64 value and the mixed8 attempt then follows. Sorted
+    -- by name last so two gangs that tie on both order the same way in every
+    -- process.
+    table.sort(ordered, function(a: lane.Shape, b: lane.Shape): boolean
+        if a.lanes ~= b.lanes then
+            return a.lanes > b.lanes
+        end
+        if a.bytes ~= b.bytes then
+            return a.bytes < b.bytes
+        end
+
+        return a.name < b.name
+    end)
+
+    local attempts: {rewrite.Attempt} = {}
+    for position = 1, #ordered do
+        local shape = ordered[position]
+        local refusals: {string} = {}
+        local lowered: scalarIR.LaneBody? = nil
+        local ok, problem = pcall(function(): nil
+            lowered = rewrite.loop(program, shape, function(why: string): nil
+                refusals[#refusals + 1] = why
+                error(REFUSED, 0)
+            end)
+        end)
+        if ok then
+            program.lanes = lowered
+
+            return attempts
+        end
+        if problem ~= REFUSED then
+            error(problem, 0)
+        end
+        attempts[#attempts + 1] = new rewrite.Attempt(shape = shape.name, refusals = refusals)
+    end
+
+    return attempts
+end
+
+export = rewrite

@@ -1,0 +1,411 @@
+module nupp.data.utf8
+
+--[[
+`nupp.data.utf8` reads Unicode scalars out of strings and
+[](nupp.io.ByteView) values. Reach for it to count, decode,
+validate or truncate text whose bytes came from somewhere else.
+
+```nupp
+const utf8 = nupp.data.utf8
+
+assert(utf8.length("A€") == 2)
+assert(utf8.encode(0x20ac) == "€")
+```
+
+`length` counts scalars, replacing each malformed byte with one replacement
+scalar rather than refusing the string. `encode` goes the other way, from one
+scalar value to its bytes.
+
+## Byte offsets
+
+Offsets here are 1-based, so they compose with Lua string positions and with
+`string.sub` on the same text. This is the opposite of the zero-based offsets a
+[buffer](nupp.io#buffers) uses, because those are offsets into storage rather
+than positions in text.
+
+## Decoding a scalar
+
+`decodeAt` decodes forward from an offset and answers the scalar with the
+offset after it. `decodeBefore` decodes the scalar ending before an offset and
+answers it with the offset it starts at, so the two walk in opposite
+directions over the same positions:
+
+```nupp
+const utf8 = nupp.data.utf8
+
+local codepoint, nextByte = utf8.decodeAt("A€", 2)
+assert(codepoint == 0x20ac and nextByte == 5)
+
+codepoint, nextByte = utf8.decodeBefore("A€", nextByte)
+assert(codepoint == 0x20ac and nextByte == 2)
+```
+
+A malformed byte answers `0xFFFD` and advances exactly one byte, so a walk over
+damaged text makes progress rather than stalling. Nil is the end of the value,
+and that is what stops the walk:
+
+```nupp
+const utf8 = nupp.data.utf8
+
+local at = 1
+while true do
+    local codepoint, nextAt = utf8.decodeAt(text, at)
+    if codepoint == nil then break end
+    at = nextAt
+end
+```
+
+One past the end is an accepted offset; anything further raises.
+
+## Validating and truncating
+
+Validation is explicit, because decoding never refuses. `isValid` checks a
+complete byte sequence:
+
+```nupp
+const utf8 = nupp.data.utf8
+
+assert(utf8.isValid("café"))
+assert(not utf8.isValid("\xff"))
+```
+
+Overlong forms, surrogate halves and codepoints above the maximum are
+malformed even though their lead bytes are well formed, so they are rejected
+on the value rather than on the shape.
+
+`validPrefixLength(value, maxBytes)` answers the length of the largest valid
+prefix no longer than a byte budget, which is what keeps a fixed-width field
+from splitting a scalar in half. `truncate` applies that to a string and copies
+the prefix:
+
+```nupp
+const utf8 = nupp.data.utf8
+
+assert(utf8.validPrefixLength("A€B", 4) == 4)
+assert(utf8.truncate("A€B", 4) == "A€")
+```
+
+`truncate` takes a string, since it answers one. Everything else here takes a
+string or a byte view.
+
+::: seealso
+- [](nupp.io#byte-views) for the byte views these operations accept
+- [](nupp.data) for the rest of the namespace, which also holds UUIDs, hashes
+  and checksums
+:::
+]]
+
+-- `string.byte` by name rather than as a method. Written `source:byte(at)` the
+-- name is looked up on the string metatable before every call; a loop long enough
+-- for LuaJIT to hoist that out pays it once, and a short value pays it per byte.
+-- Short values are most of what a program validates -- a key, a name, a field --
+-- so this is worth a third of the time on one and nothing at all on a megabyte.
+local stringByte = string.byte
+
+local REPLACEMENT: integer = 65533
+
+local function bytes(value: string | nupp.io.ByteView): string
+    if type(value) == "string" then
+        return value as string
+    end
+
+    return (value as nupp.io.ByteView):getString()
+end
+
+--- @raises when at is not an integer, or is outside the value
+local function offset(value: string, at: integer, allowEnd: boolean): integer
+    if at ~= math.floor(at) then
+        error("nupp: UTF-8 byte offset must be an integer", 3)
+    end
+    local limit = #value + (allowEnd and 1 or 0)
+    if at < 1 or at > limit then
+        error("nupp: UTF-8 byte offset is out of range", 3)
+    end
+
+    return at
+end
+
+-- The codepoint starting at `at`, and where the next one starts. A malformed
+-- sequence answers the replacement character and advances exactly one byte, so the
+-- caller always makes progress.
+local function decode(source: string, at: integer): (integer?, integer)
+    local first = stringByte(source, at)
+    if not first then
+        return nil, at
+    end
+    if first < 128 then
+        return first, at + 1
+    end
+    local need: integer = 0
+    local code: integer = 0
+    local min: integer = 0
+    if first >= 194 and first <= 223 then
+        need, code, min = 1, first - 192, 128
+    elseif first >= 224 and first <= 239 then
+        need, code, min = 2, first - 224, 2048
+    elseif first >= 240 and first <= 244 then
+        need, code, min = 3, first - 240, 65536
+    else
+        return REPLACEMENT, at + 1
+    end
+    for index = 1, need do
+        local continuation = stringByte(source, at + index)
+        if not continuation or continuation < 128 or continuation > 191 then
+            return REPLACEMENT, at + 1
+        end
+        code = code * 64 + continuation - 128
+    end
+    if code < min or code > 1114111 or (code >= 55296 and code <= 57343) then
+        return REPLACEMENT, at + 1
+    end
+
+    return code, at + need + 1
+end
+
+-- How many bytes at the front of `source` spell whole scalars, looking no further
+-- than `limit`. Both questions above the module are this one: a value is valid
+-- when the answer is its whole length, and a prefix is the answer itself.
+--
+-- Byte ranges rather than a decoded value, because whether the bytes spell a
+-- scalar is the whole question and which scalar they spell is not needed. What a
+-- lead byte alone cannot settle is the second byte: the four named here are the
+-- ones where it is what rules out an overlong form, a surrogate half, or a value
+-- past the maximum.
+local function scan(source: string, limit: integer): integer
+    local at: integer = 1
+    while at <= limit do
+        local lead = stringByte(source, at) as integer
+        if lead < 128 then
+            at = at + 1
+        elseif lead < 224 then
+            if lead < 194 or at + 1 > limit then
+                return at - 1
+            end
+            local second = stringByte(source, at + 1) as integer
+            if second < 128 or second > 191 then
+                return at - 1
+            end
+            at = at + 2
+        elseif lead < 240 then
+            if at + 2 > limit then
+                return at - 1
+            end
+            local second = stringByte(source, at + 1) as integer
+            local third = stringByte(source, at + 2) as integer
+            if second < 128 or second > 191 or third < 128 or third > 191 then
+                return at - 1
+            end
+            if (lead == 224 and second < 160) or (lead == 237 and second > 159) then
+                return at - 1
+            end
+            at = at + 3
+        elseif lead < 245 then
+            if at + 3 > limit then
+                return at - 1
+            end
+            local second = stringByte(source, at + 1) as integer
+            local third = stringByte(source, at + 2) as integer
+            local fourth = stringByte(source, at + 3) as integer
+            if second < 128 or second > 191 or third < 128 or third > 191 or fourth < 128 or fourth > 191 then
+                return at - 1
+            end
+            if (lead == 240 and second < 144) or (lead == 244 and second > 143) then
+                return at - 1
+            end
+            at = at + 4
+        else
+            return at - 1
+        end
+    end
+
+    return limit
+end
+
+local utf8 = {}
+
+--- Counts the codepoints in the value.
+---
+--- A malformed byte counts as one.
+---
+--- ```nupp
+--- const utf8 = require("nupp.data.utf8")
+---
+--- assert(utf8.length("A€") == 2)
+--- ```
+---
+--- @param value the bytes to measure
+--- @return the codepoint count
+function utf8.length(value: string | nupp.io.ByteView): integer
+    local source = bytes(value)
+    local count: integer = 0
+    local at: integer = 1
+    while at <= #source do
+        local _, nextAt = decode(source, at)
+        at = nextAt
+        count = count + 1
+    end
+
+    return count
+end
+
+--- Reads the codepoint starting at a byte offset, and where the next one starts.
+---
+--- Walking a buffer is this call and nothing else, because a malformed byte
+--- answers `0xFFFD` and still advances:
+---
+--- ```nupp
+--- const utf8 = require("nupp.data.utf8")
+---
+--- local at = 1
+--- while true do
+---     local codepoint, nextAt = utf8.decodeAt(text, at)
+---     if codepoint == nil then break end
+---     at = nextAt
+--- end
+--- ```
+---
+--- @param value the bytes to read
+--- @param byteOffset the 1-based byte to start at; one past the end is allowed
+--- @return the codepoint, or nil at the end of the value
+--- @return the byte the next codepoint starts at
+--- @raises when byteOffset is not an integer, or is outside the value
+function utf8.decodeAt(value: string | nupp.io.ByteView, byteOffset: integer): (integer?, integer)
+    local source = bytes(value)
+
+    return decode(source, offset(source, byteOffset, true))
+end
+
+--- Reads the codepoint ending just before a byte offset, and where it starts.
+---
+--- `decodeAt` and `decodeBefore` walk the same positions in opposite
+--- directions, so decoding forward and then back lands where it started:
+---
+--- ```nupp
+--- const utf8 = require("nupp.data.utf8")
+---
+--- local codepoint, nextByte = utf8.decodeAt("A€", 2)
+--- assert(codepoint == 0x20ac and nextByte == 5)
+---
+--- codepoint, nextByte = utf8.decodeBefore("A€", nextByte)
+--- assert(codepoint == 0x20ac and nextByte == 2)
+--- ```
+---
+--- @param value the bytes to read
+--- @param byteOffset the 1-based byte to look back from
+--- @return the codepoint, or nil at the start of the value
+--- @return the byte that codepoint starts at
+--- @raises when byteOffset is not an integer, or is outside the value
+function utf8.decodeBefore(value: string | nupp.io.ByteView, byteOffset: integer): (integer?, integer)
+    local source = bytes(value)
+    local at = offset(source, byteOffset, true)
+    if at == 1 then
+        return nil, 1
+    end
+    local start: integer = at - 1
+    while start > 1 and stringByte(source, start) >= 128 and stringByte(source, start) <= 191 do
+        start = start - 1
+    end
+    local codepoint, nextAt = decode(source, start)
+    -- Landing anywhere but the offset walked back from means the bytes between are
+    -- not one sequence, so the byte before the offset stands alone.
+    if nextAt ~= at then
+        return REPLACEMENT, at - 1
+    end
+
+    return codepoint, start
+end
+
+--- Encodes one codepoint as UTF-8 bytes.
+---
+--- ```nupp
+--- const utf8 = require("nupp.data.utf8")
+---
+--- assert(utf8.encode(0x20ac) == "€")
+--- ```
+---
+--- Surrogate halves encode rather than raise, the way a lone half decodes to the
+--- replacement rather than stopping a walk: what refuses them is
+--- [](nupp.data.utf8.isValid), on the bytes, and encoding one is how a caller
+--- reproducing damaged text writes it back out.
+---
+--- @param codepoint the codepoint to encode
+--- @return its encoding
+--- @raises when the codepoint is not an integer, or is outside Unicode
+function utf8.encode(codepoint: integer): string
+    if codepoint ~= math.floor(codepoint) or codepoint < 0 or codepoint > 1114111 then
+        error("nupp: UTF-8 codepoint is out of range", 2)
+    end
+    if codepoint < 128 then
+        return string.char(codepoint)
+    end
+    -- Six bits a continuation byte, low bits last, with the lead byte saying how
+    -- many follow it.
+    local low: integer = (codepoint % 64) as integer
+    if codepoint < 2048 then
+        return string.char(192 + math.floor(codepoint / 64) as integer, 128 + low)
+    end
+    local middle: integer = (math.floor(codepoint / 64) % 64) as integer
+    if codepoint < 65536 then
+        return string.char(224 + math.floor(codepoint / 4096) as integer, 128 + middle, 128 + low)
+    end
+
+    return string.char(
+        240 + math.floor(codepoint / 262144) as integer,
+        128 + (math.floor(codepoint / 4096) % 64) as integer,
+        128 + middle,
+        128 + low
+    )
+end
+
+--- Reports whether the whole value is well-formed UTF-8.
+---
+--- ```nupp
+--- const utf8 = require("nupp.data.utf8")
+---
+--- assert(utf8.isValid("café"))
+--- assert(not utf8.isValid("\xff"))
+--- ```
+---
+--- @param value the bytes to test
+--- @return whether every sequence is well formed
+function utf8.isValid(value: string | nupp.io.ByteView): boolean
+    local source = bytes(value)
+
+    return scan(source, #source) == #source
+end
+
+--- Measures the longest well-formed prefix no longer than `maxBytes`.
+---
+--- ```nupp
+--- const utf8 = require("nupp.data.utf8")
+---
+--- -- "A€B" is 5 bytes; the 4-byte budget stops just short of "B" rather
+--- -- than splitting "€" in half.
+--- assert(utf8.validPrefixLength("A€B", 4) == 4)
+--- ```
+---
+--- @param value the bytes to measure
+--- @param maxBytes the most bytes the prefix may use
+--- @return the prefix length, in bytes
+function utf8.validPrefixLength(value: string | nupp.io.ByteView, maxBytes: integer): integer
+    local source = bytes(value)
+
+    return scan(source, math.max(0, math.min(#source, maxBytes)) as integer)
+end
+
+--- Cuts text to at most `maxBytes`, never through a codepoint.
+---
+--- ```nupp
+--- const utf8 = require("nupp.data.utf8")
+---
+--- assert(utf8.truncate("A€B", 4) == "A€")
+--- ```
+---
+--- @param text the text to cut
+--- @param maxBytes the most bytes the answer may use
+--- @return the cut text
+function utf8.truncate(text: string, maxBytes: integer): string
+    return text:sub(1, utf8.validPrefixLength(text, maxBytes))
+end
+
+export = utf8

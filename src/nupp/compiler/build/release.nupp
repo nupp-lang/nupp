@@ -1,0 +1,301 @@
+module nupp.compiler.build.release
+
+--[[
+Release-only binary and stub-catalog operations.
+
+The compiler owns both formats, so release automation asks this module to read
+and write them instead of carrying another implementation in workflow scripts.
+]]
+
+local fs = require("nupp.compiler.fs")
+local hash = require("nupp.compiler.build.hash")
+local packaging = require("nupp.compiler.build.package")
+local platform = require("nupp.compiler.build.platform")
+local stubs = require("nupp.compiler.build.stubs")
+
+local release = {}
+local json = nupp.data.json
+
+local HOST_FEATURES: {
+    string
+} = {"lpeg", "lua-utf8", "native-files", "native-net", "native-process", "native-tls", "workers",}
+
+local function copyArray(values: {string}): {string}
+    local copied: {string} = {}
+    for index, value in ipairs(values) do
+        copied[index] = value
+    end
+
+    return copied
+end
+
+local function sameStringArray(value: any, expected: {string}): boolean
+    if type(value) ~= "table" then
+        return false
+    end
+    local count, highest = 0, 0
+    for index, item in pairs(value) do
+        if type(index) ~= "number" or index < 1 or index ~= math.floor(index) or type(item) ~= "string" then
+            return false
+        end
+        count = count + 1
+        highest = math.max(highest, index)
+    end
+    if count ~= highest or count ~= #expected then
+        return false
+    end
+    for index, item in ipairs(expected) do
+        if value[index] ~= item then
+            return false
+        end
+    end
+
+    return true
+end
+
+local function decode(path: string): any?, string?
+    local text, readErr = fs.readFile(path)
+    if not text then
+        return nil, "cannot read " .. path .. ": " .. tostring(readErr)
+    end
+    local ok, value = pcall(json.decode, text, json.NULL)
+    if not ok then
+        return nil, "cannot decode " .. path .. ": " .. tostring(value)
+    end
+
+    return value
+end
+
+--- Deterministic readable JSON for immutable release records.
+--- @raises when the value is cyclic or is not representable as JSON
+local function pretty(value: any, depth: integer, seen: {[table]: boolean}): string
+    if value == json.NULL then
+        return "null"
+    end
+    local kind = type(value)
+    @allow("exhaustiveness")
+    if kind ~= "table" then
+        return json.encode(value)
+    end
+    local entries = value as table
+    if seen[entries] then
+        error("release JSON contains a cycle")
+    end
+    seen[entries] = true
+    local current = ("  "):rep(depth)
+    local nested = ("  "):rep(depth + 1)
+    local parts: {string} = {}
+    local opening, closing
+    if json.isArray(entries) then
+        opening, closing = "[", "]"
+        for index = 1, #entries do
+            parts[index] = nested .. pretty(entries[index], depth + 1, seen)
+        end
+    else
+        opening, closing = "{", "}"
+        local keys: {string} = {}
+        for key in pairs(entries) do
+            if type(key) ~= "string" then
+                error("release JSON object has a non-string key")
+            end
+            keys[#keys + 1] = key
+        end
+        table.sort(keys)
+        for index, key in ipairs(keys) do
+            parts[index] = nested .. json.encode(key) .. ": " .. pretty(entries[key], depth + 1, seen)
+        end
+    end
+    seen[entries] = nil
+    if #parts == 0 then
+        return opening .. closing
+    end
+
+    return opening .. "\n" .. table.concat(parts, ",\n") .. "\n" .. current .. closing
+end
+
+local function writeJson(path: string, value: any): boolean?, string?
+    local ok, text = pcall(pretty, value, 0, {})
+    if not ok then
+        return nil, tostring(text)
+    end
+
+    return fs.writeFile(path, text .. "\n")
+end
+
+local function validateRecord(value: any, selectedPlatform: string, catalogRelease: string): boolean?, string?
+    if type(value) ~= "table" then
+        return nil, "stub record for " .. selectedPlatform .. " is not an object"
+    end
+    if value.platform ~= selectedPlatform then
+        return nil, "stub record for " .. selectedPlatform .. " claims platform " .. tostring(value.platform)
+    end
+    if value.catalogRelease ~= catalogRelease then
+        return nil, "stub record for " .. selectedPlatform .. " has the wrong catalog release"
+    end
+    if value.hostAbi ~= packaging.hostAbiVersion then
+        return nil, "stub record for " .. selectedPlatform .. " has the wrong hostAbi"
+    end
+    if not sameStringArray(value.hostFeatures, HOST_FEATURES) then
+        return nil, "stub record for " .. selectedPlatform .. " is not a universal host"
+    end
+    if value.executableSuffix ~= platform.executableSuffix(selectedPlatform) then
+        return nil, "stub record for " .. selectedPlatform .. " has the wrong executable suffix"
+    end
+    if not stubs.safeComponent(value.artifact) then
+        return nil, "stub record for " .. selectedPlatform .. " has an unsafe artifact name"
+    end
+    if not stubs.safeComponent(value.noticeArtifact) then
+        return nil, "stub record for " .. selectedPlatform .. " has an unsafe notice artifact name"
+    end
+    if type(value.sha256) ~= "string" or #value.sha256 ~= 64 or not value.sha256:match("^[0-9a-f]+$") then
+        return nil, "stub record for " .. selectedPlatform .. " requires a lowercase SHA-256"
+    end
+    if type(value.size) ~= "number" or value.size < 1 or value.size ~= math.floor(value.size) then
+        return nil, "stub record for " .. selectedPlatform .. " requires a positive integer size"
+    end
+
+    return true
+end
+
+local function verifyRecord(value: any, root: string): boolean?, string?
+    local artifactPath = fs.join(root, value.artifact)
+    local bytes, readErr = fs.readFile(artifactPath)
+    if not bytes then
+        return nil, "cannot read stub artifact " .. artifactPath .. ": " .. tostring(readErr)
+    end
+    local valid, validErr = stubs.validateArtifact(value.platform, value.size, value.sha256, bytes, artifactPath)
+    if not valid then
+        return nil, validErr
+    end
+    local noticePath = fs.join(root, value.noticeArtifact)
+    local notices, noticeErr = fs.readFile(noticePath)
+    if not notices then
+        return nil, "cannot read stub notices " .. noticePath .. ": " .. tostring(noticeErr)
+    end
+    if #notices == 0 then
+        return nil, "stub notices are empty: " .. noticePath
+    end
+
+    return true
+end
+
+function release.record(
+    selectedPlatform: string,
+    catalogRelease: string,
+    artifactPath: string,
+    noticePath: string,
+    output: string
+): boolean?, string?
+    if not stubs.safeComponent(catalogRelease) then
+        return nil, "catalog release must be one safe path component"
+    end
+    if not platform.has(selectedPlatform) then
+        return nil, "unsupported stub platform " .. selectedPlatform
+    end
+    local bytes, readErr = fs.readFile(artifactPath)
+    if not bytes then
+        return nil, "cannot read stub artifact " .. artifactPath .. ": " .. tostring(readErr)
+    end
+    local executable, executableErr = stubs.validateExecutable(selectedPlatform, bytes, artifactPath)
+    if not executable then
+        return nil, executableErr
+    end
+    local notices, noticeErr = fs.readFile(noticePath)
+    if not notices then
+        return nil, "cannot read stub notices " .. noticePath .. ": " .. tostring(noticeErr)
+    end
+
+    return writeJson(output, {
+        artifact = fs.basename(artifactPath),
+        catalogRelease = catalogRelease,
+        executableSuffix = platform.executableSuffix(selectedPlatform),
+        hostAbi = packaging.hostAbiVersion,
+        hostFeatures = json.asArray(copyArray(HOST_FEATURES)),
+        noticeArtifact = fs.basename(noticePath),
+        platform = selectedPlatform,
+        sha256 = hash.sha256(bytes),
+        size = #bytes,
+    })
+end
+
+function release.catalog(
+    catalogRelease: string,
+    recordPaths: {string},
+    artifactRoot: string,
+    output: string
+): boolean?, string?
+    if not stubs.safeComponent(catalogRelease) then
+        return nil, "catalog release must be one safe path component"
+    end
+    local records: {[string]: any} = {}
+    for _, path in ipairs(recordPaths) do
+        local value, decodeErr = decode(path)
+        if not value then
+            return nil, decodeErr
+        end
+        local selectedPlatform = type(value.platform) == "string" and value.platform or ""
+        if not platform.has(selectedPlatform) then
+            return nil, "unsupported stub platform " .. tostring(value.platform)
+        end
+        if records[selectedPlatform] ~= nil then
+            return nil, "duplicate stub record for " .. selectedPlatform
+        end
+        local valid, validErr = validateRecord(value, selectedPlatform, catalogRelease)
+        if not valid then
+            return nil, validErr
+        end
+        local verified, verifyErr = verifyRecord(value, artifactRoot)
+        if not verified then
+            return nil, verifyErr
+        end
+        records[selectedPlatform] = value
+    end
+    local missing: {string} = {}
+    for _, key in ipairs(platform.keys()) do
+        if records[key] == nil then
+            missing[#missing + 1] = key
+        end
+    end
+    if #missing > 0 then
+        return nil, "catalog is missing stub records: " .. table.concat(missing, ", ")
+    end
+
+    return writeJson(output, {
+        catalogRelease = catalogRelease,
+        hostAbi = packaging.hostAbiVersion,
+        stubs = json.asObject(records),
+    })
+end
+
+function release.stampPayload(
+    stubPath: string,
+    payloadPath: string,
+    selectedPlatform: string,
+    output: string
+): boolean?, string?
+    if not platform.has(selectedPlatform) then
+        return nil, "unsupported stub platform " .. selectedPlatform
+    end
+    local stub, stubErr = fs.readFile(stubPath)
+    if not stub then
+        return nil, "cannot read stub " .. stubPath .. ": " .. tostring(stubErr)
+    end
+    local executable, executableErr = stubs.validateExecutable(selectedPlatform, stub, stubPath)
+    if not executable then
+        return nil, executableErr
+    end
+    local payload, payloadErr = fs.readFile(payloadPath)
+    if not payload then
+        return nil, "cannot read payload " .. payloadPath .. ": " .. tostring(payloadErr)
+    end
+    local written, writeErr = packaging.stampFile(output, stub, payload, selectedPlatform, 0)
+    if not written then
+        return nil, writeErr
+    end
+
+    return true
+end
+
+release.hostFeatures = HOST_FEATURES
+
+export = release

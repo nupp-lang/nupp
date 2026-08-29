@@ -1,0 +1,14 @@
+-- Test fixture (.g.nupp: the strict floor would want annotations on re-exports).
+-- A module that re-exports another's callables without redefining them.
+--
+-- Nothing here has a body to consult, so finalization must leave what arrived alone.
+-- Stamping these may-yield because this file cannot see their definitions would erase a
+-- fact the type already carried, which is the opposite of conservative.
+local B = require("fixtures.effects")
+
+local M = {}
+
+M.safe = B.safe
+M.waits = B.waits
+
+return M

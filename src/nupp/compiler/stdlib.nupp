@@ -1,0 +1,277 @@
+module nupp.compiler.stdlib
+
+--[[
+Runtime installers for compiler-provided standard facilities.
+
+They are kept as readable Lua here and compacted to one physical output line so
+prepending one never moves an application's source positions.
+]]
+
+local stdlib = {}
+
+local function compact(source: string): string
+    return (source:gsub("[\r\n]+%s*", " "):gsub("%s+$", ""))
+end
+
+local BASE = compact(
+    [=[
+local __nupp=_G.nupp or {};_G.nupp=__nupp
+local __nuppMath=rawget(__nupp,"math")or{};rawset(__nupp,"math",__nuppMath)
+local function __nuppCloseFile(handle)if io.type(handle)=="closed file"then return end;local ok,reason=handle:close();if not ok then error(reason or "the file could not be closed",0)end end
+]=]
+)
+
+-- Watch modules spend one top-level local on their private implementation array. The
+-- ordinary bootstrap always reserves a math namespace local even when math is unused;
+-- addressing that namespace through nupp in the development-only artifact recovers
+-- exactly one local and keeps watch's authored-function ceiling equal to normal.
+local HOT_BASE = compact(
+    [=[
+local __nupp=_G.nupp or {};_G.nupp=__nupp
+rawset(__nupp,"math",rawget(__nupp,"math")or{})
+local function __nuppCloseFile(handle)if io.type(handle)=="closed file"then return end;local ok,reason=handle:close();if not ok then error(reason or "the file could not be closed",0)end end
+]=]
+)
+
+local MANAGED = compact(
+    [=[
+local __nuppManagedBrand=_G.__nuppManagedBrand
+if not __nuppManagedBrand then __nuppManagedBrand={};_G.__nuppManagedBrand=__nuppManagedBrand end
+local __nuppManagedCells=_G.__nuppManagedCells
+if not __nuppManagedCells then __nuppManagedCells=setmetatable({},{__mode="k"});_G.__nuppManagedCells=__nuppManagedCells end
+local __nuppManagedOwner={};__nuppManagedOwner.__index=__nuppManagedOwner;local __nuppManagedAlias={};__nuppManagedAlias.__index=__nuppManagedAlias
+local function __nuppManagedError(code,message)return{code=code,message=message}end
+local function __nuppManagedProblem(cell)
+if type(cell)~="table"or cell._brand~=__nuppManagedBrand then return __nuppManagedError("NUPP2614","value is not a managed alias")end
+if cell._state=="taken"then return __nuppManagedError("NUPP2614","managed ownership was already taken")end
+if cell._state=="closed"or cell._state=="closing"then return __nuppManagedError("NUPP2614","managed resource is closed")end
+return nil end
+local function __nuppManagedClose(cell,checked)
+local problem=__nuppManagedProblem(cell);if problem then if checked then return problem end;return nil end
+if cell._borrows~=0 or cell._exclusive then local busy=__nuppManagedError("NUPP2620","managed resource has an active borrow");if checked then return busy end;error(busy.message,0)end
+cell._state="closing";local value,cleanup=cell._value,cell._cleanup;cell._value=nil;cell._cleanup=nil
+local ok,reason=pcall(cleanup,value);cell._state="closed";if not ok then error(reason,0)end;return nil end
+function __nuppManagedOwner:alias()return setmetatable({_cell=self,_brand=__nuppManagedBrand},__nuppManagedAlias)end
+function __nuppManagedOwner:close()return __nuppManagedClose(self,false)end
+local function __nuppAliasCell(self)
+if type(self)~="table"or self._brand~=__nuppManagedBrand or getmetatable(self)~=__nuppManagedAlias then return nil,__nuppManagedError("NUPP2614","value is not a managed alias")end
+local cell=self._cell;local problem=__nuppManagedProblem(cell);if problem then return nil,problem end;return cell,nil end
+function __nuppManagedAlias:with(callback)
+local cell,problem=__nuppAliasCell(self);if not cell then return nil,problem end
+if cell._exclusive then return nil,__nuppManagedError("NUPP2620","managed resource is exclusively borrowed")end
+cell._borrows=cell._borrows+1;cell._state="shared-borrowed("..cell._borrows..")"
+local ok,result=pcall(callback,cell._value);cell._borrows=cell._borrows-1;cell._state=cell._borrows>0 and("shared-borrowed("..cell._borrows..")")or"live"
+if not ok then error(result,0)end;return result,nil end
+function __nuppManagedAlias:withExclusive(callback)
+local cell,problem=__nuppAliasCell(self);if not cell then return nil,problem end
+if cell._exclusive or cell._borrows~=0 then return nil,__nuppManagedError("NUPP2620","managed resource is already borrowed")end
+cell._exclusive=true;cell._state="exclusive-borrowed";local ok,result=pcall(callback,cell._value);cell._exclusive=false;cell._state="live"
+if not ok then error(result,0)end;return result,nil end
+function __nuppManagedAlias:take()
+local cell,problem=__nuppAliasCell(self);if not cell then return nil,problem end
+if cell._exclusive or cell._borrows~=0 then return nil,__nuppManagedError("NUPP2620","managed resource has an active borrow")end
+cell._state="taken";local value=cell._value;cell._value=nil;cell._cleanup=nil;return value,nil end
+function __nuppManagedAlias:close()
+local cell,problem=__nuppAliasCell(self);if not cell then return problem end;return __nuppManagedClose(cell,true)end
+function __nuppManagedAlias:_downcast(policy)
+local cell,problem=__nuppAliasCell(self);if not cell then return nil,problem end
+if cell._policy~=policy then return nil,__nuppManagedError("NUPP2613","managed alias has the wrong type or cleanup policy")end
+return self,nil end
+function __nupp.__manage(value,cleanup,policy)
+local cell=setmetatable({_brand=__nuppManagedBrand,_value=value,_cleanup=cleanup,_policy=policy,_state="live",_borrows=0,_exclusive=false},__nuppManagedOwner);__nuppManagedCells[cell]=true;return cell end
+function __nupp.__recoverAlias(value)
+if type(value)~="table"or value._brand~=__nuppManagedBrand or getmetatable(value)~=__nuppManagedAlias then return nil,__nuppManagedError("NUPP2614","value is not a managed alias")end
+local cell,problem=__nuppAliasCell(value);if not cell then return nil,problem end;return value,nil end
+_G.__nuppManagedPolicyCount=function(policy)local count=0;for cell in pairs(__nuppManagedCells)do if cell._policy==policy and(cell._state=="live"or cell._state:match("borrowed"))then count=count+1 end end;return count end
+local __nuppManagedGroup={};__nuppManagedGroup.__index=__nuppManagedGroup
+function __nuppManagedGroup:flush()end
+function __nuppManagedGroup:adopt(cell)
+if self._closed then error("managed group is closed",2)end
+local handle=cell:alias();self._entries[#self._entries+1]=handle
+return handle
+end
+function __nuppManagedGroup:remove(handle)
+if self._closed then error("managed group is closed",2)end
+for index=#self._entries,1,-1 do
+if self._entries[index]==handle then table.remove(self._entries,index);local value,problem=handle:take();if problem then error(problem.message,2)end;return value end
+end
+error("managed alias is not registered in this group",2)
+end
+local function __nuppManagedCloseEntry(entry)local problem=entry:close();if problem and problem.code~="NUPP2614"then error(problem.message,0)end end
+function __nuppManagedGroup:close()
+if self._closed then return end;self._closed=true;local first,suppressed=nil,0
+for index=#self._entries,1,-1 do local ok,reason=pcall(__nuppManagedCloseEntry,self._entries[index]);if not ok then if first==nil then first=reason else suppressed=suppressed+1 end end end
+self._entries={};if first~=nil then if suppressed>0 then error(tostring(first).." (suppressed "..tostring(suppressed).." cleanup failure(s))",0)end;error(first,0)end
+end
+function __nupp.managedGroup()return setmetatable({_entries={},_closed=false},__nuppManagedGroup)end
+]=]
+)
+
+local LAZY = compact(
+    [=[
+local function __nuppLazy(target,name,loader)local meta=getmetatable(target)or{};local loaders=meta.__nuppLoaders;if not loaders then loaders={};local prior=meta.__index;meta.__nuppLoaders=loaders;meta.__index=function(t,k)local load=loaders[k];if load then local value=load(k);loaders[k]=nil;if value==nil then value=rawget(t,k)else rawset(t,k,value)end;return value end;if type(prior)=="function"then return prior(t,k)elseif prior then return prior[k]end end;setmetatable(target,meta)end;if name~=nil and rawget(target,name)==nil and loaders[name]==nil then loaders[name]=loader end end
+]=]
+)
+
+-- `nupp.math` is mostly answered by the compiler, which lowers the qualified paths to
+-- operations and never reaches a function at all. What this installs is the module
+-- that answers the reads it could not lower, filling in the namespace the base
+-- reserved rather than replacing it, because generated code already addresses that
+-- table through a local of its own.
+local MATH = compact([=[
+require("nupp.compiler.runtime.math").install(rawget(__nupp,"math"))
+]=])
+
+-- The matcher shell, the graph lowering and the specializations are an ordinary
+-- checked module. What stays here is the binding: the namespace the prelude's
+-- `nupp.peg` declaration promises, and the two helper names materialized grammars are
+-- generated against, which have to be locals of the chunk that carries them.
+--
+-- The stack limit is raised here rather than in the module because it belongs to the
+-- program. A module raises it once, when it is first required; a program that runs
+-- beside another one holding a different LPeg handle would then inherit whichever
+-- limit was set first, which is not a decision either program made.
+local PEG_RUNTIME = compact(
+    [=[
+local __nuppPegRuntime=require("nupp.compiler.runtime.peg")
+require("lpeg").setmaxstack(10000)
+local __nuppPeg=rawget(__nupp,"peg")or{};rawset(__nupp,"peg",__nuppPeg)
+local __nuppPegCodegen,__nuppPegLpeg=__nuppPegRuntime.codegen,__nuppPegRuntime.lpegBackend
+]=]
+)
+
+-- LPeg's `re` module is the reference implementation shipped with LPeg 1.1.
+-- Install it into preload so a generated program does not depend on a separately
+-- installed Lua rock.
+local LPEG_RE = compact(
+    [=[
+package.loaded.re=nil
+package.preload.re=function()
+local tonumber,type,print,error=tonumber,type,print,error
+local setmetatable=setmetatable
+local m=require"lpeg"
+local mm=m
+local mt=getmetatable(mm.P(0))
+local version=_VERSION
+local any=m.P(1)
+local Predef={nl=m.P"\n"}
+local mem;local fmem;local gmem
+local function updatelocale()
+mm.locale(Predef)
+Predef.a=Predef.alpha;Predef.c=Predef.cntrl;Predef.d=Predef.digit
+Predef.g=Predef.graph;Predef.l=Predef.lower;Predef.p=Predef.punct
+Predef.s=Predef.space;Predef.u=Predef.upper;Predef.w=Predef.alnum
+Predef.x=Predef.xdigit
+Predef.A=any-Predef.a;Predef.C=any-Predef.c;Predef.D=any-Predef.d
+Predef.G=any-Predef.g;Predef.L=any-Predef.l;Predef.P=any-Predef.p
+Predef.S=any-Predef.s;Predef.U=any-Predef.u;Predef.W=any-Predef.w
+Predef.X=any-Predef.x
+mem={};fmem={};gmem={};local weak={__mode="v"}
+setmetatable(mem,weak);setmetatable(fmem,weak);setmetatable(gmem,weak)
+end
+updatelocale()
+local function patt_error(s,i)local msg=(#s<i+20)and s:sub(i)or s:sub(i,i+20).."...";error(("pattern error near '%s'"):format(msg),2)end
+local function mult(p,n)local np=mm.P(true);while n>=1 do if n%2>=1 then np=np*p end;p=p*p;n=n/2 end;return np end
+local function equalcap(s,i,c)if type(c)~="string"then return nil end;local e=#c+i;if s:sub(i,e-1)==c then return e end;return nil end
+local S=(Predef.space+"--"*(any-Predef.nl)^0)^0
+local name=m.R("AZ","az","__")*m.R("AZ","az","__","09")^0
+local arrow=S*"<-"
+local seq_follow=m.P"/"+")"+"}"+":}"+"~}"+"|}"+(name*arrow)+-1
+name=m.C(name)
+local Def=name*m.Carg(1)
+local function getdef(id,defs)local c=defs and defs[id];if not c then error("undefined name: "..id)end;return c end
+local function defwithfunc(f)return m.Cg(Def/getdef*m.Cc(f))end
+local num=m.C(m.R"09"^1)*S/tonumber
+local String="'"*m.C((any-"'")^0)*"'"+'"'*m.C((any-'"')^0)*'"'
+local defined="%"*Def/function(c,Defs)local cat=Defs and Defs[c]or Predef[c];if not cat then error("name '"..c.."' undefined")end;return cat end
+local Range=m.Cs(any*(m.P"-"/"")*(any-"]"))/mm.R
+local item=(defined+Range+m.C(any))/m.P
+local Class="["*(m.C(m.P"^"^-1))*(item*((item%mt.__add)-"]")^0)/function(c,p)return c=="^"and any-p or p end*"]"
+local function adddef(t,k,exp)if t[k]then error("'"..k.."' already defined as a rule")else t[k]=exp end;return t end
+local function firstdef(n,r)return adddef({n},n,r)end
+local function NT(n,b)if not b then error("rule '"..n.."' used outside a grammar")else return mm.V(n)end end
+local exp=m.P{"Exp",
+Exp=S*(m.V"Grammar"+m.V"Seq"*("/"*S*m.V"Seq"%mt.__add)^0),
+Seq=(m.Cc(m.P"")*(m.V"Prefix"%mt.__mul)^0)*(#seq_follow+patt_error),
+Prefix="&"*S*m.V"Prefix"/mt.__len+"!"*S*m.V"Prefix"/mt.__unm+m.V"Suffix",
+Suffix=m.V"Primary"*S*((m.P"+"*m.Cc(1,mt.__pow)+m.P"*"*m.Cc(0,mt.__pow)+m.P"?"*m.Cc(-1,mt.__pow)+"^"*(m.Cg(num*m.Cc(mult))+m.Cg(m.C(m.S"+-"*m.R"09"^1)*m.Cc(mt.__pow)))+"->"*S*(m.Cg((String+num)*m.Cc(mt.__div))+m.P"{}"*m.Cc(nil,m.Ct)+defwithfunc(mt.__div))+"=>"*S*defwithfunc(mm.Cmt)+">>"*S*defwithfunc(mt.__mod)+"~>"*S*defwithfunc(mm.Cf))%function(a,b,f)return f(a,b)end*S)^0,
+Primary="("*m.V"Exp"*")"+String/mm.P+Class+defined+"{:"*(name*":"+m.Cc(nil))*m.V"Exp"*":}"/function(n,p)return mm.Cg(p,n)end+"="*name/function(n)return mm.Cmt(mm.Cb(n),equalcap)end+m.P"{}"/mm.Cp+"{~"*m.V"Exp"*"~}"/mm.Cs+"{|"*m.V"Exp"*"|}"/mm.Ct+"{"*m.V"Exp"*"}"/mm.C+m.P"."*m.Cc(any)+(name*-arrow+"<"*name*">")*m.Cb("G")/NT,
+Definition=name*arrow*m.V"Exp",
+Grammar=m.Cg(m.Cc(true),"G")*((m.V"Definition"/firstdef)*(m.V"Definition"%adddef)^0)/mm.P
+}
+local pattern=S*m.Cg(m.Cc(false),"G")*exp/mm.P*(-any+patt_error)
+local function compile(p,defs)if mm.type(p)=="pattern"then return p end;local cp=pattern:match(p,1,defs);if not cp then error("incorrect pattern",3)end;return cp end
+local function match(s,p,i)local cp=mem[p];if not cp then cp=compile(p);mem[p]=cp end;return cp:match(s,i or 1)end
+local function find(s,p,i)local cp=fmem[p];if not cp then cp=compile(p)/0;cp=mm.P{mm.Cp()*cp*mm.Cp()+1*mm.V(1)};fmem[p]=cp end;local first,ending=cp:match(s,i or 1);if first then return first,ending-1 end;return first end
+local function gsub(s,p,rep)local g=gmem[p]or{};gmem[p]=g;local cp=g[rep];if not cp then cp=compile(p);cp=mm.Cs((cp/rep+1)^0);g[rep]=cp end;return cp:match(s)end
+local re={compile=compile,match=match,find=find,gsub=gsub,updatelocale=updatelocale}
+if version=="Lua 5.1"then _G.re=re end
+return re
+end
+]=]
+)
+
+local PEG_COMPILE = compact([=[
+__nuppPeg.compile=__nuppPegRuntime.compile
+]=])
+
+-- The keyed codec a materialized `nupp.reflect.fieldCodec` calls, and the registry
+-- behind `reflect()`, are both an ordinary checked module. What stays here is which
+-- of the two a program's feature set asked for.
+local FIELDCODEC = compact([=[
+require("nupp.compiler.runtime.reflect").installFieldCodec(__nupp)
+]=])
+
+local REFLECTION = compact([=[
+require("nupp.compiler.runtime.reflect").install(__nupp)
+]=])
+
+-- What a derived member does when it runs is `nupp.derive` itself, the same module
+-- whose comptime half decided what to write. This installs its runtime under the
+-- namespace generated code addresses, and nothing shadows the module: a program that
+-- requires `nupp.derive` gets the one that is really there.
+local DERIVES = compact([=[
+require("nupp.derive").install(__nupp)
+]=])
+
+--- @param providers installers for selected runtime providers, or nil when a target
+---   selected none. They land after the prelude and before the facility installers
+---   below, because a facility can be implemented on top of a provider: the run-time
+---   half of `nupp.math` reads whatever answers `numeric.bitops` on this target, and
+---   a `lua51` target has nothing to read until the seam has bound it.
+function stdlib.bootstrap(effects: {[string]: any}?, watch: boolean?, providers: string?): string
+    local out = {watch and HOT_BASE or BASE, MANAGED}
+    if effects and next(effects) then
+        out[#out + 1] = LAZY
+    end
+    if providers ~= nil and providers ~= "" then
+        out[#out + 1] = providers
+    end
+    effects = effects or {}
+    if effects["stdlib.math"] then
+        out[#out + 1] = MATH
+    end
+    if effects["stdlib.peg"] or effects["stdlib.peg.compile"] then
+        out[#out + 1] = PEG_RUNTIME
+    end
+    if effects["stdlib.lpeg.re"] or effects["stdlib.peg.compile"] then
+        out[#out + 1] = LPEG_RE
+    end
+    if effects["stdlib.peg.compile"] then
+        out[#out + 1] = PEG_COMPILE
+    end
+    if effects["stdlib.fieldcodec"] then
+        out[#out + 1] = FIELDCODEC
+    end
+    if effects["stdlib.reflection"] then
+        out[#out + 1] = REFLECTION
+    end
+    if effects["stdlib.derives"] then
+        out[#out + 1] = DERIVES
+    end
+    local code = table.concat(out, " ")
+
+    return code:sub(-1) == ";" and code or code .. ";"
+end
+
+export = stdlib

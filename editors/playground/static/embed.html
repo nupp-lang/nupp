@@ -1,0 +1,51 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Nupp Playground (embed)</title>
+<meta name="description" content="Embeddable Nupp editor — checks with the real compiler as you type.">
+<link rel="icon" href="./nupp.svg" type="image/svg+xml">
+<link rel="stylesheet" href="./style.css">
+</head>
+<body class="is-busy is-embed">
+<div class="head-bar">
+  <!-- The menu is hidden when the embedding page supplies its own program. -->
+  <label class="example-picker" id="example-picker">
+    <!-- Options come from src/examples.js, the same list index.html builds
+         its menu from. -->
+    <select id="example-select" class="select" aria-label="Choose an example"></select>
+  </label>
+
+  <div class="head-actions">
+    <button id="compile-button" class="icon-button" type="button" title="Run" aria-label="Run">
+      <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M4.5 3.2v9.6l8-4.8z"/></svg>
+    </button>
+    <a id="open-button" class="icon-button" title="Open in the full playground"
+       aria-label="Open in the full playground" href="/playground/" target="_blank" rel="noopener">
+      <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M9 2.6h4.4V7M13 3l-6 6"/><path d="M11.6 9.6v3.2a.9.9 0 0 1-.9.9H3.3a.9.9 0 0 1-.9-.9V5.3a.9.9 0 0 1 .9-.9h3.2"/></svg>
+    </a>
+  </div>
+</div>
+
+<div id="source-editor" class="editor-host"></div>
+
+<!-- Hidden until the drawer opens: see index.html for what it does. -->
+<div id="output-resizer" class="output-resizer" role="separator"
+     aria-orientation="horizontal" aria-label="Resize the output" tabindex="0" hidden></div>
+
+<section class="output" id="output" aria-label="Output" hidden>
+  <button id="output-toggle" class="output-head" type="button" aria-expanded="false" aria-controls="output-body">
+    <span class="output-caret" aria-hidden="true">▸</span>
+    <span class="output-title">Output</span>
+    <span id="output-summary" class="output-summary"></span>
+  </button>
+  <div id="output-body" class="output-body" hidden>
+    <pre id="output-main" class="output-main" tabindex="0"></pre>
+    <ul id="diagnostics" class="diagnostics output-side"></ul>
+  </div>
+</section>
+
+<script type="module" src="./app.js"></script>
+</body>
+</html>

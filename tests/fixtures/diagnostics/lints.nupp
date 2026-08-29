@@ -1,0 +1,10 @@
+local type Color = "red" | "green" | "blue"
+
+local function name(c: Color): string
+    if c == "red" then
+        return "r"
+    end
+end
+
+local wide: number = 5
+local small: int32 = wide + 1

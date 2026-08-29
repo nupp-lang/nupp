@@ -1,0 +1,81 @@
+name: Publish website
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  build:
+    name: Build website
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Check out the repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: editors/playground/package-lock.json
+
+      - name: Set up Emscripten 6.0.8
+        uses: emscripten-core/setup-emsdk@v15
+        with:
+          version: 6.0.8
+          actions-cache-folder: emsdk-cache
+
+      - name: Build LuaJIT and simdjson
+        shell: bash
+        run: ./scripts/toolchain --all
+
+      - name: Install bootstrap LPeg
+        shell: bash
+        run: |
+          lua_dir=$(./scripts/toolchain luajit)
+          luarocks_dir=$(./scripts/toolchain luarocks)
+          "$luarocks_dir/bin/luarocks" \
+            --lua-version=5.1 --tree=.rocks --lua-dir="$lua_dir" \
+            install lpeg 1.1.0-2
+
+      - name: Install playground dependencies
+        run: npm ci --prefix editors/playground
+
+      - name: Install documentation dependencies
+        run: ./bin/nupp build --target docs
+
+      - name: Build the website
+        run: node scripts/build-pages.mjs
+
+      - name: Configure GitHub Pages
+        uses: actions/configure-pages@v5
+
+      - name: Upload GitHub Pages artifact
+        uses: actions/upload-pages-artifact@v4
+        with:
+          path: build/pages
+
+  deploy:
+    name: Deploy website
+    needs: build
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - name: Deploy GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4

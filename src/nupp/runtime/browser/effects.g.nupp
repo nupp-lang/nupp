@@ -1,0 +1,60 @@
+@!internal
+module nupp.runtime.browser.effects
+
+-- Browser effects cross the one yieldable Lua/Wasm boundary as JSON. Providers
+-- enqueue work while subscribing; the suspension provider yields every queued
+-- request together and dispatches the corresponding responses after resumption.
+
+local json = require("nupp.runtime.provider.lunajson")
+local effects = {}
+local nextId: integer = 1
+local queued: {any} = {}
+local waiting: {[integer]: any} = {}
+
+function effects.request(kind: string, payload: any, resume: function(any): nil): function()
+    local id = nextId
+    nextId = nextId + 1
+    payload.id = id
+    payload.kind = kind
+    queued[#queued + 1] = payload
+    local active = true
+    waiting[id] = function(response: any): nil
+        if not active then
+            return
+        end
+        active = false
+        waiting[id] = nil
+        resume(response)
+    end
+
+    return function(): nil
+        if active then
+            active = false
+            waiting[id] = nil
+        end
+    end
+end
+
+function effects.park(operation: string): nil
+    local message: any
+    if #queued == 0 then
+        message = {kind = "poll", operation = operation,}
+    else
+        message = {kind = "effects", requests = queued,}
+        queued = {}
+    end
+    local encoded = json.encode(message)
+    local responseText = coroutine.yield(encoded)
+    local response = json.decode(responseText)
+    if response.cancelled then
+        error("nupp: browser application was cancelled", 0)
+    end
+    for _, item in ipairs(response.responses or {}) do
+        local deliver = waiting[item.id]
+        if deliver ~= nil then
+            deliver(item)
+        end
+    end
+end
+
+export = effects

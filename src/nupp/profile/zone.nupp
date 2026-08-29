@@ -1,0 +1,233 @@
+module nupp.profile.zone
+
+--[[
+Gated LuaJIT profiler zones: the stack work is skipped until a profiler asks for
+it.
+
+```nupp
+local zone = require("nupp.profile.zone")
+
+local function render(): nil
+    zone.push("render")
+    drawWorld()
+    drawOverlay()
+    zone.pop()
+end
+```
+
+Stock `jit.zone` pushes and pops whether or not anything is listening. Skipping
+that is worth doing, but it is not the main cost: a zone marker is a call inside
+the code being measured, and calls in a hot path abort traces. Mark warm paths,
+not the hottest ones.
+
+`jit.zone` itself is left alone. Replacing its `__call` with a no-op would
+silently blank every other user of the one global stack, `luajit -jp=z` included.
+The trade is that while a session is held this is the only writer: a direct
+`jit.zone` push in that window is overwritten.
+
+`acquire` and `release` are counted, so several channels can share one stack.
+This is process-wide, not per-coroutine.
+
+`push` and `pop` are compiler intrinsics: a call in statement position on a
+receiver statically known to hold this module is generated inline against the
+fields below, rather than made, with `pop`'s popped name also needing to be
+discarded. The same call a hot path would otherwise pay for is what the note
+above is about. The fields exist for that generated code to reach; every other
+call site, and every function below, still goes through the ordinary API.
+
+See [profiling.md](docs/guides/profiling.md) for what a zone path does to a report, and
+[](nupp.profile) for the sessions that read one.
+]]
+
+local zone = {}
+
+-- The array part is what the profiler reads, so writing it directly is what it sees.
+local stack = require("jit.zone") as {string}
+
+-- Annotated: an unannotated integer binding widens to number, and these index the
+-- stack.
+local references: integer = 0
+local generation: integer = 0
+
+-- Fields rather than upvalues, so a lowered push or pop elsewhere in the program
+-- reads and writes the same state this file does. Not part of the documented API;
+-- `isActive`, `depth`, `push` and `pop` are.
+zone.__nuppActive = false
+zone.__nuppDepth = 0 as integer
+zone.__nuppStack = stack
+zone.__nuppVersion = 0 as integer
+
+-- Bumped by every change to the stack, so `path` can tell whether the string it built
+-- last time still describes it.
+local pathVersion: integer = -1
+local pathText = ""
+local pathBuffer: {string} = {}
+
+--- Whether pushes and pops are being recorded.
+function zone.isActive(): boolean
+    return zone.__nuppActive
+end
+
+--- How many zones are pushed. Zero when inactive.
+function zone.depth(): integer
+    return zone.__nuppDepth
+end
+
+--- Starts recording, or joins a recording in progress. Needs a matching `release`. The
+--- first caller clears the stack and opens a new generation, so tokens from an earlier
+--- session cannot pop into this one.
+function zone.acquire(): nil
+    references = references + 1
+    if references > 1 then
+        return
+    end
+
+    for index = #stack, 1, -1 do
+        stack[index] = nil
+    end
+    zone.__nuppDepth = 0
+    zone.__nuppVersion = (zone.__nuppVersion + 1) as integer
+    generation = generation + 1
+    zone.__nuppActive = true
+end
+
+--- Releases one `acquire`; the last empties the stack. Releasing nothing is ignored, so
+--- a teardown that runs twice is harmless.
+function zone.release(): nil
+    if references == 0 then
+        return
+    end
+
+    references = references - 1
+    if references > 0 then
+        return
+    end
+
+    for index = #stack, 1, -1 do
+        stack[index] = nil
+    end
+    zone.__nuppDepth = 0
+    zone.__nuppVersion = (zone.__nuppVersion + 1) as integer
+    zone.__nuppActive = false
+end
+
+--- Pushes a zone. A no-op while inactive.
+---
+--- Called in statement position on a receiver statically known to be this module,
+--- this is generated inline against the fields above rather than called. See the
+--- module comment.
+---
+--- ```nupp
+--- zone.push("render/overlay")
+--- drawOverlay()
+--- zone.pop()
+--- ```
+---
+--- @param name what to attribute the work below this to
+function zone.push(name: string): nil
+    if not zone.__nuppActive then
+        return
+    end
+
+    zone.__nuppDepth = (zone.__nuppDepth + 1) as integer
+    stack[zone.__nuppDepth] = name
+    zone.__nuppVersion = (zone.__nuppVersion + 1) as integer
+end
+
+--- Pops the innermost zone, or nil when inactive or empty. Empty is not an error: a
+--- profile can start or stop part-way through a frame, leaving half a pair outside the
+--- session.
+---
+--- Called in statement position on a receiver statically known to be this module,
+--- with the popped name discarded, this is generated inline instead. See the module
+--- comment.
+function zone.pop(): string?
+    if not zone.__nuppActive or zone.__nuppDepth == 0 then
+        return nil
+    end
+
+    local name = stack[zone.__nuppDepth]
+    stack[zone.__nuppDepth] = nil
+    zone.__nuppDepth = (zone.__nuppDepth - 1) as integer
+    zone.__nuppVersion = (zone.__nuppVersion + 1) as integer
+
+    return name
+end
+
+--- The innermost zone, without popping it.
+function zone.current(): string?
+    if zone.__nuppDepth == 0 then
+        return nil
+    end
+    return stack[zone.__nuppDepth]
+end
+
+--- The pushed zones joined with "/", outermost first, or "" when none are.
+---
+--- Cached until the stack next changes, so reading it repeatedly between two pushes
+--- costs a comparison. That is worth the two words it takes: a profiler reads this from
+--- the sampling callback, on the thread it interrupted, and a string built fresh there
+--- is an allocation charged to whatever the program happened to be doing, which the
+--- same profiler then reports as collector time the program did not spend.
+function zone.path(): string
+    if zone.__nuppVersion == pathVersion then
+        return pathText
+    end
+
+    if zone.__nuppDepth == 0 then
+        pathText = ""
+    else
+        for index = 1, zone.__nuppDepth do
+            pathBuffer[index] = stack[index]
+        end
+        pathText = table.concat(pathBuffer, "/", 1, zone.__nuppDepth)
+    end
+    pathVersion = zone.__nuppVersion
+
+    return pathText
+end
+
+--- Pushes a zone and answers a token for `leave`, or 0 when inactive.
+---
+--- The paired form, for a `leave` that may run after its session ended, usually a
+--- coroutine resumed after a profile stopped. The token carries the generation, so a
+--- late `leave` is discarded rather than popping someone else's zone.
+---
+--- ```nupp
+--- local token = zone.enter("request")
+--- local answer = fetch()
+--- zone.leave(token)
+--- ```
+---
+--- @param name what to attribute the work below this to
+--- @return the token `leave` needs, or 0 when nothing is recording
+function zone.enter(name: string): integer
+    if not zone.__nuppActive then
+        return 0
+    end
+
+    zone.__nuppDepth = (zone.__nuppDepth + 1) as integer
+    stack[zone.__nuppDepth] = name
+    zone.__nuppVersion = (zone.__nuppVersion + 1) as integer
+
+    return generation
+end
+
+--- Closes a zone opened by `enter`. A zero token, a stale generation, or an empty stack
+--- are all ignored.
+---
+--- @param token what the matching `enter` answered
+function zone.leave(token: integer): nil
+    if token == 0 or not zone.__nuppActive or token ~= generation then
+        return
+    end
+    if zone.__nuppDepth == 0 then
+        return
+    end
+
+    stack[zone.__nuppDepth] = nil
+    zone.__nuppDepth = (zone.__nuppDepth - 1) as integer
+    zone.__nuppVersion = (zone.__nuppVersion + 1) as integer
+end
+
+export = zone

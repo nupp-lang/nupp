@@ -1,0 +1,98 @@
+local M = {}
+
+interface M.Inspect
+    inspect: function(self): string
+    prefixed: function(self, prefix: string): string
+    decorated: function(self): string
+    firstField: function(self): string
+
+    function inspectKind(self): string
+        return "record"
+    end
+end
+
+function M.prefixRecord(prefix: string, names: {string}, values: {string}): string
+    return prefix .. M.renderRecord(names, values)
+end
+
+function M.decorate(value: M.Inspect): string
+    return "[" .. value:inspect() .. "]"
+end
+
+function M.consumeNames(names: {string}): string
+    local first = names[1]
+    names[1] = "changed"
+    return first
+end
+
+function M.renderRecord(names: {string}, values: {string}): string
+    local parts = {}
+    for index, name in ipairs(names) do
+        parts[#parts + 1] = name .. "=" .. values[index]
+    end
+
+    return "{" .. table.concat(parts, ", ") .. "}"
+end
+
+comptime function M.derive(info: nupp.derive.Info): nupp.derive.Result<M.Inspect>
+    if info.kind ~= "record" then
+        return nupp.derive.error("Inspect can be derived only for records", info.reference)
+    end
+    local names = {}
+    local values = {}
+    for _, field in ipairs(info.fields) do
+        if field.readType == nil then
+            return nupp.derive.error("Inspect requires readable fields", field.reference)
+        end
+        local redact = false
+        for _, applied in ipairs(field.annotations) do
+            if applied.name == "debug" then
+                for _, argument in ipairs(applied.arguments) do
+                    if argument.name == "redact" and argument.value == true then
+                        redact = true
+                    end
+                end
+            end
+        end
+        local kind = nupp.types.kind(field.readType)
+        local value
+        if redact then
+            value = nupp.derive.constant("<redacted>")
+        elseif kind == "primitive" then
+            value = nupp.derive.field(field)
+        else
+            if not nupp.derive.claims(field.readType, info.interfaceType) then
+                return nupp.derive.error(
+                    "Inspect requires primitive or recursively Inspect fields, got " .. tostring(kind),
+                    field.reference
+                )
+            end
+            value = nupp.derive.constant("<nested>")
+        end
+        names[#names + 1] = field.name
+        values[#values + 1] = value
+    end
+
+    return nupp.derive.implement{
+        methods = {
+            inspect = nupp.derive.forward{
+                helper = nupp.derive.helper(M, "renderRecord"),
+                arguments = {nupp.derive.constant(names), nupp.derive.array(values),},
+            },
+            prefixed = nupp.derive.forward{
+                helper = nupp.derive.helper(M, "prefixRecord"),
+                arguments = {nupp.derive.argument("prefix"), nupp.derive.constant(names), nupp.derive.array(values),},
+            },
+            decorated = nupp.derive.forward{
+                helper = nupp.derive.helper(M, "decorate"),
+                arguments = {nupp.derive.receiver()},
+            },
+            firstField = nupp.derive.forward{
+                helper = nupp.derive.helper(M, "consumeNames"),
+                arguments = {nupp.derive.constant(names)},
+            },
+        },
+    }
+end
+
+return M

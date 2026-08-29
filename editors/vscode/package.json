@@ -1,0 +1,212 @@
+{
+  "name": "nupp",
+  "displayName": "Nupp",
+  "description": "Language support for Nupp",
+  "version": "0.0.4",
+  "publisher": "mtdowling",
+  "license": "UNLICENSED",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/nupp-lang/nupp.git"
+  },
+  "icon": "icon.png",
+  "engines": {
+    "vscode": "^1.91.0"
+  },
+  "categories": [
+    "Programming Languages",
+    "Linters"
+  ],
+  "keywords": [
+    "lua",
+    "luajit",
+    "nupp",
+    "language-server"
+  ],
+  "main": "./dist/extension.js",
+  "activationEvents": [
+    "onLanguage:nupp",
+    "onLanguage:lua",
+    "onCommand:nupp.checkFunctionForJitTraceBlockers",
+    "onCommand:nupp.migrateAnnotatedLua",
+    "onCommand:nupp.restartLanguageServer"
+  ],
+  "files": [
+    "icon.png",
+    "nupp.svg",
+    "dist/extension.js",
+    "language-configuration.json",
+    "syntaxes/glsl.tmLanguage.json",
+    "syntaxes/json.tmLanguage.json",
+    "syntaxes/lua.tmLanguage.json",
+    "syntaxes/nupp.tmLanguage.json",
+    "syntaxes/peg.tmLanguage.json",
+    "README.md"
+  ],
+  "contributes": {
+    "commands": [
+      {
+        "command": "nupp.checkFunctionForJitTraceBlockers",
+        "title": "Nupp: Check Function for JIT Trace Blockers",
+        "category": "Nupp"
+      },
+      {
+        "command": "nupp.restartLanguageServer",
+        "title": "Nupp: Restart Language Server",
+        "category": "Nupp"
+      },
+      {
+        "command": "nupp.migrateAnnotatedLua",
+        "title": "Nupp: Migrate Annotated Lua to Nupp",
+        "category": "Nupp"
+      }
+    ],
+    "menus": {
+      "editor/context": [
+        {
+          "command": "nupp.checkFunctionForJitTraceBlockers",
+          "when": "editorLangId == nupp",
+          "group": "navigation@20"
+        },
+        {
+          "command": "nupp.migrateAnnotatedLua",
+          "when": "editorLangId == lua && resourceExtname == .lua",
+          "group": "1_modification@20"
+        }
+      ]
+    },
+    "configurationDefaults": {
+      "[nupp]": {
+        "editor.semanticHighlighting.enabled": false,
+        "editor.rulers": [120]
+      }
+    },
+    "languages": [
+      {
+        "id": "nupp",
+        "aliases": [
+          "Nupp",
+          "nupp"
+        ],
+        "extensions": [
+          ".nupp"
+        ],
+        "firstLine": "^#!.*\\bnupp\\b",
+        "configuration": "./language-configuration.json",
+        "icon": {
+          "light": "./nupp.svg",
+          "dark": "./nupp.svg"
+        }
+      },
+      {
+        "id": "nupp-peg",
+        "aliases": [
+          "Nupp PEG",
+          "nupp-peg"
+        ]
+      }
+    ],
+    "grammars": [
+      {
+        "language": "nupp",
+        "scopeName": "source.nupp",
+        "path": "./syntaxes/nupp.tmLanguage.json",
+        "embeddedLanguages": {
+          "meta.embedded.block.json.nupp": "json",
+          "meta.embedded.block.glsl.nupp": "glsl",
+          "meta.embedded.block.lua.nupp": "lua",
+          "meta.embedded.block.nupp.nupp": "nupp",
+          "meta.embedded.block.peg.nupp": "nupp-peg"
+        }
+      },
+      {
+        "language": "nupp-peg",
+        "scopeName": "source.nupp.peg",
+        "path": "./syntaxes/peg.tmLanguage.json"
+      },
+      {
+        "scopeName": "source.nupp.embedded.json",
+        "path": "./syntaxes/json.tmLanguage.json"
+      },
+      {
+        "scopeName": "source.nupp.embedded.glsl",
+        "path": "./syntaxes/glsl.tmLanguage.json"
+      },
+      {
+        "scopeName": "source.nupp.embedded.lua",
+        "path": "./syntaxes/lua.tmLanguage.json"
+      }
+    ],
+    "semanticTokenTypes": [
+      {
+        "id": "nuppKeyword",
+        "description": "Nupp keyword",
+        "superType": "keyword"
+      }
+    ],
+    "semanticTokenScopes": [
+      {
+        "language": "nupp",
+        "scopes": {
+          "nuppKeyword": [
+            "keyword.control.nupp"
+          ]
+        }
+      }
+    ],
+    "configuration": {
+      "title": "Nupp",
+      "properties": {
+        "nupp.serverPath": {
+          "type": "string",
+          "default": "",
+          "scope": "resource",
+          "description": "Executable used to launch the language server. Supports ${workspaceFolder} and ${env:NAME}; defaults to the repository launcher when developing here, then to nupp on PATH."
+        },
+        "nupp.serverArgs": {
+          "type": "array",
+          "items": { "type": "string" },
+          "default": ["lsp", "serve", "${workspaceFolder}"],
+          "scope": "resource",
+          "description": "Arguments passed directly to the language-server executable. Supports ${workspaceFolder} and ${env:NAME}."
+        },
+        "nupp.serverCwd": {
+          "type": "string",
+          "default": "${workspaceFolder}",
+          "scope": "resource",
+          "description": "Working directory for the language-server process. Supports ${workspaceFolder} and ${env:NAME}."
+        },
+        "nupp.serverEnvironment": {
+          "type": "object",
+          "default": {},
+          "additionalProperties": { "type": "string" },
+          "scope": "resource",
+          "description": "Environment variables added to the language-server process. Values support ${workspaceFolder} and ${env:NAME}."
+        },
+        "nupp.luaMigrationDialect": {
+          "type": "string",
+          "enum": ["auto", "luacats", "emmy", "luadoc"],
+          "default": "auto",
+          "scope": "resource",
+          "description": "Dialect hint used only by annotated Lua migration. Annotation ingestion itself is always enabled."
+        }
+      }
+    }
+  },
+  "scripts": {
+    "build": "node scripts/sync-icon.js && esbuild extension.js --bundle --platform=node --format=cjs --external:vscode --outfile=dist/extension.js",
+    "check": "npm run build && node scripts/check-extension.js",
+    "test": "npm run check && npm run test:grammar",
+    "test:grammar": "vscode-tmgrammar-test -c 'tests/**/*.test.nupp'",
+    "package": "vsce package --allow-missing-repository --skip-license --out nupp.vsix",
+    "vscode:prepublish": "npm run build"
+  },
+  "dependencies": {
+    "vscode-languageclient": "10.1.0"
+  },
+  "devDependencies": {
+    "@vscode/vsce": "3.9.2",
+    "esbuild": "0.28.1",
+    "vscode-tmgrammar-test": "0.1.3"
+  }
+}

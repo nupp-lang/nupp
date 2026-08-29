@@ -1,0 +1,216 @@
+module nupp.compiler.standardsurface
+
+--[[Closed portable classification for public standard-library facilities.]]
+
+local surface = {}
+local seamRegistry = require("nupp.runtime.seam.registry")
+
+local function selected(kind: string, name: string, allDialects: boolean?): any
+    local seam = seamRegistry.get(name)
+
+    return {kind = kind, seam = seam.name, effect = seam.effect, allDialects = allDialects,}
+end
+
+-- This registry is deliberately positive. Adding a public module requires an
+-- explicit classification before `lua51` can claim it is portable.
+local MODULES = {
+    ["bit"] = selected("runtime", "numeric.bitops"),
+    ["string.buffer"] = selected("runtime", "text.buffer"),
+    ["nupp.data.json.provider"] = selected("runtime", "data.json"),
+    ["nupp"] = {kind = "common"},
+    ["nupp.browser.crypto"] = selected("host", "host.browser_crypto", true),
+    ["nupp.browser.storage"] = selected("host", "host.browser_storage", true),
+    ["nupp.data"] = {kind = "members"},
+    ["nupp.data.json"] = selected("runtime", "data.json"),
+    ["nupp.data.hmac"] = selected("runtime", "crypto.hmac_sha256", true),
+    ["nupp.data.serde"] = selected("runtime", "text.buffer"),
+    ["nupp.data.utf8"] = selected("runtime", "data.utf8"),
+    -- Portable given a buffer, which is the only thing in either of these that a
+    -- `lua51` target could not answer: both build their output by appending into
+    -- one. Classified through the seam that supplies it rather than as portable
+    -- outright, so a program that reaches them without selecting a provider is told
+    -- which seam it is missing, on the line that reached them.
+    ["nupp.derive"] = selected("runtime", "text.buffer"),
+    ["nupp.runtime.hotreload"] = {kind = "unavailable", capability = "cinterop"},
+    ["nupp.io"] = selected("runtime", "io.bytes"),
+    ["nupp.io.path.provider"] = selected("host", "host.path"),
+    ["nupp.io.pathtext"] = {kind = "common"},
+    ["nupp.io.files"] = selected("host", "host.files"),
+    ["nupp.io.http"] = selected("host", "host.http"),
+    ["nupp.io.path"] = {kind = "common"},
+    ["nupp.data.base64"] = {kind = "common"},
+    ["nupp.data.valuebuilder"] = {kind = "common"},
+    ["nupp.io.net"] = selected("host", "host.net"),
+    ["nupp.io.process"] = selected("host", "host.process"),
+    ["nupp.io.tls"] = selected("host", "host.tls"),
+    ["nupp.io.uri"] = selected("runtime", "io.uri"),
+    ["nupp.log"] = {kind = "unavailable", capability = "cinterop"},
+    ["nupp.compiler.runtime.extensions"] = {kind = "compiler"},
+    ["nupp.compiler.runtime.math"] = {kind = "compiler"},
+    ["nupp.compiler.runtime.peg"] = selected("runtime", "peg"),
+    ["nupp.compiler.runtime.reflect"] = {kind = "compiler"},
+    ["nupp.mem"] = {kind = "unavailable", capability = "cstorage"},
+    ["nupp.mem.heap"] = {kind = "unavailable", capability = "cstorage"},
+    ["nupp.mem.indexed"] = {kind = "unavailable", capability = "cstorage"},
+    -- Engine-backed shared storage, not the worker scheduler. It shares the native
+    -- host feature, but a `lua51` target reaching it needs the storage capability
+    -- rather than whichever module implements `host.workers` there.
+    ["nupp.mem.sharedbytes"] = {kind = "unavailable", capability = "cstorage"},
+    ["nupp.mem.soa"] = {kind = "unavailable", capability = "cstorage"},
+    ["nupp.mem.span"] = {kind = "unavailable", capability = "cstorage"},
+    ["nupp.runtime.native"] = {kind = "unavailable", capability = "cinterop"},
+    ["nupp.owners"] = {kind = "common"},
+    ["nupp.profile"] = {kind = "unavailable", capability = "cinterop"},
+    ["nupp.profile.trace"] = {kind = "unavailable", capability = "cinterop"},
+    ["nupp.profile.zone"] = {kind = "unavailable", capability = "cinterop"},
+    ["nupp.simd"] = selected("compile", "numeric.simd"),
+    ["nupp.suspension"] = {kind = "common"},
+    ["nupp.tasks"] = {kind = "common"},
+    ["nupp.time"] = selected("host", "host.time"),
+    ["nupp.workers"] = selected("host", "host.workers"),
+    ["nupp.wasm"] = selected("host", "host.wasm"),
+}
+
+local FACILITIES = {
+    ["task.deadline"] = selected("host", "host.time"),
+    ["data.hash"] = selected("runtime", "data.hash"),
+    ["data.sha256"] = selected("runtime", "data.sha256"),
+    ["data.uuid"] = selected("runtime", "data.uuid"),
+    ["data.bitset"] = selected("runtime", "data.bitset"),
+}
+
+local MODULE_MEMBERS = {
+    ["nupp.tasks"] = {runFor = "task.deadline",},
+    [
+        "nupp.data"
+    ] = {
+        Bitset = "data.bitset",
+        WORD_BITS = "data.bitset",
+        crc32 = "data.hash",
+        fnv1a64 = "data.hash",
+        sha256 = "data.sha256",
+        uuid4 = "data.uuid",
+        uuid7 = "data.uuid",
+    },
+}
+
+function surface.classify(moduleName: string): any?
+    return MODULES[moduleName]
+end
+
+function surface.all(): {[string]: any}
+    local copy = {}
+    for name, classification in pairs(MODULES) do
+        copy[name] = classification
+    end
+
+    return copy
+end
+
+function surface.facilities(): {[string]: any}
+    local copy = {}
+    for name, classification in pairs(FACILITIES) do
+        copy[name] = classification
+    end
+
+    return copy
+end
+
+--- Whether a target can reach a public standard module at all.
+---
+--- The same question `requireModule` answers by reporting, asked without reporting,
+--- for a caller that has to decide what to do next rather than only what to say. A
+--- module resolution is checking is one it will report about itself; asking first
+--- is what keeps the report on the line that asked for the module.
+function surface.reachable(checker: any, moduleName: string): boolean
+    local classification = MODULES[moduleName]
+    if checker.opts.dialect ~= "lua51" and not (classification and classification.allDialects) then
+        return true
+    end
+    if classification == nil
+        or classification.kind == "common"
+        or classification.kind == "compiler"
+        or classification.kind == "members"
+    then
+        return true
+    end
+    if classification.kind == "unavailable" then
+        return require("nupp.compiler.capabilities").available(checker, classification.capability)
+    end
+
+    return checker.opts.backendResolution
+        and checker.opts.backendResolution.seams
+        and checker.opts.backendResolution.seams[
+        classification.seam
+    ] ~= nil or false
+end
+
+function surface.requireModule(checker: any, moduleName: string, at: any): string?
+    local classification = MODULES[moduleName]
+    if checker.opts.dialect ~= "lua51" and not (classification and classification.allDialects) then
+        return nil
+    end
+    if classification == nil
+        or classification.kind == "common"
+        or classification.kind == "compiler"
+        or classification.kind == "members"
+    then
+        return nil
+    end
+    if classification.kind == "unavailable" then
+        require("nupp.compiler.capabilities").require(checker, classification.capability, at)
+        return nil
+    end
+    local selected = checker.opts.backendResolution
+        and checker.opts.backendResolution.seams
+        and checker.opts.backendResolution.seams[
+        classification.seam
+    ]
+    if selected == nil then
+        checker.diag(
+            "NUPP3012",
+            at,
+            (
+                "the `%s` dialect needs standard seam `%s` to reach module `%s`"
+            ):format(checker.opts.dialect, classification.seam, moduleName),
+            nil,
+            {help = "select a checked backend whose exact runtime module implements the complete contract"}
+        )
+        return nil
+    end
+
+    return classification.effect
+end
+
+--- Requires the seam owning one member of a mixed standard module.
+function surface.requireMember(checker: any, moduleName: string, member: string, at: any): string?
+    if checker.opts.dialect ~= "lua51" then
+        return nil
+    end
+    local facilityName = MODULE_MEMBERS[moduleName] and MODULE_MEMBERS[moduleName][member] or nil
+    if not facilityName then
+        return nil
+    end
+    local classification = FACILITIES[facilityName]
+    local selected = checker.opts.backendResolution
+        and checker.opts.backendResolution.seams
+        and checker.opts.backendResolution.seams[
+        classification.seam
+    ]
+    if selected == nil then
+        checker.diag(
+            "NUPP3012",
+            at,
+            (
+                "the `%s` dialect needs standard seam `%s` to reach `%s.%s`"
+            ):format(checker.opts.dialect, classification.seam, moduleName, member),
+            nil,
+            {help = "select a checked backend whose exact runtime module implements the complete contract"}
+        )
+        return nil
+    end
+
+    return classification.effect
+end
+
+export = surface

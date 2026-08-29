@@ -1,0 +1,22 @@
+@!internal
+module nupp.runtime.seam.bitsetsuite
+local suite = {}
+function suite.test(provider: any): (boolean, string?)
+    local ok, problem = pcall(function()
+        assert(provider.WORD_BITS == 32, "WORD_BITS must describe 32-bit storage words")
+        local value = provider.Bitset.__nuppCtor1(130)
+        value:set(0);
+        value:set(129)
+        assert(value:get(0) and value:get(129), "set bits must read back")
+        assert(value:count() == 2, "count must include all words")
+        value:clear(0)
+        assert(not value:get(0) and value:count() == 1, "clear must remove one bit")
+    end)
+    if not ok then
+        return false, tostring(problem)
+    end
+
+    return true
+end
+
+export = suite

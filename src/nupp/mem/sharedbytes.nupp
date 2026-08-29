@@ -1,0 +1,269 @@
+module nupp.mem.sharedbytes
+
+--[[
+Engine-owned immutable byte regions.
+
+A region names an extent of one reference-counted engine block. It crosses
+worker boundaries by reference, slices without copying, and is read in place
+through a borrowed [](nupp.mem.span) byte view; converting it to a Lua string
+is one explicit call. See NEP 22.
+
+```nupp
+const sharedbytes = require("nupp.mem.sharedbytes")
+
+const region = sharedbytes.copy("hello, region")
+const hello = region:slice(1, 5)
+assert(hello:size() == 5 and hello:text() == "hello")
+```
+
+A producer that has bytes only behind a pointer writes into builder storage
+directly through a reserve-and-commit pair, with no intermediate chunk string:
+
+```nupp
+const sharedbytes = require("nupp.mem.sharedbytes")
+
+local builder = sharedbytes.builder()
+with writer = builder:reserve(5) do
+    for index = 1, 5 do
+        writer[index] = 64 + index
+    end
+end
+builder:commit(5)
+builder:append("!")
+assert(builder:freeze():text() == "ABCDE!")
+```
+]]
+
+local span = require("nupp.mem.span")
+
+local type Native = {
+    fromString: nosuspend function(string): (any?, integer?),
+    readFile: nosuspend function(string): (any?, any),
+    text: nosuspend function(any, integer, integer): string?,
+    pointer: nosuspend function(any): any,
+    length: nosuspend function(any): integer?,
+    builderNew: nosuspend function(): any,
+    builderAppend: nosuspend function(any, string): (boolean, string?),
+    builderReserve: nosuspend function(any, integer): (any?, string?),
+    builderCommit: nosuspend function(any, integer): boolean,
+    builderFreeze: nosuspend function(any): (any?, any),
+    accounted: nosuspend function(): integer
+}
+local native = require("nupp.mem.sharedbytes.native") as Native
+local ffi = require("ffi")
+
+local foreignByteSpan = rawget(
+    span as table,
+    "__foreignByteSpan"
+) as nosuspend function(any, any, integer, integer): span.ByteSpan
+
+local sharedbytes = {}
+
+--- An immutable extent of one engine-owned block. Crossing a worker boundary
+--- moves a reference, never the bytes; reading happens in place through a
+--- borrowed byte view, and `text` is the one explicit copy into a Lua state.
+record sharedbytes.Region
+    private _handle: any
+    private _first: integer
+    private _length: integer
+
+    --- How many bytes the region holds.
+    size: nosuspend function(sharedbytes.Region): integer
+
+    --- A zero-copy region over bytes `first` through `last` of this one.
+    slice: function(sharedbytes.Region, integer, integer): sharedbytes.Region
+
+    --- A read-only borrowed view over the selected bytes, whole by default.
+    view: function(borrows self: sharedbytes.Region, integer?, integer?): span.ByteSpan borrows (self)
+
+    --- The region's bytes copied and interned as an ordinary string.
+    text: nosuspend function(sharedbytes.Region): string
+end
+
+local RegionMT: metatable<sharedbytes.Region> = {__index = sharedbytes.Region}
+
+--- Two regions are equal when they name the same engine block, offset, and
+--- length; equal bytes in separate blocks are not equal.
+rawset(RegionMT as table, "__eq", function(left: any, right: any): boolean
+    return native.pointer(
+        left._handle
+    ) == native.pointer(right._handle) and left._first == right._first and left._length == right._length
+end)
+
+local function wrap(handle: any, first: integer, length: integer): sharedbytes.Region
+    return setmetatable({_handle = handle, _first = first, _length = length}, RegionMT) as sharedbytes.Region
+end
+
+function sharedbytes.Region:size(): integer
+    return self._length
+end
+
+--- @raises when the bounds fall outside the region
+function sharedbytes.Region:slice(first: integer, last: integer): sharedbytes.Region
+    if first < 1 or last > self._length or first > last + 1 then
+        error("nupp: a region slice is out of bounds", 2)
+    end
+
+    return wrap(self._handle, self._first + first - 1, last - first + 1)
+end
+
+--- @raises when the bounds fall outside the region
+function sharedbytes.Region:view(first: integer?, last: integer?): span.ByteSpan
+    local from = first == nil and 1 or first as integer
+    local to = last == nil and self._length or last as integer
+    if from < 1 or to > self._length or from > to + 1 then
+        error("nupp: a region view is out of bounds", 2)
+    end
+
+    return foreignByteSpan(self, native.pointer(self._handle), self._first + from - 2, to - from + 1)
+end
+
+--- @raises when the region's engine storage has been released
+function sharedbytes.Region:text(): string
+    local text = native.text(self._handle, self._first, self._first + self._length - 1)
+    if text == nil then
+        error("nupp: a region's storage has been released", 2)
+    end
+
+    return text as string
+end
+
+--- Copies `text` once into an engine-owned region.
+--- @raises when the engine cannot allocate the region
+function sharedbytes.copy(text: string): sharedbytes.Region
+    local handle, length = native.fromString(text)
+    if handle == nil then
+        error("nupp: cannot allocate a region", 2)
+    end
+
+    return wrap(handle, 1, length as integer)
+end
+
+--- Reads a whole file directly into an engine-owned region, with no
+--- intermediate Lua string for the payload.
+--- @raises when the file cannot be opened, sized, or read
+function sharedbytes.readFile(path: string): sharedbytes.Region
+    local handle, problem = native.readFile(path)
+    if handle == nil then
+        error("nupp: " .. tostring(problem), 2)
+    end
+
+    return wrap(handle, 1, native.length(handle) as integer)
+end
+
+--- An affine accumulator of engine storage. Appending grows one private
+--- allocation, and freezing transfers it into a region without copying.
+affine interface sharedbytes.BuilderToken
+    terminal drop: nosuspend function(takes self: sharedbytes.BuilderToken): nil
+end
+
+--- A growable engine allocation that becomes a region when frozen.
+record sharedbytes.Builder is sharedbytes.BuilderToken
+    private _handle: any
+
+    --- Appends the chunk's bytes to the builder's storage.
+    append: nosuspend function(sharedbytes.Builder, string): nil
+
+    --- Grows the storage and lends a checked writer over exactly `count`
+    --- uninitialized bytes past what is already committed. All growth happens
+    --- here, before the writer exists, and the borrow keeps every other
+    --- builder operation a compile error while the writer lives, so the lent
+    --- pointer cannot be invalidated. One `commit` closes the reservation
+    --- after the writer drops.
+    reserve: function(exclusive self: sharedbytes.Builder, integer): span.Writable<uint8> borrows (self)
+
+    --- Closes the open reservation, keeping its first `written` bytes as
+    --- content; a short read commits what arrived, and the surplus returns to
+    --- capacity for the next reservation.
+    commit: nosuspend function(sharedbytes.Builder, integer): nil
+
+    --- Consumes the builder and transfers its allocation into a region.
+    freeze: nosuspend function(takes self: sharedbytes.Builder): sharedbytes.Region
+
+    --- Releases an unfrozen builder's storage at scope exit.
+    drop: nosuspend function(takes self: sharedbytes.Builder): nil
+end
+
+local BuilderMT: metatable<sharedbytes.Builder> = {__index = sharedbytes.Builder}
+
+--- @raises when a reservation is open or the engine cannot grow the storage
+function sharedbytes.Builder:append(chunk: string): nil
+    local accepted, problem = native.builderAppend(self._handle, chunk)
+    if not accepted then
+        if problem == "open" then
+            error("nupp: a region builder has an open reservation", 2)
+        end
+        error("nupp: cannot grow a region builder", 2)
+    end
+end
+
+--- @raises when the count is negative, a reservation is already open, or the
+---     engine cannot grow the storage
+function sharedbytes.Builder:reserve(count: integer): span.Writable<uint8>
+    if count < 0 then
+        error("nupp: a region reservation cannot be negative", 2)
+    end
+    local pointer, problem = native.builderReserve(self._handle, count)
+    if pointer == nil then
+        if problem == "open" then
+            error("nupp: a region builder already has an open reservation", 2)
+        end
+        error("nupp: cannot grow a region builder", 2)
+    end
+
+    local typed = ffi.cast<uint8[?]>(pointer)
+
+    return span.writeCarray(typed, count)
+end
+
+--- @raises when no reservation is open or `written` exceeds it
+function sharedbytes.Builder:commit(written: integer): nil
+    if not native.builderCommit(self._handle, written) then
+        error("nupp: a commit does not match the builder's open reservation", 2)
+    end
+end
+
+--- @raises when the builder was already frozen or a reservation is open,
+---     because sealing would silently drop bytes a producer may have written
+function sharedbytes.Builder.freeze(takes self: sharedbytes.Builder): sharedbytes.Region
+    local handle, length = native.builderFreeze(self._handle)
+    if handle == nil then
+        if length == "open" then
+            error("nupp: a region builder has an open reservation", 2)
+        end
+        error("nupp: a region builder was already frozen", 2)
+    end
+
+    return wrap(handle, 1, length as integer)
+end
+
+function sharedbytes.Builder.drop(takes self: sharedbytes.Builder): nil
+end
+
+--- Opens an empty builder.
+--- @raises when the engine cannot allocate the builder
+function sharedbytes.builder(): affine(sharedbytes.Builder)
+    local handle = native.builderNew()
+    if handle == nil then
+        error("nupp: cannot allocate a region builder", 2)
+    end
+
+    return setmetatable({_handle = handle}, BuilderMT) as affine(sharedbytes.Builder)
+end
+
+-- Private hooks for the worker transport: recognizing a region as a transfer
+-- leaf, reading its parts for a message's attachments, and rebuilding one
+-- around a received handle. Kept off the authored surface.
+rawset(_G.nupp, "__regionMetatable", RegionMT)
+rawset(sharedbytes, "__regionParts", function(region: any): (any, integer, integer)
+    return region._handle, region._first, region._length
+end)
+rawset(sharedbytes, "__regionFromParts", function(handle: any, first: integer, length: integer): any
+    return wrap(handle, first, length)
+end)
+
+sharedbytes.Region = sharedbytes.Region
+sharedbytes.Builder = sharedbytes.Builder
+sharedbytes.BuilderToken = sharedbytes.BuilderToken
+
+export = sharedbytes

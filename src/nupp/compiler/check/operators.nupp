@@ -1,0 +1,647 @@
+module nupp.compiler.check.operators
+
+--[[
+Which operators are which, and what they dispatch to.
+
+Plain data, shared by the passes that dispatch on an operator token. The families
+follow LuaJIT's primitive families rather than the grammar's precedence levels,
+because what matters here is which operands an operator accepts, not how tightly
+it binds.
+]]
+
+local operators = {}
+
+--- A set of operator tokens.
+local type Set = {[string]: boolean}
+
+--- FFI operations whose first argument names a type.
+operators.ffiTypeFirst = {
+    ["new"] = true,
+    ["cast"] = true,
+    ["istype"] = true,
+    ["typeof"] = true,
+    ["sizeof"] = true,
+    ["alignof"] = true,
+} as Set
+
+--- Arithmetic, which takes numbers or a metamethod contract.
+operators.arith = {
+    ["+"] = true,
+    ["-"] = true,
+    ["*"] = true,
+    ["/"] = true,
+    ["%"] = true,
+    ["^"] = true,
+    ["//"] = true,
+} as Set
+
+--- Bitwise, which takes integers and gives one back.
+operators.bitops = {["&"] = true, ["|"] = true, ["~"] = true, ["<<"] = true, [">>"] = true, ["~>>"] = true,} as Set
+
+--- Comparison, which gives a boolean whatever it takes.
+operators.compare = {["<"] = true, [">"] = true, ["<="] = true, [">="] = true, ["=="] = true, ["~="] = true,} as Set
+
+--- The short-circuiting pair, whose right side is only reached under what the left side
+--- proved.
+operators.logical = {["and"] = true, ["or"] = true,} as Set
+
+--- The metamethod an operator consults when its operands are not primitive.
+operators.metamethod = {
+    ["+"] = "__add",
+    ["-"] = "__sub",
+    ["*"] = "__mul",
+    ["/"] = "__div",
+    ["%"] = "__mod",
+    ["^"] = "__pow",
+    [".."] = "__concat",
+} as {[string]: string}
+
+--- The metamethods a declaration may contract for.
+operators.contractMetamethod = {
+    __call = true,
+    __index = true,
+    __newindex = true,
+    __add = true,
+    __sub = true,
+    __mul = true,
+    __div = true,
+    __mod = true,
+    __pow = true,
+    __unm = true,
+    __concat = true,
+    __len = true,
+    __eq = true,
+    __lt = true,
+    __le = true,
+    __tostring = true,
+} as Set
+
+--- Every key LuaJIT itself gives meaning to in a metatable, so a misspelling in a
+--- literal one is caught rather than silently ignored.
+operators.runtimeMetamethod = {
+    __call = true,
+    __index = true,
+    __newindex = true,
+    __mode = true,
+    __metatable = true,
+    __tostring = true,
+    __len = true,
+    __add = true,
+    __sub = true,
+    __mul = true,
+    __div = true,
+    __mod = true,
+    __pow = true,
+    __unm = true,
+    __concat = true,
+    __eq = true,
+    __lt = true,
+    __le = true,
+    __gc = true,
+    __pairs = true,
+    __ipairs = true,
+} as Set
+
+local T = require("nupp.compiler.types")
+local generics = require("nupp.compiler.generics")
+local relations = require("nupp.compiler.relations")
+local narrowing = require("nupp.compiler.narrowing")
+local cst = require("nupp.compiler.cst")
+local lexer = require("nupp.compiler.lexer")
+local state = require("nupp.compiler.check.state")
+local fixedWidth = require("nupp.compiler.fixedwidth")
+local indexedViews = require("nupp.compiler.indexedviews")
+local capabilities = require("nupp.compiler.capabilities")
+
+local isA = relations.isA
+local subtract = narrowing.subtract
+
+--- A type, as nupp.compiler.types builds them.
+local type Type = T.Type
+
+--- A node of the tree being checked.
+local type Node = cst.Node
+
+--- A token, as the lexer produced it.
+local type Token = lexer.Token
+
+--- Whether ordinary arithmetic over this operand keeps a whole number whole.
+---
+--- Ordinary arithmetic is binary64, so no operand keeps its fixed-width
+--- refinement through it -- but whether the result is still an integer is a
+--- separate question, and `int32` and `uint32` answer it the way `integer` does.
+--- That is not a new claim about either: `fixedwidth.widenedName` already says
+--- both widen to `integer`, and that `float` widens to `number`.
+---
+--- It matters because a cursor is written `uint32` and then indexes with
+--- `cursor + 1`. Calling that sum a `number` left a checked view append with no
+--- spelling that both checked and compiled.
+local function integral(t: Type): boolean
+    if fixedWidth.isValue(t) then
+        return fixedWidth.widenedName(t) == "integer"
+    end
+
+    return t ~= T.any and isA(t, T.integer)
+end
+
+--- Reports `customary-operator` when an operator was written in its C spelling. The two
+--- forms mean exactly the same thing, so this is a house style question and nothing
+--- more: a project that prefers `&&` turns the lint off, and a file that wants it once
+--- writes `@allow("customary-operator")`.
+local function customaryOperator(c: state.Checker, opTok: Token)
+    -- The lexer folds both spellings into one token kind, so the text is all that is
+    -- left to say which one the author chose.
+    local classic = lexer.CUSTOMARY[opTok.text]
+    if not classic then
+        return
+    end
+    c.diag(
+        "NUPP2504",
+        opTok,
+        ("%s is the customary spelling of %s"):format(opTok.text, classic),
+        {c.edits.fix(("change to `%s`"):format(classic), c.edits.replaceToken(opTok, classic))},
+        {help = ("write %s"):format(classic)}
+    )
+end
+
+--- Installs the operator expressions on one run.
+---
+--- @param c the run's state
+--- @return the expression kinds this family answers
+function operators.install(c: state.Checker): state.ExprHandlers
+
+    local lpegEmpty = T.array(T.never)
+    local lpegUnknown = T.array(T.any)
+
+    local function lpegPattern(t: Type): T.Nominal?, Type?
+        local payload = T.unwrapOwnership(t)
+        if payload.tag ~= "nominal" then
+            return nil
+        end
+        local origin = (payload.origin or payload) as T.Nominal
+        if not origin.lpegPattern then
+            return nil
+        end
+
+        return origin, payload.typeArgs and payload.typeArgs[1] or lpegUnknown
+    end
+
+    local function makeLpegPattern(origin: T.Nominal, captures: Type): Type
+        local parameter = origin.typeParams and origin.typeParams[1]
+        if not parameter then
+            return origin
+        end
+
+        return generics.instantiate(origin, {[parameter] = captures})
+    end
+
+    local function reducedCaptures(t: Type): Type
+        local reduced = generics.evaluate(t, nil, c.reductionControl)
+        return reduced.error and lpegUnknown or reduced.type
+    end
+
+    local function concatCaptures(left: Type, right: Type): Type
+        left, right = reducedCaptures(left), reducedCaptures(right)
+        if left.tag == "array" and left.elem == T.never then
+            return right
+        end
+        if right.tag == "array" and right.elem == T.never then
+            return left
+        end
+        if left.tag == "tuple" and right.tag == "tuple" then
+            local values = {}
+            for _, value in ipairs(left.elems) do
+                values[#values + 1] = value
+            end
+            for _, value in ipairs(right.elems) do
+                values[#values + 1] = value
+            end
+            return T.tuple(values)
+        end
+
+        return lpegUnknown
+    end
+
+    local function capturesFromPack(pack: T.Pack): Type
+        local evaluated = generics.evaluatePack(pack, c.reductionControl)
+        if evaluated.error or evaluated.pack.alternatives then
+            return lpegUnknown
+        end
+        local concrete, why = generics.expandComputedPack(evaluated.pack, c.reductionControl)
+        if why then
+            return lpegUnknown
+        end
+        if not concrete.tail then
+            return #concrete.head == 0 and lpegEmpty or T.tuple(concrete.head)
+        end
+        if concrete.tail.kind == "homogeneous" and #concrete.head == 0 then
+            return T.array(concrete.tail.type)
+        end
+
+        return lpegUnknown
+    end
+
+    local function patternOperandCaptures(t: Type): Type?
+        local _, captures = lpegPattern(t)
+        if captures then
+            return captures
+        end
+        if t == T.any or isA(
+            t,
+            T.string
+        ) or isA(t, T.number) or isA(t, T.boolean) or isA(t, T.table_) or t.tag == "func" then
+            return lpegEmpty
+        end
+
+        return nil
+    end
+
+    local function lpegBinary(op: string, lt: Type, rt: Type, node: Node): Type?
+        local leftOrigin, leftCaptures = lpegPattern(lt)
+        local rightOrigin = lpegPattern(rt)
+        local origin = leftOrigin or rightOrigin
+        if not origin then
+            return nil
+        end
+        if op == "*" or op == "+" or op == "-" then
+            local left = patternOperandCaptures(lt)
+            local right = patternOperandCaptures(rt)
+            if not left or not right then
+                c.diag("NUPP2003", node, ("cannot apply '%s' to %s and %s"):format(op, T.tostring(lt), T.tostring(rt)))
+                return T.any
+            end
+            if op == "*" then
+                return makeLpegPattern(origin, concatCaptures(left, right))
+            elseif op == "+" then
+                left, right = reducedCaptures(left), reducedCaptures(right)
+                return makeLpegPattern(origin, left == right and left or lpegUnknown)
+            else
+                return makeLpegPattern(origin, left)
+            end
+        elseif op == "^" and leftOrigin then
+            if not isA(rt, T.integer) then
+                c.diag("NUPP2003", node, "an LPeg exponent must be an integer")
+            end
+            local captures = reducedCaptures(leftCaptures as Type)
+            if captures.tag == "array" and captures.elem == T.never then
+                return makeLpegPattern(leftOrigin, lpegEmpty)
+            elseif captures.tag == "tuple" and #captures.elems == 1 then
+                return makeLpegPattern(leftOrigin, T.array(captures.elems[1]))
+            end
+            return makeLpegPattern(leftOrigin, lpegUnknown)
+        elseif op == "/" and leftOrigin then
+            local captures = leftCaptures as Type
+            if isA(rt, T.string) then
+                return makeLpegPattern(leftOrigin, T.tuple({T.string}))
+            elseif isA(rt, T.integer) then
+                if rt.tag == "literal" and rt.constant == 0 then
+                    return makeLpegPattern(leftOrigin, lpegEmpty)
+                end
+                captures = reducedCaptures(captures)
+                if rt.tag == "literal" and captures.tag == "tuple" then
+                    local selected = captures.elems[rt.constant as integer]
+                    return makeLpegPattern(leftOrigin, selected and T.tuple({selected}) or lpegUnknown)
+                end
+                return makeLpegPattern(leftOrigin, lpegUnknown)
+            elseif rt.tag == "func" then
+                return makeLpegPattern(leftOrigin, capturesFromPack(rt.retPack))
+            elseif isA(rt, T.table_) or rt.tag == "shape" or rt.tag == "array" or rt.tag == "map" then
+                local value = rt.tag == "array"
+                    and rt.elem
+                    or rt.tag == "map"
+                    and rt.value
+                    or rt.tag == "nominal"
+                    and rt.indexReadValue
+                    or T.any
+                return makeLpegPattern(leftOrigin, value == T.any and lpegUnknown or T.tuple({value as Type}))
+            end
+            c.diag("NUPP2003", node, ("invalid LPeg capture transformation %s"):format(T.tostring(rt)))
+            return T.any
+        elseif op == "%" and leftOrigin then
+            if rt.tag ~= "func" and rt ~= T.any then
+                c.diag("NUPP2003", node, "an LPeg accumulator capture needs a function")
+            end
+            return makeLpegPattern(leftOrigin, lpegEmpty)
+        end
+
+        return nil
+    end
+
+    local function orderingFamily(t)
+        if t == T.any then
+            return "any"
+        end
+        if isA(t, T.number) then
+            return "number"
+        end
+        if isA(t, T.string) then
+            return "string"
+        end
+        if t.tag == "union" then
+            local family = nil
+            for _, member in ipairs(t.members) do
+                if member ~= T.nil_ then
+                    local found = orderingFamily(member)
+                    if not found or found == "any" then
+                        return found
+                    end
+                    if family and family ~= found then
+                        return nil
+                    end
+                    family = found
+                end
+            end
+            return family
+        end
+
+        return nil
+    end
+
+    --- The type a numeric literal has, suffixes and radix included.
+
+    --- `t` without nil, which is what a truthiness test leaves. Defined once here
+    --- rather than each time a logical operator is inferred.
+    c.minusNil = function(t)
+        if t.tag == "union" and t.hasNil then
+            local m = {}
+            for _, x in ipairs(t.members) do
+                if x ~= T.nil_ then
+                    m[#m + 1] = x
+                end
+            end
+            return T.union(m)
+        end
+
+        return t
+    end
+
+    local handlers = {}
+
+    --- Whether one operand of a bitwise operator is already a fixed 32-bit value.
+    ---
+    --- The same condition `nupp.compiler.aot.lower` puts on them, spelled here
+    --- against the checker's establishment facts rather than against lowered IR.
+    --- An exact literal in range carries both integer facts from `markLiteral`,
+    --- so it satisfies this without a special case.
+    local function fixedBitOperand(operand: any): boolean
+        return c.fixedWidth.established(operand, T.int32) or c.fixedWidth.established(operand, T.uint32)
+    end
+
+    handlers.unop = function(node: cst.Unop): Type
+        local operand = node.operand
+        local opTok = node.op
+        if not operand or not opTok then
+            return T.any
+        end
+        customaryOperator(c, opTok)
+        local t = c.infer(operand)
+        local op = opTok.kind
+        if op == "-" then
+            local origin = lpegPattern(t)
+            if origin then
+                return makeLpegPattern(origin, lpegEmpty)
+            end
+            local mm = c.metamethodOf(t, "__unm")
+            if mm then
+                return c.applyContract(mm, {t}, {operand}, node, "__unm")
+            end
+            c.numericOperand(t, node, op)
+            if t.tag == "int64" or t.tag == "uint64" then
+                capabilities.require(c, "int64", opTok)
+                return t
+            end
+            if t.tag == "literal" and type(t.constant) == "number" then
+                local value = -(t.constant as number)
+                c.fixedWidth.markLiteral(node, value)
+                return T.literal(value, t.base)
+            end
+            return (t == T.any or fixedWidth.isValue(t)) and T.number or t
+        elseif op == "~" then
+            local wide = t.tag == "int64" or t.tag == "uint64"
+            capabilities.require(c, wide and "int64" or "bitops", opTok)
+            c.numericOperand(t, node, op)
+            if not wide and fixedBitOperand(operand) then
+                c.fixedWidth.mark(node, T.int32)
+
+                return T.int32
+            end
+
+            return wide and t or T.integer
+        elseif op == "#" then
+            local origin = lpegPattern(t)
+            if origin then
+                return makeLpegPattern(origin, lpegEmpty)
+            end
+            local view = indexedViews.describe(t)
+            if view then
+                local receiverDefinition = operand.kind == "name" and operand.token and operand.token.definition or nil
+                node.indexedLength = {
+                    adapter = view.adapter,
+                    descriptor = view,
+                    receiverDefinition = receiverDefinition,
+                }
+                return view.fixedCount or T.integer
+            end
+            local mm = c.metamethodOf(t, "__len")
+            if mm then
+                return c.applyContract(mm, {t}, {operand}, node, "__len")
+            end
+            if not (t == T.any or isA(t, T.string) or isA(t, T.table_)) then
+                c.diag("NUPP2003", node, ("cannot apply '#' to %s"):format(T.tostring(t)))
+            end
+            return T.integer
+        else -- not
+            return T.boolean
+        end
+
+        return T.any
+    end
+
+    handlers.binop = function(node: cst.Binop): Type
+        local opTok, lhs, rhs = node.op, node.lhs, node.rhs
+        if not opTok or not lhs or not rhs then
+            return T.any
+        end
+        customaryOperator(c, opTok)
+        local op = opTok.kind
+        local lt, rt
+        if operators.logical[op] then
+            -- the rhs is only evaluated under the lhs outcome: narrow it
+            lt = c.infer(lhs)
+            local facts = c.analyzeCond(lhs)
+            c.pushScope()
+            c.applyFacts(op == "and" and facts.t or facts.f)
+            rt = c.infer(rhs)
+            c.popScope()
+        else
+            lt, rt = c.infer(lhs), c.infer(rhs)
+        end
+        local lpegResult = lpegBinary(op, lt, rt, node)
+        if lpegResult then
+            return lpegResult
+        end
+        if operators.arith[op] then
+            local mmName = op ~= "//" and operators.metamethod[op] or nil
+            local mm = mmName and (c.metamethodOf(lt, mmName) or c.metamethodOf(rt, mmName)) or nil
+            if mm then
+                -- A contract was only looked for under a name, so finding one is what
+                -- proves there was one.
+                return c.applyContract(mm, {lt, rt}, {lhs, rhs}, node, mmName as string)
+            end
+            local leftPayload = T.unwrapOwnership(lt)
+            if (op == "+" or op == "-") and leftPayload.tag == "ptr" and isA(rt, T.integer) then
+                if c.ownershipKind(lt) ~= "borrowed" then
+                    c.diag("NUPP2604", node, "pointer arithmetic requires a rooted borrowed pointer")
+                    return leftPayload
+                end
+                local roots = c.own.provenanceOwners(lhs)
+                if #roots > 0 then
+                    c.own.capabilityFacts(node).roots = roots
+                end
+                if c.unsafeDepth == 0 then
+                    c.diag("NUPP2604", node, "unchecked pointer arithmetic requires unsafe do; use a span for bounds")
+                    return T.borrowed(leftPayload)
+                end
+                -- Unsafe made the bounds assertion; borrowFrom can immediately attach
+                -- the resulting raw address to the span/root chosen by the caller.
+                node.unsafeOwnershipOperation = "unchecked pointer arithmetic"
+                return leftPayload
+            end
+            c.numericOperand(lt, lhs, op)
+            c.numericOperand(rt, rhs, op)
+            local wide = lt.tag == "int64"
+                and lt
+                or lt.tag == "uint64"
+                and lt
+                or rt.tag == "int64"
+                and rt
+                or rt.tag == "uint64"
+                and rt
+                or nil
+            if wide then
+                capabilities.require(c, "int64", opTok)
+                return wide
+            end
+            if op == "/" or op == "^" then
+                return T.number
+            end
+            if integral(lt) and integral(rt) then
+                return T.integer
+            end
+            return T.number
+        elseif op == ".." then
+            local mm = c.metamethodOf(lt, "__concat") or c.metamethodOf(rt, "__concat")
+            if mm then
+                return c.applyContract(mm, {lt, rt}, {lhs, rhs}, node, "__concat")
+            end
+            -- Whether this concatenation is the primitive one, which only this point
+            -- knows: no `__concat` was found, and neither side is `any`. `any` is the
+            -- interesting exclusion. Gradual typing lets it concatenate, and at runtime
+            -- it may be a table carrying a `__concat` -- so a rewrite that assumes
+            -- primitive string building (`OPT-5`) must refuse it, while the check above
+            -- must allow it.
+            local plain = true
+            for _, pair in ipairs({{lt, lhs}, {rt, rhs}}) do
+                -- Each pair holds a type beside the expression it came from, which is
+                -- one list of two kinds of thing rather than two lists.
+                local t = pair[1] as Type
+                if not (t == T.any or isA(t, T.number) or isA(t, T.string)) then
+                    c.diag("NUPP2003", pair[2], ("cannot concatenate %s"):format(T.tostring(t)))
+                    plain = false
+                elseif t == T.any then
+                    plain = false
+                end
+            end
+            node.plainConcat = plain
+            return T.string
+        elseif operators.bitops[op] then
+            local wide = lt.tag == "int64"
+                and lt
+                or lt.tag == "uint64"
+                and lt
+                or rt.tag == "int64"
+                and rt
+                or rt.tag == "uint64"
+                and rt
+                or nil
+            capabilities.require(c, wide and "int64" or "bitops", opTok)
+            c.numericOperand(lt, lhs, op)
+            c.numericOperand(rt, rhs, op)
+            if not wide and fixedBitOperand(lhs) and fixedBitOperand(rhs) then
+                -- Both operands are already thirty-two bits, so the operator is
+                -- the one BitOp defines on them and its result is what BitOp
+                -- says: a signed thirty-two bit pattern. Saying `integer` here
+                -- was not wrong, only less than what is known, and the shortfall
+                -- had to be made up at every use by wrapping a value that never
+                -- stopped being thirty-two bits.
+                --
+                -- Answering the narrower type only where the operands carry the
+                -- width, rather than always. The arithmetic branch above already
+                -- reads its operands the same way to choose between `integer`
+                -- and `number`.
+                c.fixedWidth.mark(node, T.int32)
+
+                return T.int32
+            end
+
+            return wide or T.integer
+        elseif operators.compare[op] then
+            if lt.tag == "int64" or lt.tag == "uint64" or rt.tag == "int64" or rt.tag == "uint64" then
+                capabilities.require(c, "int64", opTok)
+            end
+            if op ~= "==" and op ~= "~=" then
+                local mmName = (op == "<" or op == ">") and "__lt" or "__le"
+                local left, right = lt, rt
+                local leftNode, rightNode = lhs, rhs
+                if op == ">" or op == ">=" then
+                    left, right, leftNode, rightNode = rt, lt, rhs, lhs
+                end
+                local mm = c.metamethodOf(left, mmName) or c.metamethodOf(right, mmName)
+                if not mm and (op == "<=" or op == ">=") then
+                    mmName = "__lt"
+                    left, right, leftNode, rightNode = right, left, rightNode, leftNode
+                    mm = c.metamethodOf(left, mmName) or c.metamethodOf(right, mmName)
+                end
+                if mm then
+                    c.applyContract(mm, {left, right}, {leftNode, rightNode}, node, mmName)
+                else
+                    local lf, rf = orderingFamily(lt), orderingFamily(rt)
+                    if not (lf == "any" or rf == "any" or (lf and lf == rf)) then
+                        c.diag(
+                            "NUPP2003",
+                            node,
+                            ("cannot compare %s and %s with '%s'"):format(T.tostring(lt), T.tostring(rt), op)
+                        )
+                    end
+                end
+            end
+            return T.boolean
+        elseif op == "??" then
+            -- yields the left unless it is nil, so nil drops out of it
+            return T.union({subtract(lt, T.nil_), rt})
+        elseif operators.logical[op] then
+            -- Value-selection semantics. Until literal true/false types land with
+            -- narrowing, a boolean lhs of 'and' approximates as contributing nothing
+            -- (its false outcome), which types the pervasive 'cond and a or b' idiom
+            -- correctly.
+            if op == "and" then
+                local parts = {rt}
+                if lt == T.nil_ or (lt.tag == "union" and lt.hasNil) then
+                    parts[#parts + 1] = T.nil_
+                end
+                return T.union(parts)
+            else -- or
+                if lt == T.nil_ then
+                    return rt
+                end
+                return T.union({c.minusNil(lt), rt})
+            end
+        end
+
+        return T.any
+    end
+
+    return handlers
+end
+
+export = operators

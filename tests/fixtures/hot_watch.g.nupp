@@ -1,0 +1,6 @@
+local function value(): integer
+    return nupp.hotreload.generation()
+end
+
+nupp.hotreload.poll()
+print(value())

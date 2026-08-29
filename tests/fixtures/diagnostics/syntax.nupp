@@ -1,0 +1,4 @@
+local first =
+local second = (1 + )
+if first then
+    print(first)

@@ -1,0 +1,322 @@
+module nupp.compiler.tracesource
+
+-- Checked-source trace facts and the direct-call fixed point used by @jit and editors.
+
+local cst = require("nupp.compiler.cst")
+local trace = require("nupp.compiler.tracecatalog")
+local analysisMod = require("nupp.compiler.analysis")
+
+local source = {}
+source.CATALOG_ID = trace.CATALOG_ID
+source.CATALOG_VERSION = trace.CATALOG_VERSION
+source.profile = trace.profile
+
+type source.Analysis = {
+    profile: any,
+    reasonCatalog: {
+        id: string,
+        version: integer
+    },
+    functions: {any}
+}
+
+type source.Target = {
+    traceAnalysis: source.Analysis?,
+    [string]: any
+}
+type source.Checker = {
+    jitHazards: {any},
+    diag: function(string, any, string, any?, any?): nil,
+    related: function(any, string, string?): any?,
+    env: any
+}
+
+local NESTED = {
+    localFuncStmt = true,
+    funcStmt = true,
+    inlineMethod = true,
+    constructorDecl = true,
+    funcExpr = true,
+    shortfn = true,
+}
+
+local function nameOf(info): string
+    local node = info and info.node
+    local name = node and (node.name or node.token)
+    if name then
+        if name.text then
+            return name.text
+        end
+        if name.method and name.method.text then
+            return name.method.text
+        end
+        if name.base and name.base.text then
+            return name.base.text
+        end
+    end
+
+    return "<function>"
+end
+
+local function sourceText(node): string
+    if not node then
+        return ""
+    end
+    if cst.isToken(node) then
+        return node.text or ""
+    end
+    local parts = {}
+    for _, child in ipairs(node) do
+        parts[#parts + 1] = sourceText(child)
+    end
+
+    return table.concat(parts)
+end
+
+local function dynamicCallMessage(node, explanation): string
+    local target = sourceText(node and node.obj)
+    if target == "" then
+        return explanation .. "; the checker cannot identify the call target"
+    end
+
+    return (
+        "%s; the checker cannot identify whether %q is bytecode-recordable"
+    ):format(explanation:gsub(", so its bytecode recordability is unknown", ""), target)
+end
+
+local function disabled(hazard): boolean
+    local body = hazard.body
+    local definition = body and body.jitDefinition or nil
+    return (
+        body and body.jitDisabled
+    ) or (
+        definition and definition.jitDisabled
+    ) or (
+        hazard.disabledBody and hazard.disabledBody.jitDisabled
+    ) or (hazard.disabledDefinition and hazard.disabledDefinition.jitDisabled) or false
+end
+
+local function callsIn(info, queries, checker): {any}, {any}
+    local edges, unknown = {}, {}
+    local function walk(node)
+        if not node or cst.isToken(node) then
+            return
+        end
+        if NESTED[node.kind] then
+            return
+        end
+        if node.kind == "call" or node.kind == "methodCall" then
+            local callee = queries.callee(node)
+            if callee then
+                edges[#edges + 1] = {at = node, callee = callee}
+            else
+                local obj = node.obj
+                local exact = obj
+                    and obj.exactCallExport
+                    or obj
+                    and obj.token
+                    and obj.token.definition
+                    and obj.token.definition.exactCallExport
+                    or nil
+                local imported = exact
+                    and checker.env
+                    and checker.env.resolveCallGuarantees
+                    and checker.env.resolveCallGuarantees(
+                    checker.env,
+                    exact.module,
+                    exact.member
+                ) or nil
+                if imported then
+                    edges[#edges + 1] = {at = node, imported = imported}
+                else
+                    unknown[#unknown + 1] = node
+                end
+            end
+        end
+        for _, child in ipairs(node) do
+            walk(child)
+        end
+    end
+
+    walk(info.body and info.body.body)
+
+    return edges, unknown
+end
+
+--- Normalizes source hazards, computes bounded direct-call paths and enforces @jit.
+function source.run(
+    result: source.Target,
+    checker: source.Checker,
+    facts: analysisMod.Facts,
+    queries: analysisMod.Queries
+): source.Analysis
+    local functions = facts.functions or {}
+    local byBody = {}
+    for _, info in ipairs(functions) do
+        info.traceName = nameOf(info)
+        info.traceLocal = {}
+        info.traceEdges, info.traceUnknownCalls = callsIn(info, queries, checker)
+        if info.body then
+            byBody[info.body] = info
+        end
+    end
+
+    -- Preserve the existing lint and @jit diagnostics, but source their identities and
+    -- repairs from the same registry bytecode and runtime reporting use.
+    for _, hazard in ipairs(checker.jitHazards or {}) do
+        if not disabled(hazard) then
+            local reason = trace.forSource(hazard.code)
+            local finding = {
+                reason = reason and reason.id or "jit/runtime-unknown",
+                class = reason and reason.class or "risk",
+                at = hazard.at,
+                body = hazard.body,
+                message = hazard.message,
+                help = reason and reason.repair or hazard.help,
+                code = hazard.code,
+            }
+            local info = byBody[hazard.body]
+            if info then
+                info.traceLocal[#info.traceLocal + 1] = finding
+            end
+            if not hazard.suppressed or hazard.body and hazard.body.jitRequired then
+                checker.diag(
+                    hazard.body and hazard.body.jitRequired and "NUPP2707" or hazard.code,
+                    hazard.at,
+                    hazard.message,
+                    nil,
+                    {
+                        help = finding.help,
+                        notes = {("trace classification: %s (%s)"):format(finding.class, finding.reason),},
+                    }
+                )
+            end
+        end
+    end
+
+    local disabledReason = assert(trace.reason("jit/disabled-callee"))
+    local dynamicReason = assert(trace.reason("jit/dynamic-call"))
+    for _, info in ipairs(functions) do
+        for _, at in ipairs(info.traceUnknownCalls) do
+            info.traceLocal[
+                #info.traceLocal + 1
+            ] = {
+                reason = dynamicReason.id,
+                class = dynamicReason.class,
+                at = at,
+                body = info.body,
+                message = dynamicCallMessage(at, dynamicReason.explanation),
+                help = "make the callee statically resolvable, or move the call outside the traced function",
+            }
+        end
+        info.traceFindings = {}
+        local seen = {}
+        local function visit(current, path, firstCall)
+            if seen[current] then
+                return
+            end
+            seen[current] = true
+            for _, finding in ipairs(current.traceLocal or {}) do
+                local copy = {}
+                for key, value in pairs(finding) do
+                    copy[key] = value
+                end
+                copy.callPath = {}
+                for index, name in ipairs(path) do
+                    copy.callPath[index] = name
+                end
+                copy.callAt = firstCall
+                info.traceFindings[#info.traceFindings + 1] = copy
+            end
+            for _, edge in ipairs(current.traceEdges or {}) do
+                local callee = edge.callee
+                local nextPath = {}
+                for index, name in ipairs(path) do
+                    nextPath[index] = name
+                end
+                local imported = edge.imported
+                nextPath[#nextPath + 1] = imported and imported.identity or callee.traceName or nameOf(callee)
+                if imported then
+                    for _, finding in ipairs(imported.traceFindings or {}) do
+                        local copy = {}
+                        for key, value in pairs(finding) do
+                            copy[key] = value
+                        end
+                        copy.callPath = {}
+                        for index, name in ipairs(nextPath) do
+                            copy.callPath[index] = name
+                        end
+                        for _, name in ipairs(finding.callPath or {}) do
+                            if name ~= imported.identity then
+                                copy.callPath[#copy.callPath + 1] = name
+                            end
+                        end
+                        copy.at = edge.at
+                        copy.body = imported
+                        copy.callAt = firstCall or edge.at
+                        info.traceFindings[#info.traceFindings + 1] = copy
+                    end
+                elseif disabled({body = callee.body, disabledDefinition = callee.definition}) then
+                    info.traceFindings[
+                        #info.traceFindings + 1
+                    ] = {
+                        reason = disabledReason.id,
+                        class = disabledReason.class,
+                        at = edge.at,
+                        body = callee.body,
+                        message = disabledReason.explanation,
+                        help = disabledReason.repair,
+                        callPath = nextPath,
+                        callAt = firstCall or edge.at,
+                    }
+                else
+                    visit(callee, nextPath, firstCall or edge.at)
+                end
+            end
+        end
+
+        visit(info, {info.traceName}, nil)
+        if info.body then
+            info.body.traceSummary = {
+                name = info.traceName,
+                localFindings = info.traceLocal,
+                findings = info.traceFindings,
+            }
+        end
+
+        if info.body and info.body.jitRequired and not info.body.jitDisabled then
+            for _, finding in ipairs(info.traceFindings) do
+                local reason = trace.reason(finding.reason)
+                local inherited = finding.body ~= info.body
+                if inherited and reason and reason.contractSeverity == "error" then
+                    local path = table.concat(finding.callPath or {}, " -> ")
+                    local related = finding.at and checker.related(finding.at, "the recorder blocker is here") or nil
+                    checker.diag(
+                        "NUPP2707",
+                        finding.callAt or info.node,
+                        (
+                            "@jit call path %s reaches %s: %s"
+                        ):format(path, finding.reason, finding.message or reason.explanation or "recorder blocker"),
+                        nil,
+                        {
+                            help = finding.help or reason.repair,
+                            related = related and {related} or nil,
+                            notes = {("trace classification: %s (%s)"):format(finding.class, finding.reason),},
+                        }
+                    )
+                end
+            end
+        end
+    end
+
+    local analysis = {
+        profile = trace.profile(),
+        reasonCatalog = {id = trace.CATALOG_ID, version = trace.CATALOG_VERSION},
+        functions = functions,
+    }
+    result.traceAnalysis = analysis
+
+    return analysis
+end
+
+export = source

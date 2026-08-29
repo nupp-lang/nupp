@@ -1,0 +1,178 @@
+module nupp.compiler.materialize.codec
+
+-- Deterministic, bounded serialization for materialized semantic recipes.
+
+local MAX_CANONICAL_BYTES = 1048576
+local MAX_OUTPUT_BYTES = 2097152
+
+local function allowed(opts): boolean
+    return not opts or not opts.probe or opts.probe()
+end
+
+local function within(text, opts): boolean
+    return not opts or not opts.limit or #text <= opts.limit
+end
+
+local canonicalValue: function(value: any, opts: any, active: any): (string?, string?)
+canonicalValue = function(value, opts, active): (string?, string?)
+    if not allowed(opts) then
+        return nil, "cancelled"
+    end
+    local kind = type(value)
+    local scalar
+    if kind == "nil" then
+        scalar = "n"
+    elseif kind == "boolean" then
+        scalar = value and "t" or "f"
+    elseif kind == "number" then
+        scalar = "d" .. string.format("%.17g", value)
+    elseif kind == "string" then
+        scalar = "s" .. #value .. ":" .. value
+    elseif kind ~= "table" then
+        return nil, "invalid"
+    end
+    if scalar then
+        return within(scalar, opts) and scalar or nil, within(scalar, opts) and nil or "limit"
+    end
+    if active[value] then
+        return nil, "cycle"
+    end
+    active[value] = true
+    local keys = {}
+    for key in pairs(value) do
+        keys[#keys + 1] = key
+    end
+    table.sort(keys, function(a, b)
+        return tostring(a) < tostring(b)
+    end)
+    local out = {"{"}
+    local size = 1
+    for _, key in ipairs(keys) do
+        local encodedKey, keyError = canonicalValue(key, opts, active)
+        if not encodedKey then
+            active[value] = nil;
+            return nil, keyError
+        end
+        local encodedValue, valueError = canonicalValue(value[key], opts, active)
+        if not encodedValue then
+            active[value] = nil;
+            return nil, valueError
+        end
+        out[#out + 1] = encodedKey
+        out[#out + 1] = encodedValue
+        size = size + #encodedKey + #encodedValue
+        if opts and opts.limit and size + 1 > opts.limit then
+            active[value] = nil
+            return nil, "limit"
+        end
+    end
+    out[#out + 1] = "}"
+    active[value] = nil
+    local encoded = table.concat(out)
+
+    return within(encoded, opts) and encoded or nil, within(encoded, opts) and nil or "limit"
+end
+
+--- Canonical semantic bytes. `root` omits only named envelope fields at the root;
+--- nested fields named key or fingerprint remain ordinary semantic data.
+local function canonical(value: any, opts: any?): string?, string?
+    return canonicalValue(value, opts or {}, {})
+end
+
+local function canonicalRoot(value: any, opts: any?): string?, string?
+    local projected = {}
+    for key, field in pairs(value) do
+        if key ~= "key" and key ~= "fingerprint" then
+            projected[key] = field
+        end
+    end
+
+    return canonicalValue(projected, opts or {}, {})
+end
+
+local renderValue: function(value: any, opts: any, active: any): (string?, string?)
+renderValue = function(value, opts, active): (string?, string?)
+    if not allowed(opts) then
+        return nil, "cancelled"
+    end
+    local kind = type(value)
+    local scalar
+    if value == nil then
+        scalar = "nil"
+    elseif kind == "boolean" then
+        scalar = tostring(value)
+    elseif kind == "string" then
+        scalar = ("%q"):format(value)
+    elseif kind == "number" then
+        scalar = value == 0 and 1 / value < 0 and "-0.0" or ("%.17g"):format(value)
+    elseif kind ~= "table" then
+        return nil, "invalid"
+    end
+    if scalar then
+        return within(scalar, opts) and scalar or nil, within(scalar, opts) and nil or "limit"
+    end
+    if active[value] then
+        return nil, "cycle"
+    end
+    active[value] = true
+    local parts = {}
+    local size = 2
+    for index = 1, #value do
+        local rendered, why = renderValue(value[index], opts, active)
+        if not rendered then
+            active[value] = nil;
+            return nil, why
+        end
+        parts[#parts + 1] = rendered
+        size = size + #rendered + (#parts > 1 and 1 or 0)
+        if opts and opts.limit and size > opts.limit then
+            active[value] = nil
+            return nil, "limit"
+        end
+    end
+    local keys = {}
+    for key in pairs(value) do
+        if type(key) == "string" then
+            keys[#keys + 1] = key
+        end
+    end
+    table.sort(keys)
+    for _, key in ipairs(keys) do
+        local renderedKey, keyError = renderValue(key, opts, active)
+        if not renderedKey then
+            active[value] = nil;
+            return nil, keyError
+        end
+        local renderedValue, valueError = renderValue(value[key], opts, active)
+        if not renderedValue then
+            active[value] = nil;
+            return nil, valueError
+        end
+        local entry = "[" .. renderedKey .. "]=" .. renderedValue
+        parts[#parts + 1] = entry
+        size = size + #entry + (#parts > 1 and 1 or 0)
+        if opts and opts.limit and size > opts.limit then
+            active[value] = nil
+            return nil, "limit"
+        end
+    end
+    active[value] = nil
+    local rendered = "{" .. table.concat(parts, ",") .. "}"
+
+    return within(rendered, opts) and rendered or nil, within(rendered, opts) and nil or "limit"
+end
+
+--- Lua expression for the closed data-only recipe.
+local function render(value: any, opts: any?): string?, string?
+    return renderValue(value, opts or {}, {})
+end
+
+local codec = {
+    MAX_CANONICAL_BYTES = MAX_CANONICAL_BYTES,
+    MAX_OUTPUT_BYTES = MAX_OUTPUT_BYTES,
+    canonical = canonical,
+    canonicalRoot = canonicalRoot,
+    render = render,
+}
+
+export = codec

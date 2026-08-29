@@ -1,0 +1,2256 @@
+module nupp.compiler.generics
+
+--[[
+Substitution and instantiation over interned types.
+
+A generic declaration is one type with binders in it; every use is that type with
+the binders replaced. Doing the replacing, and working out what to replace them
+with from the arguments at a call, are operations on types alone, with no scopes,
+no tree and nothing to report, so they live here rather than inside the checker that
+decides when to ask for them.
+
+Applying the same arguments to the same declaration yields the identical type, so
+`Box<number>` is `Box<number>` everywhere.
+]]
+
+local T = require("nupp.compiler.types")
+local members = require("nupp.compiler.members")
+local consteval = require("nupp.compiler.consteval")
+local narrowing = require("nupp.compiler.narrowing")
+
+local generics = {}
+
+--- A type, as nupp.compiler.types builds them.
+local type Type = T.Type
+
+--- What a binder stands for, per instantiation.
+local type Bindings = {[any]: any}
+
+--- What becomes of a binder the map does not name. Preserving leaves it standing,
+--- which is what rebinding one binder among several needs; materializing fills it with
+--- `any`, which is what a call site does with a binder inference never reached.
+---
+--- These are never written at a call site: `rebind` and `materialize` below name the
+--- choice, so no caller passes a flag and none of them can pick by accident.
+local PRESERVE = "preserve"
+
+local MATERIALIZE = "materialize"
+
+--- Normalization state, carried through the walk when one is running. Absent means
+--- the walk is an ordinary substitution and a projection is rebuilt, not reduced.
+---
+--- Findings are collected as data. The type layer does not diagnose: a cycle is a fact
+--- about the types, and which code is at fault is the checker's to say.
+
+-- The one evaluator, and the state it runs on. Declared here because projection
+-- reduction is written above them and recurses through both.
+local normalize: function(t: Type, memo: any, budget: any): (Type, string?)
+
+local newBudget: function(control: any): any
+
+local reduceProjection: function(head: Type, name: string, memo: any, budget: any): (Type, string?)
+
+local substWith: function(t: Type, map: Bindings, unmapped: string): Type
+
+local function substConst(term: T.ConstTerm, map: Bindings): T.ConstTerm
+    if term.tag == "constVar" then
+        local replacement = map[term]
+        if replacement and replacement.tag ~= "pack" then
+            return replacement as T.ConstTerm
+        end
+    elseif term.tag == "constOp" then
+        local operands = {}
+        for j, operand in ipairs(term.operands) do
+            operands[j] = substConst(operand, map)
+        end
+        return T.constOp(term.operation, operands)
+    end
+
+    return term
+end
+
+local function substCleanup(cleanup: T.Cleanup, map: Bindings, unmapped: string): T.Cleanup
+    if cleanup.kind == "function" and cleanup.constTerm then
+        local term = substConst(cleanup.constTerm, map)
+        local specialized = T.constFunctionCleanup(
+            term,
+            term.tag == "constLiteral" and nil or cleanup.name,
+            cleanup.functionType and substWith(cleanup.functionType, map, unmapped) or nil
+        )
+        specialized.validated = cleanup.validated
+        return specialized
+    elseif cleanup.kind == "field" and cleanup.cleanup then
+        return T.fieldCleanup(cleanup.field as string, substCleanup(cleanup.cleanup, map, unmapped))
+    end
+
+    return cleanup
+end
+
+--- Rebuilds a const term with the binders `map` names replaced.
+function generics.materializeConst(term: T.ConstTerm, map: Bindings): T.ConstTerm
+    return substConst(term, map)
+end
+
+--- A pack with its binders replaced per `map`, unmapped ones per `unmapped`.
+local substPackWith: function(pack: T.Pack, map: Bindings, unmapped: string): T.Pack
+
+substPackWith = function(pack: T.Pack, map: Bindings, unmapped: string): T.Pack
+    if pack.alternatives then
+        local alternatives = {}
+        for j, arm in ipairs(pack.alternatives) do
+            alternatives[j] = substPackWith(arm, map, unmapped)
+        end
+        return T.packUnion(alternatives)
+    end
+    local head, modes = {}, {}
+    for j, value in ipairs(pack.head) do
+        head[j] = substWith(value, map, unmapped)
+        modes[j] = pack.modes[j] or "plain"
+    end
+    local tail = pack.tail
+    if tail and tail.kind == "homogeneous" then
+        tail = {kind = "homogeneous", type = substWith(tail.type, map, unmapped), mode = tail.mode}
+    elseif tail and tail.kind == "computed" then
+        tail = {kind = "computed", type = substWith(tail.type, map, unmapped)}
+    elseif tail and tail.kind == "generic" then
+        local replacement = map[tail.var]
+        if replacement and replacement.tag == "pack" then
+            for j, value in ipairs(replacement.head) do
+                head[#head + 1] = value
+                modes[#modes + 1] = replacement.modes[j] or "plain"
+            end
+            tail = replacement.tail
+        elseif unmapped == PRESERVE then
+            -- Left standing: the caller is rebinding something else and this pack
+            -- binder is still the pack binder it was.
+            tail = tail
+        else
+            tail = {kind = "unknown", type = T.any}
+        end
+    end
+
+    return T.pack(head, tail, modes)
+end
+
+substWith = function(t: Type, map: Bindings, unmapped: string): Type
+    if not T.hasTypevar(t) then
+        return t
+    end
+    local tag = t.tag
+    if tag == "projection" then
+        -- Rebuilt, never reduced. Making the head concrete is what makes a projection
+        -- reducible, and running that to a fixed point belongs to the evaluator, which
+        -- is the only place that can also see a neutral operation wrapped around it.
+        return T.projection(substWith(t.of, map, unmapped), t.name)
+    end
+    if tag == "typevar" then
+        local bound = map[t]
+        if bound then
+            return bound
+        end
+
+        return unmapped == PRESERVE and t or T.any
+    elseif tag == "array" then
+        return T.array(substWith(t.elem, map, unmapped))
+    elseif tag == "map" then
+        return T.indexer(
+            t.readable and substWith(t.key, map, unmapped) or nil,
+            t.readable and substWith(t.value, map, unmapped) or nil,
+            t.writeKey and substWith(t.writeKey, map, unmapped) or nil,
+            t.writeValue and substWith(t.writeValue, map, unmapped) or nil
+        )
+    elseif tag == "tuple" then
+        local elems: {Type} = {}
+        for j, e in ipairs(t.elems) do
+            elems[j] = substWith(e, map, unmapped)
+        end
+        return T.tuple(elems)
+    elseif tag == "shape" then
+        local fields = {}
+        for j, f in ipairs(t.fields) do
+            fields[
+                j
+            ] = {
+                name = f.name,
+                read = f.read and substWith(f.read, map, unmapped) or nil,
+                write = f.write and substWith(f.write, map, unmapped) or nil
+            }
+        end
+        return T.shape(
+            fields,
+            {
+                readKey = t.indexReadKey and substWith(t.indexReadKey, map, unmapped) or nil,
+                readValue = t.indexReadValue and substWith(t.indexReadValue, map, unmapped) or nil,
+                writeKey = t.indexWriteKey and substWith(t.indexWriteKey, map, unmapped) or nil,
+                writeValue = t.indexWriteValue and substWith(t.indexWriteValue, map, unmapped) or nil,
+            },
+            t.fresh
+        )
+    elseif tag == "union" then
+        local members: {Type} = {}
+        for j, m in ipairs(t.members) do
+            members[j] = substWith(m, map, unmapped)
+        end
+        return T.union(members)
+    elseif tag == "intersection" then
+        local members: {Type} = {}
+        for j, m in ipairs(t.members) do
+            members[j] = substWith(m, map, unmapped)
+        end
+        return T.intersection(members)
+    elseif tag == "neutral" then
+        if t.op == "comptimeCall" then
+            local arguments: {T.ComptimeArgument} = {}
+            for position, argument in ipairs(t.comptimeArguments or {}) do
+                if argument.kind == "type" then
+                    arguments[
+                        position
+                    ] = {kind = "type", value = substWith(argument.value, map, unmapped),} as T.ComptimeTypeArgument
+                elseif argument.kind == "typepack" then
+                    arguments[
+                        position
+                    ] = {
+                        kind = "typepack",
+                        value = substPackWith(argument.value, map, unmapped),
+                    } as T.ComptimePackArgument
+                else
+                    arguments[
+                        position
+                    ] = {kind = "const", value = substConst(argument.value, map),} as T.ComptimeConstArgument
+                end
+            end
+            return T.comptimeCall(
+                t.comptimeIdentity as string,
+                t.comptimeHelper,
+                arguments,
+                t.comptimeBound and substWith(t.comptimeBound, map, unmapped) or T.unknown,
+                t.comptimeResultPack
+            )
+        end
+        local innerMap = map
+        if t.binder then
+            innerMap = {}
+            for variable, replacement in pairs(map) do
+                innerMap[variable] = replacement
+            end
+            innerMap[t.binder] = t.binder
+        end
+        local templateParts = nil
+        if t.templateParts then
+            templateParts = {}
+            for j, part in ipairs(t.templateParts) do
+                templateParts[j] = type(part) == "string" and part or substWith(part as Type, map, unmapped)
+            end
+        end
+        local rebound = T.neutral(
+            t.op,
+            t.subject and substWith(t.subject, map, unmapped) or nil,
+            t.key and substWith(t.key, map, unmapped) or nil,
+            t.capability,
+            t.binder,
+            t.keys and substWith(t.keys, map, unmapped) or nil,
+            t.value and substWith(t.value, innerMap, unmapped) or nil,
+            t.remap and substWith(t.remap, innerMap, unmapped) or nil,
+            t.constTerm and substConst(t.constTerm, map) or nil,
+            templateParts
+        )
+        -- Rebuilt, never evaluated. Reducing here would be a second evaluation whose
+        -- observations nobody holds, which is how a gradual projection was consumed
+        -- before the caller's evaluation ever saw it.
+        return rebound
+    elseif tag == "typeHandle" then
+        return T.typeHandle(substWith(t.bound, map, unmapped))
+    elseif tag == "packResult" then
+        return T.packResult(substPackWith(t.pack, map, unmapped))
+    elseif tag == "ptr" then
+        return T.ptr(substWith(t.elem, map, unmapped))
+    elseif tag == "carray" then
+        local term = t.countTerm and substConst(t.countTerm, map) or nil
+        local count = t.count
+        if term then
+            local reduced = consteval.reduce(term)
+            term = reduced
+            if reduced.tag == "constLiteral" and reduced.domain == "integer" then
+                count = reduced.value as integer
+            end
+        end
+        return T.carray(substWith(t.elem, map, unmapped), count, term)
+    elseif tag == "const" then
+        return T.constOf(substWith(t.inner, map, unmapped))
+    elseif tag == "ctype" then
+        return T.ctype(substWith(t.of, map, unmapped))
+    elseif tag == "affine" then
+        local cleanups = {}
+        for j, cleanup in ipairs(t.cleanups or {}) do
+            cleanups[j] = substCleanup(cleanup, map, unmapped)
+        end
+        return T.affine(substWith(t.inner, map, unmapped), cleanups, t.transferOnly)
+    elseif tag == "borrowed" then
+        return T.borrowed(substWith(t.inner, map, unmapped))
+    elseif tag == "pinned" then
+        return T.pinned(substWith(t.inner, map, unmapped))
+    elseif tag == "metatable" then
+        return T.metatable(substWith(t.of, map, unmapped))
+    elseif tag == "typeobject" then
+        return T.typeObject(substWith(t.of, map, unmapped))
+    elseif tag == "protocolThread" then
+        return T.protocolThread(
+            substPackWith(t.startPack, map, unmapped),
+            substPackWith(t.resumePack, map, unmapped),
+            substPackWith(t.yieldPack, map, unmapped),
+            substPackWith(t.returnPack, map, unmapped)
+        )
+    elseif tag == "genericAlias" then
+        return substWith(t.body, map, unmapped)
+    elseif tag == "nominal" and t.origin then
+        local origin = t.origin as T.Nominal
+        local applied = {}
+        for j, parameter in ipairs(origin.typeParams or {}) do
+            local argument = t.typeArgs and t.typeArgs[j] or T.any
+            -- A module summary can materialize the enclosing function binder and
+            -- the binder stored in this nested nominal argument as separate tables.
+            -- Match that one argument by its serialized id before substituting it.
+            if argument.tag == "typevar" and not map[argument] then
+                for binder, replacement in pairs(map) do
+                    if binder.tag == "typevar" and binder.id == argument.id then
+                        argument = replacement
+                        break
+                    end
+                end
+            end
+            applied[parameter] = substWith(argument, map, unmapped)
+        end
+        for j, parameter in ipairs(origin.packParams or {}) do
+            local argument = t.packArgs and t.packArgs[j] or T.pack({}, {kind = "unknown", type = T.any})
+            applied[parameter] = substPackWith(argument, map, unmapped)
+        end
+        for j, parameter in ipairs(origin.constParams or {}) do
+            local argument = t.constArgs and t.constArgs[j] or parameter
+            applied[parameter] = substConst(argument, map)
+        end
+        return generics.instantiate(origin, applied)
+    elseif tag == "func" then
+        local paramPack = substPackWith(t.paramPack, map, unmapped)
+        local retPack = substPackWith(t.retPack, map, unmapped)
+        local params, rets = paramPack.head, retPack.head
+        local bounds: {Type}? = nil
+        if t.typeBounds then
+            bounds = {}
+            for j, b in ipairs(t.typeBounds) do
+                bounds[j] = substWith(b, map, unmapped)
+            end
+        end
+        return T.func(
+            params,
+            rets,
+            t.vararg,
+            t.paramModes,
+            t.predicate,
+            t.typeParams,
+            bounds,
+            t.borrowsParam,
+            t.borrowsSelf,
+            t.borrowsParams,
+            t.ffiOut,
+            t.varargType and substWith(t.varargType, map, unmapped) or nil,
+            t.noreturn,
+            paramPack,
+            retPack,
+            t.packParams,
+            t.yieldPack and substPackWith(t.yieldPack, map, unmapped) or nil,
+            t.resumePack and substPackWith(t.resumePack, map, unmapped) or nil,
+            -- Substitution changes what a function takes and answers, never whether
+            -- calling it may suspend. Dropping the qualifier here would silently
+            -- downgrade every generic call site to may-yield.
+            t.noYield,
+            t.paramNames,
+            t.preservesResults,
+            t.foreign,
+            t.constParams,
+            t.paramKinds,
+            t.partitionResults,
+            t.comptimeOnly,
+            t.explicitPreserves
+        )
+    end
+
+    return t
+end
+
+--- One projection, reduced as far as it goes.
+---
+--- Three answers rather than one. A gradual head makes the projection `any`, and says
+--- so, because that `any` is the feature declining to say anything rather than somebody
+--- writing `any`. A head that is still a binder, or a declaration that answers nothing
+--- of this name, leaves the projection standing -- that is what "opaque" means, and it
+--- is a normal form, not a failure. Only an answer reduces, and reducing it recurses,
+--- which is what makes this a fixed point rather than one hop.
+reduceProjection = function(head: Type, name: string, memo: ReductionMemo, budget: ReductionBudget): Type, string?
+    if head == T.any then
+        budget.gradual[#budget.gradual + 1] = name
+
+        return T.any
+    end
+    if head.tag == "union" then
+        -- Distributed: each alternative knows what it answers, so `(A | B).Item` is
+        -- `A.Item | B.Item`. Any alternative that does not reduce leaves the whole
+        -- projection standing, since the union would otherwise claim to know what one
+        -- of the values it holds does not say.
+        local arms: {Type} = {}
+        for _, member in ipairs((head as T.Union).members) do
+            local reducedArm = reduceProjection(member, name, memo, budget)
+            if reducedArm.tag == "projection" then
+                return T.projection(head, name)
+            end
+            arms[#arms + 1] = reducedArm
+        end
+
+        return T.union(arms)
+    end
+    if head.tag == "typevar" then
+        -- A binder bounded by a declaration nothing inherits from is that declaration:
+        -- a record cannot be extended, so `self` inside one, and `T is SomeRecord`,
+        -- have no refinement left to wait for. Bounded by an interface it stays
+        -- opaque, because an implementor may answer otherwise.
+        local bound = (head as T.TypeVar).bound
+        if bound and bound.tag == "nominal" and (bound as T.Nominal).declKind ~= "interface" then
+            return reduceProjection(bound, name, memo, budget)
+        end
+
+        return T.projection(head, name)
+    end
+    if head.tag ~= "nominal" then
+        return T.projection(head, name)
+    end
+    -- Deliberately not `nestedTypes`: a plain nested alias answers no contract, so a
+    -- private alias that happens to share a name with somebody's associated type is
+    -- not an answer and must not reduce one.
+    local answers = (head as T.Nominal).associatedAnswers
+    local entry = answers and answers[name] or nil
+    if not entry then
+        return T.projection(head, name)
+    end
+    if (head as T.Nominal).declKind == "interface" and entry.kind ~= "fixed" then
+        -- Opaque through an interface, whatever it says. What an interface answers is
+        -- a fallback for its implementors, and one of them may answer otherwise, so a
+        -- value known only as the interface cannot be said to answer it. This is the
+        -- same rule `associated.lookup` applies, and the two have to agree: a test
+        -- pins them together.
+        return T.projection(head, name)
+    end
+    local answer = entry.type
+    if entry.selfBinder then
+        -- `= self` means whatever answered, not whatever declared. An interface's
+        -- default is copied to every implementor, so the binder is rebound here --
+        -- against the head actually being projected -- rather than where it was
+        -- written. Rebinding, so the answer's other binders survive.
+        answer = generics.rebind(answer, {[entry.selfBinder] = head})
+    end
+    local key = head.id .. "." .. name
+    local label = T.tostring(head) .. "." .. name
+    if budget.active[key] then
+        -- Met twice on one chain. Record the loop from where it was entered and stop,
+        -- leaving the projection standing: `any` here would turn a program that cannot
+        -- be typed into one that silently checks.
+        if not budget.cycle then
+            local loop: {string} = {}
+            local keys: {string} = {}
+            local from = nil
+            for j, seen in ipairs(budget.path) do
+                if seen.key == key then
+                    from = j
+                    break
+                end
+            end
+            for j = from or #budget.path, #budget.path do
+                loop[#loop + 1] = budget.path[j].label
+                keys[#keys + 1] = budget.path[j].key
+            end
+            loop[#loop + 1] = label
+            table.sort(keys)
+            budget.cycle = loop
+            budget.cycleKeys = keys
+        end
+
+        return T.projection(head, name)
+    end
+    budget.active[key] = true
+    budget.path[#budget.path + 1] = {key = key, label = label}
+    -- Recursing with the state is what makes this a fixed point: an answer that is
+    -- itself a projection reduces here rather than being handed back half done.
+    -- Recursing through the evaluator, not through substitution: the answer may be a
+    -- match, a mapped type or an indexed member, and only one traversal sees all of it.
+    local reduced, err = normalize(answer, memo, budget)
+    budget.path[#budget.path] = nil
+    budget.active[key] = nil
+
+    return reduced, err
+end
+
+--- What normalizing produced.
+type generics.Normalized = {
+    --- The reduced type. A projection nothing could reduce is still that projection,
+    --- and one on a cycle is where the walk stopped -- never `any`.
+    type: Type,
+
+    --- Projections whose head was gradual, in the order met. Empty when none were.
+    gradual: {string},
+
+    --- The labels on a cycle, when the walk met one.
+    cycle: {string}?,
+
+    --- The identities of the members on it. A cycle is the set, not the order it was
+    --- entered from, so two entry points into one component are one fault.
+    cycleKeys: {string}?
+}
+
+--- Reduces every projection in `t` to a fixed point.
+---
+--- Separate from substitution on purpose. Substituting a head is what makes a
+--- projection reducible, and a constructor that reduced one hop would look like this
+--- and quietly not be it. Normalizing an already normalized type returns it unchanged.
+---
+--- @param t the type to reduce
+function generics.normalize(t: Type): generics.Normalized
+    local found = generics.evaluate(t)
+
+    return {type = found.type, gradual = found.gradual, cycle = found.cycle, cycleKeys = found.cycleKeys}
+end
+
+--- What normalizing a value sequence produced.
+type generics.NormalizedPack = {
+    pack: T.Pack,
+    gradual: {string},
+    cycle: {string}?
+}
+
+--- `generics.normalize` for a value sequence.
+function generics.normalizePack(pack: T.Pack): generics.NormalizedPack
+    local budget = newBudget(nil)
+    local memo: ReductionMemo = {}
+    local head: {Type} = {}
+    for j, value in ipairs(pack.head) do
+        head[j] = (normalize(value, memo, budget))
+    end
+    local tail = pack.tail
+    if tail and tail.kind == "homogeneous" then
+        tail = {kind = "homogeneous", type = (normalize(tail.type, memo, budget)), mode = tail.mode}
+    end
+
+    return {pack = T.pack(head, tail, pack.modes), gradual = budget.gradual, cycle = budget.cycle,}
+end
+
+--- Rebuilds `t` with the binders `map` names replaced, and every other binder left
+--- standing. This is what rebinding one thing among several means: `self` over an
+--- inherited member, a declaration's parameters over a member that also has its own.
+--- Using the materializing form for that erased the binders it was not rebinding, and
+--- a generic method quietly stopped inferring.
+---
+--- @param t the type to substitute into
+--- @param map what each binder stands for
+function generics.rebind(t: Type, map: Bindings): Type
+    return substWith(t, map, PRESERVE)
+end
+
+--- Rebuilds `t` with the binders `map` names replaced, and every binder it does not
+--- name filled with `any`. This is what a call site does once inference has run: a
+--- parameter nothing reached leaves the application gradual rather than leaking a
+--- binder into the caller.
+---
+--- @param t the type to substitute into
+--- @param map what inference worked out
+function generics.materialize(t: Type, map: Bindings): Type
+    return substWith(t, map, MATERIALIZE)
+end
+
+local MAX_MAPPED_FIELDS = 256
+local MAX_REDUCTION_VISITS = 4096
+
+local function literalKeys(t: Type): {T.Literal}?
+    if t == T.never then
+        return {}
+    end
+    if t.tag == "literal" and (t.base == T.string or t.base == T.integer) then
+        return {t}
+    end
+    if t.tag ~= "union" then
+        return nil
+    end
+    local out: {T.Literal} = {}
+    for _, member in ipairs(t.members) do
+        if member == T.never then
+            -- A distributed match with no result contributes no mapped keys.
+        elseif member.tag ~= "literal" or (member.base ~= T.string and member.base ~= T.integer) then
+            return nil
+        else
+            out[#out + 1] = member
+        end
+    end
+
+    return out
+end
+
+local function keyFits(key: Type, allowed: Type): boolean
+    if allowed == T.any then
+        return true
+    end
+    if key == allowed then
+        return true
+    end
+    if key.tag == "literal" then
+        if key.base == allowed then
+            return true
+        end
+        if allowed.tag == "union" then
+            for _, member in ipairs(allowed.members) do
+                if keyFits(key, member) then
+                    return true
+                end
+            end
+        end
+    end
+
+    return false
+end
+
+local type ReductionMemoEntry = {
+    type: Type,
+    error: string?
+}
+local type ReductionMemo = {[Type]: ReductionMemoEntry}
+type generics.ReductionControl = {
+    cancelled: (function(): boolean)?,
+    evaluateTypeFunction: (function(any, {any}): (Type | T.Pack | nil, any))?
+}
+
+--- One evaluation's state.
+---
+--- Neutral reduction and associated projection are one traversal because they nest:
+--- `T.Item.["name"]` needs the projection reduced before the member can be, an answer
+--- may itself be a match or a mapped type, a cycle may run through a neutral
+--- operation, and a projection erased to `any` may then be consumed by one. Two
+--- traversals would each see half of that.
+---
+--- The budget and cancellation belong to the neutral half; the observations below
+--- belong to the associated half, and a caller that wants them asks for the structured
+--- result rather than the bare type.
+local type ReductionBudget = {
+    visits: integer,
+    control: generics.ReductionControl?,
+
+    --- Projection answers being reduced, so a cycle is met once rather than followed.
+    active: {[string]: boolean},
+
+    --- The chain, innermost last, each entry carrying the identity it was keyed by as
+    --- well as what it displays: slicing a loop by identity is what keeps two
+    --- declarations that show one name from reporting each other's cycle.
+    path: {{
+        key: string,
+        label: string
+    }},
+
+    --- Projections whose head reduced to `any`, in the order met. What later tells a
+    --- lint that the `any` came from a projection rather than from somebody writing
+    --- one -- and it has to survive a neutral operation consuming the result.
+    gradual: {string},
+
+    --- The labels on a cycle, once one is found, and the identities on it.
+    cycle: {string}?,
+    cycleKeys: {string}?
+}
+
+--- A fresh evaluation state.
+newBudget = function(control: generics.ReductionControl?): ReductionBudget
+    return {visits = 0, control = control, active = {}, path = {}, gradual = {},}
+end
+
+--- Whether an operand still blocks the operation over it.
+---
+--- A binder whose input is unknown, another neutral term, and a surviving projection
+--- are the same situation: nothing here can say what the operand is yet. A projection
+--- that lasted through operand normalization is opaque or on a cycle, and either way
+--- the operation stays neutral rather than asking a surface it has no business asking
+--- and reporting an unrelated failure.
+local function blocked(t: Type): boolean
+    return T.hasTypevar(t) or t.tag == "neutral" or t.tag == "projection"
+end
+
+local function reduceKeyof(t: T.Neutral, memo: ReductionMemo, budget: ReductionBudget): Type, string?
+    local subject, err = normalize(t.subject as Type, memo, budget)
+    if err then
+        return T.any, err
+    end
+    local surfaceSubject = subject
+    if subject.tag == "typevar" and subject.bound then
+        surfaceSubject, err = normalize(subject.bound, memo, budget)
+        if err then
+            return T.any, err
+        end
+    elseif blocked(subject) then
+        return T.neutral("keyof", subject, nil, t.capability), nil
+    end
+    if surfaceSubject == T.any then
+        return T.any
+    elseif surfaceSubject == T.unknown then
+        return T.any, "unknown has no known member keys"
+    elseif surfaceSubject == T.never then
+        return T.never
+    end
+    local surface = members.view(surfaceSubject)
+    local keys = {}
+    for _, entry in ipairs(surface.ordered) do
+        if t.capability == "write" and entry.writeType or t.capability ~= "write" and entry.readType then
+            keys[#keys + 1] = T.literal(entry.name, T.string)
+        end
+    end
+    local indexer = t.capability == "write" and surface.writeIndexer or surface.readIndexer
+    if indexer then
+        keys[#keys + 1] = indexer.keyType
+    end
+
+    return #keys > 0 and T.union(keys) or T.never
+end
+
+local function reduceMember(t: T.Neutral, memo: ReductionMemo, budget: ReductionBudget): Type, string?
+    local subject, subjectErr = normalize(t.subject as Type, memo, budget)
+    if subjectErr then
+        return T.any, subjectErr
+    end
+    local key, keyErr = normalize(t.key as Type, memo, budget)
+    if keyErr then
+        return T.any, keyErr
+    end
+    if blocked(subject) or blocked(key) then
+        return T.neutral("member", subject, key, t.capability), nil
+    end
+    if subject == T.any or key == T.any then
+        return T.any
+    elseif subject == T.unknown then
+        return T.any, "unknown has no known members"
+    elseif subject == T.never or key == T.never then
+        return T.never
+    end
+    local keys = literalKeys(key)
+    if not keys then
+        return T.any, "indexed member key must be a finite union of literal keys"
+    end
+    local surface = members.view(subject)
+    local values = {}
+    for _, literal in ipairs(keys) do
+        local entry = literal.base == T.string and surface.byname[tostring(literal.constant)] or nil
+        local value = entry and (t.capability == "write" and entry.writeType or entry.readType) or nil
+        if not value then
+            local indexer = t.capability == "write" and surface.writeIndexer or surface.readIndexer
+            if indexer and keyFits(literal, indexer.keyType) then
+                value = indexer.valueType
+            end
+        end
+        if not value then
+            return T.any, (
+                "member %q has no %s capability"
+            ):format(tostring(literal.constant), t.capability == "write" and "write" or "read")
+        end
+        values[#values + 1] = value
+    end
+    if #values == 0 then
+        return T.never
+    end
+
+    return t.capability == "write" and T.intersection(values) or T.union(values)
+end
+
+local function reduceMapped(t: T.Neutral, memo: ReductionMemo, budget: ReductionBudget): Type, string?
+    local keysType, err = normalize(t.keys as Type, memo, budget)
+    if err then
+        return T.any, err
+    end
+    if blocked(keysType) then
+        return T.neutral("mapped", nil, nil, t.capability, t.binder, keysType, t.value, t.remap), nil
+    end
+    local keys = literalKeys(keysType)
+    if not keys then
+        return T.any, "mapped keys must be a finite union of string or integer literals"
+    end
+    if #keys > MAX_MAPPED_FIELDS then
+        return T.any, ("mapped shape has %d fields; limit is %d"):format(#keys, MAX_MAPPED_FIELDS)
+    end
+    local fields, seen = {}, {}
+    for _, key in ipairs(keys) do
+        local name = tostring(key.constant)
+        local dropped = false
+        if t.remap then
+            local remapped = substWith(t.remap, {[t.binder] = key}, PRESERVE)
+            local reducedRemap, remapError = normalize(remapped, memo, budget)
+            if remapError then
+                return T.any, remapError
+            end
+            if reducedRemap == T.never then
+                dropped = true
+            elseif reducedRemap.tag ~= "literal" or reducedRemap.base ~= T.string then
+                return T.any, "mapped key remap must reduce to a string literal or never"
+            else
+                name = reducedRemap.constant as string
+            end
+        end
+        if not dropped then
+            if seen[name] then
+                return T.any, ("mapped key %q is duplicated"):format(name)
+            end
+            seen[name] = true
+            local value = substWith(t.value as Type, {[t.binder] = key}, PRESERVE)
+            local reduced, valueErr = normalize(value, memo, budget)
+            if valueErr then
+                return T.any, valueErr
+            end
+            fields[
+                #fields + 1
+            ] = {
+                name = name,
+                read = t.capability == "read" and reduced or nil,
+                write = t.capability == "write" and reduced or nil
+            }
+        end
+    end
+
+    return T.shape(fields)
+end
+
+local function templateAlternatives(t: Type): {string}?
+    if t.tag == "literal" and t.base == T.string then
+        return {t.constant as string}
+    end
+    if t.tag ~= "union" then
+        return nil
+    end
+    local out = {}
+    for _, member in ipairs(t.members) do
+        if member.tag ~= "literal" or member.base ~= T.string then
+            return nil
+        end
+        out[#out + 1] = member.constant as string
+    end
+
+    return out
+end
+
+local function reduceTemplate(t: T.Neutral, memo: ReductionMemo, budget: ReductionBudget): Type, string?
+    local products = {""}
+    for _, part in ipairs(t.templateParts or {}) do
+        if type(part) == "string" then
+            for j = 1, #products do
+                products[j] = products[j] .. (part as string)
+            end
+        else
+            local reduced, err = normalize(part as Type, memo, budget)
+            if err then
+                return T.any, err
+            end
+            if reduced == T.any then
+                return T.string
+            end
+            if T.hasTypevar(reduced) or reduced.tag == "neutral" then
+                return T.neutral("template", nil, nil, nil, nil, nil, nil, nil, nil, t.templateParts), nil
+            end
+            local alternatives = templateAlternatives(reduced)
+            if not alternatives then
+                return T.any, "template holes must reduce to finite string literals"
+            end
+            if #products * #alternatives > MAX_MAPPED_FIELDS then
+                return T.any, ("template product exceeds %d members"):format(MAX_MAPPED_FIELDS)
+            end
+            local expanded = {}
+            for _, prefix in ipairs(products) do
+                for _, suffix in ipairs(alternatives) do
+                    expanded[#expanded + 1] = prefix .. suffix
+                end
+            end
+            products = expanded
+        end
+    end
+    local out = {}
+    for j, value in ipairs(products) do
+        out[j] = T.literal(value, T.string)
+    end
+
+    return T.union(out)
+end
+
+--- Appends a computed tuple to a fixed prefix. `{never}` is the canonical empty
+--- sequence because an array whose element type is uninhabited can contain no values.
+local function reduceTupleConcat(t: T.Neutral, memo: ReductionMemo, budget: ReductionBudget): Type, string?
+    local prefix, prefixError = normalize(t.subject as Type, memo, budget)
+    if prefixError then
+        return T.any, prefixError
+    end
+    local tail, tailError = normalize(t.key as Type, memo, budget)
+    if tailError then
+        return T.any, tailError
+    end
+    if prefix.tag ~= "tuple" then
+        return T.any, "tuple unpack prefix did not reduce to a tuple"
+    end
+    if tail.tag == "tuple" then
+        local elems = {}
+        for _, elem in ipairs(prefix.elems) do
+            elems[#elems + 1] = elem
+        end
+        for _, elem in ipairs(tail.elems) do
+            elems[#elems + 1] = elem
+        end
+        return T.tuple(elems)
+    end
+    if tail.tag == "array" and tail.elem == T.never then
+        return prefix
+    end
+    if T.hasTypevar(tail) or tail.tag == "neutral" then
+        return T.neutral("tupleConcat", prefix, tail)
+    end
+
+    return T.any, ("tuple unpack must reduce to a tuple, got %s"):format(T.tostring(tail))
+end
+
+local normalizeReductionPack: function(T.Pack, ReductionMemo, ReductionBudget): (T.Pack, string?)
+normalizeReductionPack = function(pack, memo, budget)
+    if pack.alternatives then
+        local alternatives = {}
+        for j, alternative in ipairs(pack.alternatives) do
+            local err
+            alternatives[j], err = normalizeReductionPack(alternative, memo, budget)
+            if err then
+                return pack, err
+            end
+        end
+        return T.packUnion(alternatives)
+    end
+    local head = {}
+    for j, member in ipairs(pack.head) do
+        local err
+        head[j], err = normalize(member, memo, budget)
+        if err then
+            return pack, err
+        end
+    end
+    local tail = pack.tail
+    if tail and tail.kind == "homogeneous" then
+        local reduced, err = normalize(tail.type, memo, budget)
+        if err then
+            return pack, err
+        end
+        tail = {kind = "homogeneous", type = reduced, mode = tail.mode}
+    elseif tail and tail.kind == "computed" then
+        local reduced, err = normalize(tail.type, memo, budget)
+        if err then
+            return pack, err
+        end
+        tail = {kind = "computed", type = reduced}
+    end
+
+    return T.pack(head, tail, pack.modes)
+end
+
+normalize = function(t: Type, memo: ReductionMemo, budget: ReductionBudget): Type, string?
+    budget.visits = budget.visits + 1
+    if budget.control and budget.control.cancelled and budget.visits % 32 == 0 and budget.control.cancelled() then
+        return T.any, "type reduction cancelled"
+    end
+    if budget.visits > MAX_REDUCTION_VISITS then
+        return T.any, ("finite type reduction exceeded %d visited nodes"):format(MAX_REDUCTION_VISITS)
+    end
+    local cached = memo and memo[t]
+    if cached then
+        return cached.type, cached.error
+    end
+
+    local out, err = t, nil
+    if t.tag == "projection" then
+        -- Beside the neutral operations rather than in a traversal of its own: an
+        -- answer may be a match or a mapped type, and `T.Item.["name"]` is a neutral
+        -- member over a projection. One evaluator sees both.
+        local head, headErr = normalize(t.of, memo, budget)
+        if headErr then
+            out, err = T.any, headErr
+        else
+            out, err = reduceProjection(head, t.name, memo, budget)
+        end
+    elseif t.tag == "typeHandle" then
+        local bound
+        bound, err = normalize(t.bound, memo, budget)
+        if not err then
+            out = T.typeHandle(bound)
+        end
+    elseif t.tag == "packResult" then
+        local pack
+        pack, err = normalizeReductionPack(t.pack, memo, budget)
+        if not err then
+            out = T.packResult(pack)
+        end
+    elseif t.tag == "neutral" then
+        if t.op == "comptimeCall" then
+            local arguments, open = {}, false
+            for position, argument in ipairs(t.comptimeArguments or {}) do
+                if argument.kind == "type" then
+                    local reduced
+                    reduced, err = normalize(argument.value, memo, budget)
+                    if err then
+                        break
+                    end
+                    arguments[position] = {kind = "type", value = reduced}
+                    open = open or T.hasTypevar(reduced) or T.hasProjection(reduced) or reduced.tag == "neutral"
+                elseif argument.kind == "typepack" then
+                    local reduced
+                    reduced, err = normalizeReductionPack(argument.value, memo, budget)
+                    if err then
+                        break
+                    end
+                    arguments[position] = {kind = "typepack", value = reduced}
+                    local wrapped = T.packResult(reduced)
+                    open = open or T.hasTypevar(wrapped) or T.hasProjection(wrapped)
+                    for _, member in ipairs(reduced.head or {}) do
+                        open = open or member.tag == "neutral"
+                    end
+                else
+                    local reduced
+                    reduced, err = consteval.reduce(argument.value)
+                    if err then
+                        break
+                    end
+                    if reduced.tag == "constLiteral" and reduced.domain == "function" then
+                        arguments[position] = {kind = "const", value = reduced}
+                    else
+                        arguments[
+                            position
+                        ] = {kind = "value", value = reduced.tag == "constLiteral" and reduced.value or reduced}
+                    end
+                    open = open or reduced.tag ~= "constLiteral"
+                end
+            end
+            if not err and open then
+                local rebound = {}
+                for position, argument in ipairs(arguments) do
+                    if argument.kind == "type" or argument.kind == "typepack" then
+                        rebound[position] = argument
+                    else
+                        rebound[position] = {kind = "const", value = argument.value}
+                    end
+                end
+                out = T.comptimeCall(
+                    t.comptimeIdentity as string,
+                    t.comptimeHelper,
+                    rebound,
+                    t.comptimeBound,
+                    t.comptimeResultPack
+                )
+            elseif not err and budget.control and budget.control.evaluateTypeFunction then
+                local failure
+                local evaluated: Type | T.Pack | nil
+                evaluated, failure = budget.control.evaluateTypeFunction(t.comptimeHelper, arguments)
+                if evaluated then
+                    out = evaluated.tag == "pack" and T.packResult(evaluated) or evaluated
+                else
+                    err = failure and failure.message or tostring(failure or "type-function evaluation failed")
+                end
+                if not err and out and not t.comptimeResultPack and t.comptimeBound then
+                    local relations = require(
+                        "nupp.compiler.relations"
+                    ) as {isA: function(Type, Type): (boolean, string?)}
+                    local fits, why = relations.isA(out, t.comptimeBound)
+                    if not fits then
+                        err = "generated type violates its declared result bound: " .. (why or "not satisfied")
+                        out = T.any
+                    end
+                end
+            elseif not err then
+                out = t
+            end
+        elseif t.op == "singleton" then
+            local term
+            term, err = consteval.reduce(t.constTerm as T.ConstTerm)
+            out = not err and consteval.singleton(term) or T.any
+        elseif t.op == "keyof" then
+            out, err = reduceKeyof(t, memo, budget)
+        elseif t.op == "member" then
+            out, err = reduceMember(t, memo, budget)
+        elseif t.op == "mapped" then
+            out, err = reduceMapped(t, memo, budget)
+        elseif t.op == "template" then
+            out, err = reduceTemplate(t, memo, budget)
+        elseif t.op == "tupleConcat" then
+            out, err = reduceTupleConcat(t, memo, budget)
+        else
+            err = "unknown type reduction operation " .. string.format("%q", t.op)
+            out = T.any
+        end
+
+    elseif t.tag == "union" or t.tag == "intersection" then
+        local parts = {}
+        for j, member in ipairs(t.members) do
+            parts[j], err = normalize(member, memo, budget)
+            if err then
+                break
+            end
+        end
+        if not err then
+            out = t.tag == "union" and T.union(parts) or T.intersection(parts)
+        end
+    elseif t.tag == "array" then
+        local elem
+        elem, err = normalize(t.elem, memo, budget)
+        if not err then
+            out = T.array(elem)
+        end
+    elseif t.tag == "map" then
+        local readKey, readValue, writeKey, writeValue = nil, nil, nil, nil
+        if t.readable then
+            readKey, err = normalize(t.key, memo, budget)
+        end
+        if not err and t.readable then
+            readValue, err = normalize(t.value, memo, budget)
+        end
+        if not err and t.writeKey then
+            writeKey, err = normalize(t.writeKey, memo, budget)
+        end
+        if not err and t.writeValue then
+            writeValue, err = normalize(t.writeValue, memo, budget)
+        end
+        if not err then
+            out = T.indexer(readKey, readValue, writeKey, writeValue)
+        end
+    elseif t.tag == "tuple" then
+        local elems = {}
+        for j, elem in ipairs(t.elems) do
+            elems[j], err = normalize(elem, memo, budget)
+            if err then
+                break
+            end
+        end
+        if not err then
+            out = T.tuple(elems)
+        end
+    elseif t.tag == "ptr" then
+        local elem
+        elem, err = normalize(t.elem, memo, budget)
+        if not err then
+            out = T.ptr(elem)
+        end
+    elseif t.tag == "carray" then
+        local elem
+        elem, err = normalize(t.elem, memo, budget)
+        local count, term = t.count, t.countTerm
+        if not err and term then
+            term, err = consteval.reduce(term)
+            if not err and term.tag == "constLiteral" then
+                if term.domain ~= "integer" or (term.value as integer) < 0 then
+                    err = "C array length must be a non-negative integer const"
+                else
+                    count = term.value as integer
+                end
+            end
+        end
+        if not err then
+            out = T.carray(elem, count, term)
+        end
+    elseif t.tag == "const" then
+        local inner
+        inner, err = normalize(t.inner, memo, budget)
+        if not err then
+            out = T.constOf(inner)
+        end
+    elseif t.tag == "affine" or t.tag == "borrowed" or t.tag == "pinned" then
+        local inner
+        inner, err = normalize(t.inner, memo, budget)
+        if not err then
+            if t.tag == "affine" then
+                out = T.affine(inner, t.cleanups, t.transferOnly)
+            elseif t.tag == "borrowed" then
+                out = T.borrowed(inner)
+            else
+                out = T.pinned(inner)
+            end
+        end
+    elseif t.tag == "ctype" then
+        local inner
+        inner, err = normalize(t.of, memo, budget)
+        if not err then
+            out = T.ctype(inner)
+        end
+    elseif t.tag == "metatable" then
+        local inner
+        inner, err = normalize(t.of, memo, budget)
+        if not err then
+            out = T.metatable(inner)
+        end
+    elseif t.tag == "typeobject" then
+        local inner
+        inner, err = normalize(t.of, memo, budget)
+        if not err then
+            out = T.typeObject(inner)
+        end
+    elseif t.tag == "func" then
+        -- A signature is a place a projection or a neutral operation can sit, so the
+        -- evaluator goes through one. The packs are the authoritative sequences, and
+        -- every other field is carried across: a rebuilt signature that forgot one has
+        -- quietly changed how it is called.
+        local paramPack, paramErr = normalizeReductionPack(t.paramPack, memo, budget)
+        local retPack, retErr = normalizeReductionPack(t.retPack, memo, budget)
+        err = err or paramErr or retErr
+        local changed = paramPack ~= t.paramPack or retPack ~= t.retPack
+        local varargType = t.varargType
+        if varargType then
+            local reduced, varargErr = normalize(varargType, memo, budget)
+            err = err or varargErr
+            changed = changed or reduced ~= varargType
+            varargType = reduced
+        end
+        local bounds = t.typeBounds
+        if bounds then
+            local reducedBounds: {Type} = {}
+            for j, bound in ipairs(bounds) do
+                local reduced, boundErr = normalize(bound, memo, budget)
+                err = err or boundErr
+                reducedBounds[j] = reduced
+                changed = changed or reduced ~= bound
+            end
+            bounds = reducedBounds
+        end
+        local yieldPack, resumePack = t.yieldPack, t.resumePack
+        if yieldPack then
+            local reduced, yieldErr = normalizeReductionPack(yieldPack, memo, budget)
+            err = err or yieldErr
+            changed = changed or reduced ~= yieldPack
+            yieldPack = reduced
+        end
+        if resumePack then
+            local reduced, resumeErr = normalizeReductionPack(resumePack, memo, budget)
+            err = err or resumeErr
+            changed = changed or reduced ~= resumePack
+            resumePack = reduced
+        end
+        if changed then
+            out = T.func(
+                paramPack.head,
+                retPack.head,
+                t.vararg,
+                t.paramModes,
+                t.predicate,
+                t.typeParams,
+                bounds,
+                t.borrowsParam,
+                t.borrowsSelf,
+                t.borrowsParams,
+                t.ffiOut,
+                varargType,
+                t.noreturn,
+                paramPack,
+                retPack,
+                t.packParams,
+                yieldPack,
+                resumePack,
+                t.noYield,
+                t.paramNames,
+                t.preservesResults,
+                t.foreign,
+                t.constParams,
+                t.paramKinds,
+                t.partitionResults,
+                t.comptimeOnly,
+                t.explicitPreserves
+            )
+        end
+    elseif t.tag == "shape" then
+        local fields = {}
+        for j, field in ipairs(t.fields) do
+            local read, write = nil, nil
+            if field.read then
+                read, err = normalize(field.read, memo, budget)
+            end
+            if not err and field.write then
+                write, err = normalize(field.write, memo, budget)
+            end
+            fields[j] = {name = field.name, read = read, write = write}
+            if err then
+                break
+            end
+        end
+        local readKey, readValue, writeKey, writeValue = t.indexReadKey, t.indexReadValue, t.indexWriteKey, t.indexWriteValue
+        if not err and readKey then
+            readKey, err = normalize(readKey, memo, budget)
+        end
+        if not err and readValue then
+            readValue, err = normalize(readValue, memo, budget)
+        end
+        if not err and writeKey then
+            writeKey, err = normalize(writeKey, memo, budget)
+        end
+        if not err and writeValue then
+            writeValue, err = normalize(writeValue, memo, budget)
+        end
+        if not err then
+            out = T.shape(
+                fields,
+                {readKey = readKey, readValue = readValue, writeKey = writeKey, writeValue = writeValue,},
+                t.fresh
+            )
+        end
+    end
+    -- Failures can depend on the caller's remaining recursion budget or cancellation
+    -- state.  Only successful normal forms are revision-memoized.
+    if memo and not err then
+        memo[t] = {type = out, error = err}
+    end
+
+    return out, err
+end
+
+--- Rebinds the supplied arguments and then normalizes every decidable neutral term.
+--- The memo belongs to one checker/project revision; callers must not share it through
+--- the process-global type arena.
+--- What one evaluation produced: the type, the neutral reducer's error, and what the
+--- associated half observed on the way.
+---
+--- The observations have to come from the same evaluation as the type. A projection
+--- erased to `any` and then consumed by a neutral operation is still an erasure, and a
+--- caller handed only the reduced type could not know it happened.
+type generics.Evaluated = {
+    type: Type,
+    error: string?,
+    gradual: {string},
+    cycle: {string}?,
+    cycleKeys: {string}?
+}
+
+--- `generics.evaluate` for a value sequence.
+---
+--- A pack is the authoritative sequence at a call, so it is evaluated once, as a pack,
+--- and its observations come back with it. Evaluating the scalar views instead and
+--- then taking the pack's heads would discard whatever the tail said.
+type generics.EvaluatedPack = {
+    pack: T.Pack,
+    error: string?,
+    gradual: {string},
+    cycle: {string}?
+}
+
+function generics.evaluatePack(pack: T.Pack, control: generics.ReductionControl?): generics.EvaluatedPack
+    local budget = newBudget(control)
+    local reduced, err = normalizeReductionPack(pack, {}, budget)
+
+    return {pack = reduced, error = err, gradual = budget.gradual, cycle = budget.cycle}
+end
+
+--- Reduces `t` and reports everything the evaluation saw.
+---
+--- @param t the type to reduce
+--- @param map what each binder stands for, when rebinding first
+--- @param control cancellation for the neutral half
+function generics.evaluate(t: Type, map: Bindings?, control: generics.ReductionControl?): generics.Evaluated
+    local budget = newBudget(control)
+    local rebound = map and substWith(t, map, PRESERVE) or t
+    local reduced, err = normalize(rebound, {}, budget)
+
+    return {type = reduced, error = err, gradual = budget.gradual, cycle = budget.cycle, cycleKeys = budget.cycleKeys,}
+end
+
+function generics.reduce(
+    t: Type,
+    map: Bindings?,
+    memo: ReductionMemo?,
+    control: generics.ReductionControl?
+): Type, string?
+    local rebound = substWith(t, map or {}, PRESERVE)
+
+    return normalize(rebound, memo or {}, newBudget(control))
+end
+
+--- `generics.rebind` for a value sequence.
+function generics.rebindPack(pack: T.Pack, map: Bindings): T.Pack
+    return substPackWith(pack, map, PRESERVE)
+end
+
+--- `generics.materialize` for a value sequence.
+function generics.materializePack(pack: T.Pack, map: Bindings): T.Pack
+    return substPackWith(pack, map, MATERIALIZE)
+end
+
+--- Resolves a computed tail after its dependencies have been substituted. Tuples add
+--- fixed slots, arrays become a homogeneous tail, and an undecidable type stays
+--- gradual so a signature can retain its dynamic fallback.
+function generics.expandComputedPack(pack: T.Pack, control: generics.ReductionControl?): T.Pack, string?
+    local tail = pack.tail
+    if not tail or tail.kind ~= "computed" then
+        return pack
+    end
+    local computed, reductionError = generics.reduce(tail.type, nil, nil, control)
+    if reductionError then
+        return pack, "unpackof could not reduce its type: " .. reductionError
+    end
+    if computed.tag == "tuple" then
+        local head, modes = {}, {}
+        for j, value in ipairs(pack.head) do
+            head[j], modes[j] = value, pack.modes[j] or "plain"
+        end
+        for _, value in ipairs(computed.elems) do
+            head[#head + 1], modes[#modes + 1] = value, "plain"
+        end
+        return T.pack(head, nil, modes)
+    end
+    if computed.tag == "array" then
+        if computed.elem == T.never then
+            return T.pack(pack.head, nil, pack.modes)
+        end
+        return T.pack(pack.head, {kind = "homogeneous", type = computed.elem}, pack.modes)
+    end
+    if computed.tag == "packResult" then
+        local head, modes = {}, {}
+        for position, value in ipairs(pack.head) do
+            head[position], modes[position] = value, pack.modes[position] or "plain"
+        end
+        for position, value in ipairs(computed.pack.head) do
+            head[#head + 1], modes[#modes + 1] = value, computed.pack.modes[position] or "plain"
+        end
+        return T.pack(head, computed.pack.tail, modes)
+    end
+    if computed == T.any or computed == T.unknown or computed.tag == "neutral" or computed.tag == "typevar" then
+        return T.pack(pack.head, {kind = "unknown", type = T.any}, pack.modes)
+    end
+
+    return pack, ("unpackof type must reduce to a tuple or array, got %s"):format(T.tostring(computed))
+end
+
+--- The parameter types a callable offers an argument list, with a computed tail
+--- expanded first. A parameter an argument list leaves unannotated takes its type
+--- from here, and `...: unpackof F(T)` names one as much as a written type does. A
+--- tail that cannot reduce yet leaves the fixed head alone, which is what a
+--- signature still holding a binder already meant.
+function generics.expectedParameters(t: T.Func, control: generics.ReductionControl?): {Type}
+    local expanded, problem = generics.expandComputedPack(t.paramPack, control)
+    if problem then
+        return t.params
+    end
+
+    return expanded.head
+end
+
+--- Expands a signature's computed packs, so whoever reads it sees the parameters the
+--- call will actually be made with. A signature without a computed tail comes back
+--- unchanged, and a tail that cannot reduce yet leaves the signature as it stands: the
+--- gradual fallback is the answer while a binder is still open, not a failure.
+function generics.expandFunctionPacks(t: T.Func, control: generics.ReductionControl?): T.Func, string?
+    local paramTail, retTail = t.paramPack.tail, t.retPack.tail
+    if (not paramTail or paramTail.kind ~= "computed") and (not retTail or retTail.kind ~= "computed") then
+        return t
+    end
+    local paramPack, packError = generics.expandComputedPack(t.paramPack, control)
+    if packError then
+        return t, packError
+    end
+    local retPack
+    retPack, packError = generics.expandComputedPack(t.retPack, control)
+    if packError then
+        return t, packError
+    end
+    if paramPack == t.paramPack and retPack == t.retPack then
+        return t
+    end
+
+    return T.func(
+        paramPack.head,
+        retPack.head,
+        paramPack.tail ~= nil,
+        paramPack.modes,
+        t.predicate,
+        t.typeParams,
+        t.typeBounds,
+        t.borrowsParam,
+        t.borrowsSelf,
+        t.borrowsParams,
+        t.ffiOut,
+        t.varargType,
+        t.noreturn,
+        paramPack,
+        retPack,
+        t.packParams,
+        t.yieldPack,
+        t.resumePack,
+        t.noYield,
+        t.paramNames,
+        t.preservesResults,
+        t.foreign,
+        t.constParams,
+        t.paramKinds,
+        t.partitionResults,
+        t.comptimeOnly,
+        t.explicitPreserves,
+        t.sendable
+    ) as T.Func
+end
+
+--- Instantiates a generic function as one monomorphic callable. This is used when a
+--- universally generic function value is assigned to a concrete function type; the
+--- target signature supplies the arguments that an ordinary call would have supplied.
+function generics.instantiateFunction(t: T.Func, map: Bindings, control: generics.ReductionControl?): T.Func, string?
+    local evaluated = generics.evaluate(substWith(t, map, MATERIALIZE), nil, control)
+    local concrete = evaluated.type
+    if evaluated.error then
+        return t, evaluated.error
+    end
+    if concrete.tag ~= "func" then
+        return t
+    end
+
+    local paramPack, packError = generics.expandComputedPack(concrete.paramPack, control)
+    if packError then
+        return concrete, packError
+    end
+    local retPack
+    retPack, packError = generics.expandComputedPack(concrete.retPack, control)
+    if packError then
+        return concrete, packError
+    end
+
+    return T.func(
+        paramPack.head,
+        retPack.head,
+        paramPack.tail ~= nil,
+        paramPack.modes,
+        concrete.predicate,
+        nil,
+        nil,
+        concrete.borrowsParam,
+        concrete.borrowsSelf,
+        concrete.borrowsParams,
+        concrete.ffiOut,
+        concrete.varargType,
+        concrete.noreturn,
+        paramPack,
+        retPack,
+        nil,
+        concrete.yieldPack,
+        concrete.resumePack,
+        concrete.noYield,
+        concrete.paramNames,
+        concrete.preservesResults,
+        concrete.foreign,
+        nil,
+        nil,
+        concrete.partitionResults,
+        concrete.comptimeOnly,
+        concrete.explicitPreserves
+    ) as T.Func
+end
+
+--- Structurally matches an actual value sequence against a declared pack.
+function generics.unifyPack(param: T.Pack, arg: T.Pack, map: Bindings): nil
+    if param.alternatives then
+        for _, arm in ipairs(param.alternatives) do
+            generics.unifyPack(arm, arg, map)
+        end
+        return
+    end
+    for j, expected in ipairs(param.head) do
+        generics.unify(expected, T.packAt(arg, j) or T.nil_, map)
+    end
+    local tail = param.tail
+    if not tail then
+        return
+    end
+    if tail.kind == "generic" then
+        local rest, modes = {}, {}
+        for j = #param.head + 1, #arg.head do
+            rest[#rest + 1] = arg.head[j]
+            modes[#modes + 1] = arg.modes[j] or "plain"
+        end
+        local actualTail = #param.head < #arg.head and arg.tail or arg.tail
+        local remaining = T.pack(rest, actualTail, modes)
+        local prior = map[tail.var]
+        if prior then
+            for j, value in ipairs(remaining.head) do
+                generics.unify(T.packAt(prior, j) or T.nil_, value, map)
+            end
+        else
+            map[tail.var] = remaining
+        end
+    elseif tail.kind == "homogeneous" then
+        for j = #param.head + 1, #arg.head do
+            generics.unify(tail.type, arg.head[j], map)
+        end
+        if arg.tail and arg.tail.kind == "homogeneous" then
+            generics.unify(tail.type, arg.tail.type, map)
+        end
+    end
+end
+
+-- Applying type arguments to a generic declaration yields a distinct nominal whose
+-- fields are substituted. Identical arguments give the identical type, so the
+-- instantiations are kept rather than rebuilt.
+local instantiations: {[string]: T.Nominal} = {}
+local fillingInstantiations: {[string]: boolean} = {}
+
+--- Copies the declaration's current member surface onto an instantiation. A generic
+--- can instantiate itself while its declaration is still being populated; revisiting
+--- that cached identity must therefore pick up members declared afterward.
+local function fillInstantiationMembers(inst: T.Nominal, declaration: T.Nominal, map: Bindings)
+    for name, ft in pairs(declaration.byname) do
+        inst.byname[name] = substWith(ft, map, PRESERVE)
+    end
+    for name, ft in pairs(declaration.writeByname or {}) do
+        inst.writeByname[name] = substWith(ft, map, PRESERVE)
+    end
+    for name, ft in pairs(declaration.staticByname or {}) do
+        inst.staticByname[name] = substWith(ft, map, PRESERVE)
+    end
+    for name, ft in pairs(declaration.staticWriteByname or {}) do
+        inst.staticWriteByname[name] = substWith(ft, map, PRESERVE)
+    end
+    for name, ft in pairs(declaration.metamethods or {}) do
+        inst.metamethods[name] = substWith(ft, map, PRESERVE)
+    end
+end
+
+--- The nominal `n` stands for once its parameters hold `map`.
+---
+--- @param n the generic declaration
+--- @param map what each binder stands for
+function generics.instantiate(n: T.Nominal, map: Bindings): T.Nominal
+    local parts = {n.id}
+    for _, tv in ipairs(n.typeParams or {}) do
+        parts[#parts + 1] = "type:" .. (map[tv] or T.any).id
+    end
+    for _, pv in ipairs(n.packParams or {}) do
+        local argument = map[pv] as T.Pack?
+        parts[#parts + 1] = "pack:" .. (argument and argument.id or "unbound")
+    end
+    for _, cv in ipairs(n.constParams or {}) do
+        local value = map[cv] as T.ConstTerm?
+        parts[#parts + 1] = "const:" .. (value and value.id or "unbound")
+    end
+    local key = table.concat(parts, "|")
+    local cached = instantiations[key]
+    if cached then
+        if not fillingInstantiations[key] then
+            fillingInstantiations[key] = true
+            fillInstantiationMembers(cached, n, map)
+            fillingInstantiations[key] = nil
+        end
+        return cached
+    end
+    local inst = T.nominal(n.name, n.declKind)
+    inst.origin = n
+    inst.lpegPattern = n.lpegPattern
+    inst.lpegLibrary = n.lpegLibrary
+    inst.lpegPatternOrigin = n.lpegPatternOrigin
+    inst.typeArgs = {}
+    for j, tv in ipairs(n.typeParams or {}) do
+        inst.typeArgs[j] = map[tv] or T.any
+    end
+    inst.packArgs = {}
+    for j, pv in ipairs(n.packParams or {}) do
+        inst.packArgs[j] = map[pv] as T.Pack? or T.pack({}, {kind = "unknown", type = T.any})
+    end
+    inst.constArgs = {}
+    for j, cv in ipairs(n.constParams or {}) do
+        inst.constArgs[j] = map[cv] or cv
+    end
+    inst.paramKinds = n.paramKinds
+    inst.fieldOrder = n.fieldOrder
+    inst.fieldDefaults = n.fieldDefaults
+    inst.privateFields = n.privateFields
+    inst.moduleName = n.moduleName
+    inst.sealedModule = n.sealedModule
+    inst.affineFields = n.affineFields
+    inst.fieldBorrowSources = n.fieldBorrowSources
+    inst.borrowedRootFields = n.borrowedRootFields
+    inst.affineInterface = n.affineInterface
+    inst.terminalMethod = n.terminalMethod
+    inst.inherentCleanup = n.inherentCleanup
+    inst.managedCell = n.managedCell
+    inst.managedAlias = n.managedAlias
+    inst.arrayOf = n.arrayOf and substWith(n.arrayOf, map, PRESERVE) or nil
+    inst.fieldDefs = n.fieldDefs
+    inst.writeFieldDefs = n.writeFieldDefs
+    inst.staticFieldDefs = n.staticFieldDefs
+    inst.staticWriteFieldDefs = n.staticWriteFieldDefs
+    inst.deriveKey = n.deriveKey
+    inst.deriveRecipe = n.deriveRecipe
+    inst.derivedDefinitions = n.derivedDefinitions
+    inst.derivedStaticDefinitions = n.derivedStaticDefinitions
+    inst.derivedContracts = n.derivedContracts
+    inst.selfType = n.selfType
+    inst.supertypes = {}
+    for j, parent in ipairs(n.supertypes or {}) do
+        inst.supertypes[j] = substWith(parent, map, PRESERVE)
+    end
+    -- cached before the members are filled in, so a declaration that names itself finds
+    -- the instantiation under way rather than recurring
+    instantiations[key] = inst
+    fillingInstantiations[key] = true
+    fillInstantiationMembers(inst, n, map)
+    -- Associated metadata travels with the declaration. The map names this nominal's
+    -- own parameters; one it leaves out is genuinely unknown, so the map is completed
+    -- with `any` before anything is rebuilt. Rebinding rather than materializing is
+    -- what lets a member's own binders and the declaration's `self` survive -- the
+    -- completion above is the only place `any` is meant to appear.
+    local complete: Bindings = {}
+    for binder, stands in pairs(map) do
+        complete[binder] = stands
+    end
+    for _, binder in ipairs(n.typeParams or {}) do
+        if complete[binder] == nil then
+            complete[binder] = T.any
+        end
+    end
+    for _, binder in ipairs(n.packParams or {}) do
+        if complete[binder] == nil then
+            complete[binder] = T.pack({}, {kind = "unknown", type = T.any})
+        end
+    end
+    if n.associatedRequirements then
+        inst.associatedRequirements = {}
+        for j, requirement in ipairs(n.associatedRequirements) do
+            -- A fresh entry per instantiation, because its bound follows the
+            -- arguments. The binder and the site do not: what a requirement means and
+            -- where it was stated are the declaration's, not this application's.
+            inst.associatedRequirements[
+                j
+            ] = new T.AssociatedRequirement(
+                name = requirement.name,
+                bound = requirement.bound and generics.rebind(requirement.bound, complete) or nil,
+                selfBinder = requirement.selfBinder,
+                definition = requirement.definition
+            )
+        end
+    end
+    if n.associatedAnswers then
+        inst.associatedAnswers = {}
+        for name, entry in pairs(n.associatedAnswers) do
+            -- The binder, the default marker and the definition are carried across
+            -- unchanged: what an answer means and where it was written do not depend
+            -- on the arguments this instantiation supplied.
+            inst.associatedAnswers[
+                name
+            ] = new T.AssociatedAnswer(
+                type = generics.rebind(entry.type, complete),
+                selfBinder = entry.selfBinder,
+                kind = entry.kind,
+                definition = entry.definition
+            )
+        end
+    end
+    inst.overloadedMethods = {}
+    inst.overloadedStatics = {}
+    inst.methodEntries = {}
+    inst.methodDispatchEntries = {}
+    inst.staticEntries = {}
+    for name in pairs(n.overloadedMethods or {}) do
+        inst.overloadedMethods[name] = true
+    end
+    for name in pairs(n.overloadedStatics or {}) do
+        inst.overloadedStatics[name] = true
+    end
+    for name, entries in pairs(n.methodEntries or {}) do
+        local specialized = {}
+        for j, entry in ipairs(entries) do
+            specialized[
+                j
+            ] = {
+                signature = substWith(entry.signature, map, PRESERVE),
+                declaration = entry.declaration,
+                member = entry.member,
+                parameterKey = entry.parameterKey,
+                definition = entry.definition,
+            }
+        end
+        inst.methodEntries[name] = specialized
+    end
+    for name, entries in pairs(n.methodDispatchEntries or {}) do
+        local specialized = {}
+        for j, entry in ipairs(entries) do
+            specialized[
+                j
+            ] = {
+                signature = substWith(entry.signature, map, PRESERVE),
+                declaration = entry.declaration,
+                member = entry.member,
+                parameterKey = entry.parameterKey,
+                definition = entry.definition,
+            }
+        end
+        inst.methodDispatchEntries[name] = specialized
+    end
+    for name, entries in pairs(n.staticEntries or {}) do
+        local specialized = {}
+        for j, entry in ipairs(entries) do
+            specialized[
+                j
+            ] = {
+                signature = substWith(entry.signature, map, PRESERVE),
+                declaration = entry.declaration,
+                member = entry.member,
+                parameterKey = entry.parameterKey,
+                definition = entry.definition,
+            }
+        end
+        inst.staticEntries[name] = specialized
+    end
+    inst.indexReadKey = n.indexReadKey and substWith(n.indexReadKey, map, PRESERVE) or nil
+    inst.indexReadValue = n.indexReadValue and substWith(n.indexReadValue, map, PRESERVE) or nil
+    inst.indexWriteKey = n.indexWriteKey and substWith(n.indexWriteKey, map, PRESERVE) or nil
+    inst.indexWriteValue = n.indexWriteValue and substWith(n.indexWriteValue, map, PRESERVE) or nil
+    inst.constructors = {}
+    inst.constructorEntries = {}
+    for j, signature in ipairs(n.constructors or {}) do
+        local specialized = substWith(signature, map, PRESERVE)
+        inst.constructors[j] = specialized
+        local entry = n.constructorEntries and n.constructorEntries[j] or nil
+        inst.constructorEntries[
+            j
+        ] = {
+            signature = specialized,
+            result = entry and entry.result and substWith(entry.result, map, PRESERVE) or nil,
+            declaration = entry and entry.declaration or nil,
+            index = entry and entry.index or j,
+        }
+    end
+
+    fillingInstantiations[key] = nil
+
+    return inst
+end
+
+--- Structurally matches an argument type against a parameter type, accumulating what
+--- the binders must stand for. Repeat bindings union together, so a binder in two
+--- positions holds what both arguments were.
+---
+--- @param param the declared parameter type, binders and all
+--- @param arg what the call passed there
+--- @param map accumulates the bindings
+function generics.unify(param: Type, arg: Type, map: Bindings): nil
+    param, arg = T.unwrapOwnership(param), T.unwrapOwnership(arg)
+    if not T.hasTypevar(param) then
+        return
+    end
+    local tag = param.tag
+    if tag == "typevar" then
+        if arg ~= T.any and arg ~= T.nil_ then
+            -- A binder in two positions holds what both arguments were. An index by a
+            -- computed key has no name to narrow, so the previous binding is read into
+            -- one.
+            local bound = map[param]
+            map[param] = bound and T.union({bound, arg}) or arg
+        end
+    elseif tag == "neutral" and param.op == "singleton" and param.constTerm and param.constTerm.tag == "constVar" then
+        local actual = consteval.fromType(arg)
+        local variable = param.constTerm
+        if actual then
+            local prior = map[variable]
+            if prior and prior.id ~= actual.id then
+                map[variable] = T.constOp("conflict", {prior as T.ConstTerm, actual})
+            else
+                map[variable] = actual
+            end
+        end
+    elseif tag == "array" then
+        if arg.tag == "array" then
+            generics.unify(param.elem, arg.elem, map)
+        elseif arg.tag == "tuple" then
+            for _, e in ipairs(arg.elems) do
+                generics.unify(param.elem, e, map)
+            end
+        end
+    elseif tag == "metatable" then
+        -- `metatable<T>` is how a registrar asks for a declaration's own table, so the
+        -- receiver it describes is what binds T -- and what the bound is then checked
+        -- against.
+        if arg.tag == "metatable" then
+            generics.unify(param.of, arg.of, map)
+        elseif arg.tag == "typeobject" then
+            generics.unify(param.of, arg.of, map)
+        end
+    elseif tag == "typeobject" then
+        if arg.tag == "typeobject" then
+            generics.unify(param.of, arg.of, map)
+        elseif arg.tag == "nominal" and arg.declKind == "struct" then
+            -- A struct declaration is represented by its callable ctype rather than
+            -- a record table, but it is still the one declaration witness for that
+            -- nominal type. This lets Type<T>-directed APIs serve both records and
+            -- structs without erasing T.
+            generics.unify(param.of, arg, map)
+        end
+    elseif tag == "map" then
+        if arg.tag == "map" then
+            if param.readable and arg.readable then
+                generics.unify(param.key, arg.key, map)
+                generics.unify(param.value, arg.value, map)
+            end
+            if param.writeKey and param.writeValue and arg.writeKey and arg.writeValue then
+                generics.unify(param.writeKey, arg.writeKey, map)
+                generics.unify(param.writeValue, arg.writeValue, map)
+            end
+        end
+    elseif tag == "union" then
+        -- "T?"-style params: subtract the concrete members from the argument, the
+        -- residue binds the typevar (assert(x: T?): T with x: number? binds T = number,
+        -- not number?)
+        local tv: Type? = nil
+        local rest: {Type} = {}
+        for _, m in ipairs(param.members) do
+            if m.tag == "typevar" and not tv then
+                tv = m
+            else
+                rest[#rest + 1] = m
+            end
+        end
+        if tv then
+            local residue = arg
+            for _, r in ipairs(rest) do
+                residue = narrowing.subtract(residue, r)
+            end
+            generics.unify(tv, residue, map)
+        end
+        for _, r in ipairs(rest) do
+            generics.unify(r, arg, map)
+        end
+    elseif tag == "intersection" then
+        -- Every conjunct constrains the same runtime argument. In particular this lets
+        -- `T & Bound` infer T while compatibility proves the other contracts.
+        for _, member in ipairs(param.members) do
+            generics.unify(member, arg, map)
+        end
+    elseif tag == "shape" then
+        local staticOwner = arg.tag == "metatable" and arg.of and arg.of.tag == "nominal" and arg.of or nil
+        local reads = arg.tag == "shape" and arg.byname or (
+            arg.tag == "nominal" and arg.byname
+        ) or staticOwner and staticOwner.staticByname
+        local writes = arg.tag == "shape" and arg.writeByname or (
+            arg.tag == "nominal" and arg.writeByname
+        ) or staticOwner and staticOwner.staticWriteByname
+        if reads or writes then
+            for _, f in ipairs(param.fields) do
+                local read = reads and reads[f.name]
+                local write = writes and writes[f.name]
+                if f.read and read then
+                    generics.unify(f.read, read, map)
+                end
+                if f.write and write then
+                    generics.unify(f.write, write, map)
+                end
+            end
+        end
+    elseif tag == "func" then
+        if arg.tag == "func" then
+            generics.unifyPack(param.paramPack, arg.paramPack, map)
+            generics.unifyPack(param.retPack, arg.retPack, map)
+        end
+    elseif tag == "nominal" then
+        if arg.tag == "nominal" then
+            local po = param.origin or param
+            local function view(candidate: T.Nominal, seen: {[T.Type]: boolean}): T.Nominal?
+                if seen[candidate] then
+                    return nil
+                end
+                seen[candidate] = true
+                local candidateOrigin = candidate.origin or candidate
+                if candidateOrigin == po or candidateOrigin.id == po.id then
+                    return candidate
+                end
+                for _, parent in ipairs(candidate.supertypes or {}) do
+                    if parent.tag == "nominal" then
+                        local found = view(parent, seen)
+                        if found then
+                            return found
+                        end
+                    end
+                end
+
+                return nil
+            end
+
+            local nominalArg = view(arg, {})
+            local ao = nominalArg and (nominalArg.origin or nominalArg) or arg.origin or arg
+            -- Module summaries may materialize the same exported nominal on both
+            -- sides of a forwarding API. Its stable nominal id, not Lua table
+            -- identity, is the cross-summary identity used by the rest of the type
+            -- system.
+            if po == ao or po.id == ao.id then
+                for j, p in ipairs(param.typeArgs or {}) do
+                    local a = nominalArg and nominalArg.typeArgs and nominalArg.typeArgs[j]
+                    if a then
+                        if ((po as T.Nominal).managedCell or (po as T.Nominal).managedAlias) and p.tag == "typevar" then
+                            local prior = map[p]
+                            map[p] = prior and T.union({prior, a}) or a
+                        else
+                            generics.unify(p, a, map)
+                        end
+                    end
+                end
+                for j, p in ipairs(param.packArgs or {}) do
+                    local a = nominalArg and nominalArg.packArgs and nominalArg.packArgs[j]
+                    if a then
+                        generics.unifyPack(p, a, map)
+                    end
+                end
+            end
+        end
+    elseif tag == "ptr" then
+        if arg.tag == "ptr" then
+            generics.unify(param.elem, arg.elem, map)
+        end
+    elseif tag == "carray" then
+        if arg.tag == "carray" then
+            generics.unify(param.elem, arg.elem, map)
+        end
+    elseif tag == "ctype" then
+        if arg.tag == "ctype" then
+            generics.unify(param.of, arg.of, map)
+        end
+    elseif tag == "const" then
+        if arg.tag == "const" then
+            generics.unify(param.inner, arg.inner, map)
+        else
+            generics.unify(param.inner, arg, map)
+        end
+    end
+end
+
+--- What `self` stood for last time, by binder, by what it stands for, by member type.
+---
+--- Every member access rebinds `self` in the member's type, and all three of those are
+--- interned and immutable, so the answer is a function of three identities and nothing
+--- else. A nominal's members are filled in as its declaration is checked, but that is
+--- not an input here: the substitution walks the member's own type.
+---
+--- Checking one 791-line module asked for this 76,273 times and had 894 distinct
+--- questions, and every answer was the member type unchanged -- a member usually names
+--- no `self`, but finding that out meant walking it. The binder is the key rather than
+--- the owner, so a nominal whose `selfType` is not set yet takes the branch above
+--- instead of leaving an entry behind that would be wrong once it is.
+---
+--- Weak throughout, so nothing here keeps a type alive.
+local selfMemoRoot = setmetatable({}, {__mode = "k"})
+
+local function selfMemo(binder: Type, target: Type): {[Type]: Type}
+    local byTarget = selfMemoRoot[binder]
+    if not byTarget then
+        byTarget = setmetatable({}, {__mode = "k"})
+        selfMemoRoot[binder] = byTarget
+    end
+    local byMember = byTarget[target]
+    if not byMember then
+        byMember = setmetatable({}, {__mode = "k"})
+        byTarget[target] = byMember
+    end
+
+    return byMember
+end
+
+--- A member's type as the receiver reaching it sees it: `self` inside a declaration
+--- stands for whatever the value actually is, which is what lets an inherited contract
+--- be rebound to the child that included it.
+---
+--- @param owner the declaration the member belongs to
+--- @param ft the member's type
+--- @param receiver what `self` stands for here, `owner` by default
+function generics.specializeSelf(owner: Type?, ft: Type, receiver: Type?): Type
+    local binder = owner and owner.tag == "nominal" and (owner as T.Nominal).selfType or nil
+    if not binder then
+        -- No binder, nothing to rebind. An intersection took the long way here: it
+        -- rebound each member to itself and handed the results back to
+        -- `T.intersection`,
+        -- which interned them to the intersection it already had.
+        return ft
+    end
+    local target = (receiver or owner) as Type
+    local cached = selfMemo(binder as Type, target)[ft]
+    if cached then
+        return cached
+    end
+
+    local out: Type
+    if ft.tag == "intersection" then
+        local members = {}
+        for j, member in ipairs((ft as T.Intersection).members) do
+            members[j] = generics.specializeSelf(owner, member, receiver)
+        end
+        out = T.intersection(members)
+    else
+        -- Rebinding, not materializing: `self` is the only binder this names, and a
+        -- method's own parameters have to survive it. The materializing form replaced
+        -- each with `any`, so a generic method stopped inferring and its result fit
+        -- wherever it was put.
+        out = generics.rebind(ft, {[binder as Type] = target})
+    end
+    selfMemo(binder as Type, target)[ft] = out
+
+    return out
+end
+
+--- Binds generic parameters reached through a method's receiver while preserving all
+--- binders that later explicit arguments still need to infer.
+function generics.specializeReceiver(ft: Type, receiver: Type): Type
+    if ft.tag == "intersection" then
+        local members = {}
+        for j, member in ipairs(ft.members) do
+            members[j] = generics.specializeReceiver(member, receiver)
+        end
+        return T.intersection(members)
+    end
+    if ft.tag == "func" and #ft.params >= 1 and T.hasTypevar(ft) then
+        local receiverBindings = {}
+        generics.unify(ft.params[1], receiver, receiverBindings)
+        if next(receiverBindings) then
+            return generics.rebind(ft, receiverBindings)
+        end
+    end
+
+    return ft
+end
+
+--- A method's type as a plain function, receiver removed. Method-call receivers are
+--- passed implicitly, so `o:m(x)` checks against the signature without its first
+--- parameter.
+---
+--- @param ft the method's type
+function generics.dropSelf(ft: Type): Type
+    if ft.tag == "intersection" then
+        local members = {}
+        for j, member in ipairs(ft.members) do
+            members[j] = generics.dropSelf(member)
+        end
+        return T.intersection(members)
+    end
+    if ft.tag == "func" and #ft.params >= 1 then
+        local params: {Type} = {}
+        local modes: {string} = {}
+        local names: {string} = {}
+        for j = 2, #ft.params do
+            params[#params + 1] = ft.params[j]
+        end
+        for j = 2, #ft.params do
+            modes[#modes + 1] = ft.paramModes and ft.paramModes[j] or "plain"
+            names[#names + 1] = ft.paramNames and ft.paramNames[j] or ""
+        end
+        local paramPack = T.pack(params, ft.paramPack.tail, modes)
+        local preserves = {}
+        for result = 1, #ft.rets do
+            local source = ft.preservesResults and ft.preservesResults[result]
+            if source and source > 1 then
+                preserves[result] = source - 1
+            end
+        end
+        local borrowsSelf = ft.borrowsSelf or ft.borrowsParam == 1
+        local borrowsParam = ft.borrowsParam and ft.borrowsParam > 1 and ft.borrowsParam - 1 or nil
+        local borrowsParams = {}
+        for _, source in ipairs(ft.borrowsParams or {}) do
+            if source == 1 then
+                borrowsSelf = true
+            elseif source > 1 then
+                borrowsParams[#borrowsParams + 1] = source - 1
+            end
+        end
+        return T.func(
+            params,
+            ft.rets,
+            ft.vararg,
+            modes,
+            nil,
+            ft.typeParams,
+            ft.typeBounds,
+            borrowsParam,
+            borrowsSelf,
+            next(borrowsParams) and borrowsParams or nil,
+            ft.ffiOut,
+            ft.varargType,
+            ft.noreturn,
+            paramPack,
+            ft.retPack,
+            ft.packParams,
+            ft.yieldPack,
+            ft.resumePack,
+            -- Adjusting the receiver rewrites a parameter list, not an effect.
+            ft.noYield,
+            names,
+            next(preserves) and preserves or nil,
+            ft.foreign,
+            ft.constParams,
+            ft.paramKinds,
+            ft.partitionResults,
+            ft.comptimeOnly,
+            ft.explicitPreserves
+        )
+    end
+
+    return ft
+end
+
+--- The same in reverse: a function stored as a member takes the receiver first, which
+--- is the shape a declaration file writes.
+---
+--- @param ft the function's type
+--- @param selfType what the receiver is
+--- @param selfMode the receiver's ownership mode, "plain" by default
+function generics.addSelf(ft: Type, selfType: Type, selfMode: string?): Type
+    if ft.tag == "intersection" then
+        local members = {}
+        for j, member in ipairs(ft.members) do
+            members[j] = generics.addSelf(member, selfType, selfMode)
+        end
+        return T.intersection(members)
+    end
+    if ft.tag ~= "func" then
+        return ft
+    end
+    local params: {Type} = {selfType}
+    local modes: {string} = {selfMode or "plain"}
+    local names: {string} = {"self"}
+    for _, p in ipairs(ft.params) do
+        params[#params + 1] = p
+    end
+    for _, mode in ipairs(ft.paramModes or {}) do
+        modes[#modes + 1] = mode
+    end
+    for _, name in ipairs(ft.paramNames or {}) do
+        names[#names + 1] = name
+    end
+    local paramPack = T.pack(params, ft.paramPack.tail, modes)
+
+    return T.func(
+        params,
+        ft.rets,
+        ft.vararg,
+        modes,
+        ft.predicate,
+        ft.typeParams,
+        ft.typeBounds,
+        ft.borrowsParam,
+        ft.borrowsSelf,
+        ft.borrowsParams,
+        ft.ffiOut,
+        ft.varargType,
+        ft.noreturn,
+        paramPack,
+        ft.retPack,
+        ft.packParams,
+        ft.yieldPack,
+        ft.resumePack,
+        ft.noYield,
+        names,
+        (function()
+            local shifted = {}
+            for result = 1, #ft.rets do
+                local source = ft.preservesResults and ft.preservesResults[result]
+                if source then
+                    shifted[result] = source + 1
+                end
+            end
+
+            return next(shifted) and shifted or nil
+        end)(),
+        ft.foreign,
+        ft.constParams,
+        ft.paramKinds,
+        ft.partitionResults,
+        ft.comptimeOnly,
+        ft.explicitPreserves
+    )
+end
+
+export = generics

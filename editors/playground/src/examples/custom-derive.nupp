@@ -1,0 +1,44 @@
+-- A derive is an ordinary exported comptime function. It inspects the record
+-- being declared and returns checked recipes for the members it wants to add.
+local labels = {}
+
+-- Generated methods forward to ordinary runtime functions. This keeps their
+-- behavior in normal, typed Nupp rather than embedding code in the recipe.
+function labels.render(typeName: string): string
+    return "<" .. typeName .. ">"
+end
+
+comptime function labels.derive(info: nupp.derive.Info): nupp.derive.Result<any>
+    if info.kind ~= "record" then
+        return nupp.derive.error("Label can be derived only for records", info.reference)
+    end
+
+    return nupp.derive.implement{
+        methods = {
+            label = nupp.derive.member{
+                signature = nupp.types.function_(
+                    nupp.types.pack({info.ownerType}),
+                    nupp.types.pack({nupp.types.string})
+                ),
+                forward = nupp.derive.forward{
+                    helper = nupp.derive.helper(labels, "render"),
+                    arguments = {nupp.derive.constant(info.name)},
+                },
+            },
+        },
+    }
+end
+
+@derive(labels.derive)
+record labels.User
+    name: string
+    active: boolean
+end
+
+local user = new labels.User(name = "Ada", active = true)
+print(user:label()) -- <User>
+
+-- try breaking it: change `record` to `interface`, and read the provider's
+-- diagnostic at the declaration
+
+return labels

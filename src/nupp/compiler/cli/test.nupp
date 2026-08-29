@@ -1,0 +1,200 @@
+module nupp.compiler.cli.test
+
+--[[
+`nupp test`: build, then run whatever the project calls its test command.
+
+The one command whose arguments are mostly not its own. Everything after the
+name is appended to `test.argv` from nupp.lua and belongs to the program that
+ends up running. Colour is the exception: it governs both the build this command
+performs and the configured runner, so it is read here and still passed along.
+]]
+
+local spec = require("nupp.compiler.cli.spec")
+local ansi = require("nupp.compiler.ansi")
+
+local command = spec.command{
+    name = "test",
+    summary = "Build and run the configured test command",
+    usage = {"nupp test [args...]"},
+    universal = false,
+    options = {
+        {name = "--json", help = "Ask the test command for one JSON document instead of " .. "progress text"},
+        {name = "--verbose", help = "Ask the test command to show output from passing tests"},
+        {
+            name = "--color",
+            value = "WHEN",
+            form = "optional",
+            help = "Color both compiler and test output: always, never, or auto"
+        },
+        {name = "--no-color", help = "Never color compiler or test output"},
+        {
+            name = "--timings",
+            help = "Ask the test command for its whole timing report rather than "
+            .. "the slowest few. `--timings=N` asks for N rows, and `--timings=0` for none"
+        },
+        spec.helpOption,
+    },
+    schema = {
+        type = "object",
+        description = "One run: the totals, and a record per test. This is what "
+        .. "the runner in tests/run.lua writes; a project that configures a "
+        .. "different test command is the one answering for its --json.",
+        properties = {
+            ok = {type = "boolean"},
+            total = {type = "integer"},
+            passed = {type = "integer"},
+            skipped = {type = "integer"},
+            failed = {type = "integer"},
+            durationMs = {type = "number", description = "Wall-clock milliseconds for the whole run."},
+            tests = {
+                type = "array",
+                items = {
+                    type = "object",
+                    properties = {
+                        suite = {type = "string", description = "The test file, without its extension."},
+                        name = {type = "string"},
+                        status = {type = "string", enum = {"passed", "skipped", "failed"}},
+                        durationMs = {type = "number"},
+                        file = {type = "string", description = "Where the test is defined."},
+                        line = {type = "integer", description = "1-based, as everywhere else."},
+                        failure = {
+                            type = "object",
+                            description = "Absent when the test passed.",
+                            properties = {
+                                message = {type = "string"},
+                                file = {
+                                    type = "string",
+                                    description = "Where the error came from, "
+                                    .. "which is often not where the test "
+                                    .. "is defined."
+                                },
+                                line = {
+                                    type = "integer",
+                                    description = "1-based. A Lua error carries " .. "no column, so none is reported."
+                                },
+                            },
+                            required = {"message"},
+                        },
+                        output = {
+                            type = "object",
+                            description = "Captured output from a failed test.",
+                            properties = {stdout = {type = "string"}, stderr = {type = "string"},},
+                            required = {"stdout", "stderr"},
+                        },
+                        skip = {
+                            type = "object",
+                            description = "Present when the test was skipped.",
+                            properties = {reason = {type = "string"}},
+                            required = {"reason"},
+                        },
+                    },
+                    required = {"suite", "name", "status", "durationMs"},
+                },
+            },
+            suites = {
+                type = "array",
+                description = "One record per suite the run loaded, which is "
+                .. "where the time a run waits for actually goes: a suite costs "
+                .. "its cases plus what loading it and its lifecycle hooks cost, "
+                .. "and neither of those belongs to any case.",
+                items = {
+                    type = "object",
+                    properties = {
+                        suite = {type = "string"},
+                        durationMs = {
+                            type = "number",
+                            description = "Wall-clock milliseconds for the whole suite, loading included."
+                        },
+                        loadMs = {
+                            type = "number",
+                            description = "Compiling a Nupp suite, or running a Lua suite's top level."
+                        },
+                        hooksMs = {
+                            type = "number",
+                            description = "beforeAll and afterAll. beforeEach and afterEach are counted with the case they ran for."
+                        },
+                        casesMs = {type = "number"},
+                        tests = {type = "integer"},
+                        slowestCase = {type = "string"},
+                        slowestCaseMs = {type = "number"},
+                        shard = {type = "integer", description = "Which shard ran it, absent when the run was serial."},
+                        alone = {
+                            type = "boolean",
+                            description = "Ran in the process-isolated phase rather than on a Nupp worker."
+                        },
+                    },
+                    required = {"suite", "durationMs"},
+                },
+            },
+            shards = {
+                type = "array",
+                description = "One record per worker process, empty when the run "
+                .. "was serial. The busiest shard is the floor a run cannot go "
+                .. "under however many more are added.",
+                items = {
+                    type = "object",
+                    properties = {
+                        index = {type = "integer"},
+                        specs = {
+                            type = "array",
+                            description = "What it was asked to run: a suite name, or 'name#index/count' for one slice of one.",
+                            items = {type = "string"},
+                        },
+                        alone = {
+                            type = "boolean",
+                            description = "Ran in the process-isolated phase rather than on a Nupp worker."
+                        },
+                        durationMs = {type = "number"},
+                        startedAt = {type = "number", description = "Milliseconds into the run when it was started."},
+                        collectedAt = {
+                            type = "number",
+                            description = "Milliseconds into the run when the parent finished reading it. Pipes are read in order, so this says more about read order than about the shard."
+                        },
+                        tests = {type = "integer"},
+                    },
+                    required = {"index", "durationMs"},
+                },
+            },
+        },
+        required = {"ok", "total", "passed", "skipped", "failed", "tests"},
+    },
+    detail = [[Additional arguments are appended to test.argv from nupp.lua. Use '--' before
+a test argument named --help.
+
+--json is passed along to the test command rather than interpreted here, since
+the arguments past this point are that command's. --schema describes what the
+runner in tests/run.lua writes for it.]],
+}
+
+local function run(args: any): integer
+    -- A leading `--` was how the caller said the rest is the test's, including a
+    -- `--help` that would otherwise have been answered here.
+    if args[1] == "--" then
+        table.remove(args, 1)
+    end
+    local color: string? = nil
+    for _, argument in ipairs(args) do
+        local asked = argument == "--color" and "always" or argument == "--no-color" and "never" or argument:match(
+            "^%-%-color=(.*)$"
+        )
+        if asked ~= nil then
+            if asked ~= "always" and asked ~= "never" and asked ~= "auto" then
+                io.stderr:write("nupp: --color must be always, never, or auto\n")
+                return 2
+            end
+            if color ~= nil and color ~= asked then
+                io.stderr:write("nupp: color was both asked for and refused\n")
+                return 2
+            end
+            color = asked
+        end
+    end
+    if color ~= nil then
+        ansi.setMode(color)
+    end
+    local project = require("nupp.compiler.build.project")
+
+    return project.test(".", args)
+end
+
+export = new spec.Handler(spec = command, raw = true, run = run)

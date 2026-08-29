@@ -1,0 +1,118 @@
+module utf8bench
+
+--[[
+UTF-8 validation as an `@aot` entry, beside the ordinary Nupp it would replace.
+
+`nupp.data.utf8`'s `scan` reads bytes with `string.byte` and counts in binary64,
+which is what LuaJIT wants and what runs anywhere. This is the same ladder in
+the admitted subset, so the `utf8` target compiles it and `utf8-scalar` leaves
+the same source to LuaJIT. What this benchmark answers is what each of those is
+worth against the C rock the module used to call.
+
+One shape here is the subset rather than the algorithm. The entry returns
+`number` where the value it computes is a `uint32`, because an entry declared
+with a fixed-width result generates a binding whose body is `return
+ks_scan_aot_builder(source)` -- and the symbol behind `loadlib` is `any`, which
+is not established as a fixed width, so the generated binding fails its own
+check. Every `@aot` entry in the tree today returns `any` or a Lua value, so
+nothing else has met this.
+]]
+
+local valuebuilder = require("nupp.data.valuebuilder")
+
+local function u32(value: integer): uint32
+    return nupp.math.u32.wrap(value)
+end
+
+local function add(a: uint32, b: uint32): uint32
+    return nupp.math.u32.add(a, b)
+end
+
+local bench = {}
+
+--- How many bytes at the front of `source` spell whole scalars.
+---
+--- The bounds the second byte must fall inside are set in the arm that read the
+--- lead, because four lead bytes narrow them: the second byte is what rules out
+--- an overlong form, a surrogate half, and a value past the maximum.
+@aot(lanes = false)
+local function scanAot(source: string): uint32
+    local limit: uint32 = valuebuilder.length(source)
+    local at: uint32 = u32(0)
+    while at < limit do
+        local lead: uint32 = valuebuilder.byteAt(source, at)
+        if lead < 128 then
+            at = add(at, u32(1))
+        else
+            local low: uint32 = u32(128)
+            local high: uint32 = u32(191)
+            local need: uint32 = u32(0)
+            if lead < 194 then
+                return at
+            elseif lead < 224 then
+                need = u32(1)
+            elseif lead < 240 then
+                need = u32(2)
+                if lead == 224 then
+                    low = u32(160)
+                elseif lead == 237 then
+                    high = u32(159)
+                end
+            elseif lead < 245 then
+                need = u32(3)
+                if lead == 240 then
+                    low = u32(144)
+                elseif lead == 244 then
+                    high = u32(143)
+                end
+            else
+                return at
+            end
+            local secondAt: uint32 = add(at, u32(1))
+            if secondAt >= limit then
+                return at
+            end
+            local second: uint32 = valuebuilder.byte(source, secondAt)
+            if second < low or second > high then
+                return at
+            end
+            if need > 1 then
+                local thirdAt: uint32 = add(at, u32(2))
+                if thirdAt >= limit then
+                    return at
+                end
+                local third: uint32 = valuebuilder.byte(source, thirdAt)
+                if third < 128 or third > 191 then
+                    return at
+                end
+                if need > 2 then
+                    local fourthAt: uint32 = add(at, u32(3))
+                    if fourthAt >= limit then
+                        return at
+                    end
+                    local fourth: uint32 = valuebuilder.byte(source, fourthAt)
+                    if fourth < 128 or fourth > 191 then
+                        return at
+                    end
+                end
+            end
+            at = add(at, add(need, u32(1)))
+        end
+    end
+
+    return at
+end
+
+--- The longest well-formed prefix of `source`, in bytes.
+--- @export
+function bench.validPrefixLength(source: string): integer
+    return tonumber(scanAot(source)) as integer
+end
+
+--- Whether the whole value is well-formed UTF-8.
+--- @export
+function bench.isValid(source: string): boolean
+    return tonumber(scanAot(source)) == #source
+end
+
+export = bench

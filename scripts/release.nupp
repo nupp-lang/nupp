@@ -1,0 +1,48 @@
+local release = require("nupp.compiler.build.release")
+
+local arguments = {...} as {string}
+
+local USAGE = [[usage:
+  release.nupp record PLATFORM CATALOG_RELEASE ARTIFACT NOTICES OUTPUT
+  release.nupp catalog CATALOG_RELEASE ARTIFACT_ROOT OUTPUT RECORD...
+  release.nupp payload-stamp PLATFORM STUB PAYLOAD OUTPUT]]
+
+local function fail(message: string, status: integer): never
+    io.stderr:write("release: " .. message .. "\n")
+    os.exit(status)
+end
+
+local command = arguments[1]
+if command == nil or command == "--help" or command == "-h" then
+    print(USAGE)
+    return
+end
+
+local ok: boolean?
+local problem: string?
+if command == "record" then
+    if #arguments ~= 6 then
+        fail(USAGE, 2)
+    end
+    ok, problem = release.record(arguments[2], arguments[3], arguments[4], arguments[5], arguments[6])
+elseif command == "catalog" then
+    if #arguments < 5 then
+        fail(USAGE, 2)
+    end
+    local records: {string} = {}
+    for index = 5, #arguments do
+        records[#records + 1] = arguments[index]
+    end
+    ok, problem = release.catalog(arguments[2], records, arguments[3], arguments[4])
+elseif command == "payload-stamp" then
+    if #arguments ~= 5 then
+        fail(USAGE, 2)
+    end
+    ok, problem = release.stampPayload(arguments[3], arguments[4], arguments[2], arguments[5])
+else
+    fail("unknown command " .. command .. "\n" .. USAGE, 2)
+end
+
+if not ok then
+    fail(problem or "operation failed", 1)
+end

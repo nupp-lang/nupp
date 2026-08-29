@@ -1,0 +1,573 @@
+module nupp.compiler.lsp.semantic
+
+--[[
+The token kinds an editor colours by.
+
+The checker marks what it resolved; everything else is read from the token
+stream, so a file that does not check is still highlighted.
+]]
+
+local cst = require("nupp.compiler.cst")
+local tree = require("nupp.compiler.lsp.tree")
+local text = require("nupp.compiler.lsp.text")
+local wire = require("nupp.compiler.lsp.wire")
+local lexer = require("nupp.compiler.lexer")
+local T = require("nupp.compiler.types")
+
+local semantic = {}
+
+--- One coloured span, before the protocol's relative encoding flattens it. A token that
+--- spans lines contributes one of these per line, because the protocol has no way to
+--- say a span crosses one.
+type semantic.Entry = {
+    line: integer,
+    character: integer,
+    length: integer,
+
+    --- Index into `semanticTypes`, or absent when nothing names this kind.
+    kind: integer?,
+
+    --- The modifier bitmask: 1 declaration, 2 readonly, 4 deprecated.
+    modifiers: integer
+}
+
+--- What semantic tokens read of a session, which is nothing: the session is taken so
+--- the shape matches the other installs.
+type semantic.Session = {documents: {[string]: any}}
+
+--- The parser surface syntax colouring needs. Project identity and checker facts are
+--- optional refinements carried by editor parses, not prerequisites for this pass.
+type semantic.Parse = {
+    root: cst.Chunk,
+    tokens: {lexer.Token}
+}
+
+--- What installing semantic tokens gives the session back.
+type semantic.Api = {
+    --- Every coloured span in a document, in source order.
+    semanticEntries: function(doc: any): {semantic.Entry},
+
+    --- The protocol's encoding: five integers a token, each position relative to the
+    --- token before it.
+    encodeSemanticEntries: function(entries: {semantic.Entry}): {integer},
+
+    --- Records what was sent for a URI and answers with the id naming it.
+    rememberTokens: function(uri: string, data: {integer}): string,
+
+    --- The one edit turning `before` into `after`, aligned to token boundaries.
+    tokenEdits: function(before: {integer}, after: {integer}): {any},
+
+    --- The answer last given for `uri`, which a delta is computed against.
+    lastSent: function(uri: string): any
+}
+
+semantic.semanticTypes = wire.array({
+    "namespace",
+    "type",
+    "class",
+    "enum",
+    "interface",
+    "struct",
+    "typeParameter",
+    "parameter",
+    "variable",
+    "property",
+    "enumMember",
+    "function",
+    "method",
+    "nuppKeyword",
+    "comment",
+    "string",
+    "number",
+    "operator",
+    "decorator",
+    "label",
+})
+
+semantic.semanticModifiers = wire.array({"declaration", "readonly", "deprecated"})
+
+--- The VS Code extension maps this language-specific semantic type to the Nupp
+--- keyword TextMate scope, preserving theme keyword colors.
+semantic.keywordType = "nuppKeyword"
+
+semantic.semanticIndex = {}
+for index, name in ipairs(semantic.semanticTypes) do
+    semantic.semanticIndex[name] = index - 1
+end
+
+semantic.semanticKindMap = {
+    namespace = "namespace",
+    type = "type",
+    struct = "struct",
+    interface = "interface",
+    typeParameter = "typeParameter",
+    parameter = "parameter",
+    variable = "variable",
+    property = "property",
+    ["function"] = "function",
+    method = "method",
+    decorator = "decorator",
+    label = "label",
+}
+
+-- The keywords that can open a type, so a type position still offers them while
+-- refusing the rest.
+semantic.TYPE_WORDS = {
+    ["function"] = true,
+    ["metatable"] = true,
+    ["is"] = true,
+    ["affine"] = true,
+    ["borrowed"] = true,
+    ["pinned"] = true,
+    ["const"] = true,
+}
+
+function semantic.syntaxKinds(result: semantic.Parse): {[lexer.Token]: string}
+    local kinds = {}
+    local keywordType = semantic.keywordType
+    local function mark(tok, kind)
+        if tok and cst.isToken(tok) then
+            kinds[tok] = kind
+        end
+    end
+
+    -- Inner annotations belong to the chunk rather than to an ordinary CST node, so
+    -- recognize the leading token triples directly. Keeping this here also means every
+    -- semantic-token consumer agrees that `internal` and `nofmt` are decorators rather
+    -- than variables.
+    local tokens = result.tokens or {}
+    local at: integer = 1
+    while tokens[
+        at
+    ] and tokens[
+        at
+    ].kind == "@" and tokens[
+        at + 1
+    ] and tokens[
+        at + 1
+    ].kind == "not" and tokens[
+        at + 1
+    ].text == "!" and tokens[
+        at + 2
+    ] and tokens[at + 2].kind == "name" and (tokens[at + 2].text == "internal" or tokens[at + 2].text == "nofmt") do
+        mark(tokens[at + 2], "decorator")
+        at = at + 3
+    end
+
+    tree.walkNodes(result.root, function(node)
+        local kind = node.kind
+        if kind == "cdefFunc" or kind == "cdefStruct" then
+            for _, child in ipairs(node) do
+                if cst.isToken(child) and (child.text == "cdef" or child.text == "struct" or child.text == "from") then
+                    mark(child, keywordType)
+                end
+            end
+        elseif kind == "typeAlias" or kind == "recordDecl" then
+            for _, child in ipairs(node) do
+                if cst.isToken(child) and child.kind == "name" and child ~= node.name then
+                    if child.text == "type"
+                        or child.text == "record"
+                        or child.text == "interface"
+                        or child.text == "struct"
+                        or child.text == "global"
+                        or child.text == "is"
+                        or child.text == "where"
+                    then
+                        mark(child, keywordType)
+                    end
+                end
+            end
+        elseif kind == "generics" then
+            for _, child in ipairs(node) do
+                if cst.isToken(child) and child.kind == "name" and child.text == "is" then
+                    mark(child, keywordType)
+                end
+            end
+            for _, tok in ipairs((node as cst.Generics).names) do
+                mark(tok, "typeParameter")
+            end
+        elseif kind == "newExpr" or kind == "constructorDecl" or kind == "satisfiesDecl" then
+            mark(node[1], keywordType)
+        elseif kind == "unsafeOwnershipExpr" then
+            mark(node[1], keywordType)
+            mark(node[2], keywordType)
+        elseif kind == "whereClause" then
+            mark(node[1], keywordType)
+        elseif kind == "metamethodDecl" then
+            mark(node[1], keywordType)
+            mark(node.name, "method")
+        elseif kind == "inlineMethod" then
+            mark(node[1], keywordType)
+            mark(node.name, "method")
+        elseif kind == "castExpr" or kind == "isExpr" then
+            for _, child in ipairs(node) do
+                if cst.isToken(child) and child.text == "as" then
+                    mark(child, keywordType)
+                elseif cst.isToken(child) and child.text == "is" then
+                    mark(child, "operator")
+                end
+            end
+        elseif kind == "switchExpr" or kind == "switchCase" or kind == "switchField" or kind == "switchYieldStmt" then
+            for _, child in ipairs(node) do
+                if cst.isToken(
+                    child
+                ) and (
+                    child.text == "switch" or child.text == "case" or child.text == "yield" or child.text == "as"
+                ) then
+                    mark(child, keywordType)
+                elseif cst.isToken(child) and child.text == "is" then
+                    mark(child, "operator")
+                end
+            end
+        elseif kind == "tpredicate" then
+            for _, child in ipairs(node) do
+                if cst.isToken(child) and child.text == "is" then
+                    mark(child, keywordType)
+                end
+            end
+        elseif kind == "tborrows" then
+            for _, child in ipairs(node) do
+                if cst.isToken(child) and child.text == "borrows" then
+                    mark(child, keywordType)
+                end
+            end
+        elseif kind == "tpreserves" then
+            for _, child in ipairs(node) do
+                if cst.isToken(child) and child.text == "preserves" then
+                    mark(child, keywordType)
+                end
+            end
+        elseif kind == "tconst" then
+            mark(node[1], keywordType)
+        elseif kind == "funcbody" or kind == "tfunc" then
+            for _, child in ipairs(node) do
+                if cst.isToken(child) and (child.text == "yields" or child.text == "resumes") then
+                    mark(child, keywordType)
+                end
+            end
+            if kind == "tfunc" and node.noSuspend then
+                mark(node[1], keywordType)
+            end
+        elseif kind == "moduleStmt" then
+            mark(node.keyword, keywordType)
+            for _, name in ipairs(node.names or {}) do
+                mark(name, "namespace")
+            end
+        elseif kind == "exportStmt" then
+            mark(node.keyword, keywordType)
+        elseif kind == "pragmaStmt" or kind == "annotationApply" then
+            mark(node.name, "decorator")
+        elseif kind == "dedentString" then
+            mark(node.keyword, keywordType)
+        elseif kind == "unsafeStmt" then
+            mark(node.unsafeTok, keywordType)
+        elseif kind == "withStmt" then
+            mark(node.withTok, keywordType)
+            for _, binding in ipairs(node.bindings or {}) do
+                mark(binding.name, "variable")
+            end
+        elseif kind == "bindingEntry" then
+            if node.typeOnly then
+                mark(node.typeOnly, keywordType)
+            end
+            mark(node.sourceName, "property")
+            if node.alias then
+                mark(node.alias, "variable")
+            end
+            for _, child in ipairs(node) do
+                if cst.isToken(child) and child.text == "as" then
+                    mark(child, keywordType)
+                end
+            end
+        elseif kind == "noSuspendStmt" then
+            mark(node.keywordTok, keywordType)
+        elseif kind == "localFuncStmt" and node.isConst then
+            mark(node[1], keywordType)
+            if node.comptimeTok then
+                mark(node.comptimeTok, keywordType)
+            end
+        elseif kind == "localStmt" and node.isConst then
+            mark(node[1], keywordType)
+        elseif (kind == "localFuncStmt" or kind == "funcStmt") and node.comptimeTok then
+            mark(node.comptimeTok, keywordType)
+        elseif kind == "continueStmt" then
+            mark(node[1], keywordType)
+        elseif kind == "labelStmt" or kind == "gotoStmt" then
+            mark(node.name, "label")
+        elseif kind == "param" or kind == "tfuncParam" then
+            if node.modeTok then
+                mark(node.modeTok, keywordType)
+            end
+            mark(node.name, "parameter")
+        elseif kind == "fieldDecl" or kind == "tshapeField" then
+            if node.capability then
+                mark(node.capability, keywordType)
+            end
+            mark(node.name, "property")
+        elseif kind == "fieldNamed" then
+            mark(node.name, "property")
+        elseif kind == "indexerDecl" or kind == "tmap" then
+            if node.capability then
+                mark(node.capability, keywordType)
+            end
+        end
+    end)
+
+    return kinds
+end
+
+--- Formats whose grammars the bundled VS Code extension embeds. `@syntax` accepts any
+--- literal name, but only these names have a grammar that needs semantic-token masking.
+local EMBEDDED_STRING_FORMATS = {json = true, glsl = true, lua = true, nupp = true, peg = true}
+
+--- String literals directly initialized under `@syntax("format")`. Their TextMate
+--- region is embedded in the named grammar, so sending a broad `string` semantic token
+--- over it would hide every finer token the embedded grammar produces in VS Code.
+local function embeddedStringTokens(result: semantic.Parse): {[lexer.Token]: boolean}
+    local embedded = {}
+    tree.walkNodes(result.root, function(node)
+        if node.kind ~= "localStmt" then
+            return
+        end
+        if not EMBEDDED_STRING_FORMATS[(node as any).embeddedStringFormat] then
+            return
+        end
+        for _, value in ipairs(node.exprs or {}) do
+            if value and (value.kind == "string" or value.kind == "dedentString") and value.token then
+                embedded[value.token] = true
+            end
+        end
+    end)
+
+    return embedded
+end
+
+function semantic.addSemanticSpan(
+    entries: {semantic.Entry},
+    source: string,
+    offset: integer,
+    spanText: string?,
+    kind: string,
+    modifiers: integer?
+): nil
+    if not spanText or spanText == "" then
+        return
+    end
+    local pos = 1
+    while pos <= #spanText do
+        local newline = spanText:find("\n", pos, true)
+        local finish = newline and newline - 1 or #spanText
+        if finish >= pos then
+            local startOffset = offset + pos - 1
+            local endOffset = offset + finish
+            local startPos = text.positionAtOffset(source, startOffset)
+            local endPos = text.positionAtOffset(source, endOffset)
+            if endPos.character > startPos.character then
+                entries[
+                    #entries + 1
+                ] = {
+                    line = startPos.line,
+                    character = startPos.character,
+                    length = endPos.character - startPos.character,
+                    kind = semantic.semanticIndex[kind],
+                    modifiers = modifiers or 0,
+                }
+            end
+        end
+        if not newline then
+            break
+        end
+        pos = newline + 1
+    end
+end
+
+-- Code actions ---------------------------------------------------------------
+--
+-- Two sources feed the same list. Quick fixes come from the checker, which attaches
+-- machine-applicable edits to the diagnostics that have an unambiguous repair; nothing
+-- here re-derives them from the prose. Refactorings are computed from the CST, because
+-- they answer a question about a program that already checks and so has no diagnostic
+-- to hang from.
+--
+-- Both kinds speak the same edit shape the checker uses, {offset, length, newText}
+-- over the original document, so a whole action converts to LSP TextEdits in one
+-- place, and the offsets never have to account for each other.
+
+--- Installs the semantic-token questions on one session. They need no session state;
+--- the session is taken so the shape matches the other installs.
+---
+--- @param s the session's state
+function semantic.install(s: semantic.Session): semantic.Api
+    local semanticIndex, semanticKindMap = semantic.semanticIndex, semantic.semanticKindMap
+    local syntaxKinds, addSemanticSpan = semantic.syntaxKinds, semantic.addSemanticSpan
+
+    local function semanticEntries(doc)
+        local entries = {}
+        local syntax = syntaxKinds(doc.result)
+        local embedded = embeddedStringTokens(doc.result)
+        for _, tok in ipairs(doc.result.tokens or {}) do
+            for triviaIndex = 1, tok.triviaCount do
+                local trivia = lexer.triviaRecord(tok, triviaIndex)
+                local docComment = trivia.kind == "comment" and trivia.text:sub(
+                    1,
+                    3
+                ) == "---" and trivia.text:sub(4, 4) ~= "-"
+                -- Doc comments contain finer TextMate scopes for tags and fenced NUPP.
+                -- A semantic token covering the whole line would override those scopes
+                -- in VS Code, so leave doc comments to the grammar while retaining
+                -- semantic tokens for ordinary comments and hashbangs.
+                if not docComment and (trivia.kind == "comment" or trivia.kind == "hashbang") then
+                    addSemanticSpan(entries, doc.text, trivia.offset, trivia.text, "comment")
+                end
+            end
+            local kind = nil
+            if tok.kind == "number" then
+                kind = "number"
+            elseif tok.kind == "string"
+                or tok.kind == "istringOpen"
+                or tok.kind == "istringMid"
+                or tok.kind == "istringClose"
+            then
+                kind = not embedded[tok] and "string" or nil
+            elseif lexer.KEYWORDS[tok.kind] then
+                kind = semantic.keywordType
+            elseif tok.kind == "name" then
+                kind = syntax[
+                    tok
+                ] or semanticKindMap[tok.semanticKind] or (T.builtins[tok.text] and "type") or "variable"
+            elseif semanticIndex[syntax[tok]] then
+                kind = syntax[tok]
+            elseif tok.kind ~= "eof"
+                and tok.kind ~= "error"
+                and tok.kind ~= "("
+                and tok.kind ~= ")"
+                and tok.kind ~= "["
+                and tok.kind ~= "]"
+                and tok.kind ~= "{"
+                and tok.kind ~= "}"
+                and tok.kind ~= ","
+                and tok.kind ~= ";"
+                and tok.kind ~= "."
+            then
+                kind = "operator"
+            end
+            if kind then
+                -- Where the name was declared, compared by position rather than by
+                -- identity. A definition reached through the project index holds a copy
+                -- of the token, not the token, because a header outlives the parse it
+                -- came from -- so the two are equal in every way the editor cares about
+                -- and never the same table. Within one file an offset names one token,
+                -- which is what identity was standing in for.
+                local def = tok.definition
+                local declaration = def ~= nil and def.token ~= nil and def.token.offset == tok.offset and (
+                    def.filename == nil or def.filename == doc.path
+                )
+                local modifiers = declaration and 1 or 0
+                if tok.definition and tok.definition.constant then
+                    modifiers = modifiers + 2
+                end
+                if tok.definition and tok.definition.deprecated then
+                    modifiers = modifiers + 4
+                end
+                addSemanticSpan(entries, doc.text, tok.offset, tok.text, kind, modifiers)
+            end
+        end
+        table.sort(entries, function(a, b)
+            return a.line < b.line or (a.line == b.line and a.character < b.character)
+        end)
+
+        return entries
+    end
+
+    --- The protocol's encoding: five integers a token, each position relative to the
+    --- token before it. Encoding a filtered list is therefore not the same as filtering
+    --- an encoded one, which is why the range request filters here.
+    local function encodeSemanticEntries(entries)
+        local data = wire.array({})
+        local lastLine, lastCharacter = 0, 0
+        for _, entry in ipairs(entries) do
+            local deltaLine = entry.line - lastLine
+            local deltaCharacter = deltaLine == 0 and entry.character - lastCharacter or entry.character
+            data[#data + 1] = deltaLine
+            data[#data + 1] = deltaCharacter
+            data[#data + 1] = entry.length
+            data[#data + 1] = entry.kind
+            data[#data + 1] = entry.modifiers
+            lastLine, lastCharacter = entry.line, entry.character
+        end
+
+        return data
+    end
+
+    -- What was last sent for a document, so a delta has something to be a delta from.
+    -- One revision deep: a client asks for the delta from the answer it has, and the
+    -- answer it has is the last one given.
+    local sentTokens = {}
+    local nextResultId = 0
+
+    local function rememberTokens(uri, data)
+        nextResultId = nextResultId + 1
+        local resultId = tostring(nextResultId)
+        sentTokens[uri] = {resultId = resultId, data = data}
+        return resultId
+    end
+
+    --- The one edit turning `before` into `after`, aligned to token boundaries. A file
+    --- is edited in one place at a time, so a single run of changed tokens with
+    --- untouched tokens either side is the shape this nearly always has; anything more
+    --- elaborate would be guessing at a saving that is not there.
+    local function tokenEdits(before, after)
+        local prefix = 0
+        while prefix + 5 <= #before and prefix + 5 <= #after do
+            local same = true
+            for offset = 1, 5 do
+                if before[prefix + offset] ~= after[prefix + offset] then
+                    same = false
+                    break
+                end
+            end
+            if not same then
+                break
+            end
+            prefix = prefix + 5
+        end
+        local suffix = 0
+        while prefix + suffix + 5 <= #before and prefix + suffix + 5 <= #after do
+            local same = true
+            for offset = 1, 5 do
+                if before[#before - suffix - 5 + offset] ~= after[#after - suffix - 5 + offset] then
+                    same = false
+                    break
+                end
+            end
+            if not same then
+                break
+            end
+            suffix = suffix + 5
+        end
+        local deleteCount = #before - prefix - suffix
+        local inserted = wire.array({})
+        for index = prefix + 1, #after - suffix do
+            inserted[#inserted + 1] = after[index]
+        end
+        if deleteCount == 0 and #inserted == 0 then
+            return wire.array({})
+        end
+
+        return wire.array({{start = prefix, deleteCount = deleteCount, data = inserted,}})
+    end
+
+    return {
+        semanticEntries = semanticEntries,
+        encodeSemanticEntries = encodeSemanticEntries,
+        rememberTokens = rememberTokens,
+        tokenEdits = tokenEdits,
+
+        --- The answer last given for `uri`, which a delta is computed against.
+        lastSent = function(uri)
+            return sentTokens[uri]
+        end,
+    }
+end
+
+export = semantic

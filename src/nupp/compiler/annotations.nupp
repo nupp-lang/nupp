@@ -1,0 +1,539 @@
+module nupp.compiler.annotations
+
+--[[
+Extensible, typed annotation definitions.
+
+Names are open through `Registry:define()`, but every name must be registered
+before checking begins. Targets are named as semantic language categories rather
+than CST kind strings, so the registry stays stable when the parser changes.
+]]
+
+local annotations = {}
+
+--- Tooling-only migration detail carried by a deprecated API definition.
+record annotations.Deprecation
+    reason: string?
+    replacement: string?
+end
+
+type annotations.TypeAPI = {
+    any: table,
+    nil_: table,
+    string: table,
+    boolean: table,
+    union: function(values: {table}): table,
+    literal: function(value: string | number | boolean, base: table?): table
+}
+
+local KNOWN_TARGETS = {
+    statement = true,
+    declaration = true,
+    binding = true,
+    ["local-binding"] = true,
+    ["function"] = true,
+    ["local-function"] = true,
+    ["named-function"] = true,
+    ["type-declaration"] = true,
+    record = true,
+    interface = true,
+    struct = true,
+    alias = true,
+    ["c-declaration"] = true,
+    ["c-function"] = true,
+    block = true,
+    loop = true,
+    conditional = true,
+    assignment = true,
+    call = true,
+    field = true,
+}
+
+local CATEGORIES = {
+    localStmt = {declaration = true, binding = true, ["local-binding"] = true},
+    localFuncStmt = {declaration = true, ["function"] = true, ["local-function"] = true,},
+    funcStmt = {declaration = true, ["function"] = true, ["named-function"] = true,},
+    inlineMethod = {declaration = true, ["function"] = true, ["named-function"] = true,},
+    constructorDecl = {declaration = true, ["function"] = true, ["named-function"] = true,},
+    typeAlias = {declaration = true, ["type-declaration"] = true, alias = true},
+    cdefFunc = {declaration = true, ["c-declaration"] = true, ["c-function"] = true,},
+    cdefStruct = {declaration = true, ["type-declaration"] = true, struct = true, ["c-declaration"] = true,},
+    doStmt = {block = true},
+    unsafeStmt = {block = true},
+    withStmt = {block = true},
+    ifStmt = {conditional = true},
+    whileStmt = {loop = true},
+    repeatStmt = {loop = true},
+    fornumStmt = {loop = true},
+    forinStmt = {loop = true},
+    assignStmt = {assignment = true},
+    compoundAssignStmt = {assignment = true},
+    callStmt = {call = true},
+    fieldDecl = {field = true},
+}
+
+--- What a registry offers a caller. The methods are explicit fields as well as
+--- `__index` entries, so a shape describes one exactly: the checker reads the fields
+--- it can see rather than following an arbitrary metatable.
+type annotations.Registry = {
+    byname: {[string]: any},
+    define: function(self: any, spec: any): (any, string?),
+    get: function(self: any, name: string): any,
+    accepts: function(self: any, definition: any, node: any): boolean,
+    describeTargets: function(self: any, definition: any): string,
+    removeSource: function(self: any, source: any): nil
+}
+
+local Registry = {}
+Registry.__index = Registry
+
+local function identifier(name)
+    return type(name) == "string" and name:match("^[%a_][%w_]*$") ~= nil
+end
+
+function Registry:define(spec)
+    if type(spec) ~= "table" then
+        return nil, "annotation definition must be a table"
+    end
+    if not identifier(spec.name) then
+        return nil, "annotation name must be an identifier"
+    end
+    local previous = self.byname[spec.name]
+    if previous and (not spec.source or previous.source ~= spec.source) then
+        return nil, ("annotation @%s is already defined"):format(spec.name)
+    end
+    if spec.arguments ~= "none"
+        and spec.arguments ~= "names"
+        and spec.arguments ~= "affine"
+        and spec.arguments ~= "effects"
+        and spec.arguments ~= "warnings"
+        and spec.arguments ~= "typed"
+        and spec.arguments ~= "definition"
+    then
+        return nil, "unknown annotation argument policy"
+    end
+    if spec.arguments == "warnings" and spec.name ~= "allow" then
+        return nil, "the warnings argument policy is reserved for @allow"
+    end
+    if type(spec.targets) ~= "table" or #spec.targets == 0 then
+        return nil, "annotation definition must name at least one target"
+    end
+
+    local targetSet, targets = {}, {}
+    for j, target in ipairs(spec.targets) do
+        if not KNOWN_TARGETS[target] then
+            return nil, ("unknown annotation target %q"):format(tostring(target))
+        end
+        if not targetSet[target] then
+            targetSet[target] = true
+            targets[#targets + 1] = target
+        end
+    end
+
+    local definition = {
+        name = spec.name,
+        arguments = spec.arguments,
+        targets = targets,
+        targetSet = targetSet,
+        reserved = spec.reserved,
+        members = spec.members,
+        memberOrder = spec.memberOrder,
+        singleValue = spec.singleValue,
+        declaration = spec.declaration,
+        source = spec.source,
+        builtin = spec.builtin,
+        doc = spec.doc,
+        docsPath = spec.docsPath,
+    }
+    self.byname[definition.name] = definition
+
+    return definition
+end
+
+function Registry:removeSource(source)
+    for name, definition in pairs(self.byname) do
+        if definition.source == source then
+            self.byname[name] = nil
+        end
+    end
+end
+
+function Registry:get(name)
+    return self.byname[name]
+end
+
+local function categories(node)
+    local out = {}
+    if node and node.kind ~= "fieldDecl" then
+        out.statement = true
+    end
+    local fixed = node and CATEGORIES[node.kind]
+    for name in pairs(fixed or {}) do
+        out[name] = true
+    end
+    if node and node.kind == "recordDecl" then
+        out.declaration = true
+        out["type-declaration"] = true
+        out[node.declKind or "record"] = true
+    end
+
+    return out
+end
+
+function Registry:accepts(definition, node)
+    local actual = categories(node)
+    for target in pairs(definition.targetSet) do
+        if actual[target] then
+            return true
+        end
+    end
+
+    return false
+end
+
+function Registry:describeTargets(definition)
+    return table.concat(definition.targets, ", ")
+end
+
+-- `doc` is a one-line hover blurb; `docsPath` is the corresponding page on
+-- nupp.org (repo-relative to its docs root). Neither is user-facing
+-- metadata -- a project's own `@annotation` declarations get real hover and
+-- go-to-definition from the record they are written as, so only the built-ins
+-- compiled into the registry need a stand-in.
+local BUILTINS = {
+    {
+        name = "annotation",
+        arguments = "definition",
+        targets = {"record", "struct"},
+        doc = "Declares a record or struct as an annotation definition; `targets` says where applications may attach.",
+        docsPath = "reference/annotations#defining-an-annotation",
+    },
+    {
+        name = "annotationValue",
+        arguments = "none",
+        targets = {"field"},
+        doc = "Marks one annotation-definition field as the single positional value, so `@name(value)` and `@name(field = value)` mean the same thing.",
+        docsPath = "reference/annotations#single-value-applications",
+    },
+    {
+        name = "ref",
+        arguments = "none",
+        targets = {"field"},
+        doc = "Marks an annotation-definition field whose value is a type reference rather than a literal constant.",
+        docsPath = "reference/annotations#type-reference-members",
+    },
+    {
+        name = "allow",
+        arguments = "warnings",
+        targets = {"statement"},
+        doc = "Suppresses the named lints, by name or code, for the statement it decorates. Does not suppress a type error.",
+        docsPath = "reference/annotations#built-in-annotations",
+    },
+    {
+        name = "override",
+        arguments = "none",
+        targets = {"function"},
+        doc = "Marks a member that replaces an interface's default implementation; an error both on a misspelled override and on one that replaces nothing.",
+        docsPath = "reference/annotations#built-in-annotations",
+    },
+    {
+        name = "partition",
+        arguments = "names",
+        targets = {"field"},
+        builtin = true,
+        doc = "An audited ownership assertion: the method's first result carries two sibling-disjoint regions in the named fields, on a sealed interface only.",
+        docsPath = "reference/annotations#built-in-annotations",
+    },
+    {
+        name = "effects",
+        arguments = "effects",
+        targets = {"function", "c-function", "local-binding"},
+        doc = "A complete, pessimistic effect contract: reads, writes, shapes, metatables, escapes, calls, returns, allocates, yields, raises, external.",
+        docsPath = "concepts/effects",
+    },
+    {
+        name = "relax",
+        arguments = "names",
+        targets = {"function"},
+        doc = "Names guarantees a function may give up, of six: function-identity, load-order, error-site, frames, gc-timing, table-order. Permits a rewrite that would otherwise change observable behavior.",
+        docsPath = "reference/annotations#relaxing-observable-guarantees",
+    },
+    {
+        name = "derive",
+        arguments = "names",
+        targets = {"record", "struct"},
+        builtin = true,
+        doc = "Runs a closed comptime recipe, e.g. `nupp.derive.Serde`, that adds checked members or data without exposing source or AST macros.",
+        docsPath = "reference/derives",
+    },
+    {
+        name = "json",
+        arguments = "typed",
+        targets = {"record", "field"},
+        builtin = true,
+        doc = "Configures how the JSON derive encodes and decodes a record or field.",
+        docsPath = "reference/derives",
+    },
+    {
+        name = "debug",
+        arguments = "typed",
+        targets = {"field"},
+        builtin = true,
+        doc = "Configures how the debug derive shows a derived record's field: skip or redact.",
+        docsPath = "reference/derives",
+    },
+    {
+        name = "deprecated",
+        arguments = "typed",
+        targets = {"declaration", "field", "c-declaration"},
+        builtin = true,
+        doc = "Marks an API for migration while keeping it callable. Hover shows the reason and replacement, and a use reports the suppressible `deprecated` lint.",
+        docsPath = "reference/annotations#built-in-annotations",
+    },
+    {
+        name = "syntax",
+        arguments = "typed",
+        targets = {"local-binding"},
+        builtin = true,
+        doc = "Names the embedded language of a local/const long-string initializer, e.g. `@syntax(\"json\")`, for editor syntax highlighting.",
+        docsPath = "reference/annotations#built-in-annotations",
+    },
+    {
+        name = "jit",
+        arguments = "none",
+        targets = {"function"},
+        doc = "An absence-of-known-blockers contract for the selected LuaJIT trace profile; a call path to a catalogued recorder blocker reports NUPP2707.",
+        docsPath = "guides/jit-trace-checking",
+    },
+    {
+        name = "aot",
+        arguments = "typed",
+        targets = {"function"},
+        builtin = true,
+        doc = "Reserves a required whole-function ahead-of-time compilation contract. A build's `aot` policy decides what happens with it: off (default), emit-c, or require.",
+        docsPath = "guides/ahead-of-time",
+    },
+}
+
+function annotations.new(withBuiltins: boolean?): annotations.Registry
+    -- Keep the methods as explicit fields as well as on __index. That makes the public
+    -- shape visible to nupp's gradual checker; it deliberately does not infer
+    -- structural fields through arbitrary metatables.
+    local registry = setmetatable(
+        {
+            byname = {},
+            define = Registry.define,
+            get = Registry.get,
+            accepts = Registry.accepts,
+            describeTargets = Registry.describeTargets,
+            removeSource = Registry.removeSource,
+        },
+        Registry
+    )
+    if withBuiltins ~= false then
+        for _, spec in ipairs(BUILTINS) do
+            assert(registry:define(spec))
+        end
+    end
+
+    return registry
+end
+
+local defaultRegistry = annotations.new()
+
+function annotations.default(): annotations.Registry
+    return defaultRegistry
+end
+
+--- Supplies the first typed built-in annotation schemas after the type arena exists.
+--- Keeping this operation here leaves registry construction independent of the type
+--- module while ensuring the checker receives real interned types.
+function annotations.hydrateBuiltins(registry: annotations.Registry, typesApi: annotations.TypeAPI): nil
+    local function optional(t)
+        return typesApi.union({t, typesApi.nil_})
+    end
+
+    -- `doc` and `docsPath` reach hover and go-to-definition the same way the
+    -- annotation itself does: a built-in member has no field declaration to
+    -- point at, so its own blurb and a link stand in for one.
+    local function member(name, t, isOptional, doc, docsPath)
+        return {name = name, type = t, optional = isOptional == true, doc = doc, docsPath = docsPath}
+    end
+
+    local json = registry:get("json")
+    local jsonDocs = "reference/derives"
+    json.members = {
+        unknown = member(
+            "unknown",
+            typesApi.union({
+                typesApi.literal("reject"),
+                typesApi.literal("ignore")
+            }),
+            true,
+            "How an unknown field is handled while decoding: `\"reject\"` or `\"ignore\"`.",
+            jsonDocs
+        ),
+        name = member(
+            "name",
+            optional(typesApi.string),
+            true,
+            "The field's name in JSON, if different from its Nupp name.",
+            jsonDocs
+        ),
+        omit = member("omit", optional(typesApi.boolean), true, "Omits this field from encoded JSON.", jsonDocs),
+        omitEmpty = member(
+            "omitEmpty",
+            optional(typesApi.boolean),
+            true,
+            "Omits this field from encoded JSON when its value is empty.",
+            jsonDocs
+        ),
+    }
+    json.memberOrder = {"unknown", "name", "omit", "omitEmpty"}
+
+    local aot = registry:get("aot")
+    -- Absent, the compiler decides from how much arithmetic the loop does per
+    -- byte it touches: lane lowering wins on a register-resident loop and loses
+    -- on one that streams memory. `lanes = true` and `lanes = false` override
+    -- that in either direction. Neither requires the lowering to succeed --
+    -- that was `simd = true`, withdrawn because it turned a performance
+    -- property into a build error.
+    aot.members = {
+        lanes = member(
+            "lanes",
+            optional(typesApi.boolean),
+            true,
+            "Overrides the compiler's lane-lowering estimate: `true` forces it, `false` forbids it. Neither requires the lowering to succeed.",
+            "guides/ahead-of-time"
+        ),
+    }
+    aot.memberOrder = {"lanes"}
+
+    local debug = registry:get("debug")
+    local debugDocs = "reference/derives"
+    debug.members = {
+        skip = member(
+            "skip",
+            optional(typesApi.boolean),
+            true,
+            "Omits this field from the derived debug representation.",
+            debugDocs
+        ),
+        redact = member(
+            "redact",
+            optional(typesApi.boolean),
+            true,
+            "Shows this field's value redacted in the derived debug representation.",
+            debugDocs
+        ),
+    }
+    debug.memberOrder = {"skip", "redact"}
+
+    local deprecated = registry:get("deprecated")
+    local deprecatedDocs = "reference/annotations#built-in-annotations"
+    deprecated.members = {
+        reason = member(
+            "reason",
+            optional(typesApi.string),
+            true,
+            "Why the API is deprecated, shown on hover and in generated documentation.",
+            deprecatedDocs
+        ),
+        replacement = member(
+            "replacement",
+            optional(typesApi.string),
+            true,
+            "The API to migrate to, shown on hover and in generated documentation.",
+            deprecatedDocs
+        ),
+    }
+    deprecated.memberOrder = {"reason", "replacement"}
+    deprecated.singleValue = "reason"
+
+    local syntax = registry:get("syntax")
+    syntax.members = {
+        value = member(
+            "value",
+            typesApi.string,
+            false,
+            "The embedded language name, e.g. `\"json\"`, used for editor syntax highlighting.",
+            "reference/annotations#built-in-annotations"
+        ),
+    }
+    syntax.memberOrder = {"value"}
+    syntax.singleValue = "value"
+
+end
+
+--- Reads the normalized tooling contract from resolved semantic annotations.
+function annotations.deprecationOf(values: {any}?): annotations.Deprecation?
+    for _, annotation in ipairs(values or {}) do
+        if annotation.name == "deprecated" then
+            local deprecated = new annotations.Deprecation()
+            for _, argument in ipairs(annotation.arguments or {}) do
+                if argument.name == "reason" and type(argument.value) == "string" then
+                    deprecated.reason = argument.value
+                elseif argument.name == "replacement" and type(argument.value) == "string" then
+                    deprecated.replacement = argument.value
+                end
+            end
+            return deprecated
+        end
+    end
+
+    return nil
+end
+
+--- Human-readable Markdown used by hover and other presentation-shaped tooling.
+function annotations.deprecationMarkdown(deprecated: annotations.Deprecation?): string?
+    if not deprecated then
+        return nil
+    end
+    local text = "**Deprecated.**"
+    if deprecated.reason and deprecated.reason ~= "" then
+        text = text .. " " .. deprecated.reason
+    end
+    if deprecated.replacement and deprecated.replacement ~= "" then
+        text = text .. " Use `" .. deprecated.replacement:gsub("`", "\\`") .. "` instead."
+    end
+
+    return text
+end
+
+--- Attaches built-in schemas to their hidden prelude declarations for hover and
+--- definition without making annotation checking depend on source syntax.
+function annotations.bindBuiltinDeclarations(
+    registry: annotations.Registry,
+    globalTypes: {[string]: any},
+    globalTypeDefs: {[string]: any}
+): nil
+    local schemas = {
+        json = "nupp.derive.JSONOptions",
+        debug = "nupp.derive.DebugOptions",
+        deprecated = "nupp.__DeprecatedAnnotation",
+    }
+    local function resolve(path)
+        local segments = {}
+        for segment in path:gmatch("[^.]+") do
+            segments[#segments + 1] = segment
+        end
+        local schema = globalTypes and globalTypes[segments[1] .. "." .. (segments[2] or "")]
+        for index = 3, #segments do
+            schema = schema and schema.nestedTypes and schema.nestedTypes[segments[index]]
+        end
+
+        return schema
+    end
+
+    for annotationName, typeName in pairs(schemas) do
+        local definition = registry:get(annotationName)
+        local schema = resolve(typeName)
+        if definition and schema then
+            definition.declaration = schema.definition or globalTypeDefs and globalTypeDefs[typeName] or nil
+            for name, member in pairs(definition.members or {}) do
+                member.definition = schema.fieldDefs and schema.fieldDefs[name] or nil
+            end
+        end
+    end
+end
+
+export = annotations

@@ -1,0 +1,17 @@
+local m = {}
+
+local settings = {
+    -- how many times to try again
+    retries = 3,
+    timeout = 30, -- seconds
+    -- nothing follows this one
+}
+
+local values = {
+    1, -- first
+    2,
+    -- the last element
+    3,
+}
+
+return m, settings, values

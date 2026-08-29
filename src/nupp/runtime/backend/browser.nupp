@@ -1,0 +1,37 @@
+module nupp.runtime.backend.browser
+
+-- The complete set of third-party and checked pure-Lua providers carried by the
+-- portable compiler host. Application backends remain an independent target choice.
+
+const Backend = require("nupp.runtime.backend")
+const Bitops = require("nupp.runtime.seam.bitops")
+const BrowserCrypto = require("nupp.runtime.seam.browsercrypto")
+const BrowserStorage = require("nupp.runtime.seam.browserstorage")
+const Time = require("nupp.runtime.seam.time")
+const Workers = require("nupp.runtime.seam.workers")
+const HTTP = require("nupp.runtime.seam.http")
+const HMAC = require("nupp.runtime.seam.hmacsha256")
+const JSON = require("nupp.runtime.seam.json")
+const Path = require("nupp.runtime.seam.path")
+const SHA256 = require("nupp.runtime.seam.sha256")
+const Suspension = require("nupp.runtime.seam.suspension")
+const TextBuffer = require("nupp.runtime.seam.textbuffer")
+const URI = require("nupp.runtime.seam.uri")
+const UUID = require("nupp.runtime.seam.uuid")
+
+export = Backend.new("nupp.browser", {
+    Bitops.seam("nupp.runtime.provider.scalarbitops"),
+    JSON.seam("nupp.runtime.provider.lunajson"),
+    Path.seam("nupp.runtime.provider.browserpath"),
+    Suspension.seam("nupp.runtime.provider.browsersuspension"),
+    TextBuffer.seam("nupp.runtime.provider.tablebuffer"),
+    URI.seam("nupp.runtime.provider.browseruri"),
+    HTTP.seam("nupp.runtime.provider.browserhttp"),
+    Time.seam("nupp.runtime.provider.browsertime"),
+    BrowserCrypto.seam("nupp.runtime.provider.browsercrypto"),
+    BrowserStorage.seam("nupp.runtime.provider.browserstorage"),
+    Workers.seam("nupp.runtime.provider.browserworkers"),
+    SHA256.seam("nupp.runtime.provider.browsercrypto"),
+    HMAC.seam("nupp.runtime.provider.browsercrypto"),
+    UUID.seam("nupp.runtime.provider.browsercrypto"),
+})

@@ -1,0 +1,532 @@
+module nupp.compiler.members
+
+--[[
+The immutable semantic view of ordinary value members.
+
+Nominals are populated in place while a declaration is checked, so their mutable
+`byname` tables cannot be the vocabulary shared by member access, reflection, and
+type-level reduction.  This module takes a fresh snapshot instead.  The snapshot
+contains only ordinary instance members and indexers: statics, nested types,
+constructors, metamethods, and method implementation slots remain separate semantic
+categories.
+
+Every consumer asks this module the same structural question.  In particular,
+intersections compose readable types covariantly and writable types
+contravariantly here rather than independently in relations and the checker.
+]]
+
+local T = require("nupp.compiler.types")
+
+local members = {}
+
+type members.Entry = {
+    name: string,
+    readType: T.Type?,
+    writeType: T.Type?,
+    declarationKind: string,
+    definition: any,
+    definitions: {any}?,
+    annotations: {any}
+}
+
+type members.Indexer = {
+    keyType: T.Type,
+    valueType: T.Type
+}
+
+type members.View = {
+    ordered: {members.Entry},
+    byname: {[string]: members.Entry},
+    readIndexer: members.Indexer?,
+    writeIndexer: members.Indexer?
+}
+
+local function empty(): members.View
+    return {ordered = {}, byname = {}}
+end
+
+local function definitions(entry: members.Entry): {any}
+    if entry.definitions then
+        local out = {}
+        for j, definition in ipairs(entry.definitions) do
+            out[j] = definition
+        end
+        return out
+    end
+
+    return entry.definition and {entry.definition} or {}
+end
+
+local function orderedNames(byname: {[string]: T.Type}, writeByname: {[string]: T.Type}, preferred: {string}?): {string}
+    local seen, names = {}, {}
+    for _, name in ipairs(preferred or {}) do
+        if (byname[name] or writeByname[name]) and not seen[name] then
+            seen[name] = true
+            names[#names + 1] = name
+        end
+    end
+    local remaining = {}
+    for name in pairs(byname) do
+        if not seen[name] then
+            seen[name] = true
+            remaining[#remaining + 1] = name
+        end
+    end
+    for name in pairs(writeByname) do
+        if not seen[name] then
+            seen[name] = true
+            remaining[#remaining + 1] = name
+        end
+    end
+    table.sort(remaining)
+    for _, name in ipairs(remaining) do
+        names[#names + 1] = name
+    end
+
+    return names
+end
+
+local type ViewMemo = {[T.Type]: members.View}
+
+local build
+
+local function direct(t: T.Shape | T.Nominal): members.View
+    local out = empty()
+    local readByname = t.byname or {}
+    local writeByname = t.writeByname or {}
+    local preferred = {}
+    if t.tag == "nominal" then
+        preferred = t.fieldOrder or {}
+    else
+        for _, field in ipairs(t.fields or {}) do
+            preferred[#preferred + 1] = field.name
+        end
+    end
+    for _, name in ipairs(orderedNames(readByname, writeByname, preferred)) do
+        local readDefinition, writeDefinition = nil, nil
+        if t.tag == "nominal" then
+            readDefinition = t.fieldDefs and t.fieldDefs[name] or nil
+            writeDefinition = t.writeFieldDefs and t.writeFieldDefs[name] or nil
+        end
+        local defs = {}
+        if readDefinition then
+            defs[#defs + 1] = readDefinition
+        end
+        if writeDefinition and writeDefinition ~= readDefinition then
+            defs[#defs + 1] = writeDefinition
+        end
+        local entry: members.Entry = {
+            name = name,
+            readType = readByname[name],
+            writeType = writeByname[name],
+            declarationKind = t.tag == "nominal" and t.declKind or "shape",
+            definition = defs[1],
+            definitions = #defs > 1 and defs or nil,
+            annotations = readDefinition
+            and readDefinition.annotations
+            or writeDefinition
+            and writeDefinition.annotations
+            or {}
+        }
+        out.ordered[#out.ordered + 1] = entry
+        out.byname[name] = entry
+    end
+    if t.indexReadKey and t.indexReadValue then
+        out.readIndexer = {keyType = t.indexReadKey, valueType = t.indexReadValue}
+    end
+    if t.indexWriteKey and t.indexWriteValue then
+        out.writeIndexer = {keyType = t.indexWriteKey, valueType = t.indexWriteValue}
+    end
+
+    return out
+end
+
+local function mergeIntersection(t: T.Intersection, memo: ViewMemo): members.View
+    local out = empty()
+    local reads, writes, defs = {}, {}, {}
+    local readKeys, readValues, writeKeys, writeValues = {}, {}, {}, {}
+    for _, part in ipairs(t.members) do
+        local one = build(part, memo)
+        for _, entry in ipairs(one.ordered) do
+            local rs = reads[entry.name] or {}
+            local ws = writes[entry.name] or {}
+            if entry.readType then
+                rs[#rs + 1] = entry.readType
+            end
+            if entry.writeType then
+                ws[#ws + 1] = entry.writeType
+            end
+            reads[entry.name], writes[entry.name] = rs, ws
+            local ds = defs[entry.name] or {}
+            for _, definition in ipairs(definitions(entry)) do
+                ds[#ds + 1] = definition
+            end
+            defs[entry.name] = ds
+        end
+        if one.readIndexer then
+            readKeys[#readKeys + 1] = one.readIndexer.keyType
+            readValues[#readValues + 1] = one.readIndexer.valueType
+        end
+        if one.writeIndexer then
+            writeKeys[#writeKeys + 1] = one.writeIndexer.keyType
+            writeValues[#writeValues + 1] = one.writeIndexer.valueType
+        end
+    end
+    local names = {}
+    for name in pairs(reads) do
+        names[#names + 1] = name
+    end
+    table.sort(names)
+    for _, name in ipairs(names) do
+        local rs, ws, ds = reads[name], writes[name], defs[name]
+        local entry: members.Entry = {
+            name = name,
+            readType = #rs > 0 and T.intersection(rs) or nil,
+            writeType = #ws > 0 and T.union(ws) or nil,
+            declarationKind = "intersection",
+            definition = ds[1],
+            definitions = #ds > 1 and ds or nil,
+            annotations = {}
+        }
+        out.ordered[#out.ordered + 1] = entry
+        out.byname[name] = entry
+    end
+    if #readKeys > 0 then
+        out.readIndexer = {keyType = T.union(readKeys), valueType = T.intersection(readValues)}
+    end
+    if #writeKeys > 0 then
+        out.writeIndexer = {keyType = T.union(writeKeys), valueType = T.union(writeValues)}
+    end
+
+    return out
+end
+
+local function mergeUnion(t: T.Union, memo: ViewMemo): members.View
+    local out = empty()
+    local first = t.members[1] and build(t.members[1], memo) or empty()
+    for _, candidate in ipairs(first.ordered) do
+        local readTypes, writeTypes, defs = {}, {}, {}
+        local allRead, allWrite = true, true
+        for _, part in ipairs(t.members) do
+            local entry = build(part, memo).byname[candidate.name]
+            if not entry or not entry.readType then
+                allRead = false
+            else
+                readTypes[#readTypes + 1] = entry.readType
+            end
+            if not entry or not entry.writeType then
+                allWrite = false
+            else
+                writeTypes[#writeTypes + 1] = entry.writeType
+            end
+            if entry then
+                for _, definition in ipairs(definitions(entry)) do
+                    defs[#defs + 1] = definition
+                end
+            end
+        end
+        if allRead or allWrite then
+            local entry: members.Entry = {
+                name = candidate.name,
+                readType = allRead and T.union(readTypes) or nil,
+                writeType = allWrite and T.intersection(writeTypes) or nil,
+                declarationKind = "union",
+                definition = defs[1],
+                definitions = #defs > 1 and defs or nil,
+                annotations = {}
+            }
+            out.ordered[#out.ordered + 1] = entry
+            out.byname[entry.name] = entry
+        end
+    end
+    local readKeys, readValues, writeKeys, writeValues = {}, {}, {}, {}
+    local allReadIndexer, allWriteIndexer = #t.members > 0, #t.members > 0
+    for _, part in ipairs(t.members) do
+        local one = build(part, memo)
+        if one.readIndexer then
+            readKeys[#readKeys + 1] = one.readIndexer.keyType
+            readValues[#readValues + 1] = one.readIndexer.valueType
+        else
+            allReadIndexer = false
+        end
+        if one.writeIndexer then
+            writeKeys[#writeKeys + 1] = one.writeIndexer.keyType
+            writeValues[#writeValues + 1] = one.writeIndexer.valueType
+        else
+            allWriteIndexer = false
+        end
+    end
+    if allReadIndexer then
+        out.readIndexer = {keyType = T.intersection(readKeys), valueType = T.union(readValues)}
+    end
+    if allWriteIndexer then
+        out.writeIndexer = {keyType = T.intersection(writeKeys), valueType = T.intersection(writeValues)}
+    end
+
+    return out
+end
+
+build = function(t: T.Type, memo: ViewMemo): members.View
+    local cached = memo[t]
+    if cached then
+        return cached
+    end
+    t = T.unwrapOwnership(t)
+    cached = memo[t]
+    if cached then
+        return cached
+    end
+    local out: members.View
+    if t.tag == "ptr" then
+        out = build(t.elem, memo)
+    elseif t.tag == "literal" then
+        out = build(t.base, memo)
+    elseif t.tag == "typevar" and t.bound then
+        out = build(t.bound, memo)
+    elseif t.tag == "neutral" and t.op == "comptimeCall" and t.comptimeBound then
+        out = build(t.comptimeBound, memo)
+    elseif t.tag == "shape" or t.tag == "nominal" then
+        out = direct(t)
+    elseif t.tag == "intersection" then
+        out = mergeIntersection(t, memo)
+    elseif t.tag == "union" then
+        out = mergeUnion(t, memo)
+    elseif t.tag == "const" then
+        local inner = build(t.inner, memo)
+        out = empty()
+        for _, source in ipairs(inner.ordered) do
+            local entry: members.Entry = {
+                name = source.name,
+                readType = source.readType,
+                declarationKind = source.declarationKind,
+                definition = source.definition,
+                definitions = source.definitions,
+                annotations = source.annotations
+            }
+            out.ordered[#out.ordered + 1] = entry
+            out.byname[entry.name] = entry
+        end
+        out.readIndexer = inner.readIndexer
+    elseif t.tag == "map" then
+        out = empty()
+        if t.readable then
+            out.readIndexer = {keyType = t.key, valueType = t.value}
+        end
+        if t.writeKey and t.writeValue then
+            out.writeIndexer = {keyType = t.writeKey, valueType = t.writeValue}
+        end
+    else
+        out = empty()
+    end
+    memo[t] = out
+
+    return out
+end
+
+function members.view(t: T.Type): members.View
+    return build(t, {})
+end
+
+--- One member by name, without building the view it would sit in.
+---
+--- Almost every question put to this module is "what is `t.name`", and asking it
+--- through `members.view` meant ordering every member, sorting them, allocating an
+--- entry for each, and then reading one. Checking a single 791-line module built 84,372
+--- views to do that, 99% of them from one member access in `nupp.compiler.check.calls`.
+---
+--- So this walks the shapes `build` walks and composes the same answer for one name.
+--- The two must agree, and `memberstest` holds them to it. Callers that iterate all
+--- members still want `members.view`, which is unchanged and still the vocabulary this
+--- module is about; this is the fast path through it, not a second opinion.
+---
+--- Nothing is cached. A nominal's members are filled in while its declaration is
+--- checked, and this reads the live tables, which is exactly what `direct` does.
+local lookup: function(t: T.Type, name: string): members.Entry?
+
+--- The entry a shape or nominal has under `name`, or nil when it has none. The name
+--- test matches `orderedNames`: present in either table is present.
+local function directEntry(t: T.Shape | T.Nominal, name: string): members.Entry?
+    local readType = t.byname and t.byname[name] or nil
+    local writeType = t.writeByname and t.writeByname[name] or nil
+    if not readType and not writeType then
+        return nil
+    end
+    local readDefinition, writeDefinition = nil, nil
+    if t.tag == "nominal" then
+        readDefinition = t.fieldDefs and t.fieldDefs[name] or nil
+        writeDefinition = t.writeFieldDefs and t.writeFieldDefs[name] or nil
+    end
+    local defs = {}
+    if readDefinition then
+        defs[#defs + 1] = readDefinition
+    end
+    if writeDefinition and writeDefinition ~= readDefinition then
+        defs[#defs + 1] = writeDefinition
+    end
+
+    return {
+        name = name,
+        readType = readType,
+        writeType = writeType,
+        declarationKind = t.tag == "nominal" and t.declKind or "shape",
+        definition = defs[1],
+        definitions = #defs > 1 and defs or nil,
+        annotations = readDefinition
+        and readDefinition.annotations
+        or writeDefinition
+        and writeDefinition.annotations
+        or {}
+    }
+end
+
+--- Readable types compose covariantly and writable types contravariantly, the same way
+--- `mergeIntersection` composes them for every name at once.
+local function intersectionEntry(t: T.Intersection, name: string): members.Entry?
+    local reads, writes, defs = {}, {}, {}
+    local present = false
+    for _, part in ipairs(t.members) do
+        local one = lookup(part, name)
+        if one then
+            present = true
+            if one.readType then
+                reads[#reads + 1] = one.readType
+            end
+            if one.writeType then
+                writes[#writes + 1] = one.writeType
+            end
+            for _, definition in ipairs(definitions(one)) do
+                defs[#defs + 1] = definition
+            end
+        end
+    end
+    if not present then
+        return nil
+    end
+
+    return {
+        name = name,
+        readType = #reads > 0 and T.intersection(reads) or nil,
+        writeType = #writes > 0 and T.union(writes) or nil,
+        declarationKind = "intersection",
+        definition = defs[1],
+        definitions = #defs > 1 and defs or nil,
+        annotations = {}
+    }
+end
+
+--- A union has a member only where every alternative has it, which is what makes
+--- reading it safe. `mergeUnion` takes its candidates from the first alternative, so a
+--- name the first one lacks is not a member however the rest are spelled; that is
+--- preserved here.
+local function unionEntry(t: T.Union, name: string): members.Entry?
+    if not t.members[1] or not lookup(t.members[1], name) then
+        return nil
+    end
+    local reads, writes, defs = {}, {}, {}
+    local allRead, allWrite = true, true
+    for _, part in ipairs(t.members) do
+        local one = lookup(part, name)
+        if not one or not one.readType then
+            allRead = false
+        else
+            reads[#reads + 1] = one.readType
+        end
+        if not one or not one.writeType then
+            allWrite = false
+        else
+            writes[#writes + 1] = one.writeType
+        end
+        if one then
+            for _, definition in ipairs(definitions(one)) do
+                defs[#defs + 1] = definition
+            end
+        end
+    end
+    if not allRead and not allWrite then
+        return nil
+    end
+
+    return {
+        name = name,
+        readType = allRead and T.union(reads) or nil,
+        writeType = allWrite and T.intersection(writes) or nil,
+        declarationKind = "union",
+        definition = defs[1],
+        definitions = #defs > 1 and defs or nil,
+        annotations = {}
+    }
+end
+
+lookup = function(t: T.Type, name: string): members.Entry?
+    t = T.unwrapOwnership(t)
+    local tag = t.tag
+    if tag == "ptr" then
+        return lookup((t as T.Ptr).elem, name)
+    elseif tag == "literal" then
+        return lookup((t as T.Literal).base, name)
+    elseif tag == "typevar" and (t as T.TypeVar).bound then
+        return lookup((t as T.TypeVar).bound as T.Type, name)
+    elseif tag == "neutral" and (t as T.Neutral).op == "comptimeCall" and (t as T.Neutral).comptimeBound then
+        return lookup((t as T.Neutral).comptimeBound as T.Type, name)
+    elseif tag == "shape" or tag == "nominal" then
+        return directEntry(t as T.Shape | T.Nominal, name)
+    elseif tag == "intersection" then
+        return intersectionEntry(t as T.Intersection, name)
+    elseif tag == "union" then
+        return unionEntry(t as T.Union, name)
+    elseif tag == "const" then
+        -- `const` publishes what its inner type reads and nothing it writes.
+        local inner = lookup((t as T.Const).inner, name)
+        if not inner then
+            return nil
+        end
+
+        return {
+            name = inner.name,
+            readType = inner.readType,
+            declarationKind = inner.declarationKind,
+            definition = inner.definition,
+            definitions = inner.definitions,
+            annotations = inner.annotations
+        }
+    end
+
+    -- A map has an indexer and no named members, and nothing else has either.
+
+    return nil
+end
+
+members.lookup = lookup
+
+--- A stable description of a member view.  The caller supplies the canonical type
+--- fingerprint it already uses, keeping this vocabulary independent of build-cache
+--- serialization and of the future public reflection schema.
+function members.fingerprint(t: T.Type, typeFingerprint: function(T.Type): string): string
+    local one = members.view(t)
+    local parts = {}
+    for _, entry in ipairs(one.ordered) do
+        parts[
+            #parts + 1
+        ] = entry.name .. ":r=" .. (
+            entry.readType and typeFingerprint(entry.readType) or "-"
+        ) .. ":w=" .. (entry.writeType and typeFingerprint(entry.writeType) or "-")
+    end
+    if one.readIndexer then
+        parts[
+            #parts + 1
+        ] = "[r=" .. typeFingerprint(
+            one.readIndexer.keyType
+        ) .. ":" .. typeFingerprint(one.readIndexer.valueType) .. "]"
+    end
+    if one.writeIndexer then
+        parts[
+            #parts + 1
+        ] = "[w=" .. typeFingerprint(
+            one.writeIndexer.keyType
+        ) .. ":" .. typeFingerprint(one.writeIndexer.valueType) .. "]"
+    end
+
+    return table.concat(parts, ",")
+end
+
+export = members

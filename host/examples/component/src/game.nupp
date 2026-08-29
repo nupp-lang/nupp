@@ -1,0 +1,5 @@
+module game
+
+export function answer(value: integer): integer
+    return value + 1
+end

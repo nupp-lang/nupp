@@ -1,0 +1,246 @@
+module nupp.compiler.fixedwidth
+
+--[[
+The fixed-width vocabulary has two roles that must not be conflated.
+
+`float`, `int32`, and `uint32` are unboxed value refinements. The narrower
+integer names describe physical storage only. This module owns that division,
+the projection from a storage load to a value type, and the literal membership
+test used by the checker. It deliberately owns no flow state: establishment is
+a fact about one expression or binding, recorded by the checking run.
+]]
+
+local T = require("nupp.compiler.types")
+
+local fixed = {}
+
+local VALUE = {float = true, int32 = true, uint32 = true}
+local STORAGE_ONLY = {int8 = true, int16 = true, uint8 = true, uint16 = true}
+local PHYSICAL = {
+    float = true,
+    int8 = true,
+    int16 = true,
+    int32 = true,
+    int64 = true,
+    uint8 = true,
+    uint16 = true,
+    uint32 = true,
+    uint64 = true,
+}
+
+function fixed.isValue(t: T.Type?): boolean
+    return t ~= nil and VALUE[T.unwrapOwnership(t).tag] == true
+end
+
+function fixed.isStorageOnly(t: T.Type?): boolean
+    return t ~= nil and STORAGE_ONLY[T.unwrapOwnership(t).tag] == true
+end
+
+--- Finds a storage-only width that escaped into a value-shaped type. Pointers,
+--- C arrays, structs, and standard span element positions are the physical leaves
+--- where those names are meaningful and deliberately stop the walk.
+function fixed.storageOnlyValue(t: T.Type?, seen: {[string]: boolean}?): T.Type?
+    if not t then
+        return nil
+    end
+    local raw = T.unwrapOwnership(t)
+    if STORAGE_ONLY[raw.tag] then
+        return raw
+    end
+    if raw.tag == "ptr" or raw.tag == "carray" or raw.tag == "ctype" or raw.tag == "const" then
+        return nil
+    end
+    seen = seen or {}
+    if seen[raw.id] then
+        return nil
+    end
+    seen[raw.id] = true
+    if raw.tag == "nominal" then
+        local origin = (raw.origin or raw) as T.Nominal
+        if raw.declKind == "struct" or origin.moduleName == "nupp.mem.span" then
+            return nil
+        end
+        for _, name in ipairs(raw.fieldOrder or {}) do
+            local found = fixed.storageOnlyValue(raw.byname and raw.byname[name], seen)
+            if found then
+                return found
+            end
+        end
+    elseif raw.tag == "func" then
+        for _, value in ipairs(raw.params or {}) do
+            local found = fixed.storageOnlyValue(value, seen)
+            if found then
+                return found
+            end
+        end
+        for _, value in ipairs(raw.rets or {}) do
+            local found = fixed.storageOnlyValue(value, seen)
+            if found then
+                return found
+            end
+        end
+    elseif raw.tag == "array" then
+        return fixed.storageOnlyValue(raw.elem, seen)
+    elseif raw.tag == "map" then
+        return fixed.storageOnlyValue(raw.value, seen) or fixed.storageOnlyValue(raw.writeValue, seen)
+    elseif raw.tag == "tuple" then
+        for _, value in ipairs(raw.elems or {}) do
+            local found = fixed.storageOnlyValue(value, seen)
+            if found then
+                return found
+            end
+        end
+    elseif raw.tag == "union" or raw.tag == "intersection" then
+        for _, value in ipairs(raw.members or {}) do
+            local found = fixed.storageOnlyValue(value, seen)
+            if found then
+                return found
+            end
+        end
+    elseif raw.tag == "shape" then
+        for _, field in ipairs(raw.fields or {}) do
+            local found = fixed.storageOnlyValue(field.read or field.write or field.type, seen)
+            if found then
+                return found
+            end
+        end
+    end
+
+    return nil
+end
+
+function fixed.isPhysical(t: T.Type?): boolean
+    return t ~= nil and PHYSICAL[T.unwrapOwnership(t).tag] == true
+end
+
+--- Whether trusting this checked value also means trusting fixed-width facts held
+--- inside a table-backed record. This is kept separate from physical structs: their
+--- loads establish values at the slot, rather than relying on table mutation history.
+function fixed.requiresTrust(t: T.Type?, seen: {[string]: boolean}?): boolean
+    if not t then
+        return false
+    end
+    local raw = T.unwrapOwnership(t)
+    if raw.tag ~= "nominal" or raw.declKind ~= "record" then
+        return false
+    end
+    seen = seen or {}
+    if seen[raw.id] then
+        return false
+    end
+    seen[raw.id] = true
+    for _, name in ipairs(raw.fieldOrder or {}) do
+        local field = raw.byname and raw.byname[name] or nil
+        if fixed.isValue(field) or fixed.requiresTrust(field, seen) then
+            return true
+        end
+    end
+
+    return false
+end
+
+--- The value produced by loading one physical scalar slot.
+function fixed.loaded(t: T.Type): T.Type
+    local raw = T.unwrapOwnership(t)
+    if raw.tag == "int8" or raw.tag == "int16" then
+        return T.int32
+    elseif raw.tag == "uint8" or raw.tag == "uint16" then
+        return T.uint32
+    end
+
+    return raw
+end
+
+local function numeric(t: T.Type): boolean
+    local raw = T.unwrapOwnership(t)
+    if raw == T.any then
+        return true
+    end
+    if raw.tag == "literal" then
+        return raw.base == T.number or raw.base == T.integer
+    end
+    if raw.tag == "union" then
+        for _, member in ipairs(raw.members) do
+            if not numeric(member) then
+                return false
+            end
+        end
+        return true
+    end
+
+    return raw.tag == "number" or raw.tag == "integer" or PHYSICAL[raw.tag] == true
+end
+
+--- Whether a real C/FFI store accepts `source` for the physical scalar `target`.
+--- Returns nil when the target is not one of those slots, so the caller asks the
+--- ordinary subtype relation instead.
+function fixed.physicalStoreAccepts(source: T.Type, target: T.Type): boolean?
+    local rawTarget = T.unwrapOwnership(target)
+    if not PHYSICAL[rawTarget.tag] then
+        return nil
+    end
+
+    return numeric(source)
+end
+
+local MIN_NORMAL_F32 = 2 ^ -126
+local MIN_SUBNORMAL_F32 = 2 ^ -149
+
+local function exactFloat(value: number): boolean
+    if value ~= value or value == math.huge or value == -math.huge or value == 0 then
+        return true
+    end
+    local magnitude = math.abs(value)
+    if magnitude < MIN_NORMAL_F32 then
+        local units = magnitude / MIN_SUBNORMAL_F32
+        return units >= 1 and units <= 8388607 and units % 1 == 0
+    end
+    local significand, exponent = math.frexp(magnitude)
+    if exponent > 128 then
+        return false
+    end
+    local units = significand * 16777216
+
+    return units % 1 == 0
+end
+
+--- Whether an existing Lua numeric literal is already a member of the named value
+--- refinement. This never performs a conversion.
+function fixed.literalFits(value: number, target: T.Type): boolean
+    local tag = T.unwrapOwnership(target).tag
+    if tag == "float" then
+        return exactFloat(value)
+    elseif tag == "int32" then
+        return value % 1 == 0 and value >= -2147483648 and value < 2147483648
+    elseif tag == "uint32" then
+        return value % 1 == 0 and value >= 0 and value < 4294967296
+    else
+        return false
+    end
+end
+
+function fixed.widenedName(t: T.Type): string?
+    local tag = T.unwrapOwnership(t).tag
+    if tag == "float" then
+        return "number"
+    elseif tag == "int32" or tag == "uint32" then
+        return "integer"
+    else
+        return nil
+    end
+end
+
+function fixed.conversionPath(t: T.Type): string?
+    local tag = T.unwrapOwnership(t).tag
+    if tag == "float" then
+        return "nupp.math.f32.narrow"
+    elseif tag == "int32" then
+        return "nupp.math.i32.wrap"
+    elseif tag == "uint32" then
+        return "nupp.math.u32.wrap"
+    else
+        return nil
+    end
+end
+
+export = fixed

@@ -1,0 +1,249 @@
+module nupp.compiler.doc.collection
+
+--[[
+A directory of prose documents, rendered as one navigation section under a generated
+index.
+
+The documents a project accumulates -- enhancement proposals here, and anything else
+numbered, dated, and written once -- are published by writing a file. A manifest that
+also had to name each one would be a second copy of the directory, and the failure that
+produces is silent: the file is written, the site does not show it, and nothing reports
+a problem.
+
+Each document opens with a frontmatter block of `key: value` lines. `title` and
+`status` are read here and the rest is left to whoever writes the document. The index
+is generated from those fields, so a status changed in the document it describes is
+changed everywhere it is shown.
+]]
+
+local filesMod = require("nupp.compiler.doc.files")
+local urlsMod = require("nupp.compiler.doc.urls")
+
+local collection = {}
+
+local join, readFile, listMarkdown = filesMod.join, filesMod.readFile, filesMod.listMarkdown
+local normalize = filesMod.normalize
+local cleanRoute = urlsMod.cleanRoute
+
+--- One page a collection produced.
+---
+--- `title` is what navigation shows and `name` is the document's own title without the
+--- number folded into it, which is what a list of documents wants in its cell.
+---
+--- `source` is the file the page was read from, which is what link rewriting resolves a
+--- relative link against: a document names its neighbours the way it would in any other
+--- directory of markdown, and the rendered site follows the same names.
+record collection.Page
+    markdown: string
+    name: string
+    number: string?
+    path: string
+    source: string?
+    status: string?
+    title: string
+
+    --- Kept out of the navigation. A collection's documents are reached from its
+    --- index, which is the one entry the sidebar carries.
+    unlisted: boolean?
+end
+
+--- The directory a manifest asked for, the route it publishes under, and the name its
+--- navigation section carries. The section name also prefixes a numbered document's
+--- title, singularised, so a section called `NEPs` titles its pages `NEP 3`.
+type collection.Settings = {
+    directory: string?,
+    path: string,
+    title: string?
+}
+
+-- The index is a document like any other, so its prose is written where prose is
+-- written. What it does not hold is the list, which is the part that goes stale.
+local INDEX = "index.md"
+
+--- The `key: value` lines a document opens with, and the body below them. A document
+--- with no frontmatter block answers an empty table and its whole text, because such a
+--- document still reads correctly and only loses what the index would have shown.
+local function frontmatter(source: string): {[string]: string}, string
+    if source:sub(1, 4) ~= "---\n" then
+        return {}, source
+    end
+    local ending = source:find("\n---\n", 5, true)
+    if not ending then
+        return {}, source
+    end
+    local fields: {[string]: string} = {}
+    for line in source:sub(5, ending):gmatch("[^\n]+") do
+        local key, value = line:match("^([%w_-]+)%s*:%s*(.-)%s*$")
+        if key and value then
+            -- A value written with quotes is a value that had to be, because YAML would
+            -- have read the colon in `NEP 0: Index` as a second key. Nothing here reads
+            -- it as YAML, but the quotes are what an editor's highlighting expects, so
+            -- they are accepted and dropped rather than rendered.
+            local quoted = value:match('^"(.*)"$') or value:match("^'(.*)'$")
+            fields[key] = quoted or value
+        end
+    end
+
+    return fields, source:sub(ending + 5)
+end
+
+-- The heading and the line under it are generated rather than written, for the same
+-- reason the index is: a number lives in the file name, a status lives in frontmatter,
+-- and a document that also spelled either one in its prose would be the copy that
+-- disagrees. What the document itself holds starts at its first `##`.
+local function header(title: string, fields: {[string]: string}): string
+    local keys: {string} = {}
+    for key in pairs(fields) do
+        if key ~= "title" then
+            keys[#keys + 1] = key
+        end
+    end
+    table.sort(keys)
+    local meta: {string} = {}
+    for _, key in ipairs(keys) do
+        local label = (key:gsub("[-_]", " "))
+        meta[#meta + 1] = "**" .. label:sub(1, 1):upper() .. label:sub(2) .. ":** " .. (fields[key] or "")
+    end
+    if #meta == 0 then
+        return "# " .. title .. "\n"
+    end
+
+    return "# " .. title .. "\n\n" .. table.concat(meta, " &middot; ") .. "\n"
+end
+
+-- A document that named itself in frontmatter is titled by it. One that did not is
+-- titled by its first heading, which is where a reader would look anyway, and a
+-- document with neither falls back to the name of its file.
+local function titleOf(fields: {[string]: string}, body: string, stem: string): string
+    local named = fields.title
+    if named and named ~= "" then
+        return named
+    end
+    local heading = body:match("^#%s+([^\n]+)") or body:match("\n#%s+([^\n]+)")
+
+    return heading or stem
+end
+
+-- The number a document carries is the one its file name starts with, and it is the
+-- document's identity rather than its position: numbers are assigned once and never
+-- reused, so the zero padding that sorts the directory is not what a reader is shown.
+local function numberOf(stem: string): string?
+    local digits = stem:match("^(%d+)%-")
+    if not digits then
+        return nil
+    end
+
+    return tostring(tonumber(digits))
+end
+
+-- `base` is where the files are read from and `settings.directory` is what they are
+-- named as. They differ whenever the project root is not the working directory, and a
+-- page records the second: a link out of a document is written against the repository,
+-- and so is the anchor a diagnostic carries.
+local function expandOne(base: string, settings: collection.Settings, file: string): collection.Page?, string?
+    local source, err = readFile(file)
+    if not source then
+        return nil, err
+    end
+    local relative = normalize(file):sub(#base + 2)
+    local stem = (relative:gsub("%.md$", ""))
+    local route = cleanRoute(settings.path .. "/" .. stem)
+    if not route then
+        return nil, "a document does not name a route: " .. relative
+    end
+    local fields, body = frontmatter(source)
+    local name = titleOf(fields, body, stem)
+    local number = numberOf(stem)
+    local prefix = settings.title and (settings.title:gsub("s$", "")) or nil
+    local title = name
+    if number and prefix then
+        title = prefix .. " " .. number .. ": " .. name
+    end
+
+    return new collection.Page(
+        markdown = header(title, fields) .. body,
+        name = name,
+        number = number,
+        path = route,
+        source = join(settings.directory as string, relative),
+        status = fields.status,
+        title = title,
+        unlisted = true
+    )
+end
+
+--- Every page a collection directory publishes, the generated index first.
+---
+--- Returns nil and a message when the directory cannot be read or holds a document
+--- whose name does not make a route. An empty directory is not an error: a collection
+--- nothing has been written into yet publishes its index and nothing else.
+function collection.expand(root: string, settings: collection.Settings): {collection.Page}?, string?
+    local directory = settings.directory
+    if not directory or directory == "" then
+        return nil, "a documentation page directory must be named"
+    end
+    local route = cleanRoute(settings.path)
+    if not route then
+        return nil, "invalid documentation page path"
+    end
+    local base = normalize(join(root, directory))
+    local pages: {collection.Page} = {}
+    for _, file in ipairs(listMarkdown(base)) do
+        if normalize(file) ~= join(base, INDEX) then
+            local page, err = expandOne(base, settings, file)
+            if not page then
+                return nil, err
+            end
+            pages[#pages + 1] = page
+        end
+    end
+    table.insert(pages, 1, collection.index(base, settings, route, pages))
+
+    return pages
+end
+
+--- The generated index: the prose `index.md` opens with, then a row per document.
+---
+--- The prose is where the collection explains itself and the rows are where it lists
+--- itself, and only the second one is regenerated, so the explanation is written once
+--- and the list is never written by hand.
+function collection.index(
+    base: string,
+    settings: collection.Settings,
+    route: string,
+    pages: {collection.Page}
+): collection.Page
+    local preamble, title = "", settings.title or route
+    local indexFile = join(base, INDEX)
+    local source = readFile(indexFile)
+    if source then
+        local fields, body = frontmatter(source)
+        preamble, title = body, titleOf(fields, body, title)
+    end
+    local numbered = false
+    for _, page in ipairs(pages) do
+        numbered = numbered or page.number ~= nil
+    end
+    local out = {preamble, ""}
+    if #pages > 0 then
+        out[#out + 1] = "| " .. (numbered and "#" or "Document") .. " | Title | Status |"
+        out[#out + 1] = "| --- | --- | --- |"
+        for _, page in ipairs(pages) do
+            out[
+                #out + 1
+            ] = "| " .. (
+                page.number or ""
+            ) .. " | [" .. page.name .. "](" .. (page.source or "") .. ") | " .. (page.status or "—") .. " |"
+        end
+    end
+
+    return new collection.Page(
+        markdown = table.concat(out, "\n"),
+        name = title,
+        path = route,
+        source = source and join(settings.directory as string, INDEX) or nil,
+        title = title
+    )
+end
+
+export = collection

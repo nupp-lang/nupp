@@ -1,0 +1,23 @@
+local browserCrypto = require("nupp.browser.crypto")
+local browserStorage = require("nupp.browser.storage")
+local browserTime = require("nupp.time")
+local data = require("nupp.data")
+local hmac = require("nupp.data.hmac")
+local json = require("nupp.data.json")
+
+local started = browserTime.now()
+browserTime.sleep(1)
+local elapsed = browserTime.now() - started
+browserStorage.set("browser-platform-smoke", "persisted")
+local stored = browserStorage.get("browser-platform-smoke")
+browserStorage.remove("browser-platform-smoke")
+
+return json.encode({
+    elapsed = elapsed,
+    randomBytes = #browserCrypto.randomBytes(32),
+    sha256 = data.sha256("abc"),
+    hmac = hmac.hex("key", "abc"),
+    uuid4 = data.uuid4(),
+    uuid7 = data.uuid7(),
+    stored = stored,
+})

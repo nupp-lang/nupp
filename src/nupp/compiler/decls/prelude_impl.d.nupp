@@ -1,0 +1,9 @@
+-- Ordinary implementation bodies for declarations in prelude.d.nupp. This unit is
+-- checked and generated under the declaration prelude's logical origin, so const
+-- function identities and their runtime registry publications are the same identities
+-- the public declarations sealed into generic defaults.
+--
+-- Nothing is left here. It held the affine terminals for the prelude's io resources,
+-- and those moved into nupp.io with the rest of io. The unit stays because the
+-- mechanism is the only way a prelude declaration can own a runtime identity, and the
+-- next declaration that needs one will want it.

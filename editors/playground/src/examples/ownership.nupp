@@ -1,0 +1,33 @@
+-- `Owned<T, cleanup>` says a result carries a cleanup obligation. An ordinary local is
+-- closed automatically on fallthrough, return, loop control, and errors unless its
+-- ownership moves elsewhere first.
+
+local record Resource
+    name: string
+    closed: boolean
+end
+
+local function closeResource(takes resource: Resource): nil
+    resource.closed = true
+    print("closed", resource.name)
+end
+
+--- Creates a resource the caller must discharge.
+---
+--- @param name resource name
+--- @return an owned handle
+local function acquire(name: string): affine(Resource, closeResource)
+    return new Resource(name = name, closed = false)
+end
+
+local function use(name: string): string
+    do
+        local resource = acquire(name)
+        return resource.name -- the resource closes here, and on any error
+    end
+end
+
+print("used", use("browser resource"))
+
+-- try returning `resource` without an owning result contract; the checker rejects the
+-- ownership escape

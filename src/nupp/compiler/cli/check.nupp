@@ -1,0 +1,276 @@
+module nupp.compiler.cli.check
+
+--[[
+`nupp check`: type-check without emitting anything.
+
+With no files, the project is the subject and the manifest decides what that
+means. With files named, each is checked as the project's own module where it is
+one, so it is judged by the manifest a build would judge it by and reuses what
+the last check worked out about it; a file the project does not reach -- a
+declaration file, a `.lua`, a file from outside, or anything at all when there is
+no manifest here -- is parsed and checked on its own. Either way what is reported
+is the named files, not their dependencies.
+
+`--json` reports the same diagnostics in the form meant for a program; see
+`docs/reference/diagnostics.md`.
+]]
+
+local spec = require("nupp.compiler.cli.spec")
+local optionsMod = require("nupp.compiler.cli.options")
+
+local command = spec.command{
+    name = "check",
+    summary = "Type-check source without emitting Lua",
+    usage = {
+        "nupp check [--strict] [--dialect DIALECT] [--target NAME] [--platform NAME|all] [--format text|json] [file...]"
+    },
+    options = optionsMod.join(
+        optionsMod.strict,
+        optionsMod.dialect,
+        {name = "--target", value = "NAME", help = "Check a named manifest target"},
+        {name = "--platform", value = "NAME", help = "Check one configured binary platform, or all"},
+        optionsMod.format()
+    ),
+    schema = {
+        type = "object",
+        properties = {
+            ok = {
+                type = "boolean",
+                description = "Whether the check ran and found nothing wrong. False "
+                .. "both for a project that reported an error and for a run that never "
+                .. "got as far as checking, such as one whose manifest could not be "
+                .. "used -- an empty `diagnostics` cannot tell those apart on its own.",
+            },
+            diagnostics = require("nupp.compiler.cli.report").DIAGNOSTICS,
+            dialect = {
+                type = "string",
+                enum = require("nupp.compiler.dialects").names(),
+                description = "The resolved source-lowering dialect."
+            },
+            platform = {type = "string"},
+            platforms = {type = "array", items = {type = "object"}},
+            timing = {
+                type = "object",
+                description = "Where the check's wall-clock time went, and how many "
+                .. "of the project's modules were reused from the cache versus "
+                .. "rechecked this run. Present only with no files named, since a "
+                .. "check of explicit files does not go through the project's module "
+                .. "cache. `compiledModules = 0` is the authoritative answer that "
+                .. "nothing was redone; `slowest` ranks modules by time actually "
+                .. "spent regardless of that answer, since confirming a module's "
+                .. "cache entry is still valid costs time too, only less of it.",
+                properties = {
+                    totalMs = {type = "number", description = "Wall-clock milliseconds for the whole check."},
+                    compiledModules = {type = "integer"},
+                    reusedModules = {type = "integer"},
+                    phases = {
+                        type = "array",
+                        description = "Every activity that took measurable time, longest "
+                        .. "first. One activity is current at a time, so these sum to the whole.",
+                        items = {
+                            type = "object",
+                            properties = {name = {type = "string"}, durationMs = {type = "number"}},
+                            required = {"name", "durationMs"},
+                        },
+                    },
+                    slowest = {
+                        type = "array",
+                        description = "The costliest modules, longest first, each charged "
+                        .. "for its own checking and not for its dependencies'. A module "
+                        .. "reused from the cache still spends time being confirmed valid, "
+                        .. "so it can appear here even when `compiledModules` is 0.",
+                        items = {
+                            type = "object",
+                            properties = {module = {type = "string"}, durationMs = {type = "number"}},
+                            required = {"module", "durationMs"},
+                        },
+                    },
+                },
+                required = {"totalMs", "compiledModules", "reusedModules", "phases", "slowest"},
+            },
+        },
+        required = {"ok", "diagnostics", "dialect"},
+    },
+    detail = "With no files, checks the default target from nupp.lua. Also reports a `timing` object naming how many modules were reused from the cache versus rechecked, and which modules cost the most of the wall-clock time either way -- see docs/reference/diagnostics.md.",
+}
+
+local function run(parsed: any): integer
+    local paths: {string} = parsed.positional
+    local values = parsed.values
+    local target = values.target
+    if (target or values.platform) and #paths > 0 then
+        return command:usageError("--target and --platform cannot be combined with source files")
+    end
+    local asJson = values.format == "json"
+    local reportMod = require("nupp.compiler.cli.report")
+    local diagnostics: {any} = {}
+    local effectiveDialect = assert(require("nupp.compiler.dialects").resolve(values.dialect))
+    local function writeJson(ok: boolean): nil
+        reportMod.write({ok = ok, diagnostics = reportMod.diagnosticValues(diagnostics), dialect = effectiveDialect,})
+    end
+
+    if #paths == 0 then
+        local project = require("nupp.compiler.build.project")
+        local produced: {[string]: any} = {}
+        local code = project.check(".", {
+            strict = values.strict,
+            dialect = values.dialect,
+            target = target,
+            platform = values.platform,
+            diagnostics = asJson and diagnostics or nil,
+            produced = asJson and produced or nil
+        })
+        effectiveDialect = produced.dialect or effectiveDialect
+        if asJson then
+            reportMod.write({
+                ok = code == 0,
+                diagnostics = reportMod.diagnosticValues(diagnostics),
+                dialect = effectiveDialect,
+                platform = produced.platform,
+                platforms = produced.platforms,
+                timing = produced.timing,
+            })
+        end
+        return code
+    end
+    local fs = require("nupp.compiler.fs")
+    local parser = require("nupp.compiler.parser")
+    local check = require("nupp.compiler.check")
+    local diagnosticMod = require("nupp.compiler.diagnostics")
+    local failed = false
+
+    -- A file that cannot be read is answered here, before anything else is asked to
+    -- account for it. Below, an unreadable path would reach the project walk as a
+    -- module with no source, which is indistinguishable from a module that is simply
+    -- fine.
+    local readable, sources = {}, {}
+    for _, path in ipairs(paths) do
+        local source, err = fs.readFile(path)
+        if source then
+            readable[#readable + 1] = path
+            sources[path] = source
+        else
+            if asJson then
+                diagnostics[
+                    #diagnostics + 1
+                ] = {
+                    filename = path,
+                    line = 0,
+                    col = 0,
+                    offset = 0,
+                    length = 0,
+                    code = "NUPP0001",
+                    msg = err,
+                    help = "check that the path exists and is readable"
+                }
+            else
+                io.stderr:write("nupp: " .. tostring(err) .. "\n")
+            end
+            failed = true
+        end
+    end
+
+    -- A named file is checked through the project when it is one of the project's own
+    -- modules, which is what gives it the reuse a whole-project check has: unchanged
+    -- source, unchanged dependencies, and the file's diagnostics are replayed from the
+    -- last run rather than worked out again. It also means the file is checked the way
+    -- the project checks it -- same manifest, same strictness, same dependencies -- and
+    -- not the way a file that happens to be lying there would be.
+    --
+    -- What is left over is a declaration file, a `.lua`, a file from outside the
+    -- project, or every file when there is no project here at all. Those are parsed and
+    -- checked on their own below, which is what every named file used to get.
+    local remaining = readable
+    local config = #readable > 0 and require("nupp.compiler.build.manifest").load(".") or nil
+    if config then
+        local envMod = require("nupp.compiler.env")
+        local roots = envMod.projectRoots(".", config as {[string]: any})
+        local mine = {}
+        for _, path in ipairs(readable) do
+            if envMod.moduleNameInRoots(roots, path) then
+                mine[#mine + 1] = path
+            end
+        end
+        -- Nothing here belongs to the project, so there is nothing to ask the project
+        -- about. Asking anyway would resolve the project's dependencies and walk its
+        -- source set to answer a question about a file somewhere else entirely.
+        if #mine > 0 then
+            local project = require("nupp.compiler.build.project")
+            local unchecked = {}
+            local produced: {[string]: any} = {}
+            local code = project.check(".", {
+                strict = values.strict,
+                dialect = values.dialect,
+                paths = mine,
+                unchecked = unchecked,
+                diagnostics = asJson and diagnostics or nil,
+                produced = produced,
+            })
+            effectiveDialect = produced.dialect or effectiveDialect
+            if code ~= 0 then
+                failed = true
+            end
+            remaining = {}
+            local handled = {}
+            for _, path in ipairs(mine) do
+                handled[path] = true
+            end
+            for _, path in ipairs(unchecked) do
+                handled[path] = nil
+            end
+            for _, path in ipairs(readable) do
+                if not handled[path] then
+                    remaining[#remaining + 1] = path
+                end
+            end
+        end
+    end
+    if #remaining == 0 then
+        if asJson then
+            writeJson(not failed)
+        end
+
+        return failed and 1 or 0
+    end
+
+    local env = require("nupp.compiler.env").new(".")
+    for _, path in ipairs(remaining) do
+        local result = parser.parse(sources[path] as string, path)
+        if #result.errors > 0 then
+            if asJson then
+                for _, diagnostic in ipairs(result.errors) do
+                    diagnostics[#diagnostics + 1] = diagnostic
+                end
+            else
+                diagnosticMod.report(result.errors)
+            end
+            failed = true
+        else
+            local diags = check.check(result, path, env as {[string]: any}, {
+                strict = values.strict,
+                dialect = effectiveDialect,
+            })
+            if asJson then
+                for _, diagnostic in ipairs(diags) do
+                    diagnostics[#diagnostics + 1] = diagnostic
+                    if reportMod.fatal(diagnostic) then
+                        failed = true
+                    end
+                end
+            elseif diagnosticMod.report(diags) then
+                failed = true
+            end
+        end
+    end
+    -- Checking one named file still needs the project's declaration index, which is a
+    -- header for every file in the project. Whatever this run had to work out for
+    -- itself, the next one should not.
+    require("nupp.compiler.env").persist(env)
+    if asJson then
+        writeJson(not failed)
+    end
+
+    return failed and 1 or 0
+end
+
+export = new spec.Handler(spec = command, run = run)

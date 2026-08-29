@@ -1,0 +1,150 @@
+module utf8simd
+
+--[[
+The same validation sixty-four bytes at a time, in its own module because it can
+only ever be compiled.
+
+`simd.preferredU8` creates an AOT-only value, so a target with `aot = "off"`
+refuses this file outright -- NUPP2903, at the call rather than at run time.
+That is the whole reason a SIMD `nupp.data.utf8` could not simply replace the
+scalar one: there is no source here to fall back to, the way `nupp.data.json`
+keeps lunajson behind its provider seam.
+]]
+
+local valuebuilder = require("nupp.data.valuebuilder")
+local simd = require("nupp.simd")
+
+local function u32(value: integer): uint32
+    return nupp.math.u32.wrap(value)
+end
+
+local function add(a: uint32, b: uint32): uint32
+    return nupp.math.u32.add(a, b)
+end
+
+local utf8simd = {}
+
+--- Whether `source` is well-formed UTF-8, checked sixty-four bytes at a time.
+---
+--- The lookup4 validator `nupp.simd` already carries, which is what the JSON
+--- decoder's classify stage runs. It answers validity and not a maximal prefix:
+--- a block reports that something in it is wrong, and the position it reports
+--- is where the error was detected rather than where the scalar began.
+---
+--- Whole blocks only. A lead byte in the last three positions of the final
+--- block has its continuations outside it, and there is no following block to
+--- carry them, so the tail is rewound to the last byte that could begin a
+--- scalar and finished by the same ladder `scanAot` uses.
+@aot(lanes = false)
+local function validSimd(source: string): uint32
+    local count: uint32 = valuebuilder.length(source)
+    local species = simd.preferredU8()
+    local input = simd.paddedStringU8(source)
+    local previous = species:splat(0)
+    -- The three nibble tables the lookup4 classifier reads. They are the
+    -- algorithm's constants, and the same ones `nupp.data.jsondecode` names.
+    local byte1High = simd.tableU8x16(2, 2, 2, 2, 2, 2, 2, 2, 128, 128, 128, 128, 33, 1, 21, 73)
+    local byte1Low = simd.tableU8x16(231, 163, 131, 131, 139, 203, 203, 203, 203, 203, 203, 203, 203, 219, 203, 203)
+    local byte2High = simd.tableU8x16(1, 1, 1, 1, 1, 1, 1, 1, 230, 174, 186, 186, 1, 1, 1, 1)
+    local blocks: uint32 = nupp.math.u32.sub(count, nupp.math.u32.andBits(count, 63))
+    local at: uint32 = u32(0)
+    while at < blocks do
+        local block = input:loadBlock64(at)
+        local bad = block:utf8Errors(previous, byte1High, byte1Low, byte2High)
+        if bad:any() then
+            return at
+        end
+        previous = block:lastVector()
+        at = add(at, u32(64))
+    end
+    -- Back up to the last byte that could begin a scalar, at most three, so a
+    -- sequence straddling the boundary is finished rather than cut.
+    local steps: uint32 = u32(0)
+    while at > 0 and steps < 3 do
+        local back: uint32 = nupp.math.u32.sub(at, u32(1))
+        local byte: uint32 = valuebuilder.byte(source, back)
+        if byte < 128 or byte > 191 then
+            steps = u32(3)
+        else
+            at = back
+            steps = add(steps, u32(1))
+        end
+    end
+    if at > 0 then
+        at = nupp.math.u32.sub(at, u32(1))
+    end
+
+    -- The tail, by the same ladder `scanAot` uses. Written out rather than
+    -- shared: an `@aot` body inlines a single-return helper, and this one
+    -- returns from wherever it finds out.
+    while at < count do
+        local lead: uint32 = valuebuilder.byte(source, at)
+        if lead < 128 then
+            at = add(at, u32(1))
+        else
+            local low: uint32 = u32(128)
+            local high: uint32 = u32(191)
+            local need: uint32 = u32(0)
+            if lead < 194 then
+                return at
+            elseif lead < 224 then
+                need = u32(1)
+            elseif lead < 240 then
+                need = u32(2)
+                if lead == 224 then
+                    low = u32(160)
+                elseif lead == 237 then
+                    high = u32(159)
+                end
+            elseif lead < 245 then
+                need = u32(3)
+                if lead == 240 then
+                    low = u32(144)
+                elseif lead == 244 then
+                    high = u32(143)
+                end
+            else
+                return at
+            end
+            local secondAt: uint32 = add(at, u32(1))
+            if secondAt >= count then
+                return at
+            end
+            local second: uint32 = valuebuilder.byte(source, secondAt)
+            if second < low or second > high then
+                return at
+            end
+            if need > 1 then
+                local thirdAt: uint32 = add(at, u32(2))
+                if thirdAt >= count then
+                    return at
+                end
+                local third: uint32 = valuebuilder.byte(source, thirdAt)
+                if third < 128 or third > 191 then
+                    return at
+                end
+                if need > 2 then
+                    local fourthAt: uint32 = add(at, u32(3))
+                    if fourthAt >= count then
+                        return at
+                    end
+                    local fourth: uint32 = valuebuilder.byte(source, fourthAt)
+                    if fourth < 128 or fourth > 191 then
+                        return at
+                    end
+                end
+            end
+            at = add(at, add(need, u32(1)))
+        end
+    end
+
+    return count
+end
+
+--- Whether the whole value is well-formed UTF-8.
+--- @export
+function utf8simd.isValid(source: string): boolean
+    return tonumber(validSimd(source)) == #source
+end
+
+export = utf8simd

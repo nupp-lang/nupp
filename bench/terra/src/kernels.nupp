@@ -1,0 +1,174 @@
+module kernels
+
+--[[
+The four kernels this benchmark measures, as ordinary Nupp.
+
+One source serves both Nupp routes: the `terra-bench` target compiles the
+`@aot` entries and calls them, `terra-bench-scalar` builds the same text and
+leaves it to LuaJIT. Nothing here chooses between them, and nothing here is
+written for either one. An annotation is the only thing that separates the
+two, so a difference the benchmark reports is a difference in what compiled
+the same program.
+
+The four are chosen to disagree with each other. `mandelbrot` is
+register-resident arithmetic behind a data-dependent branch; `advance`
+streams two struct arrays and does almost nothing per byte; `sumSquares` is a
+floating-point reduction, whose accumulator is a dependency chain no compiler
+may reassociate without being told to; and `mix` is integer work of the same
+shape as `advance` but with no such restriction. A single kernel would have
+reported one of these as though it were the language.
+]]
+
+local span = require("nupp.mem.span")
+
+local struct Point
+    re: float
+    im: float
+end
+
+local struct Escape
+    iterations: int32
+    escaped: uint32
+end
+
+local struct Body
+    x: float
+    y: float
+    vx: float
+    vy: float
+end
+
+--[[
+Escape counts for one row of the complex plane.
+
+Sixteen bytes are read per pixel and then a bounded loop runs over four live
+doubles touching no memory at all, so what this measures is the inner loop
+rather than the machine's bandwidth. The plane arrives as an input rather than
+being derived from the index, which keeps the body a map over two spans.
+
+No `@relax` here. Ordinary Nupp arithmetic is binary64 and is neither contracted
+nor reassociated, and the C and Terra controls are held to the same rule, so all
+four implementations return bit-identical escape counts and the differential
+test can demand exactly that.
+]]
+@aot
+local function mandelbrot(
+    exclusive escapes: span.WriteSpan<Escape>,
+    borrows points: span.Span<Point>,
+    maxIterations: int32
+): nil
+    assert(#escapes == #points, "length mismatch")
+
+    for i = 1, #escapes do
+        local escape = escapes[i]
+        local point = points[i]
+        local cx = point.re
+        local cy = point.im
+        local zx = 0.0
+        local zy = 0.0
+        local zxSquared = 0.0
+        local zySquared = 0.0
+        local iteration = 0
+        local escaped = 0
+        while iteration < maxIterations do
+            if zxSquared + zySquared > 4.0 then
+                escaped = 1
+                break
+            end
+            zy = 2.0 * zx * zy + cy
+            zx = zxSquared - zySquared + cx
+            zxSquared = zx * zx
+            zySquared = zy * zy
+            iteration = iteration + 1
+        end
+        escape.iterations = iteration
+        escape.escaped = escaped
+    end
+end
+
+--[[
+One Euler step over an array of bodies, with a per-step drag.
+
+Thirty-two bytes move per element for a handful of flops, so this is the
+bandwidth end of the range and the kernel where lane lowering has the least to
+add. It is here to keep the compute-bound kernels honest: a language that wins
+`mandelbrot` and loses this one has not been shown to be faster.
+]]
+@aot
+local function advance(
+    exclusive output: span.WriteSpan<Body>,
+    borrows input: span.Span<Body>,
+    dt: number,
+    drag: number
+): nil
+    assert(#output == #input, "length mismatch")
+
+    for i = 1, #output do
+        local out = output[i]
+        local body = input[i]
+        local vx = body.vx * drag
+        local vy = body.vy * drag
+        out.x = body.x + vx * dt
+        out.y = body.y + vy * dt
+        out.vx = vx
+        out.vy = vy
+    end
+end
+
+--[[
+The sum of the squares of one span.
+
+A floating-point accumulator is a dependency chain: summing in a different order
+gives a different answer, so no implementation here may split it across lanes
+and none of them does. That makes this the kernel where all four should land
+close together, and a wide gap on it would be reporting something other than the
+arithmetic.
+]]
+@aot
+local function sumSquares(borrows values: span.Span<number>): number
+    local total = 0.0
+    for i = 1, #values do
+        total = total + values[i] * values[i]
+    end
+    return total
+end
+
+--[[
+Four rounds of xorshift over each element.
+
+The same map shape as `advance` and the same bytes moved, but with enough
+integer work per element that the memory is no longer the limit. Shifts and
+exclusive-ors on `uint32` are exact and associative, so unlike `sumSquares` this
+one may be lowered lane-parallel without any relaxation being asked for.
+]]
+@aot
+local function mix(
+    exclusive output: span.WriteSpan<uint32>,
+    borrows input: span.Span<uint32>
+): nil
+    assert(#output == #input, "length mismatch")
+
+    for i = 1, #output do
+        local state = input[i]
+        state = state ~ (state << 13)
+        state = state ~ (state >> 17)
+        state = state ~ (state << 5)
+        state = state ~ (state << 13)
+        state = state ~ (state >> 17)
+        state = state ~ (state << 5)
+        state = state ~ (state << 13)
+        state = state ~ (state >> 17)
+        state = state ~ (state << 5)
+        state = state ~ (state << 13)
+        state = state ~ (state >> 17)
+        state = state ~ (state << 5)
+        output[i] = state
+    end
+end
+
+export = {
+    mandelbrot = mandelbrot,
+    advance = advance,
+    sumSquares = sumSquares,
+    mix = mix,
+}

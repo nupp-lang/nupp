@@ -1,0 +1,155 @@
+module base64simd
+
+--[[
+Base64 encoding through the SIMD vocabulary, as the vectorized half of the
+spike. Forty-eight input bytes become sixty-four output bytes per iteration.
+
+`simd.preferredU8` makes this compile-only, so it is its own module and its own
+target: a file reaching the explicit vocabulary cannot sit in a target built
+with `aot = "off"`, which is the same reason `bench/utf8simd` is separate from
+`bench/utf8`.
+
+The shape is the one the literature describes for aarch64. A three-lane strided
+load de-interleaves the byte groups, which is where the byte shuffle the x86
+codecs spend an instruction on goes; four six-bit indexes come out of shifts and
+masks; one sixty-four entry lookup maps them to the alphabet, which on aarch64
+is a single `tbl` and is the instruction AVX-512 VBMI's `vpermb` exists to give
+x86; and an interleaving store writes the quantum back.
+]]
+
+local simd = require("nupp.simd")
+local valuebuilder = require("nupp.data.valuebuilder")
+
+local base64simd = {}
+
+const ALPHABET = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/"
+
+local function u32(value: integer): uint32
+    return nupp.math.u32.wrap(value)
+end
+
+local function add(a: uint32, b: uint32): uint32
+    return nupp.math.u32.add(a, b)
+end
+
+--- Encodes `source` as standard base64 with padding.
+--- @raises when the builder cannot allocate or publish
+@aot(lanes = false)
+local function encodeSimdAot(source: string, nullValue: any): any
+    local length = valuebuilder.length(source)
+    -- Three input bytes are four output bytes, so the exact size is
+    -- `4 * ceil(n / 3)`, about `1.34n`. There is no division in the admitted
+    -- intrinsics, and `1.5n + 4` covers it for every `n` while allocating a
+    -- quarter less than the `2n + 4` this used to ask for. The buffer is
+    -- allocated and first touched on every call, which `bench/base64`'s
+    -- results measured as the dominant remaining cost, so the slack is not
+    -- free.
+    local bound = add(add(length, nupp.math.u32.shiftRightLogical(length, u32(1))), u32(4))
+    local builder = valuebuilder.newSized(nullValue, u32(2), bound)
+    local scratch = valuebuilder.newByteScratch(bound)
+
+    const species = simd.preferredU8()
+    const low = simd.tableU8x16(65, 66, 67, 68, 69, 70, 71, 72, 73, 74, 75, 76, 77, 78, 79, 80)
+    const lowMid = simd.tableU8x16(81, 82, 83, 84, 85, 86, 87, 88, 89, 90, 97, 98, 99, 100, 101, 102)
+    const highMid = simd.tableU8x16(103, 104, 105, 106, 107, 108, 109, 110, 111, 112, 113, 114, 115, 116, 117, 118)
+    const high = simd.tableU8x16(119, 120, 121, 122, 48, 49, 50, 51, 52, 53, 54, 55, 56, 57, 43, 47)
+    const twoBits = species:splat(u32(3))
+    const fourBits = species:splat(u32(15))
+    const sixBits = species:splat(u32(63))
+
+    local step: uint32 = u32(48)
+    local at: uint32 = u32(0)
+    local out: uint32 = u32(0)
+    while add(at, step) <= length do
+        const b0 = species:loadStrided3(source, at, u32(0))
+        const b1 = species:loadStrided3(source, at, u32(1))
+        const b2 = species:loadStrided3(source, at, u32(2))
+
+        const d0 = b0:shiftRight(u32(2))
+        const d1 = b0:andBits(twoBits):shiftLeft(u32(4)):orBits(b1:shiftRight(u32(4)))
+        const d2 = b1:andBits(fourBits):shiftLeft(u32(2)):orBits(b2:shiftRight(u32(6)))
+        const d3 = b2:andBits(sixBits)
+
+        simd.storeInterleaved4(
+            scratch,
+            out,
+            d0:lookup64(low, lowMid, highMid, high),
+            d1:lookup64(low, lowMid, highMid, high),
+            d2:lookup64(low, lowMid, highMid, high),
+            d3:lookup64(low, lowMid, highMid, high)
+        )
+
+        at = add(at, step)
+        out = add(out, u32(64))
+    end
+
+    -- Whatever the blocks did not cover, by the byte.
+    while add(at, u32(3)) <= length do
+        local c0 = valuebuilder.byte(source, at)
+        local c1 = valuebuilder.byte(source, add(at, u32(1)))
+        local c2 = valuebuilder.byte(source, add(at, u32(2)))
+        valuebuilder.setScratchByte(scratch, out, valuebuilder.byte(ALPHABET, nupp.math.u32.shiftRightLogical(c0, u32(2))))
+        valuebuilder.setScratchByte(scratch, add(out, u32(1)), valuebuilder.byte(ALPHABET, nupp.math.u32.orBits(nupp.math.u32.shiftLeft(nupp.math.u32.andBits(c0, u32(3)), u32(4)), nupp.math.u32.shiftRightLogical(c1, u32(4)))))
+        valuebuilder.setScratchByte(scratch, add(out, u32(2)), valuebuilder.byte(ALPHABET, nupp.math.u32.orBits(nupp.math.u32.shiftLeft(nupp.math.u32.andBits(c1, u32(15)), u32(2)), nupp.math.u32.shiftRightLogical(c2, u32(6)))))
+        valuebuilder.setScratchByte(scratch, add(out, u32(3)), valuebuilder.byte(ALPHABET, nupp.math.u32.andBits(c2, u32(63))))
+        at = add(at, u32(3))
+        out = add(out, u32(4))
+    end
+
+    local rest = nupp.math.u32.sub(length, at)
+    if rest == 1 then
+        local e0 = valuebuilder.byte(source, at)
+        valuebuilder.setScratchByte(scratch, out, valuebuilder.byte(ALPHABET, nupp.math.u32.shiftRightLogical(e0, u32(2))))
+        valuebuilder.setScratchByte(scratch, add(out, u32(1)), valuebuilder.byte(ALPHABET, nupp.math.u32.shiftLeft(nupp.math.u32.andBits(e0, u32(3)), u32(4))))
+        valuebuilder.setScratchByte(scratch, add(out, u32(2)), u32(61))
+        valuebuilder.setScratchByte(scratch, add(out, u32(3)), u32(61))
+        out = add(out, u32(4))
+    elseif rest == 2 then
+        local f0 = valuebuilder.byte(source, at)
+        local f1 = valuebuilder.byte(source, add(at, u32(1)))
+        valuebuilder.setScratchByte(scratch, out, valuebuilder.byte(ALPHABET, nupp.math.u32.shiftRightLogical(f0, u32(2))))
+        valuebuilder.setScratchByte(scratch, add(out, u32(1)), valuebuilder.byte(ALPHABET, nupp.math.u32.orBits(nupp.math.u32.shiftLeft(nupp.math.u32.andBits(f0, u32(3)), u32(4)), nupp.math.u32.shiftRightLogical(f1, u32(4)))))
+        valuebuilder.setScratchByte(scratch, add(out, u32(2)), valuebuilder.byte(ALPHABET, nupp.math.u32.shiftLeft(nupp.math.u32.andBits(f1, u32(15)), u32(2))))
+        valuebuilder.setScratchByte(scratch, add(out, u32(3)), u32(61))
+        out = add(out, u32(4))
+    end
+
+    valuebuilder.stringScratch(builder, scratch, u32(0), out)
+
+    return valuebuilder.finish(builder)
+end
+
+--- Allocates the same output buffer and writes one byte.
+---
+--- The ablation that isolates what the encoder pays before it encodes
+--- anything: `newByteScratch` is sized from the input, so its cost is a
+--- function of length rather than a constant per call, and the colocated C
+--- control reuses one buffer where this allocates every time.
+@aot(lanes = false)
+local function allocOnlyAot(source: string, nullValue: any): any
+    local length = valuebuilder.length(source)
+    local bound = add(nupp.math.u32.shiftLeft(length, u32(1)), u32(4))
+    local builder = valuebuilder.newSized(nullValue, u32(2), bound)
+    local scratch = valuebuilder.newByteScratch(bound)
+    valuebuilder.setScratchByte(scratch, u32(0), nupp.math.u32.andBits(length, u32(255)))
+    valuebuilder.stringScratch(builder, scratch, u32(0), u32(1))
+    return valuebuilder.finish(builder)
+end
+
+--- The allocation ablation, as a callable entry.
+--- @param value the bytes whose length sizes the buffer
+--- @return one byte
+--- @export
+function base64simd.allocOnly(value: string): string
+    return allocOnlyAot(value, false) as string
+end
+
+--- Encodes bytes as standard base64 with padding.
+--- @param value the bytes to encode
+--- @return the encoded text
+--- @export
+function base64simd.encode(value: string): string
+    return encodeSimdAot(value, false) as string
+end
+
+export = base64simd

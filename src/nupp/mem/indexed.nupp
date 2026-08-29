@@ -1,0 +1,124 @@
+module nupp.mem.indexed
+
+--[[
+One inclusive range, checked once against every view a loop is about to index.
+
+A loop that walks two views together needs the same bounds to hold for both, and
+checking them separately checks them twice and says nothing about the pair.
+`range` takes the views and answers bounds that are valid for all of them.
+
+```nupp
+local indexed = require("nupp.mem.indexed")
+
+const bounds = indexed.range(1, 4, left, right)
+for i = bounds.first, bounds.last do
+    print(left[i], right[i])
+end
+```
+
+The checker validates the variadic operands against their trusted descriptors,
+so only a sealed view contract can be passed. The runtime body stays
+representation-neutral and reads the private count slot each bundled view
+implementation carries.
+
+See [](nupp.mem.span) for the views this validates, and
+[ownership.md](docs/type-system/ownership.md) for the borrow rules they are written against.
+]]
+
+local indexed = {}
+
+--- Inclusive integer bounds validated once against every supplied indexed view.
+--- @export
+record indexed.Range
+    --- The one-based first index, inclusive.
+    readonly first: integer
+
+    --- The one-based last index, inclusive. One below `first` is an empty range.
+    readonly last: integer
+end
+
+--- Validates one inclusive range against every view supplied after it.
+---
+--- At least one view is required: bounds nothing was checked against are not
+--- bounds. The views are borrowed for the call, so this may be written inline in
+--- the `for` header that uses the result.
+---
+--- ```nupp
+--- const bounds = indexed.range(1, 4, left, right)
+--- for i = bounds.first, bounds.last do
+---     print(left[i], right[i])
+--- end
+--- ```
+---
+--- @param first the one-based first index, inclusive
+--- @param last the one-based last index, inclusive
+--- @return the validated bounds
+--- @export
+--- @raises when no view is supplied or the bounds exceed a supplied view
+function indexed.range(first: integer, last: integer, borrows ...: any): indexed.Range
+    local count = select("#", ...)
+    if count < 1 or first < 1 or last < first - 1 then
+        error("indexed range out of bounds", 2)
+    end
+    for index = 1, count do
+        local candidate = select(index, ...) as any
+        if last > candidate.count then
+            error("indexed range out of bounds", 2)
+        end
+    end
+
+    return new indexed.Range(first = first, last = last)
+end
+
+--- Private range validation for scalar-replaced views. Each variadic value is a
+--- logical count rather than a materialized wrapper.
+--- @raises when no count is supplied or the bounds exceed one
+function indexed._rangeCounts(first: integer, last: integer, ...: integer): indexed.Range
+    local count = select("#", ...)
+    if count < 1 or first < 1 or last < first - 1 then
+        error("indexed range out of bounds", 2)
+    end
+    for index = 1, count do
+        if last > select(index, ...) then
+            error("indexed range out of bounds", 2)
+        end
+    end
+
+    return new indexed.Range(first = first, last = last)
+end
+
+--- Private allocation-free slice validation used by virtual standard views.
+--- @raises when the requested inclusive bounds exceed the supplied count
+function indexed._sliceFinish(count: integer, first: integer, last: integer?, message: string): integer
+    local finish = last or count
+    if first < 1 or finish < first - 1 or finish > count then
+        error(message, 2)
+    end
+
+    return finish
+end
+
+--- Private root validation used when the compiler scalar-replaces a standard
+--- C-array view. Returning the count lets the source binding carry the complete
+--- dynamic scalar representation without allocating a wrapper.
+--- @raises when count is negative
+function indexed._rootCount(count: integer, message: string): integer
+    if count < 0 then
+        error(message, 2)
+    end
+
+    return count
+end
+
+--- Private logical-index check for a scalar-replaced view. The physical adapter
+--- adds its own offset after this preserves the public wrapper's error.
+--- @raises when index is outside 1 through count
+function indexed._checkedIndex(count: integer, index: integer, message: string): integer
+    if index < 1 or index > count then
+        error(message, 2)
+    end
+
+    return index
+end
+
+export = indexed

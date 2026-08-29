@@ -1,0 +1,36 @@
+@!internal
+
+module nupp.compiler.triviaarena.table
+
+local provider = {}
+const STRIDE = 5
+
+local record TableArena
+    readonly source: string
+    count: integer
+    private words: {integer}
+end
+
+function TableArena:append(kind: integer, offset: integer, length: integer, line: integer, col: integer): integer
+    local at = self.count * STRIDE
+    self.words[at + 1] = kind
+    self.words[at + 2] = offset
+    self.words[at + 3] = length
+    self.words[at + 4] = line
+    self.words[at + 5] = col
+    self.count = self.count + 1
+
+    return self.count
+end
+
+function TableArena:record(index: integer): (integer, integer, integer, integer, integer)
+    local at = (index - 1) * STRIDE
+
+    return self.words[at + 1], self.words[at + 2], self.words[at + 3], self.words[at + 4], self.words[at + 5]
+end
+
+function provider.new(source: string): nupp.compiler.triviaarena.Arena
+    return new TableArena(source = source, count = 0, words = {}) as nupp.compiler.triviaarena.Arena
+end
+
+export = provider

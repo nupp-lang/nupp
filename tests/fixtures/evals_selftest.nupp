@@ -1,0 +1,124 @@
+local harness = require("harness")
+local tier1 = require("tier1eval")
+local batch = require("batcheval")
+local tier2 = require("tier2eval")
+local json = nupp.data.json
+
+local function equal(got: any, expected: any, label: string): nil
+    if got ~= expected then
+        error(("%s: expected %s, got %s"):format(label, tostring(expected), tostring(got)), 2)
+    end
+end
+
+local events = {
+    {
+        type = "assistant",
+        message = {
+            content = {
+                {type = "tool_use", name = "Read", input = {},},
+                {
+                    type = "tool_use",
+                    name = "Bash",
+                    input = {command = "nupp check; nupp fmt sample.nupp; which nupp",},
+                },
+            },
+        },
+    },
+}
+local agent = harness.agentRecord(
+    {num_turns = 2, total_cost_usd = 0.125, usage = {output_tokens = 40}, timedOut = false,},
+    events,
+    "test-model"
+)
+equal(agent.toolCalls.Read, 1, "Read count")
+equal(agent.toolCalls.Bash, 1, "Bash count")
+equal(agent.toolCallTotal, 2, "total tool count")
+equal(agent.nuppInvocations, 2, "compiler invocation count")
+equal(agent.outputTokens, 40, "output token count")
+equal(harness.spent(agent), "$0.1250", "formatted cost")
+
+local compiler = harness.absolute("bin/nupp")
+local taskRoot = harness.temporaryDirectory("nupp-eval-tier1-selftest-")
+local catalogEntry = tier1.loadTask(compiler, "NUPP2001")
+local workspace = tier1.makeWorkspace(taskRoot, compiler, catalogEntry)
+local actualBefore = tier1.check(compiler, workspace, catalogEntry)
+assert(#actualBefore > 0 and actualBefore[1].code == "NUPP2001", "the catalogue example reports its code")
+harness.write(harness.join(workspace, "sample.nupp"), catalogEntry.right)
+local actualAfter = tier1.check(compiler, workspace, catalogEntry)
+equal(#actualAfter, 0, "the catalogue repair checks cleanly")
+harness.remove(taskRoot)
+
+local runnable = batch.runnable(compiler, 4)
+local hasBindingTask = false
+for _, code in ipairs(runnable) do
+    if code == "NUPP2001" then
+        hasBindingTask = true
+        break
+    end
+end
+assert(hasBindingTask, "the concurrent corpus scan keeps runnable diagnostics")
+
+local entry = {code = "NUPP2001", wrong = "local answer: string = 1\n",}
+local before = {{code = "NUPP2001", severity = "error",},}
+local clean = tier1.grade(before, {}, entry, "local answer: string = 'one'\n")
+assert(clean.passed, "a clean alternative repair passes")
+assert(clean.targetCodeGone, "the target code is gone")
+equal(clean.errorsRemaining, 0, "no errors remain")
+local broken = tier1.grade(before, {{code = "NUPP9999", severity = "error",},}, entry, "")
+assert(not broken.passed, "another compiler error still fails")
+assert(broken.suspiciousShrink, "a gutted source is marked for review")
+
+local summary = batch.summarize({
+    {
+        invalid = json.NULL,
+        task = {code = "A", hadFix = true,},
+        grade = {passed = true, suspiciousShrink = false,},
+        agent = {costUsd = 1, toolCallTotal = 3, nuppInvocations = 1,},
+    },
+    {
+        invalid = json.NULL,
+        task = {code = "B", hadFix = false, summary = "broken",},
+        grade = {passed = false, suspiciousShrink = false, diagnosticsAfter = {"NUPP2001"},},
+        agent = {costUsd = 3, toolCallTotal = 7, nuppInvocations = 3,},
+    },
+    {invalid = "could not pose", task = {code = "C",}, grade = {passed = false,}, agent = {},},
+})
+equal(summary.overall.tasks, 2, "invalid task excluded from denominator")
+equal(summary.overall.passed, 1, "one valid task passed")
+equal(summary.overall.rate, 0.5, "overall pass rate")
+equal(summary.cost.median, 2, "even-population median")
+equal(summary.toolCalls.total, 10, "tool total")
+equal(#summary.invalid, 1, "invalid task retained")
+equal(#summary.failed, 1, "failed task retained")
+
+local suites, rest = tier2.splitPaths({
+    "src/nupp/compiler/check.nupp",
+    "tests/checktest.lua",
+    "docs/reference.md",
+    "tests/not-a-suite.txt",
+})
+equal(#suites, 1, "one suite selected")
+equal(suites[1], "tests/checktest.lua", "suite path")
+equal(#rest, 3, "non-suites remain at the parent")
+local prompt = tier2.prompt({"checktest", "projecttest"})
+assert(prompt:find("checktest, projecttest", 1, true), "prompt names all suites")
+assert(prompt:find("./bin/nupp test checktest", 1, true), "prompt names the first command")
+
+local diffRoot = harness.temporaryDirectory("nupp-eval-selftest-")
+harness.write(harness.join(diffRoot, "before", "src", "sample.nupp"), "return 1\n")
+harness.write(harness.join(diffRoot, "after", "src", "sample.nupp"), "return 2\n")
+local diff = tier2.directoryDiff(diffRoot)
+harness.remove(diffRoot)
+assert(diff:find("diff --git a/src/sample.nupp b/src/sample.nupp", 1, true), "diff paths are stable")
+assert(diff:find("-return 1", 1, true), "diff contains the prior source")
+assert(diff:find("+return 2", 1, true), "diff contains the repaired source")
+
+local jsonRoot = harness.temporaryDirectory("nupp-eval-json-selftest-")
+local jsonPath = harness.join(jsonRoot, "record.json")
+harness.writeJson(jsonPath, {z = 2, a = json.asArray({1, 2}),})
+local encoded = harness.read(jsonPath)
+harness.remove(jsonRoot)
+assert(encoded:find('^%{\n  "a": %['), "records are readable JSON")
+assert(encoded:find('\n  "z": 2\n%}\n$'), "record keys are stable")
+
+print("evaluation harness self-test passed")

@@ -1,0 +1,16 @@
+local m = {}
+
+cdef struct sockaddr_in
+    sin_family: uint16
+    sin_port: uint16
+    sin_addr_bytes: uint8[4]
+end
+
+cdef function socket_open(node_name: cstring, service_name: cstring): int32
+cdef function socket_write(fd: int32, borrows values: const uint8* countedBy(count), count: uint64): int64
+
+function m.open(node: cstring, service: cstring): int32
+    return socket_open(node, service)
+end
+
+return m

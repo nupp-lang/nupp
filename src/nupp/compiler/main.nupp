@@ -1,0 +1,29 @@
+--[[
+The entry point.
+
+Everything the command line is lives under `nupp.compiler.cli`: the option grammar in
+`nupp.compiler.cli.spec`, one file per subcommand beside it, and the dispatch that finds
+the command and hands it a parsed argument list. What is left here is the two
+things a program has to do that a library cannot: read `arg`, and exit with a
+status.
+]]
+
+-- Windows opens the inherited standard streams in text mode. That changes LF
+-- output to CRLF and, more seriously, changes the bytes and Content-Length of
+-- an LSP frame after it was measured. CLI protocols and generated artifacts
+-- are byte contracts, so put all three standard descriptors in binary mode.
+if package.config:sub(1, 1) == "\\" then
+    cdef function _setmode(descriptor: int32, mode: int32): int32
+    const BINARY = 0x8000
+    _setmode(0, BINARY)
+    _setmode(1, BINARY)
+    _setmode(2, BINARY)
+end
+
+-- Before anything else is required, because what it does is decide how the rest
+-- of this compiler gets loaded. It is a cache and answers nothing when it has
+-- nothing to answer with, so a checkout without one, or with a stale one, simply
+-- loads the way it always did.
+require("nupp.compiler.bytecodecache").install()
+
+os.exit(require("nupp.compiler.cli").main(arg))

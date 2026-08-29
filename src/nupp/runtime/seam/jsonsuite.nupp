@@ -1,0 +1,101 @@
+@!internal
+
+module nupp.runtime.seam.jsonsuite
+
+--[[
+Behavioral contract vectors for the `data.json` seam.
+
+The runtime seam loads this checked module only when its explicit `test` method
+runs. Keeping the suite separate makes the adapter and its evidence independently
+checkable without putting test-vector construction on the install path.
+]]
+
+local jsonSuite = {}
+
+local function tableBuffer(): any
+    local parts = {}
+    local output = {}
+    function output:put(value: string): any
+        parts[#parts + 1] = value
+        return self
+    end
+
+    function output:tostring(): string
+        return table.concat(parts)
+    end
+
+    return output
+end
+
+local function writerFor(provider: any): (any, any)
+    local output = tableBuffer()
+    local opened, writer = pcall(provider.writer, output, provider.NULL)
+    if opened then
+        return output, writer
+    end
+
+    local nativeBufferName = "string." .. "buffer"
+    local loaded, nativeBuffer = pcall(require, nativeBufferName)
+    if not loaded then
+        error("writer must accept a portable output buffer: " .. tostring(writer), 0)
+    end
+    output = nativeBuffer.new()
+
+    return output, provider.writer(output, provider.NULL)
+end
+
+--- Runs the behavioral contract against one structurally valid implementation.
+function jsonSuite.test(provider: any): (boolean, string?)
+    local ok, problem = pcall(function()
+        local encoded = provider.encode({answer = 42})
+        assert(type(encoded) == "string", "encode must return a string")
+        assert(provider.serialize({answer = 42}) == encoded, "serialize must alias encode")
+        local decoded = provider.decode(encoded, provider.NULL)
+        assert(type(decoded) == "table" and decoded.answer == 42, "encode/decode must round-trip an object")
+        assert(provider.encode(provider.EMPTY_ARRAY) == "[]", "EMPTY_ARRAY must encode as []")
+        assert(provider.encode(provider.EMPTY_OBJECT) == "{}", "EMPTY_OBJECT must encode as {}")
+        assert(provider.encode(provider.asArray({})) == "[]", "asArray must preserve an empty array")
+        assert(provider.encode(provider.asObject({})) == "{}", "asObject must preserve an empty object")
+        assert(provider.isArray(provider.decode("[]", provider.NULL)), "decoded [] must retain array shape")
+        assert(not provider.isArray(provider.decode("{}", provider.NULL)), "decoded {} must retain object shape")
+        assert(provider.isArray({1}), "an ordinary consecutive table must have array shape")
+        assert(not provider.isArray({answer = 42}), "a string-keyed table must have object shape")
+        assert(
+            provider.encode({
+                1,
+                {answer = 42},
+                3
+            }) == '[1,{"answer":42},3]',
+            "ordinary consecutive numeric keys must encode as an array"
+        )
+        assert(provider.encode(provider.NULL) == "null", "NULL must encode as null")
+        assert(provider.decode("null", provider.NULL) == provider.NULL, "NULL must decode through its replacement")
+
+        local pulled = provider.pull('{"answer":42,"ignored":1}', {answer = true}, provider.NULL)
+        assert(type(pulled) == "table" and pulled.answer == 42, "pull must retain selected object members")
+        assert(pulled.ignored == nil, "pull must discard unselected object members")
+
+        local output, writer = writerFor(provider)
+        writer:startObject()
+            :key(provider.encodedString("answer"))
+            :write(1)
+            :key(provider.verifiedString('"nothing"'))
+            :write(provider.verified("null"))
+            :key("nested")
+            :write(provider.encoded({answer = 42}))
+            :endObject()
+        writer:close()
+        local document = output:tostring()
+        local values = provider.decode(document, provider.NULL)
+        assert(type(values) == "table" and values.answer == 1, "writer must emit an encoded key")
+        assert(values.nothing == provider.NULL, "writer must accept verified JSON values")
+        assert(type(values.nested) == "table" and values.nested.answer == 42, "writer must accept encoded values")
+    end)
+    if not ok then
+        return false, tostring(problem)
+    end
+
+    return true
+end
+
+export = jsonSuite

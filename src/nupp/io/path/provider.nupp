@@ -1,0 +1,39 @@
+@!internal
+
+module nupp.io.path.provider
+
+-- The default host implementation of the three environmental path questions.
+-- A portable backend preloads this module name with its own provider; path
+-- arithmetic never crosses this boundary.
+const native = require("nupp.runtime.native")
+
+native.ffi.cdef[[
+NuppBytes *nuppFilesCurrentDirectory(void);
+NuppBytes *nuppFilesCanonicalize(const uint8_t *, size_t);
+]]
+
+local provider = {}
+
+function provider.separator(): string
+    return package.config:sub(1, 1)
+end
+
+function provider.currentDirectory(): (string?, string?)
+    local out = native.C.nuppFilesCurrentDirectory()
+    if out == nil then
+        return nil, native.error()
+    end
+
+    return native.bytes(out) as string, nil
+end
+
+function provider.canonicalize(path: string): (string?, string?)
+    local out = native.C.nuppFilesCanonicalize(path, #path)
+    if out == nil then
+        return nil, native.error()
+    end
+
+    return native.bytes(out) as string, nil
+end
+
+export = provider

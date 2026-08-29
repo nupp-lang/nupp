@@ -1,0 +1,272 @@
+module nupp.compiler.aot.target
+
+--[[
+What a target can hold, which decides what a gang can be.
+
+A gang is 16, 32 or 64 bytes. 16 is one SSE2 register, which every x86-64 has;
+32 is one AVX register; and 64 is one AVX-512 register. A target takes the
+widest shapes that fit its register class and no wider: a vector wider than the
+selected x86-64 tier still compiles, because the compiler splits it, but it has
+no stable ABI at a function boundary. Clang says so through `-Wpsabi`, and it is
+right to.
+
+So this is where lane lowering finds out how wide it may be. The answer used to
+be all or nothing -- a tier without a 32-byte register class got no lanes, which
+made plain x86-64 the target the whole lowering did nothing for. Now it gets half
+as many lanes, and only a target too narrow for even the 16-byte pair gets none.
+
+A target with no gang is still not an error and not a silent scalar body: it is a
+refusal that names the tier, because the fix is either selecting a wider one or
+accepting that this target runs the loop one iteration at a time.
+
+Nothing here probes the machine by running anything. A tier is selected, not
+discovered, because a build that measured the machine in front of it would
+produce an artifact that only runs there.
+
+The triples are `nupp.compiler.targetlayout`'s. This does not invent a second
+vocabulary for the same thing.
+]]
+
+local lane = require("nupp.compiler.aot.lane")
+local targetLayout = require("nupp.compiler.targetlayout")
+
+local target = {}
+
+--- The narrowest gang there is, in bytes.
+---
+--- A target whose widest register class is under this has no gang at all. There
+--- is no 8-byte shape, and one would be a single binary64 lane, which is a
+--- scalar loop with more machinery around it.
+const target.NARROWEST_GANG = 16
+
+--- The widest vector each CPU feature tier has a register class for.
+---
+--- A tier is a name for a set of instructions a build promises the machine has.
+--- These are the only ones that matter here, because the only question this
+--- module answers is how wide a value can be and still have somewhere to live.
+const target.TIERS = {
+    --- x86-64 as the architecture defines it: SSE2, 16-byte registers.
+    ["baseline"] = 16,
+
+    --- x86-64 with AVX2, where a 32-byte vector is one register.
+    ["avx2"] = 32,
+
+    --- x86-64 with AVX-512F, where a 64-byte vector is one register.
+    ["avx512f"] = 64,
+
+    --- aarch64, whose 16-byte NEON registers are mandatory rather than optional
+    --- and which pairs them for a 32-byte value without an ABI question.
+    ["neon"] = 32,
+
+    --- WebAssembly SIMD has one portable 128-bit vector register shape.
+    ["simd128"] = 16,
+
+    --- Scalar WebAssembly deliberately admits no lane rewrite.
+    ["scalar"] = 0,
+}
+
+--- The tier a target gets when nothing selected one.
+---
+--- Conservative on x86-64 on purpose: a binary built for AVX2 does not run on a
+--- machine without it, and a default that assumed otherwise would produce
+--- artifacts that fail on hardware the triple says they support. Asking for
+--- lanes there is asking for a tier.
+const target.DEFAULT_TIERS = {
+    ["x86_64"] = "baseline",
+    ["i686"] = "baseline",
+    ["aarch64"] = "neon",
+    ["wasm32"] = "scalar",
+}
+
+--- One target the backend may compile for.
+record target.Target
+    --- The triple, from `targetlayout`'s vocabulary.
+    triple: string
+
+    --- The architecture it names, which is what decides the tiers available.
+    architecture: string
+
+    --- The CPU feature tier this build promises.
+    tier: string
+end
+
+--- The architecture one triple names.
+function target.architecture(triple: string): string
+    return triple:match("^([^-]+)") or triple
+end
+
+--- The triple this machine is, or nothing when it is not a modeled target.
+---
+--- What tells a cross-compilation from an ordinary one, which is the only thing
+--- that decides whether the compiler is told a target at all.
+function target.hostTriple(): string?
+    return targetLayout.hostKey()
+end
+
+--- The operating system one triple names.
+---
+--- Read from the triple rather than from the machine this is running on,
+--- because those are the same only when nothing is being cross-compiled -- and
+--- what it decides is how a shared library is produced and what it is called,
+--- which belong to where the artifact will run.
+function target.system(triple: string): string
+    if triple:find("emscripten", 1, true) ~= nil then
+        return "emscripten"
+    elseif triple:find("darwin", 1, true) ~= nil then
+        return "darwin"
+    elseif triple:find("windows", 1, true) ~= nil then
+        return "windows"
+    end
+
+    return "linux"
+end
+
+--- The tiers an architecture may select, widest last.
+function target.tiers(architecture: string): {string}
+    if architecture == "wasm32" then
+        return {"scalar", "simd128"}
+    elseif architecture == "aarch64" then
+        return {"neon"}
+    elseif architecture == "x86_64" then
+        return {"baseline", "avx2", "avx512f"}
+    end
+
+    return {"baseline", "avx2"}
+end
+
+--- The tiers a project build carries, narrowest first.
+---
+--- x86-64 is multiversioned. A named tier is its ceiling rather than a promise
+--- every destination machine satisfies: baseline remains in the library and
+--- the generated wrapper selects no wider than the machine reports. With no
+--- ceiling every known tier travels. Other architectures retain their one
+--- selected tier; in particular, the i686 baseline contract is not widened by
+--- an x86-64 feature whose fallback guarantee it does not share.
+function target.buildTiers(triple: string?, ceiling: string?): ({target.Target}?, string?)
+    local base, baseErr = target.select(triple, nil)
+    if base == nil then
+        return nil, baseErr
+    end
+    if (base as target.Target).architecture ~= "x86_64" then
+        local selected, selectedErr = target.select((base as target.Target).triple, ceiling)
+        if selected == nil then
+            return nil, selectedErr
+        end
+
+        return {selected as target.Target}, nil
+    end
+
+    local known = target.tiers("x86_64")
+    local last = ceiling or known[#known]
+    local _, ceilingErr = target.select((base as target.Target).triple, last)
+    if ceilingErr ~= nil then
+        return nil, ceilingErr
+    end
+
+    local selected: {target.Target} = {}
+    for _, tier in ipairs(known) do
+        local one = target.select((base as target.Target).triple, tier)
+        selected[#selected + 1] = one as target.Target
+        if tier == last then
+            break
+        end
+    end
+
+    return selected, nil
+end
+
+--- A tier's stable C-symbol suffix.
+function target.symbol(symbol: string, tier: string): string
+    return symbol .. "__" .. tier:gsub("[^%w_]", "_")
+end
+
+--- The detector value one x86-64 tier corresponds to.
+function target.rank(tier: string): integer
+    if tier == "avx512f" then
+        return 2
+    elseif tier == "avx2" then
+        return 1
+    end
+
+    return 0
+end
+
+--- Selects a target, or says why it is not one.
+---
+--- @param triple the target triple, or nothing for the host's
+--- @param tier the CPU feature tier, or nothing for the architecture's default
+--- @return the target, or nothing and what was wrong with the request
+function target.select(triple: string?, tier: string?): (target.Target?, string?)
+    local named = triple or targetLayout.hostKey()
+    if named == nil then
+        return nil, "this host is not a modeled target; name one with --target"
+    end
+    if not targetLayout.has(named) then
+        return nil, "unknown target " .. tostring(named)
+    end
+
+    local architecture = target.architecture(named as string)
+    local selected = tier or target.DEFAULT_TIERS[architecture]
+    if selected == nil then
+        return nil, "no feature tier is known for " .. architecture
+    end
+
+    local available = target.tiers(architecture)
+    local admitted = false
+    for _, one in ipairs(available) do
+        if one == selected then
+            admitted = true
+        end
+    end
+    if not admitted then
+        return nil, (
+            "%s has no feature tier %s; it has %s"
+        ):format(architecture, tostring(selected), table.concat(available, ", "))
+    end
+
+    return new target.Target(triple = named as string, architecture = architecture, tier = selected as string), nil
+end
+
+--- The gangs this target can hold.
+---
+--- Every shape that fits in its widest register class. A tier with 16 bytes gets
+--- the 16-byte pair rather than nothing: half the lanes is a smaller win than
+--- the full width and a far larger one than compiling the loop an iteration at a
+--- time.
+---
+--- A shape that does not fit is left out rather than split. A vector wider than
+--- the register class still compiles, because the compiler splits it, but it has
+--- no stable ABI at a function boundary -- and taking it anyway is how a gang
+--- becomes a `-Wpsabi` warning in generated code.
+function target.gangs(selected: target.Target): {lane.Shape}
+    local widest = target.TIERS[selected.tier] or 0
+    local held: {lane.Shape} = {}
+    for _, shape in ipairs(lane.SHAPES) do
+        if shape.bytes <= widest then
+            held[#held + 1] = shape
+        end
+    end
+
+    return held
+end
+
+--- Why this target has no gang, for a refusal that has to explain itself.
+function target.noGangReason(selected: target.Target): string
+    local wider: {string} = {}
+    for _, one in ipairs(target.tiers(selected.architecture)) do
+        if (target.TIERS[one] or 0) >= target.NARROWEST_GANG then
+            wider[#wider + 1] = one
+        end
+    end
+    if #wider == 0 then
+        return (
+            "%s has no %d-byte vector at any known feature tier"
+        ):format(selected.architecture, target.NARROWEST_GANG)
+    end
+
+    return (
+        "the %s feature tier has no %d-byte vector; select %s to run several iterations at once"
+    ):format(selected.tier, target.NARROWEST_GANG, table.concat(wider, " or "))
+end
+
+export = target

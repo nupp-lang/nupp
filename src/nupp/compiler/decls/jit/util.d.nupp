@@ -1,0 +1,108 @@
+--[[
+Declarations for LuaJIT's jit.util module, loaded for `require("jit.util")`.
+
+Not a field on `jit`: LuaJIT registers this under `package.loaded` only, so it
+has to be require()d.
+
+Everything here reads VM internals, meaning bytecode, IR, snapshots and machine code,
+whose shape tracks the LuaJIT build rather than any stable contract, and an index
+that does not exist answers nil rather than raising. Treat the results as
+diagnostic output to print, not as data to compute with.
+]]
+
+local record JitUtil
+
+    --- Describes a function, or the bytecode position `pc` inside it.
+    ---
+    --- The two kinds of function answer with different keys, so read the one you want
+    --- only after checking it is there. A Lua function reports `source`, `loc`,
+    --- `linedefined`, `lastlinedefined`, `params`, `stackslots`, `upvalues`,
+    --- `bytecodes`, `gcconsts`, `nconsts`, `children`, `isvararg`, `proto`, and
+    --- `currentline` when `pc` is given. A builtin reports `ffid`, `addr` and
+    --- `upvalues`, and nothing else.
+    ---
+    --- @param func the function to describe
+    --- @param pc the bytecode index to resolve `currentline` from
+    --- @return a freshly allocated description table
+    funcinfo: function(func: any, pc: integer?): {[string]: any}
+
+    --- Reads one bytecode instruction.
+    ---
+    --- @param func the function to read from
+    --- @param pc the bytecode index, counting from 0
+    --- @return the instruction word, or nil when `pc` is past the end
+    --- @return the opcode, an index into the packed `bcnames` of
+    ---     `require("jit.vmdef")`
+    funcbc: function(func: any, pc: integer): (integer?, integer?)
+
+    --- Reads a constant from a function's constant table.
+    ---
+    --- @param func the function to read from
+    --- @param idx the constant index: non-negative for a number, negative for
+    ---     a garbage-collected constant
+    --- @return the constant, or nil when the index is out of range
+    funck: function(func: any, idx: integer): any
+
+    --- Names an upvalue.
+    ---
+    --- @param func the function to read from
+    --- @param idx the upvalue index, counting from 0
+    --- @return the name, or nil when the index is out of range
+    funcuvname: function(func: any, idx: integer): string?
+
+    --- Describes a compiled trace: its link, extent, exit count, and the machine code
+    --- it occupies.
+    ---
+    --- @param tr the trace number
+    --- @return the description table, or nil when no such trace exists
+    traceinfo: function(tr: integer): {[string]: any}?
+
+    --- Reads one IR instruction from a trace.
+    ---
+    --- @param tr the trace number
+    --- @param idx the IR reference
+    --- @return the IR mode, the opcode and type byte, the two operands, and
+    ---     the previous reference in the chain
+    traceir: function(tr: integer, idx: integer): (integer, integer, integer, integer, integer)
+
+    --- Reads a constant referenced by a trace's IR.
+    ---
+    --- @param tr the trace number
+    --- @param idx the IR reference of the constant
+    --- @return the constant value
+    --- @return its IR type
+    --- @return the stack slot it was loaded from, when there was one
+    tracek: function(tr: integer, idx: integer): (any, integer, integer?)
+
+    --- Reads a trace snapshot: the stack map an exit restores from.
+    ---
+    --- @param tr the trace number
+    --- @param sn the snapshot index
+    --- @return the snapshot table, or nil when the index is out of range
+    tracesnap: function(tr: integer, sn: integer): {[string]: any}?
+
+    --- Returns a trace's machine code.
+    ---
+    --- @param tr the trace number
+    --- @return the machine code as a byte string
+    --- @return the address it was assembled to run at
+    --- @return the loop offset within it
+    tracemc: function(tr: integer): (string?, integer?, integer?)
+
+    --- Address of the exit stub for one of a trace's exits.
+    ---
+    --- @param tr the trace number
+    --- @param exitno the exit number
+    --- @return the address, or nil when the exit does not exist
+    traceexitstub: function(tr: integer, exitno: integer): integer?
+
+    --- Address of an IR call target, for naming a call in a disassembly.
+    ---
+    --- @param idx the index into the IR call table, which
+    ---     `require("jit.vmdef").ircall` names
+    --- @return the address
+    ircalladdr: function(idx: integer): integer
+end
+
+local util: JitUtil
+return util

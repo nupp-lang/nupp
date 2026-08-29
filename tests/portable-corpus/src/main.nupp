@@ -1,0 +1,76 @@
+local struct Point
+    x: uint8
+    y: int16
+end
+
+local simd = require("nupp.simd")
+
+local function main(): string
+    const settings = {const label = "portable"}
+    local present: {value: integer}? = {value = 4}
+    local absent: {value: integer}? = nil
+    local selected = true ? present?.value : 0
+    local defaulted = absent?.value ?? 5
+    local twice = |value: integer| -> value * 2
+    local count = |...values| -> values.n
+    local maybeTwice: (function(integer): integer)? = twice
+    local called = maybeTwice?.(3)
+    local bracketSource: any = {value = 4}
+    local bracketed = bracketSource?.["value"]
+    local methodOwner = {}
+    function methodOwner:add(value: integer): integer
+        return value + 6
+    end
+
+    local methodValue = methodOwner?.:add?.(2)
+
+    local total = 0
+    for index = 1, 10 do
+        if index % 2 == 0 then
+            continue
+        end
+        if index == 7 then
+            break
+        end
+        total += index
+    end
+
+    local calls: integer = 0
+    local target: {value: integer}? = nil
+    local function sideEffect(): integer
+        calls += 1
+        return calls
+    end
+
+    target?.value = sideEffect()
+    local mutable: any = {value = 1}
+    mutable?.value += 3
+
+    @allow("customary-operator")
+    local customary = !false && 1 != 2 || false
+    local separated = 1_000
+    local hexadecimal = 0x1p4
+    local unpacked = unpack({11})
+    local loaded = assert(loadstring("return 12"))()
+    local presized = table.new(2, 1)
+    presized.kept = 13
+    table.clear(presized)
+    local cleared = next(presized) == nil
+    local cloned = table.clone({value = 14})
+    local point = new Point(258, -2)
+    local shifted = (0x55 | 0xaa) << 1
+    local species = simd.preferredU8()
+    local digits = species:loadString("aZ09............", 0):inRange(48, 57):count()
+    local wideValue: int64 = 9223372036854775807LL
+    local wideWrapped = wideValue + 1LL
+
+    return `${settings.label}:${selected}:${defaulted}:${twice(
+        4
+    )}:${count(
+        nil,
+        nil
+    )}:${called}:${bracketed}:${methodValue}:${mutable?.value}:${total}:${customary}:${separated}:${hexadecimal}:${calls}:${unpacked}:${loaded}:${cleared}:${cloned.value}:${point.x == 2
+        and point.y == -2}:${shifted}:${digits}:${wideWrapped < wideValue}`
+end
+
+print(main())

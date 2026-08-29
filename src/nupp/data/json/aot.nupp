@@ -1,0 +1,845 @@
+module nupp.data.json.aot
+
+-- The production JSON provider. Decoding is generated C from three SIMD parser
+-- entries with compile-time eager, pull, and serde builder contracts; the
+-- remaining API is authored Nupp and has no C++
+-- boundary or simdjson dependency.
+
+local eagerDecoder = require("nupp.data.jsondecoder.eager")
+local pullDecoder = require("nupp.data.jsondecode")
+local serdeDecoder = require("nupp.data.jsondecoder.serde")
+local newBuffer = require("string.buffer").new
+local bit = require("bit")
+
+local interface JsonProvider
+    decode: function(text: string, nullValue: any?): any
+    pull: function(text: string, shape: any, nullValue: any?): any
+    compileSerde: function(plan: any, unknownMembers: string): any
+    decodeSerde: function(schema: any, text: string): (any?, string?)
+    decodeSerdeBuffer: function(schema: any, exclusive input: string.buffer.Buffer): (any?, string?)
+    arrayOf: function(shape: any?): table
+    asArray: function<T is table>(takes value: T): T preserves value
+    asObject: function<T is table>(takes value: T): T preserves value
+    isArray: function(value: any): boolean
+    encode: function(value: any, nullValue: any?): string
+    serialize: function(value: any, nullValue: any?): string
+    encoded: function(value: any, nullValue: any?): any
+    encodedString: function(value: string): any
+    verified: function(text: string): any
+    verifiedString: function(text: string): any
+    writer: function(exclusive out: string.buffer.Buffer, nullValue: any?): any
+    NULL: any
+    EMPTY_ARRAY: table
+    EMPTY_OBJECT: table
+end
+
+local json: any = {}
+local ARRAY_MARKER, OBJECT_MARKER, ARRAY_SHAPE = {}, {}, {}
+local SERDE_ALIASES, SERDE_WILDCARD, SERDE_REJECT, SERDE_METATABLE, SERDE_ORDER, SERDE_KEYS = {}, {}, {}, {}, {}, {}
+local SERDE_REQUIRED, SERDE_DEFAULTS, SERDE_NULLABLE = {}, {}, {}
+local SERDE_SCALAR, SERDE_LITERAL, SERDE_FACTORY, SERDE_TUPLE, SERDE_UNION = {}, {}, {}, {}, {}
+local SERDE_MARKERS = {
+    SERDE_ALIASES,
+    SERDE_WILDCARD,
+    SERDE_REJECT,
+    SERDE_METATABLE,
+    SERDE_ORDER,
+    SERDE_KEYS,
+    SERDE_REQUIRED,
+    SERDE_DEFAULTS,
+    SERDE_NULLABLE,
+    SERDE_SCALAR,
+    SERDE_LITERAL,
+    SERDE_FACTORY,
+    SERDE_TUPLE,
+    SERDE_UNION,
+}
+local ENCODED_VALUE, ENCODED_STRING = {}, {}
+local encodedStrings: any = setmetatable({}, {__mode = "v"})
+local verifiedStrings: any = setmetatable({}, {__mode = "v"})
+
+json.NULL = setmetatable({}, {
+    __tostring = function(): string
+        return "null"
+    end
+})
+json.EMPTY_ARRAY = setmetatable({}, ARRAY_MARKER)
+json.EMPTY_OBJECT = setmetatable({}, OBJECT_MARKER)
+
+local function failDecode(code: uint32, position: uint32): never
+    local message = code == 2
+        and "invalid UTF-8"
+        or code == 3
+        and "unescaped control byte"
+        or code == 4
+        and "backslash outside a string"
+        or code == 5
+        and "structural index overflow"
+        or "invalid syntax"
+    error("invalid JSON at byte " .. tostring(position) .. ": " .. message, 0)
+end
+
+function json.decode(text: string, nullValue: any?): any
+    local value, code, position = eagerDecoder.decode(
+        text,
+        nullValue,
+        ARRAY_MARKER,
+        OBJECT_MARKER,
+        nil,
+        ARRAY_SHAPE,
+        SERDE_MARKERS
+    )
+    if code ~= 0 then
+        failDecode(code, position)
+    end
+
+    return value
+end
+
+local function classify(value: any): (string, integer)
+    local marker = getmetatable(value)
+    local count, highest: integer = 0, 0
+    local numbers, strings = false, false
+    for key in pairs(value) do
+        count = count + 1
+        if type(key) == "number" and key >= 1 and key % 1 == 0 then
+            numbers = true
+            highest = math.max(highest, math.floor(key))
+        elseif type(key) == "string" then
+            strings = true
+        else
+            error("JSON object keys must be strings and array indexes must be positive integers", 0)
+        end
+    end
+    if numbers and strings then
+        error("a JSON container cannot mix array indexes and object keys", 0)
+    elseif marker == ARRAY_MARKER and strings then
+        error("an array-marked table cannot contain object keys", 0)
+    elseif marker == OBJECT_MARKER and numbers then
+        error("an object-marked table cannot contain array indexes", 0)
+    elseif numbers and count ~= highest then
+        error("JSON arrays cannot contain holes", 0)
+    end
+    local kind = "object"
+    local size = count
+    if numbers or marker == ARRAY_MARKER then
+        kind = "array"
+        size = highest
+    end
+
+    return kind, math.floor(size)
+end
+
+local simpleEscapes = {[8] = "\\b", [9] = "\\t", [10] = "\\n", [12] = "\\f", [13] = "\\r", [34] = '\\"', [92] = "\\\\",}
+
+local hex = "0123456789abcdef"
+
+-- Refusing bytes that cannot spell a scalar. Its own function only so that the
+-- walk below can say so in one line wherever it finds out.
+local function refuseUtf8(): nil
+    error("cannot encode invalid UTF-8 as JSON", 0)
+end
+
+-- Escaping already reads every byte, so the UTF-8 check rides along with it
+-- rather than making a pass of its own: a lead byte is checked where the walk
+-- reaches it, and a well-formed scalar then skips its own continuation bytes
+-- instead of asking the escape table about each one. Nothing above 127 is ever
+-- escaped, so a scalar's bytes stay in the pending run and the copying is
+-- unchanged.
+--
+-- The checks are written out here rather than called, because a scalar a call
+-- apart costs more than the pass this replaced on text that is mostly scalars.
+-- What a lead byte alone cannot settle is the second byte: the four named below
+-- are the ones where it is what rules out an overlong form, a surrogate half, or
+-- a value past the maximum.
+local function quote(value: string): string
+    local out = newBuffer()
+    out:put('"')
+    local first, at, length = 1, 1, #value
+    while at <= length do
+        local byte = value:byte(at) as integer
+        if byte < 128 then
+            local replacement = simpleEscapes[byte]
+            if replacement ~= nil or byte < 32 then
+                if at > first then
+                    out:put(value:sub(first, at - 1))
+                end
+                if replacement ~= nil then
+                    out:put(replacement)
+                else
+                    local high = math.floor(byte / 16)
+                    local low = byte % 16
+                    out:put("\\u00" .. hex:sub(high + 1, high + 1) .. hex:sub(low + 1, low + 1))
+                end
+                first = at + 1
+            end
+            at = at + 1
+        elseif byte < 224 then
+            if byte < 194 or at + 1 > length then
+                refuseUtf8()
+            end
+            local second = value:byte(at + 1) as integer
+            if second < 128 or second > 191 then
+                refuseUtf8()
+            end
+            at = at + 2
+        elseif byte < 240 then
+            if at + 2 > length then
+                refuseUtf8()
+            end
+            local second = value:byte(at + 1) as integer
+            local third = value:byte(at + 2) as integer
+            if second < 128 or second > 191 or third < 128 or third > 191 then
+                refuseUtf8()
+            end
+            if (byte == 224 and second < 160) or (byte == 237 and second > 159) then
+                refuseUtf8()
+            end
+            at = at + 3
+        elseif byte < 245 then
+            if at + 3 > length then
+                refuseUtf8()
+            end
+            local second = value:byte(at + 1) as integer
+            local third = value:byte(at + 2) as integer
+            local fourth = value:byte(at + 3) as integer
+            if second < 128 or second > 191 or third < 128 or third > 191 or fourth < 128 or fourth > 191 then
+                refuseUtf8()
+            end
+            if (byte == 240 and second < 144) or (byte == 244 and second > 143) then
+                refuseUtf8()
+            end
+            at = at + 4
+        else
+            refuseUtf8()
+        end
+    end
+    if first <= length then
+        out:put(value:sub(first))
+    end
+    out:put('"')
+
+    return out:tostring()
+end
+
+local function encodedBytes(value: any): string?
+    local marker = getmetatable(value)
+    if marker == ENCODED_VALUE or marker == ENCODED_STRING then
+        return value.bytes as string
+    end
+
+    return nil
+end
+
+local encodeValue: function(any, any, {[any]: boolean}, integer): string
+
+encodeValue = function(value: any, nullValue: any, visiting: {[any]: boolean}, depth: integer): string
+    local trusted = encodedBytes(value)
+    if trusted ~= nil then
+        return trusted
+    end
+    if value == json.NULL or nullValue ~= nil and value == nullValue then
+        return "null"
+    end
+    local kind = type(value)
+    if kind == "string" then
+        return quote(value as string)
+    elseif kind == "boolean" then
+        return value and "true" or "false"
+    elseif kind == "number" then
+        if value ~= value or value == math.huge or value == -math.huge then
+            error("JSON numbers must be finite", 0)
+        end
+        if value == 0 then
+            return "0"
+        end
+        return tostring(value)
+    elseif kind ~= "table" then
+        error("cannot encode " .. kind .. " as JSON", 0)
+    elseif depth >= 1024 then
+        error("JSON serialization nesting exceeds 1024", 0)
+    elseif visiting[value] then
+        error("cannot serialize a cyclic Lua table", 0)
+    end
+    visiting[value] = true
+    local container, count = classify(value)
+    local parts: {string} = {}
+    if container == "array" then
+        parts[1] = "["
+        for index = 1, count do
+            if index > 1 then
+                parts[#parts + 1] = ","
+            end
+            parts[#parts + 1] = encodeValue(value[index], nullValue, visiting, depth + 1)
+        end
+        parts[#parts + 1] = "]"
+    else
+        parts[1] = "{"
+        local first = true
+        for key, child in pairs(value) do
+            if not first then
+                parts[#parts + 1] = ","
+            end
+            first = false
+            parts[#parts + 1] = quote(key)
+            parts[#parts + 1] = ":"
+            parts[#parts + 1] = encodeValue(child, nullValue, visiting, depth + 1)
+        end
+        parts[#parts + 1] = "}"
+    end
+    visiting[value] = nil
+
+    return table.concat(parts)
+end
+
+function json.encode(value: any, nullValue: any?): string
+    return encodeValue(value, nullValue, {}, 0)
+end
+
+json.serialize = json.encode
+
+function json.isArray(value: any): boolean
+    if type(value) ~= "table" then
+        return false
+    end
+    local kind = classify(value)
+
+    return kind == "array"
+end
+
+function json.asArray(value: any): any
+    if type(value) ~= "table" then
+        error("json.asArray needs a table", 2)
+    end
+    for key in pairs(value) do
+        if type(key) ~= "number" or key < 1 or key % 1 ~= 0 or key > #value then
+            error("an array-marked table must contain consecutive positive indexes", 2)
+        end
+    end
+
+    return setmetatable(value, ARRAY_MARKER)
+end
+
+function json.asObject(value: any): any
+    if type(value) ~= "table" then
+        error("json.asObject needs a table", 2)
+    end
+    for key in pairs(value) do
+        if type(key) ~= "string" then
+            error("an object-marked table must contain string keys", 2)
+        end
+    end
+
+    return setmetatable(value, OBJECT_MARKER)
+end
+
+function json.arrayOf(shape: any?): table
+    return {[ARRAY_SHAPE] = shape == nil and true or shape}
+end
+
+function json.pull(text: string, shape: any, nullValue: any?): any
+    if shape == nil then
+        error("pull shape entries must be true, false, object shapes, or array shapes", 2)
+    end
+    local value, code, position = pullDecoder.decode(
+        text,
+        nullValue,
+        ARRAY_MARKER,
+        OBJECT_MARKER,
+        shape,
+        ARRAY_SHAPE,
+        nil
+    )
+    if code ~= 0 then
+        failDecode(code, position)
+    end
+
+    return value
+end
+
+local function word32(value: number): string
+    if value < 0 then
+        value = value + 4294967296
+    end
+    local a = value % 256
+    value = math.floor(value / 256)
+    local b = value % 256
+    value = math.floor(value / 256)
+    local c = value % 256
+    value = math.floor(value / 256)
+
+    return string.char(a, b, c, value % 256)
+end
+
+local function keyHash(value: string): number
+    local hash = -2128831035
+    for index = 1, #value do
+        hash = bit.bxor(hash, value:byte(index))
+        hash = bit.tobit(
+            hash + bit.lshift(
+                hash,
+                1
+            ) + bit.lshift(hash, 4) + bit.lshift(hash, 7) + bit.lshift(hash, 8) + bit.lshift(hash, 24)
+        )
+    end
+
+    return hash
+end
+
+local function compiledKeys(
+    keys: {string},
+    required: any,
+    targets: any,
+    aliases: boolean,
+    defaults: boolean,
+    factory: boolean
+): string
+    local headers: {string} = {}
+    local bytes: {string} = {}
+    local offset = 0
+    local requiredLow, requiredHigh = 0, 0
+    for index, key in ipairs(keys) do
+        local packed = (key .. '"' .. string.rep("\0", 8)):sub(1, 8)
+        local target = targets[index]
+        local scalar = type(target) == "number" and target or 0
+        headers[index] = word32(#key) .. word32(keyHash(key)) .. packed .. word32(offset) .. word32(scalar)
+        bytes[index] = key
+        offset = offset + #key
+        if required[index] then
+            if index <= 32 then
+                requiredLow = requiredLow + 2 ^ (index - 1)
+            else
+                requiredHigh = requiredHigh + 2 ^ (index - 33)
+            end
+        end
+    end
+
+    local flags = (aliases and 2147483648 or 0) + (defaults and 1073741824 or 0) + (factory and 536870912 or 0)
+
+    return word32(
+        #keys + flags
+    ) .. word32(requiredLow) .. word32(requiredHigh) .. table.concat(headers) .. table.concat(bytes)
+end
+
+local function nativeScalarComplete(plan: any): boolean
+    if plan.kind == "boolean" or plan.kind == "string" or plan.kind == "number" then
+        return plan.minimum == nil and plan.maximum == nil
+    elseif plan.kind == "integer" then
+        return plan.minimum == nil
+            and plan.maximum == nil
+            or plan.minimum == -128
+            and plan.maximum == 127
+            or plan.minimum == -32768
+            and plan.maximum == 32767
+            or plan.minimum == -2147483648
+            and plan.maximum == 2147483647
+    elseif plan.kind == "unsigned" then
+        return (
+            plan.minimum == nil or plan.minimum == 0
+        ) and (plan.maximum == nil or plan.maximum == 255 or plan.maximum == 65535 or plan.maximum == 4294967295)
+    end
+
+    return false
+end
+
+local function nativeComplete(plan: any, visiting: any, known: any): boolean
+    local prior = known[plan]
+    if prior ~= nil then
+        return prior
+    elseif visiting[plan] then
+        return true
+    end
+    visiting[plan] = true
+    local kind = plan.kind
+    local complete = plan.completeHint ~= false
+    if kind == "optional" or kind == "list" then
+        complete = complete and nativeComplete(plan.element, visiting, known)
+    elseif kind == "map" then
+        complete = complete and nativeComplete(plan.value, visiting, known)
+    elseif kind == "tuple" then
+        for _, item in ipairs(plan.items) do
+            complete = complete and nativeComplete(item, visiting, known)
+        end
+    elseif kind == "union" then
+        for _, item in ipairs(plan.choices) do
+            complete = complete and item.hasLiteral == true and nativeComplete(item, visiting, known)
+        end
+    elseif kind == "structure" then
+        complete = complete and (
+            plan.access == "record" or plan.access == "struct" or plan.access == "dynamic"
+        ) and #plan.fields <= 64
+        for _, field in ipairs(plan.fields) do
+            complete = complete and nativeComplete(field.target, visiting, known)
+        end
+    else
+        complete = complete and nativeScalarComplete(plan)
+    end
+    visiting[plan] = nil
+    known[plan] = complete
+
+    return complete
+end
+
+local function scalarShape(plan: any): any
+    local code = plan.kind == "boolean"
+        and 1
+        or plan.kind == "string"
+        and 2
+        or plan.kind == "number"
+        and 3
+        or plan.kind == "integer"
+        and plan.minimum == -128
+        and plan.maximum == 127
+        and 9
+        or plan.kind == "integer"
+        and plan.minimum == -32768
+        and plan.maximum == 32767
+        and 10
+        or plan.kind == "integer"
+        and plan.minimum == -2147483648
+        and plan.maximum == 2147483647
+        and 11
+        or plan.kind == "integer"
+        and 4
+        or plan.minimum == 0
+        and plan.maximum == 255
+        and 6
+        or plan.minimum == 0
+        and plan.maximum == 65535
+        and 7
+        or plan.minimum == 0
+        and plan.maximum == 4294967295
+        and 8
+        or 5
+
+    if plan.hasLiteral then
+        return {[SERDE_SCALAR] = code, [SERDE_LITERAL] = plan.literalValue,}
+    end
+
+    return code
+end
+
+local function nullableShape(target: any): any
+    if type(target) == "number" then
+        return -target
+    end
+    local shape: any = {}
+    for key, value in pairs(target) do
+        shape[key] = value
+    end
+    shape[SERDE_NULLABLE] = true
+
+    return shape
+end
+
+local function serdeShape(plan: any, seen: any, rejectUnknown: boolean, validate: boolean): any
+    local prior = seen[plan]
+    if prior ~= nil then
+        return prior
+    end
+    local kind = plan.kind
+    if kind == "optional" then
+        local target = serdeShape(plan.element, seen, rejectUnknown, validate)
+        return validate and nullableShape(target) or target
+    elseif kind == "list" then
+        local shape: any = {}
+        seen[plan] = shape
+        shape[ARRAY_SHAPE] = serdeShape(plan.element, seen, rejectUnknown, validate)
+        return shape
+    elseif kind == "map" then
+        local shape: any = {}
+        seen[plan] = shape
+        shape[SERDE_WILDCARD] = serdeShape(plan.value, seen, rejectUnknown, validate)
+        return shape
+    elseif kind == "tuple" then
+        local shape: any = {}
+        local items: any = {[SERDE_TUPLE] = true}
+        seen[plan] = shape
+        shape[ARRAY_SHAPE] = items
+        for index, item in ipairs(plan.items) do
+            items[index] = serdeShape(item, seen, rejectUnknown, validate)
+        end
+        return shape
+    elseif kind == "union" then
+        local shape: any = {}
+        local choices: any = {}
+        seen[plan] = shape
+        shape[SERDE_UNION] = choices
+        for index, item in ipairs(plan.choices) do
+            choices[index] = item.literalValue
+        end
+        return shape
+    elseif kind ~= "structure" then
+        return validate and scalarShape(plan) or true
+    end
+    local shape: any = {}
+    seen[plan] = shape
+    local order: {string} = {}
+    local aliases: any = {}
+    local required: any = {}
+    local defaults: any = {}
+    shape[SERDE_ORDER] = order
+    shape[SERDE_REJECT] = rejectUnknown
+    if plan.access == "record" then
+        shape[SERDE_METATABLE] = plan.typeObject
+        shape[-65] = plan.typeObject
+    end
+    for index, field in ipairs(plan.fields) do
+        order[index] = field.wire
+        local output: any = plan.access == "dynamic" and index or field.name
+        local target = serdeShape(field.target, seen, rejectUnknown, validate)
+        shape[field.wire] = target
+        shape[index] = target
+        if output ~= field.wire then
+            aliases[field.wire] = output
+            shape[-index] = output
+        end
+        if validate then
+            if field.required then
+                required[#required + 1] = output
+            elseif field.hasDefault then
+                defaults[output] = field.defaultValue
+            end
+        end
+    end
+    if next(aliases) ~= nil then
+        shape[SERDE_ALIASES] = aliases
+    end
+    if validate and #required ~= 0 then
+        shape[SERDE_REQUIRED] = required
+    end
+    if validate and next(defaults) ~= nil then
+        shape[SERDE_DEFAULTS] = defaults
+        shape[-66] = defaults
+    end
+    if plan.factory ~= nil then
+        shape[SERDE_FACTORY] = plan.factory
+        shape[-67] = plan.factory
+    end
+    local requiredIndexes: any = {}
+    if validate then
+        for index, field in ipairs(plan.fields) do
+            requiredIndexes[index] = field.required == true
+        end
+    end
+    local compiled = compiledKeys(
+        order,
+        requiredIndexes,
+        shape,
+        next(aliases) ~= nil,
+        validate and next(defaults) ~= nil,
+        plan.factory ~= nil
+    )
+    shape[SERDE_KEYS] = compiled
+    shape[0] = compiled
+
+    return shape
+end
+
+function json.compileSerde(plan: any, unknownMembers: string): any
+    local complete = nativeComplete(plan, {}, {})
+    return {plan = plan, shape = serdeShape(plan, {}, unknownMembers == "reject", complete), complete = complete,}
+end
+
+function json.decodeSerde(schema: any, text: string): (any?, string?)
+    local value, code, position = serdeDecoder.decode(
+        text,
+        nil,
+        ARRAY_MARKER,
+        OBJECT_MARKER,
+        schema.shape,
+        ARRAY_SHAPE,
+        SERDE_MARKERS
+    )
+    if code ~= 0 then
+        failDecode(code, position)
+    end
+
+    return value, nil
+end
+
+function json.decodeSerdeBuffer(schema: any, exclusive input: string.buffer.Buffer): (any?, string?)
+    local value, code, position = serdeDecoder.decode(
+        input,
+        nil,
+        ARRAY_MARKER,
+        OBJECT_MARKER,
+        schema.shape,
+        ARRAY_SHAPE,
+        SERDE_MARKERS
+    )
+    if code ~= 0 then
+        failDecode(code, position)
+    end
+
+    return value, nil
+end
+
+function json.encoded(value: any, nullValue: any?): any
+    return setmetatable({bytes = json.encode(value, nullValue)}, ENCODED_VALUE)
+end
+
+function json.encodedString(value: string): any
+    local prior = encodedStrings[value]
+    if prior ~= nil then
+        return prior
+    end
+    local result = setmetatable({bytes = quote(value)}, ENCODED_STRING)
+    encodedStrings[value] = result
+
+    return result
+end
+
+function json.verified(text: string): any
+    json.decode(text, json.NULL)
+    return setmetatable({bytes = text}, ENCODED_VALUE)
+end
+
+function json.verifiedString(text: string): any
+    local prior = verifiedStrings[text]
+    if prior ~= nil then
+        return prior
+    end
+    local value = json.decode(text, json.NULL)
+    if type(value) ~= "string" then
+        error("a verified JSON string is required", 2)
+    end
+    local result = setmetatable({bytes = text}, ENCODED_STRING)
+    verifiedStrings[text] = result
+
+    return result
+end
+
+function json.writer(out: any, nullValue: any?): any
+    local parts: {string} = {}
+    local bytes: integer = 0
+    local stack: {any} = {}
+    local root, closed = false, false
+    local writer = {}
+    local function publish(): nil
+        if #parts > 0 then
+            out:put(table.concat(parts));
+            parts = {};
+            bytes = 0
+        end
+    end
+
+    local function add(text: string): nil
+        parts[#parts + 1] = text
+        bytes = bytes + #text
+        if bytes >= 65536 then
+            publish()
+        end
+    end
+
+    local function prepare(): nil
+        if closed then
+            error("writer is already closed", 2)
+        end
+        if #stack == 0 then
+            if root then
+                error("writer already has a root value", 2)
+            end
+            root = true
+            return
+        end
+        local frame = stack[#stack]
+        if frame.kind == "array" then
+            if not frame.first then
+                add(",")
+            end
+            frame.first = false
+        elseif not frame.value then
+            error("an object value must follow key()", 2)
+        else
+            frame.value = false
+        end
+    end
+
+    function writer:startArray(): any
+        prepare();
+        add("[");
+        stack[#stack + 1] = {kind = "array", first = true};
+        return self
+    end
+
+    function writer:startObject(): any
+        prepare();
+        add("{");
+        stack[#stack + 1] = {kind = "object", first = true, value = false};
+        return self
+    end
+
+    function writer:key(name: any): any
+        local frame = stack[#stack]
+        if closed or frame == nil or frame.kind ~= "object" or frame.value then
+            error("key() requires an open object with no pending key", 2)
+        end
+        if not frame.first then
+            add(",")
+        end
+        frame.first = false
+        add(encodedBytes(name) or quote(name as string));
+        add(":");
+        frame.value = true
+
+        return self
+    end
+
+    function writer:write(value: any): any
+        prepare();
+        add(encodedBytes(value) or json.encode(value, nullValue));
+        return self
+    end
+
+    function writer:null(): any
+        prepare();
+        add("null");
+        return self
+    end
+
+    local function finish(kind: string, name: string): any
+        local frame = stack[#stack]
+        if closed or frame == nil or frame.kind ~= kind then
+            error(name .. " requires an open " .. kind, 2)
+        end
+        if frame.value then
+            error("the final object key has no value", 2)
+        end
+        stack[#stack] = nil;
+        add(kind == "array" and "]" or "}");
+
+        return writer
+    end
+
+    function writer:endArray(): any
+        return finish("array", "endArray()")
+    end
+
+    function writer:endObject(): any
+        return finish("object", "endObject()")
+    end
+
+    function writer:flush(): nil
+        if closed then
+            error("writer is already closed", 2)
+        end
+        publish()
+    end
+
+    function writer:close(): nil
+        if closed then
+            error("writer is already closed", 2)
+        end
+        closed = true
+        if not root or #stack > 0 then
+            parts = {};
+            error("close() requires one complete root value", 2)
+        end
+        publish()
+    end
+
+    return writer
+end
+
+export = json as JsonProvider

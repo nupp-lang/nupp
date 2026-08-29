@@ -1,0 +1,770 @@
+@!internal
+
+module nupp.compiler.runtime.math
+
+--[[
+The Lua half of `nupp.math`, for every read the compiler did not inline.
+
+Most reads of `nupp.math` never reach here. The compiler recognizes the qualified
+paths, `nupp.math.i32.wrap`, `nupp.math.u32.popcount`, `nupp.math.f32.narrow` and
+the rest, and lowers them to operations, and the AOT backend emits them as machine
+instructions. What is left for run time is every other way of getting at one: taking
+it as a value, calling it through a local, or reaching a part that has no operation
+behind it.
+
+So this is the same arithmetic written twice, once as a lowering and once as Lua, and
+the two have to agree bit for bit. The families here are written to that standard
+rather than to what reads well: `mul32` splits its arguments into halves because the
+product of two 32-bit values does not fit a double, and every `f32` result is pushed
+through a union because narrowing is what `float` means.
+
+Programs reach all of it as `nupp.math`, whose declaration stays in the prelude
+because the compiler answers most of it directly. What the bootstrap installs is
+`install`, below.
+]]
+
+--- Where the bit operations come from, wherever this is running.
+---
+--- LuaJIT's `bit` when there is one, and the `numeric.bitops` provider a portable
+--- target selected otherwise. This module is the run-time half of `nupp.math` on
+--- every target the compiler emits for, so it cannot name a facility only one of
+--- them has: `bit` is absent from the `lua51` surface, and a `lua51` program that
+--- reads `nupp.math` as a value gets here just the same.
+local bitops: any = rawget(_G, "bit") or rawget(_G, "__nuppBitops")
+
+const band = bitops.band
+const bnot = bitops.bnot
+const bor = bitops.bor
+const bxor = bitops.bxor
+const lshift = bitops.lshift
+const rshift = bitops.rshift
+const arshift = bitops.arshift
+
+--- The seam's contract is the seven above, so the three below are written in terms
+--- of them rather than required of a provider that never promised them.
+const tobit: function(number): number = bitops.tobit or function(value: number): number
+    return band(value, -1)
+end
+
+const rol: function(number, number): number = bitops.rol or function(value: number, count: number): number
+    local places = count % 32
+
+    return bor(lshift(value, places), rshift(value, (32 - places) % 32))
+end
+const ror: function(number, number): number = bitops.ror or function(value: number, count: number): number
+    local places = count % 32
+
+    return bor(rshift(value, places), lshift(value, (32 - places) % 32))
+end
+
+const pi = math.pi
+const tau = 2 * math.pi
+
+--- Reads a signed 32-bit result as the unsigned number naming the same bits.
+-- Lua's `%` is floor-modulo, so this is the same function as the comparison it
+-- replaces: an `int32` at or above zero is itself, and one below is itself plus
+-- 2^32. What it is not is a branch. The comparison was free where a value's
+-- sign never varied and cost about six times as much where it did, which is
+-- every bit-twiddling loop, because the predictor has nothing to go on. It also
+-- reads its subject once, which is what lets code generation inline this as an
+-- expression rather than call out to it.
+local function ui32(value: number): number
+    return tobit(value) % 4294967296
+end
+
+--- Multiplies two 32-bit values without losing the low half.
+---
+--- The exact product needs up to 64 bits and a double carries 53, so the high half of
+--- one factor is multiplied separately and folded back in already truncated. Only the
+--- low 32 bits survive either way, which is what the operation is defined to answer.
+local function mul32(a: number, c: number): number
+    local al, cl = a % 65536, c % 65536
+    local ah, ch = math.floor(a / 65536), math.floor(c / 65536)
+
+    return tobit(al * cl + ((ah * cl + al * ch) % 65536) * 65536)
+end
+
+const CANON = 2143289344
+const PINF = 2139095040
+const NINF = 4286578688
+const MAX = 2139095039
+const NMAX = 4286578687
+const SIGN = 2147483648
+
+--- Whether a bit pattern is one of the NaNs rather than a number.
+local function nanbits(bits: number): boolean
+    return band(bits, 2139095040) == 2139095040 and band(bits, 8388607) ~= 0
+end
+
+--- The float `binary32` bits name, as a double.
+---
+--- Written as arithmetic rather than as a load out of a union because this module
+--- is the run-time half of `nupp.math` on every target, and `ffi` belongs to one of
+--- them. The trip is exact either way: every `binary32` is a double, so decoding is
+--- a scale of an integer significand and nothing rounds.
+local function decode32(bits: number): number
+    local sign = 1
+    if bits >= SIGN then
+        sign, bits = -1, bits - SIGN
+    end
+    local exponent = (bits - bits % 8388608) / 8388608
+    local significand = bits % 8388608
+    if exponent == 255 then
+        if significand == 0 then
+            return sign * (1 / 0)
+        end
+
+        return 0 / 0
+    elseif exponent == 0 then
+        return sign * significand * 2 ^ -149
+    end
+
+    return sign * (significand + 8388608) * 2 ^ (exponent - 150)
+end
+
+--- The `binary32` bits nearest a value, ties to even, NaN canonicalized.
+---
+--- The rounding is where the care is. Truncating would disagree with the lowering
+--- on half the inputs, so the significand is rounded the way the hardware rounds
+--- it, and a carry out of the significand is a step in the exponent.
+local function encode32(value: number): number
+    if value ~= value then
+        return CANON
+    end
+    local sign = 0
+    if value < 0 or (value == 0 and 1 / value < 0) then
+        sign, value = SIGN, -value
+    end
+    if value == 1 / 0 then
+        return sign + PINF
+    end
+    if value == 0 then
+        return sign
+    end
+    -- The unbiased exponent, as the count of doublings between the value and one.
+    local exponent = 0
+    if value >= 2 then
+        while value >= 2 do
+            value, exponent = value / 2, exponent + 1
+        end
+    else
+        while value < 1 do
+            value, exponent = value * 2, exponent - 1
+        end
+    end
+    local biased = exponent + 127
+    local significand: number
+    if biased <= 0 then
+        -- Subnormal: the significand is the value measured in the smallest step
+        -- there is, so the exponent field stays zero and precision runs out early.
+        significand = value * 2 ^ (exponent + 149)
+        biased = 0
+    else
+        significand = value * 8388608
+    end
+    local whole = significand - significand % 1
+    local fraction = significand - whole
+    if fraction > 0.5 or (fraction == 0.5 and whole % 2 == 1) then
+        whole = whole + 1
+    end
+    if biased == 0 then
+        -- A subnormal that rounded up to a full significand is the smallest normal,
+        -- and a zero exponent field beside a significand of 2^23 already spells it.
+        return sign + whole
+    end
+    if whole == 16777216 then
+        whole, biased = 8388608, biased + 1
+    end
+    if biased >= 255 then
+        return sign + PINF
+    end
+
+    return sign + biased * 8388608 + (whole - 8388608)
+end
+
+--- The float a bit pattern names, with every NaN collapsed to one.
+---
+--- A signalling NaN is not preserved. Which NaN an operation produces is not something
+--- a program can depend on, and answering one of them makes the lowering and this
+--- agree without either having to reproduce the other's choice.
+local function putbits(bits: number): number
+    return decode32(nanbits(bits) and CANON or bits)
+end
+
+--- The bit pattern of a value, narrowed to single precision first.
+local function bits32(value: number): number
+    return encode32(value)
+end
+
+--- A value narrowed to single precision, with NaN canonicalized.
+local function round32(value: number): number
+    return decode32(encode32(value))
+end
+
+--- A value narrowed to single precision, NaN left as it fell.
+---
+--- Handed straight back when it is one. Encoding collapses every NaN to the one
+--- canonical pattern, and this is the operation that promises not to: a NaN a
+--- caller narrows and then reads the bits of some other way keeps whatever payload
+--- it arrived with, which is what a hardware narrowing would have left it.
+local function narrow32(value: number): number
+    if value ~= value then
+        return value
+    end
+
+    return decode32(encode32(value))
+end
+
+--- Compares a double-double against a value: 1, -1 or 0 as it is above, below or on it.
+local function comparedd(hi: number, lo: number, value: number): number
+    local difference = hi - value
+    if difference > -lo then
+        return 1
+    elseif difference < -lo then
+        return -1
+    end
+
+    return 0
+end
+
+--- The next representable float above one, given its bits.
+local function nextup(value: number, bits: number): number, number
+    if bits == PINF then
+        return value, bits
+    end
+    if bits == NINF then
+        return putbits(NMAX), NMAX
+    end
+    local stepped: number
+    if band(bits, SIGN) ~= 0 then
+        if bits == SIGN then
+            return putbits(1), 1
+        end
+        stepped = bits - 1
+    else
+        stepped = bits + 1
+    end
+
+    return putbits(stepped), stepped
+end
+
+--- The next representable float below one, given its bits.
+local function nextdown(value: number, bits: number): number, number
+    if bits == NINF then
+        return value, bits
+    end
+    if bits == PINF then
+        return putbits(MAX), MAX
+    end
+    local stepped: number
+    if band(bits, SIGN) ~= 0 then
+        stepped = bits + 1
+    else
+        if bits == 0 then
+            return putbits(2147483649), 2147483649
+        end
+        stepped = bits - 1
+    end
+
+    return putbits(stepped), stepped
+end
+
+--- Rounds an exact double-double sum to the nearest float, ties to even.
+---
+--- `fma` computes its product and sum in double precision and keeps the part that fell
+--- off as `lo`, so the pair names the exact answer. Narrowing the head alone would
+--- round twice and land on the wrong float whenever the tail decides the tie, which is
+--- the whole reason a fused multiply-add is not a multiply followed by an add.
+local function rounddd(hi: number, lo: number): number
+    local value = round32(hi)
+    local bits = bits32(value)
+    if nanbits(bits) then
+        return putbits(CANON)
+    end
+    -- An overflow to infinity is only real if the exact value is past the last float
+    -- plus half a step; below that the pair rounds back down to the finite maximum.
+    if bits == PINF then
+        return comparedd(hi, lo, 3.4028235677973366e38) < 0 and putbits(MAX) or value
+    elseif bits == NINF then
+        return comparedd(hi, lo, -3.4028235677973366e38) > 0 and putbits(NMAX) or value
+    end
+    local side = comparedd(hi, lo, value)
+    if side == 0 then
+        return value
+    end
+    local step = side > 0 and nextup or nextdown
+    local other, otherbits = step(value, bits)
+    local toward = comparedd(hi, lo, (value + other) * 0.5)
+    if side < 0 then
+        toward = -toward
+    end
+    if toward > 0 or toward == 0 and band(bits, 1) ~= 0 then
+        return putbits(otherbits)
+    end
+
+    return value
+end
+
+--- Signed 32-bit integer arithmetic.
+local i32 = {}
+
+function i32.wrap(a: number): number
+    return tobit(a)
+end
+
+function i32.add(a: number, c: number): number
+    return tobit(a + c)
+end
+
+function i32.sub(a: number, c: number): number
+    return tobit(a - c)
+end
+
+function i32.mul(a: number, c: number): number
+    return mul32(ui32(a), ui32(c))
+end
+
+function i32.andBits(a: number, c: number): number
+    return band(a, c)
+end
+
+function i32.orBits(a: number, c: number): number
+    return bor(a, c)
+end
+
+function i32.xorBits(a: number, c: number): number
+    return bxor(a, c)
+end
+
+function i32.notBits(a: number): number
+    return bnot(a)
+end
+
+function i32.shiftLeft(a: number, c: number): number
+    return lshift(a, band(c, 31))
+end
+
+function i32.shiftRightArithmetic(a: number, c: number): number
+    return arshift(a, band(c, 31))
+end
+
+function i32.rotateLeft(a: number, c: number): number
+    return rol(a, band(c, 31))
+end
+
+function i32.rotateRight(a: number, c: number): number
+    return ror(a, band(c, 31))
+end
+
+function i32.lessThan(a: number, c: number): boolean
+    return tobit(a) < tobit(c)
+end
+
+function i32.lessOrEqual(a: number, c: number): boolean
+    return tobit(a) <= tobit(c)
+end
+
+function i32.fromU32(a: number): number
+    return tobit(a)
+end
+
+function i32.toU32(a: number): number
+    return ui32(a)
+end
+
+--- Unsigned 32-bit integer arithmetic.
+local u32 = {}
+
+function u32.wrap(a: number): number
+    return ui32(a)
+end
+
+function u32.add(a: number, c: number): number
+    return ui32(a + c)
+end
+
+function u32.sub(a: number, c: number): number
+    return ui32(a - c)
+end
+
+function u32.mul(a: number, c: number): number
+    return ui32(mul32(ui32(a), ui32(c)))
+end
+
+function u32.andBits(a: number, c: number): number
+    return ui32(band(a, c))
+end
+
+function u32.orBits(a: number, c: number): number
+    return ui32(bor(a, c))
+end
+
+function u32.xorBits(a: number, c: number): number
+    return ui32(bxor(a, c))
+end
+
+function u32.notBits(a: number): number
+    return ui32(bnot(a))
+end
+
+function u32.shiftLeft(a: number, c: number): number
+    return ui32(lshift(a, band(c, 31)))
+end
+
+function u32.shiftRightLogical(a: number, c: number): number
+    return ui32(rshift(a, band(c, 31)))
+end
+
+function u32.rotateLeft(a: number, c: number): number
+    return ui32(rol(a, band(c, 31)))
+end
+
+function u32.rotateRight(a: number, c: number): number
+    return ui32(ror(a, band(c, 31)))
+end
+
+function u32.lessThan(a: number, c: number): boolean
+    return ui32(a) < ui32(c)
+end
+
+function u32.lessOrEqual(a: number, c: number): boolean
+    return ui32(a) <= ui32(c)
+end
+
+function u32.fromI32(a: number): number
+    return ui32(a)
+end
+
+function u32.toI32(a: number): number
+    return tobit(a)
+end
+
+function u32.popcount(a: number): number
+    local remaining = ui32(a)
+    local count = 0
+    while remaining ~= 0 do
+        remaining = ui32(band(remaining, remaining - 1))
+        count = count + 1
+    end
+
+    return count
+end
+
+function u32.trailingZeros(a: number): number
+    local remaining = ui32(a)
+    if remaining == 0 then
+        return 32
+    end
+    local count = 0
+    while band(remaining, 1) == 0 do
+        remaining = rshift(remaining, 1)
+        count = count + 1
+    end
+
+    return count
+end
+
+function u32.leadingZeros(a: number): number
+    local remaining = ui32(a)
+    if remaining == 0 then
+        return 32
+    end
+    local count = 0
+    local probe = SIGN
+    while band(remaining, probe) == 0 do
+        probe = rshift(probe, 1)
+        count = count + 1
+    end
+
+    return count
+end
+
+--- Single-precision floating point.
+local f32 = {}
+
+function f32.narrow(a: number): number
+    return narrow32(a)
+end
+
+function f32.round(a: number): number
+    return round32(a)
+end
+
+function f32.add(a: number, c: number): number
+    return round32(round32(a) + round32(c))
+end
+
+function f32.sub(a: number, c: number): number
+    return round32(round32(a) - round32(c))
+end
+
+function f32.mul(a: number, c: number): number
+    return round32(round32(a) * round32(c))
+end
+
+function f32.div(a: number, c: number): number
+    return round32(round32(a) / round32(c))
+end
+
+function f32.sqrt(a: number): number
+    return round32(math.sqrt(round32(a)))
+end
+
+--- The smaller of two floats, with -0 smaller than 0 and NaN answered for NaN.
+function f32.min(a: number, c: number): number
+    local left, right = round32(a), round32(c)
+    if left ~= left or right ~= right then
+        return putbits(CANON)
+    end
+    if left == right then
+        if left == 0 and (band(bits32(left), SIGN) ~= 0 or band(bits32(right), SIGN) ~= 0) then
+            return putbits(SIGN)
+        end
+
+        return left
+    end
+
+    return left < right and left or right
+end
+
+--- The larger of two floats, with 0 larger than -0 and NaN answered for NaN.
+function f32.max(a: number, c: number): number
+    local left, right = round32(a), round32(c)
+    if left ~= left or right ~= right then
+        return putbits(CANON)
+    end
+    if left == right then
+        if left == 0 and band(bits32(left), SIGN) ~= 0 and band(bits32(right), SIGN) ~= 0 then
+            return putbits(SIGN)
+        elseif left == 0 then
+            return putbits(0)
+        end
+
+        return left
+    end
+
+    return left > right and left or right
+end
+
+--- A fused multiply-add: one rounding for the whole of `a * c + d`.
+---
+--- The product and the sum are exact in double precision, so the error term recovers
+--- what a plain `+` dropped and the pair is rounded once. A product that is already
+--- infinite or NaN has no error term to recover and is narrowed directly.
+function f32.fma(a: number, c: number, d: number): number
+    local left, right, addend = round32(a), round32(c), round32(d)
+    local product = left * right
+    if product ~= product or product == math.huge or product == -math.huge then
+        return round32(product + addend)
+    end
+    local sum = product + addend
+    local carry = sum - product
+
+    return rounddd(sum, (product - (sum - carry)) + (addend - carry))
+end
+
+function f32.fromBits(bits: number): number
+    return putbits(ui32(bits))
+end
+
+function f32.toBits(value: number): number
+    return bits32(round32(value))
+end
+
+--- Two-dimensional vectors, carried as a pair of numbers rather than a table.
+---
+--- Every operation takes and answers loose components, so a vector never has to be
+--- allocated to be worked with and a caller that keeps its own representation can use
+--- these against it directly.
+local vec2 = {}
+
+function vec2.add(ax: number, ay: number, bx: number, by: number): number, number
+    return ax + bx, ay + by
+end
+
+function vec2.subtract(ax: number, ay: number, bx: number, by: number): number, number
+    return ax - bx, ay - by
+end
+
+function vec2.scale(x: number, y: number, factor: number): number, number
+    return x * factor, y * factor
+end
+
+function vec2.dot(ax: number, ay: number, bx: number, by: number): number
+    return ax * bx + ay * by
+end
+
+function vec2.cross(ax: number, ay: number, bx: number, by: number): number
+    return ax * by - ay * bx
+end
+
+function vec2.lengthSquared(x: number, y: number): number
+    return x * x + y * y
+end
+
+function vec2.length(x: number, y: number): number
+    return math.sqrt(x * x + y * y)
+end
+
+function vec2.distanceSquared(ax: number, ay: number, bx: number, by: number): number
+    local x, y = bx - ax, by - ay
+
+    return x * x + y * y
+end
+
+function vec2.distance(ax: number, ay: number, bx: number, by: number): number
+    return math.sqrt(vec2.distanceSquared(ax, ay, bx, by))
+end
+
+function vec2.normalize(x: number, y: number): number, number
+    local length = vec2.length(x, y)
+    if length == 0 then
+        return 0, 0
+    end
+
+    return x / length, y / length
+end
+
+function vec2.lerp(ax: number, ay: number, bx: number, by: number, t: number): number, number
+    if t == 0 then
+        return ax, ay
+    elseif t == 1 then
+        return bx, by
+    end
+
+    return ax + (bx - ax) * t, ay + (by - ay) * t
+end
+
+--- Steps from one point toward another by at most a given distance.
+function vec2.moveTowards(ax: number, ay: number, bx: number, by: number, distance: number): number, number
+    if distance <= 0 then
+        return ax, ay
+    end
+    local x, y = bx - ax, by - ay
+    local squared = x * x + y * y
+    if squared == 0 or squared <= distance * distance then
+        return bx, by
+    end
+    local factor = distance / math.sqrt(squared)
+
+    return ax + x * factor, ay + y * factor
+end
+
+function vec2.rotate(x: number, y: number, radians: number): number, number
+    local c, s = math.cos(radians), math.sin(radians)
+
+    return x * c - y * s, x * s + y * c
+end
+
+--- The angle of a vector, in (-pi, pi].
+---
+--- Written out rather than deferred to Lua's two-argument arc tangent, which is not
+--- on the `lua51` surface: this module answers `nupp.math` on every target the
+--- compiler emits for, and the quadrant correction is the whole of what the
+--- two-argument form adds over the one.
+local function atan2(y: number, x: number): number
+    if x > 0 then
+        return math.atan(y / x)
+    elseif x < 0 then
+        -- Negative zero is on the negative side of the branch cut, which is the one
+        -- thing the sign comparison alone would get wrong.
+        local below = y < 0 or (y == 0 and 1 / y < 0)
+
+        return math.atan(y / x) + (below and -pi or pi)
+    elseif y > 0 then
+        return pi / 2
+    elseif y < 0 then
+        return -pi / 2
+    end
+
+    return 0
+end
+
+function vec2.angle(x: number, y: number): number
+    if x == 0 and y == 0 then
+        return 0
+    end
+
+    return atan2(y, x)
+end
+
+--- The unsigned turn between two vectors, zero when either has no direction.
+function vec2.angleBetween(ax: number, ay: number, bx: number, by: number): number
+    if (ax == 0 and ay == 0) or (bx == 0 and by == 0) then
+        return 0
+    end
+
+    return atan2(math.abs(vec2.cross(ax, ay, bx, by)), vec2.dot(ax, ay, bx, by))
+end
+
+--- The signed turn between two vectors, in (-pi, pi].
+function vec2.signedAngleBetween(ax: number, ay: number, bx: number, by: number): number
+    if (ax == 0 and ay == 0) or (bx == 0 and by == 0) then
+        return 0
+    end
+    local turn = atan2(vec2.cross(ax, ay, bx, by), vec2.dot(ax, ay, bx, by))
+
+    return turn == pi and -pi or turn
+end
+
+--- The component of one vector along another.
+function vec2.project(x: number, y: number, ox: number, oy: number): number, number
+    local squared = ox * ox + oy * oy
+    if squared == 0 then
+        return 0, 0
+    end
+    local factor = (x * ox + y * oy) / squared
+
+    return ox * factor, oy * factor
+end
+
+--- A vector mirrored across the plane a normal describes.
+function vec2.reflect(x: number, y: number, nx: number, ny: number): number, number
+    local squared = nx * nx + ny * ny
+    if squared == 0 then
+        return x, y
+    end
+    local factor = 2 * (x * nx + y * ny) / squared
+
+    return x - nx * factor, y - ny * factor
+end
+
+--- Interpolates between two numbers.
+---
+--- The endpoints are answered rather than computed, so `lerp(a, b, 1)` is `b` and not
+--- `a + (b - a)`, which is not always the same number.
+local function lerp(from: number, to: number, t: number): number
+    if t == 0 then
+        return from
+    elseif t == 1 then
+        return to
+    end
+
+    return from + (to - from) * t
+end
+
+--- Brings an angle into (-pi, pi].
+local function wrapAngle(radians: number): number
+    return (radians + pi) % tau - pi
+end
+
+--- The shortest signed turn from one angle to another.
+local function deltaAngle(from: number, to: number): number
+    return wrapAngle(to - from)
+end
+
+--- Fills a program's `nupp.math` namespace in.
+---
+--- The bootstrap reserves the table before this module is required, because generated
+--- code addresses it through a local it has already declared, so the members are put
+--- into whatever table it was given rather than a table being handed back.
+--- @export
+export function install(namespace: any): nil
+    namespace.lerp = lerp
+    namespace.wrapAngle = wrapAngle
+    namespace.deltaAngle = deltaAngle
+    namespace.i32 = i32
+    namespace.u32 = u32
+    namespace.f32 = f32
+    namespace.vec2 = vec2
+end

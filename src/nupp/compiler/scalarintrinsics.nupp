@@ -1,0 +1,163 @@
+module nupp.compiler.scalarintrinsics
+
+-- Canonical identities for the released fixed-width scalar surface. Recognition is
+-- definition-guided by the checker; this module owns names and exact integer folding
+-- so later native and vector backends consume the same vocabulary.
+local scalar = {}
+local bit = require("nupp.compiler.bitops")
+
+type scalar.Folded = number | boolean
+
+local PATHS = {}
+for _, family in ipairs({"i32", "u32"}) do
+    for _, operation in ipairs({
+        "add",
+        "sub",
+        "mul",
+        "andBits",
+        "orBits",
+        "xorBits",
+        "notBits",
+        "shiftLeft",
+        "rotateLeft",
+        "rotateRight",
+        "lessThan",
+        "lessOrEqual",
+    }) do
+        PATHS["nupp.math." .. family .. "." .. operation] = family .. "." .. operation
+    end
+end
+PATHS["nupp.math.i32.shiftRightArithmetic"] = "i32.shiftRightArithmetic"
+PATHS["nupp.math.i32.wrap"] = "i32.wrap"
+PATHS["nupp.math.i32.fromU32"] = "i32.fromU32"
+PATHS["nupp.math.i32.toU32"] = "i32.toU32"
+PATHS["nupp.math.u32.shiftRightLogical"] = "u32.shiftRightLogical"
+PATHS["nupp.math.u32.wrap"] = "u32.wrap"
+PATHS["nupp.math.u32.fromI32"] = "u32.fromI32"
+PATHS["nupp.math.u32.toI32"] = "u32.toI32"
+PATHS["nupp.math.u32.popcount"] = "u32.popcount"
+PATHS["nupp.math.u32.trailingZeros"] = "u32.trailingZeros"
+PATHS["nupp.math.u32.leadingZeros"] = "u32.leadingZeros"
+for _, operation in ipairs({
+    "narrow",
+    "round",
+    "add",
+    "sub",
+    "mul",
+    "div",
+    "sqrt",
+    "min",
+    "max",
+    "fma",
+    "fromBits",
+    "toBits",
+}) do
+    PATHS["nupp.math.f32." .. operation] = "f32." .. operation
+end
+
+function scalar.forPath(path: string): string?
+    return PATHS[path]
+end
+
+local function u32(value)
+    value = bit.tobit(value)
+    return value < 0 and value + 4294967296 or value
+end
+
+local function mul32(a, b)
+    a, b = u32(a), u32(b)
+    local al, bl = a % 65536, b % 65536
+    local ah, bh = math.floor(a / 65536), math.floor(b / 65536)
+    return bit.tobit(al * bl + ((ah * bl + al * bh) % 65536) * 65536)
+end
+
+--- Exact constant result for an integer intrinsic, or nil when this consumer does not
+--- implement that identity. Binary32 stays an ordinary call until the folder has its
+--- own holder-independent bit implementation.
+function scalar.fold(identity: string, args: {number}): scalar.Folded?
+    local family, operation = identity:match("^(i32)%.(.+)$")
+    if not family then
+        family, operation = identity:match("^(u32)%.(.+)$")
+    end
+    if not family then
+        return nil
+    end
+    local a, b = args[1], args[2]
+    if operation == "wrap" then
+        local out = bit.tobit(a)
+        return family == "u32" and u32(out) or out
+    elseif operation == "add" then
+        local out = bit.tobit(a + b)
+        return family == "u32" and u32(out) or out
+    elseif operation == "sub" then
+        local out = bit.tobit(a - b)
+        return family == "u32" and u32(out) or out
+    elseif operation == "mul" then
+        local out = mul32(a, b)
+        return family == "u32" and u32(out) or out
+    elseif operation == "andBits" then
+        local out = bit.band(a, b)
+        return family == "u32" and u32(out) or out
+    elseif operation == "orBits" then
+        local out = bit.bor(a, b)
+        return family == "u32" and u32(out) or out
+    elseif operation == "xorBits" then
+        local out = bit.bxor(a, b)
+        return family == "u32" and u32(out) or out
+    elseif operation == "notBits" then
+        local out = bit.bnot(a)
+        return family == "u32" and u32(out) or out
+    elseif operation == "shiftLeft" then
+        local out = bit.lshift(a, bit.band(b, 31))
+        return family == "u32" and u32(out) or out
+    elseif operation == "shiftRightArithmetic" then
+        return bit.arshift(a, bit.band(b, 31))
+    elseif operation == "shiftRightLogical" then
+        return u32(bit.rshift(a, bit.band(b, 31)))
+    elseif operation == "rotateLeft" then
+        local out = bit.rol(a, bit.band(b, 31))
+        return family == "u32" and u32(out) or out
+    elseif operation == "rotateRight" then
+        local out = bit.ror(a, bit.band(b, 31))
+        return family == "u32" and u32(out) or out
+    elseif operation == "lessThan" then
+        return family == "u32" and u32(a) < u32(b) or bit.tobit(a) < bit.tobit(b)
+    elseif operation == "lessOrEqual" then
+        return family == "u32" and u32(a) <= u32(b) or bit.tobit(a) <= bit.tobit(b)
+    elseif operation == "fromU32" or operation == "toI32" then
+        return bit.tobit(a)
+    elseif operation == "toU32" or operation == "fromI32" then
+        return u32(a)
+    elseif operation == "popcount" then
+        local value, count = u32(a), 0
+        while value ~= 0 do
+            value = u32(bit.band(value, value - 1))
+            count = count + 1
+        end
+        return count
+    elseif operation == "trailingZeros" then
+        local value, count = u32(a), 0
+        if value == 0 then
+            return 32
+        end
+        while bit.band(value, 1) == 0 do
+            value = bit.rshift(value, 1)
+            count = count + 1
+        end
+        return count
+    elseif operation == "leadingZeros" then
+        local value, count, mask = u32(a), 0, 2147483648
+        if value == 0 then
+            return 32
+        end
+        while bit.band(value, mask) == 0 do
+            mask = bit.rshift(mask, 1)
+            count = count + 1
+        end
+        return count
+    end
+
+    return nil
+end
+
+export = scalar

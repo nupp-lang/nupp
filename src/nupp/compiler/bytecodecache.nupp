@@ -1,0 +1,231 @@
+module nupp.compiler.bytecodecache
+
+--[[
+Compiled modules kept a second time, as bytecode.
+
+A `modules` build writes one Lua file per module and the interpreter parses each
+of them on the way in. For a bare `nupp help` that is a hundred and eighty
+files and about thirty-four milliseconds of a hundred and fifty-nine, spent
+turning text the build produced back into the functions it produced them from.
+LuaJIT loads a dump wherever it loads source, so the build leaves one beside
+each module and this puts a searcher in front of the file searcher to find it.
+
+Never load-bearing, and written so that it cannot become so. Every failure --
+no index, one written by another checkout or another LuaJIT, a truncated dump,
+a digest nothing wrote -- answers nothing and lets the ordinary searcher
+answer instead. That costs the parse this was avoiding and changes no result.
+Deleting the directory is supported; `nupp clean` does it with the rest of the
+build.
+
+Content-addressed, so the pairing cannot come apart. An entry is named by the
+digest of the module the build wrote, and the index mapping a module name to a
+digest is written by the build that wrote that module. An entry nothing points
+at is garbage rather than a wrong answer.
+
+The dump keeps its debug information, unlike the one a stamped binary carries
+(`nupp.compiler.build.package`). There the name has to come from the host,
+because the payload's name is where the executable turned out to be. Here it is
+a file at a path the build already knows, so the name is written in and a
+traceback out of a cached module reads exactly as one out of the source does --
+which is the point, since this is the compiler developers run.
+]]
+
+local bytecodecache = {}
+
+-- Both halves of the format, kept together because they are one agreement. The
+-- version leads so that a reader of a later one stops at the first line.
+local FORMAT = "nupp-bytecode 1"
+local INDEX = "index"
+
+--- Where entries made by this interpreter live, under the cache directory.
+---
+--- A directory rather than a line in one shared index, because a checkout can be
+--- worked on by more than one LuaJIT -- one on the path and one the toolchain
+--- built -- and a single index would be rewritten by whichever ran last, leaving
+--- the other to find a cache it cannot read. Two directories cost a little disk
+--- and neither interpreter takes the other's away.
+local function vmDirectory(): string
+    return (tostring(jit.version):gsub("[^%w%.]", "-"))
+end
+
+--- Where this module was loaded from, which is the build tree it belongs to.
+---
+--- Asked of the running module rather than of a manifest, because the answer has
+--- to be the tree this compiler is actually running out of. A compiler started
+--- from `src`, or one inside a stamped binary, is not in a build tree at all and
+--- gets nothing here, which is the right answer for both.
+local function outputRoot(): string?
+    local source = debug.getinfo(1, "S").source
+    local dir = (source:match("^@(.*)[/\\]") or ""):gsub("\\", "/")
+
+    return dir:match("^(.*)/nupp/compiler$")
+end
+
+--- The index, when it is one this tree and this interpreter can use.
+---
+--- The recorded root is compared because a dump carries the chunk name it was
+--- given, and the names in this cache are absolute paths into the tree that wrote
+--- it. A copied or moved build directory still has entries that load; what they
+--- would answer `debug.getinfo` with is where they used to be, and the compiler
+--- finds its declarations and its native library by asking exactly that. So a
+--- moved tree is a miss until the next build rewrites it.
+local function readIndex(root: string): {[string]: string}?
+    local file = io.open(root .. "/.bytecode/" .. vmDirectory() .. "/" .. INDEX, "rb")
+    if not file then
+        return nil
+    end
+    local text = file:read("*a")
+    file:close()
+    if not text then
+        return nil
+    end
+    local lines: {string} = {}
+    for line in text:gmatch("[^\n]+") do
+        lines[#lines + 1] = line
+    end
+    if lines[1] ~= FORMAT or lines[2] ~= "root " .. root then
+        return nil
+    end
+    local found: {[string]: string} = {}
+    for index = 3, #lines do
+        local digest, name = lines[index]:match("^(%x+) (%S+)$")
+        if digest and name then
+            found[name] = digest
+        end
+    end
+
+    return found
+end
+
+--- Where the index for `root` and this interpreter is, whether or not it exists.
+---
+--- Exported because the layout is otherwise this module's business, and a test
+--- that wants to damage a cache has to be able to find one.
+function bytecodecache.indexPath(root: string): string
+    return root .. "/.bytecode/" .. vmDirectory() .. "/" .. INDEX
+end
+
+--- A searcher over the cache in `root`, or nothing when there is no usable one.
+---
+--- Separate from installing it so that the question "what would this cache
+--- answer" can be asked of a tree that is not the one this compiler is running
+--- out of, which is the only way to test it.
+function bytecodecache.searcher(root: string): any
+    local found = readIndex(root)
+    if found == nil then
+        return nil
+    end
+    local where = root .. "/.bytecode/" .. vmDirectory()
+
+    return function(name: string): any
+        local digest = found[name]
+        if digest == nil then
+            return nil
+        end
+        local file = io.open(where .. "/" .. digest .. ".bc", "rb")
+        if not file then
+            return nil
+        end
+        local bytes = file:read("*a")
+        file:close()
+        if not bytes then
+            return nil
+        end
+        -- A cache is allowed to be damaged. Bad bytecode raises rather than
+        -- answering, and the answer to that is the ordinary searcher, not a
+        -- stack trace out of a compiler that was only trying to start.
+        local ok, chunk = pcall(loadstring, bytes)
+
+        return ok and chunk or nil
+    end
+end
+
+--- Puts the cache in front of the file searcher, when there is a cache to use.
+---
+--- After `package.preload`, so nothing that was carried in is shadowed, and
+--- before the file searcher, so a hit is answered without a parse. Called once,
+--- from the entry point, before it requires anything else.
+function bytecodecache.install()
+    local root = outputRoot()
+    if root == nil then
+        return
+    end
+    local search = bytecodecache.searcher(root)
+    if search == nil then
+        return
+    end
+    table.insert(package.loaders as any, 2, search)
+end
+
+--- Writes the cache for the modules a build has just left on disk.
+---
+--- Only what is missing is compiled, which is what makes this proportional to the
+--- edit rather than to the project: an untouched module keeps the digest it had
+--- and the entry named by that digest is already there. A module that would not
+--- load is skipped rather than reported -- the build has already written it, and
+--- whatever is wrong with it is not this cache's to say.
+function bytecodecache.refresh(outDir: string, modules: {[string]: any}): nil
+    local fs = require("nupp.compiler.fs")
+    -- Absolute, because the loader has only its own path to compare against and
+    -- a build's idea of "build" depends on where it was run from. A root spelled
+    -- differently than the one the searcher works out is a miss, which costs the
+    -- parse and nothing else.
+    local root = fs.absolute(outDir)
+    local where = root .. "/.bytecode/" .. vmDirectory()
+    -- An entry is named by the digest of the module it holds, which says nothing
+    -- about the name written inside it, and that name is this root. A tree that
+    -- was copied or moved has entries whose digests still match and whose names
+    -- point where the tree used to be, so a root that is not the recorded one
+    -- makes every entry worth writing again rather than worth keeping.
+    local reusable = readIndex(root) ~= nil
+    local lines: {string} = {FORMAT, "root " .. root}
+    local live: {[string]: boolean} = {}
+    local names: {string} = {}
+    for name in pairs(modules) do
+        names[#names + 1] = name
+    end
+    table.sort(names)
+    for _, name in ipairs(names) do
+        local record = modules[name]
+        local output, digest = record.output, record.artifactHash
+        if type(output) == "string" and type(digest) == "string" and digest:match("^%x+$") then
+            local entry = where .. "/" .. digest .. ".bc"
+            local written = reusable and fs.exists(entry)
+            if not written then
+                local text = fs.readFile(output)
+                -- Named the way the file searcher would name it, which is the
+                -- root on `package.path` with the module's own name under it,
+                -- rather than however this build happened to spell the path it
+                -- wrote to. The name is baked into the dump and the compiler
+                -- reads it back to find its declarations and its native library.
+                local chunk = text and loadstring(text, "@" .. root .. "/" .. name:gsub("%.", "/") .. ".lua")
+                if chunk then
+                    -- Sorted template tables, so two builds racing to write one
+                    -- digest write the same bytes rather than tearing over
+                    -- each other with two spellings of the same functions.
+                    written = fs.writeFile(entry, string.dump(chunk, "d")) == true
+                end
+            end
+            if written then
+                lines[#lines + 1] = digest .. " " .. name
+                live[digest] = true
+            end
+        end
+    end
+    lines[#lines + 1] = ""
+    fs.writeFileIfChanged(where .. "/" .. INDEX, table.concat(lines, "\n"))
+
+    -- Every edit to a module gives it a new digest and leaves the entry under the
+    -- old one behind, so without this the directory grows by one compiled module
+    -- per edit forever. What the index does not name cannot be reached, so
+    -- removing it is removing garbage. A build racing this one loses at worst an
+    -- entry it was about to name, which is a miss and a parse.
+    for _, path in ipairs(fs.listFiles(where)) do
+        local digest = path:match("([^/\\]+)%.bc$")
+        if digest ~= nil and not live[digest] then
+            os.remove(path)
+        end
+    end
+end
+
+export = bytecodecache

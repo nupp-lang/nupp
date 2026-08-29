@@ -1,0 +1,6 @@
+{
+  "files.associations": {
+    "*.nupp": "nupp"
+  },
+  "nupp.serverPath": "${workspaceFolder}/bin/nupp"
+}

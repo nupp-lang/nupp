@@ -1,0 +1,150 @@
+module nupp.compiler.cli.options
+
+--[[
+The options more than one command has.
+
+An option that appears in four commands should read the same in all four and be
+described in the same words, which is hard to arrange when each command spells
+it out for itself. These are the declarations, written once; a command lists the
+ones it wants among its own.
+
+Nothing here is mutated after it is declared, since `nupp.compiler.cli.spec` copies
+what it needs into its own option records, so one table per option serves every command
+that names it.
+]]
+
+local options = {}
+
+--- `--strict`, for the commands that type-check.
+options.strict = {name = "--strict", help = "Treat strict checker rules as errors",}
+
+--- `--dialect luajit|luajit-compat|lua51`, for commands that check or generate source.
+options.dialect = {
+    name = "--dialect",
+    value = "DIALECT",
+    choices = require("nupp.compiler.dialects").names(),
+    help = "Source-lowering dialect: luajit (default), luajit-compat or lua51"
+}
+
+-- The three spellings of one choice. They share a key, so giving two of them is caught
+-- as the contradiction it is, and the complaint is about the choice rather than about
+-- whichever spelling happened to come second.
+local DUPLICATE_FORMAT = "output format was specified more than once"
+
+--- `--format text|json`, with `--json` and `--text` as its shorthands. Returns a fresh
+--- list each time so a command can splice it into its own option list.
+function options.format(): {any}
+    return {
+        {
+            name = "--format",
+            value = "FORMAT",
+            choices = {"text", "json"},
+            duplicate = DUPLICATE_FORMAT,
+            help = "Output format: text (default) or json"
+        },
+        {
+            name = "--json",
+            key = "format",
+            constant = "json",
+            duplicate = DUPLICATE_FORMAT,
+            help = "Shorthand for --format json"
+        },
+        {
+            name = "--text",
+            key = "format",
+            constant = "text",
+            duplicate = DUPLICATE_FORMAT,
+            help = "Shorthand for --format text"
+        },
+    }
+end
+
+-- Two spellings of one choice again, on the same terms as the format group: `-q` is
+-- `--progress=never` written shorter, so it lands on that key and asking for both at
+-- once is caught rather than resolved by whichever came second.
+local DUPLICATE_PROGRESS = "progress reporting was both asked for and refused"
+
+--- `--progress WHEN`, with `-q` and `--quiet` as its shorthand, for the commands that
+--- say what they are doing while they do it.
+function options.progress(): {any}
+    return {
+        {
+            name = "--progress",
+            value = "WHEN",
+            form = "optional",
+            constant = "always",
+            choices = {"always", "never", "auto"},
+            duplicate = DUPLICATE_PROGRESS,
+            help = "When to report progress and timing on standard error: always, "
+            .. "never, or auto (default), which reports only to a terminal"
+        },
+        {
+            names = {"-q", "--quiet"},
+            key = "progress",
+            constant = "never",
+            duplicate = DUPLICATE_PROGRESS,
+            help = "Report no progress or timing; the same as --progress=never"
+        },
+    }
+end
+
+--- The optimizer's options, shared by `build` and `run`. The level is one word rather
+--- than a name and a value, so it is matched by pattern; `-Zno-opt` names a pass by its
+--- stable code and may be given more than once, so its values accumulate into a set the
+--- optimizer can look passes up in.
+function options.optimize(): {any}
+    return {
+        {
+            name = "-O",
+            pattern = "^%-O(%d)$",
+            value = "n",
+            key = "optLevel",
+            choices = {"0", "1", "2"},
+            display = "-O0, -O1, -O2",
+            invalid = "the optimization level is -O0, -O1 or -O2",
+            help = "Optimization level; ad-hoc builds default to -O0, deliverable targets to -O2"
+        },
+        {name = "--remarks", help = "Report what the optimizer did and what it declined to do"},
+        {
+            name = "--relax",
+            value = "GUARANTEE",
+            form = "attached",
+            key = "relaxed",
+            repeats = true,
+            set = true,
+            choices = {"function-identity", "load-order", "error-site", "frames", "gc-timing", "table-order"},
+            display = "--relax=GUARANTEE",
+            help = "Allow optimizations to change one named observable guarantee"
+        },
+        {
+            name = "-Zno-opt",
+            value = "CODE",
+            form = "attached",
+            key = "disabled",
+            repeats = true,
+            set = true,
+            display = "-Zno-opt=CODE",
+            help = "Turn off one pass, named by its stable code, to bisect a "
+            .. "miscompile. Unstable: the spelling may change or go away"
+        },
+    }
+end
+
+--- Splices option lists into one, so a command can write its own options beside the
+--- shared groups without flattening them by hand.
+function options.join(...: any): {any}
+    local joined: {any} = {}
+    for _, group in ipairs({...}) do
+        if group.name or group.names then
+            joined[#joined + 1] = group
+        else
+            for _, option in ipairs(group) do
+                joined[#joined + 1] = option
+            end
+        end
+    end
+
+    return joined
+end
+
+export = options

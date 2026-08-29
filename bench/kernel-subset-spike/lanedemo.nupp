@@ -1,0 +1,42 @@
+-- A lane-parallel kernel written as ordinary scalar Nupp.
+--
+-- Nothing here names a lane, a mask, or a vector. lane lowering says the
+-- iterations are independent; the compiler decides how many run at once.
+local span = require("nupp.mem.span")
+
+local struct Particle
+    x: float
+    y: float
+    vx: float
+    vy: float
+end
+
+-- Forced: this file demonstrates the lane form, so it needs one whatever the
+-- estimate says about whether it would be worth having.
+@aot(lanes = true)
+local function advance(
+    exclusive particles: span.WriteSpan<Particle>,
+    borrows source: span.Span<Particle>,
+    dt: float
+): nil
+    if #particles ~= #source then
+        error("length mismatch", 2)
+    end
+
+    for i = 1, #particles do
+        local particle = particles[i]
+        local from = source[i]
+        local step = dt * 1.0
+        local nextX = from.x + from.vx * step
+        local nextY = from.y + from.vy * step
+        if nextY < 0.0 then
+            nextY = 0.0 - nextY
+            -- The branch mask must be captured before nextY changes.
+            nextX = nextX + 1.0
+        end
+        particle.x = nextX
+        particle.y = nextY
+    end
+end
+
+return {advance = advance, Particle = Particle,}

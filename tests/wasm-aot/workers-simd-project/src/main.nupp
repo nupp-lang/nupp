@@ -1,0 +1,31 @@
+local kernels = require("kernels")
+local workers = require("nupp.workers")
+
+-- The same kernel, run once here and once on every lane, has to agree everywhere.
+local expected = kernels.scaled(64, 2)
+local agreed = true
+local lanes: integer = 0
+
+with scope = workers.scope() do
+    local submitted: {workers.Task<function(integer, number): {number}>} = {}
+    for index = 1, 8 do
+        submitted[index] = scope:spawn(64, 2, kernels.scaled)
+    end
+    for _, task in ipairs(submitted) do
+        local produced = task:await()
+        lanes = lanes + 1
+        agreed = agreed and #produced == #expected
+        for index = 1, #expected do
+            agreed = agreed and produced[index] == expected[index]
+        end
+    end
+end
+
+return ("{%q:%s,%q:%d,%q:%d}"):format(
+    "kernelAgreed",
+    agreed and "true" or "false",
+    "tasks",
+    lanes,
+    "values",
+    #expected
+)

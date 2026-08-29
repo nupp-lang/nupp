@@ -1,0 +1,2401 @@
+--[[
+# Nupp standard-library prelude
+
+The `nupp` namespace itself: the intrinsics the compiler owns, and the ambient
+library namespaces reached without a `require`. `nupp` loads this file into every
+check environment with `declare_globals`, after `lua.d.nupp`, so the declarations
+below may name Lua types such as `LuaFile`.
+
+## Conventions
+
+- Library tables are closed shapes, so a misspelled member is `NUPP2004`.
+- What needs machinery that has not landed yet falls back to `any`.
+- Every declaration carries a `---` docblock.
+
+This file is parsed and checked by `nupp` itself, as is its Lua counterpart.
+]]
+
+--- A resource with a deterministic, consuming close operation.
+---
+--- Declaring `is nupp.Closeable` makes construction and bare type annotations carry the
+--- close obligation automatically. A resource that publishes pending work declares
+--- `flush` on its own contract; closing is the lifecycle common to all resources.
+affine interface nupp.Closeable
+    terminal close: nosuspend function(takes self: nupp.Closeable): nil
+end
+
+--- A failed operation on a managed alias.
+record nupp.AliasError
+    code: string
+    message: string
+end
+
+--- A runtime-sized heterogeneous owner group.
+---
+--- `managedGroup` adopts independently managed cells and closes every remaining
+--- resource in reverse adoption order. It is ordinary library code over aliases;
+--- the compiler does not give the group special ownership privileges.
+interface nupp.ManagedGroup is nupp.Closeable
+    --- Cells publish no pending data of their own. Their payloads decide what close
+    --- publishes.
+    flush: function(exclusive self: nupp.ManagedGroup): nil
+
+    --- Moves a managed cell into the group and returns its checked non-owning alias.
+    adopt: function<T>(exclusive self: nupp.ManagedGroup, takes cell: managed(T)): alias(T)
+
+    --- Removes an adopted alias and restores its exact original owner.
+    remove: function<T>(exclusive self: nupp.ManagedGroup, handle: alias(T)): T
+end
+
+--- The unique owner of one independently allocated managed cell.
+--- @internal
+record nupp.Managed<T>
+    alias: function(borrows self: nupp.Managed<T>): alias(T)
+    close: nosuspend function(takes self: nupp.Managed<T>): nil
+end
+
+--- A copyable, checked, non-owning reference to one managed cell.
+--- @internal
+record nupp.Alias<T>
+    with: function<R>(
+        self: nupp.Alias<T>,
+        scoped callback: function(borrows value: T): R
+    ): ((R, nil) | (nil, nupp.AliasError))
+    withExclusive: function<R>(
+        self: nupp.Alias<T>,
+        scoped callback: function(exclusive value: T): R
+    ): ((R, nil) | (nil, nupp.AliasError))
+    take: nosuspend function(self: nupp.Alias<T>): ((T, nil) | (nil, nupp.AliasError))
+    close: nosuspend function(self: nupp.Alias<T>): nupp.AliasError?
+    downcast: function<U>(self: nupp.Alias<T>): ((alias(U), nil) | (nil, nupp.AliasError))
+end
+
+--- Compiler-provided facilities. The namespace is always present; native members are
+--- linked automatically when source reaches them.
+---
+--- @namespace nupp
+local nupp: {
+
+    --- Moves an exact affine obligation into an independently allocated cell.
+    manage: function<T>(takes owner: T): managed(T),
+
+    --- Recovers an erased alias from an untyped boundary after checking its brand.
+    recoverAlias: function(value: any): ((alias(unknown), nil) | (nil, nupp.AliasError)),
+
+    --- Creates a runtime-sized group of independently managed resources.
+    managedGroup: function(): nupp.ManagedGroup,
+
+    --- `nupp.math` adds the scalar, fixed-width and two-dimensional operations missing
+    --- from Lua's built-in `math` table. It is pure generated Lua and adds no native
+    --- dependency.
+    ---
+    --- ```nupp:playground
+    --- assert(nupp.math.lerp(10, 20, 0.25) == 12.5)
+    --- local turn = nupp.math.deltaAngle(math.rad(350), math.rad(10))
+    --- assert(math.abs(math.deg(turn) - 20) < 0.000001)
+    --- ```
+    ---
+    --- ## Scalar operations
+    ---
+    --- `lerp(from, to, t)` interpolates linearly without clamping `t`, so factors
+    --- outside `[0, 1]` extrapolate. It answers `from` exactly at zero and `to` exactly
+    --- at one, because the endpoints are answered rather than computed.
+    ---
+    --- `wrapAngle(radians)` answers the equivalent angle in `[-π, π)`, and
+    --- `deltaAngle(from, to)` answers the shortest signed rotation from one angle to
+    --- another.
+    ---
+    --- ## Fixed-width arithmetic
+    ---
+    --- `float`, `int32`, and `uint32` are unboxed refinements of Lua numbers. They
+    --- widen to `number` without code, while entering one requires an exact literal, a
+    --- reified load, an explicit conversion, or another established fixed-width value.
+    --- The erased assertion `as` changes a static claim but does not establish the
+    --- value.
+    ---
+    --- ```nupp
+    --- local flags: uint32 = 0x12
+    --- local rotated = nupp.math.u32.rotateLeft(flags, 7)
+    --- ```
+    ---
+    --- ### Establishing a fixed-width value
+    ---
+    --- The establishing conversions are `nupp.math.f32.narrow(number)`,
+    --- `nupp.math.i32.wrap(integer)`, and `nupp.math.u32.wrap(integer)`. Ordinary
+    --- arithmetic keeps LuaJIT's numeric meaning, so no refinement survives it. Use the
+    --- `f32`, `i32`, or `u32` namespace when the operation's width is part of its
+    --- contract:
+    ---
+    --- ```nupp
+    --- local distance = nupp.math.f32.narrow(10 / 3)
+    --- local rate = nupp.math.f32.narrow(60)
+    --- local speed = nupp.math.f32.mul(distance, rate)
+    --- ```
+    ---
+    --- What does survive is being whole. `int32` and `uint32` widen to `integer`, so
+    --- ordinary arithmetic over them gives an `integer`. That is what lets a `uint32`
+    --- cursor index a view as `cursor + 1`. `float` widens to `number` and its
+    --- arithmetic gives one.
+    ---
+    --- Aliasing a standard member preserves its intrinsic identity. A local that
+    --- merely reuses the name is an ordinary call and receives no fixed-width
+    --- intrinsic treatment.
+    ---
+    --- ### Integer namespaces
+    ---
+    --- `i32` and `u32` wrap modulo 2^32. Shift counts are masked by 31, and each
+    --- operation states whether its interpretation is signed or unsigned, as
+    --- `shiftRightArithmetic` against `shiftRightLogical`. Calls use Lua numbers in
+    --- canonical ranges rather than allocating scalar cdata.
+    ---
+    --- ```nupp
+    --- assert(nupp.math.u32.shiftRightLogical(nupp.math.u32.wrap(-1), 24) == 255)
+    --- ```
+    ---
+    --- `u32` also carries `popcount`, `trailingZeros` and `leadingZeros`, which
+    --- LuaJIT's `bit` library does not.
+    ---
+    --- ### Binary32 namespace
+    ---
+    --- `f32` rounds every input and result to nearest, ties to even. It preserves
+    --- signed zero, subnormals, and infinities, canonicalizes NaNs, and makes `fma` one
+    --- fused operation. `fromBits` and `toBits` expose that canonical bit contract.
+    --- `f32.narrow` performs one binary32 store and load without changing a NaN
+    --- payload, and `f32.round` retains the canonical-NaN contract.
+    ---
+    --- ### Narrower storage names
+    ---
+    --- The `int8`, `int16`, `uint8`, and `uint16` names describe physical storage
+    --- rather than ordinary values. See
+    --- [Numbers](docs/type-system/primitives.md#numbers) for the positions they are
+    --- allowed in and how a load behaves.
+    ---
+    --- ## Two-dimensional vectors
+    ---
+    --- `nupp.math.vec2` represents a vector as an `(x, y)` number pair rather than an
+    --- allocated object, so multiple return values compose directly:
+    ---
+    --- ```nupp
+    --- local vec2 = nupp.math.vec2
+    ---
+    --- local x, y = vec2.normalize(3, 4)
+    --- assert(x == 0.6 and y == 0.8)
+    ---
+    --- x, y = vec2.rotate(x, y, math.pi / 2)
+    --- local projectedX, projectedY = vec2.project(x, y, 1, 0)
+    --- ```
+    ---
+    --- | Operation | Signature shape |
+    --- | --- | --- |
+    --- | `add`, `subtract` | (ax, ay, bx, by) -> x, y |
+    --- | `scale` | (x, y, factor) -> x, y |
+    --- | `dot`, `cross` | (ax, ay, bx, by) -> number |
+    --- | `length`, `lengthSquared` | (x, y) -> number |
+    --- | `distance`, `distanceSquared` | (ax, ay, bx, by) -> number |
+    --- | `normalize` | (x, y) -> x, y |
+    --- | `lerp` | (ax, ay, bx, by, t) -> x, y |
+    --- | `moveTowards` | (ax, ay, bx, by, maxDistance) -> x, y |
+    --- | `rotate` | (x, y, radians) -> x, y |
+    --- | `angle` | (x, y) -> radians |
+    --- | `angleBetween`, `signedAngleBetween` | (ax, ay, bx, by) -> radians |
+    --- | `project`, `reflect` | (x, y, axisX, axisY) -> x, y |
+    ---
+    --- A zero vector has no direction, so the operations that would need one answer
+    --- something defined rather than a NaN: `normalize(0, 0)` and projection onto the
+    --- zero vector answer `(0, 0)`, an angle involving a zero vector is zero, and
+    --- reflection across a zero normal answers the original vector.
+    ---
+    --- `moveTowards` snaps exactly to the destination when the remaining distance is
+    --- within the requested step, and a nonpositive step leaves the start unchanged.
+    --- `lerp` is unclamped, like the scalar one. Compare squared lengths and distances
+    --- where only the ordering matters, to avoid a square root that cannot change it.
+    math: nupp.MathLibrary,
+
+    --- Cooperative development hot reload, installed by `nupp run --watch`.
+    hotreload: nupp.HotReload,
+
+    --- Compile and run byte-oriented parsing-expression grammars.
+    --- @namespace
+    peg: nupp.peg,
+
+    --- Compiler-only type inspection and construction inside `comptime function`
+    --- declarations. Every member is an ordinary checked compile-time value; none has
+    --- a runtime representation.
+    types: {
+        readonly any: comptime type,
+        readonly unknown: comptime type,
+        readonly never: comptime type,
+        readonly nil_: comptime type,
+        readonly boolean: comptime type,
+        readonly string: comptime type,
+        readonly number: comptime type,
+        readonly integer: comptime type,
+        readonly table_: comptime type,
+        readonly thread: comptime type,
+        readonly userdata: comptime type,
+        readonly float: comptime type,
+        readonly cdata: comptime type,
+        readonly cstring: comptime type,
+        readonly voidptr: comptime type,
+        readonly int8: comptime type,
+        readonly int16: comptime type,
+        readonly int32: comptime type,
+        readonly int64: comptime type,
+        readonly uint8: comptime type,
+        readonly uint16: comptime type,
+        readonly uint32: comptime type,
+        readonly uint64: comptime type,
+
+        readonly literal: comptime function(value: string | boolean | integer): type,
+        readonly nonExhaustive: comptime function(): type,
+        readonly array: comptime function(element: type): type,
+        readonly tuple: comptime function(elements: {type}): type,
+        readonly union: comptime function(members: {type}): type,
+        readonly intersection: comptime function(members: {type}): type,
+        readonly optional: comptime function(inner: type): type,
+        readonly pointer: comptime function(inner: type): type,
+        readonly constof: comptime function(inner: type): type,
+        readonly borrowed: comptime function(inner: type): type,
+        readonly pinned: comptime function(inner: type): type,
+        readonly affine: comptime function(representation: type): type
+        & comptime function(representation: type, const terminal: function): type,
+        readonly carray: comptime function(element: type, count: integer?): type,
+        readonly indexer: comptime function(readKey: type?, readValue: type?, writeKey: type?, writeValue: type?): type,
+        readonly map: comptime function(readKey: type, readValue: type, writeKey: type?, writeValue: type?): type,
+        readonly shape: comptime function(fields: {{
+            readonly name: string,
+            readonly read: type?,
+            readonly write: type?
+        }}, indexer: type?): type,
+        readonly pack: comptime function(head: {type}, tail: type?, modes: {string}?): typepack,
+
+        --- Computes the arguments consumed by a literal Lua format string.
+        ---
+        --- A broad string produces an open `any` pack. `%?` is reserved for
+        --- compiler-lowered formatting APIs.
+        --- @param format the format-string type to inspect
+        --- @return the argument pack consumed by its directives
+        readonly formatArguments: comptime function(format: type): typepack,
+        readonly function_: comptime function(parameters: typepack, results: typepack): type,
+        readonly parameters: comptime function(callable: type): typepack,
+        readonly results: comptime function(callable: type): typepack,
+        readonly kind: comptime function(value: type | typepack): string,
+        readonly describe: comptime function(value: type | typepack): {
+            readonly kind: string,
+            readonly sourceKind: string?,
+            readonly name: string?,
+            readonly value: (string | boolean | integer)?,
+            readonly element: type?,
+            readonly members: {type}?,
+            readonly fields: {{
+                readonly name: string,
+                readonly read: type?,
+                readonly write: type?
+            }}?,
+            readonly indexer: type?,
+            readonly readKey: type?,
+            readonly readValue: type?,
+            readonly writeKey: type?,
+            readonly writeValue: type?,
+            readonly nominal: boolean?,
+            readonly head: {type}?,
+            readonly tail: type?,
+            readonly modes: {string}?,
+            readonly count: integer?,
+            readonly parameters: typepack?,
+            readonly results: typepack?
+        },
+
+        --- The fixed elements of a composite type, or a pack's fixed head.
+        --- @param value the type or type pack to take apart
+        --- @return one handle per element, in declaration order
+        readonly elements: comptime function(value: type | typepack): {type},
+
+        --- The type arguments a generic declaration was applied to.
+        ---
+        --- Empty for a type that is not a generic application, so a caller may ask
+        --- without knowing which it has.
+        --- @param value the applied type to inspect
+        --- @return one handle per argument, in declaration order
+        readonly arguments: comptime function(value: type): {type},
+
+        --- Whether two types name the same nominal declaration, ignoring its arguments.
+        ---
+        --- Aliases and ownership wrappers are transparent. Structural types and two
+        --- different nominal declarations answer false even when their shapes match.
+        readonly sameNominal: comptime function(left: type, right: type): boolean,
+        readonly fields: comptime function(value: type): {{
+            readonly name: string,
+            readonly read: type?,
+            readonly write: type?
+        }},
+        readonly readKeys: comptime function(value: type): {type},
+        readonly writeKeys: comptime function(value: type): {type},
+        readonly readAt: comptime function(value: type, key: type): type,
+        readonly writeAt: comptime function(value: type, key: type): type,
+        readonly error: comptime function(message: string): never
+    },
+
+    --- Compiler-only derive inspection and closed forwarding recipes.
+    derive: nupp.derive,
+
+    --- Semantic type reflection and reflection-driven field codecs.
+    reflect: nupp.reflect,
+
+    --- Size in bytes under the build target's declared C ABI.
+    sizeof: function(typeName: any): integer,
+
+    --- Alignment in bytes under the build target's declared C ABI.
+    alignof: function(typeName: any): integer,
+
+    --- Byte offset of one field under the build target's declared C ABI.
+    offsetof: function(typeName: any, fieldName: string): integer,
+
+    --- Compiler-internal materialization conformance surface.
+    --- @internal
+    __materializationTest: nupp.__MaterializationTestAPI
+}
+
+-- Public checked computations under the compiler-owned nupp.types namespace use this
+-- implementation naming convention. Type-position resolution maps the public member
+-- to the checked prelude body, while the declaration above remains the API callers
+-- inspect and document.
+local comptime function __NuppTypesFormatArguments(Format: type): typepack
+    local info = nupp.types.describe(Format)
+    local value = info.value
+    if info.kind ~= "literal" or type(value) ~= "string" then
+        return nupp.types.pack({}, nupp.types.any)
+    end
+    local source = value as string
+    local arguments = {}
+    local index = 1
+    while index <= #source do
+        if source:sub(index, index) ~= "%" then
+            index = index + 1
+        else
+            index = index + 1
+            local seen = ""
+            local current = source:sub(index, index)
+            if current == "%" then
+                index = index + 1
+            else
+                while current ~= "" and string.find("-+ #0", current, 1, true) do
+                    seen = seen .. current
+                    index = index + 1
+                    current = source:sub(index, index)
+                end
+                if current == "%" then
+                    nupp.types.error(
+                        'invalid string.format directive starting at "%' .. seen .. source:sub(index) .. '"'
+                    )
+                end
+
+                local width = 0
+                while current ~= "" and string.find("0123456789", current, 1, true) do
+                    width = width + 1
+                    seen = seen .. current
+                    index = index + 1
+                    current = source:sub(index, index)
+                    if width > 2 then
+                        nupp.types.error('invalid string.format directive starting at "%' .. seen .. '"')
+                    end
+                end
+
+                if current == "." then
+                    seen = seen .. current
+                    index = index + 1
+                    current = source:sub(index, index)
+                    local precision = 0
+                    while current ~= "" and string.find("0123456789", current, 1, true) do
+                        precision = precision + 1
+                        seen = seen .. current
+                        index = index + 1
+                        current = source:sub(index, index)
+                        if precision > 2 then
+                            nupp.types.error('invalid string.format directive starting at "%' .. seen .. '"')
+                        end
+                    end
+                end
+
+                if string.find("aAcdiouxXeEfgG", current, 1, true) then
+                    arguments[#arguments + 1] = nupp.types.number
+                elseif current == "?" then
+                    nupp.types.error("%? is available only to compiler-lowered formatting APIs")
+                elseif string.find("pqs", current, 1, true) then
+                    arguments[#arguments + 1] = nupp.types.any
+                else
+                    nupp.types.error(
+                        'invalid string.format directive starting at "%' .. seen .. source:sub(index) .. '"'
+                    )
+                end
+                index = index + 1
+            end
+        end
+    end
+
+    return nupp.types.pack(arguments)
+end
+
+--- What one poll did, discriminated by `kind`.
+---
+--- The four answers are `"prepared"`, when a patch was staged and committed and
+--- `generation` is now the live one; `"no-change"`, when no watched input moved;
+--- `"diagnostics"`, when the change did not check and the running generation stands;
+--- and `"restart-required"`, when the change is well-typed but outside what a live
+--- process can take.
+---
+--- The fields past `kind` are the ones that answer carries, so read them after
+--- branching on it rather than before.
+--- @internal
+record nupp.HotReloadPoll
+    kind: string
+
+    --- Present on `"prepared"` and `"no-change"`. On the first it is the generation
+    --- now running; on the second, the one that stayed.
+    generation: integer?
+
+    --- The published patch chunk, on `"prepared"`.
+    patch: string?
+
+    --- What a `"prepared"` answer was prepared against.
+    baseGeneration: integer?
+
+    --- Why the change was refused, on `"diagnostics"` and `"restart-required"`.
+    diagnostics: {any}?
+
+    --- Which boundary refused it, where a restart answer could name one.
+    reason: any
+end
+
+--- Cooperative hot reload installed only while `nupp run --watch` is active.
+--- @internal
+record nupp.HotReload
+    --- Returns the currently committed implementation generation.
+    generation: nosuspend function(): integer
+
+    --- Detects source edits and commits a compatible patch at this host boundary.
+    ---
+    --- Branch on `kind`: a poll that published reports `"prepared"`, one that found
+    --- nothing reports `"no-change"`, and the two refusals are told apart by whether
+    --- restarting is what it would take.
+    poll: function(): nupp.HotReloadPoll
+end
+
+--- A compile-time-only graph handle used by the compiler's materialization tests.
+--- @internal
+record nupp.__MaterializationBlueprint
+    link: function(
+        self: nupp.__MaterializationBlueprint,
+        child: nupp.__MaterializationBlueprint
+    ): nupp.__MaterializationBlueprint
+end
+
+--- A compile-time-only factory handle used by the compiler's conformance provider.
+--- @internal
+record nupp.__MaterializationFactoryBlueprint
+end
+
+--- The runtime value produced by the compiler's materialization test provider.
+--- @internal
+record nupp.__MaterializedTest
+    value: integer
+    nodes: integer
+end
+
+--- The ordinary runtime input accepted by the conformance provider's factory.
+--- @internal
+record nupp.__MaterializationTestInput
+    value: integer
+end
+
+--- Compiler-internal constructors for the materialization conformance provider.
+--- @internal
+record nupp.__MaterializationTestAPI
+    node: function(value: integer): nupp.__MaterializationBlueprint
+    factory: function(): nupp.__MaterializationFactoryBlueprint
+end
+
+--- Generates checked members on a declaration while that declaration is checked.
+---
+--- `@derive(Provider, ...)` names providers on a `record` or `struct`. Each one reads
+--- an immutable semantic view of the declaration and returns a closed recipe; the
+--- compiler generates members from that recipe and checks them the way it checks
+--- written ones. This is a declaration-augmentation phase rather than a text macro. A
+--- provider adds no imports, top-level declarations, modules, or independently
+--- nameable types, and it observes no tokens, source positions, comments, or another
+--- provider's output.
+---
+--- Three providers ship with the compiler and cross the same boundary a package
+--- provider does: `Debug`, `JSON`, and `Serde`.
+---
+--- #### Derive the shipped providers
+---
+--- ```nupp
+--- @derive(nupp.derive.Debug, nupp.derive.JSON)
+--- local record Settings
+---     host: string = "localhost"
+---     port: integer = 8080
+--- end
+---
+--- local settings = new Settings()
+--- assert(settings:debug() == 'Settings { host = "localhost", port = 8080 }')
+--- ```
+---
+--- #### Write a package provider
+---
+--- A provider is an exported, nongeneric `comptime function` whose signature names the
+--- one interface it implements. `Info` describes the owner, `implement` returns the
+--- recipe, and a consumer applies the resolved export rather than a runtime function
+--- value. Applying it also claims that interface.
+---
+--- ```nupp:static
+--- local M = {}
+---
+--- interface M.Named
+---     named: function(self): string
+--- end
+---
+--- function M.nameValue(value: string): string
+---     return "name=" .. value
+--- end
+---
+--- comptime function M.derive(info: nupp.derive.Info): nupp.derive.Result<M.Named>
+---     local field = info.fields[1]
+---     if not field or field.name ~= "name" then
+---         return nupp.derive.error("Named needs a first field named name", info.reference)
+---     end
+---
+---     return nupp.derive.implement{
+---         methods = {
+---             named = nupp.derive.forward{
+---                 helper = nupp.derive.helper(M, "nameValue"),
+---                 arguments = {nupp.derive.field(field)},
+---             },
+---         },
+---     }
+--- end
+---
+--- @derive(M.derive)
+--- record M.User
+---     name: string
+--- end
+---
+--- local user = new M.User(name = "ada")
+--- assert(user:named() == "name=ada")
+---
+--- return M
+--- ```
+---
+--- #### What a recipe may say
+---
+--- The interface owns every generated signature, so a recipe chooses only which runtime
+--- function stands behind a requirement and which values reach it. `forward` names one
+--- ordinary exported Nupp function and a closed argument list built from `receiver`,
+--- `argument`, `field`, `constant`, and `array`. There are no nested calls, operators,
+--- branches, loops, assignments, or provider-chosen signatures, so behavior stays in
+--- ordinary type-checked Nupp rather than in a macro IR, and the generated call is
+--- checked against the helper's declaration the way any other call is.
+---
+--- `forward.v1` fills only bodyless, unoverloaded callable requirements, and cannot
+--- replace an interface default. A provider that refuses a declaration returns `error`
+--- rather than raising.
+---
+--- Providers run inside the bounded comptime worker, once per owner rather than once
+--- per generic instantiation, and a recipe is memoized on the `Info` fingerprint.
+--- `claims` asks whether a type already writes or requests an interface, which lets
+--- mutually recursive derives plan without depending on evaluation order.
+record nupp.derive
+    --- A comptime-only provider symbol accepted by `@derive`.
+    ---
+    --- A shipped provider is one of the three values below; a package provider is the
+    --- `comptime function` a module exports. Neither survives into the program.
+    record Provider
+    end
+
+    --- Generates `debug(self): string` and `nupp.Debug` conformance for a record or
+    --- struct. The method lazily prepares a schema-driven declaration-order
+    --- formatter and shares its schema recipe with `Serde` when both are derived.
+    ---
+    --- `@debug(redact = true)` keeps a field's name and hides its value, which is what
+    --- a
+    --- secret wants; `@debug(skip = true)` removes the field from the output entirely.
+    ---
+    --- ```nupp
+    --- @derive(nupp.derive.Debug)
+    --- local record Credentials
+    ---     user: string
+    ---     @debug(redact = true)
+    ---     password: string
+    --- end
+    ---
+    --- local credentials = new Credentials(user = "ada", password = "hunter2")
+    --- assert(credentials:debug() == 'Credentials { user = "ada", password = <redacted> }')
+    --- ```
+    Debug: Provider
+
+    --- Generates `writeJSON(writer)`, a static `fromJSON(text): T?, string?`, a
+    --- `fieldCodec`, and `nupp.data.json.JSONEncodable` conformance.
+    ---
+    --- Encoding is deterministic: fields follow declaration order and string map keys
+    --- sort by byte order, so one value always produces the same bytes. A decode error
+    --- names the path that failed rather than saying the document was bad.
+    ---
+    --- ```nupp
+    --- @derive(nupp.derive.JSON)
+    --- local record User
+    ---     @json(name = "user_id")
+    ---     id: integer
+    ---     name: string
+    --- end
+    ---
+    --- local user = new User(id = 7, name = "ada")
+    --- local out = string.buffer.new()
+    --- local writer = nupp.data.json.writer(out)
+    --- user:writeJSON(writer)
+    --- writer:close()
+    --- assert(out:tostring() == '{"user_id":7,"name":"ada"}')
+    ---
+    --- local decoded, failure = User.fromJSON('{"name": "ada"}')
+    --- assert(decoded == nil and failure == '$.user_id: required field is absent')
+    --- ```
+    JSON: Provider
+
+    --- Derives one format-neutral schema and physical binding for a record or struct.
+    --- It generates no per-format methods; codecs prepare and cache the binding.
+    ---
+    --- ```nupp
+    --- @derive(nupp.derive.Serde)
+    --- local record User
+    ---     id: uint32
+    ---     name: string?
+    --- end
+    ---
+    --- local prepared = nupp.data.serde.json():prepare(nupp.data.serde.of(User))
+    --- local text = prepared:encode(new User(id = 7, name = "ada"))
+    --- ```
+    Serde: Provider
+
+    --- Semantic configuration visible to providers as `Info` annotations.
+    ---
+    --- Each of these is the checked shape of one field annotation. A provider reads
+    --- what was written from `Field.annotations` or `Info.annotations`; the shipped
+    --- providers read the same projection rather than consulting a second planner.
+    --- The checked shape of `@json`, written on a record or on one of its fields.
+    interface JSONOptions
+        --- What decoding does with a key the record does not declare. Written on the
+        --- record, and `reject` when omitted.
+        unknown: ("reject" | "ignore")?
+
+        --- The key this field encodes to and decodes from.
+        name: string?
+
+        --- Removes the field from both directions. Requires a default.
+        omit: boolean?
+
+        --- Omits nil, false, empty strings, and empty tables when encoding. Encoding
+        --- only: a field left out of the output is still required coming back in.
+        omitEmpty: boolean?
+    end
+
+    --- The checked shape of `@debug`, written on a field.
+    interface DebugOptions
+        --- Removes the field from the rendered output entirely.
+        skip: boolean?
+
+        --- Keeps the field's name and renders its value as `<redacted>`.
+        redact: boolean?
+    end
+
+    --- An opaque reference which a provider may attach to a diagnostic.
+    ---
+    --- Obtained from `Info.reference` for the declaration or `Field.reference` for one
+    --- field, and accepted only by `error`. It carries no filename, line, or column: a
+    --- provider says which part of the declaration is at fault and the compiler decides
+    --- where to point.
+    record Reference
+    end
+
+    --- One written stored field in the immutable derive input projection.
+    ---
+    --- Fields arrive in declaration order. A generated member never reaches one by
+    --- name; pass this value to `field` to read it.
+    record Field
+        --- The name as written.
+        readonly name: string
+
+        --- Whether the field can be read, and so whether `field` admits it.
+        readonly readable: boolean
+
+        --- Whether the field can be written.
+        readonly writable: boolean
+
+        --- A transported handle for the read type, or nil for a write-only field.
+        readonly readType: any?
+
+        --- A transported handle for the write type, or nil for a read-only field.
+        readonly writeType: any?
+
+        --- Whether omission during construction supplies a declaration-owned default.
+        readonly hasDefault: boolean
+
+        --- The source-free constant default value. Read only when `hasDefault` is true.
+        readonly defaultValue: any
+
+        --- The field's typed annotations in source order, `@json` and `@debug` among
+        --- them.
+        readonly annotations: {nupp.reflect.Annotation}
+
+        --- Points this provider's `error` at this field.
+        readonly reference: Reference
+    end
+
+    --- The immutable semantic view passed to a `comptime function` provider.
+    ---
+    --- One `Info` describes one owner for one provider, and is built before any
+    --- provider's output is merged, so two providers on the same declaration see the
+    --- same thing whichever order they run in. A generic owner is projected once rather
+    --- than per instantiation, and a type parameter exposes its bound, or `unknown`, so
+    --- a provider cannot specialize for arguments a later instantiation supplies.
+    record Info
+        --- The projection's schema version, currently 1.
+        readonly schema: integer
+
+        --- What the owner was declared as: `record`, `struct`, or `interface`.
+        readonly kind: string
+
+        --- The owner's declared name.
+        readonly name: string
+
+        --- How the declaration is bound: `local`, `module`, `global`, or `nested`.
+        readonly visibility: string
+
+        --- The stable identity of the provider being run.
+        readonly providerIdentity: string
+
+        --- The stable identity of the owning declaration.
+        readonly ownerIdentity: string
+
+        --- A transported handle for the owner's type, accepted by `claims`.
+        readonly ownerType: any
+
+        --- A transported handle for the one interface this provider implements.
+        readonly interfaceType: any
+
+        --- The written stored fields, in declaration order.
+        readonly fields: {Field}
+
+        --- The owner's own typed annotations, in source order.
+        readonly annotations: {nupp.reflect.Annotation}
+
+        --- Whether the declaration writes a constructor.
+        readonly hasConstructor: boolean
+
+        --- Points this provider's `error` at the declaration as a whole.
+        readonly reference: Reference
+
+        --- A digest of everything above. Two owners with one fingerprint share one
+        --- evaluation, so a provider must decide from `Info` and nothing else.
+        readonly fingerprint: string
+    end
+
+    --- One value a generated call passes.
+    ---
+    --- Built by `receiver`, `entry`, `argument`, `field`, `constant`, or `array`.
+    --- The compiler owns it: a provider may hold one and place it in an argument
+    --- list, and nothing else.
+    record Argument
+    end
+
+    --- An ordinary exported Nupp function a generated member calls, from `helper`.
+    ---
+    --- The module owning it becomes a runtime dependency of the consumer, even when the
+    --- comptime provider itself erases.
+    record RuntimeHelper
+    end
+
+    --- One requirement's implementation, from `forward`, to be placed in `implement`
+    --- under the name of the requirement it fills.
+    record Forward
+    end
+
+    --- A generated member with a comptime-built function signature and forward
+    --- recipe. Use this when the provider declares a member that is not already an
+    --- interface requirement.
+    record Member
+    end
+
+    --- What a provider returns: the recipe implementing interface `I`.
+    ---
+    --- `I` is the interface the provider implements, or `any` when every generated
+    --- member supplies its own signature. Writing an interface in the return type is
+    --- how `@derive` knows which contract applying the provider claims. Produce one
+    --- with `implement`, or refuse the declaration with `error`. The compiler owns it
+    --- and there is nothing on it to read: what it carries crosses the comptime
+    --- boundary as a versioned recipe the compiler validates.
+    ---
+    --- @typearg I the interface this provider implements, or `any`
+    record Result<I>
+    end
+
+    --- Returns forwarding implementations. `methods` fills instance members and
+    --- `statics` fills static members.
+    ---
+    --- Both are keyed by member name. A `Forward` fills a bodyless, unoverloaded
+    --- callable requirement on the provider's interface; a `Member` supplies a new
+    --- member's function signature and forwarding recipe. Generating a member that
+    --- another provider on the same owner already generates is refused.
+    ---
+    --- @param specification a table with optional `methods` and `statics` maps
+    --- @return the recipe, as this provider's `Result<I>`
+    implement: function(specification: any): any
+
+    --- Reads one immutable filesystem input admitted to this provider invocation.
+    ---
+    --- The path must be a string literal in the provider's checked source. It resolves
+    --- from the consumer project root, becomes an incremental query dependency, and is
+    --- included in the provider recipe fingerprint. Watch mode therefore observes the
+    --- file and rechecks only modules that consume the provider.
+    ---
+    --- @param path project-relative path written as a literal
+    --- @return the file's bytes
+    file: function(path: string): string
+
+    --- Refuses the declaration with a diagnostic instead of returning a recipe.
+    ---
+    --- The reference decides what the diagnostic points at: `Info.reference` for the
+    --- declaration, or the `Field.reference` of the field that made the recipe
+    --- impossible. Returning this is how a provider fails; raising is a provider fault.
+    ---
+    --- @param message what the consumer is told
+    --- @param reference which part of the declaration is at fault
+    --- @param code the diagnostic code, defaulting to `NUPP2810`
+    --- @return the refusal, as this provider's `Result<I>`
+    error: function(message: string, reference: Reference?, code: string?): any
+
+    --- Implements one requirement by calling one runtime helper.
+    ---
+    --- `helper` names the function and `arguments` is the closed list it receives, in
+    --- order. The interface owns the resulting signature, and the generated call is
+    --- checked against the helper's declaration for types, ownership, effects, and its
+    --- suspension contract.
+    ---
+    --- @param specification a table with `helper` and `arguments`
+    --- @return the implementation, to place in `implement`
+    forward: function(specification: any): Forward
+
+    --- Declares a generated member's function signature and forwarding recipe.
+    ---
+    --- @param specification a table with `signature`, optional parameter names, and
+    --- a `forward` recipe
+    --- @return the member recipe, to place in `implement`
+    member: function(specification: any): Member
+
+    --- Names an ordinary exported Nupp function to forward to.
+    ---
+    --- Runtime behavior stays in the language: helpers are checked at their own
+    --- declarations, and a generic helper is refused by `forward.v1`.
+    ---
+    --- @param module the module value holding the function
+    --- @param name the name it is exported under
+    --- @return the helper handle
+    helper: function(module: any, name: string): RuntimeHelper
+
+    --- Passes the generated method's receiver.
+    ---
+    --- @return the argument recipe
+    receiver: function(): Argument
+
+    --- Passes the record's registered derive entry.
+    ---
+    --- @return the argument recipe
+    entry: function(): Argument
+
+    --- Passes one parameter of the generated method, under the name the interface
+    --- requirement declares for it.
+    ---
+    --- @param name the parameter's declared name
+    --- @return the argument recipe
+    argument: function(name: string): Argument
+
+    --- Reads one stored field of the receiver directly. The field must be readable.
+    ---
+    --- @param field one of `Info.fields`
+    --- @return the argument recipe
+    field: function(field: Field): Argument
+
+    --- Embeds a bounded quotable value.
+    ---
+    --- A table-shaped constant is rebuilt for every call, so mutation by one invocation
+    --- cannot reach the next.
+    ---
+    --- @param value the value to embed
+    --- @return the argument recipe
+    constant: function(value: any): Argument
+
+    --- Builds a fresh array from argument recipes, once per call.
+    ---
+    --- @param arguments the element recipes, in order
+    --- @return the argument recipe
+    array: function(arguments: {Argument}): Argument
+
+    --- Asks whether a type writes or requests an interface.
+    ---
+    --- The answer does not depend on whether that type's own providers have run, so
+    --- mutually recursive derives can plan against one another.
+    ---
+    --- @param subject a type handle, such as a `Field.readType`
+    --- @param interface a type handle, such as `Info.interfaceType`
+    --- @return whether `subject` claims `interface`
+    claims: function(subject: any, interface: any): boolean
+end
+
+--- `nupp.peg` compiles textual parsing-expression grammars into reusable typed
+--- matchers. The same grammar language works inside
+--- [`comptime`](docs/concepts/comptime.md) and at runtime.
+---
+--- ```nupp:playground
+--- const Identifier = comptime do
+---     return nupp.peg.compile("[a-zA-Z_] [a-zA-Z_0-9]* !.")
+--- end
+---
+--- assert(Identifier("item_2") == 7)
+--- assert(Identifier("2_items") == nil)
+--- ```
+---
+--- A parsing-expression grammar describes a deterministic top-down parse. Its
+--- choice operator is ordered, so `p / q` tries `q` only if `p` fails, where a
+--- regular expression alternation may pick whichever arm makes the complete
+--- expression work.
+---
+--- All positions and classes are byte-oriented. The grammar does not decode UTF-8
+--- codepoints: a literal UTF-8 character matches as its encoded byte sequence, and
+--- `.` consumes one byte rather than one Unicode character.
+---
+--- ## Compiling at either phase
+---
+--- `nupp.peg.compile(source, options?)` is the only constructor. A constant call
+--- inside `comptime` is parsed and validated by the compiler, which derives
+--- `nupp.peg.Peg<R...>` from the validated capture shape:
+---
+--- ```nupp
+--- const Word = comptime do
+---     return nupp.peg.compile("{ [a-z]+ } !.")
+--- end
+--- ```
+---
+--- Recognizers, substring and position captures, and collections therefore need no
+--- result annotation. The emitted program receives an already-materialized matcher
+--- and does not carry the textual grammar parser unless some runtime call also
+--- needs it.
+---
+--- A normal call with literal grammar text gets the same inferred `Peg<R...>`. It
+--- still compiles at run time, though parsed plans are cached by grammar source and
+--- backend, so compiling the same grammar again avoids parsing, lowering and
+--- code generation. A genuinely dynamic `string` answers `Peg<...any>`, because its
+--- capture shape is not yet known:
+---
+--- ```nupp
+--- local function loadMatcher(configuration: string): nupp.peg.Peg<...any>
+---     return nupp.peg.compile(configuration)
+--- end
+--- ```
+---
+--- Neither form requires a separately installed LPeg: the resolved native effect
+--- asks the build for a host that supplies LPeg 1.1.
+---
+--- Prefer `comptime` for source-owned constant grammars. Runtime compilation is for
+--- configuration, plugins, user-selected formats, and other genuinely dynamic
+--- input. A bad expression fails during `comptime` for a static grammar and during
+--- `compile` for a runtime one, with a line and byte-column location either way.
+---
+--- Every `Peg<R...>` satisfies `nupp.peg.Matcher<R...>`, so a generic adapter can
+--- forward the complete result pack without collecting it into another value:
+---
+--- ```nupp
+--- local function match<R...>(matcher: nupp.peg.Matcher<R...>, subject: string): ((R...) | (nil))
+---     return matcher:match(subject)
+--- end
+---
+--- local Word = nupp.peg.compile("{ [a-z]+ }")
+--- local word: string? = match(Word, "hello")
+--- ```
+---
+--- ## Matching and positions
+---
+--- A matcher can be called directly or through `match`, which mean the same thing:
+---
+--- ```nupp
+--- local Word = nupp.peg.compile("{ [a-z]+ }")
+--- local result = Word("hello")
+--- local same = Word:match("hello")
+--- ```
+---
+--- Matching begins at byte position 1 unless `init` is supplied. Positions are
+--- 1-based, a negative `init` counts from the end like Lua string operations,
+--- positions before 1 clamp to 1, and positions after `#subject + 1` fail. Every
+--- operation on this page that takes an `init` normalizes it that way:
+---
+--- ```nupp
+--- local Word = nupp.peg.compile("{ [a-z]+ }")
+--- assert(Word("one two", 5) == "two")
+--- ```
+---
+--- A recognizer, meaning a grammar with no captures, answers the byte position
+--- immediately after its match rather than a boolean. Failure answers nil:
+---
+--- ```nupp
+--- local Prefix = nupp.peg.compile("'get'")
+--- assert(Prefix("getter") == 4)
+--- assert(Prefix("setter") == nil)
+--- ```
+---
+--- ### Searching with `find`
+---
+--- Use `find` when the grammar may begin after the starting position. It answers
+--- the first byte, the exclusive next byte, and every grammar result, without
+--- constructing a match record:
+---
+--- ```nupp
+--- local Word = nupp.peg.compile("{ [a-z]+ }")
+--- local first, nextPosition, value = Word:find("123 hello")
+--- assert(first == 5 and nextPosition == 10 and value == "hello")
+--- ```
+---
+--- For `Peg<R...>`, success has the pack `(integer, integer, R...)` and failure has
+--- `(nil, nil)`. The byte range is half-open, `[first, nextPosition)`, so an empty
+--- match has equal positions. Test `first` for success rather than the value,
+--- because a grammar action may successfully answer nil or false. A recognizer's
+--- third result is the same next-byte position `match` would have answered.
+---
+--- ### Testing with `isMatch`
+---
+--- Use `isMatch` when only existence matters. It performs the same search and
+--- answers only a boolean:
+---
+--- ```nupp
+--- local Digits = nupp.peg.compile("[0-9]+")
+--- assert(Digits:isMatch("room 42"))
+--- assert(not Digits:isMatch("room"))
+--- assert(not Digits:isMatch("42 rooms", 3))
+--- ```
+---
+--- The position after the last byte is included in the search, so an empty or end
+--- assertion can match there. Use `match` when the exact starting position is
+--- already known.
+---
+--- ## Repeated matching
+---
+--- `forEachMatch` visits non-overlapping matches without constructing match records
+--- or an iterator closure. Its callback receives `first, nextPosition, R...`, the
+--- same values as `find`, and the call answers the number of visits:
+---
+--- ```nupp
+--- local Word = nupp.peg.compile("{ [a-z]+ }")
+--- local words: {string} = {}
+--- local count = Word:forEachMatch("one, two, three", function(first: integer, nextPosition: integer, value: string)
+---     words[#words + 1] = value
+--- end)
+---
+--- assert(count == 3)
+--- assert(words[2] == "two")
+--- ```
+---
+--- The next search begins at the exclusive end of a consuming match. An empty match
+--- instead advances one byte, so an empty grammar cannot repeatedly report the same
+--- position. The boundary at `#subject + 1` remains eligible and is visited at most
+--- once, which is why `''` visits positions 1, 2 and 3 in a two-byte subject.
+---
+--- Text before `init` is not visited. The visitor's return value is ignored, so
+--- raising is the way to abort a traversal.
+---
+--- ## Replacement
+---
+--- `replace` replaces the first match and `replaceAll` replaces every
+--- non-overlapping match. A string replacement is inserted literally, with no
+--- interpretation of `$`, `%`, or capture references:
+---
+--- ```nupp
+--- local Digits = nupp.peg.compile("[0-9]+")
+--- assert(Digits:replace("room 42, floor 3", "#") == "room #, floor 3")
+--- assert(Digits:replaceAll("room 42, floor 3", "#") == "room #, floor #")
+--- ```
+---
+--- Use a typed callback when the replacement text depends on the match. It receives
+--- the raw positions followed by every grammar result and must answer a string:
+---
+--- ```nupp
+--- local Word = nupp.peg.compile("{ [a-z]+ }")
+--- local output = Word:replaceAll("one, two", function(first: integer, nextPosition: integer, value: string): string
+---     return "[" .. tostring(first) .. ":" .. tostring(nextPosition) .. " " .. value:upper() .. "]"
+--- end)
+---
+--- assert(output == "[1:4 ONE], [6:9 TWO]")
+--- ```
+---
+--- Neither operation builds match records. A callback can use a substring capture
+--- as above, use another typed grammar result, or slice the original subject with
+--- the reported half-open range. When no match exists the original string is
+--- answered, and `init` leaves the prefix before it unchanged.
+---
+--- Empty matches insert without removing a byte, and `replaceAll` preserves that
+--- byte while advancing under the same progress rule `forEachMatch` uses. An empty
+--- grammar therefore turns `"ab"` into `"-a-b-"` when replacing with `"-"`.
+---
+--- ## Expression syntax
+---
+--- | Expression | Meaning |
+--- | --- | --- |
+--- | `'text'` or `"text"` | the exact bytes in `text` |
+--- | `.` | any one byte |
+--- | `[a-z_]` | one byte from a class or range |
+--- | `[^0-9]` | one byte outside a class |
+--- | `%a`, `%d`, `%s`, `%w`, `%x` | ASCII letter, digit, space, alphanumeric, or hex
+--- byte; any other `%name` reads a definition |
+--- | `p q` | `p` followed by `q` |
+--- | `p / q` | ordered choice: try `p`, then `q` |
+--- | `p*`, `p+`, `p?` | zero or more, one or more, or optional `p` |
+--- | `p^4`, `p^+4`, `p^-4` | exactly, at least, or at most four repetitions |
+--- | `&p`, `!p` | require `p`, or require that `p` fails, without consuming input |
+--- | `{ p }` | capture the substring consumed by `p` |
+--- | `{}` | capture the current 1-based byte position |
+--- | `{: name: p :}` | group captures under `name`; omit `name:` for an anonymous group
+--- |
+--- | `{~ p ~}` | substitute captured text into the substring consumed by `p` |
+--- | `=name` | match the text previously captured by named group `name` |
+--- | `p -> {}` | collect `p`'s captures in a table |
+--- | `p -> n`, `p -> 'text'` | select capture `n`, or format captures into text |
+--- | `p -> name` | transform `p` through definition `name` |
+--- | `p => name` | invoke match-time definition `name` |
+--- | `p >> name`, `p ~> name` | accumulate captures, or fold them left |
+--- | `name <- p` | define a grammar rule; the first rule is the start rule |
+--- | `name` or `<name>` | refer to a rule inside a grammar |
+--- | `!.` | require end of input |
+---
+--- One row is missing above, because a cell cannot hold its delimiters: `{| p |}`
+--- collects every capture produced by `p` into one array.
+---
+--- Whitespace between expressions is ignored, and a `--` comment outside a quoted
+--- literal or byte class continues to the end of the line. Precedence runs from
+--- tightest to loosest:
+---
+--- 1. primary expressions such as literals, classes, captures, and groups;
+--- 2. repetition and capture-transformation suffixes;
+--- 3. predicates;
+--- 4. sequence;
+--- 5. ordered choice `/`.
+---
+--- Parentheses can make any grouping explicit.
+---
+--- ### Literals and any byte
+---
+--- Single-quoted and double-quoted literals match their contents exactly:
+---
+--- ```npeg
+--- 'GET'
+--- "Content-Type"
+--- ```
+---
+--- The notation does not process backslash escapes, so a backslash in a literal is
+--- a literal backslash byte. Use the other quote delimiter when the text contains
+--- one kind of quote:
+---
+--- ```npeg
+--- "it's"
+--- 'say "yes"'
+--- ```
+---
+--- An empty literal `''` succeeds without consuming input. It is occasionally
+--- useful in a choice, but it must not appear inside `*` or `+`, because such a
+--- loop could never advance.
+---
+--- `.` matches any one byte and fails at the end of the subject.
+---
+--- ### Byte classes
+---
+--- Square brackets match one byte from a set, and ranges are inclusive:
+---
+--- ```npeg
+--- [abc]
+--- [a-zA-Z_]
+--- [0-9a-fA-F]
+--- ```
+---
+--- `^` immediately after `[` complements the class:
+---
+--- ```npeg
+--- [^0-9]
+--- ```
+---
+--- The predefined ASCII classes are:
+---
+--- | Short | Long | Bytes |
+--- | --- | --- | --- |
+--- | `%a` | `%alpha` | ASCII letters |
+--- | `%c` | `%cntrl` | control bytes and DEL |
+--- | `%d` | `%digit` | decimal digits |
+--- | `%g` | `%graph` | printable non-space ASCII bytes |
+--- | `%l` | `%lower` | lowercase ASCII letters |
+--- | `%nl` |  | newline |
+--- | `%p` | `%punct` | ASCII punctuation |
+--- | `%s` | `%space` | ASCII whitespace |
+--- | `%u` | `%upper` | uppercase ASCII letters |
+--- | `%w` | `%alnum` | ASCII letters and digits |
+--- | `%x` | `%xdigit` | hexadecimal digits |
+---
+--- The one-letter uppercase forms `%A`, `%C`, `%D`, `%G`, `%L`, `%P`, `%S`, `%U`,
+--- `%W`, and `%X` match the complement of their lowercase class. Predefined classes
+--- can also appear inside square brackets:
+---
+--- ```npeg
+--- [%a_]
+--- [%w.-]
+--- ```
+---
+--- Class contents are literal bytes except for ranges and `%` classes. An empty
+--- class and a descending range such as `[z-a]` are errors.
+---
+--- ### Sequence
+---
+--- Adjacent expressions form a sequence and must match in order:
+---
+--- ```npeg
+--- 'HTTP/' [0-9] '.' [0-9]
+--- ```
+---
+--- Spacing is optional where token boundaries stay clear, and whitespace usually
+--- makes a grammar easier to read.
+---
+--- ### Ordered choice
+---
+--- `p / q` tries `p` first and uses `q` only when `p` fails:
+---
+--- ```npeg
+--- 'GET' / 'POST' / 'PUT'
+--- ```
+---
+--- Put a longer literal before its prefix. With `'in' / 'integer'`, the first arm
+--- succeeds after two bytes and the second arm is never considered. Write
+--- `'integer' / 'in'` instead, or add a boundary assertion to each arm.
+---
+--- PEG backtracking is local and deterministic. If a later expression fails, the
+--- parser can return to a still-open choice and try its next arm. Ordinary `->`
+--- transformations are deferred until the entire match succeeds, so speculative
+--- paths do not run them. Match-time `=>` definitions are immediate, as in LPeg.
+---
+--- ### Repetition
+---
+--- Suffix operators repeat the expression immediately to their left:
+---
+--- | Form | Meaning |
+--- | --- | --- |
+--- | `p?` | zero or one |
+--- | `p*` | zero or more |
+--- | `p+` | one or more |
+--- | `p^4` | exactly four |
+--- | `p^+4` | at least four |
+--- | `p^-4` | at most four |
+---
+--- Use parentheses to repeat a sequence:
+---
+--- ```npeg
+--- [0-9]+ ('.' [0-9]+)?
+--- ```
+---
+--- Repetition is possessive in PEG fashion: it consumes as much as it can and does
+--- not backtrack to a smaller count merely to make a following expression work. A
+--- repeated expression must consume at least one byte whenever it succeeds, so
+--- nullable repetition such as `('')*` is rejected rather than allowed to loop
+--- forever. Explicit repetition counts are limited to 4096.
+---
+--- ### Predicates and end of input
+---
+--- `&p` succeeds when `p` would succeed and consumes nothing. `!p` succeeds when
+--- `p` would fail and also consumes nothing.
+---
+--- ```npeg
+--- &[a-z] [a-z]+
+--- !('if' !.) [a-z]+ !.
+--- ```
+---
+--- The first expression requires a lowercase next byte before consuming a word. The
+--- second rejects the complete keyword `if` while still accepting identifiers
+--- beginning with those letters, such as `iffy`.
+---
+--- `!.` is the standard end-of-input assertion: it succeeds only when `.` cannot
+--- consume another byte. Append it to require a complete match, since without it a
+--- prefix match succeeds:
+---
+--- ```nupp
+--- local Whole = nupp.peg.compile("'get' !.")
+--- assert(Whole("get") == 4)
+--- assert(Whole("getter") == nil)
+--- ```
+---
+--- ### Captures and result types
+---
+--- `{ p }` captures the substring consumed by `p`, `{}` captures the current byte
+--- position without consuming input, and `{| p |}` collects every capture produced
+--- by `p` into one table:
+---
+--- ```nupp
+--- const Name = comptime do
+---     return nupp.peg.compile("{ [a-z]+ } !.")
+--- end
+---
+--- const Start = comptime do
+---     return nupp.peg.compile("{} [a-z]+ !.")
+--- end
+---
+--- const Fields = comptime do
+---     return nupp.peg.compile("{| { [a-z]+ } (',' { [a-z]+ })* |} !.")
+--- end
+--- ```
+---
+--- Adjacent captures are adjacent native Lua results. The following grammar is
+--- inferred as `Peg<(string, integer)>` and answers two values with no tuple or
+--- table allocation:
+---
+--- ```nupp
+--- local Field = nupp.peg.compile("{ [a-z]+ } ':' {}")
+--- local name, nextPosition = Field("size:")
+--- ```
+---
+--- The parentheses in `Peg<(string, integer)>` delimit one explicit type-pack
+--- argument; they do not construct a tuple type or a runtime tuple value. The
+--- compiler usually infers that pack, so the annotation is needed only at an API
+--- boundary.
+---
+--- `{| ... |}` and `p -> {}` remain explicit table captures. Use one where the
+--- grammar semantically produces a collection, especially around capture-producing
+--- repetition, so the table allocation comes from the grammar rather than from the
+--- matcher API.
+---
+--- Every ordered-choice arm must produce the same capture shape, which is what
+--- keeps the inferred `Peg<R...>` result pack true whichever arm matches.
+---
+--- ### Groups, substitution, and back captures
+---
+--- `{: name: p :}` groups the captures made by `p` under `name`. Inside a table
+--- capture, that group becomes a named field. Leave out `name:` to make an
+--- anonymous group. `=name` matches the exact string stored by an earlier named
+--- group:
+---
+--- ```nupp
+--- local Pair = nupp.peg.compile("{| {: key: { [a-z]+ } :} '=' {: value: { [0-9]+ } :} |} !.")
+--- local fields = assert(Pair("size=42"))
+--- assert(fields.key == "size" and fields.value == "42")
+---
+--- local Repeated = nupp.peg.compile("{: word: { [a-z]+ } :} ':' =word !.")
+--- assert(Repeated("same:same") == "same")
+--- assert(Repeated("same:other") == nil)
+--- ```
+---
+--- `{~ p ~}` is LPeg's substitution capture. It answers the complete substring
+--- consumed by `p`, replacing each captured range inside it by that capture's
+--- value:
+---
+--- ```nupp
+--- local Normalize = nupp.peg.compile("{~ ({ [0-9]+ } -> '[%0]' / .)* ~} !.")
+--- assert(Normalize("a12b") == "a[12]b")
+--- ```
+---
+--- ### Transformations and definitions
+---
+--- The suffix `p -> {}` collects `p`'s captures into a table. `p -> n` selects
+--- capture number `n`, and zero suppresses all captures. `p -> 'format'` uses
+--- LPeg's capture format, where `%0` is the whole text consumed by `p`, `%1`
+--- through `%9` select captures, and `%%` writes a percent sign.
+---
+--- `p -> name` applies the value named by `name`. A function receives `p`'s
+--- captures, or the complete matched substring when `p` has no explicit capture.
+--- LPeg-compatible string, number, and table transformations are accepted too.
+---
+--- For a runtime grammar, pass named values in `CompileOptions.definitions`:
+---
+--- ```nupp
+--- local Integer = nupp.peg.compile("[0-9]+ -> integer !.", {definitions = {integer = function(text: string): integer
+---     return assert(tonumber(text)) as integer
+--- end,},})
+--- assert(Integer("42") == 42)
+--- ```
+---
+--- Here `Integer` is inferred as `nupp.peg.Peg<integer>` from the transformation's
+--- declared return pack. A transformation may answer several values, and they are
+--- spliced into the grammar's surrounding result pack. If either the grammar or the
+--- definitions table is dynamic, annotate or cast the result where the application
+--- has the missing knowledge.
+---
+--- For a static grammar, declare a factory whose parameter is a closed record
+--- containing exactly the named callbacks:
+---
+--- ```nupp
+--- local record Definitions
+---     integer: function(string): integer
+--- end
+---
+--- const IntegerFactory: function(Definitions): nupp.peg.Peg<integer> = comptime do
+---     return nupp.peg.compile("[0-9]+ -> integer !.")
+--- end
+---
+--- local Integer = IntegerFactory(new Definitions(integer = function(text: string): integer
+---     return assert(tonumber(text)) as integer
+--- end))
+--- ```
+---
+--- Every named slot is required and extra slots are rejected for static factories.
+--- `CompileOptions.actions` remains a deprecated alias for older Nupp grammars.
+---
+--- ::: deepdive Static grammars materialize as factories
+--- A `comptime` value cannot close over a runtime function, so a static grammar
+--- that names transformations cannot carry them. Materializing it as a factory
+--- keeps the grammar itself compile-time work while the callbacks are supplied
+--- where they exist, and typing the parameter as a closed record is what makes a
+--- missing or misspelled slot a compile error rather than a nil call during a
+--- parse.
+--- :::
+---
+--- The other LPeg `re` definition operators retain their distinct meanings:
+---
+--- - `%name` uses a supplied value as a pattern. Strings match literally,
+---   non-negative integers match that many bytes, and booleans always succeed or
+---   fail.
+--- - `p => name` invokes a match-time function with the subject, current byte
+---   position, and captures. It answers a new position followed by replacement
+---   captures, or nil to fail. Because it participates in parsing, backtracking may
+---   invoke it speculatively.
+--- - `p >> name` combines the previous capture with `p`'s capture.
+--- - `p ~> name` folds `p`'s captures from left to right.
+---
+--- ### Rules and recursion
+---
+--- A source beginning with `name <-` is a grammar made of rule definitions, and the
+--- first rule is the start rule:
+---
+--- ```npeg
+--- start <- value !.
+--- value <- 'x' / '(' value ')'
+--- ```
+---
+--- Refer to a rule as `name` or `<name>`. Angle brackets are useful where adjoining
+--- text would make the boundary unclear.
+---
+--- Rules may recurse after consuming input. Direct and indirect left recursion are
+--- rejected, because a top-down PEG cannot enter a rule again at the same position:
+---
+--- ```npeg
+--- -- Invalid: value calls itself before consuming anything.
+--- value <- value ',' item / item
+--- ```
+---
+--- Rewrite a left-recursive list as a head followed by repetition:
+---
+--- ```npeg
+--- value <- item (',' item)*
+--- ```
+---
+--- Every reference must resolve, rule names must be unique, and expression nesting
+--- is limited to 256 levels.
+---
+--- ## Backends
+---
+--- `CompileOptions.backend` accepts `"auto"` or `"lpeg"`. `auto` is the default:
+--- every static grammar becomes a validated canonical PEG graph, Nupp emits
+--- straight-line Lua for the few shapes it recognizes, namely fixed-width matches,
+--- repeated bytes and packed whole-input scans, and every other graph lowers
+--- directly to native LPeg patterns.
+---
+--- ```nupp
+--- local Fast = nupp.peg.compile("[a-z]+ !.")
+--- local General = nupp.peg.compile("[a-z]+ !.", {backend = "lpeg"})
+--- ```
+---
+--- `lpeg` disables Nupp's straight-line specializations and always lowers the graph
+--- to native LPeg, which is what makes a backend comparison possible. There is no
+--- Nupp PEG bytecode and no general-purpose interpreter.
+---
+--- Runtime textual grammars are compiled by LPeg's `re` module and cached by
+--- source. They do not invoke `loadstring`, and `auto` invokes it only when a
+--- static graph selects a Nupp specialization. A repeated byte or class plan also
+--- emits a direct byte-scanning `forEachMatch` loop, so a traversal does not
+--- re-enter LPeg for every match; a typed replacement callback keeps the general
+--- search loop.
+---
+--- The expression syntax is LPeg 1.1 `re` syntax: the same operators have the same
+--- parsing and capture meanings, and the test suite runs the official `re` module
+--- as a differential oracle. Direct `require("lpeg")` answers the native LPeg 1.1
+--- module, and `require("re")` answers the bundled official Lua frontend over it.
+--- Nupp's declaration and operator checking track capture packs through ordinary
+--- LPeg composition, but the runtime object stays LPeg's pattern userdata.
+---
+--- ::: deepdive Nupp owns the static representation
+--- LPeg pattern userdata exposes no public traversable AST, so a compiler holding
+--- one cannot recover capture types or optimization facts from it. Nupp therefore
+--- parses static `nupp.peg` text into its own canonical typed graph, derives the
+--- `R...` result pack there, and then either emits a selected kernel or constructs
+--- the equivalent LPeg pattern. The graph is a type-system and optimization layer
+--- rather than a second parsing machine, which is what keeps one matching engine
+--- answering for both backends.
+--- :::
+---
+--- ::: seealso
+--- - [comptime.md](docs/concepts/comptime.md) for what a `comptime do` block may
+---   compute and how its result reaches the program
+--- - [diagnostics.md](docs/reference/diagnostics.md#diagnostic-index) for the codes
+---   a rejected grammar reports
+--- :::
+record nupp.peg
+    --- The implementation selected after the grammar has been parsed.
+    ---
+    --- `auto` is the default. It emits straight-line Lua for the small matcher shapes
+    --- where Nupp is faster and lowers every other grammar to native LPeg. `lpeg`
+    --- disables specialization and always uses LPeg. Both paths share one typed
+    --- matcher shell and identical capture semantics.
+    type Backend = 'auto' | 'lpeg'
+
+    --- A legacy substring transformation callback.
+    ---
+    --- Prefer `Definitions`: LPeg `re` gives `->`, `=>`, `>>`, and `~>` distinct
+    --- callback contracts. This alias remains for source compatibility with Nupp's
+    --- earlier action-only grammar surface.
+    type Action = function(string): any
+
+    --- Legacy runtime transformation callbacks indexed by grammar name.
+    ---
+    --- Prefer `Definitions`. Every grammar slot must be present and unknown names are
+    --- rejected. Static grammars use a precisely typed factory record instead.
+    type Actions = {[string]: Action}
+
+    --- Values referenced by LPeg `re` expressions.
+    ---
+    --- A `%name` primary uses a string, non-negative byte count, or boolean as a
+    --- pattern. `p -> name` accepts the same function, table, string, or capture
+    --- number transformations as LPeg. `=>`, `>>`, and `~>` require functions with
+    --- their corresponding match-time, accumulator, and fold contracts.
+    type Definitions = {[string]: any}
+
+    --- Controls grammar compilation.
+    ---
+    --- These options are deliberately small. At runtime, grammar source plus
+    --- `backend` selects specialization or native LPeg; definitions are bound to the
+    --- returned matcher and are not part of the grammar's compile-time type.
+    type CompileOptions = {
+        --- Values named by `%name`, `-> name`, `=> name`, `>> name`, or `~> name`.
+        definitions: Definitions?,
+
+        --- Deprecated alias for `definitions` retained for existing Nupp grammars.
+        actions: Actions?,
+
+        --- Matcher implementation, `auto` when omitted.
+        backend: Backend?
+    }
+
+    --- A compiled matcher whose result pack is chosen by its declaration.
+    --- Generic adapters forward `R...` without collecting it into a table or tuple.
+    interface Matcher<R...>
+        match: function(self, subject: string, init: integer?): ((R...) | (nil))
+        find: function(self, subject: string, init: integer?): ((integer, integer, R...) | (nil, nil))
+        isMatch: function(self, subject: string, init: integer?): boolean
+        forEachMatch: function(
+            self,
+            subject: string,
+            visitor: function(first: integer, nextPosition: integer, R...),
+            init: integer?
+        ): integer
+        replace: function(
+            self,
+            subject: string,
+            replacement: string | function(first: integer, nextPosition: integer, R...): string,
+            init: integer?
+        ): string
+        replaceAll: function(
+            self,
+            subject: string,
+            replacement: string | function(first: integer, nextPosition: integer, R...): string,
+            init: integer?
+        ): string
+
+        metamethod __call: function(self, subject: string, init: integer?): ((R...) | (nil))
+    end
+
+    --- A compiled and reusable parsing-expression grammar.
+    ---
+    --- `R...` is the grammar's native Lua result pack. A recognizer or `{}` position
+    --- capture contributes `integer`, `{ p }` contributes `string`, and adjacent
+    --- captures contribute adjacent results. No tuple or table is allocated merely
+    --- because a grammar returns several values. An explicit `{| ... |}` table
+    --- capture still returns one table because the grammar requested one.
+    ---
+    --- Matchers are immutable and callable. `peg(subject, init)` is exactly
+    --- `peg:match(subject, init)`.
+    record Peg<R...> is Matcher<R...>
+
+        --- Matches `subject` beginning at a 1-based byte position.
+        ---
+        --- The default `init` is 1. A negative position counts from the end in the
+        --- same way as Lua string operations; positions before the beginning clamp to
+        --- 1, and positions after `#subject + 1` fail. Success returns the grammar's
+        --- capture or, for a recognizer, the next byte position. Failure returns nil.
+        ---
+        --- ```nupp
+        --- local Word = nupp.peg.compile("{ [a-z]+ }")
+        --- assert(Word:match("one two", 5) == "two")
+        --- assert(Word("123") == nil)
+        --- ```
+        --- @param self the compiled grammar
+        --- @param subject bytes to match
+        --- @param init 1-based starting byte position, 1 when omitted
+        --- @return the grammar result pack, or nil when the match fails
+        match: function(self, subject: string, init: integer?): ((R...) | (nil))
+
+        --- Finds the first match at or after `init` without allocating match metadata.
+        ---
+        --- Success returns `first, next, R...`. The byte range is half-open:
+        --- `[first, next)`, so an empty match has `first == next`. The trailing
+        --- values are the ordinary grammar results; for a recognizer the result is the
+        --- same next-byte
+        --- position. Failure returns nil positions. Test `first`, rather than
+        --- `value`, because an action may successfully return nil or false.
+        ---
+        --- ```nupp
+        --- local Word = nupp.peg.compile("{ [a-z]+ }")
+        --- local first, nextPosition, value = Word:find("123 hello")
+        --- assert(first == 5 and nextPosition == 10 and value == "hello")
+        --- ```
+        --- @param self the compiled grammar
+        --- @param subject bytes to search
+        --- @param init 1-based first byte position to try, 1 when omitted
+        --- @return first byte, exclusive next byte, and grammar results; nil on failure
+        find: function(self, subject: string, init: integer?): ((integer, integer, R...) | (nil, nil))
+
+        --- Reports whether the grammar matches anywhere at or after `init`.
+        ---
+        --- Unlike `match`, this searches successive 1-based byte positions. The
+        --- default `init` is 1, and negative and out-of-range positions follow the
+        --- same rules as `match`. The position after the final byte is searched too,
+        --- so a grammar that accepts an empty suffix can match there.
+        ---
+        --- ```nupp
+        --- local Digits = nupp.peg.compile("[0-9]+")
+        --- assert(Digits:isMatch("room 42"))
+        --- assert(not Digits:isMatch("room", 2))
+        --- ```
+        --- @param self the compiled grammar
+        --- @param subject bytes to search
+        --- @param init 1-based first byte position to try, 1 when omitted
+        isMatch: function(self, subject: string, init: integer?): boolean
+
+        --- Visits every non-overlapping match at or after `init` without allocating
+        --- match records or an iterator closure.
+        ---
+        --- The visitor receives `first, next, R...` in the same form as `find`.
+        --- Consuming matches resume at `next`; an empty match resumes one byte after
+        --- `first`, preventing an empty grammar from stalling. The position after the
+        --- final byte is still visited when it matches. Returning from the visitor
+        --- does not stop iteration.
+        ---
+        --- ```nupp
+        --- local Word = nupp.peg.compile("{ [a-z]+ }")
+        --- local seen: {string} = {}
+        --- local count = Word:forEachMatch("one, two", function(_, _, word: string)
+        ---     seen[#seen + 1] = word
+        --- end)
+        --- assert(count == 2 and seen[2] == "two")
+        --- ```
+        --- @param self the compiled grammar
+        --- @param subject bytes to search
+        --- @param visitor called once for each non-overlapping match
+        --- @param init 1-based first byte position to try, 1 when omitted
+        --- @return the number of matches visited
+        forEachMatch: function(
+            self,
+            subject: string,
+            visitor: function(first: integer, nextPosition: integer, R...),
+            init: integer?
+        ): integer
+
+        --- Replaces the first match at or after `init`.
+        ---
+        --- A string replacement is literal. A callback receives `first, next, R...`
+        --- and returns the replacement bytes. When nothing matches, the original
+        --- string is returned. Empty matches insert without consuming a byte.
+        ---
+        --- ```nupp
+        --- local Digits = nupp.peg.compile("[0-9]+")
+        --- assert(Digits:replace("room 42, floor 3", "#") ==
+        ---     "room #, floor 3")
+        --- ```
+        --- @param self the compiled grammar
+        --- @param subject bytes to search and copy
+        --- @param replacement literal bytes or a typed replacement callback
+        --- @param init 1-based first byte position to try, 1 when omitted
+        --- @return the replaced string
+        replace: function(
+            self,
+            subject: string,
+            replacement: string | function(first: integer, nextPosition: integer, R...): string,
+            init: integer?
+        ): string
+
+        --- Replaces every non-overlapping match at or after `init`.
+        ---
+        --- Matching resumes at the exclusive end of each consuming match. After an
+        --- empty match it advances one byte and preserves that skipped byte in the
+        --- output, so an empty grammar inserts before every remaining byte and once at
+        --- the end. Text before `init` is copied unchanged.
+        ---
+        --- ```nupp
+        --- local Digits = nupp.peg.compile("[0-9]+")
+        --- assert(Digits:replaceAll("room 42, floor 3", "#") ==
+        ---     "room #, floor #")
+        --- ```
+        --- @param self the compiled grammar
+        --- @param subject bytes to search and copy
+        --- @param replacement literal bytes or a typed replacement callback
+        --- @param init 1-based first byte position to try, 1 when omitted
+        --- @return the replaced string
+        replaceAll: function(
+            self,
+            subject: string,
+            replacement: string | function(first: integer, nextPosition: integer, R...): string,
+            init: integer?
+        ): string
+
+        metamethod __call: function(self, subject: string, init: integer?): ((R...) | (nil))
+    end
+
+    --- Compiles an LPeg-re-style byte grammar at compile time or runtime.
+    ---
+    --- A literal grammar produces a precise `Peg<R...>` at either phase for ordinary
+    --- recognition and captures. A dynamic grammar string returns `Peg<...any>`. A
+    --- static grammar referring to definitions needs an explicitly typed factory,
+    --- because runtime values cannot be captured at `comptime`.
+    ---
+    --- ```nupp
+    --- local Words = nupp.peg.compile(
+    ---     "{| { [a-z]+ } (',' { [a-z]+ })* |} !."
+    --- )
+    --- local values = assert(Words("red,green,blue")) as {string}
+    --- assert(values[2] == "green")
+    ---
+    --- local General = nupp.peg.compile("[0-9]+ !.", {backend = "lpeg"})
+    --- assert(General("123") ~= nil)
+    --- ```
+    --- @param source grammar expression or rule definitions
+    --- @param options runtime definitions and backend selection
+    --- @return the compiled reusable matcher
+    compile: function(source: string, options: CompileOptions?): Peg<...any>
+end
+
+--- Semantic type reflection and reflection-driven field codecs.
+---
+--- Call the namespace with a concrete type inside `comptime` to obtain an immutable,
+--- target-independent descriptor. `fieldCodec` materializes the stored fields of a
+--- reflected record into a keyed runtime codec.
+---
+--- The root's common facts are projected onto `Info`, so the usual inspection does
+--- not need to walk the graph:
+---
+--- ```nupp
+--- local record User
+---     id: integer
+---     name: string = "anonymous"
+--- end
+---
+--- const UserSummary: string = comptime do
+---     local info = nupp.reflect(User)
+---     assert(info.kind == "record")
+---     assert(info.fields[2].hasDefault)
+---     return info.fields[1].name .. ":" .. info.fields[1].kind
+--- end
+---
+--- assert(UserSummary == "id:integer")
+--- ```
+---
+--- Use `root`, `types`, and the integer edges between them when a generator needs the
+--- complete semantic type rather than the root projection. The graph remains finite
+--- even when the declaration is recursive:
+---
+--- ```nupp
+--- local record Node
+---     value: string
+---     next: Node?
+--- end
+---
+--- const NextKind: string = comptime do
+---     local info = nupp.reflect(Node)
+---     local edge = info.fields[2].type as integer
+---     return info.types[edge].kind
+--- end
+---
+--- assert(NextKind == "union")
+--- ```
+record nupp.reflect
+    --- An opaque typed identity for data derived lazily from a reflection descriptor,
+    --- schema, or binding.
+    interface ExtensionKey<T>
+    end
+
+    --- One checked member supplied to a reflected typed annotation.
+    ---
+    --- `value` is present for `kind = "value"`; `type` is an index into the owning
+    --- `Info.types` graph for `kind = "type"`. `kind = "nil"` preserves an explicitly
+    --- supplied nil without pretending an absent table field contains it.
+    ---
+    --- ```nupp
+    --- @annotation(targets = {"field"})
+    --- local record serialized
+    ---     name: string?
+    ---     @ref
+    ---     codec: any
+    --- end
+    ---
+    --- local record StringCodec
+    --- end
+    ---
+    --- local record User
+    ---     @serialized(name = "user_id", codec = StringCodec)
+    ---     id: integer
+    --- end
+    ---
+    --- const Serialization: string = comptime do
+    ---     local info = nupp.reflect(User)
+    ---     local arguments = info.fields[1].annotations[1].arguments
+    ---     assert(arguments[1].kind == "value")
+    ---     assert(arguments[2].kind == "type")
+    ---     local codec = info.types[arguments[2].type as integer]
+    ---     return (arguments[1].value as string) .. ":" .. (codec.name as string)
+    --- end
+    ---
+    --- assert(Serialization == "user_id:StringCodec")
+    --- ```
+    record AnnotationArgument
+        readonly name: string
+        readonly kind: "value" | "nil" | "type"
+        readonly value: any?
+        readonly type: integer?
+    end
+
+    --- One typed annotation application, retaining source order.
+    record Annotation
+        readonly name: string
+        readonly arguments: {AnnotationArgument}
+    end
+
+    --- One stored field projected directly from the reflected root type.
+    ---
+    --- The projection preserves declaration order, access capabilities, defaults, and
+    --- annotations without requiring a lookup in `Info.types`.
+    ---
+    --- ```nupp
+    --- local record Options
+    ---     format: string = "compact"
+    ---     retries: integer
+    --- end
+    ---
+    --- const DefaultFormat: string = comptime do
+    ---     local field = nupp.reflect(Options).fields[1]
+    ---     assert(field.name == "format" and field.hasDefault)
+    ---     assert(field.readable and field.writable)
+    ---     return field.defaultValue as string
+    --- end
+    ---
+    --- assert(DefaultFormat == "compact")
+    --- ```
+    record Field
+        readonly name: string
+        readonly kind: string
+        readonly typeName: string?
+        readonly type: integer?
+        readonly readable: boolean
+        readonly writable: boolean
+        readonly hasDefault: boolean
+        readonly defaultValue: any
+        readonly annotations: {Annotation}
+    end
+
+    --- One named or positional edge in the indexed semantic type graph.
+    record Entry
+        readonly name: string?
+        readonly type: integer?
+        readonly read: integer?
+        readonly write: integer?
+        readonly readable: boolean?
+        readonly writable: boolean?
+        readonly hasDefault: boolean?
+        readonly defaultValue: any
+        readonly mode: string?
+        readonly bound: integer?
+        readonly answer: integer?
+        readonly default: boolean?
+        readonly annotations: {Annotation}?
+        readonly [string]: any
+    end
+
+    --- One node in an `Info` semantic type graph.
+    ---
+    --- Fields, parameters, results, union members, generic arguments, and wrappers
+    --- point to other nodes by their integer index. Resolve only the edges relevant to
+    --- the node's `kind`.
+    ---
+    --- ```nupp
+    --- local type Handler = function(message: string, attempts: integer): boolean
+    ---
+    --- const HandlerShape: string = comptime do
+    ---     local info = nupp.reflect(Handler)
+    ---     local handler = info.types[info.root]
+    ---     assert(handler.kind == "func")
+    ---     local first = (handler.parameters as {nupp.reflect.Entry})[1]
+    ---     local input = info.types[first.type as integer]
+    ---     local output = info.types[(handler.returns as {integer})[1]]
+    ---     return (first.name as string) .. ":" .. input.kind .. "->" .. output.kind
+    --- end
+    ---
+    --- assert(HandlerShape == "message:string->boolean")
+    --- ```
+    record Node
+        readonly kind: string
+        readonly name: string?
+        readonly nominal: boolean?
+        readonly annotations: {Annotation}?
+        readonly fields: {Entry}?
+        readonly staticFields: {Entry}?
+        readonly metamethods: {Entry}?
+        readonly nestedTypes: {Entry}?
+        readonly associatedTypes: {Entry}?
+        readonly members: {integer}?
+        readonly parameters: {Entry}?
+        readonly returns: {integer}?
+        readonly typeParameters: {integer}?
+        readonly typeBounds: {integer}?
+        readonly packParameters: {integer}?
+        readonly constParameters: {integer}?
+        readonly parameterKinds: {string}?
+        readonly typeArguments: {integer}?
+        readonly packArguments: {integer}?
+        readonly constArguments: {integer}?
+        readonly supertypes: {integer}?
+        readonly element: integer?
+        readonly body: integer?
+        readonly of: integer?
+        readonly origin: integer?
+        readonly noReturn: boolean?
+        readonly noYield: boolean?
+        readonly [string]: any
+    end
+
+    --- One top-level stored struct field available as a SoA column.
+    record SoAField
+        readonly name: string
+        readonly identity: string
+        readonly ordinal: integer
+        readonly type: integer?
+        readonly ctype: string?
+        readonly eligible: boolean
+    end
+
+    --- Target-independent semantic inputs to SoA storage derivation.
+    ---
+    --- This says whether the declaration can be split into columns and identifies
+    --- those columns. It deliberately does not contain target sizes or offsets; use
+    --- `nupp.mem.soa.layoutof` for those.
+    ---
+    --- ```nupp
+    --- local struct Particle
+    ---     x: float
+    ---     y: float
+    --- end
+    ---
+    --- const ParticleColumns: string = comptime do
+    ---     local soa = nupp.reflect(Particle).soa
+    ---     assert(soa.eligible and #soa.fields == 2)
+    ---     assert(soa.fields[1].ordinal == 1)
+    ---     return soa.fields[1].name .. "," .. soa.fields[2].name
+    --- end
+    ---
+    --- assert(ParticleColumns == "x,y")
+    --- ```
+    record SoAInfo
+        readonly schema: integer
+        readonly eligible: boolean
+        readonly reason: string?
+        readonly fields: {SoAField}
+    end
+
+    --- An immutable compile-time description of one resolved semantic type.
+    ---
+    --- `Info` can cross typed comptime helper boundaries. Its fingerprint is suitable
+    --- for cache keys because it changes with the canonical type graph, defaults, and
+    --- checked annotations rather than with compiler-local identities.
+    ---
+    --- ```nupp
+    --- local record Pair
+    ---     left: string
+    ---     right: integer
+    --- end
+    ---
+    --- local comptime function describe(info: nupp.reflect.Info): string
+    ---     return info.fingerprint .. ":" .. tostring(#info.fields)
+    --- end
+    ---
+    --- const PairDescription: string = comptime do
+    ---     return describe(nupp.reflect(Pair))
+    --- end
+    ---
+    --- assert(PairDescription:match(":2$") ~= nil)
+    --- ```
+    record Info
+        readonly schema: integer
+        readonly root: integer
+        readonly types: {Node}
+        readonly kind: string
+        readonly name: string
+        readonly qualifiedName: string
+        readonly fields: {Field}
+        readonly annotations: {Annotation}
+        readonly soa: SoAInfo
+        readonly fingerprint: string
+    end
+
+    --- An opaque field-codec recipe returned inside `comptime`.
+    record FieldCodecBlueprint
+    end
+
+    --- A keyed runtime codec materialized from a reflected record.
+    ---
+    --- `encode` copies present declared fields into a plain keyed table. The stable
+    --- fingerprint records the field names in declaration order.
+    ---
+    --- ```nupp
+    --- local record Position
+    ---     x: number
+    ---     y: number
+    --- end
+    ---
+    --- const PositionCodec: nupp.reflect.FieldCodec<Position> = comptime do
+    ---     return nupp.reflect.fieldCodec(nupp.reflect(Position))
+    --- end
+    ---
+    --- local encoded = PositionCodec:encode(new Position(x = 3, y = 4))
+    --- assert(encoded.x == 3 and encoded.y == 4)
+    --- assert(PositionCodec.fingerprint == "t:x,y")
+    --- ```
+    record FieldCodec<T>
+        encode: function(self, value: T): {[string]: any}
+        decode: function(self, value: {[string]: any}): (T?, string?)
+        fingerprint: string
+    end
+
+    --- Creates an identity for one lazily derived metadata value.
+    ---
+    --- A descriptor, schema, or binding builds a key's value once, then answers the
+    --- same value from its private cache. Key identities and their slot numbers are
+    --- process-local and must not be persisted.
+    extensionKey: function<T>(build: function(host: any): T): ExtensionKey<T>
+
+    --- Reflects a concrete type for use inside a `comptime` block.
+    ---
+    --- ```nupp
+    --- local record Point
+    ---     x: number
+    ---     y: number
+    --- end
+    ---
+    --- local comptime function fieldCount(info: nupp.reflect.Info): integer
+    ---     return #info.fields
+    --- end
+    ---
+    --- const PointFieldCount: integer = comptime do
+    ---     return fieldCount(nupp.reflect(Point))
+    --- end
+    --- assert(PointFieldCount == 2)
+    --- ```
+    metamethod __call: comptime function(self, typeName: any): Info
+
+    --- Builds a keyed field-codec recipe from a reflected record.
+    ---
+    --- The opaque recipe must directly initialize a matching
+    --- `FieldCodec<Record>` declaration. It may pass through typed comptime helpers
+    --- on the way to that materialization boundary.
+    ---
+    --- ```nupp
+    --- local record Message
+    ---     id: integer
+    ---     text: string
+    --- end
+    ---
+    --- local comptime function keyed(
+    ---     info: nupp.reflect.Info
+    --- ): nupp.reflect.FieldCodecBlueprint
+    ---     return nupp.reflect.fieldCodec(info)
+    --- end
+    ---
+    --- const MessageCodec: nupp.reflect.FieldCodec<Message> = comptime do
+    ---     return keyed(nupp.reflect(Message))
+    --- end
+    ---
+    --- local encoded = MessageCodec:encode(new Message(id = 1, text = "hello"))
+    --- assert(encoded.id == 1 and encoded.text == "hello")
+    --- ```
+    fieldCodec: comptime function(info: Info): FieldCodecBlueprint
+end
+
+--- Internal typed schema for the compiler-owned @deprecated annotation.
+--- @internal
+interface nupp.__DeprecatedAnnotation
+    --- Why callers should stop using the API.
+    reason: string?
+
+    --- The API spelling callers should migrate to.
+    replacement: string?
+end
+
+--- Two-dimensional vector operations on number pairs.
+--- @internal
+record nupp.Vec2Library
+    --- Adds two vectors.
+    --- @param ax the first vector's x component
+    --- @param ay the first vector's y component
+    --- @param bx the second vector's x component
+    --- @param by the second vector's y component
+    --- @return the sum's x component
+    --- @return the sum's y component
+    add: function(ax: number, ay: number, bx: number, by: number): (number, number)
+
+    --- Subtracts the second vector from the first.
+    --- @param ax the first vector's x component
+    --- @param ay the first vector's y component
+    --- @param bx the second vector's x component
+    --- @param by the second vector's y component
+    --- @return the difference's x component
+    --- @return the difference's y component
+    subtract: function(ax: number, ay: number, bx: number, by: number): (number, number)
+
+    --- Multiplies a vector by a scalar.
+    --- @param x the vector's x component
+    --- @param y the vector's y component
+    --- @param factor the scale factor
+    --- @return the scaled x component
+    --- @return the scaled y component
+    scale: function(x: number, y: number, factor: number): (number, number)
+
+    --- Computes the dot product of two vectors.
+    --- @param ax the first vector's x component
+    --- @param ay the first vector's y component
+    --- @param bx the second vector's x component
+    --- @param by the second vector's y component
+    --- @return the dot product
+    dot: function(ax: number, ay: number, bx: number, by: number): number
+
+    --- Computes the signed scalar cross product of two vectors.
+    --- @param ax the first vector's x component
+    --- @param ay the first vector's y component
+    --- @param bx the second vector's x component
+    --- @param by the second vector's y component
+    --- @return the scalar cross product
+    cross: function(ax: number, ay: number, bx: number, by: number): number
+
+    --- Computes a vector's squared magnitude without a square root.
+    --- @param x the vector's x component
+    --- @param y the vector's y component
+    --- @return the squared magnitude
+    lengthSquared: function(x: number, y: number): number
+
+    --- Computes a vector's magnitude.
+    --- @param x the vector's x component
+    --- @param y the vector's y component
+    --- @return the magnitude
+    length: function(x: number, y: number): number
+
+    --- Computes the squared distance between two points without a square root.
+    --- @param ax the first point's x coordinate
+    --- @param ay the first point's y coordinate
+    --- @param bx the second point's x coordinate
+    --- @param by the second point's y coordinate
+    --- @return the squared distance
+    distanceSquared: function(ax: number, ay: number, bx: number, by: number): number
+
+    --- Computes the distance between two points.
+    --- @param ax the first point's x coordinate
+    --- @param ay the first point's y coordinate
+    --- @param bx the second point's x coordinate
+    --- @param by the second point's y coordinate
+    --- @return the distance
+    distance: function(ax: number, ay: number, bx: number, by: number): number
+
+    --- Returns a unit vector in the same direction, or `(0, 0)` for zero.
+    --- @param x the vector's x component
+    --- @param y the vector's y component
+    --- @return the normalized x component
+    --- @return the normalized y component
+    normalize: function(x: number, y: number): (number, number)
+
+    --- Linearly interpolates or extrapolates between two vectors.
+    --- @param ax the starting x component
+    --- @param ay the starting y component
+    --- @param bx the ending x component
+    --- @param by the ending y component
+    --- @param t the unclamped interpolation factor
+    --- @return the interpolated x component
+    --- @return the interpolated y component
+    lerp: function(ax: number, ay: number, bx: number, by: number, t: number): (number, number)
+
+    --- Moves toward a target by at most a distance, without overshooting.
+    --- @param ax the starting x component
+    --- @param ay the starting y component
+    --- @param bx the target x component
+    --- @param by the target y component
+    --- @param distance the maximum step; nonpositive values leave the start unchanged
+    --- @return the resulting x component
+    --- @return the resulting y component
+    moveTowards: function(ax: number, ay: number, bx: number, by: number, distance: number): (number, number)
+
+    --- Rotates a vector around the origin.
+    --- @param x the vector's x component
+    --- @param y the vector's y component
+    --- @param radians the signed rotation in radians
+    --- @return the rotated x component
+    --- @return the rotated y component
+    rotate: function(x: number, y: number, radians: number): (number, number)
+
+    --- Computes a vector's signed direction from the positive x-axis.
+    --- @param x the vector's x component
+    --- @param y the vector's y component
+    --- @return the angle in radians, or zero for the zero vector
+    angle: function(x: number, y: number): number
+
+    --- Computes the smallest unsigned angle between two vectors.
+    --- @param ax the first vector's x component
+    --- @param ay the first vector's y component
+    --- @param bx the second vector's x component
+    --- @param by the second vector's y component
+    --- @return the angle from zero through pi, or zero for a zero vector
+    angleBetween: function(ax: number, ay: number, bx: number, by: number): number
+
+    --- Computes the smallest signed angle from the first vector to the second.
+    --- @param ax the first vector's x component
+    --- @param ay the first vector's y component
+    --- @param bx the second vector's x component
+    --- @param by the second vector's y component
+    --- @return the angle in `[-pi, pi)`, or zero for a zero vector
+    signedAngleBetween: function(ax: number, ay: number, bx: number, by: number): number
+
+    --- Projects a vector onto another vector.
+    --- @param x the vector's x component
+    --- @param y the vector's y component
+    --- @param ontoX the projection axis's x component
+    --- @param ontoY the projection axis's y component
+    --- @return the projected x component, or zero for a zero axis
+    --- @return the projected y component, or zero for a zero axis
+    project: function(x: number, y: number, ontoX: number, ontoY: number): (number, number)
+
+    --- Reflects a vector across a normal.
+    --- @param x the vector's x component
+    --- @param y the vector's y component
+    --- @param normalX the normal's x component
+    --- @param normalY the normal's y component
+    --- @return the reflected x component, or the input x for a zero normal
+    --- @return the reflected y component, or the input y for a zero normal
+    reflect: function(x: number, y: number, normalX: number, normalY: number): (number, number)
+end
+
+--- Scalar angle helpers and two-dimensional vector operations.
+--- @internal
+--- Explicit wrapping signed 32-bit arithmetic and bit operations.
+--- @internal
+record nupp.I32MathLibrary
+    wrap: nosuspend function(value: integer): int32
+    add: nosuspend function(a: int32, b: int32): int32
+    sub: nosuspend function(a: int32, b: int32): int32
+    mul: nosuspend function(a: int32, b: int32): int32
+    andBits: nosuspend function(a: int32, b: int32): int32
+    orBits: nosuspend function(a: int32, b: int32): int32
+    xorBits: nosuspend function(a: int32, b: int32): int32
+    notBits: nosuspend function(a: int32): int32
+    shiftLeft: nosuspend function(a: int32, count: integer): int32
+    shiftRightArithmetic: nosuspend function(a: int32, count: integer): int32
+    rotateLeft: nosuspend function(a: int32, count: integer): int32
+    rotateRight: nosuspend function(a: int32, count: integer): int32
+    lessThan: nosuspend function(a: int32, b: int32): boolean
+    lessOrEqual: nosuspend function(a: int32, b: int32): boolean
+    fromU32: nosuspend function(a: uint32): int32
+    toU32: nosuspend function(a: int32): uint32
+end
+
+--- Explicit wrapping unsigned 32-bit arithmetic and bit operations.
+--- @internal
+record nupp.U32MathLibrary
+    wrap: nosuspend function(value: integer): uint32
+    add: nosuspend function(a: uint32, b: uint32): uint32
+    sub: nosuspend function(a: uint32, b: uint32): uint32
+    mul: nosuspend function(a: uint32, b: uint32): uint32
+    andBits: nosuspend function(a: uint32, b: uint32): uint32
+    orBits: nosuspend function(a: uint32, b: uint32): uint32
+    xorBits: nosuspend function(a: uint32, b: uint32): uint32
+    notBits: nosuspend function(a: uint32): uint32
+    shiftLeft: nosuspend function(a: uint32, count: integer): uint32
+    shiftRightLogical: nosuspend function(a: uint32, count: integer): uint32
+    rotateLeft: nosuspend function(a: uint32, count: integer): uint32
+    rotateRight: nosuspend function(a: uint32, count: integer): uint32
+    lessThan: nosuspend function(a: uint32, b: uint32): boolean
+    lessOrEqual: nosuspend function(a: uint32, b: uint32): boolean
+    fromI32: nosuspend function(a: int32): uint32
+    toI32: nosuspend function(a: uint32): int32
+    popcount: nosuspend function(a: uint32): uint32
+    trailingZeros: nosuspend function(a: uint32): uint32
+    leadingZeros: nosuspend function(a: uint32): uint32
+end
+
+--- Explicit IEEE-754 binary32 arithmetic. Every input and output is rounded to
+--- nearest, ties-to-even; NaNs use the canonical quiet payload 0x7fc00000.
+--- @internal
+record nupp.F32MathLibrary
+    narrow: nosuspend function(value: number): float
+    round: nosuspend function(value: number): float
+    add: nosuspend function(a: float, b: float): float
+    sub: nosuspend function(a: float, b: float): float
+    mul: nosuspend function(a: float, b: float): float
+    div: nosuspend function(a: float, b: float): float
+    sqrt: nosuspend function(value: float): float
+    min: nosuspend function(a: float, b: float): float
+    max: nosuspend function(a: float, b: float): float
+    fma: nosuspend function(a: float, b: float, c: float): float
+    fromBits: nosuspend function(bits: uint32): float
+    toBits: nosuspend function(value: float): uint32
+end
+
+--- @internal
+record nupp.MathLibrary
+    --- Two-dimensional vector operations over `(x, y)` number pairs.
+    --- @namespace
+    vec2: nupp.Vec2Library
+
+    --- Signed 32-bit wrapping arithmetic.
+    --- @namespace
+    i32: nupp.I32MathLibrary
+
+    --- Unsigned 32-bit wrapping arithmetic.
+    --- @namespace
+    u32: nupp.U32MathLibrary
+
+    --- IEEE-754 binary32 arithmetic with explicit rounding.
+    --- @namespace
+    f32: nupp.F32MathLibrary
+
+    --- Linearly interpolates between two numbers without clamping the factor.
+    --- @param from the value returned when `t` is zero
+    --- @param to the value returned when `t` is one
+    --- @param t the interpolation factor
+    --- @return `from + (to - from) * t`
+    lerp: function(from: number, to: number, t: number): number
+
+    --- Wraps an angle to the equivalent value in `[-pi, pi)`.
+    --- @param radians the angle in radians
+    --- @return the wrapped angle
+    wrapAngle: function(radians: number): number
+
+    --- Computes the shortest signed rotation from one angle to another.
+    --- @param from the starting angle in radians
+    --- @param to the target angle in radians
+    --- @return the signed rotation in `[-pi, pi)`
+    deltaAngle: function(from: number, to: number): number
+end

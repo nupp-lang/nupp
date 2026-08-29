@@ -1,0 +1,62 @@
+module nupp.compiler.build.syntax
+
+-- The three tiny languages emitted or consumed by native builds.
+
+local GlobTokens = nupp.peg.compile([[
+    {| { '**/' / '**' / '*' / '?' / (!'*' !'?' .)+ }* |} !.
+]])
+
+local ShellWords = nupp.peg.compile(
+    [[
+    start <- {| %s* (word (%s+ word)*)? %s* |} !.
+    word <- {~ piece+ ~}
+    piece <- "'" -> '' (!"'" .)* "'" -> ''
+           / '"' -> '' (%backslash -> '' { . } / !'"' !%backslash .)* '"' -> ''
+           / %backslash -> '' { . }
+           / !%s !%backslash !"'" !'"' .
+]],
+    {definitions = {backslash = "\\"}}
+)
+
+local Depfile = nupp.peg.compile(
+    [[
+    start <- target ':' space* {| (word space*)* |} ('#' (!%nl .)* %nl?)? !.
+    target <- (%backslash . / !':' .)*
+    space <- %s+ / %backslash %cr? %nl
+    word <- {~ (%backslash -> '' { !%nl . } / !%s !%backslash !'#' .)+ ~}
+]],
+    {definitions = {backslash = "\\", cr = "\r"}}
+)
+
+--- Parse a path glob once and return its matcher. `*` and `?` stay within one
+--- segment; `**/` consumes zero or more complete directories.
+local function compileGlob(glob: string): function(string): boolean
+    local tokens = assert(GlobTokens(glob))
+    return function(path: string): boolean
+        local match: function(integer, integer): boolean
+        match = function(tokenIndex: integer, pathIndex: integer): boolean
+            local token, ch = tokens[tokenIndex], path:sub(pathIndex, pathIndex)
+            if not token then
+                return pathIndex > #path
+            elseif token == "**/" then
+                local slash = path:find("/", pathIndex, true)
+                return match(
+                    tokenIndex + 1,
+                    pathIndex
+                ) or (slash ~= nil and slash > pathIndex and match(tokenIndex, slash + 1))
+            elseif token == "**" then
+                return match(tokenIndex + 1, pathIndex) or (ch ~= "" and match(tokenIndex, pathIndex + 1))
+            elseif token == "*" then
+                return match(tokenIndex + 1, pathIndex) or (ch ~= "" and ch ~= "/" and match(tokenIndex, pathIndex + 1))
+            elseif token == "?" then
+                return ch ~= "" and ch ~= "/" and match(tokenIndex + 1, pathIndex + 1)
+            end
+
+            return path:sub(pathIndex, pathIndex + #token - 1) == token and match(tokenIndex + 1, pathIndex + #token)
+        end
+
+        return match(1, 1)
+    end
+end
+
+export = {glob = compileGlob, shellWords = ShellWords, depfile = Depfile}

@@ -1,0 +1,351 @@
+-- Width, view-count, and arithmetic-shape coverage for OPT-6. The five-way
+-- representative comparison remains in kernel.nupp/main.lua.
+local span = require("nupp.mem.span")
+local indexed = require("nupp.mem.indexed")
+local heap = require("nupp.mem.heap")
+local soa = require("nupp.mem.soa")
+
+local matrix = {}
+
+struct matrix.Scalar
+    value: float
+end
+
+struct matrix.RootParticle
+    x: float
+    y: float
+end
+
+@relax("frames")
+function matrix.fillFloat(exclusive output: span.WriteSpan<float>, first: integer, last: integer, steps: integer): nil
+    const out = output
+    const rows = indexed.range(first, last, out)
+    for _ = 1, steps do
+        for index = rows.first, rows.last do
+            out[index] = 1.25
+        end
+    end
+end
+
+@relax("frames")
+function matrix.copyU8(
+    exclusive output: span.WriteSpan<uint8>,
+    borrows input: span.Span<uint8>,
+    first: integer,
+    last: integer,
+    steps: integer
+): nil
+    const out = output
+    const source = input
+    const rows = indexed.range(first, last, out, source)
+    for _ = 1, steps do
+        for index = rows.first, rows.last do
+            out[index] = source[index]
+        end
+    end
+end
+
+@relax("frames")
+function matrix.copyI32(
+    exclusive output: span.WriteSpan<int32>,
+    borrows input: span.Span<int32>,
+    first: integer,
+    last: integer,
+    steps: integer
+): nil
+    const out = output
+    const source = input
+    const rows = indexed.range(first, last, out, source)
+    for _ = 1, steps do
+        for index = rows.first, rows.last do
+            out[index] = source[index]
+        end
+    end
+end
+
+@relax("frames")
+function matrix.copyFloat(
+    exclusive output: span.WriteSpan<float>,
+    borrows input: span.Span<float>,
+    first: integer,
+    last: integer,
+    steps: integer
+): nil
+    const out = output
+    const source = input
+    const rows = indexed.range(first, last, out, source)
+    for _ = 1, steps do
+        for index = rows.first, rows.last do
+            out[index] = source[index]
+        end
+    end
+end
+
+@relax("frames")
+function matrix.fourFloat(
+    exclusive output: span.WriteSpan<float>,
+    borrows left: span.Span<float>,
+    borrows middle: span.Span<float>,
+    borrows right: span.Span<float>,
+    first: integer,
+    last: integer,
+    steps: integer
+): nil
+    const out = output
+    const a = left
+    const b = middle
+    const c = right
+    const rows = indexed.range(first, last, out, a, b, c)
+    for _ = 1, steps do
+        for index = rows.first, rows.last do
+            out[index] = a[index] + b[index] * c[index]
+        end
+    end
+end
+
+@relax("frames")
+function matrix.heavyFloat(
+    exclusive output: span.WriteSpan<float>,
+    borrows left: span.Span<float>,
+    borrows middle: span.Span<float>,
+    borrows right: span.Span<float>,
+    first: integer,
+    last: integer,
+    steps: integer
+): nil
+    const out = output
+    const a = left
+    const b = middle
+    const c = right
+    const rows = indexed.range(first, last, out, a, b, c)
+    for _ = 1, steps do
+        for index = rows.first, rows.last do
+            const av = a[index]
+            const bv = b[index]
+            const cv = c[index]
+            out[index] = ((av * bv + cv) * (cv - av) + bv) * 0.125
+        end
+    end
+end
+
+@relax("frames")
+function matrix.increment(
+    exclusive output: span.WriteSpan<matrix.Scalar>,
+    first: integer,
+    last: integer,
+    steps: integer
+): nil
+    const out = output
+    const rows = indexed.range(first, last, out)
+    for _ = 1, steps do
+        for index = rows.first, rows.last do
+            out[index].value += 1
+        end
+    end
+end
+
+local function observe(exclusive value: span.WriteSpan<float>): nil
+    if #value < 0 then
+        error("unreachable", 2)
+    end
+end
+
+@relax("frames")
+function matrix.sliceVirtual(exclusive output: span.WriteSpan<float>, repeats: integer): nil
+    for _ = 1, repeats do
+        const window = output:slice(2, 9)
+        for index = 1, #window do
+            window[index] += 1
+        end
+        drop window
+    end
+end
+
+@relax("frames")
+function matrix.sliceMaterialized(exclusive output: span.WriteSpan<float>, repeats: integer): nil
+    for _ = 1, repeats do
+        const window = output:slice(2, 9)
+        observe(window)
+        for index = 1, #window do
+            window[index] += 1
+        end
+        drop window
+    end
+end
+
+@relax("frames")
+function matrix.sharedRoot(borrows storage: float[?], count: integer, repeats: integer): number
+    local total = 0
+    for _ = 1, repeats do
+        const values = span.fromCarray(storage, count)
+        for index = 1, #values do
+            total += values[index]
+        end
+    end
+
+    return total
+end
+
+@relax("frames")
+function matrix.writableRoot(exclusive storage: float[?], count: integer, repeats: integer): nil
+    for _ = 1, repeats do
+        const values = span.writeCarray(storage, count)
+        for index = 1, #values do
+            values[index] += 1
+        end
+        drop values
+    end
+end
+
+@relax("frames")
+function matrix.nestedWritableRoot(exclusive storage: float[?], count: integer, repeats: integer): nil
+    for _ = 1, repeats do
+        const root = span.writeCarray(storage, count)
+        const window = root:slice(2, count - 1)
+        for index = 1, #window do
+            window[index] += 1
+        end
+        drop window
+        drop root
+    end
+end
+
+@relax("frames")
+function matrix.heapSharedRoot(count: integer, repeats: integer): number
+    const storage = heap.allocate(ffi.typeof<float>(), count)
+    local total = 0
+    for _ = 1, repeats do
+        const values = storage:read()
+        for index = 1, #values do
+            total += values[index]
+        end
+    end
+    drop storage
+
+    return total
+end
+
+@relax("frames")
+function matrix.heapWritableRoot(count: integer, repeats: integer): nil
+    const storage = heap.allocate(ffi.typeof<float>(), count)
+    for _ = 1, repeats do
+        const values = storage:write()
+        for index = 1, #values do
+            values[index] += 1
+        end
+        drop values
+    end
+    drop storage
+end
+
+@relax("frames")
+function matrix.soaSharedRoot(count: integer, repeats: integer): number
+    const storage = soa.allocate(ffi.typeof<matrix.RootParticle>(), count)
+    local total = 0
+    for _ = 1, repeats do
+        const rows = storage:read()
+        const xs = rows:field("x")
+        for index = 1, #xs do
+            total += xs[index]
+        end
+    end
+    drop storage
+
+    return total
+end
+
+@relax("frames")
+function matrix.soaWritableRoot(count: integer, repeats: integer): nil
+    const storage = soa.allocate(ffi.typeof<matrix.RootParticle>(), count)
+    for _ = 1, repeats do
+        const rows = storage:write()
+        do
+            const xs = rows:field("x")
+            for index = 1, #xs do
+                xs[index] += 1
+            end
+        end
+        drop rows
+    end
+    drop storage
+end
+
+local function sumStatic(borrows values: span.Span<float>): number
+    const input = values
+    local total = 0
+    for index = 1, #input do
+        total += input[index]
+    end
+
+    return total
+end
+
+@relax("frames")
+function matrix.staticParameterRoot(borrows storage: float[?], count: integer, repeats: integer): number
+    local total = 0
+    for _ = 1, repeats do
+        const values = span.fromCarray(storage, count)
+        total += sumStatic(values)
+    end
+
+    return total
+end
+
+local function acquireStatic(borrows storage: float[?], count: integer): span.Span<float> borrows (storage)
+    return span.fromCarray(storage, count)
+end
+
+@relax("frames")
+function matrix.staticReturnedRoot(borrows storage: float[?], count: integer, repeats: integer): number
+    local total = 0
+    for _ = 1, repeats do
+        const values = acquireStatic(storage, count)
+        for index = 1, #values do
+            total += values[index]
+        end
+    end
+
+    return total
+end
+
+local function acquireDynamic(borrows storage: float[?], count: integer): span.Span<float> borrows (storage)
+    return span.fromCarray(storage, count)
+end
+
+local dynamicAcquire = acquireDynamic
+
+@relax("frames")
+function matrix.dynamicReturnedRoot(borrows storage: float[?], count: integer, repeats: integer): number
+    local total = 0
+    for _ = 1, repeats do
+        local values = dynamicAcquire(storage, count)
+        for index = 1, #values do
+            total += values[index]
+        end
+    end
+
+    return total
+end
+
+local tecsDirtyCount = 0 as integer
+
+local function tecsGetMut(exclusive storage: float[?], count: integer): span.Writable<float> borrows (storage)
+    tecsDirtyCount += 1
+    return span.writeCarray(storage, count)
+end
+
+@relax("frames")
+function matrix.tecsDirtyRoot(exclusive storage: float[?], count: integer, repeats: integer): integer
+    const before = tecsDirtyCount
+    for _ = 1, repeats do
+        const values = tecsGetMut(storage, count)
+        for index = 1, #values do
+            values[index] += 1
+        end
+        drop values
+    end
+
+    return tecsDirtyCount - before
+end
+
+return matrix

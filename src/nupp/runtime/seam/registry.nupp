@@ -1,0 +1,188 @@
+@!internal
+module nupp.runtime.seam.registry
+
+--[[Single source of seam identity, version, binding, effects and factory module.]]
+
+local registry = {}
+
+local CONTRACTS: {any} = {
+    -- The provider module is what a selection replaces, which this seam's own install
+    -- has always done by preloading it. An implementation rather than a module: the
+    -- declared interface at that name is the contract every provider answers, and it
+    -- is what `nupp.data.json` is written against, so only the build's idea of what
+    -- to compile changes. Without it the default implementation was linked, and it
+    -- reaches an AOT decoder no `lua51` target can carry.
+    {
+        name = "data.json",
+        version = 2,
+        effect = "native.json",
+        binding = "runtime",
+        factoryModule = "nupp.runtime.seam.json",
+        implementationModules = {["nupp.data.json.provider"] = true}
+    },
+    {
+        name = "numeric.bitops",
+        effect = "runtime.bitops",
+        binding = "compile",
+        factoryModule = "nupp.runtime.seam.bitops"
+    },
+    {
+        name = "representation.structvalue",
+        effect = "runtime.structvalue",
+        binding = "compile",
+        factoryModule = "nupp.runtime.seam.structvalue"
+    },
+    {name = "host.wasm", effect = "runtime.wasm", binding = "runtime", factoryModule = "nupp.runtime.seam.wasm"},
+    {name = "numeric.int64", effect = "runtime.int64", binding = "compile", factoryModule = "nupp.runtime.seam.int64"},
+    {name = "numeric.simd", effect = "runtime.simd", binding = "compile", factoryModule = "nupp.runtime.seam.simd"},
+    {
+        name = "suspension",
+        effect = "runtime.suspension",
+        binding = "runtime",
+        factoryModule = "nupp.runtime.seam.suspension",
+        modules = {["nupp.suspension"] = ""}
+    },
+    -- The provider answers `string.buffer` itself rather than being projected into
+    -- some other name: a program that builds a string writes `require("string.buffer")`
+    -- either way, and its signatures name `string.buffer.Buffer` either way. What the
+    -- seam decides is which module that require finds.
+    --
+    -- An implementation, because the declaration the compiler carries is the contract
+    -- and a provider answers it. Substituting the interface as well would give the
+    -- same buffer two names, and a `Buffer` from one would not be a `Buffer` to the
+    -- other -- which is what happened when this was written as `modules`.
+    {
+        name = "text.buffer",
+        effect = "runtime.text_buffer",
+        binding = "runtime",
+        factoryModule = "nupp.runtime.seam.textbuffer",
+        implementationModules = {["string.buffer"] = true}
+    },
+    {
+        name = "data.sha256",
+        effect = "native.sha256",
+        binding = "runtime",
+        factoryModule = "nupp.runtime.seam.sha256",
+        exports = {["nupp.data.sha256"] = "sha256",}
+    },
+    {
+        name = "data.hash",
+        effect = "runtime.data_hash",
+        binding = "runtime",
+        factoryModule = "nupp.runtime.seam.hash",
+        exports = {["nupp.data.crc32"] = "crc32", ["nupp.data.fnv1a64"] = "fnv1a64",}
+    },
+    {name = "data.utf8", effect = "runtime.data_utf8", binding = "runtime", factoryModule = "nupp.runtime.seam.utf8"},
+    {
+        name = "data.uuid",
+        effect = "native.uuid",
+        binding = "runtime",
+        factoryModule = "nupp.runtime.seam.uuid",
+        exports = {["nupp.data.uuid4"] = "uuid4", ["nupp.data.uuid7"] = "uuid7",}
+    },
+    {
+        name = "data.bitset",
+        effect = "runtime.data_bitset",
+        binding = "runtime",
+        factoryModule = "nupp.runtime.seam.bitset",
+        exports = {["nupp.data.Bitset"] = "Bitset", ["nupp.data.WORD_BITS"] = "WORD_BITS",}
+    },
+    {
+        name = "peg",
+        effect = "native.lpeg",
+        effects = {"native.lpeg", "stdlib.lpeg.re", "stdlib.peg", "stdlib.peg.compile"},
+        binding = "runtime",
+        factoryModule = "nupp.runtime.seam.peg",
+    },
+    {name = "io.bytes", effect = "stdlib.io", binding = "runtime", factoryModule = "nupp.runtime.seam.iobytes"},
+    {
+        name = "host.path",
+        effect = "native.path",
+        binding = "runtime",
+        factoryModule = "nupp.runtime.seam.path",
+        modules = {["nupp.io.path.provider"] = ""}
+    },
+    {
+        name = "io.uri",
+        effect = "native.uri",
+        binding = "runtime",
+        factoryModule = "nupp.runtime.seam.uri",
+        modules = {["nupp.io.uri"] = ""}
+    },
+    {name = "host.files", effect = "native.files", binding = "runtime", factoryModule = "nupp.runtime.seam.files"},
+    {
+        name = "host.time",
+        effect = "native.time",
+        binding = "runtime",
+        factoryModule = "nupp.runtime.seam.time",
+        modules = {["nupp.time"] = ""}
+    },
+    {
+        name = "host.http",
+        effect = "native.http",
+        binding = "runtime",
+        factoryModule = "nupp.runtime.seam.http",
+        modules = {["nupp.io.http"] = ""}
+    },
+    {
+        name = "host.browser_crypto",
+        effect = "runtime.browser_crypto",
+        binding = "runtime",
+        factoryModule = "nupp.runtime.seam.browsercrypto",
+        modules = {["nupp.browser.crypto"] = ""}
+    },
+    {
+        name = "host.browser_storage",
+        effect = "runtime.browser_storage",
+        binding = "runtime",
+        factoryModule = "nupp.runtime.seam.browserstorage",
+        modules = {["nupp.browser.storage"] = ""}
+    },
+    {name = "host.net", effect = "native.net", binding = "runtime", factoryModule = "nupp.runtime.seam.net"},
+    {name = "host.tls", effect = "native.tls", binding = "runtime", factoryModule = "nupp.runtime.seam.tls"},
+    {
+        name = "host.process",
+        effect = "native.process",
+        binding = "runtime",
+        factoryModule = "nupp.runtime.seam.process"
+    },
+    {
+        name = "host.workers",
+        effect = "native.workers",
+        binding = "runtime",
+        factoryModule = "nupp.runtime.seam.workers",
+        modules = {["nupp.workers"] = ""}
+    },
+    {
+        name = "crypto.hmac_sha256",
+        effect = "runtime.hmac_sha256",
+        binding = "runtime",
+        factoryModule = "nupp.runtime.seam.hmacsha256"
+    },
+}
+
+local byName, byFactory = {}, {}
+for _, untyped in ipairs(CONTRACTS) do
+    local contract: any = untyped
+    contract.version = contract.version or 1
+    contract.effects = contract.effects or {contract.effect}
+    contract.suiteModule = contract.factoryModule .. "suite"
+    assert(byName[contract.name] == nil, "duplicate seam contract " .. contract.name)
+    assert(byFactory[contract.factoryModule] == nil, "duplicate seam factory " .. contract.factoryModule)
+    byName[contract.name] = contract
+    byFactory[contract.factoryModule] = contract
+end
+
+function registry.get(name: string): any
+    return assert(byName[name], "unknown seam contract " .. name)
+end
+
+function registry.forFactory(moduleName: string): any?
+    return byFactory[moduleName]
+end
+
+function registry.all(): {any}
+    return CONTRACTS
+end
+
+export = registry

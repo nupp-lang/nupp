@@ -1,0 +1,87 @@
+module nupp.compiler.tracecatalog
+
+-- Immutable reasons for static trace checking. The live LuaJIT recorder and
+-- `jit.vmdef` remain in `nupp.profile.trace` outside the portable host closure.
+
+local catalog = {}
+catalog.CATALOG_VERSION = 1
+catalog.CATALOG_ID = "nupp-trace-reasons-v1"
+
+local records: {
+    any
+} = {
+    {
+        id = "jit/loop-function-construction",
+        class = "blocker",
+        source = {['jit-loop-closure'] = true, ['loop-invariant-closure'] = true,},
+        explanation = "LuaJIT has no recorder for constructing a function",
+        repair = "declare one function outside the loop and pass what varies to it",
+        contractSeverity = "error",
+    },
+    {
+        id = "jit/loop-upvalue-close",
+        class = "blocker",
+        explanation = "LuaJIT has no recorder for closing an upvalue",
+        repair = "move the captured lifetime outside the repeated region",
+        contractSeverity = "error",
+    },
+    {
+        id = "jit/ffi-vararg-policy",
+        class = "risk",
+        source = {['jit-boundary'] = true,},
+        explanation = "this variadic FFI form depends on argument types and the target ABI",
+        repair = "move the call behind an explicit jit.off boundary when it is not hot",
+        contractSeverity = "error",
+    },
+    {
+        id = "jit/ffi-callback",
+        class = "risk",
+        source = {['jit-callback'] = true,},
+        explanation = "a C call that re-enters Lua through this callback cannot remain on a trace",
+        repair = "disable the callback and its calling boundary with jit.off",
+        contractSeverity = "error",
+    },
+    {
+        id = "jit/disabled-callee",
+        class = "blocker",
+        explanation = "the resolved callee is explicitly disabled with jit.off",
+        repair = "remove @jit from the caller or keep the disabled call outside its hot path",
+        contractSeverity = "error",
+    },
+    {
+        id = "jit/dynamic-call",
+        class = "risk",
+        explanation = "the call target is dynamic, so its bytecode recordability is unknown",
+    },
+}
+
+local byId, bySource = {}, {}
+for _, reason in ipairs(records) do
+    byId[reason.id] = reason
+    for sourceName in pairs(reason.source or {}) do
+        bySource[sourceName] = reason
+    end
+end
+
+function catalog.reason(id: string): any?
+    return byId[id]
+end
+
+function catalog.forSource(sourceName: string): any?
+    return bySource[sourceName]
+end
+
+function catalog.profile(): any
+    return {
+        id = "static:" .. catalog.CATALOG_ID,
+        luajitRevision = "static",
+        luajitVersion = 0,
+        architecture = "target",
+        operatingSystem = "target",
+        enabledRecorderFeatures = {},
+        bytecodeSchema = "static",
+        supported = true,
+    }
+end
+
+export = catalog

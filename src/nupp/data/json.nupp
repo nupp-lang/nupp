@@ -1,0 +1,740 @@
+module nupp.data.json
+
+--[==[
+`nupp.data.json` is a strict Nupp JSON codec. Its performance provider is
+SIMD-accelerated through `@aot`; portable compiler and browser targets select a
+pure-Lua provider behind the same API. It parses, pulls selected fields,
+serializes, and streams.
+
+```nupp:playground
+local encoded = nupp.data.json.encode({name = "Nupp", ready = true})
+local decoded = nupp.data.json.decode(encoded)
+assert(decoded.name == "Nupp")
+```
+
+The codec accepts one complete UTF-8 JSON document and rejects invalid numbers,
+sparse arrays, mixed-key containers, cycles, and excessive nesting.
+`serialize` is an alias of `encode`.
+
+## Empty containers
+
+A plain empty Lua table has no shape to read, so it encodes as `{}`. Mark it
+when it must encode as an array, or use the two sentinels:
+
+```nupp
+const json = nupp.data.json
+
+assert(json.encode({}) == "{}")
+assert(json.encode(json.asArray({})) == "[]")
+assert(json.encode(json.EMPTY_ARRAY) == "[]")
+assert(json.encode(json.EMPTY_OBJECT) == "{}")
+
+local emptyArray = json.decode("[]")
+assert(json.isArray(emptyArray))
+assert(not json.isArray(json.decode("{}")))
+```
+
+`asObject` is the corresponding mark for a table that must encode as an object.
+`isArray` reads the shape retained by decoded containers, including when they
+are empty.
+
+## JSON null
+
+Decoding drops JSON null by default, including from inside an array. Pass a
+replacement value to preserve it. `NULL` is the round-trippable choice, because
+it encodes back as null:
+
+```nupp
+const json = nupp.data.json
+
+local value = json.decode([[{"items":[1,null,2]}]], json.NULL)
+assert(value.items[2] == json.NULL)
+assert(json.encode(value) == [[{"items":[1,null,2]}]])
+```
+
+::: deepdive Dropping null by default
+A Lua table cannot hold nil as a value, so a decoded null has to become either
+an absence or a sentinel. An absence is what most callers mean, and it keeps a
+decoded document indexable without every read testing against a sentinel first.
+A sentinel is what a caller round-tripping somebody else's document means, and
+that caller says so once, at the `decode` call, rather than everywhere the
+value is read.
+:::
+
+## Pulling selected values
+
+`pull` validates the complete document while applying its selection. `true`
+selects a complete value, `false` drops it, an object
+shape selects named fields, and `arrayOf(shape)` applies a shape to every member
+of an array. Missing and unselected fields are omitted:
+
+```nupp
+const json = nupp.data.json
+
+local users = json.pull(source, json.arrayOf({id = true, profile = {name = true}}))
+```
+
+This is the lower-level path for pull deserializers: it validates the complete
+input but constructs only the Lua values the shape asks for.
+
+## Streaming output
+
+The `nupp.Closeable` writer emits checked JSON into caller-owned storage without first
+building a Lua table or a complete result string. `endArray()` and
+`endObject()` end containers, `flush()` publishes a bounded staged batch while
+leaving the document open, and consuming `close()` requires one complete root:
+
+```nupp
+local out = string.buffer.new()
+local writer = nupp.data.json.writer(out)
+writer:startObject():key("items"):startArray():write(1):write(2):endArray():endObject()
+writer:close()
+```
+
+Lexical destruction closes a live writer automatically. The public writer
+identity is single-use. Closing publishes its final staged parts and leaves
+that identity closed; untyped stale references therefore cannot affect a later
+document.
+
+A prepared `nupp.data.serde` JSON traversal can write at the current value
+position. Its recursive walk drains completed fields and list members at
+the same threshold, so a large root does not need to exist as one staged string.
+
+`encoded(value)` performs ordinary encoding once. `verified(text)` instead
+validates an existing immutable JSON string without decoding or re-encoding it.
+Both return a value that `write` appends without another walk or validation.
+`encodedString(value)` and `verifiedString(text)` provide the corresponding
+string-only form accepted by both `key` and `write`; these handles are interned,
+so repeated schema keys share their encoded representation.
+
+## Derived records
+
+For a record deriving `nupp.derive.JSON`, `writeRecord(value, writer)` discovers
+the record's type witness from the value. `writeAs(Record, value, writer)` and
+`decodeAs(Record, text)` accept the visible record name directly. `encodeRecord`
+and `encodeAs` allocate and return a complete string for callers that
+specifically need one.
+
+The generated `writeJSON(writer)` member writes through the same checked API, so
+a derived record can occupy the root or any value position in a larger document.
+Derived schemas lazily cache their encoded field names and literal values.
+
+These five members are installed onto the module by the derive runtime rather
+than answered by the codec, so each raises when nothing derived JSON for the
+type it was handed.
+
+::: seealso
+- [reflection.md](docs/concepts/reflection.md#json-through-a-type-witness) for
+  the derived schema and the generated `writeJSON` and `fromJSON` members
+- [derives.md](docs/reference/derives.md#json) for what `nupp.derive.JSON` adds
+  to a declaration
+- [](nupp.data) for the rest of the namespace, which also holds UUIDs, hashes
+  and checksums
+:::
+]==]
+
+const native = require("nupp.data.json.provider")
+
+--- A complete JSON value whose immutable bytes have already been encoded or
+--- validated.
+---
+--- Values come from `encoded` or `verified`; the private token prevents checked
+--- callers from manufacturing an unverified fast-path value.
+export record EncodedValue
+    private _token: any
+end
+
+--- A JSON string whose immutable encoded bytes have already been produced or
+--- validated.
+---
+--- `Writer:key` accepts this type without validating UTF-8 or escaping it again.
+--- Values produced by `encodedString` and `verifiedString` are interned.
+export record EncodedString
+    private _token: any
+end
+
+--- Values that can write one complete JSON value through a checked writer.
+---
+--- Declared here rather than aliased out of the host boundary, because this is the
+--- name callers write: `derive.JSON` answers a contract in terms of it. `Writer`
+--- below names the incremental encoder returned by `writer()`.
+---
+--- ```nupp
+--- local record Money is nupp.data.json.JSONEncodable
+---     cents: integer
+---
+---     function writeJSON(self, exclusive out: nupp.data.json.Writer): nil
+---         out:startObject():key("cents"):write(self.cents):endObject()
+---     end
+--- end
+--- ```
+export interface JSONEncodable
+    --- Writes this value at the writer's current value position.
+    --- @param self the value being encoded
+    --- @param out the checked destination
+    writeJSON: function(self, exclusive out: Writer): nil
+end
+
+--- A checked incremental JSON writer.
+---
+--- ```nupp
+--- local out = string.buffer.new()
+--- local writer = nupp.data.json.writer(out)
+--- writer:startObject():key("ok"):write(true):endObject()
+--- writer:close()
+--- assert(out:tostring() == [[{"ok":true}]])
+--- ```
+--- @export
+export affine interface Writer is nupp.Closeable
+    --- Starts an array value.
+    ---
+    --- ```nupp
+    --- local out = string.buffer.new()
+    --- local writer = nupp.data.json.writer(out)
+    --- writer:startArray():write("first"):endArray()
+    --- writer:close()
+    --- assert(out:tostring() == "[\"first\"]")
+    --- ```
+    --- @param self the writer
+    --- @return this writer
+    startArray: function(exclusive self: Writer): Writer borrows (self)
+
+    --- Starts an object value.
+    ---
+    --- ```nupp
+    --- local out = string.buffer.new()
+    --- local writer = nupp.data.json.writer(out)
+    --- writer:startObject():endObject()
+    --- writer:close()
+    --- assert(out:tostring() == "{}")
+    --- ```
+    --- @param self the writer
+    --- @return this writer
+    startObject: function(exclusive self: Writer): Writer borrows (self)
+
+    --- Selects the next object member.
+    ---
+    --- ```nupp
+    --- local out = string.buffer.new()
+    --- local writer = nupp.data.json.writer(out)
+    --- writer:startObject():key("answer"):write(42):endObject()
+    --- writer:close()
+    --- assert(out:tostring() == [[{"answer":42}]])
+    --- ```
+    --- @param self the writer
+    --- @param name the next member name
+    --- @return this writer
+    key: function(exclusive self: Writer, name: string): Writer borrows (self)
+        & function(exclusive self: Writer, name: EncodedString): Writer borrows (self)
+
+    --- Appends one complete Lua value.
+    ---
+    --- ```nupp
+    --- local out = string.buffer.new()
+    --- local writer = nupp.data.json.writer(out)
+    --- writer:startArray():write({id = 41}):endArray()
+    --- writer:close()
+    --- assert(out:tostring() == "[{\"id\":41}]")
+    --- ```
+    --- @param self the writer
+    --- @param value the next JSON value
+    --- @return this writer
+    write: function(
+        exclusive self: Writer,
+        value: string | number | boolean | {any} | {[string]: any}
+    ): Writer borrows (self)
+        & function(exclusive self: Writer, value: EncodedValue | EncodedString): Writer borrows (self)
+
+    --- Appends JSON null.
+    ---
+    --- ```nupp
+    --- local out = string.buffer.new()
+    --- local writer = nupp.data.json.writer(out)
+    --- writer:startArray():null():endArray()
+    --- writer:close()
+    --- assert(out:tostring() == "[null]")
+    --- ```
+    --- @param self the writer
+    --- @return this writer
+    null: function(exclusive self: Writer): Writer borrows (self)
+
+    --- Ends the current array.
+    ---
+    --- ```nupp
+    --- local out = string.buffer.new()
+    --- local writer = nupp.data.json.writer(out)
+    --- writer:startArray():startObject():endObject():endArray()
+    --- writer:close()
+    --- assert(out:tostring() == "[{}]")
+    --- ```
+    --- @param self the writer
+    --- @return this writer
+    endArray: function(exclusive self: Writer): Writer borrows (self)
+
+    --- Ends the current object.
+    ---
+    --- ```nupp
+    --- local out = string.buffer.new()
+    --- local writer = nupp.data.json.writer(out)
+    --- writer:startObject():key("items"):startArray():endArray():endObject()
+    --- writer:close()
+    --- assert(out:tostring() == [[{"items":[]}]])
+    --- ```
+    --- @param self the writer
+    --- @return this writer
+    endObject: function(exclusive self: Writer): Writer borrows (self)
+
+    --- Publishes staged bytes without ending the document.
+    ---
+    --- ```nupp
+    --- local out = string.buffer.new()
+    --- local writer = nupp.data.json.writer(out)
+    --- writer:startArray():write(1)
+    --- writer:flush()
+    --- assert(out:tostring() == "[1")
+    --- writer:endArray():close()
+    --- ```
+    --- @param self the writer
+    flush: nosuspend function(exclusive self: Writer): nil
+
+    --- Verifies and publishes one complete root, then releases backing state.
+    ---
+    --- ```nupp
+    --- local out = string.buffer.new()
+    --- local writer = nupp.data.json.writer(out)
+    --- writer:write({ok = true})
+    --- writer:close()
+    --- assert(out:tostring() == [[{"ok":true}]])
+    --- ```
+    --- @param self the writer
+    terminal close: nosuspend function(takes self: Writer): nil
+end
+
+local record WriterImpl is Writer
+    private raw: any
+
+    function startArray(exclusive self): Writer borrows (self)
+        self.raw:startArray()
+        return self
+    end
+
+    function startObject(exclusive self): Writer borrows (self)
+        self.raw:startObject()
+        return self
+    end
+
+    function key(exclusive self, name: string): Writer borrows (self)
+        self.raw:key(name)
+        return self
+    end
+
+    function key(exclusive self, name: EncodedString): Writer borrows (self)
+        self.raw:key(name)
+        return self
+    end
+
+    function write(exclusive self, value: string | number | boolean | {any} | {[string]: any}): Writer borrows (self)
+        self.raw:write(value)
+        return self
+    end
+
+    function write(exclusive self, value: EncodedValue | EncodedString): Writer borrows (self)
+        self.raw:write(value)
+        return self
+    end
+
+    function null(exclusive self): Writer borrows (self)
+        self.raw:null()
+        return self
+    end
+
+    function endArray(exclusive self): Writer borrows (self)
+        self.raw:endArray()
+        return self
+    end
+
+    function endObject(exclusive self): Writer borrows (self)
+        self.raw:endObject()
+        return self
+    end
+
+    function flush(exclusive self): nil
+        self.raw:flush()
+    end
+
+    function close(takes self): nil
+        self.raw:close()
+    end
+end
+
+-- Overloaded methods occupy signature-specific slots in checked code. The ordinary
+-- names keep the same object usable from Lua, where overload selection is dynamic.
+local function writerKey(exclusive self: WriterImpl, name: any): WriterImpl borrows (self)
+    self.raw:key(name)
+    return self
+end
+
+local function writerWrite(exclusive self: WriterImpl, value: any): WriterImpl borrows (self)
+    self.raw:write(value)
+    return self
+end
+
+rawset(WriterImpl, "key", writerKey)
+rawset(WriterImpl, "write", writerWrite)
+
+--- Decodes one complete JSON document.
+---
+--- Null members are dropped unless a replacement value is supplied.
+---
+--- ```nupp
+--- local value = nupp.data.json.decode([[{"id":41}]])
+--- assert(value.id == 41)
+--- ```
+--- @param text the complete JSON document
+--- @param nullValue the value used for JSON null, or nil to drop nulls
+--- @return the decoded Lua value
+--- @export
+export function decode(text: string, nullValue: any?): any
+    if nullValue == nil then
+        return native.decode(text)
+    end
+    return native.decode(text, nullValue)
+end
+
+--- Materializes only the fields selected by an On-Demand pull shape.
+---
+--- ```nupp
+--- local value = nupp.data.json.pull(
+---     [[{"id":41,"profile":{"name":"Ada","admin":true}}]],
+---     {id = true, profile = {name = true}}
+--- )
+--- assert(value.id == 41 and value.profile.name == "Ada")
+--- assert(value.profile.admin == nil)
+--- ```
+--- @param text the complete JSON document
+--- @param shape the fields and array members to materialize
+--- @param nullValue the value used for JSON null, or nil to drop nulls
+--- @return the selected Lua value
+--- @export
+export function pull(text: string, shape: any, nullValue: any?): any
+    if nullValue == nil then
+        return native.pull(text, shape)
+    end
+    return native.pull(text, shape, nullValue)
+end
+
+--- Applies one pull shape to every member of an array.
+---
+--- ```nupp
+--- const json = nupp.data.json
+--- local users = json.pull(
+---     [[{"users":[{"id":1,"name":"Ada"},{"id":2,"name":"Lin"}]}]],
+---     {users = json.arrayOf({id = true})}
+--- )
+--- assert(users.users[1].id == 1 and users.users[1].name == nil)
+--- assert(users.users[2].id == 2)
+--- ```
+--- @param shape the selection applied to each member, or every value when omitted
+--- @return an array pull shape
+--- @export
+export function arrayOf(shape: any?): table
+    if shape == nil then
+        return native.arrayOf()
+    end
+    return native.arrayOf(shape)
+end
+
+--- Marks a Lua table as a JSON array, including while it is empty.
+---
+--- ```nupp
+--- local values = nupp.data.json.asArray({})
+--- assert(nupp.data.json.encode(values) == "[]")
+--- ```
+--- @param value the table to mark
+--- @return the same table
+--- @export
+export function asArray<T is table>(takes value: T): T preserves value
+    return native.asArray(value)
+end
+
+--- Marks a Lua table as a JSON object.
+---
+--- ```nupp
+--- const json = nupp.data.json
+--- local object = json.asObject(json.asArray({}))
+--- assert(json.encode(object) == "{}")
+--- ```
+--- @param value the table to mark
+--- @return the same table
+--- @export
+export function asObject<T is table>(takes value: T): T preserves value
+    return native.asObject(value)
+end
+
+--- Answers whether a value has JSON array shape.
+---
+--- Decoding retains container shape even when an array is empty. This predicate
+--- reads that shape without exposing the private marker used by the codec.
+---
+--- ```nupp
+--- const json = nupp.data.json
+--- assert(json.isArray(json.decode("[]")))
+--- assert(not json.isArray(json.decode("{}")))
+--- assert(json.isArray({1, 2}))
+--- ```
+--- @param value the value whose JSON container shape to inspect
+--- @return true for a JSON array and false for an object or scalar
+--- @raises if a table mixes object and array keys or contains array holes
+--- @export
+export function isArray(value: any): boolean
+    return native.isArray(value)
+end
+
+--- Serializes one Lua value as JSON.
+---
+--- ```nupp
+--- local text = nupp.data.json.encode({answer = 42})
+--- assert(text == [[{"answer":42}]])
+--- ```
+--- @param value the value to serialize
+--- @param nullValue an additional value treated as JSON null
+--- @return the JSON document
+--- @export
+export function encode(value: any, nullValue: any?): string
+    if nullValue == nil then
+        return native.encode(value)
+    end
+    return native.encode(value, nullValue)
+end
+
+--- Serializes one Lua value as JSON; an alias of `encode`.
+---
+--- ```nupp
+--- assert(nupp.data.json.serialize({ok = true}) == [[{"ok":true}]])
+--- ```
+--- @param value the value to serialize
+--- @param nullValue an additional value treated as JSON null
+--- @return the JSON document
+--- @export
+export function serialize(value: any, nullValue: any?): string
+    if nullValue == nil then
+        return native.serialize(value)
+    end
+    return native.serialize(value, nullValue)
+end
+
+--- Encodes a Lua value once for trusted raw insertion by a `Writer`.
+---
+--- The returned handle retains immutable encoded bytes. Each later write copies
+--- those bytes directly to its destination without walking or validating the value.
+---
+--- ```nupp
+--- local cached = nupp.data.json.encoded({1, 2, 3})
+--- ```
+--- @param value the value to encode
+--- @param nullValue an additional value treated as JSON null
+--- @return the reusable encoded value
+--- @export
+export function encoded(value: any, nullValue: any?): EncodedValue
+    if nullValue == nil then
+        return native.encoded(value) as EncodedValue
+    end
+    return native.encoded(value, nullValue) as EncodedValue
+end
+
+--- Encodes and interns one string for trusted use as either a key or value.
+---
+--- ```nupp
+--- local key = nupp.data.json.encodedString("user_id")
+--- ```
+--- @param value the unencoded string
+--- @return its reusable encoded representation
+--- @export
+export function encodedString(value: string): EncodedString
+    return native.encodedString(value) as EncodedString
+end
+
+--- Validates existing JSON bytes once without decoding or re-encoding them.
+---
+--- ```nupp
+--- local cached = nupp.data.json.verified([[{"id":41}]])
+--- ```
+--- @param text one complete JSON value
+--- @return a handle retaining the original immutable string
+--- @export
+export function verified(text: string): EncodedValue
+    return native.verified(text) as EncodedValue
+end
+
+--- Validates and interns existing bytes containing one complete JSON string.
+---
+--- ```nupp
+--- local key = nupp.data.json.verifiedString([["user_id"]])
+--- ```
+--- @param text an encoded JSON string, including its quotes
+--- @return a handle retaining the original immutable string
+--- @export
+export function verifiedString(text: string): EncodedString
+    return native.verifiedString(text) as EncodedString
+end
+
+--- Creates an incremental JSON writer over caller-owned storage.
+---
+--- ```nupp
+--- local out = string.buffer.new()
+--- local writer = nupp.data.json.writer(out)
+--- writer:startObject():key("id"):write(41):endObject()
+--- writer:close()
+--- assert(out:tostring() == [[{"id":41}]])
+--- ```
+--- @param out the destination receiving bytes as operations complete
+--- @param nullValue an additional value treated as JSON null
+--- @return a new writer
+--- @export
+export function writer(exclusive out: string.buffer.Buffer, nullValue: any?): Writer
+    if nullValue == nil then
+        return new WriterImpl(raw = native.writer(out))
+    end
+    return new WriterImpl(raw = native.writer(out, nullValue))
+end
+
+--- Decodes JSON into the nominal record named by a type witness.
+---
+--- ```nupp
+--- @derive(nupp.derive.JSON)
+--- local record User
+---     id: integer
+--- end
+---
+--- local user, problem = nupp.data.json.decodeAs(User, [[{"id":41}]])
+--- assert(problem == nil and user and user.id == 41)
+--- ```
+--- @param type the record type to decode
+--- @param text the JSON document
+--- @return the decoded record, or nil when it does not fit
+--- @return the failure reason, when unsuccessful
+--- @raises when JSON was not derived for the type
+--- @export
+export function decodeAs<T>(type: Type<T>, text: string): (T?, string?)
+    error("nupp: JSON was not derived for this type", 2)
+end
+
+--- Writes a nominal record after explicitly supplying its type witness.
+---
+--- ```nupp
+--- @derive(nupp.derive.JSON)
+--- local record User
+---     id: integer
+--- end
+---
+--- local out = string.buffer.new()
+--- local writer = nupp.data.json.writer(out)
+--- nupp.data.json.writeAs(User, new User(id = 41), writer)
+--- writer:close()
+--- assert(out:tostring() == [[{"id":41}]])
+--- ```
+--- @param type the record type being encoded
+--- @param value the record value
+--- @param out the checked destination
+--- @raises when JSON was not derived for the type
+--- @export
+export function writeAs<T>(type: Type<T>, borrows value: T, exclusive out: Writer): nil
+    error("nupp: JSON was not derived for this type", 2)
+end
+
+--- Writes a nominal record using its own metatable as the type witness.
+---
+--- ```nupp
+--- @derive(nupp.derive.JSON)
+--- local record User
+---     id: integer
+--- end
+---
+--- local out = string.buffer.new()
+--- local writer = nupp.data.json.writer(out)
+--- nupp.data.json.writeRecord(new User(id = 41), writer)
+--- writer:close()
+--- assert(out:tostring() == [[{"id":41}]])
+--- ```
+--- @param value the record value
+--- @param out the checked destination
+--- @raises when JSON was not derived for the type
+--- @export
+export function writeRecord<T>(borrows value: T, exclusive out: Writer): nil
+    error("nupp: JSON was not derived for this type", 2)
+end
+
+--- Encodes a nominal record named by a type witness into a new string.
+---
+--- ```nupp
+--- @derive(nupp.derive.JSON)
+--- local record User
+---     id: integer
+--- end
+---
+--- local text = nupp.data.json.encodeAs(User, new User(id = 41))
+--- assert(text == [[{"id":41}]])
+--- ```
+--- @param type the record type being encoded
+--- @param value the record value
+--- @return the JSON document
+--- @raises when JSON was not derived for the type
+--- @export
+export function encodeAs<T>(type: Type<T>, borrows value: T): string
+    error("nupp: JSON was not derived for this type", 2)
+end
+
+--- Encodes a nominal record using its own metatable into a new string.
+---
+--- ```nupp
+--- @derive(nupp.derive.JSON)
+--- local record User
+---     id: integer
+--- end
+---
+--- local text = nupp.data.json.encodeRecord(new User(id = 41))
+--- assert(text == [[{"id":41}]])
+--- ```
+--- @param value the record value
+--- @return the JSON document
+--- @raises when JSON was not derived for the type
+--- @export
+export function encodeRecord<T>(borrows value: T): string
+    error("nupp: JSON was not derived for this type", 2)
+end
+
+--- Creates a schema-driven JSON codec with one immutable wire profile.
+---
+--- The codec prepares a `nupp.data.serde.Binding<T>` once and then performs each
+--- complete scalar structure traversal in one native call. Format-owning JSON derives
+--- remain available as compatibility APIs.
+---
+--- ```nupp
+--- @derive(nupp.derive.Serde)
+--- local record User
+---     id: uint32
+--- end
+---
+--- local codec = nupp.data.json.newCodec()
+--- local prepared = codec:prepare(nupp.data.serde.of(User))
+--- assert(prepared:encode(new User(id = 41)) == [[{"id":41}]])
+--- ```
+--- @param options fieldNames and unknownMembers profile policy
+--- @return the schema-driven codec
+--- @raises when the profile is invalid
+--- @export
+export function newCodec(options: any?): any
+    return _G.require("nupp.data.serde").json(options)
+end
+
+--- Sentinel that decodes from and encodes as JSON null.
+--- @export
+export const NULL: any = native.NULL
+
+--- An explicit empty JSON array.
+--- @export
+export const EMPTY_ARRAY: table = native.EMPTY_ARRAY
+
+--- An explicit empty JSON object.
+--- @export
+export const EMPTY_OBJECT: table = native.EMPTY_OBJECT

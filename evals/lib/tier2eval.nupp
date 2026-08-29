@@ -1,0 +1,268 @@
+module tier2eval
+
+-- Tier 2: export a commit's parent without Git history, carry its tests forward,
+-- and grade whether an agent can rediscover the implementation without editing
+-- the specification.
+
+local files = require("nupp.io.files")
+local harness = require("harness")
+
+local tier2 = {}
+
+tier2.PROMPT = [[The test suite `{suites}` is failing in this source tree. Make it pass.
+
+Run `./bin/nupp test {first}` to see the failures, and read AGENTS.md for how
+this project expects to be worked in.
+
+The tests are correct and are the specification: do not edit anything under
+`tests/`, and do not weaken or delete a failing case. Fix the code it is
+testing.
+
+This is a source tree with no version control in it, so there is no history to
+consult; the failing tests and the code are what you have.
+]]
+
+type tier2.Candidate = {
+    sha: string,
+    subject: string,
+    source: integer,
+    suites: integer
+}
+
+type tier2.Prepared = {
+    suites: {string},
+    reverted: {string}
+}
+
+function tier2.git(repo: string, arguments: {string}): string
+    local argv = {"git", "-C", repo}
+    for _, argument in ipairs(arguments) do
+        argv[#argv + 1] = argument
+    end
+    local done = harness.run(argv)
+    if done.returncode ~= 0 then
+        error("git " .. table.concat(arguments, " ") .. " failed: " .. (done.stderr:match("^%s*(.-)%s*$") or ""), 2)
+    end
+
+    return done.stdout
+end
+
+function tier2.changedFiles(repo: string, commit: string): {string}
+    local output = tier2.git(repo, {"show", "--name-only", "--format=", commit})
+    local paths: {string} = {}
+    for line in output:gmatch("[^\r\n]+") do
+        if line:match("%S") then
+            paths[#paths + 1] = line
+        end
+    end
+
+    return paths
+end
+
+function tier2.splitPaths(paths: {string}): ({string}, {string})
+    local suites, rest = {}, {}
+    for _, path in ipairs(paths) do
+        if path:match("^tests/[%w_]+test%.lua$") then
+            suites[#suites + 1] = path
+        else
+            rest[#rest + 1] = path
+        end
+    end
+
+    return suites, rest
+end
+
+function tier2.candidates(repo: string, depth: integer): {tier2.Candidate}
+    local output = tier2.git(repo, {"log", "-" .. tostring(depth), "--format=%h %s"})
+    local found: {tier2.Candidate} = {}
+    for line in output:gmatch("[^\r\n]+") do
+        local sha, subject = line:match("^(%S+)%s+(.*)$")
+        if sha ~= nil then
+            local paths = tier2.changedFiles(repo, sha)
+            local suites, rest = tier2.splitPaths(paths)
+            local source: integer = 0
+            for _, path in ipairs(rest) do
+                if path:sub(1, 4) == "src/" then
+                    source = source + 1
+                end
+            end
+            if #suites > 0 and source > 0 and #paths <= 8 then
+                found[#found + 1] = {sha = sha, subject = subject, source = source, suites = #suites,}
+            end
+        end
+    end
+
+    return found
+end
+
+function tier2.prepare(repo: string, commit: string, at: string): tier2.Prepared
+    local paths = tier2.changedFiles(repo, commit)
+    local suites, rest = tier2.splitPaths(paths)
+    if #suites == 0 then
+        error(commit .. " changed no test suite; not a tier-2 task", 2)
+    end
+    local hasSource = false
+    for _, path in ipairs(rest) do
+        if path:sub(1, 4) == "src/" then
+            hasSource = true
+            break
+        end
+    end
+    if not hasSource then
+        error(commit .. " changed no source; not a tier-2 task", 2)
+    end
+
+    local archive = at .. ".tar"
+    local archived = harness.run({"git", "-C", repo, "archive", "--format=tar", "--output=" .. archive, commit .. "^",})
+    if archived.returncode ~= 0 then
+        error("could not export the tree: " .. archived.stderr:sub(1, 300), 2)
+    end
+    local extracted = harness.run({"tar", "-xf", archive, "-C", at})
+    harness.remove(archive)
+    if extracted.returncode ~= 0 then
+        error("could not extract the tree: " .. extracted.stderr:sub(1, 300), 2)
+    end
+    for _, path in ipairs(suites) do
+        harness.write(harness.join(at, path), tier2.git(repo, {"show", commit .. ":" .. path}))
+    end
+
+    local rocks = harness.join(repo, ".rocks")
+    local stagedRocks = harness.join(at, ".rocks")
+    if files.exists(rocks) and not files.exists(stagedRocks) then
+        local linked, linkErr = files.createSymlink(rocks, stagedRocks, "directory")
+        if not linked then
+            error("cannot link the dependency tree: " .. tostring(linkErr), 2)
+        end
+    end
+    local cache = harness.join(repo, "build", "cache")
+    if files.isDirectory(cache) then
+        harness.copyTree(cache, harness.join(at, "build", "cache"))
+    end
+    local reverted: {string} = {}
+    for _, path in ipairs(rest) do
+        if path:match("%S") then
+            reverted[#reverted + 1] = path
+        end
+    end
+
+    return {suites = suites, reverted = reverted}
+end
+
+function tier2.digests(at: string, paths: {string}): {[string]: string}
+    local digests: {[string]: string} = {}
+    for _, path in ipairs(paths) do
+        local target = harness.join(at, path)
+        if files.exists(target) then
+            digests[path] = nupp.data.sha256(harness.read(target))
+        end
+    end
+
+    return digests
+end
+
+function tier2.suiteNames(suites: {string}): {string}
+    local names: {string} = {}
+    for _, path in ipairs(suites) do
+        local name = path:match("^tests/([%w_]+test)%.lua$")
+        if name ~= nil then
+            names[#names + 1] = name
+        end
+    end
+
+    return names
+end
+
+function tier2.runSuites(at: string, names: {string}): (boolean, string)
+    local report = ""
+    for _, name in ipairs(names) do
+        local done = harness.run({harness.join(at, "bin", "nupp"), "test", name}, at)
+        report = (done.stdout .. done.stderr):sub(-2000)
+        if done.returncode ~= 0 then
+            return false, report
+        end
+    end
+
+    return true, report
+end
+
+function tier2.touchedTests(at: string, before: {[string]: string}): {string}
+    local paths: {string} = {}
+    for path in pairs(before) do
+        paths[#paths + 1] = path
+    end
+    local after = tier2.digests(at, paths)
+    local touched: {string} = {}
+    for path, digest in pairs(before) do
+        if after[path] ~= digest then
+            touched[#touched + 1] = path
+        end
+    end
+    table.sort(touched)
+
+    return touched
+end
+
+--- Produces a stable unified diff for the `before` and `after` trees in root.
+--- Git's exit status 1 means that the trees differ, not that the command failed.
+--- @raises when Git cannot compare the trees
+function tier2.directoryDiff(root: string): string
+    local diff = harness.run(
+        {
+            "git",
+            "diff",
+            "--no-index",
+            "--no-color",
+            "--no-ext-diff",
+            "--src-prefix=a/",
+            "--dst-prefix=b/",
+            "before",
+            "after",
+        },
+        root
+    )
+    if diff.returncode ~= 0 and diff.returncode ~= 1 then
+        error("git diff --no-index failed: " .. diff.stderr, 2)
+    end
+    local text = diff.stdout
+    text = text:gsub("a/before/", "a/")
+    text = text:gsub("b/after/", "b/")
+
+    return text
+end
+
+function tier2.repairDiff(repo: string, commit: string, at: string, reverted: {string}): string
+    local root = harness.temporaryDirectory("nupp-eval-diff-")
+    local ok, answer = pcall(function(): string
+        local before = harness.join(root, "before")
+        local after = harness.join(root, "after")
+        assert(files.createDirectory(before))
+        assert(files.createDirectory(after))
+        for _, path in ipairs(reverted) do
+            local prior = harness.run({"git", "-C", repo, "show", commit .. "^:" .. path})
+            if prior.returncode == 0 then
+                harness.write(harness.join(before, path), prior.stdout)
+            end
+            local current = harness.join(at, path)
+            if files.exists(current) then
+                harness.write(harness.join(after, path), harness.read(current))
+            end
+        end
+
+        return tier2.directoryDiff(root)
+    end)
+    harness.remove(root)
+    if not ok then
+        error(answer, 0)
+    end
+
+    return answer
+end
+
+function tier2.prompt(names: {string}): string
+    local text = tier2.PROMPT:gsub("{suites}", table.concat(names, ", "))
+    text = text:gsub("{first}", names[1])
+
+    return text
+end
+
+export = tier2

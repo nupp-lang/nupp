@@ -1,0 +1,11 @@
+local suspension = require("nupp.suspension")
+
+suspension.suspend(
+    "wait for cancellation",
+    function(_resume: function(any): nil, _context: suspension.Context): function()
+        return function(): nil
+        end
+    end
+)
+
+return '{"unexpected":true}'

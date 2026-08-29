@@ -1,0 +1,58 @@
+@!internal
+
+module nupp.compiler.triviaarena.ffi
+
+local ffi = require("ffi")
+local provider = {}
+
+const STRIDE = 5
+
+local record FfiArena
+    readonly source: string
+    count: integer
+    private capacity: integer
+    private words: uint32[?]
+end
+
+function FfiArena:append(kind: integer, offset: integer, length: integer, line: integer, col: integer): integer
+    if self.count >= self.capacity then
+        local grown = self.capacity > 0 ? self.capacity * 2 : 32
+        local fresh = ffi.new("uint32_t[?]", grown * STRIDE) as uint32[?]
+        ffi.copy(fresh as any, self.words as any, self.count * STRIDE * 4)
+        self.words = fresh
+        self.capacity = grown
+    end
+    local at = self.count * STRIDE
+    unsafe do
+        self.words[at] = kind
+        self.words[at + 1] = offset
+        self.words[at + 2] = length
+        self.words[at + 3] = line
+        self.words[at + 4] = col
+    end
+    self.count = self.count + 1
+
+    return self.count
+end
+
+function FfiArena:record(index: integer): (integer, integer, integer, integer, integer)
+    local at = (index - 1) * STRIDE
+    unsafe do
+        return self.words[
+            at
+        ] as integer, self.words[
+            at + 1
+        ] as integer, self.words[at + 2] as integer, self.words[at + 3] as integer, self.words[at + 4] as integer
+    end
+end
+
+function provider.new(source: string): nupp.compiler.triviaarena.Arena
+    return new FfiArena(
+        source = source,
+        count = 0,
+        capacity = 0,
+        words = ffi.new("uint32_t[?]", 0) as uint32[?]
+    ) as nupp.compiler.triviaarena.Arena
+end
+
+export = provider

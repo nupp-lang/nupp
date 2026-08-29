@@ -1,0 +1,39 @@
+module nupp.compiler.bundledlist
+
+-- Directory traversal for carried resources. Kept outside `bundled` so the
+-- in-memory compiler can read embedded declarations without importing host I/O.
+
+local bundled = require("nupp.compiler.bundled")
+local files = require("nupp.io.files")
+local resource: any = {source = bundled.source,}
+
+function resource.list(prefix: string): {string}
+    local embedded = package.preload["nupp.embedded"]
+    if embedded then
+        local found = {}
+        for path in pairs(embedded()) do
+            if path:sub(1, #prefix + 1) == prefix .. "/" then
+                found[#found + 1] = path
+            end
+        end
+        table.sort(found)
+        return found
+    end
+    local found, pending = {}, {prefix}
+    while #pending > 0 do
+        local relative = table.remove(pending) as string
+        for _, entry in ipairs(files.list(bundled.moduleDir() .. relative) or {}) do
+            local child = relative .. "/" .. entry.name
+            if entry.kind == "directory" then
+                pending[#pending + 1] = child
+            elseif entry.kind == "file" then
+                found[#found + 1] = child
+            end
+        end
+    end
+    table.sort(found)
+
+    return found
+end
+
+export = resource

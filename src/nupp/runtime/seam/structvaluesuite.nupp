@@ -1,0 +1,64 @@
+@!internal
+
+module nupp.runtime.seam.structvaluesuite
+
+--[[Behavioral vectors for table-backed fixed-width struct values.]]
+
+local suite = {}
+
+function suite.test(provider: any): (boolean, string?)
+    local ok, problem = pcall(function()
+        assert(provider.referenceValued == true, "portable struct values must declare reference representation")
+        local methods = {__index = {}}
+        local Point = provider.define(
+            {name = "Point", fields = {{name = "x", kind = "float"}, {name = "bits", kind = "uint8"},},},
+            methods
+        )
+        local point = Point(16777217, 258)
+        assert(Point:isa(point), "a declared type must recognize its own values")
+        assert(point.x == 16777216, "binary32 stores must round to binary32")
+        assert(point.bits == 2, "unsigned stores must wrap to their field width")
+        local copied = Point:copy(point)
+        assert(copied ~= point and Point:isa(copied), "copy must preserve identity without aliasing")
+        copied.bits = -1
+        assert(copied.bits == 255 and point.bits == 2, "copies must own independent normalized fields")
+        local Points = provider.array(Point, 2)
+        local values = Points:new()
+        values[0] = point
+        assert(values[0] ~= point and values[0].bits == 2, "array stores must copy struct values")
+        local arrayCopy = Points:copy(values)
+        arrayCopy[0].bits = 9
+        assert(values[0].bits == 2, "fixed arrays must copy their elements")
+        assert(
+            not pcall(function()
+                return point.missing
+            end),
+            "undeclared struct reads must fail"
+        )
+        assert(
+            not pcall(function()
+                point.missing = 1
+            end),
+            "undeclared struct writes must fail"
+        )
+        assert(
+            not pcall(function()
+                return values[2]
+            end),
+            "out-of-bounds array reads must fail"
+        )
+        assert(
+            not pcall(function()
+                values[-1] = point
+            end),
+            "out-of-bounds array writes must fail"
+        )
+    end)
+    if not ok then
+        return false, tostring(problem)
+    end
+
+    return true
+end
+
+export = suite

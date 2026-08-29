@@ -1,0 +1,285 @@
+module batcheval
+
+-- Tier-1 corpus scheduling and scoreboard construction.
+
+local harness = require("harness")
+local tier1 = require("tier1eval")
+local tasks = require("nupp.tasks")
+local time = require("nupp.time")
+local json = nupp.data.json
+
+local batch = {}
+
+type batch.Options = {
+    nupp: string,
+    out: string,
+    model: string?,
+    jobs: integer,
+    timeout: number?,
+    lean: boolean
+}
+
+local function parallel(
+    values: {string},
+    jobs: integer,
+    body: function(string): any,
+    completed: (function(integer, any): nil)?
+): {any}
+    local answers: {any} = {}
+    local nextIndex: integer = 1
+    local doneCount: integer = 0
+    tasks.run(function(scope: tasks.Scope): nil
+        local function worker(): nil
+            while true do
+                local index = nextIndex
+                nextIndex = nextIndex + 1
+                local value = values[index]
+                if value == nil then
+                    return
+                end
+                local answer = body(value)
+                answers[index] = answer
+                doneCount = doneCount + 1
+                if completed ~= nil then
+                    completed(doneCount, answer)
+                end
+            end
+        end
+
+        for _ = 1, math.min(jobs, #values) do
+            scope:spawn(worker)
+        end
+    end)
+
+    return answers
+end
+
+function batch.runnable(nupp: string, jobs: integer): {string}
+    local listed = harness.run({nupp, "explain", "--list", "--json"})
+    if listed.returncode ~= 0 then
+        error("nupp explain --list failed: " .. listed.stderr, 2)
+    end
+    local decoded = json.decode(listed.stdout, json.NULL)
+    local codes: {string} = type(decoded.codes) == "table" and decoded.codes or {}
+    local found = parallel(
+        codes,
+        jobs,
+        function(code: string): any
+            local done = harness.run({nupp, "explain", code, "--json"})
+            if done.returncode ~= 0 then
+                return json.NULL
+            end
+            local ok, entry = pcall(json.decode, done.stdout, json.NULL)
+            if not ok or entry.family ~= nil and entry.family ~= false and entry.family ~= json.NULL or type(
+                entry.wrong
+            ) ~= "string" then
+                return json.NULL
+            end
+
+            return code
+        end,
+        nil
+    )
+    local usable: {string} = {}
+    for _, code in ipairs(found) do
+        if type(code) == "string" then
+            usable[#usable + 1] = code
+        end
+    end
+
+    return usable
+end
+
+function batch.one(options: batch.Options, code: string): any
+    local started = time.now()
+    local ok, record = pcall(
+        tier1.evaluate,
+        options.nupp,
+        code,
+        options.out,
+        options.model,
+        false,
+        options.lean,
+        options.timeout
+    )
+    if ok then
+        record.invalid = json.NULL
+
+        return record
+    end
+
+    return {
+        task = {tier = 1, code = code},
+        invalid = tostring(record),
+        agent = json.asObject({}),
+        grade = {passed = false},
+        elapsed = harness.rounded((time.now() - started) / 1000, 1),
+    }
+end
+
+local function rate(records: {any}): any
+    local passed = 0
+    for _, record in ipairs(records) do
+        if record.grade.passed == true then
+            passed = passed + 1
+        end
+    end
+
+    return {
+        tasks = #records,
+        passed = passed,
+        rate = #records > 0 and harness.rounded(passed / #records, 3) or json.NULL,
+    }
+end
+
+local function spread(values: {number}): any
+    if #values == 0 then
+        return json.NULL
+    end
+    table.sort(values)
+    local middle = math.floor((#values + 1) / 2)
+    local median = #values % 2 == 1 and values[middle] or (values[middle] + values[middle + 1]) / 2
+    local total = 0
+    for _, value in ipairs(values) do
+        total = total + value
+    end
+
+    return {
+        median = harness.rounded(median, 4),
+        min = harness.rounded(values[1], 4),
+        max = harness.rounded(values[#values], 4),
+        total = harness.rounded(total, 4),
+    }
+end
+
+function batch.summarize(records: {any}): any
+    local valid, invalid, passed = {}, {}, {}
+    local withFix, withoutFix = {}, {}
+    local costs: {number} = {}
+    local tools: {number} = {}
+    local nupps: {number} = {}
+    for _, record in ipairs(records) do
+        if record.invalid ~= nil and record.invalid ~= json.NULL then
+            invalid[#invalid + 1] = record
+        else
+            valid[#valid + 1] = record
+            if record.grade.passed == true then
+                passed[#passed + 1] = record
+            end
+            local destination = record.task.hadFix == true and withFix or withoutFix
+            destination[#destination + 1] = record
+            if type(record.agent.costUsd) == "number" then
+                costs[#costs + 1] = record.agent.costUsd
+            end
+            if type(record.agent.toolCallTotal) == "number" then
+                tools[#tools + 1] = record.agent.toolCallTotal
+            end
+            if type(record.agent.nuppInvocations) == "number" then
+                nupps[#nupps + 1] = record.agent.nuppInvocations
+            end
+        end
+    end
+    local invalidItems, failed, suspicious = {}, {}, {}
+    for _, record in ipairs(invalid) do
+        invalidItems[#invalidItems + 1] = {code = record.task.code, why = record.invalid}
+    end
+    for _, record in ipairs(valid) do
+        if record.grade.passed ~= true then
+            failed[
+                #failed + 1
+            ] = {
+                code = record.task.code,
+                summary = record.task.summary or "",
+                hadFix = record.task.hadFix == true,
+                after = record.grade.diagnosticsAfter or json.NULL,
+                shrank = record.grade.suspiciousShrink == true,
+            }
+        end
+    end
+    for _, record in ipairs(passed) do
+        if record.grade.suspiciousShrink == true then
+            suspicious[#suspicious + 1] = record.task.code
+        end
+    end
+
+    return {
+        overall = rate(valid),
+        withFix = rate(withFix),
+        withoutFix = rate(withoutFix),
+        cost = spread(costs),
+        toolCalls = spread(tools),
+        nuppInvocations = spread(nupps),
+        invalid = json.asArray(invalidItems),
+        failed = json.asArray(failed),
+        suspicious = json.asArray(suspicious),
+    }
+end
+
+local function rateLine(name: string, block: any): string
+    if block.tasks == 0 then
+        return (" %-14s %6s %7s  %6s"):format(name, "-", "-", "-")
+    end
+
+    return (" %-14s %6d %7d  %5.1f%%"):format(name, block.tasks, block.passed, block.rate * 100)
+end
+
+function batch.report(summary: any, model: string?, elapsedSeconds: number): nil
+    print()
+    print((" tier 1 sweep, model %s, %.1f min"):format(model or "default", elapsedSeconds / 60))
+    print()
+    print(" population      tasks  passed    rate")
+    print(" ─────────────  ──────  ──────  ──────")
+    print(rateLine("overall", summary.overall))
+    print(rateLine("fix offered", summary.withFix))
+    print(rateLine("no fix", summary.withoutFix))
+    print()
+    for _, name in ipairs({"cost", "toolCalls", "nuppInvocations"}) do
+        local block = summary[name]
+        if block ~= json.NULL then
+            print(
+                (
+                    " %-16s median %-9s min %-9s max %-9s total %s"
+                ):format(name, tostring(block.median), tostring(block.min), tostring(block.max), tostring(block.total))
+            )
+        end
+    end
+    if #summary.invalid > 0 then
+        print(("\n %d task(s) could not be posed:"):format(#summary.invalid))
+        for index = 1, math.min(10, #summary.invalid) do
+            local item = summary.invalid[index]
+            print("   " .. tostring(item.code) .. ": " .. tostring(item.why):sub(1, 90))
+        end
+    end
+    if #summary.suspicious > 0 then
+        print("\n passed but the file shrank by half: " .. table.concat(summary.suspicious, ", "))
+    end
+    if #summary.failed > 0 then
+        print(("\n %d failed:"):format(#summary.failed))
+        for _, item in ipairs(summary.failed) do
+            local fix = item.hadFix and "fix" or "no fix"
+            print("   " .. tostring(item.code) .. " (" .. fix .. ") left " .. json.encode(item.after))
+        end
+    end
+end
+
+function batch.run(options: batch.Options, codes: {string}): {any}
+    return parallel(
+        codes,
+        options.jobs,
+        function(code: string): any
+            return batch.one(options, code)
+        end,
+        function(count: integer, record: any): nil
+            local mark = record.invalid ~= nil
+            and record.invalid ~= json.NULL
+            and "SKIP"
+            or record.grade.passed
+            and "pass"
+            or "FAIL"
+            print(("  [%3d/%d] %s %s"):format(count, #codes, mark, tostring(record.task.code)))
+            io.stdout:flush()
+        end
+    )
+end
+
+export = batch

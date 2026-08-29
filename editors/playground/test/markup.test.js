@@ -1,0 +1,195 @@
+import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
+import test from "node:test";
+
+test("playground chrome has no synthetic filename", () => {
+  const index = readFileSync(new URL("../static/index.html", import.meta.url), "utf8");
+  const embed = readFileSync(new URL("../static/embed.html", import.meta.url), "utf8");
+  assert.doesNotMatch(index, />playground\.nupp</);
+  assert.doesNotMatch(embed, />playground\.nupp</);
+});
+
+test("example menus have no visible label", () => {
+  const index = readFileSync(new URL("../static/index.html", import.meta.url), "utf8");
+  const embed = readFileSync(new URL("../static/embed.html", import.meta.url), "utf8");
+  const docApp = readFileSync(new URL("../src/doc-app.js", import.meta.url), "utf8");
+  for (const markup of [index, embed, docApp]) {
+    assert.doesNotMatch(markup, /(?:<span>)?Example(?:<\/span>)?\s*<select/);
+    assert.match(markup, /<select[^>]+aria-label="Choose an example"/);
+  }
+});
+
+test("output starts hidden behind the Run control", () => {
+  const index = readFileSync(new URL("../static/index.html", import.meta.url), "utf8");
+  const embed = readFileSync(new URL("../static/embed.html", import.meta.url), "utf8");
+  assert.match(index, /id="compile-button" class="button">Run<\/button>/);
+  assert.match(index, /<section class="output" id="output" aria-label="Output" hidden>/);
+  assert.match(embed, /id="compile-button"[^>]+title="Run" aria-label="Run"/);
+  assert.match(embed, /<section class="output" id="output" aria-label="Output" hidden>/);
+});
+
+test("condensed controls sit above the rounded editor border", () => {
+  const index = readFileSync(new URL("../static/index.html", import.meta.url), "utf8");
+  const embed = readFileSync(new URL("../static/embed.html", import.meta.url), "utf8");
+  const theme = readFileSync(new URL("../src/cm-theme.js", import.meta.url), "utf8");
+  const style = readFileSync(new URL("../static/style.css", import.meta.url), "utf8");
+  assert.match(theme, /"\.cm-gutters": \{[\s\S]*?backgroundColor: "var\(--pg-code-background, var\(--pg-background\)\)"[\s\S]*?borderRight: "0"/);
+  assert.match(theme, /"\.cm-lineNumbers \.cm-gutterElement": \{[\s\S]*?paddingLeft: "\.65rem"[\s\S]*?paddingRight: "1px"[\s\S]*?var\(--pg-faint/);
+  assert.match(theme, /"\.cm-foldGutter span": \{ padding: "0" \}/);
+  assert.match(theme, /"\.cm-gutter-lint": \{ width: "1em" \}/);
+  assert.match(theme, /"\.cm-gutter-lint \.cm-gutterElement": \{ padding: "0" \}/);
+  assert.match(style, /\.is-embed \.editor-host \.cm-content \{ padding: \.5rem 0; \}/);
+  assert.match(style, /\.is-embed #source-editor \{[\s\S]*?border: 1px solid var\(--pg-border\);[\s\S]*?border-radius: var\(--pg-code-block-radius\);/);
+  assert.match(style, /\.head-bar \{[\s\S]*?justify-content: flex-end;[\s\S]*?border: 0;[\s\S]*?background: transparent;/);
+  assert.match(style, /\.head-actions \{[\s\S]*?margin-left: auto;/);
+  assert.match(index, /id="options-button"/);
+  assert.doesNotMatch(embed, /id="options-button"/);
+});
+
+test("playgrounds hide line numbers for sources shorter than five lines", () => {
+  const app = readFileSync(new URL("../src/app.js", import.meta.url), "utf8");
+  const docApp = readFileSync(new URL("../src/doc-app.js", import.meta.url), "utf8");
+  const theme = readFileSync(new URL("../src/cm-theme.js", import.meta.url), "utf8");
+  assert.match(theme, /view\.state\.doc\.lines < 5/);
+  assert.match(theme, /"&\.cm-hide-line-numbers \.cm-lineNumbers": \{ display: "none !important" \}/);
+  assert.match(app, /updateLineNumberVisibility\(sourceView\)/);
+  assert.match(app, /updateLineNumberVisibility\(update\.view\)/);
+  assert.match(docApp, /updateLineNumberVisibility\(this\.view\)/);
+  assert.match(docApp, /updateLineNumberVisibility\(update\.view\)/);
+});
+
+test("the active line appears only after the editor receives focus", () => {
+  const theme = readFileSync(new URL("../src/cm-theme.js", import.meta.url), "utf8");
+  assert.match(theme, /"\.cm-activeLine": \{ backgroundColor: "transparent" \}/);
+  assert.match(theme, /"&\.cm-focused \.cm-activeLine": \{/);
+  assert.match(theme, /backgroundColor: "color-mix\(in srgb, var\(--pg-code-background, var\(--pg-background\)\) 95%, white\)"/);
+});
+
+test("documentation playgrounds are inline and have dismissible output", () => {
+  const docApp = readFileSync(new URL("../src/doc-app.js", import.meta.url), "utf8");
+  assert.match(docApp, /customElements\.define\("nupp-playground"/);
+  assert.match(docApp, /:host \{[\s\S]*?position: relative;[\s\S]*?margin: 2rem 0 1rem;/);
+  assert.match(docApp, /\.toolbar \{[\s\S]*?position: absolute;[\s\S]*?top: -2rem;/);
+  assert.match(docApp, /:host\(\[data-grouped\]\) \.toolbar \{[\s\S]*?position: static;/);
+  assert.match(docApp, /:host\(\[data-grouped\]\) \.editor \{[\s\S]*?border: 0;[\s\S]*?border-radius: 0;/);
+  assert.match(docApp, /\.editor \{[\s\S]*?border: 1px solid var\(--pg-border\);[\s\S]*?border-radius: var\(--pg-code-block-radius\);/);
+  assert.match(docApp, /\.editor \.cm-content \{ padding: \.75rem 0 !important; \}/);
+  assert.match(docApp, /<div class="editor"><\/div>\s*<pre class="lua-panel"[^>]*><\/pre>\s*<div class="tooltip-layer"><\/div>/);
+  assert.match(docApp, /\.tooltip-layer \{[\s\S]*?position: absolute;[\s\S]*?z-index: 3;[\s\S]*?pointer-events: none;/);
+  assert.match(docApp, /tooltips\(\{ parent: tooltipLayer \}\)/);
+  assert.match(docApp, /class="icon-button output-close"[^>]+aria-label="Close output">×<\/button>/);
+  assert.match(docApp, /root\.querySelector\("\.output-close"\)\.addEventListener\("click"/);
+  assert.match(docApp, /const compiler = new CompilerClient\(\)/);
+});
+
+test("the homepage playground omits Run and narrows its example picker on mobile", () => {
+  const docApp = readFileSync(new URL("../src/doc-app.js", import.meta.url), "utf8");
+  assert.match(docApp, /const isHomepage = this\.closest\("\.nuppdoc-home-content"\) !== null;/);
+  assert.match(docApp, /isHomepage \? "" : `<button class="icon-button run"/);
+  assert.match(docApp, /@media \(max-width: 600px\) \{\s*select \{ max-width: 7\.5rem; \}/);
+});
+
+test("documentation playgrounds expose source to Reader Mode", () => {
+  const docApp = readFileSync(new URL("../src/doc-app.js", import.meta.url), "utf8");
+  assert.match(docApp, /this\.querySelector\("\[data-reader-source\]"\)/);
+  assert.match(docApp, /readerSource\.slot = "reader-source"/);
+  assert.match(docApp, /class="reader-source" aria-hidden="true"><slot name="reader-source"><\/slot>/);
+  assert.match(docApp, /\.reader-source \{[\s\S]*?position: absolute;[\s\S]*?opacity: 0;[\s\S]*?pointer-events: none;/);
+  assert.match(docApp, /this\.readerSource\.textContent = source/);
+  assert.match(docApp, /this\.readerSource\.textContent = update\.state\.doc\.toString\(\)/);
+  assert.match(docApp, /root\.querySelector\("\.cm-gutters"\)\?\.setAttribute\("aria-hidden", "true"\)/);
+});
+
+test("documentation playgrounds inherit normal code-block colors", () => {
+  const docApp = readFileSync(new URL("../src/doc-app.js", import.meta.url), "utf8");
+  assert.match(docApp, /--pg-background: var\(--nuppdoc-code-background/);
+  assert.match(docApp, /--pg-border: var\(--nuppdoc-border/);
+  assert.doesNotMatch(docApp, /--nuppdoc-playground-border/);
+  for (const token of ["keyword", "boolean", "string", "comment", "number", "function", "meta", "type", "operator", "property", "punctuation", "variable"]) {
+    assert.match(docApp, new RegExp(`--pg-syntax-${token}: var\\(--nuppdoc-syntax-${token}`));
+  }
+});
+
+test("standalone playground uses the current documentation palette", () => {
+  const style = readFileSync(new URL("../static/style.css", import.meta.url), "utf8");
+  const docApp = readFileSync(new URL("../src/doc-app.js", import.meta.url), "utf8");
+  for (const current of [
+    "#fcfbfb", "#e6eaec", "#2e2f2a", "#9a1600", "#836620",
+    "#1c1917", "#1f1c1b", "#d4c2b6", "#fa745c", "#f9cd5f",
+  ]) {
+    assert.match(style, new RegExp(current));
+  }
+  for (const retired of [
+    "#faf7e8", "#ded7b9", "#173333", "#765128", "#081e27",
+    "#0a252b", "#d7bd72",
+  ]) {
+    assert.doesNotMatch(style, new RegExp(retired));
+    assert.doesNotMatch(docApp, new RegExp(retired));
+  }
+  assert.match(style, /--pg-button-text: #000000;/);
+  assert.match(style, /\.button \{[\s\S]*?color: var\(--pg-button-text\);/);
+});
+
+test("generated Lua output has a muted line-number gutter", () => {
+  const docApp = readFileSync(new URL("../src/doc-app.js", import.meta.url), "utf8");
+  const app = readFileSync(new URL("../src/app.js", import.meta.url), "utf8");
+  const style = readFileSync(new URL("../static/style.css", import.meta.url), "utf8");
+  assert.match(docApp, /\.lua-panel \.lua-line-number \{[\s\S]*?color: var\(--pg-faint\);[\s\S]*?user-select: none;/);
+  assert.match(style, /\.output-main \.lua-line-number \{[\s\S]*?color: var\(--pg-faint\);[\s\S]*?user-select: none;/);
+  assert.match(docApp, /\.lua-panel \{[\s\S]*?white-space: pre;/);
+  assert.match(style, /\.output-main\.is-code \{[\s\S]*?white-space: pre;/);
+  assert.doesNotMatch(app, /EditorView\.lineWrapping/);
+});
+
+test("editor tooltips use compact text and balanced padding", () => {
+  const theme = readFileSync(new URL("../src/cm-theme.js", import.meta.url), "utf8");
+  assert.match(theme, /"\.cm-tooltip": \{[\s\S]*?fontSize: "\.72rem"[\s\S]*?lineHeight: "1\.35"/);
+  assert.match(theme, /"\.cm-diagnostic": \{ padding: "\.2rem \.75rem" \}/);
+  assert.match(theme, /"\.cm-nupp-hover pre": \{[\s\S]*?padding: "\.2rem \.75rem"/);
+});
+
+test("documentation playgrounds check only after the reader engages", () => {
+  const docApp = readFileSync(new URL("../src/doc-app.js", import.meta.url), "utf8");
+  assert.doesNotMatch(docApp, /IntersectionObserver/);
+  assert.match(docApp, /const IGNORED_DOC_DIAGNOSTICS = new Set\(\["NUPP2507"\]\)/);
+  assert.match(docApp, /const diagnostics = visibleDiagnostics\(result\.diagnostics\)/);
+});
+
+test("playground codegen drops effects removed by optimization", () => {
+  const browser = readFileSync(
+    new URL("../../../src/nupp/compiler/browser.nupp", import.meta.url),
+    "utf8",
+  );
+  assert.match(browser, /optimize\.run\(result,/);
+  assert.match(browser, /result\.effects = optimize\.liveEffects\(result\)/);
+  assert.ok(
+    browser.indexOf("optimize.liveEffects(result)") < browser.indexOf("gen.generate(result"),
+    "live effects must be recomputed before generation",
+  );
+});
+
+test("the playground build publishes only native-tested compiler bytes", () => {
+  const build = readFileSync(new URL("../build.mjs", import.meta.url), "utf8");
+  assert.match(build, /test-portable-compiler\.sh/);
+  assert.match(build, /if \(sha256\(after\) !== digest \|\| !after\.equals\(before\)\)/);
+  assert.match(build, /if \(!copied\.equals\(before\)\)/);
+});
+
+test("the full playground exposes both output dialects", () => {
+  const html = readFileSync(new URL("../static/index.html", import.meta.url), "utf8");
+  const app = readFileSync(new URL("../src/app.js", import.meta.url), "utf8");
+  assert.match(html, /id="dialect-select"/);
+  assert.match(html, /value="lua51">Lua 5\.1/);
+  assert.match(html, /value="luajit">LuaJIT/);
+  assert.match(app, /dialect: "lua51"/);
+});
+
+test("Lua 5.1 Run uses a separate bounded application Worker", () => {
+  const app = readFileSync(new URL("../src/app.js", import.meta.url), "utf8");
+  const worker = readFileSync(new URL("../src/app-worker.js", import.meta.url), "utf8");
+  assert.match(app, /new Worker\(new URL\("\.\/app-worker\.js"/);
+  assert.match(app, /application\.terminate\(\)/);
+  assert.match(worker, /managed: true/);
+  assert.match(worker, /maxEffects: 128/);
+  assert.match(worker, /maxStorageValueBytes: 512 \* 1024/);
+});

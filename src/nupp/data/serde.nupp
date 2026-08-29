@@ -1,0 +1,1699 @@
+module nupp.data.serde
+
+--[==[
+`nupp.data.serde` separates logical data from its physical representation.
+
+`Schema` is an immutable logical graph. `Binding<T>` joins that graph to a Nupp
+record, fixed-layout struct, or indexed dynamic value. JSON is the first prepared
+codec; the same schema remains available to XML, CBOR, and custom codecs.
+
+```nupp
+@derive(nupp.derive.Serde)
+local record User
+    id: uint32
+    name: string?
+end
+
+local binding = nupp.data.serde.of(User)
+local prepared = nupp.data.serde.json():prepare(binding)
+local text = prepared:encode(new User(id = 41))
+local restored = assert(prepared:decode(text))
+assert(restored.id == 41)
+```
+
+Run-time clients build the same immutable graph and use dense dynamic slots:
+
+```nupp
+const serde = nupp.data.serde
+local builder = new serde.SchemaBuilder()
+builder:structure("example.User")
+builder:required("id", nupp.data.serde.uint32)
+builder:optional("name", nupp.data.serde.string)
+local binding = nupp.data.serde.dynamic(builder:freeze())
+local value = binding:bind{id = 41, name = "Ada"}
+```
+]==]
+
+local extensions = require("nupp.compiler.runtime.extensions")
+-- Debug and future non-JSON schema consumers must not load the JSON runtime.
+export type Kind = "unit"
+    | "null"
+    | "boolean"
+    | "integer"
+    | "unsigned"
+    | "number"
+    | "decimal"
+    | "string"
+    | "bytes"
+    | "timestamp"
+    | "optional"
+    | "list"
+    | "map"
+    | "structure"
+    | "tuple"
+    | "union"
+    | "stringEnum"
+    | "integerEnum"
+    | "document"
+
+--- Marker claimed by `@derive(nupp.derive.Serde)`.
+---
+--- Serialization remains a property of a `Binding<T>`, not an instance method. The
+--- empty contract lets derive advertise checked participation without making values
+--- carry a codec API.
+--- @export
+export interface Serializable
+end
+
+local nextMetadataSlot: integer = 0
+
+--- A typed identity for format-neutral schema metadata.
+---
+--- Its dense slot is process-local acceleration data. Applications retain the key,
+--- never its number, and may use the same key with static and run-time schemas.
+--- @export
+export record MetadataKey<T>
+    private readonly slot: integer
+end
+
+--- Creates a typed schema metadata identity.
+--- @export
+export function metadataKey<T>(): MetadataKey<T>
+    nextMetadataSlot = nextMetadataSlot + 1
+    return new MetadataKey(slot = nextMetadataSlot)
+end
+
+--- Standard Debug policy metadata shared by derived and dynamic schemas.
+--- @export
+export const debugSkip: MetadataKey<boolean> = metadataKey()
+
+--- @export
+export const debugRedact: MetadataKey<boolean> = metadataKey()
+
+--- One structure member with a stable dense index.
+--- @export
+export record Member
+    readonly index: integer
+    readonly name: string
+    readonly target: any
+    readonly required: boolean
+    readonly hasDefault: boolean
+    private readonly defaultValue: any
+    private readonly owner: any
+    private readonly metadataValues: any
+
+    --- Answers typed metadata attached to this member.
+    function metadata<T>(self, key: MetadataKey<T>): T?
+        return self.metadataValues[key.slot] as T?
+    end
+end
+
+--- One immutable logical schema node.
+--- @export
+export record Schema
+    readonly kind: Kind
+    readonly name: string?
+    readonly members: {Member}
+    private readonly state: any
+
+    --- Answers a lazily computed typed extension.
+    function extension<T>(self, key: nupp.reflect.ExtensionKey<T>): T
+        return extensions.resolve(self, key)
+    end
+
+    --- Answers typed metadata attached to this schema node.
+    function metadata<T>(self, key: MetadataKey<T>): T?
+        return self.state.metadata[key.slot] as T?
+    end
+
+    --- Finds a structure member by its logical name.
+    function member(self, name: string): Member?
+        return self.state.byName[name]
+    end
+
+    --- Answers the element schema of an optional or list node.
+    function element(self): Schema?
+        return self.state.element
+    end
+
+    --- Answers the key schema of a map node.
+    function key(self): Schema?
+        return self.state.key
+    end
+
+    --- Answers the value schema of a map node.
+    function value(self): Schema?
+        return self.state.value
+    end
+
+    --- Finds a member or raises when it is absent.
+    --- @raises when the structure has no member with this name
+    function expectMember(self, name: string): Member
+        local found = self:member(name)
+        if found == nil then
+            error("nupp: schema has no member " .. name, 2)
+        end
+
+        return found
+    end
+end
+
+local function makeSchema(kind: Kind, name: string?, members: {Member}?, extra: any?): Schema
+    local state: any = extra or {}
+    state.byName = state.byName or {}
+    state.metadata = state.metadata or {}
+    local schema = new Schema(kind = kind, name = name, members = members or {}, state = state)
+    extensions.host(schema)
+
+    return schema
+end
+
+--- Format-neutral scalar schema singletons.
+--- @export
+export const unit = makeSchema("unit", "unit")
+
+--- @export
+export const null = makeSchema("null", "null")
+
+--- @export
+export const boolean = makeSchema("boolean", "boolean")
+
+--- @export
+export const integer = makeSchema("integer", "integer")
+
+--- @export
+export const int8 = makeSchema("integer", "int8", nil, {width = 8, minimum = -128, maximum = 127})
+
+--- @export
+export const int16 = makeSchema("integer", "int16", nil, {width = 16, minimum = -32768, maximum = 32767})
+
+--- @export
+export const int32 = makeSchema("integer", "int32", nil, {width = 32, minimum = -2147483648, maximum = 2147483647})
+
+--- @export
+export const uint8 = makeSchema("unsigned", "uint8", nil, {width = 8, minimum = 0, maximum = 255})
+
+--- @export
+export const uint16 = makeSchema("unsigned", "uint16", nil, {width = 16, minimum = 0, maximum = 65535})
+
+--- @export
+export const uint32 = makeSchema("unsigned", "uint32", nil, {width = 32, minimum = 0, maximum = 4294967295})
+
+--- @export
+export const number = makeSchema("number", "number")
+
+--- @export
+export const string = makeSchema("string", "string")
+
+--- @export
+export const document = makeSchema("document", "document")
+
+--- Creates an immutable optional node.
+--- @export
+export function optional(target: Schema): Schema
+    return makeSchema("optional", nil, nil, {element = target})
+end
+
+--- Creates an immutable list node.
+--- @export
+export function list(target: Schema): Schema
+    return makeSchema("list", nil, nil, {element = target})
+end
+
+--- Creates an immutable map node.
+--- @export
+export function map(key: Schema, value: Schema): Schema
+    return makeSchema("map", nil, nil, {key = key, value = value})
+end
+
+local function builderMutable(self: any): any
+    if self.state == nil then
+        self.state = {kind = nil, name = nil, members = {}, metadata = {}, frozen = false}
+    end
+    if self.state.frozen then
+        error("nupp: schema builder is frozen", 2)
+    end
+
+    return self.state
+end
+
+local function builderAdd(
+    self: any,
+    name: string,
+    target: Schema,
+    required: boolean,
+    defaultValue: any,
+    hasDefault: boolean
+): nil
+    local state = builderMutable(self)
+    if state.kind ~= "structure" then
+        error("nupp: select a structure before adding members", 2)
+    end
+    for _, member in ipairs(state.members) do
+        if member.name == name then
+            error("nupp: duplicate schema member " .. name, 2)
+        end
+    end
+    state.members[
+        #state.members + 1
+    ] = {
+        name = name,
+        target = target,
+        required = required,
+        hasDefault = hasDefault,
+        defaultValue = defaultValue,
+        metadata = {},
+    }
+end
+
+--- Incrementally constructs and then freezes a run-time structure schema.
+--- @export
+export record SchemaBuilder
+    private state: any = nil
+
+    constructor(self)
+        self.state = nil
+    end
+
+    --- Starts a named structure.
+    --- @raises when a root was already selected
+    function structure(self, name: string): SchemaBuilder
+        local state = builderMutable(self)
+        if state.kind ~= nil then
+            error("nupp: schema builder already has a root", 2)
+        end
+        state.kind = "structure"
+        state.name = name
+
+        return self
+    end
+
+    --- Adds a required member.
+    function required(self, name: string, target: Schema): SchemaBuilder
+        builderAdd(self, name, target, true, nil, false)
+        return self
+    end
+
+    --- Adds an optional member.
+    function optional(self, name: string, target: Schema): SchemaBuilder
+        builderAdd(self, name, target, false, nil, false)
+        return self
+    end
+
+    --- Adds a member with a default.
+    function defaulted(self, name: string, target: Schema, value: any): SchemaBuilder
+        builderAdd(self, name, target, false, value, true)
+        return self
+    end
+
+    --- Attaches typed metadata to the root schema.
+    function metadata<T>(self, key: MetadataKey<T>, value: T): SchemaBuilder
+        local state = builderMutable(self)
+        state.metadata[key.slot] = value
+        return self
+    end
+
+    --- Attaches typed metadata to a named structure member.
+    --- @raises when the member is absent
+    function memberMetadata<T>(self, name: string, key: MetadataKey<T>, value: T): SchemaBuilder
+        local state = builderMutable(self)
+        for _, member in ipairs(state.members) do
+            if member.name == name then
+                member.metadata[key.slot] = value
+                return self
+            end
+        end
+        error("nupp: schema has no member " .. name, 2)
+    end
+
+    --- Freezes and answers the immutable schema.
+    --- @raises when the builder has no root
+    function freeze(self): Schema
+        local state = builderMutable(self)
+        if state.kind == nil then
+            error("nupp: schema builder has no root", 2)
+        end
+        local members: {Member} = {}
+        local schemaState: any = {byName = {}, metadata = state.metadata}
+        local schema = makeSchema(state.kind, state.name, members, schemaState)
+        for index, item in ipairs(state.members) do
+            local member = new Member(
+                index = index,
+                name = item.name,
+                target = item.target,
+                required = item.required,
+                hasDefault = item.hasDefault,
+                defaultValue = item.defaultValue,
+                owner = schema,
+                metadataValues = item.metadata
+            )
+            members[index] = member
+            schemaState.byName[member.name] = member
+        end
+        state.frozen = true
+        state.result = schema
+
+        return schema
+    end
+end
+
+--- A checked physical representation of a schema as `T`.
+--- @export
+export sealed interface Binding<T>
+    schema: function(self): Schema
+    extension: function(self, key: any): any
+end
+
+local bindingStates: any = setmetatable({}, {__mode = "k"})
+local defaultSchemaBindings: any = setmetatable({}, {__mode = "k"})
+local validateValue: function(value: any, schema: Schema, path: string): nil
+
+local record BindingImpl<T> is Binding<T>
+    private readonly token: any
+
+    function schema(self): Schema
+        return bindingStates[self].schema
+    end
+
+    function extension(self, key: any): any
+        return extensions.resolve(self, key)
+    end
+end
+
+local function makeBinding<T>(state: any): Binding<T>
+    local binding = new BindingImpl(token = state)
+    bindingStates[binding] = state
+    if state.kind ~= "dynamic" and defaultSchemaBindings[state.schema] == nil then
+        defaultSchemaBindings[state.schema] = state
+    end
+    extensions.host(binding)
+
+    return binding as Binding<T>
+end
+
+--- An indexed value owned by a dynamic binding.
+--- @export
+export record DynamicValue
+    private readonly token: any
+
+    --- Reads a resolved member.
+    --- @raises when the member belongs to another schema
+    function get(self, member: Member): any
+        local state = self.token
+        if member.owner ~= state.schema then
+            error("nupp: member belongs to another schema", 2)
+        end
+
+        return state.values[member.index]
+    end
+
+    --- Reads a member by logical name.
+    function get(self, name: string): any
+        local member = self.token.schema:expectMember(name)
+        local state = self.token
+        return state.values[member.index]
+    end
+
+    --- Sets a resolved member after checking its schema identity.
+    --- @raises when the member belongs to another schema
+    function set(self, member: Member, value: any): nil
+        local state = self.token
+        if member.owner ~= state.schema then
+            error("nupp: member belongs to another schema", 2)
+        end
+        validateValue(value, member.target as Schema, member.name)
+        state.values[member.index] = value
+        state.present[member.index] = true
+    end
+end
+
+--- A binding that constructs dense run-time values.
+--- @export
+export sealed interface DynamicBinding is Binding<DynamicValue>
+    bind: function(self, value: {[string]: any}): DynamicValue
+    newValue: function(self): DynamicValue
+end
+
+local record DynamicBindingImpl is DynamicBinding
+    private readonly binding: Binding<DynamicValue>
+
+    function schema(self): Schema
+        return self.binding:schema()
+    end
+
+    function extension(self, key: any): any
+        return self.binding:extension(key)
+    end
+
+    function newValue(self): DynamicValue
+        local schema = self:schema()
+        return new DynamicValue(token = {schema = schema, values = {}, present = {}})
+    end
+
+    function bind(self, value: {[string]: any}): DynamicValue
+        local result = self:newValue()
+        local schema = self:schema()
+        for name, item in pairs(value) do
+            local member = schema:member(name)
+            if member == nil then
+                error("nupp: unknown member " .. tostring(name), 2)
+            end
+            result:set(member, item)
+        end
+        for _, member in ipairs(schema.members) do
+            if member.required and not result.token.present[member.index] then
+                error("nupp: missing required member " .. member.name, 2)
+            elseif member.hasDefault and not result.token.present[member.index] then
+                result:set(member, member.defaultValue)
+            end
+        end
+
+        return result
+    end
+end
+
+--- Creates the indexed dynamic binding for a frozen schema.
+--- @raises when the schema is not a structure
+--- @export
+export function dynamic(schema: Schema): DynamicBinding
+    if schema.kind == "structure" then
+        local binding: Binding<DynamicValue> = makeBinding({kind = "dynamic", schema = schema})
+        return new DynamicBindingImpl(binding = binding)
+    else
+        error("nupp: dynamic binding currently requires a structure schema", 2)
+    end
+end
+
+local bindingForEntry: function(entry: any): any
+
+validateValue = function(value: any, schema: Schema, path: string): nil
+    if value == nil then
+        if schema.kind ~= "optional" and schema.kind ~= "null" then
+            error("nupp: " .. path .. " cannot be nil", 3)
+        end
+        return
+    end
+    if schema.state.hasLiteral and value ~= schema.state.literalValue then
+        error("nupp: " .. path .. " must equal its literal schema value", 3)
+    end
+    if schema.kind == "optional" then
+        validateValue(value, schema:element() as Schema, path)
+    elseif schema.kind == "string" and type(value) ~= "string" then
+        error("nupp: " .. path .. " must be a string", 3)
+    elseif schema.kind == "boolean" and type(value) ~= "boolean" then
+        error("nupp: " .. path .. " must be a boolean", 3)
+    elseif schema.kind == "integer" or schema.kind == "unsigned" then
+        if type(value) ~= "number" or value ~= value or value == math.huge or value == -math.huge or value % 1 ~= 0 then
+            error("nupp: " .. path .. " must be an integer", 3)
+        end
+        if schema.state.minimum ~= nil
+            and value < schema.state.minimum
+            or schema.state.maximum ~= nil
+            and value > schema.state.maximum
+        then
+            error("nupp: " .. path .. " is outside " .. tostring(schema.name) .. " range", 3)
+        end
+    elseif schema.kind == "number" and (
+        type(value) ~= "number" or value ~= value or value == math.huge or value == -math.huge
+    ) then
+        error("nupp: " .. path .. " must be a finite number", 3)
+    elseif schema.kind == "list" then
+        if type(value) ~= "table" then
+            error("nupp: " .. path .. " must be a list", 3)
+        end
+        for index, item in ipairs(value) do
+            validateValue(item, schema:element() as Schema, path .. "[" .. tostring(index) .. "]")
+        end
+    elseif schema.kind == "map" then
+        if type(value) ~= "table" then
+            error("nupp: " .. path .. " must be a map", 3)
+        end
+        for key, item in pairs(value) do
+            validateValue(key, schema:key() as Schema, path .. " key")
+            validateValue(item, schema:value() as Schema, path .. "." .. tostring(key))
+        end
+    elseif schema.kind == "tuple" then
+        if type(value) ~= "table" or #value ~= #(schema.state.items or {}) then
+            error("nupp: " .. path .. " must match tuple length", 3)
+        end
+        for index, item in ipairs(schema.state.items or {}) do
+            validateValue(value[index], item, path .. "[" .. tostring(index) .. "]")
+        end
+    elseif schema.kind == "union" then
+        local matched = false
+        for _, item in ipairs(schema.state.choices or {}) do
+            if item.state.hasLiteral and value == item.state.literalValue then
+                matched = true
+                break
+            end
+        end
+        if not matched then
+            error("nupp: " .. path .. " must match a union alternative", 3)
+        end
+    elseif schema.kind == "structure" and type(value) ~= "table" and type(value) ~= "cdata" then
+        error("nupp: " .. path .. " must be a structure", 3)
+    end
+end
+
+local function schemaForSpec(spec: any): Schema
+    local kind = spec.kind
+    if kind == "nil" then
+        return null
+    elseif kind == "boolean" then
+        return boolean
+    elseif kind == "literal" then
+        local scalarKind: Kind = type(
+            spec.value
+        ) == "string" and "string" or type(
+            spec.value
+        ) == "boolean" and "boolean" or type(spec.value) == "number" and spec.value % 1 == 0 and "integer" or "number"
+        return makeSchema(scalarKind, "literal", nil, {hasLiteral = true, literalValue = spec.value,})
+    elseif kind == "string" then
+        return string
+    elseif kind == "integer" then
+        return integer
+    elseif kind == "int8" then
+        return int8
+    elseif kind == "int16" then
+        return int16
+    elseif kind == "int32" then
+        return int32
+    elseif kind == "int64" then
+        return makeSchema("integer", "int64")
+    elseif kind == "uint8" then
+        return uint8
+    elseif kind == "uint16" then
+        return uint16
+    elseif kind == "uint32" then
+        return uint32
+    elseif kind == "uint64" then
+        return makeSchema("unsigned", "uint64")
+    elseif kind == "number" or kind == "float" then
+        return number
+    elseif kind == "optional" then
+        return optional(schemaForSpec(spec.value))
+    elseif kind == "array" then
+        return list(schemaForSpec(spec.value))
+    elseif kind == "map" then
+        return map(spec.key and schemaForSpec(spec.key) or string, schemaForSpec(spec.value))
+    elseif kind == "any" then
+        return makeSchema("document", nil, nil, {debugMode = "any"})
+    elseif kind == "customDebug" then
+        return makeSchema("document", nil, nil, {debugMode = "customDebug"})
+    elseif kind == "tuple" then
+        local items: {Schema} = {}
+        for index, item in ipairs(spec.items or {}) do
+            items[index] = schemaForSpec(item)
+        end
+        return makeSchema("tuple", nil, nil, {items = items})
+    elseif kind == "union" then
+        local choices: {Schema} = {}
+        for index, item in ipairs(spec.choices or {}) do
+            choices[index] = schemaForSpec(item)
+        end
+        return makeSchema("union", nil, nil, {choices = choices})
+    elseif kind == "shape" then
+        local members: {Member} = {}
+        local schemaState: any = {byName = {}}
+        local schema = makeSchema("structure", nil, members, schemaState)
+        makeBinding({kind = "shape", schema = schema, fields = spec.fields})
+        for index, field in ipairs(spec.fields or {}) do
+            local member = new Member(
+                index = index,
+                name = field.name,
+                target = schemaForSpec(field.type),
+                required = true,
+                hasDefault = false,
+                defaultValue = nil,
+                owner = schema,
+                metadataValues = {}
+            )
+            members[index] = member
+            schemaState.byName[member.name] = member
+        end
+        return schema
+    elseif kind == "record" then
+        local runtime = _G.nupp and _G.nupp.__derive
+        local entry = runtime and runtime.types[spec.typeKey]
+        if entry ~= nil then
+            return bindingForEntry(entry):schema()
+        end
+        error("nupp: Serde dependency is not loaded", 3)
+    else
+        error("nupp: unsupported derived Serde kind " .. tostring(kind), 3)
+    end
+end
+
+bindingForEntry = function(entry: any): any
+    if entry.serdeBinding ~= nil then
+        return entry.serdeBinding
+    end
+    local recipe = entry.schema.data and entry.schema.data.serde
+    if recipe == nil then
+        error("nupp: Serde was not derived for this type", 3)
+    end
+    local members: {Member} = {}
+    local schemaState: any = {byName = {}}
+    local schema = makeSchema("structure", recipe.name, members, schemaState)
+    -- Publish the identity before resolving children so a recursive declaration
+    -- reaches this same graph node instead of recursively rebuilding its binding.
+    local binding: Binding<any> = makeBinding({
+        kind = recipe.representation,
+        schema = schema,
+        typeObject = entry.mt,
+        fields = recipe.fields,
+    })
+    entry.serdeBinding = binding
+    for index, field in ipairs(recipe.fields) do
+        local metadata: any = {}
+        if field.debugSkip then
+            metadata[debugSkip.slot] = true
+        end
+        if field.debugRedact then
+            metadata[debugRedact.slot] = true
+        end
+        local member = new Member(
+            index = index,
+            name = field.name,
+            target = schemaForSpec(field.serdeType),
+            required = field.required,
+            hasDefault = field.default ~= nil,
+            defaultValue = field.default and field.default.value,
+            owner = schema,
+            metadataValues = metadata
+        )
+        members[index] = member
+        schemaState.byName[member.name] = member
+    end
+
+    return binding
+end
+
+--- Retrieves the binding registered by `@derive(nupp.derive.Serde)`.
+--- @export
+--- @raises when the type did not derive Serde
+local function bindingOf(type: any): any
+    local runtime = _G.nupp and _G.nupp.__derive
+    local entry = runtime and runtime.entry(type)
+    if entry == nil then
+        error("nupp: Serde was not derived for this type", 2)
+    end
+    local recipe = entry.schema.data and entry.schema.data.serde
+    if recipe == nil or recipe.debugOnly then
+        error("nupp: Serde was not derived for this type", 2)
+    end
+
+    return bindingForEntry(entry)
+end
+
+export function of<T>(type: Type<T>): Binding<T>
+    return bindingOf(type) as Binding<T>
+end
+
+--- A prepared schema-driven Debug formatter.
+--- @export
+export sealed interface PreparedDebug<T>
+    format: function(self, value: T): string
+    write: function(self, value: T, exclusive out: string.buffer.Buffer): nil
+end
+
+local type DebugWrite = function(value: any, exclusive out: string.buffer.Buffer, state: any): nil
+local type DebugPlan = {write: DebugWrite}
+
+local buildPreparedDebug: function(binding: any): any
+local debugPlanFor: function(schema: Schema, access: any?, dynamicValues: boolean, seen: any): DebugPlan
+local writeDebugAny: function(value: any, exclusive out: string.buffer.Buffer, state: any): nil
+
+local debugPreparedKey = extensions.key(function(binding: any): any
+    return buildPreparedDebug(binding)
+end)
+
+local function compareDebugKeys(a: any, b: any): boolean
+    return tostring(a) < tostring(b)
+end
+
+local function sortedDebugKeys(value: any): {any}
+    local keys: {any} = {}
+    for key in pairs(value) do
+        keys[#keys + 1] = key
+    end
+    table.sort(keys, compareDebugKeys)
+
+    return keys
+end
+
+local function debugContainer(value: any, state: any): boolean
+    if state.active[value] then
+        return false
+    end
+    state.active[value] = true
+
+    return true
+end
+
+local function debugAccess(schema: Schema, dynamicValues: boolean): any
+    if schema.kind == "structure" then
+        if dynamicValues then
+            return {kind = "dynamic", schema = schema}
+        end
+        return defaultSchemaBindings[schema]
+    else
+        return nil
+    end
+end
+
+local function debugTypeName(value: any): string
+    return "<" .. type(value) .. ">"
+end
+
+writeDebugAny = function(value: any, exclusive out: string.buffer.Buffer, state: any): nil
+    local kind = type(value)
+    if kind == "nil" or kind == "boolean" or kind == "number" then
+        out:put(tostring(value))
+        return
+    elseif kind == "string" then
+        out:put(_G.string.format("%q", value))
+        return
+    elseif kind ~= "table" then
+        out:put("<", kind, ">")
+        return
+    end
+    local mt = getmetatable(value)
+    local runtime = _G.nupp and _G.nupp.__derive
+    local entry = mt ~= nil and runtime and runtime.types[rawget(mt as any, "__nuppDeriveKey")] or nil
+    if entry ~= nil and entry.schema.data.debug ~= nil then
+        if entry.debugPlan == nil then
+            entry.debugPrepared = bindingForEntry(entry):extension(debugPreparedKey)
+            entry.debugPlan = entry.debugPrepared.plan
+        end
+        local nested = entry.debugPlan as DebugPlan
+        nested.write(value, out, state)
+        return
+    end
+    if not debugContainer(value, state) then
+        out:put("<cycle>")
+        return
+    end
+    out:put("{")
+    local first = true
+    for _, key in ipairs(sortedDebugKeys(value)) do
+        if not first then
+            out:put(", ")
+        end
+        first = false
+        out:put("[")
+        writeDebugAny(key, out, state)
+        out:put("] = ")
+        writeDebugAny(value[key], out, state)
+    end
+    out:put("}")
+    state.active[value] = nil
+end
+
+debugPlanFor = function(schema: Schema, access: any?, dynamicValues: boolean, seen: any): DebugPlan
+    local mode = dynamicValues and "dynamic" or access and access.kind or "value"
+    local byMode = seen[schema]
+    if byMode == nil then
+        byMode = {}
+        seen[schema] = byMode
+    elseif byMode[mode] ~= nil then
+        return byMode[mode] as DebugPlan
+    end
+    -- Publish the placeholder before walking children. Recursive schemas close over
+    -- this table, whose operation is filled once preparation reaches the node.
+    local plan: DebugPlan = {
+        write = function(): nil
+            error("nupp: Debug plan used before preparation completed", 3)
+        end,
+    }
+    byMode[mode] = plan
+    if schema.kind == "optional" then
+        local target = schema:element() as Schema
+        local element = debugPlanFor(target, debugAccess(target, dynamicValues), dynamicValues, seen)
+        plan.write = function(value: any, exclusive out: string.buffer.Buffer, state: any): nil
+            if value == nil then
+                out:put("nil")
+            else
+                element.write(value, out, state)
+            end
+        end
+    elseif schema.state.debugMode == "customDebug" then
+        plan.write = function(value: any, exclusive out: string.buffer.Buffer): nil
+            out:put(value:debug() as string)
+        end
+    elseif schema.kind == "document" then
+        plan.write = writeDebugAny
+    elseif schema.kind == "string" or schema.state.hasLiteral and type(schema.state.literalValue) == "string" then
+        plan.write = function(value: any, exclusive out: string.buffer.Buffer): nil
+            out:put(_G.string.format("%q", value))
+        end
+    elseif schema.kind == "unit"
+        or schema.kind == "null"
+        or schema.kind == "boolean"
+        or schema.kind == "integer"
+        or schema.kind == "unsigned"
+        or schema.kind == "number"
+        or schema.state.hasLiteral
+    then
+        plan.write = function(value: any, exclusive out: string.buffer.Buffer): nil
+            out:put(tostring(value))
+        end
+    elseif schema.kind == "list" then
+        local target = schema:element() as Schema
+        local element = debugPlanFor(target, debugAccess(target, dynamicValues), dynamicValues, seen)
+        plan.write = function(value: any, exclusive out: string.buffer.Buffer, state: any): nil
+            if type(value) ~= "table" then
+                out:put(debugTypeName(value))
+                return
+            end
+            if not debugContainer(value, state) then
+                out:put("<cycle>")
+                return
+            end
+            out:put("{")
+            for index = 1, #value do
+                if index > 1 then
+                    out:put(", ")
+                end
+                element.write(value[index], out, state)
+            end
+            out:put("}")
+            state.active[value] = nil
+        end
+    elseif schema.kind == "map" then
+        local key = schema:key() as Schema
+        local value = schema:value() as Schema
+        local keyPlan = debugPlanFor(key, debugAccess(key, dynamicValues), dynamicValues, seen)
+        local valuePlan = debugPlanFor(value, debugAccess(value, dynamicValues), dynamicValues, seen)
+        plan.write = function(input: any, exclusive out: string.buffer.Buffer, state: any): nil
+            if type(input) ~= "table" then
+                out:put(debugTypeName(input))
+                return
+            end
+            if not debugContainer(input, state) then
+                out:put("<cycle>")
+                return
+            end
+            out:put("{")
+            local first = true
+            for _, itemKey in ipairs(sortedDebugKeys(input)) do
+                if not first then
+                    out:put(", ")
+                end
+                first = false
+                out:put("[")
+                keyPlan.write(itemKey, out, state)
+                out:put("] = ")
+                valuePlan.write(input[itemKey], out, state)
+            end
+            out:put("}")
+            state.active[input] = nil
+        end
+    elseif schema.kind == "tuple" then
+        local items: {DebugPlan} = {}
+        for index, item in ipairs(schema.state.items or {}) do
+            items[index] = debugPlanFor(item, debugAccess(item, dynamicValues), dynamicValues, seen)
+        end
+        plan.write = function(value: any, exclusive out: string.buffer.Buffer, state: any): nil
+            if type(value) ~= "table" then
+                out:put(debugTypeName(value))
+                return
+            end
+            if not debugContainer(value, state) then
+                out:put("<cycle>")
+                return
+            end
+            out:put("{")
+            for index, item in ipairs(items) do
+                if index > 1 then
+                    out:put(", ")
+                end
+                item.write(value[index], out, state)
+            end
+            out:put("}")
+            state.active[value] = nil
+        end
+    elseif schema.kind == "structure" then
+        local keys: {any} = {}
+        local writePrefixes: {string} = {}
+        local redacted: {boolean} = {}
+        local writes: {DebugWrite} = {}
+        for _, member in ipairs(schema.members) do
+            local target = member.target as Schema
+            if member:metadata(debugSkip) ~= true then
+                local index = #keys + 1
+                local fieldPlan = debugPlanFor(target, debugAccess(target, dynamicValues), dynamicValues, seen)
+                keys[index] = dynamicValues and member.index or member.name
+                local memberPrefix = member.name .. " = "
+                writePrefixes[index] = index == 1 and memberPrefix or ", " .. memberPrefix
+                redacted[index] = member:metadata(debugRedact) == true
+                writes[index] = fieldPlan.write
+            end
+        end
+        local prefix = schema.name ~= nil and schema.name .. " { " or "{"
+        local suffix = schema.name ~= nil and " }" or "}"
+        plan.write = function(value: any, exclusive out: string.buffer.Buffer, state: any): nil
+            if not debugContainer(value, state) then
+                out:put("<cycle>")
+                return
+            end
+            local values = dynamicValues and value.token.values or value
+            out:put(prefix)
+            for index, key in ipairs(keys) do
+                out:put(writePrefixes[index])
+                if redacted[index] then
+                    out:put("<redacted>")
+                else
+                    writes[index](values[key], out, state)
+                end
+            end
+            out:put(suffix)
+            state.active[value] = nil
+        end
+    else
+        plan.write = function(value: any, exclusive out: string.buffer.Buffer): nil
+            out:put(debugTypeName(value))
+        end
+    end
+
+    return plan
+end
+
+local record PreparedDebugImpl<T> is PreparedDebug<T>
+    private readonly plan: DebugPlan
+    -- Pop while in use and return only after reset. Reentrant and interleaved calls
+    -- therefore acquire distinct buffers while steady-state calls allocate none.
+    private readonly buffers: {string.buffer.Buffer}
+
+    function write(self, value: T, exclusive out: string.buffer.Buffer): nil
+        self.plan.write(value, out, {active = {}})
+    end
+
+    function format(self, value: T): string
+        local out = self.buffers[#self.buffers]
+        if out == nil then
+            out = require("string.buffer").new() as string.buffer.Buffer
+        else
+            self.buffers[#self.buffers] = nil
+        end
+        self.plan.write(value, out, {active = {}})
+        local result = out:tostring()
+        out:reset()
+        self.buffers[#self.buffers + 1] = out
+
+        return result
+    end
+end
+
+buildPreparedDebug = function(binding: any): any
+    local access = bindingStates[binding]
+    return new PreparedDebugImpl(plan = debugPlanFor(access.schema, access, access.kind == "dynamic", {}), buffers = {})
+end
+
+--- Prepares and memoizes Debug formatting for a binding.
+--- @export
+export function prepareDebug<T>(binding: Binding<T>): PreparedDebug<T>
+    return binding:extension(debugPreparedKey) as PreparedDebug<T>
+end
+
+--- Formats a value through its prepared schema and binding.
+--- @internal
+export function debugEntry(value: any, entry: any): string
+    if entry.debugPlan == nil then
+        entry.debugPrepared = bindingForEntry(entry):extension(debugPreparedKey)
+        entry.debugPlan = entry.debugPrepared.plan
+    end
+
+    return (entry.debugPrepared as PreparedDebug<any>):format(value)
+end
+
+--- Immutable JSON wire-policy identity.
+--- @export
+export record JsonProfile
+    readonly unknownMembers: "reject" | "ignore"
+    private readonly fieldNames: any
+end
+
+--- A prepared JSON traversal for one binding and profile.
+---
+--- The recursive prepared traversal handles structures, lists, string-keyed
+--- maps, optionals, scalar constraints, defaults, literals, and document members.
+--- @export
+export sealed interface Prepared<T>
+    encode: function(self, value: T): string
+
+    --- Appends one encoded root through reserved caller-owned storage.
+    ---
+    --- The prepared traversal writes one complete encoded value.
+    write: function(self, value: T, exclusive out: string.buffer.Buffer): nil
+        & function(self, value: T, exclusive out: nupp.data.json.Writer): nil
+
+    decode: function(self, text: string): (T?, string?)
+
+    --- Decodes a value held in caller-owned storage.
+    decodeBuffer: function(self, exclusive input: string.buffer.Buffer): (T?, string?)
+end
+
+local preparedStates: any = setmetatable({}, {__mode = "k"})
+
+local function wireName(profile: JsonProfile, member: Member): string
+    if profile.fieldNames == nil then
+        return member.name
+    end
+    local name = profile.fieldNames(member)
+    if type(name) ~= "string" then
+        error("nupp: fieldNames must return a string for " .. member.name, 3)
+    end
+
+    return name as string
+end
+
+local layoutHoldersKey = extensions.key(function(): any
+    return setmetatable({}, {__mode = "k"})
+end)
+
+local accessKey = extensions.key(function(binding: any): any
+    return bindingStates[binding]
+end)
+
+local preparedHoldersKey = extensions.key(function(): any
+    return setmetatable({}, {__mode = "k"})
+end)
+
+local function layoutFor(schema: Schema, profile: JsonProfile): any
+    local holders = schema:extension(layoutHoldersKey)
+    local prior = holders[profile]
+    if prior ~= nil then
+        return prior
+    end
+    -- Publish a placeholder before walking children. Recursive declarations then
+    -- share this same immutable node instead of rebuilding the graph.
+    local layout: any = {
+        schema = schema,
+        kind = schema.kind,
+        minimum = schema.state.minimum,
+        maximum = schema.state.maximum,
+        hasLiteral = schema.state.hasLiteral == true,
+        literalValue = schema.state.literalValue,
+    }
+    holders[profile] = layout
+    if schema.kind == "optional" or schema.kind == "list" then
+        layout.element = layoutFor(schema:element() as Schema, profile)
+    elseif schema.kind == "map" then
+        layout.key = layoutFor(schema:key() as Schema, profile)
+        layout.value = layoutFor(schema:value() as Schema, profile)
+    elseif schema.kind == "tuple" then
+        layout.items = {}
+        for index, item in ipairs(schema.state.items or {}) do
+            layout.items[index] = layoutFor(item, profile)
+        end
+    elseif schema.kind == "union" then
+        layout.choices = {}
+        for index, item in ipairs(schema.state.choices or {}) do
+            layout.choices[index] = layoutFor(item, profile)
+        end
+    end
+    local fields: any = {}
+    if schema.kind == "structure" then
+        for index, member in ipairs(schema.members) do
+            fields[
+                index
+            ] = {
+                name = member.name,
+                wire = wireName(profile, member),
+                target = layoutFor(member.target as Schema, profile),
+                required = member.required,
+                hasDefault = member.hasDefault,
+                defaultValue = member.defaultValue,
+            }
+        end
+    end
+    local byWire: any = {}
+    for index, field in ipairs(fields) do
+        if byWire[field.wire] ~= nil then
+            error("nupp: duplicate JSON wire member " .. field.wire, 3)
+        end
+        byWire[field.wire] = index
+    end
+    layout.fields = fields
+    layout.byWire = byWire
+
+    return layout
+end
+
+local function decodePlanFor(layout: any, access: any, seen: any): any
+    local kind = layout.kind
+    if kind == "unit"
+        or kind == "null"
+        or kind == "decimal"
+        or kind == "bytes"
+        or kind == "timestamp"
+        or kind == "stringEnum"
+        or kind == "integerEnum"
+    then
+        return nil
+    end
+    if kind == "structure" then
+        if access ~= nil and access.kind == "dynamic" then
+            access = {kind = "dynamic", schema = layout.schema}
+        elseif access == nil or access.schema ~= layout.schema then
+            access = defaultSchemaBindings[layout.schema]
+        end
+        if access == nil or access.kind ~= "record" and access.kind ~= "struct" and access.kind ~= "dynamic" then
+            return nil
+        end
+    end
+    local prior = seen[layout]
+    if prior ~= nil then
+        return prior
+    end
+    local plan: any = {
+        kind = kind,
+        schema = layout.schema,
+        minimum = layout.minimum,
+        maximum = layout.maximum,
+        hasLiteral = layout.hasLiteral,
+        literalValue = layout.literalValue,
+    }
+    seen[layout] = plan
+    if kind == "optional" or kind == "list" then
+        plan.element = decodePlanFor(layout.element, access, seen)
+        if plan.element == nil then
+            return nil
+        end
+    elseif kind == "map" then
+        if layout.key.kind ~= "string" then
+            return nil
+        end
+        plan.value = decodePlanFor(layout.value, access, seen)
+        if plan.value == nil then
+            return nil
+        end
+    elseif kind == "tuple" then
+        plan.items = {}
+        for index, item in ipairs(layout.items) do
+            plan.items[index] = decodePlanFor(item, access, seen)
+            if plan.items[index] == nil then
+                return nil
+            end
+        end
+    elseif kind == "union" then
+        plan.choices = {}
+        for index, item in ipairs(layout.choices) do
+            plan.choices[index] = decodePlanFor(item, access, seen)
+            if plan.choices[index] == nil then
+                return nil
+            end
+        end
+    elseif kind == "structure" then
+        plan.access = access.kind
+        plan.typeObject = access.typeObject
+        plan.fields = {}
+        for index, field in ipairs(layout.fields) do
+            local target = decodePlanFor(field.target, access, seen)
+            if target == nil then
+                return nil
+            end
+            plan.fields[
+                index
+            ] = {
+                name = field.name,
+                wire = field.wire,
+                target = target,
+                required = field.required,
+                hasDefault = field.hasDefault,
+                defaultValue = field.defaultValue,
+            }
+        end
+        if plan.access == "struct" then
+            local typeObject = plan.typeObject
+            local fields = plan.fields
+            plan.factory = function(values: any): any
+                local result = typeObject()
+                for _, field in ipairs(fields) do
+                    local item = rawget(values, field.name)
+                    if item ~= nil then
+                        result[field.name] = item
+                    end
+                end
+
+                return result
+            end
+        elseif plan.access == "dynamic" then
+            local schema = plan.schema
+            plan.factory = function(values: any): any
+                local present: any = {}
+                for index in pairs(values) do
+                    present[index] = true
+                end
+
+                return new DynamicValue(token = {schema = schema, values = values, present = present})
+            end
+        end
+    end
+
+    return plan
+end
+
+local finishDecoded: function(value: any, plan: any, path: string): any
+
+finishDecoded = function(value: any, plan: any, path: string): any
+    local kind = plan.kind
+    if value == nil then
+        return nil
+    elseif kind == "optional" then
+        return finishDecoded(value, plan.element, path)
+    elseif kind == "list" then
+        if type(value) ~= "table" then
+            error("nupp: " .. path .. " must be a list", 3)
+        end
+        for index, item in ipairs(value) do
+            value[index] = finishDecoded(item, plan.element, path .. "[" .. tostring(index) .. "]")
+        end
+        return value
+    elseif kind == "map" then
+        if type(value) ~= "table" then
+            error("nupp: " .. path .. " must be a map", 3)
+        end
+        for key, item in pairs(value) do
+            validateValue(key, plan.schema:key() as Schema, path .. " key")
+            value[key] = finishDecoded(item, plan.value, path .. "." .. tostring(key))
+        end
+        return value
+    elseif kind == "tuple" then
+        if type(value) ~= "table" or #value ~= #plan.items then
+            error("nupp: " .. path .. " must match tuple length", 3)
+        end
+        for index, item in ipairs(plan.items) do
+            value[index] = finishDecoded(value[index], item, path .. "[" .. tostring(index) .. "]")
+        end
+        return value
+    elseif kind ~= "structure" then
+        validateValue(value, plan.schema, path)
+        return value
+    end
+    if type(value) ~= "table" then
+        error("nupp: expected JSON object", 3)
+    end
+    local result: any = value
+    local values: any = value
+    local present: any
+    if plan.access == "dynamic" then
+        present = {}
+    elseif plan.access == "struct" then
+        result = plan.typeObject()
+    end
+    for index, field in ipairs(plan.fields) do
+        local key: any = plan.access == "record" and field.name or index
+        local item = rawget(values, key)
+        if item == nil then
+            if field.required then
+                error("nupp: missing required member " .. field.name, 3)
+            elseif field.hasDefault then
+                item = field.defaultValue
+            end
+        end
+        if item ~= nil then
+            item = finishDecoded(item, field.target, path .. "." .. field.wire)
+            if plan.access == "record" then
+                rawset(result, field.name, item)
+            elseif plan.access == "struct" then
+                result[field.name] = item
+            else
+                values[index] = item
+                present[index] = true
+            end
+        end
+    end
+    if plan.access == "dynamic" then
+        return new DynamicValue(token = {schema = plan.schema, values = values, present = present})
+    end
+
+    return result
+end
+
+local writeDocument: function(
+    exclusive out: nupp.data.json.Writer,
+    value: any,
+    schema: Schema,
+    profile: JsonProfile,
+    access: any?
+): nil
+
+local record PreparedImpl<T> is Prepared<T>
+    private readonly token: any
+
+    function encode(self, value: T): string
+        local state = preparedStates[self]
+        return state.fallbackEncode(value) as string
+    end
+
+    function write(self, value: T, exclusive out: string.buffer.Buffer): nil
+        local state = preparedStates[self]
+        out:put(state.fallbackEncode(value))
+    end
+
+    function write(self, value: T, exclusive out: nupp.data.json.Writer): nil
+        local state = preparedStates[self]
+        writeDocument(out, value, state.layout.schema, state.profile, state.access)
+    end
+
+    function decode(self, text: string): (T?, string?)
+        local state = preparedStates[self]
+        local ok, value = pcall(state.fallbackDecode, text)
+        if not ok then
+            return nil, tostring(value)
+        end
+
+        return value as T, nil
+    end
+
+    function decodeBuffer(self, exclusive input: string.buffer.Buffer): (T?, string?)
+        local state = preparedStates[self]
+        local ok, value = pcall(state.fallbackDecodeBuffer, input)
+        if not ok then
+            return nil, tostring(value)
+        end
+
+        return value as T, nil
+    end
+end
+
+local toDocument: function(value: any, schema: Schema, profile: JsonProfile, access: any?): any
+local fromDocument: function(value: any, schema: Schema, profile: JsonProfile, access: any?): any
+
+toDocument = function(value: any, schema: Schema, profile: JsonProfile, access: any?): any
+    if value == nil or schema.kind == "document" then
+        return value
+    elseif schema.kind == "optional" then
+        return toDocument(value, schema:element() as Schema, profile, access)
+    elseif schema.kind == "list" then
+        local out: any = {}
+        for index, item in ipairs(value) do
+            out[index] = toDocument(item, schema:element() as Schema, profile, access)
+        end
+        return out
+    elseif schema.kind == "map" then
+        local out: any = {}
+        for key, item in pairs(value) do
+            out[key] = toDocument(item, schema:value() as Schema, profile, access)
+        end
+        return out
+    elseif schema.kind == "tuple" then
+        local out: any = {}
+        for index, item in ipairs(schema.state.items or {}) do
+            out[index] = toDocument(value[index], item, profile, access)
+        end
+        return out
+    elseif schema.kind ~= "structure" then
+        validateValue(value, schema, "value")
+        return value
+    end
+    access = access or defaultSchemaBindings[schema]
+    if access == nil then
+        error("nupp: structure has no physical binding", 3)
+    end
+    local layout = layoutFor(schema, profile)
+    local out: any = {}
+    for index, member in ipairs(schema.members) do
+        local item = access.kind == "dynamic" and value.token.values[member.index] or value[member.name]
+        if item ~= nil then
+            local childAccess = access.kind == "dynamic" and {kind = "dynamic", schema = member.target} or nil
+            out[layout.fields[index].wire] = toDocument(item, member.target as Schema, profile, childAccess)
+        end
+    end
+
+    return out
+end
+
+fromDocument = function(value: any, schema: Schema, profile: JsonProfile, access: any?): any
+    if value == nil or schema.kind == "document" then
+        return value
+    elseif schema.kind == "optional" then
+        return fromDocument(value, schema:element() as Schema, profile, access)
+    elseif schema.kind == "list" then
+        local out: any = {}
+        for index, item in ipairs(value) do
+            out[index] = fromDocument(item, schema:element() as Schema, profile, access)
+        end
+        return out
+    elseif schema.kind == "map" then
+        local out: any = {}
+        for key, item in pairs(value) do
+            out[key] = fromDocument(item, schema:value() as Schema, profile, access)
+        end
+        return out
+    elseif schema.kind == "tuple" then
+        local out: any = {}
+        for index, item in ipairs(schema.state.items or {}) do
+            out[index] = fromDocument(value[index], item, profile, access)
+        end
+        return out
+    elseif schema.kind ~= "structure" then
+        validateValue(value, schema, "value")
+        return value
+    end
+    if type(value) ~= "table" then
+        error("nupp: expected JSON object", 3)
+    end
+    access = access or defaultSchemaBindings[schema]
+    if access == nil then
+        error("nupp: structure has no physical binding", 3)
+    end
+    local layout = layoutFor(schema, profile)
+    if profile.unknownMembers == "reject" then
+        for wire in pairs(value) do
+            if layout.byWire[wire] == nil then
+                error("nupp: unknown member " .. tostring(wire), 3)
+            end
+        end
+    end
+    local result: any
+    if access.kind == "dynamic" then
+        result = new DynamicValue(token = {schema = schema, values = {}, present = {}})
+    else
+        result = type(access.typeObject) == "table" and setmetatable({}, access.typeObject) or access.typeObject()
+    end
+    for index, member in ipairs(schema.members) do
+        local item = value[layout.fields[index].wire]
+        if item == nil then
+            if member.required then
+                error("nupp: missing required member " .. member.name, 3)
+            elseif member.hasDefault then
+                item = member.defaultValue
+            end
+        end
+        if item ~= nil then
+            local childAccess = access.kind == "dynamic" and {kind = "dynamic", schema = member.target} or nil
+            validateValue(item, member.target as Schema, "member " .. member.name)
+            item = fromDocument(item, member.target as Schema, profile, childAccess)
+            if access.kind == "dynamic" then
+                result:set(member, item)
+            else
+                result[member.name] = item
+            end
+        end
+    end
+
+    return result
+end
+
+writeDocument = function(
+    exclusive out: nupp.data.json.Writer,
+    value: any,
+    schema: Schema,
+    profile: JsonProfile,
+    access: any?
+): nil
+    local json = require("nupp.data.json")
+    if value == nil then
+        out:null()
+    elseif schema.kind == "document" then
+        out:write(json.verified(json.encode(value)))
+    elseif schema.kind == "optional" then
+        writeDocument(out, value, schema:element() as Schema, profile, access)
+    elseif schema.kind == "list" then
+        out:startArray()
+        for _, item in ipairs(value) do
+            writeDocument(out, item, schema:element() as Schema, profile, access)
+        end
+        out:endArray()
+    elseif schema.kind == "map" then
+        out:startObject()
+        for key, item in pairs(value) do
+            validateValue(key, schema:key() as Schema, "map key")
+            out:key(key as string)
+            writeDocument(out, item, schema:value() as Schema, profile, access)
+        end
+        out:endObject()
+    elseif schema.kind == "tuple" then
+        validateValue(value, schema, "value")
+        out:startArray()
+        for index, item in ipairs(schema.state.items or {}) do
+            writeDocument(out, value[index], item, profile, access)
+        end
+        out:endArray()
+    elseif schema.kind ~= "structure" then
+        validateValue(value, schema, "value")
+        if schema.kind == "number" and value % 1 == 0 then
+            out:write(json.verified(("%.1f"):format(value)))
+        elseif schema.kind == "string" then
+            out:write(value as string)
+        elseif schema.kind == "boolean" then
+            out:write(value as boolean)
+        elseif schema.kind == "union" and type(value) == "string" then
+            out:write(value as string)
+        elseif schema.kind == "union" and type(value) == "boolean" then
+            out:write(value as boolean)
+        else
+            out:write(value as number)
+        end
+    else
+        access = access or defaultSchemaBindings[schema]
+        if access == nil then
+            error("nupp: structure has no physical binding", 3)
+        end
+        local layout = layoutFor(schema, profile)
+        out:startObject()
+        for index, member in ipairs(schema.members) do
+            local item = access.kind == "dynamic" and value.token.values[member.index] or value[member.name]
+            if item ~= nil then
+                out:key(layout.fields[index].wire as string)
+                local childAccess = access.kind == "dynamic" and {kind = "dynamic", schema = member.target} or nil
+                writeDocument(out, item, member.target as Schema, profile, childAccess)
+            end
+        end
+        out:endObject()
+    end
+end
+
+--- A JSON codec that lazily prepares bindings.
+--- @export
+export record JsonCodec
+    readonly profile: JsonProfile
+
+    --- Prepares and memoizes a fused traversal.
+    function prepare<T>(self, binding: Binding<T>): Prepared<T>
+        local holders = binding:extension(preparedHoldersKey)
+        local prior = holders[self.profile]
+        if prior ~= nil then
+            return prior as Prepared<T>
+        end
+        local schema = binding:schema()
+        local access = binding:extension(accessKey)
+        local layout = layoutFor(schema, self.profile)
+        local json = require("nupp.data.json")
+        local decodePlan = decodePlanFor(layout, access, {})
+        local decodeProvider: any = decodePlan ~= nil and require("nupp.data.json.provider") or nil
+        local nativeDecode = decodeProvider ~= nil
+            and decodeProvider.compileSerde ~= nil
+            and decodeProvider.compileSerde(
+            decodePlan,
+            self.profile.unknownMembers
+        ) or nil
+        local nativeComplete = nativeDecode ~= nil and nativeDecode.complete == true
+        local prepared = new PreparedImpl(token = binding)
+        preparedStates[prepared] = {
+            access = access,
+            layout = layout,
+            profile = self.profile,
+            -- The authored traversal is now the production path. It keeps the
+            -- codec independent of a C++ host module and shares JSON semantics
+            -- with ordinary encode/decode.
+            fallbackEncode = function(value: any): string
+                local buffer = require("string.buffer").new()
+                local writer = json.writer(buffer)
+                writeDocument(writer, value, schema, self.profile, access)
+                writer:close()
+
+                return buffer:tostring()
+            end,
+            fallbackDecode = function(text: string): any
+                if nativeDecode ~= nil then
+                    local decoded, problem = decodeProvider.decodeSerde(nativeDecode, text)
+                    if problem ~= nil then
+                        error(problem, 0)
+                    end
+                    if nativeComplete then
+                        return decoded
+                    end
+                    return finishDecoded(decoded, decodePlan, "value")
+                end
+                local decoded = json.decode(text)
+
+                return fromDocument(decoded, schema, self.profile, access)
+            end,
+            fallbackDecodeBuffer = function(input: any): any
+                if nativeDecode ~= nil then
+                    local decoded, problem = decodeProvider.decodeSerdeBuffer(nativeDecode, input)
+                    if problem ~= nil then
+                        error(problem, 0)
+                    end
+                    if nativeComplete then
+                        return decoded
+                    end
+                    return finishDecoded(decoded, decodePlan, "value")
+                end
+                local decoded = json.decode(input:tostring())
+
+                return fromDocument(decoded, schema, self.profile, access)
+            end,
+        }
+        holders[self.profile] = prepared
+
+        return prepared
+    end
+
+    function encode<T>(self, binding: Binding<T>, value: T): string
+        return self:prepare(binding):encode(value)
+    end
+
+    --- Appends one complete encoded root to caller-owned storage in one chunk.
+    function write<T>(self, binding: Binding<T>, value: T, exclusive out: string.buffer.Buffer): nil
+        self:prepare(binding):write(value, out)
+    end
+
+    --- Streams one prepared value at the writer's current value position.
+    function write<T>(self, binding: Binding<T>, value: T, exclusive out: nupp.data.json.Writer): nil
+        self:prepare(binding):write(value, out)
+    end
+
+    function decode<T>(self, binding: Binding<T>, text: string): (T?, string?)
+        return self:prepare(binding):decode(text)
+    end
+
+    --- Decodes from caller-owned storage without materializing a final string.
+    function decodeBuffer<T>(self, binding: Binding<T>, exclusive input: string.buffer.Buffer): (T?, string?)
+        return self:prepare(binding):decodeBuffer(input)
+    end
+end
+
+local canonicalJsonProfiles: any = {}
+
+--- Creates an immutable-profile JSON codec.
+---
+--- `fieldNames`, when supplied, runs only during preparation. The fused traversal
+--- sees the resulting immutable wire names.
+--- @raises when unknownMembers is not reject or ignore
+--- @export
+export function json(options: any?): JsonCodec
+    local value = options or {}
+    local unknown = value.unknownMembers or "reject"
+    if unknown ~= "reject" and unknown ~= "ignore" then
+        error("nupp: unknownMembers must be reject or ignore", 2)
+    end
+    local profile: JsonProfile
+    if value.fieldNames == nil then
+        profile = canonicalJsonProfiles[unknown]
+        if profile == nil then
+            profile = new JsonProfile(unknownMembers = unknown, fieldNames = nil)
+            extensions.host(profile)
+            canonicalJsonProfiles[unknown] = profile
+        end
+    else
+        profile = new JsonProfile(unknownMembers = unknown, fieldNames = value.fieldNames)
+        extensions.host(profile)
+    end
+
+    return new JsonCodec(profile = profile)
+end

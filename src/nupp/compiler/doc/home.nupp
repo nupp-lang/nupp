@@ -1,0 +1,204 @@
+module nupp.compiler.doc.home
+
+--[[
+The home page's hero and feature showcase, read from the page rather than configured
+beside it.
+
+Both are prose with a shape: a title, a line under it, a paragraph, two links, a picture
+-- and then a run of captioned code samples. Written as manifest tables they were three
+hundred lines of Lua holding markdown, which is the wrong file for prose and the wrong
+language for it, and it put the first Nupp a reader ever sees somewhere no editor
+highlights and no formatter reaches.
+
+Two comment markers delimit the regions, because the home page has ordinary prose after
+them and a marker says where the shape stops without inventing a syntax to say it.
+]]
+
+local pageMod = require("nupp.compiler.doc.page")
+
+local home = {}
+
+local HERO_OPEN, HERO_CLOSE = "<!-- nupp:hero -->", "<!-- /nupp:hero -->"
+local FEATURES_OPEN, FEATURES_CLOSE = "<!-- nupp:features -->", "<!-- /nupp:features -->"
+
+--- The hero a page described, the features it showed, and the markdown left over.
+---
+--- The leftover keeps the features marker where the region was, so a page still decides
+--- whether the showcase comes before or after its own prose.
+type home.Sections = {
+    features: {pageMod.Feature}?,
+    heroActions: {pageMod.HeroAction}?,
+    heroContent: string?,
+    heroImage: string?,
+    heroImageAlt: string?,
+    heroText: string?,
+    heroTitle: string?,
+    markdown: string
+}
+
+-- The text between two markers, and the document with that whole span removed. A
+-- replacement is what the features region leaves behind, so the showcase renders where
+-- it was written rather than at whichever end of the page the renderer prefers.
+local function region(markdown: string, open: string, close: string, replacement: string): string?, string
+    local from, opened = markdown:find(open, 1, true)
+    if not from or not opened then
+        return nil, markdown
+    end
+    local closed, to = markdown:find(close, opened, true)
+    if not closed or not to then
+        return nil, markdown
+    end
+
+    return markdown:sub(opened + 1, closed - 1), markdown:sub(1, from - 1) .. replacement .. markdown:sub(to + 1)
+end
+
+local function paragraphs(text: string): {string}
+    local out: {string} = {}
+    for block in (text .. "\n\n"):gmatch("(.-)\n%s*\n") do
+        local trimmed = block:match("^%s*(.-)%s*$") as string
+        if trimmed ~= "" then
+            out[#out + 1] = trimmed
+        end
+    end
+
+    return out
+end
+
+-- A hero's links are its calls to action, and the first is the one the page is for.
+-- Nothing else on a home page is a paragraph of nothing but links, so they are found by
+-- being that rather than by a marker of their own.
+local function actions(block: string): {pageMod.HeroAction}?
+    local found: {pageMod.HeroAction} = {}
+    local remainder = block
+    for text, path in block:gmatch("%[([^%]]*)%]%(([^%)]*)%)") do
+        local action: pageMod.HeroAction = {path = path, text = text, theme = #found == 0 and "brand" or nil}
+        found[#found + 1] = action
+        remainder = remainder:gsub("%[[^%]]*%]%([^%)]*%)", "", 1)
+    end
+    if #found == 0 or remainder:match("%S") then
+        return nil
+    end
+
+    return found
+end
+
+--- The hero, the features, and the prose a home page holds besides them.
+---
+--- A page with neither region answers its own markdown unchanged, which is every page
+--- but the one.
+function home.parse(markdown: string): home.Sections
+    local sections: home.Sections = {markdown = markdown}
+    local hero: string?
+    hero, sections.markdown = region(sections.markdown, HERO_OPEN, HERO_CLOSE, "")
+    if hero then
+        local copy: {string} = {}
+        for _, block in ipairs(paragraphs(hero)) do
+            local heading = block:match("^#%s+(.*)$")
+            local alt, image = block:match("^!%[([^%]]*)%]%(([^%)]*)%)$")
+            if heading then
+                sections.heroTitle = heading
+            elseif image then
+                sections.heroImage, sections.heroImageAlt = image, alt
+            else
+                local links = actions(block)
+                if links then
+                    sections.heroActions = links
+                else
+                    copy[#copy + 1] = (block:gsub("%s*\n%s*", " "))
+                end
+            end
+        end
+        sections.heroText = copy[1]
+        if #copy > 1 then
+            sections.heroContent = table.concat(copy, " ", 2)
+        end
+        -- The page's own prose starts where the hero stopped, not at the blank line
+        -- left behind by lifting it out.
+        sections.markdown = (sections.markdown:gsub("^\n+", ""))
+    end
+    local features: string?
+    features, sections.markdown = region(sections.markdown, FEATURES_OPEN, FEATURES_CLOSE, FEATURES_OPEN)
+    if features then
+        sections.features = home.features(features)
+    end
+
+    return sections
+end
+
+--- The feature cards a region holds: one per `##` heading, its prose the caption and
+--- its fenced block the sample.
+---
+--- A card that fences nothing and shows an image shows that instead, which is what the
+--- showcase does with the two it is given.
+function home.features(text: string): {pageMod.Feature}
+    -- Git may check Markdown out with CRLF on Windows. Normalize the region before
+    -- recognizing line-oriented fences so their language never retains a trailing
+    -- carriage return.
+    text = text:gsub("\r\n", "\n"):gsub("\r", "\n")
+    local found: {pageMod.Feature} = {}
+    -- Split on headings rather than scanning line by line, so a `##` inside a fenced
+    -- sample cannot open a card. The fences are stripped first for exactly that reason.
+    local fences: {string} = {}
+    local function hold(fence: string): string
+        fences[#fences + 1] = fence
+
+        return "\n\0" .. #fences .. "\0\n"
+    end
+
+    local function release(index: string): string
+        return fences[tonumber(index) as integer] as string
+    end
+
+    local stripped = "\n" .. (text:gsub("\n```[^\n]*\n.-\n```", hold))
+    -- Where each card opens, and where its title does. Found by walking the headings
+    -- rather than by matching one card against the next, which would read every second
+    -- card and consume the heading that opened the one between them.
+    local opens: {integer}, titles: {integer} = {}, {}
+    local position = 1
+    while true do
+        local from, to = stripped:find("\n##[ \t]+", position)
+        if not from or not to then
+            break
+        end
+        opens[#opens + 1] = from
+        titles[#titles + 1] = to + 1
+        position = to + 1
+    end
+    for index, start in ipairs(titles) do
+        local block = stripped:sub(start, (opens[index + 1] or #stripped + 1) - 1)
+        local title, body = block:match("^([^\n]*)\n?(.*)$")
+        local restored = (body:gsub("%z(%d+)%z", release))
+        local language, code = restored:match("\n?```([^\n]*)\n(.-)\n```")
+        local details: {string} = {}
+        for _, paragraph in ipairs(paragraphs((restored:gsub("\n?```[^\n]*\n.-\n```", "")))) do
+            local alt, image = paragraph:match("^!%[([^%]]*)%]%(([^%)]*)%)$")
+            if image then
+                local illustrated: pageMod.Feature = {title = title as string, image = image, imageAlt = alt}
+                found[#found + 1] = illustrated
+            else
+                details[#details + 1] = paragraph
+            end
+        end
+        local card = found[#found]
+        if not card or card.title ~= title then
+            local plain: pageMod.Feature = {title = title as string}
+            card, found[#found + 1] = plain, plain
+        end
+        card.details = #details > 0 and table.concat(details, "\n\n") or nil
+        if code and not card.image then
+            card.code, card.codeLanguage = code, language ~= "" and language or nil
+        end
+    end
+
+    return found
+end
+
+--- Whether a page's markdown holds either region, which is what makes it a home page's
+--- markdown rather than an ordinary page's.
+function home.decorated(markdown: string): boolean
+    return markdown:find(HERO_OPEN, 1, true) ~= nil or markdown:find(FEATURES_OPEN, 1, true) ~= nil
+end
+
+home.FEATURES = FEATURES_OPEN
+
+export = home

@@ -1,0 +1,102 @@
+module nupp.runtime.provider.browsercrypto
+
+-- Web Crypto provider for random bytes, SHA-256, HMAC-SHA256, and UUIDs. The
+-- Worker performs the primitive; formatting and the Nupp contracts stay here.
+
+local base64 = require("nupp.runtime.browser.base64")
+local response = require("nupp.runtime.browser.response")
+local crypto = {}
+
+local function random(count: integer, wallTime: boolean?): any
+    if count < 0 or count ~= math.floor(count) then
+        error("nupp: random byte count must be a non-negative integer", 3)
+    elseif count > 1048576 then
+        error("nupp: one random request cannot exceed 1048576 bytes", 3)
+    end
+
+    return response.await("random", {count = count, wallTime = wallTime == true,})
+end
+
+function crypto.randomBytes(count: integer): string
+    return base64.decode(random(count).bytesBase64)
+end
+
+function crypto.sha256(value: string): string
+    return response.await("sha256", {bytesBase64 = base64.encode(value),}) as string
+end
+
+function crypto.digest(key: string, message: string): string
+    local value = response.await("hmac-sha256", {
+        keyBase64 = base64.encode(key),
+        messageBase64 = base64.encode(message),
+    })
+
+    return base64.decode(value.digestBase64)
+end
+
+function crypto.hex(key: string, message: string): string
+    local digest = crypto.digest(key, message)
+    return (digest:gsub(".", function(byte: string): string
+        return ("%02x"):format(byte:byte())
+    end))
+end
+
+local function canonical(bytes: {integer}): string
+    local hex: {string} = {}
+    for index = 1, 16 do
+        hex[index] = ("%02x"):format(bytes[index])
+    end
+
+    return table.concat(
+        hex,
+        "",
+        1,
+        4
+    ) .. "-" .. table.concat(
+        hex,
+        "",
+        5,
+        6
+    ) .. "-" .. table.concat(
+        hex,
+        "",
+        7,
+        8
+    ) .. "-" .. table.concat(hex, "", 9, 10) .. "-" .. table.concat(hex, "", 11, 16)
+end
+
+local function byteTable(raw: string): {integer}
+    local bytes: {integer} = {}
+    for index = 1, #raw do
+        bytes[index] = raw:byte(index)
+    end
+
+    return bytes
+end
+
+function crypto.uuid4(): string
+    local bytes = byteTable(crypto.randomBytes(16))
+    bytes[7] = bytes[7] % 16 + 64
+    bytes[9] = bytes[9] % 64 + 128
+    return canonical(bytes)
+end
+
+function crypto.uuid7(): string
+    local generated = random(10, true)
+    local timestamp = math.floor(generated.wallTimeMs as number)
+    local bytes: {integer} = {}
+    for index = 6, 1, -1 do
+        bytes[index] = timestamp % 256
+        timestamp = math.floor(timestamp / 256)
+    end
+    local tail = base64.decode(generated.bytesBase64)
+    for index = 1, 10 do
+        bytes[index + 6] = tail:byte(index)
+    end
+    bytes[7] = bytes[7] % 16 + 112
+    bytes[9] = bytes[9] % 64 + 128
+
+    return canonical(bytes)
+end
+
+export = crypto

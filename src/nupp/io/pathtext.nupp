@@ -1,0 +1,686 @@
+@!internal
+
+module nupp.io.pathtext
+
+--[[
+Path text, as rules about characters.
+
+Most operations `nupp.io.path` offers are questions about the spelling of a
+path, and none of those needs the filesystem or the platform it is running on.
+They were C, and being C meant each of them crossed the FFI, allocated an
+answer, copied it back out and freed it -- for a path of a few dozen bytes,
+which is what a path is. They now all live here; only the operating-system
+queries for a working directory and a real path cross the filesystem boundary.
+
+A path is read as a sequence of components: an optional prefix, an optional
+root, and the names between separators, with `.` dropped and `..` kept. The
+scans retain byte offsets rather than component records: several answers are
+slices of what the caller wrote rather than a rebuild. The parent of
+`alpha/./beta/../file` is `alpha/./beta/..`, spelled that way, and normalising
+is a separate request with its own answer.
+
+POSIX has one separator and no prefix. Windows has two separators and three
+prefixes that matter: a drive, a UNC share, and the verbatim form, which is
+carried and rebuilt but not otherwise reasoned about, since its whole point is
+that the system does not normalise it either.
+
+`windows` is a parameter here rather than the `#if` it was in C. These rules do
+not depend on where they run, only on which set is asked for, and making that an
+argument is what lets a machine of either kind test both.
+
+Normalization has one ordinary Nupp body. An AOT build lowers its fresh table,
+rooted string reads and string construction through the VM-aware construction
+IR; an AOT-off or portable build runs those same authored operations as Lua.
+]]
+
+local pathtext = {}
+
+--- What a component is. `.` never becomes one; `..` always does.
+--- @export
+const pathtext.PREFIX = 0
+
+--- @export
+const pathtext.ROOT = 1
+
+--- @export
+const pathtext.PARENT = 2
+
+--- @export
+const pathtext.NORMAL = 3
+
+const byte = string.byte
+const SLASH: integer = 47
+const BACKSLASH: integer = 92
+const DOT: integer = 46
+const COLON: integer = 58
+
+local function isSeparator(value: integer?, windows: boolean): boolean
+    if value == nil then
+        return false
+    end
+
+    return value == SLASH or (windows and value == BACKSLASH)
+end
+
+local function isDriveLetter(value: integer?): boolean
+    if value == nil then
+        return false
+    end
+
+    return (value >= 65 and value <= 90) or (value >= 97 and value <= 122)
+end
+
+--- How many leading bytes of `text` are its prefix: none on POSIX, and on
+--- Windows the drive, the share, or the verbatim marker.
+---
+--- @param text the path
+--- @param windows whether Windows rules apply
+--- @return the prefix length, in bytes
+function pathtext.prefixLength(text: string, windows: boolean): integer
+    if not windows then
+        return 0
+    end
+    local length = #text
+    if length >= 2 and byte(text, 2) == COLON and isDriveLetter(byte(text, 1)) then
+        return 2
+    end
+    if length >= 2 and isSeparator(byte(text, 1), windows) and isSeparator(byte(text, 2), windows) then
+        -- `\\?\` and `\\.\` reach as far as the next separator; a share reaches
+        -- past the server and the share name both.
+        local at: integer = 2
+        local third = byte(text, 3)
+        local parts: integer = (
+            length >= 4 and (third == 63 or third == DOT) and isSeparator(byte(text, 4), windows)
+        ) and 1 or 2
+        local seen: integer = 0
+        while seen < parts do
+            while at < length and not isSeparator(byte(text, at + 1), windows) do
+                at = at + 1
+            end
+            seen = seen + 1
+            if seen < parts then
+                while at < length and isSeparator(byte(text, at + 1), windows) do
+                    at = at + 1
+                end
+                if at == length then
+                    break
+                end
+            end
+        end
+
+        return at
+    end
+
+    return 0
+end
+
+--- Whether a path is anchored at a root. This is deliberately answered from
+--- its leading bytes: constructing every component to inspect the first one is
+--- the dominant cost for this otherwise constant-time question.
+---
+--- @param text the path
+--- @param windows whether Windows rules apply
+--- @return whether the path is absolute
+function pathtext.isAbsolute(text: string, windows: boolean): boolean
+    local prefix = pathtext.prefixLength(text, windows)
+    local rooted = prefix < #text and isSeparator(byte(text, prefix + 1), windows)
+    if windows and prefix >= 2 and byte(text, 2) == COLON then
+        return rooted
+    end
+
+    return prefix ~= 0 or rooted
+end
+
+--- One answer on its way out.
+---
+--- Windows writes a separator either way and answers with one, so what it wrote
+--- is rewritten here. POSIX does not, and must not: a backslash there is an
+--- ordinary byte in an ordinary name.
+---
+--- @param value the text to answer with
+--- @param windows whether Windows rules apply
+--- @return the text, with separators as the answer spells them
+function pathtext.finish(value: string, windows: boolean): string
+    if not windows then
+        return value
+    end
+
+    return (value:gsub("\\", "/"))
+end
+
+--- Resolves what can be resolved without asking the filesystem.
+---
+--- `.` is already gone from the component view, and each `..` cancels the name
+--- before it. One at the root has nothing to cancel and disappears; one with no
+--- name before it is kept, because a relative path that starts by going up has
+--- nowhere to put the answer.
+---
+--- @param text the path
+--- @param windows whether Windows rules apply
+--- @return the normalized path
+@aot(lanes = false)
+local function normalizeImpl(text: string, windows: boolean): string
+    -- A flat integer stack avoids allocating one record for every component.
+    -- A positive entry is a normal component's start; zero is `..`.
+    -- Prefix and root are scalar because they can only occur at the front.
+    local stack: {integer} = {}
+    local count: integer = 0
+    local length = #text
+    local prefix: integer = 0
+    if windows and length >= 2 then
+        local first = byte(text, 1)
+        local second = byte(text, 2)
+        local drive = (first >= 65 and first <= 90) or (first >= 97 and first <= 122)
+        if drive and second == COLON then
+            prefix = 2
+        elseif (first == SLASH or first == BACKSLASH) and (second == SLASH or second == BACKSLASH) then
+            local cursor: integer = 2
+            local parts: integer = 2
+            if length >= 4 then
+                local third = byte(text, 3)
+                local fourth = byte(text, 4)
+                if (third == 63 or third == DOT) and (fourth == SLASH or fourth == BACKSLASH) then
+                    parts = 1
+                end
+            end
+            local seen: integer = 0
+            while seen < parts do
+                while cursor < length do
+                    local current = byte(text, cursor + 1)
+                    if current == SLASH or current == BACKSLASH then
+                        break
+                    end
+                    cursor = cursor + 1
+                end
+                seen = seen + 1
+                if seen < parts then
+                    while cursor < length do
+                        local current = byte(text, cursor + 1)
+                        if current ~= SLASH and current ~= BACKSLASH then
+                            break
+                        end
+                        cursor = cursor + 1
+                    end
+                    if cursor == length then
+                        break
+                    end
+                end
+            end
+            prefix = cursor
+        end
+    end
+    local at: integer = prefix
+    local rooted = false
+    if at < length then
+        local current = byte(text, at + 1)
+        if current == SLASH or (windows and current == BACKSLASH) then
+            rooted = true
+            while at < length do
+                current = byte(text, at + 1)
+                if current ~= SLASH and (not windows or current ~= BACKSLASH) then
+                    break
+                end
+                at = at + 1
+            end
+        end
+    end
+    while at < length do
+        local start = at + 1
+        while at < length do
+            local current = byte(text, at + 1)
+            if current == SLASH or (windows and current == BACKSLASH) then
+                break
+            end
+            at = at + 1
+        end
+        local width = at - start + 1
+        if width ~= 0 and not (width == 1 and byte(text, start) == DOT) then
+            local parent = width == 2 and byte(text, start) == DOT and byte(text, start + 1) == DOT
+            local cancelled = parent and rooted and count == 0
+            if parent and count > 0 then
+                if stack[count] > 0 then
+                    count = count - 1
+                    cancelled = true
+                end
+            end
+            if not cancelled then
+                count = count + 1
+                local retained = start
+                if parent then
+                    retained = 0
+                end
+                stack[count] = retained
+            end
+        end
+        while at < length do
+            local current = byte(text, at + 1)
+            if current ~= SLASH and (not windows or current ~= BACKSLASH) then
+                break
+            end
+            at = at + 1
+        end
+    end
+    if count == 0 and prefix == 0 and not rooted then
+        return "."
+    end
+
+    local answer = ""
+    local copied: integer = 1
+    while copied <= prefix do
+        local current = byte(text, copied)
+        if windows and current == BACKSLASH then
+            answer = answer .. "/"
+        else
+            answer = answer .. string.sub(text, copied, copied)
+        end
+        copied = copied + 1
+    end
+    if rooted then
+        answer = answer .. "/"
+    end
+    local needsSeparator = false
+    for index = 1, count do
+        local start = stack[index]
+        if needsSeparator then
+            answer = answer .. "/"
+        end
+        if start == 0 then
+            answer = answer .. ".."
+        else
+            local finish = start
+            while finish < length do
+                local current = byte(text, finish + 1)
+                if current == SLASH or (windows and current == BACKSLASH) then
+                    break
+                end
+                finish = finish + 1
+            end
+            answer = answer .. string.sub(text, start, finish)
+        end
+        needsSeparator = true
+    end
+
+    return answer
+end
+
+--- Resolves what can be resolved without asking the filesystem.
+--- @param text the path
+--- @param windows whether Windows rules apply
+--- @return the normalized path
+function pathtext.normalize(text: string, windows: boolean): string
+    return normalizeImpl(text, windows)
+end
+
+--- Finds the final meaningful component without materializing the component
+--- list. Also returns the last byte occupied by a prefix or root, which is the
+--- boundary parent slicing must not cross.
+local function lastComponent(text: string, windows: boolean): (integer?, integer, integer?, integer)
+    local length = #text
+    local prefix = pathtext.prefixLength(text, windows)
+    local rooted = prefix < length and isSeparator(byte(text, prefix + 1), windows)
+    local anchored = rooted and prefix + 1 or prefix
+    local at = length
+    while at > anchored do
+        while at > anchored and isSeparator(byte(text, at), windows) do
+            at = at - 1
+        end
+        if at == anchored then
+            break
+        end
+        local finish = at
+        while at > anchored and not isSeparator(byte(text, at), windows) do
+            at = at - 1
+        end
+        local start = at + 1
+        local width = finish - start + 1
+        if not (width == 1 and byte(text, start) == DOT) then
+            local kind = width == 2 and byte(
+                text,
+                start
+            ) == DOT and byte(text, start + 1) == DOT and pathtext.PARENT or pathtext.NORMAL
+            return start, width, kind, anchored
+        end
+    end
+
+    if rooted then
+        return prefix + 1, 1, pathtext.ROOT, anchored
+    elseif prefix ~= 0 then
+        return 1, prefix, pathtext.PREFIX, anchored
+    end
+
+    return nil, 0, nil, anchored
+end
+
+local function beforeLast(text: string, start: integer, anchored: integer, windows: boolean): integer
+    local at = start - 1
+    while at > anchored and isSeparator(byte(text, at), windows) do
+        at = at - 1
+    end
+
+    return at
+end
+
+local function splitNameAt(text: string, start: integer, length: integer): (integer, integer?, integer)
+    local at = length
+    while at > 0 do
+        at = at - 1
+        if byte(text, start + at) == DOT then
+            if at == 0 then
+                return length, nil, 0
+            end
+
+            return at, start + at + 1, length - at - 1
+        end
+    end
+
+    return length, nil, 0
+end
+
+--- Appends one part, replacing what came before when the part says so.
+---
+--- An absolute part names a place of its own, and on Windows a part with a
+--- prefix does too, while a rooted part without one keeps the prefix and nothing
+--- else. The part is appended as it was written rather than as it parsed:
+--- pushing keeps a trailing separator or a `.` the caller put there, and
+--- normalising is a separate request.
+---
+--- @param carried what has been joined so far
+--- @param part the part to append
+--- @param windows whether Windows rules apply
+--- @return the joined text
+function pathtext.pushPart(carried: string, part: string, windows: boolean): string
+    local prefix = pathtext.prefixLength(part, windows)
+    local rooted = prefix ~= 0 or (#part ~= 0 and isSeparator(byte(part, 1), windows))
+    local head = carried
+    if rooted then
+        head = ""
+        if prefix == 0 then
+            local currentPrefix = pathtext.prefixLength(carried, windows)
+            if currentPrefix ~= 0 then
+                head = carried:sub(1, currentPrefix)
+            end
+        end
+    elseif #carried ~= 0 and not isSeparator(byte(carried, #carried), windows) then
+        head = carried .. "/"
+    end
+
+    return head .. part
+end
+
+--- Joins parts under the platform's rules.
+---
+--- @param parts the parts to join, in order
+--- @param windows whether Windows rules apply
+--- @return the joined path
+function pathtext.join(parts: {string}, windows: boolean): string
+    local carried = ""
+    for _, part in ipairs(parts) do
+        carried = pathtext.pushPart(carried, part, windows)
+    end
+
+    return pathtext.finish(carried, windows)
+end
+
+-- Advances one allocation-free component cursor. Phase zero offers the prefix,
+-- phase one the root, and phase two the ordinary components after dropping `.`
+-- and repeated separators.
+local function nextComponent(
+    text: string,
+    at: integer,
+    phase: integer,
+    windows: boolean
+): (integer?, integer, integer?, integer, integer)
+    local length = #text
+    if phase == 0 then
+        local prefix = pathtext.prefixLength(text, windows)
+        at, phase = prefix, 1
+        if prefix ~= 0 then
+            return 1, prefix, pathtext.PREFIX, at, phase
+        end
+    end
+    if phase == 1 then
+        phase = 2
+        if at < length and isSeparator(byte(text, at + 1), windows) then
+            local start = at + 1
+            while at < length and isSeparator(byte(text, at + 1), windows) do
+                at = at + 1
+            end
+
+            return start, 1, pathtext.ROOT, at, phase
+        end
+    end
+    while at < length do
+        local start = at + 1
+        while at < length and not isSeparator(byte(text, at + 1), windows) do
+            at = at + 1
+        end
+        local width = at - start + 1
+        if width ~= 0 and not (width == 1 and byte(text, start) == DOT) then
+            local kind = width == 2 and byte(
+                text,
+                start
+            ) == DOT and byte(text, start + 1) == DOT and pathtext.PARENT or pathtext.NORMAL
+            while at < length and isSeparator(byte(text, at + 1), windows) do
+                at = at + 1
+            end
+
+            return start, width, kind, at, phase
+        end
+        while at < length and isSeparator(byte(text, at + 1), windows) do
+            at = at + 1
+        end
+    end
+
+    return nil, 0, nil, at, phase
+end
+
+local function appendComponent(
+    answer: string,
+    needsSeparator: boolean,
+    text: string,
+    start: integer,
+    length: integer,
+    kind: integer
+): (string, boolean)
+    if kind == pathtext.PREFIX then
+        return answer .. text:sub(start, start + length - 1), false
+    elseif kind == pathtext.ROOT then
+        return answer .. "/", false
+    end
+
+    return answer .. (needsSeparator and "/" or "") .. text:sub(start, start + length - 1), true
+end
+
+--- Rebuilds a path's component view without resolving `..`.
+---
+--- This is the textual half of making a path absolute: duplicate separators
+--- and `.` disappear, while `..` remains because resolving it across a symbolic
+--- link requires the filesystem.
+--- @param text the path
+--- @param windows whether Windows rules apply
+--- @return the cleaned path
+function pathtext.clean(text: string, windows: boolean): string
+    local answer = ""
+    local needsSeparator = false
+    local at: integer = 0
+    local phase: integer = 0
+    while true do
+        local start, length, kind, nextAt, nextPhase = nextComponent(text, at, phase, windows)
+        if start == nil then
+            break
+        end
+        answer, needsSeparator = appendComponent(
+            answer,
+            needsSeparator,
+            text,
+            start as integer,
+            length,
+            kind as integer
+        )
+        at, phase = nextAt, nextPhase
+    end
+
+    return pathtext.finish(answer, windows)
+end
+
+--- Expresses `target` against `base` using their component views.
+--- @param target the path to express
+--- @param base the path to express it against
+--- @param windows whether Windows rules apply
+--- @return the relative path, or nil when the coordinate systems differ
+--- @return a failure reason, when there is no relative form
+function pathtext.relative(target: string, base: string, windows: boolean): (string?, string?)
+    local targetAbsolute = pathtext.isAbsolute(target, windows)
+    local baseAbsolute = pathtext.isAbsolute(base, windows)
+    if targetAbsolute ~= baseAbsolute then
+        if targetAbsolute then
+            return pathtext.clean(target, windows), nil
+        end
+
+        return nil, "paths do not share a relative coordinate system"
+    end
+
+    local targetAt: integer, targetPhase: integer = 0, 0
+    local baseAt: integer, basePhase: integer = 0, 0
+    local targetStart, targetLength, targetKind, nextTargetAt, nextTargetPhase = nextComponent(
+        target,
+        targetAt,
+        targetPhase,
+        windows
+    )
+    local baseStart, baseLength, baseKind, nextBaseAt, nextBasePhase = nextComponent(base, baseAt, basePhase, windows)
+    while targetStart ~= nil and baseStart ~= nil do
+        if targetKind ~= baseKind or targetLength ~= baseLength then
+            break
+        end
+        local targetPart = target:sub(targetStart as integer, (targetStart as integer) + targetLength - 1)
+        local basePart = base:sub(baseStart as integer, (baseStart as integer) + baseLength - 1)
+        if targetPart ~= basePart then
+            break
+        end
+        targetAt, targetPhase = nextTargetAt, nextTargetPhase
+        baseAt, basePhase = nextBaseAt, nextBasePhase
+        targetStart, targetLength, targetKind, nextTargetAt, nextTargetPhase = nextComponent(
+            target,
+            targetAt,
+            targetPhase,
+            windows
+        )
+        baseStart, baseLength, baseKind, nextBaseAt, nextBasePhase = nextComponent(base, baseAt, basePhase, windows)
+    end
+
+    local parents: integer = 0
+    while baseStart ~= nil do
+        if baseKind == pathtext.PARENT then
+            return nil, "paths do not share a relative coordinate system"
+        end
+        parents = parents + 1
+        baseAt, basePhase = nextBaseAt, nextBasePhase
+        baseStart, baseLength, baseKind, nextBaseAt, nextBasePhase = nextComponent(base, baseAt, basePhase, windows)
+    end
+
+    local answer = ""
+    local needsSeparator = false
+    for _ = 1, parents do
+        answer = answer .. (needsSeparator and "/" or "") .. ".."
+        needsSeparator = true
+    end
+    while targetStart ~= nil do
+        answer, needsSeparator = appendComponent(
+            answer,
+            needsSeparator,
+            target,
+            targetStart as integer,
+            targetLength,
+            targetKind as integer
+        )
+        targetAt, targetPhase = nextTargetAt, nextTargetPhase
+        targetStart, targetLength, targetKind, nextTargetAt, nextTargetPhase = nextComponent(
+            target,
+            targetAt,
+            targetPhase,
+            windows
+        )
+    end
+
+    return pathtext.finish(answer, windows), nil
+end
+
+--- Replaces the final name, or the extension on it.
+---
+--- The name is dropped where there is one and kept where there is not, which is
+--- what makes `a/b` become `a/c` and `a/..` become `a/../c`. An extension put on
+--- a path with no name to carry it leaves the path as its own answer.
+---
+--- @param text the path
+--- @param replacement the new name, or the new extension
+--- @param extension whether the replacement is an extension rather than a name
+--- @param windows whether Windows rules apply
+--- @return the derived path
+function pathtext.with(text: string, replacement: string, extension: boolean, windows: boolean): string
+    local start, length, kind, anchored = lastComponent(text, windows)
+    local hasName = start ~= nil and kind == pathtext.NORMAL
+    if extension then
+        if not hasName then
+            return pathtext.finish(text, windows)
+        end
+        -- Everything up to the end of the stem, in the caller's own spelling,
+        -- and then the new extension on the end of it.
+        local found = start as integer
+        local stemLength = splitNameAt(text, found, length)
+        local head = text:sub(1, found - 1 + stemLength)
+        if #replacement == 0 then
+            return pathtext.finish(head, windows)
+        end
+
+        return pathtext.finish(head .. "." .. replacement, windows)
+    end
+    local head = hasName and text:sub(1, beforeLast(text, start as integer, anchored, windows)) or text
+    if #head ~= 0 and not isSeparator(byte(head, #head), windows) then
+        head = head .. "/"
+    end
+
+    return pathtext.finish(head .. replacement, windows)
+end
+
+--- One named piece of a path: its parent, its file name, the stem of that name,
+--- or the extension on it.
+---
+--- Each is a slice of what the caller wrote rather than a rebuild, because
+--- asking for a path's parent asks about that path and not about the path it
+--- would normalise to.
+---
+--- @param text the path
+--- @param kind 0 for the parent, 1 the file name, 2 the stem, 3 the extension
+--- @param windows whether Windows rules apply
+--- @return the piece, or nil where the path has none
+function pathtext.part(text: string, kind: integer, windows: boolean): string?
+    local start, length, componentKind, anchored = lastComponent(text, windows)
+    if kind == 0 then
+        -- A path that is only a root or a prefix has no parent: there is
+        -- nowhere further up to go.
+        if start == nil or componentKind == pathtext.ROOT or componentKind == pathtext.PREFIX then
+            return nil
+        end
+
+        return pathtext.finish(text:sub(1, beforeLast(text, start as integer, anchored, windows)), windows)
+    end
+    if start == nil or componentKind ~= pathtext.NORMAL then
+        return nil
+    end
+    local found = start as integer
+    local stemLength, extensionAt, extensionLength = splitNameAt(text, found, length)
+    if kind == 1 then
+        return pathtext.finish(text:sub(found, found + length - 1), windows)
+    elseif kind == 2 then
+        return pathtext.finish(text:sub(found, found + stemLength - 1), windows)
+    elseif extensionAt ~= nil then
+        local at = extensionAt as integer
+
+        return pathtext.finish(text:sub(at, at + extensionLength - 1), windows)
+    end
+
+    return nil
+end
+
+export = pathtext

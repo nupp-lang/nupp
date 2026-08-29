@@ -1,0 +1,10 @@
+module nupp.runtime.provider.wasmstorage
+
+--[[The stock Lua 5.1 Wasm host's opaque memory and struct-value provider.]]
+
+local factory = require("nupp.runtime.provider.wasmstoragefactory")
+-- The host's raw memory service, which this module is the checked layer over.
+-- `__nuppWasm` is where the seam publishes this module in turn.
+local memory: any = assert(rawget(_G, "__nuppWasmHost"), "nupp: the Wasm host backend is not installed")
+
+export = factory.new(memory)

@@ -1,0 +1,740 @@
+local span = require("nupp.mem.span")
+
+local parser = {}
+
+const parser.OK = 0
+const parser.SYNTAX = 1
+const parser.NODE_CAPACITY = 2
+const parser.LINK_CAPACITY = 3
+const parser.FRAME_CAPACITY = 4
+const parser.TAPE = 5
+
+const parser.NULL = 0
+const parser.TRUE = 1
+const parser.FALSE = 2
+const parser.NUMBER = 3
+const parser.STRING = 4
+const parser.ARRAY = 5
+const parser.OBJECT = 6
+
+local struct Node
+    number: number
+    tag: uint32
+    start: uint32
+    length: uint32
+    linkStart: uint32
+    linkCount: uint32
+    parent: uint32
+    flags: uint32
+end
+
+local struct Frame
+    kind: uint32
+    node: uint32
+    count: uint32
+    state: uint32
+end
+
+--- Parses a structurally indexed document into pointer-free caller arenas.
+--- Node and link identifiers are one-based; source offsets are zero-based.
+@aot(lanes = false)
+local function parse(
+    borrows source: span.Span<uint8>,
+    borrows tape: span.Span<uint32>,
+    exclusive nodes: span.WriteSpan<Node>,
+    exclusive links: span.WriteSpan<uint32>,
+    exclusive frames: span.WriteSpan<Frame>
+): (uint32, uint32, uint32, uint32)
+    local cursor: uint32 = 0
+    local tapeCursor: uint32 = 0
+    local nodeCount: uint32 = 0
+    local linkCount: uint32 = 0
+    local depth: uint32 = 0
+    local root: uint32 = 0
+    local needValue = true
+    local done = false
+
+    while not done do
+        local skipping = true
+        while skipping and cursor < #source do
+            local byte: uint32 = 0
+            if cursor < #source then
+                byte = source[(cursor + 1) as integer]
+            end
+            if byte == 32 or byte == 9 or byte == 10 or byte == 13 then
+                cursor = nupp.math.u32.add(cursor, 1)
+            else
+                skipping = false
+            end
+        end
+
+        if needValue then
+            if cursor >= #source then
+                return root, 1, nupp.math.u32.add(cursor, 1), nodeCount
+            end
+
+            local tag: uint32 = 0
+            local start: uint32 = cursor
+            local length: uint32 = 0
+            local opens = false
+            local numberValue: number = 0
+            local flags: uint32 = 0
+            local byte: uint32 = 0
+            if cursor < #source then
+                byte = source[(cursor + 1) as integer]
+            end
+
+            if byte == 34 then
+                tag = 4
+                if tapeCursor < #tape then
+                    local opening = tape[(tapeCursor + 1) as integer]
+                    if opening ~= cursor then
+                        return root, 5, nupp.math.u32.add(cursor, 1), nodeCount
+                    end
+                    tapeCursor = nupp.math.u32.add(tapeCursor, 1)
+                else
+                    return root, 5, nupp.math.u32.add(cursor, 1), nodeCount
+                end
+                if tapeCursor < #tape then
+                    local closing = tape[(tapeCursor + 1) as integer]
+                    start = nupp.math.u32.add(cursor, 1)
+                    length = nupp.math.u32.sub(closing, start)
+                    local stringCursor: uint32 = start
+                    while stringCursor < closing and stringCursor < #source do
+                        local stringByte = source[(stringCursor + 1) as integer]
+                        if stringByte == 92 then
+                            flags = 1
+                            stringCursor = nupp.math.u32.add(stringCursor, 1)
+                            if stringCursor >= closing or stringCursor >= #source then
+                                return root, 1, nupp.math.u32.add(stringCursor, 1), nodeCount
+                            end
+                            local escaped: uint32 = 0
+                            if stringCursor < #source then
+                                escaped = source[(stringCursor + 1) as integer]
+                            else
+                                return root, 1, nupp.math.u32.add(stringCursor, 1), nodeCount
+                            end
+                            if escaped == 117 then
+                                stringCursor = nupp.math.u32.add(stringCursor, 1)
+                                local codepoint: uint32 = 0
+                                local digits: uint32 = 0
+                                while digits < 4 do
+                                    local at = nupp.math.u32.add(stringCursor, digits)
+                                    if at >= closing or at >= #source then
+                                        return root, 1, nupp.math.u32.add(at, 1), nodeCount
+                                    end
+                                    local encoded: uint32 = 0
+                                    if at < #source then
+                                        encoded = source[(at + 1) as integer]
+                                    else
+                                        return root, 1, nupp.math.u32.add(at, 1), nodeCount
+                                    end
+                                    local nibble: uint32 = 16
+                                    if encoded >= 48 and encoded <= 57 then
+                                        nibble = nupp.math.u32.sub(encoded, 48)
+                                    elseif encoded >= 65 and encoded <= 70 then
+                                        nibble = nupp.math.u32.add(nupp.math.u32.sub(encoded, 65), 10)
+                                    elseif encoded >= 97 and encoded <= 102 then
+                                        nibble = nupp.math.u32.add(nupp.math.u32.sub(encoded, 97), 10)
+                                    end
+                                    if nibble >= 16 then
+                                        return root, 1, nupp.math.u32.add(at, 1), nodeCount
+                                    end
+                                    codepoint = nupp.math.u32.add(nupp.math.u32.mul(codepoint, 16), nibble)
+                                    digits = nupp.math.u32.add(digits, 1)
+                                end
+                                stringCursor = nupp.math.u32.add(stringCursor, 4)
+                                if codepoint >= 0xD800 and codepoint <= 0xDBFF then
+                                    if stringCursor >= closing or stringCursor >= #source then
+                                        return root, 1, nupp.math.u32.add(stringCursor, 1), nodeCount
+                                    end
+                                    local slash: uint32 = 0
+                                    if stringCursor < #source then
+                                        slash = source[(stringCursor + 1) as integer]
+                                    else
+                                        return root, 1, nupp.math.u32.add(stringCursor, 1), nodeCount
+                                    end
+                                    local markerAt = nupp.math.u32.add(stringCursor, 1)
+                                    if markerAt >= closing or markerAt >= #source then
+                                        return root, 1, nupp.math.u32.add(markerAt, 1), nodeCount
+                                    end
+                                    local marker: uint32 = 0
+                                    if markerAt < #source then
+                                        marker = source[(markerAt + 1) as integer]
+                                    else
+                                        return root, 1, nupp.math.u32.add(markerAt, 1), nodeCount
+                                    end
+                                    if slash ~= 92 or marker ~= 117 then
+                                        return root, 1, nupp.math.u32.add(stringCursor, 1), nodeCount
+                                    end
+                                    stringCursor = nupp.math.u32.add(stringCursor, 2)
+                                    local low: uint32 = 0
+                                    digits = 0
+                                    while digits < 4 do
+                                        local at = nupp.math.u32.add(stringCursor, digits)
+                                        if at >= closing or at >= #source then
+                                            return root, 1, nupp.math.u32.add(at, 1), nodeCount
+                                        end
+                                        local encoded: uint32 = 0
+                                        if at < #source then
+                                            encoded = source[(at + 1) as integer]
+                                        else
+                                            return root, 1, nupp.math.u32.add(at, 1), nodeCount
+                                        end
+                                        local nibble: uint32 = 16
+                                        if encoded >= 48 and encoded <= 57 then
+                                            nibble = nupp.math.u32.sub(encoded, 48)
+                                        elseif encoded >= 65 and encoded <= 70 then
+                                            nibble = nupp.math.u32.add(nupp.math.u32.sub(encoded, 65), 10)
+                                        elseif encoded >= 97 and encoded <= 102 then
+                                            nibble = nupp.math.u32.add(nupp.math.u32.sub(encoded, 97), 10)
+                                        end
+                                        if nibble >= 16 then
+                                            return root, 1, nupp.math.u32.add(at, 1), nodeCount
+                                        end
+                                        low = nupp.math.u32.add(nupp.math.u32.mul(low, 16), nibble)
+                                        digits = nupp.math.u32.add(digits, 1)
+                                    end
+                                    if low < 0xDC00 or low > 0xDFFF then
+                                        return root, 1, nupp.math.u32.add(stringCursor, 1), nodeCount
+                                    end
+                                    stringCursor = nupp.math.u32.add(stringCursor, 4)
+                                elseif codepoint >= 0xDC00 and codepoint <= 0xDFFF then
+                                    return root, 1, nupp.math.u32.add(stringCursor, 1), nodeCount
+                                end
+                            elseif escaped == 34
+                                or escaped == 92
+                                or escaped == 47
+                                or escaped == 98
+                                or escaped == 102
+                                or escaped == 110
+                                or escaped == 114
+                                or escaped == 116
+                            then
+                                stringCursor = nupp.math.u32.add(stringCursor, 1)
+                            else
+                                return root, 1, nupp.math.u32.add(stringCursor, 1), nodeCount
+                            end
+                        else
+                            stringCursor = nupp.math.u32.add(stringCursor, 1)
+                        end
+                    end
+                    cursor = nupp.math.u32.add(closing, 1)
+                    tapeCursor = nupp.math.u32.add(tapeCursor, 1)
+                else
+                    return root, 1, nupp.math.u32.add(cursor, 1), nodeCount
+                end
+            elseif byte == 91 or byte == 123 then
+                if byte == 91 then
+                    tag = 5
+                else
+                    tag = 6
+                end
+                opens = true
+                cursor = nupp.math.u32.add(cursor, 1)
+                if tapeCursor < #tape then
+                    tapeCursor = nupp.math.u32.add(tapeCursor, 1)
+                else
+                    return root, 5, cursor, nodeCount
+                end
+            elseif byte == 116 then
+                tag = 1
+                local matched: uint32 = 0
+                while matched < 4 do
+                    local at: uint32 = nupp.math.u32.add(cursor, matched)
+                    if at < #source then
+                        local actual = source[(at + 1) as integer]
+                        local expected: uint32 = switch matched do
+                            case 0 -> 116
+                            case 1 -> 114
+                            case 2 -> 117
+                            else -> 101
+                        end
+                        if actual ~= expected then
+                            return root, 1, nupp.math.u32.add(at, 1), nodeCount
+                        end
+                    else
+                        return root, 1, nupp.math.u32.add(at, 1), nodeCount
+                    end
+                    matched = nupp.math.u32.add(matched, 1)
+                end
+                length = 4
+                cursor = nupp.math.u32.add(cursor, 4)
+            elseif byte == 102 then
+                tag = 2
+                local matched: uint32 = 0
+                while matched < 5 do
+                    local at: uint32 = nupp.math.u32.add(cursor, matched)
+                    if at < #source then
+                        local actual = source[(at + 1) as integer]
+                        local expected: uint32 = switch matched do
+                            case 0 -> 102
+                            case 1 -> 97
+                            case 2 -> 108
+                            case 3 -> 115
+                            else -> 101
+                        end
+                        if actual ~= expected then
+                            return root, 1, nupp.math.u32.add(at, 1), nodeCount
+                        end
+                    else
+                        return root, 1, nupp.math.u32.add(at, 1), nodeCount
+                    end
+                    matched = nupp.math.u32.add(matched, 1)
+                end
+                length = 5
+                cursor = nupp.math.u32.add(cursor, 5)
+            elseif byte == 110 then
+                tag = 0
+                local matched: uint32 = 0
+                while matched < 4 do
+                    local at: uint32 = nupp.math.u32.add(cursor, matched)
+                    if at < #source then
+                        local actual = source[(at + 1) as integer]
+                        local expected: uint32 = switch matched do
+                            case 0 -> 110
+                            case 1 -> 117
+                            else -> 108
+                        end
+                        if actual ~= expected then
+                            return root, 1, nupp.math.u32.add(at, 1), nodeCount
+                        end
+                    else
+                        return root, 1, nupp.math.u32.add(at, 1), nodeCount
+                    end
+                    matched = nupp.math.u32.add(matched, 1)
+                end
+                length = 4
+                cursor = nupp.math.u32.add(cursor, 4)
+            elseif byte == 45 or byte >= 48 and byte <= 57 then
+                tag = 3
+                if byte == 45 then
+                    cursor = nupp.math.u32.add(cursor, 1)
+                    if cursor >= #source then
+                        return root, 1, nupp.math.u32.add(cursor, 1), nodeCount
+                    end
+                    if cursor < #source then
+                        byte = source[(cursor + 1) as integer]
+                    end
+                end
+                if byte == 48 then
+                    cursor = nupp.math.u32.add(cursor, 1)
+                    if cursor < #source then
+                        local following = source[(cursor + 1) as integer]
+                        if following >= 48 and following <= 57 then
+                            return root, 1, nupp.math.u32.add(cursor, 1), nodeCount
+                        end
+                    end
+                elseif byte >= 49 and byte <= 57 then
+                    local digits = true
+                    while digits and cursor < #source do
+                        local digit = source[(cursor + 1) as integer]
+                        if digit >= 48 and digit <= 57 then
+                            cursor = nupp.math.u32.add(cursor, 1)
+                        else
+                            digits = false
+                        end
+                    end
+                else
+                    return root, 1, nupp.math.u32.add(cursor, 1), nodeCount
+                end
+                if cursor < #source then
+                    local point = source[(cursor + 1) as integer]
+                    if point == 46 then
+                        cursor = nupp.math.u32.add(cursor, 1)
+                        if cursor >= #source then
+                            return root, 1, nupp.math.u32.add(cursor, 1), nodeCount
+                        end
+                        local fractions = false
+                        local scanning = true
+                        while scanning and cursor < #source do
+                            local digit = source[(cursor + 1) as integer]
+                            if digit >= 48 and digit <= 57 then
+                                fractions = true
+                                cursor = nupp.math.u32.add(cursor, 1)
+                            else
+                                scanning = false
+                            end
+                        end
+                        if not fractions then
+                            return root, 1, nupp.math.u32.add(cursor, 1), nodeCount
+                        end
+                    end
+                end
+                if cursor < #source then
+                    local exponent = source[(cursor + 1) as integer]
+                    if exponent == 69 or exponent == 101 then
+                        cursor = nupp.math.u32.add(cursor, 1)
+                        if cursor < #source then
+                            local sign = source[(cursor + 1) as integer]
+                            if sign == 43 or sign == 45 then
+                                cursor = nupp.math.u32.add(cursor, 1)
+                            end
+                        end
+                        local exponentDigits = false
+                        local scanning = true
+                        while scanning and cursor < #source do
+                            local digit = source[(cursor + 1) as integer]
+                            if digit >= 48 and digit <= 57 then
+                                exponentDigits = true
+                                cursor = nupp.math.u32.add(cursor, 1)
+                            else
+                                scanning = false
+                            end
+                        end
+                        if not exponentDigits then
+                            return root, 1, nupp.math.u32.add(cursor, 1), nodeCount
+                        end
+                    end
+                end
+                length = nupp.math.u32.sub(cursor, start)
+
+                -- Materialize decimal values natively only when the decimal is
+                -- provably an exact binary64 value. Other spellings retain their
+                -- source slice for Lua's correctly-rounded conversion.
+                local at: uint32 = start
+                local negative = false
+                local afterPoint = false
+                local readingExponent = false
+                local exponentNegative = false
+                local significand: number = 0
+                local fractionDigits: uint32 = 0
+                local exponentValue: uint32 = 0
+                local digitCount: uint32 = 0
+                local exact = true
+                while at < cursor and at < #source do
+                    local digit = source[(at + 1) as integer]
+                    if digit == 45 and at == start then
+                        negative = true
+                    elseif digit == 46 then
+                        afterPoint = true
+                    elseif digit == 69 or digit == 101 then
+                        readingExponent = true
+                    elseif readingExponent and (digit == 43 or digit == 45) then
+                        exponentNegative = digit == 45
+                    elseif digit >= 48 and digit <= 57 then
+                        if readingExponent then
+                            if exponentValue <= 2000 then
+                                exponentValue = nupp.math.u32.add(
+                                    nupp.math.u32.mul(exponentValue, 10),
+                                    nupp.math.u32.sub(digit, 48)
+                                )
+                            else
+                                exact = false
+                            end
+                        else
+                            digitCount = nupp.math.u32.add(digitCount, 1)
+                            if digitCount <= 15 then
+                                significand = significand * 10 + digit - 48
+                                if afterPoint then
+                                    fractionDigits = nupp.math.u32.add(fractionDigits, 1)
+                                end
+                            else
+                                exact = false
+                            end
+                        end
+                    end
+                    at = nupp.math.u32.add(at, 1)
+                end
+
+                local positiveScale: uint32 = 0
+                local negativeScale: uint32 = 0
+                if exact then
+                    if exponentNegative then
+                        if exponentValue <= 1074 and fractionDigits <= 1074 - exponentValue then
+                            negativeScale = nupp.math.u32.add(fractionDigits, exponentValue)
+                        else
+                            exact = false
+                        end
+                    elseif exponentValue >= fractionDigits then
+                        positiveScale = nupp.math.u32.sub(exponentValue, fractionDigits)
+                        if positiveScale > 22 then
+                            exact = false
+                        end
+                    else
+                        negativeScale = nupp.math.u32.sub(fractionDigits, exponentValue)
+                    end
+                end
+
+                numberValue = significand
+                local scaleCursor: uint32 = 0
+                while exact and scaleCursor < positiveScale do
+                    if numberValue > 900719925474099 then
+                        exact = false
+                    else
+                        numberValue = numberValue * 10
+                    end
+                    scaleCursor = nupp.math.u32.add(scaleCursor, 1)
+                end
+                scaleCursor = 0
+                while exact and scaleCursor < negativeScale do
+                    if numberValue % 5 ~= 0 then
+                        exact = false
+                    else
+                        numberValue = numberValue / 5
+                    end
+                    scaleCursor = nupp.math.u32.add(scaleCursor, 1)
+                end
+                scaleCursor = 0
+                while exact and scaleCursor < negativeScale do
+                    numberValue = numberValue / 2
+                    scaleCursor = nupp.math.u32.add(scaleCursor, 1)
+                end
+                if numberValue > 9007199254740991 then
+                    exact = false
+                end
+                if exact then
+                    if negative then
+                        numberValue = -numberValue
+                    end
+                    flags = 1
+                end
+            else
+                return root, 1, nupp.math.u32.add(cursor, 1), nodeCount
+            end
+
+            local nodeId: uint32 = 0
+            if nodeCount < #nodes then
+                local node = nodes[(nodeCount + 1) as integer]
+                node.tag = tag
+                node.number = numberValue
+                node.start = start
+                node.length = length
+                node.linkStart = 0
+                node.linkCount = 0
+                node.parent = 0
+                node.flags = flags
+                nodeCount = nupp.math.u32.add(nodeCount, 1)
+                nodeId = nodeCount
+            else
+                return root, 2, nupp.math.u32.add(start, 1), nodeCount
+            end
+
+            if depth == 0 then
+                if root ~= 0 then
+                    return root, 1, nupp.math.u32.add(start, 1), nodeCount
+                end
+                root = nodeId
+            else
+                local top: uint32 = nupp.math.u32.sub(depth, 1)
+                if top < #frames then
+                    local frame = frames[(top + 1) as integer]
+                    local allowed = frame.kind == 5 and frame.state == 0 or frame.kind == 6 and frame.state == 2
+                    if not allowed then
+                        return root, 1, nupp.math.u32.add(start, 1), nodeCount
+                    end
+                    local childCursor = nupp.math.u32.sub(nodeId, 1)
+                    if childCursor < #nodes then
+                        local child = nodes[(childCursor + 1) as integer]
+                        child.parent = frame.node
+                    else
+                        return root, 2, nupp.math.u32.add(start, 1), nodeCount
+                    end
+                    frame.count = nupp.math.u32.add(frame.count, 1)
+                    if frame.kind == 5 then
+                        frame.state = 1
+                    else
+                        frame.state = 3
+                    end
+                else
+                    return root, 4, nupp.math.u32.add(start, 1), nodeCount
+                end
+            end
+
+            needValue = false
+            if opens then
+                if depth < #frames then
+                    local frame = frames[(depth + 1) as integer]
+                    frame.kind = tag
+                    frame.node = nodeId
+                    frame.count = 0
+                    frame.state = 0
+                    depth = nupp.math.u32.add(depth, 1)
+                else
+                    return root, 4, nupp.math.u32.add(start, 1), nodeCount
+                end
+            end
+        elseif depth == 0 then
+            if cursor < #source then
+                return root, 1, nupp.math.u32.add(cursor, 1), nodeCount
+            end
+            done = true
+        else
+            local top: uint32 = nupp.math.u32.sub(depth, 1)
+            if top < #frames then
+                local frame = frames[(top + 1) as integer]
+                if cursor >= #source then
+                    return root, 1, nupp.math.u32.add(cursor, 1), nodeCount
+                end
+                local byte: uint32 = 0
+                if cursor < #source then
+                    byte = source[(cursor + 1) as integer]
+                end
+                local closing = frame.kind == 5 and byte == 93 or frame.kind == 6 and byte == 125
+                local mayClose = frame.state == 0 and frame.count == 0 or frame.state == 1 or frame.state == 3
+                if closing and mayClose then
+                    local nodeCursor: uint32 = nupp.math.u32.sub(frame.node, 1)
+                    if nodeCursor < #nodes then
+                        local node = nodes[(nodeCursor + 1) as integer]
+                        node.linkCount = frame.count
+                    else
+                        return root, 2, nupp.math.u32.add(cursor, 1), nodeCount
+                    end
+                    cursor = nupp.math.u32.add(cursor, 1)
+                    if tapeCursor < #tape then
+                        tapeCursor = nupp.math.u32.add(tapeCursor, 1)
+                    else
+                        return root, 5, cursor, nodeCount
+                    end
+                    depth = nupp.math.u32.sub(depth, 1)
+                elseif frame.kind == 5 then
+                    if frame.state == 0 then
+                        needValue = true
+                    elseif frame.state == 1 and byte == 44 then
+                        cursor = nupp.math.u32.add(cursor, 1)
+                        if tapeCursor < #tape then
+                            tapeCursor = nupp.math.u32.add(tapeCursor, 1)
+                        else
+                            return root, 5, cursor, nodeCount
+                        end
+                        frame.state = 0
+                        needValue = true
+                    else
+                        return root, 1, nupp.math.u32.add(cursor, 1), nodeCount
+                    end
+                elseif frame.state == 0 then
+                    if byte ~= 34 then
+                        return root, 1, nupp.math.u32.add(cursor, 1), nodeCount
+                    end
+                    local keyStart: uint32 = cursor
+                    if tapeCursor < #tape then
+                        tapeCursor = nupp.math.u32.add(tapeCursor, 1)
+                    else
+                        return root, 5, nupp.math.u32.add(cursor, 1), nodeCount
+                    end
+                    if tapeCursor < #tape then
+                        local closingQuote = tape[(tapeCursor + 1) as integer]
+                        cursor = nupp.math.u32.add(closingQuote, 1)
+                        tapeCursor = nupp.math.u32.add(tapeCursor, 1)
+                        if nodeCount < #nodes then
+                            local key = nodes[(nodeCount + 1) as integer]
+                            key.tag = 4
+                            key.start = nupp.math.u32.add(keyStart, 1)
+                            key.length = nupp.math.u32.sub(closingQuote, nupp.math.u32.add(keyStart, 1))
+                            key.linkStart = 0
+                            key.linkCount = 0
+                            key.parent = frame.node
+                            local keyCursor = nupp.math.u32.add(keyStart, 1)
+                            local keyEscaped: uint32 = 0
+                            while keyCursor < closingQuote and keyCursor < #source do
+                                if source[(keyCursor + 1) as integer] == 92 then
+                                    keyEscaped = 1
+                                end
+                                keyCursor = nupp.math.u32.add(keyCursor, 1)
+                            end
+                            key.flags = keyEscaped
+                            nodeCount = nupp.math.u32.add(nodeCount, 1)
+                            frame.count = nupp.math.u32.add(frame.count, 1)
+                            frame.state = 1
+                        else
+                            return root, 2, nupp.math.u32.add(keyStart, 1), nodeCount
+                        end
+                    else
+                        return root, 1, nupp.math.u32.add(keyStart, 1), nodeCount
+                    end
+                elseif frame.state == 1 and byte == 58 then
+                    cursor = nupp.math.u32.add(cursor, 1)
+                    if tapeCursor < #tape then
+                        tapeCursor = nupp.math.u32.add(tapeCursor, 1)
+                    else
+                        return root, 5, cursor, nodeCount
+                    end
+                    frame.state = 2
+                    needValue = true
+                elseif frame.state == 3 and byte == 44 then
+                    cursor = nupp.math.u32.add(cursor, 1)
+                    if tapeCursor < #tape then
+                        tapeCursor = nupp.math.u32.add(tapeCursor, 1)
+                    else
+                        return root, 5, cursor, nodeCount
+                    end
+                    frame.state = 0
+                else
+                    return root, 1, nupp.math.u32.add(cursor, 1), nodeCount
+                end
+            else
+                return root, 4, nupp.math.u32.add(cursor, 1), nodeCount
+            end
+        end
+    end
+
+    -- Nodes are emitted in document order, so descendants of a nested
+    -- container interrupt the parent's children. Compact links by parent
+    -- after parsing to give every container one contiguous child range.
+    local nodeCursor: uint32 = 0
+    while nodeCursor < nodeCount and nodeCursor < #nodes do
+        local node = nodes[(nodeCursor + 1) as integer]
+        node.linkStart = 0
+        node.linkCount = 0
+        nodeCursor = nupp.math.u32.add(nodeCursor, 1)
+    end
+
+    nodeCursor = 0
+    while nodeCursor < nodeCount and nodeCursor < #nodes do
+        local child = nodes[(nodeCursor + 1) as integer]
+        if child.parent > 0 then
+            local parentCursor = nupp.math.u32.sub(child.parent, 1)
+            if parentCursor < #nodes then
+                local parent = nodes[(parentCursor + 1) as integer]
+                parent.linkCount = nupp.math.u32.add(parent.linkCount, 1)
+            else
+                return root, 2, nupp.math.u32.add(child.start, 1), nodeCount
+            end
+        end
+        nodeCursor = nupp.math.u32.add(nodeCursor, 1)
+    end
+
+    linkCount = 0
+    nodeCursor = 0
+    while nodeCursor < nodeCount and nodeCursor < #nodes do
+        local node = nodes[(nodeCursor + 1) as integer]
+        node.linkStart = linkCount
+        linkCount = nupp.math.u32.add(linkCount, node.linkCount)
+        node.linkCount = 0
+        nodeCursor = nupp.math.u32.add(nodeCursor, 1)
+    end
+    if linkCount > #links then
+        return root, 3, 1, nodeCount
+    end
+
+    nodeCursor = 0
+    while nodeCursor < nodeCount and nodeCursor < #nodes do
+        local child = nodes[(nodeCursor + 1) as integer]
+        if child.parent > 0 then
+            local parentCursor = nupp.math.u32.sub(child.parent, 1)
+            if parentCursor < #nodes then
+                local parent = nodes[(parentCursor + 1) as integer]
+                local linkCursor = nupp.math.u32.add(parent.linkStart, parent.linkCount)
+                if linkCursor < #links then
+                    links[(linkCursor + 1) as integer] = nupp.math.u32.add(nodeCursor, 1)
+                    parent.linkCount = nupp.math.u32.add(parent.linkCount, 1)
+                else
+                    return root, 3, nupp.math.u32.add(child.start, 1), nodeCount
+                end
+            else
+                return root, 2, nupp.math.u32.add(child.start, 1), nodeCount
+            end
+        end
+        nodeCursor = nupp.math.u32.add(nodeCursor, 1)
+    end
+
+    return root, 0, 0, nodeCount
+end
+
+parser.parse = parse
+type parser.Node = Node
+type parser.Frame = Frame
+parser.Node = Node
+parser.Frame = Frame
+
+return parser

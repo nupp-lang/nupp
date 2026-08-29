@@ -1,0 +1,10 @@
+-- The C++ simdjson control exists only in this benchmark. Production JSON has
+-- no declaration or import for it.
+module simdjsonbench
+
+local interface SimdjsonBench
+    compileSerde: function(plan: any, unknownMembers: string): any
+    decodeSerde: function(schema: any, text: string): (any?, string?)
+end
+
+export = _G.require("simdjson_bench_native") as SimdjsonBench

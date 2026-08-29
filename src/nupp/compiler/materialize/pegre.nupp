@@ -1,0 +1,626 @@
+module nupp.compiler.materialize.pegre
+
+--[[
+The compile-time textual frontend for compiler-owned PEG patterns.
+
+This parser is deliberately independent of LPeg's runtime `re` module so the compiler
+can validate a static grammar, derive its capture pack, and build Nupp's canonical
+graph. Execution later selects a Nupp specialization or lowers that graph to native
+LPeg. It accepts LPeg 1.1's `re` notation and calls the same sealed pattern
+constructors as the ordinary comptime API.
+]]
+
+local record pegRe
+    record Failure
+        readonly message: string
+    end
+
+    parse: function(source: string, make: any): (any?, pegRe.Failure?)
+end
+
+local MAX_REPETITION = 4096
+local MAX_NESTING = 256
+
+local function bytes(first: integer, last: integer): string
+    local out = {}
+    for byte = first, last do
+        out[#out + 1] = string.char(byte)
+    end
+
+    return table.concat(out)
+end
+
+local alpha = bytes(65, 90) .. bytes(97, 122)
+local digit = bytes(48, 57)
+local alnum = alpha .. digit
+local graph = bytes(33, 126)
+local punctParts = {}
+for byte = 33, 126 do
+    local character = string.char(byte)
+    if not alnum:find(character, 1, true) then
+        punctParts[#punctParts + 1] = character
+    end
+end
+
+local PREDEFINED = {
+    a = alpha,
+    alpha = alpha,
+    c = bytes(0, 31) .. string.char(127),
+    cntrl = bytes(0, 31) .. string.char(127),
+    d = digit,
+    digit = digit,
+    g = graph,
+    graph = graph,
+    l = bytes(97, 122),
+    lower = bytes(97, 122),
+    nl = "\n",
+    p = table.concat(punctParts),
+    punct = table.concat(punctParts),
+    s = " \t\n\v\f\r",
+    space = " \t\n\v\f\r",
+    u = bytes(65, 90),
+    upper = bytes(65, 90),
+    w = alnum,
+    alnum = alnum,
+    x = digit .. bytes(65, 70) .. bytes(97, 102),
+    xdigit = digit .. bytes(65, 70) .. bytes(97, 102),
+}
+
+local function sortedBytes(text: string): string
+    local seen, out = {}, {}
+    for index = 1, #text do
+        seen[text:byte(index)] = true
+    end
+    for byte = 0, 255 do
+        if seen[byte] then
+            out[#out + 1] = string.char(byte)
+        end
+    end
+
+    return table.concat(out)
+end
+
+local function complement(text: string): string
+    local excluded, out = {}, {}
+    for index = 1, #text do
+        excluded[text:byte(index)] = true
+    end
+    for byte = 0, 255 do
+        if not excluded[byte] then
+            out[#out + 1] = string.char(byte)
+        end
+    end
+
+    return table.concat(out)
+end
+
+local function location(source: string, offset: integer): integer, integer
+    local line, column = 1, 1
+    for index = 1, math.min(offset - 1, #source) do
+        if source:byte(index) == 10 then
+            line, column = line + 1, 1
+        else
+            column = column + 1
+        end
+    end
+
+    return line as integer, column as integer
+end
+
+local function syntaxFailure(state: any, message: string, offset: integer?): pegRe.Failure
+    local at = offset or state.position
+    local line, column = location(state.source, at)
+    local near = state.source:sub(at, math.min(#state.source, at + 19))
+    near = near:gsub("[\r\n\t]", " ")
+    if near == "" then
+        near = "end of grammar"
+    else
+        near = ("%q"):format(near)
+    end
+
+    return new pegRe.Failure(
+        message = ("PEG re syntax error at line %d, column %d: %s near %s"):format(line, column, message, near)
+    )
+end
+
+local function skip(state: any): nil
+    while state.position <= #state.source do
+        local byte = state.source:byte(state.position)
+        if byte == 32 or byte == 9 or byte == 10 or byte == 11 or byte == 12 or byte == 13 then
+            state.position = state.position + 1
+        elseif state.source:sub(state.position, state.position + 1) == "--" then
+            local newline = state.source:find("\n", state.position + 2, true)
+            state.position = newline and newline + 1 or #state.source + 1
+        else
+            return
+        end
+    end
+end
+
+local function starts(state: any, token: string): boolean
+    skip(state)
+    return state.source:sub(state.position, state.position + #token - 1) == token
+end
+
+local function consume(state: any, token: string): boolean
+    if not starts(state, token) then
+        return false
+    end
+    state.position = state.position + #token
+    skip(state)
+
+    return true
+end
+
+local function nameAt(state: any, advance: boolean): string?
+    skip(state)
+    local first, last = state.source:find("^[%a_][%w_]*", state.position)
+    if not first then
+        return nil
+    end
+    local name = state.source:sub(first, last)
+    if advance then
+        state.position = last + 1
+        skip(state)
+    end
+
+    return name
+end
+
+local function definitionAhead(state: any): boolean
+    local saved = state.position
+    local name = nameAt(state, true)
+    local answer = name ~= nil and starts(state, "<-")
+    state.position = saved
+
+    return answer
+end
+
+local function sequence(make: any, patterns: {any}): any
+    if #patterns == 0 then
+        return make.literal("")
+    elseif #patterns == 1 then
+        return patterns[1]
+    end
+
+    return make.sequence(patterns)
+end
+
+local function choice(make: any, patterns: {any}): any
+    if #patterns == 1 then
+        return patterns[1]
+    end
+
+    return make.choice(patterns)
+end
+
+local function repeatExact(make: any, pattern: any, count: integer): any
+    local patterns = {}
+    for index = 1, count do
+        patterns[index] = pattern
+    end
+
+    return sequence(make, patterns)
+end
+
+local function predefined(state: any, external: boolean?): string?, pegRe.Failure?, string?
+    local at = state.position
+    if not consume(state, "%") then
+        return nil, syntaxFailure(state, "expected a predefined byte class")
+    end
+    local name = nameAt(state, true)
+    if not name then
+        return nil, syntaxFailure(state, "expected a byte-class name after '%'", at)
+    end
+    local value = PREDEFINED[name]
+    if value then
+        return value
+    end
+    if #name == 1 and name:find("^[ACDGLPSUWX]$") then
+        return complement(PREDEFINED[name:lower()] as string)
+    end
+    if external then
+        return nil, nil, name
+    end
+
+    return nil, syntaxFailure(state, "unknown predefined byte class '%" .. name .. "'", at)
+end
+
+local function quoted(state: any): string?, pegRe.Failure?
+    skip(state)
+    local at = state.position
+    local character = state.source:sub(state.position, state.position)
+    if character ~= "'" and character ~= "\"" then
+        return nil, syntaxFailure(state, "expected a quoted string", at)
+    end
+    state.position = state.position + 1
+    local close = state.source:find(character, state.position, true)
+    if not close then
+        return nil, syntaxFailure(state, "unterminated string literal", at)
+    end
+    local text = state.source:sub(state.position, close - 1)
+    state.position = close + 1
+    skip(state)
+
+    return text
+end
+
+local function parseClass(state: any): any?, pegRe.Failure?
+    local make = state.make
+    local at = state.position
+    consume(state, "[")
+    local inverted = false
+    if state.source:sub(state.position, state.position) == "^" then
+        inverted = true
+        state.position = state.position + 1
+    end
+    local byteMembers, patterns, count = {}, {}, 0
+    while state.position <= #state.source and state.source:sub(state.position, state.position) ~= "]" do
+        local item, externalName
+        if state.source:sub(state.position, state.position) == "%" then
+            local why
+            item, why, externalName = predefined(state, true)
+            if why then
+                return nil, why
+            end
+        else
+            item = state.source:sub(state.position, state.position)
+            state.position = state.position + 1
+        end
+        if item and #item == 1 and state.source:sub(
+            state.position,
+            state.position
+        ) == "-" and state.source:sub(state.position + 1, state.position + 1) ~= "]" then
+            state.position = state.position + 1
+            local last = state.source:sub(state.position, state.position)
+            if last == "" or last == "%" then
+                return nil, syntaxFailure(state, "a byte range needs a literal upper bound")
+            end
+            state.position = state.position + 1
+            local firstByte, lastByte = item:byte(), last:byte()
+            if firstByte > lastByte then
+                return nil, syntaxFailure(state, "a byte range must run from low to high")
+            end
+            item = bytes(firstByte, lastByte)
+        end
+        if externalName then
+            patterns[#patterns + 1] = make.external(externalName)
+            count = count + 1
+        else
+            byteMembers[#byteMembers + 1], count = item, count + #item
+        end
+    end
+    if state.source:sub(state.position, state.position) ~= "]" then
+        return nil, syntaxFailure(state, "unterminated byte class", at)
+    end
+    state.position = state.position + 1
+    skip(state)
+    if count == 0 then
+        return nil, syntaxFailure(state, "a byte class cannot be empty", at)
+    end
+    local value = sortedBytes(table.concat(byteMembers))
+    if #patterns == 0 then
+        if inverted then
+            value = complement(value)
+        end
+
+        return make.set(value)
+    end
+    if value ~= "" then
+        patterns[#patterns + 1] = make.set(value)
+    end
+    local pattern = #patterns == 1 and patterns[1] or make.choice(patterns)
+
+    return inverted and make.sequence({make.notPredicate(pattern), make.anyByte()}) or pattern
+end
+
+local parseExpression: function(any, boolean): (any?, pegRe.Failure?)
+
+local function nested(state: any, callback: function(): (any?, pegRe.Failure?)): any?, pegRe.Failure?
+    state.depth = state.depth + 1
+    if state.depth > MAX_NESTING then
+        return nil, syntaxFailure(state, "grammar nesting exceeds " .. tostring(MAX_NESTING))
+    end
+    local pattern, why = callback()
+    state.depth = state.depth - 1
+
+    return pattern, why
+end
+
+local function parsePrimary(state: any): any?, pegRe.Failure?
+    local make = state.make
+    skip(state)
+    local at = state.position
+    local character = state.source:sub(state.position, state.position)
+    if character == "'" or character == "\"" then
+        local text, why = quoted(state)
+        return text and make.literal(text) or nil, why
+    elseif character == "[" then
+        return parseClass(state)
+    elseif character == "%" then
+        local value, why, name = predefined(state, true)
+        if why then
+            return nil, why
+        end
+
+        return value and make.set(value) or make.external(name)
+    elseif consume(state, "(") then
+        return nested(state, function()
+            local pattern, why = parseExpression(state, false)
+            if not pattern then
+                return nil, why
+            end
+            if not consume(state, ")") then
+                return nil, syntaxFailure(state, "expected ')' to close a group", at)
+            end
+
+            return pattern
+        end)
+    elseif consume(state, "{:") then
+        return nested(state, function()
+            local name
+            local saved = state.position
+            name = nameAt(state, true)
+            if not name or not consume(state, ":") then
+                name = nil
+                state.position = saved
+            end
+            local pattern, why = parseExpression(state, false)
+            if not pattern then
+                return nil, why
+            end
+            if not consume(state, ":}") then
+                return nil, syntaxFailure(state, "expected ':}' to close a group capture", at)
+            end
+
+            return make.group(pattern, name)
+        end)
+    elseif consume(state, "{~") then
+        return nested(state, function()
+            local pattern, why = parseExpression(state, false)
+            if not pattern then
+                return nil, why
+            end
+            if not consume(state, "~}") then
+                return nil, syntaxFailure(state, "expected '~}' to close a substitution capture", at)
+            end
+
+            return make.substitution(pattern)
+        end)
+    elseif consume(state, "{|") then
+        return nested(state, function()
+            local pattern, why = parseExpression(state, false)
+            if not pattern then
+                return nil, why
+            end
+            if not consume(state, "|}") then
+                return nil, syntaxFailure(state, "expected '|}' to close a collection", at)
+            end
+
+            return make.tableCapture(pattern)
+        end)
+    elseif consume(state, "=") then
+        local name = nameAt(state, true)
+        if not name then
+            return nil, syntaxFailure(state, "expected a group name after '='", at)
+        end
+
+        return make.backReference(name)
+    elseif consume(state, "{") then
+        if consume(state, "}") then
+            return make.position()
+        end
+        return nested(state, function()
+            local pattern, why = parseExpression(state, false)
+            if not pattern then
+                return nil, why
+            end
+            if not consume(state, "}") then
+                return nil, syntaxFailure(state, "expected '}' to close a capture", at)
+            end
+
+            return make.capture(pattern)
+        end)
+    elseif consume(state, ".") then
+        return make.anyByte()
+    elseif consume(state, "<") then
+        local name = nameAt(state, true)
+        if not name or not consume(state, ">") then
+            return nil, syntaxFailure(state, "expected a rule name followed by '>'", at)
+        elseif not state.grammar then
+            return nil, syntaxFailure(state, "a rule reference is only valid inside a grammar", at)
+        end
+
+        return make.reference(name)
+    end
+    local name = nameAt(state, true)
+    if name then
+        if not state.grammar then
+            return nil, syntaxFailure(state, "a rule reference is only valid inside a grammar", at)
+        end
+
+        return make.reference(name)
+    end
+
+    return nil, syntaxFailure(state, "expected a pattern", at)
+end
+
+local function parseSuffix(state: any): any?, pegRe.Failure?
+    local make = state.make
+    local pattern, why = parsePrimary(state)
+    if not pattern then
+        return nil, why
+    end
+    while true do
+        if consume(state, "+") then
+            pattern = make.oneOrMore(pattern)
+        elseif consume(state, "*") then
+            pattern = make.zeroOrMore(pattern)
+        elseif consume(state, "?") then
+            pattern = make.optional(pattern)
+        elseif consume(state, "^") then
+            local sign = state.source:sub(state.position, state.position)
+            if sign == "+" or sign == "-" then
+                state.position = state.position + 1
+            else
+                sign = ""
+            end
+            local first, last = state.source:find("^%d+", state.position)
+            if not first then
+                return nil, syntaxFailure(state, "expected a repetition count after '^'")
+            end
+            local count = tonumber(state.source:sub(first, last)) as integer
+            if count > MAX_REPETITION then
+                return nil, syntaxFailure(state, "repetition count exceeds " .. tostring(MAX_REPETITION), first)
+            end
+            state.position = last + 1
+            skip(state)
+            if sign == "+" then
+                pattern = sequence(make, {repeatExact(make, pattern, count), make.zeroOrMore(pattern)})
+            elseif sign == "-" then
+                local patterns = {}
+                for index = 1, count do
+                    patterns[index] = make.optional(pattern)
+                end
+                pattern = sequence(make, patterns)
+            else
+                pattern = repeatExact(make, pattern, count)
+            end
+        elseif consume(state, "->") then
+            if consume(state, "{}") then
+                pattern = make.tableCapture(pattern)
+            else
+                local character = state.source:sub(state.position, state.position)
+                if character == "'" or character == "\"" then
+                    local replacement, replacementWhy = quoted(state)
+                    if not replacement then
+                        return nil, replacementWhy
+                    end
+                    pattern = make.transform(pattern, "string", replacement)
+                else
+                    local first, last = state.source:find("^%d+", state.position)
+                    if first then
+                        local capture = tonumber(state.source:sub(first, last)) as integer
+                        state.position = last + 1
+                        skip(state)
+                        pattern = make.transform(pattern, "number", capture)
+                    else
+                        local name = nameAt(state, true)
+                        if not name then
+                            return nil, syntaxFailure(state, "expected a capture target after '->'")
+                        end
+                        pattern = make.transform(pattern, "definition", name)
+                    end
+                end
+            end
+        elseif consume(state, "=>") then
+            local name = nameAt(state, true)
+            if not name then
+                return nil, syntaxFailure(state, "expected a match-time definition name")
+            end
+            pattern = make.matchTime(pattern, name)
+        elseif consume(state, ">>") then
+            local name = nameAt(state, true)
+            if not name then
+                return nil, syntaxFailure(state, "expected an accumulator definition name")
+            end
+            pattern = make.accumulate(pattern, name)
+        elseif consume(state, "~>") then
+            local name = nameAt(state, true)
+            if not name then
+                return nil, syntaxFailure(state, "expected a fold definition name")
+            end
+            pattern = make.fold(pattern, name)
+        else
+            return pattern
+        end
+    end
+end
+
+local function parsePrefix(state: any): any?, pegRe.Failure?
+    if consume(state, "&") then
+        local pattern, why = parsePrefix(state)
+        return pattern and state.make.andPredicate(pattern) or nil, why
+    elseif consume(state, "!") then
+        local pattern, why = parsePrefix(state)
+        return pattern and state.make.notPredicate(pattern) or nil, why
+    end
+
+    return parseSuffix(state)
+end
+
+local function sequenceEnded(state: any, ruleBoundary: boolean): boolean
+    skip(state)
+    if state.position > #state.source or starts(
+        state,
+        "/"
+    ) or starts(
+        state,
+        ")"
+    ) or starts(state, "}") or starts(state, ":}") or starts(state, "~}") or starts(state, "|}") then
+        return true
+    end
+
+    return ruleBoundary and definitionAhead(state)
+end
+
+parseExpression = function(state: any, ruleBoundary: boolean): any?, pegRe.Failure?
+    local alternatives = {}
+    while true do
+        local members = {}
+        while not sequenceEnded(state, ruleBoundary) do
+            local pattern, why = parsePrefix(state)
+            if not pattern then
+                return nil, why
+            end
+            members[#members + 1] = pattern
+        end
+        alternatives[#alternatives + 1] = sequence(state.make, members)
+        if not consume(state, "/") then
+            return choice(state.make, alternatives)
+        end
+    end
+end
+
+function pegRe.parse(source: string, make: any): any?, pegRe.Failure?
+    if type(source) ~= "string" then
+        return nil, new pegRe.Failure(message = "nupp.peg.compile needs a grammar string")
+    end
+    local state = {source = source, position = 1, depth = 0, grammar = false, make = make}
+    skip(state)
+    if definitionAhead(state) then
+        state.grammar = true
+        local definitions, names = {}, {}
+        local start
+        while state.position <= #source do
+            local at = state.position
+            local name = nameAt(state, true)
+            if not name or not consume(state, "<-") then
+                return nil, syntaxFailure(state, "expected a rule definition", at)
+            elseif names[name] then
+                return nil, syntaxFailure(state, "rule '" .. name .. "' is defined more than once", at)
+            end
+            start, names[name] = start or name, true
+            local pattern, why = parseExpression(state, true)
+            if not pattern then
+                return nil, why
+            end
+            definitions[#definitions + 1] = make.define(name, pattern)
+            skip(state)
+        end
+
+        return make.grammar(start, definitions)
+    end
+    local pattern, why = parseExpression(state, false)
+    if not pattern then
+        return nil, why
+    end
+    skip(state)
+    if state.position <= #source then
+        return nil, syntaxFailure(state, "unexpected trailing input")
+    end
+
+    return pattern
+end
+
+export = pegRe

@@ -1,0 +1,132 @@
+module nupp.compiler.indexedviews
+
+--[[
+The sealed standard indexed-view families, described once for checking, proofs and
+generation. Source metamethod names type the operators; this descriptor is the
+stronger compiler-owned fact connecting length, indexing and physical storage.
+]]
+
+local T = require("nupp.compiler.types")
+
+local indexed = {}
+
+local type Type = T.Type
+
+record indexed.Descriptor
+    adapter: 'span' | 'soa'
+    element: Type
+    writable: boolean
+    fixedCount: Type?
+    nominal: Type
+end
+
+record indexed.Producer
+    kind: 'carray' | 'fixed-carray' | 'string' | 'heap' | 'soa'
+    descriptor: indexed.Descriptor
+end
+
+local function describe(t: Type): indexed.Descriptor?
+    local raw = T.unwrapOwnership(t)
+    if raw.tag == "intersection" then
+        for _, member in ipairs(raw.members) do
+            local found = describe(member)
+            if found then
+                return found
+            end
+        end
+        return nil
+    end
+    if raw.tag ~= "nominal" then
+        return nil
+    end
+
+    local nominal = raw as T.Nominal
+    local origin = (nominal.origin or nominal) as T.Nominal
+    local moduleName = origin.moduleName or nominal.moduleName or origin.sealedModule
+    local name = origin.name
+    local args = nominal.typeArgs or {}
+    local element = args[1]
+    if not element then
+        return nil
+    end
+
+    if (
+        moduleName == "nupp.mem.span" or moduleName == "nupp.wasm"
+    ) and (name == "Span" or name == "FixedSpan" or name == "WriteSpan" or name == "FixedWriteSpan") then
+        return new indexed.Descriptor(
+            adapter = "span",
+            element = element,
+            writable = name == "WriteSpan" or name == "FixedWriteSpan",
+            fixedCount = (name == "FixedSpan" or name == "FixedWriteSpan") and args[2] or nil,
+            nominal = nominal
+        )
+    elseif moduleName == "nupp.mem.soa" and (name == "Span" or name == "WriteSpan") then
+        return new indexed.Descriptor(
+            adapter = "soa",
+            element = element,
+            writable = name == "WriteSpan",
+            nominal = nominal
+        )
+    end
+
+    return nil
+end
+
+indexed.describe = describe
+
+--- Describes one sealed standard module function which creates a root view.
+--- The call checker supplies the already-resolved export identity; spelling is
+--- deliberately insufficient.
+function indexed.exportProducer(moduleName: string, member: string, result: Type): indexed.Producer?
+    if moduleName ~= "nupp.mem.span" then
+        return nil
+    end
+    local descriptor = describe(result)
+    if not descriptor then
+        return nil
+    end
+    local kind: 'carray' | 'fixed-carray' | 'string' | 'heap' | 'soa'
+    if member == "fromCarray" or member == "writeCarray" then
+        kind = "carray"
+    elseif member == "fromFixedCarray" or member == "writeFixedCarray" then
+        kind = "fixed-carray"
+    elseif member == "fromString" then
+        kind = "string"
+    else
+        return nil
+    end
+
+    return new indexed.Producer(kind = kind, descriptor = descriptor)
+end
+
+--- Describes root views borrowed from the sealed standard owners. Returning a
+--- standard view is not enough: both the owner module and member identity are
+--- required before generation may reach the private physical representation.
+function indexed.methodProducer(receiver: Type, member: string, result: Type): indexed.Producer?
+    local raw = T.unwrapOwnership(receiver)
+    if raw.tag ~= "nominal" then
+        return nil
+    end
+    local nominal = raw as T.Nominal
+    local origin = (nominal.origin or nominal) as T.Nominal
+    local moduleName = origin.moduleName or nominal.moduleName or origin.sealedModule
+    if origin.name ~= "Array" or (member ~= "read" and member ~= "write") then
+        return nil
+    end
+    local kind: 'carray' | 'fixed-carray' | 'string' | 'heap' | 'soa'
+    if moduleName == "nupp.mem.heap" then
+        kind = "heap"
+    elseif moduleName == "nupp.mem.soa" then
+        kind = "soa"
+    else
+        return nil
+    end
+    local descriptor = describe(result)
+    if not descriptor then
+        return nil
+    end
+
+    return new indexed.Producer(kind = kind, descriptor = descriptor)
+end
+
+export = indexed

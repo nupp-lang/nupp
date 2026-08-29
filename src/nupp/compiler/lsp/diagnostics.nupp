@@ -1,0 +1,202 @@
+module nupp.compiler.lsp.diagnostics
+
+--[[
+Publishing what the checker found.
+
+A diagnostic crossing the wire is the compiler's, converted: byte offsets become
+UTF-16 positions, a fix becomes data the code-action handler can find again, and
+a few codes are shown at a lower severity than a build would use, since a file being
+typed into is half-written by definition, and the missing half is usually the
+next thing its author writes.
+
+Rechecking is per document and reaches the modules that depend on it, because a
+name whose type just changed is wrong in the files that use it, not in the one
+that defines it.
+]]
+
+local text = require("nupp.compiler.lsp.text")
+local wire = require("nupp.compiler.lsp.wire")
+
+local uriToPath, pathToUri = text.uriToPath, text.pathToUri
+local positionAtOffset = text.positionAtOffset
+local readFile = text.readFile
+
+local diagnostics = {}
+
+--- What this module reads of a session. A session is built field by field as it starts
+--- and rebound when a workspace folder moves, so what a module needs of it is stated
+--- where the module reads it rather than inferred from the table that opens it.
+type diagnostics.Session = {
+    --- The open documents, by URI.
+    documents: {[string]: any},
+
+    --- The query graph this session answers from. Rebound as documents in different
+    --- folders are served, so it is read at the point of use and never captured.
+    inc: any,
+
+    --- Points `inc` at the folder that owns a path, and answers which folder that is.
+    useRoot: function(path: string?): string,
+
+    --- How the session speaks to the client unprompted.
+    notify: function(method: string, params: any): nil
+}
+
+--- What installing diagnostics gives the session back.
+type diagnostics.Api = {
+    --- The compiler's diagnostics for one file, converted to the protocol's.
+    toLspDiagnostics: function(errors: {any}, source: string?): {any},
+
+    --- Rechecks one document and publishes what changed, answering whether it did.
+    checkAndPublish: function(uri: string, force: boolean?): boolean,
+
+    --- Rechecks every open document, the named one first and unconditionally.
+    refreshOpenDocuments: function(changedUri: string?): nil
+}
+
+-- Diagnostics a build enforces but an editor should not shout about, because a file
+-- being typed into is half-written by definition and the missing half is usually the
+-- next thing the author writes. A module used before it is required is one; a binding
+-- whose first reader has not been typed yet is the same thing one line later, and stays
+-- visible without being coloured like a mistake. This is the only place the two levels
+-- differ, so it is the only place that knows they can.
+local EDITOR_ADVICE = {
+    ["NUPP2120"] = "warning", -- a project module used without requiring it
+    ["NUPP2507"] = "note", -- a binding whose reader may be the next line written
+}
+
+local PROTOCOL_SEVERITY = {
+    error = 1,
+    warning = 2,
+    note = 3, -- 3 is Information
+}
+
+--- Installs diagnostic publication on one session.
+---
+--- @param s the session's state
+function diagnostics.install(s: diagnostics.Session): diagnostics.Api
+    local notify = s.notify
+
+    local function toLspDiagnostics(errors, source)
+        local out = wire.array({})
+        for _, e in ipairs(errors) do
+            local start = source and positionAtOffset(
+                source,
+                e.offset or 1
+            ) or {line = math.max(0, (e.line or 1) - 1), character = math.max(0, (e.col or 1) - 1)}
+            local finish = source and positionAtOffset(
+                source,
+                (e.offset or 1) + (e.length or 0)
+            ) or {line = start.line, character = start.character + (e.length or 1)}
+            local related = wire.array({})
+            for _, item in ipairs(e.related or {}) do
+                local path = item.filename or e.filename
+                local uri = path and pathToUri(path) or nil
+                local relatedDoc = uri and s.documents[uri] or nil
+                local relatedSource = relatedDoc and relatedDoc.text or (
+                    path and s.inc.fileText(path)
+                ) or (path and readFile(path))
+                local relatedStart = relatedSource and positionAtOffset(
+                    relatedSource,
+                    item.offset or 1
+                ) or {line = math.max(0, (item.line or 1) - 1), character = math.max(0, (item.col or 1) - 1)}
+                local relatedFinish = relatedSource and positionAtOffset(
+                    relatedSource,
+                    (item.offset or 1) + (item.length or 0)
+                ) or {line = relatedStart.line, character = relatedStart.character + (item.length or 1)}
+                if uri then
+                    related[
+                        #related + 1
+                    ] = {
+                        location = {uri = uri, range = {start = relatedStart, ["end"] = relatedFinish}},
+                        message = item.message or "related location",
+                    }
+                end
+            end
+            local message = e.msg
+            for _, note in ipairs(e.notes or {}) do
+                message = message .. "\n\nnote: " .. note
+            end
+            if e.help then
+                message = message .. "\n\nhelp: " .. e.help
+            end
+            out[
+                #out + 1
+            ] = {
+                range = {start = start, ["end"] = finish,},
+                severity = PROTOCOL_SEVERITY[EDITOR_ADVICE[e.code] or e.severity] or 1,
+                code = e.code or "NUPP1001",
+                source = "nupp",
+                message = message,
+                relatedInformation = #related > 0 and related or nil,
+                data = (e.help or e.notes or e.lint) and {help = e.help, notes = e.notes, lint = e.lint,} or nil,
+            }
+        end
+
+        return out
+    end
+
+    -- Diagnostics flow through the incremental engine: an edit rechecks this file;
+    -- dependents revalidate against the interned interface and are only rechecked when
+    -- the interface actually changed.
+    local function checkAndPublish(uri, force)
+        local doc = s.documents[uri]
+        if not doc then
+            return false
+        end
+        local path = uriToPath(uri)
+        -- A file is checked by the folder that owns it, whichever folder's request or
+        -- edit set this refresh going: the lint levels and strictness a file is read
+        -- under are its own project's.
+        s.useRoot(path)
+        local r = s.inc.checkFile(path)
+        local changed = r ~= doc.checkResult
+        doc.checkResult = r
+        doc.path = path
+        doc.result = r.result
+        -- The last state of this file that made sense, kept because a request about a
+        -- half-written line still has to answer from something. A file being typed into
+        -- does not parse for most of its life.
+        if r.result and not r.syntax then
+            doc.checked = r.result
+        end
+        if force or changed then
+            -- The version these were worked out from. An editor that has typed on since
+            -- drops them rather than showing squiggles against text it no longer has,
+            -- and one that sent no version is told none.
+            notify("textDocument/publishDiagnostics", {
+                uri = uri,
+                version = doc.version,
+                diagnostics = toLspDiagnostics(r.diags, doc.text),
+            })
+        end
+
+        return changed
+    end
+
+    -- Revalidating every open file is cheap because the query graph returns the
+    -- identical cached result for unaffected files. Only invalidated dependents are
+    -- republished, avoiding diagnostic churn.
+    local function refreshOpenDocuments(changedUri)
+        if changedUri then
+            checkAndPublish(changedUri, true)
+        end
+        local uris = {}
+        for uri in pairs(s.documents) do
+            if uri ~= changedUri then
+                uris[#uris + 1] = uri
+            end
+        end
+        table.sort(uris)
+        for _, uri in ipairs(uris) do
+            checkAndPublish(uri, false)
+        end
+    end
+
+    return {
+        toLspDiagnostics = toLspDiagnostics,
+        checkAndPublish = checkAndPublish,
+        refreshOpenDocuments = refreshOpenDocuments,
+    }
+end
+
+export = diagnostics

@@ -1,0 +1,288 @@
+local json = require("nupp.data.json")
+local serde = require("nupp.data.serde")
+
+@derive(nupp.derive.JSON, nupp.derive.Serde)
+local record FastChild
+    label: string
+end
+
+@derive(nupp.derive.JSON, nupp.derive.Serde)
+local record FastEnvelope
+    id: uint32
+    child: FastChild
+    children: {FastChild}
+    labels: {[string]: string}
+end
+
+@derive(nupp.derive.Serde)
+local record AdvancedEnvelope
+    pair: {string, integer}
+    state: 'ready' | 'done'
+end
+
+local fastSource = [[{"id":41,"child":{"label":"one"},"children":[{"label":"two"}],"labels":{"region":"us"}}]]
+local fastPrepared = serde.json():prepare(serde.of(FastEnvelope))
+local advancedPrepared = serde.json():prepare(serde.of(AdvancedEnvelope))
+local fastBuffer = require("string.buffer").new()
+fastBuffer:put(fastSource)
+
+local test = {}
+
+function test.run(): nil
+    local typed, typedProblem = fastPrepared:decode(fastSource)
+    assert(typedProblem == nil and typed ~= nil and typed.id == 41)
+    assert(typed.child.label == "one" and typed.children[1].label == "two" and typed.labels.region == "us")
+    local input = require("string.buffer").new()
+    input:put(fastSource)
+    local buffered, bufferedProblem = fastPrepared:decodeBuffer(input)
+    assert(bufferedProblem == nil and buffered ~= nil and buffered.id == 41)
+    assert(buffered.child.label == "one" and buffered.children[1].label == "two")
+    local advanced, advancedProblem = advancedPrepared:decode([[{"pair":["x",2],"state":"ready"}]])
+    assert(advancedProblem == nil and advanced ~= nil and advanced.pair[2] == 2 and advanced.state == "ready")
+    local badAdvanced, badAdvancedProblem = advancedPrepared:decode([[{"pair":["x",2],"state":"other"}]])
+    assert(badAdvanced == nil and badAdvancedProblem ~= nil)
+    local derived, derivedProblem = FastEnvelope.fromJSON(fastSource)
+    assert(derivedProblem == nil and derived ~= nil and derived.child.label == "one")
+    local rejected, rejection = fastPrepared:decode(
+        [[{"id":1,"child":{"label":"x"},"children":[],"labels":{},"extra":true}]]
+    )
+    assert(rejected == nil and rejection ~= nil and rejection:find("extra", 1, true) ~= nil)
+    local wrongScalar, wrongScalarProblem = fastPrepared:decode(
+        [[{"id":"1","child":{"label":"x"},"children":[],"labels":{}}]]
+    )
+    assert(wrongScalar == nil and wrongScalarProblem ~= nil)
+    local missing, missingProblem = fastPrepared:decode([[{"id":1,"child":{"label":"x"},"children":[]}]])
+    assert(missing == nil and missingProblem ~= nil and missingProblem:find("labels", 1, true) ~= nil)
+    local fractional, fractionalProblem = fastPrepared:decode(
+        [[{"id":1.5,"child":{"label":"x"},"children":[],"labels":{}}]]
+    )
+    assert(fractional == nil and fractionalProblem ~= nil)
+    local overflow, overflowProblem = fastPrepared:decode(
+        [[{"id":4294967296,"child":{"label":"x"},"children":[],"labels":{}}]]
+    )
+    assert(overflow == nil and overflowProblem ~= nil)
+    local derivedWrong, derivedWrongProblem = FastEnvelope.fromJSON(
+        [[{"id":1.5,"child":{"label":"x"},"children":[],"labels":{}}]]
+    )
+    assert(derivedWrong == nil and derivedWrongProblem ~= nil)
+    local nativeProvider = require("nupp.data.json.provider")
+    local optionalDefaultPlan = nativeProvider.compileSerde(
+        {
+            kind = "structure",
+            access = "record",
+            typeObject = {},
+            fields = {
+                {name = "name", wire = "name", target = {kind = "string"}, required = true},
+                {
+                    name = "enabled",
+                    wire = "enabled",
+                    target = {kind = "boolean"},
+                    hasDefault = true,
+                    defaultValue = false
+                },
+                {name = "note", wire = "note", target = {kind = "optional", element = {kind = "string"}}},
+            },
+        },
+        "reject"
+    )
+    assert(optionalDefaultPlan.complete == true)
+    local optionalDefault = nativeProvider.decodeSerde(optionalDefaultPlan, [[{"name":"x","note":null}]])
+    assert(optionalDefault.name == "x" and optionalDefault.enabled == false and optionalDefault.note == nil)
+    local literalTuplePlan = nativeProvider.compileSerde(
+        {
+            kind = "structure",
+            access = "record",
+            typeObject = {},
+            fields = {
+                {
+                    name = "kind",
+                    wire = "kind",
+                    target = {kind = "string", hasLiteral = true, literalValue = "pair"},
+                    required = true
+                },
+                {
+                    name = "items",
+                    wire = "items",
+                    target = {kind = "tuple", items = {{kind = "string"}, {kind = "integer"}}},
+                    required = true
+                },
+                {
+                    name = "options",
+                    wire = "options",
+                    target = {kind = "map", value = {kind = "string"}},
+                    hasDefault = true,
+                    defaultValue = {mode = "safe"}
+                },
+            },
+        },
+        "reject"
+    )
+    assert(literalTuplePlan.complete == true)
+    local literalTuple = nativeProvider.decodeSerde(literalTuplePlan, [[{"kind":"pair","items":["x",2]}]])
+    assert(literalTuple.kind == "pair" and literalTuple.items[2] == 2 and literalTuple.options.mode == "safe")
+    local wrongLiteralOk = pcall(
+        nativeProvider.decodeSerde,
+        literalTuplePlan,
+        [[{"kind":"other","items":["x",2]}]]
+    )
+    assert(not wrongLiteralOk)
+    local wrongTupleOk = pcall(
+        nativeProvider.decodeSerde,
+        literalTuplePlan,
+        [[{"kind":"pair","items":["x"]}]]
+    )
+    assert(not wrongTupleOk)
+    local renamed = serde.json{
+        unknownMembers = "ignore",
+        fieldNames = function(member: nupp.data.serde.Member): string
+            return member.name == "id" and "i\"d" or member.name
+        end,
+    }:prepare(serde.of(FastEnvelope))
+    local renamedValue, renamedProblem = renamed:decode(
+        [[{"ignored":{"deep":[1,2]},"i\u0022d":42,"child":{"label":"x"},"children":[],"labels":{}}]]
+    )
+    assert(renamedProblem == nil and renamedValue ~= nil and renamedValue.id == 42)
+
+    local value = json.decode([[{"items":[],"object":{},"escaped":"a\"b\\c\n","unicode":"\u03ba"}]])
+    assert(json.encode(value.items) == "[]")
+    assert(json.encode(value.object) == "{}")
+    assert(value.escaped == "a\"b\\c\n")
+    assert(value.unicode == "κ")
+    local numbers = json.decode(
+        "[2.2250738585072013e-308,7.2057594037927933e+16,3.1415926535897932384626433832795028841971693993751]"
+    )
+    assert(numbers[1] == 2.2250738585072013e-308)
+    assert(numbers[2] == 7.2057594037927933e+16)
+    assert(numbers[3] == 3.1415926535897932384626433832795028841971693993751)
+    assert(
+        json.encode(
+            value
+        ) == [[{"items":[],"object":{},"escaped":"a\"b\\c\n","unicode":"κ"}]] or json.decode(
+            json.encode(value)
+        ).escaped == value.escaped
+    )
+
+    local projected = json.pull([[{"id":41,"profile":{"name":"Ada","admin":true}}]], {
+        id = true,
+        profile = {name = true},
+    })
+    assert(projected.id == 41 and projected.profile.name == "Ada" and projected.profile.admin == nil)
+    local escapedKey = json.pull([[{"na\u006de":"Ada","ignored":true}]], {name = true})
+    assert(escapedKey.name == "Ada" and escapedKey.ignored == nil)
+    local growingScratch = json.pull(
+        [=[{"short":"\n","long":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\t"}]=],
+        {short = true, long = true}
+    )
+    assert(growingScratch.short == "\n" and growingScratch.long:sub(-1) == "\t")
+
+    local nullValue = {}
+    local selected = json.pull(
+        [=[[{"id":1,"ignored":{"escaped":"\uD834\uDD1E","values":[1,2,3]}},{"id":2}]]=],
+        json.arrayOf({id = true}),
+        nullValue
+    )
+    assert(#selected == 2 and selected[1].id == 1 and selected[2].id == 2)
+    assert(selected[1].ignored == nil)
+    assert(json.pull([[{"nullable":null}]], {nullable = true}, nullValue).nullable == nullValue)
+    assert(json.encode(json.pull("[1,2,3]", json.arrayOf(false))) == "[]")
+    assert(not pcall(json.pull, [[{"id":1,"ignored":1e}]], {id = true}))
+    assert(not pcall(json.pull, [[{"id":1,"ignored":"\uD800"}]], {id = true}))
+    assert(not pcall(json.pull, [[{"ignored":{"\uD800":1}}]], {id = true}))
+    assert(not pcall(json.pull, [[{"id":1}]], json.arrayOf(true)))
+    assert(not pcall(json.pull, "1", {id = true}))
+    assert(not pcall(json.pull, "1", 3))
+    assert(not pcall(json.pull, "1", nil))
+
+    local deepSource = "1"
+    local deepShape: any = true
+    for _ = 1, 24 do
+        deepSource = [[{"x":]] .. deepSource .. "}"
+        deepShape = {x = deepShape}
+    end
+    local deepValue: any = json.pull(deepSource, deepShape)
+    for _ = 1, 24 do
+        deepValue = deepValue.x
+    end
+    assert(deepValue == 1)
+
+    local wideShape: {[string]: any} = {}
+    for index = 1, 70 do
+        wideShape["field-" .. tostring(index)] = true
+    end
+    assert(json.pull([[{"field-70":70}]], wideShape)["field-70"] == 70)
+
+    local out = require("string.buffer").new()
+    local writer = json.writer(out)
+    writer:startObject():key(json.encodedString('a"b')):write(json.verified("42")):endObject()
+    writer:close()
+    assert(out:tostring() == [[{"a\"b":42}]])
+
+    assert(json.decode("null", json.NULL) == json.NULL)
+    assert(json.decode("null") == nil)
+    local dropped = json.decode([[{"items":[1,null,2],"gone":null,"kept":3}]])
+    assert(#dropped.items == 2 and dropped.items[1] == 1 and dropped.items[2] == 2)
+    assert(dropped.gone == nil and dropped.kept == 3)
+    assert(not pcall(json.decode, [["\uD800"]]))
+    assert(not pcall(json.encode, 0 / 0))
+end
+
+function test.preparedDecode(): FastEnvelope
+    return assert(fastPrepared:decode(fastSource))
+end
+
+function test.preparedBufferDecode(): FastEnvelope
+    return assert(fastPrepared:decodeBuffer(fastBuffer))
+end
+
+function test.preparedBufferCopyDecode(): FastEnvelope
+    return assert(fastPrepared:decode(fastBuffer:tostring()))
+end
+
+function test.derivedDecode(): FastEnvelope
+    return assert(FastEnvelope.fromJSON(fastSource))
+end
+
+function test.source(): string
+    return fastSource
+end
+
+function test.controlPlan(): {[string]: any}
+    local stringPlan = {kind = "string"}
+    local child = {
+        kind = "structure",
+        access = "record",
+        typeObject = FastChild,
+        fields = {{name = "label", wire = "label", target = stringPlan, required = true}},
+    }
+
+    return {
+        kind = "structure",
+        access = "record",
+        typeObject = FastEnvelope,
+        fields = {
+            {
+                name = "id",
+                wire = "id",
+                target = {kind = "unsigned", minimum = 0, maximum = 4294967295},
+                required = true
+            },
+            {name = "child", wire = "child", target = child, required = true},
+            {name = "children", wire = "children", target = {kind = "list", element = child}, required = true},
+            {name = "labels", wire = "labels", target = {kind = "map", value = stringPlan}, required = true},
+        },
+    }
+end
+
+local rawPlan: any
+
+function test.rawDecode(): {[string]: any}
+    local provider: any = require("nupp.data.json.provider")
+    if rawPlan == nil then
+        rawPlan = provider.compileSerde(test.controlPlan(), "reject")
+    end
+    local value = provider.decodeSerde(rawPlan, fastSource)
+
+    return value as {[string]: any}
+end
+
+return test

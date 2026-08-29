@@ -1,0 +1,567 @@
+module nupp.compiler.predicate
+
+--[[
+A `where` refinement, as data rather than as a source spelling.
+
+A declaration's `where` clause names the runtime test that decides whether a
+value is one of these. Two very different readers need it: the checker, which
+validates it against the declaration's own fields, and the generator, which
+compiles `x is T` into it. Handing the generator an expression tree, or worse a
+piece of source text to resolve again, is how a spelling ends up being resolved
+twice and disagreeing, the mistake `TODO.md` records for cleanups.
+
+So the clause is read once, into a small tree of plain data whose only free
+variable is the subject. Nothing in it needs a scope: a path is a list of field
+names, a literal is a Lua literal, and the operators are the handful that a
+runtime test is built from. That travels between modules on the nominal, the way
+metamethod contracts already do, and renders to Lua without knowing anything
+about where it came from.
+
+The subset is deliberately small. A predicate has to be evaluable wherever `is`
+is written, cheap enough to inline, and free of side effects, which rules out
+calls, arithmetic and anything reaching outside the subject.
+]]
+
+local cst = require("nupp.compiler.cst")
+local lexer = require("nupp.compiler.lexer")
+
+local predicate = {}
+
+--- One node of a refinement. `op` says which of the shapes this is; the fields a shape
+--- does not use are absent.
+record predicate.Node
+    --- `and`, `or`, `not`, `cmp`, `truthy`, `typeis`, or `const`.
+    op: string
+
+    --- Operands, for `and`, `or` and `not`.
+    a: predicate.Node?
+
+    b: predicate.Node?
+
+    --- The comparison, for `cmp`: one of `==`, `~=`, `<`, `<=`, `>`, `>=`.
+    cmp: string?
+
+    --- Field names from the subject, outermost first. Empty means the subject.
+    path: {string}?
+
+    --- The right-hand literal, already written the way Lua spells it.
+    literal: string?
+
+    --- The same literal as a value, so a declared literal type can be compared against
+    --- it without parsing the spelling back.
+    constant: any
+
+    --- What `type()` must answer, for `typeis`.
+    luaType: string?
+
+    --- The value, for `const`.
+    value: boolean?
+end
+
+local COMPARISONS = {
+    ["=="] = true,
+    ["~="] = true,
+    ["<"] = true,
+    ["<="] = true,
+    [">"] = true,
+    [">="] = true,
+} as {[string]: boolean}
+
+--- The Lua type names `type()` can answer, so a comparison against one is a test rather
+--- than a string comparison that can never hold.
+local LUA_TYPES = {
+    ["nil"] = true,
+    boolean = true,
+    number = true,
+    string = true,
+    table = true,
+    ["function"] = true,
+    thread = true,
+    userdata = true,
+    cdata = true,
+} as {[string]: boolean}
+
+--- Strips the parentheses a reader wrote for grouping. They change nothing about what
+--- the test means, and keeping them would mean every shape below had to look through
+--- them.
+local function unwrap(node: cst.Node?): cst.Node?
+    while node and node.kind == "paren" do
+        node = node.expr
+    end
+    return node
+end
+
+--- The field path `node` names, when it is rooted at `self` and reaches it only through
+--- named fields. Anything computed, a bracket index or a call, has no path, because the
+--- test has to mean the same thing every time it runs.
+local function pathOf(node: cst.Node?): {string}?
+    node = unwrap(node)
+    if not node then
+        return nil
+    end
+    if node.kind == "name" then
+        if node.token and node.token.text == "self" then
+            return {}
+        end
+        return nil
+    end
+    if node.kind == "dotIndex" then
+        local base = pathOf(node.obj)
+        if not base or not node.name then
+            return nil
+        end
+        local out = {}
+        for j, segment in ipairs(base) do
+            out[j] = segment
+        end
+        out[#out + 1] = node.name.text
+        return out
+    end
+
+    return nil
+end
+
+--- The Lua spelling of `node` when it is a literal this subset admits, and the value it
+--- stands for. A number written with a C suffix is a real number to the checker and not
+--- a Lua literal, so it is refused rather than rendered wrong.
+local function literalOf(node: cst.Node?): string?, any
+    node = unwrap(node)
+    if not node then
+        return nil
+    end
+    local kind = node.kind
+    if kind == "string" and node.token then
+        local text = node.token.text
+        local quote = text:sub(1, 1)
+        if quote ~= '"' and quote ~= "'" then
+            return nil
+        end -- a long string
+        return text, lexer.stringValue(text) or text:sub(2, -2)
+    elseif kind == "number" and node.token then
+        local text = node.token.text
+        if not text:match("^%d+$") and not text:match("^%d+%.%d+$") then
+            return nil
+        end
+        return text, tonumber(text)
+    elseif kind == "trueExpr" then
+        return "true", true
+    elseif kind == "falseExpr" then
+        return "false", false
+    elseif kind == "nilExpr" then
+        return "nil", nil
+    end
+
+    return nil
+end
+
+--- `type(x)` applied to a path, when that is what `node` is.
+local function typeCallPath(node: cst.Node?): {string}?
+    node = unwrap(node)
+    if not node or node.kind ~= "call" then
+        return nil
+    end
+    local callee = unwrap(node.obj)
+    if not callee or callee.kind ~= "name" then
+        return nil
+    end
+    if not callee.token or callee.token.text ~= "type" then
+        return nil
+    end
+    local call = node as cst.Call
+    local args = call.args and (call.args as cst.Args).exprs or nil
+    if not args or #args ~= 1 then
+        return nil
+    end
+
+    return pathOf(args[1])
+end
+
+--- Reads one expression into a refinement node, or says why it cannot.
+---
+--- The failure is a sentence naming what was found, because "not supported" sends a
+--- reader looking for a list that does not exist, while "a call" tells them what to
+--- take out.
+---
+--- @param node the expression the `where` clause carries
+--- @return the refinement, or nil and the reason
+function predicate.build(node: cst.Node?): predicate.Node?, string?
+    node = unwrap(node)
+    if not node then
+        return nil, "an empty refinement"
+    end
+    local kind = node.kind
+
+    if kind == "trueExpr" or kind == "falseExpr" then
+        return new predicate.Node(op = "const", value = kind == "trueExpr")
+    end
+
+    if kind == "unop" and node.op and node.op.kind == "not" then
+        local inner, why = predicate.build(node.operand)
+        if not inner then
+            return nil, why
+        end
+        return new predicate.Node(op = "not", a = inner)
+    end
+
+    if kind == "binop" and node.op then
+        local op = node.op.kind
+        if op == "and" or op == "or" then
+            local left, why = predicate.build(node.lhs)
+            if not left then
+                return nil, why
+            end
+            local right, why2 = predicate.build(node.rhs)
+            if not right then
+                return nil, why2
+            end
+            return new predicate.Node(op = op, a = left, b = right)
+        end
+        if COMPARISONS[op] then
+            -- `type(self.x) == "table"` is a type test rather than a string comparison,
+            -- and is the one call the subset admits.
+            local typePath = typeCallPath(node.lhs) or typeCallPath(node.rhs)
+            if typePath then
+                local other = typeCallPath(node.lhs) and node.rhs or node.lhs
+                local text, value = literalOf(other)
+                if not text or type(value) ~= "string" then
+                    return nil, "a type() test compared with something other " .. "than a type name"
+                end
+                if not LUA_TYPES[value as string] then
+                    return nil, ("%q, which type() never answers"):format(value)
+                end
+                if op ~= "==" and op ~= "~=" then
+                    return nil, "a type() test ordered rather than compared"
+                end
+                local test = new predicate.Node(op = "typeis", path = typePath, luaType = value as string)
+                if op == "~=" then
+                    return new predicate.Node(op = "not", a = test)
+                end
+                return test
+            end
+            -- otherwise: a field of the subject against a literal, either way round
+            local path = pathOf(node.lhs)
+            local other = node.rhs
+            if not path then
+                path, other = pathOf(node.rhs), node.lhs
+            end
+            if not path then
+                -- Name what was actually written. "not a field" sends a reader looking
+                -- at their fields; "a call" tells them what to remove.
+                for _, side in ipairs({unwrap(node.lhs), unwrap(node.rhs)}) do
+                    local sideKind = side and side.kind
+                    if sideKind == "call" or sideKind == "methodCall" or sideKind == "safeCall" then
+                        return nil, "a call"
+                    end
+                    if sideKind == "binop" then
+                        return nil, "arithmetic"
+                    end
+                end
+                return nil, "a comparison of two things that are not the " .. "declaration's own fields"
+            end
+            local text, value = literalOf(other)
+            if not text then
+                return nil, "a comparison against something that is not a literal"
+            end
+            return new predicate.Node(op = "cmp", cmp = op, path = path, literal = text, constant = value)
+        end
+        return nil, ("the %s operator"):format(op)
+    end
+
+    -- a bare field, which is a truthiness test
+    local path = pathOf(node)
+    if path then
+        if #path == 0 then
+            return nil, "the subject itself"
+        end
+        return new predicate.Node(op = "truthy", path = path)
+    end
+
+    if kind == "call" or kind == "methodCall" or kind == "safeCall" then
+        return nil, "a call"
+    end
+    if kind == "string" or kind == "number" or kind == "nilExpr" then
+        return nil, "a literal"
+    end
+
+    return nil, "this expression"
+end
+
+--- A refinement testing that `path` holds exactly `constant`.
+---
+--- This is how a declaration's own literal-typed field becomes its test without anyone
+--- writing one: the field's type already says the value is that and nothing else, so
+--- the test is arithmetic on what was declared. Nil when the value is not one this
+--- subset can spell.
+---
+--- @param path the field names, outermost first
+--- @param constant the value the field's literal type admits
+function predicate.equals(path: {string}, constant: string | number | boolean): predicate.Node?
+    local kind = type(constant)
+    local text = nil
+    if kind == "string" then
+        text = ("%q"):format(constant)
+    elseif kind == "number" then
+        text = tostring(constant)
+    elseif kind == "boolean" then
+        text = constant and "true" or "false"
+    end
+    if not text then
+        return nil
+    end
+
+    return new predicate.Node(op = "cmp", cmp = "==", path = path, literal = text, constant = constant)
+end
+
+--- Both refinements, as one.
+function predicate.both(a: predicate.Node?, b: predicate.Node?): predicate.Node?
+    if not a then
+        return b
+    end
+    if not b then
+        return a
+    end
+
+    return new predicate.Node(op = "and", a = a, b = b)
+end
+
+--- Every field path the refinement reads, so the checker can hold each one to the
+--- declaration it belongs to.
+function predicate.paths(node: predicate.Node?, out: {{string}}?): {{string}}
+    out = out or {}
+    if not node then
+        return out
+    end
+    if node.path then
+        out[#out + 1] = node.path
+    end
+    predicate.paths(node.a, out)
+    predicate.paths(node.b, out)
+
+    return out
+end
+
+--- What `type()` answers for a value of `t`, when that is decided by the type.
+---
+--- Only the tags whose runtime answer is fixed. A union, a type parameter, and `any`
+--- are all several answers, so they are no answer at all.
+local function luaTypeOf(t: any): string?
+    if type(t) ~= "table" then
+        return nil
+    end
+    local tag = t.tag
+    if tag == "literal" then
+        return luaTypeOf(t.base)
+
+    elseif tag == "prim" then
+        -- Unreachable, and left that way. A `types.Prim` carries its primitive tag in
+        -- this field -- "string", "number" -- never the literal "prim", so nothing
+        -- arrives here. What it must not do is read `t.id`, which now identifies an
+        -- interned type without describing it. Waking the branch would change what
+        -- narrowing answers, which is not a performance change's business.
+        local name = tag
+        if name == "string" or name == "cstring" then
+            return "string"
+        end
+        if name == "number" or name == "integer" or name == "float" then
+            return "number"
+        end
+        if name == "boolean" then
+            return "boolean"
+
+        elseif name == "table" then
+            return "table"
+
+        elseif name == "thread" then
+            return "thread"
+
+        elseif name == "userdata" then
+            return "userdata"
+        end
+        return nil
+
+    elseif tag == "nominal" then
+        if t.declKind == "struct" then
+            return "cdata"
+        end
+        if t.declKind == "record" or t.declKind == "interface" then
+            return "table"
+        end
+        return nil
+    end
+    if tag == "shape" or tag == "map" or tag == "array" or tag == "tuple" then
+        return "table"
+    end
+    if tag == "func" then
+        return "function"
+    end
+
+    return nil
+end
+
+--- Whether a declaration whose fields `fieldAt` reports must satisfy the refinement,
+--- must fail it, or cannot be told either way.
+---
+--- Three-valued on purpose. A declaration that provably fails an interface's own test
+--- is a contradiction worth reporting, since the checker would prove it conforms while
+--- `is` answered no. An answer that merely cannot be computed is not evidence of
+--- anything, so it stays silent.
+---
+--- @param node the refinement
+--- @param fieldAt the declared type at a field path, or nil when there is none
+--- @return true, false, or nil when undecided
+function predicate.satisfiedBy(node: predicate.Node?, fieldAt: function(path: {string}): any): boolean?
+    if not node then
+        return nil
+    end
+    local op = node.op
+
+    if op == "const" then
+        return node.value
+
+    elseif op == "not" then
+        local inner = predicate.satisfiedBy(node.a, fieldAt)
+        if inner == nil then
+            return nil
+        end
+        return not inner
+    end
+    if op == "and" or op == "or" then
+        local left = predicate.satisfiedBy(node.a, fieldAt)
+        local right = predicate.satisfiedBy(node.b, fieldAt)
+        if op == "and" then
+            -- one false settles it, whatever the other side turns out to be
+            if left == false or right == false then
+                return false
+            end
+            if left == true and right == true then
+                return true
+            end
+            return nil
+        end
+        if left == true or right == true then
+            return true
+        end
+        if left == false and right == false then
+            return false
+        end
+        return nil
+    end
+
+    local t = fieldAt(node.path or {})
+    if t == nil then
+        return nil
+    end
+
+    if op == "typeis" then
+        local answer = luaTypeOf(t)
+        if answer == nil then
+            return nil
+        end
+        return answer == node.luaType
+    end
+    if op == "cmp" and (node.cmp == "==" or node.cmp == "~=") then
+        -- Only a literal-typed field settles a comparison: it admits exactly one value,
+        -- so the answer is known without running anything.
+        if type(t) ~= "table" or t.tag ~= "literal" then
+            return nil
+        end
+        local same = t.constant == node.constant
+        if node.cmp == "~=" then
+            return not same
+        else
+            return same
+        end
+    end
+
+    return nil
+end
+
+--- What the refinement always answers, when it answers the same thing every time.
+---
+--- A refinement that reads nothing decides nothing: always-true makes `is` say yes to
+--- every value, always-false makes the type uninhabited. Both are worth saying rather
+--- than compiling.
+function predicate.constant(node: predicate.Node?): boolean?
+    if not node then
+        return nil
+    end
+    if node.op == "const" then
+        return node.value
+    end
+    if node.op == "not" then
+        local inner = predicate.constant(node.a)
+        if inner == nil then
+            return nil
+        end
+        return not inner
+    end
+    if node.op == "and" or node.op == "or" then
+        local left, right = predicate.constant(node.a), predicate.constant(node.b)
+        if left == nil or right == nil then
+            return nil
+        end
+        if node.op == "and" then
+            return left and right
+        else
+            return left or right
+        end
+    end
+
+    return nil
+end
+
+--- The refinement as a Lua expression testing `subject`.
+---
+--- `subject` is substituted rather than bound, so the caller has already decided that
+--- evaluating it more than once is safe, meaning a plain name or a temporary it
+--- hoisted. Reaching through a field guards the step before it, because the test runs
+--- against values that are not of the type yet; that is what it is for.
+function predicate.render(node: predicate.Node?, subject: string): string
+    if not node then
+        return "true"
+    end
+    local op = node.op
+
+    if op == "const" then
+        return node.value and "true" or "false"
+
+    elseif op == "not" then
+        return "not (" .. predicate.render(node.a, subject) .. ")"
+    end
+    if op == "and" or op == "or" then
+        return "(" .. predicate.render(node.a, subject) .. " " .. op .. " " .. predicate.render(node.b, subject) .. ")"
+    end
+
+    -- Reaching through a field guards the step before it, because the test runs against
+    -- values that are not of the type yet, which is what it is for. `?.` is the
+    -- runtime's own answer to exactly that, and it reads each step once where a
+    -- written-out guard reads it twice.
+    local access = subject
+    for j, segment in ipairs(node.path or {}) do
+        access = access .. (j > 1 and "?." or ".") .. segment
+    end
+
+    if op == "cmp" then
+        return access .. " " .. (node.cmp or "==") .. " " .. (node.literal or "nil")
+    elseif op == "typeis" then
+        return ("type(%s) == %q"):format(access, node.luaType or "nil")
+    end
+
+    return access .. " ~= nil" -- truthy
+end
+
+--- The whole test for `subject`, table check included.
+---
+--- A refinement reads fields, and `is` is asked about values that may be anything at
+--- all, so the table test is part of the predicate rather than something every caller
+--- has to remember.
+function predicate.test(node: predicate.Node?, subject: string): string
+    local body = predicate.render(node, subject)
+    if predicate.constant(node) ~= nil then
+        return body
+    end
+
+    return ("(type(%s) == \"table\" and %s)"):format(subject, body)
+end
+
+export = predicate

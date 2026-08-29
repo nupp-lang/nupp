@@ -1,0 +1,12 @@
+@!internal
+module nupp.runtime.seam.timesuite
+
+local suite = {}
+
+function suite.test(provider: any): (boolean, string?)
+    local problem = require("nupp.runtime.seam.time").validate(provider)
+
+    return problem == nil, problem
+end
+
+export = suite

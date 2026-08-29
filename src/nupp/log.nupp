@@ -1,0 +1,635 @@
+module nupp.log
+
+--[[
+`nupp.log` is leveled logging whose disabled path is the one it is designed
+around. A severity call in statement position is lowered rather than called, so
+a filtered line evaluates none of its arguments.
+
+```nupp
+nupp.log.error("cannot open %s: %s", path, reason)
+nupp.log.warn("retrying in %dms", delay)
+nupp.log.info("loaded %d entities", count)
+nupp.log.debug("state=%s", state)
+```
+
+Each severity accepts a `string.format` directive string and the arguments it
+calls for. The directives and their argument types are checked where the call is
+written, by the same machinery that checks `string.format`, so a missing
+argument or a `%d` handed a string is a compile error rather than a line that
+fails at run time.
+
+```text
+nupp.log.error("id %d")
+  error: NUPP2006: omitted argument 2 supplies nil, not number
+```
+
+Because `%s` accepts anything, nothing needs `tostring` and a nil argument
+prints as `nil` rather than raising. Lines go to standard error until a host
+says otherwise.
+
+`%?` is Nupp's debug directive. It requires `nupp.Debug`, calls the value's
+`debug()` method, and formats the returned string as `%s`:
+
+```nupp
+nupp.log.debug("state=%?", state)
+```
+
+At lowered call sites that method call is inside the level guard, so filtered
+logs do not render the value. Named loggers perform the same check in their
+already-lazy writer.
+
+## Severity calls are intrinsics
+
+A severity call in statement position whose format is a literal is lowered
+rather than called:
+
+```nupp
+nupp.log.error("id %d", id)
+```
+
+```lua
+const __nuppModule = _G.nupp.log.forModule("amb");   -- once, in the prologue
+if __nuppModule.on[1] then __nuppModule.emit(1,47,string.format("id %d",id)) end
+```
+
+Three properties follow from that shape, and together they are the reason this
+is a compiler intrinsic rather than a library.
+
+### Filtered calls evaluate nothing
+
+The level test stands at the call site, so the arguments of a suppressed line
+are never computed. `nupp.log.debug("%s", render(state))` does not call `render`
+when debug is off. No library can decline to evaluate its own arguments.
+
+### Module name and line are constants
+
+The compiler is generating the file, so it writes both in directly: the module
+once in the prologue, the line at each site. Nothing is recovered at run time,
+nothing depends on the `debug` library, and there is no per-module boilerplate
+to write or to keep in step with a rename.
+
+### Filtered call cost
+
+A filtered call costs an upvalue read, an array index and a branch. The view is
+bound once per module, and `on` is an array indexed by severity, shared with
+every other module so a level change is seen everywhere at once.
+
+### Forms that stay calls
+
+Every other form keeps an ordinary call meaning exactly the same thing, only
+slower. The module shows as `?`, and the arguments are evaluated:
+
+| Form | Lowered | Reason |
+| --- | --- | --- |
+| `nupp.log.info("id %d", id)` | yes | |
+| `nupp.log.info(format, id)` | no | the format is not a literal |
+| `local f = nupp.log.info` | no | a value, not a call |
+| `x = nupp.log.info("hi")` | no | not statement position |
+| `local nupp = ...` | no | not the compiler-provided `nupp` |
+| `logger:info("id %d", id)` | no | a named logger, not the path |
+
+## Levels
+
+`level` reads the threshold, and moves it when given one:
+
+```nupp
+nupp.log.level("debug") -- set, answers the previous one
+nupp.log.level() -- read
+```
+
+The five levels are `"off"`, `"error"`, `"warn"`, `"info"` and `"debug"`, each
+admitting itself and everything above it, so `"warn"` emits warnings and errors.
+The default is `"warn"`.
+
+The parameter is that literal union, so a string from outside the program has to
+be narrowed to one of the five before it can be passed.
+`os.getenv("LOG_LEVEL") or "warn"` is `string`, and `string` is not one of them:
+
+```nupp
+local wanted = os.getenv("LOG_LEVEL")
+if wanted == "debug" or wanted == "info" or wanted == "warn" then
+    nupp.log.level(wanted)
+end
+```
+
+A level that is not one of the five is a compile error where it is a literal and
+an ordinary raise where it is not.
+
+`nupp.log.enabled(level)` answers whether a level would emit. Use it to guard
+preparation spanning more than one call, which no single lowered site can elide:
+
+```nupp
+if nupp.log.enabled("debug") then
+    local report = summarize(world)
+    nupp.log.debug("world: %s", report)
+end
+```
+
+## Swapping the back end
+
+A host that logs through its own facility installs a sink function and takes
+over completely. It receives the parts, not a rendered line, and pays for no
+formatting it would discard:
+
+```nupp
+nupp.log.sink(function(level: integer, module: string, line: integer, message: string): nil
+    sdl.logMessage(CATEGORY, PRIORITY[level], ("%s:%d %s"):format(module, line, message))
+end)
+```
+
+`level` is `1` error, `2` warn, `3` info, `4` debug; `nupp.log.levelName` turns
+one back into its name. `line` is `0` for a line the compiler could not
+attribute, which is every line from a named logger.
+
+Passing anything file-like instead keeps the built-in rendering and only moves
+where it goes:
+
+```nupp
+local file = assert(io.open("game.log", "a"))
+nupp.log.sink(file)
+```
+
+`io.open` answers `LuaFile?`, and `sink` takes a target rather than a maybe, so
+the `assert` is what turns one into the other.
+
+A file-like target renders through the formatter, which is replaceable on its
+own:
+
+```nupp
+nupp.log.formatter(function(level: integer, module: string, line: integer, message: string, stamp: string): string
+    return ("%s[%s] %s"):format(stamp, nupp.log.levelName(level), message)
+end)
+```
+
+Both setters answer the value they replaced, so a host can restore what it
+found.
+
+## Timestamps
+
+`nupp.log.timestamp()` answers the current time formatted, recomputed at most
+once per wall-clock second and shared by every logger. It is a pull rather than
+something pushed to sinks, so a host that stamps its own lines never pays for
+one.
+
+```nupp
+nupp.log.timestampFormat("%H:%M:%S ") -- set, answers the previous format
+nupp.log.timestampFormat("") -- off
+```
+
+::: deepdive Reading the second through the FFI
+`os.time` is NYI in LuaJIT and stitches the trace it stands on, so the second is
+read through the FFI instead. `os.time` is still called once at startup to
+validate the symbol, because some Windows CRTs inline `time` to `_time64` or
+give it a 32-bit `time_t`, and a symbol that resolves but is the wrong width
+answers nonsense rather than failing to resolve.
+:::
+
+## Named loggers
+
+`named` answers a logger carrying a fixed name, with a method per severity:
+
+```nupp
+local physics = nupp.log.named("physics")
+physics:warn("step %d took %.2fms", step, elapsed)
+```
+
+Use one for a subsystem that does not correspond to a module, and for a call
+site the intrinsic cannot reach. Repeating a name answers the same logger.
+Their methods are replaced when the level or target changes, so a filtered call
+reaches an empty function rather than a test, but the arguments are still
+evaluated, which is the cost of a name chosen at run time.
+
+## Cost
+
+The installer lands only in modules that reach `nupp.log`, like every other
+compiler-provided facility. A module that never logs carries nothing.
+
+::: seealso
+- [diagnostics.md](docs/reference/diagnostics.md#diagnostic-index) for the
+  codes a mistyped format string reports
+- [standard-library.md](docs/concepts/standard-library.md) for how a facility
+  reaches a program without being linked into one that never uses it
+:::
+]]
+
+local log = {}
+
+--- The threshold, from silent to most verbose. Each level admits itself and
+--- everything above it, so "warn" emits warnings and errors.
+--- @export
+type log.Level = "off" | "error" | "warn" | "info" | "debug"
+
+--- A level as a sink sees it: 1 error, 2 warn, 3 info, 4 debug.
+--- @export
+type log.Severity = integer
+
+--- Receives one emitted line, already formatted.
+---
+--- Replacing this replaces the back end, so a host logging through its own
+--- facility pays for nothing it discards. No timestamp is passed, because a sink
+--- that wants one asks.
+--- @export
+type log.Sink = function(level: log.Severity, module: string, line: integer, message: string): nil
+
+--- Renders one line for a file-like destination. Only consulted when the target is
+--- file-like; a sink function formats however it likes.
+--- @export
+type log.Formatter = function(
+    level: log.Severity,
+    module: string,
+    line: integer,
+    message: string,
+    stamp: string
+): string
+
+--- Where lines go: a sink function, or anything file-like to write to.
+--- @export
+type log.Target = log.Sink | LuaFile
+
+--- A logger carrying a fixed name, for subsystems and for call sites the intrinsic
+--- cannot rewrite. Changing the level or target restamps every logger, so a filtered
+--- call reaches an empty function rather than a test.
+--- @export
+record log.Logger
+    --- The name every line from this logger carries.
+    readonly name: string
+
+    --- Logs at debug. Accepts `string.format` directives.
+    debug: function<F is string>(self: log.Logger, fmt: F, ...: unpackof __NuppFormatArguments(F, nupp.Debug)): nil
+
+    --- Logs at info. Accepts `string.format` directives.
+    info: function<F is string>(self: log.Logger, fmt: F, ...: unpackof __NuppFormatArguments(F, nupp.Debug)): nil
+
+    --- Logs at warn. Accepts `string.format` directives.
+    warn: function<F is string>(self: log.Logger, fmt: F, ...: unpackof __NuppFormatArguments(F, nupp.Debug)): nil
+
+    --- Logs at error. Accepts `string.format` directives.
+    error: function<F is string>(self: log.Logger, fmt: F, ...: unpackof __NuppFormatArguments(F, nupp.Debug)): nil
+
+    --- Whether this logger would emit at `level`.
+    enabled: function(self: log.Logger, level: log.Level): boolean
+end
+
+local NAMES = {"error", "warn", "info", "debug",}
+local INDEX = {off = 0, error = 1, warn = 2, info = 3, debug = 4,}
+
+local ffi = require("ffi")
+pcall(ffi.cdef, "typedef int64_t nupp_time_t; nupp_time_t time(nupp_time_t *t);")
+
+-- `os.time` is NYI in LuaJIT and stitches the trace it stands on, so the second
+-- is read through the FFI. The drift check is what keeps a resolved-but-wrong-
+-- width `time` from answering nonsense: some Windows CRTs inline it to `_time64`
+-- or give it a 32-bit `time_t`, and neither fails to resolve.
+local clock: any = os.time
+do
+    local resolved, fn = pcall(function(): any
+        return ffi.C.time
+    end)
+    if resolved and fn then
+        local null = ffi.cast("nupp_time_t*", 0)
+        local valid, answered = pcall(fn, null)
+        local drift = valid and ((tonumber(answered) or 0) - os.time()) or math.huge
+        if drift > -2 and drift < 2 then
+            clock = function(): number
+                return tonumber(fn(null)) or 0
+            end
+        end
+    end
+end
+
+local threshold: integer = 2
+local on = {false, false, false, false,}
+local target: any = io.stderr
+local targetIsSink = false
+local formatter: any = nil
+local dateFormat = "%Y-%m-%d %H:%M:%S "
+local cachedTick: any = -1
+local cachedStamp = ""
+local cachedFormat = ""
+local registry: any = {}
+
+local function admit(index: integer): nil
+    for i = 1, 4 do
+        on[i] = i <= index
+    end
+    threshold = index
+end
+
+admit(threshold)
+
+local function stamp(): string
+    if dateFormat == "" then
+        return ""
+    end
+    local tick = clock()
+    if tick ~= cachedTick or dateFormat ~= cachedFormat then
+        cachedTick = tick
+        cachedFormat = dateFormat
+        cachedStamp = os.date(dateFormat) as string
+    end
+
+    return cachedStamp
+end
+
+local function emit(severity: integer, module: string, line: integer, message: string): any
+    if targetIsSink then
+        return target(severity, module, line, message)
+    end
+    local at = stamp()
+    if formatter then
+        return target:write(formatter(severity, module, line, message, at), "\n")
+    end
+    if line > 0 then
+        return target:write(at, NAMES[severity], " ", module, ":", line, ": ", message, "\n")
+    end
+
+    return target:write(at, NAMES[severity], " ", module, ": ", message, "\n")
+end
+
+log.on = on
+log.emit = emit
+
+--- The view a generated chunk binds once, so a site carries only severity and line.
+---
+--- Generated code calls this in a module's prologue. Nothing written by hand needs
+--- it: a severity call in statement position is already lowered to a test against
+--- the view's `on` array around a direct `emit`.
+---
+--- @param module the module name its lines carry
+--- @return the view, whose `on` a site indexes and whose `emit` it calls
+function log.forModule(module: string): any
+    return {
+        on = on,
+        emit = function(severity: integer, line: integer, message: string): any
+            return emit(severity, module, line, message)
+        end,
+    }
+end
+
+local function named(severity: log.Level): integer
+    local index = INDEX[severity]
+    if index == nil then
+        error("nupp: log has no level named " .. tostring(severity), 3)
+    end
+
+    return index
+end
+
+-- `?` is the debug directive: the argument beside it is rendered through its own
+-- `debug` method and the directive becomes an ordinary `%s`. Everything else is
+-- handed to `string.format` unchanged.
+local function render(message: string, ...: any): string
+    local count = select("#", ...)
+    if count == 0 then
+        return message
+    end
+    local values = {...}
+    if message:find("?", 1, true) then
+        local pieces = {}
+        local index = 1
+        local argument: integer = 0
+        while index <= #message do
+            local percent = message:find("%", index, true)
+            if not percent then
+                pieces[#pieces + 1] = message:sub(index)
+                break
+            end
+            pieces[#pieces + 1] = message:sub(index, percent - 1)
+            if message:sub(percent + 1, percent + 1) == "%" then
+                pieces[#pieces + 1] = "%%"
+                index = percent + 2
+            else
+                local finish = percent + 1
+                local current = message:sub(finish, finish)
+                while current ~= "" and ("-+ #0"):find(current, 1, true) do
+                    finish = finish + 1
+                    current = message:sub(finish, finish)
+                end
+                while current:find("[0-9]") do
+                    finish = finish + 1
+                    current = message:sub(finish, finish)
+                end
+                if current == "." then
+                    finish = finish + 1
+                    current = message:sub(finish, finish)
+                    while current:find("[0-9]") do
+                        finish = finish + 1
+                        current = message:sub(finish, finish)
+                    end
+                end
+                argument = argument + 1
+                if current == "?" then
+                    values[argument] = values[argument]:debug()
+                    current = "s"
+                end
+                pieces[#pieces + 1] = message:sub(percent, finish - 1) .. current
+                index = finish + 1
+            end
+        end
+        message = table.concat(pieces)
+    end
+
+    return string.format(message, unpack(values, 1, count))
+end
+
+-- Written out rather than built by a closure factory, because each one carries the
+-- format pack its own directives are checked against. A statement call with a literal
+-- format is rewritten to a test around `emit` and never reaches these.
+
+--- Logs at error. Accepts `string.format` directives.
+--- @export
+function log.error<F is string>(fmt: F, ...: unpackof __NuppFormatArguments(F, nupp.Debug)): nil
+    if not on[1] then
+        return
+    end
+    emit(1, "?", 0, render(fmt as string, ...))
+end
+
+--- Logs at warn. Accepts `string.format` directives.
+--- @export
+function log.warn<F is string>(fmt: F, ...: unpackof __NuppFormatArguments(F, nupp.Debug)): nil
+    if not on[2] then
+        return
+    end
+    emit(2, "?", 0, render(fmt as string, ...))
+end
+
+--- Logs at info. Accepts `string.format` directives.
+--- @export
+function log.info<F is string>(fmt: F, ...: unpackof __NuppFormatArguments(F, nupp.Debug)): nil
+    if not on[3] then
+        return
+    end
+    emit(3, "?", 0, render(fmt as string, ...))
+end
+
+--- Logs at debug. Accepts `string.format` directives.
+--- @export
+function log.debug<F is string>(fmt: F, ...: unpackof __NuppFormatArguments(F, nupp.Debug)): nil
+    if not on[4] then
+        return
+    end
+    emit(4, "?", 0, render(fmt as string, ...))
+end
+
+local NO_OP = function(): nil
+end
+
+local function writer(severity: integer): any
+    return function(self: any, message: string, ...: any): any
+        return emit(severity, self.name, 0, render(message, ...))
+    end
+end
+
+local WRITE = {writer(1), writer(2), writer(3), writer(4),}
+
+local function loggerEnabled(self: any, level: log.Level): boolean
+    local index = named(level)
+
+    return index > 0 and on[index] or false
+end
+
+local function stampLogger(logger: any): nil
+    logger.error = on[1] and WRITE[1] or NO_OP
+    logger.warn = on[2] and WRITE[2] or NO_OP
+    logger.info = on[3] and WRITE[3] or NO_OP
+    logger.debug = on[4] and WRITE[4] or NO_OP
+end
+
+local function restamp(): nil
+    for _, logger in pairs(registry) do
+        stampLogger(logger)
+    end
+end
+
+--- A logger with a fixed name. Repeating a name answers the same logger.
+---
+--- Reach for one where the intrinsic cannot rewrite the call: a format built at run
+--- time, a call in expression position, a subsystem that wants its own name on every
+--- line. The methods are restamped whenever the level or the target moves, so a
+--- filtered call reaches an empty function rather than a test.
+---
+--- ```nupp
+--- const log = nupp.log.named("renderer")
+--- log:info("loaded %d entities", count)
+--- ```
+---
+--- @param name the name its lines carry
+--- @return the logger
+--- @raises when name is not a string
+function log.named(name: string): log.Logger
+    if type(name) ~= "string" then
+        error("nupp: log name must be a string", 2)
+    end
+    local logger = registry[name]
+    if not logger then
+        logger = {name = name, enabled = loggerEnabled,}
+        stampLogger(logger)
+        registry[name] = logger
+    end
+
+    return logger as log.Logger
+end
+
+--- Reads or moves the threshold. Each level admits itself and everything above it.
+---
+--- @param level the new threshold, or nil to read the current one
+--- @return the threshold this call replaced
+function log.level(level: log.Level?): log.Level
+    if level == nil then
+        return (NAMES[threshold] or "off") as log.Level
+    end
+    local previous = (NAMES[threshold] or "off") as log.Level
+    admit(named(level))
+    restamp()
+
+    return previous
+end
+
+--- Whether a level is currently admitted.
+---
+--- @param level the level to test
+--- @return whether a call at that level would emit
+function log.enabled(level: log.Level): boolean
+    local index = named(level)
+
+    return index > 0 and on[index] or false
+end
+
+--- Reads or replaces the destination.
+---
+--- @param next a sink function, a file, or nil to read the current destination
+--- @return the destination this call replaced
+--- @raises when next is neither a sink function nor a file
+function log.sink(next: log.Target?): log.Target
+    if next == nil then
+        return target
+    end
+    local previous = target
+    if type(next) == "function" then
+        target = next
+        targetIsSink = true
+    elseif type(next) == "table" or type(next) == "userdata" then
+        target = next
+        targetIsSink = false
+    else
+        error("nupp: log target must be a sink function or a file", 2)
+    end
+    restamp()
+
+    return previous
+end
+
+--- Reads or replaces the line formatter.
+---
+--- @param next the formatter, or nil to read the current one
+--- @return the formatter this call replaced
+--- @raises when next is not a function
+function log.formatter(next: log.Formatter?): log.Formatter?
+    if next == nil then
+        return formatter
+    end
+    if type(next) ~= "function" then
+        error("nupp: log formatter must be a function", 2)
+    end
+    local previous = formatter
+    formatter = next
+
+    return previous
+end
+
+--- The stamp a line written now would carry.
+---
+--- @return the rendered timestamp, or "" when stamping is off
+function log.timestamp(): string
+    return stamp()
+end
+
+--- Reads or replaces the timestamp format. An empty format stops stamping.
+---
+--- @param next the `os.date` format, or nil to read the current one
+--- @return the format this call replaced
+--- @raises when next is not a string
+function log.timestampFormat(next: string?): string
+    if next == nil then
+        return dateFormat
+    end
+    if type(next) ~= "string" then
+        error("nupp: log timestamp format must be a string", 2)
+    end
+    local previous = dateFormat
+    dateFormat = next
+    cachedTick = -1
+
+    return previous
+end
+
+--- The name for a sink's numeric level.
+---
+--- @param severity the numeric level a sink received
+--- @return the level's name
+function log.levelName(severity: log.Severity): log.Level
+    return (NAMES[severity] or "off") as log.Level
+end
+
+export = log

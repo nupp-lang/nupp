@@ -1,0 +1,21 @@
+@!internal
+module nupp.runtime.seam.processsuite
+
+local suite = {}
+
+function suite.test(provider: any): (boolean, string?)
+    local ok, problem = pcall(function()
+        local success = provider.exited(0, false, false)
+        local failure = provider.exited(7, false, false)
+        local killed = provider.exited(0, true, false)
+        assert(success:succeeded(), "exit zero must succeed")
+        assert(not failure:succeeded() and not killed:succeeded(), "nonzero and killed exits must fail")
+    end)
+    if not ok then
+        return false, tostring(problem)
+    end
+
+    return true
+end
+
+export = suite

@@ -1,0 +1,55 @@
+local span = require("nupp.mem.span")
+
+local struct Transform2D
+    x: float
+    y: float
+    rotation: float
+    layer: int32
+    flags: uint32
+end
+
+local struct Motion
+    vx: float
+    vy: float
+    angularVelocity: float
+    drag: float
+end
+
+-- Forced: this kernel exists to prove the bitwise lane path, and a component
+-- update is exactly the shape the intensity estimate declines.
+@aot(lanes = true)
+local function advance(
+    exclusive transforms: span.WriteSpan<Transform2D>,
+    borrows motions: span.Span<Motion>,
+    first: integer,
+    last: integer,
+    dt: float,
+    enabledMask: uint32
+): nil
+    if #transforms ~= #motions then
+        error("length mismatch", 2)
+    end
+    if first < 1 or last > #transforms or first > last + 1 then
+        error("range out of bounds", 2)
+    end
+
+    for i = first, last do
+        local transform = transforms[i]
+        local motion = motions[i]
+        local dx = motion.vx * dt
+        local dy = motion.vy * dt
+        local nextX = transform.x + dx
+        local nextY = transform.y + dy
+        local damping = math.max(0, 1 - motion.drag * dt)
+        local distance = math.sqrt(dx * dx + dy * dy)
+        nextX, nextY = nextX + distance * 0.000001, nextY - distance * 0.000001
+        if (transform.flags & enabledMask) ~= 0 then
+            transform.x, transform.y = nextX * damping, nextY * damping
+            transform.rotation = transform.rotation + motion.angularVelocity * dt
+            transform.layer = transform.layer + 1
+            transform.flags = (transform.flags << 1) | (transform.flags >> 31)
+        end
+    end
+end
+
+return {advance = advance, Transform2D = Transform2D, Motion = Motion,}

@@ -1,0 +1,53 @@
+@!internal
+
+module nupp.compiler.triviaarena
+
+--[[
+The compiler-private storage contract for lexer trivia.
+
+The selected provider is installed by an alternate compiler entry before the lexer
+creates an arena. Ordinary native compiler entry points need no setup and resolve the
+LuaJIT provider lazily. Selection therefore costs one branch per parsed file and no
+branch per token or trivia record.
+]]
+
+local triviaarena = {}
+
+export interface Arena
+    readonly source: string
+    readonly count: integer
+    append: function(self: Arena, kind: integer, offset: integer, length: integer, line: integer, col: integer): integer
+    record: function(self: Arena, index: integer): (integer, integer, integer, integer, integer)
+end
+
+export interface Provider
+    new: function(source: string): Arena
+end
+
+local selected: Provider?
+
+--- Selects a provider before the first arena is constructed.
+--- @raises when a different provider was already selected
+function triviaarena.install(provider: Provider): nil
+    if selected ~= nil and selected ~= provider then
+        error("nupp: compiler trivia arena provider is already selected", 2)
+    end
+    selected = provider
+end
+
+local function provider(): Provider
+    if selected == nil then
+        -- Computed deliberately: a Lua 5.1 compiler bundle installs its table provider
+        -- before reaching this path and must not pull the FFI implementation into its
+        -- source closure merely because native compiler entry points default to it.
+        selected = require("nupp.compiler.triviaarena." .. "ffi") as Provider
+    end
+
+    return selected as Provider
+end
+
+function triviaarena.new(source: string): Arena
+    return provider().new(source)
+end
+
+export = triviaarena

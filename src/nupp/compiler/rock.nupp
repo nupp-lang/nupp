@@ -1,0 +1,273 @@
+module nupp.compiler.rock
+
+--[[
+Developer-facing LuaRocks packaging for Nupp libraries.
+
+LuaRocks remains the package builder and publisher. This module supplies the part it
+cannot know: a Nupp library carries its runtime Lua as ordinary rock modules and a
+parallel `nupp/` directory of module-shaped declarations. `pack` validates both before
+asking LuaRocks for a binary rock; `test` installs that rock into a new tree and checks
+it from a new consumer.
+]]
+
+local fs = require("nupp.compiler.fs")
+local process = require("nupp.compiler.build.process")
+local diagnostics = require("nupp.compiler.diagnostics")
+
+local join, normalize, dirname, basename = fs.join, fs.normalize, fs.dirname, fs.basename
+local readFile, writeFile = fs.readFile, fs.writeFile
+
+local rock = {}
+local windows = package.config:sub(1, 1) == "\\"
+
+local function commandPath(path)
+    if not windows then
+        return path
+    end
+    path = path:gsub("^/([A-Za-z])(/)", "%1:%2")
+
+    return (path:gsub("/", "\\"))
+end
+
+type rock.Metadata = {
+    name: string,
+    version: string,
+    rockspec: string
+}
+
+local function moduleName(name)
+    return name:gsub("-", "_")
+end
+
+local function quote(value)
+    return string.format("%q", value)
+end
+
+local function rootRockspec(root, asked): string?, string?
+    if asked then
+        local path = join(root, asked)
+        if not fs.exists(path) then
+            return nil, asked .. " is not there"
+        end
+        return path
+    end
+    local found = {}
+    for _, path in ipairs(fs.listFiles(root)) do
+        local relative = normalize(path):sub(#normalize(root) + (root == "." and 0 or 2))
+        if not relative:find("/", 1, true) and relative:match("%.rockspec$") then
+            found[#found + 1] = path
+        end
+    end
+    if #found == 0 then
+        return nil, "no rockspec found in " .. root
+    end
+    if #found > 1 then
+        return nil, "more than one rockspec found; name the one to use"
+    end
+
+    return found[1]
+end
+
+local function metadata(root, asked): rock.Metadata?, string?
+    local rockspec, err = rootRockspec(root, asked)
+    if not rockspec then
+        return nil, err
+    end
+    local text, readErr = readFile(rockspec)
+    if not text then
+        return nil, readErr
+    end
+    local name = text:match(
+        "[\r\n]package%s*=%s*[\"']([^\"']+)[\"']"
+    ) or text:match("^package%s*=%s*[\"']([^\"']+)[\"']")
+    local version = text:match(
+        "[\r\n]version%s*=%s*[\"']([^\"']+)[\"']"
+    ) or text:match("^version%s*=%s*[\"']([^\"']+)[\"']")
+    if not name or not version then
+        return nil, rockspec .. " must declare literal package and version strings"
+    end
+
+    return {name = name, version = version, rockspec = rockspec}
+end
+
+local function declarationModules(root): {string}?, string?
+    local base = join(root, "nupp")
+    local modules = {}
+    for _, path in ipairs(fs.listFiles(base)) do
+        local relative = normalize(path):sub(#normalize(base) + 2)
+        local name = relative:match("^(.*)%.d%.nupp$")
+        if name then
+            name = name:gsub("/init$", ""):gsub("/", ".")
+            modules[#modules + 1] = name
+        end
+    end
+    table.sort(modules)
+    if #modules == 0 then
+        return nil, "nupp/ contains no .d.nupp module declarations"
+    end
+
+    return modules
+end
+
+local function validateDeclarations(root, modules): boolean?, string?
+    local incremental = require("nupp.compiler.incremental")
+    local inc = incremental.new(join(root, ".nupp-rock-check"), {
+        cache = false,
+        config = {include = {}},
+        typeRoots = {join(root, "nupp")},
+    })
+    local failed = {}
+    for _, name in ipairs(modules) do
+        local path = inc.modulePath(name)
+        local result = path and inc.checkFile(path) or nil
+        for _, diag in ipairs(result and result.diags or {}) do
+            failed[#failed + 1] = diag
+        end
+    end
+    if #failed > 0 then
+        diagnostics.report(failed)
+        return nil, "rock declarations have errors"
+    end
+
+    return true
+end
+
+local function packedPath(output)
+    for line in output:gmatch("[^\r\n]+") do
+        local path = line:match("Packed:%s*(.+%.rock)%s*$")
+        if path then
+            return normalize(path)
+        end
+    end
+
+    return nil
+end
+
+--- Builds and validates the project, then asks LuaRocks for an installable rock.
+function rock.pack(root: string?, asked: string?): string?, string?
+    root = normalize(root or ".")
+    local meta, err = metadata(root, asked)
+    if not meta then
+        return nil, err
+    end
+    local modules, modulesErr = declarationModules(root)
+    if not modules then
+        return nil, modulesErr
+    end
+    local valid, validErr = validateDeclarations(root, modules)
+    if not valid then
+        return nil, validErr
+    end
+    if require("nupp.compiler.build.project").build(root) ~= 0 then
+        return nil, "project build failed"
+    end
+    local relativeRockspec = meta.rockspec
+    if root ~= "." and relativeRockspec:sub(1, #root + 1) == root .. "/" then
+        relativeRockspec = relativeRockspec:sub(#root + 2)
+    end
+    local code, output = process.capture(
+        {"luarocks", "--lua-version=5.1", "make", "--pack-binary-rock", relativeRockspec},
+        {cwd = root}
+    )
+    if code ~= 0 then
+        io.stderr:write(output)
+        return nil, "LuaRocks could not pack " .. meta.name
+    end
+    local path = packedPath(output)
+    if not path then
+        return nil, "LuaRocks packed the project but did not report the output path"
+    end
+    local absolute = path:sub(1, 1) == "/" or path:match("^[A-Za-z]:/") ~= nil
+    if not absolute and root ~= "." then
+        path = join(root, path)
+    end
+
+    return path
+end
+
+local function removeTree(path)
+    if windows then
+        return process.run({"cmd", "/d", "/c", "rmdir", "/s", "/q", commandPath(path)})
+    end
+    return process.run({"rm", "-rf", path})
+end
+
+--- Packs, installs, and checks the library from a fresh consumer project.
+function rock.test(root: string?, asked: string?): string?, string?
+    root = normalize(root or ".")
+    local meta, err = metadata(root, asked)
+    if not meta then
+        return nil, err
+    end
+    local packed, packErr = rock.pack(root, asked)
+    if not packed then
+        return nil, packErr
+    end
+    local temp = os.tmpname()
+    os.remove(temp)
+    if not fs.mkdir(temp) then
+        return nil, "cannot create temporary rock tree"
+    end
+    local localArtifact = (windows and ".\\" or "./") .. basename(packed)
+    local code, output = process.capture(
+        {"luarocks", "--lua-version=5.1", "--tree=" .. commandPath(temp), "install", localArtifact,},
+        {cwd = commandPath(dirname(packed))}
+    )
+    if code ~= 0 then
+        io.stderr:write(output)
+        removeTree(temp)
+        return nil, (
+            "the packed rock %s could not be installed from %s (present: %s)"
+        ):format(localArtifact, dirname(packed), tostring(fs.exists(packed)))
+    end
+    local modules, modulesErr = declarationModules(
+        join(temp, "lib/luarocks/rocks-5.1/" .. meta.name .. "/" .. meta.version)
+    )
+    if not modules then
+        removeTree(temp)
+        return nil, modulesErr
+    end
+    local consumer = join(temp, "consumer")
+    local dependency = moduleName(meta.name)
+    local requires = {}
+    local returned = {}
+    for index, name in ipairs(modules) do
+        local runtime = join(temp, "share/lua/5.1/" .. name:gsub("%.", "/"))
+        if not fs.exists(runtime .. ".lua") and not fs.exists(runtime .. "/init.lua") then
+            removeTree(temp)
+            return nil, "declaration " .. name .. " has no installed runtime module"
+        end
+        requires[#requires + 1] = ("local module%d = require(%s)\n"):format(index, quote(name))
+        returned[#returned + 1] = "module" .. index
+    end
+    local consumerManifest = (
+        [[return {
+   include = { "src" },
+   dependencies = {
+      [%s] = { kind = "luarocks", rock = %s, version = %s, tree = %s },
+   },
+   build = { entries = { "main" }, dependencies = { %s } },
+}
+]]
+    ):format(quote(dependency), quote(meta.name), quote(meta.version), quote(temp), quote(dependency))
+    local ok, writeErr = writeFile(join(consumer, "nupp.lua"), consumerManifest)
+    if ok then
+        ok, writeErr = writeFile(
+            join(consumer, "src/main.nupp"),
+            table.concat(requires) .. "return {" .. table.concat(returned, ", ") .. "}\n"
+        )
+    end
+    if not ok then
+        removeTree(temp)
+        return nil, writeErr
+    end
+    local checked = require("nupp.compiler.build.project").build(consumer, {checkOnly = true})
+    removeTree(temp)
+    if checked ~= 0 then
+        return nil, "the clean consumer could not check the installed rock"
+    end
+
+    return packed
+end
+
+export = rock

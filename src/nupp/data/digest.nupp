@@ -1,0 +1,375 @@
+@!internal
+
+module nupp.data.digest
+
+--[[
+SHA-256, written once, in Nupp.
+
+The compression function is an `@aot` entry: with a build policy of `require`
+it is compiled ahead of time and entered as a registered Lua C closure, and
+with `off` it is the same source running on LuaJIT. Nothing outside this module
+knows which, so `nupp.data.sha256` and the build's own trailer digest have one
+implementation between them rather than one each.
+
+The compression is signed 32-bit throughout, which is not a preference about
+how to write the standard. `int32` arithmetic lowers to BitOp primitives that
+LuaJIT records as one instruction each; `uint32` normalises every result with a
+comparison, and a body of this size spelled that way exceeds what the trace
+recorder will unroll and runs interpreted whatever the policy. The cursors and
+indices stay `uint32` because that is what the `valuebuilder` surface takes,
+and they are one operation a loop rather than ten a round. `bench/sha256`
+measures both.
+
+The message is not copied to be padded. Whole blocks are read straight out of
+the caller's string, and only the final partial block and its length tally --
+sixty-four or a hundred and twenty-eight bytes -- are assembled here, so a
+digest of a megabyte allocates what a digest of a byte does.
+
+Everything the entry reads or writes goes through [](nupp.data.valuebuilder):
+`word` reads the round constants back out of a packed string, the word scratch
+holds the sixty-four schedule words, and the byte scratch is where the
+sixty-four hexadecimal digits are assembled before one copy publishes them as
+an ordinary Lua string.
+]]
+
+local valuebuilder = require("nupp.data.valuebuilder")
+
+local digest = {}
+
+-- Short names for the fixed-width intrinsics. `@aot` admits these by the
+-- identity the checker gives the member rather than by the path the source
+-- wrote, and both routes inline a helper whose body is one return, so wrapping
+-- them costs nothing either way and keeps a round legible.
+local function u32(value: integer): uint32
+    return nupp.math.u32.wrap(value)
+end
+
+local function add(a: int32, b: int32): int32
+    return nupp.math.i32.add(a, b)
+end
+
+-- The two reinterpretations between the signed and unsigned views of the same
+-- thirty-two bits. `i32.wrap` would answer the same in ordinary Nupp and is
+-- what a reader reaches for first, but it takes a binary64: going through it
+-- converts to double and back for a pattern that never left thirty-two bits,
+-- and a value at or above 2^31 does not survive the return trip.
+local function signed(value: uint32): int32
+    return nupp.math.i32.fromU32(value)
+end
+
+local function unsigned(value: int32): uint32
+    return nupp.math.u32.fromI32(value)
+end
+
+-- `i32.rotateRight` exists, but it is not one of the intrinsics `@aot` admits,
+-- so a rotation is spelled as the shift pair it is -- and with both amounts
+-- given, because `32 - right` is ordinary binary64 arithmetic where a bitwise
+-- operand has to be a fixed 32-bit value. Every count below is a literal from
+-- the standard, so naming the complement costs nothing at the call site.
+local function rotateRight(value: int32, right: int32, left: int32): int32
+    return (value >> right) | (value << left)
+end
+
+-- FIPS 180-4's four logical functions, named as the standard names them.
+local function smallSigmaZero(word: int32): int32
+    return rotateRight(word, 7, 25) ~ rotateRight(word, 18, 14) ~ (word >> 3)
+end
+
+local function smallSigmaOne(word: int32): int32
+    return rotateRight(word, 17, 15) ~ rotateRight(word, 19, 13) ~ (word >> 10)
+end
+
+local function bigSigmaZero(a: int32): int32
+    return rotateRight(a, 2, 30) ~ rotateRight(a, 13, 19) ~ rotateRight(a, 22, 10)
+end
+
+local function bigSigmaOne(e: int32): int32
+    return rotateRight(e, 6, 26) ~ rotateRight(e, 11, 21) ~ rotateRight(e, 25, 7)
+end
+
+local function choose(e: int32, f: int32, g: int32): int32
+    return (e & f) ~ ((~e) & g)
+end
+
+local function majority(a: int32, b: int32, c: int32): int32
+    return (a & b) ~ (a & c) ~ (b & c)
+end
+
+-- One nibble as its lowercase hexadecimal character, without a branch: the
+-- letters begin thirty-nine after the digits do, and `(nibble + 6) >> 4` is one
+-- exactly when the nibble is ten or more.
+local function hexDigit(nibble: uint32): uint32
+    return nupp.math.u32.add(
+        nupp.math.u32.add(nibble, u32(48)),
+        nupp.math.u32.mul(nupp.math.u32.shiftRightLogical(nupp.math.u32.add(nibble, u32(6)), u32(4)), u32(39))
+    )
+end
+
+-- The message words are big-endian and every supported host is little-endian.
+-- Reading one native word gives the C compiler one checked load instead of four
+-- separately checked byte loads; this expression becomes one `rev` on arm64.
+local function bigEndianWord(word: uint32): uint32
+    return unsigned(
+        (
+            signed(word) << 24
+        ) | (
+            (signed(word) & 0x0000FF00) << 8
+        ) | ((signed(word) >> 8) & 0x0000FF00) | ((signed(word) >> 24) & 0x000000FF)
+    )
+end
+
+--[[
+FIPS 180-4's sixty-four round constants, as one string literal.
+
+A literal because that is what the backend can place: a `const` bound to one is
+read out of a `static const unsigned char[]` whose contents and alignment the C
+compiler knows, where a table built at load time is a Lua string it knows
+nothing about and reaches with a `memcpy` from a pointer it cannot align. Worth
+about five percent of a compiled digest.
+
+One literal rather than a readable column of them, because a concatenation is
+not a literal: `"a" .. "b"` has type `string` where `"ab"` has the type that
+carries its value, and only the second is a table anything can place.
+
+Written little-endian, because `valuebuilder.word` reads a native-endian word
+and that is the read this wants -- one aligned load a round rather than four
+bytes and the arithmetic to reassemble them. So this table is correct on the
+little-endian hosts Nupp supports and would be wrong on any other, which is the
+same condition `nupp.compiler.build.hash` asserts for the trailer digest and for
+the same reason.
+]]
+const ROUND_CONSTANTS = "\152\047\138\066\145\068\055\113\207\251\192\181\165\219\181\233\091\194\086\057\241\017\241\089\164\130\063\146\213\094\028\171\152\170\007\216\001\091\131\018\190\133\049\036\195\125\012\085\116\093\190\114\254\177\222\128\167\006\220\155\116\241\155\193\193\105\155\228\134\071\190\239\198\157\193\015\204\161\012\036\111\044\233\045\170\132\116\074\220\169\176\092\218\136\249\118\082\081\062\152\109\198\049\168\200\039\003\176\199\127\089\191\243\011\224\198\071\145\167\213\081\099\202\006\103\041\041\020\133\010\183\039\056\033\027\046\252\109\044\077\019\013\056\083\084\115\010\101\187\010\106\118\046\201\194\129\133\044\114\146\161\232\191\162\075\102\026\168\112\139\075\194\163\081\108\199\025\232\146\209\036\006\153\214\133\053\014\244\112\160\106\016\022\193\164\025\008\108\055\030\076\119\072\039\181\188\176\052\179\012\028\057\074\170\216\078\079\202\156\091\243\111\046\104\238\130\143\116\111\099\165\120\020\120\200\132\008\002\199\140\250\255\190\144\235\108\080\164\247\163\249\190\242\120\113\198"
+
+-- The null replacement `valuebuilder` wants. Nothing here ever publishes null;
+-- the builder still needs a rooted stand-in, and a private table is one no
+-- caller's value can be mistaken for.
+const NEVER_NULL = {}
+
+--- Hashes `source` and publishes the digest as sixty-four lowercase
+--- hexadecimal digits.
+---
+--- The whole message is the argument, and the final block -- the remainder, the
+--- terminating bit, the padding and the length in bits -- is assembled here in
+--- a byte buffer rather than by the caller in a string.
+---
+--- That is where the short message's time went. Built in Lua it was five
+--- interned string allocations for every call, about sixty nanoseconds against
+--- a total of three hundred and twenty, and it bought nothing: a caller cannot
+--- make the tail more cheaply than the body that is already reading the bytes.
+--- Built here it is writes into a buffer the entry already had.
+---
+--- @raises when the builder cannot allocate or publish
+@aot(lanes = false)
+local function digestHex(source: string, nullValue: any): any
+    local builder = valuebuilder.newSized(nullValue, u32(2), u32(64))
+    local scratch = valuebuilder.newFixedByteScratch(64)
+    local schedule = valuebuilder.newFixedWordScratch(64)
+
+    -- The final block, and the one before it when the length no longer fits
+    -- beside the remainder. Fixed, so its bytes are writable in any order and
+    -- the storage is a C array in the compiled entry rather than a fresh
+    -- allocation for every digest.
+    local tail = valuebuilder.newFixedByteScratch(128)
+
+    local length = valuebuilder.length(source)
+    local rest = nupp.math.u32.andBits(length, u32(63))
+    local whole = nupp.math.u32.sub(length, rest)
+
+    local carrying: uint32 = u32(0)
+    while carrying < rest do
+        valuebuilder.setScratchByte(tail, carrying, valuebuilder.byte(source, nupp.math.u32.add(whole, carrying)))
+        carrying = nupp.math.u32.add(carrying, u32(1))
+    end
+
+    -- The terminating bit, and then nothing: the padding between it and the
+    -- length is zeros, and a fixed buffer is zeros already. `upTo` is where the
+    -- length goes -- fifty-six when it still fits in this block and a hundred
+    -- and twenty when it does not, which is the second block FIPS 180-4 calls
+    -- for.
+    valuebuilder.setScratchByte(tail, rest, u32(0x80))
+    local upTo = u32(56)
+    if rest >= 56 then
+        upTo = u32(120)
+    end
+
+    -- The length in bits, big-endian across sixty-four bits. `digest.sha256`
+    -- refuses anything that would not fit, so the high word is what the top
+    -- three bits of the byte count become.
+    local high = nupp.math.u32.shiftRightLogical(length, u32(29))
+    local low = nupp.math.u32.shiftLeft(length, u32(3))
+    local counting: uint32 = u32(0)
+    while counting < 4 do
+        local shift = nupp.math.u32.sub(u32(24), nupp.math.u32.shiftLeft(counting, u32(3)))
+        valuebuilder.setScratchByte(
+            tail,
+            nupp.math.u32.add(upTo, counting),
+            nupp.math.u32.andBits(nupp.math.u32.shiftRightLogical(high, shift), u32(255))
+        )
+        valuebuilder.setScratchByte(
+            tail,
+            nupp.math.u32.add(nupp.math.u32.add(upTo, u32(4)), counting),
+            nupp.math.u32.andBits(nupp.math.u32.shiftRightLogical(low, shift), u32(255))
+        )
+        counting = nupp.math.u32.add(counting, u32(1))
+    end
+
+    -- The eight state words are ordinary locals and the schedule is this
+    -- buffer. Fixed rather than appending, so its sixty-four words are readable
+    -- from the moment it exists and nothing has to write them first -- which is
+    -- one loop fewer per digest, and a bound the C compiler can reason about at
+    -- every access rather than a length it has to load.
+    local h0 = signed(u32(0x6a09e667))
+    local h1 = signed(u32(0xbb67ae85))
+    local h2 = signed(u32(0x3c6ef372))
+    local h3 = signed(u32(0xa54ff53a))
+    local h4 = signed(u32(0x510e527f))
+    local h5 = signed(u32(0x9b05688c))
+    local h6 = signed(u32(0x1f83d9ab))
+    local h7 = signed(u32(0x5be0cd19))
+
+    local total = nupp.math.u32.add(whole, nupp.math.u32.add(upTo, u32(8)))
+    local offset: uint32 = u32(0)
+    while offset < total do
+        -- SHA-256 is defined on big-endian words and a machine is whatever it
+        -- is, so the four bytes are reassembled explicitly. Written this way
+        -- both supported C compilers fold the loads and the shifts back into
+        -- one byte-reversing load.
+        --
+        -- Twice, with the choice made once for the block rather than once for
+        -- each of its sixteen words. Both `whole` and the tail are multiples of
+        -- sixty-four, so a block lies entirely in the message or entirely in the
+        -- tail and asking per word would be asking fifteen times over for an
+        -- answer that cannot have changed. A rooted string cannot cross a helper
+        -- boundary, which is why it is spelled out rather than named once.
+        local at: uint32 = u32(0)
+        if offset < whole then
+            while at < 16 do
+                local reading = nupp.math.u32.add(nupp.math.u32.shiftRightLogical(offset, u32(2)), at)
+                local nativeWord = valuebuilder.word(source, reading)
+                valuebuilder.setScratchWord(schedule, at, bigEndianWord(nativeWord))
+                at = nupp.math.u32.add(at, u32(1))
+            end
+        else
+            local base = nupp.math.u32.sub(offset, whole)
+            while at < 16 do
+                local within = nupp.math.u32.add(base, nupp.math.u32.shiftLeft(at, u32(2)))
+                valuebuilder.setScratchWord(
+                    schedule,
+                    at,
+                    unsigned(
+                        (
+                            signed(valuebuilder.scratchByte(tail, within)) << 24
+                        ) | (
+                            signed(valuebuilder.scratchByte(tail, nupp.math.u32.add(within, u32(1)))) << 16
+                        ) | (
+                            signed(valuebuilder.scratchByte(tail, nupp.math.u32.add(within, u32(2)))) << 8
+                        ) | signed(valuebuilder.scratchByte(tail, nupp.math.u32.add(within, u32(3))))
+                    )
+                )
+                at = nupp.math.u32.add(at, u32(1))
+            end
+        end
+
+        local extending: uint32 = u32(16)
+        while extending < 64 do
+            local word = add(
+                add(
+                    signed(valuebuilder.scratchWord(schedule, nupp.math.u32.sub(extending, u32(16)))),
+                    smallSigmaZero(signed(valuebuilder.scratchWord(schedule, nupp.math.u32.sub(extending, u32(15)))))
+                ),
+                add(
+                    signed(valuebuilder.scratchWord(schedule, nupp.math.u32.sub(extending, u32(7)))),
+                    smallSigmaOne(signed(valuebuilder.scratchWord(schedule, nupp.math.u32.sub(extending, u32(2)))))
+                )
+            )
+            valuebuilder.setScratchWord(schedule, extending, unsigned(word))
+            extending = nupp.math.u32.add(extending, u32(1))
+        end
+
+        local a, b, c, d = h0, h1, h2, h3
+        local e, f, g, h = h4, h5, h6, h7
+
+        local round: uint32 = u32(0)
+        while round < 64 do
+            local first = add(
+                add(h, bigSigmaOne(e)),
+                add(
+                    add(choose(e, f, g), signed(valuebuilder.word(ROUND_CONSTANTS, round))),
+                    signed(valuebuilder.scratchWord(schedule, round))
+                )
+            )
+            local second = add(bigSigmaZero(a), majority(a, b, c))
+            h = g
+            g = f
+            f = e
+            e = add(d, first)
+            d = c
+            c = b
+            b = a
+            a = add(first, second)
+            round = nupp.math.u32.add(round, u32(1))
+        end
+
+        h0 = add(h0, a)
+        h1 = add(h1, b)
+        h2 = add(h2, c)
+        h3 = add(h3, d)
+        h4 = add(h4, e)
+        h5 = add(h5, f)
+        h6 = add(h6, g)
+        h7 = add(h7, h)
+
+        offset = nupp.math.u32.add(offset, u32(64))
+    end
+
+    valuebuilder.setScratchWord(schedule, u32(0), unsigned(h0))
+    valuebuilder.setScratchWord(schedule, u32(1), unsigned(h1))
+    valuebuilder.setScratchWord(schedule, u32(2), unsigned(h2))
+    valuebuilder.setScratchWord(schedule, u32(3), unsigned(h3))
+    valuebuilder.setScratchWord(schedule, u32(4), unsigned(h4))
+    valuebuilder.setScratchWord(schedule, u32(5), unsigned(h5))
+    valuebuilder.setScratchWord(schedule, u32(6), unsigned(h6))
+    valuebuilder.setScratchWord(schedule, u32(7), unsigned(h7))
+
+    local word: uint32 = u32(0)
+    while word < 8 do
+        local value = valuebuilder.scratchWord(schedule, word)
+        local nibble: uint32 = u32(0)
+        while nibble < 8 do
+            valuebuilder.setScratchByte(
+                scratch,
+                nupp.math.u32.add(nupp.math.u32.shiftLeft(word, u32(3)), nibble),
+                hexDigit(
+                    nupp.math.u32.andBits(
+                        nupp.math.u32.shiftRightLogical(
+                            value,
+                            nupp.math.u32.sub(u32(28), nupp.math.u32.shiftLeft(nibble, u32(2)))
+                        ),
+                        u32(15)
+                    )
+                )
+            )
+            nibble = nupp.math.u32.add(nibble, u32(1))
+        end
+        word = nupp.math.u32.add(word, u32(1))
+    end
+
+    valuebuilder.stringScratch(builder, scratch, u32(0), u32(64))
+
+    return valuebuilder.finish(builder)
+end
+
+--- Hashes bytes with SHA-256.
+---
+--- @param value the bytes to hash
+--- @return the digest, as sixty-four lowercase hexadecimal digits
+--- @raises when the input is too long to address as a single buffer
+--- @export
+function digest.sha256(value: string): string
+    if #value > 0x7FFFFFFF then
+        error("nupp: SHA-256 input is too long", 2)
+    end
+    return digestHex(value, NEVER_NULL) as string
+end
+
+export = digest

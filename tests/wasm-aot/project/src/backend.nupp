@@ -1,0 +1,12 @@
+module backend
+
+const Backend = require("nupp.runtime.backend")
+const Structvalue = require("nupp.runtime.seam.structvalue")
+const Wasm = require("nupp.runtime.seam.wasm")
+const Bitops = require("nupp.runtime.seam.bitops")
+
+export = Backend.new("test.wasm", {
+    Structvalue.seam("nupp.runtime.provider.wasmstorage"),
+    Wasm.seam("nupp.runtime.provider.wasmstorage"),
+    Bitops.seam("nupp.runtime.provider.scalarbitops"),
+})

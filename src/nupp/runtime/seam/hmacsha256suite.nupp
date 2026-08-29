@@ -1,0 +1,33 @@
+@!internal
+module nupp.runtime.seam.hmacsha256suite
+
+local suite = {}
+
+local function hex(raw: string): string
+    return (raw:gsub(".", function(byte)
+        return ("%02x"):format(byte:byte())
+    end))
+end
+
+function suite.test(provider: any): (boolean, string?)
+    local ok, problem = pcall(function()
+        local key = "key"
+        local message = "The quick brown fox jumps over the lazy dog"
+        local expected = "f7bc83f430538424b13298e6aa6fb143ef4d59a14946175997479dbc2d1a3cd8"
+        local digest = provider.digest(key, message)
+        assert(type(digest) == "string" and #digest == 32, "digest must return 32 raw bytes")
+        assert(provider.hex(key, message) == expected, "hex must implement HMAC-SHA256")
+        assert(hex(digest) == expected, "digest and hex must encode the same HMAC")
+        assert(
+            provider.hex("", "") == "b613679a0814d9ec772f95d778c35fc5ff1697c493715653c6c712144292c5ad",
+            "HMAC-SHA256 must accept empty keys and messages"
+        )
+    end)
+    if not ok then
+        return false, tostring(problem)
+    end
+
+    return true
+end
+
+export = suite

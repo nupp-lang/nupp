@@ -1,0 +1,39 @@
+@!internal
+module nupp.runtime.seam.textbuffersuite
+local suite = {}
+function suite.test(provider: any): (boolean, string?)
+    local ok, problem = pcall(function()
+        local empty = provider.new()
+        assert(empty:tostring() == "", "a new buffer must render as the empty string")
+        local one = provider.new()
+        one:put("a")
+        assert(one:tostring() == "a", "one append must render as itself")
+        -- Rendering must not consume: the same buffer answers the same thing twice,
+        -- and appending after a render continues where it left off rather than
+        -- starting over. A provider that joined destructively passes the line above
+        -- and fails here, which is why both are asked.
+        assert(one:tostring() == "a", "rendering must leave the contents in place")
+        one:put("b", "c")
+        assert(one:tostring() == "abc", "appends must accumulate in order")
+        local many = provider.new()
+        many:put(1, "-", 2.5)
+        assert(many:tostring() == "1-2.5", "a number must append the way tostring writes it")
+        local chained = provider.new()
+        assert(chained:put("x") == chained, "put must return the buffer so calls chain")
+        assert(chained:reset() == chained, "reset must return the buffer so calls chain")
+        assert(chained:tostring() == "", "reset must empty the buffer")
+        chained:put("y")
+        assert(chained:tostring() == "y", "a reset buffer must be usable again")
+        local binary = provider.new()
+        binary:put("a\0b")
+        assert(binary:tostring() == "a\0b", "a buffer must carry a zero byte through")
+        assert(#binary:tostring() == 3, "a zero byte must not shorten the contents")
+    end)
+    if not ok then
+        return false, tostring(problem)
+    end
+
+    return true
+end
+
+export = suite

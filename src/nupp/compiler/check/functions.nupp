@@ -1,0 +1,1494 @@
+module nupp.compiler.check.functions
+
+--[[
+A function statement, named or local.
+
+Both forms do the same two things: work out the signature the annotations give,
+and check the body against it. What differs is where the name goes, since a `local
+function` binds in the current scope, while `function m.f` and `function R:m`
+attach to whatever they qualify, which is what makes them a module member or a
+method.
+]]
+
+local T = require("nupp.compiler.types")
+local relations = require("nupp.compiler.relations")
+local cst = require("nupp.compiler.cst")
+local state = require("nupp.compiler.check.state")
+local comptimeFunction = require("nupp.compiler.check.comptimefunction")
+
+local isA = relations.isA
+local rawType = T.unwrapOwnership
+
+--- A type, as nupp.types builds them.
+local type Type = T.Type
+
+local functions = {}
+
+--- Installs the function statements on one run.
+---
+--- @param c the run's state
+--- @return the statement kinds this family answers
+function functions.install(c: state.Checker): state.StatHandlers
+
+    local ownershipState, pointerShaped = c.ownershipState, c.pointerShaped
+    local expectedFuncbodies: {[any]: Type} = {}
+
+    local function inferredParameterModes(body)
+        local modes, byname, declared = {}, {}, {}
+        for j, p in ipairs(body.params or {}) do
+            if p.name and not p.namedVararg then
+                modes[j] = p.modeTok and p.modeTok.text or "borrows"
+                declared[j] = p.modeTok ~= nil
+                if not p.modeTok then
+                    byname[p.name.text] = j
+                end
+            end
+        end
+
+        local function raise(name, effect)
+            local at = byname[name]
+            if not at then
+                return
+            end
+            local current = modes[at]
+            if current == "takes" or current == "plain" then
+                return
+            end
+            if effect == "takes" or effect == "plain" or effect == "exclusive" and current == "borrows" then
+                modes[at] = effect
+            end
+        end
+
+        local function directName(expr)
+            while expr and (expr.kind == "paren" or expr.kind == "castExpr") do
+                expr = expr.expr
+            end
+            return expr and expr.kind == "name" and expr.token.text or nil
+        end
+
+        local function returnBorrows(name)
+            local first = body.rets and body.rets[1]
+            if not first or first.kind ~= "tborrows" then
+                return false
+            end
+            for _, source in ipairs(first.params or {first.param}) do
+                if source and source.text == name then
+                    return true
+                end
+            end
+
+            return false
+        end
+
+        local function returnPreserves(name)
+            for _, result in ipairs(body.rets or {}) do
+                if result.kind == "tpreserves" and result.param and result.param.text == name then
+                    return true
+                end
+            end
+
+            return false
+        end
+
+        local walk
+        walk = function(node, nested)
+            if not node or cst.isToken(node) then
+                return
+            end
+            local kind = node.kind
+            if nested and kind == "name" then
+                raise(node.token.text, "plain")
+                return
+            end
+            if kind == "localFuncStmt" or kind == "funcStmt" then
+                walk(node.body, true)
+                return
+            elseif kind == "call" then
+                local calleeName = directName(node.obj)
+                local calleeT = calleeName and c.lookupVar(calleeName) or nil
+                -- By spelling, because this reads modes out of a body before anything
+                -- has resolved the names in it. A `drop` operation has to answer here
+                -- or its parameter gets a weaker mode than the operation requires.
+                local intrinsic = node.ownershipSyntax or cst.ownershipIntrinsicSpelling(node.obj)
+                local args = node.args and node.args.exprs or {}
+                for j, arg in ipairs(args) do
+                    local name = directName(arg)
+                    if name then
+                        local effect
+                        if intrinsic == "drop" then
+                            effect = "takes"
+                        elseif intrinsic == "borrow" or intrinsic == "pin" then
+                            effect = "borrows"
+                        elseif calleeT and calleeT.tag == "func" then
+                            effect = calleeT.paramModes[j] or "plain"
+                            if effect == "takes" then
+                                for _, source in ipairs(calleeT.preservesResults or {}) do
+                                    if source == j then
+                                        -- A preserving callee transports this value; it
+                                        -- does not prove that its caller consumes it.
+                                        effect = "plain"
+                                        break
+                                    end
+                                end
+                            end
+                        else
+                            effect = "plain"
+                        end
+                        if effect == "retains" or effect == "releases" then
+                            effect = "borrows"
+                        end
+                        raise(name, effect)
+                    else
+                        walk(arg, nested)
+                    end
+                end
+                walk(node.obj, nested)
+                return
+            elseif kind == "methodCall" then
+                local receiver = directName(node.obj)
+                if receiver then
+                    raise(receiver, "plain")
+                end
+                for _, arg in ipairs(node.args and node.args.exprs or {}) do
+                    local name = directName(arg)
+                    if name then
+                        raise(name, "plain")
+                    else
+                        walk(arg, nested)
+                    end
+                end
+                return
+            elseif kind == "assignStmt" then
+                for j, expr in ipairs(node.exprs or {}) do
+                    local name = directName(expr)
+                    local target = node.targets and node.targets[j]
+                    if name and not (target and target.kind == "name" and target.token.text == name) then
+                        raise(name, "plain")
+                    else
+                        walk(expr, nested)
+                    end
+                end
+                for _, target in ipairs(node.targets or {}) do
+                    walk(target, nested)
+                end
+                return
+            elseif kind == "returnStmt" then
+                for _, expr in ipairs(node.exprs or {}) do
+                    local name = directName(expr)
+                    if name then
+                        if returnPreserves(name) or body.ownCleanups then
+                            raise(name, "takes")
+                        elseif not returnBorrows(name) then
+                            raise(name, "plain")
+                        end
+                    else
+                        walk(expr, nested)
+                    end
+                end
+                return
+            elseif kind == "tableExpr" then
+                for _, child in ipairs(node) do
+                    if not cst.isToken(child) then
+                        local name = directName(child.value or child)
+                        if name then
+                            raise(name, "plain")
+                        else
+                            walk(child, nested)
+                        end
+                    end
+                end
+                return
+            end
+            for _, child in ipairs(node) do
+                if not cst.isToken(child) then
+                    walk(child, nested)
+                end
+            end
+        end
+        walk(body.body, false)
+
+        return modes, declared
+    end
+
+    --- Result-slot capability transfers stated by `preserves`, plus conservative
+    --- identity inference for visible generic bodies. A source may pass directly,
+    --- through another preserving call, or into one unambiguous constructor subtree.
+    --- Arbitrary calls and storage do not accidentally become transparent.
+    local function couldCarryMovable(t)
+        if not t or t == T.any or t == T.unknown then
+            return true
+        end
+        if t.tag == "affine" or t.tag == "pinned" then
+            return true
+        elseif t.tag == "typevar" then
+            return not t.bound or couldCarryMovable(t.bound)
+        elseif t.tag == "union" or t.tag == "intersection" then
+            for _, member in ipairs(t.members or {}) do
+                if couldCarryMovable(member) then
+                    return true
+                end
+            end
+        elseif t.tag == "nominal" then
+            return t.affineFields ~= nil and #t.affineFields > 0
+        end
+
+        return false
+    end
+
+    local function preservationResults(body, paramNames, paramTypes, resultTypes, paramModes, inferVisible, report)
+        local byname, results, explicit = {}, {}, {}
+        for j, name in ipairs(paramNames or {}) do
+            byname[name] = j
+        end
+        for result, ret in ipairs(body and body.rets or {}) do
+            if ret.kind == "tpreserves" and ret.param then
+                local source = byname[ret.param.text]
+                if not source then
+                    if report then
+                        c.diag("NUPP2109", ret.param, ("%s names no parameter of this function"):format(ret.param.text))
+                    end
+                else
+                    results[result], explicit[result] = source, true
+                    if report and couldCarryMovable(paramTypes[source]) and paramModes[source] ~= "takes" then
+                        c.diag(
+                            "NUPP2606",
+                            ret.param,
+                            (
+                                "preserving capability-bearing parameter %q requires `takes %s`"
+                            ):format(ret.param.text, ret.param.text)
+                        )
+                    end
+                    local resultType = resultTypes[result]
+                    if resultType and resultType.tag == "neutral" then
+                        resultType = require("nupp.compiler.generics").normalize(resultType).type
+                    end
+                    if report and resultType and not T.preservationPath(resultType, paramTypes[source]) then
+                        c.diag(
+                            "NUPP2606",
+                            ret,
+                            (
+                                "preserves %q must select one unambiguous component of the result shape"
+                            ):format(ret.param.text)
+                        )
+                    end
+                end
+            end
+        end
+
+        local returns = {}
+        local function walk(node)
+            if not node or cst.isToken(node) then
+                return
+            end
+            if node.kind == "funcbody" or node.kind == "shortfn" or node.kind == "funcExpr" then
+                return
+            end
+            if node.kind == "returnStmt" then
+                returns[#returns + 1] = node
+                return
+            end
+            for _, child in ipairs(node) do
+                if not cst.isToken(child) then
+                    walk(child)
+                end
+            end
+        end
+
+        walk(body and body.body)
+
+        local function directParameter(expr)
+            while expr and (expr.kind == "paren" or expr.kind == "castExpr") do
+                expr = expr.expr
+            end
+            if expr and expr.kind == "namedArg" then
+                return directParameter(expr.value)
+            elseif expr and expr.kind == "newExpr" then
+                return directParameter(expr.call)
+            end
+            if expr and expr.kind == "call" then
+                local source = expr.preservesArguments and expr.preservesArguments[1] or nil
+                if not source then
+                    local callee = expr.obj
+                    local calleeName = callee and callee.kind == "name" and callee.token.text or nil
+                    local callable = calleeName and c.lookupVar(calleeName) or nil
+                    source = callable
+                        and callable.tag == "func"
+                        and callable.preservesResults
+                        and callable.preservesResults[
+                        1
+                    ] or nil
+                end
+                local argument = source and expr.args and expr.args.exprs and expr.args.exprs[source] or nil
+                if argument then
+                    return directParameter(argument)
+                end
+                if (expr.constructorCall or expr.recordConstruct) and expr.args then
+                    local found
+                    for _, value in ipairs(expr.args.exprs or {}) do
+                        local nested = directParameter(value)
+                        if nested then
+                            if found and found ~= nested then
+                                return nil
+                            elseif found == nested then
+                                -- A movable capability cannot be placed twice in one
+                                -- aggregate, even when both occurrences name it.
+                                return nil
+                            end
+                            found = nested
+                        end
+                    end
+                    return found
+                end
+            end
+
+            return expr and expr.kind == "name" and expr.token and byname[expr.token.text] or nil
+        end
+
+        local maxResults = #(body and body.rets or {})
+        if inferVisible and #returns > 0 then
+            for result = 1, maxResults do
+                if not results[result] then
+                    local source
+                    for _, ret in ipairs(returns) do
+                        local found = directParameter(ret.exprs and ret.exprs[result])
+                        if not found or source and source ~= found then
+                            source = nil
+                            break
+                        end
+                        source = found
+                    end
+                    results[result] = source
+                end
+            end
+        end
+
+        -- One capability cannot be materialized in two result slots. Explicitly stated
+        -- invalid relations are diagnosed; inferred duplicates are simply not inferred.
+        local used = {}
+        for result = 1, maxResults do
+            local source = results[result]
+            if source and used[source] then
+                if explicit[result] and report then
+                    c.diag(
+                        "NUPP2602",
+                        body.rets[result],
+                        "one parameter capability cannot be preserved into two results"
+                    )
+                end
+                results[result] = nil
+                results[used[source]] = nil
+            elseif source then
+                used[source] = result
+            end
+        end
+
+        if report then
+            for result = 1, maxResults do
+                local source = results[result]
+                if explicit[result] then
+                    for _, ret in ipairs(returns) do
+                        if directParameter(ret.exprs and ret.exprs[result]) ~= source then
+                            c.diag(
+                                "NUPP2602",
+                                ret,
+                                "a preserves result must return its named parameter on every successful path"
+                            )
+                        end
+                    end
+                end
+            end
+        end
+
+        return next(results) and results or nil, next(explicit) and explicit or nil
+    end
+
+    --- Parameters whose every value use is an immediate direct invocation. Such a
+    --- callback cannot be stored, returned, captured by a nested closure, or forwarded
+    --- to an unknown target, so a visible body can infer the same `scoped` promise a
+    --- bodyless declaration must spell.
+    local function scopedCallbackParameters(body, report)
+        local candidates, tokenByName = {}, {}
+        for _, p in ipairs(body and body.params or {}) do
+            if p.name and not p.namedVararg then
+                candidates[p.name.text] = true
+                tokenByName[p.name.text] = p.name
+            end
+        end
+        local function walk(node, parent)
+            if not node or cst.isToken(node) then
+                return
+            end
+            if node.kind == "name" and node.token and candidates[node.token.text] ~= nil then
+                local invoked = parent and parent.kind == "call" and parent.obj == node
+                if not invoked then
+                    candidates[node.token.text] = false
+                end
+                return
+            end
+            for _, child in ipairs(node) do
+                if not cst.isToken(child) then
+                    walk(child, node)
+                end
+            end
+        end
+
+        walk(body and body.body, nil)
+        if report then
+            for _, p in ipairs(body and body.params or {}) do
+                if p.modeTok and p.modeTok.text == "scoped" and candidates[p.name.text] == false then
+                    c.diag(
+                        "NUPP2602",
+                        tokenByName[p.name.text] or p,
+                        "a scoped callback may only be invoked directly during the call"
+                    )
+                end
+            end
+        end
+
+        return candidates
+    end
+
+    local function takenCaptures(body)
+        if body.takenCaptures then
+            return body.takenCaptures
+        end
+        local captures, seen = {}, {}
+        local clause = body.captureTakes
+        if not clause then
+            body.takenCaptures = captures
+            return captures
+        end
+        if #(clause.names or {}) == 0 then
+            c.diag("NUPP2602", clause, "takes () moves nothing; name what the closure takes or drop the clause")
+        end
+        for _, token in ipairs(clause.names or {}) do
+            if seen[token.text] then
+                c.diag("NUPP2602", token, ("closure capture %q is repeated"):format(token.text))
+            else
+                seen[token.text] = true
+                local entry = c.lookupEntry(token.text)
+                local state = c.ownershipState(entry)
+                local valueType = state and state.t or nil
+                if not state then
+                    c.diag("NUPP2109", token, ("%s names no value to capture"):format(token.text))
+                elseif c.ownershipKind(valueType) ~= "affine" then
+                    c.diag(
+                        "NUPP2602",
+                        token,
+                        (
+                            "only an owner can be taken; %q is %s"
+                        ):format(token.text, valueType and T.tostring(valueType) or "unknown")
+                    )
+                elseif #(valueType.cleanups or {}) == 0 then
+                    c.diag(
+                        "NUPP2602",
+                        token,
+                        ("opaque owner %q cannot be dropped by an uncalled closure"):format(token.text)
+                    )
+                else
+                    local moveNode = {kind = "name", token = token}
+                    c.moveExpression(moveNode, valueType, "closure capture", "affine")
+                    captures[
+                        #captures + 1
+                    ] = {
+                        name = token.text,
+                        token = token,
+                        type = valueType,
+                        outer = state,
+                        move = moveNode.automaticOwnerMove,
+                    }
+                end
+            end
+        end
+        body.takenCaptures = captures
+
+        return captures
+    end
+
+    local function borrowedCaptures(body)
+        if body.borrowCaptures then
+            return body.borrowCaptures
+        end
+        local captures, seen = {}, {}
+        local clause = body.captureBorrows
+        local names = clause and (clause.names or clause.params) or {}
+        for _, token in ipairs(names) do
+            if seen[token.text] then
+                c.diag("NUPP2602", token, ("closure capture %q is repeated"):format(token.text))
+            else
+                seen[token.text] = true
+                local entry = c.lookupEntry(token.text)
+                local state = c.ownershipState(entry)
+                if not state then
+                    c.diag("NUPP2109", token, ("%s names no value to borrow"):format(token.text))
+                elseif not c.ownershipKind(state.t) then
+                    c.diag("NUPP2602", token, ("closure capture %q has no ownership lifetime"):format(token.text))
+                else
+                    captures[
+                        #captures + 1
+                    ] = {name = token.text, token = token, root = c.borrowRoot(state), outer = state,}
+                end
+            end
+        end
+        if clause and #names == 0 then
+            c.diag("NUPP2602", clause, "borrows () retains nothing; name the closure's sources or drop the clause")
+        end
+        body.borrowCaptures = captures
+
+        return captures
+    end
+
+    local function disambiguateBorrowCapture(body)
+        local candidate = body.captureBorrowsCandidate
+        if not candidate or body.captureBorrows then
+            return
+        end
+        for _, source in ipairs(candidate.params or {}) do
+            local entry = c.lookupEntry(source.text)
+            local state = c.ownershipState(entry)
+            if not state or not c.ownershipKind(state.t) then
+                return
+            end
+        end
+        body.captureBorrows = candidate
+        local inner = candidate.type
+        if inner then
+            if body.rets and body.rets[1] == candidate then
+                body.rets[1] = inner
+            end
+            local pack = body.returnPack
+            if pack and pack.kind == "tpack" and pack.types and pack.types[1] == candidate then
+                pack.types[1] = inner
+            end
+        end
+    end
+
+    -- Builds the function type from a funcbody, binds params, checks the body, and
+    -- returns the resulting type.
+    c.checkFuncbody = function(body, selfType)
+        local params, rets, paramModes, paramNames = {}, {}, {}, {}
+        disambiguateBorrowCapture(body)
+        local captures = takenCaptures(body)
+        local borrows = borrowedCaptures(body)
+        -- Inline methods may spell their implicit receiver as the first
+        -- parameter. It is still the receiver rather than an ordinary
+        -- argument: bind that spelling to the owner type and leave it out of
+        -- the function type that addSelf will extend below.
+        local explicitSelf = selfType and body.params and body.params[1]
+        if not (explicitSelf and explicitSelf.name and explicitSelf.name.text == "self") then
+            explicitSelf = nil
+        end
+        local inferredModes, declaredModes = inferredParameterModes(body)
+        local receiverMode = nil
+        if explicitSelf then
+            local mode = inferredModes[1] or "borrows"
+            if not declaredModes[1] and mode ~= "takes" and not pointerShaped(selfType) then
+                mode = "plain"
+            end
+            body.receiverMode = mode
+            receiverMode = mode
+        end
+        local scopedCandidates = scopedCallbackParameters(body, true)
+        local vararg = false
+        local varargType = nil
+        local varargMode = nil
+        local varargModeToken = nil
+        local typeParams, typeBounds, packParams, constParams, paramKinds
+        local expectedParams: {Type}? = nil
+        local expected = expectedFuncbodies[body]
+        if expected then
+            local expectedFunc = rawType(expected)
+            if expectedFunc.tag == "func" then
+                expectedParams = require("nupp.compiler.generics").expectedParameters(expectedFunc, c.reductionControl)
+            end
+        end
+        c.functionDepth = c.functionDepth + 1
+        c.functionBodies[#c.functionBodies + 1] = body
+        c.pushScope()
+        c.scope.completionScope = body.body or body
+        local captureContext = {body = body, allowed = {}}
+        for _, capture in ipairs(borrows) do
+            captureContext.allowed[capture.name] = capture
+        end
+        c.closureCaptureStack[#c.closureCaptureStack + 1] = captureContext
+        if body.generics then
+            typeParams, typeBounds, packParams, constParams, paramKinds = c.bindGenerics(body.generics, "function")
+        end
+        for _, capture in ipairs(captures) do
+            c.bindVar(capture.name, capture.type, true, capture.token, "variable")
+            local entry = c.scope.vars[capture.name]
+            if entry and entry.automaticOwner then
+                entry.automaticOwner.lowerable = true
+                entry.automaticOwner.capture = true
+                capture.inner = entry
+                capture.automaticOwner = entry.automaticOwner
+            end
+        end
+        body.takenCaptures = captures
+        if selfType then
+            local receiverType = receiverMode == "takes" and T.affine(
+                selfType
+            ) or (receiverMode == "borrows" or receiverMode == "exclusive") and T.borrowed(selfType) or selfType
+            c.bindVar(
+                "self",
+                receiverType,
+                explicitSelf and explicitSelf.type ~= nil,
+                explicitSelf and explicitSelf.name or nil,
+                "parameter"
+            )
+        end
+        local paramPackTail = nil
+        -- Modes are read at the parameter's position in the source, not at its position
+        -- in the function type. An inline method that spells `self` has one more of the
+        -- former than the latter, and reading them by the type's index took each
+        -- parameter's mode from the one before it: `takes` on the first real argument
+        -- landed on the receiver, and the argument itself came in borrowing.
+        for sourceIndex, p in ipairs(body.params) do
+            if p == explicitSelf then
+                -- The binding above carries the owner type. The generator
+                -- likewise removes this parameter when it emits `function
+                -- Owner:method(...)`.
+            elseif p.namedVararg then
+                vararg = true
+                varargMode = p.modeTok and p.modeTok.text or nil
+                varargModeToken = p.modeTok
+                if p.modeTok then
+                    c.diag(
+                        "NUPP2602",
+                        p.modeTok,
+                        "an ownership-qualified typed vararg is unnamed and passes each original value directly"
+                    )
+                end
+                if p.type then
+                    if p.type.kind == "tpack" then
+                        local pack = c.resolvePack(p.type)
+                        paramPackTail = pack.tail
+                    else
+                        varargType = c.resolveType(p.type)
+                    end
+                end
+                c.bindVar(p.name.text, T.table_, false, p.name, "parameter", true)
+            elseif p.name then
+                local mode = inferredModes[sourceIndex] or "borrows"
+                local priorSuppression = c.suppressInherentOwner
+                if p.type and (mode == "borrows" or mode == "exclusive") then
+                    c.suppressInherentOwner = true
+                end
+                local pt = p.constDomainTok and T.functionConst or p.type and c.resolveType(
+                    p.type
+                ) or (expectedParams and expectedParams[#params + 1]) or T.any
+                c.suppressInherentOwner = priorSuppression
+                if p.type then
+                    c.fixedWidth.storageOnly(p.type, pt, "a parameter")
+                    -- Kept on the node the type was written at, so a later pass
+                    -- reads what this resolved to rather than the spelling. The
+                    -- AOT backend decided what a parameter was by matching the
+                    -- written text, which an alias, a qualified name, or a
+                    -- generic instantiation would have taken past it.
+                    p.type.resolvedType = pt
+                end
+                params[#params + 1] = pt
+                paramNames[#params] = p.name.text
+                if not declaredModes[sourceIndex] and scopedCandidates[p.name.text] and rawType(pt).tag == "func" then
+                    mode = "scoped"
+                end
+                if not declaredModes[sourceIndex] and mode ~= "takes" and not pointerShaped(pt) then
+                    mode = "plain"
+                end
+                paramModes[#params] = mode
+                if mode == "retains" or mode == "releases" then
+                    c.diag("NUPP2602", p, mode .. " is only valid on imported cdef parameters")
+                end
+                if (mode == "retains" or mode == "releases") and not pointerShaped(pt) then
+                    c.diag("NUPP2602", p, mode .. " parameters must have a pointer-shaped type")
+                end
+                -- An explicitly affine annotation already names the exact terminal.
+                -- Wrapping it in the terminal-less internal `takes` capability would
+                -- erase that identity and let a body return it as an owner with a
+                -- different cleanup function.
+                local bound = mode == "takes" and (
+                    pt.tag == "affine" and pt or T.affine(pt)
+                ) or (mode == "borrows" or mode == "exclusive") and T.borrowed(pt) or pt
+                c.bindVar(p.name.text, bound, p.type ~= nil, p.name, "parameter")
+                c.fixedWidth.mark(c.scope.vars[p.name.text], pt)
+                c.fixedWidth.trust(c.scope.vars[p.name.text], pt)
+                if mode == "exclusive" then
+                    -- The body owns the caller's sole view for this call. It may
+                    -- forward that capability to another exclusive call, provided
+                    -- no element/reference borrow derived from the parameter is live.
+                    c.own.capabilityFacts(c.scope.vars[p.name.text]).exclusive = true
+                end
+            else
+                vararg = true
+                varargMode = p.modeTok and p.modeTok.text or nil
+                varargModeToken = p.modeTok
+                if p.type then
+                    if p.type.kind == "tpack" then
+                        local pack = c.resolvePack(p.type)
+                        paramPackTail = pack.tail
+                    else
+                        varargType = c.resolveType(p.type)
+                    end
+                end
+            end
+        end
+        if varargModeToken and not varargType then
+            c.diag("NUPP2602", varargModeToken, "an ownership-qualified vararg needs one homogeneous type")
+        end
+        if varargMode == "retains" or varargMode == "releases" then
+            c.diag("NUPP2602", varargModeToken or body, varargMode .. " is only valid on imported cdef parameters")
+        elseif varargMode == "takes" then
+            c.diag(
+                "NUPP2602",
+                varargModeToken or body,
+                "takes is not valid on an unnamed typed vararg because the body cannot discharge individual owners"
+            )
+        end
+        local paramPack = T.pack(
+            params,
+            paramPackTail or (
+                vararg and {
+                    kind = varargType and "homogeneous" or "unknown",
+                    type = varargType or T.any,
+                    mode = varargMode,
+                } or nil
+            ),
+            paramModes
+        )
+        local annotated = nil
+        local retPack
+        if body.returnPack then
+            retPack = c.resolvePack(body.returnPack)
+            annotated = {}
+            for j, resultT in ipairs(retPack.head) do
+                annotated[j], rets[j] = resultT, resultT
+                c.fixedWidth.storageOnly(body.rets and body.rets[j] or body.returnPack, resultT, "a function result")
+            end
+        else
+            rets[1] = T.any
+            retPack = T.pack({}, {kind = "unknown", type = T.any})
+        end
+        local yieldPack = body.yieldPack and c.resolvePack(body.yieldPack) or nil
+        local resumePack = body.resumePack and c.resolvePack(body.resumePack) or nil
+        -- A method returning a borrowed value without naming a source borrows its
+        -- receiver: there is only one thing it could mean, and spelling it out on every
+        -- container accessor is noise. The result stays explicitly a borrow, so a
+        -- method returning a plain value is unaffected, and the body returns the value
+        -- itself as it does under an explicit `borrows`.
+        local elidedSelfBorrow = selfType ~= nil and annotated ~= nil and annotated[
+            1
+        ] ~= nil and annotated[
+            1
+        ].tag == "borrowed" and not (body.rets and body.rets[1] and body.rets[1].kind == "tborrows")
+        if elidedSelfBorrow then
+            annotated[1] = rawType(annotated[1])
+            rets[1] = annotated[1]
+        end
+        -- An affine return type states ownership in the position it is about. Every
+        -- position is resolved, so a function may own any result and not only its
+        -- first; the selected terminal is already part of the type descriptor.
+        local ownedReturns = {}
+        local ownsAResult = false
+        -- The same normalization every other signature path uses, so a declaration says
+        -- one thing whether it was read here, published while hoisting, or written as a
+        -- function type. The helper leaves a slot that carries cleanups alone.
+        local normalized = T.pack(annotated or {}, nil)
+        for j, ret in ipairs(normalized.head or {}) do
+            annotated[j], rets[j] = ret, ret
+            if ret.tag == "affine" then
+                if j == 1 then
+                    body.ownCleanups = ret.cleanups
+                end
+                ownsAResult = true
+                ownedReturns[j] = rawType(ret)
+            end
+        end
+        for j, result in ipairs(body.rets or {}) do
+            if result.kind == "tpreserves" and annotated and annotated[j] then
+                ownsAResult = true
+                ownedReturns[j] = rawType(annotated[j])
+            end
+        end
+        -- Rebuilt so the adjustments above, which write through `rets`, reach the pack
+        -- the body and every caller are checked against. A pack union keeps its arms in
+        -- `alternatives` and leaves `head` empty, so rebuilding one from `rets` would
+        -- replace it with an empty pack: the declaration would return nothing, where
+        -- the same signature written as a function type returns the union. Neither
+        -- adjustment applies to a union anyway: both reach through `annotated[1]`,
+        -- which a union leaves nil.
+        if body.returnPack and not retPack.alternatives then
+            retPack = T.pack(rets, retPack.tail, retPack.modes)
+        end
+        c.retStack[#c.retStack + 1] = annotated or false
+        c.retPackStack[#c.retPackStack + 1] = body.returnPack and retPack or false
+        c.varargPackStack[#c.varargPackStack + 1] = vararg and T.pack({}, paramPack.tail) or false
+        c.yieldPackStack[#c.yieldPackStack + 1] = yieldPack or false
+        c.resumePackStack[#c.resumePackStack + 1] = resumePack or false
+        local protocolContext = {yieldPacks = {}}
+        c.protocolStack[#c.protocolStack + 1] = protocolContext
+        c.ownReturnStack[#c.ownReturnStack + 1] = ownsAResult and ownedReturns or false
+        c.borrowReturnStack[
+            #c.borrowReturnStack + 1
+        ] = (body.rets and body.rets[1] and body.rets[1].kind == "tborrows" and body.rets[1]) or false
+        local consumingContext, consumingRoot
+        local resource, root = nil, nil
+        if selfType and receiverMode == "takes" then
+            resource, root = selfType, "self"
+        else
+            for j, p in ipairs(body.params or {}) do
+                if p.name and paramModes[j] == "takes" then
+                    resource, root = params[j], p.name.text
+                    break
+                end
+            end
+        end
+        resource = resource and rawType(resource) or nil
+        consumingRoot = root
+        local affineFields = resource and resource.tag == "nominal" and resource.affineFields or nil
+        if affineFields and #affineFields > 0 then
+            local owned = {}
+            for _, field in ipairs(affineFields) do
+                owned[field] = true
+            end
+            consumingContext = {root = root, allowed = owned, done = {}}
+        end
+        c.consumingFieldStack[#c.consumingFieldStack + 1] = consumingContext or false
+        c.constructorFieldStack[
+            #c.constructorFieldStack + 1
+        ] = body.constructorOwner and {owner = body.constructorOwner, assigned = {}} or false
+        -- Started here rather than with the scope: the parameters are bound by now, so
+        -- the body reading one of them resolves inside the watch and is not a capture.
+        local loopClosure = c.loops.begin(c.functionDepth - 1)
+        -- Judged before the flag is cleared, so that being the value of a `return` is
+        -- what excuses this function, not what its own body happens to do.
+        local wasReturning = c.loops.setReturning(false)
+        body.partitionResults = nil
+        body.partitionReturnSeen = {}
+        c.checkBlock(body.body, true) -- scope already pushed
+        c.constructorFieldStack[#c.constructorFieldStack] = nil
+        c.closureCaptureStack[#c.closureCaptureStack] = nil
+        if #captures > 0 and body.body and not body.captureBindingStat then
+            local captureStat = {
+                kind = "localStmt",
+                names = {},
+                types = {},
+                exprs = {},
+                automaticOwners = {},
+                syntheticCapture = true,
+            }
+            for j, capture in ipairs(captures) do
+                local value = {kind = "name", token = capture.token, captureValue = true}
+                value[1] = capture.token
+                captureStat.names[j] = capture.token
+                captureStat.exprs[j] = value
+                captureStat.automaticOwners[j] = capture.automaticOwner
+                if capture.automaticOwner then
+                    capture.automaticOwner.stat = captureStat
+                    capture.automaticOwner.index = j
+                    capture.automaticOwner.expr = value
+                    capture.automaticOwner.type = capture.type
+                end
+            end
+            body.captureBindingStat = captureStat
+            table.insert(body.body.stats, 1, captureStat)
+            table.insert(body.body, 1, captureStat)
+        end
+        c.loops.setReturning(wasReturning)
+        c.loops.finish(loopClosure, body)
+        -- A generic input pack may contain affine slots. Its body therefore has to
+        -- transfer that complete sequence exactly once: directly to the matching result
+        -- pack, or as the expanding argument of a callable accepting the same symbolic
+        -- tail. Any other use can duplicate or silently drop an owner at an
+        -- instantiation the generic body cannot see yet.
+        if paramPackTail and paramPackTail.kind == "generic" then
+            local uses, transfers = 0, 0
+            local transferred = {}
+            local function isVararg(node)
+                return node and not cst.isToken(node) and node.kind == "vararg"
+            end
+
+            local function walk(node)
+                if not node or cst.isToken(node) then
+                    return
+                end
+                if node.kind == "funcbody" or node.kind == "shortfn" then
+                    return
+                end
+                if node.kind == "vararg" then
+                    uses = uses + 1
+                    return
+                elseif node.kind == "returnStmt" then
+                    local exprs = node.exprs or {}
+                    local last = exprs[#exprs]
+                    if isVararg(
+                        last
+                    ) and retPack.tail and retPack.tail.kind == "generic" and retPack.tail.var == paramPackTail.var then
+                        transfers = transfers + 1
+                        transferred[last] = true
+                    end
+                elseif node.kind == "call" or node.kind == "methodCall" or node.kind == "safeCall" then
+                    local args = node.args and node.args.exprs or {}
+                    local last = args[#args]
+                    local signature = node.signatureType
+                    local tail = signature and signature.tag == "func" and signature.paramPack.tail or nil
+                    if isVararg(last) and tail and tail.kind == "generic" and tail.var == paramPackTail.var then
+                        transfers = transfers + 1
+                        transferred[last] = true
+                    end
+                end
+                for _, child in ipairs(node) do
+                    if not cst.isToken(child) and not transferred[child] then
+                        walk(child)
+                    end
+                end
+            end
+
+            walk(body.body)
+            if uses ~= 0 or transfers ~= 1 then
+                c.diag(
+                    "NUPP2605",
+                    body,
+                    "a potentially affine generic argument pack must be " .. "forwarded exactly once"
+                )
+            end
+        end
+        if consumingRoot then
+            local terminal = ownershipState(c.lookupEntry(consumingRoot))
+            if terminal then
+                terminal.moved = true
+            end
+        end
+        c.consumingFieldStack[#c.consumingFieldStack] = nil
+        if consumingContext and not consumingContext.wholeMoved then
+            for field in pairs(consumingContext.allowed) do
+                if not consumingContext.done[field] then
+                    c.diag("NUPP2603", body, ("consuming function leaves owned field %q live"):format(field))
+                end
+            end
+        end
+        c.borrowReturnStack[#c.borrowReturnStack] = nil
+        c.protocolStack[#c.protocolStack] = nil
+        c.varargPackStack[#c.varargPackStack] = nil
+        c.yieldPackStack[#c.yieldPackStack] = nil
+        c.resumePackStack[#c.resumePackStack] = nil
+        c.ownReturnStack[#c.ownReturnStack] = nil
+        c.retStack[#c.retStack] = nil
+        c.retPackStack[#c.retPackStack] = nil
+        c.popScope()
+        c.functionBodies[#c.functionBodies] = nil
+        c.functionDepth = c.functionDepth - 1
+        if not yieldPack and #protocolContext.yieldPacks > 0 then
+            yieldPack = T.packUnion(protocolContext.yieldPacks)
+            resumePack = T.pack({}, {kind = "unknown", type = T.any})
+        end
+        -- A body that only ever raises never comes back, whether or not its return type
+        -- says so; inferring it is what lets a guard clause written as a helper narrow
+        -- at the call site the way an inline `error` does. A declared `never` return
+        -- additionally forces the claim where the checker cannot see through a loop
+        -- that never ends or a call it has no type for; a `return` the checker can see
+        -- is caught the ordinary way, as a value that does not fit `never`.
+        local noreturn = c.alwaysRaises(body.body) and not c.returnsSomewhere(body.body)
+        local predicate
+        local first = body.rets and body.rets[1]
+        if first and first.kind == "tpredicate" then
+            local want = first.param.text
+            local at
+            for j, p in ipairs(body.params or {}) do
+                if p.name and p.name.text == want then
+                    at = j
+                end
+            end
+            if not at then
+                c.diag("NUPP2109", first, ("%s names no parameter of this " .. "function"):format(want))
+            else
+                local target = c.resolveType(first.type)
+                if not (isA(target, params[at]) or params[at] == T.any) then
+                    c.diag(
+                        "NUPP2110",
+                        first,
+                        ("%s cannot be a %s, so this " .. "predicate can never hold"):format(want, T.tostring(target))
+                    )
+                else
+                    predicate = {param = at, type = target}
+                end
+            end
+        end
+        local borrowsParam, borrowsSelf, borrowsParams
+        if elidedSelfBorrow then
+            borrowsSelf = true
+        end
+        if first and first.kind == "tborrows" then
+            borrowsParams = {}
+            for _, sourceToken in ipairs(first.params or {first.param}) do
+                local want = sourceToken.text
+                local found
+                -- `self` is bound implicitly by a method, and is the receiver at the
+                -- call site rather than one of the declared parameters.
+                if want == "self" and selfType then
+                    borrowsSelf = true
+                    found = true
+                else
+                    for j, p in ipairs(body.params or {}) do
+                        if p.name and p.name.text == want then
+                            found = j
+                        end
+                    end
+                end
+                if not found then
+                    c.diag("NUPP2109", sourceToken, ("%s names no parameter of this function"):format(want))
+                elseif type(found) == "number" and paramModes[found] == "takes" then
+                    c.diag(
+                        "NUPP2618",
+                        sourceToken,
+                        ("%s is consumed by this function, so its result " .. "cannot borrow from it"):format(want)
+                    )
+                elseif type(found) == "number" then
+                    borrowsParams[#borrowsParams + 1] = found
+                end
+            end
+            if #borrowsParams == 1 then
+                borrowsParam, borrowsParams = borrowsParams[1], nil
+            end
+        end
+        -- An owning result that borrows keeps its owned type: it still has to be
+        -- discharged, and the borrow it holds is tracked on the value rather than in
+        -- the type, the way a lexical borrow is.
+        if (borrowsParam or borrowsSelf or borrowsParams) and rets[1] and rets[1].tag ~= "affine" then
+            rets[1] = T.borrowed(rawType(rets[1]))
+        end
+        if body.returnPack and not retPack.alternatives then
+            retPack = T.pack(rets, retPack.tail, retPack.modes)
+        end
+
+        local preservesResults, explicitPreserves = preservationResults(
+            body,
+            paramNames,
+            params,
+            rets,
+            paramModes,
+            typeParams ~= nil,
+            true
+        )
+        local callable = T.func(
+            params,
+            rets,
+            vararg,
+            paramModes,
+            predicate,
+            typeParams,
+            typeBounds,
+            borrowsParam,
+            borrowsSelf,
+            borrowsParams,
+            nil,
+            varargType,
+            noreturn,
+            paramPack,
+            retPack,
+            packParams,
+            yieldPack,
+            resumePack,
+            nil,
+            paramNames,
+            preservesResults,
+            nil,
+            constParams,
+            paramKinds,
+            body.partitionResults,
+            nil,
+            explicitPreserves
+        )
+        -- Published on the checked body for consumers that need the exact
+        -- resolved signature rather than the type spellings which produced it.
+        -- In particular, AOT lowering reads the instantiated parameter and
+        -- result types together with the ownership modes from this one fact;
+        -- aliases and inferred modes therefore cannot drift from checking.
+        body.signatureType = callable
+        if #captures > 0 then
+            return T.affine(callable, {T.closureCleanup()})
+        end
+
+        return callable
+    end
+
+    -- A function's type as its annotations give it, without checking the body. Enough
+    -- to publish a method before its own statement is reached, so two methods may call
+    -- each other.
+    c.signatureOf = function(body, selfType)
+        local params, modes, paramNames = {}, {}, {}
+        local inferredModes, declaredModes = inferredParameterModes(body or {})
+        local scopedCandidates = scopedCallbackParameters(body or {}, false)
+        local explicitSelf = selfType and body and body.params and body.params[1]
+        if not (explicitSelf and explicitSelf.name and explicitSelf.name.text == "self") then
+            explicitSelf = nil
+        end
+        local typeParams, typeBounds, packParams, constParams, paramKinds
+        c.pushScope()
+        if body and body.generics then
+            typeParams, typeBounds, packParams, constParams, paramKinds = c.bindGenerics(body.generics, "function")
+        end
+        if selfType then
+            params[1] = selfType
+            local mode = "plain"
+            if explicitSelf then
+                mode = inferredModes[1] or "borrows"
+                if not declaredModes[1] and mode ~= "takes" and not pointerShaped(selfType) then
+                    mode = "plain"
+                end
+                body.receiverMode = mode
+            end
+            modes[1] = mode
+            paramNames[1] = "self"
+        end
+        local varargType = nil
+        local paramPackTail = nil
+        local vararg = body and body.varargs or false
+        for sourceIndex, p in ipairs(body and body.params or {}) do
+            if p == explicitSelf then
+                -- The receiver added above is the leading `self` spelling.
+            elseif p.name and not p.namedVararg then
+                local mode = inferredModes[sourceIndex] or "borrows"
+                local priorSuppression = c.suppressInherentOwner
+                if p.type and (mode == "borrows" or mode == "exclusive") then
+                    c.suppressInherentOwner = true
+                end
+                local pt = p.constDomainTok and T.functionConst or p.type and c.resolveType(p.type) or T.any
+                c.suppressInherentOwner = priorSuppression
+                if not declaredModes[sourceIndex] and scopedCandidates[p.name.text] and rawType(pt).tag == "func" then
+                    mode = "scoped"
+                end
+                if not declaredModes[sourceIndex] and mode ~= "takes" and not pointerShaped(pt) then
+                    mode = "plain"
+                end
+                params[#params + 1] = pt
+                modes[#modes + 1] = mode
+                paramNames[#params] = p.name.text
+            else
+                -- `...` and `...rest`, with or without an element annotation
+                vararg = true
+                if p.type then
+                    if p.type.kind == "tpack" then
+                        local pack = c.resolvePack(p.type)
+                        paramPackTail = pack.tail
+                    else
+                        varargType = c.resolveType(p.type)
+                    end
+                end
+            end
+        end
+        local paramPack = T.pack(
+            params,
+            paramPackTail or (
+                vararg and {kind = varargType and "homogeneous" or "unknown", type = varargType or T.any} or nil
+            ),
+            modes
+        )
+        local retPack = body and body.returnPack and c.resolvePack(body.returnPack) or T.pack({}, {
+            kind = "unknown",
+            type = T.any
+        })
+        -- A hoisted method publishes this signature before its body is checked, so the
+        -- terminal a result inherits has to be settled here too. Otherwise a caller
+        -- reached through the published signature and one reached after the body was
+        -- checked would disagree about the same declaration.
+        local rets = body and body.returnPack and retPack.head or {T.any}
+        local yieldPack = body and body.yieldPack and c.resolvePack(body.yieldPack) or nil
+        local resumePack = body and body.resumePack and c.resolvePack(body.resumePack) or nil
+        c.popScope()
+
+        local preservesResults, explicitPreserves = preservationResults(
+            body,
+            paramNames,
+            params,
+            rets,
+            modes,
+            typeParams ~= nil,
+            false
+        )
+
+        local declared = T.func(
+            params,
+            rets,
+            vararg,
+            modes,
+            nil,
+            typeParams,
+            typeBounds,
+            nil,
+            nil,
+            nil,
+            nil,
+            varargType,
+            false,
+            paramPack,
+            retPack,
+            packParams,
+            yieldPack,
+            resumePack,
+            nil,
+            paramNames,
+            preservesResults,
+            nil,
+            constParams,
+            paramKinds,
+            nil,
+            nil,
+            explicitPreserves
+        )
+        if body.foreignOverloads and #body.foreignOverloads > 0 then
+            local members = {declared}
+            for _, overload in ipairs(body.foreignOverloads) do
+                members[#members + 1] = c.resolveType(overload)
+            end
+            return T.intersection(members)
+        end
+
+        return declared
+    end
+
+    c.apply.checkFuncbodyExpected = function(body, expected)
+        expectedFuncbodies[body] = expected
+        local inferred = c.checkFuncbody(body)
+        expectedFuncbodies[body] = nil
+
+        return inferred
+    end
+
+    c.inferredParameterModes = inferredParameterModes
+
+    local handlers = {}
+
+    local function checkLocalFuncStmt(stat: cst.LocalFuncStmt)
+        local nameTok, body = stat.name, stat.body
+        if not nameTok or not body then
+            return
+        end
+        -- bind the name before checking for recursion; refine after
+        c.bindVar(nameTok.text, T.any, false, nameTok, "function", stat.isConst)
+        body.jitDefinition = nameTok.definition
+        if stat.comptimeFunction then
+            local entry = c.scope.vars[nameTok.text]
+            if entry and entry.definition then
+                entry.definition.comptimeFunction = true
+            end
+        end
+        local ft = c.checkFuncbody(body)
+        c.bindVar(nameTok.text, ft)
+        local functionEntry = c.scope.vars[nameTok.text]
+        if functionEntry then
+            functionEntry.jitTarget = functionEntry.definition
+        end
+        if ft.tag == "affine" then
+            local entry = c.scope.vars[nameTok.text]
+            local automatic = entry and entry.automaticOwner
+            local initializer = {kind = "funcExpr", body = body, affineLocal = true}
+            stat.affineInitializer = initializer
+            if automatic then
+                automatic.lowerable = true
+                automatic.stat = stat
+                automatic.index = 1
+                automatic.expr = initializer
+                automatic.type = ft
+                stat.automaticOwners = {automatic}
+            end
+        end
+        -- After the refining bind, so the entry registered is the one that survives.
+        -- The body has already been checked, so a function that only calls itself has
+        -- recorded that read and is not mistaken for one nothing uses.
+        c.unused.declared(nameTok, c.scope.vars[nameTok.text], "function")
+        c.raises.check(stat, body)
+    end
+
+    handlers.localFuncStmt = function(stat: cst.LocalFuncStmt)
+        if stat.comptimeTok then
+            comptimeFunction.checkLocal(c, stat, checkLocalFuncStmt)
+        else
+            checkLocalFuncStmt(stat)
+        end
+    end
+
+    local function checkFuncStmt(stat: cst.FuncStmt)
+        local fname, body = stat.name, stat.body
+        if not fname or fname.kind ~= "funcname" or not body then
+            return
+        end
+        local selfType = nil
+        -- `function R:m()` / `function R.m()` attach a member to the record (or struct)
+        -- named R, when R names one in scope.
+        local owner, member = nil, nil
+        local ownerKey, memberTok = c.funcOwner(fname)
+        if ownerKey then
+            local named = c.lookupType(ownerKey)
+            if named and named.tag == "nominal" and named.byname then
+                owner = named
+                member = memberTok and memberTok.text
+            end
+        end
+        if fname.method then
+            selfType = owner or T.any
+        end
+        if not fname.method and #fname == 1 and fname.base then
+            c.bindVar(fname.base.text, T.any, false, fname.base, "function")
+        end
+        local earlyMemberDefinition = memberTok and c.definition(
+            memberTok,
+            fname.method and "method" or "function"
+        ) or nil
+        body.jitDefinition = earlyMemberDefinition or (fname.base and fname.base.definition or nil)
+        local ft = c.checkFuncbody(body, selfType)
+        if stat.exported and not fname.method and #fname == 1 and fname.base then
+            c.bindVar(fname.base.text, ft, true, nil, "function", true)
+        end
+        c.raises.check(stat, body)
+        local memberDefinition = earlyMemberDefinition
+        if memberDefinition then
+            memberDefinition.type = ft
+            c.markToken(memberTok, memberDefinition, ft, memberDefinition.kind)
+        end
+        if not fname.method and ownerKey and memberTok and memberDefinition then
+            c.qualifiedFunctionEntries[ownerKey .. "." .. memberTok.text] = {t = ft, definition = memberDefinition,}
+        end
+        if stat.comptimeFunction then
+            stat.comptimeSignature = ft
+            stat.comptimeDefinition = memberDefinition
+            return
+        end
+        -- `function M.f()` puts f on the module table exactly as `M.f = ...` does, so
+        -- what it exports records it the same way.
+        if not fname.method and ownerKey == c.moduleLocal and memberTok then
+            c.moduleFields[memberTok.text] = ft
+            c.moduleFieldTokens[memberTok.text] = memberTok
+            c.moduleFieldDefs[memberTok.text] = memberDefinition
+            c.moduleExports.valueDefs[memberTok.text] = memberDefinition
+            -- The body, so that boundary finalization can ask this declaration's own
+            -- summary rather than guessing from a type two exports may share.
+            c.moduleFieldValues[memberTok.text] = body
+            local declarations = c.moduleFunctionDeclarations[memberTok.text] or {}
+            for j = #declarations, 1, -1 do
+                local pending = declarations[j]
+                if pending.body == body then
+                    pending.signature = ft
+                    break
+                end
+            end
+        end
+        -- ...and a later reference has to find it the same way too. An assignment
+        -- records the path it wrote, which is how `m.f = function() end` gives a
+        -- following `m.f()` a type at all; a declaration that skipped this left `m.f`
+        -- reading through an open table as `any`, so every annotation on it was
+        -- accepted and then meant nothing, which is how this was found. A nominal
+        -- owner already has its member on `byname`, where the type
+        -- namespace rather than the value path answers for it.
+        if not fname.method and not owner and ownerKey and memberTok then
+            c.applyFacts({[ownerKey .. "." .. memberTok.text] = ft})
+        end
+        if owner and owner.declKind == "struct" then
+            -- reified receivers get their members through ffi.metatype
+            stat.structOwner = owner.runtimePath or ownerKey
+            stat.memberName = member
+        end
+        if owner and member and ft.tag == "func" then
+            local stored
+            if fname.method then
+                -- stored with the receiver as the first parameter, the shape
+                -- declaration files use; call sites drop it again
+                local params = {selfType}
+                for _, p in ipairs(ft.params) do
+                    params[#params + 1] = p
+                end
+                local modes = {body.receiverMode or "plain"}
+                local names = {"self"}
+                for _, mode in ipairs(ft.paramModes or {}) do
+                    modes[#modes + 1] = mode
+                end
+                for _, name in ipairs(ft.paramNames or {}) do
+                    names[#names + 1] = name
+                end
+                local preserves = {}
+                for result = 1, #ft.rets do
+                    local source = ft.preservesResults and ft.preservesResults[result]
+                    if source then
+                        preserves[result] = source + 1
+                    end
+                end
+                owner.byname[
+                    member
+                ] = T.func(
+                    params,
+                    ft.rets,
+                    ft.vararg,
+                    modes,
+                    ft.predicate,
+                    ft.typeParams,
+                    ft.typeBounds,
+                    ft.borrowsParam,
+                    ft.borrowsSelf,
+                    ft.borrowsParams,
+                    ft.ffiOut,
+                    ft.varargType,
+                    ft.noreturn,
+                    T.pack(params, ft.paramPack.tail, modes),
+                    ft.retPack,
+                    ft.packParams,
+                    ft.yieldPack,
+                    ft.resumePack,
+                    ft.noYield,
+                    names,
+                    next(preserves) and preserves or nil,
+                    ft.foreign,
+                    ft.constParams,
+                    ft.paramKinds,
+                    ft.partitionResults,
+                    ft.comptimeOnly,
+                    ft.explicitPreserves
+                )
+                owner.writeByname[member] = owner.byname[member]
+                owner.fieldDefs[member] = owner.fieldDefs[member] or memberDefinition
+                owner.writeFieldDefs[member] = owner.writeFieldDefs[member] or memberDefinition
+                stored = owner.byname[member]
+            elseif owner.declKind == "record" or owner.declKind == "interface" then
+                owner.staticByname[member] = ft
+                owner.staticWriteByname[member] = ft
+                owner.staticFieldDefs[member] = owner.staticFieldDefs[member] or memberDefinition
+                owner.staticWriteFieldDefs[member] = owner.staticWriteFieldDefs[member] or memberDefinition
+                stored = ft
+            else
+                owner.byname[member] = ft
+                owner.writeByname[member] = ft
+                owner.fieldDefs[member] = owner.fieldDefs[member] or memberDefinition
+                owner.writeFieldDefs[member] = owner.writeFieldDefs[member] or memberDefinition
+                stored = ft
+            end
+            if stored then
+                c.nominalEffectOwners[owner] = true
+                c.nominalEffectEntries[
+                    #c.nominalEffectEntries + 1
+                ] = {
+                    owner = owner,
+                    member = member,
+                    static = not fname.method and (owner.declKind == "record" or owner.declKind == "interface"),
+                    signature = stored,
+                    body = body,
+                }
+            end
+            if owner.fieldOrder and (fname.method or owner.declKind == "struct") then
+                owner.fieldOrder[#owner.fieldOrder + 1] = member
+            end
+        end
+        if not fname.method and #fname == 1 and fname.base then
+            c.bindVar(fname.base.text, ft) -- global function: best-effort bind
+        end
+    end
+
+    handlers.funcStmt = function(stat: cst.FuncStmt)
+        if stat.comptimeTok then
+            comptimeFunction.checkQualified(c, stat, checkFuncStmt)
+        else
+            checkFuncStmt(stat)
+        end
+    end
+
+    return handlers
+end
+
+export = functions

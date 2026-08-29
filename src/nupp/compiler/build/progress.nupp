@@ -1,0 +1,413 @@
+module nupp.compiler.build.progress
+
+--[[
+What a build is doing while it does it, and where its time went afterwards.
+
+A build that says nothing until it finishes is indistinguishable from a build
+that has hung, and a build that finishes without saying how long it took leaves
+the one question anybody asks about a compiler unanswered. This is both halves:
+a line that is rewritten in place while modules are compiled, and a summary that
+says what the run spent its time on and which modules cost the most of it.
+
+Time is accounted as a timeline rather than as nested spans. One activity is
+current at any moment, switching to another closes the one before it, and every
+millisecond therefore lands in exactly one bucket -- so the parts add up to the
+whole and a slow build cannot hide its time between the rows. Per-module numbers
+are separate, and are exclusive: the checker reaches a module's dependencies
+through the query graph, so charging one module for the closure it happened to
+pull in first would name the wrong module every time.
+
+Collection is unconditional and display is not. The numbers are wanted by
+`build --json` whatever the terminal is doing, and the cost of collecting them
+is two clock reads per module against work measured in milliseconds. What is
+conditional is writing anything: nothing is printed unless the stream is a
+terminal, because a build's output has been quiet on success for as long as
+there have been build scripts reading it, and `--quiet` and `NUPP_PROGRESS` are
+there to overrule the guess in either direction.
+]]
+
+local ansi = require("nupp.compiler.ansi")
+
+local progress = {}
+
+--- One activity and what it cost. Activities are the timeline's buckets, so these sum
+--- to the whole run.
+type progress.Span = {
+    name: string,
+    durationMs: number
+}
+
+--- One module and the time charged to it, exclusive of its dependencies.
+type progress.ModuleSpan = {
+    module: string,
+    durationMs: number
+}
+
+--- Where a build's time went, for a caller reporting it rather than printing it.
+type progress.Timing = {
+    --- Wall-clock milliseconds for the whole run.
+    totalMs: number,
+
+    compiledModules: number,
+    reusedModules: number,
+
+    --- Every activity that took measurable time, longest first.
+    phases: {progress.Span},
+
+    --- The costliest modules, longest first, at most `progress.SLOWEST` of them.
+    slowest: {progress.ModuleSpan}
+}
+
+--- How many modules the summary names. Enough to point at a cause, few enough that the
+--- report stays something a reader takes in at a glance.
+const progress.SLOWEST = 5
+
+-- Wall clock rather than CPU clock, because a build waits on cargo, on luarocks and on
+-- the disk, and none of that is this process's CPU time however long the user spends
+-- watching it. LuaJIT has no wall clock of its own beyond `os.time`, whose one-second
+-- resolution would report most builds as zero, so this goes through the FFI and is
+-- guarded at every step the way `nupp.compiler.ansi` guards `isatty`: a build must not
+-- fail to start because a timer could not be declared. The fallback is CPU time, which
+-- is wrong in the direction of being too small and is still better than nothing.
+local function makeClock(): function(): number
+    local coarse = function(): number
+        return os.clock() * 1000
+    end
+    local loaded, ffi = pcall(require, "ffi")
+    if not loaded then
+        return coarse
+    end
+    -- Two words rather than a declared `struct timeval`, whose second field is a long
+    -- on Linux and an int on the BSDs: the platform writes seconds into the first word
+    -- and microseconds into the second, and a zero-filled pair reads both back on any
+    -- little-endian 64-bit target whichever width it wrote. That is an assumption about
+    -- the machine, so it is tested below rather than trusted.
+    pcall(ffi.cdef, "int gettimeofday(void *, void *);")
+    local holder = ffi.new("int64_t[2]") as int64[2]
+    -- Through `void *`, because the declaration that wins may not be this one:
+    -- something else in the process may have declared `gettimeofday` against a `struct
+    -- timeval *` first, and a void pointer converts to whichever it turns out to be.
+    -- Cast once, since it is the same buffer every time.
+    local buffer = ffi.cast("void *", holder)
+    local function read(): number
+        -- Handing C a pointer is what this is; there is nothing for the checker to
+        -- prove about a two-word buffer the platform fills in.
+        unsafe do
+            ffi.C.gettimeofday(buffer, nil)
+        end
+
+        return (tonumber(holder[0]) or 0) * 1000 + (tonumber(holder[1]) or 0) / 1000
+    end
+
+    -- Windows declares no `gettimeofday`, so the symbol resolves at the first call
+    -- rather than at the declaration, and a machine that does not lay a `timeval` out
+    -- the way this reads it answers something absurd rather than failing. One reading
+    -- settles both: a clock that does not land between 2014 and 2096 is not a clock,
+    -- and a build is better timed coarsely than timed wrongly.
+    local sampled, sample = pcall(read)
+    if not sampled or type(sample) ~= "number" or sample < 1.4e12 or sample > 4.0e12 then
+        return coarse
+    end
+
+    return read
+end
+
+local clock = makeClock()
+
+--- Milliseconds on a wall clock. Its zero is the epoch where the platform's clock was
+--- reachable and this process's own start where it was not, so only the difference
+--- between two readings means anything.
+function progress.now(): number
+    return clock()
+end
+
+--- A duration as a reader wants it: milliseconds while a duration is short, and
+--- seconds with one decimal once it is not.
+function progress.duration(milliseconds: number): string
+    if milliseconds < 1000 then
+        return string.format("%dms", math.floor(milliseconds + 0.5))
+    end
+
+    return string.format("%.1fs", milliseconds / 1000)
+end
+
+-- "auto", "always" or "never". `0` and `1` are taken too, because an environment
+-- variable is the one place people write those and meaning them is unambiguous.
+local function resolve(mode: string?, stream: LuaFile): boolean
+    local wanted = mode or os.getenv("NUPP_PROGRESS") or "auto"
+    if wanted == "never" or wanted == "0" then
+        return false
+    end
+    if wanted == "always" or wanted == "1" then
+        return true
+    end
+
+    return ansi.isTerminal(stream)
+end
+
+-- Terminals wrap, and a wrapped line cannot be erased with a carriage return: what
+-- comes back is the start of the last row, leaving everything above it on screen. So a
+-- step line is cut to the width the terminal says it has.
+local function width(): integer
+    local columns = tonumber(os.getenv("COLUMNS") or "") or 80
+    if columns < 20 then
+        columns = 20
+    end
+
+    return math.floor(columns) - 1
+end
+
+--- A running build's narrator and stopwatch.
+---
+--- Every method is safe to call on a reporter that is not showing anything; the timing
+--- still accumulates, which is what `--json` reads back.
+record progress.Reporter
+    stream: LuaFile
+
+    --- Whether anything at all is written.
+    showing: boolean
+
+    --- Whether a step line replaces the one before it. False on a terminal that does
+    --- not take escapes, where each step is a line of its own instead.
+    rewriting: boolean
+
+    style: nupp.compiler.ansi.Style
+
+    startedAt: number
+
+    --- The activity time is currently being charged to, and when it started.
+    activity: string
+
+    since: number
+
+    spans: {[string]: number}
+    order: {string}
+
+    --- Milliseconds charged to each module, and the order they were first charged in,
+    --- so the slowest list is stable between runs that took the same path.
+    moduleMs: {[string]: number}
+
+    moduleOrder: {string}
+
+    --- How far through the module list the build is, for the step line.
+    total: number
+
+    done: number
+
+    compiled: number
+    reused: number
+
+    --- When the step line was last painted, and whether one is on screen now.
+    paintedAt: number
+
+    onScreen: boolean
+
+    columns: number
+
+    --- Charges everything since the last switch to the activity that was current, and
+    --- makes `activity` current from now on. Switching to the activity already current
+    --- is not a no-op and does not need to be: it charges the elapsed time to the same
+    --- bucket.
+    function at(self, activity: string): nil
+        local moment = clock()
+        self.spans[self.activity] = (self.spans[self.activity] or 0) + (moment - self.since)
+        if self.spans[activity] == nil then
+            self.spans[activity] = 0
+            self.order[#self.order + 1] = activity
+        end
+        self.activity, self.since = activity, moment
+    end
+
+    --- How many modules the build expects to visit, for the counter on the step line.
+    function expect(self, total: number): nil
+        self.total = total
+    end
+
+    --- Says what is being worked on now, and is throttled, because a build resolves
+    --- modules faster than a terminal can usefully repaint and the writes are not free.
+    --- Where each step is a line of its own the interval is much longer, since those
+    --- lines stay: what a reader wants from a log is evidence of movement and where the
+    --- time is going, not a transcript of every module.
+    function step(self, label: string): nil
+        if not self.showing then
+            return
+        end
+        local moment = clock()
+        if moment - self.paintedAt < (self.rewriting and 40 or 500) then
+            return
+        end
+        self.paintedAt = moment
+        local counted = self.total > 0 and ("[%d/%d] "):format(math.min(self.done + 1, self.total), self.total) or ""
+        local text = "  " .. counted .. label
+        if #text > self.columns then
+            text = text:sub(1, self.columns)
+        end
+        if self.rewriting then
+            self.stream:write("\r\27[2K" .. self.style.faint(text))
+            self.onScreen = true
+        else
+            self.stream:write(text .. "\n")
+        end
+    end
+
+    --- Takes the step line off the screen, for a caller about to write something that
+    --- should stay there. Costs nothing when there is no line to take off.
+    function clear(self): nil
+        if self.onScreen then
+            self.stream:write("\r\27[2K")
+            self.onScreen = false
+        end
+    end
+
+    --- Charges `milliseconds` to one module. Called more than once for the same module
+    --- -- checking and generating are separate -- and the charges add up.
+    function spent(self, module: string, milliseconds: number): nil
+        if self.moduleMs[module] == nil then
+            self.moduleOrder[#self.moduleOrder + 1] = module
+        end
+        self.moduleMs[module] = (self.moduleMs[module] or 0) + milliseconds
+    end
+
+    --- One more module dealt with, however it was dealt with. This drives the counter
+    --- on the step line and nothing else, because whether a module ended up compiled is
+    --- not settled here: one reused early can be invalidated by a dependency later.
+    function resolved(self): nil
+        self.done = self.done + 1
+    end
+
+    --- What the run turned out to have done, once the build knows. Set rather than
+    --- accumulated, for the reason `resolved` gives.
+    function counted(self, compiled: number, reused: number): nil
+        self.compiled, self.reused = compiled, reused
+    end
+
+    --- What the run cost, in the shape `build --json` publishes.
+    function timing(self): progress.Timing
+        local phases: {progress.Span} = {}
+        for _, name in ipairs(self.order) do
+            local milliseconds = self.spans[name] or 0
+            if milliseconds >= 1 then
+                phases[#phases + 1] = {name = name, durationMs = milliseconds}
+            end
+        end
+        table.sort(phases, function(a: progress.Span, b: progress.Span): boolean
+            return a.durationMs > b.durationMs
+        end)
+        local modules: {progress.ModuleSpan} = {}
+        for _, name in ipairs(self.moduleOrder) do
+            modules[#modules + 1] = {module = name, durationMs = self.moduleMs[name] or 0}
+        end
+        table.sort(modules, function(a: progress.ModuleSpan, b: progress.ModuleSpan): boolean
+            return a.durationMs > b.durationMs
+        end)
+        local slowest: {progress.ModuleSpan} = {}
+        for index = 1, math.min(progress.SLOWEST, #modules) do
+            -- A module measured at well under a millisecond is one the clock could not
+            -- see, and listing it as among the slowest says nothing true.
+            if modules[index].durationMs >= 1 then
+                slowest[#slowest + 1] = modules[index]
+            end
+        end
+
+        return {
+            totalMs = clock() - self.startedAt,
+            compiledModules = self.compiled,
+            reusedModules = self.reused,
+            phases = phases,
+            slowest = slowest,
+        }
+    end
+
+    --- Closes the timeline and says how the run went. `what` names the thing that was
+    --- produced, and `verb` is what happened to it, so a check and a build read as
+    --- themselves rather than as one phrasing bent to cover both.
+    function finish(self, verb: string, what: string?): nil
+        self:at("other")
+        if not self.showing then
+            return
+        end
+        self:clear()
+        local measured = self:timing()
+        local style = self.style
+        local subject = what and (" " .. what) or ""
+        local counts: string
+        if measured.compiledModules == 0 then
+            counts = ("%d module%s reused"):format(measured.reusedModules, measured.reusedModules == 1 and "" or "s")
+        else
+            counts = ("%d compiled, %d reused"):format(measured.compiledModules, measured.reusedModules)
+        end
+        local success = ansi.forSeverity(style, "help")
+        local detail = ansi.forSeverity(style, "note")
+        self.stream:write(
+            (
+                "%s in %s: %s\n"
+            ):format(success(verb .. subject), style.strong(progress.duration(measured.totalMs)), detail(counts))
+        )
+        -- An activity worth naming is one a reader could act on. Everything under a
+        -- fiftieth of the run is noise beside the rest, and a run too short to have
+        -- spent time anywhere has nothing to break down at all.
+        local parts: {string} = {}
+        for _, span in ipairs(measured.phases) do
+            if span.durationMs >= 5 and span.durationMs >= measured.totalMs / 50 then
+                parts[#parts + 1] = span.name .. " " .. progress.duration(span.durationMs)
+            end
+        end
+        if #parts > 0 then
+            self.stream:write(style.faint("  " .. table.concat(parts, "  ")) .. "\n")
+        end
+        -- Naming the costliest modules is the point of the report, but only once the
+        -- run took long enough that they add up to something. Under a second, the whole
+        -- build is the answer and the breakdown is noise.
+        if #measured.slowest == 0 or measured.totalMs < 1000 then
+            return
+        end
+        local widest = 0
+        for _, span in ipairs(measured.slowest) do
+            if #span.module > widest then
+                widest = #span.module
+            end
+        end
+        self.stream:write(style.faint("  slowest") .. "\n")
+        for _, span in ipairs(measured.slowest) do
+            self.stream:write(
+                style.faint(
+                    ("    %-" .. widest .. "s  %s"):format(span.module, progress.duration(span.durationMs))
+                ) .. "\n"
+            )
+        end
+    end
+end
+
+--- A reporter writing to `stream`, showing what `mode` asks for: "always", "never", or
+--- "auto" to write only to a terminal. Absent, the mode is `NUPP_PROGRESS`, and absent
+--- that, "auto".
+function progress.new(mode: string?, stream: LuaFile?): progress.Reporter
+    local target = stream or io.stderr
+    local showing = resolve(mode, target)
+    local started = clock()
+
+    return new progress.Reporter(
+        stream = target,
+        showing = showing,
+        -- Rewriting a line needs the escapes that colour needs, so one answer settles
+        -- both. A terminal that has said it cannot take them gets a line per step.
+        rewriting = showing and ansi.enabled(target),
+        style = ansi.style(target),
+        startedAt = started,
+        activity = "other",
+        since = started,
+        spans = {other = 0},
+        order = {"other"},
+        moduleMs = {},
+        moduleOrder = {},
+        total = 0,
+        done = 0,
+        compiled = 0,
+        reused = 0,
+        paintedAt = 0,
+        onScreen = false,
+        columns = width()
+    )
+end
+
+export = progress

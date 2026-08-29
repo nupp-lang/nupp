@@ -1,0 +1,1397 @@
+module nupp.compiler.build.project
+
+--[[
+Building what the manifest describes.
+
+A project's `nupp.lua` names targets; this resolves each one to the set of
+modules it reaches, compiles what has changed, copies the resources it declares,
+and writes the result. What counts as changed is answered by the content hashes
+in the build cache, not by timestamps.
+]]
+
+local envMod = require("nupp.compiler.env")
+local hash = require("nupp.compiler.build.hash")
+local process = require("nupp.compiler.build.process")
+local fs = require("nupp.compiler.fs")
+local cache = require("nupp.compiler.build.cache")
+local manifest = require("nupp.compiler.build.manifest")
+local tasks = require("nupp.compiler.build.tasks")
+local deps = require("nupp.compiler.build.deps")
+local modules = require("nupp.compiler.build.modules")
+local packaging = require("nupp.compiler.build.package")
+local storeMod = require("nupp.compiler.build.store")
+local native = require("nupp.compiler.build.native")
+local nativeFeatures = require("nupp.compiler.native")
+local backends = require("nupp.compiler.backends")
+local materializeObserve = require("nupp.compiler.materialize.observe")
+local progressMod = require("nupp.compiler.build.progress")
+
+local project = {}
+
+--- What a build was asked for, over and above what the manifest says.
+---
+--- The last three are collectors rather than settings: a caller that passes one is
+--- reporting what it finds itself, so the build fills it in and says nothing.
+type project.BuildOptions = {
+    --- Which target to build; the manifest's default when absent.
+    target: string?,
+
+    --- One configured binary platform, or "all" at the public build boundary.
+    platform: string?,
+
+    --- Source-lowering dialect. Overrides the target; absent resolves to its setting
+    --- and then to `luajit`.
+    dialect: string?,
+
+    --- Overrides the manifest's own `strict`.
+    strict: boolean?,
+
+    --- Where to write, instead of the target's own directory.
+    outDir: string?,
+
+    --- Check without generating or writing anything.
+    checkOnly: boolean?,
+
+    --- Check these files, and whatever they require, rather than the project. Only a
+    --- check narrows: a build compiles the whole source set whatever it was asked
+    --- about.
+    ---
+    --- A named file the project does not reach -- a declaration file, a `.lua`, a file
+    --- from outside -- is appended to `unchecked` rather than refused, for the caller
+    --- to check on its own.
+    paths: {string}?,
+    unchecked: {string}?,
+
+    --- Build instrumented for coverage. Folded into the build key, so an ordinary cache
+    --- entry can never satisfy a coverage run.
+    coverage: boolean?,
+
+    optLevel: integer?,
+    remarks: boolean?,
+
+    --- Optimization codes to skip, and the guarantees a pass may change, each as a set
+    --- keyed by the code.
+    disabled: {[string]: boolean}?,
+    relaxed: {[string]: boolean}?,
+
+    --- How many modules were checked, generated and reused.
+    stats: nupp.compiler.build.modules.Stats?,
+
+    --- When to say what the build is doing and what it cost: "always", "never", or
+    --- "auto", which means only when standard error is a terminal. Absent, the answer
+    --- comes from `NUPP_PROGRESS` and failing that from "auto". A check reports nothing
+    --- whatever this says.
+    progress: string?,
+
+    --- Every diagnostic, instead of printing them.
+    diagnostics: {any}?,
+
+    --- Which target ran and what it wrote.
+    produced: {[string]: any}?
+}
+
+--- What `test` was asked for, over and above the manifest's `test` table. The coverage
+--- fields are the caller's, not the manifest's: a coverage run is asked for per
+--- invocation rather than configured once.
+type project.TestOptions = {
+    --- Where the built target went, when it is not the target's own directory.
+    outDir: string?,
+
+    --- Build instrumented, and let the test command know.
+    coverage: boolean?,
+
+    --- Added to the test command's environment, over the manifest's own.
+    env: {[string]: string}?
+}
+
+--- What `clean` was asked for.
+type project.CleanOptions = {
+    --- One target's output directory rather than every target's.
+    target: string?,
+
+    --- One configured platform or "all". Meaningful only with `target`.
+    platform: string?,
+
+    --- Say what would go, and remove nothing.
+    dryRun: boolean?,
+
+    --- The paths, instead of writing a line about each.
+    removed: {string}?
+}
+
+--- What a fixpoint run was asked for.
+type project.FixpointOptions = {
+    --- Rewrite the checked-in stage zero from what the run just built.
+    updateBootstrap: boolean?,
+
+    --- What happened, instead of the human line saying so.
+    result: {[string]: any}?
+}
+
+-- The check state records nothing the compiler's own identity is not already in:
+-- `compilerHash` and `configHash` live inside it and are compared there, the same way
+-- the build state compares them. The stamp only has to change when the shape of a
+-- record does.
+local CHECK_STATE_STAMP = "checks/1"
+
+local normalize, join = fs.normalize, fs.join
+local dirname, basename = fs.dirname, fs.basename
+local readFile, writeFile = fs.readFile, fs.writeFile
+local copyFile, listFiles = fs.copyFile, fs.listFiles
+local stable, hashFile = cache.stable, cache.hashFile
+local loadState, saveState = cache.loadState, cache.saveState
+local toolFingerprint = cache.toolFingerprint
+local targetConfig = tasks.targetConfig
+local buildDependencies = deps.build
+local buildModules = modules.build
+local aotPolicy = require("nupp.compiler.build.aot")
+local bundleText, bundleOutput = packaging.bundleText, packaging.bundleOutput
+local componentOutput = packaging.componentOutput
+local binaryOutput = packaging.binaryOutput
+local stampFile = packaging.stampFile
+local payloadBytes = packaging.payloadBytes
+
+--- Reads and validates a project's manifest. See nupp.compiler.build.manifest.
+project.loadManifest = manifest.load
+
+--- The tasks a manifest defines. See nupp.compiler.build.tasks.
+project.describeTasks = tasks.describe
+
+project.encode = tasks.encode
+
+local function buildOne(root: string?, opts: project.BuildOptions?): integer
+    root, opts = root or ".", (opts or {}) as project.BuildOptions
+    -- Started before the manifest is read, because a build takes as long as it takes
+    -- from where the caller asked for one, and a reader timing it with a wristwatch is
+    -- not going to exclude the parts this one thought were setup.
+    --
+    -- A check is measured and says nothing: it shares this code path, but `nupp check`
+    -- answers a question about the program rather than reporting work done, and a
+    -- summary of how long the answer took belongs to the command that asked.
+    local report = progressMod.new(opts.checkOnly and "never" or opts.progress)
+    local config, loadErr = project.loadManifest(root)
+    if not config then
+        io.stderr:write(tostring(loadErr) .. "\n");
+        return 1
+    end
+    -- Absent rather than false: nil reaches the checker as "ask the file", which is
+    -- what the extension answers. Only --strict forces it for everything.
+    local strict = opts.strict
+    local target, targetErr = targetConfig(config, opts.target)
+    if not target then
+        io.stderr:write("nupp: " .. tostring(targetErr) .. "\n");
+        return 1
+    end
+    local dialectLabel = opts.dialect ~= nil and "--dialect" or "dialect"
+    local dialect, dialectErr = require("nupp.compiler.dialects").resolve(opts.dialect or target.dialect, dialectLabel)
+    if not dialect then
+        io.stderr:write("nupp: " .. tostring(dialectErr) .. "\n")
+        return 1
+    end
+    target.dialect = dialect
+    if opts.produced then
+        opts.produced.dialect = dialect
+    end
+    local selectedPlatform = opts.platform
+    if target.platforms then
+        if selectedPlatform == nil then
+            if #target.platforms == 1 then
+                selectedPlatform = target.platforms[1]
+            else
+                io.stderr:write(
+                    "nupp: binary target " .. tostring(
+                        target.name or opts.target or "default"
+                    ) .. " configures several platforms; select one with --platform or use --platform all\n"
+                )
+                return 1
+            end
+        end
+        local configured = false
+        for _, name in ipairs(target.platforms) do
+            configured = configured or name == selectedPlatform
+        end
+        if not configured then
+            io.stderr:write(
+                "nupp: platform " .. tostring(
+                    selectedPlatform
+                ) .. " is not configured on binary target " .. tostring(target.name or opts.target or "default") .. "\n"
+            )
+            return 1
+        end
+        target.layoutTarget = selectedPlatform
+    elseif selectedPlatform ~= nil then
+        io.stderr:write(
+            "nupp: --platform requires a binary target with a platforms list; target " .. tostring(
+                target.name or opts.target or "default"
+            ) .. " has none\n"
+        )
+        return 1
+    end
+    if selectedPlatform and not opts.checkOnly then
+        local record, recordErr = require("nupp.compiler.build.stubs").record(selectedPlatform)
+        if not record then
+            io.stderr:write("nupp: " .. tostring(recordErr) .. "\n")
+            return 1
+        end
+        target._stubRecord = record
+        config._stubCatalogRelease = record.catalogRelease
+        config._stubSha256 = record.sha256
+    end
+    config._target = target
+    config._platform = selectedPlatform
+    config._dialect = dialect
+    config._strict = strict and true or false
+    -- The optimization level belongs to the build key. It reaches the config before the
+    -- config is hashed, so changing -O invalidates every artifact built at the old
+    -- level rather than mixing the two. An explicit -O always wins; a target may
+    -- declare its own level; and a deliverable kind, which is a release artifact,
+    -- builds with every pass unless somebody says otherwise.
+    local defaultLevel = 0
+    if target.kind == "binary" or target.kind == "bundle" or target.kind == "component" then
+        defaultLevel = 2
+    end
+    config._optLevel = opts.optLevel or target.optimize as integer? or defaultLevel
+    config._remarks = opts.remarks and true or false
+    config._disabledPasses = opts.disabled or {}
+    config._relaxedGuarantees = opts.relaxed or {}
+    -- Coverage affects emitted Lua, therefore belongs in the configuration before the
+    -- build key is calculated. A normal cache entry can never satisfy a coverage run.
+    config._coverage = opts.coverage == true
+    if target.kind == "docs" then
+        -- A documentation target declares dependencies like any other, and its are the
+        -- renderer's own: lunamark is a rock, not something a checkout is expected to
+        -- have found its way to. Installed before the build rather than discovered
+        -- missing halfway through a page.
+        local installed, depErr = buildDependencies(
+            root,
+            normalize(opts.outDir or target.outDir or "build"),
+            config,
+            {},
+            target
+        )
+        if not installed then
+            io.stderr:write("nupp: " .. tostring(depErr) .. "\n")
+            return 1
+        end
+        return (require("nupp.compiler.doc").build(root, config, target, {
+            checkOnly = opts.checkOnly,
+            output = opts.outDir,
+        }))
+    elseif target.kind
+        and target.kind ~= "modules"
+        and target.kind ~= "bundle"
+        and target.kind ~= "binary"
+        and target.kind ~= "component"
+    then
+        -- A bundle is a modules build plus one more file, and a binary is a bundle
+        -- stamped into a stub, so both fall through to the same path and finish
+        -- themselves at the end of it.
+        io.stderr:write("nupp: unsupported build target kind " .. tostring(target.kind) .. "\n")
+        return 1
+    end
+    local outDir = normalize(opts.outDir or target.outDir or "build")
+    local completionPath = join(root, join(outDir, ".nupp-complete"))
+    if not opts.checkOnly then
+        os.remove(completionPath)
+    end
+    -- A check and a build each keep their own record of what they last did. They agree
+    -- about what a module is but not about what counts as done: a build's record is
+    -- only good while the artifact it names is still on disk and still what it wrote,
+    -- and a check writes no artifact at all. One file for both would have each
+    -- invalidating the other's work.
+    local statePath = join(root, join(outDir, ".nupp-state.json"))
+    local checkState = nil
+    local oldState
+    if opts.checkOnly then
+        checkState = storeMod.openValue(join(root, join(outDir, "cache/checks.buf")), CHECK_STATE_STAMP)
+        oldState = checkState.value or cache.emptyState()
+        oldState.targets = oldState.targets or {}
+        oldState.dependencies = oldState.dependencies or {}
+    else
+        oldState = loadState(statePath)
+    end
+    local newState = cache.emptyState()
+    newState.compilerHash = toolFingerprint()
+    -- What compiling a module reaches, rather than everything the compiler contains. An
+    -- edit to a command, to the language server, or to anything else the module build
+    -- does not call now leaves the last build's artifacts reusable, where before it
+    -- rebuilt the project.
+    newState.moduleCompilerHash = cache.subsystemFingerprint(
+        {"nupp.compiler.build.modules"},
+        cache.sharedCacheDir(join(root, join(outDir, "cache")))
+    )
+    newState.configHash = hash.digest(stable(config))
+    -- Every other target's record is carried through untouched, so building one does
+    -- not make the others look like they produced nothing.
+    for name, produced in pairs(oldState.targets) do
+        newState.targets[name] = produced
+    end
+    local targetKey = target.name or opts.target or "default"
+    if selectedPlatform then
+        targetKey = targetKey .. "@" .. selectedPlatform
+    end
+    report:at("dependencies")
+    report:step("resolving dependencies")
+    local dependencies, depErr = buildDependencies(root, outDir, config, oldState.dependencies)
+    report:clear()
+    if not dependencies then
+        io.stderr:write("nupp: " .. tostring(depErr) .. "\n");
+        return 1
+    end
+    newState.dependencies = dependencies
+    -- One query graph for the whole build, opened here because the ahead-of-time
+    -- policy checks through it before the module build does. It reads the
+    -- dependencies just resolved, which is why it cannot be opened any earlier.
+    local session = modules.session(root, outDir, config, target, dependencies, strict, report)
+    -- AOT consumes checked trees before the module pass. Give that shared graph
+    -- the target's backend resolution now, so a portable standard surface reached
+    -- by an AOT source is checked under the same seams as the later overlay.
+    -- A backend the compiler ships has no path until it is staged, and staging is
+    -- what the module build used to do first. Resolving before that answered nothing
+    -- for those targets, and an AOT source reaching a seam they supply then failed to
+    -- check and was silently left uncompiled.
+    for _, backendModule in ipairs(target.backends or {}) do
+        session.stageBundled(backendModule)
+    end
+    local earlyBackend = backends.resolve(session.inc, target.backends)
+    if earlyBackend ~= nil then
+        session.inc.setBackendResolution(earlyBackend)
+    end
+    -- The AOT policy runs before the modules it affects. `off` is the default
+    -- and looks for nothing, so a project that has not asked for native code
+    -- never depends on a C compiler being present -- but `require` replaces
+    -- `@aot` bodies with the wrappers that call the compiled code, and that has
+    -- to happen before the module build reads them.
+    --
+    -- It reads the checked tree of each source it lowers, so the same graph
+    -- answers both phases: the sources it checks are checked again with their
+    -- wrappers in front of them, and everything those two imports have in common
+    -- is answered once.
+    --
+    -- A check does none of it. `nupp check` answers a question about the source
+    -- as written, and asking it to compile and link first would make checking a
+    -- project need a C compiler that building it is what actually requires.
+    local aotOverlays: {[string]: string}? = nil
+    local aotAuthoredUnused: {[string]: {any}}? = nil
+    local aotLibrary: string? = nil
+    local aotManifest: string? = nil
+    local aotWasmModules: {string} = {}
+    if not opts.checkOnly and aotPolicy.POLICIES[target.aot or "off"] and target.aot ~= nil and target.aot ~= "off" then
+        report:at("aot")
+        report:step(
+            (
+                target.aot == "require" or target.aot == "require-wasm"
+            ) and "compiling ahead-of-time code" or "emitting ahead-of-time code"
+        )
+
+        local produced, aotErr = aotPolicy.apply(
+            target.aot as string,
+            root,
+            outDir,
+            config.include or {},
+            (target.name or opts.target or "default") as string,
+            (oldState.aot or {}) as {[string]: string},
+            oldState.aotLibrary,
+            session,
+            target.aotFeatures as string?,
+            target.aotTarget as string?,
+            target.aotCflags as {string}?
+        )
+        report:clear()
+        if produced == nil then
+            io.stderr:write("nupp: " .. tostring(aotErr) .. "\n")
+
+            return 1
+        end
+        -- Recorded like any other output, so `nupp clean` removes it and a
+        -- rebuild knows it is there.
+        local keys: {[string]: string} = {}
+        for _, one in ipairs((produced as any).emitted as {any}) do
+            newState.outputs[one.output] = true
+            keys[one.cacheKey] = one.key
+            if one.object ~= nil then
+                newState.outputs[one.object] = true
+            end
+        end
+        newState.aot = keys
+        if (produced as any).manifest ~= nil then
+            newState.outputs[(produced as any).manifest] = true
+            aotManifest = (produced as any).manifest as string
+        end
+        if (produced as any).library ~= nil then
+            newState.outputs[(produced as any).library] = true
+            newState.aotLibrary = (produced as any).libraryKey
+            aotLibrary = (produced as any).library as string?
+        end
+        for _, output in ipairs((produced as any).wasmModules or {}) do
+            newState.outputs[output] = true
+            if output:match("%.wasm$") then
+                aotWasmModules[#aotWasmModules + 1] = output
+            end
+        end
+        if (produced as any).libraryKey ~= nil then
+            newState.aotLibrary = (produced as any).libraryKey
+        end
+        aotOverlays = (produced as any).dispatch as {[string]: string}?
+        aotAuthoredUnused = (produced as any).authoredUnused as {[string]: {any}}?
+    end
+    local result, buildErr = buildModules(
+        root,
+        outDir,
+        config,
+        target,
+        oldState,
+        newState,
+        opts.checkOnly,
+        strict,
+        opts.stats,
+        opts.diagnostics,
+        checkState,
+        opts.paths and {paths = opts.paths, unchecked = opts.unchecked or {},} or nil,
+        report,
+        aotOverlays,
+        aotAuthoredUnused,
+        session
+    )
+    -- Everything from here writes to the same stream the step line is on, so it comes
+    -- off the screen once rather than before each of a dozen messages.
+    report:clear()
+    if not result then
+        if buildErr ~= "project has errors" and buildErr ~= "code generation failed" then
+            io.stderr:write("nupp: " .. tostring(buildErr) .. "\n")
+        end
+        return 1
+    end
+    if opts.checkOnly then
+        if opts.produced then
+            opts.produced.target = target.name or opts.target or "default"
+            opts.produced.dialect = dialect
+            opts.produced.platform = selectedPlatform
+            opts.produced.outputs = cache.jsonArray({})
+            opts.produced.timing = report:timing()
+        end
+        return 0
+    end
+    for output in pairs(result.outputs) do
+        newState.outputs[output] = true
+    end
+
+    local detectedEffects = native.dependencyEffects(root, config, target, result.effects)
+    -- Whether this target reached worker tasks at all, read before a seam can remove
+    -- the feature it replaces. A lane runs the same payload with the workers runtime
+    -- named as its entry, and that dispatch is what the payload needs whichever
+    -- implementation supplies the lanes.
+    local reachedWorkers = detectedEffects["native.workers"] == true
+    -- What a lane has to install before it can reach the workers runtime under its
+    -- public name: exactly the backend installation the entry module would have run.
+    -- Empty wherever no seam is selected, so a native worker bundle is unchanged.
+    local workerBootstrap = reachedWorkers and backends.bootstrap(detectedEffects, result.backends) or nil
+    -- A selected seam replaces the standard feature before its native dependency
+    -- closure is expanded. Otherwise a complete HTTP provider still inherits the
+    -- native implementation's byte-I/O dependency even though none of that
+    -- implementation is packaged.
+    backends.withoutNative(detectedEffects, result.backends)
+    local resolvedEffects = native.resolve(detectedEffects, target.nativeFeatures)
+    backends.withoutNative(resolvedEffects, result.backends)
+    if resolvedEffects["native.workers"] and (target.kind ~= "binary" or target.stub ~= "nupp") then
+        io.stderr:write(
+            "nupp: workers currently require a binary target with stub = \"nupp\"; "
+            .. "the compiler-owned host supplies the isolated Lua states and early machine-code arena\n"
+        )
+        return 1
+    end
+    if target.kind == "bundle" then
+        local unresolved = {}
+        for effect in pairs(resolvedEffects) do
+            local feature = nativeFeatures.feature(effect)
+            if feature == nil or feature.binary then
+                unresolved[#unresolved + 1] = effect
+            end
+        end
+        table.sort(unresolved)
+        if #unresolved > 0 then
+            io.stderr:write(
+                "nupp: a one-file bundle cannot carry native features; "
+                .. "build modules or use a binary target with its lib directory ("
+                .. table.concat(
+                    unresolved,
+                    ", "
+                ) .. ")\n"
+            )
+            return 1
+        end
+    end
+    report:at("native")
+    report:step("building native providers")
+    local nativeOutputs, nativeErr = native.build(root, outDir, resolvedEffects, selectedPlatform, result.outputs)
+    report:clear()
+    if not nativeOutputs then
+        io.stderr:write("nupp: " .. tostring(nativeErr) .. "\n")
+        return 1
+    end
+    for output in pairs(nativeOutputs) do
+        newState.outputs[output] = true
+    end
+    -- A bundle is a modules build and then one more file: everything it just compiled,
+    -- folded into a chunk that runs with nothing beside it.
+    local primaryArtifact: string? = nil
+    local packagedAotManifest: string? = nil
+    if target.kind == "bundle" or target.kind == "binary" or target.kind == "component" then
+        report:at("bundle")
+        report:step("bundling " .. (target.name or target.kind))
+        local runtimeModules = {}
+        local requiredHostFeatures = {}
+        for _, feature in ipairs(nativeFeatures.features(resolvedEffects)) do
+            if feature.runtimeModule then
+                runtimeModules[#runtimeModules + 1] = feature.runtimeModule
+            end
+            if feature.host then
+                requiredHostFeatures[#requiredHostFeatures + 1] = feature.host
+            end
+        end
+        table.sort(runtimeModules)
+        table.sort(requiredHostFeatures)
+        local text, bundleErr, unreachable = bundleText(
+            root,
+            config,
+            target,
+            nil,
+            newState.modules,
+            reachedWorkers or resolvedEffects["native.workers"] == true,
+            workerBootstrap,
+            runtimeModules,
+            (
+                (target.kind == "binary" and target.stub == "nupp") or target.kind == "component"
+            ) and requiredHostFeatures or nil,
+            target.kind == "component"
+        )
+        if not text then
+            io.stderr:write("nupp: " .. tostring(bundleErr) .. "\n")
+            return 1
+        end
+        if unreachable and #unreachable > 0 then
+            io.stderr:write(
+                (
+                    "nupp: %d resource%s could not be bundled, "
+                    .. "starting at %s: a bundle can only carry what sits under "
+                    .. "the entry module's directory\n"
+                ):format(#unreachable, #unreachable == 1 and "" or "s", unreachable[1])
+            )
+        end
+        local name = target.name or opts.target or (target.platforms and "default") or target.kind
+        local output
+        if target.kind == "binary" then
+            output = binaryOutput(root, target, name, outDir, selectedPlatform)
+            if target.payloadOutput ~= nil then
+                local payloadOutput = join(root, target.payloadOutput as string)
+                if normalize(payloadOutput) == normalize(output) then
+                    io.stderr:write("nupp: binary payloadOutput must differ from its executable output\n")
+                    return 1
+                end
+                local written, writeErr = writeFile(payloadOutput, text)
+                if not written then
+                    io.stderr:write("nupp: " .. tostring(writeErr) .. "\n")
+                    return 1
+                end
+                newState.outputs[payloadOutput] = true
+            end
+            local stubPath, hostErr = native.hostStub(root, outDir, target, resolvedEffects)
+            if not stubPath then
+                io.stderr:write("nupp: " .. tostring(hostErr) .. "\n")
+                return 1
+            end
+            local resolvedStub = stubPath == target.stub and join(root, stubPath) or stubPath
+            local stub, stubErr = readFile(resolvedStub)
+            if not stub then
+                io.stderr:write(("nupp: cannot read the stub %s: %s\n"):format(resolvedStub, tostring(stubErr)))
+                return 1
+            end
+            local payload, payloadFlags, payloadErr = payloadBytes(text, selectedPlatform)
+            if not payload then
+                io.stderr:write("nupp: " .. tostring(payloadErr) .. "\n")
+                return 1
+            end
+            local stamped, stampErr, archive = stampFile(output, stub, payload, selectedPlatform, payloadFlags)
+            if not stamped then
+                io.stderr:write("nupp: " .. tostring(stampErr) .. "\n")
+                return 1
+            end
+            if archive then
+                newState.outputs[archive] = true
+            end
+        else
+            output = target.kind == "component" and componentOutput(
+                root,
+                target,
+                name
+            ) or bundleOutput(root, target, name)
+            local written, writeErr = writeFile(output, text)
+            if not written then
+                io.stderr:write("nupp: " .. tostring(writeErr) .. "\n")
+                return 1
+            end
+        end
+        primaryArtifact = output
+        newState.outputs[output] = true
+        -- A single-artifact target is something someone carries somewhere, and
+        -- the compiled code has to go with it. The wrapper looks for the library
+        -- beside the module that calls it, and for these kinds that module is
+        -- the artifact, so the copy goes beside the artifact rather than staying
+        -- in the build directory the artifact was assembled in.
+        if aotLibrary ~= nil then
+            local beside = join(dirname(output), "lib/" .. basename(aotLibrary as string))
+            local copied, copyErr = copyFile(aotLibrary as string, beside)
+            if not copied then
+                io.stderr:write(
+                    ("nupp: cannot put the compiled library beside %s: %s\n"):format(output, tostring(copyErr))
+                )
+
+                return 1
+            end
+            newState.outputs[beside] = true
+        end
+        -- A Lua-in-Wasm artifact keeps its side modules and loader manifest
+        -- beside the bundle under the same relative paths the manifest names.
+        -- The Wasm filenames carry their content digests, so the VM, Lua bundle,
+        -- and kernels remain independently cacheable.
+        if #aotWasmModules > 0 and aotManifest ~= nil then
+            local builtRoot = normalize(join(outDir, "aot")) .. "/"
+            local packagedRoot = join(dirname(output), "aot")
+            for _, source in ipairs(aotWasmModules) do
+                local normalizedSource = normalize(source)
+                if normalizedSource:sub(1, #builtRoot) ~= builtRoot then
+                    io.stderr:write("nupp: Wasm AOT output escaped its build directory: " .. source .. "\n")
+                    return 1
+                end
+                local beside = join(packagedRoot, normalizedSource:sub(#builtRoot + 1))
+                if normalize(beside) ~= normalizedSource then
+                    local copied, copyErr = copyFile(source, beside)
+                    if not copied then
+                        io.stderr:write(
+                            ("nupp: cannot put the Wasm AOT module beside %s: %s\n"):format(output, tostring(copyErr))
+                        )
+                        return 1
+                    end
+                end
+                newState.outputs[beside] = true
+            end
+            local packagedManifest = join(packagedRoot, "units.json")
+            if normalize(packagedManifest) ~= normalize(aotManifest as string) then
+                local copied, copyErr = copyFile(aotManifest as string, packagedManifest)
+                if not copied then
+                    io.stderr:write(
+                        ("nupp: cannot put the Wasm AOT manifest beside %s: %s\n"):format(output, tostring(copyErr))
+                    )
+                    return 1
+                end
+            end
+            newState.outputs[packagedManifest] = true
+            packagedAotManifest = packagedManifest
+        end
+        -- A dependency's library is the same case: its binding names it relative
+        -- to whatever loads that binding, and here that is the artifact. One
+        -- named for the platform loader instead carries no `@` and stays where
+        -- it is, since nothing is looking for it beside anything.
+        for _, dep in pairs(dependencies) do
+            local relative = dep.reference ~= nil and (dep.reference as string):match("^@(.+)$") or nil
+            if relative ~= nil and dep.output ~= nil then
+                local beside = join(dirname(output), relative as string)
+                local copied, copyErr = copyFile(dep.output as string, beside)
+                if not copied then
+                    io.stderr:write(
+                        ("nupp: cannot put the compiled library beside %s: %s\n"):format(output, tostring(copyErr))
+                    )
+
+                    return 1
+                end
+                newState.outputs[beside] = true
+            end
+        end
+        report:clear()
+    end
+    for _, dep in pairs(dependencies) do
+        if dep.output then
+            newState.outputs[dep.output] = true
+        end
+        if dep.binding then
+            newState.outputs[dep.binding] = true
+        end
+    end
+    -- Only what this target produced last time and does not produce now. The old rule
+    -- was every output the directory had ever held, which meant a bundle build deleted
+    -- the binary stamped from it and a binary build deleted the bundle, quietly, since
+    -- removing a file nobody asked about looks exactly like tidying up.
+    local mine = {}
+    for output in pairs(newState.outputs) do
+        mine[#mine + 1] = output
+    end
+    table.sort(mine)
+    for _, output in ipairs(oldState.targets[targetKey] or {}) do
+        if not newState.outputs[output] then
+            os.remove(output)
+        end
+    end
+    newState.targets[targetKey] = mine
+    -- What the build produced, for a caller that has to report it rather than leave it
+    -- on disk to be discovered. Same shape of favour as opts.diagnostics.
+    if opts.produced then
+        opts.produced.target = target.name or opts.target or "default"
+        opts.produced.dialect = dialect
+        opts.produced.platform = selectedPlatform
+        opts.produced.artifact = primaryArtifact
+        opts.produced.aotManifest = packagedAotManifest
+        if selectedPlatform == "aarch64-apple-darwin" then
+            opts.produced.distributionReady = false
+            opts.produced.notice = "the macOS binary must be signed on macOS and has not passed notarization"
+        end
+        opts.produced.outputs = mine
+        opts.produced.materializations = materializeObserve.public(result.materializations)
+        opts.produced.derives = result.derives
+        opts.produced.backends = result.backends and result.backends.modules or cache.jsonArray({})
+        opts.produced.backendResolution = require("nupp.compiler.backends").reached(result.effects, result.backends)
+    end
+    report:at("write")
+    local ok, stateErr = saveState(statePath, newState)
+    if not ok then
+        io.stderr:write("nupp: " .. tostring(stateErr) .. "\n");
+        return 1
+    end
+    local completed, completionErr = writeFile(completionPath, newState.compilerHash .. "\n")
+    if not completed then
+        io.stderr:write("nupp: " .. tostring(completionErr) .. "\n")
+        return 1
+    end
+    report:finish("built", targetKey)
+    -- Timing is published whether or not anything was printed, because a caller
+    -- reporting the build as a document reads it here rather than off the terminal.
+    if opts.produced then
+        opts.produced.timing = report:timing()
+    end
+
+    return 0
+end
+
+--- Builds one selected platform or every configured platform. The per-platform loop
+--- lives above `buildOne` so each result commits its own state and a later failure does
+--- not invalidate an earlier output.
+function project.build(root: string?, opts: project.BuildOptions?): integer
+    root, opts = root or ".", (opts or {}) as project.BuildOptions
+    if opts.platform ~= "all" then
+        return buildOne(root, opts)
+    end
+    local config, loadErr = project.loadManifest(root)
+    if not config then
+        io.stderr:write(tostring(loadErr) .. "\n")
+        return 1
+    end
+    local target, targetErr = targetConfig(config, opts.target)
+    if not target then
+        io.stderr:write("nupp: " .. tostring(targetErr) .. "\n")
+        return 1
+    end
+    if not target.platforms then
+        io.stderr:write("nupp: --platform all requires a binary target with a platforms list\n")
+        return 1
+    end
+    local aggregate = opts.produced
+    if aggregate then
+        aggregate.target = target.name or opts.target or "default"
+        aggregate.dialect = nil
+        aggregate.outputs = cache.jsonArray({})
+        aggregate.platforms = cache.jsonArray({})
+        aggregate.backends = cache.jsonArray({})
+    end
+    local failed = false
+    for _, selected in ipairs(target.platforms) do
+        local childOptions: any = {}
+        for key, value in pairs(opts) do
+            if key ~= "produced" then
+                childOptions[key] = value
+            end
+        end
+        childOptions.platform = selected
+        local produced: any = aggregate and {} or nil
+        childOptions.produced = produced
+        local code = buildOne(root, childOptions)
+        failed = failed or code ~= 0
+        if aggregate then
+            aggregate.dialect = produced.dialect or aggregate.dialect
+            aggregate.backends = produced.backends or aggregate.backends
+            local entry = {
+                platform = selected,
+                status = code == 0 and "built" or "failed",
+                outputs = cache.jsonArray(produced.outputs or {}),
+                error = code == 0 and nil or "platform build failed; see diagnostics or standard error",
+                distributionReady = produced.distributionReady,
+                notice = produced.notice,
+            }
+            aggregate.platforms[#aggregate.platforms + 1] = entry
+            for _, output in ipairs(produced.outputs or {}) do
+                aggregate.outputs[#aggregate.outputs + 1] = output
+            end
+        end
+    end
+    if aggregate then
+        table.sort(aggregate.outputs)
+    end
+
+    return failed and 1 or 0
+end
+
+function project.check(root: string?, opts: project.BuildOptions?): integer
+    opts = (opts or {}) as project.BuildOptions;
+    opts.checkOnly = true
+    return project.build(root, opts)
+end
+
+function project.test(root: string?, args: {string}?, opts: project.TestOptions?): integer
+    root = root or "."
+    local asked: project.TestOptions = opts or {}
+    local config, err = project.loadManifest(root)
+    if not config then
+        io.stderr:write(tostring(err) .. "\n");
+        return 1
+    end
+    -- The manifest has been validated, so a `test` that is there is a table; the guard
+    -- below is still what decides whether there is one at all.
+    local test = config.test as manifest.Test
+    if type(test) ~= "table" or type(test.argv) ~= "table" then
+        io.stderr:write("nupp: test.argv is not configured\n");
+        return 1
+    end
+    if project.build(root, {target = test.build, outDir = asked.outDir, coverage = asked.coverage}) ~= 0 then
+        return 1
+    end
+    local argv = {}
+    for _, item in ipairs(test.argv) do
+        argv[#argv + 1] = item
+    end
+    for _, item in ipairs(args or {}) do
+        argv[#argv + 1] = item
+    end
+    local env: {[string]: string} = {}
+    for key, value in pairs(test.env or {}) do
+        env[key] = value
+    end
+    for key, value in pairs(asked.env or {}) do
+        env[key] = value
+    end
+    -- The rocks the tested target depends on were installed into a tree that belongs to
+    -- the project, and the test command is a fresh interpreter that has never heard of
+    -- it. A trailing empty entry is where Lua substitutes its own path, so the tree is
+    -- added to what a test can load rather than put in place of it.
+    local rocks = deps.rockPaths(root, config, (targetConfig(config, test.build)))
+    if rocks then
+        -- Keep the caller's coverage protocol values while adding the project rock
+        -- paths the fresh test process needs.
+        env.LUA_PATH = rocks.path .. ";" .. (env.LUA_PATH or os.getenv("LUA_PATH") or "")
+        env.LUA_CPATH = rocks.cpath .. ";" .. (env.LUA_CPATH or os.getenv("LUA_CPATH") or "")
+    end
+
+    return process.run(argv, {cwd = root, env = env})
+end
+
+--- Runs `tasks.<name>` from the manifest: builds `tasks.<name>.build` first if it names
+--- one, then execs `tasks.<name>.argv` with `args` appended. Unlike `test`, which
+--- always builds (there is exactly one test command and it is nothing without the code
+--- under test), a custom task only builds when it says to, and most won't name a build
+--- target at all.
+function project.runTask(root: string?, name: string, args: {string}?): integer
+    root = root or "."
+    local config, err = project.loadManifest(root)
+    if not config then
+        io.stderr:write(tostring(err) .. "\n");
+        return 1
+    end
+    local tasks = config.tasks or {}
+    -- The guard below is what decides whether there is a task at all; the cast only
+    -- says that indexing a map of them yields one.
+    local task = tasks[name] as manifest.Task
+    if type(task) ~= "table" or type(task.argv) ~= "table" then
+        io.stderr:write("nupp: no task named " .. tostring(name) .. "; see `nupp tasks`\n")
+        return 1
+    end
+    if task.build then
+        if project.build(root, {target = task.build}) ~= 0 then
+            return 1
+        end
+    end
+    local argv = {}
+    for _, item in ipairs(task.argv or {}) do
+        argv[#argv + 1] = item
+    end
+    for _, item in ipairs(args or {}) do
+        argv[#argv + 1] = item
+    end
+    local env = task.env
+    if task.build then
+        -- Same reasoning as test's rock path: the built target's rocks live in this
+        -- project's own tree, and a task that names a build target likely wants to run
+        -- something that can see it.
+        local rocks = deps.rockPaths(root, config, (targetConfig(config, task.build)))
+        if rocks then
+            env = {}
+            for key, value in pairs(task.env or {}) do
+                env[key] = value
+            end
+            env.LUA_PATH = rocks.path .. ";" .. (env.LUA_PATH or os.getenv("LUA_PATH") or "")
+            env.LUA_CPATH = rocks.cpath .. ";" .. (env.LUA_CPATH or os.getenv("LUA_CPATH") or "")
+        end
+    end
+
+    return process.run(argv, {cwd = root, env = env})
+end
+
+-- What the compiler produced, which is what a fixpoint is a claim about.
+--
+-- A native provider is excluded because it is not the compiler's output: Cargo
+-- built it, into a target directory named after the stage, and a shared library
+-- records the path it was built in. Two stages therefore hold two different
+-- files that say the same thing, and comparing them would test Cargo's
+-- reproducibility rather than the compiler's. The generated Lua beside them is
+-- still compared byte for byte.
+local function treeDigest(path)
+    local files, parts = listFiles(path), {}
+    for _, file in ipairs(files) do
+        local relative = file:sub(#normalize(path) + 2)
+        local native = relative:match("^native/") or relative:match("^lib/")
+        -- `cache/` holds what a run worked out rather than what it produced. Its
+        -- entries are keyed by their inputs and stamped with the compiler that computed
+        -- them, so two stages that wrote the same program still write different bytes
+        -- there -- the second was written by the first, which is the whole point of the
+        -- exercise.
+        --
+        -- `.bytecode/` is the same kind of thing one step further along: the modules
+        -- this stage wrote, compiled, and named by where this stage put them. Two
+        -- stages that produced identical Lua still disagree there, because they are
+        -- two directories.
+        local derived = relative:match("^cache/") or relative:match("^%.bytecode/")
+        if relative ~= ".nupp-state.json" and relative ~= ".nupp-complete" and not native and not derived then
+            parts[#parts + 1] = relative .. "\0" .. (hashFile(file) or "")
+        end
+    end
+
+    return hash.digest(table.concat(parts, "\0")), files
+end
+
+local function removeTree(path)
+    if os.remove(path) then
+        return 0
+    end
+    if package.config:sub(1, 1) == "\\" then
+        return process.run({"cmd", "/d", "/c", "if", "exist", path, "rmdir", "/s", "/q", path})
+    end
+
+    return process.run({"rm", "-rf", path})
+end
+
+local function safeCleanPath(path)
+    path = normalize(path or "")
+    if path == "" or path == "." or path:sub(
+        1,
+        1
+    ) == "/" or path:match(
+        "^%a:"
+    ) or path:find("%z") or path == ".." or path:match("^%.%./") or path:match("/%.%./") or path:match("/%.%.$") then
+        return nil, "unsafe build output path " .. tostring(path)
+    end
+
+    return path
+end
+
+function project.clean(root: string?, opts: project.CleanOptions?): integer
+    root, opts = root or ".", (opts or {}) as project.CleanOptions
+    if opts.target then
+        local config, loadErr = project.loadManifest(root)
+        if not config then
+            io.stderr:write(tostring(loadErr) .. "\n")
+            return 1
+        end
+        local target, targetErr = targetConfig(config, opts.target)
+        if not target then
+            io.stderr:write("nupp: " .. tostring(targetErr) .. "\n")
+            return 1
+        end
+        if target.platforms then
+            local selected = {}
+            if opts.platform == nil or opts.platform == "all" then
+                for _, name in ipairs(target.platforms) do
+                    selected[#selected + 1] = name
+                end
+            else
+                for _, name in ipairs(target.platforms) do
+                    if name == opts.platform then
+                        selected[1] = name
+                    end
+                end
+                if #selected == 0 then
+                    io.stderr:write(
+                        "nupp: platform "
+                        .. opts.platform
+                        .. " is not configured on binary target "
+                        .. opts.target
+                        .. "\n"
+                    )
+                    return 1
+                end
+            end
+            local outDir = normalize(target.outDir or "build")
+            local candidates = {}
+            for _, selectedPlatform in ipairs(selected) do
+                local raw = binaryOutput(".", target, target.name or opts.target, outDir, selectedPlatform)
+                candidates[#candidates + 1] = raw
+                if require("nupp.compiler.build.platform").isPosix(selectedPlatform) then
+                    candidates[#candidates + 1] = raw .. ".tar"
+                end
+            end
+            local collected = opts.removed
+            for _, candidate in ipairs(candidates) do
+                local safe, safeErr = safeCleanPath(candidate)
+                if not safe then
+                    io.stderr:write("nupp: refusing to clean " .. safeErr .. "\n")
+                    return 1
+                end
+                if not opts.dryRun and removeTree(join(root, safe)) ~= 0 then
+                    io.stderr:write("nupp: cannot remove build output " .. safe .. "\n")
+                    return 1
+                end
+                if collected then
+                    collected[#collected + 1] = safe
+                elseif opts.dryRun then
+                    io.write("would remove " .. safe .. "\n")
+                else
+                    io.write("removed " .. safe .. "\n")
+                end
+            end
+            if not opts.dryRun then
+                local statePath = join(root, join(outDir, ".nupp-state.json"))
+                if readFile(statePath) then
+                    local state = loadState(statePath)
+                    for _, selectedPlatform in ipairs(selected) do
+                        state.targets[(target.name or opts.target) .. "@" .. selectedPlatform] = nil
+                    end
+                    local saved, saveErr = saveState(statePath, state)
+                    if not saved then
+                        io.stderr:write("nupp: " .. tostring(saveErr) .. "\n")
+                        return 1
+                    end
+                end
+            end
+            return 0
+        elseif opts.platform then
+            io.stderr:write("nupp: --platform requires a binary target with a platforms list\n")
+            return 1
+        end
+    end
+    local described, err = project.describeTasks(root, opts.target, {buildOnly = true})
+    if not described then
+        io.stderr:write(tostring(err) .. "\n");
+        return 1
+    end
+    local tasks = opts.target and {described} or described.tasks
+    local candidates = {}
+    for _, task in ipairs(tasks) do
+        local path, pathErr = safeCleanPath(task.outDir)
+        if not path then
+            io.stderr:write("nupp: refusing to clean " .. pathErr .. "\n")
+            return 1
+        end
+        candidates[path] = true
+    end
+    local paths = {}
+    for path in pairs(candidates) do
+        paths[#paths + 1] = path
+    end
+    table.sort(paths)
+    local selected = {}
+    for _, path in ipairs(paths) do
+        local covered = false
+        for _, parent in ipairs(selected) do
+            if path == parent or path:sub(1, #parent + 1) == parent .. "/" then
+                covered = true
+                break
+            end
+        end
+        if not covered then
+            selected[#selected + 1] = path
+        end
+    end
+    -- A caller that collects is reporting the paths itself, so saying them here too
+    -- would put prose in front of whatever it is about to write.
+    local collected = opts.removed
+    for _, path in ipairs(selected) do
+        if not opts.dryRun and removeTree(join(root, path)) ~= 0 then
+            io.stderr:write("nupp: cannot remove build output " .. path .. "\n")
+            return 1
+        end
+        if collected then
+            collected[#collected + 1] = path
+        elseif opts.dryRun then
+            io.write("would remove " .. path .. "\n")
+        else
+            io.write("removed " .. path .. "\n")
+        end
+    end
+
+    return 0
+end
+
+-- `native/` is excluded for the reason `treeDigest` gives -- it is Cargo's target
+-- directory rather than the compiler's output -- and for a second one. A copy here goes
+-- through `writeFile`, which creates a file the way any other written file is created,
+-- and a Cargo target directory holds executables: the build script Cargo compiles for
+-- each crate that has one. Copying those over the destination's own left them readable
+-- and not executable, and every native build in that tree afterwards failed with
+-- "could not execute process ... Permission denied" until the directory was deleted by
+-- hand. So a `fixpoint` broke the next `build`, which is a fine way to lose an
+-- afternoon. The destination keeps the Cargo cache it already had, which is the one
+-- that matches where it is.
+local function copyTree(source, destination)
+    for _, path in ipairs(listFiles(source)) do
+        local relative = path:sub(#normalize(source) + 2)
+        if relative ~= ".nupp-state.json" and relative ~= ".nupp-complete" and not relative:match("^native/") then
+            local ok, err = copyFile(path, join(destination, relative))
+            if not ok then
+                return nil, err
+            end
+        end
+    end
+
+    return true
+end
+
+local function bootstrapText(root: string, config: manifest.Config): string?, string?
+    local targetName = config.selfHost and (config.selfHost.bootstrapTarget or config.selfHost.target) or nil
+    local target, targetErr = targetConfig(config, targetName)
+    if not target then
+        return nil, targetErr
+    end
+    -- What the build recorded, so the bundle carries the modules it compiled rather
+    -- than everything that has since appeared beside them.
+    local outDir = target.outDir or "build"
+    local state = loadState(join(root, join(outDir, ".nupp-state.json")))
+    local text, bundleErr = bundleText(
+        root,
+        config,
+        target,
+        "-- Generated stage-0 compiler. Update with: nupp fixpoint --update-bootstrap\n",
+        state and state.modules or nil
+    )
+
+    return text, bundleErr
+end
+
+function project.updateBootstrap(root: string?): boolean?, string?
+    root = root or "."
+    local config, err = project.loadManifest(root)
+    if not config then
+        return nil, err
+    end
+    local bootstrapPath = join(root, config.selfHost and config.selfHost.bootstrap or "bootstrap/nupp.lua")
+    local text, bundleErr = bootstrapText(root, config)
+    if not text then
+        return nil, bundleErr
+    end
+    local ok, writeErr = writeFile(bootstrapPath, text)
+    if not ok then
+        return nil, writeErr
+    end
+
+    return true
+end
+
+--- Verifies that a stamped binary stamps out a binary identical to itself.
+---
+--- The compiler proves it can compile itself on every change; this is the same claim
+--- one level up, and it is what makes the emitter trustworthy rather than plausible. It
+--- fails if the payload is not deterministic, if the trailer does not round-trip, or if
+--- the emitter's idea of where a payload starts disagrees with the stub's, and it is
+--- the gate before anybody outside this project builds a stub against the format,
+--- because after that the format cannot move.
+---
+--- Stage one is stamped by whatever compiler is running now. Stage two is stamped by
+--- stage one, from the same sources, which is the part that would catch a payload that
+--- quietly depends on the machine that wrote it.
+function project.binaryFixpoint(root: string?, opts: project.FixpointOptions?): integer
+    root = root or "."
+    local config, err = project.loadManifest(root)
+    if not config then
+        io.stderr:write(tostring(err) .. "\n");
+        return 1
+    end
+    local targetName = config.selfHost and config.selfHost.binary or nil
+    if not targetName then
+        io.stderr:write("nupp: selfHost.binary names no target to stamp\n")
+        return 1
+    end
+    local target, targetErr = targetConfig(config, targetName)
+    if not target then
+        io.stderr:write("nupp: " .. tostring(targetErr) .. "\n")
+        return 1
+    end
+    if target.kind ~= "binary" then
+        io.stderr:write(
+            ("nupp: selfHost.binary names %s, which is a %s target\n"):format(targetName, target.kind or "modules")
+        )
+        return 1
+    end
+
+    if project.build(root, {target = targetName}) ~= 0 then
+        return 1
+    end
+    local outDir = target.outDir or "build"
+    local produced = join(root, target.output or join(outDir, targetName))
+    local first, readErr = readFile(produced)
+    if not first then
+        io.stderr:write("nupp: " .. tostring(readErr) .. "\n")
+        return 1
+    end
+
+    -- Kept beside the output rather than replacing it, so stage two writes where stage
+    -- one did and the comparison is of two files that were made the same way rather
+    -- than of one file and a memory of another.
+    local stage1 = produced .. ".stage1"
+    local copied, copyErr = writeFile(stage1, first)
+    if not copied then
+        io.stderr:write("nupp: " .. tostring(copyErr) .. "\n")
+        return 1
+    end
+    process.capture({"chmod", "+x", stage1})
+
+    if process.run({stage1, "build", "--target", targetName}, {cwd = root}) ~= 0 then
+        io.stderr:write("nupp: the stamped binary could not stamp one\n")
+        return 1
+    end
+    local second, secondErr = readFile(produced)
+    if not second then
+        io.stderr:write("nupp: " .. tostring(secondErr) .. "\n")
+        return 1
+    end
+
+    if first ~= second then
+        io.stderr:write(
+            (
+                "nupp: packaging fixpoint mismatch: %d bytes then %d; " .. "%s kept for inspection\n"
+            ):format(#first, #second, stage1)
+        )
+        if opts and opts.result then
+            opts.result.reason = "the stamped binary stamped a different one"
+        end
+        return 1
+    end
+    os.remove(stage1)
+    if opts and opts.result then
+        opts.result.target, opts.result.bytes = targetName, #first
+    else
+        io.write(
+            (
+                "packaging fixpoint ok: %s stamps out a binary identical to " .. "itself (%d bytes)\n"
+            ):format(targetName, #first)
+        )
+    end
+
+    return 0
+end
+
+function project.fixpoint(root: string?, opts: project.FixpointOptions?): integer
+    root, opts = root or ".", (opts or {}) as project.FixpointOptions
+    local config, err = project.loadManifest(root)
+    if not config then
+        io.stderr:write(tostring(err) .. "\n");
+        return 1
+    end
+    local targetName = config.selfHost and config.selfHost.target or nil
+    local stage1, stage2 = "_stage1", "_stage2"
+    removeTree(join(root, stage1));
+    removeTree(join(root, stage2))
+    if project.build(root, {target = targetName, outDir = stage1}) ~= 0 then
+        return 1
+    end
+    local target = assert(targetConfig(config, targetName))
+    local entry = (target.entries or {})[1] or "nupp.compiler.main"
+    local moduleName = entry:match("%.nupp$") and envMod.moduleNameForPath(
+        envMod.new(root, {
+            config = config
+        }),
+        join(root, entry)
+    ) or entry
+    moduleName = moduleName or "nupp.compiler.main"
+    local mainPath = join(root, join(stage1, moduleName:gsub("%.", "/") .. ".lua"))
+    local packagePath = join(root, stage1) .. "/?.lua;" .. package.path
+    local argv = {
+        "luajit",
+        "-e",
+        "package.path=" .. string.format("%q", packagePath) .. " .. package.path",
+        mainPath,
+        "build",
+        "--out-dir",
+        stage2
+    }
+    if targetName then
+        argv[#argv + 1] = "--target";
+        argv[#argv + 1] = targetName
+    end
+    if process.run(argv, {cwd = root}) ~= 0 then
+        return 1
+    end
+    local first = treeDigest(join(root, stage1))
+    local second = treeDigest(join(root, stage2))
+    if first ~= second then
+        io.stderr:write("nupp: self-hosting fixpoint mismatch; stages kept for inspection\n")
+        if opts.result then
+            opts.result.reason = "the two stages differ"
+        end
+        return 1
+    end
+    -- The tracked bootstrap is a compiler artifact too. Comparing only two
+    -- freshly-built stages lets it retain an old declaration surface or old
+    -- lowering passes indefinitely, until some unrelated change finally needs
+    -- a refresh. Build what stage zero should be on every fixpoint and either
+    -- update it explicitly or require the tracked bytes to agree.
+    local bootstrapTarget = config.selfHost and config.selfHost.bootstrapTarget or nil
+    if bootstrapTarget and project.build(root, {target = bootstrapTarget}) ~= 0 then
+        return 1
+    end
+    local generatedBootstrap, bootstrapErr = bootstrapText(root, config)
+    if not generatedBootstrap then
+        io.stderr:write("nupp: " .. tostring(bootstrapErr) .. "\n");
+        return 1
+    end
+    local bootstrapPath = join(root, config.selfHost and config.selfHost.bootstrap or "bootstrap/nupp.lua")
+    if not opts.updateBootstrap then
+        local trackedBootstrap = readFile(bootstrapPath)
+        if trackedBootstrap ~= generatedBootstrap then
+            io.stderr:write("nupp: tracked bootstrap is stale; run nupp fixpoint --update-bootstrap\n")
+            if opts.result then
+                opts.result.reason = "the tracked bootstrap is stale"
+            end
+            return 1
+        end
+    end
+    local destination = join(root, target.outDir or "build")
+    local copied, copyErr = copyTree(join(root, stage2), destination)
+    if not copied then
+        io.stderr:write("nupp: " .. copyErr .. "\n");
+        return 1
+    end
+    writeFile(join(destination, ".nupp-complete"), second .. "\n")
+    if opts.updateBootstrap then
+        local written, writeErr = writeFile(bootstrapPath, generatedBootstrap)
+        if not written then
+            io.stderr:write("nupp: " .. tostring(writeErr) .. "\n");
+            return 1
+        end
+    end
+    removeTree(join(root, stage1));
+    removeTree(join(root, stage2))
+    if opts.result then
+        opts.result.target = targetName
+        opts.result.updatedBootstrap = opts.updateBootstrap and true or false
+    else
+        io.write("fixpoint ok: compiler rebuilds itself byte-identically\n")
+    end
+
+    return 0
+end
+
+export = project

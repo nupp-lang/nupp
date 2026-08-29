@@ -1,0 +1,433 @@
+module nupp.runtime.hotreload
+
+--[[
+The development-only half of Nupp hot reload.
+
+Generated watch modules keep their public function values stable and dispatch
+through one array of implementation functions. A patch is loaded while `stage`
+owns the registry: `define` validates every candidate and joins its authored
+upvalues to the cells held by the live implementation. Nothing in a live slot
+changes until `commit` has a complete candidate vector.
+
+The state is process-wide so a host and generated modules may require this
+module through different loader paths without splitting the registry. Ordinary
+generated programs never require it.
+
+See [hot-reload.md](docs/guides/hot-reload.md) for what a watch build does with this, and
+[0006-hot-reload.md](docs/neps/0006-hot-reload.md) for why a patch is refused rather than applied
+partially.
+]]
+
+local hotreload = {}
+local debugAny: any = debug
+
+--- One function body a slot can hold.
+---
+--- Generated code writes these and generated code calls them, so no two slots need
+--- agree about what a call takes or answers. What this module does with one is join
+--- its upvalues and store it, neither of which reads a parameter.
+type hotreload.Implementation = function(...: any): any
+
+--- The implementation array a generated watch module dispatches through.
+---
+--- Naming it is what keeps the three functions that pass one around agreeing about
+--- what they are passing, and what lets `bySlots` be keyed by it.
+type hotreload.Slots = {hotreload.Implementation}
+
+--- Where a function's captured names sit in its own upvalue list.
+---
+--- `order` is sorted, so two implementations of the same function can be compared name
+--- by name without either side's upvalue numbering mattering.
+type hotreload.Captures = {
+    byName: {[string]: integer},
+    order: {string}
+}
+
+--- What a live slot is known by, beside the implementation filling it.
+---
+--- A candidate has to match all four before it may be joined: a changed identity,
+--- signature, recursive binding or capture set is a change the running process cannot
+--- take, and each is refused by name.
+type hotreload.Definition = {
+    id: string,
+    signature: string,
+    selfName: string?,
+    captures: hotreload.Captures
+}
+
+--- One slot a prepared patch will fill, and the implementation to fill it with.
+type hotreload.Candidate = {
+    --- The registration record the slot belongs to, which is private to this module.
+    module: any,
+
+    index: integer,
+    implementation: hotreload.Implementation
+}
+
+--- What `stage` accumulates while the patch chunk runs.
+---
+--- It is the registry `define` writes into: private to the staging call, discarded
+--- whether the chunk succeeds or raises, and turned into a transaction only once the
+--- whole chunk has run without one.
+type hotreload.Staging = {
+    baseGeneration: integer,
+    candidates: {hotreload.Candidate},
+
+    --- Module name and slot index, so one patch cannot fill a slot twice.
+    byKey: {[string]: hotreload.Candidate},
+
+    policies: {[any]: {[string]: boolean}}
+}
+
+--- A validated patch that has changed nothing yet.
+---
+--- Everything fallible has already happened by the time one of these exists, which is
+--- what lets `commit` publish the whole vector with no failure point in the middle.
+--- `serial` distinguishes two transactions prepared from the same generation.
+type hotreload.Transaction = {
+    baseGeneration: integer,
+    generation: integer,
+    serial: integer,
+    candidates: {hotreload.Candidate},
+
+    --- Dynamic-custody policies per registration record, keyed the way `candidates`
+    --- names them.
+    policies: {[any]: {[string]: boolean}},
+
+    committed: boolean
+}
+
+local STATE_KEY = "__nuppHotReloadState"
+local API_KEY = "__nuppHotReload"
+
+local state: any = _G[STATE_KEY]
+if not state then
+    state = {
+        generation = 1,
+        modules = {},
+        bySlots = setmetatable({}, {
+            __mode = "k"
+        }),
+        staging = nil,
+        preparedSerial = 0,
+    }
+    _G[STATE_KEY] = state
+end
+
+local function upvalues(fn: hotreload.Implementation, selfName: string?): hotreload.Captures
+    local byName, order = {}, {}
+    local index = 1
+    while true do
+        local name = debug.getupvalue(fn, index)
+        if not name then
+            break
+        end
+        if name ~= selfName then
+            if byName[name] then
+                error("nupp hot reload: duplicate upvalue " .. name, 3)
+            end
+            byName[name] = index
+            order[#order + 1] = name
+        end
+        index = index + 1
+    end
+    table.sort(order)
+
+    return {byName = byName, order = order}
+end
+
+local function sameNames(left: {string}, right: {string}): boolean
+    if #left ~= #right then
+        return false
+    end
+    for index = 1, #left do
+        if left[index] ~= right[index] then
+            return false
+        end
+    end
+
+    return true
+end
+
+-- A local function declaration closes over its own binding. Before generated
+-- code replaces that binding with the public trampoline, give the implementation
+-- a private cell containing itself. Old activations then retain self-recursion
+-- within their generation while calls to any other function use public slots.
+local function detachSelf(fn: hotreload.Implementation, selfName: string?): nil
+    if not selfName then
+        return
+    end
+    -- The search first, the cell after it. Building the anchor inside the search would
+    -- be building a function inside a loop, which LuaJIT cannot record; the cell itself
+    -- has to be a fresh closure, because it is the upvalue being joined to.
+    local found = nil
+    local index = 1
+    while true do
+        local name = debug.getupvalue(fn, index)
+        if not name then
+            break
+        end
+        if name == selfName then
+            found = index
+            break
+        end
+        index = index + 1
+    end
+    if not found then
+        return
+    end
+    local value = fn
+    local function anchor(): any
+        return value
+    end
+
+    debugAny.upvaluejoin(fn, found, anchor, 1)
+end
+
+local function moduleForSlots(slots: hotreload.Slots): any
+    local module = state.bySlots[slots]
+    if not module then
+        error("nupp hot reload: an implementation used an unknown slot array", 3)
+    end
+
+    return module
+end
+
+--- Answers the direct implementation array for one loaded watch module.
+---
+--- Outside staging, naming a module that has not executed registers it, because
+--- that is a module about to run its own initial chunk. Inside staging it is a
+--- patch naming something that was never loaded, which is refused.
+---
+--- @param name the watch module's name
+--- @return the slot array that module dispatches through
+--- @raises when a patch names a module that has not executed yet
+function hotreload.module(name: string): hotreload.Slots
+    local module = state.modules[name]
+    if module then
+        if state.staging and not module.loaded then
+            error("nupp hot reload: patch names unloaded module " .. name, 2)
+        end
+        return module.slots
+    end
+    if state.staging then
+        error("nupp hot reload: patch names unloaded module " .. name, 2)
+    end
+    module = {name = name, slots = {}, definitions = {}, policies = {}, loaded = false}
+    state.modules[name] = module
+    state.bySlots[module.slots] = module
+
+    return module.slots
+end
+
+--- Records one managed-cell cleanup policy a generated module uses.
+---
+--- During staging the candidate set stays private until every live managed cell
+--- admits the change, so a policy that still owns a payload cannot be changed out
+--- from under it.
+---
+--- @param slots the module's slot array
+--- @param key the stable policy key
+function hotreload.policy(slots: hotreload.Slots, key: string): nil
+    local module = moduleForSlots(slots)
+    local staging = state.staging
+    if not staging then
+        module.policies[key] = true
+        return
+    end
+    local policies = staging.policies[module] or {}
+    staging.policies[module] = policies
+    policies[key] = true
+end
+
+--- Marks a module's initial registration complete after its chunk returns.
+---
+--- @param name the watch module's name
+--- @raises when the module is unknown or has already been sealed
+function hotreload.seal(name: string): nil
+    local module = state.modules[name]
+    if not module or module.loaded then
+        error("nupp hot reload: cannot seal unknown or loaded module " .. name, 2)
+    end
+    module.loaded = true
+end
+
+--- Discards an incomplete registration after its initial chunk fails.
+---
+--- A module that already sealed is left alone, so this is safe to call from an
+--- error path that cannot tell how far the chunk got.
+---
+--- @param name the watch module's name
+function hotreload.abort(name: string): nil
+    local module = state.modules[name]
+    if not module or module.loaded then
+        return
+    end
+    state.bySlots[module.slots] = nil
+    state.modules[name] = nil
+end
+
+--- Registers an initial implementation, or one candidate in the active stage.
+---
+--- A candidate must match the live definition's identity, signature, recursive
+--- binding and capture set. Each of those is a change the running process cannot
+--- take, and each is refused by name.
+---
+--- @param slots the module's slot array
+--- @param index which slot this fills
+--- @param id the declaration identity the slot was registered under
+--- @param signature the declaration's signature
+--- @param selfName the recursive binding's name, when the function has one
+--- @param implementation the function body to install
+--- @raises when identity, signature, or captured lexical cells are incompatible
+function hotreload.define(
+    slots: hotreload.Slots,
+    index: integer,
+    id: string,
+    signature: string,
+    selfName: string?,
+    implementation: hotreload.Implementation
+): nil
+    local module = moduleForSlots(slots)
+    detachSelf(implementation, selfName)
+    local captures = upvalues(implementation, selfName)
+    local staging = state.staging
+    if not staging then
+        if module.definitions[index] then
+            error("nupp hot reload: slot " .. tostring(index) .. " was defined twice", 2)
+        end
+        module.definitions[index] = {id = id, signature = signature, selfName = selfName, captures = captures,}
+        slots[index] = implementation
+        return
+    end
+
+    local live = module.definitions[index]
+    if not live or live.id ~= id then
+        error("nupp hot reload: stable function identity changed for " .. id, 2)
+    end
+    if live.signature ~= signature then
+        error("nupp hot reload: signature changed for " .. id .. "; restart required", 2)
+    end
+    if live.selfName ~= selfName then
+        error("nupp hot reload: recursive binding changed for " .. id .. "; restart required", 2)
+    end
+    if not sameNames(live.captures.order, captures.order) then
+        error("nupp hot reload: captured bindings changed for " .. id .. "; restart required", 2)
+    end
+    for _, name in ipairs(captures.order) do
+        debugAny.upvaluejoin(implementation, captures.byName[name], slots[index], live.captures.byName[name])
+    end
+    local key = module.name .. "\0" .. tostring(index)
+    if staging.byKey[key] then
+        error("nupp hot reload: patch defines " .. id .. " twice", 2)
+    end
+    local candidate = {module = module, index = index, implementation = implementation}
+    staging.byKey[key] = candidate
+    staging.candidates[#staging.candidates + 1] = candidate
+end
+
+--- Loads and validates a patch without changing any live implementation.
+---
+--- Everything fallible happens here, so a transaction that comes back can be
+--- committed without a failure point in the middle of the vector.
+---
+--- @param source the patch chunk
+--- @param baseGeneration the generation the patch was built against
+--- @return the prepared transaction, or nil when it was rejected
+--- @return why it was rejected, when it was
+function hotreload.stage(source: string, baseGeneration: integer): hotreload.Transaction?, string?
+    if state.staging then
+        return nil, "another patch is already staging"
+    end
+    if baseGeneration ~= state.generation then
+        return nil, "stale generation"
+    end
+    local chunk, loadError = loadstring(source, "@nupp-hot-patch")
+    if not chunk then
+        return nil, tostring(loadError)
+    end
+    local staging: hotreload.Staging = {baseGeneration = baseGeneration, candidates = {}, byKey = {}, policies = {},}
+    state.staging = staging
+    local ok, reason = pcall(chunk)
+    state.staging = nil
+    if not ok then
+        return nil, tostring(reason)
+    end
+    local changedModules = {}
+    for _, candidate in ipairs(staging.candidates) do
+        changedModules[candidate.module] = true
+    end
+    local policyCount = _G.__nuppManagedPolicyCount
+    for module in pairs(changedModules) do
+        local candidatePolicies = staging.policies[module] or {}
+        for policy in pairs(module.policies or {}) do
+            if not candidatePolicies[policy] and policyCount and policyCount(policy) > 0 then
+                return nil, "live managed-cell policy changed; close or take its payload before reloading"
+            end
+        end
+    end
+    state.preparedSerial = state.preparedSerial + 1
+
+    return {
+        baseGeneration = baseGeneration,
+        generation = baseGeneration + 1,
+        serial = state.preparedSerial as integer,
+        candidates = staging.candidates,
+        policies = staging.policies,
+        committed = false,
+    }
+end
+
+--- Atomically publishes a prepared candidate vector.
+---
+--- Lua cannot run authored code between the direct array writes below, so no
+--- dispatch can observe half a patch.
+---
+--- @param prepared what `stage` answered
+--- @return the committed generation, or nil when this transaction is stale
+--- @return why it is stale, when it is
+function hotreload.commit(prepared: hotreload.Transaction): integer?, string?
+    if type(prepared) ~= "table" or prepared.committed then
+        return nil, "patch was already committed or is invalid"
+    end
+    if prepared.baseGeneration ~= state.generation then
+        return nil, "stale generation"
+    end
+    -- Everything fallible happened in stage. Lua cannot run authored code between
+    -- these direct array writes, so no dispatch can observe a partial vector.
+    for _, candidate in ipairs(prepared.candidates) do
+        candidate.module.slots[candidate.index] = candidate.implementation
+    end
+    for module, policies in pairs(prepared.policies or {}) do
+        module.policies = policies
+    end
+    prepared.committed = true
+    state.generation = prepared.generation
+    jit.flush()
+
+    return state.generation
+end
+
+--- Answers the currently published implementation generation.
+function hotreload.generation(): integer
+    return state.generation
+end
+
+--- Answers whether a module has completed its initial watch execution.
+function hotreload.loaded(name: string): boolean
+    local module = state.modules[name]
+    return module ~= nil and module.loaded == true
+end
+
+--- Clears process state. Intended for compiler/runtime tests only.
+function hotreload.resetForTesting(): nil
+    state.generation = 1
+    state.modules = {}
+    state.bySlots = setmetatable({}, {__mode = "k"})
+    state.staging = nil
+    state.preparedSerial = 0
+end
+
+_G[API_KEY] = hotreload
+
+export = hotreload

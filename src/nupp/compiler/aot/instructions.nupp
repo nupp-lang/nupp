@@ -1,0 +1,495 @@
+module nupp.compiler.aot.instructions
+
+--[[
+The instructions one generated translation unit became, by symbol.
+
+`nupp bc` reads the bytecode a file compiles to on the other backend, and the
+reason it exists is that a performance property nothing observes is a property an
+ordinary edit can quietly take away. The backend that does the arithmetic had no
+equivalent: what came out of the C compiler was reachable only by compiling the
+emitted C by hand and running a disassembler over it, which is four commands
+nobody types the same way twice and an answer nobody can compare with last
+week's.
+
+This is that answer. Assembly rather than a disassembly of a linked library,
+because the two say the same thing about a body and only one of them needs a
+second tool installed: `-S` stops the same compiler, given the same flags, one
+step before it encodes. What that costs is the linker's view -- a call through a
+stub is still spelled as a call here -- and what it buys is an answer with no
+addresses in it, which is what makes two runs diffable.
+
+The counts are the point rather than a decoration. A gate that says a contiguous
+load became one native load, or that an accumulator stayed in registers, is a
+gate about how many instructions of a kind a body has, and reading that off a
+listing by eye is how it stops being reproducible. `total` is exact: it is every
+instruction the assembler was given. The categories are a rule per architecture
+over the mnemonic and the operand shape, stated in `ARM` and `X86` below, and
+they are deliberately coarse -- what they have to support is comparison between
+two runs of the same kernel, not a model of the machine.
+]]
+
+local instructions = {}
+
+--- The architectures there are instruction rules for.
+---
+--- A listing for an architecture not named here would be a total with six zeroes
+--- beside it, which reads as a kernel that touches no memory rather than as a
+--- question nothing answered. So it is refused instead.
+const instructions.ARCHITECTURES = {"aarch64", "x86_64"}
+
+--- Every category an instruction can be counted in.
+const instructions.KINDS = {"vector", "load", "store", "branch", "call", "stack"}
+
+--- What a symbol can be, in the order a listing shows them.
+---
+--- The order is what the reader came for first. A compiled body is what the
+--- command was run about; the forced-scalar oracle beside it is what that body
+--- is diffed against; the Lua wrapper and the registrar are the boundary in
+--- front of them; a layout reporter is the load-time check the binding calls;
+--- and a helper is a symbol no compiled program claimed, which on this backend
+--- means an arithmetic helper the compiler declined to inline.
+const instructions.ROLES = {"kernel", "oracle", "wrapper", "registrar", "reporter", "helper"}
+
+--- What one symbol is, when a compiled program claims it.
+record instructions.Claim
+    --- The `@aot` function it belongs to.
+    name: string
+
+    --- Which of that function's bodies it is.
+    role: string
+end
+
+--- One instruction, as the assembler was given it.
+record instructions.Instruction
+    --- The label this is the first instruction under, when one precedes it.
+    ---
+    --- Loop structure is the reason: a back edge names a label, and a listing
+    --- that dropped them would show a branch to nowhere.
+    label: string?
+
+    --- The whole instruction, comment and indentation removed.
+    text: string
+
+    mnemonic: string
+
+    operands: string
+
+    --- Every category this instruction is in, in `KINDS` order. A vector load
+    --- is in two of them, which is why this is a list rather than a choice.
+    kinds: {string}
+end
+
+--- How many instructions of each kind one symbol has.
+record instructions.Counts
+    --- Every instruction, which is the one count that is not a rule.
+    total: integer
+
+    vector: integer
+    loads: integer
+    stores: integer
+    branches: integer
+    calls: integer
+
+    --- Instructions whose memory operand is the stack frame. A proxy for
+    --- spilling: a body that was meant to stay in registers and did not says so
+    --- here, and one that never touches the frame is one nothing spilled.
+    stack: integer
+end
+
+--- What one symbol compiled to.
+record instructions.Listing
+    --- The C name, which is the physical name a single-tier build links. A
+    --- multiversion build suffixes it with the tier; the tier is reported once
+    --- for the whole listing rather than repeated onto every symbol.
+    symbol: string
+
+    --- The `@aot` function this belongs to, when one claims it.
+    name: string?
+
+    --- Which of `ROLES` this symbol is. `helper` is the one nothing claimed.
+    role: string
+
+    instructions: {instructions.Instruction}
+
+    counts: instructions.Counts
+end
+
+--- Whether instructions can be read for an architecture at all.
+function instructions.reads(architecture: string): boolean
+    for _, named in ipairs(instructions.ARCHITECTURES) do
+        if named == architecture then
+            return true
+        end
+    end
+
+    return false
+end
+
+local function trim(text: string): string
+    return (text:gsub("^%s+", ""):gsub("%s+$", ""))
+end
+
+--- The line with its trailing comment removed.
+---
+--- The comment character is the architecture's rather than the object format's,
+--- because the two disagree in the same direction everywhere that matters:
+--- aarch64 spells an immediate `#4` and so cannot use `#`, and x86-64 has no use
+--- for `;` or `//`.
+local function uncomment(line: string, architecture: string): string
+    if architecture == "x86_64" then
+        return (line:gsub("#.*$", ""))
+    end
+
+    return (line:gsub(";.*$", ""):gsub("//.*$", ""))
+end
+
+--- Whether a label is the assembler's own rather than a symbol.
+---
+--- Mach-O private labels begin with `L` and ELF's with `.L`, and a leading dot
+--- has already been read as a directive by the time this is asked. Nothing this
+--- backend emits begins with either: a compiled program is `ks_`, a helper is
+--- `nupp_`, and a registrar is `luaopen_`.
+local function isLocalLabel(name: string): boolean
+    return name:sub(1, 1) == "L" or name:sub(1, 1) == "."
+end
+
+--- Splits an operand list at the commas that separate operands.
+---
+--- Not at every comma: an x86 memory operand spells a scaled index
+--- `(%rax,%rcx,4)`, and a split that took those for separators would count the
+--- base register as an operand of its own.
+local function operandList(operands: string): {string}
+    local parts: {string} = {}
+    local depth = 0
+    local current: {string} = {}
+    for index = 1, #operands do
+        local character = operands:sub(index, index)
+        if character == "(" then
+            depth = depth + 1
+            current[#current + 1] = character
+        elseif character == ")" then
+            depth = depth - 1
+            current[#current + 1] = character
+        elseif character == "," and depth == 0 then
+            parts[#parts + 1] = trim(table.concat(current))
+            current = {}
+        else
+            current[#current + 1] = character
+        end
+    end
+    local last = trim(table.concat(current))
+    if last ~= "" then
+        parts[#parts + 1] = last
+    end
+
+    return parts
+end
+
+--- The aarch64 rules.
+---
+--- Load and store are the mnemonic's first two letters, which on this
+--- architecture is exact rather than a heuristic: every access is spelled `ld`
+--- or `st` and nothing else is. A branch is named rather than matched by prefix
+--- so that `tbl`, which is a table lookup across vector registers, is not read
+--- as `tbz`. A vector operand is a `v` or `q` register or a lane shape; `s` and
+--- `d` registers are scalar floating point and are deliberately not counted,
+--- because a loop that fell back to one lane is exactly what a lane count is
+--- being read to detect.
+local function classifyArm(mnemonic: string, operands: string): {string}
+    local kinds: {string} = {}
+    local base = mnemonic:match("^[^%.]+") or mnemonic
+    local padded = " " .. operands
+    if mnemonic:find(
+        "%.%d+[bhsd]"
+    ) ~= nil or operands:find(
+        "%.%d+[bhsd]"
+    ) ~= nil or padded:find("[^%w_%.]v%d") ~= nil or padded:find("[^%w_%.]q%d") ~= nil then
+        kinds[#kinds + 1] = "vector"
+    end
+    if base:find("^ld") ~= nil then
+        kinds[#kinds + 1] = "load"
+    elseif base:find("^st") ~= nil then
+        kinds[#kinds + 1] = "store"
+    end
+    if base == "bl" or base == "blr" then
+        kinds[#kinds + 1] = "call"
+    elseif base == "b" or base == "br" or base:find("^cbn?z$") ~= nil or base:find("^tbn?z$") ~= nil then
+        kinds[#kinds + 1] = "branch"
+    end
+    if operands:find("%[sp", 1) ~= nil or operands:find("%[x29", 1) ~= nil then
+        kinds[#kinds + 1] = "stack"
+    end
+
+    return kinds
+end
+
+--- Whether one x86 operand names memory.
+---
+--- Every addressing mode the generated C produces goes through a register or
+--- `%rip`, so a parenthesised register is what memory looks like. An operand
+--- that is a bare immediate or register has no parenthesis at all.
+local function readsMemory(operand: string): boolean
+    return operand:find("%(%%") ~= nil
+end
+
+--- The x86-64 rules, over AT&T syntax.
+---
+--- Which side of the instruction the memory operand is on decides load from
+--- store, because AT&T puts the destination last. An instruction that reads and
+--- writes one address counts as a store, and `lea` computes an address without
+--- touching it, so it counts as neither. `push` and `pop` name no operand for
+--- the memory they move, and are counted for it anyway.
+---
+--- A vector register is not enough on its own to make an instruction vector
+--- here. Scalar floating point on x86-64 lives in the low lane of an SSE
+--- register, so counting every `%xmm` would report a loop that runs one element
+--- at a time as fully vectorised -- which is the one answer this must not give.
+--- The `ss` and `sd` suffixes are what the architecture calls those, and they
+--- are excluded by it -- except on a broadcast, which is spelled with the
+--- suffix of the scalar it reads and is the instruction that fills the lanes.
+local function classifyX86(mnemonic: string, operands: string): {string}
+    local kinds: {string} = {}
+    local parts = operandList(operands)
+    local packed = operands:find("%%[xyz]mm%d") ~= nil or operands:find("%%k%d") ~= nil
+    local scalar = mnemonic:find("s[sd]$") ~= nil and mnemonic:find("broadcast", 1, true) == nil
+    if packed and not scalar then
+        kinds[#kinds + 1] = "vector"
+    end
+    if mnemonic:find("^push") ~= nil then
+        kinds[#kinds + 1] = "store"
+    elseif mnemonic:find("^pop") ~= nil then
+        kinds[#kinds + 1] = "load"
+    elseif mnemonic:find("^lea") == nil then
+        local last = #parts > 0 and parts[#parts] or ""
+        if readsMemory(last) then
+            kinds[#kinds + 1] = "store"
+        else
+            for _, part in ipairs(parts) do
+                if readsMemory(part) then
+                    kinds[#kinds + 1] = "load"
+
+                    break
+                end
+            end
+        end
+    end
+    if mnemonic:find("^call") ~= nil then
+        kinds[#kinds + 1] = "call"
+    elseif mnemonic:find("^j") ~= nil then
+        kinds[#kinds + 1] = "branch"
+    end
+    local stacked = mnemonic:find("^push") ~= nil or mnemonic:find("^pop") ~= nil
+    for _, part in ipairs(parts) do
+        stacked = stacked or part:find("%(%%rsp", 1) ~= nil or part:find("%(%%rbp", 1) ~= nil
+    end
+    if stacked then
+        kinds[#kinds + 1] = "stack"
+    end
+
+    return kinds
+end
+
+--- Counts one symbol's instructions by kind.
+function instructions.count(listed: {instructions.Instruction}): instructions.Counts
+    local counts = new instructions.Counts(
+        total = #listed,
+        vector = 0,
+        loads = 0,
+        stores = 0,
+        branches = 0,
+        calls = 0,
+        stack = 0
+    )
+    for _, one in ipairs(listed) do
+        for _, kind in ipairs(one.kinds) do
+            if kind == "vector" then
+                counts.vector = counts.vector + 1
+            elseif kind == "load" then
+                counts.loads = counts.loads + 1
+            elseif kind == "store" then
+                counts.stores = counts.stores + 1
+            elseif kind == "branch" then
+                counts.branches = counts.branches + 1
+            elseif kind == "call" then
+                counts.calls = counts.calls + 1
+            elseif kind == "stack" then
+                counts.stack = counts.stack + 1
+            end
+        end
+    end
+
+    return counts
+end
+
+--- Splits assembly into one listing per symbol that has instructions.
+---
+--- A symbol with none is data: a constant pool, a string, or the length beside
+--- it. Dropping those is what makes the answer a list of function bodies without
+--- having to track which section each label was declared in.
+---
+--- @param assembly what the compiler wrote for one translation unit
+--- @param architecture which rules the mnemonics are read under
+--- @param system the target's operating system, which decides whether the
+---   assembler prefixed every symbol with an underscore
+--- @return one listing per symbol, in the order the compiler emitted them
+function instructions.parse(assembly: string, architecture: string, system: string): {instructions.Listing}
+    local listings: {instructions.Listing} = {}
+    local current: instructions.Listing? = nil
+    local pending: string? = nil
+    local underscored = system == "darwin" or system == "windows"
+    for raw in (assembly .. "\n"):gmatch("([^\n]*)\n") do
+        local line = trim(uncomment(raw, architecture))
+        local label = line:match("^([%w_%$%.][%w_%$%.]*):$")
+        if line == "" or line:sub(1, 1) == "." then
+            -- A directive, an alignment or a section. None of them is an
+            -- instruction, and the ones that carry a symbol carry it in a form
+            -- the label below reads anyway.
+        elseif label ~= nil then
+            if isLocalLabel(label as string) then
+                pending = label
+            else
+                local symbol = label as string
+                if underscored and symbol:sub(1, 1) == "_" then
+                    symbol = symbol:sub(2)
+                end
+                current = new instructions.Listing(
+                    symbol = symbol,
+                    role = "helper",
+                    instructions = {},
+                    counts = instructions.count({})
+                )
+                listings[#listings + 1] = current
+                pending = nil
+            end
+        elseif current ~= nil then
+            local mnemonic = line:match("^([%w_%.][%w_%.]*)") or line
+            local operands = trim(line:sub(#mnemonic + 1))
+            local kinds = architecture == "x86_64" and classifyX86(
+                mnemonic,
+                operands
+            ) or classifyArm(mnemonic, operands)
+            local held = (current as instructions.Listing).instructions
+            held[#held + 1] = new instructions.Instruction(
+                label = pending,
+                -- Respelled from its two halves rather than kept as written.
+                -- The compiler separates them with a tab, and a listing whose
+                -- text depended on that would diff against itself.
+                text = operands ~= "" and (mnemonic .. " " .. operands) or mnemonic,
+                mnemonic = mnemonic,
+                operands = operands,
+                kinds = kinds
+            )
+            pending = nil
+        end
+    end
+
+    local kept: {instructions.Listing} = {}
+    for _, listing in ipairs(listings) do
+        if #listing.instructions > 0 then
+            listing.counts = instructions.count(listing.instructions)
+            kept[#kept + 1] = listing
+        end
+    end
+
+    return kept
+end
+
+--- Names the compiled function each symbol belongs to.
+---
+--- A symbol nothing claims keeps `helper`: the generated C emits its arithmetic
+--- helpers as `static inline`, so one that survived here is one the compiler
+--- chose not to inline, which is worth seeing rather than hiding.
+function instructions.claim(listings: {instructions.Listing}, claims: {[string]: instructions.Claim}): nil
+    for _, listing in ipairs(listings) do
+        local claim = claims[listing.symbol]
+        if claim ~= nil then
+            listing.name = (claim as instructions.Claim).name
+            listing.role = (claim as instructions.Claim).role
+        else
+            -- A layout reporter is named after the symbol whose wrapper checks
+            -- it, which is the one place the emitter derives a symbol from
+            -- another rather than from a program. Claiming it by that prefix
+            -- keeps a struct's ten reporters attributed to the function that
+            -- reified it instead of appearing as ten unexplained helpers.
+            local owner = listing.symbol:match("^(.+)_layout_[%w_]+$")
+            local reported = owner ~= nil and claims[owner as string] or nil
+            if reported ~= nil then
+                listing.name = (reported as instructions.Claim).name
+                listing.role = "reporter"
+            end
+        end
+    end
+end
+
+--- The listings in `ROLES` order, keeping the compiler's order within each.
+---
+--- What the compiler emitted first is an artifact of how the C was assembled --
+--- reporters before bodies, the oracle before the body it is the oracle for --
+--- and reading a listing should not start with that.
+function instructions.order(listings: {instructions.Listing}): {instructions.Listing}
+    local ordered: {instructions.Listing} = {}
+    for _, role in ipairs(instructions.ROLES) do
+        for _, listing in ipairs(listings) do
+            if listing.role == role then
+                ordered[#ordered + 1] = listing
+            end
+        end
+    end
+    -- A role this does not know is still a listing, and dropping it would make
+    -- an added role silently invisible rather than merely last.
+    for _, listing in ipairs(listings) do
+        local known = false
+        for _, role in ipairs(instructions.ROLES) do
+            known = known or listing.role == role
+        end
+        if not known then
+            ordered[#ordered + 1] = listing
+        end
+    end
+
+    return ordered
+end
+
+--- The listings one name asks for, or nothing when it names none of them.
+---
+--- Matched against both spellings, because the two are used in different places:
+--- the source says `mix` and a disassembler, a profile or a linker error says
+--- `ks_mix`.
+function instructions.select(listings: {instructions.Listing}, wanted: string): {instructions.Listing}
+    local chosen: {instructions.Listing} = {}
+    for _, listing in ipairs(listings) do
+        if listing.symbol == wanted or listing.name == wanted then
+            chosen[#chosen + 1] = listing
+        end
+    end
+
+    return chosen
+end
+
+--- Every spelling `select` would have accepted, for a message that has to say so.
+---
+--- Both spellings of each, deduplicated. A function whose two bodies are both
+--- here is named once, and the symbols that tell them apart are listed beside
+--- it, so the message answers "what could I have asked for" rather than
+--- restating the listing.
+function instructions.names(listings: {instructions.Listing}): {string}
+    local named: {string} = {}
+    local seen: {[string]: boolean} = {}
+    local function add(spelling: string): nil
+        if not seen[spelling] then
+            seen[spelling] = true
+            named[#named + 1] = spelling
+        end
+    end
+
+    for _, listing in ipairs(listings) do
+        if listing.name ~= nil then
+            add(tostring(listing.name))
+        end
+        add(listing.symbol)
+    end
+
+    return named
+end
+
+export = instructions

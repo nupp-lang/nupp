@@ -1,0 +1,46 @@
+local span = require("nupp.mem.span")
+local indexed = require("nupp.mem.indexed")
+local system = {}
+local TENTH = nupp.math.f32.narrow(0.1)
+
+local struct State
+    x: float
+    flags: uint32
+end
+
+local function advance(value: float, scale: float): (float, uint32)
+    local position: float = value
+    local flags: uint32 = 0
+    noalloc do
+        noraise do
+            position = nupp.math.f32.fma(value, scale, TENTH)
+            flags = nupp.math.u32.rotateLeft(nupp.math.u32.add(flags, 1), 3)
+        end
+    end
+
+    return position, flags
+end
+
+function system.run(): (float, uint32)
+    const storage = carray(State, 8)
+    const writable = span.writeCarray(storage, 8)
+    do
+        const active = writable:slice(2, 7)
+        const rows = indexed.range(1, #active, active)
+        for index = rows.first, rows.last do
+            noalloc do
+                noraise do
+                    local state = active[index]
+                    state.x, state.flags = advance(state.x, 2.0)
+                end
+            end
+        end
+    end
+    drop writable
+
+    const readable = span.fromCarray(storage, 8)
+
+    return readable[2].x, readable[7].flags
+end
+
+return system

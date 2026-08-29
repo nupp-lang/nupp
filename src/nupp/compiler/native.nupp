@@ -1,0 +1,448 @@
+module nupp.compiler.native
+
+--[[
+Compiler-provided native features.
+
+A resolved language construct records an effect. Targets consume the union of
+those effects, rather than asking authors to mirror native-library switches in
+their manifests.
+]]
+
+local native = {}
+
+--- One compiler-recognized runtime feature: what it is called, where its implementation
+--- comes from, and how a build has to stage it.
+type native.Feature = {
+    name: string,
+    globals: {string}?,
+    module: string?,
+    exports: {string}?,
+    provider: string?,
+    providerFeature: string?,
+    library: string?,
+    binary: boolean?,
+    override: boolean?,
+    requires: {string}?,
+    runtimeModule: string?,
+
+    --- Whether `runtimeModule` compiles for a target the compiler did not build
+    --- itself for. A feature that says so is compiled for that target; one that
+    --- does not is staged from the compiler's own build, which is only the same
+    --- artifact when the dialects agree. Saying so is a claim that the module
+    --- names nothing a portable target lacks, and the feature-runtime suite
+    --- holds every feature to it either way.
+    portableRuntime: boolean?,
+
+    [string]: any
+}
+
+local FEATURES: {[string]: native.Feature} = {
+    ["native.lpeg"] = {name = "lpeg", module = "lpeg", host = "lpeg", binary = true,},
+    ["stdlib.lpeg.re"] = {name = "lpeg_re", module = "re", requires = {"native.lpeg"},},
+    -- The native JSON effect binds the package-private codec provider.
+    [
+        "native.json"
+    ] = {
+        name = "json",
+        module = "nupp.data.json.provider",
+        modules = {"nupp.data.json"},
+        exports = {"nupp.data.json"},
+    },
+    -- The rock, for source that requires it by name. `nupp.data.utf8` is not
+    -- that source any more, so this is reached only through bundled Lua --
+    -- lunamark's entity table -- and no longer through the standard library.
+    ["native.lua_utf8"] = {name = "lua_utf8", module = "lua-utf8", host = "lua-utf8", binary = true,},
+    -- UTF-8 itself, which is Nupp and so asks the host for nothing. The record
+    -- exists to attribute the module rather than to select anything.
+    ["runtime.data_utf8"] = {name = "data_utf8", modules = {"nupp.data.utf8"},},
+    ["stdlib.peg"] = {name = "peg", runtimeModule = "nupp.compiler.runtime.peg", requires = {"native.lpeg"},},
+    [
+        "stdlib.peg.compile"
+    ] = {
+        name = "peg_compile",
+        globals = {"nupp.peg.compile"},
+        runtimeModule = "nupp.compiler.runtime.peg",
+        requires = {"native.lpeg"},
+    },
+    [
+        "stdlib.fieldcodec"
+    ] = {
+        name = "fieldcodec",
+        globals = {"nupp.reflect.fieldCodec"},
+        runtimeModule = "nupp.compiler.runtime.reflect",
+        portableRuntime = true,
+    },
+    [
+        "stdlib.reflection"
+    ] = {
+        name = "reflection",
+        globals = {"nupp.reflect.extensionKey"},
+        runtimeModule = "nupp.compiler.runtime.reflect",
+        portableRuntime = true,
+    },
+    ["stdlib.derives"] = {name = "derives", globals = {}, runtimeModule = "nupp.derive", portableRuntime = true,},
+    ["stdlib.io"] = {name = "io", modules = {"nupp.io"},},
+    -- LuaJIT's buffer, which the standard library builds strings with. Recorded so a
+    -- target that selected a `text.buffer` provider installs it: nothing stages here,
+    -- because on LuaJIT the module is the runtime's own and on a portable target it
+    -- is whichever provider the backend named.
+    ["runtime.text_buffer"] = {name = "text_buffer", module = "string.buffer",},
+    -- `portableRuntime` because the run-time half of `nupp.math` names nothing
+    -- LuaJIT alone has: its bit operations come from whatever answers
+    -- `numeric.bitops` on the target, and its `binary32` conversions are
+    -- arithmetic rather than a union. A target the compiler did not build itself
+    -- for therefore compiles it rather than staging the compiler's own artifact.
+    [
+        "stdlib.math"
+    ] = {name = "math", globals = {"nupp.math"}, runtimeModule = "nupp.compiler.runtime.math", portableRuntime = true,},
+    ["native.path"] = {
+        name = "path",
+        -- The public module records the facility at the call site; its internal
+        -- provider records it when the module graph is followed directly.
+        modules = {"nupp.io.path", "nupp.io.path.provider"},
+        provider = "nupp_native",
+        providerFeature = "filesystem",
+        library = "nupp_native",
+        binary = true,
+    },
+    [
+        "native.uri"
+    ] = {
+        name = "uri",
+        modules = {"nupp.io.uri"},
+        provider = "nupp_native",
+        providerFeature = "uri",
+        library = "nupp_native",
+        binary = true,
+    },
+    [
+        "native.uuid"
+    ] = {
+        name = "uuid",
+        exports = {"nupp.data.uuid4", "nupp.data.uuid7"},
+        provider = "nupp_native",
+        providerFeature = "uuid",
+        library = "nupp_native",
+        binary = true,
+    },
+    ["native.files"] = {
+        name = "files",
+        modules = {"nupp.io.files"},
+        provider = "nupp_native",
+        providerFeature = "files",
+        host = "native-files",
+        library = "nupp_native",
+        binary = true,
+        -- A file operation that waits performs `suspend`, so the runtime that
+        -- answers it has to be in the target beside the program.
+        requires = {"runtime.suspension"},
+    },
+    ["runtime.suspension"] = {
+        -- Not a native library: a compiler-provided Nupp module a target needs its
+        -- own copy of. Deliberately not `binary`, so no manifest can force it on or
+        -- off -- nothing selects this, it is implied by what waits.
+        name = "suspension",
+        runtimeModule = "nupp.suspension",
+        portableRuntime = true,
+    },
+    [
+        "runtime.tasks"
+    ] = {
+        name = "tasks",
+        module = "nupp.tasks",
+        runtimeModule = "nupp.tasks",
+        requires = {"runtime.suspension"},
+        portableRuntime = true,
+    },
+    ["runtime.native"] = {name = "native_runtime", runtimeModule = "nupp.runtime.native",},
+    [
+        "native.time"
+    ] = {
+        name = "time",
+        module = "nupp.time",
+        exports = {"nupp.tasks.runFor"},
+        runtimeModule = "nupp.time",
+        provider = "nupp_native",
+        library = "nupp_native",
+        binary = true,
+        requires = {"runtime.suspension", "runtime.native"},
+    },
+    ["native.net"] = {
+        name = "net",
+        -- The public surface, and only that: listening, connecting, and the
+        -- connections either produces. The reactor and the platform handles
+        -- reach Nupp through the module's own binding, because a global a
+        -- program can name is a global a program will use.
+        module = "nupp.io.net",
+        runtimeModule = "nupp.io.net",
+        provider = "nupp_native",
+        providerFeature = "net",
+        host = "native-net",
+        library = "nupp_native",
+        binary = true,
+        requires = {"runtime.suspension"},
+    },
+    ["native.tls"] = {
+        name = "tls",
+        -- Encryption over a connection the socket facility already opened, and
+        -- nothing else: this feature carries mbedTLS, which is why a program
+        -- that only wants a plain socket must not select it.
+        module = "nupp.io.tls",
+        runtimeModule = "nupp.io.tls",
+        provider = "nupp_native",
+        providerFeature = "tls",
+        host = "native-tls",
+        library = "nupp_native",
+        binary = true,
+        requires = {"native.net", "runtime.suspension"},
+    },
+    ["native.process"] = {
+        name = "process",
+        -- The public surface, and only that: spawning a child, the `Process` it
+        -- answers, `communicate`. The platform primitives -- `tryRead`, `reap`,
+        -- readiness waiting -- reach Nupp under a separate internal binding, because a
+        -- global that a program can name is a global a program will use, and the
+        -- backend ABI is not something to promise by accident.
+        module = "nupp.io.process",
+        runtimeModule = "nupp.io.process",
+        provider = "nupp_native",
+        providerFeature = "process",
+        host = "native-process",
+        library = "nupp_native",
+        binary = true,
+        requires = {"runtime.suspension"},
+    },
+    [
+        "native.workers"
+    ] = {
+        name = "workers",
+        module = "nupp.workers",
+        host = "workers",
+        binary = true,
+        runtimeModule = "nupp.workers",
+        requires = {"runtime.suspension", "runtime.tasks"},
+    },
+    [
+        "native.sharedbytes"
+    ] = {
+        name = "sharedbytes",
+        module = "nupp.mem.sharedbytes",
+        host = "workers",
+        binary = true,
+        runtimeModule = "nupp.mem.sharedbytes",
+        requires = {"runtime.spanview"},
+    },
+    -- Span views lower their checked element access through nupp.mem.indexed,
+    -- so any target staging the span runtime stages the helpers its generated
+    -- code reaches.
+    ["runtime.spanview"] = {name = "spanview", runtimeModule = "nupp.mem.span", requires = {"runtime.indexed"},},
+    ["runtime.indexed"] = {name = "indexed", runtimeModule = "nupp.mem.indexed",},
+    [
+        "runtime.heap"
+    ] = {name = "heap", module = "nupp.mem.heap", runtimeModule = "nupp.mem.heap", requires = {"runtime.spanview"},},
+    [
+        "native.http"
+    ] = {
+        name = "http",
+        module = "nupp.io.http",
+        runtimeModule = "nupp.io.http",
+        provider = "nupp_native",
+        providerFeature = "http",
+        library = "nupp_native",
+        binary = true,
+        requires = {"runtime.suspension", "native.uri", "stdlib.io"},
+    },
+    -- SHA-256 stopped being native when `nupp.data.digest` replaced the C one,
+    -- so this selects a runtime module rather than a provider. The effect keeps
+    -- its `native.` spelling: an effect identifier is what recorded effects and
+    -- stamped binaries carry, and renaming one to describe an implementation
+    -- change would invalidate every artifact that already names it.
+    [
+        "native.sha256"
+    ] = {name = "sha256", exports = {"nupp.data.sha256"}, runtimeModule = "nupp.data.digest", portableRuntime = true,},
+}
+
+local byGlobal, byModule, byModuleMember, byName = {}, {}, {}, {}
+for effect, feature in pairs(FEATURES) do
+    if feature.binary then
+        byName[feature.name] = effect
+    end
+    for _, path in ipairs(feature.globals or {}) do
+        byGlobal[path] = effect
+    end
+    if feature.module then
+        byModule[feature.module] = effect
+    end
+    for _, moduleName in ipairs(feature.modules or {}) do
+        byModule[moduleName] = effect
+    end
+    for _, path in ipairs(feature.exports or {}) do
+        local moduleName, member = path:match("^(.*)%.([^.]+)$")
+        if moduleName and member then
+            byModuleMember[moduleName] = byModuleMember[moduleName] or {}
+            byModuleMember[moduleName][member] = effect
+        end
+    end
+end
+
+function native.forGlobal(path: string): string?
+    return byGlobal[path]
+end
+
+--- Marks the prelude's exact member types with their runtime effects. The identity
+--- follows aliases, so binding an ambient namespace to a local and reaching a member
+--- through it stays as precise as spelling the intrinsic path directly. A facility
+--- that has become a module is reached by requiring it instead, and records its
+--- effect at the require or at the qualified path that selects it.
+function native.decorateGlobals(globals: {[string]: any}): {[any]: {[string]: string}}
+    local effects = {}
+    local function decorate(owner: any, member: string, effect: string): nil
+        if owner then
+            effects[owner] = effects[owner] or {}
+            effects[owner][member] = effect
+        end
+    end
+
+    for path, effect in pairs(byGlobal) do
+        local parts = {}
+        for part in path:gmatch("[^.]+") do
+            parts[#parts + 1] = part
+        end
+        local entry = globals[parts[1]]
+        local t = entry and entry.t
+        for index = 2, #parts do
+            if index == #parts and t then
+                decorate(t, parts[index], effect)
+                -- A qualified nominal such as `record nupp.peg` also binds its
+                -- declaration table under the dotted prefix. Source reaches that
+                -- metatable value even when the intrinsic `nupp` shape describes the
+                -- same path as a nominal instance, so both identities carry the
+                -- member's feature effect.
+                local qualified = globals[table.concat(parts, ".", 1, index - 1)]
+                decorate(qualified and qualified.t, parts[index], effect)
+            end
+            -- A static reached through the type that owns it steps through a nested
+            -- declaration rather than a field, so the walk asks `nestedTypes`
+            -- wherever `byname` has nothing.
+            t = t and (t.byname and t.byname[parts[index]] or t.nestedTypes and t.nestedTypes[parts[index]]) or nil
+        end
+    end
+
+    return effects
+end
+
+function native.forModule(name: string): string?
+    return byModule[name]
+end
+
+function native.forModuleMember(name: string, member: string): string?
+    local members = byModuleMember[name]
+    return members and members[member] or nil
+end
+
+function native.feature(effect: string): native.Feature?
+    return FEATURES[effect]
+end
+
+--- Every effect the compiler recognizes a feature for.
+---
+--- Exported so a test can hold the whole table to a rule rather than the entries
+--- somebody remembered to list.
+function native.effectNames(): {string}
+    local names = {}
+    for effect in pairs(FEATURES) do
+        names[#names + 1] = effect
+    end
+    table.sort(names)
+
+    return names
+end
+
+function native.featureNames(): {string}
+    local names = {}
+    for name in pairs(byName) do
+        names[#names + 1] = name
+    end
+    table.sort(names)
+
+    return names
+end
+
+--- Adds what the selected features need to work, transitively.
+---
+--- A facility that waits needs the suspension runtime beside it, and the program
+--- that reached the facility said nothing about that. Closing over `requires`
+--- here rather than at the call site keeps one effect recorded per thing a
+--- program actually names, which is what makes a recorded effect explainable.
+function native.expand(effects: {[string]: any}?): {[string]: boolean}
+    local closed = {}
+    local pending = {}
+    for effect in pairs(effects or {}) do
+        closed[effect] = true
+        pending[#pending + 1] = effect
+    end
+    while #pending > 0 do
+        local effect = table.remove(pending)
+        local feature = FEATURES[effect]
+        for _, needed in ipairs(feature and feature.requires or {}) do
+            if not closed[needed] then
+                closed[needed] = true
+                pending[#pending + 1] = needed
+            end
+        end
+    end
+
+    return closed
+end
+
+--- Applies a target's tri-state overrides to an automatically detected set. An absent
+--- name remains automatic, true forces it in, and false forces it out.
+---
+--- Overrides settle before requirements do, so forcing a facility out takes what
+--- it needed with it and forcing one in brings what it needs.
+function native.resolve(effects: {[string]: any}?, overrides: {[string]: boolean}?): {[string]: boolean}
+    local resolved = {}
+    for effect in pairs(effects or {}) do
+        resolved[effect] = true
+    end
+    for name, enabled in pairs(overrides or {}) do
+        local effect = byName[name]
+        if effect then
+            resolved[effect] = enabled and true or nil
+        end
+    end
+
+    return native.expand(resolved)
+end
+
+--- Finds native effects in an external Lua module by checking it under Nupp's ordinary
+--- prelude. Used for bundled rock modules, which are not project source files and
+--- therefore do not pass through the project's incremental checker.
+function native.sourceEffects(source: string, filename: string, env: {[string]: any}?): {[string]: any}
+    local parser = require("nupp.compiler.parser")
+    local parsed: any = parser.parse(source, filename)
+    if #parsed.errors > 0 then
+        return {}
+    end
+    local checker = require("nupp.compiler.check") as {check: function(any, string?, any, any): any}
+    checker.check(parsed, filename, env, {strict = false})
+
+    return parsed.effects or {}
+end
+
+function native.features(effects: {[string]: any}?): {native.Feature}
+    local out = {}
+    for effect in pairs(effects or {}) do
+        local feature = FEATURES[effect]
+        if feature then
+            out[#out + 1] = feature
+        end
+    end
+    table.sort(out, function(a, b)
+        return a.name < b.name
+    end)
+
+    return out
+end
+
+export = native

@@ -1,0 +1,44 @@
+module nupp.compiler.stable
+
+-- Canonical compiler memoization text, independent of persistent build storage.
+
+local function stable(value: unknown, seen: {[unknown]: boolean}?): string
+    local kind = type(value)
+    @allow("exhaustiveness")
+    if kind == "nil" then
+        return "nil"
+    end
+    if kind == "boolean" or kind == "number" then
+        return tostring(value)
+    end
+    @allow("exhaustiveness")
+    if kind == "string" then
+        return ("%q"):format(value)
+    end
+    @allow("exhaustiveness")
+    if kind ~= "table" then
+        return "<" .. kind .. ">"
+    end
+    local entries = value as {[unknown]: unknown}
+    seen = seen or {}
+    if seen[value] then
+        return "<cycle>"
+    end
+    seen[value] = true
+    local keys = {}
+    for key in pairs(entries) do
+        keys[#keys + 1] = key
+    end
+    table.sort(keys, function(left: unknown, right: unknown): boolean
+        return tostring(left) < tostring(right)
+    end)
+    local parts = {}
+    for _, key in ipairs(keys) do
+        parts[#parts + 1] = stable(key, seen) .. "=" .. stable(entries[key], seen)
+    end
+    seen[value] = nil
+
+    return "{" .. table.concat(parts, ",") .. "}"
+end
+
+export = stable

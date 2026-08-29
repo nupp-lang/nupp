@@ -1,0 +1,216 @@
+module nupp.compiler.build.store
+
+--[[
+A keyed blob of results that survives between commands.
+
+Every command starts a fresh process, and most of what the last one worked out
+is still true. This is where that work is left: one file per kind of entry,
+keyed by a digest of everything the entry was computed from, so a key that
+matches is an answer that is still correct rather than one that is probably
+still correct.
+
+Nothing here is executable. `string.buffer` serializes plain data and the
+decoder produces plain data, so a corrupt or hostile file is a cache miss and
+never a program. That is what lets the store sit in the project's own build
+directory instead of a user-private one -- a store of code could not.
+
+What it will not do is answer a question it was not asked exactly. There is no
+partial matching, no "close enough", and no version migration: a stamp that
+does not match discards the file. Recomputing is always available and always
+correct, so every failure here has the same answer.
+]]
+
+local buffer = require("string.buffer")
+local fs = require("nupp.compiler.fs")
+
+local store = {}
+
+-- Bumped when an entry's shape changes and old entries would decode into something the
+-- reader no longer understands.
+local FORMAT = 1
+
+--- Keeps this many entries beyond the ones the current run touched.
+---
+--- The cost of an unused entry is bytes on disk and microseconds of decode; the benefit
+--- is that moving between two branches, or undoing an edit, still hits. Zero would make
+--- the store exactly the current tree and nothing else, which is the shape that misses
+--- every time somebody switches back.
+local KEEP_COLD = 2048
+
+--- One kind of entry, and the file it lives in.
+record store.Store
+    --- Where the file is. Nil when the store could not be opened, which is not an
+    --- error: every method still works and every lookup misses.
+    path: string?
+
+    --- What the entries were computed by. An entry outlives the run that wrote it but
+    --- not a compiler that would compute it differently.
+    stamp: string
+
+    --- The answer for `key`, or nil. A hit is also a promise to keep the entry when the
+    --- store is saved.
+    get: function(key: string): any
+
+    --- Records the answer for `key`.
+    put: function(key: string, value: any)
+
+    --- Writes the file, if anything changed. Cheap and safe to call when nothing did.
+    save: function()
+
+    --- How many entries were asked for, hit, and written. For tests, which otherwise
+    --- can only observe that something got faster.
+    stats: {[string]: integer}
+end
+
+--- Opens the store at `path`, or an always-missing one when it cannot be read.
+---
+--- `stamp` identifies everything outside the key that the entries depend on -- the
+--- compiler and the project's configuration. A file stamped differently is discarded
+--- rather than merged, because there is no way to tell which of its entries the
+--- difference would have changed.
+---
+--- @param path the file to keep entries in
+--- @param stamp what the entries were computed by
+function store.open(path: string?, stamp: string): store.Store
+    local entries: {[string]: any} = {}
+    local order: {string} = {}
+    local live: {[string]: boolean} = {}
+    local dirty = false
+    local stats: {[string]: integer} = {gets = 0, hits = 0, puts = 0}
+    local self = new store.Store(path = path, stamp = stamp, stats = stats)
+
+    if path then
+        local text = fs.readFile(path)
+        if text then
+            -- A cache file is data somebody else wrote. Everything from here is
+            -- guarded, and every way it can go wrong lands on the same answer: no
+            -- entries, recompute, overwrite.
+            local ok, decoded = pcall(buffer.decode, text)
+            if ok and type(
+                decoded
+            ) == "table" and decoded.format == FORMAT and decoded.stamp == stamp and type(
+                decoded.order
+            ) == "table" and type(decoded.entries) == "table" then
+                entries = decoded.entries
+                for _, key in ipairs(decoded.order) do
+                    if entries[key] ~= nil then
+                        order[#order + 1] = key
+                    end
+                end
+            end
+        end
+    end
+
+    function self.get(key: string): any
+        stats.gets = (stats.gets or 0) + 1
+        local value = entries[key]
+        if value == nil then
+            return nil
+        end
+        stats.hits = (stats.hits or 0) + 1
+        live[key] = true
+
+        return value
+    end
+
+    function self.put(key: string, value: any)
+        stats.puts = (stats.puts or 0) + 1
+        if entries[key] == nil then
+            order[#order + 1] = key
+        end
+        entries[key] = value
+        live[key] = true
+        dirty = true
+    end
+
+    function self.save()
+        if not path or not dirty then
+            return
+        end
+        -- Live entries first and in the order they were reached, so the next run's file
+        -- is the shape of this run's project. What is left fills the remainder newest
+        -- first, which is what makes going back to a branch cheap without letting the
+        -- file grow forever.
+        local keptOrder: {string} = {}
+        local keptEntries: {[string]: any} = {}
+        for _, key in ipairs(order) do
+            if live[key] then
+                keptOrder[#keptOrder + 1] = key
+                keptEntries[key] = entries[key]
+            end
+        end
+        local cold = 0
+        for index = #order, 1, -1 do
+            local key = order[index]
+            if not live[key] and cold < KEEP_COLD then
+                cold = cold + 1
+                keptOrder[#keptOrder + 1] = key
+                keptEntries[key] = entries[key]
+            end
+        end
+        local ok, text = pcall(buffer.encode, {
+            format = FORMAT,
+            stamp = stamp,
+            order = keptOrder,
+            entries = keptEntries,
+        })
+        -- A store that cannot be encoded or written is a store that misses next time,
+        -- which is what happens when there is no store at all.
+        if ok then
+            pcall(fs.writeFile, path, text)
+        end
+        dirty = false
+    end
+
+    return self
+end
+
+--- One value, kept in a file, under the same guards as a keyed store.
+---
+--- For state that is looked up by name rather than by content: the check results are
+--- keyed by module name, because comparing this run's interface against the last run's
+--- is the whole point and a content key would have thrown the last run's away.
+record store.Value
+    --- What is in the file, or nil when there is nothing valid in it.
+    value: any
+
+    --- Records a new value, to be written by `save`.
+    set: function(value: any)
+
+    --- Writes the file if `set` was called.
+    save: function()
+end
+
+--- Opens the single-value store at `path`, or an empty one.
+function store.openValue(path: string?, stamp: string): store.Value
+    local self = new store.Value()
+    local dirty = false
+    if path then
+        local text = fs.readFile(path)
+        if text then
+            local ok, decoded = pcall(buffer.decode, text)
+            if ok and type(decoded) == "table" and decoded.format == FORMAT and decoded.stamp == stamp then
+                self.value = decoded.value
+            end
+        end
+    end
+    function self.set(value: any)
+        self.value = value
+        dirty = true
+    end
+
+    function self.save()
+        if not path or not dirty then
+            return
+        end
+        local ok, text = pcall(buffer.encode, {format = FORMAT, stamp = stamp, value = self.value})
+        if ok then
+            pcall(fs.writeFile, path, text)
+        end
+        dirty = false
+    end
+
+    return self
+end
+
+export = store

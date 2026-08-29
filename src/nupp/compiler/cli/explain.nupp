@@ -1,0 +1,179 @@
+module nupp.compiler.cli.explain
+
+--[[
+`nupp explain`: what a diagnostic code means, with an example either way.
+
+A diagnostic has room for what is wrong with one program. This has room for the
+rule behind it, a program that breaks the rule, and the same program corrected.
+The catalogue is `nupp.compiler.explain`; nothing here knows any of the content.
+]]
+
+local spec = require("nupp.compiler.cli.spec")
+local optionsMod = require("nupp.compiler.cli.options")
+local ansi = require("nupp.compiler.ansi")
+
+local command = spec.command{
+    name = "explain",
+    summary = "Describe a diagnostic code, with an example either way",
+    usage = {"nupp explain <code> [--format text|json]", "nupp explain --list"},
+    options = optionsMod.join({name = "--list", help = "List the codes with a worked example"}, optionsMod.format()),
+    schema = {
+        type = "object",
+        properties = {
+            code = {type = "string"},
+            summary = {type = "string", description = "One line."},
+            rule = {type = "string", description = "The general statement the code enforces."},
+            wrong = {
+                type = "string",
+                description = "A program that reports the code. Absent when " .. "only the family is known."
+            },
+            right = {type = "string", description = "The same program, corrected."},
+            related = {type = "array", items = {type = "string"}, description = "Codes worth reading beside it."},
+            docs = {
+                type = "string",
+                description = "The reference section, as a path and anchor. The "
+                .. "same value every diagnostic carries under `docs`."
+            },
+            family = {
+                type = "boolean",
+                description = "True when this is what the code's family says "
+                .. "rather than what is known about the code itself, which "
+                .. "is when the examples are absent."
+            },
+            strict = {
+                type = "boolean",
+                description = "True when the rule is only reported under "
+                .. "--strict, or with strict = true in the manifest."
+            },
+            class = {type = "string", description = "Trace reason class for a jit/* identity."},
+            repair = {type = "string", description = "Specific semantics-preserving repair, when known."},
+            reasonCatalog = {type = "object"},
+            codes = {
+                type = "array",
+                items = {type = "string"},
+                description = "Present for --list instead of the fields above."
+            },
+        },
+    },
+    detail = [[Every diagnostic written by --json carries the same `docs` anchor this
+reports, so a reader holding a diagnostic can reach the reference without
+being told where it is.
+
+A code with no worked example still resolves through its family, and says so
+with `family: true`, rather than an example being invented to fit it.]],
+}
+
+local function run(parsed: any): integer
+    local explain = require("nupp.compiler.explain")
+    local values = parsed.values
+    local asJson = values.format == "json"
+    local positional: {string} = parsed.positional
+    if values.list then
+        local codes = explain.codes()
+        for _, reason in ipairs(require("nupp.profile.trace").records()) do
+            codes[#codes + 1] = reason.id
+        end
+        table.sort(codes)
+        if asJson then
+            require("nupp.compiler.cli.report").write({codes = codes})
+        else
+            io.write(table.concat(codes, "\n"), "\n")
+        end
+        return 0
+    end
+    if #positional ~= 1 then
+        return command:usageError("exactly one diagnostic code is required")
+    end
+    -- Codes are written in upper case everywhere they are reported, so a lower case one
+    -- is the same request typed with less shift.
+    local requested = positional[1]
+    local code = requested:upper()
+    local reason = require("nupp.profile.trace").reason(requested:lower())
+    local entry = reason and {
+        code = reason.id,
+        summary = reason.explanation or reason.id,
+        rule = reason.class == "blocker"
+        and "The selected LuaJIT recorder refuses this operation whenever recording reaches it."
+        or reason.class == "risk"
+        and "Whether the recorder accepts this operation depends on runtime or target facts."
+        or "This is ordinary trace formation rather than a recorder failure.",
+        related = {},
+        docs = "docs/guides/performance.md#rewrites-deliberately-not-made",
+        family = false,
+        class = reason.class,
+        repair = reason.repair,
+    } or explain.lookup(code)
+    if not entry then
+        return command:usageError("unknown diagnostic code " .. positional[1])
+    end
+    local display: any = entry
+    if asJson then
+        require("nupp.compiler.cli.report").write({
+            code = display.code,
+            summary = display.summary,
+            rule = display.rule,
+            wrong = display.wrong,
+            right = display.right,
+            related = display.related,
+            docs = display.docs,
+            family = display.family,
+            strict = display.strict,
+            class = display.class,
+            repair = display.repair,
+            reasonCatalog = reason and {
+                id = require("nupp.profile.trace").CATALOG_ID,
+                version = require("nupp.profile.trace").CATALOG_VERSION,
+            } or nil,
+        })
+        return 0
+    end
+    local style = ansi.style(io.stdout)
+    local out: {string} = {style.strong(display.code) .. "  " .. display.summary, "",}
+    for _, line in ipairs(spec.wrap(display.rule, 79)) do
+        out[#out + 1] = line
+    end
+    if display.repair then
+        out[#out + 1] = ""
+        out[#out + 1] = ansi.forSeverity(style, "help")("Repair: ") .. display.repair
+    end
+
+    --- The example, indented, without the trailing blank its final newline would
+    --- otherwise become.
+    local function quote(heading: string, source: string)
+        out[#out + 1] = ""
+        out[#out + 1] = heading
+        out[#out + 1] = ""
+        for line in (source:gsub("\n$", "") .. "\n"):gmatch("([^\n]*)\n") do
+            out[#out + 1] = line == "" and "" or ("    " .. line)
+        end
+    end
+
+    local wrong, right = display.wrong, display.right
+    if wrong then
+        quote(ansi.forSeverity(style, "error")("Reports it:"), wrong)
+    end
+    if right then
+        quote(ansi.forSeverity(style, "help")("Does not:"), right)
+    end
+    if display.strict then
+        out[#out + 1] = ""
+        out[#out + 1] = style.faint("Reported only under --strict.")
+    end
+    if display.family then
+        out[#out + 1] = ""
+        out[
+            #out + 1
+        ] = style.faint("No worked example is recorded for this code; " .. "the rule above is its family's.")
+    end
+    if #display.related > 0 then
+        out[#out + 1] = ""
+        out[#out + 1] = style.faint("Related: ") .. table.concat(display.related, ", ")
+    end
+    out[#out + 1] = ""
+    out[#out + 1] = style.faint("Reference: ") .. display.docs
+    io.write(table.concat(out, "\n"), "\n")
+
+    return 0
+end
+
+export = new spec.Handler(spec = command, run = run)

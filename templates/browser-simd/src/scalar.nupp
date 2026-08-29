@@ -1,0 +1,33 @@
+local wasm = require("nupp.wasm")
+local json = require("nupp.data.json")
+
+local struct Sample
+    value: float
+    bias: number
+    weight: float
+end
+
+@aot(lanes = false)
+local function scale(exclusive output: wasm.WriteSpan<Sample>, borrows input: wasm.Span<Sample>, factor: number): nil
+    if #output ~= #input then
+        error("length mismatch", 2)
+    end
+    for index = 1, #output do
+        output[index].value = input[index].value * factor
+        output[index].bias = input[index].bias + factor
+        output[index].weight = input[index].weight + factor
+    end
+end
+
+local input = wasm.array(new Sample(), 4096)
+local writable = input:write()
+for index = 1, #writable do
+    writable[index] = new Sample(index, index * 2, index * 3)
+end
+writable:drop()
+
+local output = wasm.array(new Sample(), 4096)
+scale(output:write(), input:read(), 2)
+local rows = output:read()
+
+return json.encode({project = "${name}", tier = "scalar", first = rows[1].value, last = rows[#rows].weight,})

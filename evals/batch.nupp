@@ -1,0 +1,156 @@
+local files = require("nupp.io.files")
+local harness = require("harness")
+local batch = require("batcheval")
+local time = require("nupp.time")
+local json = nupp.data.json
+
+local arguments = {...} as {string}
+
+local USAGE = [[usage: ./bin/nupp run evals/batch.nupp [OPTIONS]
+
+Run the tier-1 diagnostic corpus and write a scoreboard.
+
+Options:
+  --nupp PATH       compiler to build tasks from (default: ./bin/nupp)
+  --model MODEL     Claude model name
+  --out DIRECTORY   result directory (default: evals/results)
+  --codes CODE...   evaluate only the named diagnostic codes
+  --limit N         evaluate only the first N selected tasks
+  --jobs N          concurrent agents (default: 4)
+  --timeout SECONDS kill each runaway agent (default: 300)
+  --lean            expose only repair tools to each agent
+  --label NAME      scoreboard filename prefix (default: sweep)
+  -h, --help        show this help]]
+
+local function valueAfter(index: integer, option: string): string
+    local value = arguments[index + 1]
+    if value == nil then
+        error(option .. " requires a value", 0)
+    end
+
+    return value
+end
+
+local function positiveInteger(value: string, option: string): integer
+    local number = tonumber(value)
+    if number == nil or number ~= math.floor(number) or number < 1 then
+        error(option .. " must be a positive integer", 0)
+    end
+
+    return number as integer
+end
+
+local function main(): integer
+    local nupp = "bin/nupp"
+    local out = "evals/results"
+    local model: string? = nil
+    local codes: {string}? = nil
+    local limit: integer? = nil
+    local jobs: integer = 4
+    local timeout = 300
+    local lean = false
+    local label = "sweep"
+    local index: integer = 1
+    while index <= #arguments do
+        local argument = arguments[index]
+        if argument == "-h" or argument == "--help" then
+            print(USAGE)
+
+            return 0
+        elseif argument == "--nupp" then
+            nupp = valueAfter(index, argument)
+            index = index + 1
+        elseif argument == "--model" then
+            model = valueAfter(index, argument)
+            index = index + 1
+        elseif argument == "--out" then
+            out = valueAfter(index, argument)
+            index = index + 1
+        elseif argument == "--limit" then
+            limit = positiveInteger(valueAfter(index, argument), argument)
+            index = index + 1
+        elseif argument == "--jobs" then
+            jobs = positiveInteger(valueAfter(index, argument), argument)
+            index = index + 1
+        elseif argument == "--timeout" then
+            timeout = tonumber(valueAfter(index, argument)) or -1
+            if timeout <= 0 then
+                error("--timeout must be a positive number", 0)
+            end
+            index = index + 1
+        elseif argument == "--label" then
+            label = valueAfter(index, argument)
+            index = index + 1
+        elseif argument == "--lean" then
+            lean = true
+        elseif argument == "--codes" then
+            codes = {}
+            while index + 1 <= #arguments and arguments[index + 1]:sub(1, 1) ~= "-" do
+                index = index + 1
+                codes[#codes + 1] = arguments[index]
+            end
+            if #codes == 0 then
+                error("--codes requires at least one diagnostic code", 0)
+            end
+        else
+            error("unknown option " .. argument, 0)
+        end
+        index = index + 1
+    end
+    nupp = harness.absolute(nupp)
+    out = harness.absolute(out)
+    if not files.exists(nupp) then
+        error("no compiler at " .. nupp, 0)
+    end
+    if not harness.commandAvailable("claude") then
+        error("the `claude` CLI is not on PATH", 0)
+    end
+    codes = codes or batch.runnable(nupp, jobs)
+    if limit ~= nil and #codes > limit then
+        local limited: {string} = {}
+        for selected = 1, limit do
+            limited[selected] = codes[selected]
+        end
+        codes = limited
+    end
+    local made, reason = files.createDirectory(out)
+    if not made then
+        error("cannot create " .. out .. ": " .. tostring(reason), 0)
+    end
+    print(("%d task(s), %d at a time, model %s"):format(#codes, jobs, model or "default"))
+    io.stdout:flush()
+
+    local started = time.now()
+    local options: batch.Options = {nupp = nupp, out = out, model = model, jobs = jobs, timeout = timeout, lean = lean,}
+    local records = batch.run(options, codes)
+    local elapsed = (time.now() - started) / 1000
+    local summary = batch.summarize(records)
+    summary.model = model or "default"
+    summary.lean = lean
+    local timedOut, sortedCodes = {}, {}
+    for _, record in ipairs(records) do
+        if type(record.agent) == "table" and record.agent.timedOut == true then
+            timedOut[#timedOut + 1] = record.task.code
+        end
+    end
+    for position, code in ipairs(codes) do
+        sortedCodes[position] = code
+    end
+    table.sort(sortedCodes)
+    summary.timedOut = json.asArray(timedOut)
+    summary.elapsedSeconds = harness.rounded(elapsed, 1)
+    summary.codes = json.asArray(sortedCodes)
+    local board = harness.join(out, label .. "-scoreboard.json")
+    harness.writeJson(board, summary)
+    batch.report(summary, model, elapsed)
+    print("\n scoreboard=" .. board)
+
+    return 0
+end
+
+local ok, status = pcall(main)
+if not ok then
+    io.stderr:write("batch: " .. tostring(status) .. "\n")
+    os.exit(2)
+end
+os.exit(status as integer)

@@ -1,0 +1,10 @@
+local m = {}
+
+function m.run(report: any): nil
+    report:put("a header long enough to matter", "and a second argument of some length", "a third one as well", function(row: string): string
+        return row
+    end)
+    report:put("a header long enough to matter", "and a second argument of some length", "a third one", {alpha = 1, beta = 2})
+end
+
+return m

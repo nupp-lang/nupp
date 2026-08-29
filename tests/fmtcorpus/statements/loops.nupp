@@ -1,0 +1,24 @@
+local m = {}
+
+function m.walk(rows: {string}): integer
+    local total = 0
+    for index = 1, #rows, 2 do
+        total = total + #rows[index]
+    end
+    for index, row in ipairs(rows) do
+        total = total + index + #row
+    end
+    repeat
+        total = total - 1
+    until total <= 0
+    while total < 10 do
+        total = total + 1
+        if total == 5 then
+            continue
+        end
+    end
+
+    return total
+end
+
+return m

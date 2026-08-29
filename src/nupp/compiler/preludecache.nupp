@@ -1,0 +1,612 @@
+@!internal
+
+module nupp.compiler.preludecache
+
+--[[
+The checked prelude, as plain data a later command can read back.
+
+Every `nupp` command builds an environment, and building one means parsing and
+type-checking the three prelude declaration files from source. That is about a
+hundred and thirty milliseconds, and a check of a small project is a hundred and
+ninety: nearly all of what a small command costs is the prelude, computed again
+from bytes that did not change.
+
+So it is computed once and kept. What `nupp.compiler.env` restores from an image
+is eight roots, and this turns those roots into a value `nupp.compiler.build.store`
+can hold and back again.
+
+This is not `nupp.compiler.preludeimage`, and the two are not interchangeable.
+That one reads a resource generated ahead of time for a host that cannot run the
+checker at all, in a text format written by a tool outside the compiler. This one
+is a cache: written by the checker that would otherwise be run, read only by a
+process that agrees about the compiler and the sources it came from, and thrown
+away rather than migrated whenever it might not.
+
+## What has to be flattened
+
+The prelude is a graph, not a tree: types refer to each other, and a receiver
+type is a table used as a key. `string.buffer`, which is what the store
+serializes with, encodes neither shared references nor cycles. So the graph is
+numbered -- every table gets an id, every reference becomes that id -- and the
+numbering is undone on the way back. Flat arrays rather than nested records,
+because that is the shape `string.buffer` is quickest at and the shape a decoder
+can walk without allocating anything it throws away.
+
+`NUPP_NO_PRELUDE_CACHE` in the environment turns all of this off, which is how a
+suspected difference between a restored prelude and a checked one is bisected: run
+the same thing twice and see which answer changes.
+
+## Identity
+
+A type is not a value that can simply be copied. The checker compares types with
+`==`, and `types.literal("#")` answers out of an arena `nupp.compiler.types`
+keeps, so a restored type that is in no arena is equal to nothing: with the
+prelude copied and nothing else done, the compiler reports eighteen errors
+checking itself, every one of them a literal or an overload failing to match
+something it is equal to.
+
+Every interned type is therefore written down with the arena and key it was
+interned under, and put back there. A key the reading process already has wins --
+that object is the one every other reference in it is already using -- and the
+image's members are written onto it, because checking the prelude is also what
+filled it in.
+
+The serials go with them. `intern` stamps each type with one, and the counter
+that issues them starts at zero in every process, so restoring types without
+restoring the counter would have this process hand out a serial some restored
+type already carries. `types.resumeIdentity` moves the counters forward to where
+the writing process left them, never back.
+
+## Identity the compiler already owns
+
+Not everything reachable from the prelude was made by it. `types.any` is one
+object the whole checker compares against with `==`, and a record's metatable is
+another; there are eighty-odd of them, and copying one produces a value that is
+equal to nothing and narrows to nothing. The first attempt at this cache did copy
+them, and the compiler stopped being able to check itself.
+
+So a table the compiler already owned is written as the name it is owned under --
+its module and the path to it -- and looked up again rather than rebuilt. The
+walk that finds them reads every `nupp.` module that is loaded, which is complete
+by construction: a module that put one of its objects in the prelude graph is a
+module that was loaded to do it.
+
+## Trivia
+
+A token carries `trivia`, which is the arena its file's comments and whitespace
+live in, and the arena is not plain data. It is also not derivable from the
+tokens, and dropping it would take the prelude's doc comments with it -- which is
+what a hover over a standard-library name shows.
+
+An arena is a source string and a run of five-integer records, so it is written
+out as exactly that and built again by replaying the records into a new one. Two
+of them cover the whole prelude.
+]]
+
+local triviaarena = require("nupp.compiler.triviaarena")
+local types = require("nupp.compiler.types")
+
+local preludecache = {}
+
+--- The roots `nupp.compiler.env` restores, in the order they are written.
+---
+--- `preludeRuntime` is not here: it is a string, so it needs no numbering and is
+--- carried beside the graph.
+local ROOT_NAMES = {
+    "annotationsByName",
+    "featureEffects",
+    "globalTypeDefs",
+    "globalTypes",
+    "globals",
+    "preludeComptimeFunctions",
+    "stringLib",
+}
+
+--- Bumped when the shape below changes. An image that does not say this number is
+--- discarded, the same way a store entry stamped differently is.
+local FORMAT = 1
+
+local function isScalar(value: any): boolean
+    local kind = type(value)
+
+    return kind == "boolean" or kind == "number" or kind == "string"
+end
+
+--- How deep into a module's exports the ownership walk goes.
+---
+--- Deep enough for `types.builtins.string`, which is two, with room to spare. A
+--- bound rather than none, because a module is free to hold a graph of its own and
+--- this is a walk of tables reached by name, not of everything that exists.
+local WALK_DEPTH = 8
+
+--- That the `require` in `resolveOwned` is reflection, not a dependency, for
+--- `nupp.compiler.build.cache`'s module graph.
+---
+--- The name it resolves came out of an image this process is deciding whether to
+--- believe, and a name that no longer resolves to the same object discards the image.
+--- So the modules reached there are not code this one is defined by, and the stamp
+--- covering this need not cover them -- which would be the whole compiler, since the
+--- walk above takes every loaded `nupp.` module.
+@allow("unused-binding")
+const DYNAMIC_REQUIRES = "@requires-dynamically nothing"
+
+--- Every table a loaded compiler module owns, and the name it owns it under.
+---
+--- Keys are sorted so the walk names an object the same way in the process that
+--- writes an image and the one that reads it. Both ends run this; a name either
+--- resolves to the same object in both or the image is discarded.
+local function ownedByModules(): {[any]: {string}}
+    local owned: {[any]: {string}} = {}
+    local moduleNames: {string} = {}
+    for name in pairs(package.loaded) do
+        if type(name) == "string" and name:match("^nupp%.") then
+            moduleNames[#moduleNames + 1] = name
+        end
+    end
+    table.sort(moduleNames)
+
+    local function claim(value: any, moduleName: string, path: string, depth: integer): nil
+        if type(value) ~= "table" or owned[value] ~= nil or depth > WALK_DEPTH then
+            return
+        end
+        owned[value] = {moduleName, path}
+        local keys: {string} = {}
+        for key in pairs(value as any) do
+            if type(key) == "string" then
+                keys[#keys + 1] = key
+            end
+        end
+        table.sort(keys)
+        for _, key in ipairs(keys) do
+            claim((value as any)[key], moduleName, path == "" and key or (path .. "." .. key), depth + 1)
+        end
+    end
+
+    for _, moduleName in ipairs(moduleNames) do
+        claim(package.loaded[moduleName], moduleName, "", 0)
+    end
+
+    return owned
+end
+
+--- The object a written name refers to, or nil when it no longer resolves.
+local function resolveOwned(entry: any): any
+    if type(entry) ~= "table" or type(entry[1]) ~= "string" or type(entry[2]) ~= "string" then
+        return nil
+    end
+    local loaded = package.loaded[entry[1] as string]
+    if loaded == nil then
+        local ok, required = pcall(require, entry[1] as string)
+        if not ok then
+            return nil
+        end
+        loaded = required
+    end
+    local value: any = loaded
+    if entry[2] ~= "" then
+        for part in (entry[2] as string):gmatch("[^%.]+") do
+            if type(value) ~= "table" then
+                return nil
+            end
+            value = value[part]
+        end
+    end
+    if type(value) ~= "table" then
+        return nil
+    end
+
+    return value
+end
+
+-- What a cell holds.
+local SCALAR: integer = 0
+local REFERENCE: integer = 1
+local OWNED: integer = 2
+
+--- Turns the roots into flat plain data, or nil when something in them cannot be.
+---
+--- Nil rather than an error, because a prelude this cannot hold is a prelude that
+--- is computed the slow way -- which is what every command did before this
+--- existed. The alternative, a half-written image, is the one outcome that would
+--- be worse than no cache.
+function preludecache.encode(roots: any): any?
+    local owned = ownedByModules()
+    local identity = types.identity()
+
+    -- Where each interned type lives. A table found here is one the checker will
+    -- look for by key, so it is written out with that key rather than as an
+    -- anonymous copy -- and unlike a module's own furniture, it is walked into,
+    -- because the prelude is what filled it in.
+    local internedAt: {[any]: {string}} = {}
+    for bucket, entries in pairs(identity.arenas) do
+        for key, value in pairs(entries) do
+            if internedAt[value] == nil then
+                internedAt[value] = {bucket, key}
+            end
+        end
+    end
+    local externs: {any} = {}
+    local externIds: {[any]: integer} = {}
+    local ids: {[any]: integer} = {}
+    local tables: {any} = {}
+    local pending: {any} = {}
+    local arenaIds: {[any]: integer} = {}
+    local arenas: {any} = {}
+    local metas: {[integer]: integer} = {}
+    local metaExterns: {[integer]: integer} = {}
+    local triviaOf: {[integer]: integer} = {}
+
+    local function externFor(value: any): integer
+        local known = externIds[value]
+        if known ~= nil then
+            return known
+        end
+        local id = #externs + 1
+        externs[id] = owned[value]
+        externIds[value] = id
+
+        return id
+    end
+
+    local function identify(value: any): nil
+        if type(value) ~= "table" or ids[value] ~= nil then
+            return
+        end
+        -- A module's own furniture is referred to, never rebuilt. An interned type
+        -- is rebuilt even when a module also happens to name it, because its
+        -- members are the prelude's work.
+        if owned[value] ~= nil and internedAt[value] == nil then
+            return
+        end
+        local id = #tables + 1
+        ids[value] = id
+        tables[id] = value
+        pending[#pending + 1] = value
+    end
+
+    local function arenaFor(arena: any): integer?
+        local known = arenaIds[arena]
+        if known ~= nil then
+            return known
+        end
+        local source = (arena as any).source
+        local count = (arena as any).count
+        if type(source) ~= "string" or type(count) ~= "number" then
+            return nil
+        end
+        local records: {number} = {}
+        for index = 1, count as integer do
+            local kind, offset, length, line, col = (arena as any):record(index)
+            local at = #records
+            records[at + 1] = kind
+            records[at + 2] = offset
+            records[at + 3] = length
+            records[at + 4] = line
+            records[at + 5] = col
+        end
+        local id = #arenas + 1
+        arenas[id] = {source = source, records = records}
+        arenaIds[arena] = id
+
+        return id
+    end
+
+    for _, name in ipairs(ROOT_NAMES) do
+        -- A root the compiler already owns would mean the prelude never made one,
+        -- which is not a prelude this knows how to restore.
+        if owned[roots[name]] ~= nil then
+            return nil
+        end
+        identify(roots[name])
+    end
+
+    -- And from the arenas, not only from the roots.
+    --
+    -- Checking the prelude interns types that nothing in its eight roots reaches:
+    -- eleven types, twenty packs and a capability, on the prelude as it stands.
+    -- Reachability is the wrong question to ask about them. An interned type is
+    -- one the checker will later look for by key, and a key that finds nothing is
+    -- a second type built under it -- a different object for a type that is
+    -- supposed to be the same one, which is exactly what interning exists to
+    -- prevent. Left out, they were the whole of a divergence that took sixty test
+    -- cases to show up.
+    for _, entries in pairs(identity.arenas) do
+        for _, value in pairs(entries) do
+            identify(value)
+        end
+    end
+
+    local at: integer = 1
+    while at <= #pending do
+        local owner = pending[at]
+        local id = ids[owner] as integer
+        local trivia = (owner as any).trivia
+        if trivia ~= nil then
+            local arena = arenaFor(trivia)
+            if arena == nil then
+                return nil
+            end
+            triviaOf[id] = arena
+        end
+        for key, value in pairs(owner as any) do
+            if key ~= "trivia" then
+                if not isScalar(key) and type(key) ~= "table" then
+                    return nil
+                end
+                if not isScalar(value) and type(value) ~= "table" then
+                    return nil
+                end
+                identify(key)
+                identify(value)
+            end
+        end
+        local meta = getmetatable(owner)
+        if meta ~= nil then
+            if type(meta) ~= "table" then
+                return nil
+            end
+            if owned[meta] ~= nil and internedAt[meta] == nil then
+                metaExterns[id] = externFor(meta)
+            else
+                identify(meta)
+                metas[id] = ids[meta] as integer
+            end
+        end
+        at = at + 1
+    end
+
+    -- One pass to number, one to write, because a member reached late still has to
+    -- be written as the id it was given.
+    local counts: {integer} = {}
+    local cells: {any} = {}
+    local tags: {integer} = {}
+    local written: integer = 0
+
+    local function writeCell(value: any): nil
+        written = written + 1
+        if owned[value] ~= nil and internedAt[value] == nil then
+            tags[written] = OWNED
+            cells[written] = externFor(value)
+        elseif ids[value] ~= nil then
+            tags[written] = REFERENCE
+            cells[written] = ids[value]
+        else
+            tags[written] = SCALAR
+            cells[written] = value
+        end
+    end
+
+    for id = 1, #tables do
+        local members: integer = 0
+        for key, value in pairs(tables[id] as any) do
+            if key ~= "trivia" then
+                members = members + 1
+                writeCell(key)
+                writeCell(value)
+            end
+        end
+        counts[id] = members
+    end
+
+    local rootIds: {integer} = {}
+    for index, name in ipairs(ROOT_NAMES) do
+        rootIds[index] = ids[roots[name]] or 0
+    end
+
+    local internedAs: {[integer]: {string}} = {}
+    for value, where in pairs(internedAt) do
+        local id = ids[value]
+        if id ~= nil then
+            internedAs[id as integer] = where
+        end
+    end
+
+    return {
+        format = FORMAT,
+        counts = counts,
+        cells = cells,
+        tags = tags,
+        externs = externs,
+        metas = metas,
+        metaExterns = metaExterns,
+        arenas = arenas,
+        triviaOf = triviaOf,
+        internedAs = internedAs,
+        identity = {serial = identity.serial, capability = identity.capability, nominal = identity.nominal,},
+        roots = rootIds,
+        runtime = roots.preludeRuntime,
+    }
+end
+
+--- Builds the roots again from what `encode` wrote, or nil when the image is not
+--- one this understands.
+---
+--- Guarded throughout: the image comes off disk, where anything could have
+--- written it, and every way it can be wrong has the same answer as no image at
+--- all.
+function preludecache.decode(image: any): any?
+    if type(image) ~= "table" or image.format ~= FORMAT then
+        return nil
+    end
+    local counts = image.counts
+    local cells = image.cells
+    local tags = image.tags
+    if type(counts) ~= "table" or type(cells) ~= "table" or type(tags) ~= "table" then
+        return nil
+    end
+
+    local externs: {any} = {}
+    for index, entry in ipairs(image.externs or {}) do
+        local resolved = resolveOwned(entry)
+        -- A name that no longer resolves is a compiler that moved under the image.
+        if resolved == nil then
+            return nil
+        end
+        externs[index] = resolved
+    end
+
+    -- Nothing is written until everything has been checked, because some of what
+    -- gets written to is live: a type the reading process already interned is
+    -- filled in from the image rather than replaced, and an image that turned out
+    -- to be unreadable half way through would leave that type half rewritten.
+    local expected: integer = 0
+    for id = 1, #counts do
+        local members = counts[id]
+        if type(members) ~= "number" or members < 0 then
+            return nil
+        end
+        expected = expected + (members as integer) * 2
+    end
+    if expected ~= #cells or #tags ~= #cells then
+        return nil
+    end
+    for index = 1, #cells do
+        local tag = tags[index]
+        if tag == REFERENCE then
+            local target = cells[index]
+            if type(target) ~= "number" or target < 1 or target > #counts then
+                return nil
+            end
+        elseif tag == OWNED then
+            local target = cells[index]
+            if type(target) ~= "number" or externs[target as integer] == nil then
+                return nil
+            end
+        elseif tag ~= SCALAR then
+            return nil
+        end
+    end
+
+    -- Which object each id is. A key this process already interned answers with
+    -- the type it is already using; everything else is new.
+    --
+    -- And a type that was already there is left exactly as it is. That is what
+    -- `intern` does -- it returns the type in the arena and discards the one its
+    -- caller just built -- and a second environment in one process has to mean the
+    -- same thing whether it checked the prelude or read it.
+    --
+    -- Writing the image's members onto it instead is a rewiring, not a refresh:
+    -- the second environment's members refer to the second environment's copies of
+    -- everything that is not interned, so the first environment's types come away
+    -- pointing into the second environment's graph. The two then disagree about
+    -- what an owned value is, which showed up as a dropped value the checker could
+    -- not see being dropped.
+    local built: {any} = {}
+    local mine: {[integer]: boolean} = {}
+    local adopting: {integer} = {}
+    for id = 1, #counts do
+        local where = (image.internedAs or {})[id]
+        local live = nil
+        if type(where) == "table" and type(where[1]) == "string" and type(where[2]) == "string" then
+            live = types.interned(where[1] as string, where[2] as string)
+            if live == nil then
+                adopting[#adopting + 1] = id
+            end
+        end
+        built[id] = live or {}
+        mine[id] = live == nil
+    end
+
+    local at: integer = 1
+    local function readCell(): any
+        local tag = tags[at]
+        local cell = cells[at]
+        at = at + 1
+        if tag == REFERENCE then
+            return built[cell as integer]
+        elseif tag == OWNED then
+            return externs[cell as integer]
+        end
+
+        return cell
+    end
+
+    for id = 1, #counts do
+        local target = mine[id] and built[id] or nil
+        for _ = 1, counts[id] as integer do
+            local key: any = readCell()
+            local value: any = readCell()
+            if key == nil then
+                return nil
+            end
+            if target ~= nil then
+                target[key] = value
+            end
+        end
+    end
+    for id, meta in pairs(image.metas or {}) do
+        local owner = mine[id as integer] and built[id as integer] or nil
+        local metatable = built[meta as integer]
+        if metatable == nil then
+            return nil
+        end
+        if owner ~= nil then
+            setmetatable(owner, metatable)
+        end
+    end
+    for id, extern in pairs(image.metaExterns or {}) do
+        local owner = mine[id as integer] and built[id as integer] or nil
+        local metatable = externs[extern as integer]
+        if metatable == nil then
+            return nil
+        end
+        if owner ~= nil then
+            setmetatable(owner, metatable)
+        end
+    end
+
+    local rebuilt: {any} = {}
+    for index, arena in ipairs(image.arenas or {}) do
+        if type(arena.source) ~= "string" or type(arena.records) ~= "table" then
+            return nil
+        end
+        local made = triviaarena.new(arena.source)
+        local records = arena.records
+        local count = #records
+        local cursor: integer = 1
+        while cursor + 4 <= count do
+            made:append(
+                records[cursor] as integer,
+                records[cursor + 1] as integer,
+                records[cursor + 2] as integer,
+                records[cursor + 3] as integer,
+                records[cursor + 4] as integer
+            )
+            cursor = cursor + 5
+        end
+        rebuilt[index] = made
+    end
+    for id, arena in pairs(image.triviaOf or {}) do
+        local owner = mine[id as integer] and built[id as integer] or nil
+        local made = rebuilt[arena as integer]
+        if made == nil then
+            return nil
+        end
+        if owner ~= nil then
+            owner.trivia = made
+        end
+    end
+
+    -- Interned last, so a type only enters an arena once it is complete.
+    for _, id in ipairs(adopting) do
+        local where = (image.internedAs or {})[id]
+        types.adopt(where[1] as string, where[2] as string, built[id])
+    end
+    -- And the counters with them, or the next type this process interns is stamped
+    -- with a serial one of these already carries.
+    types.resumeIdentity(image.identity)
+
+    local roots: any = {}
+    for index, name in ipairs(ROOT_NAMES) do
+        local id = (image.roots or {})[index]
+        if id == nil then
+            return nil
+        end
+        roots[name] = id ~= 0 and built[id as integer] or nil
+    end
+    roots.preludeRuntime = image.runtime
+
+    return roots
+end
+
+export = preludecache

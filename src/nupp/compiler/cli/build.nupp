@@ -1,0 +1,485 @@
+module nupp.compiler.cli.build
+
+--[[
+`nupp build`: source files, or a target the manifest configured.
+
+Two shapes with one name. Naming files builds those files and everything they
+require; naming none builds the manifest's default target. The manifest options
+and the file options describe different jobs, so asking for both is refused
+rather than resolved.
+]]
+
+local spec = require("nupp.compiler.cli.spec")
+local optionsMod = require("nupp.compiler.cli.options")
+
+local command = spec.command{
+    name = "build",
+    summary = "Build source files or a configured project target",
+    usage = {
+        "nupp build [--strict] [--dialect DIALECT] [-O<n>] [--target NAME] [--platform NAME|all] [--out-dir DIR]"
+        .. " [-q] [--format text|json]",
+        "nupp build [--strict] [--dialect DIALECT] [-O<n>] [-o DIR] [-q] [--format text|json] <file...>",
+    },
+    options = optionsMod.join(
+        {name = "--target", value = "NAME", help = "Build a named manifest target"},
+        {name = "--platform", value = "NAME", help = "Build one configured binary platform, or all"},
+        -- Two directories, not two spellings of one: --out-dir moves a manifest
+        -- target's output, -o says where a named file's Lua goes. Distinct keys, so
+        -- giving both is a contradiction the command can see.
+        {
+            name = "--out-dir",
+            value = "DIR",
+            key = "projectOutDir",
+            help = "Override the manifest target's output directory"
+        },
+        {name = "-o", value = "DIR", key = "outDir", help = "Output directory for explicit source-file builds"},
+        optionsMod.strict,
+        optionsMod.dialect,
+        optionsMod.optimize(),
+        optionsMod.progress(),
+        optionsMod.format()
+    ),
+    schema = {
+        type = "object",
+        description = "What a build reported and what it produced.",
+        properties = {
+            diagnostics = require("nupp.compiler.cli.report").DIAGNOSTICS,
+            target = {
+                type = "string",
+                description = "The manifest target that was built. Absent for a "
+                .. "build of explicitly named source files."
+            },
+            platform = {type = "string", description = "The selected binary platform for a one-platform build."},
+            dialect = {
+                type = "string",
+                enum = require("nupp.compiler.dialects").names(),
+                description = "The resolved source-lowering dialect."
+            },
+            distributionReady = {
+                type = "boolean",
+                description = "Whether the selected platform output is ready for public distribution."
+            },
+            notice = {type = "string"},
+            platforms = {
+                type = "array",
+                description = "Per-platform outcomes for --platform all.",
+                items = {
+                    type = "object",
+                    properties = {
+                        platform = {type = "string"},
+                        status = {type = "string", enum = {"built", "failed"}},
+                        outputs = {type = "array", items = {type = "string"}},
+                        error = {type = "string"},
+                        distributionReady = {type = "boolean"},
+                        notice = {type = "string"},
+                    },
+                    required = {"platform", "status", "outputs"},
+                },
+            },
+            written = {
+                type = "array",
+                items = {type = "string"},
+                description = "Every output path the build produced, sorted."
+            },
+            artifact = {
+                type = "string",
+                description = "The transportable artifact written by a bundle, binary, or component target."
+            },
+            aotManifest = {
+                type = "string",
+                description = "The packaged Wasm AOT manifest beside the transportable artifact."
+            },
+            materializations = {
+                type = "array",
+                description = "Materialized expressions and their versioned provider and backend facts.",
+                items = {
+                    type = "object",
+                    properties = {
+                        source = {type = "string"},
+                        line = {type = "integer"},
+                        column = {type = "integer"},
+                        provider = {type = "string"},
+                        schema = {type = "integer"},
+                        fingerprint = {type = "string"},
+                        digest = {type = "string"},
+                        backend = {type = "string"},
+                        blueprintSize = {type = "integer"},
+                        generatedSize = {type = "integer"},
+                        runtimeFeatures = {type = "array", items = {type = "string"}},
+                        abis = {type = "object"},
+                    },
+                    required = {
+                        "source",
+                        "line",
+                        "column",
+                        "provider",
+                        "schema",
+                        "fingerprint",
+                        "backend",
+                        "blueprintSize",
+                        "generatedSize",
+                        "runtimeFeatures",
+                        "abis"
+                    },
+                },
+            },
+            derives = {
+                type = "array",
+                description = "Closed derive recipes and their bounded generation facts.",
+                items = {
+                    type = "object",
+                    properties = {
+                        provider = {type = "string"},
+                        owner = {type = "string"},
+                        semanticFingerprint = {type = "string"},
+                        generatedMembers = {type = "integer"},
+                        canonicalBytes = {type = "integer"},
+                        renderedBytes = {type = "integer"},
+                        effects = {type = "array", items = {type = "string"}},
+                        cached = {type = "boolean"},
+                        durationMs = {type = "number"},
+                        generatedLocals = {type = "integer"},
+                        maxGeneratedUpvalues = {type = "integer"},
+                    },
+                    required = {
+                        "provider",
+                        "owner",
+                        "semanticFingerprint",
+                        "generatedMembers",
+                        "canonicalBytes",
+                        "renderedBytes",
+                        "effects",
+                        "cached",
+                        "durationMs",
+                        "generatedLocals",
+                        "maxGeneratedUpvalues"
+                    },
+                },
+            },
+            backends = {
+                type = "array",
+                description = "Checked backend descriptors selected without executing their modules.",
+                items = {
+                    type = "object",
+                    properties = {
+                        name = {type = "string"},
+                        module = {type = "string"},
+                        fingerprint = {type = "string"},
+                        seams = {
+                            type = "array",
+                            items = {
+                                type = "object",
+                                properties = {
+                                    name = {type = "string"},
+                                    version = {type = "integer"},
+                                    effect = {type = "string"},
+                                    effects = {type = "array", items = {type = "string"}},
+                                    binding = {type = "string", enum = {"compile", "runtime"}},
+                                    runtimeModule = {type = "string"},
+                                },
+                                required = {"name", "version", "effect", "effects", "binding", "runtimeModule"},
+                            },
+                        },
+                    },
+                    required = {"name", "module", "fingerprint", "digest", "seams"},
+                },
+            },
+            backendResolution = {
+                type = "array",
+                description = "Exactly the reached seam resolution recorded in generated artifacts; this is not a certification claim.",
+                items = {
+                    type = "object",
+                    properties = {
+                        name = {type = "string"},
+                        version = {type = "integer"},
+                        binding = {type = "string"},
+                        backend = {type = "string"},
+                        backendDigest = {type = "string"},
+                        runtimeModule = {type = "string"},
+                    },
+                    required = {"name", "version", "binding", "backend", "backendDigest", "runtimeModule"},
+                },
+            },
+            timing = {
+                type = "object",
+                description = "Where the build's wall-clock time went. Absent when a "
+                .. "diagnostic stopped the build, since a run that did not finish has no "
+                .. "account of itself to give.",
+                properties = {
+                    totalMs = {type = "number", description = "Wall-clock milliseconds for the whole build."},
+                    compiledModules = {type = "integer"},
+                    reusedModules = {type = "integer"},
+                    phases = {
+                        type = "array",
+                        description = "Every activity that took measurable time, longest "
+                        .. "first. One activity is current at a time, so these sum to the whole.",
+                        items = {
+                            type = "object",
+                            properties = {name = {type = "string"}, durationMs = {type = "number"}},
+                            required = {"name", "durationMs"},
+                        },
+                    },
+                    slowest = {
+                        type = "array",
+                        description = "The costliest modules, longest first, each charged "
+                        .. "for its own checking and generation and not for its dependencies'.",
+                        items = {
+                            type = "object",
+                            properties = {module = {type = "string"}, durationMs = {type = "number"}},
+                            required = {"module", "durationMs"},
+                        },
+                    },
+                },
+                required = {"totalMs", "compiledModules", "reusedModules", "phases", "slowest"},
+            },
+            ok = {
+                type = "boolean",
+                description = "Whether the build completed. False when a " .. "diagnostic stopped it."
+            },
+        },
+        required = {
+            "ok",
+            "diagnostics",
+            "written",
+            "materializations",
+            "derives",
+            "backends",
+            "backendResolution",
+            "dialect"
+        },
+    },
+    detail = [[Manifest target options cannot be combined with explicit source files.
+Use 'nupp tasks' to discover target names and configuration.
+
+The level is part of the build key, so changing it rebuilds rather than
+mixing artifacts compiled at two different levels. See docs/guides/performance.md.
+
+--json reports the same diagnostics as 'nupp check --json' alongside what the
+build wrote, so one call answers both what went wrong and what landed. It also
+reports bounded materialization facts: provider, schema, fingerprint, backend,
+sizes, runtime features and ABI versions, and a timing object saying where the
+build's wall-clock time went and which modules cost the most of it.
+
+To a terminal, a build says which module it is on while it compiles and then
+how long it took, what it spent that on, and its slowest modules. To anything
+else it stays quiet, so a script reading the output sees what it always saw.
+NUPP_PROGRESS says what --progress says, for the builds nothing passes a flag
+to -- including the rebuild bin/nupp runs before every other command.]],
+}
+
+-- Whether the manifest declares a target by this name. Asked only about a positional
+-- that is not a file, so an ordinary build never reads the manifest to find out.
+local function configuredTarget(name: string): boolean
+    local project = require("nupp.compiler.build.project")
+    local config = project.loadManifest(".")
+    local targets = config and config.build and config.build.targets or {}
+
+    return targets[name] ~= nil
+end
+
+local function run(parsed: any): integer
+    local values = parsed.values
+    local paths: {string} = parsed.positional
+    -- `-o` and `--out-dir` both name a directory but answer different questions, so
+    -- they are separate keys rather than aliases of one.
+    local outDir, projectOutDir = values.outDir, values.projectOutDir
+    local target = values.target
+    if #paths > 0 and (projectOutDir or target or values.platform) then
+        return command:usageError("--target, --platform and --out-dir cannot be used with explicit source files")
+    end
+    if #paths == 0 and outDir then
+        return command:usageError("-o requires at least one explicit source file")
+    end
+    -- A positional is a source file, and a target is named with `--target`. `nupp build
+    -- docs` reads as the first and means the second, so the two are told apart here
+    -- rather than several steps later, where the manifest is out of reach and all that
+    -- is left to report is that a directory did not read as a module.
+    for _, path in ipairs(paths) do
+        if not nupp.io.files.isFile(path) and configuredTarget(path) then
+            return command:usageError(
+                ("%s names a build target rather than a source file; build it with --target %s"):format(path, path)
+            )
+        end
+    end
+    local reportMod = require("nupp.compiler.cli.report")
+    local asJson = values.format == "json"
+    -- Under --json the diagnostics belong in the document rather than on stderr as they
+    -- are found, so both build shapes are handed somewhere to put them.
+    local diagnostics: {any} = {}
+    local compile = require("nupp.compiler.cli.compile")
+    local settings = compile.settings(values, asJson and diagnostics or nil)
+    local selectedDialect = settings.dialect
+    -- The same timing either way, and no narration when the reader is a program: it
+    -- gets the numbers in the document it asked for. Naming --progress explicitly
+    -- overrules that, which is how somebody watching a --json build sees it move.
+    local progressMode = values.progress or (asJson and "never" or nil)
+    local materializations: {any} = {}
+    local derives: {any} = {}
+    local selectedBackends: {any} = {}
+    local reachedBackends: {any} = {}
+    local function finish(
+        code: integer,
+        builtTarget: any,
+        outputs: {string},
+        observed: {any}?,
+        observedDerives: {any}?,
+        timing: any?,
+        selectedPlatform: string?,
+        platformResults: {any}?,
+        distributionReady: boolean?,
+        notice: string?,
+        artifact: string?,
+        aotManifest: string?
+    ): integer
+        if asJson then
+            reportMod.write({
+                ok = code == 0,
+                diagnostics = reportMod.diagnosticValues(diagnostics),
+                target = builtTarget,
+                dialect = selectedDialect,
+                platform = selectedPlatform,
+                platforms = platformResults,
+                distributionReady = distributionReady,
+                notice = notice,
+                written = outputs,
+                artifact = artifact,
+                aotManifest = aotManifest,
+                materializations = observed or materializations,
+                derives = observedDerives or derives,
+                backends = selectedBackends,
+                backendResolution = reachedBackends,
+                timing = code == 0 and timing or nil,
+            })
+        end
+
+        return code
+    end
+
+    if #paths == 0 then
+        local project = require("nupp.compiler.build.project")
+        local produced: {[string]: any} = {}
+        local code = project.build(".", {
+            outDir = projectOutDir,
+            target = target,
+            platform = values.platform,
+            dialect = values.dialect,
+            strict = settings.strict,
+            optLevel = settings.optLevel,
+            remarks = settings.remarks,
+            disabled = settings.disabled,
+            relaxed = settings.relaxed,
+            diagnostics = asJson and diagnostics or nil,
+            produced = asJson and produced or nil,
+            progress = progressMode
+        })
+        selectedBackends = produced.backends or {}
+        reachedBackends = produced.backendResolution or {}
+        selectedDialect = produced.dialect or selectedDialect
+        return finish(
+            code,
+            produced.target,
+            produced.outputs or {},
+            produced.materializations,
+            produced.derives,
+            produced.timing,
+            produced.platform,
+            produced.platforms,
+            produced.distributionReady,
+            produced.notice,
+            produced.artifact,
+            produced.aotManifest
+        )
+    end
+    local process = require("nupp.compiler.build.process")
+    if outDir and process.run(process.mkdirCommand(outDir)) ~= 0 then
+        io.stderr:write("nupp: cannot create output directory " .. outDir .. "\n")
+        return finish(1, nil, {}, materializations, derives)
+    end
+    local env = require("nupp.compiler.env").new(".")
+    settings.materializations = materializations
+    settings.derives = derives
+    -- The file shape has no module graph to count through, since what it will reach is
+    -- discovered by reaching it, so its reporter names files as it gets to them and
+    -- leaves the counter off.
+    local progressMod = require("nupp.compiler.build.progress")
+    local report = progressMod.new(progressMode)
+    local failed = false
+    local written: {[string]: boolean} = {}
+    local outputs: {string} = {}
+    local function emitModule(path: string): boolean
+        if written[path] then
+            return true
+        end
+        written[path] = true
+        report:at("compile")
+        report:step("compiling " .. path)
+        local startedAt = progressMod.now()
+        local code = compile.module(path, env, settings)
+        report:spent(path, progressMod.now() - startedAt)
+        report:resolved()
+        if not code then
+            report:clear()
+            return false
+        end
+        local outPath: string
+        if outDir then
+            local base = path:match("([^/\\]+)%.g%.nupp$") or path:match("([^/\\]+)%.nupp$") or path
+            outPath = outDir .. "/" .. base .. ".lua"
+        else
+            outPath = path:gsub("%.g%.nupp$", ""):gsub("%.nupp$", "") .. ".lua"
+        end
+        local out, err = io.open(outPath, "wb")
+        if not out then
+            io.stderr:write("nupp: " .. tostring(err) .. "\n")
+            return false
+        end
+        report:at("write")
+        out:write(code)
+        out:close()
+        outputs[#outputs + 1] = outPath
+
+        return true
+    end
+
+    for _, path in ipairs(paths) do
+        if not emitModule(path) then
+            failed = true
+        end
+    end
+
+    -- Building an entry builds what it requires: checking the entry populated the
+    -- environment with every module it reached, and each of those needs generated Lua
+    -- of its own to be loadable at runtime. Declaration files (.d.nupp) describe an
+    -- interface and emit nothing.
+    local pending = true
+    while pending do
+        pending = false
+        local reached: {string} = {}
+        for _, record in pairs(env.loaded or {}) do
+            if record.path then
+                reached[#reached + 1] = record.path
+            end
+        end
+        table.sort(reached)
+        for _, path in ipairs(reached) do
+            if path:match("%.nupp$") and not path:match("%.d%.nupp$") and not written[path] then
+                pending = true
+                if not emitModule(path) then
+                    failed = true
+                end
+            end
+        end
+    end
+    table.sort(outputs)
+    report:counted(#outputs, 0)
+    -- A build that stopped on a diagnostic has already said what is wrong with the
+    -- program, and how long it took to find out is not the answer anybody is waiting
+    -- for.
+    if not failed then
+        report:finish("built")
+    end
+
+    return finish(failed and 1 or 0, nil, outputs, materializations, derives, report:timing())
+end
+
+export = new spec.Handler(spec = command, run = run)

@@ -1,0 +1,22 @@
+@!internal
+module nupp.runtime.seam.pathsuite
+
+local suite = {}
+
+function suite.test(provider: any): (boolean, string?)
+    local ok, problem = pcall(function()
+        local separator = provider.separator()
+        assert(separator == "/" or separator == "\\", "separator must describe the host path syntax")
+        local current, currentReason = provider.currentDirectory()
+        assert(current ~= nil or type(currentReason) == "string", "currentDirectory must answer text or a reason")
+        local canonical, canonicalReason = provider.canonicalize(".")
+        assert(canonical ~= nil or type(canonicalReason) == "string", "canonicalize must answer text or a reason")
+    end)
+    if not ok then
+        return false, tostring(problem)
+    end
+
+    return true
+end
+
+export = suite

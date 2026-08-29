@@ -1,0 +1,33 @@
+-- Derives on a page. Both bundled recipes render by appending into a buffer, which
+-- is LuaJIT's module and not this target's, so what this exercises is the
+-- `text.buffer` provider the browser backend selects underneath them.
+
+local json = require("nupp.data.json")
+
+@derive(nupp.derive.Debug, nupp.derive.JSON)
+local record Reading
+    @json(name = "sensor_id")
+    id: integer
+
+    label: string = "unnamed"
+    samples: {integer} = {}
+end
+
+local reading = new Reading(id = 7, label = "intake", samples = {3, 1, 4})
+local encoded = json.encodeRecord(reading)
+local decoded, problem = Reading.fromJSON(encoded)
+assert(decoded ~= nil, tostring(problem))
+-- A field the document does not carry is the recipe's default rather than absent,
+-- and a required one that is missing is a reported failure rather than a nil field.
+local defaulted = Reading.fromJSON([[{"sensor_id":9}]])
+local missing, why = Reading.fromJSON([[{"label":"nameless"}]])
+
+return json.encode({
+    encoded = encoded,
+    debug = reading:debug(),
+    roundTripped = (decoded as Reading):debug(),
+    defaultedLabel = defaulted ~= nil and (defaulted as Reading).label or "<absent>",
+    missingRefused = missing == nil and why ~= nil,
+    -- The buffer has to survive being reused rather than only being allocated once.
+    repeated = json.encodeRecord(reading) == encoded,
+})

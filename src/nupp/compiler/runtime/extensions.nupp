@@ -1,0 +1,97 @@
+@!internal
+
+module nupp.compiler.runtime.extensions
+
+--[[
+Typed, lazy derived data for immutable run-time descriptors.
+
+An extension key owns the provider and its result type. Every key receives a dense,
+process-local slot when it is created. Hosts keep slot-indexed caches in a side table,
+so neither the provider nor its process-local result becomes a public field on the
+host. Schema and binding use this directly; reflection delegates to the same state
+machine while retaining its existing public descriptor surface.
+]]
+
+local extensions = {}
+local states: any = setmetatable({}, {__mode = "k"})
+local legacySlots: any = setmetatable({}, {__mode = "k"})
+local nextSlot: integer = 0
+
+local function allocateSlot(): integer
+    nextSlot = nextSlot + 1
+    return nextSlot
+end
+
+--- A typed identity and provider for lazily derived host data.
+--- @export
+record extensions.Key<T>
+    -- Slots identify metadata only inside this process. They may change when
+    -- module initialization order changes and must never become persistent or
+    -- wire identities.
+    private readonly slot: integer
+    private readonly build: function(host: any): T
+end
+
+--- Creates a typed extension key.
+--- @export
+function extensions.key<T>(build: function(host: any): T): nupp.reflect.ExtensionKey<T>
+    return new extensions.Key(slot = allocateSlot(), build = build) as any as nupp.reflect.ExtensionKey<T>
+end
+
+--- Registers an immutable object as an extension host.
+--- @internal
+function extensions.host(value: any): any
+    if states[value] == nil then
+        states[value] = {values = {}}
+    end
+    return value
+end
+
+--- Computes a typed extension once or answers the cached result.
+---
+--- Failures are cached too. Re-entering the same key while it is initializing is an
+--- error rather than unbounded recursion.
+--- @raises when the host is foreign, initialization recurs, or the provider fails
+--- @internal
+function extensions.resolve<T>(host: any, key: nupp.reflect.ExtensionKey<T>): T
+    local state = states[host]
+    if state == nil then
+        error("nupp: value is not an extension host", 2)
+    end
+    -- Reflection extensions predate typed keys and remain ordinary identity
+    -- tables. Assign those a slot lazily so every host cache still has one dense
+    -- representation while old extension providers retain their identity.
+    local token: any = key
+    local slot = token.slot as integer?
+    if slot == nil then
+        slot = legacySlots[token]
+        if slot == nil then
+            slot = allocateSlot()
+            legacySlots[token] = slot
+        end
+    end
+    local index = slot as integer
+    local cached: any = state.values[index]
+    if cached ~= nil then
+        if cached.state == "ready" then
+            return cached.value as T
+        elseif cached.state == "failed" then
+            error(cached.error, 2)
+        end
+        error("nupp: recursive extension initialization", 2)
+    end
+    local initializing: any = {state = "initializing"}
+    state.values[index] = initializing
+    local ok, value = pcall(token.build, host)
+    if not ok then
+        initializing.state = "failed"
+        initializing.error = tostring(value)
+        error(initializing.error, 2)
+    end
+    initializing.state = "ready"
+    initializing.value = value
+
+    return value as T
+end
+
+export = extensions

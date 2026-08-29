@@ -1,0 +1,20 @@
+local crypto = require("nupp.browser.crypto")
+local storage = require("nupp.browser.storage")
+local time = require("nupp.time")
+local json = require("nupp.data.json")
+
+local started = time.now()
+time.sleep(10)
+
+local key = crypto.uuid4()
+local digest = crypto.sha256(crypto.randomBytes(32))
+storage.set(key, digest)
+local stored = storage.get(key)
+storage.remove(key)
+
+return json.encode({
+    project = "${name}",
+    elapsedMilliseconds = time.now() - started,
+    digest = digest,
+    persisted = stored == digest,
+})

@@ -1,0 +1,21 @@
+local http = require("nupp.io.http")
+local json = require("nupp.data.json")
+local uri = require("nupp.io.uri")
+
+local client = new http.Client()
+local request = new http.Request(
+    url = assert(uri.newURI("http://127.0.0.1:8791/http-response.json")),
+    headers = {accept = "application/json"} as {string: string},
+    maxBytes = 4096
+)
+local response, sendProblem = client:send(request)
+if response == nil then
+    error(sendProblem or "browser HTTP request failed")
+end
+local body = assert(response.body:read(4096))
+local result = json.encode({status = response.status, contentType = response:header("content-type"), body = body,})
+response:close()
+request:close()
+client:close()
+
+return result

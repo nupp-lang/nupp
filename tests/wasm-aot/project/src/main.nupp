@@ -1,0 +1,77 @@
+local wasm = require("nupp.wasm")
+local valuebuilder = require("nupp.data.valuebuilder")
+local wasmProvider = require("nupp.runtime.provider.wasmstorage")
+local wasmSuite = require("nupp.runtime.seam.wasmsuite")
+
+local seamOk, seamWhy = wasmSuite.test(wasmProvider)
+assert(seamOk, seamWhy)
+
+local function u32(value: integer): uint32
+    return nupp.math.u32.wrap(value)
+end
+
+@aot(lanes = false)
+local function copyString(source: string, nullValue: any): any
+    local length = valuebuilder.length(source)
+    local builder = valuebuilder.new(nullValue)
+    local scratch = valuebuilder.newByteScratch(length)
+    local index: uint32 = u32(0)
+    while index < length do
+        valuebuilder.setScratchByte(scratch, index, valuebuilder.byte(source, index))
+        index = nupp.math.u32.add(index, u32(1))
+    end
+    valuebuilder.stringScratch(builder, scratch, u32(0), length)
+
+    return valuebuilder.finish(builder)
+end
+
+@aot(lanes = false)
+local function describe(name: string, count: integer): {[string]: any}
+    return {name = name, count = count, values = {1, 2, 3}}
+end
+
+assert(copyString("Lua-builder in Wasm", nil) == "Lua-builder in Wasm")
+assert(copyString("", nil) == "")
+local description = describe("wasm", 3)
+assert(description.name == "wasm" and description.count == 3 and description.values[3] == 3)
+
+local struct Sample
+    value: float
+    bias: number
+    weight: float
+end
+
+@aot(lanes = false)
+local function scale(
+    exclusive output: wasm.WriteSpan<Sample>,
+    borrows input: wasm.Span<Sample>,
+    factor: number,
+    enabled: boolean
+): nil
+    if #output ~= #input then
+        error("length mismatch", 2)
+    end
+    for index = 1, #output do
+        if enabled then
+            output[index].value = input[index].value * factor
+            output[index].bias = input[index].bias + factor
+            output[index].weight = input[index].weight + factor
+        end
+    end
+end
+
+local input = wasm.array(new Sample(), 3)
+local inputRows = input:write()
+inputRows[1] = new Sample(2, 10, 1)
+inputRows[2] = new Sample(3, 20, 4)
+inputRows[3] = new Sample(5, 30, 7)
+inputRows:drop()
+
+local output = wasm.array(new Sample(), 3)
+scale(output:write(), input:read(), 2, true)
+
+local rows = output:read()
+assert(#rows == 3)
+assert(rows[1].value == 4 and rows[1].bias == 12 and rows[1].weight == 3)
+assert(rows[2].value == 6 and rows[2].bias == 22 and rows[2].weight == 6)
+assert(rows[3].value == 10 and rows[3].bias == 32 and rows[3].weight == 9)

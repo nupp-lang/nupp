@@ -1,0 +1,96 @@
+"use strict";
+
+const fs = require("fs");
+const path = require("path");
+const { execFileSync } = require("child_process");
+
+const root = path.resolve(__dirname, "..");
+const jsonFiles = [
+  "package.json",
+  "language-configuration.json",
+  "syntaxes/nupp.tmLanguage.json"
+];
+
+const parsedJson = new Map();
+for (const relative of jsonFiles) {
+  parsedJson.set(
+    relative,
+    JSON.parse(fs.readFileSync(path.join(root, relative), "utf8"))
+  );
+}
+
+const languageConfig = parsedJson.get("language-configuration.json");
+new RegExp(languageConfig.wordPattern);
+for (const pattern of Object.values(languageConfig.indentationRules)) {
+  new RegExp(pattern);
+}
+
+const manifest = require(path.join(root, "package.json"));
+if (manifest.contributes.configurationDefaults?.["[nupp]"]?.["editor.semanticHighlighting.enabled"] !== false) {
+  throw new Error("NUPP must use grammar highlighting by default");
+}
+if (manifest.icon !== "icon.png") {
+  throw new Error("extension icon must be icon.png");
+}
+const icon = fs.readFileSync(path.join(root, manifest.icon));
+if (icon.toString("ascii", 1, 4) !== "PNG") {
+  throw new Error("extension icon must be a PNG");
+}
+const iconWidth = icon.readUInt32BE(16);
+const iconHeight = icon.readUInt32BE(20);
+if (iconWidth !== iconHeight || iconWidth < 128) {
+  throw new Error("extension icon must be square and at least 128 pixels");
+}
+const language = manifest.contributes.languages.find(({ id }) => id === "nupp");
+if (!language || language.icon?.light !== "./nupp.svg"
+  || language.icon?.dark !== "./nupp.svg") {
+  throw new Error("NUPP language must use nupp.svg for light and dark themes");
+}
+const grammars = manifest.contributes.grammars || [];
+if (!grammars.some(({ language, scopeName }) => language === "nupp" && scopeName === "source.nupp")) {
+  throw new Error("NUPP must register source.nupp as its primary grammar");
+}
+for (const scopeName of [
+  "source.nupp.embedded.json",
+  "source.nupp.embedded.glsl",
+  "source.nupp.embedded.lua"
+]) {
+  if (grammars.find((grammar) => grammar.scopeName === scopeName)?.language) {
+    throw new Error(`embedded grammar must not register as the NUPP language: ${scopeName}`);
+  }
+}
+const semanticScopes = manifest.contributes.semanticTokenScopes || [];
+const nuppSemanticScopes = semanticScopes.find(({ language }) => language === "nupp");
+const semanticTypes = manifest.contributes.semanticTokenTypes || [];
+if (!semanticTypes.some(({ id }) => id === "nuppKeyword")) {
+  throw new Error("NUPP must declare its keyword semantic token type");
+}
+if (!nuppSemanticScopes?.scopes?.nuppKeyword?.includes("keyword.control.nupp")) {
+  throw new Error("NUPP semantic keywords must map to the grammar keyword scope");
+}
+const languageIcon = fs.readFileSync(path.join(root, "nupp.svg"), "utf8");
+if (!languageIcon.startsWith("<?xml") || !languageIcon.includes("<svg")) {
+  throw new Error("NUPP language icon must be an SVG");
+}
+const launchSettings = manifest.contributes.configuration.properties;
+for (const name of [
+  "nupp.serverPath",
+  "nupp.serverArgs",
+  "nupp.serverCwd",
+  "nupp.serverEnvironment"
+]) {
+  if (!launchSettings[name]) {
+    throw new Error(`missing launch setting: ${name}`);
+  }
+}
+for (const relative of manifest.files) {
+  if (!fs.existsSync(path.join(root, relative))) {
+    throw new Error(`package file does not exist: ${relative}`);
+  }
+}
+
+for (const relative of ["extension.js", "dist/extension.js"]) {
+  execFileSync(process.execPath, ["--check", path.join(root, relative)], {
+    stdio: "inherit"
+  });
+}

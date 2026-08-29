@@ -1,0 +1,1900 @@
+module nupp.io.process
+
+--[[
+Starts a child process and drains its streams without deadlocking.
+
+```nupp
+local process = require("nupp.io.process")
+
+local child = new process.Process({args = {"cc", "--version"}})
+local result = assert(child:communicate())
+print(result.output)
+child:close()
+```
+
+A child and its streams are owners. See
+[ownership.md](docs/type-system/ownership.md) for the contract they are handed
+out under, and [0005-suspension.md](docs/neps/0005-suspension.md) for why
+waiting is a suspension rather than a block.
+]]
+
+local suspension = require("nupp.suspension")
+local time = require("nupp.time")
+local ffi = require("ffi")
+local span = require("nupp.mem.span")
+local ffiString: function(borrows source: const uint8[?], count: integer): string = ffi.string as any
+
+-- Two vocabularies share this module because nothing wants one without the other.
+-- The caller-facing half is tecs's surface, deliberately, so that `tecs.io.Process`
+-- call sites compile against this module with the import changed and nothing else.
+-- `Backend` is the other: the smallest set of operations a platform has to answer.
+-- Nothing in the caller-facing half may mention an operating-system handle, error
+-- number or signal, because a caller that has to know which platform it is on has been
+-- handed a leak.
+local process = {}
+
+--- Where a stream goes: a pipe this process reads or writes, the parent's own
+--- stream, or nothing at all.
+type process.StreamMode = "pipe" | "inherit" | "null"
+
+--- Where standard error goes, which adds the option to join standard output.
+type process.ErrorMode = "pipe" | "inherit" | "null" | "stdout"
+
+--- How a child was asked to be started.
+type process.Options = {
+    --- The program in `args[1]`, then its arguments. A program with no separator in
+    --- it is resolved through `PATH` by the platform, not by this module.
+    args: {string},
+
+    --- The child's working directory, or nil to inherit this one.
+    cwd: (string | nupp.io.path.Path)?,
+
+    --- Variables overlaid on the inherited environment, or the whole environment
+    --- when `clearEnv` is set.
+    env: {[string]: string}?,
+
+    --- Whether to start from an empty environment rather than this process's.
+    clearEnv: boolean?,
+
+    --- Where the child's standard input comes from, `"pipe"` by default.
+    stdin: process.StreamMode?,
+
+    --- Where the child's standard output goes, `"pipe"` by default.
+    stdout: process.StreamMode?,
+
+    --- Where the child's standard error goes, `"pipe"` by default.
+    stderr: process.ErrorMode?,
+
+    --- Kill the child after this many milliseconds. The clock starts when it is
+    --- created, not when it is first waited on.
+    timeoutMs: integer?
+}
+
+--- Controls a complete duplex exchange.
+type process.CommunicateOptions = {
+    --- Complete standard input.
+    ---
+    --- Omitted input sends EOF immediately.
+    input: (string | nupp.io.Buffer | nupp.io.ByteView)?,
+
+    --- Maximum stdout and stderr bytes together.
+    ---
+    --- Defaults to 256 MiB.
+    maxOutputBytes: integer?
+}
+
+--- How a child ended.
+record process.Exit
+    --- The status it exited with. Zero conventionally means success, and
+    --- `succeeded` is the question worth asking instead.
+    exitCode: integer
+
+    --- Whether it was terminated rather than exiting on its own.
+    killed: boolean
+
+    --- Whether it was terminated because its deadline passed.
+    timedOut: boolean
+
+    --- Exited on its own with status zero. A killed child never succeeded, whatever
+    --- status the platform reported for it.
+    succeeded: function(process.Exit): boolean
+end
+
+--- A completed duplex exchange.
+record process.Result
+    --- How the child ended.
+    exit: process.Exit
+
+    --- Captured standard output.
+    output: string
+
+    --- Captured standard error.
+    errorOutput: string
+
+    --- Whether the child exited normally with status zero.
+    function succeeded(self): boolean
+        return self.exit:succeeded()
+    end
+end
+
+--- The things one wait can be advanced by.
+---
+--- A child handle on its own does not say. "The child has exited", "its stdout has
+--- bytes" and "its stdin will take some" are three different questions, and a platform
+--- asked the wrong one answers immediately and forever rather than sleeping: stdout
+--- nobody is reading is *permanently* ready, so a wait-for-exit that also asked about
+--- it would spin at full speed until the child happened to finish.
+---
+--- So each wait says what would actually let its own caller continue. Draining
+--- everything at once asks about all three; waiting for the child to end asks only
+--- about the child, and accepts that a caller who does that without reading the output
+--- can fill a pipe and stall, which is why `communicate` exists.
+record process.Interest
+    --- The child, when its termination is one of the things being waited for, and nil
+    --- when this wait would not be advanced by it.
+    child: any?
+
+    --- Stream handles this wait wants bytes from.
+    read: {any}
+
+    --- Stream handles this wait wants to put bytes into.
+    write: {any}
+end
+
+--- The operations a platform must answer, in bytes and opaque handles and no
+--- policy.
+---
+--- Everything above it is written once against it: the lifecycle, draining two pipes
+--- without deadlocking, deadlines, and what `communicate` means. Letting providers
+--- differ in more than spawning and reading would end up with two of every bug.
+---
+--- Every operation is non-blocking except `waitReady`, and that one exists precisely so
+--- that the blocking case is a deliberate call rather than a loop. Waiting is otherwise
+--- the state machine's business: it suspends, so a caller inside a scheduler keeps its
+--- frame, which is only possible while the backend is not blocking on its behalf.
+record process.Backend
+    --- Starts a child. Answers an opaque handle and the streams that were piped,
+    --- each an opaque stream handle or nil for a mode that made none.
+    spawn: function(process.Backend, process.Options): (any?, any?, any?, any?, integer, string?)
+
+    --- Whether the child has ended, and how. Answers nil while it is still running,
+    --- so a caller can tell "not yet" from "exited with 0".
+    poll: function(process.Backend, any): (process.Exit?)
+
+    --- Asks the child to end, or insists.
+    kill: function(process.Backend, any, boolean): nil
+
+    --- Reads what is available without waiting, at most `limit` bytes. Answers the
+    --- bytes, or "" when nothing is ready, or nil at end of stream.
+    ---
+    --- `limit` is always one or more; the state machine normalizes what its callers
+    --- ask for, so a backend never converts a zero or a negative into a buffer size.
+    ---
+    --- The limit is part of the seam rather than something above it, because the
+    --- contract above promises one: `nupp.io.Reader.read(count)` answers at most
+    --- `count` bytes, and a platform that always handed back whatever a pipe held would
+    --- leave the completion-oriented method holding a surplus buffer of its own.
+    --- That is a second place where bytes wait, with its own emptiness to reason
+    --- about, and it works around a limit the kernel accepts perfectly well.
+    read: function(process.Backend, any, integer): (string?)
+
+    --- Writes what it can without waiting. Answers how many bytes went, and whether
+    --- the far end is gone.
+    ---
+    --- Zero bytes has two meanings and they are opposites: the pipe is full and will
+    --- take more later, or nobody is reading and it never will. A backend that reports
+    --- only the count leaves a writer unable to tell waiting from finished, so it waits
+    --- forever. The second result separates them. The native backend turns libuv's
+    --- closed-pipe result into `gone`, without exposing the platform-specific error or
+    --- installing process-wide signal policy. Once it is true, the bytes reported
+    --- alongside it are the last that will ever go.
+    write: function(process.Backend, any, string): (integer, boolean)
+
+    --- Closes one stream.
+    ---
+    --- Idempotent. Answers whether the native stream is *released*, and separately
+    --- why the attempt complained. Those are two facts: cleanup can give ownership up
+    --- and still have something to report.
+    ---
+    --- So: `(true, nil)` closed cleanly; `(true, reason)` released but the platform
+    --- complained, which is to be reported and never retried; and `(false, reason)`
+    --- still ours and worth another attempt.
+    ---
+    --- A backend that cannot tell these apart must say released, because retrying a
+    --- handle that may already have been returned is unsafe.
+    ---
+    --- **Never raises.** This and `reap` are return-only, and that is a contract rather
+    --- than a preference: an error carries no release state, so a caller that catches
+    --- one knows something went wrong and nothing about whether the stream is still
+    --- theirs, which is exactly the fact it needs to decide whether trying again is
+    --- safe or catastrophic. Every outcome, including a failure the backend did not
+    --- expect, comes back as `(released, reason)`.
+    ---
+    --- A backend that raises anyway has broken this, and the state machine assumes the
+    --- stream was released, because retrying an unknown handle is the worse outcome.
+    closeStream: function(process.Backend, any): (boolean, string?)
+
+    --- Releases the child's own resources once it has ended.
+    ---
+    --- Answers released and reason, on exactly the terms `closeStream` does, and for
+    --- the same reason: a native child handle may be released only once, so a caller
+    --- has to know whether this one is still theirs to ask about.
+    ---
+    --- **Never raises**, on exactly the terms `closeStream` does not, and a backend
+    --- that does is read as having released the child.
+    reap: function(process.Backend, any): (boolean, string?)
+
+    --- Milliseconds on a monotonic clock, for deadlines. The backend owns this
+    --- because a platform's monotonic clock is a platform's business.
+    now: function(process.Backend): number
+
+    --- Blocks until something in `interest` could have changed, or `timeoutMs` passes.
+    --- Answers how many things became ready, which may be zero.
+    ---
+    --- The one operation here that is allowed to block, and it exists so that a caller
+    --- with no scheduler does not spin. Every other operation is non-blocking because
+    --- waiting belongs to the state machine; *this* is the state machine asking the
+    --- platform to wait efficiently on its behalf. The native backend runs one
+    --- bounded turn of the libuv loop rather than polling in a loop.
+    ---
+    --- Never called while a suspension handler is installed. Under a scheduler the
+    --- frame must keep running, so the state machine parks instead and the handler
+    --- decides when to come back.
+    ---
+    --- `timeoutMs` is a Nupp number and reaches a platform as a fixed-width integer,
+    --- so a backend converts it. Clamp before converting, not after. A negative can
+    --- be repaired on the far side, since it is a deadline already passed and means
+    --- no wait. A number too large to fit has already wrapped or truncated by the
+    --- time anything over there sees it, and what arrives may be a short wait, a long
+    --- one, or a negative meaning forever. Nothing downstream can tell which.
+    waitReady: function(process.Backend, process.Interest, number): integer
+end
+
+-- Declared ahead of the records, whose method bodies reach them.
+-- How many bytes one read asks for. Large enough that a busy pipe empties in a pass or
+-- two, small enough that a quiet one costs a small buffer rather than a large one.
+local READ_LIMIT: integer = 65536
+
+--- @raises when value is not a positive integer
+local function positive(value: integer, what: string, level: integer): integer
+    if value ~= math.floor(value) or value < 1 then
+        error("nupp: " .. what .. " must be a positive integer", level)
+    end
+
+    return value
+end
+
+local function spanString(borrows source: span.ByteSpan): string
+    local pointer = source:ref()
+    return ffiString(pointer, #source)
+end
+
+local progressed, releasePump, await, awaitTick, pumpOnce, readForCompletion
+local validateOptions: function(options: process.Options): nil
+local nativeBackend: function(): process.Backend
+
+-- The backend `new process.Process(...)` uses, installed by whichever platform module
+-- is loaded. Kept internal: a caller naming its platform is a caller that has to change
+-- when it moves to another one.
+local defaultBackend: process.Backend? = nil
+
+--- One of a child's readable streams.
+---
+--- Its blocking `read` and its nonblocking `poll` are both here on purpose. A caller
+--- draining several streams at once cannot use the blocking form on any of them,
+--- because waiting on one is exactly what starves the others, which is the whole
+--- reason `communicate` can drain three pipes without deadlocking.
+---
+--- The completion-oriented `nupp.io.Reader` methods are the public tecs-compatible
+--- surface. `poll` remains alongside them as the concrete nonblocking operation the
+--- combined drain needs; generic readers are not widened with readiness operations.
+---
+--- The tolerance that does exist is narrow and worth naming exactly: closing the same
+--- *live opaque handle* twice is harmless, because the second call finds the stream
+--- already released and says so. Destroying a handle while a borrowed reference
+--- still exists leaves that reference reading freed memory, which no amount of care
+--- at the call site can make safe.
+---
+--- Borrowing the record through `asReader` keeps a single owner and makes its lifetime
+--- a question about Nupp values, which the checker can answer.
+record process.Reader is nupp.io.Reader
+    owner: any
+    handle: any
+    closed: boolean
+    eof: boolean
+
+    --- Maximum time one completion-oriented read may wait.
+    timeoutMs: integer
+
+    --- Whether the far end has finished.
+    function isEOF(self): boolean
+        return self.eof
+    end
+
+    --- Whether this end has been closed.
+    function isClosed(self): boolean
+        return self.closed
+    end
+
+    --- Closes this end.
+    ---
+    --- Idempotent. `closed` follows ownership rather than success. A backend that gave
+    --- the stream up and then complained has still given it up, so this end is shut and
+    --- the complaint is only reported; one that kept the stream leaves this end open.
+    ---
+    --- @raises when the platform reported a problem, released or not
+    function release(self): nil
+        if self.closed then
+            return
+        end
+        -- `closeStream` is return-only, so a raise is a backend breaking its contract
+        -- rather than an outcome. Since an error says nothing about whether the
+        -- stream is still ours, the safe reading is that it is gone: retaining one
+        -- native handle is a bounded cost, and retrying a returned handle is not.
+        local ok, released, why = pcall(function(): (boolean?, string?)
+            return self.owner.backend:closeStream(self.handle)
+        end)
+        if not ok then
+            self.closed = true
+            error(
+                (
+                    "nupp: closing a process stream raised: %s"
+                ):format(released == nil and "without saying why" or tostring(released)),
+                0
+            )
+        end
+        -- Set before the raise below, and deliberately: the error is what happened,
+        -- `closed` is what is now true, and the second outlives the first.
+        self.closed = released == true
+        if why == nil and released ~= true then
+            -- A refusal that named no reason. The contract asks for one, but a caller
+            -- returning here believing the stream shut is the worst of the outcomes
+            -- available, so the boundary supplies what the backend did not.
+            why = "the platform did not release the process stream and did not say why"
+        end
+        if why ~= nil then
+            -- `release` is the internal ownership operation and answers nothing. Its
+            -- public `close` terminal lets the raise propagate; teardown is already
+            -- prepared to catch it here.
+            error(("nupp: could not close a process stream: %s"):format(why), 0)
+        end
+    end
+
+    --- Takes whatever is available without waiting: the bytes, `""` when nothing is
+    --- ready yet, or nil at end of stream.
+    ---
+    --- The non-blocking half of reading, which `communicate` needs so that one quiet
+    --- stream does not stop it serving another.
+    --- `limit` caps how many bytes to take, defaulting to a whole pipe's worth. It is
+    --- here because the shared `nupp.io.Reader` promises "at most `count`". Without the
+    --- limit its completion-oriented method would have to keep surplus bytes beside
+    --- this record, giving end of stream and closedness two homes. One place decides
+    --- both, and the caller says how much it wants.
+    ---
+    --- Zero and negative polling limits read one byte. This concrete nonblocking
+    --- operation keeps that defensive behavior even though the shared `Reader` contract
+    --- requires a positive count. Settled here rather than at the platform because the
+    --- platform is where it stops being a number and becomes a buffer size: a signed
+    --- zero or minus one arriving at a native size conversion is either an empty read
+    --- that looks like end of stream or an enormous one, and neither is worth being
+    --- able to ask for. `read` passes its caller's count straight through.
+    function poll(self, limit: integer?): string?
+        if self.closed or self.eof then
+            return nil
+        end
+        local wanted = limit or READ_LIMIT
+        if wanted < 1 then
+            wanted = 1
+        end
+        local got = self.owner.backend:read(self.handle, wanted)
+        if got == nil then
+            self.eof = true
+
+            return nil
+        end
+
+        return got
+    end
+
+    --- Reads the next available bytes, suspending until there are some. Answers nil at
+    --- end of stream.
+    function next(self): string?
+        if self.closed or self.eof then
+            return nil
+        end
+        local chunk = nil
+        await(
+            self.owner,
+            "process stream read",
+            function(): boolean
+                if self.closed or self.eof then
+                    return true
+                end
+                local got = self:poll()
+                if got == nil then
+                    return true
+                end
+                if #got > 0 then
+                    chunk = got
+
+                    return true
+                end
+
+                return false
+            end,
+            function(): process.Interest
+                -- This stream, and the child: end of stream is something the child's
+                -- ending produces, so a reader that only asked about the pipe could
+                -- sleep through the very event that answers it.
+                return new process.Interest(child = self.owner.handle, read = {self.handle}, write = {})
+            end
+        )
+
+        return chunk
+    end
+
+    --- Bounds the next completion-oriented read.
+    --- @raises when timeoutMs is outside 0 through 2147483647
+    function setTimeout(self, timeoutMs: integer): nil
+        if timeoutMs < 0 or timeoutMs > 2147483647 or math.floor(timeoutMs) ~= timeoutMs then
+            error("nupp: process reader timeout must be 0 through 2147483647 milliseconds", 2)
+        end
+        self.timeoutMs = timeoutMs
+    end
+
+    function read(self, count: integer): (string?, string?)
+        if self.closed then
+            return nil, "the process reader is closed"
+        end
+        local chunk, reason = readForCompletion(self, positive(count, "process reader count", 2))
+        if reason ~= nil then
+            return nil, reason
+        end
+
+        return chunk or ""
+    end
+
+    function readSpan(self, exclusive destination: span.Writable<uint8>): (integer?, string?)
+        local wanted = positive(#destination, "process reader destination length", 2)
+        local chunk, reason = self:read(wanted)
+        if chunk == nil then
+            return nil, reason
+        end
+        local input = span.fromString(chunk)
+        for index = 1, #chunk do
+            destination[index] = input[index]
+        end
+
+        return #chunk
+    end
+
+    function readInto(
+        self,
+        exclusive destination: nupp.io.Buffer,
+        offset: integer?,
+        count: integer?
+    ): (integer?, string?)
+        local at = offset or 0
+        if at < 0 or at ~= math.floor(at) then
+            error("nupp: process reader destination offset must be a non-negative integer", 2)
+        end
+        local wanted = positive(count or READ_LIMIT, "process reader count", 2)
+        local chunk, reason = self:read(wanted)
+        if chunk == nil then
+            return nil, reason
+        end
+        if #chunk == 0 then
+            return 0
+        end
+        local input = span.fromString(chunk)
+        local lease = destination:reserveWrite(at, wanted)
+        do
+            local output = lease:span()
+            for index = 1, #chunk do
+                output[index] = input[index]
+            end
+            drop output
+        end
+        lease:commit(#chunk)
+
+        return #chunk
+    end
+
+    function transferTo(self, exclusive destination: nupp.io.Writer): (integer?, string?)
+        local total: integer = 0
+        while true do
+            local chunk, reason = self:read(READ_LIMIT)
+            if chunk == nil then
+                return nil, reason
+            end
+            if #chunk == 0 then
+                return total
+            end
+            local wrote, failure = destination:write(chunk)
+            if not wrote then
+                return nil, failure
+            end
+            total = total + #chunk
+        end
+    end
+
+    function close(takes self): nil
+        self:release()
+    end
+end
+
+--- A child's writable stream.
+---
+--- `offer` and `isGone` are the nonblocking half, for the same reason the reader has
+--- `poll`: the prelude's `nupp.io.Writer.write` writes the whole value, which a drain
+--- loop serving three pipes cannot afford to wait for. The completion-oriented `write`
+--- remains the ordinary `nupp.io.Writer` operation; `offer` is concrete and additional.
+record process.Writer is nupp.io.Writer
+    owner: any
+    handle: any
+    closed: boolean
+
+    --- Whether the far end has gone, which is not the same as this end being shut.
+    --- `closed` means the platform has released this stream; `gone` means nobody is
+    --- reading the far end any more. A broken pipe sets only `gone`, because this end
+    --- is still ours to close.
+    gone: boolean
+
+    --- Maximum time one completion-oriented write may wait.
+    timeoutMs: integer
+
+    --- Whether the far end has gone: the child is no longer reading this, and no
+    --- amount of waiting will change that.
+    function isGone(self): boolean
+        return self.gone
+    end
+
+    --- Whether this end has been closed.
+    function isClosed(self): boolean
+        return self.closed
+    end
+
+    --- Closes this end. Idempotent, on the same terms as the reader's: `closed` follows
+    --- what the platform released, not whether it complained, so a stream already
+    --- given up is never offered to a retry. Closing a child's stdin is how it is told
+    --- there is no more input.
+    ---
+    --- @raises when the platform reported a problem, released or not
+    function release(self): nil
+        if self.closed then
+            return
+        end
+        -- `closeStream` is return-only, so a raise is a backend breaking its contract
+        -- rather than an outcome. Since an error says nothing about whether the
+        -- stream is still ours, the safe reading is that it is gone: retaining one
+        -- native handle is a bounded cost, and retrying a returned handle is not.
+        local ok, released, why = pcall(function(): (boolean?, string?)
+            return self.owner.backend:closeStream(self.handle)
+        end)
+        if not ok then
+            self.closed = true
+            error(
+                (
+                    "nupp: closing a process stream raised: %s"
+                ):format(released == nil and "without saying why" or tostring(released)),
+                0
+            )
+        end
+        -- Set before the raise below, and deliberately: the error is what happened,
+        -- `closed` is what is now true, and the second outlives the first.
+        self.closed = released == true
+        if why == nil and released ~= true then
+            -- A refusal that named no reason. The contract asks for one, but a caller
+            -- returning here believing the stream shut is the worst of the outcomes
+            -- available, so the boundary supplies what the backend did not.
+            why = "the platform did not release the process stream and did not say why"
+        end
+        if why ~= nil then
+            -- Raised rather than answered, because this signature is tecs's and answers
+            -- nothing. The status stops here and becomes an error, which is what the
+            -- teardown above is already prepared to catch.
+            error(("nupp: could not close a process stream: %s"):format(why), 0)
+        end
+    end
+
+    --- Writes what the pipe will take without waiting. Answers how many bytes went,
+    --- which may be none and may be fewer than offered.
+    function offer(self, data: string): integer
+        if self.closed or self.gone or #data == 0 then
+            return 0
+        end
+        local sent, gone = self.owner.backend:write(self.handle, data)
+        if gone then
+            -- Nobody is reading and nobody will. Recording it is what stops a writer
+            -- waiting on room that will never come; the bytes that did go still count,
+            -- and this stream is still open and still ours to close.
+            self.gone = true
+        end
+
+        return sent
+    end
+
+    --- Writes every byte, suspending as often as the pipe makes it. Answers how many
+    --- went, which is all of them unless the far end went away first.
+    function send(self, data: string, stopAt: number?, stallFor: integer?): integer
+        if self.closed or self.gone then
+            return 0
+        end
+        local sent = 0
+        local before = 0
+        local function interest(): process.Interest
+            -- Room in this pipe, and the child: a child that exits makes every
+            -- remaining write impossible, which is an answer too.
+            return new process.Interest(child = self.owner.handle, read = {}, write = {self.handle})
+        end
+
+        -- Both of these are written above the loop rather than in it, so the loop holds
+        -- no function to build. A loop that builds one is a loop LuaJIT never compiles.
+        -- What the pass they belong to varies by is `sent` and `before`, and a name
+        -- declared out here is the same cell every pass.
+        local function offered(): boolean
+            if self.closed or self.gone then
+                return true
+            end
+            sent = sent + self:offer(data:sub(sent + 1))
+
+            -- Return after each piece, not only after the whole value. A timeout
+            -- bounds one period with no progress; a child that keeps taking bytes
+            -- may keep the write alive beyond that interval.
+
+            return sent > before
+        end
+
+        while sent < #data and not self.closed and not self.gone do
+            before = sent
+            local completed = await(self.owner, "process stream write", offered, interest, stopAt)
+            if not completed then
+                break
+            end
+            if sent > before and stallFor ~= nil then
+                stopAt = self.owner.backend:now() + stallFor
+            end
+        end
+
+        return sent as integer
+    end
+
+    --- Bounds the next completion-oriented write.
+    --- @raises when timeoutMs is outside 0 through 2147483647
+    function setTimeout(self, timeoutMs: integer): nil
+        if timeoutMs < 0 or timeoutMs > 2147483647 or math.floor(timeoutMs) ~= timeoutMs then
+            error("nupp: process writer timeout must be 0 through 2147483647 milliseconds", 2)
+        end
+        self.timeoutMs = timeoutMs
+    end
+
+    function write(exclusive self, bytes: string): (boolean, string?)
+        if self.closed then
+            return false, "the process writer is closed"
+        end
+        if self.gone then
+            return false, "the child is no longer reading this stream"
+        end
+        local stopAt = self.owner.backend:now() + self.timeoutMs
+        local ok, sent = pcall(function(): integer
+            return self:send(bytes, stopAt, self.timeoutMs)
+        end)
+        if not ok then
+            return false, tostring(sent)
+        end
+        if sent ~= #bytes then
+            if self.gone then
+                return false, "the child stopped reading before every byte was written"
+            end
+            return false, "the process write timed out"
+        end
+
+        return true
+    end
+
+    function writeSpan(exclusive self, borrows source: span.ByteSpan): (integer?, string?)
+        local count = #source
+        local wrote, reason = self:write(spanString(source))
+        if not wrote then
+            return nil, reason
+        end
+
+        return count
+    end
+
+    function flush(self): (boolean, string?)
+        if self.closed then
+            return false, "the process writer is closed"
+        end
+        if self.gone then
+            return false, "the child is no longer reading this stream"
+        end
+
+        return true
+    end
+
+    function close(takes self): nil
+        self:release()
+    end
+end
+
+--- Borrows a process reader through the shared completion-oriented contract.
+function process.asReader(borrows source: process.Reader): nupp.io.Reader borrows (source)
+    return source
+end
+
+--- Borrows a process writer through the shared completion-oriented contract.
+function process.asWriter(borrows source: process.Writer): nupp.io.Writer borrows (source)
+    return source
+end
+
+local newReader: function(owner: any, handle: any): process.Reader
+local newWriter: function(owner: any, handle: any): process.Writer
+
+--- A running child.
+record process.Process
+    drop: nosuspend function(takes self: process.Process): nil
+    backend: process.Backend
+    handle: any
+    deadline: number?
+    exit: process.Exit?
+
+    --- Whether the whole teardown finished: every stream released, the pump released,
+    --- and the child handle released. The aggregate, and what makes a repeat call a
+    --- no-op.
+    reaped: boolean
+
+    --- Whether the child *handle* has been given back, which is a smaller fact than
+    --- `reaped` and has to be tracked apart from it. A teardown where a stream close
+    --- complained still has a child to release, and a retry that had already released
+    --- it must not ask again, because the native process handle was already returned.
+    childReleased: boolean
+
+    --- Whether a teardown is in progress. Separate from `reaped`, which means it
+    --- finished: a close that failed part way must be retryable rather than silently
+    --- successful.
+    closing: boolean
+
+    --- Which coroutine is running that teardown, so a second call can tell whether it
+    --- is the same frame coming back around or a different one arriving. Nil on the
+    --- main coroutine, which is why `closing` is the flag and this is only the owner.
+    closingBy: any
+
+    pump: any
+
+    --- Whether the deadline is what ended it, remembered so the exit can say so.
+    timedOut: boolean
+
+    --- Operating-system process identifier.
+    pid: integer
+
+    --- Its standard input, when it was piped.
+    stdin: process.Writer?
+
+    --- Its standard output, when it was piped.
+    stdout: process.Reader?
+
+    --- Its standard error, when it was piped.
+    stderr: process.Reader?
+
+    --- Starts a child process.
+    ---
+    --- The child is an owner: closing it ends the process, waits for the exit, and
+    --- releases every stream, and the same runs when its scope ends. Reading a stream
+    --- or waiting for the exit suspends, so a caller under a scheduler keeps its
+    --- frame.
+    ---
+    --- ```nupp
+    --- local child = new process.Process({
+    ---     args = {"grep", "-c", "nupp"},
+    ---     stderr = "stdout",
+    --- })
+    --- local result = assert(child:communicate({input = text}))
+    --- child:close()
+    --- ```
+    ---
+    --- @param self the process being initialized
+    --- @param options what to run and how to connect it
+    --- @raises when the options are invalid or the child cannot be started
+    constructor(self, options: process.Options): affine(process.Process, process.Process.destroy)
+        local backend = defaultBackend
+        if backend == nil then
+            backend = nativeBackend()
+            defaultBackend = backend
+        end
+        validateOptions(options)
+        local handle, inHandle, outHandle, errHandle, pid, problem = (backend as process.Backend):spawn(options)
+        if handle == nil then
+            error(problem or "the process could not be started", 2)
+        end
+        self.backend = backend as process.Backend
+        self.handle = handle
+        self.exit = nil
+        self.reaped = false
+        self.childReleased = false
+        self.closing = false
+        self.closingBy = nil
+        self.pump = nil
+        self.timedOut = false
+        self.pid = pid
+        self.deadline = options.timeoutMs ~= nil and ((backend as process.Backend):now() + options.timeoutMs) or nil
+        if inHandle ~= nil then
+            self.stdin = newWriter(self, inHandle)
+        end
+        if outHandle ~= nil then
+            self.stdout = newReader(self, outHandle)
+        end
+        if errHandle ~= nil then
+            self.stderr = newReader(self, errHandle)
+        end
+    end
+
+    --- Starts a child against an explicit backend for state-machine tests.
+    --- @internal
+    --- @raises when the options are invalid or the child cannot be started
+    constructor(
+        self,
+        backend: process.Backend,
+        options: process.Options
+    ): affine(process.Process, process.Process.destroy)
+        validateOptions(options)
+        local handle, inHandle, outHandle, errHandle, pid, problem = backend:spawn(options)
+        if handle == nil then
+            error(problem or "the process could not be started", 2)
+        end
+        self.backend = backend
+        self.handle = handle
+        self.exit = nil
+        self.reaped = false
+        self.childReleased = false
+        self.closing = false
+        self.closingBy = nil
+        self.pump = nil
+        self.timedOut = false
+        self.pid = pid
+        self.deadline = options.timeoutMs ~= nil and (backend:now() + options.timeoutMs) or nil
+        if inHandle ~= nil then
+            self.stdin = newWriter(self, inHandle)
+        end
+        if outHandle ~= nil then
+            self.stdout = newReader(self, outHandle)
+        end
+        if errHandle ~= nil then
+            self.stderr = newReader(self, errHandle)
+        end
+    end
+
+    --- Releases the process when its owner leaves scope.
+    function destroy(takes self): nil
+        self:drop()
+    end
+
+    --- Whether it is still running.
+    function isRunning(self): boolean
+        if self.exit ~= nil then
+            return false
+        end
+        progressed(self)
+
+        return self.exit == nil
+    end
+
+    --- Waits for it to end and answers how.
+    ---
+    --- Suspends while it runs.
+    function wait(self): process.Exit
+        await(
+            self,
+            "process wait",
+            function(): boolean
+                return self.exit ~= nil
+            end,
+            function(): process.Interest
+                -- The child alone. Its streams are deliberately left out: output nobody
+                -- is reading stays ready forever, so asking about it here would turn
+                -- this sleep into a spin. The cost is that waiting without draining can
+                -- fill a pipe and stall, which is exactly what `communicate` is for.
+                return new process.Interest(child = self.handle, read = {}, write = {})
+            end
+        )
+        if self.timedOut and self.exit ~= nil then
+            self.exit.timedOut = true
+        end
+
+        return self.exit as process.Exit
+    end
+
+    --- Asks it to end; `force` insists. Answers whether the request was made.
+    function kill(self, force: boolean?): (boolean, string?)
+        if self.exit ~= nil then
+            return true
+        end
+        local ok, problem = pcall(function(): nil
+            self.backend:kill(self.handle, force == true)
+        end)
+        if not ok then
+            return false, problem == nil and "the process could not be terminated" or tostring(problem)
+        end
+
+        return true
+    end
+
+    --- Writes input, closes stdin, drains stdout and stderr, and waits for the exit.
+    --- Answers the complete exchange or a reason it could not be completed.
+    ---
+    --- One combined step per pass: offer some input, take whatever each output has,
+    --- suspend only when none of the three moved.
+    function communicate(self, options: process.CommunicateOptions?): (process.Result?, string?)
+        local ok, answer = pcall(function(): process.Result
+            local given = options or {}
+            local input = given.input
+            local pending = input == nil and "" or type(input) == "string" and input as string or input:getString()
+            local maximum = given.maxOutputBytes or 268435456
+            if maximum < 0 then
+                error("nupp: process maximum output must not be negative", 2)
+            end
+            local stdin = nupp.borrow(self.stdin)
+            local stdout = nupp.borrow(self.stdout)
+            local stderr = nupp.borrow(self.stderr)
+            local sent = 0
+            local out, err = {}, {}
+            local outputBytes = 0
+            local function inputDone(): boolean
+                -- Gone counts as done: there is nobody to deliver the rest to.
+                return stdin == nil or stdin.closed or stdin.gone
+            end
+
+            local function outputDone(): boolean
+                return (stdout == nil or stdout.eof or stdout.closed) and (stderr == nil or stderr.eof or stderr.closed)
+            end
+
+            local function idle(): boolean
+                return (inputDone() and outputDone()) or self.exit ~= nil and outputDone()
+            end
+
+            -- A child that has ended will never read again, so whatever is left of the
+            -- input is undeliverable and holding its stdin open says otherwise. Closing
+            -- it here keeps this function's promise that stdin is closed by the time it
+            -- returns, including when the child finished early.
+            local function abandonInput(): nil
+                if stdin ~= nil and not stdin.closed then
+                    stdin:release()
+                end
+            end
+
+            -- Everything a quiet pass would have used: the streams still worth
+            -- draining, room for whatever input is left, and the child. This is the one
+            -- wait that may ask about the outputs, because it is the one that reads
+            -- them every pass, so a ready stream leads to work rather than straight
+            -- back here.
+            --
+            -- Written here rather than at the wait it belongs to, because that wait is
+            -- inside the loop, and a function built inside a loop is one LuaJIT never
+            -- compiles. It reads what varies through names the loop shares with it.
+            local function interest(): process.Interest
+                local read: {any} = {}
+                if stdout ~= nil and not stdout.eof and not stdout.closed then
+                    read[#read + 1] = stdout.handle
+                end
+                if stderr ~= nil and not stderr.eof and not stderr.closed then
+                    read[#read + 1] = stderr.handle
+                end
+                local write: {any} = {}
+                if stdin ~= nil and not stdin.closed and sent < #pending then
+                    write[#write + 1] = stdin.handle
+                end
+
+                return new process.Interest(child = self.handle, read = read, write = write)
+            end
+
+            while not (inputDone() and outputDone()) do
+                local moved = false
+                if stdin ~= nil and not stdin.closed then
+                    if sent < #pending then
+                        local wrote = stdin:offer(pending:sub(sent + 1))
+                        if wrote > 0 then
+                            sent = sent + wrote
+                            moved = true
+                        end
+                    end
+                    if sent >= #pending then
+                        -- Every byte delivered: tell the child there is no more, or it
+                        -- reads to end of file forever and nobody's output ever
+                        -- arrives.
+                        stdin:release()
+                        moved = true
+                    end
+                end
+                if stdout ~= nil and not stdout.eof and not stdout.closed then
+                    local chunk = stdout:poll()
+                    if chunk == nil or #chunk > 0 then
+                        if chunk ~= nil then
+                            outputBytes = outputBytes + #chunk
+                            if outputBytes > maximum then
+                                self:kill(true)
+                                error("process output exceeds the configured maximum", 0)
+                            end
+                            out[#out + 1] = chunk
+                        end
+                        moved = true
+                    end
+                end
+                if stderr ~= nil and not stderr.eof and not stderr.closed then
+                    local chunk = stderr:poll()
+                    if chunk == nil or #chunk > 0 then
+                        if chunk ~= nil then
+                            outputBytes = outputBytes + #chunk
+                            if outputBytes > maximum then
+                                self:kill(true)
+                                error("process output exceeds the configured maximum", 0)
+                            end
+                            err[#err + 1] = chunk
+                        end
+                        moved = true
+                    end
+                end
+                if not moved then
+                    -- All three quiet. This is a *retry*, not a condition wait. Only
+                    -- the next read can say whether it would now succeed; waiting for
+                    -- a predicate only this caller can test is how this deadlocked.
+                    -- Give the pumps one pass, then come back.
+                    if idle() then
+                        break
+                    end
+                    awaitTick(self, "process communicate", interest)
+                end
+            end
+
+            abandonInput()
+
+            return new process.Result(output = table.concat(out), errorOutput = table.concat(err), exit = self:wait())
+        end)
+        if not ok then
+            return nil, answer == nil and "process communication failed without saying why" or tostring(answer)
+        end
+
+        return answer as process.Result
+    end
+
+    --- Closes every stream, ends the child if it is still running, waits for it to
+    --- actually finish, and releases it. Idempotent, and what `drop` runs when the
+    --- owner goes out of lexical scope.
+    --- @raises when closing one of the child streams fails
+    function close(self): (boolean, string?)
+        if self.reaped then
+            return true
+        end
+        if self.closing then
+            local runner = coroutine.running()
+            if runner == self.closingBy then
+                -- The same frame come back around: the waits below drive the pump, and
+                -- something it drives has called in here. One teardown is enough, and
+                -- this one is it. Returning is the only option, since waiting would
+                -- be waiting on itself.
+                return true
+            end
+
+            if not suspension.handled() then
+                -- Another coroutine, and nothing to schedule it back. The teardown
+                -- holding this child belongs to a frame that is somewhere below this
+                -- one on the stack, since it can only have got here by being resumed
+                -- from inside that teardown, so waiting would be waiting for a frame
+                -- that cannot run until this one returns. Saying so beats hanging.
+                error(
+                    "nupp: process close arrived from another coroutine while a teardown was "
+                    .. "running, with no handler to schedule it",
+                    0
+                )
+            end
+
+            -- A different caller under a scheduler, and it must not be told the child
+            -- is released while the teardown is still running. Answering "done" is what
+            -- lets the owner's scope end, and the scope ending is what runs `drop`, so
+            -- a premature yes has the next toucher on a handle already given back. It
+            -- waits for whoever holds the teardown, then answers on the same terms as
+            -- any other close, either finished or free to try again.
+            await(
+                self,
+                "process close",
+                function(): boolean
+                    return not self.closing
+                end,
+                function(): process.Interest
+                    return new process.Interest(child = self.handle, read = {}, write = {})
+                end
+            )
+            if self.reaped then
+                return true
+            end
+
+            -- The holder's attempt failed and left it open. This caller inherits it.
+        end
+        self.closing = true
+        self.closingBy = coroutine.running()
+        -- Every step is attempted and the first failure raised at the end. Stopping at
+        -- the first would leave the rest of the child's resources held by a process
+        -- that has decided it is finished with them; swallowing them all would report
+        -- a clean close that never happened.
+        --
+        -- Only raises are caught here, and that is now the whole story: a stream close
+        -- turns its status into one at its own edge, and the reap is judged below
+        -- rather than through this, because it alone has release state worth reading.
+        local firstError: any = nil
+        local function attempt(step: function(): nil): nil
+            local ok, raised = pcall(step)
+            if not ok and firstError == nil then
+                -- `error(nil)` is a real thing a broken backend can do, and it arrives
+                -- here as a failure with nothing to say. Left as nil it would read as
+                -- no failure at all, and the teardown would report a clean close.
+                firstError = raised == nil and "a teardown step failed without saying why" or raised
+            end
+        end
+
+        -- Closed one at a time rather than through a list: a reader and a writer are
+        -- different types, and a union of their `close` methods is not one callable.
+        if self.stdin ~= nil then
+            attempt(function(): nil
+                self.stdin:release()
+            end)
+        end
+        if self.stdout ~= nil then
+            attempt(function(): nil
+                self.stdout:release()
+            end)
+        end
+        if self.stderr ~= nil then
+            attempt(function(): nil
+                self.stderr:release()
+            end)
+        end
+        if self.exit == nil then
+            attempt(function(): nil
+                -- Ending rather than orphaning: a child outliving the scope that
+                -- started it is a leak nobody sees until the machine runs out of them.
+                self.backend:kill(self.handle, true)
+                -- Terminating takes as long as it takes, so this waits for the exit
+                -- rather than asking the platform to reap something still dying. Every
+                -- stream close has been attempted by now. Attempted, not necessarily
+                -- done, since one may have refused and stayed ours, so the child is
+                -- what this waits on and the only thing that can advance it.
+                await(
+                    self,
+                    "process close",
+                    function(): boolean
+                        return self.exit ~= nil
+                    end,
+                    function(): process.Interest
+                        return new process.Interest(child = self.handle, read = {}, write = {})
+                    end
+                )
+            end)
+        end
+        attempt(function(): nil
+            releasePump(self)
+        end)
+
+        -- Attempted whatever went before it, and this is the whole point of attempting
+        -- every step. Skipping the reap because a stream complained leaves a child
+        -- handle held by a process that has finished with it, and under an automatic
+        -- drop there is no binding left to retry through, so "unreaped" would mean
+        -- "unreaped forever". A child that has not exited is a different matter: it is
+        -- not reapable yet, and asking would be the error.
+        if not self.childReleased and self.exit ~= nil then
+            -- Not through `attempt`, because reap answers the same two facts a stream
+            -- close does and the generic judge only reads one of them. A reap that
+            -- released the child and complained anyway is still a reap: the pid is
+            -- gone, and asking again would wait on whatever has since been given that
+            -- number. So ownership decides the flag and the complaint is only carried.
+            local ok, released, reason = pcall(function(): (boolean?, string?)
+                return self.backend:reap(self.handle)
+            end)
+            if not ok then
+                -- The same reading as a stream close that raised: no release state came
+                -- back, so the child is treated as gone rather than asked about again.
+                self.childReleased = true
+                if firstError == nil then
+                    firstError = released == nil and "reaping the child failed without saying why" or released
+                end
+            else
+                self.childReleased = released == true
+                if reason ~= nil then
+                    if firstError == nil then
+                        firstError = reason
+                    end
+                elseif released ~= true and firstError == nil then
+                    firstError = "the platform did not release the child and did not say why"
+                end
+            end
+        end
+
+        -- Cleared either way, so a close that could not finish can be called again
+        -- rather than reporting itself done. A retry finds each piece's own flag and
+        -- skips whatever is already given back.
+        self.closing = false
+        self.closingBy = nil
+        -- The aggregate, and only now: every stream given back, the pump gone, and the
+        -- child handle released. `reaped` answering anything less would let a repeat
+        -- call return early with something still held.
+        self.reaped = (
+            self.stdin == nil or self.stdin.closed
+        ) and (
+            self.stdout == nil or self.stdout.closed
+        ) and (self.stderr == nil or self.stderr.closed) and self.pump == nil and self.childReleased
+        if firstError ~= nil then
+            error(firstError, 0)
+        end
+
+        return true
+    end
+end
+
+function process.Process.drop(takes self: process.Process): nil
+    self:close()
+    if self.stdin ~= nil then
+        self.stdin:close()
+    end
+    if self.stdout ~= nil then
+        self.stdout:close()
+    end
+    if self.stderr ~= nil then
+        self.stderr:close()
+    end
+end
+
+-- Whether the child has ended since last asked.
+progressed = function(self: any): integer
+    local moved = 0
+    if self.exit == nil then
+        local ended = self.backend:poll(self.handle)
+        if ended ~= nil then
+            self.exit = ended
+            moved = moved + 1
+        end
+    end
+
+    return moved as integer
+end
+
+-- Whether the deadline has passed, killing the child if it has.
+local function enforceDeadline(self: any): boolean
+    -- Once. `timedOut` is the guard, and it has to be, because terminating takes as
+    -- many polls as it takes: a deadline re-enforced every pump would go on signaling
+    -- a process that is already dying, and a backend that treats a second kill as a
+    -- fresh request would never get to finish.
+    if self.deadline == nil or self.exit ~= nil or self.timedOut then
+        return false
+    end
+    if self.backend:now() < self.deadline then
+        return false
+    end
+    self.timedOut = true
+    self.backend:kill(self.handle, true)
+
+    return true
+end
+
+-- One pass of everything that could make progress for this child.
+--
+-- The deadline is enforced here rather than only before parking, so a child producing
+-- nothing at all, the case a deadline exists for, still reaches it.
+pumpOnce = function(self: any): integer
+    local moved = progressed(self)
+    if enforceDeadline(self) then
+        moved = moved + progressed(self) + 1
+    end
+
+    return moved as integer
+end
+
+-- The pump this child needs driven while anything is waiting on it.
+local function ensurePump(self: any): nil
+    if self.pump ~= nil then
+        return
+    end
+    self.pump = suspension.source("nupp.io.process", 50, function(): integer
+        return pumpOnce(self)
+    end)
+end
+
+releasePump = function(self: any): nil
+    if self.pump == nil then
+        return
+    end
+    self.pump:release()
+    self.pump = nil
+end
+
+-- How long a blocking wait gives the platform before coming back to re-check. Long
+-- enough that waiting costs nothing, short enough that a deadline is honoured close to
+-- when it falls.
+local BLOCKING_WAIT_MS = 20
+
+-- Suspends for one pass of the pumps, then returns whatever happened.
+--
+-- What a drain loop needs. `await` waits for a predicate; a loop that has to *ask* the
+-- streams again to find out whether anything changed has no predicate to wait on, and
+-- would park forever on one that only its own next attempt could satisfy.
+-- Blocks in the platform until something in `interest` moves, then drives one pass.
+--
+-- Only ever reached with no handler installed. Nobody to yield to, so blocking here is
+-- the whole point: `waitReady` drives libuv until a stream moves or the
+-- timeout passes, where spinning on a non-blocking poll would burn a core to learn
+-- nothing.
+--
+-- Bounded rather than indefinite, because a deadline has to be reached even when the
+-- child never speaks again, and never overshooting it: a wait longer than what is left
+-- would report the timeout late by however much it overslept.
+local function blockOnce(self: any, interest: process.Interest, stopAt: number?): nil
+    local budget = BLOCKING_WAIT_MS
+    if self.deadline ~= nil then
+        local remaining = self.deadline - self.backend:now()
+        if remaining < budget then
+            budget = remaining > 0 and remaining or 0
+        end
+    end
+    if stopAt ~= nil then
+        local remaining = stopAt - self.backend:now()
+        if remaining < budget then
+            budget = remaining > 0 and remaining or 0
+        end
+    end
+    self.backend:waitReady(interest, budget)
+    pumpOnce(self)
+end
+
+awaitTick = function(self: any, operation: string, interest: function(): process.Interest): nil
+    if not suspension.handled() then
+        blockOnce(self, interest())
+
+        return
+    end
+    ensurePump(self)
+    suspension.suspend(operation, function(resume: function(boolean), context: any): function()?
+        local source = context:source("nupp.io.process.tick", 50, function(): integer
+            pumpOnce(self)
+            -- Resumed unconditionally: one pass has happened, which is all this waits
+            -- for. The caller decides whether that was useful.
+            resume(true)
+
+            return 1
+        end)
+
+        return function(): nil
+            source:release()
+        end
+    end)
+end
+
+-- Suspends until `ready()` answers true, driving the child while it waits.
+await = function(
+    self: any,
+    operation: string,
+    scoped ready: function(): boolean,
+    scoped interest: function(): process.Interest,
+    stopAt: number?
+): boolean
+    if ready() then
+        return true
+    end
+    if stopAt ~= nil and self.backend:now() >= stopAt then
+        return false
+    end
+    if not suspension.handled() then
+        -- The same reasoning as `awaitTick`: with nobody to yield to, the platform is
+        -- asked to sleep rather than the loop asked to spin. Every wait needs this, not
+        -- just the drain loop. `wait`, a stream read, a stream write and `close` all
+        -- end up here, and each of them polling flat out is the cost this avoids.
+        while not ready() do
+            if stopAt ~= nil and self.backend:now() >= stopAt then
+                return false
+            end
+            blockOnce(self, interest(), stopAt)
+        end
+
+        return true
+    end
+    ensurePump(self)
+    -- Built once rather than per pass: this is already the slow path.
+    local function subscribe(resume: function(boolean), context: any): function()?
+        local source = context:source("nupp.io.process.wait", 50, function(): integer
+            local moved = pumpOnce(self)
+            if ready() or stopAt ~= nil and self.backend:now() >= stopAt or moved > 0 then
+                resume(true)
+
+                return 1
+            end
+
+            return 0
+        end)
+
+        return function(): nil
+            source:release()
+        end
+    end
+
+    while not ready() do
+        if stopAt ~= nil and self.backend:now() >= stopAt then
+            return false
+        end
+        pumpOnce(self)
+        if ready() then
+            return true
+        end
+        suspension.suspend(operation, subscribe)
+    end
+
+    return true
+end
+
+-- The shared Reader operation uses the concrete bounded poll but still waits through
+-- the same state machine as every other completion-oriented call. Keeping the limit
+-- here avoids a surplus buffer and its second notion of EOF.
+readForCompletion = function(borrows source: process.Reader, limit: integer): (string?, string?)
+    if source.closed or source.eof then
+        return nil
+    end
+    local chunk: string? = nil
+    local stopAt = source.owner.backend:now() + source.timeoutMs
+    local completed = await(
+        source.owner,
+        "process stream read",
+        function(): boolean
+            if source.closed or source.eof then
+                return true
+            end
+            local got = source:poll(limit)
+            if got == nil then
+                return true
+            end
+            if #got > 0 then
+                chunk = got
+
+                return true
+            end
+
+            return false
+        end,
+        function(): process.Interest
+            return new process.Interest(child = source.owner.handle, read = {source.handle}, write = {})
+        end,
+        stopAt
+    )
+    if not completed then
+        return nil, "the process read timed out"
+    end
+
+    return chunk
+end
+
+newReader = function(owner: any, handle: any): process.Reader
+    return new process.Reader(owner = owner, handle = handle, closed = false, eof = false, timeoutMs = 30000)
+end
+
+newWriter = function(owner: any, handle: any): process.Writer
+    return new process.Writer(owner = owner, handle = handle, closed = false, gone = false, timeoutMs = 30000)
+end
+
+--- Installs the backend the public `Process` constructor uses.
+---
+--- Called by a platform module, not by a caller: the point of the seam is that nothing
+--- above it names a platform.
+function process.useBackend(backend: process.Backend): nil
+    defaultBackend = backend
+end
+
+-- Public callers include plain Lua, so the type declaration is not the runtime
+-- boundary. Reject programmer mistakes before allocating a native spawn request;
+-- platform failures remain the nil-and-reason result of `new`.
+validateOptions = function(options: process.Options): nil
+    local given: any = options
+    if type(given.args) ~= "table" or #given.args == 0 then
+        error("nupp: process args must contain a program", 3)
+    end
+    for index = 1, #given.args do
+        if type(given.args[index]) ~= "string" then
+            error(("nupp: process argument %d must be a string"):format(index), 3)
+        end
+    end
+    local streams = {pipe = true, inherit = true, null = true}
+    if given.stdin ~= nil and streams[given.stdin] ~= true then
+        error("nupp: process stdin must be pipe, inherit, or null", 3)
+    end
+    if given.stdout ~= nil and streams[given.stdout] ~= true then
+        error("nupp: process stdout must be pipe, inherit, or null", 3)
+    end
+    if given.stderr ~= nil and streams[given.stderr] ~= true and given.stderr ~= "stdout" then
+        error("nupp: process stderr must be pipe, inherit, null, or stdout", 3)
+    end
+    if given.timeoutMs ~= nil and (
+        type(
+            given.timeoutMs
+        ) ~= "number" or given.timeoutMs < 0 or given.timeoutMs > 2147483647 or math.floor(
+            given.timeoutMs
+        ) ~= given.timeoutMs
+    ) then
+        error("nupp: process timeout must be 0 through 2147483647 milliseconds", 3)
+    end
+end
+
+--- Builds the owned state after the platform has successfully spawned.
+--- Starts a child on a given backend.
+---
+--- Internal, and what the tests use so the state machine can be driven without a
+--- platform. Ordinary callers use `new process.Process(...)`.
+---
+--- @param backend the platform that runs it
+--- @param options what to run and how to connect it
+--- @return the child, which must be closed
+--- @raises when the options do not describe a runnable child, or the backend cannot
+--- start one
+function process.spawnOn(
+    backend: process.Backend,
+    options: process.Options
+): affine(process.Process, process.Process.destroy)
+    return new process.Process(backend, options)
+end
+
+--[[
+The platform binding.
+
+Everything above is platform-neutral: it moves bytes between buffers and decides when
+to wait. This is the other side of `Backend` for the machine the program is on, over
+the symbols the libuv-backed native provider exports.
+
+It used to be a string in the compiler, installed as `nupp.io.processnative` through
+`package.preload` and reached from here by a cast, because a module of its own could
+not name `Backend`. Naming it would have made the two require each other, and a
+resolved cycle answers `any` without reporting one. Written here it names `Backend`
+directly and is checked against it, which is what the cast was standing in for.
+]]
+
+const native = require("nupp.runtime.native")
+
+native.ffi.cdef[[
+typedef struct NuppSpawn NuppSpawn;
+typedef struct NuppChild NuppChild;
+typedef struct NuppStream NuppStream;
+
+NuppSpawn *nuppProcessSpawnBegin(void);
+bool nuppProcessSpawnArg(NuppSpawn *, const uint8_t *, size_t);
+bool nuppProcessSpawnEnv(NuppSpawn *, const uint8_t *, size_t);
+bool nuppProcessSpawnClearEnv(NuppSpawn *, bool);
+bool nuppProcessSpawnCwd(NuppSpawn *, const uint8_t *, size_t);
+bool nuppProcessSpawnStdio(NuppSpawn *, uint8_t, uint8_t);
+void nuppProcessSpawnCancel(NuppSpawn *);
+NuppChild *nuppProcessSpawnRun(NuppSpawn *);
+
+NuppStream *nuppProcessTakeStream(NuppChild *, uint8_t);
+intptr_t nuppProcessTryRead(NuppStream *, uint8_t *, size_t);
+intptr_t nuppProcessTryWrite(NuppStream *, const uint8_t *, size_t);
+uint8_t nuppProcessCloseStream(NuppStream *);
+void nuppProcessStreamDestroy(NuppStream *);
+
+int32_t nuppProcessPollExit(NuppChild *, int32_t *, bool *);
+uint32_t nuppProcessId(NuppChild *);
+bool nuppProcessKill(NuppChild *, bool);
+uint8_t nuppProcessReap(NuppChild *);
+void nuppProcessDestroy(NuppChild *);
+
+int32_t nuppProcessWaitReady(NuppStream *const *, size_t, NuppStream *const *, size_t, int32_t);
+]]
+
+const C = native.C
+
+-- How a stdio mode is written for the native provider.
+const MODE: {[string]: integer} = {pipe = 0, inherit = 1, ["null"] = 2, stdout = 3}
+
+-- What a nonblocking read or write answers instead of a count.
+const WOULD_BLOCK = -1
+const GONE = -2
+
+-- What releasing a handle answers. `RELEASED_WITH_REASON` is released and complaining:
+-- the handle is gone either way, so the caller stops holding it and still hears why.
+const RELEASED = 0
+const RELEASED_WITH_REASON = 1
+
+const READ_SIZE = 65536
+const INT32_MAX = 2147483647
+
+--- Puts what the native provider said behind what this side was trying to do.
+local function reason(prefix: string): string
+    local said = native.error()
+    if said == nil or said == "" then
+        said = "native process operation failed"
+    end
+
+    return prefix .. ": " .. said
+end
+
+--- Frees a child once nothing is holding it or any of its streams.
+---
+--- The native provider owns the child and the streams separately, and either side can
+--- be the last to let go, so the free happens here rather than at whichever release ran
+--- last.
+local function maybeDestroy(owner: any): nil
+    if owner.destroyed or not owner.released then
+        return
+    end
+    for _, stream in ipairs(owner.streams) do
+        if not stream.released then
+            return
+        end
+    end
+    owner.destroyed = true
+    for _, stream in ipairs(owner.streams) do
+        local handle = stream.handle
+        stream.handle = nil
+        if handle ~= nil then
+            C.nuppProcessStreamDestroy(handle)
+        end
+    end
+    local child = owner.handle
+    owner.handle = nil
+    if child ~= nil then
+        C.nuppProcessDestroy(child)
+    end
+end
+
+--- Kills and frees a half-built child, then raises.
+---
+--- Reached when a spawn got far enough to have a child but not far enough to hand one
+--- back. Nothing else knows about it yet, so nothing else can clean it up.
+--- @raises always; that is what it is for
+local function abandon(owner: any, message: string): nil
+    for _, stream in ipairs(owner.streams) do
+        if not stream.released then
+            C.nuppProcessCloseStream(stream.handle)
+            stream.released = true
+        end
+        C.nuppProcessStreamDestroy(stream.handle)
+        stream.handle = nil
+    end
+    if owner.handle ~= nil then
+        C.nuppProcessKill(owner.handle, true)
+        C.nuppProcessDestroy(owner.handle)
+        owner.handle = nil
+    end
+    owner.destroyed = true
+    error(message, 0)
+end
+
+--- Cancels a spawn request when one of its settings would not take.
+--- @raises when the setting failed
+local function configured(ok: boolean, request: any, what: string): nil
+    if ok then
+        return
+    end
+    local why = reason("nupp: could not configure process " .. what)
+    C.nuppProcessSpawnCancel(request)
+    error(why, 0)
+end
+
+--- Takes one of a started child's streams, when that mode made one.
+local function wrap(owner: any, which: integer, expected: boolean): any
+    local handle = C.nuppProcessTakeStream(owner.handle, which)
+    if handle == nil then
+        if expected then
+            abandon(owner, reason("nupp: could not take process stream"))
+        end
+
+        return nil
+    end
+    local stream = {owner = owner, handle = handle, released = false, scratch = nil, capacity = 0}
+    owner.streams[#owner.streams + 1] = stream
+
+    return stream
+end
+
+--- Packs stream handles into the array `waitReady` takes.
+--- @raises when the interest names a stream that has already been freed
+local function makeArray(streams: {any}): (any, integer)
+    local count = #streams
+    if count == 0 then
+        return nil, 0
+    end
+    local out = native.ffi.new("NuppStream*[?]", count)
+    for index, stream in ipairs(streams) do
+        local handle = stream and stream.handle
+        if handle == nil then
+            error("nupp: readiness interest named a destroyed process stream", 0)
+        end
+        out[index - 1] = handle
+    end
+
+    return out, count
+end
+
+--- A count the native provider will accept: an integer, with NaN read as zero.
+local function whole(value: number?): integer
+    local number = tonumber(value) or 0
+    if number ~= number then
+        return 0
+    end
+
+    return math.floor(number) as integer
+end
+
+--- The backend for this machine.
+---
+--- Built on demand rather than at load, so a program that requires this module and
+--- never starts a child never opens the library.
+nativeBackend = function(): process.Backend
+    return new process.Backend(
+        spawn = function(self: process.Backend, options: process.Options): (any?, any?, any?, any?, integer, string?)
+            local inputMode = options.stdin or "pipe"
+            local outputMode = options.stdout or "pipe"
+            local errorMode = options.stderr or "pipe"
+            if MODE[inputMode] == nil then
+                error("nupp: process has no stdin mode named " .. tostring(inputMode), 0)
+            end
+            -- `stdout` as a stdout mode would mean redirecting stdout to itself.
+            if MODE[outputMode] == nil or outputMode == "stdout" then
+                error("nupp: process has no stdout mode named " .. tostring(outputMode), 0)
+            end
+            if MODE[errorMode] == nil then
+                error("nupp: process has no stderr mode named " .. tostring(errorMode), 0)
+            end
+            local request = C.nuppProcessSpawnBegin()
+            if request == nil then
+                error(reason("nupp: could not begin process spawn"), 0)
+            end
+            for _, argument in ipairs(options.args or {}) do
+                configured(C.nuppProcessSpawnArg(request, argument, #argument), request, "argument")
+            end
+            configured(C.nuppProcessSpawnClearEnv(request, options.clearEnv == true), request, "environment mode")
+            for key, value in pairs(options.env or {}) do
+                local entry = key .. "=" .. value
+                configured(C.nuppProcessSpawnEnv(request, entry, #entry), request, "environment")
+            end
+            if options.cwd ~= nil then
+                local cwd = type(options.cwd) == "string" and options.cwd as string or (options.cwd as any):toString()
+                configured(C.nuppProcessSpawnCwd(request, cwd, #cwd), request, "working directory")
+            end
+            configured(C.nuppProcessSpawnStdio(request, 0, MODE[inputMode]), request, "stdin")
+            configured(C.nuppProcessSpawnStdio(request, 1, MODE[outputMode]), request, "stdout")
+            configured(C.nuppProcessSpawnStdio(request, 2, MODE[errorMode]), request, "stderr")
+            local child = C.nuppProcessSpawnRun(request)
+            if child == nil then
+                return nil, nil, nil, nil, 0, reason("nupp: could not start process")
+            end
+            local owner = {handle = child, streams = {}, released = false, destroyed = false}
+            local input = wrap(owner, 0, inputMode == "pipe")
+            local output = wrap(owner, 1, outputMode == "pipe")
+            local err = wrap(owner, 2, errorMode == "pipe")
+
+            return owner, input, output, err, tonumber(C.nuppProcessId(child)) as integer
+        end,
+        poll = function(self: process.Backend, owner: any): process.Exit?
+            local code = native.ffi.new("int32_t[1]")
+            local killed = native.ffi.new("bool[1]")
+            local status = C.nuppProcessPollExit(owner.handle, code, killed)
+            if status < 0 then
+                error(reason("nupp: could not poll process"), 0)
+            end
+            if status == 0 then
+                return nil
+            end
+
+            return process.exited(tonumber(code[0]) as integer, killed[0], false)
+        end,
+        kill = function(self: process.Backend, owner: any, force: boolean): nil
+            if not C.nuppProcessKill(owner.handle, force) then
+                error(reason("nupp: could not kill process"), 0)
+            end
+        end,
+        read = function(self: process.Backend, stream: any, limit: integer): string?
+            local wanted = whole(limit)
+            if wanted < 1 then
+                wanted = 1
+            elseif wanted > READ_SIZE then
+                wanted = READ_SIZE
+            end
+            -- The scratch buffer grows to the largest read this stream has been asked
+            -- for and is then reused, so a drain loop allocates once rather than once
+            -- per pass.
+            if stream.capacity < wanted then
+                stream.scratch = native.ffi.new("uint8_t[?]", wanted)
+                stream.capacity = wanted
+            end
+            local got = tonumber(C.nuppProcessTryRead(stream.handle, stream.scratch, wanted))
+            if got >= 0 then
+                return native.ffi.string(stream.scratch, got as integer)
+            end
+            -- Nothing yet is an empty read; the far end being gone is nil. The state
+            -- machine tells them apart to know whether to wait again.
+            if got == WOULD_BLOCK then
+                return ""
+            end
+            if got == GONE then
+                return nil
+            end
+            error(reason("nupp: could not read process stream"), 0)
+        end,
+        write = function(self: process.Backend, stream: any, bytes: string): (integer, boolean)
+            local sent = tonumber(C.nuppProcessTryWrite(stream.handle, bytes, #bytes))
+            if sent >= 0 then
+                return sent as integer, false
+            end
+            if sent == WOULD_BLOCK then
+                return 0, false
+            end
+            if sent == GONE then
+                return 0, true
+            end
+            error(reason("nupp: could not write process stream"), 0)
+        end,
+        closeStream = function(self: process.Backend, stream: any): (boolean, string?)
+            if stream.released then
+                return true, nil
+            end
+            local status = C.nuppProcessCloseStream(stream.handle)
+            local why: string? = nil
+            if status ~= RELEASED then
+                why = reason("nupp: could not close process stream")
+            end
+            if status == RELEASED or status == RELEASED_WITH_REASON then
+                stream.released = true
+                maybeDestroy(stream.owner)
+
+                return true, why
+            end
+
+            return false, why
+        end,
+        reap = function(self: process.Backend, owner: any): (boolean, string?)
+            if owner.released then
+                return true, nil
+            end
+            local status = C.nuppProcessReap(owner.handle)
+            local why: string? = nil
+            if status ~= RELEASED then
+                why = reason("nupp: could not release process")
+            end
+            if status == RELEASED or status == RELEASED_WITH_REASON then
+                owner.released = true
+                maybeDestroy(owner)
+
+                return true, why
+            end
+
+            return false, why
+        end,
+        now = function(self: process.Backend): number
+            return time.now()
+        end,
+        waitReady = function(self: process.Backend, interest: process.Interest, timeoutMs: number): integer
+            local readable, readCount = makeArray(interest.read)
+            local writable, writeCount = makeArray(interest.write)
+            local timeout = whole(timeoutMs)
+            if timeout < 0 then
+                timeout = 0
+            elseif timeout > INT32_MAX then
+                timeout = INT32_MAX
+            end
+            local answered = C.nuppProcessWaitReady(readable, readCount, writable, writeCount, timeout)
+            if answered < 0 then
+                error(reason("nupp: process readiness wait failed"), 0)
+            end
+
+            return tonumber(answered) as integer
+        end
+    )
+end
+
+--- The exit a backend reports, with `succeeded` attached.
+---
+--- Backends build these, so the one judgment every caller makes, whether this
+--- worked, has one definition rather than one per platform.
+function process.exited(exitCode: integer, killed: boolean, timedOut: boolean): process.Exit
+    return {
+        exitCode = exitCode,
+        killed = killed,
+        timedOut = timedOut,
+        succeeded = function(self: process.Exit): boolean
+            -- A killed child never succeeded, whatever status the platform reported.
+            return not self.killed and not self.timedOut and self.exitCode == 0
+        end,
+    } as process.Exit
+end
+
+export = process

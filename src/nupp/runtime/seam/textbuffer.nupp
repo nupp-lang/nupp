@@ -1,0 +1,48 @@
+module nupp.runtime.seam.textbuffer
+
+--[[
+Runtime binding and conformance for the `text.buffer` provider seam.
+
+`string.buffer` is LuaJIT's, and the standard library builds strings with it: the
+serde writers and the derived JSON encoder both append into one. Selecting a
+provider is what lets a portable target reach those, and what keeps LuaJIT
+reaching its own buffer rather than a slower stand-in for one.
+
+The provider answers `string.buffer` itself, so the module a program requires and
+the type its signatures name are the same on either target.
+]]
+
+local common = require("nupp.runtime.seam.module")
+local runtimeBackend = require("nupp.runtime.backend")
+local seam = {moduleName = "nupp.runtime.seam.textbuffer", suiteModuleName = "nupp.runtime.seam.textbuffersuite",}
+-- The appending half, which is what the standard library reaches a buffer for. A
+-- provider is free to answer the FIFO reads and the serializer beside these; a
+-- portable one has no way to answer the pointer methods, and nothing here asks.
+local CONTRACT = common.contract("text.buffer", {
+    globalName = "__nuppTextBuffer",
+    requiredFunctions = {"new"},
+    requiredValues = {},
+    suiteModule = seam.suiteModuleName,
+})
+
+function seam.validate(value: any): string?
+    return common.validate(CONTRACT, value)
+end
+
+--- Runs the compiler-owned behavioral contract against one provider module.
+---
+--- Named here rather than left to the caller because a provider stands in for
+--- LuaJIT's buffer, and the suite is what says the two agree.
+function seam.test(moduleName: string): (boolean, string?)
+    return common.test(CONTRACT, moduleName)
+end
+
+function seam.seam(moduleName: string): runtimeBackend.Seam
+    return common.seam(CONTRACT, moduleName)
+end
+
+function seam.backend(moduleName: string): runtimeBackend.Backend
+    return runtimeBackend.new("text-buffer:" .. moduleName, {seam.seam(moduleName)})
+end
+
+export = seam

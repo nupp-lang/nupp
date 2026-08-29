@@ -1,0 +1,44 @@
+-- Dependent APIs: field-derived events, literal routes, and nested-container
+-- normalization through ordinary comptime functions.
+
+local type Events<T> = {readonly [K in keyof T as `${K}Changed`]: function(value: T.[K]): nil}
+
+local comptime function RouteParameters(path: string): type
+    local fields = {}
+    local cursor = 1
+    while cursor <= #path do
+        local slash = path:find("/", cursor, true) or #path + 1
+        local segment = path:sub(cursor, slash - 1)
+        if segment:sub(1, 1) == ":" then
+            fields[#fields + 1] = {
+                name = segment:sub(2),
+                read = nupp.types.string,
+            }
+        end
+        cursor = slash + 1
+    end
+    return nupp.types.shape(fields)
+end
+
+local comptime function DeepElement(value: type): type
+    while nupp.types.kind(value) == "array" do
+        value = nupp.types.elements(value)[1]
+    end
+    return value
+end
+
+local events: Events<{
+    name: string,
+    age: integer
+}> = nil as any
+local onName: function(value: string): nil = events.nameChanged
+local onAge: function(value: integer): nil = events.ageChanged
+local element: DeepElement({{{integer}}}) = 42
+
+local function handleRoute(params: RouteParameters('users/:user/posts/:post')): string
+    local user: string = params.user
+    local post: string = params.post
+    return user .. ":" .. post
+end
+
+print(onName, onAge, element, handleRoute({user = '42', post = '7',}))

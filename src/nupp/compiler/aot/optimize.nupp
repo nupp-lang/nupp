@@ -1,0 +1,994 @@
+module nupp.compiler.aot.optimize
+
+--[[
+Semantics-preserving scalar AOT optimisation.
+
+The IR is structured and name based, so this pass stays structured and name
+based.  Every expression and statement is first admitted by the closed effect
+vocabulary.  Rewrites are intentionally local: constant folding under the
+binary64 contract, dead pure declarations, statically selected branches, small
+literal loop expansion, and unreachable statement tails.  A bounded repeat
+exposes declarations made dead by an earlier removal without turning this into
+an open-ended fixpoint.
+]]
+
+local effects = require("nupp.compiler.aot.effects")
+local scalarIR = require("nupp.compiler.aot.scalar")
+
+local optimize = {}
+
+record optimize.Stats
+    beforeNodes: integer
+    afterNodes: integer
+    folds: integer
+    propagatedConstants: integer
+    specializedHelperCalls: integer
+    unrolledLoops: integer
+    unrolledIterations: integer
+    removedStatements: integer
+    iterations: integer
+end
+
+record optimize.State
+    folds: integer
+    propagatedConstants: integer
+    specializedHelperCalls: integer
+    specializationBudget: integer
+    unrollBudget: integer
+    helpers: {[string]: scalarIR.Helper}
+    unrolledLoops: integer
+    unrolledIterations: integer
+    removedStatements: integer
+    changed: boolean
+end
+
+--- Fixed-count expansion stays deliberately small. Four is the measured `mix`
+--- shape and 96 additional IR nodes is enough for that body without allowing a
+--- collection of literal loops to multiply one entry without bound.
+const optimize.MAX_UNROLL_TRIPS = 4
+
+const optimize.MAX_UNROLL_GROWTH = 96
+
+local function expressionNodes(value: any): integer
+    if type(value) ~= "table" then
+        return 0
+    end
+    local count = value.op ~= nil and 1 or 0
+    for key, child in pairs(value) do
+        if key ~= "source" then
+            count = count + expressionNodes(child)
+        end
+    end
+
+    return count as integer
+end
+
+local function containsLoopExit(value: any): boolean
+    if type(value) ~= "table" then
+        return false
+    end
+    if value.op == "break" or value.op == "continue" then
+        return true
+    end
+    for key, child in pairs(value) do
+        if key ~= "source" and containsLoopExit(child) then
+            return true
+        end
+    end
+
+    return false
+end
+
+local function copySpecialized(value: any, replacements: {[string]: scalarIR.Expr}): any
+    if type(value) ~= "table" then
+        return value
+    end
+    if value.op == "helper_param" then
+        local identity = tostring(value.cName or value.name)
+        if replacements[identity] ~= nil then
+            return copySpecialized(replacements[identity], {})
+        end
+    end
+    local copied: {[any]: any} = {}
+    for key, child in pairs(value) do
+        copied[key] = key == "source" and child or copySpecialized(child, replacements)
+    end
+
+    return copied
+end
+
+local function sourceOf(node: any): scalarIR.Source?
+    return node.source as scalarIR.Source?
+end
+
+local function boolean(value: boolean, node: any): scalarIR.Bool
+    return new scalarIR.Bool(op = "bool", value = value, type = "bool", source = sourceOf(node))
+end
+
+local function finite(value: number): boolean
+    return value == value and value ~= math.huge and value ~= -math.huge
+end
+
+--- A C binary64 spelling which preserves negative zero.
+local function numberText(value: number): string
+    if value == 0 and 1 / value < 0 then
+        return "-0.0"
+    end
+
+    local written = ("%.17g"):format(value)
+    if written:match("^[+-]?%d+$") ~= nil then
+        written = written .. ".0"
+    end
+
+    return written
+end
+
+local function constant(value: number, node: any): scalarIR.Constant
+    return new scalarIR.Constant(op = "constant", value = numberText(value), type = "f64", source = sourceOf(node))
+end
+
+local function integerConstant(value: number, valueType: scalarIR.Type, node: any): scalarIR.Expr
+    if valueType == "i64" or valueType == "u64" then
+        return new scalarIR.Int64Constant(
+            op = "constant_i64",
+            value = ("%.0f"):format(value),
+            type = valueType,
+            source = sourceOf(node)
+        )
+    end
+
+    return new scalarIR.IntConstant(
+        op = "constant_i32",
+        value = ("%.0f"):format(value),
+        type = valueType,
+        source = sourceOf(node)
+    )
+end
+
+local function integerRange(valueType: scalarIR.Type): (number?, number?)
+    if valueType == "u32" then
+        return 0, 4294967295
+    elseif valueType == "i32" then
+        return -2147483648, 2147483647
+    elseif valueType == "u64" then
+        return 0, 9007199254740992
+    elseif valueType == "i64" then
+        return -9007199254740992, 9007199254740992
+    end
+
+    return nil, nil
+end
+
+local function exactInteger(node: scalarIR.Expr): number?
+    if node.op ~= "constant" and node.op ~= "constant_i32" and node.op ~= "constant_i64" then
+        return nil
+    end
+    local value = tonumber((node as any).value)
+    if value == nil or not finite(value) or value % 1 ~= 0 then
+        return nil
+    end
+
+    return value
+end
+
+local foldExpression: function(scalarIR.Expr, optimize.State): scalarIR.Expr
+local literal: function(scalarIR.Expr): boolean
+
+--- Rewrites every expression child while preserving the enclosing record.
+---
+--- This is a structural visitor rather than an opcode whitelist. The effect
+--- lookup above it is the whitelist: a new operation cannot reach this code
+--- until its root behaviour has been classified.
+local function foldChildren(node: scalarIR.Expr, state: optimize.State): nil
+    local value = node as any
+    for _, field in ipairs({
+        "left",
+        "right",
+        "value",
+        "object",
+        "arrayCapacity",
+        "hashCapacity",
+        "nodes",
+        "links",
+        "sourceBytes",
+        "root",
+        "nullValue",
+        "maxDepth",
+        "stringCapacity",
+        "arrayMarker",
+        "objectMarker",
+        "selectionShape",
+        "arrayShapeMarker",
+        "serdeMarkers",
+        "capacity",
+        "scratch",
+        "escapeScratch",
+        "index",
+        "base",
+        "bits",
+        "events",
+        "quotes",
+        "slashes",
+        "slashCarry",
+        "slashOdd",
+        "inString",
+        "stringEscaped",
+        "bytes",
+        "builder",
+        "start",
+        "limit",
+    }) do
+        if value[field] ~= nil and type(value[field]) == "table" and value[field].op ~= nil then
+            value[field] = foldExpression(value[field] as scalarIR.Expr, state)
+        end
+    end
+    for _, argument in ipairs(value.args or {}) do
+        local position = _
+        value.args[position] = foldExpression(argument as scalarIR.Expr, state)
+    end
+    for _, field in ipairs(value.fields or {}) do
+        field.key = foldExpression(field.key as scalarIR.Expr, state)
+        field.value = foldExpression(field.value as scalarIR.Expr, state)
+    end
+end
+
+foldExpression = function(node: scalarIR.Expr, state: optimize.State): scalarIR.Expr
+    effects.expression(tostring(node.op))
+    foldChildren(node, state)
+
+    if node.op == "not" then
+        local unary = node as scalarIR.Unary
+        if unary.value.op == "bool" then
+            state.folds = state.folds + 1
+            state.changed = true
+            return boolean(not (unary.value as scalarIR.Bool).value, node)
+        end
+    elseif node.op == "and" or node.op == "or" then
+        local binary = node as scalarIR.Binary
+        if binary.left.op == "bool" then
+            local left = (binary.left as scalarIR.Bool).value
+            state.folds = state.folds + 1
+            state.changed = true
+            if node.op == "and" then
+                return left and binary.right or binary.left
+            end
+
+            return left and binary.left or binary.right
+        end
+    elseif node.op == "add" or node.op == "sub" or node.op == "mul" or node.op == "div" then
+        local binary = node as scalarIR.Binary
+        if binary.left.op == "constant" and binary.right.op == "constant" then
+            local left = tonumber((binary.left as scalarIR.Constant).value) as number
+            local right = tonumber((binary.right as scalarIR.Constant).value) as number
+            local answer = 0.0
+            if node.op == "add" then
+                answer = left + right
+            elseif node.op == "sub" then
+                answer = left - right
+            elseif node.op == "mul" then
+                answer = left * right
+            else
+                answer = left / right
+            end
+            if finite(answer) then
+                state.folds = state.folds + 1
+                state.changed = true
+                return constant(answer, node)
+            end
+        end
+    elseif node.op == "neg" then
+        local unary = node as scalarIR.Unary
+        if unary.value.op == "constant" then
+            local answer = -(tonumber((unary.value as scalarIR.Constant).value) as number)
+            if finite(answer) then
+                state.folds = state.folds + 1
+                state.changed = true
+                return constant(answer, node)
+            end
+        end
+    elseif node.op == "numeric_cast" then
+        local converted = node as scalarIR.Convert
+        local value = exactInteger(converted.value)
+        local low, high = integerRange(converted.type)
+        if value ~= nil and low ~= nil and value >= (low as number) and value <= (high as number) then
+            state.folds = state.folds + 1
+            state.changed = true
+            return integerConstant(value, converted.type, node)
+        end
+    elseif node.op == "int_to_f64" then
+        local converted = node as scalarIR.Convert
+        local value = exactInteger(converted.value)
+        if value ~= nil and math.abs(value) <= 9007199254740992 then
+            state.folds = state.folds + 1
+            state.changed = true
+            return constant(value, node)
+        end
+    elseif node.op == "u32_add" or node.op == "u32_sub" then
+        local pair = node as scalarIR.Fixed
+        local left = exactInteger(pair.left as scalarIR.Expr)
+        local right = exactInteger(pair.right as scalarIR.Expr)
+        if left ~= nil and right ~= nil then
+            local answer = node.op == "u32_add" and left + right or left - right
+            answer = answer % 4294967296
+            state.folds = state.folds + 1
+            state.changed = true
+            return integerConstant(answer, "u32", node)
+        end
+    elseif node.op == "i32_add" or node.op == "i32_sub" then
+        local pair = node as scalarIR.Fixed
+        local left = exactInteger(pair.left as scalarIR.Expr)
+        local right = exactInteger(pair.right as scalarIR.Expr)
+        if left ~= nil and right ~= nil then
+            local answer = node.op == "i32_add" and left + right or left - right
+            answer = answer % 4294967296
+            if answer >= 2147483648 then
+                answer = answer - 4294967296
+            end
+            state.folds = state.folds + 1
+            state.changed = true
+            return integerConstant(answer, "i32", node)
+        end
+    elseif node.op == "u64_add"
+        or node.op == "u64_sub"
+        or node.op == "u64_mul"
+        or node.op == "i64_add"
+        or node.op == "i64_sub"
+        or node.op == "i64_mul"
+    then
+        local pair = node as scalarIR.Fixed
+        local left = exactInteger(pair.left)
+        local right = exactInteger(pair.right)
+        if left ~= nil and right ~= nil then
+            local answer = 0
+            if node.op == "u64_add" or node.op == "i64_add" then
+                answer = left + right
+            elseif node.op == "u64_sub" or node.op == "i64_sub" then
+                answer = left - right
+            else
+                answer = left * right
+            end
+            local unsigned = node.op:sub(1, 3) == "u64"
+            if math.abs(answer) <= 9007199254740992 and (not unsigned or answer >= 0) then
+                state.folds = state.folds + 1
+                state.changed = true
+                return integerConstant(answer, unsigned and "u64" or "i64", node)
+            end
+        end
+    elseif node.op == "helper_call" then
+        local call = node as scalarIR.HelperCall
+        local helper = state.helpers[call.helper]
+        local replacements: {[string]: scalarIR.Expr} = {}
+        local allConstant = helper ~= nil
+            and helper.native ~= true
+            and #helper.values == 1
+            and #helper.params == #call.args
+        if allConstant then
+            for position, argument in ipairs(call.args) do
+                if not literal(argument) then
+                    allConstant = false
+                    break
+                end
+                local param = (helper as scalarIR.Helper).params[position]
+                replacements[tostring(param.cName or param.name)] = argument
+            end
+        end
+        if allConstant then
+            local replacement = copySpecialized((helper as scalarIR.Helper).values[1], replacements) as scalarIR.Expr
+            local growth = expressionNodes(replacement) - expressionNodes(node)
+            if growth <= state.specializationBudget then
+                state.specializationBudget = state.specializationBudget - math.max(growth, 0)
+                state.specializedHelperCalls = state.specializedHelperCalls + 1
+                state.changed = true
+                return foldExpression(replacement, state)
+            end
+        end
+    elseif node.op == "eq"
+        or node.op == "ne"
+        or node.op == "lt"
+        or node.op == "le"
+        or node.op == "gt"
+        or node.op == "ge"
+    then
+        local binary = node as scalarIR.Binary
+        local left: number?
+        local right: number?
+        left = exactInteger(binary.left)
+        right = exactInteger(binary.right)
+        if left ~= nil and right ~= nil then
+            local answer = false
+            if node.op == "eq" then
+                answer = left == right
+            elseif node.op == "ne" then
+                answer = left ~= right
+            elseif node.op == "lt" then
+                answer = left < right
+            elseif node.op == "le" then
+                answer = left <= right
+            elseif node.op == "gt" then
+                answer = left > right
+            else
+                answer = left >= right
+            end
+            state.folds = state.folds + 1
+            state.changed = true
+            return boolean(answer, node)
+        end
+    end
+
+    return node
+end
+
+--- Whether discarding an expression also discards observable behaviour.
+local function discardable(node: scalarIR.Expr): boolean
+    local root = effects.expression(tostring(node.op))
+    if root.observable or root.mayRaise then
+        return false
+    end
+    local value = node as any
+    for _, field in ipairs({
+        "left",
+        "right",
+        "value",
+        "object",
+        "arrayCapacity",
+        "hashCapacity",
+        "nodes",
+        "links",
+        "sourceBytes",
+        "root",
+        "nullValue",
+        "maxDepth",
+        "stringCapacity",
+        "arrayMarker",
+        "objectMarker",
+        "selectionShape",
+        "arrayShapeMarker",
+        "serdeMarkers",
+        "capacity",
+        "scratch",
+        "escapeScratch",
+        "index",
+        "base",
+        "bits",
+        "events",
+        "quotes",
+        "slashes",
+        "slashCarry",
+        "slashOdd",
+        "inString",
+        "stringEscaped",
+        "bytes",
+        "builder",
+        "start",
+        "limit",
+    }) do
+        if value[field] ~= nil and type(value[field]) == "table" and value[field].op ~= nil then
+            if not discardable(value[field] as scalarIR.Expr) then
+                return false
+            end
+        end
+    end
+    for _, argument in ipairs(value.args or {}) do
+        if not discardable(argument as scalarIR.Expr) then
+            return false
+        end
+    end
+    for _, field in ipairs(value.fields or {}) do
+        if not discardable(field.key as scalarIR.Expr) or not discardable(field.value as scalarIR.Expr) then
+            return false
+        end
+    end
+
+    return true
+end
+
+local function foldStatementExpressions(statement: scalarIR.Statement, state: optimize.State): nil
+    effects.statement(tostring(statement.op))
+    local value = statement as any
+    for _, field in ipairs({
+        "value",
+        "call",
+        "condition",
+        "from",
+        "to",
+        "table",
+        "key",
+        "builder",
+        "sourceBytes",
+        "start",
+        "length",
+        "escaped",
+        "negative",
+        "exponent",
+        "exact",
+        "capacity",
+        "scratch",
+        "escapeScratch",
+        "escapeIndex",
+        "escapeCount",
+        "index"
+    }) do
+        if value[field] ~= nil and type(value[field]) == "table" and value[field].op ~= nil then
+            value[field] = foldExpression(value[field] as scalarIR.Expr, state)
+        end
+    end
+    for position, entry in ipairs(value.values or {}) do
+        if statement.op == "return" then
+            value.values[position] = foldExpression(entry as scalarIR.Expr, state)
+        else
+            entry.value = foldExpression(entry.value as scalarIR.Expr, state)
+            if entry.target.object ~= nil then
+                entry.target.object = foldExpression(entry.target.object as scalarIR.Expr, state)
+            end
+        end
+    end
+end
+
+local optimizeBlock: function({scalarIR.Statement}, optimize.State): {scalarIR.Statement}
+
+local function inheritConstants(values: {[string]: scalarIR.Expr}): {[string]: scalarIR.Expr}
+    local copied: {[string]: scalarIR.Expr} = {}
+    for name, value in pairs(values) do
+        copied[name] = value
+    end
+
+    return copied
+end
+
+literal = function(node: scalarIR.Expr): boolean
+    return node.op == "constant" or node.op == "constant_i32" or node.op == "constant_i64" or node.op == "bool"
+end
+
+local propagateExpression: function(scalarIR.Expr, {[string]: scalarIR.Expr}, optimize.State): scalarIR.Expr
+
+propagateExpression = function(
+    node: scalarIR.Expr,
+    constants: {[string]: scalarIR.Expr},
+    state: optimize.State
+): scalarIR.Expr
+    effects.expression(tostring(node.op))
+    if node.op == "local" then
+        local named = node as scalarIR.Name
+        local replacement = constants[tostring(named.cName or named.name)]
+        if replacement ~= nil then
+            state.propagatedConstants = state.propagatedConstants + 1
+            state.changed = true
+            return replacement
+        end
+    end
+
+    local value = node as any
+    for _, field in ipairs({
+        "left",
+        "right",
+        "value",
+        "object",
+        "arrayCapacity",
+        "hashCapacity",
+        "nodes",
+        "links",
+        "sourceBytes",
+        "root",
+        "nullValue",
+        "maxDepth",
+        "stringCapacity",
+        "arrayMarker",
+        "objectMarker",
+        "selectionShape",
+        "arrayShapeMarker",
+        "serdeMarkers",
+        "capacity",
+        "scratch",
+        "escapeScratch",
+        "index",
+        "base",
+        "bits",
+        "events",
+        "quotes",
+        "slashes",
+        "slashCarry",
+        "slashOdd",
+        "inString",
+        "stringEscaped",
+        "bytes",
+        "builder",
+        "start",
+        "limit",
+    }) do
+        if value[field] ~= nil and type(value[field]) == "table" and value[field].op ~= nil then
+            value[field] = propagateExpression(value[field] as scalarIR.Expr, constants, state)
+        end
+    end
+    for position, argument in ipairs(value.args or {}) do
+        value.args[position] = propagateExpression(argument as scalarIR.Expr, constants, state)
+    end
+    for _, field in ipairs(value.fields or {}) do
+        field.key = propagateExpression(field.key as scalarIR.Expr, constants, state)
+        field.value = propagateExpression(field.value as scalarIR.Expr, constants, state)
+    end
+
+    return foldExpression(node, state)
+end
+
+local function mutatedLocals(value: any, mutated: {[string]: boolean}): nil
+    if type(value) ~= "table" then
+        return
+    end
+    if value.op == "assign" then
+        for _, assignment in ipairs(value.values or {}) do
+            if assignment.target.kind == "local" and assignment.target.cName ~= nil then
+                mutated[tostring(assignment.target.cName)] = true
+            end
+        end
+    end
+    -- A proof names the local whose value the dominating comparison checked.
+    -- Replacing that occurrence with a literal would leave valid source code
+    -- attached to an unverifiable (and misleading) proof identity.
+    for name in pairs(value.cursorBounds or {}) do
+        mutated[name] = true
+    end
+    for key, child in pairs(value) do
+        if key ~= "source" then
+            mutatedLocals(child, mutated)
+        end
+    end
+end
+
+local propagateBlock: function(
+    {scalarIR.Statement},
+    {[string]: scalarIR.Expr},
+    {[string]: boolean},
+    optimize.State
+): nil
+
+propagateBlock = function(
+    statements: {scalarIR.Statement},
+    inherited: {[string]: scalarIR.Expr},
+    mutated: {[string]: boolean},
+    state: optimize.State
+): nil
+    local constants = inheritConstants(inherited)
+    for _, statement in ipairs(statements) do
+        effects.statement(tostring(statement.op))
+        local value = statement as any
+        for _, field in ipairs({
+            "value",
+            "call",
+            "condition",
+            "from",
+            "to",
+            "table",
+            "key",
+            "builder",
+            "sourceBytes",
+            "start",
+            "length",
+            "escaped",
+            "negative",
+            "exponent",
+            "exact",
+            "capacity",
+            "scratch",
+            "escapeScratch",
+            "escapeIndex",
+            "escapeCount",
+            "index"
+        }) do
+            if value[field] ~= nil and type(value[field]) == "table" and value[field].op ~= nil then
+                value[field] = propagateExpression(value[field] as scalarIR.Expr, constants, state)
+            end
+        end
+        for position, entry in ipairs(value.values or {}) do
+            if statement.op == "return" then
+                value.values[position] = propagateExpression(entry as scalarIR.Expr, constants, state)
+            else
+                entry.value = propagateExpression(entry.value as scalarIR.Expr, constants, state)
+                if entry.target.object ~= nil then
+                    entry.target.object = propagateExpression(entry.target.object as scalarIR.Expr, constants, state)
+                end
+            end
+        end
+        if statement.op == "let" and mutated[
+            statement.cName
+        ] ~= true and mutated[statement.name] ~= true and literal(statement.value) then
+            constants[statement.cName] = statement.value
+        elseif statement.op == "if" then
+            for _, clause in ipairs(statement.clauses) do
+                clause.condition = propagateExpression(clause.condition, constants, state)
+                propagateBlock(clause.body, constants, mutated, state)
+            end
+            if statement.elseBody ~= nil then
+                propagateBlock(statement.elseBody as {scalarIR.Statement}, constants, mutated, state)
+            end
+            if statement.nativeSwitch ~= nil then
+                (
+                    statement.nativeSwitch as scalarIR.NativeSwitch
+                ).selector = propagateExpression(
+                    (statement.nativeSwitch as scalarIR.NativeSwitch).selector,
+                    constants,
+                    state
+                )
+            end
+        elseif statement.op == "fornum" or statement.op == "while" or statement.op == "block" then
+            propagateBlock(value.body as {scalarIR.Statement}, constants, mutated, state)
+        end
+    end
+end
+
+optimizeBlock = function(statements: {scalarIR.Statement}, state: optimize.State): {scalarIR.Statement}
+    local rewritten: {scalarIR.Statement} = {}
+    local terminated = false
+    for _, statement in ipairs(statements) do
+        if terminated then
+            state.removedStatements = state.removedStatements + 1
+            state.changed = true
+        else
+            foldStatementExpressions(statement, state)
+            if statement.op == "if" then
+                local branch = statement as scalarIR.If
+                for _, clause in ipairs(branch.clauses) do
+                    clause.condition = foldExpression(clause.condition, state)
+                    clause.body = optimizeBlock(clause.body, state)
+                end
+                if branch.elseBody ~= nil then
+                    branch.elseBody = optimizeBlock(branch.elseBody as {scalarIR.Statement}, state)
+                end
+                local selected: {scalarIR.Statement}?
+                local known = true
+                for _, clause in ipairs(branch.clauses) do
+                    if clause.condition.op ~= "bool" then
+                        known = false
+                        break
+                    elseif (clause.condition as scalarIR.Bool).value then
+                        selected = clause.body
+                        break
+                    end
+                end
+                if known then
+                    selected = selected or branch.elseBody or {}
+                    rewritten[
+                        #rewritten + 1
+                    ] = new scalarIR.Block(op = "block", body = selected, source = branch.source)
+                    state.folds = state.folds + 1
+                    state.changed = true
+                else
+                    rewritten[#rewritten + 1] = statement
+                end
+            elseif statement.op == "while" then
+                local loop = statement as scalarIR.While
+                loop.condition = foldExpression(loop.condition, state)
+                loop.body = optimizeBlock(loop.body, state)
+                if loop.condition.op == "bool" and not (loop.condition as scalarIR.Bool).value then
+                    state.removedStatements = state.removedStatements + 1
+                    state.changed = true
+                else
+                    rewritten[#rewritten + 1] = statement
+                end
+            elseif statement.op == "fornum" then
+                local loop = statement as scalarIR.Fornum
+                loop.body = optimizeBlock(loop.body, state)
+                local first = exactInteger(loop.from)
+                local last = exactInteger(loop.to)
+                local trips = first ~= nil and last ~= nil and math.max(
+                    (last as number) - (first as number) + 1,
+                    0
+                ) or nil
+                if trips ~= nil and trips <= optimize.MAX_UNROLL_TRIPS and not containsLoopExit(loop.body) then
+                    local expanded: {scalarIR.Statement} = {}
+                    local growth = -expressionNodes(loop)
+                    for offset = 0, (trips as number) - 1 do
+                        local value = integerConstant((first as number) + offset, loop.binding.type, loop)
+                        local body = copySpecialized(loop.body, {}) as {scalarIR.Statement}
+                        local iterationBody: {
+                            scalarIR.Statement
+                        } = {
+                            new scalarIR.Let(
+                                op = "let",
+                                name = loop.binding.name,
+                                cName = loop.binding.cName,
+                                value = value,
+                                type = loop.binding.type,
+                                source = loop.source
+                            ),
+                        }
+                        for _, inner in ipairs(body) do
+                            iterationBody[#iterationBody + 1] = inner
+                        end
+                        local iteration = new scalarIR.Block(op = "block", body = iterationBody, source = loop.source)
+                        expanded[#expanded + 1] = iteration
+                        growth = growth + expressionNodes(iteration)
+                    end
+                    if growth <= state.unrollBudget then
+                        for _, iteration in ipairs(expanded) do
+                            rewritten[#rewritten + 1] = iteration
+                        end
+                        state.unrollBudget = state.unrollBudget - math.max(growth, 0)
+                        state.unrolledLoops = state.unrolledLoops + 1
+                        state.unrolledIterations = state.unrolledIterations + (trips as integer)
+                        state.changed = true
+                    else
+                        rewritten[#rewritten + 1] = statement
+                    end
+                else
+                    rewritten[#rewritten + 1] = statement
+                end
+            elseif statement.op == "block" then
+                local value = statement as any
+                value.body = optimizeBlock(value.body as {scalarIR.Statement}, state)
+                rewritten[#rewritten + 1] = statement
+            else
+                rewritten[#rewritten + 1] = statement
+            end
+
+            terminated = statement.op == "return" or statement.op == "break" or statement.op == "continue"
+        end
+    end
+
+    return rewritten
+end
+
+local function countUses(value: any, uses: {[string]: integer}): nil
+    if type(value) ~= "table" then
+        return
+    end
+    if value.op == "local" then
+        local identity = tostring(value.cName or value.name)
+        uses[identity] = (uses[identity] or 0) + 1
+    end
+    if value.op == "assign" then
+        for _, assignment in ipairs(value.values or {}) do
+            if assignment.target.kind == "local" and assignment.target.cName ~= nil then
+                local identity = tostring(assignment.target.cName)
+                uses[identity] = (uses[identity] or 0) + 1
+            end
+        end
+    end
+    for key, child in pairs(value) do
+        if key ~= "source" and key ~= "cName" and key ~= "name" and key ~= "cursorCName" and key ~= "indexCName" then
+            countUses(child, uses)
+        end
+    end
+end
+
+local function removeDead(statements: {scalarIR.Statement}, state: optimize.State): {scalarIR.Statement}
+    local uses: {[string]: integer} = {}
+    countUses(statements, uses)
+    local kept: {scalarIR.Statement} = {}
+    for _, statement in ipairs(statements) do
+        if statement.op == "if" then
+            for _, clause in ipairs(statement.clauses) do
+                clause.body = removeDead(clause.body, state)
+            end
+            if statement.elseBody ~= nil then
+                statement.elseBody = removeDead(statement.elseBody as {scalarIR.Statement}, state)
+            end
+        elseif statement.op == "fornum" or statement.op == "while" or statement.op == "block" then
+            (statement as any).body = removeDead((statement as any).body as {scalarIR.Statement}, state)
+        end
+
+        if statement.op == "let" and uses[statement.cName] == nil and discardable(statement.value) then
+            state.removedStatements = state.removedStatements + 1
+            state.changed = true
+        else
+            kept[#kept + 1] = statement
+        end
+    end
+
+    return kept
+end
+
+local function nodeCount(value: any): integer
+    if type(value) ~= "table" then
+        return 0
+    end
+    local count = value.op ~= nil and 1 or 0
+    for key, child in pairs(value) do
+        if key ~= "source" then
+            count = count + nodeCount(child)
+        end
+    end
+
+    return count as integer
+end
+
+local function markHelperUses(value: any, used: {[string]: boolean}, helpers: {[string]: scalarIR.Helper}): nil
+    if type(value) ~= "table" then
+        return
+    end
+    if value.op == "helper_call" then
+        local name = tostring(value.helper)
+        if not used[name] then
+            used[name] = true
+            local helper = helpers[name]
+            if helper ~= nil then
+                markHelperUses((helper as scalarIR.Helper).values, used, helpers)
+            end
+        end
+    end
+    for key, child in pairs(value) do
+        if key ~= "source" then
+            markHelperUses(child, used, helpers)
+        end
+    end
+end
+
+local function removeUnusedHelpers(program: scalarIR.Program, helpers: {[string]: scalarIR.Helper}): nil
+    local used: {[string]: boolean} = {}
+    markHelperUses(
+        program.loop ~= nil and (program.loop as scalarIR.Loop).statements or program.body or {},
+        used,
+        helpers
+    )
+    local kept: {scalarIR.Helper} = {}
+    for _, helper in ipairs(program.helpers or {}) do
+        if used[helper.name] then
+            kept[#kept + 1] = helper
+        end
+    end
+    program.helpers = kept
+end
+
+--- Optimises one verified program in place.
+--- @return counters describing the actual rewrite
+--- @raises when an IR opcode has no effect classification
+function optimize.program(program: scalarIR.Program): optimize.Stats
+    local before = nodeCount(program)
+    local helpers: {[string]: scalarIR.Helper} = {}
+    for _, helper in ipairs(program.helpers or {}) do
+        helpers[helper.name] = helper
+    end
+    local state = new optimize.State(
+        folds = 0,
+        propagatedConstants = 0,
+        specializedHelperCalls = 0,
+        specializationBudget = math.max(math.floor(before / 10), 1),
+        unrollBudget = optimize.MAX_UNROLL_GROWTH,
+        helpers = helpers,
+        unrolledLoops = 0,
+        unrolledIterations = 0,
+        removedStatements = 0,
+        changed = false
+    )
+    local mutated: {[string]: boolean} = {}
+    mutatedLocals(program, mutated)
+    local iterations = 0
+    repeat
+        iterations = iterations + 1
+        state.changed = false
+        for _, helper in ipairs(program.helpers or {}) do
+            for position, value in ipairs(helper.values) do
+                helper.values[position] = foldExpression(value, state)
+            end
+        end
+        if program.loop ~= nil then
+            local loop = program.loop as scalarIR.Loop
+            propagateBlock(loop.statements, {}, mutated, state)
+            loop.statements = optimizeBlock(loop.statements, state)
+            loop.statements = removeDead(loop.statements, state)
+        else
+            propagateBlock(program.body or {}, {}, mutated, state)
+            program.body = optimizeBlock(program.body or {}, state)
+            program.body = removeDead(program.body or {}, state)
+        end
+    until not state.changed or iterations == 4
+
+    removeUnusedHelpers(program, helpers)
+
+    -- Verification owns this derived fact. Clearing it makes the second verify
+    -- recompute the bound instead of merely agreeing with the first pass.
+    program.maxStack = nil
+
+    return new optimize.Stats(
+        beforeNodes = before,
+        afterNodes = nodeCount(program),
+        folds = state.folds,
+        propagatedConstants = state.propagatedConstants,
+        specializedHelperCalls = state.specializedHelperCalls,
+        unrolledLoops = state.unrolledLoops,
+        unrolledIterations = state.unrolledIterations,
+        removedStatements = state.removedStatements,
+        iterations = iterations as integer
+    )
+end
+
+export = optimize

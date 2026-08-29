@@ -1,0 +1,593 @@
+import { createWorkerPool } from "./worker-pool.mjs";
+
+function hostError(module) {
+  const pointer = module._nupp_app_last_error();
+  return pointer ? module.UTF8ToString(pointer) : "unknown Nupp Wasm app error";
+}
+
+const APP_SUSPENDED = 1;
+const APP_COMPLETE = 2;
+const APP_FAILED = 3;
+const APP_CANCELLED = 4;
+const textEncoder = new TextEncoder();
+const textDecoder = new TextDecoder("utf-8", {fatal: true});
+const DEFAULT_LIMITS = Object.freeze({
+  maxEffects: 256,
+  maxEffectBytes: 4 * 1024 * 1024,
+  maxResponseBytes: 8 * 1024 * 1024,
+  maxStorageValueBytes: 1024 * 1024,
+  deadlineMs: 30_000,
+});
+
+function payload(module) {
+  const length = module._nupp_app_payload_size();
+  const pointer = module._nupp_app_payload_data();
+  if (length === 0) return "";
+  if (!pointer) throw new Error("the Nupp app host exposed a null payload");
+  return textDecoder.decode(module.HEAPU8.slice(pointer, pointer + length));
+}
+
+function callWithBytes(module, fn, bytes) {
+  const pointer = module._malloc(bytes.length || 1);
+  if (!pointer) throw new Error("cannot allocate the Nupp app protocol buffer");
+  try {
+    module.HEAPU8.set(bytes, pointer);
+    return fn(pointer, bytes.length);
+  } finally {
+    module._free(pointer);
+  }
+}
+
+function bytesToBase64(bytes) {
+  let binary = "";
+  for (let offset = 0; offset < bytes.length; offset += 0x8000) {
+    binary += String.fromCharCode(...bytes.subarray(offset, offset + 0x8000));
+  }
+  return btoa(binary);
+}
+
+function base64ToBytes(text, label) {
+  if (typeof text !== "string" || text.length % 4 !== 0 ||
+      !/^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/.test(text)) {
+    throw new Error(`${label} must be canonical base64`);
+  }
+  return Uint8Array.from(atob(text), (character) => character.charCodeAt(0));
+}
+
+function webCrypto(options) {
+  const selected = options.crypto || globalThis.crypto;
+  if (!selected?.getRandomValues || !selected?.subtle) {
+    throw new Error("Web Crypto is unavailable in this host");
+  }
+  return selected;
+}
+
+function checkedLimits(overrides = {}) {
+  const limits = {...DEFAULT_LIMITS};
+  for (const name of Object.keys(limits)) {
+    if (overrides[name] === undefined) continue;
+    if (!Number.isInteger(overrides[name]) || overrides[name] < 1) {
+      throw new Error(`browser application limit ${name} must be a positive integer`);
+    }
+    limits[name] = overrides[name];
+  }
+  return limits;
+}
+
+function abortError(signal) {
+  return signal?.reason || new DOMException("The operation was aborted", "AbortError");
+}
+
+function abortable(value, signal) {
+  if (!signal) return value;
+  if (signal.aborted) return Promise.reject(abortError(signal));
+  return new Promise((resolve, reject) => {
+    const abort = () => reject(abortError(signal));
+    signal.addEventListener("abort", abort, {once: true});
+    Promise.resolve(value).then(
+      (result) => {
+        signal.removeEventListener("abort", abort);
+        resolve(result);
+      },
+      (error) => {
+        signal.removeEventListener("abort", abort);
+        reject(error);
+      },
+    );
+  });
+}
+
+async function performTimeEffect(effect, options) {
+  if (effect.operation === "now") return (options.performance || globalThis.performance).now();
+  if (effect.operation === "wall") return (options.dateNow || Date.now)();
+  if (effect.operation !== "sleep" || typeof effect.milliseconds !== "number" ||
+      !Number.isFinite(effect.milliseconds) || effect.milliseconds < 0) {
+    throw new Error("invalid browser time operation");
+  }
+  await new Promise((resolve, reject) => {
+    if (options.signal?.aborted) {
+      reject(abortError(options.signal));
+      return;
+    }
+    const finish = () => {
+      options.signal?.removeEventListener("abort", cancel);
+      resolve();
+    };
+    const timer = setTimeout(finish, effect.milliseconds);
+    const cancel = () => {
+      clearTimeout(timer);
+      reject(abortError(options.signal));
+    };
+    options.signal?.addEventListener("abort", cancel, {once: true});
+  });
+  return null;
+}
+
+async function performRandomEffect(effect, options) {
+  if (!Number.isInteger(effect.count) || effect.count < 0 || effect.count > 1024 * 1024) {
+    throw new Error("browser random byte count must be between 0 and 1048576");
+  }
+  const selected = webCrypto(options);
+  const bytes = new Uint8Array(effect.count);
+  for (let at = 0; at < bytes.length; at += 65536) {
+    selected.getRandomValues(bytes.subarray(at, Math.min(at + 65536, bytes.length)));
+  }
+  return {
+    bytesBase64: bytesToBase64(bytes),
+    ...(effect.wallTime ? {wallTimeMs: (options.dateNow || Date.now)()} : {}),
+  };
+}
+
+function hex(bytes) {
+  return Array.from(bytes, (byte) => byte.toString(16).padStart(2, "0")).join("");
+}
+
+async function performSha256Effect(effect, options) {
+  const bytes = base64ToBytes(effect.bytesBase64, "SHA-256 input");
+  const digest = await webCrypto(options).subtle.digest("SHA-256", bytes);
+  return hex(new Uint8Array(digest));
+}
+
+async function performHmacEffect(effect, options) {
+  const selected = webCrypto(options);
+  const keyBytes = base64ToBytes(effect.keyBase64, "HMAC key");
+  const message = base64ToBytes(effect.messageBase64, "HMAC message");
+  const key = await selected.subtle.importKey(
+    "raw", keyBytes, {name: "HMAC", hash: "SHA-256"}, false, ["sign"],
+  );
+  const digest = new Uint8Array(await selected.subtle.sign("HMAC", key, message));
+  return {digestBase64: bytesToBase64(digest)};
+}
+
+function openStorage(name, indexedDB = globalThis.indexedDB) {
+  if (!indexedDB) throw new Error("IndexedDB is unavailable in this Worker");
+  return new Promise((resolve, reject) => {
+    const request = indexedDB.open(name, 1);
+    request.onupgradeneeded = () => request.result.createObjectStore("values");
+    request.onerror = () => reject(request.error || new Error("cannot open browser storage"));
+    request.onsuccess = () => resolve(request.result);
+  });
+}
+
+function idbRequest(request) {
+  return new Promise((resolve, reject) => {
+    request.onerror = () => reject(request.error || new Error("browser storage request failed"));
+    request.onsuccess = () => resolve(request.result);
+  });
+}
+
+async function defaultStorage(options) {
+  if (!options.storagePromise) {
+    options.storagePromise = openStorage(
+      options.storageName || "nupp-browser-application", options.indexedDB,
+    );
+  }
+  const database = await options.storagePromise;
+  return {
+    async get(key) {
+      const value = await idbRequest(database.transaction("values").objectStore("values").get(key));
+      return value === undefined ? undefined : String(value);
+    },
+    async set(key, value) {
+      await idbRequest(database.transaction("values", "readwrite").objectStore("values").put(value, key));
+    },
+    async remove(key) {
+      await idbRequest(database.transaction("values", "readwrite").objectStore("values").delete(key));
+    },
+    async clear() {
+      await idbRequest(database.transaction("values", "readwrite").objectStore("values").clear());
+    },
+  };
+}
+
+async function performStorageEffect(effect, options) {
+  const storage = options.storage || await defaultStorage(options);
+  if (effect.operation === "clear") {
+    await storage.clear();
+    return null;
+  }
+  if (typeof effect.key !== "string" || effect.key.length === 0 ||
+      textEncoder.encode(effect.key).length > 1024) {
+    throw new Error("browser storage keys must contain 1 through 1024 UTF-8 bytes");
+  }
+  if (effect.operation === "get") {
+    const value = await storage.get(effect.key);
+    return value === undefined || value === null ? {found: false} : {found: true, value: String(value)};
+  }
+  if (effect.operation === "remove") {
+    await storage.remove(effect.key);
+    return null;
+  }
+  if (effect.operation === "set" && typeof effect.value === "string") {
+    if (textEncoder.encode(effect.value).length > options.limits.maxStorageValueBytes) {
+      throw new Error(`browser storage value exceeded ${options.limits.maxStorageValueBytes} bytes`);
+    }
+    await storage.set(effect.key, effect.value);
+    return null;
+  }
+  throw new Error("invalid browser storage operation");
+}
+
+async function performHttpEffect(effect, options) {
+  if (typeof effect.url !== "string" || !/^https?:\/\//i.test(effect.url)) {
+    throw new Error("browser HTTP effects require an absolute http or https URL");
+  }
+  const controller = new AbortController();
+  const abort = () => controller.abort(options.signal?.reason);
+  options.signal?.addEventListener("abort", abort, {once: true});
+  const timeout = Number.isInteger(effect.timeoutMs) && effect.timeoutMs > 0
+    ? setTimeout(() => controller.abort(new Error("HTTP request timed out")), effect.timeoutMs)
+    : undefined;
+  try {
+    const headers = new Headers();
+    for (const pair of effect.headers || []) {
+      if (!Array.isArray(pair) || pair.length !== 2) throw new Error("invalid browser HTTP header");
+      headers.append(pair[0], pair[1]);
+    }
+    const body = effect.bodyBase64 === undefined
+      ? undefined
+      : base64ToBytes(effect.bodyBase64, "HTTP request body");
+    const response = await (options.fetch || globalThis.fetch)(effect.url, {
+      method: effect.method || "GET",
+      headers,
+      body,
+      redirect: "follow",
+      signal: controller.signal,
+    });
+    const protocolLimit = Math.floor(options.limits.maxResponseBytes * 3 / 4);
+    const maxBytes = Number.isInteger(effect.maxBytes) && effect.maxBytes > 0
+      ? Math.min(effect.maxBytes, protocolLimit)
+      : protocolLimit;
+    const declared = Number(response.headers.get("content-length"));
+    if (Number.isFinite(declared) && declared > maxBytes) {
+      throw new Error(`HTTP response exceeded maxBytes (${maxBytes})`);
+    }
+    const chunks = [];
+    let length = 0;
+    if (response.body?.getReader) {
+      const reader = response.body.getReader();
+      while (true) {
+        const {done, value} = await reader.read();
+        if (done) break;
+        length += value.length;
+        if (length > maxBytes) {
+          await reader.cancel("Nupp HTTP response limit reached");
+          throw new Error(`HTTP response exceeded maxBytes (${maxBytes})`);
+        }
+        chunks.push(value);
+      }
+    } else {
+      const value = new Uint8Array(await response.arrayBuffer());
+      length = value.length;
+      if (length > maxBytes) throw new Error(`HTTP response exceeded maxBytes (${maxBytes})`);
+      chunks.push(value);
+    }
+    const bytes = new Uint8Array(length);
+    let at = 0;
+    for (const chunk of chunks) {
+      bytes.set(chunk, at);
+      at += chunk.length;
+    }
+    return {
+      status: response.status,
+      url: response.url || effect.url,
+      headers: Array.from(response.headers.entries()),
+      bodyBase64: bytesToBase64(bytes),
+    };
+  } finally {
+    if (timeout !== undefined) clearTimeout(timeout);
+    options.signal?.removeEventListener("abort", abort);
+  }
+}
+
+export async function handleBrowserEffects(message, options = {}) {
+  if (message?.kind === "poll") {
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    return {responses: []};
+  }
+  if (message?.kind !== "effects" || !Array.isArray(message.requests)) {
+    throw new Error("the Nupp app yielded an unknown browser effect message");
+  }
+  options.limits ||= checkedLimits(options.limitOverrides);
+  if (message.requests.length > options.limits.maxEffects) {
+    throw new Error(`browser application yielded more than ${options.limits.maxEffects} effects`);
+  }
+  const responses = await Promise.all(message.requests.map(async (effect) => {
+    if (!Number.isInteger(effect?.id) || effect.id < 1) {
+      return {id: effect?.id, ok: false, error: "browser effect id is invalid"};
+    }
+    try {
+      let value;
+      const supplied = options.effectHandlers?.[effect.kind];
+      if (supplied) value = await supplied(effect, options);
+      else if (effect.kind === "http") value = await performHttpEffect(effect, options);
+      else if (effect.kind === "time") value = await performTimeEffect(effect, options);
+      else if (effect.kind === "random") value = await performRandomEffect(effect, options);
+      else if (effect.kind === "sha256") value = await performSha256Effect(effect, options);
+      else if (effect.kind === "hmac-sha256") value = await performHmacEffect(effect, options);
+      else if (effect.kind === "storage") value = await performStorageEffect(effect, options);
+      else throw new Error(`unsupported browser effect ${effect.kind}`);
+      return {id: effect.id, ok: true, value};
+    } catch (error) {
+      return {id: effect.id, ok: false, error: String(error?.message || error)};
+    }
+  }));
+  return {responses};
+}
+
+async function driveApplication(module, source, options) {
+  options.limits = checkedLimits(options.limitOverrides);
+  const started = performance.now();
+  const outerSignal = options.signal;
+  const deadline = new AbortController();
+  const forwardAbort = () => deadline.abort(outerSignal.reason);
+  if (outerSignal?.aborted) forwardAbort();
+  else outerSignal?.addEventListener("abort", forwardAbort, {once: true});
+  let deadlineTimer = setTimeout(() => deadline.abort(
+    new Error(`browser application exceeded its ${options.limits.deadlineMs} ms deadline`),
+  ), options.limits.deadlineMs);
+  options.signal = deadline.signal;
+  let effectCount = 0;
+  let effectBytes = 0;
+  let responseBytes = 0;
+  let turnStarted = started;
+  // A worker lane runs the same payload for as long as its pool keeps it, so its
+  // budget is per task rather than for one application run. `resetLimits` names
+  // the request that begins a turn; without it every count is cumulative, which is
+  // what a page's own application wants.
+  const beginTurn = () => {
+    effectCount = 0;
+    effectBytes = 0;
+    responseBytes = 0;
+    turnStarted = performance.now();
+    clearTimeout(deadlineTimer);
+    deadlineTimer = setTimeout(() => deadline.abort(
+      new Error(`browser worker lane exceeded its ${options.limits.deadlineMs} ms deadline`),
+    ), options.limits.deadlineMs);
+  };
+  try {
+    let status = callWithBytes(
+      module,
+      options.managed ? module._nupp_app_start_managed : module._nupp_app_start,
+      source,
+    );
+    while (status === APP_SUSPENDED) {
+      if (options.signal?.aborted) {
+        module._nupp_app_cancel();
+        throw options.signal.reason || new DOMException("The operation was aborted", "AbortError");
+      }
+      let request;
+      try {
+        const requestText = payload(module);
+        request = JSON.parse(requestText);
+        // Before the budgets are read, so a lane that waited minutes for its next
+        // task is measured against that task rather than against the wait.
+        if (options.resetLimits?.(request)) beginTurn();
+        effectBytes += textEncoder.encode(requestText).length;
+        if (effectBytes > options.limits.maxEffectBytes) {
+          throw new Error(`browser effect payloads exceeded ${options.limits.maxEffectBytes} bytes`);
+        }
+        if (performance.now() - turnStarted > options.limits.deadlineMs) {
+          throw new Error(`browser application exceeded its ${options.limits.deadlineMs} ms deadline`);
+        }
+        effectCount += Array.isArray(request?.requests) ? request.requests.length : 0;
+        if (effectCount > options.limits.maxEffects) {
+          throw new Error(`browser application exceeded ${options.limits.maxEffects} effects`);
+        }
+        const response = await abortable(
+          (options.effects || handleBrowserEffects)(request, options), options.signal,
+        );
+        const bytes = textEncoder.encode(JSON.stringify(response));
+        responseBytes += bytes.length;
+        if (responseBytes > options.limits.maxResponseBytes) {
+          throw new Error(`browser effect responses exceeded ${options.limits.maxResponseBytes} bytes`);
+        }
+        status = callWithBytes(module, module._nupp_app_resume, bytes);
+      } catch (error) {
+        if (module._nupp_app_status() === APP_SUSPENDED) module._nupp_app_cancel();
+        throw error;
+      }
+    }
+    if (status === APP_FAILED) throw new Error(hostError(module));
+    if (status === APP_CANCELLED) throw new Error("the Nupp application was cancelled");
+    if (status !== APP_COMPLETE) throw new Error(`unknown Nupp app status ${status}`);
+    const result = payload(module);
+    if (textEncoder.encode(result).length > options.limits.maxResponseBytes) {
+      throw new Error(`browser application result exceeded ${options.limits.maxResponseBytes} bytes`);
+    }
+    if (result === "") return null;
+    try {
+      return JSON.parse(result);
+    } catch (error) {
+      throw new Error(`the Nupp app returned invalid structured JSON: ${error.message}`);
+    }
+  } finally {
+    clearTimeout(deadlineTimer);
+    outerSignal?.removeEventListener("abort", forwardAbort);
+  }
+}
+
+function relativeAsset(name, label) {
+  if (typeof name !== "string" || name.length === 0 || name.includes("\\")) {
+    throw new Error(`${label} must be a nonempty relative asset path`);
+  }
+  const parts = name.split("/");
+  if (name.startsWith("/") || parts.some((part) => part === "" || part === "." || part === "..")) {
+    throw new Error(`${label} must stay inside the browser application package`);
+  }
+  return name;
+}
+
+async function digest(bytes) {
+  if (!globalThis.crypto?.subtle) {
+    throw new Error("Web Crypto SHA-256 is unavailable in this host");
+  }
+  const answer = await globalThis.crypto.subtle.digest("SHA-256", bytes);
+  return Array.from(new Uint8Array(answer), (byte) => byte.toString(16).padStart(2, "0")).join("");
+}
+
+async function verifiedAsset(fetchAsset, base, record, label) {
+  const file = relativeAsset(record?.file, `${label}.file`);
+  if (!/^[0-9a-f]{64}$/.test(record?.sha256 || "")) {
+    throw new Error(`${label}.sha256 must be a lowercase SHA-256 digest`);
+  }
+  const response = await fetchAsset(new URL(file, base));
+  if (!response.ok) throw new Error(`cannot fetch ${label}: HTTP ${response.status}`);
+  const bytes = new Uint8Array(await response.arrayBuffer());
+  if (record.bytes !== undefined && bytes.length !== record.bytes) {
+    throw new Error(`${label} has ${bytes.length} bytes; expected ${record.bytes}`);
+  }
+  const actual = await digest(bytes);
+  if (actual !== record.sha256) {
+    throw new Error(`${label} SHA-256 mismatch: expected ${record.sha256}, found ${actual}`);
+  }
+  return bytes;
+}
+
+export async function runNuppWasmApp({
+  createHost,
+  locateFile,
+  app,
+  sideModules,
+  wasmBinary,
+  effects,
+  effectHandlers,
+  resetLimits,
+  fetch,
+  signal,
+  limits,
+  storage,
+  storageName,
+  initialize,
+  managed,
+}) {
+  const module = await createHost({
+    locateFile,
+    ...(wasmBinary ? { wasmBinary } : {}),
+  });
+  const state = module._nupp_app_boot();
+  if (!state) throw new Error(hostError(module));
+  if (initialize) {
+    const initialized = callWithBytes(module, module._nupp_app_initialize, initialize);
+    if (!initialized) throw new Error(hostError(module));
+  }
+
+  const sideStacks = [];
+  for (const side of sideModules) {
+    const stackSize = side.stackSize || 1024 * 1024;
+    const stack = module._malloc(stackSize);
+    if (!stack) throw new Error("cannot allocate the Wasm AOT side-module stack");
+    sideStacks.push(stack);
+    module.nuppSetSideStackPointer(stack + stackSize);
+    const scope = {};
+    await module.loadDynamicLibrary(side.url, {
+      loadAsync: true,
+      global: false,
+      nodelete: true,
+    }, scope);
+    const register = scope[side.registrar];
+    if (typeof register !== "function") {
+      throw new Error(
+        "Wasm AOT registrar " + side.registrar + " is missing; loaded " + Object.keys(scope).join(",")
+      );
+    }
+    register(state);
+  }
+
+  const source = app instanceof Uint8Array ? app : new Uint8Array(app);
+  return driveApplication(module, source, {
+    effects, effectHandlers, resetLimits, fetch, signal,
+    limitOverrides: limits, storage, storageName, managed,
+  });
+}
+
+export async function runPackagedNuppWasmApp(manifestUrl, options = {}) {
+  const fetchAsset = options.fetch || globalThis.fetch;
+  if (typeof fetchAsset !== "function") throw new Error("fetch is unavailable in this host");
+  const manifestAddress = new URL(manifestUrl, globalThis.location?.href);
+  const response = await fetchAsset(manifestAddress);
+  if (!response.ok) throw new Error(`cannot fetch browser application manifest: HTTP ${response.status}`);
+  const manifest = await response.json();
+  if (manifest.schemaVersion !== 1 || manifest.target !== "wasm32-unknown-emscripten") {
+    throw new Error("unsupported Nupp browser application manifest");
+  }
+  const base = new URL(".", manifestAddress);
+  const hostModule = relativeAsset(manifest.runtime?.module?.file, "runtime.module.file");
+  if (!/^[0-9a-f]{64}$/.test(manifest.runtime?.module?.sha256 || "") ||
+      !hostModule.includes(manifest.runtime.module.sha256.slice(0, 16))) {
+    throw new Error("runtime.module must use its content-addressed filename");
+  }
+  const [app, wasmBinary] = await Promise.all([
+    verifiedAsset(fetchAsset, base, manifest.app, "app"),
+    verifiedAsset(fetchAsset, base, manifest.runtime.wasm, "runtime.wasm"),
+  ]);
+  const sideRecords = Array.isArray(manifest.sideModules) ? manifest.sideModules : [];
+  const sideBytes = await Promise.all(sideRecords.map((record, index) =>
+    verifiedAsset(fetchAsset, base, record, `sideModules[${index}]`)
+  ));
+  const createHost = (await import(new URL(hostModule, base).href)).default;
+  const objectUrls = [];
+  let pool;
+  try {
+    const sideModules = sideRecords.map((record, index) => {
+      if (typeof record.registrar !== "string" || !/^nupp_wasm_register_[a-z0-9]+$/.test(record.registrar)) {
+        throw new Error(`sideModules[${index}].registrar is invalid`);
+      }
+      const url = URL.createObjectURL(new Blob([sideBytes[index]], {type: "application/wasm"}));
+      objectUrls.push(url);
+      return {url, registrar: record.registrar, stackSize: record.stackSize};
+    });
+    // A page whose application reached worker tasks gets a bounded pool of lanes,
+    // each booting this same verified manifest in its own Worker. The pool is the
+    // page's, not one scope's, so it outlives every scope and closes with the run.
+    if (manifest.workers && options.workers !== false) {
+      pool = createWorkerPool({
+        laneUrl: new URL(relativeAsset(manifest.workers.lane, "workers.lane"), base).href,
+        manifestUrl: manifestAddress.href,
+        maxLanes: manifest.workers.maxLanes,
+        limits: options.limits || manifest.limits,
+      });
+    }
+    return await runNuppWasmApp({
+      createHost,
+      locateFile: (name) => /^[a-z][a-z0-9+.-]*:/i.test(name) ? name : new URL(name, base).href,
+      app,
+      sideModules,
+      wasmBinary,
+      effects: options.effects,
+      effectHandlers: pool
+        ? {...options.effectHandlers, workers: (effect) => pool.perform(effect)}
+        : options.effectHandlers,
+      resetLimits: options.resetLimits,
+      initialize: options.initialize,
+      fetch: fetchAsset,
+      signal: options.signal,
+      limits: options.limits || manifest.limits,
+      storage: options.storage,
+      storageName: options.storageName || `nupp-${manifest.app.sha256.slice(0, 24)}`,
+    });
+  } finally {
+    pool?.close();
+    for (const url of objectUrls) URL.revokeObjectURL(url);
+  }
+}

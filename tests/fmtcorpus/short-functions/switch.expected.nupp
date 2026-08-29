@@ -1,0 +1,11 @@
+local result = switch shape do
+    case 1 -> "one"
+    case is Circle as circle {radius, name as label} -> do
+        local doubled = radius * 2
+        yield doubled
+    end
+    else -> switch fallback do
+        case true -> label
+        else -> circle.name
+    end
+end

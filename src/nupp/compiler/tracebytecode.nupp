@@ -1,0 +1,349 @@
+module nupp.compiler.tracebytecode
+
+--[[
+Trace facts from the exact LuaJIT bytecode a generated module loaded as.
+
+The recorder-hard part is deliberately small: only opcode dispatches the selected
+LuaJIT unconditionally refuses belong here.  Control flow answers a separate question:
+whether every repeatable path reaches the operation or only some do.  Keeping those
+axes separate is what lets a diagnostic say "this path aborts" without claiming that a
+different root trace cannot compile.
+]]
+
+local trace = require("nupp.profile.trace")
+local hash = require("nupp.compiler.build.hash")
+
+local bytecode = {}
+
+type bytecode.Analysis = {
+    profile: trace.Profile,
+    reasonCatalog: {
+        id: string,
+        version: integer
+    },
+    bytecodeFingerprint: string,
+    functions: {any},
+    blockers: integer,
+    mustBlockers: integer,
+    risks: integer
+}
+
+local BACK_EDGE = {
+    FORL = true,
+    IFORL = true,
+    JFORL = true,
+    ITERL = true,
+    IITERL = true,
+    JITERL = true,
+    LOOP = true,
+    ILOOP = true,
+    JLOOP = true,
+}
+
+local function instructionsOf(util: any, bc: any, fn: any): {any}
+    local out = {}
+    local pc = 0
+    while true do
+        local raw = util.funcbc(fn, pc)
+        if not raw then
+            return out
+        end
+        local rendered = bc.line(fn, pc, "")
+        local op = rendered:match("^%s*%d+%s+=?>?%s*([A-Z][A-Z0-9]*)") or "?"
+        local located = util.funcinfo(fn, pc)
+        local shownJump = tonumber(rendered:match("=> (%d+)"))
+        out[
+            #out + 1
+        ] = {
+            pc = pc,
+            op = op,
+            text = rendered:gsub("\n$", ""),
+            line = located and located.currentline or nil,
+            jump = shownJump,
+        }
+        pc = pc + 1
+    end
+end
+
+local function addUnique(list, value)
+    for _, present in ipairs(list) do
+        if present == value then
+            return
+        end
+    end
+    list[#list + 1] = value
+end
+
+local function controlFlow(instructions: {any}): any
+    local count = #instructions
+    local successors, predecessors = {}, {}
+    for pc = 0, count - 1 do
+        successors[pc], predecessors[pc] = {}, {}
+    end
+    local function edge(from, to)
+        if to and to >= 0 and to < count then
+            addUnique(successors[from], to)
+            addUnique(predecessors[to], from)
+        end
+    end
+
+    for _, ins in ipairs(instructions) do
+        local op, pc = ins.op, ins.pc
+        if op:sub(1, 3) == "RET" or op == "CALLT" or op == "CALLMT" then
+            -- terminal
+        elseif op == "JMP" or op == "UCLO" then
+            edge(pc, ins.jump)
+        elseif BACK_EDGE[op] then
+            edge(pc, ins.jump)
+            edge(pc, pc + 1)
+        elseif op:sub(1, 2) == "IS" then
+            -- Test bytecodes either execute or skip the instruction following them.
+            edge(pc, pc + 1)
+            edge(pc, pc + 2)
+        elseif ins.jump then
+            edge(pc, pc + 1)
+            edge(pc, ins.jump)
+        else
+            edge(pc, pc + 1)
+        end
+    end
+
+    local reachable = {}
+    local pending = {0}
+    while #pending > 0 do
+        local pc = table.remove(pending)
+        if not reachable[pc] then
+            reachable[pc] = true
+            for _, following in ipairs(successors[pc] or {}) do
+                pending[#pending + 1] = following
+            end
+        end
+    end
+
+    local all = {}
+    for pc = 0, count - 1 do
+        if reachable[pc] then
+            all[pc] = true
+        end
+    end
+    local dominators = {}
+    for pc = 0, count - 1 do
+        if reachable[pc] then
+            dominators[pc] = pc == 0 and {[0] = true} or {}
+            if pc ~= 0 then
+                for candidate in pairs(all) do
+                    dominators[pc][candidate] = true
+                end
+            end
+        end
+    end
+    local changed = true
+    while changed do
+        changed = false
+        for pc = 1, count - 1 do
+            if reachable[pc] then
+                local nextSet = {[pc] = true}
+                local first = true
+                for _, before in ipairs(predecessors[pc]) do
+                    if reachable[before] then
+                        if first then
+                            for candidate in pairs(dominators[before]) do
+                                nextSet[candidate] = true
+                            end
+                            first = false
+                        else
+                            for candidate in pairs(nextSet) do
+                                if candidate ~= pc and not dominators[before][candidate] then
+                                    nextSet[candidate] = nil
+                                end
+                            end
+                        end
+                    end
+                end
+                local nodeChanged = false
+                for candidate in pairs(dominators[pc]) do
+                    if not nextSet[candidate] then
+                        nodeChanged = true
+                        break
+                    end
+                end
+                if not nodeChanged then
+                    for candidate in pairs(nextSet) do
+                        if not dominators[pc][candidate] then
+                            nodeChanged = true
+                            break
+                        end
+                    end
+                end
+                changed = changed or nodeChanged
+                dominators[pc] = nextSet
+            end
+        end
+    end
+
+    local byHeader = {}
+    for from, list in pairs(successors) do
+        for _, to in ipairs(list) do
+            if to <= from and dominators[from] and dominators[from][to] then
+                local loop = byHeader[to]
+                if not loop then
+                    loop = {header = to, latches = {}, nodes = {[to] = true}}
+                    byHeader[to] = loop
+                end
+                loop.latches[#loop.latches + 1] = from
+                local backwards = {from}
+                while #backwards > 0 do
+                    local pc = table.remove(backwards)
+                    if not loop.nodes[pc] then
+                        loop.nodes[pc] = true
+                        for _, before in ipairs(predecessors[pc] or {}) do
+                            backwards[#backwards + 1] = before
+                        end
+                    end
+                end
+            end
+        end
+    end
+    local loops = {}
+    for _, loop in pairs(byHeader) do
+        loop.size = 0
+        for _ in pairs(loop.nodes) do
+            loop.size = loop.size + 1
+        end
+        table.sort(loop.latches)
+        loops[#loops + 1] = loop
+    end
+    table.sort(loops, function(left, right)
+        if left.size ~= right.size then
+            return left.size < right.size
+        end
+        return left.header < right.header
+    end)
+
+    return {
+        successors = successors,
+        predecessors = predecessors,
+        reachable = reachable,
+        dominators = dominators,
+        loops = loops
+    }
+end
+
+local function classify(instructions: {any}): {any}
+    local cfg = controlFlow(instructions)
+    local findings = {}
+    for _, ins in ipairs(instructions) do
+        local owner
+        for _, loop in ipairs(cfg.loops) do
+            if loop.nodes[ins.pc] then
+                owner = loop
+                break
+            end
+        end
+        if owner then
+            ins.inLoop = true
+            ins.loopHeader = owner.header
+            local reason = trace.forOpcode(ins.op)
+            if reason then
+                local must = true
+                for _, latch in ipairs(owner.latches) do
+                    must = must and cfg.dominators[latch] and cfg.dominators[latch][ins.pc] or false
+                end
+                local reachability = must and "must" or "may"
+                local finding = {
+                    reason = reason.id,
+                    class = reason.class,
+                    reachability = reachability,
+                    pc = ins.pc,
+                    opcode = ins.op,
+                    line = ins.line,
+                    loop = {header = owner.header, latches = owner.latches},
+                    explanation = reason.explanation,
+                    repair = reason.repair,
+                }
+                findings[#findings + 1] = finding
+                ins.traceReason = reason.id
+                ins.traceReachability = reachability
+                -- Compatibility: the old field and exit status meant the whole loop,
+                -- which only a must-reach blocker can still truthfully mean.
+                if must then
+                    ins.unrecordable = ins.op == "FNEW" and "builds a function" or "closes an upvalue"
+                end
+            end
+        end
+    end
+
+    return findings
+end
+
+local function childrenOf(util: any, fn: any): {any}
+    local out = {}
+    local index = 0
+    while true do
+        local ok, constant = pcall(util.funck, fn, -(index + 1))
+        if not ok or constant == nil then
+            return out
+        end
+        if type(constant) == "proto" or type(constant) == "function" then
+            out[#out + 1] = constant
+        end
+        index = index + 1
+    end
+end
+
+local function collect(util: any, bc: any, fn: any, depth: integer, into: {any}, seen: any): nil
+    if seen[fn] then
+        return
+    end
+    seen[fn] = true
+    local info = util.funcinfo(fn)
+    local instructions = instructionsOf(util, bc, fn)
+    local findings = classify(instructions)
+    into[
+        #into + 1
+    ] = {
+        what = depth == 0 and "chunk" or "function",
+        depth = depth,
+        firstLine = info.linedefined,
+        lastLine = info.lastlinedefined,
+        instructions = instructions,
+        findings = findings,
+    }
+    for _, child in ipairs(childrenOf(util, fn)) do
+        collect(util, bc, child, depth + 1, into, seen)
+    end
+end
+
+function bytecode.analyze(chunk: function(): any): bytecode.Analysis
+    local util = require("jit.util")
+    local bc = require("jit.bc")
+    local functions = {}
+    collect(util, bc, chunk, 0, functions, {})
+    local blockers: integer = 0
+    local mustBlockers: integer = 0
+    local risks: integer = 0
+    for _, fn in ipairs(functions) do
+        for _, finding in ipairs(fn.findings) do
+            if finding.class == "blocker" then
+                blockers = blockers + 1
+                if finding.reachability == "must" then
+                    mustBlockers = mustBlockers + 1
+                end
+            elseif finding.class == "risk" then
+                risks = risks + 1
+            end
+        end
+    end
+
+    return {
+        profile = trace.profile(),
+        reasonCatalog = {id = trace.CATALOG_ID, version = trace.CATALOG_VERSION},
+        bytecodeFingerprint = hash.sha256(string.dump(chunk)),
+        functions = functions,
+        blockers = blockers,
+        mustBlockers = mustBlockers,
+        risks = risks,
+    }
+end
+
+export = bytecode

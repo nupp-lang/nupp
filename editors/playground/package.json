@@ -1,0 +1,29 @@
+{
+  "name": "nupp-playground",
+  "version": "0.0.1",
+  "description": "In-browser Nupp editor: the real self-hosted compiler, running client-side",
+  "private": true,
+  "license": "UNLICENSED",
+  "type": "module",
+  "scripts": {
+    "build": "node build.mjs",
+    "build:wasm": "node build.mjs",
+    "test": "node build.mjs && node --test test/lua-output.test.js test/markup.test.js test/nupp-lang.test.js test/wasm-runtime.test.js",
+    "test:wasm": "node build.mjs && node --test test/wasm-runtime.test.js",
+    "watch": "node build.mjs --watch",
+    "serve": "npm run build && node serve.mjs"
+  },
+  "dependencies": {
+    "@codemirror/commands": "^6.10.4",
+    "@codemirror/language": "^6.12.4",
+    "@codemirror/legacy-modes": "^6.5.3",
+    "@codemirror/lint": "^6.9.7",
+    "@codemirror/state": "^6.7.1",
+    "@codemirror/view": "^6.43.8",
+    "@lezer/highlight": "^1.2.3",
+    "codemirror": "^6.0.2"
+  },
+  "devDependencies": {
+    "esbuild": "^0.28.2"
+  }
+}

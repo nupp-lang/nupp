@@ -1,0 +1,1153 @@
+#!/bin/sh
+# Provisions the native prerequisites Nupp builds against.
+#
+# Nupp asks for a C and a C++ compiler. Everything else it needs to build itself
+# -- the LuaJIT the compiler runs on, the LPeg the documentation renderer parses
+# with and the utf8 library its entity table wants -- is fetched here from a
+# pinned source, verified against a digest,
+# built with that compiler pair, and cached.
+#
+# This is the only thing that builds those. A component is asked for by name and
+# answers with the prefix it was installed under, so a caller composes paths
+# rather than knowing the layout:
+#
+#     scripts/toolchain luajit          # -> /path/to/.nupp-cache/toolchain/<key>/luajit
+#     scripts/toolchain --all           # everything, quietly, for a cache warm
+#
+# Building is idempotent and cached: the second call is a directory test. The
+# cache is keyed by the compilers' own version output, so switching NUPP_CC from
+# clang to gcc builds beside the old answer rather than over it.
+
+set -eu
+
+ROOT=$(CDPATH= cd -- "$(dirname "$0")/.." && pwd)
+. "$ROOT/scripts/toolchain.pins"
+
+# Names shared with the archive fetching the host build already had, so a CI job
+# or an offline builder that supplies pinned archives keeps working unchanged.
+SOURCE_DIR=${NUPP_HOST_SOURCE_DIR:-}
+SOURCE_BASE_URL=${NUPP_HOST_SOURCE_BASE_URL:-}
+OFFLINE=${NUPP_HOST_OFFLINE:-}
+
+usage() {
+    cat >&2 <<'USAGE'
+usage: scripts/toolchain COMPONENT...
+       scripts/toolchain --all
+       scripts/toolchain --prefix
+
+Components: luajit luarocks lpeg luautf8 ada libuv mbedtls curl
+            native FEATURES, host FEATURES, host-library FEATURES
+            fixture SOURCE OUTPUT
+
+Prints the install prefix of each component named, building it first when it is
+not already cached. --all builds every component and prints nothing. --prefix
+prints the root the components are installed under without building anything.
+
+Environment:
+  NUPP_CC, NUPP_CXX          the compiler pair. Probed when unset.
+  NUPP_TOOLCHAIN_DIR         where to install. Defaults to the repository cache.
+  NUPP_HOST_SOURCE_DIR       a directory of already-downloaded pinned archives.
+  NUPP_HOST_SOURCE_BASE_URL  a flat mirror to fetch archives from.
+  NUPP_HOST_OFFLINE          refuse to reach the network.
+USAGE
+    exit 2
+}
+
+note() { printf 'toolchain: %s\n' "$*" >&2; }
+die() { printf 'toolchain: %s\n' "$*" >&2; exit 1; }
+
+# --- toolchain selection ----------------------------------------------------
+
+# `NUPP_NATIVE_CC` named the C compiler before the toolchain names were unified.
+# It remains an alias and is read only where the primary name is unset.
+probe() {
+    for candidate in "$@"; do
+        [ -n "$candidate" ] || continue
+        if command -v "$candidate" >/dev/null 2>&1; then
+            printf '%s\n' "$candidate"
+            return 0
+        fi
+    done
+    return 1
+}
+
+UNAME=$(uname -s 2>/dev/null || echo unknown)
+case "$UNAME" in
+    Darwin*)              PLATFORM=darwin ;;
+    MINGW*|MSYS*|CYGWIN*) PLATFORM=windows ;;
+    FreeBSD*|DragonFly*)  PLATFORM=bsd ;;
+    *)                    PLATFORM=posix ;;
+esac
+
+CC=${NUPP_CC:-${NUPP_NATIVE_CC:-}}
+CXX=${NUPP_CXX:-}
+case "$PLATFORM" in
+    # This driver uses the dependencies' GNU make builds. The hosted Windows
+    # clang targets MSVC, where LuaJIT's makefile asks its linker for Unix
+    # libraries such as `-lm`; the MinGW pair is the compatible default.
+    windows)
+        [ -n "$CC" ] || CC=$(probe gcc cc clang) \
+            || die "no C compiler found. Name one with NUPP_CC"
+        [ -n "$CXX" ] || CXX=$(probe g++ c++ clang++) \
+            || die "no C++ compiler found. Name one with NUPP_CXX"
+        ;;
+    *)
+        [ -n "$CC" ] || CC=$(probe clang cc gcc) \
+            || die "no C compiler found. Name one with NUPP_CC"
+        [ -n "$CXX" ] || CXX=$(probe clang++ c++ g++) \
+            || die "no C++ compiler found. Name one with NUPP_CXX"
+        ;;
+esac
+
+command -v "$CC" >/dev/null 2>&1 || die "NUPP_CC names $CC, which is not on PATH"
+command -v "$CXX" >/dev/null 2>&1 || die "NUPP_CXX names $CXX, which is not on PATH"
+
+case "$PLATFORM" in
+    bsd) MAKE=${MAKE:-gmake} ;;
+    *)   MAKE=${MAKE:-make} ;;
+esac
+
+# Paths printed to a caller can leave the MSYS shell and be handed directly to
+# a native Windows process. Give those consumers the drive-letter spelling;
+# Git Bash accepts it too. Tests that emulate Windows on another host have no
+# cygpath and keep their host spelling.
+native_path() {
+    if [ "$PLATFORM" = windows ] && command -v cygpath >/dev/null 2>&1; then
+        cygpath -m "$1"
+    else
+        printf '%s\n' "$1"
+    fi
+}
+
+# --- digests ----------------------------------------------------------------
+
+# Whichever of these the machine has. All three answer the same question and no
+# platform reliably carries a particular one.
+if command -v shasum >/dev/null 2>&1; then
+    sha256_stdin() { shasum -a 256 | cut -d' ' -f1; }
+elif command -v sha256sum >/dev/null 2>&1; then
+    sha256_stdin() { sha256sum | cut -d' ' -f1; }
+elif command -v openssl >/dev/null 2>&1; then
+    sha256_stdin() { openssl dgst -sha256 | sed 's/.*= *//'; }
+else
+    die "no sha256 tool found; install one of shasum, sha256sum or openssl"
+fi
+sha256() { sha256_stdin < "$1"; }
+
+# The digest of the C this repository compiles itself, in a fixed order. The
+# build directories below are keyed on it as well as on their feature list,
+# because a cache keyed on the request alone answers an edited source tree with
+# the artifact built from the source it replaced -- and mtimes cannot see that
+# either, since the artifact is copied into place and looks newer than the edit
+# that should have rebuilt it.
+sources_digest() {
+    (cd "$ROOT" && find runtime/native host/c host/include \
+        -type f \( -name '*.c' -o -name '*.h' \) 2>/dev/null) \
+        | LC_ALL=C sort | while IFS= read -r file; do
+            printf '%s ' "$file"
+            sha256 "$ROOT/$file"
+        done | sha256_stdin | cut -c1-16
+}
+# --- where things go --------------------------------------------------------
+
+# Beside the repository's common git directory, so every worktree of this
+# checkout shares one build of LuaJIT rather than each paying for its own. A
+# source archive with no git metadata falls back to the checkout.
+if [ -n "${NUPP_TOOLCHAIN_DIR:-}" ]; then
+    CACHE=$NUPP_TOOLCHAIN_DIR
+else
+    COMMON=$(git -C "$ROOT" rev-parse --git-common-dir 2>/dev/null || true)
+    if [ -n "$COMMON" ]; then
+        case "$COMMON" in
+            /*|[A-Za-z]:*) ;;
+            *) COMMON="$ROOT/$COMMON" ;;
+        esac
+        CACHE="$(dirname "$COMMON")/.nupp-cache/toolchain"
+    else
+        CACHE="$ROOT/build/toolchain"
+    fi
+fi
+
+ARCHIVES="$CACHE/archives"
+SOURCES="$CACHE/sources"
+
+# What the answer depends on: the compilers, their versions, the machine, and
+# these provisioning rules. Several change without a native source changing;
+# ignoring one can return an artifact built with another compiler or link line.
+key_material() {
+    printf '%s\n%s\n' "$CC" "$CXX"
+    "$CC" --version 2>&1 | head -n 2 || true
+    "$CXX" --version 2>&1 | head -n 2 || true
+    printf '%s %s\n' "$UNAME" "$(uname -m 2>/dev/null || echo unknown)"
+    sha256 "$ROOT/scripts/toolchain"
+    sha256 "$ROOT/scripts/toolchain.pins"
+}
+KEY=$(key_material | sha256_stdin | cut -c1-16)
+PREFIX="$CACHE/$KEY"
+
+# --- fetching ---------------------------------------------------------------
+
+download() {
+    url=$1 destination=$2
+    if command -v curl >/dev/null 2>&1; then
+        curl --fail --location --silent --show-error --output "$destination" "$url"
+    elif command -v wget >/dev/null 2>&1; then
+        wget --quiet --output-document "$destination" "$url"
+    else
+        die "no downloader found; install curl or wget"
+    fi
+}
+
+offline() {
+    case "$OFFLINE" in
+        1|true|yes|on|TRUE|YES|ON) return 0 ;;
+        ""|0|false|no|off|FALSE|NO|OFF) return 1 ;;
+        *) die "NUPP_HOST_OFFLINE must be one of 1, true, yes, on, 0, false, no or off" ;;
+    esac
+}
+
+# One pinned archive, in the cache, verified. A digest is checked before a byte
+# is unpacked, so a mirror that served something else is refused rather than
+# compiled.
+archive() {
+    name=$1 url=$2 digest=$3 suffix=${4:-.tar.gz}
+    file="$ARCHIVES/$name$suffix"
+    if [ -f "$file" ] && [ "$(sha256 "$file")" = "$digest" ]; then
+        printf '%s\n' "$file"
+        return 0
+    fi
+
+    mkdir -p "$ARCHIVES"
+    if [ -n "$SOURCE_DIR" ] && [ -f "$SOURCE_DIR/$name$suffix" ]; then
+        cp "$SOURCE_DIR/$name$suffix" "$file.$$"
+    elif offline; then
+        die "NUPP_HOST_OFFLINE is set and $name$suffix is not cached; put the pinned archive in NUPP_HOST_SOURCE_DIR"
+    else
+        if [ -n "$SOURCE_BASE_URL" ]; then
+            url="${SOURCE_BASE_URL%/}/$name$suffix"
+        fi
+        note "fetching $name"
+        download "$url" "$file.$$" || { rm -f "$file.$$"; die "cannot download $url"; }
+    fi
+
+    found=$(sha256 "$file.$$")
+    if [ "$found" != "$digest" ]; then
+        rm -f "$file.$$"
+        die "$name has digest $found, expected $digest; refusing to cache or compile it"
+    fi
+    mv "$file.$$" "$file"
+    printf '%s\n' "$file"
+}
+
+# One pinned file, verified. Not every source is an archive: a single-header
+# library is a handful of loose files, and unpacking one would mean requiring an
+# archive tool this does not otherwise need.
+pinned_file() {
+    name=$1 url=$2 digest=$3
+    file="$ARCHIVES/$name"
+    if [ -f "$file" ] && [ "$(sha256 "$file")" = "$digest" ]; then
+        printf '%s\n' "$file"
+        return 0
+    fi
+    mkdir -p "$ARCHIVES"
+    if [ -n "$SOURCE_DIR" ] && [ -f "$SOURCE_DIR/$name" ]; then
+        cp "$SOURCE_DIR/$name" "$file.$$"
+    elif offline; then
+        die "NUPP_HOST_OFFLINE is set and $name is not cached; put the pinned file in NUPP_HOST_SOURCE_DIR"
+    else
+        if [ -n "$SOURCE_BASE_URL" ]; then
+            url="${SOURCE_BASE_URL%/}/$name"
+        fi
+        note "fetching $name"
+        download "$url" "$file.$$" || { rm -f "$file.$$"; die "cannot download $url"; }
+    fi
+    found=$(sha256 "$file.$$")
+    if [ "$found" != "$digest" ]; then
+        rm -f "$file.$$"
+        die "$name has digest $found, expected $digest; refusing to cache or compile it"
+    fi
+    mv "$file.$$" "$file"
+    printf '%s\n' "$file"
+}
+
+# One extracted source tree. Extraction is into a temporary sibling and renamed,
+# so a killed run never leaves a half-unpacked tree a later one trusts.
+source_tree() {
+    name=$1 url=$2 digest=$3 marker=$4 suffix=${5:-.tar.gz}
+    tree="$SOURCES/$name"
+    if [ -f "$tree/$marker" ]; then
+        printf '%s\n' "$tree"
+        return 0
+    fi
+
+    file=$(archive "$name" "$url" "$digest" "$suffix")
+    mkdir -p "$SOURCES"
+    staging="$SOURCES/.$name.$$"
+    rm -rf "$staging"
+    mkdir -p "$staging"
+    case "$suffix" in
+        *.bz2) tar xjf "$file" -C "$staging" ;;
+        *)     tar xzf "$file" -C "$staging" ;;
+    esac
+    [ -f "$staging/$name/$marker" ] \
+        || die "$name$suffix did not extract the expected $name/$marker"
+    rm -rf "$tree"
+    mv "$staging/$name" "$tree"
+    rm -rf "$staging"
+    printf '%s\n' "$tree"
+}
+
+# --- notices ----------------------------------------------------------------
+
+# Each of these is MIT, and MIT asks that its notice travel with the copies. The
+# sources are fetched rather than committed, so the only copy this repository
+# ships is the one in `host/notices` -- and a copy that has drifted from the
+# source it claims to reproduce is a false statement about what was distributed.
+# Bumping a pin fails here until the notice beside it is updated too.
+verify_notice() {
+    noticeSource=$1 notice=$2
+    committed="$ROOT/host/notices/$notice"
+    [ -f "$noticeSource" ] \
+        || die "the pinned source has no $noticeSource to check $notice against"
+    [ -f "$committed" ] || die "host/notices/$notice is missing"
+    if ! cmp -s "$noticeSource" "$committed"; then
+        die "host/notices/$notice is not what $noticeSource says any more. Copy it across: the pinned source is what is distributed, and the notice beside it is what says so."
+    fi
+}
+
+# LPeg ships its licence inside its manual rather than as a file, so the notice
+# beside it is checked for the clauses instead of byte for byte.
+verify_embedded_notice() {
+    noticeSource=$1 notice=$2
+    committed="$ROOT/host/notices/$notice"
+    for text in '2007-2023 Lua.org, PUC-Rio' 'Permission is hereby granted' 'THE SOFTWARE IS PROVIDED'; do
+        grep -qF "$text" "$noticeSource" && grep -qF "$text" "$committed" \
+            || die "host/notices/$notice no longer agrees with $noticeSource"
+    done
+}
+
+# --- one build at a time ----------------------------------------------------
+
+# Two commands wanting the same component start together often enough -- a test
+# suite runs the launcher many times -- and they would otherwise be two makes
+# writing one source tree. `mkdir` is the lock because it is atomic wherever
+# this runs; the pid in it tells a held lock from one a killed build left.
+LOCK=""
+HOST_OUT=""
+NATIVE_OUT=""
+release_lock() { [ -n "$LOCK" ] && rm -rf "$LOCK"; LOCK=""; return 0; }
+
+take_lock() {
+    lock="$CACHE/.lock-$1"
+    waited=0
+    mkdir -p "$CACHE"
+    while ! mkdir "$lock" 2>/dev/null; do
+        holder=$(cat "$lock/pid" 2>/dev/null || true)
+        if [ -z "$holder" ] || ! kill -0 "$holder" 2>/dev/null; then
+            rm -rf "$lock"
+            continue
+        fi
+        # Whoever holds it is building what this one wants, so their answer is
+        # this one's answer.
+        [ -f "$2" ] && return 1
+        sleep 1
+        waited=$((waited + 1))
+        if [ "$waited" -ge 1800 ]; then
+            note "another run has held $lock for ${waited}s; building without it"
+            return 0
+        fi
+    done
+    printf '%s\n' "$$" > "$lock/pid"
+    LOCK=$lock
+    trap 'release_lock' EXIT
+    trap 'release_lock; exit 130' INT
+    trap 'release_lock; exit 143' TERM
+    return 0
+}
+
+# --- components -------------------------------------------------------------
+
+shared_flags() {
+    case "$PLATFORM" in
+        darwin)  printf '%s' "-bundle -undefined dynamic_lookup" ;;
+        windows) printf '%s' "-shared" ;;
+        *)       printf '%s' "-shared" ;;
+    esac
+}
+
+module_extension() {
+    case "$PLATFORM" in
+        windows) printf '%s' ".dll" ;;
+        *)       printf '%s' ".so" ;;
+    esac
+}
+
+build_luajit() {
+    out="$PREFIX/luajit"
+    take_lock luajit "$out/.complete" || return 0
+    [ -f "$out/.complete" ] && { release_lock; return 0; }
+
+    directory="LuaJIT-$LUAJIT_REV"
+    url="https://github.com/LuaJIT/LuaJIT/archive/$LUAJIT_REV.tar.gz"
+    tree=$(source_tree "$directory" "$url" "$LUAJIT_SHA256" "$LUAJIT_MARKER")
+    verify_notice "$tree/COPYRIGHT" LuaJIT-COPYRIGHT.txt
+
+    note "building LuaJIT with $CC"
+    rm -rf "$out"
+    # LuaJIT bakes its module search paths in at compile time, so the prefix has
+    # to be the one it is installed under rather than one it is copied to. It
+    # also refuses to guess an Apple deployment target, preferring to stop over
+    # producing something that runs here and nowhere else.
+    if [ "$PLATFORM" = darwin ] && [ -z "${MACOSX_DEPLOYMENT_TARGET:-}" ]; then
+        case "$(uname -m 2>/dev/null)" in
+            x86_64) MACOSX_DEPLOYMENT_TARGET=10.14 ;;
+            *)      MACOSX_DEPLOYMENT_TARGET=11.0 ;;
+        esac
+        export MACOSX_DEPLOYMENT_TARGET
+    fi
+    "$MAKE" -C "$tree" clean >/dev/null 2>&1 || true
+    "$MAKE" -C "$tree" PREFIX="$out" CC="$CC" HOST_CC="$CC" XCFLAGS=-fPIC >&2
+    "$MAKE" -C "$tree" PREFIX="$out" install >&2
+
+    # LuaJIT's top-level install recipe only knows the Unix artifact names.
+    # Its Windows build is deliberately dynamic so C modules bind to the same
+    # VM as the interpreter, but that leaves lua51.dll and its import library
+    # in the source tree. Stage both, then make the static archive separately:
+    # standalone Nupp hosts carry their VM and cannot depend on a sibling DLL.
+    if [ "$PLATFORM" = windows ]; then
+        [ -f "$tree/src/lua51.dll" ] \
+            || die "LuaJIT's Windows build produced no lua51.dll"
+        [ -f "$tree/src/libluajit-5.1.dll.a" ] \
+            || die "LuaJIT's Windows build produced no import library"
+        cp "$tree/src/lua51.dll" "$out/bin/lua51.dll"
+        cp "$tree/src/luajit.exe" "$out/bin/luajit.exe"
+        cp "$tree/src/libluajit-5.1.dll.a" \
+            "$out/lib/libluajit-5.1.dll.a"
+        cp "$tree/src/libluajit-5.1.dll.a" \
+            "$out/lib/liblua51.a"
+
+        "$MAKE" -C "$tree" clean >/dev/null 2>&1 || true
+        "$MAKE" -C "$tree" PREFIX="$out" CC="$CC" HOST_CC="$CC" \
+            XCFLAGS=-fPIC BUILDMODE=static >&2
+        [ -f "$tree/src/libluajit.a" ] \
+            || die "LuaJIT's Windows static build produced no archive"
+        cp "$tree/src/libluajit.a" "$out/lib/libluajit-5.1.a"
+
+        # The same Unix-only install recipe leaves the interpreter's own Lua
+        # modules behind. `jit.vmdef` is what the bytecode reader loads and
+        # `jit.zone` is what the profiler does, so without them every question
+        # about a trace answered "module not found" rather than answering.
+        #
+        # Beside the executable, because that is where this interpreter looks:
+        # the Unix build compiles in a prefix and finds `share/luajit-2.1`, and
+        # the Windows one searches `<exedir>\lua\?.lua`. Staged under the
+        # prefix as well, for anything reading the tree rather than running it.
+        for jit_dir in "$out/bin/lua/jit" "$out/share/luajit-2.1/jit"; do
+            mkdir -p "$jit_dir"
+            cp "$tree/src/jit/"*.lua "$jit_dir/"
+            [ -f "$jit_dir/vmdef.lua" ] \
+                || die "LuaJIT's Windows build staged no jit/vmdef.lua"
+        done
+    fi
+
+    # `luajit` itself is a versioned name plus a symlink upstream only makes on
+    # some platforms, and everything here runs the plain one.
+    if [ ! -x "$out/bin/luajit" ]; then
+        for candidate in "$out"/bin/luajit-*; do
+            [ -x "$candidate" ] || continue
+            ln -sf "$(basename "$candidate")" "$out/bin/luajit"
+            break
+        done
+    fi
+    [ -x "$out/bin/luajit" ] || die "LuaJIT installed no interpreter under $out/bin"
+
+    # Where the headers landed, which is a versioned directory, said once here so
+    # nothing downstream has to know the version.
+    include=$(find "$out/include" -maxdepth 1 -type d -name 'luajit-*' | head -n 1)
+    [ -n "$include" ] || include="$out/include"
+    native_path "$include" > "$out/.include"
+    printf 'done\n' > "$out/.complete"
+    release_lock
+}
+
+luajit_include() {
+    build_luajit
+    cat "$PREFIX/luajit/.include"
+}
+
+build_luarocks() {
+    out="$PREFIX/luarocks"
+    luajit=$(build_luajit; printf '%s' "$PREFIX/luajit")
+    include=$(cat "$luajit/.include")
+    take_lock luarocks "$out/.complete" || return 0
+    [ -f "$out/.complete" ] && { release_lock; return 0; }
+
+    directory="luarocks-$LUAROCKS_VERSION"
+    url="https://github.com/luarocks/luarocks/archive/refs/tags/v$LUAROCKS_VERSION.tar.gz"
+    tree=$(source_tree "$directory" "$url" "$LUAROCKS_SHA256" "$LUAROCKS_MARKER")
+
+    note "installing LuaRocks"
+    rm -rf "$out"
+    if [ "$PLATFORM" = windows ]; then
+        outWindows=$(cygpath -w "$out")
+        rocksWindows=$(cygpath -w "$ROOT/.rocks")
+        binWindows=$(cygpath -w "$luajit/bin")
+        includeWindows=$(cygpath -w "$include")
+        libWindows=$(cygpath -w "$luajit/lib")
+        # Git Bash otherwise rewrites switches such as /P and /TREE as paths
+        # before the batch installer sees them.
+        (cd "$tree" && MSYS2_ARG_CONV_EXCL='*' cmd.exe /d /c call install.bat \
+            /P "$outWindows" /TREE "$rocksWindows" \
+            /LV 5.1 /INC "$includeWindows" /LIB "$libWindows" \
+            /BIN "$binWindows" /MW /Q /F /NOREG /NOADMIN \
+            /FORCECONFIG) >&2
+    else
+        (cd "$tree" && ./configure \
+            --prefix="$out" \
+            --rocks-tree="$ROOT/.rocks" \
+            --lua-version=5.1 \
+            --with-lua-bin="$luajit/bin" \
+            --with-lua-include="$include" \
+            --with-lua-lib="$luajit/lib" \
+            --with-lua-interpreter=luajit \
+            --force-config && "$MAKE" install) >&2
+    fi
+    case "$PLATFORM" in
+        windows) executable="$out/luarocks.bat" ;;
+        *) executable="$out/bin/luarocks" ;;
+    esac
+    [ -f "$executable" ] || die "LuaRocks installed no executable under $out"
+    native_path "$executable" > "$out/.executable"
+    printf 'done\n' > "$out/.complete"
+    release_lock
+}
+
+# One Lua C module built straight from its sources. Neither LPeg nor luautf8
+# ships a makefile worth driving from here: both are a handful of files against
+# the Lua headers, and naming the files is shorter than teaching their build
+# systems where the staged LuaJIT is.
+build_lua_module() {
+    name=$1 out=$2 tree=$3 include=$4
+    shift 4
+    objects=""
+    for file in "$@"; do
+        object="$out/objects/$(basename "$file" .c).o"
+        mkdir -p "$out/objects"
+        "$CC" -c -O2 -fPIC -w -DNDEBUG -I"$include" -o "$object" "$tree/$file" >&2
+        objects="$objects $object"
+    done
+    mkdir -p "$out/lib"
+    # Both shapes, because both are wanted: a loadable module for an interpreter
+    # that requires it, and an archive for a host that links it in.
+    # shellcheck disable=SC2086
+    luaLibrary=""
+    if [ "$PLATFORM" = windows ]; then
+        luaLibrary="$PREFIX/luajit/lib/libluajit-5.1.dll.a"
+    fi
+    "$CC" $(shared_flags) -o "$out/lib/$name$(module_extension)" \
+        $objects $luaLibrary >&2
+    # shellcheck disable=SC2086
+    ar rcs "$out/lib/lib$name.a" $objects
+}
+
+build_lpeg() {
+    out="$PREFIX/lpeg"
+    # Before the lock, not inside it: these locks do not nest, and building
+    # LuaJIT under the LPeg lock would release the LPeg one on its way out.
+    include=$(luajit_include)
+    take_lock lpeg "$out/.complete" || return 0
+    [ -f "$out/.complete" ] && { release_lock; return 0; }
+
+    directory="lpeg-$LPEG_VERSION"
+    url="https://www.inf.puc-rio.br/~roberto/lpeg/lpeg-$LPEG_VERSION.tar.gz"
+    tree=$(source_tree "$directory" "$url" "$LPEG_SHA256" "$LPEG_MARKER")
+    verify_embedded_notice "$tree/lpeg.html" LPeg-LICENSE.txt
+
+    note "building LPeg with $CC"
+    rm -rf "$out"
+    build_lua_module lpeg "$out" "$tree" "$include" \
+        lpvm.c lpcap.c lptree.c lpcode.c lpprint.c lpcset.c
+    # The official frontend is Lua, and a caller that wants `re` wants it beside
+    # the module it parses with.
+    mkdir -p "$out/share"
+    cp "$tree/re.lua" "$out/share/re.lua"
+    printf 'done\n' > "$out/.complete"
+    release_lock
+}
+
+build_luautf8() {
+    out="$PREFIX/luautf8"
+    include=$(luajit_include)
+    take_lock luautf8 "$out/.complete" || return 0
+    [ -f "$out/.complete" ] && { release_lock; return 0; }
+
+    directory="luautf8-$LUAUTF8_VERSION"
+    url="https://github.com/starwing/luautf8/archive/refs/tags/$LUAUTF8_VERSION.tar.gz"
+    tree=$(source_tree "$directory" "$url" "$LUAUTF8_SHA256" "$LUAUTF8_MARKER")
+    verify_notice "$tree/LICENSE" luautf8-LICENSE.txt
+
+    note "building luautf8 with $CC"
+    rm -rf "$out"
+    build_lua_module lua-utf8 "$out" "$tree" "$include" lutf8lib.c
+    printf 'done\n' > "$out/.complete"
+    release_lock
+}
+
+build_mbedtls() {
+    out="$PREFIX/mbedtls"
+    take_lock mbedtls "$out/.complete" || return 0
+    [ -f "$out/.complete" ] && { release_lock; return 0; }
+
+    directory="mbedtls-$MBEDTLS_VERSION"
+    url="https://github.com/Mbed-TLS/mbedtls/releases/download/mbedtls-$MBEDTLS_VERSION/mbedtls-$MBEDTLS_VERSION.tar.bz2"
+    tree=$(source_tree "$directory" "$url" "$MBEDTLS_SHA256" "$MBEDTLS_MARKER" .tar.bz2)
+    verify_notice "$tree/LICENSE" mbedtls-LICENSE.txt
+
+    note "building mbedTLS with $CC"
+    rm -rf "$out"
+    mkdir -p "$out"
+    # `make lib` and nothing else: the programs and the test suite are most of
+    # the build and none of what is linked. `-fPIC` because this ends up inside
+    # a shared library.
+    "$MAKE" -C "$tree" clean >/dev/null 2>&1 || true
+    "$MAKE" -C "$tree" -j"${NUPP_TOOLCHAIN_JOBS:-4}" lib CC="$CC" CFLAGS="-O2 -fPIC" >&2
+    mkdir -p "$out/include" "$out/lib"
+    cp -R "$tree/include/mbedtls" "$out/include/mbedtls"
+    cp -R "$tree/include/psa" "$out/include/psa"
+    cp "$tree/library/libmbedcrypto.a" "$out/lib/libmbedcrypto.a"
+    cp "$tree/library/libmbedx509.a" "$out/lib/libmbedx509.a"
+    cp "$tree/library/libmbedtls.a" "$out/lib/libmbedtls.a"
+    printf 'done\n' > "$out/.complete"
+    release_lock
+}
+
+build_curl() {
+    out="$PREFIX/curl"
+    tls=$(build_mbedtls; printf '%s' "$PREFIX/mbedtls")
+    take_lock curl "$out/.complete" || return 0
+    [ -f "$out/.complete" ] && { release_lock; return 0; }
+
+    directory="curl-$CURL_VERSION"
+    url="https://curl.se/download/curl-$CURL_VERSION.tar.gz"
+    tree=$(source_tree "$directory" "$url" "$CURL_SHA256" "$CURL_MARKER")
+    verify_notice "$tree/COPYING" curl-COPYING.txt
+
+    note "building libcurl with $CC"
+    rm -rf "$out"
+    configureLibraries=""
+    if [ "$PLATFORM" = windows ]; then
+        # mbedTLS' entropy provider calls BCryptGenRandom. curl adds bcrypt
+        # after selecting a TLS backend, so its selection probe needs it here.
+        configureLibraries="-lbcrypt"
+    fi
+    # Static, HTTP and its neighbours only, and everything optional left out:
+    # what is wanted here is a transport, and each thing switched on is another
+    # pinned source to own. The threaded resolver is what keeps a name lookup
+    # off the scheduler's frame without a second library to do it.
+    ( cd "$tree" && CONFIG_SHELL=/bin/sh SHELL=/bin/sh ./configure \
+        --prefix="$out" \
+        --disable-shared --enable-static \
+        --with-mbedtls="$tls" \
+        --without-libpsl --without-zlib --without-brotli --without-zstd \
+        --without-libidn2 --without-nghttp2 --without-ngtcp2 --without-librtmp \
+        --disable-ldap --disable-ldaps --disable-rtsp --disable-dict \
+        --disable-telnet --disable-tftp --disable-pop3 --disable-imap \
+        --disable-smb --disable-smtp --disable-gopher --disable-mqtt \
+        --disable-docs --disable-manual --disable-ntlm \
+        --enable-threaded-resolver \
+        CC="$CC" LIBS="$configureLibraries" ) >&2
+    if [ "$PLATFORM" = windows ]; then
+        # Autoconf expands Git Bash's shell to its path below `Program Files`.
+        # Automake does not quote that value in recursive compile rules. Native
+        # MinGW make can resolve `sh.exe` through PATH, so normalize the files
+        # configure generated before any make process reads them. Spell it out
+        # in LIBTOOL too: GNU make on Windows gives its environment's SHELL
+        # special treatment, so $(SHELL) need not expand to the assignment in
+        # the generated Makefile.
+        find "$tree" -type f -name Makefile -exec \
+            sed -i 's|^SHELL = .*|SHELL = sh.exe|' {} +
+        find "$tree" -type f -name Makefile -exec \
+            sed -i 's|^LIBTOOL = .*|LIBTOOL = sh.exe $(top_builddir)/libtool|' {} +
+        sed -i 's|^SHELL=.*|SHELL="sh.exe"|' "$tree/libtool"
+        grep -q '^SHELL = sh\.exe$' "$tree/lib/Makefile" \
+            || die "curl generated no usable Windows make shell"
+        grep -q '^LIBTOOL = sh\.exe $(top_builddir)/libtool$' \
+            "$tree/lib/Makefile" \
+            || die "curl generated no usable Windows libtool command"
+        grep -q '^SHELL="sh\.exe"$' "$tree/libtool" \
+            || die "curl generated no usable Windows libtool shell"
+    fi
+    "$MAKE" -C "$tree" -j"${NUPP_TOOLCHAIN_JOBS:-4}" >&2
+    "$MAKE" -C "$tree" install >&2
+    printf 'done\n' > "$out/.complete"
+    release_lock
+}
+
+# --- the compiler's own native code -------------------------------------
+
+# Which C a feature is. The names are the ones the compiler's feature registry
+# uses, so this file and that registry are the two halves of one list.
+provider_sources() {
+    # `xxh64.c` is in the base rather than behind a feature: it is the digest a
+    # stamped binary's trailer is checked with, which is not optional. SHA-256
+    # is not here at all any more -- `nupp.data.sha256` is Nupp, and the one
+    # remaining C copy is compiled directly by the playground's own build for
+    # its bundle check.
+    printf '%s' "c/common.c c/xxh64.c c/uuid.c"
+    case " $1 " in
+        *" files "*|*" native-files "*|*" filesystem "*) printf '%s' " c/files.c" ;;
+    esac
+    for feature in $1; do
+        case "$feature" in
+            files|native-files) printf '%s' " c/glob.c c/fslane.c" ;;
+            filesystem) ;;
+            uri)               printf '%s' " c/uri.c" ;;
+            process|native-process) printf '%s' " c/process.c" ;;
+            net|native-net)    printf '%s' " c/net.c" ;;
+            tls|native-tls)    printf '%s' " c/tls.c" ;;
+            http)              printf '%s' " c/http.c" ;;
+            uuid) ;;
+            # Host-only features select no provider source of their own.
+            json|lpeg|lua-utf8|workers) ;;
+            *) die "unknown native feature $feature" ;;
+        esac
+    done
+}
+
+# The pinned LuaJIT's own `jit/vmdef.lua`, as a C array. A host carrying an
+# interpreter has to carry what its `jit` library reads: there is no directory
+# beside a single-file program to find it in.
+write_vmdef() {
+    luajit_prefix=$(build_luajit; printf '%s' "$PREFIX/luajit")
+    vmdef=$(find "$luajit_prefix/share" -name vmdef.lua | head -n 1)
+    [ -n "$vmdef" ] || die "the staged LuaJIT has no jit/vmdef.lua"
+    {
+        printf '/* Generated from the pinned LuaJIT jit/vmdef.lua. */\n'
+        printf 'const unsigned char nupp_host_vmdef[] = {\n'
+        od -An -v -tu1 "$vmdef" | sed 's/[0-9][0-9]*/&,/g'
+        printf '};\nconst unsigned int nupp_host_vmdef_length = %su;\n' \
+            "$(wc -c < "$vmdef" | tr -d ' ')"
+    } > "$1"
+}
+
+# What libuv compiles, per platform. Taken from its CMakeLists, which is the
+# only place the answer is written down.
+libuv_sources() {
+    printf '%s' "src/fs-poll.c src/idna.c src/inet.c src/random.c src/strscpy.c"
+    printf '%s' " src/strtok.c src/thread-common.c src/threadpool.c src/timer.c"
+    printf '%s' " src/uv-common.c src/uv-data-getter-setters.c src/version.c"
+    case "$PLATFORM" in
+        windows)
+            printf '%s' " src/win/async.c src/win/core.c src/win/detect-wakeup.c"
+            printf '%s' " src/win/dl.c src/win/error.c src/win/fs-event.c src/win/fs.c"
+            printf '%s' " src/win/getaddrinfo.c src/win/getnameinfo.c src/win/handle.c"
+            printf '%s' " src/win/loop-watcher.c src/win/pipe.c src/win/poll.c"
+            printf '%s' " src/win/process-stdio.c src/win/process.c src/win/signal.c"
+            printf '%s' " src/win/snprintf.c src/win/stream.c src/win/tcp.c"
+            printf '%s' " src/win/thread.c src/win/tty.c src/win/udp.c src/win/util.c"
+            printf '%s' " src/win/winapi.c src/win/winsock.c"
+            ;;
+        *)
+            printf '%s' " src/unix/async.c src/unix/core.c src/unix/dl.c src/unix/fs.c"
+            printf '%s' " src/unix/getaddrinfo.c src/unix/getnameinfo.c"
+            printf '%s' " src/unix/loop-watcher.c src/unix/loop.c src/unix/pipe.c"
+            printf '%s' " src/unix/poll.c src/unix/process.c"
+            printf '%s' " src/unix/random-devurandom.c src/unix/signal.c"
+            printf '%s' " src/unix/stream.c src/unix/tcp.c src/unix/thread.c"
+            printf '%s' " src/unix/tty.c src/unix/udp.c src/unix/proctitle.c"
+            case "$PLATFORM" in
+                darwin)
+                    printf '%s' " src/unix/bsd-ifaddrs.c src/unix/kqueue.c"
+                    printf '%s' " src/unix/darwin.c src/unix/darwin-proctitle.c"
+                    printf '%s' " src/unix/fsevents.c src/unix/random-getentropy.c"
+                    ;;
+                *)
+                    printf '%s' " src/unix/linux.c src/unix/procfs-exepath.c"
+                    printf '%s' " src/unix/random-getrandom.c"
+                    printf '%s' " src/unix/random-sysctl-linux.c"
+                    ;;
+            esac
+            ;;
+    esac
+}
+
+build_libuv() {
+    out="$PREFIX/libuv"
+    take_lock libuv "$out/.complete" || return 0
+    [ -f "$out/.complete" ] && { release_lock; return 0; }
+
+    directory="libuv-$LIBUV_VERSION"
+    url="https://github.com/libuv/libuv/archive/refs/tags/v$LIBUV_VERSION.tar.gz"
+    tree=$(source_tree "$directory" "$url" "$LIBUV_SHA256" "$LIBUV_MARKER")
+    verify_notice "$tree/LICENSE" libuv-LICENSE.txt
+
+    note "building libuv with $CC"
+    rm -rf "$out"
+    mkdir -p "$out/lib/objects" "$out/include"
+    cp -R "$tree/include/." "$out/include/"
+
+    defines="-D_FILE_OFFSET_BITS=64 -D_LARGEFILE_SOURCE"
+    warnings=""
+    case "$PLATFORM" in
+        darwin) defines="$defines -D_DARWIN_UNLIMITED_SELECT=1 -D_DARWIN_USE_64_BIT_INODE=1" ;;
+        windows)
+            defines="$defines -DWIN32_LEAN_AND_MEAN -D_WIN32_WINNT=0x0602"
+            # libuv 1.52.1 passes a const char ** to an internal char ** helper.
+            # Clang warns; GCC 14 promotes the constraint warning to an error.
+            warnings="-Wno-error=incompatible-pointer-types"
+            ;;
+        *) defines="$defines -D_GNU_SOURCE" ;;
+    esac
+
+    objects=""
+    for source in $(libuv_sources); do
+        object="$out/lib/objects/$(printf '%s' "$source" | tr '/' '_').o"
+        # shellcheck disable=SC2086
+        "$CC" -c -O2 -fPIC $defines $warnings \
+            -I"$tree/include" -I"$tree/src" \
+            -o "$object" "$tree/$source" >&2
+        objects="$objects $object"
+    done
+    # shellcheck disable=SC2086
+    ar rcs "$out/lib/libuv.a" $objects
+    printf 'done\n' > "$out/.complete"
+    release_lock
+}
+
+build_ada() {
+    out="$PREFIX/ada"
+    take_lock ada "$out/.complete" || return 0
+    [ -f "$out/.complete" ] && { release_lock; return 0; }
+
+    base="https://github.com/ada-url/ada/releases/download/v$ADA_VERSION"
+    amalgamation=$(pinned_file "ada-$ADA_VERSION.cpp" "$base/ada.cpp" "$ADA_CPP_SHA256")
+    header=$(pinned_file "ada-$ADA_VERSION.h" "$base/ada.h" "$ADA_H_SHA256")
+    api=$(pinned_file "ada_c-$ADA_VERSION.h" "$base/ada_c.h" "$ADA_C_H_SHA256")
+    licence=$(pinned_file "ada-$ADA_VERSION-LICENSE-MIT" \
+        "https://raw.githubusercontent.com/ada-url/ada/v$ADA_VERSION/LICENSE-MIT" \
+        "$ADA_LICENSE_SHA256")
+    verify_notice "$licence" ada-LICENSE.txt
+
+    note "building ada with $CXX"
+    rm -rf "$out"
+    mkdir -p "$out/lib" "$out/include"
+    cp "$header" "$out/include/ada.h"
+    cp "$api" "$out/include/ada_c.h"
+    # C++20, for `std::endian`. It is the only thing here that asks for more
+    # than C++17, and it is why the documented floor moved.
+    "$CXX" -c -std=c++20 -O2 -DNDEBUG -fPIC -I"$out/include" \
+        -o "$out/lib/ada.o" "$amalgamation" >&2
+    ar rcs "$out/lib/libada.a" "$out/lib/ada.o"
+    printf 'done\n' > "$out/.complete"
+    release_lock
+}
+
+# --- the native provider -------------------------------------------------
+
+# Builds the provider as a shared library for one set of features, and answers
+# where it landed. This is what a program loads beside itself when it uses a
+# native facility, and what `bin/nupp` loads to list its own sources.
+build_native_library() {
+    features=$(printf '%s' "${1:-}" | tr ',' ' ')
+    sorted=$(printf '%s\n' $features | sort | tr '\n' ' ')
+    # Resolve the list before entering the loop below. `for source in $(...)`
+    # runs the producer in a subshell, so `die` used to stop only that subshell:
+    # the driver printed the unknown-feature error, compiled the partial list,
+    # and returned a provider path with success. An assignment has the command
+    # substitution's status, and `set -e` therefore stops the driver here.
+    providerSources=$(provider_sources "$sorted")
+    digest=$(printf '%s|%s' "$sorted" "$(sources_digest)" | sha256_stdin | cut -c1-16)
+    out="$PREFIX/native/$digest"
+    include=$(luajit_include)
+    NATIVE_OUT="$out"
+
+    take_lock "native-$digest" "$out/.complete" || return 0
+    [ -f "$out/.complete" ] && { release_lock; return 0; }
+
+    note "building the native provider with $CC"
+    rm -rf "$out"
+    mkdir -p "$out/objects"
+
+    uv_prefix=$(build_libuv; printf '%s' "$PREFIX/libuv")
+    libraries="$uv_prefix/lib/libuv.a"
+    uvInclude="-I$uv_prefix/include"
+    adaInclude=""
+    tlsInclude=""
+    linker=$CC
+    for feature in $sorted; do
+        case "$feature" in
+            http)
+                curl_prefix=$(build_curl; printf '%s' "$PREFIX/curl")
+                libraries="$libraries $("$curl_prefix/bin/curl-config" --static-libs)"
+                ;;
+            tls)
+                tls_prefix=$(build_mbedtls; printf '%s' "$PREFIX/mbedtls")
+                tlsInclude="-I$tls_prefix/include"
+                # The order matters: ssl needs x509, which needs crypto.
+                libraries="$libraries $tls_prefix/lib/libmbedtls.a"
+                libraries="$libraries $tls_prefix/lib/libmbedx509.a"
+                libraries="$libraries $tls_prefix/lib/libmbedcrypto.a"
+                ;;
+            uri)
+                ada_prefix=$(build_ada; printf '%s' "$PREFIX/ada")
+                adaInclude="-I$ada_prefix/include"
+                libraries="$libraries $ada_prefix/lib/libada.a"
+                # ada is C++, and the C++ runtime comes in with it.
+                linker=$CXX
+                ;;
+        esac
+    done
+
+    curlInclude=""
+    curlDefine=""
+    if [ -n "${curl_prefix:-}" ]; then
+        curlInclude="-I$curl_prefix/include"
+        if [ "$PLATFORM" = windows ]; then
+            # curl.h otherwise decorates its API as dllimport on Windows.
+            # This provider links the pinned static archive built above.
+            curlDefine="-DCURL_STATICLIB"
+        fi
+    fi
+    objects=""
+    for source in $providerSources; do
+        object="$out/objects/$(basename "$source" .c).o"
+        # shellcheck disable=SC2086
+        "$CC" -c -std=gnu11 -O2 -fPIC -DNDEBUG -Wall -Wextra \
+            -I"$ROOT/runtime/native/c" -I"$include" $uvInclude $curlInclude \
+            $curlDefine $adaInclude $tlsInclude \
+            -o "$object" "$ROOT/runtime/native/$source" >&2
+        objects="$objects $object"
+    done
+
+    case "$PLATFORM" in
+        darwin)  shared="-dynamiclib"; name="libnupp_native.dylib"; extra="-undefined dynamic_lookup" ;;
+        windows)
+            shared="-shared"
+            name="nupp_native.dll"
+            extra="-lpsapi -luser32 -ladvapi32 -liphlpapi -luserenv"
+            extra="$extra -lws2_32 -ldbghelp -lole32 -lshell32 -lbcrypt"
+            ;;
+        *)       shared="-shared"; name="libnupp_native.so"; extra="-lpthread -ldl" ;;
+    esac
+    # shellcheck disable=SC2086
+    "$linker" $shared -o "$out/$name" $objects $libraries $extra >&2
+    printf '%s\n' "$name" > "$out/.filename"
+    printf 'done\n' > "$out/.complete"
+    release_lock
+}
+
+# --- the host ------------------------------------------------------------
+
+# Builds the stub, or the library an embedding application links, for one set of
+# features. Answers where it landed.
+#
+# The features are the compiler's host feature names, comma-separated. They
+# decide which C is compiled and which staged library is linked.
+build_host() {
+    kind=$1
+    features=$(printf '%s' "${2:-}" | tr ',' ' ')
+    sorted=$(printf '%s\n' $features | sort | tr '\n' ' ')
+    digest=$(printf '%s|%s|%s' "$kind" "$sorted" "$(sources_digest)" | sha256_stdin | cut -c1-16)
+    out="$PREFIX/host/$digest"
+    HOST_OUT="$out"
+
+    luajit_prefix=$(build_luajit; printf '%s' "$PREFIX/luajit")
+    include=$(cat "$PREFIX/luajit/.include")
+
+    take_lock "host-$digest" "$out/.complete" || return 0
+    [ -f "$out/.complete" ] && { release_lock; return 0; }
+
+    note "building the $kind host with $CC"
+    rm -rf "$out"
+    mkdir -p "$out/objects"
+    write_vmdef "$out/objects/vmdef.c"
+
+    uv_prefix=$(build_libuv; printf '%s' "$PREFIX/libuv")
+    uvInclude="-I$uv_prefix/include"
+    defines="-DNUPP_FEATURE_LPEG=0 -DNUPP_FEATURE_LUA_UTF8=0"
+    defines="$defines -DNUPP_FEATURE_WORKERS=0 -DNUPP_FEATURE_NATIVE_FILES=0"
+    defines="$defines -DNUPP_FEATURE_NATIVE_NET=0 -DNUPP_FEATURE_NATIVE_TLS=0"
+    defines="$defines -DNUPP_FEATURE_NATIVE_PROCESS=0"
+    libraries=""
+    tlsInclude=""
+    linker=$CC
+    for feature in $sorted; do
+        case "$feature" in
+            lpeg)
+                lpeg_prefix=$(build_lpeg; printf '%s' "$PREFIX/lpeg")
+                defines=$(printf '%s' "$defines" | sed 's/-DNUPP_FEATURE_LPEG=0/-DNUPP_FEATURE_LPEG=1/')
+                libraries="$libraries $lpeg_prefix/lib/liblpeg.a"
+                ;;
+            lua-utf8)
+                utf8_prefix=$(build_luautf8; printf '%s' "$PREFIX/luautf8")
+                defines=$(printf '%s' "$defines" | sed 's/-DNUPP_FEATURE_LUA_UTF8=0/-DNUPP_FEATURE_LUA_UTF8=1/')
+                libraries="$libraries $utf8_prefix/lib/liblua-utf8.a"
+                ;;
+            workers)
+                defines=$(printf '%s' "$defines" | sed 's/-DNUPP_FEATURE_WORKERS=0/-DNUPP_FEATURE_WORKERS=1/')
+                ;;
+            native-files)
+                defines=$(printf '%s' "$defines" | sed 's/-DNUPP_FEATURE_NATIVE_FILES=0/-DNUPP_FEATURE_NATIVE_FILES=1/')
+                ;;
+            native-net)
+                defines=$(printf '%s' "$defines" \
+                    | sed 's/-DNUPP_FEATURE_NATIVE_NET=0/-DNUPP_FEATURE_NATIVE_NET=1/')
+                ;;
+            native-tls)
+                tls_prefix=$(build_mbedtls; printf '%s' "$PREFIX/mbedtls")
+                tlsInclude="-I$tls_prefix/include"
+                defines=$(printf '%s' "$defines" \
+                    | sed 's/-DNUPP_FEATURE_NATIVE_TLS=0/-DNUPP_FEATURE_NATIVE_TLS=1/')
+                # The order matters: ssl needs x509, which needs crypto.
+                libraries="$libraries $tls_prefix/lib/libmbedtls.a"
+                libraries="$libraries $tls_prefix/lib/libmbedx509.a"
+                libraries="$libraries $tls_prefix/lib/libmbedcrypto.a"
+                ;;
+            native-process)
+                defines=$(printf '%s' "$defines" | sed 's/-DNUPP_FEATURE_NATIVE_PROCESS=0/-DNUPP_FEATURE_NATIVE_PROCESS=1/')
+                ;;
+            *) die "unknown host feature $feature" ;;
+        esac
+    done
+
+    "$CC" -c -O2 -o "$out/objects/vmdef.o" "$out/objects/vmdef.c" >&2
+    objects="$out/objects/vmdef.o"
+    hostSources="host/c/runtime.c host/c/payload.c host/c/hostpath.c host/c/embed.c"
+    hostSources="$hostSources host/c/workers.c host/c/sharedbytes.c host/c/mcode.c"
+    if [ "$kind" = stub ]; then
+        hostSources="$hostSources host/c/main.c"
+    fi
+    for source in $hostSources $(provider_sources "$sorted"); do
+        case "$source" in
+            host/*) full="$ROOT/$source" ;;
+            *)      full="$ROOT/runtime/native/$source" ;;
+        esac
+        object="$out/objects/$(printf '%s' "$source" | tr '/' '_').o"
+        # shellcheck disable=SC2086
+        "$CC" -c -std=gnu11 -O2 -DNDEBUG -Wall -Wextra $defines \
+            -I"$ROOT/host/c" -I"$ROOT/host/include" -I"$ROOT/runtime/native/c" \
+            -I"$include" $uvInclude $tlsInclude -o "$object" "$full" >&2
+        objects="$objects $object"
+    done
+    platform_libraries="-lm -lpthread"
+    case "$PLATFORM" in
+        darwin)  platform_libraries="-lm -lpthread -Wl,-export_dynamic" ;;
+        windows)
+            platform_libraries="-lpsapi -luser32 -ladvapi32 -liphlpapi"
+            platform_libraries="$platform_libraries -luserenv -lws2_32"
+            platform_libraries="$platform_libraries -ldbghelp -lole32"
+            platform_libraries="$platform_libraries -lshell32 -lbcrypt"
+            platform_libraries="$platform_libraries -Wl,--export-all-symbols"
+            ;;
+        *)       platform_libraries="-lm -lpthread -ldl -Wl,-E" ;;
+    esac
+
+    if [ "$kind" = library ]; then
+        # shellcheck disable=SC2086
+        ar rcs "$out/libnupp.a" $objects
+        cp "$luajit_prefix/lib/libluajit-5.1.a" "$out/libluajit.a" 2>/dev/null || true
+    else
+        mkdir -p "$out"
+        # shellcheck disable=SC2086
+        "$linker" -o "$out/nupp-host" \
+            $objects $libraries "$uv_prefix/lib/libuv.a" \
+            "$luajit_prefix/lib/libluajit-5.1.a" $platform_libraries >&2
+    fi
+    printf 'done\n' > "$out/.complete"
+    release_lock
+    HOST_OUT="$out"
+}
+
+# --- provider fixtures ------------------------------------------------------
+
+# Builds one C program against the native provider and answers where it landed.
+#
+# A test that wants to observe something the Lua surface deliberately does not
+# expose has to link the provider directly, and assembling that command in the
+# test would mean a second copy of which compiler this repository uses and which
+# libraries each platform needs. Both live here, so this does too.
+build_fixture() {
+    source=$1
+    output=$2
+    [ -n "$source" ] && [ -n "$output" ] || die "fixture needs a source and an output"
+    [ -f "$source" ] || die "no such fixture: $source"
+
+    # Required, never built. Building here would take the component lock, and
+    # where the cache key has moved it would rebuild libuv while holding it --
+    # which, with the suite running in parallel shards, stalls every shard that
+    # needs the toolchain. A caller that has not provisioned it is told so.
+    uv_prefix="$PREFIX/libuv"
+    [ -f "$uv_prefix/.complete" ] \
+        || die "the pinned libuv is not built; run scripts/toolchain libuv"
+
+    case "$PLATFORM" in
+        darwin)  fixture_libraries="-lm -lpthread" ;;
+        windows)
+            fixture_libraries="-lpsapi -luser32 -ladvapi32 -liphlpapi"
+            fixture_libraries="$fixture_libraries -luserenv -lws2_32"
+            fixture_libraries="$fixture_libraries -ldbghelp -lole32"
+            fixture_libraries="$fixture_libraries -lshell32 -lbcrypt"
+            ;;
+        *)       fixture_libraries="-lm -lpthread -ldl" ;;
+    esac
+
+    # shellcheck disable=SC2086
+    "$CC" -std=gnu11 -O1 -Wall -Wextra \
+        -I"$ROOT/runtime/native/c" -I"$uv_prefix/include" \
+        -o "$output" \
+        "$ROOT/runtime/native/c/net.c" "$ROOT/runtime/native/c/common.c" \
+        "$source" "$uv_prefix/lib/libuv.a" $fixture_libraries >&2
+}
+
+# --- entry ------------------------------------------------------------------
+
+[ "$#" -ge 1 ] || usage
+
+case "$1" in
+    --prefix) native_path "$PREFIX"; exit 0 ;;
+    fixture)
+        build_fixture "${2:-}" "${3:-}"
+        native_path "${3:-}"
+        exit 0
+        ;;
+    --all)
+        build_luajit
+        build_luarocks
+        build_lpeg
+        build_luautf8
+        build_ada
+        build_libuv
+        build_curl
+        exit 0
+        ;;
+    native)
+        build_native_library "${2:-}"
+        native_path "$NATIVE_OUT/$(cat "$NATIVE_OUT/.filename")"
+        exit 0
+        ;;
+    host)
+        build_host stub "${2:-}"
+        native_path "$HOST_OUT/nupp-host"
+        exit 0
+        ;;
+    host-library)
+        build_host library "${2:-}"
+        native_path "$HOST_OUT"
+        exit 0
+        ;;
+    -h|--help) usage ;;
+esac
+
+for component in "$@"; do
+    case "$component" in
+        luajit)   build_luajit;   native_path "$PREFIX/luajit" ;;
+        luarocks) build_luarocks; native_path "$PREFIX/luarocks" ;;
+        lpeg)     build_lpeg;     native_path "$PREFIX/lpeg" ;;
+        luautf8)  build_luautf8;  native_path "$PREFIX/luautf8" ;;
+        ada)      build_ada;      native_path "$PREFIX/ada" ;;
+        libuv)    build_libuv;    native_path "$PREFIX/libuv" ;;
+        mbedtls)  build_mbedtls;  native_path "$PREFIX/mbedtls" ;;
+        curl)     build_curl;     native_path "$PREFIX/curl" ;;
+        *) note "unknown component $component"; usage ;;
+    esac
+done

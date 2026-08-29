@@ -1,0 +1,86 @@
+-- What the all-or-nothing gang-width rule costs, as a kernel that pays it.
+--
+-- Width selection is all-or-nothing today: one binary64 varying value drops the
+-- whole loop to four lanes, whatever the other values are. This is that shape --
+-- everything the loop carries is binary32 except one running total, which is
+-- binary64 because summing many small contributions in binary32 loses them.
+--
+-- It exists to measure the cost of the rule rather than to argue about it, and
+-- `mixedwidth.sh` does the measuring: this kernel against `mixedwidth_f64.nupp`,
+-- which is four lanes with nothing to round, and against `mixedwidth_f32.nupp`,
+-- which is eight lanes with nothing to round. Each is reported against its own
+-- forced-scalar body, so the three doing different arithmetic does not confound
+-- the comparison.
+--
+-- What that found: the rounding costs more than the lane count does. This body
+-- runs at 1.06x its own scalar oracle, which is a gang that costs about what it
+-- saves.
+local span = require("nupp.mem.span")
+
+local struct Body
+    x: float
+    y: float
+    vx: float
+    vy: float
+end
+
+local struct Track
+    distance: float
+    steps: int32
+end
+
+@aot(lanes = true)
+local function integrate(
+    exclusive tracks: span.WriteSpan<Track>,
+    borrows bodies: span.Span<Body>,
+    first: integer,
+    last: integer,
+    steps: int32,
+    damping: float,
+    interval: float,
+    limit: float
+): nil
+    if #tracks ~= #bodies then
+        error("length mismatch", 2)
+    end
+    if first < 1 or last > #tracks or first > last + 1 then
+        error("range out of bounds", 2)
+    end
+
+    for i = first, last do
+        local track = tracks[i]
+        local body = bodies[i]
+        local x = nupp.math.f32.narrow(body.x)
+        local y = nupp.math.f32.narrow(body.y)
+        local vx = nupp.math.f32.narrow(body.vx)
+        local vy = nupp.math.f32.narrow(body.vy)
+        -- The binary64 value that decides the gang for the whole loop. A
+        -- running total over many contributions is exactly where binary32 stops
+        -- being enough: each is small against the accumulated sum, so in
+        -- binary32 most of them round away entirely.
+        --
+        -- The step counter below is binary64 too, being ordinary arithmetic, so
+        -- narrowing this alone would not move the loop to a 32-bit gang.
+        local travelled = 0.0
+        local step = 0
+        while step < steps do
+            local ax = nupp.math.f32.mul(x, damping)
+            local ay = nupp.math.f32.mul(y, damping)
+            vx = nupp.math.f32.add(vx, ax)
+            vy = nupp.math.f32.add(vy, ay)
+            local dx = nupp.math.f32.mul(vx, interval)
+            local dy = nupp.math.f32.mul(vy, interval)
+            x = nupp.math.f32.add(x, dx)
+            y = nupp.math.f32.add(y, dy)
+            travelled = travelled + math.sqrt(nupp.math.f32.add(nupp.math.f32.mul(dx, dx), nupp.math.f32.mul(dy, dy)))
+            step = step + 1
+            if nupp.math.f32.add(nupp.math.f32.mul(x, x), nupp.math.f32.mul(y, y)) < limit then
+                break
+            end
+        end
+        track.distance = nupp.math.f32.narrow(travelled)
+        track.steps = step
+    end
+end
+
+return {integrate = integrate, Body = Body, Track = Track,}

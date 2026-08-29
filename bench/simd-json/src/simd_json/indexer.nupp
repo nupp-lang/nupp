@@ -1,0 +1,175 @@
+local simd = require("nupp.simd")
+local span = require("nupp.mem.span")
+local _preferredU8 = simd.preferredU8
+
+local indexer = {}
+
+const indexer.OK = 0
+const indexer.TAPE_CAPACITY = 1
+const indexer.INVALID_UTF8 = 2
+const indexer.INVALID_CONTROL = 3
+const indexer.INVALID_BACKSLASH = 4
+
+--- Builds a compact zero-based tape of string boundaries and JSON structural
+--- characters while validating every input byte as UTF-8. No operation reads
+--- beyond `source`, including the final packed load.
+@aot(lanes = false)
+local function index(borrows source: span.Span<uint8>, exclusive tape: span.WriteSpan<uint32>): (uint32, uint32, uint32)
+    local species = _preferredU8()
+    local cursor: integer = 0
+    local written: uint32 = 0
+    local inString = false
+    local slashOdd = false
+    local haveSlash = false
+    local lastSlash = 0.0
+
+    -- UTF-8 carry. Constraint is 1=A0..BF, 2=80..9F,
+    -- 3=90..BF, 4=80..8F for the next continuation byte.
+    local expected: uint32 = 0
+    local constraint: uint32 = 0
+    local haveNonAscii = false
+    local lastNonAscii = 0.0
+
+    while cursor < #source do
+        local bytes = species:load(source, cursor)
+        local tail = species:tail(#source - cursor)
+
+        local quoteMask = bytes:equal(34)
+        local slashMask = bytes:equal(92)
+        local openObjectMask = bytes:equal(123)
+        local closeObjectMask = bytes:equal(125)
+        local openArrayMask = bytes:equal(91)
+        local closeArrayMask = bytes:equal(93)
+        local colonMask = bytes:equal(58)
+        local commaMask = bytes:equal(44)
+        local controlMask = bytes:inRange(0, 31)
+
+        local syntax1 = openObjectMask:orBits(closeObjectMask)
+        local syntax2 = openArrayMask:orBits(closeArrayMask)
+        local syntax3 = colonMask:orBits(commaMask)
+        local syntax4 = syntax1:orBits(syntax2)
+        local syntaxMask = syntax4:orBits(syntax3)
+        local event1 = quoteMask:orBits(slashMask)
+        local event2 = event1:orBits(syntaxMask)
+        local event3 = event2:orBits(controlMask)
+        local validEvents = event3:andBits(tail)
+
+        local events: uint32 = validEvents:bits()
+
+        while events ~= 0 do
+            local remaining: uint32 = nupp.math.u32.andBits(events, nupp.math.u32.sub(events, 1))
+            local lane: uint32 = nupp.math.u32.trailingZeros(events)
+            local position = cursor + lane
+            local positionIndex: uint32 = nupp.math.u32.wrap(position as integer)
+            if positionIndex < #source then
+                local byte = source[(positionIndex + 1) as integer]
+                if byte == 92 then
+                    if not inString then
+                        return written, 4, nupp.math.u32.add(positionIndex, 1)
+                    end
+                    if haveSlash and position == lastSlash + 1 then
+                        slashOdd = not slashOdd
+                    else
+                        slashOdd = true
+                    end
+                    haveSlash = true
+                    lastSlash = position
+                else
+                    local escaped = haveSlash and position == lastSlash + 1 and slashOdd
+                    if byte == 34 and not escaped then
+                        inString = not inString
+                        if written < #tape then
+                            tape[(written + 1) as integer] = positionIndex
+                            written = nupp.math.u32.add(written, 1)
+                        else
+                            return written, 1, nupp.math.u32.add(positionIndex, 1)
+                        end
+                    elseif byte < 32 then
+                        local whitespace = byte == 9 or byte == 10 or byte == 13
+                        if inString or not whitespace then
+                            return written, 3, nupp.math.u32.add(positionIndex, 1)
+                        end
+                    elseif not inString then
+                        if written < #tape then
+                            tape[(written + 1) as integer] = positionIndex
+                            written = nupp.math.u32.add(written, 1)
+                        else
+                            return written, 1, nupp.math.u32.add(positionIndex, 1)
+                        end
+                    end
+                    haveSlash = false
+                    slashOdd = false
+                end
+            end
+            events = remaining
+        end
+
+        local nonAsciiMask = bytes:inRange(128, 255)
+        local utfEvents: uint32 = nonAsciiMask:andBits(tail):bits()
+
+        while utfEvents ~= 0 do
+            local remaining: uint32 = nupp.math.u32.andBits(utfEvents, nupp.math.u32.sub(utfEvents, 1))
+            local lane: uint32 = nupp.math.u32.trailingZeros(utfEvents)
+            local position = cursor + lane
+            local positionIndex: uint32 = nupp.math.u32.wrap(position as integer)
+            if haveNonAscii and expected ~= 0 and position ~= lastNonAscii + 1 then
+                return written, 2, nupp.math.u32.wrap((lastNonAscii + 2) as integer)
+            end
+            if positionIndex < #source then
+                local byte = source[(positionIndex + 1) as integer]
+                local isContinuation = byte >= 128 and byte <= 191
+                if expected ~= 0 then
+                    if not isContinuation then
+                        return written, 2, nupp.math.u32.add(positionIndex, 1)
+                    end
+                    local constrained = constraint == 1
+                        and byte < 160
+                        or constraint == 2
+                        and byte > 159
+                        or constraint == 3
+                        and byte < 144
+                        or constraint == 4
+                        and byte > 143
+                    if constrained then
+                        return written, 2, nupp.math.u32.add(positionIndex, 1)
+                    end
+                    expected = nupp.math.u32.sub(expected, 1)
+                    constraint = 0
+                elseif isContinuation or byte < 194 or byte > 244 then
+                    return written, 2, nupp.math.u32.add(positionIndex, 1)
+                elseif byte <= 223 then
+                    expected = 1
+                elseif byte <= 239 then
+                    expected = 2
+                    if byte == 224 then
+                        constraint = 1
+                    elseif byte == 237 then
+                        constraint = 2
+                    end
+                else
+                    expected = 3
+                    if byte == 240 then
+                        constraint = 3
+                    elseif byte == 244 then
+                        constraint = 4
+                    end
+                end
+            end
+            haveNonAscii = true
+            lastNonAscii = position
+            utfEvents = remaining
+        end
+
+        cursor = cursor + species.lanes
+    end
+
+    if expected ~= 0 then
+        return written, 2, nupp.math.u32.wrap((lastNonAscii + 2) as integer)
+    end
+
+    return written, 0, 0
+end
+
+indexer.index = index
+
+return indexer

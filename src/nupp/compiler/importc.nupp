@@ -1,0 +1,937 @@
+module nupp.compiler.importc
+
+--[[
+Ejecting a typed Nupp module from a C header.
+
+The pipeline: `cc -E` preprocesses; the linemarkers it leaves attribute every
+line to its origin file, so only the requested header's own declarations are
+kept; attributes and asm renames are normalized away; LuaJIT's own C parser
+supplies a neutral declaration model through `nupp.compiler.cdecl`; and that model is
+emitted as typed `cdef` declarations. Anything the Nupp C surface cannot express
+is ejected as a comment, since the output is a committed, hand-editable file, never a
+black box.
+
+Constants come from two places and land together: an enum's members, which
+LuaJIT's model carries with the type, and a second `-dM` pass over the object-like
+macros the header defines itself, of which the numerically evaluable ones are
+emitted. A name declared twice keeps its first meaning.
+]]
+
+local importc = {}
+local cdecl = require("nupp.compiler.cdecl")
+local process = require("nupp.compiler.build.process")
+local hash = require("nupp.compiler.build.hash")
+
+local function readFile(path)
+    local f = io.open(path, "rb")
+    if not f then
+        return nil
+    end
+    local s = f:read("*a")
+    f:close()
+
+    return s
+end
+
+local function capture(argv)
+    local code, out = process.capture(argv)
+    if code ~= 0 then
+        return nil
+    end
+
+    return out
+end
+
+local function normalizedPath(path)
+    return (path:gsub("\\", "/"))
+end
+
+local function basename(path)
+    return normalizedPath(path):match("([^/]+)$") or path
+end
+
+-- cpp normally writes the input path back verbatim, but some drivers canonicalize it
+-- first. The target is the first linemarker with its basename: preprocessing enters
+-- the input before it can enter an included file, so this also distinguishes an
+-- included sibling that happens to have the same basename.
+local function targetMarker(preprocessed, headerPath)
+    local wanted = normalizedPath(headerPath)
+    local fallback = nil
+    for file in preprocessed:gmatch('#%s*%d+%s+"([^"]*)"') do
+        local normalized = normalizedPath(file)
+        if normalized == wanted then
+            return file
+        end
+        if not fallback and basename(normalized) == basename(wanted) then
+            fallback = file
+        end
+    end
+
+    return fallback or headerPath
+end
+
+-- Keeps only lines attributed (by cpp linemarkers) to the exact target header.
+local function filterToHeader(preprocessed, headerPath)
+    local target = targetMarker(preprocessed, headerPath)
+    local keep = {}
+    local current = ""
+    for line in (preprocessed .. "\n"):gmatch("(.-)\n") do
+        local file = line:match('^#%s*%d+%s+"([^"]*)"')
+        if file then
+            current = file
+        elseif current == target and line:match("%S") then
+            keep[#keep + 1] = line
+        end
+    end
+
+    return table.concat(keep, "\n")
+end
+
+-- Strips compiler-specific decoration LuaJIT's parser may reject.
+local function normalize(text)
+    -- balanced __attribute__((...)) (loop handles nesting)
+    while true do
+        local s2, changed = text:gsub("__attribute__%s*%(%b()%)", "")
+        text = s2
+        if changed == 0 then
+            break
+        end
+    end
+    text = text:gsub("__asm__%s*%b()", "")
+    text = text:gsub("__asm%s*%b()", "")
+    text = text:gsub("__inline__", "inline"):gsub("__inline", "inline")
+    for _, word in ipairs({
+        "__restrict__",
+        "__restrict",
+        "__extension__",
+        "_Nullable",
+        "_Nonnull",
+        "_Null_unspecified"
+    }) do
+        text = text:gsub(word, "")
+    end
+
+    return text
+end
+
+-- Splits into statements at ';' outside braces; a struct body rides along with its
+-- statement.
+local function statements(text)
+    local out, buf, depth = {}, {}, 0
+    for ch in text:gmatch(".") do
+        local discard = false
+        if ch == "{" then
+            depth = depth + 1
+
+        elseif ch == "}" then
+            depth = depth - 1
+            if depth == 0 then
+                local prefix = table.concat(buf):gsub("^%s+", "")
+                local aggregate = prefix:match(
+                    "^typedef%s+struct%f[%W]"
+                ) or prefix:match(
+                    "^typedef%s+union%f[%W]"
+                ) or prefix:match(
+                    "^typedef%s+enum%f[%W]"
+                ) or prefix:match("^struct%f[%W]") or prefix:match("^union%f[%W]") or prefix:match("^enum%f[%W]")
+                if prefix:find("%b()") and not aggregate then
+                    -- A function definition has no declaration-ending semicolon.
+                    -- Drop it here so it cannot glue itself to the declaration
+                    -- which follows. Header-only functions are inventoried by the
+                    -- bridge scanner separately.
+                    buf = {}
+                    discard = true
+                end
+            end
+        end
+        if discard then
+            -- The closing brace belongs to the discarded definition.
+        elseif ch == ";" and depth == 0 then
+            local stmt = table.concat(buf):gsub("%s+", " "):gsub("^%s+", ""):gsub("%s+$", "")
+            if #stmt > 0 then
+                out[#out + 1] = stmt
+            end
+            buf = {}
+        else
+            buf[#buf + 1] = ch
+        end
+    end
+
+    return out
+end
+
+-- Collects simple `typedef <base> <name>;` declarations and resolves them through
+-- LuaJIT before the target header is inspected. A header's own vocabulary (uLong,
+-- Bytef, ...) commonly comes from included headers that were removed by linemarker
+-- filtering. cpp linemarkers carry no semicolon, so they glue onto the statement that
+-- follows when text is split into statements; drop them first.
+local function stripLinemarkers(text)
+    local out = {}
+    for line in (text .. "\n"):gmatch("(.-)\n") do
+        if not line:match("^#") then
+            out[#out + 1] = line
+        end
+    end
+
+    return table.concat(out, "\n")
+end
+
+-- In declaration order, which is the only order C can read them in: a typedef names a
+-- type that an earlier one had to introduce. Darwin's headers reach `ino_t` through
+-- `__darwin_ino64_t` through `__uint64_t`, so any other order hands LuaJIT a name it
+-- has not met yet. Sorting these to make the output deterministic bought determinism
+-- the header already had, and paid for it by failing on every real system header.
+--
+-- A name repeated by two headers keeps its first spelling; a later identical typedef is
+-- legal C and adds nothing.
+local function collectTypedefs(stmts)
+    local defs, seen = {}, {}
+    for _, stmt in ipairs(stmts) do
+        if stmt:match("^typedef%f[%W]") and not stmt:find("[{}()]") then
+            local body = stmt:gsub("^typedef%s+", "")
+            local base, name = body:match("^(.-)%s*%f[%w_]([%a_][%w_]*)$")
+            if base and name and base:match("%S") and not seen[name] then
+                seen[name] = true
+                defs[#defs + 1] = {name = name, base = (base:gsub("^%s+", ""):gsub("%s+$", "")),}
+            end
+        end
+    end
+
+    return defs
+end
+
+local INTEGER_TYPE = {
+    [8] = {"int8", "uint8"},
+    [16] = {"int16", "uint16"},
+    [32] = {"int32", "uint32"},
+    [64] = {"int64", "uint64"},
+}
+
+local RESERVED = {
+    ["and"] = true,
+    ["break"] = true,
+    ["do"] = true,
+    ["else"] = true,
+    ["elseif"] = true,
+    ["end"] = true,
+    ["false"] = true,
+    ["for"] = true,
+    ["function"] = true,
+    ["goto"] = true,
+    ["if"] = true,
+    ["in"] = true,
+    ["local"] = true,
+    ["nil"] = true,
+    ["not"] = true,
+    ["or"] = true,
+    ["repeat"] = true,
+    ["return"] = true,
+    ["then"] = true,
+    ["true"] = true,
+    ["until"] = true,
+    ["while"] = true,
+}
+
+local function identifier(name)
+    return name and name:match("^[%a_][%w_]*$") and not RESERVED[name]
+end
+
+local renderType
+local renderFunctionType
+
+-- Nupp's cdef surface deliberately gives byte strings and opaque primitive pointers
+-- friendly boundary types. Struct identity and every numeric width, however, come from
+-- LuaJIT's parsed model rather than from C spelling.
+renderType = function(model, knownStructs, callbacks)
+    local kind = model and model.kind or "unknown"
+    if kind == "boolean" then
+        return "boolean"
+    elseif kind == "float" then
+        if model.bits == 32 then
+            return "float"
+        end
+        if model.bits == 64 then
+            return "number"
+        end
+        return nil
+    elseif kind == "integer" or kind == "enum" then
+        local pair = INTEGER_TYPE[model.bits]
+        if not pair then
+            return nil
+        end
+        return model.unsigned and pair[2] or pair[1]
+    elseif kind == "struct" or kind == "union" then
+        local name = model.name or (model.id and knownStructs[model.id] or nil)
+        if name and knownStructs[name] then
+            return name
+        end
+        return nil
+    elseif kind == "pointer" then
+        local pointee = model.to
+        if pointee and pointee.kind == "integer" and pointee.bits == 8 and model.const then
+            return "cstring?"
+        end
+        if pointee and pointee.kind == "function" then
+            local rendered = renderFunctionType(pointee, knownStructs)
+            return rendered and (rendered .. "?") or nil
+        end
+        local aggregateName = pointee and (pointee.name or (pointee.id and knownStructs[pointee.id] or nil)) or nil
+        if pointee and (
+            pointee.kind == "struct" or pointee.kind == "union"
+        ) and aggregateName and knownStructs[aggregateName] then
+            return (model.const and "const " or "") .. aggregateName .. "*?"
+        end
+        if pointee and pointee.kind == "void" then
+            return "voidptr"
+        end
+        local rendered = renderType(pointee, knownStructs, true)
+        if rendered then
+            return (model.const and "const " or "") .. rendered .. "*?"
+        end
+        return nil
+    elseif kind == "array" then
+        local element = renderType(model.of, knownStructs, true)
+        if not element or not model.count or model.count < 0 or model.count % 1 ~= 0 then
+            return nil
+        end
+        return element .. "[" .. tostring(model.count) .. "]"
+    end
+
+    return nil
+end
+
+renderFunctionType = function(fn, knownStructs)
+    local params = {}
+    for _, param in ipairs(fn.params or {}) do
+        local rendered = renderType(param.type, knownStructs, false)
+        if not rendered then
+            return nil
+        end
+        params[#params + 1] = rendered
+    end
+    if fn.vararg then
+        params[#params + 1] = "..."
+    end
+    local out = "function(" .. table.concat(params, ", ") .. ")"
+    if fn.returns and fn.returns.kind ~= "void" then
+        local ret = renderType(fn.returns, knownStructs, false)
+        if not ret then
+            return nil
+        end
+        out = out .. ": " .. ret
+    end
+
+    return out
+end
+
+-- Object-like #define names declared by the header itself.
+local function headerMacroNames(rawHeader)
+    local names = {}
+    for name, after in rawHeader:gmatch("#%s*define%s+([%a_][%w_]*)([^\n]?)") do
+        if after ~= "(" then
+            names[#names + 1] = name
+        end
+    end
+
+    return names
+end
+
+local function macroValues(dmOutput)
+    local values = {}
+    for name, value in dmOutput:gmatch("#define%s+([%a_][%w_]*)%s+([^\n]+)") do
+        values[name] = value:gsub("\r$", "")
+    end
+
+    return values
+end
+
+-- A macro body usable as an nupp constant expression: numbers (with C suffixes
+-- stripped), parens, arithmetic, shifts, bit ops.
+local function constantExpr(value)
+    value = value:gsub("([%dxXa-fA-F])[uUlL]+%f[%W]", "%1")
+    if value:match("^%s*$") then
+        return nil
+    end
+    if value:match('^"[^"]*"$') then
+        return value, "string"
+    end
+    if value:match("^[%d%sxXa-fA-F%.%+%-%*/%%%(%)<>|&~]+$") and value:match("%d") then
+        return value, "number"
+    end
+
+    return nil
+end
+
+local function balancedEnd(text, startAt, open, close)
+    local depth = 0
+    for index = startAt, #text do
+        local ch = text:sub(index, index)
+        if ch == open then
+            depth = depth + 1
+        elseif ch == close then
+            depth = depth - 1
+            if depth == 0 then
+                return index
+            end
+        end
+    end
+
+    return nil
+end
+
+-- The bridge admits the deliberately small first-release inline family: a named
+-- internal-linkage definition with an ordinary parameter list. The original C
+-- compiler still validates the emitted definition; this scanner only identifies the
+-- candidate and never interprets its body.
+local function staticInlineSignatures(raw)
+    local text = normalize(raw:gsub("/%*.-%*/", " "):gsub("//[^\n]*", " "))
+    local found = {}
+    local cursor = 1
+    while true do
+        local startAt, after, name = text:find("%f[%w_]static%s+inline%s+.-%f[%w_]([%a_][%w_]*)%s*%(", cursor)
+        if not startAt then
+            break
+        end
+        local open = text:find("(", after - 1, true)
+        local close = open and balancedEnd(text, open, "(", ")") or nil
+        local body = close and text:find("%S", close + 1) or nil
+        if body and text:sub(body, body) == "{" then
+            local signature = text:sub(startAt, close):gsub("^static%s+inline%s+", "")
+            local bodyEnd = balancedEnd(text, body, "{", "}")
+            found[#found + 1] = {name = name, signature = signature, startAt = startAt, endAt = bodyEnd or close}
+            cursor = (bodyEnd or close) + 1
+        else
+            cursor = (close or after) + 1
+        end
+    end
+
+    return found, text
+end
+
+local function withoutStaticInlineDefinitions(text)
+    local definitions, normalized = staticInlineSignatures(text)
+    local out = {}
+    local cursor = 1
+    for _, definition in ipairs(definitions) do
+        out[#out + 1] = normalized:sub(cursor, definition.startAt - 1)
+        cursor = definition.endAt + 1
+    end
+    out[#out + 1] = normalized:sub(cursor)
+
+    return table.concat(out)
+end
+
+local RECIPE_C_TYPE = {
+    boolean = "_Bool",
+    float = "float",
+    number = "double",
+    integer = "int32_t",
+    int8 = "int8_t",
+    int16 = "int16_t",
+    int32 = "int32_t",
+    int64 = "int64_t",
+    uint8 = "uint8_t",
+    uint16 = "uint16_t",
+    uint32 = "uint32_t",
+    uint64 = "uint64_t",
+}
+
+local function recipeCType(spec)
+    if type(spec) ~= "string" then
+        return nil
+    end
+    spec = spec:gsub("%?", ""):gsub("^%s+", ""):gsub("%s+$", "")
+
+    return RECIPE_C_TYPE[spec]
+end
+
+local function functionMacroArities(raw)
+    local out = {}
+    -- In C the opening parenthesis must immediately follow the macro name.
+    for name, params in raw:gmatch("#%s*define%s+([%a_][%w_]*)(%b())") do
+        local body = params:sub(2, -2)
+        local count = body:match("^%s*$") and 0 or 1
+        for _ in body:gmatch(",") do
+            count = count + 1
+        end
+        out[name] = body:find("%.%.%.", 1, false) and -1 or count
+    end
+
+    return out
+end
+
+local function cString(value)
+    return '"' .. value:gsub("\\", "\\\\"):gsub('"', '\\"') .. '"'
+end
+
+--- An explicit owning return promises a non-null allocation. C pointers import as
+--- nullable by default, but Rust `Box<T>` cannot be null, and its terminal has to
+--- receive the same representation as the affine result.
+local function ownedPointer(rendered: string): string
+    return rendered:sub(-1) == "?" and rendered:sub(1, -2) or rendered
+end
+
+--- What an import was asked for: the compiler that preprocesses the header, the flags
+--- it needs to find what the header includes, and the library the generated
+--- declarations load from.
+type importc.Options = {
+    readonly cc: string?,
+    readonly cppflags: {string}?,
+    readonly lib: string?,
+
+    --- Canonical name for a generated declared module. Direct library callers may
+    --- omit this to retain the legacy fragment form.
+    readonly module: string?,
+
+    --- Generate C wrappers for target-header static inline functions.
+    readonly bridge: boolean?,
+
+    --- Explicit signatures for selected function-like macros.
+    readonly macros: {[string]: any}?,
+
+    --- Ownership facts the C header cannot express. A returned pointer may name
+    --- its cleanup, and a function may name the parameter positions it consumes.
+    readonly ownership: {
+        returns: {[string]: string}?,
+        takes: {[string]: {integer}}?
+    }?,
+
+    --- Header spelling used by the generated translation unit.
+    readonly bridgeInclude: string?
+}
+
+type importc.Disposition = {
+    name: string?,
+    kind: string,
+    reason: string?,
+    detail: string?,
+    symbol: string?
+}
+
+type importc.Details = {
+    direct: integer,
+    bridged: integer,
+    skipped: integer,
+    dispositions: {importc.Disposition},
+    bridgeSource: string?
+}
+
+-- Main entry: returns the .nupp module text and a list of warnings.
+function importc.import(headerPath: string, opts: importc.Options?): string?, {string}, importc.Details?
+    opts = opts or {} as importc.Options
+    local warnings = {}
+    local raw = readFile(headerPath)
+    if not raw then
+        return nil, {"cannot read " .. headerPath}
+    end
+    local headerBase = basename(headerPath)
+    local ownership = opts.ownership or {}
+    local returnedOwned = ownership.returns or {}
+    local takenParameters = ownership.takes or {}
+    local cleanupTerminals = {}
+    for _, cleanup in pairs(returnedOwned) do
+        cleanupTerminals[cleanup] = true
+    end
+    local cc = opts.cc or "cc"
+    local cpp = {cc, "-E"}
+    for _, flag in ipairs(opts.cppflags or {}) do
+        cpp[#cpp + 1] = flag
+    end
+    cpp[#cpp + 1] = "-xc"
+    cpp[#cpp + 1] = headerPath
+    local preprocessed = capture(cpp)
+    local macros = {cc, "-E", "-dM"}
+    for _, flag in ipairs(opts.cppflags or {}) do
+        macros[#macros + 1] = flag
+    end
+    macros[#macros + 1] = "-xc"
+    macros[#macros + 1] = headerPath
+    local dm = capture(macros) or ""
+    if not preprocessed or #preprocessed == 0 then
+        return nil, {"cc -E produced no output for " .. headerPath}
+    end
+
+    local text = withoutStaticInlineDefinitions(normalize(filterToHeader(preprocessed, headerPath)))
+
+    -- The type vocabulary comes from the whole translation unit: a header's own
+    -- declarations are usually written in typedefs that live in the headers it
+    -- includes, and those were filtered out above.
+    --
+    -- What the target header declares itself is left out of it. Those statements are
+    -- about to be parsed as the target, and a name LuaJIT already holds cannot be
+    -- declared twice, since pre-declaring one here would fail the parse of the very
+    -- header being imported.
+    local ownTypedefs = {}
+    for _, def in ipairs(collectTypedefs(statements(text))) do
+        ownTypedefs[def.name] = true
+    end
+    local typedefText = {}
+    for _, def in ipairs(collectTypedefs(statements(normalize(stripLinemarkers(preprocessed))))) do
+        if not ownTypedefs[def.name] then
+            typedefText[#typedefText + 1] = ("typedef %s %s;"):format(def.base, def.name)
+        end
+    end
+
+    -- LuaJIT's parser is the arbiter and the source of the declarations we render.
+    -- Included simple typedefs supply the vocabulary removed when the target header was
+    -- isolated through cpp linemarkers.
+    --
+    -- Declaration by declaration, so one the parser will not take costs itself and not
+    -- the header. `fcntl.h` holds one struct laid out from a type whose definition
+    -- another header owns, and taking the file as one unit spent `open` and `fcntl` on
+    -- it.
+    local units = {}
+    for _, statement in ipairs(statements(text)) do
+        units[#units + 1] = statement .. ";"
+    end
+    local parsed, ffiErr = cdecl.inspect(units, typedefText)
+    if not parsed then
+        return nil, {"LuaJIT cdef: " .. tostring(ffiErr)}
+    end
+
+    local out = {}
+    local exports = {}
+    local knownStructs = {}
+    local details = {direct = 0, bridged = 0, skipped = #parsed.rejected, dispositions = {},}
+    for _, reject in ipairs(parsed.rejected) do
+        details.dispositions[
+            #details.dispositions + 1
+        ] = {kind = "skipped", reason = "parse-failure", detail = reject.reason,}
+    end
+    local function emit(line)
+        out[#out + 1] = line
+    end
+
+    emit(("-- generated by nupp import-c from %s"):format(headerBase))
+    emit("-- committed and hand-editable: fix or extend freely, re-import")
+    emit("-- only when the header changes.")
+    if opts.module then
+        emit("")
+        emit("module " .. opts.module)
+    end
+    emit("")
+
+    -- What the parser would not take, said in the file that is missing it and again on
+    -- the way out. The count is the part that carries: one skipped declaration out of
+    -- thirty is a header with a corner in it, and twenty-seven out of thirty is a
+    -- vocabulary that broke upstream and a module not worth having.
+    if #parsed.rejected > 0 then
+        for _, reject in ipairs(parsed.rejected) do
+            emit(("-- import-c: skipped declaration (%s)"):format(reject.reason))
+            emit("--   " .. reject.text:sub(1, 100))
+        end
+        emit("")
+        warnings[
+            #warnings + 1
+        ] = ("%d of %d declarations skipped: %s"):format(#parsed.rejected, parsed.declared, parsed.rejected[1].reason)
+    end
+
+    for _, declaration in ipairs(parsed.structs) do
+        local name = declaration.name
+        local fields = {}
+        local ok = identifier(name) and true or false
+        if ok then
+            knownStructs[name] = true
+            knownStructs[declaration.id] = name
+        end -- self pointers are legal
+        for _, field in ipairs(declaration.fields) do
+            local rendered = renderType(field.type, knownStructs, false)
+            if not rendered or not identifier(field.name) then
+                ok = false
+                break
+            end
+            fields[
+                #fields + 1
+            ] = "   " .. field.name .. ": " .. rendered .. (field.bitWidth and " : " .. tostring(field.bitWidth) or "")
+        end
+        if ok then
+            emit("cdef " .. declaration.kind .. " " .. name)
+            for _, field in ipairs(fields) do
+                emit(field)
+            end
+            emit("end")
+            emit("")
+            exports[#exports + 1] = name
+            details.dispositions[#details.dispositions + 1] = {name = name, kind = "type-only"}
+        else
+            knownStructs[name] = nil
+            knownStructs[declaration.id] = nil
+            emit("-- import-c: skipped " .. declaration.kind .. " " .. tostring(name) .. " (unsupported field type)")
+            details.skipped = details.skipped + 1
+            details.dispositions[
+                #details.dispositions + 1
+            ] = {name = name, kind = "skipped", reason = "unsupported-field-type",}
+        end
+    end
+
+    for _, fn in ipairs(parsed.functions) do
+        local params = {}
+        local ok = identifier(fn.name) and true or false
+        local takes = {}
+        for _, position in ipairs(takenParameters[fn.name] or {}) do
+            takes[position] = true
+        end
+        for index, param in ipairs(fn.params or {}) do
+            local rendered = renderType(param.type, knownStructs, true)
+            if not rendered then
+                ok = false
+                break
+            end
+            if takes[index] and cleanupTerminals[fn.name] then
+                rendered = ownedPointer(rendered)
+            end
+            local name = identifier(param.name) and param.name or "arg" .. index
+            params[#params + 1] = (takes[index] and "takes " or "") .. name .. ": " .. rendered
+        end
+        if fn.vararg then
+            params[#params + 1] = "..."
+        end
+        local ret
+        if fn.returns and fn.returns.kind ~= "void" then
+            ret = renderType(fn.returns, knownStructs, false)
+            if not ret then
+                ok = false
+            else
+                local cleanup = returnedOwned[fn.name]
+                if cleanup then
+                    ret = "affine(" .. ownedPointer(ret) .. ", " .. (cleanup as string) .. ")"
+                end
+            end
+        end
+        if ok then
+            local sig = "cdef function " .. fn.name .. "(" .. table.concat(params, ", ") .. ")"
+            if ret then
+                sig = sig .. ": " .. ret
+            end
+            if opts.lib then
+                sig = sig .. (" from %q"):format(opts.lib)
+            end
+            emit(sig)
+            exports[#exports + 1] = fn.name
+            details.direct = details.direct + 1
+            details.dispositions[#details.dispositions + 1] = {name = fn.name, kind = "direct"}
+        else
+            emit("-- import-c: skipped function " .. tostring(fn.name) .. " (unsupported C type)")
+            details.skipped = details.skipped + 1
+            details.dispositions[
+                #details.dispositions + 1
+            ] = {name = fn.name, kind = "skipped", reason = "unsupported-c-type",}
+        end
+    end
+
+    local bridgeLines = {}
+    local bridgeAliases = {}
+    local function bridgePreamble()
+        if #bridgeLines > 0 then
+            return
+        end
+        bridgeLines[#bridgeLines + 1] = "#include <stdint.h>"
+        bridgeLines[#bridgeLines + 1] = "#if defined(_WIN32)"
+        bridgeLines[#bridgeLines + 1] = "#define NUPP_BRIDGE_EXPORT __declspec(dllexport)"
+        bridgeLines[#bridgeLines + 1] = "#else"
+        bridgeLines[#bridgeLines + 1] = '#define NUPP_BRIDGE_EXPORT __attribute__((visibility("default")))'
+        bridgeLines[#bridgeLines + 1] = "#endif"
+        bridgeLines[#bridgeLines + 1] = "#include " .. cString(opts.bridgeInclude or headerPath)
+        bridgeLines[#bridgeLines + 1] = ""
+    end
+
+    local function addBridge(fn, logicalName, cDeclaration, callExpression)
+        local params = {}
+        local callArgs = {}
+        local ok = identifier(logicalName) and true or false
+        for index, param in ipairs(fn.params or {}) do
+            local rendered = renderType(param.type, knownStructs, true)
+            if not rendered then
+                ok = false
+                break
+            end
+            local name = identifier(param.name) and param.name or "arg" .. tostring(index)
+            params[#params + 1] = name .. ": " .. rendered
+            callArgs[#callArgs + 1] = name
+        end
+        local ret = nil
+        if fn.returns and fn.returns.kind ~= "void" then
+            ret = renderType(fn.returns, knownStructs, false)
+            ok = ok and ret ~= nil
+        end
+        if not ok then
+            warnings[#warnings + 1] = "bridge skipped " .. logicalName .. ": unsupported C type"
+            details.skipped = details.skipped + 1
+            details.dispositions[
+                #details.dispositions + 1
+            ] = {name = logicalName, kind = "skipped", reason = "unsupported-bridge-type",}
+            return
+        end
+        local identity = table.concat({"c-bridge-v1", headerBase, logicalName, cDeclaration}, "\0")
+        local symbol = "__nupp_bridge_" .. hash.sha256(identity):sub(1, 24)
+        bridgePreamble()
+        local wrapperDeclaration = cDeclaration:gsub("%f[%w_]" .. logicalName .. "%f[%W]", symbol, 1)
+        bridgeLines[#bridgeLines + 1] = "NUPP_BRIDGE_EXPORT " .. wrapperDeclaration .. " {"
+        local call = callExpression or (logicalName .. "(" .. table.concat(callArgs, ", ") .. ")")
+        bridgeLines[#bridgeLines + 1] = (ret and "    return " or "    ") .. call .. ";"
+        bridgeLines[#bridgeLines + 1] = "}"
+        bridgeLines[#bridgeLines + 1] = ""
+
+        local sig = "cdef function " .. symbol .. "(" .. table.concat(params, ", ") .. ")"
+        if ret then
+            sig = sig .. ": " .. ret
+        end
+        if opts.lib then
+            sig = sig .. (" from %q"):format(opts.lib)
+        end
+        emit(sig)
+        emit("local " .. logicalName .. " = " .. symbol)
+        bridgeAliases[#bridgeAliases + 1] = logicalName
+        exports[#exports + 1] = logicalName
+        details.bridged = details.bridged + 1
+        details.dispositions[
+            #details.dispositions + 1
+        ] = {name = logicalName, kind = callExpression and "bridge-macro" or "bridge-inline", symbol = symbol,}
+    end
+
+    local candidates = staticInlineSignatures(raw)
+    if opts.bridge then
+        local prototypes = {}
+        for _, candidate in ipairs(candidates) do
+            prototypes[#prototypes + 1] = candidate.signature .. ";"
+        end
+        local inlineParsed = #prototypes > 0 and cdecl.inspect(prototypes, typedefText) or nil
+        local byName = {}
+        for _, fn in ipairs(inlineParsed and inlineParsed.functions or {}) do
+            byName[fn.name] = fn
+        end
+        for _, candidate in ipairs(candidates) do
+            local fn = byName[candidate.name]
+            if fn then
+                addBridge(fn, candidate.name, candidate.signature)
+            else
+                warnings[
+                    #warnings + 1
+                ] = "bridge skipped " .. candidate.name .. ": signature was not accepted by LuaJIT"
+                details.skipped = details.skipped + 1
+            end
+        end
+    else
+        for _, candidate in ipairs(candidates) do
+            emit(
+                "-- import-c: skipped function "
+                .. candidate.name
+                .. " (static inline needs --bridge-out or bindings.bridge)"
+            )
+            warnings[#warnings + 1] = "static inline " .. candidate.name .. " needs a configured C bridge"
+            details.skipped = details.skipped + 1
+            details.dispositions[
+                #details.dispositions + 1
+            ] = {name = candidate.name, kind = "skipped", reason = "bridge-required",}
+        end
+    end
+
+    local macroArities = functionMacroArities(raw)
+    local macroNames = {}
+    local configuredMacros = opts.macros or {}
+    for name in pairs(configuredMacros) do
+        macroNames[#macroNames + 1] = name
+    end
+    table.sort(macroNames)
+    for _, name in ipairs(macroNames) do
+        local recipe = configuredMacros[name]
+        local parameters = type(recipe) == "table" and recipe.parameters or nil
+        local result = type(recipe) == "table" and recipe.result or nil
+        local arity = macroArities[name]
+        local valid = identifier(name) and type(parameters) == "table" and arity and arity >= 0 and #parameters == arity
+        local cparams, nparams, args = {}, {}, {}
+        if valid then
+            for index, spec in ipairs(parameters) do
+                local ctype = recipeCType(spec)
+                if not ctype then
+                    valid = false
+                    break
+                end
+                local arg = "arg" .. tostring(index - 1)
+                cparams[#cparams + 1] = ctype .. " " .. arg
+                nparams[#nparams + 1] = {name = arg, type = assert(cdecl.typeFromString(ctype))}
+                args[#args + 1] = arg
+            end
+        end
+        local cresult = result and recipeCType(result) or "void"
+        if result and not cresult then
+            valid = false
+        end
+        if valid then
+            local fn = {
+                params = nparams,
+                returns = result and assert(cdecl.typeFromString(cresult)) or {kind = "void"},
+            }
+            local declaration = cresult .. " " .. name .. "(" .. (
+                #cparams > 0 and table.concat(cparams, ", ") or "void"
+            ) .. ")"
+            addBridge(fn, name, declaration, name .. "(" .. table.concat(args, ", ") .. ")")
+        else
+            warnings[#warnings + 1] = "bridge skipped macro " .. name .. ": invalid or mismatched signature"
+            details.skipped = details.skipped + 1
+            details.dispositions[
+                #details.dispositions + 1
+            ] = {name = name, kind = "skipped", reason = "invalid-macro-signature",}
+        end
+    end
+    if #bridgeAliases > 0 then
+        emit("")
+    end
+
+    -- constants
+    local constLines = {}
+    local taken = {}
+    local function constant(name, typeName, expr)
+        if not identifier(name) or taken[name] then
+            return
+        end
+        taken[name] = true
+        constLines[#constLines + 1] = ("local %s: %s = %s"):format(name, typeName, expr)
+        exports[#exports + 1] = name
+    end
+
+    -- An enum's members, which are what a header declares an enum for. The type itself
+    -- is already an integer everywhere it appears, and C's own enum tag checks nothing
+    -- a caller could rely on, so the members come across as the named constants they
+    -- are, and are usable anywhere `int32` is.
+    for _, declaration in ipairs(parsed.enums or {}) do
+        for _, member in ipairs(declaration.values) do
+            constant(member.name, "int32", tostring(member.value))
+        end
+    end
+
+    local values = macroValues(dm)
+    for _, name in ipairs(headerMacroNames(raw)) do
+        local value = values[name]
+        if value then
+            local expr, vtype = constantExpr(value)
+            if expr then
+                constant(name, vtype == "string" and "string" or "number", expr)
+            end
+        end
+    end
+    if #constLines > 0 then
+        emit("")
+        for _, line in ipairs(constLines) do
+            emit(line)
+        end
+    end
+
+    -- Module shape. A named output is a real declared module; the unnamed form is
+    -- retained for callers that use this function as a declaration fragment.
+    emit("")
+    local pairsOut = {}
+    for _, name in ipairs(exports) do
+        pairsOut[#pairsOut + 1] = name .. " = " .. name
+    end
+    emit((opts.module and "export = { " or "return { ") .. table.concat(pairsOut, ", ") .. " }")
+    emit("")
+
+    if #bridgeLines > 0 then
+        details.bridgeSource = table.concat(bridgeLines, "\n") .. "\n"
+    end
+
+    return table.concat(out, "\n"), warnings, details
+end
+
+export = importc

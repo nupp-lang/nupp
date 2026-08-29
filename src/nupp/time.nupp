@@ -1,0 +1,240 @@
+module nupp.time
+
+--[[
+`nupp.time` provides a monotonic clock, sleep and delayed wake functions.
+
+```nupp
+const started = time.now()
+work()
+print(time.now() - started)
+```
+
+::: note See also
+* [Suspension handlers](docs/concepts/suspension.md) can be used to cooperatively
+  park a coroutine while waiting for a deadline.
+* A [](nupp.runtime.seam.time) backend seam can be installed to use a custom clock source.
+:::
+]]
+
+local native = require("nupp.runtime.native")
+local suspension = require("nupp.suspension")
+
+native.ffi.cdef(
+    dedent[[
+    double nuppTimeMonotonicMs(void);
+    double nuppTimeWallMs(void);
+    void nuppTimeSleepMs(double);
+    ]]
+)
+
+const C = native.C
+local time = {}
+
+--- How many waits may be pending at once.
+---
+--- A bound rather than a growing queue: a program that leaks timers should say so
+--- while the leak is small, and one waiting on more than this many distinct
+--- deadlines wants a different data structure anyway.
+local MAX_PENDING_TIMERS = 4096
+
+--- Where the timer source sits in a readiness pass.
+---
+--- Ahead of I/O, because a deadline that has passed decides whether the I/O behind
+--- it is still wanted.
+local TIMER_PRIORITY: integer = 20
+
+local function duration(value: number, label: string): number
+    if value ~= value or value < 0 or value == math.huge then
+        error("nupp: " .. label .. " must be a finite non-negative number", 3)
+    end
+
+    return value
+end
+
+--- Returns monotonic milliseconds from an unspecified process origin.
+---
+--- Use this method for intervals and deadlines, but never for persistence.
+--- The origin is whatever the platform's monotonic clock counts from, and two
+--- runs don't share it.
+---
+--- ```nupp
+--- const started = time.now()
+--- work()
+--- print(time.now() - started)
+--- ```
+---
+--- @return milliseconds since this process's clock origin
+function time.now(): number
+    return assert(tonumber(C.nuppTimeMonotonicMs()))
+end
+
+--- Get number of milliseconds since the Unix epoch, 1970-01-01T00:00:00Z.
+---
+--- @return milliseconds since the Unix epoch
+function time.wallTime(): number
+    return assert(tonumber(C.nuppTimeWallMs()))
+end
+
+----------------------------------------------------------------------------
+-- The timer source
+----------------------------------------------------------------------------
+
+--- Pending waits, ordered by absolute monotonic deadline, soonest last.
+---
+--- Reversed so firing is a pop rather than a shift: what is due is always at the
+--- end, and removing it moves nothing.
+local pending: {any} = {}
+
+local timerSource: suspension.Source? = nil
+
+const function insert(entry: any): nil
+    if #pending >= MAX_PENDING_TIMERS then
+        error(("nupp: more than %d timers are pending"):format(MAX_PENDING_TIMERS), 3)
+    end
+    local index = #pending + 1
+    while index > 1 and pending[index - 1].deadline < entry.deadline do
+        pending[index] = pending[index - 1]
+        index = index - 1
+    end
+    pending[index] = entry
+end
+
+const function remove(entry: any): nil
+    for index = #pending, 1, -1 do
+        if pending[index] == entry then
+            table.remove(pending, index)
+
+            return
+        end
+    end
+end
+
+--- Milliseconds until the soonest deadline, or nil when nothing is pending.
+const function untilNext(now: number): number?
+    local soonest = pending[#pending]
+    if soonest == nil then
+        return nil
+    end
+    local remaining = soonest.deadline - now
+    if remaining < 0 then
+        return 0
+    end
+
+    return remaining
+end
+
+--- Fires everything due and answers how many that was.
+const function fireDue(): integer
+    local now = time.now()
+    local fired = 0
+    while true do
+        local soonest = pending[#pending]
+        if soonest == nil or soonest.deadline > now then
+            break
+        end
+        pending[#pending] = nil
+        fired = fired + 1
+        soonest.resume(true)
+    end
+
+    return fired as integer
+end
+
+--- Sleeps no longer than the earlier of `maxMs` and the next deadline, then fires.
+---
+--- Only the built-in driver calls this. Sleeping past the next deadline would make
+--- a program without a handler answer its own timers late, and sleeping past
+--- `maxMs` would hold up every other source in the pass.
+const function sleepUntilDue(maxMs: integer): integer
+    const remaining = untilNext(time.now())
+    local slice = maxMs as number
+    if remaining ~= nil and remaining < slice then
+        slice = remaining
+    end
+    if slice > 0 then
+        C.nuppTimeSleepMs(slice)
+    end
+
+    return fireDue()
+end
+
+--- The one source, registered on first use.
+---
+--- Lazy because a program that never waits should not be polled for timers, and
+--- shared because one ordered list answers every waiter: a source per sleep would
+--- insert into the global source list once per sleep and poll one entry when it ran.
+const function source(): suspension.Source
+    const existing = timerSource
+    if existing ~= nil and not (existing as any).released then
+        return existing
+    end
+    -- Registered once and kept, so it has to say when it is holding nothing.
+    -- Otherwise a process that has slept once has a pump registered forever, the
+    -- built-in driver never sees a wait that nothing can complete, and a wait
+    -- nothing can complete sleeps in one-millisecond slices for as long as anyone
+    -- is willing to wait for it. That is what it did: a test run would sometimes
+    -- take thirty-five minutes instead of two and a half, depending on whether
+    -- some earlier suite in the same process had slept.
+    const created = suspension.source("nupp.time", TIMER_PRIORITY, fireDue, sleepUntilDue, function(): boolean
+        return #pending > 0
+    end)
+    timerSource = created
+
+    return created
+end
+
+--- Waits for the given number of `milliseconds` before returning.
+---
+--- This method parks under an installed handler and sleeps under the built-in driver.
+---
+--- Providing zero returns without parking.
+---
+--- ```nupp
+--- time.sleep(25)
+--- ```
+---
+--- @param milliseconds how long to wait, finite and not negative
+--- @raises on an invalid duration or too many timers are already pending
+function time.sleep(milliseconds: number): nil
+    const requested = duration(milliseconds, "sleep duration")
+    if requested == 0 then
+        return
+    end
+
+    const deadline = time.now() + requested
+    suspension.suspend("nupp.time.sleep", function(resume: function(boolean), context: suspension.Context): function()
+        const shared = source()
+        context:uses(shared)
+        const entry = {deadline = deadline, resume = resume,}
+        insert(entry)
+
+        return function(): nil
+            remove(entry)
+        end
+    end)
+end
+
+--- Wakes `resume` at an absolute monotonic deadline.
+---
+--- @param deadline an absolute monotonic reading (same as `now` return value)
+--- @param resume what to call when the deadline passes
+--- @return how to cancel it, which is idempotent.
+--- @raises when too many timers are already pending
+function time.wakeAt(deadline: number, resume: function(boolean)): function(): nil
+    const entry = {deadline = deadline, resume = resume}
+    insert(entry)
+
+    return function(): nil
+        remove(entry)
+    end
+end
+
+--- Waits until an absolute monotonic deadline.
+---
+--- @param deadline an absolute monotonic reading
+--- @raises when too many timers are already pending
+function time.sleepUntil(deadline: number): nil
+    time.sleep(math.max(0, deadline - time.now()))
+end
+
+export = time

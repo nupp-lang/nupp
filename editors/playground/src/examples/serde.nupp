@@ -1,0 +1,34 @@
+-- Serde keeps a value's shape, its representation, and its wire format apart.
+-- A derived binding joins the record to a schema, a codec profile decides the
+-- JSON policy, and the format work is prepared once rather than rebuilt for
+-- every value.
+
+@derive(nupp.derive.Serde)
+local record User
+    id: uint32
+    name: string?
+    tags: {string}?
+end
+
+local users = nupp.data.serde.json():prepare(nupp.data.serde.of(User))
+
+-- The schema already says what each member is, so encoding walks the record
+-- rather than discovering its shape at run time.
+local text = users:encode(new User(id = 41, name = "Ada", tags = {"admin"}))
+print(text)
+
+-- Decoding answers a value and a problem instead of raising, and the value is
+-- typed: `restored.name` is `string?` here, not `any`.
+local restored, problem = users:decode(text)
+if restored then
+    print(restored.id, restored.name or "anonymous")
+end
+print(problem or "no problem")
+
+-- Data whose shape is not known until it arrives still has plain JSON, with no
+-- schema and no binding in the way.
+local loose = nupp.data.json.decode([[{"ok":true,"count":3}]])
+print(nupp.data.json.encode(loose))
+
+-- try breaking it: decode `[[{"id":"41"}]]`, or give `tags` a number, and read
+-- what the codec reports rather than what it silently accepts

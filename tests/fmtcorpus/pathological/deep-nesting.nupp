@@ -1,0 +1,6 @@
+local m = {}
+
+local value = outer(middle(inner(deepest(alpha, beta), gamma), delta), epsilon, zeta, eta, theta, iota, kappa, lambda, mu)
+local edge = outer(middle(inner(deepest(alpha, beta), gamma), delta), epsilon, zeta, eta, theta, iota, kappa, lambda)
+
+return m, value, edge

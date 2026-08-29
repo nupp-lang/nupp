@@ -1,0 +1,4 @@
+-- This file declares nothing.
+--
+-- It is only comments, and what it proves is that a file saying nothing still
+-- ends with exactly one newline and loses its leading blank lines.

@@ -1,0 +1,605 @@
+module nupp.compiler.build.cache
+
+--[[
+The build state, on disk.
+
+A build decides what to redo by content, not by clock: every input is digested
+and the digests are written beside the artifacts, so a checkout with fresh
+timestamps rebuilds nothing and a file edited back to what it was rebuilds
+nothing either.
+
+Reading and digesting a whole compiler tree costs about five milliseconds
+(`nupp.compiler.build.hash`), which is why there is no modification-time shortcut here
+and no need for one. A shortcut would only be able to make this cheaper by
+making it wrong.
+
+Content-addressing only works if the same inputs always serialize the same way,
+which is what the canonical encoding here is for: a table's keys are visited in
+sorted order, so two runs that disagree about `pairs` order still agree about
+the digest.
+]]
+
+local hash = require("nupp.compiler.build.hash")
+local json = nupp.data.json
+local fs = require("nupp.compiler.fs")
+
+local join = fs.join
+local dirname, basename = fs.dirname, fs.basename
+local readFile, writeFile = fs.readFile, fs.writeFile
+local listFiles = fs.listFiles
+
+local cache = {}
+
+-- What this codec does with an empty table and with a NaN, said here rather than
+-- inherited. Codec defaults can differ between builds -- a host that compiled one with
+-- invalid numbers disabled starts strict where a distribution build does not -- and a
+-- state file that reads back differently depending on which interpreter opened it is a
+-- state file that cannot be trusted to decide what to rebuild. Lists are marked with
+-- `jsonArray`, so an unmarked empty table is an object; a state file carrying `NaN` is
+-- damaged rather than unusual, and `loadState` answers a damaged one with an empty
+-- state and a full rebuild.
+
+--- What one module's last build left behind.
+---
+--- Every field is optional because the state is read back from a file: this version
+--- writes all of them, and a file that turns out to be missing one is a cache miss
+--- rather than a crash.
+type cache.ModuleRecord = {
+    sourceHash: string?,
+    interfaceHash: string?,
+    artifactHash: string?,
+    backendHash: string?,
+    backend: any?,
+    dependencies: {string}?,
+
+    --- Keyed project declaration lookups made while checking this module. Their
+    --- semantic fingerprints permit reuse across unrelated project-index edits.
+    projectDependencies: {{
+        name: string?,
+        key: string?,
+        fingerprint: string?
+    }}?,
+
+    --- The compiler-recognized runtime features this module needs staging for.
+    effects: {[string]: any}?,
+
+    --- Where the module's coverage sites were recorded, on a coverage build.
+    coverage: {
+        path: string?,
+        sites: {any}
+    }?,
+    output: string?,
+
+    --- A declaration carried by an installed rock. It participates in interface
+    --- invalidation, but it is not project source and produces no Lua artifact.
+    external: boolean?,
+
+    --- What checking the module had to say, kept so that reusing the record says it
+    --- again rather than reporting a clean file.
+    diags: {any}?,
+
+    --- Canonical provider blueprints and rendered backend outputs, with public build
+    --- observations alongside them. Plain data only; never evaluator handles.
+    materializations: {any}?,
+
+    --- Closed derive recipe observations. Reporting only; never a build key.
+    derives: {any}?
+}
+
+--- What one dependency's last build produced, as its provider described it.
+---
+--- The providers hand back different things -- a native build has an output and a
+--- binding, a rock has a tree and the search path it adds -- so this is the union of
+--- what any of them says, and `key` is the part they all agree on.
+type cache.DependencyRecord = {
+    key: string?,
+    output: string?,
+    binding: string?,
+
+    --- How the generated binding names the library, which is not always where
+    --- the library sits. A leading `@` means a path relative to the module that
+    --- loads it, so a target that carries that module somewhere carries the
+    --- library to the same place under it. Anything else is a name for the
+    --- platform loader to resolve, and nothing has to travel with it.
+    reference: string?,
+    rock: string?,
+    version: string?,
+    tree: string?,
+    luaVersion: string?,
+    path: string?,
+    cpath: string?,
+
+    --- Where this installed rock carries its Nupp module declarations.
+    typeRoot: string?,
+
+    --- A checked-only declaration tree supplied by a `kind = "types"` dependency.
+    typesRoot: string?
+}
+
+--- Everything one build wrote down about what it did.
+---
+--- `compilerHash` and `configHash` are absent from a state that has just been emptied
+--- and filled in by the run that is about to compare them.
+---
+--- There used to be a `projectIndexHash` beside them, a digest of every declaration of
+--- every project header. It gated reuse for the whole project, so an edit to any
+--- exported type rechecked every module. Each module now records the project queries it
+--- actually read (`incremental.projectDependencies`), which invalidates the readers of
+--- a
+--- changed declaration and nobody else, and the whole-project digest became a hash
+--- computed on every command and compared by nothing.
+type cache.State = {
+    version: integer,
+    modules: {[string]: cache.ModuleRecord},
+    dependencies: {[string]: cache.DependencyRecord},
+    outputs: {[string]: boolean},
+
+    --- Target name -> the outputs that target produced, so each can remove its own
+    --- leftovers without removing another's.
+    targets: {[string]: {string}},
+
+    compilerHash: string?,
+
+    --- The digest of the part of the compiler that compiles a module, which is what
+    --- decides whether the last build's artifacts can be reused. `compilerHash` beside
+    --- it stays the whole compiler: it says which compiler wrote this state, and it is
+    --- what the completion stamp carries.
+    moduleCompilerHash: string?,
+    configHash: string?,
+
+    --- `(source, tier)` identity -> the key its AOT artifact was built under.
+    ---
+    --- Nothing depends on this being present or correct. A key that is missing,
+    --- unreadable or different is a regeneration, not an error, and the artifact
+    --- it describes is checked to still exist before it is believed.
+    aot: {[string]: string}?,
+
+    --- The key the linked ahead-of-time library was built under, when a target
+    --- asked for one. Validated the same way and just as disposable.
+    aotLibrary: string?
+}
+
+local function jsonArray<T>(takes items: {T}): {T} preserves items
+    return json.asArray(items)
+end
+
+local function stable(value: unknown, seen: {[unknown]: boolean}?): string
+    -- Guard clauses over a closed set: what each one does not take is taken by the
+    -- next, and the table this walks into is what is left. Naming the rest in an else
+    -- would be naming it twice.
+    local kind = type(value)
+    @allow("exhaustiveness")
+    if kind == "nil" then
+        return "nil"
+    end
+    if kind == "boolean" or kind == "number" then
+        return tostring(value)
+    end
+    @allow("exhaustiveness")
+    if kind == "string" then
+        return ("%q"):format(value)
+    end
+    @allow("exhaustiveness")
+    if kind ~= "table" then
+        return "<" .. kind .. ">"
+    end
+    -- `type` has settled what this is; the cast is how that answer reaches the checker,
+    -- which follows `is` rather than a comparison against a copied `type()` result.
+    local entries = value as {[unknown]: unknown}
+    seen = seen or {}
+    if seen[value] then
+        return "<cycle>"
+    end
+    seen[value] = true
+    local keys = {}
+    for key in pairs(entries) do
+        keys[#keys + 1] = key
+    end
+    table.sort(keys, function(a, b)
+        return tostring(a) < tostring(b)
+    end)
+    local parts = {}
+    for _, key in ipairs(keys) do
+        parts[#parts + 1] = stable(key, seen) .. "=" .. stable(entries[key], seen)
+    end
+    seen[value] = nil
+
+    return "{" .. table.concat(parts, ",") .. "}"
+end
+
+local function hashFile(path: string): string?
+    local text = readFile(path)
+    return text and hash.digest(text) or nil
+end
+
+local function hashFiles(files: {string}): string
+    local parts = {}
+    for _, path in ipairs(files) do
+        parts[#parts + 1] = path .. "\0" .. (hashFile(path) or "missing")
+    end
+
+    return hash.digest(table.concat(parts, "\0"))
+end
+
+local function moduleDir(): string
+    local source = debug.getinfo(1, "S").source
+    return source:match("^@(.*)[/\\]") or "."
+end
+
+-- The running compiler cannot change while it is running, so the answer is computed
+-- once. Listing the tree shells out to `find`, and a build that asks twice was paying
+-- for a second process to be told the same thing.
+local toolFingerprintMemo = nil
+
+local function toolFingerprint(): string
+    if toolFingerprintMemo then
+        return toolFingerprintMemo
+    end
+    local dir = moduleDir()
+    -- The installed build modules live one directory below the rest of the compiler.
+    -- Digest the complete compiler tree, not just nupp.compiler.build.*.
+    if basename(dir) == "build" then
+        dir = dirname(dir)
+    end
+    local files = {}
+    if dir:match("bootstrap$") then
+        files = {join(dir, "nupp.lua")}
+    else
+        for _, path in ipairs(listFiles(dir)) do
+            if path:match("%.lua$") then
+                files[#files + 1] = path
+            end
+        end
+    end
+    -- Named relative to the compiler's own directory, so the answer describes the
+    -- compiler rather than where it was found. `moduleDir` reports whatever
+    -- `package.path` was written as, and the launcher writes an absolute path where a
+    -- test harness writes a relative one -- so hashing the paths as given made one
+    -- compiler fingerprint two ways depending on how it was started, and anything keyed
+    -- on it threw away the other's work every time the two alternated.
+    local parts = {}
+    for _, path in ipairs(files) do
+        local relative = path
+        if path:sub(1, #dir + 1) == dir .. "/" then
+            relative = path:sub(#dir + 2)
+        end
+        parts[#parts + 1] = relative .. "\0" .. (hashFile(path) or "missing")
+    end
+    table.sort(parts)
+    toolFingerprintMemo = hash.digest(table.concat(parts, "\0"))
+
+    return toolFingerprintMemo
+end
+
+--- What the compiler's own modules are, and which of them each one requires.
+---
+--- Read off the built tree by the compiler's own lexer, so a `require` written inside a
+--- string -- `explain` and `gen` both compose source text containing one -- is a string
+--- and not an edge. A `require` whose argument is not a literal cannot be followed, so
+--- its module is marked incomplete. Only a subsystem that reaches that module falls
+--- back to the whole compiler: an unrelated runtime plugin must not erase every narrow
+--- compiler stamp.
+type cache.ModuleGraph = {
+    --- Module name -> the file it lives in, relative to the tree root.
+    files: {[string]: string},
+
+    --- Module name -> the modules it requires.
+    edges: {[string]: {string}},
+
+    --- Module name -> the digest of its file.
+    digests: {[string]: string},
+
+    --- Modules containing a computed require the static graph cannot follow.
+    unknown: {[string]: boolean}
+}
+
+--- Bumped when an entry stops decoding into what the reader expects.
+local GRAPH_STAMP = "modules/2"
+
+local graphMemo: cache.ModuleGraph? = nil
+local graphAttempted = false
+
+--- The module name a file under `root` provides: the path, without its extension, with
+--- the separators spelled as dots. `init` is how a directory names itself.
+local function moduleNameOf(root: string, path: string): string?
+    if path:sub(1, #root + 1) ~= root .. "/" then
+        return nil
+    end
+    local relative = path:sub(#root + 2):gsub("%.lua$", "")
+    local name = relative:gsub("/", ".")
+    name = name:gsub("%.init$", "")
+
+    return name ~= "" and name or nil
+end
+
+--- The modules `text` requires, what it may require dynamically, and whether it
+--- requires something this cannot name at all.
+---
+--- The shapes are `require "m"`, `require("m")`, and `pcall(require, "m")`, which is
+--- how an optional library is reached. A `require` that is a field of something -- the
+--- checker looks up `env.globals.require` -- is a different name that happens to be
+--- spelled the same, and is not one of these.
+---
+--- A `require` whose argument is not a literal is one this cannot follow, and a module
+--- holding one could depend on anything, so the stamp covering it has to cover the
+--- whole compiler. A module that knows better says so:
+---
+---     --@requires-dynamically nupp.runtime.provider.*
+---     --@requires-dynamically nothing
+---
+--- The first names what it may load -- a trailing `.*` is every module under that
+--- prefix -- and the second says the name it resolves is not code it is defined by.
+--- Both are claims the module makes and this cannot check, which is why they are
+--- written where the `require` is rather than inferred from it.
+local function requiredBy(text: string, path: string): {string}, boolean, {string}
+    local lexer = require("nupp.compiler.lexer")
+    local tokens = lexer.lex(text, path)
+    local names: {string} = {}
+    local declared: {string} = {}
+    local reflective = false
+    for pattern in text:gmatch("@requires%-dynamically%s+([%w%.%*%-_]+)") do
+        if pattern == "nothing" then
+            reflective = true
+        else
+            declared[#declared + 1] = pattern
+        end
+    end
+    for index = 1, #tokens do
+        local token = tokens[index]
+        local previous = tokens[index - 1]
+        local following = tokens[index + 1]
+        if token.kind == "name" and token.text == "require" and not (
+            previous and (previous.text == "." or previous.text == ":")
+        ) and not (previous and previous.text == "function") and not (following and following.text == "=") then
+            local literal = nil
+            if following and following.kind == "string" then
+                literal = following
+            elseif following and following.text == "(" and tokens[index + 2] and tokens[index + 2].kind == "string" then
+                literal = tokens[index + 2]
+            elseif following and following.text == "," and previous and previous.text == "(" and tokens[
+                index + 2
+            ] and tokens[index + 2].kind == "string" then
+                literal = tokens[index + 2]
+            end
+            if not literal then
+                return names, not (reflective or #declared > 0), declared
+            end
+            -- On its own line: `chunk and pcall(chunk)` is one value, the way any
+            -- call inside a larger expression is, so the string would arrive as nil.
+            local chunk = loadstring("return " .. literal.text)
+            if not chunk then
+                return names, not (reflective or #declared > 0), declared
+            end
+            local ok, value = pcall(chunk)
+            if not ok or type(value) ~= "string" then
+                return names, not (reflective or #declared > 0), declared
+            end
+            names[#names + 1] = value as string
+        end
+    end
+
+    return names, false, declared
+end
+
+--- Reads the graph of the running compiler, or nil when it cannot be had.
+---
+--- `cacheDir` is where the answer is kept between commands. Computing it lexes the
+--- whole built tree, which is a tenth of a second and far too much to spend on every
+--- command; the store makes it once per compiler. Passing no directory computes it in
+--- this process, which is what a caller with nowhere to write does.
+local function moduleGraph(cacheDir: string?): cache.ModuleGraph?
+    if graphAttempted then
+        return graphMemo
+    end
+    graphAttempted = true
+    local dir = moduleDir()
+    if basename(dir) == "build" then
+        dir = dirname(dir)
+    end
+    -- The bootstrap is one bundled file with every module inside it, so there is no
+    -- graph to read and nothing narrower than the whole of it to stamp with.
+    if dir:match("bootstrap$") then
+        return nil
+    end
+    -- `<root>/nupp/compiler` is where this file is, so the tree the module names are
+    -- relative to is two directories above it.
+    local root = dirname(dirname(dir))
+    local store = nil
+    if cacheDir then
+        store = require(
+            "nupp.compiler.build.store"
+        ).openValue(join(cacheDir, "modulegraph.buf"), GRAPH_STAMP .. "\0" .. toolFingerprint())
+        local stored = store.value
+        if type(stored) == "table" then
+            graphMemo = stored as cache.ModuleGraph
+
+            return graphMemo
+        end
+    end
+    local graph: cache.ModuleGraph = {files = {}, edges = {}, digests = {}, unknown = {}}
+    local sources: {[string]: string} = {}
+    -- Under `nupp/` rather than the whole tree the compiler was found in. Every module
+    -- here is a `nupp.*` one, and listing the root meant whatever else happened to sit
+    -- beside the compiler -- a project's own build output, in a development checkout --
+    -- was read and digested for a graph it is not part of.
+    for _, path in ipairs(listFiles(join(root, "nupp"))) do
+        if path:match("%.lua$") then
+            local name = moduleNameOf(root, path)
+            local text = name and readFile(path) or nil
+            if name and text then
+                graph.files[name] = path
+                graph.digests[name] = hash.digest(text)
+                sources[name] = text
+            end
+        end
+    end
+    for name, text in pairs(sources) do
+        local required, unknown, declared = requiredBy(text, graph.files[name] or name)
+        graph.unknown[name] = unknown
+        local edges: {string} = {}
+        local added: {[string]: boolean} = {}
+        for _, required_name in ipairs(required) do
+            if graph.files[required_name] and not added[required_name] then
+                added[required_name] = true
+                edges[#edges + 1] = required_name
+            end
+        end
+        -- What a module said it may load, resolved against the tree the same way a
+        -- literal is. A pattern naming nothing that exists is not an error: a seam
+        -- whose providers are not built here has none to depend on.
+        for _, pattern in ipairs(declared) do
+            local prefix = pattern:match("^(.+)%.%*$")
+            if prefix then
+                for candidate in pairs(graph.files) do
+                    if candidate:sub(1, #prefix + 1) == prefix .. "." and not added[candidate] then
+                        added[candidate] = true
+                        edges[#edges + 1] = candidate
+                    end
+                end
+            elseif graph.files[pattern] and not added[pattern] then
+                added[pattern] = true
+                edges[#edges + 1] = pattern
+            end
+        end
+        table.sort(edges)
+        graph.edges[name] = edges
+    end
+    graphMemo = graph
+    if store then
+        store.set(graph)
+        store.save()
+    end
+
+    return graphMemo
+end
+
+--- Where the stores that answer about content rather than about a project belong.
+---
+--- Every entry in them is keyed by what it was computed from and stamped with the code
+--- that computed it, so two projects sharing one directory can only hit each other's
+--- entries when the answer is the same answer. `NUPP_CACHE_DIR` is how a run that makes
+--- many small projects -- the test suite makes one per case -- says to keep them
+--- together, rather than having each pay for what the last one worked out.
+---
+--- The build state is not one of these and is not moved: its records are keyed by
+--- module name, so two projects sharing them would read each other's modules.
+function cache.sharedCacheDir(fallback: string?): string?
+    local named = os.getenv("NUPP_CACHE_DIR")
+    if named and named ~= "" then
+        return named
+    end
+
+    return fallback
+end
+
+local subsystemMemo: {[string]: string} = {}
+
+--- The digest of one part of the compiler: the named modules, and everything they
+--- require, and nothing else.
+---
+--- What a stamp is for is saying that an answer kept from last time was computed by
+--- code that has not changed. `toolFingerprint` answers that for the whole compiler,
+--- which is true and far too strong: a header is the parser's answer, so editing the
+--- code generator threw away every header in the project and made the next command
+--- reparse all of it. This says which code an answer actually came from.
+---
+--- Falls back to the whole compiler whenever the graph cannot be read, whenever a named
+--- module is not in it, and for the bootstrap, which is one file. Every fallback costs
+--- work that turns out to have been unnecessary and none of them changes an answer.
+function cache.subsystemFingerprint(roots: {string}, cacheDir: string?): string
+    local ordered = {}
+    for index, name in ipairs(roots) do
+        ordered[index] = name
+    end
+    table.sort(ordered)
+    local memoKey = table.concat(ordered, "\0")
+    local remembered = subsystemMemo[memoKey]
+    if remembered then
+        return remembered
+    end
+    local graph = moduleGraph(cacheDir)
+    local answer = nil
+    if graph then
+        local reached: {[string]: boolean} = {}
+        local pending = {}
+        for _, name in ipairs(ordered) do
+            pending[#pending + 1] = name
+        end
+        local complete = true
+        while #pending > 0 do
+            local name = table.remove(pending)
+            if not reached[name] then
+                if not graph.digests[name] then
+                    complete = false
+                    break
+                end
+                if graph.unknown[name] then
+                    complete = false
+                    break
+                end
+                reached[name] = true
+                for _, required in ipairs(graph.edges[name] or {}) do
+                    pending[#pending + 1] = required
+                end
+            end
+        end
+        if complete then
+            local parts = {}
+            for name in pairs(reached) do
+                parts[#parts + 1] = name .. "\0" .. (graph.digests[name] or "missing")
+            end
+            table.sort(parts)
+            answer = hash.digest(table.concat(parts, "\0"))
+        end
+    end
+    answer = answer or toolFingerprint()
+    subsystemMemo[memoKey] = answer
+
+    return answer as string
+end
+
+-- Bumped whenever a recorded digest stops meaning what it meant, which discards the
+-- last version's state instead of comparing hex that was computed by a different
+-- function. Version 2 is where the cache keys moved off SHA-256.
+local STATE_VERSION: integer = 3
+
+local function emptyState(): cache.State
+    return {version = STATE_VERSION, modules = {}, dependencies = {}, outputs = {}, targets = {}} as cache.State
+end
+
+local function loadState(path: string): cache.State
+    local text = readFile(path)
+    if not text then
+        return emptyState()
+    end
+    local ok, state = pcall(json.decode, text, json.NULL)
+    if not ok or type(state) ~= "table" or state.version ~= STATE_VERSION then
+        return emptyState()
+    end
+    state.modules = state.modules or {}
+    state.dependencies = state.dependencies or {}
+    state.outputs = state.outputs or {}
+    -- Target name -> what that target last produced. Two targets can share one output
+    -- directory, as a bundle and the binary stamped from it naturally do, and each has
+    -- to be able to remove its own leftovers without removing the other's.
+    state.targets = state.targets or {}
+
+    return state
+end
+
+local function saveState(path: string, state: cache.State): boolean?, string?
+    return writeFile(path, json.encode(state) .. "\n")
+end
+
+cache.jsonArray = jsonArray
+cache.stable = stable
+cache.hashFile = hashFile
+cache.hashFiles = hashFiles
+cache.moduleDir = moduleDir
+cache.toolFingerprint = toolFingerprint
+cache.loadState = loadState
+cache.saveState = saveState
+cache.emptyState = emptyState
+cache.STATE_VERSION = STATE_VERSION
+
+export = cache

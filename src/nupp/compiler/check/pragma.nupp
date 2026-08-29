@@ -1,0 +1,362 @@
+module nupp.compiler.check.pragma
+
+--[[
+An annotation attached to a statement.
+
+`@name(...)` before a declaration is a pragma: the statement it decorates is
+checked as it would have been anyway, and the annotation is checked against the
+definition that declares it. Some are the checker's own, where `@allow` silences a
+lint for the statement beneath it and `@annotation` declares a new name, and the
+rest are validated and recorded for whatever reads them later.
+
+Nesting is allowed, so a statement may carry several, and the walk recurs
+through the chain to reach the declaration underneath.
+]]
+
+local cst = require("nupp.compiler.cst")
+local lints = require("nupp.compiler.lints")
+local state = require("nupp.compiler.check.state")
+
+local pragma = {}
+
+--- A node of the tree being checked.
+local type Node = cst.Node
+
+--- Installs the pragma statement on one run.
+---
+--- @param c the run's state
+--- @return the statement kinds this family answers
+function pragma.install(c: state.Checker): state.StatHandlers
+    local marks = c.marks
+    local defineAnnotation = marks.defineAnnotation
+    local validateAnnotation = marks.validateAnnotation
+    local stringValue, nameText = marks.stringValue, marks.nameText
+
+    local handlers = {}
+    local RELAXATIONS = {
+        ["function-identity"] = true,
+        ["load-order"] = true,
+        ["error-site"] = true,
+        frames = true,
+        ["gc-timing"] = true,
+        ["table-order"] = true,
+        -- Unlike the others, this one changes answers rather than only what is
+        -- observable about how they were reached. It permits a backend to fuse
+        -- `a * b + c` into one rounding, which is faster and gives a different
+        -- result, so it is opt-in per function and never inferred.
+        ["fp-contract"] = true,
+    }
+
+    local function effectContract(application)
+        local listMembers = {
+            reads = true,
+            writes = true,
+            shapes = true,
+            metatables = true,
+            escapes = true,
+            calls = true,
+            returns = true,
+        }
+        local boolMembers = {allocates = true, yields = true, raises = true, external = true,}
+        local contract = {
+            reads = {},
+            writes = {},
+            shapes = {},
+            metatables = {},
+            escapes = {},
+            calls = {},
+            returns = {},
+            allocates = false,
+            yields = false,
+            raises = false,
+            external = false,
+        }
+        local seen = {}
+        for _, arg in ipairs(application.annotationArgs or {}) do
+            local name = arg.name and arg.name.text or nil
+            if not name or seen[name] or not (listMembers[name] or boolMembers[name]) then
+                c.diag("NUPP2112", arg, "@effects arguments must be unique named effect members")
+            elseif listMembers[name] then
+                seen[name] = true
+                local expr = arg.expr
+                if not expr or expr.kind ~= "tableExpr" then
+                    c.diag("NUPP2112", arg, ("@effects.%s must be an array of strings"):format(name))
+                else
+                    for _, field in ipairs(expr.fields or {}) do
+                        local value = field.kind == "fieldItem" and stringValue(field.value) or nil
+                        if not value then
+                            c.diag("NUPP2112", field, ("@effects.%s entries must be strings"):format(name))
+                        else
+                            contract[name][#contract[name] + 1] = value
+                        end
+                    end
+                end
+            else
+                seen[name] = true
+                local expr = arg.expr
+                if not expr or (expr.kind ~= "trueExpr" and expr.kind ~= "falseExpr") then
+                    c.diag("NUPP2112", arg, ("@effects.%s must be true or false"):format(name))
+                else
+                    contract[name] = expr.kind == "trueExpr"
+                end
+            end
+        end
+
+        return contract
+    end
+
+    handlers.pragmaStmt = function(stat: cst.PragmaStmt)
+        local annotationName = stat.name
+        if not annotationName then
+            return
+        end
+        local written = annotationName.text
+        local target = stat.stat
+        while target and target.kind == "pragmaStmt" do
+            target = target.stat
+        end
+        -- What the annotation decorates, and the body it carries when the decorated
+        -- statement is a function: the contracts below attach to one or the other, and
+        -- a stray annotation decorates nothing.
+        local targetKind = target and target.kind or ""
+        local targetBody: Node? = nil
+        if target then
+            if target.kind == "funcStmt"
+                or target.kind == "localFuncStmt"
+                or target.kind == "inlineMethod"
+                or target.kind == "constructorDecl"
+            then
+                targetBody = target.body
+            end
+        end
+        if written == "annotation" and target and targetKind == "recordDecl" then
+            target.isAnnotationDefinition = true
+        end
+        local annotation, valid = validateAnnotation(stat, target)
+        local targetAny = target as any
+
+        -- Statement annotations wrap declarations, so put the tooling metadata on the
+        -- token that will become the declaration's durable definition before the
+        -- underlying statement is checked.
+        if written == "deprecated" and valid and target and targetAny.deprecation then
+            local function deprecate(tok)
+                if tok then
+                    tok.deprecation = targetAny.deprecation
+                    local annotationToken = cst.firstToken(stat)
+                    tok.deprecationToken = annotationToken or nil
+                end
+            end
+
+            if target.kind == "localStmt" then
+                for _, name in ipairs(target.names or {}) do
+                    deprecate(name)
+                end
+            elseif target.kind == "funcStmt" and target.name then
+                local _, member = c.funcOwner(target.name)
+                deprecate(member or targetAny.name.base)
+            else
+                deprecate(targetAny.name)
+            end
+        end
+
+        if written == "syntax" and valid and target and target.kind == "localStmt" then
+            local values = (stat as any).annotationValues
+            local value = values and values.value
+            local format = value and stringValue(value.expr) or nil
+            if format then
+                -- This is source metadata only: any local value may carry it. The
+                -- editor recognizes long-string initializers for the bundled formats.
+                targetAny.embeddedStringFormat = format
+            end
+        end
+
+        if not annotation then
+            if stat.stat then
+                c.checkStat(stat.stat)
+            end
+            return
+        end
+        if written == "annotation" then
+            if stat.stat then
+                c.checkStat(stat.stat)
+            end
+            if valid and target and targetKind == "recordDecl" then
+                defineAnnotation(stat, target)
+            end
+            return
+
+        elseif written == "jit" then
+            if valid and targetBody then
+                if targetBody.aotRequired then
+                    c.diag("NUPP2901", annotationName, "@jit and @aot name different compilers for one body")
+                end
+                targetBody.jitRequired = true
+            end
+            if stat.stat then
+                c.checkStat(stat.stat)
+            end
+            return
+
+        elseif written == "aot" then
+            -- `@aot` is a whole-function compilation contract, so it needs a visible
+            -- body it alone owns. A constructor and an inline interface requirement
+            -- both carry bodies the compiler generates around, and neither is a
+            -- function value the AOT wrapper can stand in front of.
+            if valid and (targetKind == "constructorDecl" or targetKind == "inlineMethod") then
+                c.diag(
+                    "NUPP2902",
+                    annotationName,
+                    (
+                        "@aot cannot compile %s"
+                    ):format(targetKind == "constructorDecl" and "a constructor" or "an inline interface requirement")
+                )
+            elseif valid and targetBody and c.functionDepth > 0 then
+                -- Discovery walks the chunk's own statements, so an annotation
+                -- inside another function's body was never found and the contract
+                -- was silently not applied. A nested function is also a fresh
+                -- value per call of its enclosing function, which is not something
+                -- one wrapper can stand in front of.
+                c.diag("NUPP2902", annotationName, "@aot cannot compile a function nested in another function")
+            elseif valid and targetBody then
+                if targetBody.jitRequired then
+                    c.diag("NUPP2901", annotationName, "@aot and @jit name different compilers for one body")
+                end
+                targetBody.aotRequired = true
+                -- Absent, the compiler decides whether lane lowering is worth
+                -- it. `lanes = false` declines it for a body that measured worse
+                -- lane-parallel; `lanes = true` takes it whatever the estimate
+                -- says. Neither says anything about whether the body compiles.
+                local values = (stat as any).annotationValues
+                local lanes = values and values.lanes
+                if lanes and lanes.expr and lanes.expr.kind == "falseExpr" then
+                    targetBody.lanesDeclined = true
+                elseif lanes and lanes.expr and lanes.expr.kind == "trueExpr" then
+                    targetBody.lanesRequired = true
+                end
+            end
+            if stat.stat then
+                c.checkStat(stat.stat)
+            end
+            -- After the body is checked, so the subset walk reports against a tree the
+            -- ordinary rules have already accepted. An `@aot` body that is not valid
+            -- Nupp is not an AOT problem.
+            if valid and targetBody and targetBody.aotRequired then
+                c.aot.body(targetBody)
+            end
+            return
+
+        elseif written == "derive" then
+            if valid and target and target.kind == "recordDecl" then
+                target.deriveApplications = target.deriveApplications or {}
+                local seen = false
+                for _, prior in ipairs(target.deriveApplications) do
+                    if prior == stat then
+                        seen = true
+                        break
+                    end
+                end
+                if not seen then
+                    target.deriveApplications[#target.deriveApplications + 1] = stat
+                end
+            end
+            if stat.stat then
+                c.checkStat(stat.stat)
+            end
+            return
+
+        elseif written == "effects" then
+            if valid and target then
+                local contract = effectContract(stat)
+                target.effectContract = contract
+                if targetBody then
+                    targetBody.effectContract = contract
+                end
+            end
+            if stat.stat then
+                c.checkStat(stat.stat)
+            end
+            if valid and target and target.kind == "localStmt" and target.effectContract then
+                for _, name in ipairs(target.names or {}) do
+                    if name.definition then
+                        name.definition.effectContract = target.effectContract
+                    end
+                end
+            end
+            return
+
+        elseif written == "relax" then
+            local relaxed = {}
+            for _, arg in ipairs(stat.annotationArgs or {}) do
+                local expr = arg.expr
+                local value = nameText(expr) or stringValue(expr)
+                if not value or not RELAXATIONS[value] then
+                    c.diag(
+                        "NUPP2112",
+                        arg,
+                        "@relax names function-identity, load-order, error-site, "
+                        .. "frames, gc-timing, table-order, or fp-contract"
+                    )
+                else
+                    relaxed[value] = true
+                end
+            end
+            if valid and target then
+                target.relaxedGuarantees = relaxed
+                if targetBody then
+                    targetBody.relaxedGuarantees = relaxed
+                end
+            end
+            if stat.stat then
+                c.checkStat(stat.stat)
+            end
+            return
+
+        end
+
+        if written ~= "allow" then
+            if stat.stat then
+                c.checkStat(stat.stat)
+            end
+            return
+        end
+
+        -- @allow (CODE, ...) silences those diagnostics for the statement it
+        --     decorates, and nothing outside it. With no arguments it silences
+        --     everything there, which is blunt on purpose: it should look like what
+        --     it is.
+        local set = {}
+        if not stat.annotationArgs or #stat.annotationArgs == 0 then
+            set["*"] = true
+        else
+            for _, arg in ipairs(stat.annotationArgs) do
+                local expr = arg.kind == "annotationArg" and arg.expr or nil
+                local named = arg.kind == "annotationArg" and arg.name or nil
+                local spelled = nil
+                if expr and expr.kind == "name" then
+                    local tok = expr.token
+                    spelled = tok and tok.text or nil
+                end
+                local name = spelled or stringValue(expr)
+                if named or not name then
+                    c.diag("NUPP2112", arg, "@allow arguments must be lint names or codes")
+                elseif not lints.get(name) then
+                    -- A type error is not a judgement to disagree with, so there is
+                    -- nothing here to allow.
+                    c.diag("NUPP2108", arg, ("%s is not a lint, so it cannot be allowed"):format(name))
+                end
+                if name then
+                    set[name] = true
+                end
+            end
+        end
+        c.allowed[#c.allowed + 1] = set
+        if stat.stat then
+            c.checkStat(stat.stat)
+        end
+        c.allowed[#c.allowed] = nil
+    end
+
+    return handlers
+end
+
+export = pragma

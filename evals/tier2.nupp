@@ -1,0 +1,179 @@
+local files = require("nupp.io.files")
+local harness = require("harness")
+local tier2 = require("tier2eval")
+local json = nupp.data.json
+
+local arguments = {...} as {string}
+
+local USAGE = [[usage: ./bin/nupp run evals/tier2.nupp [COMMIT] [OPTIONS]
+
+Replay one historical compiler change as an agent task.
+
+Options:
+  --repo DIRECTORY  repository containing the commit (default: .)
+  --candidates N    list candidates among the latest N commits and exit
+  --model MODEL     Claude model name
+  --out DIRECTORY   result directory (default: evals/results)
+  --keep            retain the exported workspace
+  -h, --help        show this help]]
+
+local function valueAfter(index: integer, option: string): string
+    local value = arguments[index + 1]
+    if value == nil then
+        error(option .. " requires a value", 0)
+    end
+
+    return value
+end
+
+local function positiveInteger(value: string, option: string): integer
+    local number = tonumber(value)
+    if number == nil or number ~= math.floor(number) or number < 1 then
+        error(option .. " must be a positive integer", 0)
+    end
+
+    return number as integer
+end
+
+local function main(): integer
+    local commit: string? = nil
+    local repo = "."
+    local candidates: integer? = nil
+    local model: string? = nil
+    local out = "evals/results"
+    local keep = false
+    local index: integer = 1
+    while index <= #arguments do
+        local argument = arguments[index]
+        if argument == "-h" or argument == "--help" then
+            print(USAGE)
+
+            return 0
+        elseif argument == "--repo" then
+            repo = valueAfter(index, argument)
+            index = index + 1
+        elseif argument == "--candidates" then
+            candidates = positiveInteger(valueAfter(index, argument), argument)
+            index = index + 1
+        elseif argument == "--model" then
+            model = valueAfter(index, argument)
+            index = index + 1
+        elseif argument == "--out" then
+            out = valueAfter(index, argument)
+            index = index + 1
+        elseif argument == "--keep" then
+            keep = true
+        elseif argument:sub(1, 1) == "-" then
+            error("unknown option " .. argument, 0)
+        elseif commit == nil then
+            commit = argument
+        else
+            error("unexpected argument " .. argument, 0)
+        end
+        index = index + 1
+    end
+    repo = harness.absolute(repo)
+    out = harness.absolute(out)
+    if candidates ~= nil then
+        for _, candidate in ipairs(tier2.candidates(repo, candidates)) do
+            print(
+                (
+                    "%s  src=%d suites=%d  %s"
+                ):format(candidate.sha, candidate.source, candidate.suites, candidate.subject)
+            )
+        end
+
+        return 0
+    end
+    if commit == nil then
+        error("a COMMIT is required unless --candidates is given\n" .. USAGE, 0)
+    end
+    if not harness.commandAvailable("claude") then
+        error("the `claude` CLI is not on PATH", 0)
+    end
+    commit = tier2.git(repo, {"rev-parse", "--short", commit}):match("^%s*(.-)%s*$")
+    if commit == nil or commit == "" then
+        error("cannot resolve the commit", 0)
+    end
+    local made, reason = files.createDirectory(out)
+    if not made then
+        error("cannot create " .. out .. ": " .. tostring(reason), 0)
+    end
+    local at = harness.temporaryDirectory("nupp-eval-t2-" .. commit .. "-")
+    local ok, status = pcall(function(): integer
+        local prepared = tier2.prepare(repo, commit, at)
+        local names = tier2.suiteNames(prepared.suites)
+        local spec = tier2.digests(at, prepared.suites)
+        print(
+            (
+                "replaying %s: %d file(s) left at the parent, carrying %s"
+            ):format(commit, #prepared.reverted, table.concat(names, ", "))
+        )
+        local passed, before = tier2.runSuites(at, names)
+        if passed then
+            error(table.concat(names, ", ") .. " already passes with " .. commit .. " reverted; not a task", 0)
+        end
+        local transcript = harness.join(out, commit .. "-transcript.jsonl")
+        local agent = harness.runAgent(at, tier2.prompt(names), transcript, model, harness.join(at, "bin"), nil, nil)
+        local edited = tier2.touchedTests(at, spec)
+        local afterPassed, after = tier2.runSuites(at, names)
+        local subject = tier2.git(repo, {"log", "-1", "--format=%s", commit}):match("^%s*(.-)%s*$") or ""
+        local record = {
+            task = {
+                tier = 2,
+                commit = commit,
+                subject = subject,
+                suites = json.asArray(names),
+                revertedFiles = json.asArray(prepared.reverted),
+            },
+            agent = harness.agentRecord(agent.result, agent.events, model),
+            grade = {
+                suitesPass = afterPassed,
+                editedTests = json.asArray(edited),
+                passed = afterPassed and #edited == 0,
+                reportAfter = after,
+                reportBefore = before,
+            },
+            diff = tier2.repairDiff(repo, commit, at, prepared.reverted),
+            transcript = transcript,
+        }
+        local recordPath = harness.join(out, commit .. "-run.json")
+        harness.writeJson(recordPath, record)
+        local verdict = record.grade.passed and "PASS" or "FAIL"
+        print(verdict .. "  " .. commit .. "  " .. subject)
+        print(
+            (
+                "  turns=%s tools=%s nupp=%s cost=%s"
+            ):format(
+                tostring(record.agent.turns),
+                tostring(record.agent.toolCallTotal),
+                tostring(record.agent.nuppInvocations),
+                harness.spent(record.agent)
+            )
+        )
+        if #edited > 0 then
+            print("  edited the specification: " .. table.concat(edited, ", "))
+        end
+        print("  record=" .. recordPath)
+        if keep then
+            print("  workspace=" .. at)
+        end
+
+        return record.grade.passed and 0 or 1
+    end)
+    if not keep then
+        harness.remove(at)
+    end
+    if not ok then
+        error(status, 0)
+    end
+
+    return status
+end
+
+local ok, status = pcall(main)
+if not ok then
+    io.stderr:write("tier2: " .. tostring(status) .. "\n")
+    os.exit(2)
+end
+os.exit(status as integer)

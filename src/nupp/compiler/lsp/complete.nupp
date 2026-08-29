@@ -1,0 +1,735 @@
+module nupp.compiler.lsp.complete
+
+--[[
+What may be written at a position, and which parameter a call is on.
+
+Completion reads the tokens around the cursor rather than the tree, because a
+half-written member access does not parse into one.
+]]
+
+local T = require("nupp.compiler.types")
+local tree = require("nupp.compiler.lsp.tree")
+local wire = require("nupp.compiler.lsp.wire")
+local semantic = require("nupp.compiler.lsp.semantic")
+
+local complete = {}
+
+local COMPTIME_GLOBALS = {
+    assert = true,
+    error = true,
+    ipairs = true,
+    pairs = true,
+    select = true,
+    tonumber = true,
+    tostring = true,
+    type = true,
+    math = true,
+    string = true,
+    table = true,
+    bit = true,
+    nupp = true,
+}
+
+--- What the cursor is completing: the dotted receiver in front of it, whether it was
+--- reached by `.` or `:`, whether it stands in a type annotation, and how much of the
+--- name has been typed.
+type complete.Context = {
+    prefix: string,
+    typePosition: boolean,
+
+    --- Set when the receiver was reached by `:`, which sends rather than reads.
+    method: boolean?,
+
+    --- The receiver's dotted path, outermost first.
+    path: {string}?
+}
+
+--- One thing a receiver offers after its dot, and which completion kind paints it.
+type complete.Member = {
+    type: T.Type,
+    kind: string,
+    definition: any
+}
+
+--- What signature help reads of a call: the signature the checker resolved for it, and
+--- the parts a label is built from. The three call forms carry different things, so
+--- this is the view they share rather than any one of them.
+type complete.CallSite = {
+    kind: string,
+    signatureType: any,
+    obj: any,
+    name: any,
+    args: any,
+
+    --- What the checker recorded about resolving an overload set, when it did.
+    overloadCandidates: {any}?,
+    overloadWinner: any?
+}
+
+--- What completion reads of a session: the query graph, which is where a required
+--- module's declarations and members come from.
+type complete.Session = {inc: any}
+
+--- The two navigation questions completion asks. Navigation requires this module, so
+--- the pair it lends back is named here rather than taken from there.
+type complete.Navigation = {
+    documentationFor: function(def: any): string?,
+    resolveReceiver: function(checked: any, path: {string}): (T.Type?, string?)
+}
+
+--- What installing completion gives the session back.
+type complete.Api = {
+    --- Everything a required module offers after its dot, handed to `add`.
+    moduleCompletions: function(
+        moduleName: string,
+        add: function(label: string?, kind: string?, t: T.Type?, def: any, priority: integer?): nil
+    ): nil,
+
+    --- The protocol's completion items for a position in a document.
+    completionItems: function(doc: any, offset: integer): {any}
+}
+
+--- What the cursor is completing: the dotted receiver in front of it, whether it was
+--- reached by `.` or `:`, whether it stands in a type annotation, and how much of the
+--- name has been typed. Nil when the cursor stands after nothing.
+function complete.completionContext(result: tree.Parse?, offset: integer): complete.Context?
+    local tokens = result and result.tokens or {}
+    local index: integer? = nil
+    for cursor, tok in ipairs(tokens) do
+        if tok.kind == "eof" or tok.offset >= offset then
+            break
+        end
+        index = cursor
+    end
+    if not index then
+        return nil
+    end
+    local context = {prefix = "", typePosition = false}
+    local tok = tokens[index]
+    if tok.kind == "name" and offset <= tok.offset + #tok.text then
+        context.prefix = tok.text:sub(1, offset - tok.offset)
+        index = index - 1
+        tok = tokens[index]
+    end
+    if not tok then
+        return context
+    end
+    -- An annotation colon introduces a type, not a member: `p: ` is asking what `p`
+    -- could be declared as, while `p:` in an expression is asking what `p` can be sent.
+    -- They are the same character and only the parse tells them apart, which is why
+    -- this reads the parse's tokens rather than a fresh lex.
+    if tok.kind == ":" and tok.typeColon then
+        context.typePosition = true
+        return context
+    end
+    if tok.kind ~= "." and tok.kind ~= ":" then
+        return context
+    end
+    context.method = tok.kind == ":"
+    context.path = {}
+    index = index - 1
+    while tokens[index] and tokens[index].kind == "name" do
+        table.insert(context.path, 1, tokens[index].text)
+        index = index - 1
+        if tokens[index] and tokens[index].kind == "." then
+            index = index - 1
+        else
+            break
+        end
+    end
+    if #context.path == 0 then
+        context.path = nil
+        context.method = nil
+    end
+
+    return context
+end
+
+--- The named members of a type, as {name -> {type, kind}}. Only what can be written
+--- after a dot: a metamethod contract is a protocol the value fulfils, not a field
+--- anybody spells.
+function complete.membersOf(t: T.Type?, fromModule: string?): {[string]: complete.Member}
+    local members = {}
+    if type(t) ~= "table" then
+        return members
+    end
+    if (t as T.Nominal).tag == "projection" then
+        -- The same route the checker takes: a projection that answers concretely
+        -- carries that type's members, and one that stays opaque carries its bound's
+        -- -- read as the projection, so a member returning `self` shows `T.Item` and
+        -- not the contract a reader never wrote.
+        local generics = require("nupp.compiler.generics")
+        local associated = require("nupp.compiler.associated")
+        local subject = t as T.Type
+        local reduced = generics.normalize(subject).type
+        if reduced ~= subject then
+            return complete.membersOf(reduced, fromModule)
+        end
+        local projection = t as T.Projection
+        local found = associated.lookup(projection.of, projection.name)
+        local effective = found.bound
+        if not effective then
+            return members
+        end
+        for name, entry in pairs(complete.membersOf(effective, fromModule)) do
+            members[name] = {type = generics.specializeSelf(effective, entry.type, subject), kind = entry.kind}
+        end
+
+        return members
+    end
+    if (t as T.Nominal).tag == "intersection" then
+        for _, part in ipairs((t as T.Intersection).members) do
+            for name, entry in pairs(complete.membersOf(part, fromModule)) do
+                local prior = members[name]
+                if prior then
+                    local combined = T.intersection({prior.type, entry.type})
+                    local callable = combined.tag == "func"
+                    if combined.tag == "intersection" then
+                        callable = true
+                        for _, candidate in ipairs(combined.members) do
+                            if candidate.tag ~= "func" then
+                                callable = false;
+                                break
+                            end
+                        end
+                    end
+                    members[
+                        name
+                    ] = {
+                        type = combined,
+                        kind = callable and "function" or "property",
+                        definition = prior.definition or entry.definition,
+                    }
+                else
+                    members[name] = entry
+                end
+            end
+        end
+        return members
+    end
+    if (t as T.Nominal).tag == "metatable" or (t as T.Nominal).tag == "typeobject" then
+        local owner = (t as T.Metatable).of
+        if owner.tag == "nominal" then
+            local nominal = owner as T.Nominal
+            for name, member in pairs(nominal.staticByname or {}) do
+                members[
+                    name
+                ] = {
+                    type = member,
+                    kind = type(member) == "table" and member.tag == "func" and "function" or "property",
+                    definition = nominal.staticFieldDefs and nominal.staticFieldDefs[name] or nil,
+                }
+            end
+            for name, member in pairs(nominal.byname or {}) do
+                if not members[
+                    name
+                ] and not (
+                    nominal.privateFields and nominal.privateFields[name] and nominal.moduleName ~= fromModule
+                ) then
+                    members[
+                        name
+                    ] = {
+                        type = member,
+                        kind = type(member) == "table" and member.tag == "func" and "function" or "property",
+                        definition = nominal.fieldDefs and nominal.fieldDefs[name] or nil,
+                    }
+                end
+            end
+            for name, nested in pairs(nominal.nestedTypes or {}) do
+                members[name] = {type = nested, kind = "type"}
+            end
+        end
+        return members
+    end
+    -- A shape and a declaration both carry their members by name; the type test above
+    -- is what tells either from a primitive.
+    for name, member in pairs((t as T.Nominal).byname or {}) do
+        local nominal = t as T.Nominal
+        if not (nominal.privateFields and nominal.privateFields[name] and nominal.moduleName ~= fromModule) then
+            members[
+                name
+            ] = {
+                type = member,
+                kind = type(member) == "table" and member.tag == "func" and "function" or "property",
+                definition = nominal.fieldDefs and nominal.fieldDefs[name] or nil,
+            }
+        end
+    end
+    for name, nested in pairs((t as T.Nominal).nestedTypes or {}) do
+        members[name] = {type = nested, kind = "type"}
+    end
+
+    return members
+end
+
+--- The associated names reachable through `t`, in type position.
+---
+--- Set algebra, because a head may be more than one contract at once. An intersection
+--- is every contract's names together, since a value of it satisfies all of them. A
+--- union is only what every alternative states, since the value is one of them and a
+--- name the others do not state means nothing for it. A diamond is one name, because
+--- requirements deduplicate by identity, and two independent contracts that chose one
+--- name are one candidate carrying both -- there is one name to type.
+---
+--- Type position only. An associated type is erased, so it is never a runtime member,
+--- and `complete.membersOf` deliberately does not offer one.
+function complete.associatedNamesOf(t: T.Type?): {[string]: {any}}
+    local names: {[string]: {any}} = {}
+    if type(t) ~= "table" then
+        return names
+    end
+    local associated = require("nupp.compiler.associated")
+    local tag = (t as T.Nominal).tag
+    if tag == "union" then
+        local first: {[string]: {any}}? = nil
+        for _, member in ipairs((t as T.Union).members) do
+            local arm = complete.associatedNamesOf(member)
+            if not first then
+                first = arm
+            else
+                for name in pairs(first) do
+                    if not arm[name] then
+                        first[name] = nil
+                    end
+                end
+            end
+        end
+
+        return first or names
+    elseif tag == "intersection" then
+        for _, member in ipairs((t as T.Intersection).members) do
+            for name, sites in pairs(complete.associatedNamesOf(member)) do
+                local into = names[name] or {}
+                local seen: {[any]: boolean} = {}
+                for _, site in ipairs(into) do
+                    seen[site] = true
+                end
+                for _, site in ipairs(sites) do
+                    if not seen[site] then
+                        seen[site] = true
+                        into[#into + 1] = site
+                    end
+                end
+                names[name] = into
+            end
+        end
+
+        return names
+    elseif tag == "typevar" then
+        local bound = (t as T.TypeVar).bound
+        if bound then
+            return complete.associatedNamesOf(bound)
+        end
+
+        return names
+    end
+    local head = t as T.Type
+    for _, name in ipairs(associated.requirementNames(head)) do
+        local found = associated.lookup(head, name)
+        local sites = {}
+        for _, reached in ipairs(found.requirements) do
+            sites[#sites + 1] = reached.requirement
+        end
+        names[name] = sites
+    end
+
+    return names
+end
+
+function complete.signatureAt(result: tree.Parse, offset: integer): complete.CallSite?
+    local best, bestSize
+    tree.walkNodes(result.root, function(node)
+        local call = node as complete.CallSite
+        if (
+            node.kind == "call" or node.kind == "safeCall" or node.kind == "methodCall"
+        ) and ((call.signatureType and call.signatureType.tag == "func") or call.overloadCandidates) and call.args then
+            local first, last = tree.nodeBounds(call.args)
+            if first and offset >= first and offset <= last then
+                -- Bounds are found together, so the first one testing non-nil settles
+                -- the second.
+                local size = (last as integer) - first
+                if not bestSize or size < bestSize then
+                    best, bestSize = call, size
+                end
+            end
+        end
+    end)
+
+    return best as complete.CallSite?
+end
+
+complete.completionKinds = {
+    method = 2,
+    ["function"] = 3,
+    variable = 6,
+    parameter = 6,
+    property = 10,
+    module = 9,
+    keyword = 14,
+    type = 25,
+    struct = 22,
+    interface = 8,
+    typeParameter = 25,
+}
+
+complete.completionWords = {
+    "and",
+    "as",
+    "break",
+    "cdef",
+    "const",
+    "constructor",
+    "continue",
+    "do",
+    "else",
+    "elseif",
+    "end",
+    "false",
+    "for",
+    "function",
+    "global",
+    "goto",
+    "if",
+    "in",
+    "interface",
+    "is",
+    "local",
+    "satisfies",
+    "new",
+    "nil",
+    "not",
+    "or",
+    "affine",
+    "borrowed",
+    "borrows",
+    "exclusive",
+    "out",
+    "takes",
+    "pinned",
+    "releases",
+    "retains",
+    "unsafe",
+    "with",
+    "where",
+    "metamethod",
+    "record",
+    "repeat",
+    "return",
+    "struct",
+    "then",
+    "true",
+    "type",
+    "until",
+    "while",
+}
+
+-- Kinds that can stand where a type is expected. A value's name there completes to
+-- something the checker will refuse, so it is not offered.
+local TYPE_KINDS = {type = true, struct = true, interface = true, typeParameter = true,}
+
+--- The module path being written in a short quoted `require` argument. Nil everywhere
+--- else. Completion is asked before the string or call necessarily parses, so this is
+--- deliberately a lexical question over the current line.
+function complete.requirePrefix(source: string, offset: integer): string?
+    local before = source:sub(1, math.max(0, offset - 1))
+    local line = before:match("([^\n]*)$") or ""
+    local at, _, prefix = line:match("()%f[%a]require%s*%(%s*([\"'])([^\"']*)$")
+    if not at then
+        return nil
+    end
+
+    return prefix
+end
+
+--- Installs the completion questions that need a session.
+---
+--- @param s the session's state
+function complete.install(s: complete.Session, nav: complete.Navigation): complete.Api
+    local documentationFor, resolveReceiver = nav.documentationFor, nav.resolveReceiver
+    local completionContext, membersOf = complete.completionContext, complete.membersOf
+    local completionKinds, completionWords = complete.completionKinds, complete.completionWords
+    local functionSignature = tree.functionSignature
+    local moduleMemberDeclarations = tree.moduleMemberDeclarations
+    local TYPE_WORDS = semantic.TYPE_WORDS
+
+    --- Everything a required module offers after its dot: the types it declares, which
+    --- the index knows, and its plain `function m.f` members, which nothing indexes and
+    --- which are read off the module's own parse.
+    local function moduleCompletions(moduleName, add)
+        local index = s.inc.projectIndex()
+        for _, entries in pairs(index.byName or {}) do
+            for _, entry in ipairs(entries) do
+                if entry.moduleName == moduleName and entry.visibility == "module" then
+                    add(entry.name, entry.kind == "record" and "type" or entry.kind, entry.type, entry.definition, 1)
+                end
+            end
+        end
+        local path = s.inc.modulePath(moduleName)
+        local checked = path and s.inc.checkFile(path)
+        local result = checked and checked.result
+        if not result then
+            return
+        end
+        for _, member in ipairs(moduleMemberDeclarations(result, moduleName)) do
+            local definition = member.token.definition or {
+                filename = path,
+                token = member.token,
+                name = member.name,
+                kind = "function",
+                signature = functionSignature(member.stat),
+            }
+            add(member.name, "function", nil, definition, 1)
+        end
+    end
+
+    local function completionItems(doc, offset)
+        local items = wire.array({})
+        local seen = {}
+        local context = (completionContext(doc.result, offset) or {}) as complete.Context
+        local comptimeNode, comptimeFrom, comptimeTo = tree.comptimeAt(doc.result, offset)
+        local inComptime = comptimeNode ~= nil
+            and comptimeFrom ~= nil
+            and comptimeTo ~= nil
+            and offset >= comptimeFrom
+            and offset <= comptimeTo
+        local comptimeBindings = {}
+        local scopeFrom = comptimeFrom or 1
+        local scopeTo = comptimeTo or 0
+        local function inComptimeScope(def): boolean
+            local at = def.token and def.token.offset
+            return def.comptimeFunction == true or at ~= nil and at >= scopeFrom and at <= scopeTo
+        end
+
+        if inComptime then
+            for _, def in ipairs(doc.result.symbols or {}) do
+                if inComptimeScope(def) then
+                    comptimeBindings[def.name] = true
+                    if def.qualifiedName then
+                        comptimeBindings[def.qualifiedName] = true
+                    end
+                end
+            end
+        end
+        local function callableSnippet(label, kind, t): string
+            local ft = t
+            if type(ft) == "table" then
+                ft = T.unwrapOwnership(ft)
+            end
+            if type(ft) == "table" and ft.tag == "intersection" then
+                for _, candidate in ipairs(ft.members) do
+                    if candidate.tag == "func" then
+                        ft = candidate
+                        break
+                    end
+                end
+            end
+            local arguments = {}
+            if type(ft) == "table" and ft.tag == "func" then
+                for index in ipairs(ft.params or {}) do
+                    local name = ft.paramNames and ft.paramNames[index] or ""
+                    if not (kind == "method" and index == 1 and name == "self") then
+                        if name == "" then
+                            name = "arg" .. tostring(index)
+                        end
+                        arguments[#arguments + 1] = "${" .. tostring(#arguments + 1) .. ":" .. name .. "}"
+                    end
+                end
+                if ft.vararg then
+                    arguments[#arguments + 1] = "${" .. tostring(#arguments + 1) .. ":...}"
+                end
+            end
+
+            return label .. "(" .. table.concat(arguments, ", ") .. ")$0"
+        end
+
+        local function add(label, kind, t, def, priority)
+            if not label or seen[label] then
+                return
+            end
+            -- A name whose kind nothing settled is not a type: in a position only a
+            -- type can stand, "unknown" has to mean no.
+            if context.typePosition and not TYPE_KINDS[kind or "variable"] then
+                return
+            end
+            seen[label] = true
+            local item = {
+                label = label,
+                kind = completionKinds[kind] or completionKinds.variable,
+                sortText = tostring(priority or 5) .. label,
+            }
+            if t then
+                item.detail = T.tostring(t)
+            end
+            if def and def.deprecated then
+                item.tags = wire.array({1})
+            end
+            local docs = documentationFor(def)
+            if def and def.generatedBy then
+                local provenance = (
+                    "Generated by `@derive(%s)` for `%s`."
+                ):format(def.generatedBy, def.generatedOwner or "<anonymous>")
+                if def.generatedInterface then
+                    provenance = provenance .. " Implements `" .. def.generatedInterface .. "`."
+                end
+                if def.generatedHelper then
+                    provenance = provenance .. " Forwards to `" .. def.generatedHelper .. "`."
+                end
+                docs = docs and docs .. "\n\n" .. provenance or provenance
+            end
+            if docs then
+                item.documentation = docs
+            end
+            if kind == "function" or kind == "method" then
+                item.insertText = callableSnippet(label, kind, t)
+                item.insertTextFormat = 2
+            end
+            items[#items + 1] = item
+        end
+
+        local requirePrefix = complete.requirePrefix(doc.text, offset)
+        if requirePrefix then
+            for name in pairs(s.inc.projectIndex().modules or {}) do
+                if name:sub(1, #requirePrefix) == requirePrefix then
+                    add(name, "module", nil, nil, 1)
+                end
+            end
+            table.sort(items, function(a, b)
+                return a.label < b.label
+            end)
+            return items
+        end
+
+        -- After a dot the answer is exactly what that receiver holds. Offering the
+        -- ambient names as well would be offering names that do not resolve there,
+        -- which is what makes the broad list useless once it matters.
+        if context.path then
+            if inComptime and not COMPTIME_GLOBALS[context.path[1]] and not comptimeBindings[context.path[1]] then
+                return items
+            end
+            local t, moduleName = resolveReceiver(doc.checked, context.path)
+            if not t and not moduleName then
+                local prefix = table.concat(context.path, ".")
+                local index = s.inc.projectIndex()
+                local namespace = false
+                if index.declaredModules and index.declaredModules[prefix] then
+                    moduleCompletions(prefix, add)
+                    namespace = true
+                end
+                local childPrefix = prefix .. "."
+                for declared in pairs(index.declaredModules or {}) do
+                    if declared:sub(1, #childPrefix) == childPrefix then
+                        local rest = declared:sub(#childPrefix + 1)
+                        local child = rest:match("^[^.]+")
+                        if child then
+                            add(child, "module", nil, nil, 1)
+                            namespace = true
+                        end
+                    end
+                end
+                if namespace then
+                    table.sort(items, function(a, b)
+                        return a.label < b.label
+                    end)
+                    return items
+                end
+            end
+            if inComptime and not t and not moduleName then
+                local global = s.inc.env.globals and s.inc.env.globals[context.path[1]]
+                t = global and global.t or nil
+                for index = 2, #context.path do
+                    local member = membersOf(t, doc.result.moduleName)[context.path[index]]
+                    t = member and member.type or nil
+                    if not t then
+                        break
+                    end
+                end
+            end
+            if moduleName then
+                moduleCompletions(moduleName, add)
+            else
+                for name, member in pairs(membersOf(t, doc.result.moduleName)) do
+                    -- `:` sends a message, so only what is callable answers it.
+                    if not context.method or member.kind == "function" then
+                        add(name, context.method and "method" or member.kind, member.type, member.definition, 1)
+                    end
+                end
+            end
+            table.sort(items, function(a, b)
+                return a.label < b.label
+            end)
+            return items
+        end
+
+        local definitions = {}
+        for _, def in ipairs(doc.result.symbols or {}) do
+            local inScope = not def.scopeFrom or not def.scopeTo or offset >= def.scopeFrom and offset <= def.scopeTo
+            if def.lexical and inScope and (
+                not inComptime or inComptimeScope(def)
+            ) and (not def.token or def.token.offset <= offset) then
+                definitions[#definitions + 1] = def
+            end
+        end
+        table.sort(definitions, function(a, b)
+            if (a.scopeDepth or 0) ~= (b.scopeDepth or 0) then
+                return (a.scopeDepth or 0) > (b.scopeDepth or 0)
+            end
+
+            return (a.token and a.token.offset or 0) > (b.token and b.token.offset or 0)
+        end)
+        for _, def in ipairs(definitions) do
+            -- a member is written as the path it was declared under
+            add(def.qualifiedName or def.name, def.kind, def.type, def, 1)
+        end
+        for name, entry in pairs(s.inc.env.globals or {}) do
+            if not inComptime or COMPTIME_GLOBALS[name] then
+                add(name, entry.definition and entry.definition.kind or "variable", entry.t, entry.definition, 2)
+            end
+        end
+        for name, t in pairs(s.inc.env.globalTypes or {}) do
+            add(name, "type", t, s.inc.env.globalTypeDefs and s.inc.env.globalTypeDefs[name], 2)
+        end
+        if not inComptime and s.inc.env.ensureProjectIndex then
+            -- Only a global can be written as it stands. A module member is reached
+            -- through the table it was declared on, so offering its bare name would
+            -- complete to something that does not resolve.
+            local index = s.inc.env.ensureProjectIndex(s.inc.env)
+            for name, entries in pairs(index.byName or {}) do
+                local entry = entries[1]
+                if #entries == 1 and entry.visibility == "global" then
+                    add(
+                        name,
+                        entry.kind == "struct" and "struct" or entry.kind == "interface" and "interface" or "type",
+                        entry.type,
+                        entry.definition,
+                        2
+                    )
+                end
+            end
+        end
+        local roots = {}
+        for moduleName in pairs(s.inc.projectIndex().declaredModules or {}) do
+            roots[moduleName:match("^[^.]+") or moduleName] = true
+        end
+        for root in pairs(roots) do
+            add(root, "module", nil, nil, 2)
+        end
+        for name, t in pairs(T.builtins) do
+            add(name, "type", t, nil, 3)
+        end
+        for _, word in ipairs(completionWords) do
+            -- In a type position only the words that open a type belong; the rest would
+            -- complete to something that cannot be written there.
+            local kind = TYPE_WORDS[word] and "type" or "keyword"
+            add(word, kind, nil, nil, word == "cdef" and 3 or 4)
+        end
+        table.sort(items, function(a, b)
+            return a.sortText < b.sortText or (a.sortText == b.sortText and a.label < b.label)
+        end)
+
+        return items
+    end
+
+    return {moduleCompletions = moduleCompletions, completionItems = completionItems}
+end
+
+export = complete

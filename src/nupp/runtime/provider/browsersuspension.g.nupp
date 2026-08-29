@@ -1,0 +1,534 @@
+module nupp.runtime.provider.browsersuspension
+
+-- Stock Lua 5.1 cannot yield through pcall. This provider implements the same
+-- suspension contract with a direct browser-effect park, leaving the native
+-- provider's protected C-boundary behavior unchanged.
+
+local effects = require("nupp.runtime.browser.effects")
+local suspension = {}
+local running = coroutine.running
+local sources: {any} = {}
+local sourceSequence: integer = 0
+local sourcesVersion: integer = 0
+
+-- Coroutine and worker tasks share one nominal runtime cancellation identity, which
+-- a complete replacement of `nupp.suspension` has to keep publishing: `nupp.tasks`
+-- builds every cancellation through it, and a browser worker lane raises the same
+-- value at `tasks.checkpoint()`.
+local TaskCancellationMT: any = {}
+TaskCancellationMT.__index = TaskCancellationMT
+
+function TaskCancellationMT.__tostring(self: any): string
+    if self.reason ~= nil then
+        return ("nupp: %s was cancelled: %s"):format(self.operation, self.reason)
+    end
+
+    return ("nupp: %s was cancelled"):format(self.operation)
+end
+
+local function taskCancellation(operation: string, reason: string?): any
+    return setmetatable({operation = operation, reason = reason,}, TaskCancellationMT)
+end
+
+local function isTaskCancellation(value: any): boolean
+    return getmetatable(value) == TaskCancellationMT
+end
+
+rawset(suspension, "__taskCancellation", taskCancellation)
+rawset(suspension, "__isTaskCancellation", isTaskCancellation)
+
+-- How many child activations an aggregate may run before it owes the host a turn.
+-- The same budget the native provider spends and for the same reason: a scope that
+-- never yields starves whatever else the host is driving. What a turn *is* differs.
+-- Natively it is a poll of the readiness sources; here it is a return to JavaScript,
+-- which is the only wait this host has, so deferring parks on that boundary directly
+-- rather than through whichever handler asked to defer.
+local ACTIVATIONS_PER_TURN: integer = 64
+local turnRemaining: integer = ACTIVATIONS_PER_TURN
+
+local function turnAvailable(): boolean
+    return turnRemaining > 0
+end
+
+local function consumeTurn(): nil
+    if turnRemaining > 0 then
+        turnRemaining = turnRemaining - 1
+    end
+end
+
+local function deferTurn(): nil
+    turnRemaining = ACTIVATIONS_PER_TURN
+    effects.park("nupp coroutine turn budget")
+    suspension.poll()
+end
+
+rawset(suspension, "__turnAvailable", turnAvailable)
+rawset(suspension, "__consumeTurn", consumeTurn)
+rawset(suspension, "__deferTurn", deferTurn)
+
+record suspension.Source
+    name: string
+    priority: integer
+    private sequence: integer
+    poller: function(): integer
+    waiter: (function(integer): integer)?
+    released: boolean
+
+    function release(self): nil
+        if self.released then
+            return
+        end
+        self.released = true
+        for index = 1, #sources do
+            if sources[index] == self then
+                table.remove(sources, index)
+                sourcesVersion = sourcesVersion + 1
+                break
+            end
+        end
+    end
+end
+
+record suspension.Context
+    handler: any
+    associated: {suspension.Source}
+
+    function source(
+        self,
+        name: string,
+        priority: integer,
+        poller: function(): integer,
+        waiter: (function(integer): integer)?
+    ): suspension.Source
+        local source = suspension.source(name, priority, poller, waiter)
+        self.associated[#self.associated + 1] = source
+        return source
+    end
+
+    function uses(self, source: suspension.Source): nil
+        self.associated[#self.associated + 1] = source
+    end
+
+    function canPark(self): boolean
+        return self.handler == nil or self.handler.canPark == nil or self.handler:canPark() ~= false
+    end
+end
+
+record suspension.Waiting
+    operation: string
+    state: any
+
+    function ready(self): boolean
+        return self.state.ready
+    end
+
+    function onResume(self, wake: function(): nil): nil
+        self.state.wake = wake
+    end
+end
+
+record suspension.Handler
+    park: function(suspension.Handler, suspension.Waiting, function(): nil): nil
+    canPark: function(suspension.Handler): boolean
+    shutdown: function(suspension.Handler): nil
+end
+
+record suspension.Installed
+    --- The terminal an installed extent carries, so a handler stops being in force
+    --- where its block ends rather than where somebody remembers to say so.
+    ---
+    --- There are no park tickets to unwind here as there are natively: this provider
+    --- parks either through the installed handler, which owns its own continuations,
+    --- or on the Wasm host boundary, which is a call that returns rather than a
+    --- continuation somebody else holds. Restoring the slot and shutting the handler
+    --- down is the whole of a release.
+    drop: nosuspend function(takes self: suspension.Installed): nil
+
+    coroutine: any
+    previous: any
+    handler: suspension.Handler
+    released: boolean
+
+    function release(self): nil
+        if self.released then
+            return
+        end
+        self.released = true
+        if self.coroutine == nil then
+            suspension._main = self.previous
+        else
+            suspension._installed[self.coroutine] = self.previous
+        end
+        self.handler:shutdown()
+    end
+end
+
+suspension._installed = setmetatable({}, {__mode = "k"})
+suspension._main = nil
+
+local function sourceBefore(left: suspension.Source, right: suspension.Source): boolean
+    if left.priority ~= right.priority then
+        return left.priority < right.priority
+    end
+    if left.name ~= right.name then
+        return left.name < right.name
+    end
+
+    return left.sequence < right.sequence
+end
+
+local function firstSourceAfter(source: suspension.Source): integer
+    local first: integer = 1
+    local last: integer = (#sources + 1) as integer
+    while first < last do
+        local middle = math.floor((first + last) / 2) as integer
+        if middle <= #sources and not sourceBefore(source, sources[middle]) then
+            first = middle + 1
+        else
+            last = middle
+        end
+    end
+
+    return first
+end
+
+local function installation(): any
+    local coroutine = running()
+    return coroutine == nil and suspension._main or suspension._installed[coroutine]
+end
+
+local function handler(): any
+    local current = installation()
+    return current and current.handler or nil
+end
+
+function suspension.source(
+    name: string,
+    priority: integer,
+    poller: function(): integer,
+    waiter: (function(integer): integer)?
+): suspension.Source
+    sourceSequence = sourceSequence + 1
+    local source = new suspension.Source(
+        name = name,
+        priority = priority,
+        sequence = sourceSequence,
+        poller = poller,
+        waiter = waiter,
+        released = false
+    )
+    table.insert(sources, firstSourceAfter(source), source)
+    sourcesVersion = sourcesVersion + 1
+
+    return source
+end
+
+function suspension.poll(): integer
+    local settled: integer = 0
+    local boundary = sourceSequence
+    local version = sourcesVersion
+    local index: integer = 1
+    while index <= #sources do
+        local source = sources[index] as suspension.Source
+        if source.sequence > boundary then
+            index = (index + 1) as integer
+        else
+            settled = settled + (source.poller() or 0)
+            if sourcesVersion == version then
+                index = (index + 1) as integer
+            else
+                index = firstSourceAfter(source)
+                version = sourcesVersion
+            end
+        end
+    end
+
+    return settled
+end
+
+function suspension.handled(): boolean
+    return handler() ~= nil
+end
+
+--- Whether the handler this one is about to displace would permit a park.
+---
+--- Captured where it is asked rather than where it is answered, so an installation
+--- that wants to defer to the one it replaced keeps asking the outer handler after
+--- it has taken the slot. `nupp.tasks` builds every scope handler through this.
+function suspension.delegatedCanPark(): function(): boolean
+    local captured = installation()
+
+    return function(): boolean
+        local outer = captured ~= nil and captured.handler or nil
+        if outer == nil or outer.canPark == nil then
+            return true
+        end
+
+        return outer.canPark(outer) ~= false
+    end
+end
+
+function suspension.canSuspend(): boolean
+    local current = handler()
+    return current == nil or current.canPark == nil or current:canPark() ~= false
+end
+
+function suspension.suspend<T>(
+    operation: string,
+    subscribe: function(function(T): nil, suspension.Context): (function()?)
+): T
+    local current = handler()
+    local state: any = {ready = false, value = nil, wake = nil,}
+    local function resume(value: T): nil
+        if state.ready then
+            error("nupp: " .. operation .. " was resumed twice", 0)
+        end
+        state.ready = true
+        state.value = value
+        if state.wake ~= nil then
+            local wake = state.wake
+            state.wake = nil
+            wake()
+        end
+    end
+
+    local context = new suspension.Context(handler = current, associated = {})
+    local cancel = subscribe(resume, context)
+    if state.ready then
+        return state.value as T
+    end
+    if cancel == nil then
+        error("nupp: " .. operation .. " did not provide a cancellation", 0)
+    end
+    if not context:canPark() then
+        cancel()
+        error("nupp: " .. operation .. " cannot suspend here", 0)
+    end
+    local waiting = new suspension.Waiting(operation = operation, state = state)
+    if current ~= nil then
+        current:park(waiting, cancel)
+    else
+        while not state.ready do
+            effects.park(operation)
+            suspension.poll()
+        end
+    end
+    if not state.ready then
+        cancel()
+        error("nupp: " .. operation .. " returned without resuming", 0)
+    end
+
+    return state.value as T
+end
+
+function suspension.Installed.drop(takes self: suspension.Installed): nil
+    self:release()
+end
+
+--- Releases an installation, which is what an install's contract names.
+---
+--- Nothing calls this by hand. It is the terminal consumer `affine` carries, so a
+--- scope boundary or an explicit `drop` reaches it.
+---
+--- @param self the installation, spent by this call
+function suspension.destroyInstalled(takes self: suspension.Installed): nil
+    self:drop()
+end
+
+--- Installs `value` for suspensions performed on this coroutine.
+---
+--- Deliberately not affine here, where the native provider's is. An affine result
+--- gives its block a cleanup region, and on stock Lua 5.1 a cleanup region runs its
+--- body on a coroutine of its own so that the body can still yield. A handler is
+--- keyed by the coroutine it was installed on, and that nested one is not it: the
+--- body would install a handler and then suspend as though it had none.
+function suspension.install(value: suspension.Handler): suspension.Installed
+    local coroutine = running()
+    local previous = coroutine == nil and suspension._main or suspension._installed[coroutine]
+    local installed = new suspension.Installed(
+        coroutine = coroutine,
+        previous = previous,
+        handler = value,
+        released = false
+    )
+    if coroutine == nil then
+        suspension._main = installed
+    else
+        suspension._installed[coroutine] = installed
+    end
+
+    return installed
+end
+
+function suspension.create<A..., R...>(body: function(A...): R...): thread
+    local co = coroutine.create(body)
+    local inherited = installation()
+    if inherited ~= nil then
+        suspension._installed[co] = inherited
+    end
+
+    return co
+end
+
+local ABANDONED = {}
+
+local function drive(bodies: {function(): any}, limit: integer?, stopEarly: boolean): {any}, {any}, integer?
+    local count = #bodies
+    local values, errors, threads = {}, {}, {}
+    local indexOf = setmetatable({}, {__mode = "k"})
+    local runnable, abandoned = {}, {}
+    local started: integer = 0
+    local finished: integer = 0
+    local first: integer? = nil
+    local wakeDriver: any = nil
+
+    local function nudge(): nil
+        if wakeDriver ~= nil then
+            local wake = wakeDriver
+            wakeDriver = nil
+            wake()
+        end
+    end
+
+    local branchHandler = new suspension.Handler(
+        park = function(_: suspension.Handler, waiting: suspension.Waiting, cancel: function(): nil): nil
+            local index = indexOf[running()]
+            local function markRunnable(): nil
+                runnable[index] = true
+                nudge()
+            end
+
+            while not waiting:ready() do
+                waiting:onResume(markRunnable)
+                if not waiting:ready() then
+                    coroutine.yield()
+                end
+                if abandoned[index] then
+                    cancel()
+                    error(ABANDONED, 0)
+                end
+            end
+        end,
+        canPark = function(): boolean
+            return true
+        end,
+        shutdown = function(): nil
+        end
+    )
+
+    local function startNext(): nil
+        started = started + 1
+        local index = started
+        local co = suspension.create(function(): any
+            local installed = suspension.install(branchHandler)
+            local value = bodies[index]()
+            installed:release()
+            return value
+        end)
+        threads[index] = co
+        indexOf[co] = index
+        runnable[index] = true
+    end
+
+    local ceiling: integer = count
+    if limit ~= nil then
+        ceiling = math.min(count, math.max(1, limit)) as integer
+    end
+    for _ = 1, ceiling do
+        startNext()
+    end
+
+    local function parkDriver(resume: function(boolean): nil): function()
+        wakeDriver = function(): nil
+            resume(true)
+        end
+        return function(): nil
+            wakeDriver = nil
+        end
+    end
+
+    while finished < count do
+        local ran = false
+        for index = 1, count do
+            local co = threads[index]
+            if co ~= nil and runnable[index] then
+                runnable[index] = nil
+                ran = true
+                local ok, value = coroutine.resume(co)
+                if coroutine.status(co) == "dead" then
+                    threads[index] = nil
+                    finished = finished + 1
+                    if ok then
+                        values[index] = value
+                    elseif value ~= ABANDONED then
+                        errors[index] = value
+                    end
+                    if first == nil and value ~= ABANDONED then
+                        first = index
+                    end
+                    if stopEarly then
+                        for other = 1, count do
+                            local victim = threads[other]
+                            if victim ~= nil then
+                                abandoned[other] = true
+                                coroutine.resume(victim)
+                                threads[other] = nil
+                                finished = finished + 1
+                            end
+                        end
+                        finished = count
+                        started = count
+                    elseif started < count then
+                        startNext()
+                    end
+                end
+            end
+        end
+        if finished < count and not ran then
+            suspension.suspend("suspension driver", parkDriver)
+        end
+    end
+
+    return values, errors, first
+end
+
+function suspension.all<T>(bodies: {function(): T}): {T}
+    local values, errors = drive(bodies as any, nil, false)
+    for index = 1, #bodies do
+        if errors[index] ~= nil then
+            error(errors[index], 0)
+        end
+    end
+
+    return values as {T}
+end
+
+function suspension.gather<T>(bodies: {function(): T}): {T?}, {any}
+    local values, errors = drive(bodies as any, nil, false)
+    return values as {T?}, errors
+end
+
+function suspension.race<T>(bodies: {function(): T}): T?, integer?
+    if #bodies == 0 then
+        return nil, nil
+    end
+    local values, errors, first = drive(bodies as any, nil, true)
+    if first ~= nil and errors[first] ~= nil then
+        error(errors[first], 0)
+    end
+
+    return first ~= nil and values[first] as T or nil, first
+end
+
+function suspension.batch<T>(bodies: {function(): T}, limit: integer): {T}
+    local values, errors = drive(bodies as any, limit, false)
+    for index = 1, #bodies do
+        if errors[index] ~= nil then
+            error(errors[index], 0)
+        end
+    end
+
+    return values as {T}
+end
+
+export = suspension

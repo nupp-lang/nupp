@@ -1,0 +1,23 @@
+@!internal
+module nupp.runtime.seam.filessuite
+
+local suite = {}
+
+function suite.test(provider: any): (boolean, string?)
+    local ok, problem = pcall(function()
+        local temporary, reason = provider.createTemporaryFile({prefix = "nupp-seam-", suffix = ".tmp"})
+        assert(temporary ~= nil, "temporary creation must succeed: " .. tostring(reason))
+        local path = temporary:toString()
+        assert(provider.write(path, "one") and provider.append(path, "-two"), "write and append must succeed")
+        assert(provider.read(path) == "one-two" and provider.isFile(path), "file bytes and kind must round-trip")
+        assert(temporary:close(), "closing a temporary must remove it")
+        assert(not provider.exists(path), "a closed temporary must no longer exist")
+    end)
+    if not ok then
+        return false, tostring(problem)
+    end
+
+    return true
+end
+
+export = suite

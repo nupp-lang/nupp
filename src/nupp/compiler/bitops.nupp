@@ -1,0 +1,56 @@
+module nupp.compiler.bitops
+
+-- Typed compiler-private access to the target-selected BitOp-compatible module.
+
+local raw: any = require("bit")
+local bitops = {}
+
+function bitops.tobit(value: number): integer
+    return raw.tobit(value)
+end
+
+function bitops.tohex(value: number, digits: number?): string
+    return raw.tohex(value, digits)
+end
+
+function bitops.bnot(value: number): integer
+    return raw.bnot(value)
+end
+
+function bitops.band(...: number): integer
+    return raw.band(...)
+end
+
+function bitops.bor(...: number): integer
+    return raw.bor(...)
+end
+
+function bitops.bxor(...: number): integer
+    return raw.bxor(...)
+end
+
+function bitops.lshift(value: number, count: number): integer
+    return raw.lshift(value, count)
+end
+
+function bitops.rshift(value: number, count: number): integer
+    return raw.rshift(value, count)
+end
+
+function bitops.arshift(value: number, count: number): integer
+    return raw.arshift(value, count)
+end
+
+function bitops.rol(value: number, count: number): integer
+    return raw.rol(value, count)
+end
+
+function bitops.ror(value: number, count: number): integer
+    return raw.ror(value, count)
+end
+
+function bitops.bswap(value: number): integer
+    return raw.bswap(value)
+end
+
+export = bitops

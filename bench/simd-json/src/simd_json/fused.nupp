@@ -1,0 +1,2 @@
+-- Exercise the shipped decoder so performance work cannot fork from runtime.
+return require("nupp.data.jsondecode")

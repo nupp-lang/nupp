@@ -1,0 +1,239 @@
+module nupp.compiler.cli.bc
+
+--[[
+`nupp bc`: the bytecode a file compiles to, beside the source that made it.
+
+`luajit -bl` already lists bytecode, but of the generated Lua, which is not what
+anyone wrote. Generated line numbers are source line numbers here -- the reason
+the whole runtime prologue is crammed onto line 1 -- so the listing can be shown
+against the real source with nothing in between.
+
+That answers a question a typed language on LuaJIT gets asked: what did the
+annotations cost? Usually nothing, and the instructions say so more convincingly
+than a benchmark does, on any machine, with no warm-up.
+
+`--check` answers a second one. LuaJIT has no recording for the bytecode that
+builds a function, so a loop containing one aborts recording, is blacklisted
+after enough attempts, and then never compiles. Nothing observes it: the answers
+stay right, no test fails, and the loop simply runs interpreted forever. Reading
+the bytecode finds it without running anything, which is what makes it usable as
+a gate -- no quiet machine, no threshold, and the same answer every time.
+]]
+
+local spec = require("nupp.compiler.cli.spec")
+local optionsMod = require("nupp.compiler.cli.options")
+local traceBytecode = require("nupp.compiler.tracebytecode")
+local report = require("nupp.compiler.cli.report")
+
+-- The shared `--format` trio, plus the two questions this command answers.
+local function bcOptions(): {any}
+    local list = optionsMod.format()
+    list[
+        #list + 1
+    ] = {name = "--check", key = "check", help = "Report bytecode a loop cannot compile, and exit non-zero for it",}
+    list[
+        #list + 1
+    ] = {
+        name = "--prologue",
+        key = "prologue",
+        help = "Include the generated runtime preamble, folded away by default",
+    }
+
+    return list
+end
+
+local command = spec.command{
+    name = "bc",
+    summary = "Show the bytecode a Nupp file compiles to",
+    usage = {"nupp bc [--check] [--prologue] [--format text|json] <file>"},
+    options = bcOptions(),
+    schema = {
+        type = "object",
+        description = "The bytecode of one Nupp file, by function.",
+        properties = {
+            file = {type = "string"},
+            functions = {
+                type = "array",
+                items = {
+                    type = "object",
+                    properties = {
+                        what = {type = "string", enum = {"chunk", "function"}},
+                        firstLine = {type = "integer"},
+                        lastLine = {type = "integer"},
+                        instructions = {
+                            type = "array",
+                            items = {
+                                type = "object",
+                                properties = {
+                                    pc = {type = "integer"},
+                                    op = {type = "string"},
+                                    text = {type = "string"},
+                                    line = {type = "integer"},
+                                    inLoop = {type = "boolean"},
+                                    unrecordable = {
+                                        type = "string",
+                                        description = "Why a loop holding this cannot be "
+                                        .. "compiled. Absent when it can.",
+                                    },
+                                    traceReason = {type = "string"},
+                                    traceReachability = {type = "string", enum = {"must", "may"}},
+                                },
+                                required = {"pc", "op", "text"},
+                            },
+                        },
+                    },
+                    required = {"what", "instructions"},
+                },
+            },
+            unrecordable = {
+                type = "integer",
+                description = "How many instructions sit in a loop that therefore never compiles.",
+            },
+            blockers = {type = "integer"},
+            mustBlockers = {type = "integer"},
+            risks = {type = "integer"},
+            bytecodeFingerprint = {type = "string"},
+            traceProfile = {type = "object"},
+            reasonCatalog = {type = "object"},
+        },
+        required = {"file", "functions", "unrecordable"},
+    },
+    detail = [[Source lines are shown against the instructions they produced. The generated
+runtime preamble all lands on line 1 and is folded away unless `--prologue`
+asks for it.
+
+`--check` marks every instruction LuaJIT cannot record that sits inside a loop.
+It exits 1 when every repeatable path reaches one, because that loop cannot
+complete a root trace. A blocker reached on only some paths remains visible as
+advice without claiming every path stays interpreted.]],
+}
+
+local function sourceLines(text: string): {string}
+    local out: {string} = {}
+    for line in (text .. "\n"):gmatch("(.-)\n") do
+        out[#out + 1] = line
+    end
+
+    return out
+end
+
+local function run(parsed: any): integer
+    local paths: {string} = parsed.positional
+    if #paths ~= 1 then
+        return command:usageError("exactly one source file is required")
+    end
+    local path = paths[1]
+
+    local ok = pcall(require, "jit.util")
+    local okBc = pcall(require, "jit.bc")
+    if not ok or not okBc then
+        io.stderr:write("nupp: bytecode needs LuaJIT's jit.util and jit.bc\n")
+        return 1
+    end
+
+    local fs = require("nupp.compiler.fs")
+    local source, readErr = fs.readFile(path)
+    if not source then
+        io.stderr:write("nupp: " .. tostring(readErr) .. "\n")
+        return 1
+    end
+
+    local compile = require("nupp.compiler.cli.compile")
+    local env = require("nupp.compiler.env").new(".")
+    local code, compileErr = compile.module(path, env, compile.settings(parsed.values))
+    if not code then
+        io.stderr:write("nupp: " .. tostring(compileErr) .. "\n")
+        return 1
+    end
+    local chunk, loadErr = loadstring(code, "@" .. path)
+    if not chunk then
+        io.stderr:write("nupp: generated code did not load: " .. tostring(loadErr) .. "\n")
+        return 1
+    end
+
+    local analysis = traceBytecode.analyze(chunk)
+    local functions = analysis.functions
+
+    local unrecordable = 0
+    for _, fn in ipairs(functions) do
+        for _, ins in ipairs(fn.instructions) do
+            if ins.unrecordable then
+                unrecordable = unrecordable + 1
+            end
+        end
+    end
+
+    if (parsed.values.format or "text") == "json" then
+        -- Every count below is an integer this pass produced, so a NaN reaching the
+        -- encoder is a fault worth failing on rather than a token to write out.
+        io.write(
+            report.encode({
+                file = path,
+                functions = functions,
+                unrecordable = unrecordable,
+                blockers = analysis.blockers,
+                mustBlockers = analysis.mustBlockers,
+                risks = analysis.risks,
+                bytecodeFingerprint = analysis.bytecodeFingerprint,
+                traceProfile = analysis.profile,
+                reasonCatalog = analysis.reasonCatalog,
+            }) .. "\n"
+        )
+    else
+        local lines = sourceLines(source)
+        -- The preamble all lands on line 1, so folding it is folding the run of
+        -- instructions before the first that came from somewhere else.
+        local prologue = not parsed.values.prologue
+        for _, fn in ipairs(functions) do
+            local indent = ("  "):rep(fn.depth)
+            io.write(("%s-- %s, lines %s-%s\n"):format(indent, fn.what, tostring(fn.firstLine), tostring(fn.lastLine)))
+            local shown: integer? = nil
+            local folded = 0
+            for _, ins in ipairs(fn.instructions) do
+                local isPreamble = prologue and fn.depth == 0 and (ins.line or 0) <= 1
+                if isPreamble then
+                    folded = folded + 1
+                else
+                    if folded > 0 then
+                        io.write(("%s     ... %d instructions of runtime preamble\n"):format(indent, folded))
+                        folded = 0
+                    end
+                    if ins.line and ins.line ~= shown then
+                        shown = ins.line
+                        local text = lines[ins.line]
+                        if text and text:match("%S") then
+                            io.write(("%s%5d | %s\n"):format(indent, ins.line, text))
+                        end
+                    end
+                    io.write(indent .. "      " .. ins.text)
+                    if ins.traceReason and parsed.values.check then
+                        if ins.unrecordable then
+                            io.write("   <-- this loop never compiles: " .. ins.unrecordable)
+                            io.write((" [%s, must-reach]"):format(ins.traceReason))
+                        else
+                            io.write(("   <-- this path aborts recording: %s [may-reach]"):format(ins.traceReason))
+                        end
+                    end
+                    io.write("\n")
+                end
+            end
+            if folded > 0 then
+                io.write(("%s     ... %d instructions of runtime preamble\n"):format(indent, folded))
+            end
+            io.write("\n")
+        end
+    end
+
+    if parsed.values.check and analysis.mustBlockers > 0 then
+        io.stderr:write(
+            (
+                "nupp: %d instruction%s in a loop that cannot compile\n"
+            ):format(analysis.mustBlockers, analysis.mustBlockers == 1 and "" or "s")
+        )
+        return 1
+    end
+
+    return 0
+end
+
+export = new spec.Handler(spec = command, run = run)

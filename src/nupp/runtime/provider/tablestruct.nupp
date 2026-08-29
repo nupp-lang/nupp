@@ -1,0 +1,226 @@
+module nupp.runtime.provider.tablestruct
+
+--[[Portable table implementation of the complete struct-value contract.]]
+
+local provider = {referenceValued = true}
+
+local function wrapInteger(value: number, bits: integer, signed: boolean): number
+    local modulus = 2 ^ bits
+    value = value % modulus
+    if signed and value >= modulus / 2 then
+        value = value - modulus
+    end
+
+    return value
+end
+
+-- Round a finite double to IEEE-754 binary32, including ties-to-even. Lua 5.1
+-- supplies frexp/ldexp, so this is runtime-independent and lives here with its tests.
+local function binary32(value: number): number
+    if value ~= value or value == math.huge or value == -math.huge or value == 0 then
+        return value
+    end
+    local sign = value < 0 and -1 or 1
+    local absolute = math.abs(value)
+    local exponent = math.floor(math.log(absolute) / math.log(2)) + 1
+    local fraction = absolute / 2 ^ exponent
+    if exponent < -125 then
+        local scaled = math.abs(value) / 2 ^ -149
+        local floor = math.floor(scaled)
+        local rest = scaled - floor
+        local rounded = floor
+        if rest > 0.5 or rest == 0.5 and floor % 2 == 1 then
+            rounded = floor + 1
+        end
+
+        return sign * rounded * 2 ^ -149
+    end
+    if exponent > 128 then
+        return sign * math.huge
+    end
+    local scaled = fraction * 2 ^ 24
+    local floor = math.floor(scaled)
+    local rest = scaled - floor
+    local rounded = floor
+    if rest > 0.5 or rest == 0.5 and floor % 2 == 1 then
+        rounded = floor + 1
+    end
+    if rounded == 2 ^ 24 then
+        rounded = 2 ^ 23
+        exponent = exponent + 1
+    end
+    if exponent > 128 then
+        return sign * math.huge
+    end
+
+    return sign * rounded * 2 ^ (exponent - 24)
+end
+
+local NORMALIZE: {[string]: function(number): number} = {
+    float = binary32,
+    int8 = function(value)
+        return wrapInteger(value, 8, true)
+    end,
+    int16 = function(value)
+        return wrapInteger(value, 16, true)
+    end,
+    int32 = function(value)
+        return wrapInteger(value, 32, true)
+    end,
+    integer = function(value)
+        return wrapInteger(value, 32, true)
+    end,
+    uint8 = function(value)
+        return wrapInteger(value, 8, false)
+    end,
+    uint16 = function(value)
+        return wrapInteger(value, 16, false)
+    end,
+    uint32 = function(value)
+        return wrapInteger(value, 32, false)
+    end,
+}
+
+local function stored(field: any, value: any): any
+    if field.type ~= nil then
+        return field.type:copy(value)
+    end
+    local normalize = NORMALIZE[field.kind]
+
+    return normalize and normalize(value) or value
+end
+
+function provider.scalar(kind: string): any
+    local fixed: any = {}
+    function fixed:new(): any
+        return kind == "boolean" and false or 0
+    end
+
+    fixed.zero = fixed.new
+    function fixed:copy(value: any): any
+        local normalize = NORMALIZE[kind]
+
+        return normalize and normalize(value) or value
+    end
+
+    function fixed:isa(value: any): boolean
+        return kind == "boolean" and type(value) == "boolean" or type(value) == "number"
+    end
+
+    return fixed
+end
+
+function provider.define(layout: any, methods: table): any
+    local byName = {}
+    for _, field in ipairs(layout.fields) do
+        byName[field.name] = field
+    end
+    local identity = {}
+    local instances = {
+        __index = function(self, name)
+            local method = methods.__index and methods.__index[name]
+            if method ~= nil then
+                return method
+            end
+
+            assert(byName[name] ~= nil, "nupp: " .. layout.name .. " has no field " .. tostring(name))
+
+            return rawget(self, identity)[name]
+        end,
+        __newindex = function(self, name, value)
+            local field = byName[name]
+            assert(field ~= nil, "nupp: " .. layout.name .. " has no field " .. tostring(name))
+            rawget(self, identity)[name] = stored(field, value)
+        end,
+    }
+    local fixed: any = {name = layout.name,}
+    function fixed:zero(): any
+        local value = setmetatable({[identity] = {}}, instances)
+        for _, field in ipairs(layout.fields) do
+            local initial = field.type and field.type:new() or false
+            if field.kind ~= "boolean" then
+                initial = field.type and initial or 0
+            end
+            value[field.name] = initial
+        end
+
+        return value
+    end
+
+    fixed.new = fixed.zero
+    function fixed:of(...): any
+        local value = self:zero()
+        local args = {...}
+        for index, field in ipairs(layout.fields) do
+            if args[index] ~= nil then
+                value[field.name] = args[index]
+            end
+        end
+
+        return value
+    end
+
+    function fixed:copy(value: any): any
+        assert(self:isa(value), "nupp: cannot copy a value of another struct type")
+        local out = self:zero()
+        for _, field in ipairs(layout.fields) do
+            out[field.name] = value[field.name]
+        end
+
+        return out
+    end
+
+    function fixed:isa(value: any): boolean
+        return type(value) == "table" and getmetatable(value) == instances
+    end
+
+    setmetatable(fixed, {
+        __call = function(_, ...)
+            return fixed:of(...)
+        end,
+    })
+
+    return fixed
+end
+
+function provider.array(element: any, count: integer): any
+    local identity = {}
+    local values = {
+        __index = function(self, index)
+            assert(type(index) == "number" and index >= 0 and index < count, "fixed-array index out of bounds")
+
+            return rawget(self, identity)[index]
+        end,
+        __newindex = function(self, index, value)
+            assert(type(index) == "number" and index >= 0 and index < count, "fixed-array index out of bounds")
+            rawget(self, identity)[index] = element:copy(value)
+        end,
+    }
+    local fixed: any = {}
+    function fixed:new(): any
+        local out = setmetatable({[identity] = {}}, values)
+        for index = 0, count - 1 do
+            rawget(out, identity)[index] = element:zero()
+        end
+
+        return out
+    end
+
+    function fixed:copy(value: any): any
+        assert(self:isa(value), "nupp: cannot copy a value of another fixed-array type")
+        local out = self:new()
+        for index = 0, count - 1 do
+            rawget(out, identity)[index] = element:copy(value[index])
+        end
+
+        return out
+    end
+
+    function fixed:isa(value: any): boolean
+        return type(value) == "table" and getmetatable(value) == values
+    end
+
+    return fixed
+end
+
+export = provider

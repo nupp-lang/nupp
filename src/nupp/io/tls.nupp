@@ -1,0 +1,793 @@
+module nupp.io.tls
+
+--[[
+`nupp.io.tls` encrypts a connection [](nupp.io.net) already opened.
+
+```nupp
+local function fetch(rootsPath: string): string
+    local roots = assert(nupp.io.files.read(rootsPath))
+    local stream = assert(nupp.io.net.connect({host = "example.com", port = 443}))
+    local session = assert(nupp.io.tls.client(stream, {
+        hostname = "example.com",
+        authority = roots,
+    }))
+    assert(session:handshake())
+    assert(session:write("GET / HTTP/1.1\r\nHost: example.com\r\nConnection: close\r\n\r\n"))
+    const body = assert(session:read(1024))
+    session:close()
+    stream:close()
+
+    return body
+end
+```
+
+`rootsPath` is a parameter rather than a constant. The trust store is read from a
+file because this module has none of its own: verification is on unless a caller
+turns it off, and an omitted `authority` is an empty store rather than the
+platform's roots, so a client that verifies must say what it trusts. Where those
+roots live is a per-platform question this module does not answer -- a file
+whose location varies by distribution on Linux, the Keychain on macOS, the
+certificate stores on Windows -- and answering it wrongly by default is worse
+than not answering it.
+
+A session reads and writes through the same `Reader` and `Writer` contracts a
+plain connection does, so a parser written against byte I/O reads an encrypted
+connection without knowing it has one.
+
+The session does not own the connection. It borrows one, encrypts over it, and
+is closed first; the connection is closed by whoever owns it, which is what
+keeps one socket under exactly one cleanup obligation.
+]]
+
+local net = require("nupp.io.net")
+local suspension = require("nupp.suspension")
+local span = require("nupp.mem.span")
+local ffi = require("ffi")
+local ffiString: function(borrows source: const uint8[?], count: integer): string = ffi.string as any
+
+local tls = {}
+
+--- How a client session is opened.
+type tls.ClientOptions = {
+    --- The name to expect on the peer's certificate, sent as SNI. Given
+    --- whenever `verify` is on, because a certificate verified against no name
+    --- is a certificate belonging to anybody.
+    hostname: string?,
+
+    --- Certificates to trust, as PEM. Nil uses no trust store at all, which is
+    --- only sensible with `verify` off.
+    authority: string?,
+
+    --- Whether the peer's certificate must satisfy the trust store. On by
+    --- default: a client that does not verify has encryption without
+    --- authentication, which is a different and much weaker thing than TLS is
+    --- usually taken to mean.
+    verify: boolean?,
+
+    --- Application protocols to offer, in decreasing preference order, such as
+    --- `{"h2", "http/1.1"}`. The server chooses from these, so the order is a
+    --- preference and not a demand.
+    protocols: {string}?
+}
+
+--- How a server session is opened.
+type tls.ServerOptions = {
+    --- The certificate chain to present, as PEM.
+    certificate: string,
+
+    --- The private key for it, as PEM.
+    privateKey: string,
+
+    --- Certificates to trust for client certificates, as PEM.
+    authority: string?,
+
+    --- Whether a client certificate is required. Off by default, which is what
+    --- almost every server wants.
+    verify: boolean?,
+
+    --- Application protocols this server speaks, in decreasing preference
+    --- order. The server picks, so this order is the one that decides.
+    ---
+    --- A server that names protocols and shares none with a client refuses the
+    --- handshake rather than continuing without one, which is what makes naming
+    --- them a commitment rather than a hint.
+    protocols: {string}?
+}
+
+--- The smallest set of operations a platform has to answer for this module.
+record tls.Backend
+    --- Wraps a connection's handle, or answers nil and why not.
+    wrap: function(
+        self: tls.Backend,
+        handle: any,
+        server: boolean,
+        hostname: string,
+        certificate: string,
+        privateKey: string,
+        authority: string,
+        protocols: string,
+        verify: boolean
+    ): (any?, string?)
+
+    --- Drives the handshake as far as it goes. Answers true when finished,
+    --- false while it still needs the socket, and nil with a reason on failure.
+    handshake: function(self: tls.Backend, session: any): (boolean?, string?)
+
+    --- Whether the peer's certificate satisfied what was asked of it.
+    verified: function(self: tls.Backend, session: any): boolean
+
+    --- Reads decrypted bytes. An empty answer is the end; nil with no reason
+    --- means nothing has arrived yet.
+    read: function(self: tls.Backend, session: any, wanted: integer): (string?, string?)
+
+    --- Writes plaintext, answering how much was taken.
+    write: function(self: tls.Backend, session: any, bytes: string): (integer?, string?)
+
+    --- Sends `close_notify`.
+    closeNotify: function(self: tls.Backend, session: any): nil
+
+    --- Releases the session, and not the connection under it.
+    destroy: function(self: tls.Backend, session: any): nil
+
+    --- Whether the connection underneath is still open.
+    connected: function(self: tls.Backend, handle: any): boolean
+
+    --- The application protocol both sides agreed on, or nil for none.
+    protocol: function(self: tls.Backend, session: any): string?
+end
+
+const READ_SIZE = 65536
+
+--- What the provider answers for "nothing yet", as against a failure.
+---
+--- Distinct values on purpose: one means come back and the other means stop,
+--- and a binding that could not tell them apart would retry a permanent failure
+--- until something else gave up.
+const WOULD_BLOCK = -1
+
+local backend: tls.Backend? = nil
+
+--- @raises when the value is not a positive integer
+local function positive(value: integer, what: string, level: integer): integer
+    if value < 1 or math.floor(value) ~= value then
+        error("nupp: " .. what .. " must be a positive integer", level + 1)
+    end
+
+    return value
+end
+
+--- Packs a protocol list the way the provider takes one.
+---
+--- Separated by NUL rather than by anything printable, because a protocol name
+--- is arbitrary bytes and any printable delimiter is a name somebody may
+--- legitimately want.
+--- @raises when a protocol is empty or longer than 255 bytes
+local function packProtocols(protocols: {string}?, level: integer): string
+    if protocols == nil or #protocols == 0 then
+        return ""
+    end
+    local packed = {}
+    for index, protocol in ipairs(protocols) do
+        if #protocol < 1 or #protocol > 255 then
+            error("nupp: tls protocol " .. index .. " must be 1 through 255 bytes", level + 1)
+        end
+        if protocol:find("\0", 1, true) ~= nil then
+            error("nupp: tls protocol " .. index .. " must not hold a NUL", level + 1)
+        end
+        packed[index] = protocol
+    end
+
+    return table.concat(packed, "\0") .. "\0"
+end
+
+--- @raises when no backend has been installed
+local function platform(): tls.Backend
+    const chosen = backend
+    if chosen == nil then
+        error("nupp: nupp.io.tls has no backend installed", 2)
+    end
+
+    return chosen
+end
+
+--- Suspends until `ready` answers true, driving the connection's reactor.
+---
+--- The session has no reactor of its own: what it is waiting for is always the
+--- socket underneath it, so this drives that one rather than registering a
+--- second source that would poll the same thing twice.
+local function await(operation: string, scoped ready: function(): boolean): nil
+    if ready() then
+        return
+    end
+    suspension.suspend(operation, function(resume: function(boolean), context: any): function()?
+        const source = context:source(
+            "nupp.io.tls",
+            50,
+            function(): integer
+                net.pump(0)
+                if ready() then
+                    resume(true)
+
+                    return 1
+                end
+
+                return 0
+            end,
+            function(waitMs: integer): integer
+                net.pump(waitMs)
+
+                return 0
+            end
+        )
+
+        return function(): nil
+            source:release()
+        end
+    end)
+end
+
+--- An encrypted connection.
+---
+--- Borrows the connection it encrypts over rather than owning it: closing a
+--- session sends `close_notify` and releases the encryption, and the socket
+--- goes on being the connection's to close.
+--- @export
+record tls.Session is nupp.io.Reader, nupp.io.Writer
+    private _backend: tls.Backend
+    private _session: any
+
+    --- The connection's platform handle, not the connection.
+    ---
+    --- Deliberately the handle: holding the owner and casting it back to ask a
+    --- question would produce an owned value the affine layer closes at the end
+    --- of the scope that made it, which releases a socket underneath whoever
+    --- actually owns it. The handle answers the same question and owns nothing.
+    ---
+    --- This is a runtime guard and not a proof. The affine layer cannot prove
+    --- the ordering across a module boundary the way it does within one, so a
+    --- session outliving its connection is caught here rather than at the point
+    --- it was written. See NEP 25 for what that costs.
+    private readonly _handle: any
+
+    private _closed: boolean
+    private _ready: boolean
+    private _ended: boolean
+
+    --- Whether the connection underneath is still open.
+    function isConnected(self): boolean
+        return self._backend:connected(self._handle)
+    end
+
+    --- Whether the handshake has finished.
+    function isReady(self): boolean
+        return self._ready
+    end
+
+    --- Whether this session has been released.
+    function isReleased(self): boolean
+        return self._closed
+    end
+
+    --- Whether the peer closed its sending half.
+    function isEnded(self): boolean
+        return self._ended
+    end
+
+    --- The application protocol both sides agreed on, or nil when none was
+    --- negotiated.
+    ---
+    --- Nil is not a failure: it is what neither side offering a list looks like.
+    --- A server that offered a list sharing nothing with the client's refuses
+    --- the handshake instead, so a session that exists and answers nil was never
+    --- asked to pick one.
+    function protocol(self): string?
+        if self._closed or not self._ready then
+            return nil
+        end
+
+        return self._backend:protocol(self._session)
+    end
+
+    --- Whether the peer's certificate satisfied what was asked of it.
+    ---
+    --- Answered after the handshake and not before, because before it there is
+    --- no certificate to have an opinion about.
+    function isVerified(self): boolean
+        if self._closed or not self._ready then
+            return false
+        end
+
+        return self._backend:verified(self._session)
+    end
+
+    --- Drives the handshake one pass, without suspending.
+    ---
+    --- The form a host with its own loop wants, and the form two sessions in one
+    --- thread need: a handshake is two peers taking turns, so something has to
+    --- be able to give one side a turn without waiting for it to finish.
+    --- `handshake` is this in a loop with the waiting done for you.
+    --- @param self this session
+    --- @return whether the handshake has finished, or nil when it failed
+    --- @return why it failed, when it did
+    function step(self): (boolean?, string?)
+        if self._closed then
+            return nil, "the session is closed"
+        end
+        if self._ready then
+            return true
+        end
+        const done, why = self._backend:handshake(self._session)
+        if done == nil then
+            return nil, why
+        end
+        if done then
+            self._ready = true
+        end
+
+        return self._ready
+    end
+
+    --- Drives the handshake to completion, suspending while it waits on the
+    --- connection.
+    --- @param self this session
+    --- @return whether the handshake finished
+    --- @return why it did not, when unsuccessful
+    function handshake(self): (boolean, string?)
+        if self._closed then
+            return false, "the session is closed"
+        end
+        if not self:isConnected() then
+            return false, "the connection underneath was closed first"
+        end
+        if self._ready then
+            return true
+        end
+        local failure: string? = nil
+        await("nupp.io.tls handshake", function(): boolean
+            const done, why = self:step()
+            if done == nil then
+                failure = why or "the handshake failed"
+
+                return true
+            end
+
+            return done or false
+        end)
+        if failure ~= nil then
+            return false, failure
+        end
+
+        return true
+    end
+
+    --- Reads up to `count` decrypted bytes, suspending while none have arrived.
+    ---
+    --- An empty answer is the end, exactly as on a plain connection, and it is
+    --- only ever the end: here that end is the peer's `close_notify` and
+    --- nothing else. A connection that simply stopped is a truncated stream and
+    --- is reported as a failure, because what arrived is the front of a message
+    --- rather than the whole of one and no authenticated party said otherwise.
+    --- @param self this session
+    --- @param count the most bytes to read
+    --- @return the bytes, or nil when the session is closed
+    --- @return why it could not read, when unsuccessful
+    --- @raises when count is not a positive integer
+    function read(self, count: integer): (string?, string?)
+        if self._closed then
+            return nil, "the session is closed"
+        end
+        if not self:isConnected() then
+            return nil, "the connection underneath was closed first"
+        end
+        if not self._ready then
+            return nil, "the handshake has not finished"
+        end
+        const wanted = positive(count, "tls.Session read count", 2)
+        local chunk: string? = nil
+        local failure: string? = nil
+        await("nupp.io.tls read", function(): boolean
+            const got, why = self._backend:read(self._session, wanted)
+            if why ~= nil then
+                failure = why
+
+                return true
+            end
+            if got == nil then
+                return false
+            end
+            chunk = got
+            if #got == 0 then
+                self._ended = true
+            end
+
+            return true
+        end)
+        if failure ~= nil then
+            return nil, failure
+        end
+
+        return chunk or ""
+    end
+
+    --- Reads directly into a checked writable span. A zero answer is the end.
+    --- @raises when the destination is empty
+    function readSpan(self, exclusive destination: span.Writable<uint8>): (integer?, string?)
+        const wanted = positive(#destination, "tls.Session readSpan destination length", 2)
+        const chunk, why = self:read(wanted)
+        if chunk == nil then
+            return nil, why
+        end
+        const input = span.fromString(chunk)
+        for index = 1, #chunk do
+            destination[index] = input[index]
+        end
+
+        return #chunk as integer
+    end
+
+    --- Reads into a buffer. A zero answer is the end.
+    --- @raises when count is not a positive integer
+    function readInto(
+        self,
+        exclusive destination: nupp.io.Buffer,
+        offset: integer?,
+        count: integer?
+    ): (integer?, string?)
+        const wanted = positive(count or READ_SIZE, "tls.Session readInto count", 2)
+        const chunk, why = self:read(wanted)
+        if chunk == nil then
+            return nil, why
+        end
+        const landed = #chunk as integer
+        if landed > 0 then
+            const input = span.fromString(chunk)
+            const lease = destination:reserveWrite(offset or 0, landed)
+            do
+                const output = lease:span()
+                for index = 1, landed do
+                    output[index] = input[index]
+                end
+                drop output
+            end
+            lease:commit(landed)
+        end
+
+        return landed
+    end
+
+    --- Writes everything left to a writer.
+    function transferTo(self, exclusive destination: nupp.io.Writer): (integer?, string?)
+        local moved: integer = 0
+        while true do
+            const chunk, why = self:read(READ_SIZE)
+            if chunk == nil then
+                return nil, why
+            end
+            if #chunk == 0 then
+                return moved
+            end
+            const wrote, wroteWhy = destination:write(chunk)
+            if not wrote then
+                return nil, wroteWhy
+            end
+            moved = moved + (#chunk as integer)
+        end
+    end
+
+    --- Writes plaintext, in as many records as it takes.
+    --- @param self this session
+    --- @param bytes the bytes to append
+    --- @return whether they were written
+    --- @return why they were not, when unsuccessful
+    function write(exclusive self, bytes: string): (boolean, string?)
+        if self._closed then
+            return false, "the session is closed"
+        end
+        if not self:isConnected() then
+            return false, "the connection underneath was closed first"
+        end
+        if not self._ready then
+            return false, "the handshake has not finished"
+        end
+        local at = 1
+        while at <= #bytes do
+            local took: integer? = nil
+            local failure: string? = nil
+            const remaining = bytes:sub(at)
+            await("nupp.io.tls write", function(): boolean
+                const moved, why = self._backend:write(self._session, remaining)
+                if why ~= nil then
+                    failure = why
+
+                    return true
+                end
+                if moved == nil then
+                    return false
+                end
+                took = moved
+
+                return true
+            end)
+            if failure ~= nil then
+                return false, failure
+            end
+            at = at + (took or 0)
+        end
+
+        return true
+    end
+
+    --- Appends bytes from a checked shared span.
+    function writeSpan(exclusive self, borrows source: span.ByteSpan): (integer?, string?)
+        const bytes = ffiString(source:ref(), #source)
+        const wrote, why = self:write(bytes)
+        if not wrote then
+            return nil, why
+        end
+
+        return #bytes as integer
+    end
+
+    --- Waits until the records this session wrote have left the process.
+    ---
+    --- A TLS write puts encrypted records on the connection underneath, and
+    --- that connection has a queue. Reporting success while they sit in it
+    --- would let a caller write, flush, close the connection, and have the
+    --- records cancelled with it.
+    function flush(self): (boolean, string?)
+        if self._closed then
+            return false, "the session is closed"
+        end
+        if not self:isConnected() then
+            return false, "the connection underneath was closed first"
+        end
+
+        return net.flushStream(self._handle)
+    end
+
+    --- Sends `close_notify` and releases the encryption.
+    ---
+    --- Terminal, and idempotent. The connection underneath is untouched: it was
+    --- borrowed, and closing it is the job of whatever owns it.
+    function close(takes self): nil
+        if self._closed then
+            return
+        end
+        if self._ready and self:isConnected() then
+            -- The records already written go first, then the alert that says
+            -- this side is finished, then both are waited for. Submitting the
+            -- alert and returning would let the connection be released with it
+            -- still queued, and a peer that never receives it sees a stream
+            -- that stopped rather than one that ended -- which is exactly the
+            -- truncation a `close_notify` exists to rule out.
+            local _, _drained = net.flushStream(self._handle)
+            self._backend:closeNotify(self._session)
+            local _, _sent = net.flushStream(self._handle)
+        end
+        self._closed = true
+        self._backend:destroy(self._session)
+    end
+end
+
+--- Encrypts a connection as the client.
+--- @param stream the connection to encrypt over, which this borrows
+--- @param options what to expect of the peer
+--- @return the session, which the caller owns and must close
+--- @return why it could not be made, when unsuccessful
+--- @raises when verification is asked for without a name to verify against
+--- @export
+function tls.client(borrows stream: net.Stream, options: tls.ClientOptions): (affine(tls.Session)?, string?)
+    const chosen = platform()
+    const verify = options.verify ~= false
+    if verify and (options.hostname == nil or options.hostname == "") then
+        error("nupp: tls.client needs a hostname to verify the peer against", 2)
+    end
+    const session, why = chosen:wrap(
+        net.streamHandle(stream),
+        false,
+        options.hostname or "",
+        "",
+        "",
+        options.authority or "",
+        packProtocols(options.protocols, 2),
+        verify
+    )
+    if session == nil then
+        return nil, why
+    end
+
+    return new tls.Session(
+        _backend = chosen,
+        _session = session,
+        _handle = net.streamHandle(stream),
+        _closed = false,
+        _ready = false,
+        _ended = false
+    )
+end
+
+--- Encrypts a connection as the server.
+--- @param stream the connection to encrypt over, which this borrows
+--- @param options the certificate to present and what to ask of the client
+--- @return the session, which the caller owns and must close
+--- @return why it could not be made, when unsuccessful
+--- @export
+function tls.server(borrows stream: net.Stream, options: tls.ServerOptions): (affine(tls.Session)?, string?)
+    const chosen = platform()
+    const session, why = chosen:wrap(
+        net.streamHandle(stream),
+        true,
+        "",
+        options.certificate,
+        options.privateKey,
+        options.authority or "",
+        packProtocols(options.protocols, 2),
+        options.verify == true
+    )
+    if session == nil then
+        return nil, why
+    end
+
+    return new tls.Session(
+        _backend = chosen,
+        _session = session,
+        _handle = net.streamHandle(stream),
+        _closed = false,
+        _ready = false,
+        _ended = false
+    )
+end
+
+--- Installs the platform this module runs on.
+--- @param chosen what answers the operations above
+--- @export
+function tls.useBackend(chosen: tls.Backend): nil
+    backend = chosen
+end
+
+const native = require("nupp.runtime.native")
+
+native.ffi.cdef[[
+typedef struct NuppTls NuppTls;
+typedef struct NuppNetStream NuppNetStream;
+
+NuppTls *nuppTlsWrap(NuppNetStream *, bool, const uint8_t *, size_t,
+    const uint8_t *, size_t, const uint8_t *, size_t, const uint8_t *, size_t,
+    const uint8_t *, size_t, bool);
+const char *nuppTlsAlpn(NuppTls *);
+int32_t nuppTlsHandshake(NuppTls *);
+uint32_t nuppTlsVerifyResult(NuppTls *);
+intptr_t nuppTlsRead(NuppTls *, uint8_t *, size_t);
+intptr_t nuppTlsWrite(NuppTls *, const uint8_t *, size_t);
+uint8_t nuppTlsCloseNotify(NuppTls *);
+void nuppTlsDestroy(NuppTls *);
+
+bool nuppNetStreamClosed(NuppNetStream *);
+void nuppNetStreamRetain(NuppNetStream *);
+void nuppNetStreamRelease(NuppNetStream *);
+]]
+
+const C = native.C
+
+local function reason(prefix: string): string
+    local said = native.error()
+    if said == nil or said == "" then
+        said = "native tls operation failed"
+    end
+
+    return prefix .. ": " .. said
+end
+
+local scratch: any = nil
+
+local function readBuffer(): any
+    if scratch == nil then
+        scratch = native.ffi.new("uint8_t[?]", READ_SIZE)
+    end
+
+    return scratch
+end
+
+local function nativeBackend(): tls.Backend
+    return new tls.Backend(
+        wrap = function(
+            self: tls.Backend,
+            handle: any,
+            server: boolean,
+            hostname: string,
+            certificate: string,
+            privateKey: string,
+            authority: string,
+            protocols: string,
+            verify: boolean
+        ): (any?, string?)
+            const session = C.nuppTlsWrap(
+                handle,
+                server,
+                hostname,
+                #hostname,
+                certificate,
+                #certificate,
+                privateKey,
+                #privateKey,
+                authority,
+                #authority,
+                protocols,
+                #protocols,
+                verify
+            )
+            if session == nil then
+                return nil, reason("nupp: could not start the session")
+            end
+
+            return session
+        end,
+
+        handshake = function(self: tls.Backend, session: any): (boolean?, string?)
+            const state = tonumber(C.nuppTlsHandshake(session)) as integer
+            if state < 0 then
+                return nil, reason("nupp: the handshake failed")
+            end
+
+            return state == 1
+        end,
+
+        verified = function(self: tls.Backend, session: any): boolean
+            return tonumber(C.nuppTlsVerifyResult(session)) == 0
+        end,
+
+        read = function(self: tls.Backend, session: any, wanted: integer): (string?, string?)
+            const taking = wanted < READ_SIZE and wanted or READ_SIZE
+            const into = readBuffer()
+            const got = tonumber(C.nuppTlsRead(session, into, taking)) as integer
+            if got == WOULD_BLOCK then
+                return nil
+            end
+            if got < 0 then
+                return nil, reason("nupp: could not read")
+            end
+            if got == 0 then
+                return ""
+            end
+
+            return ffiString(into, got)
+        end,
+
+        write = function(self: tls.Backend, session: any, bytes: string): (integer?, string?)
+            const took = tonumber(C.nuppTlsWrite(session, bytes, #bytes)) as integer
+            if took == WOULD_BLOCK then
+                return nil
+            end
+            if took < 0 then
+                return nil, reason("nupp: could not write")
+            end
+
+            return took
+        end,
+
+        closeNotify = function(self: tls.Backend, session: any): nil
+            C.nuppTlsCloseNotify(session)
+        end,
+
+        destroy = function(self: tls.Backend, session: any): nil
+            C.nuppTlsDestroy(session)
+        end,
+
+        connected = function(self: tls.Backend, handle: any): boolean
+            return not (C.nuppNetStreamClosed(handle) as boolean)
+        end,
+
+        protocol = function(self: tls.Backend, session: any): string?
+            const chosen = C.nuppTlsAlpn(session)
+            if chosen == nil then
+                return nil
+            end
+
+            return native.ffi.string(chosen) as string
+        end
+    )
+end
+
+backend = nativeBackend()
+
+export = tls

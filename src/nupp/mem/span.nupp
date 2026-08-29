@@ -1,0 +1,743 @@
+module nupp.mem.span
+
+--[[
+`nupp.mem.span` gives a C array a rooted, one-based, bounds-checked view. A
+shared `Span<T>` reads contiguous elements; a writable span adds exclusive
+access and an [affine lifetime](docs/concepts/ownership.md), so the pointer
+cannot outlive or overlap its owner.
+
+```nupp
+local span = require("nupp.mem.span")
+
+const text = "hello"
+const bytes = span.fromString(text)
+assert(#bytes == 5)
+```
+
+Use spans at checked boundaries. Direct indexing through a pointer or
+variable-length C array remains an [`unsafe`
+operation](docs/concepts/ownership.md#unsafe-representation-boundaries).
+
+`Span<T>` is a sealed contract over a private implementation that keeps an
+element count beside a rooted pointer, so public code can neither forge one nor
+reach the raw pointer it holds. Indexing and slicing check that count first.
+
+## Creating a shared span
+
+`fromCarray(source, count)` borrows a C array and records its logical element
+count. `fromString(source)` creates the byte-specialized `ByteSpan`. Both keep
+their source rooted for the lifetime of the view.
+
+```nupp
+local span = require("nupp.mem.span")
+
+local struct Point
+    x: float
+    y: float
+end
+
+const storage = carray(Point, 4)
+const points = span.fromCarray(storage, 4)
+assert(#points == 4)
+assert(points[1].x == 0)
+```
+
+Indexes start at one. `view[index]` raises when the index is outside `1` through
+`#view`. `slice(first, last)` includes both endpoints and borrows the parent;
+omitting `last` extends through the end. An empty slice uses `first, first - 1`.
+
+The operator surface replaces the former element methods and public count
+field. Each former member is a migration error, not a deprecated alternative:
+
+| Removed | Replacement |
+| --- | --- |
+| `view.count` | `#view` |
+| `view:get(index)` | `view[index]` |
+| `view:set(index, value)` | `view[index] = value` |
+| `view:getMut(index).field` | `view[index].field` |
+| `span.range(first, last, ...)` | `indexed.range(first, last, ...)` |
+
+::: deepdive Nonescaping spans allocate nothing at -O1
+When the complete use of an exact standard Span constructor is static and
+nonescaping, Nupp keeps its anchor, pointer, offset, count, and capability as
+compiler-owned values instead of allocating a wrapper. Constructor validation
+and bounds checks still run, and the source remains strongly rooted through the
+last access, so the checked meaning does not change with the optimization
+level. An escape or an opaque call materializes the same checked span.
+:::
+
+`fromFixedCarray(source, count)` returns `FixedSpan<T, N>` when the array and
+literal count carry the same static `N`. It satisfies `Span<T>`, while
+preserving the exact count for checks and generated code.
+
+## Writable spans
+
+`writeCarray` returns the affine alias `Writable<T>`. Its underlying
+`WriteSpan<T>` contract is what a function accepting exclusive access names:
+
+```nupp
+local span = require("nupp.mem.span")
+local indexed = require("nupp.mem.indexed")
+
+local struct Point
+    x: float
+    y: float
+end
+
+local function clear(exclusive points: span.WriteSpan<Point>): nil
+    const indexes = indexed.range(1, #points, points)
+    for index = indexes.first, indexes.last do
+        points[index] = new Point(0, 0)
+    end
+end
+
+local storage = carray(Point, 4)
+with points = span.writeCarray(storage, 4) do
+    clear(points)
+end
+```
+
+Whole-element and direct field assignments write through the checked indexed
+place. `shared()` downgrades the writer to a shared view for the returned
+view's lifetime.
+
+A writable span is affine because it represents exclusive access rather than
+owned memory. Dropping it, explicitly or at scope exit, ends that access; it
+does not free or copy the source array. `writeFixedCarray` and
+`FixedWritable<T, N>` preserve a static count in the same way as their shared
+counterparts.
+
+Asking one array for a shared span while a writer over it is live reports
+`NUPP2607`, and so does the reverse.
+
+## Slices and partitions
+
+`WriteSpan.slice(first, last)` creates one affine child writer. The parent
+remains blocked until the child is dropped, preventing a write through the
+parent from overlapping the slice.
+
+`splitAt(mid)` partitions a writer into audited, non-overlapping left and right
+regions. `mid` is the number of elements in the left region, so zero gives an
+empty left side and `count` gives an empty right side. Both children retain the
+parent as their root.
+
+Use a slice for one subrange and `splitAt` when two disjoint writable regions
+must be live together. Unknown indexes and bounds otherwise conservatively
+overlap.
+
+## Shared range for several spans
+
+`indexed.range(first, last, ...)` checks one inclusive range against every
+trusted Span or [SoA
+view](docs/concepts/structure-of-arrays.md) and answers a record whose
+`first` and `last` are ordinary integers:
+
+```nupp
+local span = require("nupp.mem.span")
+local indexed = require("nupp.mem.indexed")
+
+local struct Value
+    n: integer
+end
+
+local function dot(
+    left: span.Span<Value>,
+    right: span.Span<Value>
+): integer
+    const indexes = indexed.range(1, #left, left, right)
+    local total = 0
+    for index = indexes.first, indexes.last do
+        total = total + left[index].n * right[index].n
+    end
+    return total
+end
+```
+
+At least one span is required. Empty ranges use the same `first, first - 1`
+convention as slices. The typed borrowed vararg passes each original span
+directly and allocates no container or interface wrapper.
+
+When the bounds and spans are const-bound in the same function, the successful
+range check proves matching indexed reads and writes non-raising inside
+the dominated numeric loop. This proof is part of checking at every optimization
+level: it is what permits those calls inside `noraise` code.
+
+See [`OPT-6`](docs/guides/performance.md#opt-6-indexed-views) for how that
+proof is spent at `-O1`, as direct FFI element access and virtual slices that
+allocate no wrapper.
+
+## Passing a span to C
+
+`ref()` returns the rooted pointer and logical count for a handwritten native
+wrapper. Shared spans return a `const T[?]`; writable spans require exclusive
+access and return `T[?]`. The returned pointer borrows the span, so it cannot
+escape independently.
+
+A declarative C binding can use
+[`countedBy(count)`](docs/concepts/c-interop.md#counted-pointer-adapters)
+instead. Its checked call surface accepts spans, verifies shared counts, and
+projects the physical pointer and count arguments automatically.
+
+::: seealso
+- [ownership.md](docs/concepts/ownership.md) for what makes a writable span
+  affine and when its access ends
+- [exact-affine-scopes.md](docs/concepts/exact-affine-scopes.md) for the `with`
+  block the writable examples use
+- [c-interop.md](docs/concepts/c-interop.md) for the boundary `ref` and
+  `countedBy` sit on
+:::
+]]
+
+local span = {}
+
+--- The consuming operation shared by every writable span representation.
+sealed interface span.WriteToken
+    drop: nosuspend function(takes self: WriteToken): nil
+end
+
+--- Ends a write range, which is what every writable span's contract names.
+---
+--- Nothing calls this by hand. It is the terminal consumer `affine` carries, so a
+--- scope boundary or an explicit `drop` reaches it.
+---
+--- @param writable the write range, spent by this call
+--- @export
+function span.destroyWriteSpan<T is span.WriteToken>(takes writable: T): nil
+    nosuspend do
+        local _raw = unsafe release writable
+    end
+end
+
+--- A checked, shared view over contiguous elements. Only this module can declare an
+--- implementation, so the contract is proof that `ref()` and `count` agree.
+--- @export
+sealed interface span.Span<T>
+    metamethod __len: function(self: Span<T>): integer
+    metamethod __index: function(self: Span<T>, index: integer): T
+
+    --- Answers a subspan, inclusive at both ends and borrowed from this one.
+    ---
+    --- Indexes are one-based. Omitting `last` runs through to the end, and
+    --- `first, first - 1` is how an empty subspan is written.
+    ---
+    --- ```nupp
+    --- const values = span.fromCarray(storage, 4)
+    --- const middle = values:slice(2, 3)
+    --- assert(#middle == 2)
+    --- ```
+    slice: function(self: Span<T>, first: integer, last: integer?): Span<T> borrows (self)
+
+    --- Answers the checked range as a const pointer and count, for a native call.
+    ---
+    --- The pointer borrows this span, so it cannot outlive the view that proved
+    --- its bounds. This is the one supported way out to C.
+    ref: function(self: Span<T>): (const T[?] borrows (self), integer)
+end
+
+--- The sole runtime representation of a dynamic shared span.
+local record SpanImpl<T> is span.Span<T>
+    private readonly anchor: any
+    private readonly pointer: const T[?] borrows (anchor)
+    private readonly offset: integer
+    readonly count: integer
+
+    --- Returns one element after checking the one-based index.
+    --- @raises when index is outside 1 through count
+    function get(self: SpanImpl<T>, index: integer): T
+        if index < 1 or index > self.count then
+            error("span index out of bounds", 2)
+        end
+        unsafe do
+            return self.pointer[self.offset + index - 1]
+        end
+    end
+
+    --- Returns a checked subspan, inclusive at both ends.
+    --- @raises when the requested range is outside this span
+    function slice(self: SpanImpl<T>, first: integer, last: integer?): span.Span<T> borrows (self)
+        local finish = last or self.count
+        if first < 1 or finish < first - 1 or finish > self.count then
+            error("span slice out of bounds", 2)
+        end
+
+        return new SpanImpl(
+            anchor = self,
+            pointer = self.pointer as any,
+            offset = self.offset + first - 1,
+            count = finish - first + 1
+        ) as span.Span<T>
+    end
+
+    --- Exposes the checked range as a const pointer/count pair for a native call.
+    function ref(self: SpanImpl<T>): (const T[?] borrows (self), integer)
+        unsafe do
+            local pointer = (self.pointer as const T*) + self.offset
+            return borrowFrom(pointer as const T[?], self), self.count
+        end
+    end
+end
+
+--- A shared span whose exact element count is part of its static type. It refines the
+--- dynamic contract, so APIs accepting `Span<T>` also accept a fixed span.
+--- @export
+sealed interface span.FixedSpan<T, const N: integer> is span.Span<T>
+    metamethod __len: function(self: FixedSpan<T, N>): N
+end
+
+--- The sole runtime representation of a fixed shared span.
+local record FixedSpanImpl<T, const N: integer> is span.FixedSpan<T, N>
+    private readonly anchor: any
+    private readonly pointer: const T[?] borrows (anchor)
+    private readonly offset: integer
+    readonly count: N
+
+    function get(self: FixedSpanImpl<T, N>, index: integer): T
+        if index < 1 or index > (self.count as integer) then
+            error("span index out of bounds", 2)
+        end
+        unsafe do
+            return self.pointer[self.offset + index - 1]
+        end
+    end
+
+    function slice(self: FixedSpanImpl<T, N>, first: integer, last: integer?): span.Span<T> borrows (self)
+        local finish = last or (self.count as integer)
+        if first < 1 or finish < first - 1 or finish > (self.count as integer) then
+            error("span slice out of bounds", 2)
+        end
+
+        return new SpanImpl(
+            anchor = self,
+            pointer = self.pointer as any,
+            offset = self.offset + first - 1,
+            count = finish - first + 1
+        ) as span.Span<T>
+    end
+
+    function ref(self: FixedSpanImpl<T, N>): (const T[?] borrows (self), integer)
+        unsafe do
+            local pointer = (self.pointer as const T*) + self.offset
+            return borrowFrom(pointer as const T[?], self), self.count as integer
+        end
+    end
+end
+
+--- Two sibling, non-overlapping writable regions borrowed from one parent writer.
+--- The representation is private so only this module can assert how the children
+--- relate to their anchor.
+--- @export
+record span.WriteSplit<T>
+    private readonly anchor: any
+
+    --- The first `mid` elements, writable independently of `right`.
+    readonly left: span.WriteSpan<T> borrows (anchor)
+
+    --- Everything after them, writable independently of `left`.
+    readonly right: span.WriteSpan<T> borrows (anchor)
+end
+
+--- An affine checked write range. Its live token keeps the source under an
+--- incompatible-borrow barrier until `drop` or scope exit consumes it. Only
+--- this module can declare an implementation.
+--- @export
+sealed interface span.WriteSpan<T> is span.WriteToken
+    metamethod __len: function(self: WriteSpan<T>): integer
+    metamethod __index: function(borrows self: WriteSpan<T>, index: integer): T
+    metamethod __newindex: function(exclusive self: WriteSpan<T>, index: integer, value: T): nil
+
+    --- Ends this write range, releasing the barrier on its source.
+    drop: nosuspend function(takes self: WriteSpan<T>): nil
+
+    --- Answers the checked range as a mutable pointer and count, for a native call.
+    ---
+    --- The pointer borrows this range, so the barrier on the source outlives the
+    --- call that was handed it.
+    ref: function(exclusive self: WriteSpan<T>): (T[?] borrows (self), integer)
+
+    --- Downgrades this writer to a shared view for the lifetime of the result.
+    ---
+    --- The writer is borrowed rather than spent, so it comes back when the shared
+    --- view ends.
+    shared: function(borrows self: WriteSpan<T>): span.Span<T> borrows (self)
+
+    --- Answers an affine writable subrange, inclusive at both ends.
+    ---
+    --- The child borrows this range, so the parent is unusable until the child is
+    --- dropped. Two disjoint children at once is what `splitAt` is for.
+    slice: function(
+        exclusive self: WriteSpan<T>,
+        first: integer,
+        last: integer?
+    ): affine(span.WriteSpan<T>, span.destroyWriteSpan) borrows (self)
+
+    --- Partitions this range at a zero-based boundary count.
+    ---
+    --- The two children are non-overlapping, so both are writable at once, which
+    --- a pair of `slice` calls could not be. `mid` is how many elements go left.
+    ---
+    --- ```nupp
+    --- do
+    ---     local writable = values:write()
+    ---     local split = writable:splitAt(2)
+    ---     split.left[1] = 11 as int32
+    ---     split.right[1] = 22 as int32
+    --- end
+    --- ```
+    @partition(left, right)
+    splitAt: function(exclusive self: WriteSpan<T>, mid: integer): span.WriteSplit<T> borrows (self)
+end
+
+--- A writable span whose exact element count is part of its static type.
+--- @export
+sealed interface span.FixedWriteSpan<T, const N: integer> is span.WriteSpan<T>
+    metamethod __len: function(self: FixedWriteSpan<T, N>): N
+    shared: function(borrows self: FixedWriteSpan<T, N>): span.FixedSpan<T, N> borrows (self)
+end
+
+--- An affine dynamic writable span.
+--- @export
+type span.Writable<T> = affine(span.WriteSpan<T>, span.destroyWriteSpan)
+
+--- An affine fixed-width writable span.
+--- @export
+type span.FixedWritable<T, const N: integer> = affine(span.FixedWriteSpan<T, N>, span.destroyWriteSpan)
+
+--- The sole runtime representation of a dynamic writable span.
+local record WriteSpanImpl<T> is span.WriteSpan<T>
+    private readonly anchor: any
+    private readonly pointer: T[?] borrows (anchor)
+    private readonly offset: integer
+    readonly count: integer
+
+    --- Ends this affine write range. It is also the automatic scope-exit drop.
+    drop: nosuspend function(takes self: WriteSpanImpl<T>): nil
+
+    --- Returns a checked mutable element reference tied to this write borrow.
+    --- @raises when index is outside 1 through count
+    function getMut(exclusive self: WriteSpanImpl<T>, index: integer): T* borrows (self)
+        if index < 1 or index > self.count then
+            error("write span index out of bounds", 2)
+        end
+        unsafe do
+            local elementOffset = self.offset + index - 1
+            local pointer = (self.pointer as T*) + elementOffset
+            return borrowFrom(pointer, self)
+        end
+    end
+
+    --- Private checked read used by generated operator fallback code.
+    --- @raises when index is outside 1 through count
+    function get(self: WriteSpanImpl<T>, index: integer): T
+        if index < 1 or index > self.count then
+            error("write span index out of bounds", 2)
+        end
+        unsafe do
+            return self.pointer[self.offset + index - 1]
+        end
+    end
+
+    function set(exclusive self: WriteSpanImpl<T>, index: integer, value: T): nil
+        if index < 1 or index > self.count then
+            error("write span index out of bounds", 2)
+        end
+        unsafe do
+            self.pointer[self.offset + index - 1] = value
+        end
+    end
+
+    --- Exposes the checked range as a mutable pointer/count pair for a native call.
+    function ref(exclusive self: WriteSpanImpl<T>): (T[?] borrows (self), integer)
+        unsafe do
+            local pointer = (self.pointer as T*) + self.offset
+            return borrowFrom(pointer as T[?], self), self.count
+        end
+    end
+
+    --- Downgrades this writer to a shared view for the lifetime of the result.
+    function shared(borrows self: WriteSpanImpl<T>): span.Span<T> borrows (self)
+        return new SpanImpl(
+            anchor = self,
+            pointer = self.pointer as any,
+            offset = self.offset,
+            count = self.count
+        ) as span.Span<T>
+    end
+
+    --- Returns an affine writable subspan, inclusive at both ends.
+    --- @raises when the requested range is outside this span
+    function slice(exclusive self: WriteSpanImpl<T>, first: integer, last: integer?): span.Writable<T> borrows (self)
+        local finish = last or self.count
+        if first < 1 or finish < first - 1 or finish > self.count then
+            error("write span slice out of bounds", 2)
+        end
+
+        return new WriteSpanImpl(
+            anchor = self,
+            pointer = self.pointer as any,
+            offset = self.offset + first - 1,
+            count = finish - first + 1
+        ) as span.WriteSpan<T>
+    end
+
+    --- Partitions this range at a zero-based boundary count.
+    --- @raises when mid is negative or greater than count
+    function splitAt(exclusive self: WriteSpanImpl<T>, mid: integer): span.WriteSplit<T> borrows (self)
+        if mid < 0 or mid > self.count then
+            error("write span split point out of bounds", 2)
+        end
+        unsafe do
+            local left, right = nupp.partition(
+                self,
+                new WriteSpanImpl(
+                    anchor = self,
+                    pointer = self.pointer as any,
+                    offset = self.offset,
+                    count = mid
+                ) as span.WriteSpan<T>,
+                new WriteSpanImpl(
+                    anchor = self,
+                    pointer = self.pointer as any,
+                    offset = self.offset + mid,
+                    count = self.count - mid
+                ) as span.WriteSpan<T>
+            )
+            return new span.WriteSplit(anchor = self, left = left, right = right) as span.WriteSplit<T>
+        end
+    end
+
+end
+
+--- The sole runtime representation of a fixed writable span.
+local record FixedWriteSpanImpl<T, const N: integer> is span.FixedWriteSpan<T, N>
+    private readonly anchor: any
+    private readonly pointer: T[?] borrows (anchor)
+    private readonly offset: integer
+    readonly count: N
+
+    drop: nosuspend function(takes self: FixedWriteSpanImpl<T, N>): nil
+
+    function getMut(exclusive self: FixedWriteSpanImpl<T, N>, index: integer): T* borrows (self)
+        if index < 1 or index > (self.count as integer) then
+            error("write span index out of bounds", 2)
+        end
+        unsafe do
+            local elementOffset = self.offset + index - 1
+            local pointer = (self.pointer as T*) + elementOffset
+            return borrowFrom(pointer, self)
+        end
+    end
+
+    --- Private checked read used by generated operator fallback code.
+    --- @raises when index is outside 1 through count
+    function get(self: FixedWriteSpanImpl<T, N>, index: integer): T
+        if index < 1 or index > (self.count as integer) then
+            error("write span index out of bounds", 2)
+        end
+        unsafe do
+            return self.pointer[self.offset + index - 1]
+        end
+    end
+
+    function set(exclusive self: FixedWriteSpanImpl<T, N>, index: integer, value: T): nil
+        if index < 1 or index > (self.count as integer) then
+            error("write span index out of bounds", 2)
+        end
+        unsafe do
+            self.pointer[self.offset + index - 1] = value
+        end
+    end
+
+    function ref(exclusive self: FixedWriteSpanImpl<T, N>): (T[?] borrows (self), integer)
+        unsafe do
+            local pointer = (self.pointer as T*) + self.offset
+            return borrowFrom(pointer as T[?], self), self.count as integer
+        end
+    end
+
+    function shared(borrows self: FixedWriteSpanImpl<T, N>): span.FixedSpan<T, N> borrows (self)
+        return new FixedSpanImpl(
+            anchor = self,
+            pointer = self.pointer as any,
+            offset = self.offset,
+            count = self.count
+        ) as span.FixedSpan<T, N>
+    end
+
+    function slice(
+        exclusive self: FixedWriteSpanImpl<T, N>,
+        first: integer,
+        last: integer?
+    ): span.Writable<T> borrows (self)
+        local finish = last or (self.count as integer)
+        if first < 1 or finish < first - 1 or finish > (self.count as integer) then
+            error("write span slice out of bounds", 2)
+        end
+
+        return new WriteSpanImpl(
+            anchor = self,
+            pointer = self.pointer as any,
+            offset = self.offset + first - 1,
+            count = finish - first + 1
+        ) as span.WriteSpan<T>
+    end
+
+    function splitAt(exclusive self: FixedWriteSpanImpl<T, N>, mid: integer): span.WriteSplit<T> borrows (self)
+        if mid < 0 or mid > (self.count as integer) then
+            error("write span split point out of bounds", 2)
+        end
+        unsafe do
+            local left, right = nupp.partition(
+                self,
+                new WriteSpanImpl(
+                    anchor = self,
+                    pointer = self.pointer as any,
+                    offset = self.offset,
+                    count = mid
+                ) as span.WriteSpan<T>,
+                new WriteSpanImpl(
+                    anchor = self,
+                    pointer = self.pointer as any,
+                    offset = self.offset + mid,
+                    count = (self.count as integer) - mid
+                ) as span.WriteSpan<T>
+            )
+            return new span.WriteSplit(anchor = self, left = left, right = right) as span.WriteSplit<T>
+        end
+    end
+end
+
+function WriteSpanImpl.drop<T>(takes self: WriteSpanImpl<T>): nil
+    nosuspend do
+        local _raw = unsafe release self
+    end
+end
+
+function FixedWriteSpanImpl.drop<T, const N: integer>(takes self: FixedWriteSpanImpl<T, N>): nil
+    nosuspend do
+        local _raw = unsafe release self
+    end
+end
+
+--- The byte-specialized shared view, which is what `fromString` answers.
+--- @export
+type span.ByteSpan = span.Span<uint8>
+
+--- The byte-specialized write range.
+--- @export
+type span.ByteWriteSpan = span.WriteSpan<uint8>
+
+--- Creates a byte span over a Lua string and keeps that string rooted.
+---
+--- ```nupp
+--- const bytes = span.fromString("hello")
+--- assert(#bytes == 5 and bytes[1] == 104)
+--- ```
+---
+--- @param source the string the view reads, rooted for the view's lifetime
+--- @return the byte view, borrowed from the string
+--- @export
+function span.fromString(borrows source: string): span.ByteSpan borrows (source)
+    local pointer = ffi.cast<const uint8[?]>(source)
+    return (new SpanImpl(anchor = source, pointer = pointer as any, offset = 0, count = #source)) as span.ByteSpan
+end
+
+-- Private constructor for engine-owned bytes: [](nupp.mem.sharedbytes) reaches
+-- it to lend a checked view over a region's storage, anchored on the region so
+-- the storage outlives every read. Only this module can construct the sealed
+-- implementation, which is why the hook lives here.
+local function foreignByteSpan(anchor: any, pointer: any, offset: integer, count: integer): span.ByteSpan
+    local typed = ffi.cast<const uint8[?]>(pointer)
+    return (new SpanImpl(anchor = anchor, pointer = typed as any, offset = offset, count = count)) as span.ByteSpan
+end
+
+rawset(span as table, "__foreignByteSpan", foreignByteSpan)
+
+--- Creates a checked shared span over a C array and an explicit logical count.
+---
+--- The count is the caller's claim about the array, so it is the one number this
+--- module cannot check for itself. Everything after it is checked against it.
+---
+--- ```nupp
+--- const storage = carray(int32, 4)
+--- const values = span.fromCarray(storage, 4)
+--- assert(#values == 4)
+--- ```
+---
+--- @param source the array the view reads, rooted for the view's lifetime
+--- @param count how many elements the array holds
+--- @return the view, borrowed from the array
+--- @export
+--- @raises when count is negative
+function span.fromCarray<T>(borrows source: T[?], count: integer): span.Span<T> borrows (source)
+    if count < 0 then
+        error("span count cannot be negative", 2)
+    end
+    return (new SpanImpl(anchor = source, pointer = source as any, offset = 0, count = count)) as span.Span<T>
+end
+
+--- Creates a fixed shared span without a runtime length check.
+---
+--- The literal count is both the stored count and the proof that the source has
+--- exactly `N` elements, so there is nothing left to check at run time.
+---
+--- @param source the array the view reads, rooted for the view's lifetime
+--- @param count the literal count, which must be the source's `N`
+--- @return the view, borrowed from the array
+--- @export
+function span.fromFixedCarray<T, const N: integer>(
+    borrows source: T[N],
+    count: N
+): span.FixedSpan<T, N> borrows (source)
+    return (
+        new FixedSpanImpl(anchor = source, pointer = source as any, offset = 0, count = count)
+    ) as span.FixedSpan<T, N>
+end
+
+--- Creates an affine write span over a C array and an explicit logical count.
+---
+--- The source is exclusive during construction, and the returned owner keeps it
+--- under an incompatible-borrow barrier until `drop` or a scope boundary consumes
+--- the token. Nothing else may read or write the array in between.
+---
+--- ```nupp
+--- const storage = carray(int32, 4)
+--- do
+---     local writable = span.writeCarray(storage, 4)
+---     writable[1] = 42 as int32
+---     drop writable
+--- end
+--- const values = span.fromCarray(storage, 4)
+--- assert(values[1] == 42)
+--- ```
+---
+--- @param source the array the view writes, held exclusively for its lifetime
+--- @param count how many elements the array holds
+--- @return the affine writer, borrowed from the array
+--- @export
+--- @raises when count is negative
+function span.writeCarray<T>(exclusive source: T[?], count: integer): span.Writable<T> borrows (source)
+    if count < 0 then
+        error("write span count cannot be negative", 2)
+    end
+    return (new WriteSpanImpl(anchor = source, pointer = source as any, offset = 0, count = count)) as span.WriteSpan<T>
+end
+
+--- Creates a fixed affine write span without a runtime length check.
+---
+--- The source array type and the literal count must name the same `N`, which is
+--- what stands in for the bounds check.
+---
+--- @param source the array the view writes, held exclusively for its lifetime
+--- @param count the literal count, which must be the source's `N`
+--- @return the affine writer, borrowed from the array
+--- @export
+function span.writeFixedCarray<T, const N: integer>(
+    exclusive source: T[N],
+    count: N
+): span.FixedWritable<T, N> borrows (source)
+    return (
+        new FixedWriteSpanImpl(anchor = source, pointer = source as any, offset = 0, count = count)
+    ) as span.FixedWriteSpan<T, N>
+end
+
+export = span

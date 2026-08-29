@@ -1,0 +1,9 @@
+local inspect = require("tests.fixtures.deriveinspect")
+
+@derive(inspect.derive)
+local record InvalidInspect
+    supported: string
+    unsupported: {string}
+end
+
+return InvalidInspect

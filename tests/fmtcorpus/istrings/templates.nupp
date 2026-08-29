@@ -1,0 +1,11 @@
+local m = {}
+
+local simple = `value: ${ 1+2 } done`
+local nested = `outer ${`inner ${m.name}`} tail`
+local escaped = `a backtick \` and a brace \${not an expression}`
+local multiline = `line one
+line ${ m.count } of it
+line three`
+local wide = `a template whose text runs well past the hundred and twentieth column and must not be reflowed by anything`
+
+return m, simple, nested, escaped, multiline, wide

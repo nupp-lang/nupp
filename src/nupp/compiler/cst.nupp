@@ -1,0 +1,3115 @@
+module nupp.compiler.cst
+
+--[[
+The concrete syntax tree.
+
+A node holds every token it consumed, in source order, in its array part, so
+reprinting that array reproduces the source exactly. Nodes also carry named
+fields, `n.cond` and `n.body` among them, that alias entries of the array part for structured
+access; a named field never owns a token, so nothing is printed twice.
+
+Tokens inserted by error recovery have empty text and are marked missing, so they
+are invisible to reprinting.
+
+There is one record per production and `Node` is their union, discriminated by
+`kind`. A field means the same thing wherever it appears, and a field belonging
+to another kind is not readable at all: a pass that dispatches on `kind` is
+checked against the vocabulary rather than trusted with it.
+]]
+
+local lexer = require("nupp.compiler.lexer")
+
+local cst = {}
+
+--- What later passes leave on a node for the ones after them. The checker works out
+--- what a name means; the generator needs the answer and must not work it out again.
+--- These belong to no one kind, so they are declared once and included by every node
+--- rather than repeated on each.
+interface cst.Hints
+    --- A type/declaration imported from an annotated plain-Lua comment. It belongs to
+    --- the semantic tree but not the lossless ordered children.
+    foreignAnnotation: boolean?
+
+    --- Additional callable contracts imported from `---@overload`.
+    foreignOverloads: {cst.Node}?
+
+    foreignAnnotationsDecorated: boolean?
+
+    foreignInsertOffset: integer?
+
+    foreignRecoveryReported: boolean?
+
+    --- This declaration is wrapped in a declared module's `export` statement.
+    exported: boolean?
+
+    --- Checked switch metadata consumed by lowering and editor tooling.
+    switchStaticValue: any
+
+    switchStaticResult: any
+
+    switchType: any
+    switchSelectorType: any
+    switchResultType: any
+    switchRecordIdentitySafe: boolean?
+    switchPlanTag: string?
+    switchPlanReason: string?
+
+    --- Checker-only evidence for fixed-width refinements and physical boundaries.
+    fixedWidthEstablished: any
+
+    fixedWidthResultEstablished: any
+    fixedWidthResultTrusted: any
+    fixedWidthResultIndex: integer?
+    fixedWidthTrusted: boolean?
+    fixedWidthUntrusted: boolean?
+    fixedWidthCallableUntrusted: boolean?
+    fixedWidthUntrustedResult: boolean?
+    fixedWidthTargetTypeNode: any
+    fixedWidthPhysicalStore: boolean?
+    fixedWidthPhysicalParameters: any
+
+    --- Semantic cleanup entries activated in this lexical block. The checker owns the
+    --- entries; code generation consumes them without rediscovering ownership from
+    --- syntax or payload types.
+    automaticOwners: any
+
+    automaticDirect: any
+    directCleanup: boolean?
+    automaticRegion: boolean?
+    automaticSequence: any
+
+    --- The automatic cleanup entry bound or moved by this node.
+    automaticOwner: any
+
+    automaticOwnerMove: any
+    automaticOwnerMoves: any
+    automaticOwnerReinit: any
+
+    --- Synthetic read of a value moved into an affine closure factory.
+    captureValue: boolean?
+
+    --- This call consumes its affine callable operand.
+    affineClosureCall: boolean?
+
+    --- A table literal whose lifetime is transferred directly to a takes slot.
+    affineAggregate: boolean?
+
+    --- Contextual permission for affine elements in an ephemeral table literal.
+    affineAggregateContext: boolean?
+
+    --- A raw memory operation admitted only because it is inside `unsafe do`.
+    --- The ownership audit consumes this after checking.
+    unsafeOwnershipOperation: string?
+
+    --- Static JIT-boundary contracts attached while checking function bodies.
+    jitDefinition: any
+
+    jitDisabled: boolean?
+    jitRequired: boolean?
+
+    --- `@aot` asks for this body to compile ahead of time rather than leaving it to
+    --- LuaJIT. Checking records it; the AOT subset pass consumes it.
+    aotRequired: boolean?
+
+    --- `@aot(lanes = false)` declines lane lowering for a body that would
+    --- otherwise be lowered lane-parallel, so the vectorisation check does not
+    --- report a loop that is deliberately scalar.
+    lanesDeclined: boolean?
+
+    --- `@aot(lanes = true)` takes lane lowering whatever the arithmetic-intensity
+    --- estimate says, for a body whose measurement disagrees with it.
+    lanesRequired: boolean?
+
+    --- Whether an `@aot` body has the one-top-level-numeric-loop shape that lane
+    --- lowering can take. Recorded by the subset pass so the vectorisation check
+    --- can ask which bodies it should have anything to say about.
+    aotMapLoop: boolean?
+
+    --- Fixed C-array bound whose dynamic index code generation checks.
+    carrayBound: integer?
+
+    --- The complete Lua value sequence produced when this expression is in the final
+    --- expanding position of a list. Parenthesized expressions deliberately omit it.
+    valuePack: any
+
+    --- The exact value sequence supplied to a checked call after Lua list adjustment.
+    argumentPack: any
+
+    --- Stable coroutine-library operation recognized by the checker.
+    coroutineIntrinsic: string?
+
+    --- Protocol carried from coroutine.wrap into the returned callable binding.
+    wrappedProtocol: any
+
+    --- Local thread whose phase a coroutine.status result describes.
+    coroutineStatusName: string?
+
+    --- Lua source replacing a primitive expression the optimizer proved constant.
+    folded: string?
+
+    --- Every edge from a const root to this expression is read-only.
+    immutablePath: boolean?
+
+    --- Generated local used instead of a proved immutable dotted callee.
+    staticCallee: string?
+
+    --- Hidden slot selected for an overloaded static declaration function.
+    overloadMember: string?
+
+    staticOverloadOwner: any
+    staticOverloadName: string?
+
+    --- This field access is immediately applied as a call, so overload selection can
+    --- replace it with the chosen hidden runtime slot.
+    callCallee: boolean?
+
+    overloadWinner: any
+
+    --- Immutable callees first bound immediately before this statement.
+    callableBindings: any
+
+    --- A branch whose preceding conditions the optimizer proved false.
+    constantBranch: cst.Node?
+
+    --- A `..` the checker resolved to Lua's primitive concatenation: no `__concat` was
+    --- reached, and neither side was `any`. False or absent means a rewrite may not
+    --- assume the operands are strings and numbers.
+    plainConcat: boolean?
+
+    --- A string accumulator lowered to a `string.buffer` by `OPT-5`.
+    concatBuffer: any
+
+    --- A builtin namespace path the checker resolved to a module, which codegen emits
+    --- as a private require binding once per generated module.
+    compilerModule: string?
+
+    --- A declared module selected through an unshadowed qualified namespace path.
+    qualifiedModule: string?
+
+    qualifiedMembers: {string}?
+
+    --- A runtime feature required if this node reaches generated Lua. The checker
+    --- records source-level effects separately for diagnostics and packaging; codegen
+    --- consumes this hint only after deciding that it will emit the node.
+    compilerFeatureEffect: string?
+
+    --- Runtime features required by one synthetic construct, such as a derive recipe or
+    --- suspension handler, rather than by an indexed expression inside it.
+    compilerFeatureEffects: {string}?
+
+    --- A `layoutof(T)` call, carrying the declaration's name, the field-to-C-type spec,
+    --- and the nested struct ctypes the spec's `$` placeholders consume.
+    layoutOf: any
+
+    --- Compiler-owned SoA layout and lowering facts.
+    soaLayout: any
+
+    soaOperation: string?
+    soaRow: any
+    soaField: any
+    soaFieldProjection: any
+
+    --- Trusted standard indexed-view operations attached during checking.
+    indexedLength: any
+
+    indexedAccess: any
+    indexedField: any
+    indexedRangeCall: any
+    indexedRangeAccess: any
+    indexedViewOperation: any
+    indexedViewProducer: any
+    virtualIndexedView: any
+
+    --- The severity of a `nupp.log` call generation may lower, as the runtime numbers
+    --- them. Present only on a call whose format is a literal and whose `nupp` is the
+    --- ambient one; lowering additionally needs statement position.
+    logIntrinsic: integer?
+
+    --- A literal Nupp format containing `%?`, rewritten to Lua `%s` together with the
+    --- argument positions whose values need their `debug` method called.
+    formatIntrinsic: any
+
+    --- The same rewrite plan when the formatting belongs inside a logging guard.
+    logFormatIntrinsic: any
+
+    --- "push" or "pop" when the call is on a name statically known to hold the module
+    --- `nupp.profile.zone` returns and carries the right arity. Lowering additionally
+    --- needs statement position, so a `pop` whose popped name is kept stays an ordinary
+    --- call.
+    zoneIntrinsic: string?
+
+    constantBranchNone: boolean?
+
+    --- A loop whose constant bounds the optimizer proved admit no first iteration.
+    constantLoopNone: boolean?
+
+    --- The canonical literal a `comptime do ... end` block evaluated to, as source.
+    --- Hung off the node rather than spliced into its children, so the block's own
+    --- tokens still reprint and only `gen` reads the result.
+    comptimeValue: string?
+
+    --- The checked type of a completed block, retained for editor presentation.
+    comptimeResultType: any
+
+    --- Structured runtime-expression IR selected for an opaque comptime result.
+    materializedIR: any
+
+    --- The resolved type written directly on the declaration owning this expression.
+    materializationExpected: any
+
+    --- The finalized provider envelope retained for hover and build observations.
+    materializationEnvelope: any
+
+    --- Versioned provider/backend facts and the cacheable canonical products.
+    materializationObservation: any
+
+    --- The immutable semantic descriptor attached to a checked `nupp.reflect(T)` call.
+    reflectedType: any
+
+    reflectedTypeKey: string?
+
+    --- Compiler-owned target layout attached to a checked layout intrinsic call.
+    targetLayout: any
+
+    targetLayoutKey: string?
+
+    --- A file-private helper that exists only in the comptime evaluator.
+    comptimeFunction: boolean?
+
+    --- A complete `@effects` contract, normalized by the checker.
+    effectContract: any
+
+    --- Observable guarantees an optimization may change at this declaration.
+    relaxedGuarantees: any
+
+    --- Conservative effect facts inferred for a visible function body.
+    effectSummary: any
+
+    --- Exact module-export endpoint for sidecar call-guarantee observation. This is
+    --- provenance, not a function-type qualifier.
+    exactCallExport: any
+
+    --- Canonical fixed-width scalar operation selected by resolved prelude identity.
+    scalarIntrinsic: string?
+
+    --- A checker-recognized call to the stable prelude `ipairs` binding.
+    builtinIpairs: any
+
+    --- A call to a stable LuaJIT table builtin, lowered to one module-local binding.
+    tableIntrinsic: string?
+
+    --- The optimizer's proof and selected lowering for a numeric array loop.
+    numericIpairs: any
+
+    numericIpairsProof: any
+    numericIpairsDeclined: any
+
+    --- The runtime name of a reified struct's ctype.
+    reified: string?
+
+    --- The runtime table of a record, which is its identity.
+    recordName: string?
+
+    --- The runtime table of an interface, which exists only to hold the default bodies
+    --- a declaration taking the contract references.
+    interfaceName: string?
+
+    --- The nominal a supertype node named, so its runtime spelling can be found again
+    --- from the type.
+    resolvedSupertype: any
+
+    --- The defaults a declaration takes, as `{name, from}` pairs the generator turns
+    --- into assignments.
+    inheritedDefaultNames: any
+
+    --- Set on an inline method emitted as a plain function rather than a method,
+    --- because a default's receiver is the value it is later attached to.
+    inlineDotted: boolean?
+
+    --- Set on an inline function whose parameter list has no leading `self`. It is
+    --- attached to the declaration table and never receives an instance.
+    inlineStatic: boolean?
+
+    --- The runtime test a `where` refinement named, attached by the checker so `is`
+    --- compiles to it. A refinement travels as data, so nothing here has to be resolved
+    --- a second time.
+    wherePredicate: any
+
+    --- Set on an `is` whose answer the subject's own type already settles.
+    provenStatically: boolean?
+
+    --- Set on an `is` the subject's own type settles the other way, so the test is
+    --- false without running.
+    refutedStatically: boolean?
+
+    --- Whether that subject still admits nil, which is then the only question left to
+    --- ask at run time.
+    provenNeedsNil: boolean?
+
+    --- Generator-owned runtime path for a nested record.
+    recordRuntimeName: string?
+
+    --- The runtime owner an inline method attaches to.
+    inlineRuntimeOwner: string?
+
+    --- The C name a cdef gave a type.
+    cdefName: string?
+
+    --- Whether that C tag is a struct or union.
+    cdefKind: string?
+
+    --- The function type at a call site, so a predicate can narrow.
+    calleeType: any
+
+    --- The resolved type of a call's callee or a declaration's signature.
+    signatureType: any
+
+    --- The type a declaration resolved to.
+    resolvedType: any
+
+    --- The nominal a pre-pass created for a declaration.
+    hoistedType: any
+
+    --- The alias a pre-pass bound for a `type` declaration.
+    hoistedAlias: any
+
+    --- The declaration entry a pre-pass hoisted.
+    hoistedEntry: cst.Node?
+
+    --- The module a `require` names, so an alias can name its types.
+    requiredModule: string?
+
+    --- What an index expression was indexing, so removal by nil can be allowed on a
+    --- container and refused on a declared field.
+    containerTag: string?
+
+    --- Whether that container is a sequence.
+    containerIsSequence: boolean?
+
+    --- Inferred receiver of a dynamic `__index`/`__newindex` access.
+    indexObjectType: any
+
+    --- Inferred key of that access.
+    indexKeyType: any
+
+    --- Whether the access went through a declared contract.
+    usesIndexContract: boolean?
+
+    --- The metamethod a field access named on the receiver's own runtime table, which
+    --- is the metatable its instances carry. Writing one installs it.
+    metamethodName: string?
+
+    --- The receiver whose contract that is, so the installed value can be held to it
+    --- where the assignment is checked.
+    metamethodReceiver: any
+
+    --- Set while an assignment asks an index expression for its accepted write type.
+    writeContext: boolean?
+
+    --- Read type after a write through a distinct setter, or false for write-only.
+    postWriteType: any
+
+    --- Which ffi operation a call is.
+    ffiIntrinsic: string?
+
+    --- The type it was given, as written.
+    ffiTypeName: string?
+
+    --- The type node it was given.
+    ffiTypeNode: any
+
+    --- Logical C output parameters of the call.
+    ffiOutContracts: any
+
+    --- Element type of a C array construction.
+    carrayElem: any
+
+    --- A preceding `indexed.range` witness proves this accessor's index is in bounds.
+    rangeProvenNoRaise: boolean?
+
+    --- Generator-only direct indexed access selected after checking.
+    indexedDirectAccess: boolean?
+
+    --- Header declarations a cheader call brought in.
+    cheaderCdef: any
+
+    --- A literal ffi.cdef/pcall declaration block. It has no keyed Nupp cdef node,
+    --- so hot reload retains it through the conservative module-wide C fallback.
+    cdefDeclarationBlock: boolean?
+
+    --- The library those declarations bind to.
+    cheaderLib: any
+
+    --- Statically known and dynamically computed ffi.load calls, for watch-only
+    --- native artifact identity.
+    ffiLoadLib: string?
+
+    ffiLoadDynamic: boolean?
+
+    --- Set on a call that constructs a record.
+    recordConstruct: string?
+
+    --- Direct struct construction rewritten with omitted field defaults filled.
+    structConstruct: string?
+
+    --- The fields that construction binds, in the order they were written, so the
+    --- table the generator builds evaluates its values where the source put them.
+    --- Each entry carries the field's name and the expression filling it.
+    ---
+    --- The checker resolves these because a positional construction is bound by the
+    --- declaration's field order, which only the checker knows.
+    recordFields: {any}?
+
+    --- Set on the call under a `new`, which is what makes it a construction rather than
+    --- an ordinary call reaching `__call` or a ctype.
+    isNew: boolean?
+
+    --- The runtime path of a record whose declared constructor this call runs.
+    constructorCall: string?
+
+    --- The nominal a constructor body belongs to.
+    ownerNominal: any
+
+    --- Set once a `new` operand has been answered as a type, so the call does not
+    --- answer for it a second time as a value.
+    newReported: boolean?
+
+    --- Set on a call that crosses into C.
+    cdefCall: boolean?
+
+    --- Stable keyed C declaration identity when the checker can prove which
+    --- declaration this operation reaches. A missing identity on a C operation keeps
+    --- hot reload on its conservative module-wide fallback.
+    cdefIdentity: string?
+
+    --- Which ownership intrinsic a call is.
+    ownershipIntrinsic: string?
+
+    --- An ownership operation introduced by syntax rather than a callable name.
+    ownershipSyntax: string?
+
+    --- What an owner promised to release.
+    ownerCleanups: any
+
+    --- The affine value acquired by a `with` binding.
+    acquiredType: any
+
+    --- The `with` binding a visible scoped borrow resolves to.
+    withBinding: any
+
+    --- Whether a `with` body reads a binding from an enclosing scope.
+    capturesEnclosing: boolean?
+
+    --- Free cleanup bindings this node registers in the runtime linker.
+    cleanupRegistrations: any
+
+    --- The annotation node on which resolved cleanup registrations are emitted.
+    cleanupRegistrationNode: any
+
+    --- The cleanup list this declaration's owning first result carries.
+    ownCleanups: any
+
+    --- Canonical roots, access, region, anchor, and retention facts for this value.
+    capabilityFacts: any
+
+    --- Canonical capability facts for each returned value slot.
+    resultCapabilityFacts: any
+
+    --- Aggregate field partitions transported by returned values.
+    returnPartitionFields: any
+
+    --- Writable region suffixes carried by aggregate fields.
+    partitionFields: any
+
+    --- Aggregate field partitions proven for a function body's result slots.
+    partitionResults: any
+
+    partitionReturnSeen: any
+
+    --- Ownership mode of an inline method's implicit receiver.
+    receiverMode: string?
+
+    --- Capability state transported by a `preserves` result, per result slot.
+    --- This call is a statement, so a named capability preserved through an ignored
+    --- result stays at its source rather than transferring into temporary storage.
+    discardingResults: boolean?
+
+    --- Exact capability transported through a managed alias operation.
+    resourceCapability: any
+
+    --- Cleanup program and stable policy carried by `nupp.manage`.
+    managedCleanups: any
+
+    managedPolicy: string?
+
+    --- Stable target policy for alias recovery and downcasting.
+    managedAliasPolicy: string?
+
+    --- This call validates and recovers a managed alias from `any`.
+    recoverManagedAlias: boolean?
+
+    --- Whether a use-after-move was already reported here.
+    ownershipUseReported: boolean?
+
+    --- Whether a repeated contextual pass already reported this capture.
+    ownershipCaptureReported: boolean?
+
+    --- Whether the generator must pass the pinned pointer rather than the handle.
+    passPinnedPointer: boolean?
+
+    --- Whether this declaration defines an annotation.
+    isAnnotationDefinition: boolean?
+
+    --- The definition an annotation application resolved to.
+    annotationDefinition: any
+
+    --- The type an `@ref` argument named.
+    annotationReferenceType: any
+
+    --- The struct an inline method belongs to.
+    structOwner: any
+
+    --- The member name a declaration entry publishes.
+    memberName: string?
+
+    --- Generator-owned label a `break` leaves through.
+    breakExit: any
+
+    --- Generator-owned label a `continue` leaves through.
+    continueExit: any
+end
+
+--- A parsed file: its top-level blocks and the eof token that ends it.
+record cst.Chunk is cst.Hints
+    {cst.Node | lexer.Token}
+
+    --- Names the production this node stands for.
+    kind: 'chunk'
+
+    --- The top-level blocks, one per recovery region.
+    blocks: {cst.Block}
+
+    --- A leading `@!nofmt` inner annotation, which applies to this file only.
+    formatDisabled: boolean?
+
+    --- A leading `@!internal` inner annotation. Documentation hides this file; on an
+    --- `init.nupp`, it also hides every module beneath that namespace.
+    documentationInternal: boolean?
+
+    --- The end-of-file token, which carries the trailing trivia.
+    eof: lexer.Token?
+end
+
+--- A sequence of statements.
+record cst.Block is cst.Hints
+    {cst.Node | lexer.Token}
+
+    --- Names the production this node stands for.
+    kind: 'block'
+
+    --- The statements, in source order.
+    stats: {cst.Node}
+end
+
+--- A lone `;`.
+record cst.EmptyStmt is cst.Hints
+    {cst.Node | lexer.Token}
+
+    --- Names the production this node stands for.
+    kind: 'emptyStmt'
+end
+
+--- `module a.b.c`, naming the canonical module implemented by this source file.
+record cst.ModuleStmt is cst.Hints
+    {cst.Node | lexer.Token}
+
+    kind: 'moduleStmt'
+    keyword: lexer.Token?
+    names: {lexer.Token}
+end
+
+--- `export` applied to one declaration, or `export = value` for an existing module
+--- value. The assignment form lets an established Lua-shaped module adopt a declared
+--- identity without changing its runtime identity or allocating wrappers per member.
+record cst.ExportStmt is cst.Hints
+    {cst.Node | lexer.Token}
+
+    kind: 'exportStmt'
+    keyword: lexer.Token?
+    equal: lexer.Token?
+    value: cst.Node?
+    stat: cst.Node?
+end
+
+--- `handle suspension with h do ... end`: a scope in which `h` answers suspensions.
+---
+--- Installs a suspension handler and additionally marks its body a checked
+--- handled-suspension region. The mark is the point rather than the sugar: a
+--- suspension inside one is known to have somebody responsible for it, which is what
+--- lets the resource rules treat it differently from a raw coroutine yield.
+record cst.HandleStmt is cst.Hints
+    {cst.Node | lexer.Token}
+
+    --- Names the production this node stands for.
+    kind: 'handleStmt'
+
+    --- The contextual `handle`.
+    handleTok: lexer.Token?
+
+    --- What answers suspensions inside.
+    handler: cst.Node?
+
+    --- The `do`.
+    doTok: lexer.Token?
+
+    --- The body, which is the checked region.
+    body: cst.Node?
+
+    --- The `end`.
+    endTok: lexer.Token?
+end
+
+--- An exact affine extent, `with value = acquire() do ... end`.
+record cst.WithStmt is cst.Hints
+    {cst.Node | lexer.Token}
+
+    kind: 'withStmt'
+    withTok: lexer.Token?
+    bindings: {cst.WithBinding}
+    doTok: lexer.Token?
+    body: cst.Node?
+    endTok: lexer.Token?
+end
+
+--- One left-to-right acquisition in a `with` statement.
+record cst.WithBinding is cst.Hints
+    {cst.Node | lexer.Token}
+
+    kind: 'withBinding'
+    name: lexer.Token?
+    type: cst.Node?
+    eq: lexer.Token?
+    expr: cst.Node?
+end
+
+--- An `if` and everything that belongs to it.
+record cst.IfStmt is cst.Hints
+    {cst.Node | lexer.Token}
+
+    --- Names the production this node stands for.
+    kind: 'ifStmt'
+
+    --- The `if` clause and any `elseif` clauses, in order.
+    clauses: {cst.IfClause | cst.ElseifClause}
+
+    --- The `else`, when there is one.
+    elseClause: cst.Node?
+end
+
+--- The leading `if cond then ...` arm.
+record cst.IfClause is cst.Hints
+    {cst.Node | lexer.Token}
+
+    --- Names the production this node stands for.
+    kind: 'ifClause'
+
+    --- The condition.
+    cond: cst.Node?
+
+    --- The block it guards.
+    body: cst.Node?
+end
+
+--- An `elseif cond then ...` arm.
+record cst.ElseifClause is cst.Hints
+    {cst.Node | lexer.Token}
+
+    --- Names the production this node stands for.
+    kind: 'elseifClause'
+
+    --- The condition.
+    cond: cst.Node?
+
+    --- The block it guards.
+    body: cst.Node?
+end
+
+--- The `else` arm.
+record cst.ElseClause is cst.Hints
+    {cst.Node | lexer.Token}
+
+    --- Names the production this node stands for.
+    kind: 'elseClause'
+
+    --- The block it guards.
+    body: cst.Node?
+end
+
+--- `while cond do ... end`.
+record cst.WhileStmt is cst.Hints
+    {cst.Node | lexer.Token}
+
+    --- Names the production this node stands for.
+    kind: 'whileStmt'
+
+    --- The condition, tested before each iteration.
+    cond: cst.Node?
+
+    --- The loop body.
+    body: cst.Node?
+end
+
+--- A bare `do ... end` block.
+record cst.DoStmt is cst.Hints
+    {cst.Node | lexer.Token}
+
+    --- Names the production this node stands for.
+    kind: 'doStmt'
+
+    --- The block.
+    body: cst.Node?
+end
+
+--- `unsafe do ... end`, where raw pointer use is permitted.
+--- `nosuspend do ... end`: a region in which suspending is a checked error.
+---
+--- Lexical and static. It erases to an ordinary `do` block, having no run-time
+--- component at all: what it does is refuse, while compiling, any call that may yield.
+record cst.NoSuspendStmt is cst.Hints
+    {cst.Node | lexer.Token}
+
+    --- Names the production this node stands for.
+    kind: 'noSuspendStmt'
+
+    --- The contextual `nosuspend`.
+    keywordTok: lexer.Token?
+
+    --- The `do`.
+    doTok: lexer.Token?
+
+    --- The block.
+    body: cst.Node?
+
+    --- The `end`.
+    endTok: lexer.Token?
+end
+
+--- `noalloc do ... end` or `noraise do ... end`: a region which requires one
+--- negative call-graph guarantee. Both spellings share one production because their
+--- only difference is the effect flag the checker asks about.
+record cst.EffectRegionStmt is cst.Hints
+    {cst.Node | lexer.Token}
+
+    kind: 'effectRegionStmt'
+    keywordTok: lexer.Token?
+    effect: 'allocates' | 'raises'
+    doTok: lexer.Token?
+    body: cst.Node?
+    endTok: lexer.Token?
+end
+
+record cst.UnsafeStmt is cst.Hints
+    {cst.Node | lexer.Token}
+
+    --- Names the production this node stands for.
+    kind: 'unsafeStmt'
+
+    --- The contextual `unsafe`.
+    unsafeTok: lexer.Token?
+
+    --- The `do`.
+    doTok: lexer.Token?
+
+    --- The block.
+    body: cst.Node?
+
+    --- The `end`.
+    endTok: lexer.Token?
+end
+
+--- A numeric `for`.
+record cst.FornumStmt is cst.Hints
+    {cst.Node | lexer.Token}
+
+    --- Names the production this node stands for.
+    kind: 'fornumStmt'
+
+    --- The control variable.
+    var: lexer.Token?
+
+    --- The first value.
+    start: cst.Node?
+
+    --- The bound.
+    stop: cst.Node?
+
+    --- The step, when one was written.
+    step: cst.Node?
+
+    --- The loop body.
+    body: cst.Node?
+end
+
+--- A generic `for ... in ...`.
+record cst.ForinStmt is cst.Hints
+    {cst.Node | lexer.Token}
+
+    --- Names the production this node stands for.
+    kind: 'forinStmt'
+
+    --- The names the iterator binds.
+    names: {lexer.Token}
+
+    --- The iterator expression list.
+    exprs: {cst.Node}
+
+    --- The loop body.
+    body: cst.Node?
+end
+
+--- `repeat ... until cond`.
+record cst.RepeatStmt is cst.Hints
+    {cst.Node | lexer.Token}
+
+    --- Names the production this node stands for.
+    kind: 'repeatStmt'
+
+    --- The block, whose scope reaches the condition.
+    body: cst.Node?
+
+    --- The condition, tested after each iteration.
+    cond: cst.Node?
+end
+
+--- `function a.b:c(...) ... end`.
+record cst.FuncStmt is cst.Hints
+    {cst.Node | lexer.Token}
+
+    --- Names the production this node stands for.
+    kind: 'funcStmt'
+
+    --- The contextual `comptime` declaration modifier, when this function exists only
+    --- for compile-time evaluation.
+    comptimeTok: lexer.Token?
+
+    --- The `funcname` naming what it attaches to.
+    name: cst.Node?
+
+    --- The parameters, returns and block.
+    body: cst.Node?
+
+    --- Compiler-only function metadata; none of it reaches generated Lua.
+    comptimeFunction: boolean?
+
+    comptimeName: string?
+    comptimeSignature: any
+    comptimeDefinition: any
+end
+
+--- The dotted, optionally method-qualified name of a function statement.
+record cst.Funcname is cst.Hints
+    {cst.Node | lexer.Token}
+
+    --- Names the production this node stands for.
+    kind: 'funcname'
+
+    --- The leading name.
+    base: lexer.Token?
+
+    --- The member after `:`, when the form is a method.
+    method: lexer.Token?
+end
+
+--- `local function f(...) ... end`, its `const` spelling, and their compile-time-only
+--- `comptime` forms.
+record cst.LocalFuncStmt is cst.Hints
+    {cst.Node | lexer.Token}
+
+    --- Names the production this node stands for.
+    kind: 'localFuncStmt'
+
+    --- Whether it was written `const`.
+    isConst: boolean?
+
+    --- The contextual `comptime` declaration modifier, when present.
+    comptimeTok: lexer.Token?
+
+    --- The name it binds.
+    name: lexer.Token?
+
+    --- The parameters, returns and block.
+    body: cst.Node?
+
+    --- Expression-shaped initializer used when the function itself is affine.
+    affineInitializer: cst.Node?
+end
+
+--- `local a, b: T = ...`, and its `const` spelling.
+record cst.LocalStmt is cst.Hints
+    {cst.Node | lexer.Token}
+
+    --- Names the production this node stands for.
+    kind: 'localStmt'
+
+    --- Whether it was written `const`.
+    isConst: boolean?
+
+    --- The names it binds.
+    names: {lexer.Token}
+
+    --- Their annotations, indexed to match `names`; a slot is absent when that name was
+    --- not annotated.
+    types: {cst.Node}
+
+    --- The initializers, when there are any.
+    exprs: {cst.Node}?
+
+    --- The shallow named entries when this declaration uses `{field as local}`.
+    pattern: {cst.BindingEntry}?
+
+    --- The one value selected by a binding pattern.
+    patternSource: cst.Node?
+end
+
+--- One field selected by a shallow local or const binding pattern.
+record cst.BindingEntry is cst.Hints
+    {cst.Node | lexer.Token}
+
+    kind: 'bindingEntry'
+
+    --- The field read from the source value.
+    sourceName: lexer.Token?
+
+    --- The contextual `type` on an erased declared-module selection.
+    typeOnly: lexer.Token?
+
+    --- The local name after `as`, or nil when `sourceName` is also the local.
+    alias: lexer.Token?
+
+    --- The optional annotation on the resulting local.
+    type: cst.Node?
+
+    --- The field declaration resolved by the checker.
+    selectedDefinition: any
+end
+
+--- `::name::`.
+record cst.LabelStmt is cst.Hints
+    {cst.Node | lexer.Token}
+
+    --- Names the production this node stands for.
+    kind: 'labelStmt'
+
+    --- The label.
+    name: lexer.Token?
+end
+
+--- `goto name`.
+record cst.GotoStmt is cst.Hints
+    {cst.Node | lexer.Token}
+
+    --- Names the production this node stands for.
+    kind: 'gotoStmt'
+
+    --- The label it jumps to.
+    name: lexer.Token?
+end
+
+--- `break`.
+record cst.BreakStmt is cst.Hints
+    {cst.Node | lexer.Token}
+
+    --- Names the production this node stands for.
+    kind: 'breakStmt'
+end
+
+--- `continue`.
+record cst.ContinueStmt is cst.Hints
+    {cst.Node | lexer.Token}
+
+    --- Names the production this node stands for.
+    kind: 'continueStmt'
+end
+
+--- `return` and its expression list.
+record cst.ReturnStmt is cst.Hints
+    {cst.Node | lexer.Token}
+
+    --- Names the production this node stands for.
+    kind: 'returnStmt'
+
+    --- The returned expressions, empty for a bare return.
+    exprs: {cst.Node}
+end
+
+--- `yield value` inside a block switch arm. This is distinct from
+--- `coroutine.yield(...)`: it supplies the value of the enclosing switch.
+record cst.SwitchYieldStmt is cst.Hints
+    {cst.Node | lexer.Token}
+
+    kind: 'switchYieldStmt'
+    value: cst.Node?
+end
+
+--- `x += e` and the rest of the compound assignments.
+record cst.CompoundAssign is cst.Hints
+    {cst.Node | lexer.Token}
+
+    --- Names the production this node stands for.
+    kind: 'compoundAssign'
+
+    --- What is assigned to.
+    target: cst.Node?
+
+    --- The compound operator.
+    op: lexer.Token?
+
+    --- The right-hand side.
+    value: cst.Node?
+end
+
+--- `a, b = e1, e2`.
+record cst.AssignStmt is cst.Hints
+    {cst.Node | lexer.Token}
+
+    --- Names the production this node stands for.
+    kind: 'assignStmt'
+
+    --- Whether this establishes an immutable field binding.
+    isConst: boolean?
+
+    --- Whether every named field in its fresh table initializer is const.
+    deepConst: boolean?
+
+    --- What is assigned to.
+    targets: {cst.Node}
+
+    --- The values.
+    exprs: {cst.Node}
+end
+
+--- A call in statement position.
+record cst.CallStmt is cst.Hints
+    {cst.Node | lexer.Token}
+
+    --- Names the production this node stands for.
+    kind: 'callStmt'
+
+    --- The call.
+    expr: cst.Node?
+end
+
+--- A statement the parser could not make sense of. It still owns its tokens.
+record cst.ErrorStmt is cst.Hints
+    {cst.Node | lexer.Token}
+
+    --- Names the production this node stands for.
+    kind: 'errorStmt'
+
+    --- Annotations attached to it inside a declaration body.
+    annotations: {cst.Node}?
+end
+
+--- `@name(...)` decorating the statement that follows it.
+record cst.PragmaStmt is cst.Hints
+    {cst.Node | lexer.Token}
+
+    --- Names the production this node stands for.
+    kind: 'pragmaStmt'
+
+    --- The annotation's name.
+    name: lexer.Token?
+
+    --- The `(` opening its arguments.
+    open: lexer.Token?
+
+    --- The arguments, one `annotationArg` each.
+    annotationArgs: {cst.AnnotationArg}?
+
+    --- The `)` closing them.
+    close: lexer.Token?
+
+    --- The statement it decorates.
+    stat: cst.Node?
+end
+
+--- `@name(...)` attached to a declaration member rather than a statement.
+record cst.AnnotationApply is cst.Hints
+    {cst.Node | lexer.Token}
+
+    --- Names the production this node stands for.
+    kind: 'annotationApply'
+
+    --- The annotation's name.
+    name: lexer.Token?
+
+    --- The `(` opening its arguments.
+    open: lexer.Token?
+
+    --- The arguments, one `annotationArg` each.
+    annotationArgs: {cst.AnnotationArg}?
+
+    --- The `)` closing them.
+    close: lexer.Token?
+end
+
+--- One argument of an annotation: `value` or `name = value`.
+record cst.AnnotationArg is cst.Hints
+    {cst.Node | lexer.Token}
+
+    --- Names the production this node stands for.
+    kind: 'annotationArg'
+
+    --- The member's name, when the argument is named.
+    name: lexer.Token?
+
+    --- The `=` between them.
+    eq: lexer.Token?
+
+    --- The value.
+    expr: cst.Node?
+end
+
+--- `associated type Name`, with an optional `is Bound` and an optional `= Answer`.
+---
+--- Its own production rather than a `TypeAlias` carrying a flag: a requirement and a
+--- nested alias mean different things, are reached differently, and want different
+--- answers from tooling. What an occurrence means -- stating a requirement or
+--- answering one -- is decided from the declaration it sits in, not here.
+record cst.AssociatedDecl is cst.Hints
+    {cst.Node | lexer.Token}
+
+    --- Names the production this node stands for.
+    kind: 'associatedDecl'
+
+    --- The contextual `associated`.
+    keyword: lexer.Token?
+
+    --- The `type` that has to follow it on the same line.
+    typeKeyword: lexer.Token?
+
+    --- The declared name.
+    name: lexer.Token?
+
+    --- The bound written after `is`, when one was.
+    bound: cst.Node?
+
+    --- The type written after `=` or `==`, when one was. An interface states a
+    --- default with `=` and a fixed equality with `==`; anything else answers with
+    --- `=`. Which is which is not the parser's to say.
+    value: cst.Node?
+
+    --- Whether `==` was written rather than `=`: a fixed equality, which an
+    --- implementor may not answer otherwise, rather than a default it may replace.
+    fixed: boolean?
+
+    --- Annotations attached to it.
+    annotations: {cst.Node}?
+end
+
+--- `type Name = Type`, optionally introduced by `comptime` when the alias may
+--- name compiler-only value types.
+record cst.TypeAlias is cst.Hints
+    {cst.Node | lexer.Token}
+
+    --- Names the production this node stands for.
+    kind: 'typeAlias'
+
+    --- "local", "module", "global" or "nested".
+    visibility: string?
+
+    --- The contextual `type`.
+    keyword: lexer.Token?
+
+    --- The `local` or `global` before it, when one was written.
+    modifier: lexer.Token?
+
+    --- The contextual `comptime` before `type`, when this is a compiler-only alias.
+    comptimeTok: lexer.Token?
+
+    --- Whether the alias may only be named while checking comptime code.
+    comptimeOnly: boolean?
+
+    --- The declared name.
+    name: lexer.Token?
+
+    --- The tables it attaches to, outermost first.
+    qualifiers: {lexer.Token}?
+
+    --- Its generic parameters, when it has any.
+    generics: cst.Node?
+
+    --- The type it names.
+    value: cst.Node?
+
+    --- This transparent declaration adds an affine obligation to `value`.
+    affine: boolean?
+
+    --- The contextual `affine` introducer, when this is an affine declaration.
+    affineTok: lexer.Token?
+
+    --- The const-function term written after `terminal`, when one was written.
+    terminal: cst.Node?
+
+    terminalTok: lexer.Token?
+
+    --- The `end` closing an affine declaration.
+    endTok: lexer.Token?
+end
+
+--- A `record`, `interface` or `struct` declaration.
+record cst.RecordDecl is cst.Hints
+    {cst.Node | lexer.Token}
+
+    --- Names the production this node stands for.
+    kind: 'recordDecl'
+
+    --- "local", "module", "global" or "nested".
+    visibility: string?
+
+    --- The contextual introducer.
+    keyword: lexer.Token?
+
+    --- The `local` or `global` before it, when one was written.
+    modifier: lexer.Token?
+
+    --- The `sealed` modifier on this interface, when one was written.
+    sealedTok: lexer.Token?
+
+    --- The `affine` modifier on an ownership-bearing interface.
+    affineTok: lexer.Token?
+
+    --- Which form: "record", "interface" or "struct".
+    declKind: string?
+
+    --- The declared name.
+    name: lexer.Token?
+
+    --- The tables it attaches to, outermost first.
+    qualifiers: {lexer.Token}?
+
+    --- Its generic parameters, when it has any.
+    generics: cst.Node?
+
+    --- The contracts named after `is`.
+    supertypes: {cst.Node}?
+
+    --- A `where` refinement, when one was written.
+    whereClause: cst.Node?
+
+    --- Its fields, methods, metamethods and nested declarations.
+    entries: {cst.Node}
+
+    --- Validated `@derive` wrappers attached to this declaration.
+    deriveApplications: {cst.PragmaStmt}?
+
+    --- The finalized, source-free lowering plan consumed by code generation.
+    deriveRecipe: any
+end
+
+--- A declaration refinement introduced by `where`.
+record cst.WhereClause is cst.Hints
+    {cst.Node | lexer.Token}
+
+    --- Names the production this node stands for.
+    kind: 'whereClause'
+
+    --- The predicate.
+    expr: cst.Node?
+end
+
+--- `name: T` inside a declaration body.
+record cst.FieldDecl is cst.Hints
+    {cst.Node | lexer.Token}
+
+    --- Names the production this node stands for.
+    kind: 'fieldDecl'
+
+    --- The field's name.
+    name: lexer.Token?
+
+    --- `readonly` or `writeonly` when only that capability is granted.
+    capability: lexer.Token?
+
+    --- `private` when only the declaration's canonical module may reach the field.
+    privacy: lexer.Token?
+
+    --- Its type.
+    type: cst.Node?
+
+    --- Marks this callable member as the affine interface's terminal operation.
+    terminalTok: lexer.Token?
+
+    --- The integer width after a C bitfield's second colon.
+    bitWidth: lexer.Token?
+
+    --- The constant value used when construction omits this field.
+    defaultValue: cst.Node?
+
+    --- Annotations attached to it.
+    annotations: {cst.Node}?
+end
+
+--- `[K]: V`, optionally prefixed by `readonly` or `writeonly`, in a declaration.
+record cst.IndexerDecl is cst.Hints
+    {cst.Node | lexer.Token}
+
+    kind: 'indexerDecl'
+
+    capability: lexer.Token?
+
+    key: cst.Node?
+
+    value: cst.Node?
+
+    annotations: {cst.Node}?
+end
+
+--- A record's array part, written as the array type it is.
+record cst.ArrayPart is cst.Hints
+    {cst.Node | lexer.Token}
+
+    --- Names the production this node stands for.
+    kind: 'arrayPart'
+
+    --- The array type.
+    type: cst.Node?
+
+    --- Annotations attached to it.
+    annotations: {cst.Node}?
+end
+
+--- An ordinary method written inside a declaration body.
+record cst.InlineMethod is cst.Hints
+    {cst.Node | lexer.Token}
+
+    --- Names the production this node stands for.
+    kind: 'inlineMethod'
+
+    --- The method's name.
+    name: lexer.Token?
+
+    --- Its parameters, returns and block.
+    body: cst.Node?
+
+    --- Annotations attached to it.
+    annotations: {cst.Node}?
+end
+
+--- A bodyless `metamethod __name: function(...)` contract.
+record cst.MetamethodDecl is cst.Hints
+    {cst.Node | lexer.Token}
+
+    --- Names the production this node stands for.
+    kind: 'metamethodDecl'
+
+    --- The metamethod's name.
+    name: lexer.Token?
+
+    --- Its declared function type.
+    type: cst.Node?
+
+    --- Annotations attached to it.
+    annotations: {cst.Node}?
+end
+
+--- `cdef function f(...): T from "lib"`.
+record cst.CdefFunc is cst.Hints
+    {cst.Node | lexer.Token}
+
+    --- Names the production this node stands for.
+    kind: 'cdefFunc'
+
+    --- The C function's name.
+    name: lexer.Token?
+
+    --- Its parameters.
+    params: {cst.Node}
+
+    --- Whether it ends in C varargs.
+    varargs: boolean?
+
+    --- Its return type, when one was written.
+    ret: cst.Node?
+
+    --- The library named by a `from` clause.
+    fromLib: lexer.Token?
+
+    --- Checked logical counted-pointer wrapper and its original physical C signature.
+    countedAbi: any
+
+    physicalSignatureType: any
+
+    --- One checked signature rendered as the typed header prototype and the
+    --- physically erased LuaJIT declaration.
+    cAbiSignature: any
+
+    --- Canonical checked identity and ABI/ownership semantics for hot reload.
+    cdefIdentity: string?
+
+    cdefSemantic: string?
+end
+
+--- `cdef struct Name ... end`.
+record cst.CdefStruct is cst.Hints
+    {cst.Node | lexer.Token}
+
+    --- Names the production this node stands for.
+    kind: 'cdefStruct'
+
+    --- The C struct's name.
+    name: lexer.Token?
+
+    --- `struct` or `union`.
+    aggregateKind: string?
+
+    --- Its fields.
+    entries: {cst.Node}
+
+    --- Canonical checked identity and layout semantics for hot reload.
+    cdefIdentity: string?
+
+    cdefSemantic: string?
+end
+
+--- A generic parameter clause, `<K, V is Bound>`.
+record cst.Generics is cst.Hints
+    {cst.Node | lexer.Token}
+
+    --- Names the production this node stands for.
+    kind: 'generics'
+
+    --- The parameters.
+    names: {lexer.Token}
+
+    --- Upper bounds, indexed to match `names`; an absent slot is unbounded.
+    bounds: {cst.Node}
+
+    --- Whether the aligned name is a generic pack binder, `A...`.
+    packs: {boolean}
+
+    --- Whether the aligned name is a compile-time value binder.
+    consts: {boolean}
+
+    --- Its aligned const domain token (`string`, `boolean`, or `integer`).
+    domains: {lexer.Token}
+
+    --- Defaults, indexed to match `names`. An absent slot has none, and an
+    --- application may leave out every parameter that has one.
+    defaults: {cst.Node}
+end
+
+--- One parameter of a function body, a short function, or a cdef.
+record cst.Param is cst.Hints
+    {cst.Node | lexer.Token}
+
+    --- Names the production this node stands for.
+    kind: 'param'
+
+    --- Its ownership mode, when one was written.
+    modeTok: lexer.Token?
+
+    --- `const name: function` on a comptime parameter. The declaration identity is
+    --- transported as an opaque compiler-only value rather than a runtime function.
+    constTok: lexer.Token?
+
+    constDomainTok: lexer.Token?
+
+    --- Its name; absent for a bare `...`.
+    name: lexer.Token?
+
+    --- Whether it is a named vararg, `...rest`.
+    namedVararg: boolean?
+
+    --- Whether this is either spelling of a variadic parameter.
+    vararg: boolean?
+
+    --- Its annotation, when one was written.
+    type: cst.Node?
+
+    --- The physical count parameter named by a cdef pointer qualifier.
+    countedBy: lexer.Token?
+
+    countedByTok: lexer.Token?
+end
+
+--- The parameters, return annotation and block of a function.
+record cst.Funcbody is cst.Hints
+    {cst.Node | lexer.Token}
+
+    --- Names the production this node stands for.
+    kind: 'funcbody'
+
+    --- Its generic parameters, when it has any.
+    generics: cst.Node?
+
+    --- Its parameters.
+    params: {cst.Node}
+
+    --- Its return annotations, when they were written.
+    rets: {cst.Node}?
+
+    returnPack: cst.Node?
+
+    yieldPack: cst.Node?
+
+    resumePack: cst.Node?
+
+    --- The block.
+    body: cst.Node?
+
+    --- The named vararg parameter, when it has one.
+    varargParam: cst.Node?
+
+    --- Owners moved into this closure at construction.
+    captureTakes: cst.Node?
+
+    --- Sources explicitly borrowed by this closure.
+    captureBorrows: cst.Node?
+
+    --- A trailing `borrows (...)` that may instead qualify the first result.
+    --- The checker resolves the ambiguity from the enclosing bindings.
+    captureBorrowsCandidate: cst.Node?
+
+    --- Semantic ownership metadata attached by the checker.
+    takenCaptures: any
+
+    borrowCaptures: any
+
+    captureBindingStat: any
+end
+
+--- An ownership clause on a closure, `takes (...)` or `borrows (...)`.
+record cst.CaptureClause is cst.Hints
+    {cst.Node | lexer.Token}
+
+    --- Names the production this node stands for.
+    kind: 'captureClause'
+
+    --- The `takes` or `borrows` token.
+    mode: lexer.Token?
+
+    --- The captured names in source order.
+    names: {lexer.Token}
+end
+
+--- A reference to a name.
+record cst.NameExpr is cst.Hints
+    {cst.Node | lexer.Token}
+
+    --- Names the production this node stands for.
+    kind: 'name'
+
+    --- The identifier.
+    token: lexer.Token?
+end
+
+--- A numeric literal.
+record cst.NumberLit is cst.Hints
+    {cst.Node | lexer.Token}
+
+    --- Names the production this node stands for.
+    kind: 'number'
+
+    --- The literal, suffixes and radix included.
+    token: lexer.Token?
+end
+
+--- A string literal.
+record cst.StringLit is cst.Hints
+    {cst.Node | lexer.Token}
+
+    --- Names the production this node stands for.
+    kind: 'string'
+
+    --- The literal, quoting included.
+    token: lexer.Token?
+end
+
+--- A long string with its closing delimiter's indentation removed from content lines.
+record cst.DedentString is cst.Hints
+    {cst.Node | lexer.Token}
+
+    kind: 'dedentString'
+
+    --- The contextual `dedent` introducer.
+    keyword: lexer.Token?
+
+    --- The following Lua long-string token.
+    token: lexer.Token?
+end
+
+--- `nil`.
+record cst.NilExpr is cst.Hints
+    {cst.Node | lexer.Token}
+
+    --- Names the production this node stands for.
+    kind: 'nilExpr'
+
+    --- The keyword.
+    token: lexer.Token?
+end
+
+--- `true`.
+record cst.TrueExpr is cst.Hints
+    {cst.Node | lexer.Token}
+
+    --- Names the production this node stands for.
+    kind: 'trueExpr'
+
+    --- The keyword.
+    token: lexer.Token?
+end
+
+--- `false`.
+record cst.FalseExpr is cst.Hints
+    {cst.Node | lexer.Token}
+
+    --- Names the production this node stands for.
+    kind: 'falseExpr'
+
+    --- The keyword.
+    token: lexer.Token?
+end
+
+--- `...` in expression position.
+record cst.Vararg is cst.Hints
+    {cst.Node | lexer.Token}
+
+    --- Names the production this node stands for.
+    kind: 'vararg'
+
+    --- The `...`.
+    token: lexer.Token?
+end
+
+--- A parenthesized expression, which also truncates a multi-value one.
+record cst.Paren is cst.Hints
+    {cst.Node | lexer.Token}
+
+    --- Names the production this node stands for.
+    kind: 'paren'
+
+    --- What is inside.
+    expr: cst.Node?
+end
+
+--- `comptime do ... end`: an expression whose value is computed while compiling.
+---
+--- The block is an ordinary block and keeps every one of its tokens, so the formatter
+--- and `cst.textOf` reproduce what was written. What evaluation produced is hung off
+--- `comptimeValue` rather than spliced into the children, which is what lets syntax
+--- tools keep seeing the source while `gen` emits the result.
+record cst.ComptimeExpr is cst.Hints
+    {cst.Node | lexer.Token}
+
+    --- Names the production this node stands for.
+    kind: 'comptimeExpr'
+
+    --- The block between `do` and `end`.
+    body: cst.Node?
+end
+
+--- `new T(...)`, `new T {...}`: the only way to construct a record or a struct.
+---
+--- The construction is written as a call so that Lua's existing call sugar covers every
+--- form, and so that a qualified name reaches its declaration through the same suffix
+--- parsing everything else uses. `new` installs nothing at run time: it lowers to the
+--- stamp or the ctype call directly, which is what leaves `__call` and `__new` to the
+--- program.
+record cst.NewExpr is cst.Hints
+    {cst.Node | lexer.Token}
+
+    --- Names the production this node stands for.
+    kind: 'newExpr'
+
+    --- The call this constructs from, whose `obj` names the type.
+    call: cst.Node?
+end
+
+--- `unsafe adopt value as Owner` or `unsafe release owner`.
+---
+--- Both forms are explicit capability-boundary assertions and erase at runtime. The
+--- checker proves the representation agrees with the affine target on adoption and
+--- moves the owner on release.
+record cst.UnsafeOwnershipExpr is cst.Hints
+    {cst.Node | lexer.Token}
+
+    --- Names the production this node stands for.
+    kind: 'unsafeOwnershipExpr'
+
+    --- Which boundary operation was written.
+    operation: 'adopt' | 'release'
+
+    --- The adopted value or released owner.
+    expr: cst.Node?
+
+    --- The affine target of an adoption.
+    type: cst.Node?
+end
+
+--- `satisfies |self| -> test` in an interface body: the runtime test for `is`.
+---
+--- An interface has no table to stamp, so this is the only identity it can have. The
+--- expression reads the declaration's own fields through `self`, in a subset small
+--- enough to inline wherever `is` is written.
+---
+--- Both function spellings are accepted, as they are anywhere else a function is
+--- written: the short `|self| -> test` and the long `(self): boolean ... end`. The
+--- long one's body says the same single thing, so it is one `return`.
+record cst.SatisfiesDecl is cst.Hints
+    {cst.Node | lexer.Token}
+
+    --- Names the production this node stands for.
+    kind: 'satisfiesDecl'
+
+    --- The test, read off whichever spelling was written.
+    expr: cst.Node?
+
+    --- The function it was written as, short or long.
+    body: cst.Node?
+
+    --- Annotations written above it.
+    annotations: {cst.Node}?
+end
+
+--- `constructor(self, ...) ... end` in a declaration body: what `new T(...)` runs.
+---
+--- It has no name. The instance is made before the body runs and returned after it,
+--- so the body's whole job is to fill the fields in. An optional result annotation
+--- may state the affine policy introduced by construction, but must erase to the
+--- instance representation. The receiver is written out the way a method's is, and is
+--- no more an argument than a method's is: `new T(...)` passes what follows it.
+record cst.ConstructorDecl is cst.Hints
+    {cst.Node | lexer.Token}
+
+    --- Names the production this node stands for.
+    kind: 'constructorDecl'
+
+    --- The parameter list and body.
+    body: cst.Node?
+
+    --- Annotations written above it.
+    annotations: {cst.Node}?
+
+    --- The runtime name the generator minted for it.
+    constructorName: string?
+end
+
+--- An expression the parser could not make sense of.
+record cst.ErrorExpr is cst.Hints
+    {cst.Node | lexer.Token}
+
+    --- Names the production this node stands for.
+    kind: 'errorExpr'
+
+    --- The subject it had already parsed, when there was one.
+    obj: cst.Node?
+end
+
+--- `obj.name`.
+record cst.DotIndex is cst.Hints
+    {cst.Node | lexer.Token}
+
+    --- Names the production this node stands for.
+    kind: 'dotIndex'
+
+    --- What is being indexed.
+    obj: cst.Node?
+
+    --- The member's name.
+    name: lexer.Token?
+
+    --- The type argument of an ffi intrinsic written `ffi.new<T>`.
+    ffiTypeArg: cst.Node?
+end
+
+--- `obj[e]`.
+record cst.BracketIndex is cst.Hints
+    {cst.Node | lexer.Token}
+
+    --- Names the production this node stands for.
+    kind: 'bracketIndex'
+
+    --- What is being indexed.
+    obj: cst.Node?
+
+    --- The key.
+    expr: cst.Node?
+end
+
+--- `obj:name(...)`, and its two safe-navigation spellings.
+record cst.MethodCall is cst.Hints
+    {cst.Node | lexer.Token}
+
+    --- Names the production this node stands for.
+    kind: 'methodCall'
+
+    --- The receiver.
+    obj: cst.Node?
+
+    --- The method's name.
+    name: lexer.Token?
+
+    --- The `?.` of `obj?.:name(...)`, which checks the receiver.
+    safeObj: lexer.Token?
+
+    --- The `?.` of `obj:name?.(...)`, which checks the method.
+    safeMethod: lexer.Token?
+
+    --- The argument list.
+    args: cst.Node?
+
+    --- Explicit type arguments written after the method name.
+    typeArgs: {cst.Node}?
+
+    --- Intersection-overload selection and its direct runtime target.
+    overloadWinner: any
+
+    overloadMember: string?
+    methodEntry: any
+end
+
+--- `obj?.name`, which yields nil rather than raising on a nil receiver.
+record cst.SafeIndex is cst.Hints
+    {cst.Node | lexer.Token}
+
+    --- Names the production this node stands for.
+    kind: 'safeIndex'
+
+    --- What is being indexed.
+    obj: cst.Node?
+
+    --- The member's name.
+    name: lexer.Token?
+end
+
+--- `obj?.[e]`.
+record cst.SafeBracket is cst.Hints
+    {cst.Node | lexer.Token}
+
+    --- Names the production this node stands for.
+    kind: 'safeBracket'
+
+    --- What is being indexed.
+    obj: cst.Node?
+
+    --- The key.
+    expr: cst.Node?
+end
+
+--- `obj?.(...)`.
+record cst.SafeCall is cst.Hints
+    {cst.Node | lexer.Token}
+
+    --- Names the production this node stands for.
+    kind: 'safeCall'
+
+    --- The callee.
+    obj: cst.Node?
+
+    --- The argument list.
+    args: cst.Node?
+end
+
+--- `f(...)`, `f"..."` and `f{...}`.
+record cst.Call is cst.Hints
+    {cst.Node | lexer.Token}
+
+    --- Names the production this node stands for.
+    kind: 'call'
+
+    --- The callee.
+    obj: cst.Node?
+
+    --- The argument list.
+    args: cst.Node?
+end
+
+--- A call's arguments, however they were written.
+record cst.Args is cst.Hints
+    {cst.Node | lexer.Token}
+
+    --- Names the production this node stands for.
+    kind: 'args'
+
+    --- The parenthesized argument list.
+    exprs: {cst.Node}?
+
+    --- The first argument when a compiler intrinsic parses it in a type position.
+    typeArg: cst.Node?
+
+    --- The table of `f{...}`.
+    table: cst.Node?
+
+    --- The string of `f"..."`.
+    str: lexer.Token?
+end
+
+--- `name = value` in a parenthesized call argument list.
+record cst.NamedArg is cst.Hints
+    {cst.Node | lexer.Token}
+
+    kind: 'namedArg'
+    name: lexer.Token?
+    value: cst.Node?
+end
+
+--- `{x} = value`, or `{x, y} = value`, in a parenthesized call argument list.
+--- Each name is filled from the field of `value` that the name itself selects.
+record cst.PluckArg is cst.Hints
+    {cst.Node | lexer.Token}
+
+    kind: 'pluckArg'
+
+    --- The parameters filled, in source order. A group names more than one.
+    names: {lexer.Token}
+
+    --- The path the fields are read from.
+    value: cst.Node?
+end
+
+--- A table constructor.
+record cst.TableExpr is cst.Hints
+    {cst.Node | lexer.Token}
+
+    --- Names the production this node stands for.
+    kind: 'tableExpr'
+
+    --- Its entries, in source order.
+    fields: {cst.FieldItem | cst.FieldNamed | cst.FieldBracket}
+end
+
+--- `[k] = v` in a table constructor.
+record cst.FieldBracket is cst.Hints
+    {cst.Node | lexer.Token}
+
+    --- Names the production this node stands for.
+    kind: 'fieldBracket'
+
+    --- The key.
+    key: cst.Node?
+
+    --- The value.
+    value: cst.Node?
+end
+
+--- `name = v` in a table constructor.
+record cst.FieldNamed is cst.Hints
+    {cst.Node | lexer.Token}
+
+    --- Names the production this node stands for.
+    kind: 'fieldNamed'
+
+    --- Whether this table slot is immutable.
+    isConst: boolean?
+
+    --- The key.
+    name: lexer.Token?
+
+    --- The value.
+    value: cst.Node?
+end
+
+--- A positional entry of a table constructor.
+record cst.FieldItem is cst.Hints
+    {cst.Node | lexer.Token}
+
+    --- Names the production this node stands for.
+    kind: 'fieldItem'
+
+    --- The value.
+    value: cst.Node?
+end
+
+--- A short function, `|a, b| -> e` or `x -> do ... end`.
+record cst.Shortfn is cst.Hints
+    {cst.Node | lexer.Token}
+
+    --- Names the production this node stands for.
+    kind: 'shortfn'
+
+    --- Its parameters.
+    params: {cst.Node}
+
+    --- The named vararg parameter, when it has one.
+    varargParam: cst.Node?
+
+    --- The block, for the `-> do ... end` form.
+    body: cst.Node?
+
+    --- The result expression, for the `-> e` form.
+    expr: cst.Node?
+end
+
+--- An interpolated string.
+record cst.Istring is cst.Hints
+    {cst.Node | lexer.Token}
+
+    --- Names the production this node stands for.
+    kind: 'istring'
+
+    --- The interpolated expressions, in order.
+    parts: {cst.Node}
+end
+
+--- `function(...) ... end` in expression position.
+record cst.FuncExpr is cst.Hints
+    {cst.Node | lexer.Token}
+
+    --- Names the production this node stands for.
+    kind: 'funcExpr'
+
+    --- The parameters, returns and block.
+    body: cst.Node?
+end
+
+--- A unary operator applied to one operand.
+record cst.Unop is cst.Hints
+    {cst.Node | lexer.Token}
+
+    --- Names the production this node stands for.
+    kind: 'unop'
+
+    --- The operator.
+    op: lexer.Token?
+
+    --- What it applies to.
+    operand: cst.Node?
+end
+
+--- A binary operator and its two sides.
+record cst.Binop is cst.Hints
+    {cst.Node | lexer.Token}
+
+    --- Names the production this node stands for.
+    kind: 'binop'
+
+    --- The left side.
+    lhs: cst.Node?
+
+    --- The operator.
+    op: lexer.Token?
+
+    --- The right side.
+    rhs: cst.Node?
+end
+
+--- `e as T`, which asserts a type rather than checking one.
+record cst.CastExpr is cst.Hints
+    {cst.Node | lexer.Token}
+
+    --- Names the production this node stands for.
+    kind: 'castExpr'
+
+    --- The value.
+    expr: cst.Node?
+
+    --- The asserted type.
+    type: cst.Node?
+end
+
+--- `e is T`, which tests a type and narrows on the result.
+record cst.IsExpr is cst.Hints
+    {cst.Node | lexer.Token}
+
+    --- Names the production this node stands for.
+    kind: 'isExpr'
+
+    --- The value.
+    expr: cst.Node?
+
+    --- The tested type.
+    type: cst.Node?
+end
+
+--- One directly destructured field in a switch type pattern.
+record cst.SwitchField is cst.Hints
+    {cst.Node | lexer.Token}
+
+    kind: 'switchField'
+    name: lexer.Token?
+    alias: lexer.Token?
+end
+
+--- One `case` in a switch expression.
+record cst.SwitchCase is cst.Hints
+    {cst.Node | lexer.Token}
+
+    kind: 'switchCase'
+    patternKind: 'static' | 'type'
+    values: {cst.Node}
+    type: cst.Node?
+    binding: lexer.Token?
+    fields: {cst.SwitchField}
+    expr: cst.Node?
+    body: cst.Node?
+end
+
+--- The fallback arm of a switch expression.
+record cst.SwitchElse is cst.Hints
+    {cst.Node | lexer.Token}
+
+    kind: 'switchElse'
+    expr: cst.Node?
+    body: cst.Node?
+end
+
+--- `switch selector do case ... else ... end`.
+record cst.SwitchExpr is cst.Hints
+    {cst.Node | lexer.Token}
+
+    kind: 'switchExpr'
+    switchTok: lexer.Token?
+    selector: cst.Node?
+    doTok: lexer.Token?
+    cases: {cst.SwitchCase}
+    elseCase: cst.SwitchElse?
+    endTok: lexer.Token?
+end
+
+--- `cond ? a : b`.
+record cst.Ternary is cst.Hints
+    {cst.Node | lexer.Token}
+
+    --- Names the production this node stands for.
+    kind: 'ternary'
+
+    --- The condition.
+    cond: cst.Node?
+
+    --- The value when it holds.
+    ifTrue: cst.Node?
+
+    --- The value when it does not.
+    ifFalse: cst.Node?
+end
+
+--- `const T`, a read-only view.
+record cst.Tconst is cst.Hints
+    {cst.Node | lexer.Token}
+
+    --- Names the production this node stands for.
+    kind: 'tconst'
+
+    --- The type it wraps.
+    inner: cst.Node?
+end
+
+--- `keyof T` or `writekeyof T`.
+record cst.Tkeyof is cst.Hints
+    {cst.Node | lexer.Token}
+
+    kind: 'tkeyof'
+
+    --- `read` for `keyof`, `write` for `writekeyof`.
+    capability: string
+
+    inner: cst.Node?
+end
+
+--- `writeof T.[K]`.
+record cst.Twriteof is cst.Hints
+    {cst.Node | lexer.Token}
+
+    kind: 'twriteof'
+
+    inner: cst.Node?
+end
+
+--- A literal type: the set containing exactly one value.
+record cst.Tliteral is cst.Hints
+    {cst.Node | lexer.Token}
+
+    --- Names the production this node stands for.
+    kind: 'tliteral'
+
+    --- The literal.
+    token: lexer.Token?
+end
+
+--- A named type, possibly dotted and possibly applied.
+record cst.Tname is cst.Hints
+    {cst.Node | lexer.Token}
+
+    --- Names the production this node stands for.
+    kind: 'tname'
+
+    --- The leading name.
+    base: lexer.Token?
+
+    --- Type arguments of a generic application.
+    typeArgs: {cst.Node}?
+
+    --- Which C status means the call succeeded, read off `Success<T, N>` or
+    --- `Failure<T, N>` on a cdef return and applied to that function's outputs.
+    cdefSuccess: string?
+end
+
+--- A closed or deferred `comptime function` call in type position.
+record cst.Ttypecall is cst.Hints
+    {cst.Node | lexer.Token}
+
+    kind: 'ttypecall'
+
+    callee: cst.Node?
+
+    arguments: {cst.Node}
+end
+
+--- A parenthesized type.
+record cst.Tparen is cst.Hints
+    {cst.Node | lexer.Token}
+
+    --- Names the production this node stands for.
+    kind: 'tparen'
+
+    --- The type it wraps.
+    inner: cst.Node?
+end
+
+--- `{[K]: V}`.
+record cst.Tmap is cst.Hints
+    {cst.Node | lexer.Token}
+
+    --- Names the production this node stands for.
+    kind: 'tmap'
+
+    --- The key type.
+    key: cst.Node?
+
+    --- The value type.
+    value: cst.Node?
+
+    --- `readonly` or `writeonly` for a capability-only indexer.
+    capability: lexer.Token?
+end
+
+--- `{x: T, y: U}`, a table known by its fields.
+record cst.Tshape is cst.Hints
+    {cst.Node | lexer.Token}
+
+    --- Names the production this node stands for.
+    kind: 'tshape'
+
+    --- The declared fields.
+    fields: {cst.Node}
+end
+
+--- One field of a shape type.
+record cst.TshapeField is cst.Hints
+    {cst.Node | lexer.Token}
+
+    --- Names the production this node stands for.
+    kind: 'tshapeField'
+
+    --- The field's name.
+    name: lexer.Token?
+
+    --- `readonly` or `writeonly` when only that capability is exposed.
+    capability: lexer.Token?
+
+    --- Its type.
+    type: cst.Node?
+end
+
+--- `{T, U}`, a fixed sequence.
+record cst.Ttuple is cst.Hints
+    {cst.Node | lexer.Token}
+
+    --- Names the production this node stands for.
+    kind: 'ttuple'
+
+    --- The element types, in position order.
+    types: {cst.Node}
+
+    --- A computed tuple appended with `unpackof`, when present.
+    tail: cst.Node?
+end
+
+--- A value sequence in type position, `(T, U, R...)`, `R...`, or `...T`.
+record cst.Tpack is cst.Hints
+    {cst.Node | lexer.Token}
+
+    kind: 'tpack'
+
+    --- Fixed head types.
+    types: {cst.Node}
+
+    --- A generic tail name, homogeneous tail type, or computed tuple/array type.
+    tail: cst.Node?
+
+    --- `generic`, `homogeneous`, or `computed` when a tail is present.
+    tailKind: string?
+end
+
+--- Alternative complete value sequences, `(Pack | Pack)`.
+record cst.TpackUnion is cst.Hints
+    {cst.Node | lexer.Token}
+
+    kind: 'tpackUnion'
+
+    packs: {cst.Node}
+end
+
+--- `{T}`, a one-based Lua array.
+record cst.Tarray is cst.Hints
+    {cst.Node | lexer.Token}
+
+    --- Names the production this node stands for.
+    kind: 'tarray'
+
+    --- The element type.
+    element: cst.Node?
+end
+
+--- A function type.
+record cst.Tfunc is cst.Hints
+    {cst.Node | lexer.Token}
+
+    --- Names the production this node stands for.
+    kind: 'tfunc'
+
+    --- Written `nosuspend function(...)`: calling it provably cannot suspend.
+    ---
+    --- A positive guarantee, so an unmarked function type stays conservatively
+    --- may-yield. It is the one way to state the fact about something whose body this
+    --- compiler never sees -- a declared host binding, a C function, a parameter -- and
+    --- it is an ordinary part of the type, so it participates in identity, subtyping,
+    --- aliasing, and substitution like everything else a type says.
+    noSuspend: boolean?
+
+    --- Written `sendable function(...)`: another isolated Lua state can reproduce the
+    --- callable from a module member and a copied capture environment.
+    ---
+    --- A positive guarantee like `noSuspend`, minted for module members and eligible
+    --- outlined literals and carried by the type from there, so a binding, field, or
+    --- parameter can all state it.
+    sendable: boolean?
+
+    --- Written `comptime function(...)`: the callable exists only while evaluating
+    --- compile-time code and may mention compiler-only handle types.
+    comptimeOnly: boolean?
+
+    --- Its generic parameters, when it has any.
+    generics: cst.Node?
+
+    --- Its parameters.
+    params: {cst.Node}
+
+    --- Its return types, when they were written.
+    rets: {cst.Node}?
+
+    paramPack: cst.Node?
+
+    returnPack: cst.Node?
+
+    yieldPack: cst.Node?
+
+    resumePack: cst.Node?
+
+    --- Sources retained by the callable value rather than by one of its results.
+    captureBorrows: cst.Node?
+end
+
+--- One parameter of a function type.
+record cst.TfuncParam is cst.Hints
+    {cst.Node | lexer.Token}
+
+    --- Names the production this node stands for.
+    kind: 'tfuncParam'
+
+    --- Its ownership mode, when one was written.
+    modeTok: lexer.Token?
+
+    --- The `const` and `function` tokens of a const-function identity parameter.
+    constTok: lexer.Token?
+
+    constDomainTok: lexer.Token?
+
+    --- Its name, when it was named.
+    name: lexer.Token?
+
+    --- Its type.
+    type: cst.Node?
+
+    pack: boolean?
+
+    vararg: boolean?
+end
+
+--- `T?`, which admits nil.
+record cst.Topt is cst.Hints
+    {cst.Node | lexer.Token}
+
+    --- Names the production this node stands for.
+    kind: 'topt'
+
+    --- The type it wraps.
+    inner: cst.Node?
+end
+
+--- `T*`, a pointer.
+record cst.Tptr is cst.Hints
+    {cst.Node | lexer.Token}
+
+    --- Names the production this node stands for.
+    kind: 'tptr'
+
+    --- The pointee type.
+    inner: cst.Node?
+end
+
+--- `T[?]` and `T[N]`, contiguous zero-based C arrays.
+record cst.Tcarray is cst.Hints
+    {cst.Node | lexer.Token}
+
+    --- Names the production this node stands for.
+    kind: 'tcarray'
+
+    --- The element type.
+    element: cst.Node?
+
+    --- The fixed length, absent for `T[?]`.
+    count: cst.Node?
+end
+
+--- `T.[K]`, an indexed semantic member type.
+record cst.Tmember is cst.Hints
+    {cst.Node | lexer.Token}
+
+    kind: 'tmember'
+
+    object: cst.Node?
+
+    key: cst.Node?
+end
+
+--- `{readonly [K in Keys]: Value}` or its write-only counterpart.
+record cst.Tmapped is cst.Hints
+    {cst.Node | lexer.Token}
+
+    kind: 'tmapped'
+
+    capability: lexer.Token?
+
+    binder: lexer.Token?
+
+    keys: cst.Node?
+
+    remap: cst.Node?
+
+    value: cst.Node?
+end
+
+--- `A | B`.
+record cst.Tunion is cst.Hints
+    {cst.Node | lexer.Token}
+
+    --- Names the production this node stands for.
+    kind: 'tunion'
+
+    --- The members.
+    types: {cst.Node}
+end
+
+--- `A & B`.
+record cst.Tintersection is cst.Hints
+    {cst.Node | lexer.Token}
+
+    --- Names the production this node stands for.
+    kind: 'tintersection'
+
+    --- The members.
+    types: {cst.Node}
+end
+
+--- A type the parser could not make sense of.
+record cst.ErrorType is cst.Hints
+    {cst.Node | lexer.Token}
+
+    --- Names the production this node stands for.
+    kind: 'errorType'
+end
+
+--- `x is T` as a return type: calling it proves something about `x`.
+record cst.Tpredicate is cst.Hints
+    {cst.Node | lexer.Token}
+
+    --- Names the production this node stands for.
+    kind: 'tpredicate'
+
+    --- The parameter it speaks about.
+    param: lexer.Token?
+
+    --- What it proves.
+    type: cst.Node?
+end
+
+--- `T borrows p`: the result may not outlive its sources.
+record cst.Tborrows is cst.Hints
+    {cst.Node | lexer.Token}
+
+    --- Names the production this node stands for.
+    kind: 'tborrows'
+
+    --- The borrowed type.
+    type: cst.Node?
+
+    --- Every parameter it borrows from.
+    params: {lexer.Token}?
+
+    --- The first of them, which is the whole list in the common case.
+    param: lexer.Token?
+end
+
+--- `T preserves p`: the result is the same capability-bearing value passed as `p`,
+--- with only its payload type changed by generic substitution or narrowing.
+record cst.Tpreserves is cst.Hints
+    {cst.Node | lexer.Token}
+
+    kind: 'tpreserves'
+
+    --- The result payload type.
+    type: cst.Node?
+
+    --- The parameter whose complete capability is transferred to this result slot.
+    param: lexer.Token?
+end
+
+--- A node of the concrete syntax tree: one of the productions above, told apart by its
+--- `kind`. Reading a field that belongs to another kind is an error, which is what
+--- makes a dispatch loop check.
+type cst.Node = cst.Chunk
+    | cst.Block
+    | cst.EmptyStmt
+    | cst.ModuleStmt
+    | cst.ExportStmt
+    | cst.HandleStmt
+    | cst.WithStmt
+    | cst.WithBinding
+    | cst.IfStmt
+    | cst.IfClause
+    | cst.ElseifClause
+    | cst.ElseClause
+    | cst.WhileStmt
+    | cst.DoStmt
+    | cst.UnsafeStmt
+    | cst.NoSuspendStmt
+    | cst.EffectRegionStmt
+    | cst.FornumStmt
+    | cst.ForinStmt
+    | cst.RepeatStmt
+    | cst.FuncStmt
+    | cst.Funcname
+    | cst.LocalFuncStmt
+    | cst.LocalStmt
+    | cst.BindingEntry
+    | cst.LabelStmt
+    | cst.GotoStmt
+    | cst.BreakStmt
+    | cst.ContinueStmt
+    | cst.ReturnStmt
+    | cst.SwitchYieldStmt
+    | cst.CompoundAssign
+    | cst.AssignStmt
+    | cst.CallStmt
+    | cst.ErrorStmt
+    | cst.PragmaStmt
+    | cst.AnnotationApply
+    | cst.AnnotationArg
+    | cst.AssociatedDecl
+    | cst.TypeAlias
+    | cst.RecordDecl
+    | cst.WhereClause
+    | cst.FieldDecl
+    | cst.IndexerDecl
+    | cst.ArrayPart
+    | cst.InlineMethod
+    | cst.MetamethodDecl
+    | cst.CdefFunc
+    | cst.CdefStruct
+    | cst.Generics
+    | cst.Param
+    | cst.Funcbody
+    | cst.CaptureClause
+    | cst.NameExpr
+    | cst.NumberLit
+    | cst.StringLit
+    | cst.DedentString
+    | cst.NilExpr
+    | cst.TrueExpr
+    | cst.FalseExpr
+    | cst.Vararg
+    | cst.Paren
+    | cst.ComptimeExpr
+    | cst.NewExpr
+    | cst.UnsafeOwnershipExpr
+    | cst.ConstructorDecl
+    | cst.SatisfiesDecl
+    | cst.ErrorExpr
+    | cst.DotIndex
+    | cst.BracketIndex
+    | cst.MethodCall
+    | cst.SafeIndex
+    | cst.SafeBracket
+    | cst.SafeCall
+    | cst.Call
+    | cst.Args
+    | cst.NamedArg
+    | cst.PluckArg
+    | cst.TableExpr
+    | cst.FieldBracket
+    | cst.FieldNamed
+    | cst.FieldItem
+    | cst.Shortfn
+    | cst.Istring
+    | cst.FuncExpr
+    | cst.Unop
+    | cst.Binop
+    | cst.CastExpr
+    | cst.IsExpr
+    | cst.SwitchField
+    | cst.SwitchCase
+    | cst.SwitchElse
+    | cst.SwitchExpr
+    | cst.Ternary
+    | cst.Tconst
+    | cst.Tkeyof
+    | cst.Twriteof
+    | cst.Tliteral
+    | cst.Tname
+    | cst.Ttypecall
+    | cst.Tparen
+    | cst.Tmap
+    | cst.Tshape
+    | cst.TshapeField
+    | cst.Tmapped
+    | cst.Ttuple
+    | cst.Tarray
+    | cst.Tfunc
+    | cst.Tpack
+    | cst.TpackUnion
+    | cst.TfuncParam
+    | cst.Topt
+    | cst.Tptr
+    | cst.Tcarray
+    | cst.Tmember
+    | cst.Tunion
+    | cst.Tintersection
+    | cst.ErrorType
+    | cst.Tpredicate
+    | cst.Tborrows
+    | cst.Tpreserves
+
+--- What a node holds: another node, or a token.
+type cst.Child = cst.Node | lexer.Token
+
+--- The two declaration forms, which share a visibility, a name and the tables the name
+--- attaches to.
+type cst.Declaration = cst.TypeAlias | cst.RecordDecl
+
+--- What may take a generic parameter clause.
+type cst.Generic = cst.Funcbody | cst.Tfunc | cst.TypeAlias | cst.RecordDecl
+
+--- Statements and expressions whose nested block a pass walks into.
+type cst.Bodied = cst.UnsafeStmt
+    | cst.WithStmt
+    | cst.DoStmt
+    | cst.WhileStmt
+    | cst.RepeatStmt
+    | cst.FornumStmt
+    | cst.ForinStmt
+    | cst.IfClause
+    | cst.ElseifClause
+    | cst.ElseClause
+    | cst.Funcbody
+    | cst.Shortfn
+    | cst.SwitchCase
+    | cst.SwitchElse
+
+--- True when `x` is a token rather than a node, which narrows it for the caller. Tokens
+--- are told apart by carrying trivia; this is the one place that test is asserted
+--- rather than checked, which is what a predicate is for.
+---
+--- @param x the child to classify
+local function isToken(x: cst.Child): x is lexer.Token
+    return (x as lexer.Token).trivia ~= nil
+end
+
+cst.isToken = isToken
+
+--- The remaining ownership helper intrinsics, which the compiler implements rather
+--- than declares. Affine construction, release, and destruction are syntax now, so
+--- they deliberately do not appear here.
+---
+--- Most helpers retain their historical top-level spelling. Pinning is intentionally
+--- introduced only as `nupp.pin`: a bare `pin` is an ordinary value name.
+local OWNERSHIP_INTRINSICS: {
+    [string]: boolean
+} = {attemptAll = true, borrow = true, borrowFrom = true, partition = true, region = true, pin = true, manage = true,}
+
+--- The ownership intrinsic a callee is written as, before anything asks what the names
+--- in it resolve to. Answers nil for a callee of any other shape.
+---
+--- Whether a spelling is the intrinsic is the caller's question, and the two callers
+--- ask
+--- it differently: the checker holds scopes and can see a local shadowing the name,
+--- while the pass reading parameter modes out of a body runs before any of that and has
+--- only the spelling. Both need the spelling read the same way, which is what lives
+--- here.
+---
+--- @param callee the expression being applied
+--- @return the intrinsic's name, or nil
+--- @return whether it was written qualified, which is what the base name has to be
+---     checked for
+function cst.ownershipIntrinsicSpelling(callee: cst.Node?): string?, boolean?
+    if not callee then
+        return nil
+    end
+    if callee.kind == "name" then
+        local bare = callee.token and callee.token.text or ""
+        if bare == "pin" then
+            return nil, false
+        end
+        return OWNERSHIP_INTRINSICS[bare] and bare or nil, false
+    end
+    if callee.kind ~= "dotIndex" then
+        return nil
+    end
+    local base = callee.obj
+    local member = callee.name and callee.name.text or ""
+    if not base or base.kind ~= "name" or not OWNERSHIP_INTRINSICS[member] then
+        return nil
+    end
+    local baseToken = base.token
+
+    return baseToken and baseToken.text == "nupp" and member or nil, true
+end
+
+local COMPTIME_TYPE_INTRINSICS: {[string]: boolean} = {reflect = true, sizeof = true, alignof = true, offsetof = true,}
+
+--- The compiler-provided type intrinsic a call spells before name resolution.
+---
+--- @param callee the expression being applied
+--- @return the intrinsic's name, or nil
+--- @return whether it was written on `nupp`
+function cst.comptimeTypeIntrinsicSpelling(callee: cst.Node?): string?, boolean?
+    if not callee then
+        return nil
+    end
+    if callee.kind ~= "dotIndex" then
+        return nil
+    end
+    local base = callee.obj
+    local member = callee.name and callee.name.text or ""
+    local baseToken = base and base.kind == "name" and base.token or nil
+    if not baseToken or baseToken.text ~= "nupp" or not COMPTIME_TYPE_INTRINSICS[member] then
+        return nil
+    end
+
+    return member, true
+end
+
+--- Appends a child to `n`'s array part and returns it, so a caller can consume a token
+--- and record it in one expression. A nil child is ignored, which lets an optional part
+--- be added unconditionally.
+---
+--- The child comes back with the type it went in with, optional or not: adding a token
+--- the parser just consumed gives a token, and adding one that may be absent gives one
+--- that may be absent. Making the result optional either way was what forced a check on
+--- every `add(n, advance()).generic = true`.
+---
+--- @param n the node to append to
+--- @param child the token or node to append, if there is one
+function cst.add<T>(n: cst.Node, child: T): T
+    if child ~= nil then
+        n[#n + 1] = child as cst.Child
+    end
+    return child
+end
+
+--- Whether `name` can be written as a bare key or field, rather than in brackets.
+---
+--- A declaration's field names arrive from the parser, which already refused the
+--- keywords; one reaching here from a declaration this compiler did not parse is
+--- what the bracket form is for.
+---
+--- @param name the field or key to write
+function cst.identifier(name: string): boolean
+    return not lexer.KEYWORDS[name] and name:match("^[%a_][%w_]*$") ~= nil
+end
+
+--- The value type a written result states, with what the result says *about* that
+--- value left outside it.
+---
+---   T                 -> T
+---   T?                -> T?
+---   T borrows(source) -> T, leaving the borrowing clause where it was written
+---
+--- By role rather than by token bounds. The last token of a borrowing result is the
+--- closing paren of its source list, so anything reading the outer bounds treats the
+--- clause as part of the value.
+---
+--- @param node the written result
+--- @return its value type, or nil when the result states none
+function cst.resultValueType(node: cst.Child?): cst.Node?
+    if not node or cst.isToken(node) then
+        return nil
+    end
+    local written = node as cst.Node
+    if written.kind == "tborrows" then
+        return (written as cst.Tborrows).type
+    end
+
+    return written
+end
+
+--- The first token under `x`, which is where a diagnostic about it points. A node owns
+--- its children in source order, so this is the leftmost leaf.
+---
+--- @param x the node or token to descend into
+function cst.firstToken(x: cst.Child?): lexer.Token?
+    local at = x
+    while at and not isToken(at) do
+        at = at[1]
+    end
+
+    return at as lexer.Token?
+end
+
+--- The last token under `x`, which is where an edit appending to it goes.
+---
+--- @param x the node or token to descend into
+function cst.lastToken(x: cst.Child?): lexer.Token?
+    local at = x
+    while at and not isToken(at) do
+        at = at[#at]
+    end
+
+    return at as lexer.Token?
+end
+
+--- Reconstructs the exact source text of a node or token, trivia included. This is the
+--- round-trip identity: printing a parse yields its input.
+---
+--- @param x the node or token to print
+function cst.textOf(x: cst.Child): string
+    local parts: {string} = {}
+    local function walk(y: cst.Child)
+        if isToken(y) then
+            for index = 1, y.triviaCount do
+                parts[#parts + 1] = lexer.triviaText(y, index)
+            end
+            parts[#parts + 1] = y.text
+        else
+            for _, child in ipairs(y) do
+                walk(child)
+            end
+        end
+    end
+
+    walk(x)
+
+    return table.concat(parts)
+end
+
+--- Last name token in a syntax node. A qualified type's `base` is its leading
+--- component, while generators that match a local declaration need the leaf.
+function cst.lastName(x: cst.Child?): string?
+    local found = nil
+    if not x or cst.isToken(x) then
+        return x and x.kind == "name" and x.text or nil
+    end
+    for _, child in ipairs(x) do
+        if cst.isToken(child) and child.kind == "name" then
+            found = child.text
+        end
+    end
+
+    return found
+end
+
+--- The name of the local a file returns, which is the table its qualified declarations
+--- attach to. `return M` and `return setmetatable(M, ...)` both name `M`; anything else
+--- has no single table to speak of and yields nil.
+---
+--- This reads syntax only, so the project index can key qualified declarations without
+--- checking a body.
+---
+--- @param root the chunk node
+--- @return the returned local's name, or nil
+function cst.returnedLocal(root: cst.Chunk): string?
+    local returned: cst.Node? = nil
+    for _, block in ipairs(root.blocks) do
+        if block.kind == "block" then
+            for _, stat in ipairs(block.stats) do
+                if stat.kind == "returnStmt" then
+                    local exprs = stat.exprs
+                    returned = #exprs == 1 and exprs[1] or nil
+                end
+            end
+        end
+    end
+    if not returned then
+        return nil
+    end
+    -- `setmetatable(M, mt)` returns its first argument, so the table it is wrapping is
+    -- still the module.
+    if returned.kind == "call" then
+        local callee = returned.obj
+        if not callee or callee.kind ~= "name" then
+            return nil
+        end
+        local calleeName = callee.token
+        if not calleeName or calleeName.text ~= "setmetatable" then
+            return nil
+        end
+        local argsNode = returned.args
+        local args = argsNode and argsNode.kind == "args" and argsNode.exprs or {}
+        returned = args[1]
+        if not returned then
+            return nil
+        end
+    end
+    if returned.kind ~= "name" then
+        return nil
+    end
+    local token = returned.token
+    if not token then
+        return nil
+    end
+
+    return token.text
+end
+
+--- A declared module's `export = value`, if it has one.
+function cst.exportAssignment(root: cst.Chunk): cst.ExportStmt?
+    for _, block in ipairs(root.blocks) do
+        if block.kind == "block" then
+            for _, stat in ipairs(block.stats) do
+                if stat.kind == "exportStmt" and stat.value then
+                    return stat
+                end
+            end
+        end
+    end
+
+    return nil
+end
+
+--- The local named by a declared module's `export = value`, including the conventional
+--- `export = setmetatable(M, mt)` spelling. Like `returnedLocal`, this is intentionally
+--- syntax-only so headers can identify qualified public declarations before checking.
+function cst.exportedLocal(root: cst.Chunk): string?
+    local assignment = cst.exportAssignment(root)
+    local exported = assignment and assignment.value or nil
+    if not exported then
+        return nil
+    end
+    if exported.kind == "call" then
+        local callee = exported.obj
+        if not callee or callee.kind ~= "name" or not callee.token or callee.token.text ~= "setmetatable" then
+            return nil
+        end
+        local argsNode = exported.args
+        local args = argsNode and argsNode.kind == "args" and argsNode.exprs or {}
+        exported = args[1]
+    end
+    if not exported or exported.kind ~= "name" or not exported.token then
+        return nil
+    end
+
+    return exported.token.text
+end
+
+--- The effective visibility of a declaration, given the local its file returns. A
+--- qualified name exports when it attaches to that local, the way `function M.f` does;
+--- attaching to any other table keeps it to the file.
+---
+--- @param declaration the typeAlias or recordDecl node
+--- @param moduleLocal the name from cst.returnedLocal, when the file has one
+--- @return "local", "module", "global" or "nested"
+function cst.declVisibility(declaration: cst.Declaration, moduleLocal: string?): string
+    local written = declaration.visibility
+    if written == "local" or written == "global" or written == "nested" then
+        return written
+    end
+    local qualifiers = declaration.qualifiers
+    if qualifiers then
+        local only = #qualifiers == 1 and qualifiers[1] or nil
+        if only and moduleLocal and only.text == moduleLocal then
+            return "module"
+        end
+        return "local"
+    end
+
+    return written or "local"
+end
+
+--- The dotted name written by this file's declared-module header, if present.
+function cst.declaredModule(root: cst.Chunk?): string?, cst.ModuleStmt?
+    for _, block in ipairs(root and root.blocks or {}) do
+        for _, stat in ipairs(block.stats or {}) do
+            if stat.kind == "moduleStmt" then
+                local parts = {}
+                for _, name in ipairs(stat.names or {}) do
+                    parts[#parts + 1] = name.text
+                end
+                return table.concat(parts, "."), stat
+            end
+        end
+    end
+
+    return nil, nil
+end
+
+--- Renders a node as a compact s-expression for tests and debugging: tokens print as
+--- their text, missing tokens as «kind», nodes as (kind child...).
+---
+--- @param x the node or token to render
+function cst.dump(x: cst.Child): string
+    if isToken(x) then
+        if x.missing then
+            return "\194\171" .. x.kind .. "\194\187" -- «kind»
+        end
+        return x.text
+    end
+    local parts: {string} = {"(", x.kind}
+    for _, child in ipairs(x) do
+        parts[#parts + 1] = " "
+        parts[#parts + 1] = cst.dump(child)
+    end
+    parts[#parts + 1] = ")"
+
+    return table.concat(parts)
+end
+
+--- Renders a node as an indented outline for people reading parser output. Each node
+--- occupies one line; tokens show their lexical kind and quoted source text.
+---
+--- @param x the node or token to render
+function cst.pretty(x: cst.Child): string
+    local lines: {string} = {}
+    local function walk(y: cst.Child, depth: integer)
+        local indent = string.rep("  ", depth)
+        if isToken(y) then
+            if y.missing then
+                lines[#lines + 1] = indent .. y.kind .. " «missing»"
+            else
+                lines[#lines + 1] = indent .. y.kind .. " " .. ("%q"):format(y.text)
+            end
+            return
+        end
+        lines[#lines + 1] = indent .. y.kind
+        for _, child in ipairs(y) do
+            walk(child, depth + 1)
+        end
+    end
+
+    walk(x, 0)
+
+    return table.concat(lines, "\n")
+end
+
+export = cst

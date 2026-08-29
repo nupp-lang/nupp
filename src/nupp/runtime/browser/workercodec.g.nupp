@@ -1,0 +1,331 @@
+@!internal
+module nupp.runtime.browser.workercodec
+
+-- The value boundary between a browser application and one of its worker lanes.
+--
+-- A lane is a separate Web Worker with its own Lua 5.1 Wasm state, so the same
+-- rule the native scheduler enforces holds here: arguments, captures and results
+-- cross as copies and heap identity never does. The native scheduler reaches
+-- `string.buffer` for that, which stock Lua 5.1 has no equivalent of, so this
+-- module is the portable codec. It writes one self-describing byte string that
+-- the JavaScript pool relays without reading, which keeps the framing's meaning
+-- in Nupp rather than spread across the host.
+--
+-- The refusals and their wording are the native ones, because they are the same
+-- rule about the same values and a program should not learn a different vocabulary
+-- for them when it targets a browser.
+
+--- That the `require` in `resolveRecord` is reflection, not a dependency, for
+--- `nupp.compiler.build.cache`'s module graph.
+---
+--- The name it resolves came out of a message, and it names a module of the
+--- application whose record the message carried rather than code this one is
+--- defined by.
+@allow("unused-binding")
+const DYNAMIC_REQUIRES = "@requires-dynamically nothing"
+
+local codec = {}
+
+local SENDABLE: {[string]: boolean} = {["nil"] = true, boolean = true, number = true, string = true,}
+local MAX_DEPTH: integer = 32
+
+export type Packed = {
+    values: {any},
+    count: integer
+}
+
+export type TransferState = {
+    seen: {[any]: boolean},
+    records: {[string]: any}?,
+    addresses: {string}?
+}
+
+--- The stable address code generation publishes for an exported record table.
+local function recordAddress(metatable: any): string?
+    local namespace = _G.nupp and rawget(_G.nupp, "__workerRecords")
+    local address = type(namespace) == "table" and (namespace as {[any]: any})[metatable] or nil
+
+    return type(address) == "string" and address or nil
+end
+
+--- Answers why one value cannot be reproduced in another Lua state, or nil.
+---
+--- The walk is `next` rather than `pairs`, matching the native codec: transfer
+--- copies stored data rather than invoking a record's own iteration behaviour.
+function codec.unsendable(value: any, path: string, depth: integer, state: TransferState): string?
+    local kind = type(value)
+    if SENDABLE[kind] then
+        return nil
+    end
+    @allow("exhaustiveness")
+    if kind ~= "table" then
+        return ("%s is a %s"):format(path, kind)
+    end
+    local metatable = getmetatable(value)
+    if metatable ~= nil then
+        local address = recordAddress(metatable)
+        if address == nil then
+            return ("%s has a metatable"):format(path)
+        end
+        local records = state.records
+        local prior = records ~= nil and records[address] or nil
+        if prior ~= nil and prior ~= metatable then
+            return ("%s has an ambiguous record metatable"):format(path)
+        end
+        if prior == nil then
+            if records == nil then
+                records = {}
+                state.records = records
+            end
+            (records as {[string]: any})[address] = metatable
+            local addresses = state.addresses
+            if addresses == nil then
+                addresses = {}
+                state.addresses = addresses
+            end
+            (addresses as {string})[#(addresses as {string}) + 1] = address
+        end
+    end
+    if depth >= MAX_DEPTH then
+        return ("%s nests deeper than %d tables"):format(path, MAX_DEPTH)
+    end
+    if state.seen[value] then
+        return ("%s repeats a table already present in the message"):format(path)
+    end
+    state.seen[value] = true
+    for key, item in next, value as {[any]: any} do
+        local keyKind = type(key)
+        if not SENDABLE[keyKind] then
+            return ("%s has a %s key"):format(path, keyKind)
+        end
+        if not SENDABLE[type(item)] then
+            local rejected = codec.unsendable(item, ("%s[%s]"):format(path, tostring(key)), depth + 1, state)
+            if rejected ~= nil then
+                return rejected
+            end
+        end
+    end
+
+    return nil
+end
+
+--- Validates the captures and arguments of one submission together.
+--- @raises where either names a value no copy could reproduce
+function codec.validate(captures: Packed, arguments: Packed): TransferState
+    local transfer: TransferState = {seen = {}, records = nil, addresses = nil}
+    local rejectedCaptures = codec.unsendable(captures.values, "captures", 0, transfer)
+    if rejectedCaptures ~= nil then
+        error("nupp: cannot copy task captures: " .. rejectedCaptures, 4)
+    end
+    local rejected = codec.unsendable(arguments.values, "arguments", 0, transfer)
+    if rejected ~= nil then
+        error("nupp: cannot copy task arguments: " .. rejected, 4)
+    end
+
+    return transfer
+end
+
+--- Resolves the record declaration table one address names in this Lua state.
+--- @raises where the address is malformed or names no exported record here
+local function resolveRecord(address: string): any
+    local moduleName, memberPath = address:match("^(.-)%z(.+)$")
+    if moduleName == nil or moduleName == "" or memberPath == nil then
+        error("nupp: a worker value names an invalid record", 0)
+    end
+    local value: any = require(moduleName as string)
+    for member in (memberPath as string):gmatch("[^.]+") do
+        if not member:match("^[%a_][%w_]*$") or type(value) ~= "table" then
+            error("nupp: a worker value names an invalid record", 0)
+        end
+        value = (value as {[string]: any})[member]
+    end
+    local namespace = _G.nupp and rawget(_G.nupp, "__workerRecords")
+    if type(value) ~= "table" or type(namespace) ~= "table" or (namespace as {[any]: any})[value] ~= address then
+        error("nupp: a worker value names an unknown record", 0)
+    end
+
+    return value
+end
+
+-- Each state resolves an address once. The values are weak so releasing a module
+-- releases the record table with it.
+local resolvedRecords: {[string]: any} = setmetatable({}, {__mode = "v"}) as {[string]: any}
+
+local function resolveRecordCached(address: string): any
+    local metatable = resolvedRecords[address]
+    if metatable == nil then
+        metatable = resolveRecord(address)
+        resolvedRecords[address] = metatable
+    end
+
+    return metatable
+end
+
+-- The wire form. Every part is length-prefixed so a decoder never scans for a
+-- terminator, and every number round-trips through `%.17g` with the three values
+-- that notation cannot name written as their own tags.
+local NIL = "N"
+local FALSE = "F"
+local TRUE = "T"
+local NUMBER = "D"
+local POSITIVE_INFINITY = "I"
+local NEGATIVE_INFINITY = "i"
+local NOT_A_NUMBER = "X"
+local STRING = "S"
+local TABLE = "t"
+local RECORD = "r"
+
+local function writeString(out: {string}, value: string): nil
+    out[#out + 1] = ("%d:"):format(#value)
+    out[#out + 1] = value
+end
+
+local function writeValue(out: {string}, value: any): nil
+    local kind = type(value)
+    if value == nil then
+        out[#out + 1] = NIL
+    elseif kind == "boolean" then
+        out[#out + 1] = value == true and TRUE or FALSE
+    elseif kind == "number" then
+        local number = value as number
+        if number ~= number then
+            out[#out + 1] = NOT_A_NUMBER
+        elseif number == math.huge then
+            out[#out + 1] = POSITIVE_INFINITY
+        elseif number == -math.huge then
+            out[#out + 1] = NEGATIVE_INFINITY
+        else
+            out[#out + 1] = NUMBER
+            writeString(out, ("%.17g"):format(number))
+        end
+    elseif kind == "string" then
+        out[#out + 1] = STRING
+        writeString(out, value as string)
+    elseif kind == "table" then
+        local metatable = getmetatable(value)
+        local address = metatable ~= nil and recordAddress(metatable) or nil
+        local entries: {any} = {}
+        local count: integer = 0
+        for key, item in next, value as {[any]: any} do
+            count = count + 1
+            entries[#entries + 1] = key
+            entries[#entries + 1] = item
+        end
+        if address ~= nil then
+            out[#out + 1] = RECORD
+            writeString(out, address as string)
+        else
+            out[#out + 1] = TABLE
+        end
+        out[#out + 1] = ("%d:"):format(count)
+        for index = 1, #entries do
+            writeValue(out, entries[index])
+        end
+    else
+        error("nupp: a worker value of type " .. kind .. " cannot be copied", 0)
+    end
+end
+
+--- Encodes one value pack, retaining its nil positions, into opaque bytes.
+function codec.encode(packed: Packed): string
+    local out: {string} = {("%d:"):format(packed.count)}
+    for index = 1, packed.count do
+        writeValue(out, packed.values[index])
+    end
+
+    return table.concat(out)
+end
+
+local type Cursor = {at: integer}
+
+local function readLength(bytes: string, cursor: Cursor): integer
+    local digits, following = bytes:match("^(%d+):()", cursor.at)
+    if digits == nil then
+        error("nupp: a worker message is malformed", 0)
+    end
+    cursor.at = following as integer
+
+    return tonumber(digits) as integer
+end
+
+local function readString(bytes: string, cursor: Cursor): string
+    local length = readLength(bytes, cursor)
+    local finish = cursor.at + length
+    if finish > #bytes + 1 then
+        error("nupp: a worker message is malformed", 0)
+    end
+    local value = bytes:sub(cursor.at, finish - 1)
+    cursor.at = finish
+
+    return value
+end
+
+local function readValue(bytes: string, cursor: Cursor, depth: integer): any
+    if depth > MAX_DEPTH then
+        error("nupp: a worker message nests too deeply", 0)
+    end
+    local tag = bytes:sub(cursor.at, cursor.at)
+    cursor.at = cursor.at + 1
+    if tag == NIL then
+        return nil
+    elseif tag == TRUE then
+        return true
+    elseif tag == FALSE then
+        return false
+    elseif tag == POSITIVE_INFINITY then
+        return math.huge
+    elseif tag == NEGATIVE_INFINITY then
+        return -math.huge
+    elseif tag == NOT_A_NUMBER then
+        return 0 / 0
+    elseif tag == NUMBER then
+        local text = readString(bytes, cursor)
+        local number = tonumber(text)
+        if number == nil then
+            error("nupp: a worker message is malformed", 0)
+        end
+
+        return number
+    elseif tag == STRING then
+        return readString(bytes, cursor)
+    elseif tag == TABLE or tag == RECORD then
+        local address: string? = nil
+        if tag == RECORD then
+            address = readString(bytes, cursor)
+        end
+        local count = readLength(bytes, cursor)
+        local value: {[any]: any} = {}
+        for _ = 1, count do
+            local key = readValue(bytes, cursor, depth + 1)
+            local item = readValue(bytes, cursor, depth + 1)
+            if key == nil then
+                error("nupp: a worker message is malformed", 0)
+            end
+            value[key] = item
+        end
+        if address ~= nil then
+            setmetatable(value, resolveRecordCached(address as string))
+        end
+
+        return value
+    end
+    error("nupp: a worker message is malformed", 0)
+end
+
+--- Decodes one value pack, retaining its nil positions.
+--- @raises where the bytes are not a pack this codec wrote
+function codec.decode(bytes: string): Packed
+    local cursor: Cursor = {at = 1}
+    local count = readLength(bytes, cursor)
+    local values: {any} = {}
+    for index = 1, count do
+        values[index] = readValue(bytes, cursor, 0)
+    end
+    if cursor.at ~= #bytes + 1 then
+        error("nupp: a worker message is malformed", 0)
+    end
+
+    return {values = values, count = count}
+end
+
+export = codec

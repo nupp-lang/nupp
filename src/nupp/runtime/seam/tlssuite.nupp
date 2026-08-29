@@ -1,0 +1,24 @@
+@!internal
+module nupp.runtime.seam.tlssuite
+
+local suite = {}
+
+function suite.test(provider: any): (boolean, string?)
+    local ok, problem = pcall(function()
+        -- Asking for verification without a name to verify against is the one
+        -- refusal this surface can prove without a peer to talk to, and it is
+        -- the one that matters: a certificate checked against no name is a
+        -- certificate belonging to anybody.
+        local refused = pcall(function()
+            return provider.client(nil, {verify = true})
+        end)
+        assert(not refused, "verifying with no hostname must be refused")
+    end)
+    if not ok then
+        return false, tostring(problem)
+    end
+
+    return true
+end
+
+export = suite

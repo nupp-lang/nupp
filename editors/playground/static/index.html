@@ -1,0 +1,87 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Nupp Playground</title>
+<meta name="description" content="Check and compile Nupp in the browser — the real self-hosted compiler, running client-side.">
+<link rel="icon" href="./nupp.svg" type="image/svg+xml">
+<link rel="stylesheet" href="./style.css">
+</head>
+<body class="is-busy">
+<header class="header">
+  <a class="brand" href="https://github.com/nupp-lang/nupp" target="_blank" rel="noopener">
+    <img class="brand-mark" src="./nupp.svg" alt="" width="24" height="24">
+    <span>Nupp Playground</span>
+  </a>
+  <div class="header-actions">
+    <label class="example-picker" id="example-picker">
+      <!-- Options come from src/examples.js, so the menu and the snippets it
+           offers can't drift apart. -->
+      <select id="example-select" class="select" aria-label="Choose an example"></select>
+    </label>
+    <label class="dialect-picker">
+      <span>Output</span>
+      <select id="dialect-select" class="select" aria-label="Choose an output dialect">
+        <option value="lua51">Lua 5.1</option>
+        <option value="luajit">LuaJIT</option>
+      </select>
+    </label>
+    <span id="status" class="status">starting…</span>
+    <button id="options-button" class="icon-button" type="button" title="Options"
+            aria-label="Options" aria-expanded="false" aria-controls="options-panel">
+      <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M2 4.5h6.2m3.6 0H14M2 11.5h2.2m3.6 0H14"/><circle cx="10" cy="4.5" r="1.9"/><circle cx="6" cy="11.5" r="1.9"/></svg>
+    </button>
+    <button id="share-button" class="icon-button" type="button" title="Copy a link to this program"
+            aria-label="Copy a link to this program">
+      <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M6.6 9.4a2.6 2.6 0 0 0 3.9.3l2-2a2.6 2.6 0 0 0-3.7-3.7l-1.1 1.1"/><path d="M9.4 6.6a2.6 2.6 0 0 0-3.9-.3l-2 2a2.6 2.6 0 0 0 3.7 3.7l1.1-1.1"/></svg>
+    </button>
+    <button id="compile-button" class="button">Run</button>
+  </div>
+  <!-- Inside the header, which is the positioned ancestor it hangs from. -->
+  <div id="options-panel" class="options-panel" hidden></div>
+</header>
+
+<!-- No "Open in the full playground" here: this is it. -->
+<main class="shell">
+  <section class="panel panel-source">
+    <div class="panel-head">
+      <span id="check-time" class="panel-head-note"></span>
+    </div>
+    <div id="source-editor" class="editor-host"></div>
+  </section>
+
+  <!-- Drag to give the output panel more or less of the window; double-click
+       to put it back. app.js hides this while the panel is collapsed, when
+       there is nothing to size, and keeps aria-orientation honest: the
+       stylesheet turns this column back into a drawer on a narrow window, and
+       the separator runs the other way when it does. -->
+  <div id="output-resizer" class="output-resizer" role="separator"
+       aria-orientation="vertical" aria-label="Resize the output panel" tabindex="0" hidden></div>
+
+  <!-- The embed's drawer, stood up as a column down this page's right side.
+       Run reveals it; the compiler's answer is on top and diagnostics below. -->
+  <section class="output" id="output" aria-label="Output" hidden>
+    <button id="output-toggle" class="output-head" type="button" aria-expanded="false" aria-controls="output-body">
+      <span class="output-caret" aria-hidden="true">▸</span>
+      <span class="output-title">Output</span>
+      <span id="output-summary" class="output-summary"></span>
+    </button>
+    <div id="output-body" class="output-body" hidden>
+      <div id="output-editor" class="editor-host"></div>
+      <!-- The same strip again, splitting the panel between the two. -->
+      <div id="diagnostics-resizer" class="output-resizer" role="separator"
+           aria-orientation="horizontal" aria-label="Resize the diagnostics" tabindex="0"></div>
+      <ul id="diagnostics" class="diagnostics output-side"></ul>
+    </div>
+  </section>
+</main>
+
+<footer class="footer">
+  Runs the real, self-hosted Nupp compiler client-side — see
+  <a href="./README.md">how</a> and what it can't do.
+</footer>
+
+<script type="module" src="./app.js"></script>
+</body>
+</html>

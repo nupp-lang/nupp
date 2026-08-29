@@ -1,0 +1,1008 @@
+module nupp.compiler.check.ownership
+
+--[[
+The affine bookkeeping.
+
+An owner is a value some later operation must discharge; a borrow may not outlive
+what it came from; a pinned handle pairs a pointer with the Lua anchor keeping it
+alive. Tracking that is a concern of its own: it asks where a value came from and
+what has already happened to it, not what type an expression has.
+
+See `docs/type-system/ownership.md`.
+]]
+
+local T = require("nupp.compiler.types")
+local relations = require("nupp.compiler.relations")
+local cst = require("nupp.compiler.cst")
+local state = require("nupp.compiler.check.state")
+
+local ownership = {}
+
+local isA = relations.isA
+local rawType = T.unwrapOwnership
+
+--- A type, as nupp.compiler.types builds them.
+local type Type = T.Type
+
+--- The affine bookkeeping, as the walk and the other passes call it. Half of these are
+--- promoted onto the run as well, because every statement family asks them; the rest
+--- are reached through `c.own` by the families that need provenance or cleanups.
+type ownership.Ops = {
+    --- Which ownership qualifier a type carries, if any.
+    ownershipKind: function(t: Type?): string?,
+
+    --- The canonical capability carried by a type and, when supplied, its
+    --- current flow entry.
+    capabilityOf: function(t: Type?, entry: any?): T.Capability,
+
+    --- The authoritative mutable facts from which `capabilityOf` is projected.
+    capabilityFacts: function(entry: any, result: integer?, create: boolean?): T.CapabilityFacts,
+
+    --- The entry an ownership fact is recorded on, following a narrowed copy back.
+    ownershipState: function(entry: any): any,
+
+    --- The owner a chain of borrows ultimately came from.
+    borrowRoot: function(entry: any): any,
+
+    --- Whether values of this type are pointers at run time.
+    pointerShaped: function(t: Type): boolean,
+
+    --- Whether an owner may also be nil, so cleanup is conditional.
+    optionalOwned: function(t: Type?): boolean,
+
+    --- Checks that a value's declared cleanups exist and take it.
+    validateCleanups: function(valueT: Type?, cleanups: any, at: any, code: string?),
+
+    --- Resolves free cleanup names once, where their contract is declared.
+    resolveCleanups: function(cleanups: any, at: any, registrationNode: any?): {T.Cleanup},
+
+    --- The stable key a named cleanup is registered and compared under, with the
+    --- declaration it named. Marks that declaration for runtime registration. A name
+    --- that reaches no declaration answers nil.
+    cleanupKeyFor: function(name: string): (string?, any),
+
+    --- The resource an owner carries, behind its qualifier and behind an optional.
+    resourceBehind: function(t: any): any,
+
+    --- Finishes generic terminal validation after all structural members are known.
+    finalizeCleanupBounds: function(),
+
+    --- The binding an expression's ownership is recorded on, and the name it was
+    --- reached through.
+    ownershipEntry: function(expr: any): (any, any),
+
+    --- The owner one expression came from, and every owner a whole expression did.
+    provenanceOwner: function(expr: any): any,
+
+    provenanceOwners: function(expr: any, out: {any}?, seen: any?): {any},
+
+    --- The obligation a coroutine suspension would strand, if any.
+    liveSuspensionObligation: function(): string?,
+
+    --- Releases the lifetime counters held by a borrow or dependent owner.
+    releaseBorrowLinks: function(entry: any),
+
+    --- The root and binary region path an expression denotes.
+    regionOf: function(expr: any): (any, string?),
+
+    regionsOverlap: function(left: string?, right: string?): boolean,
+
+    regionContains: function(parent: string?, child: string?): boolean,
+
+    --- Related-location details for the first live borrow overlapping a region.
+    conflictDetails: function(root: any, path: string?, exclusiveOnly: boolean?): any,
+
+    --- Requires one primitive indexed write receiver to be exclusively usable now.
+    checkExclusiveReceiver: function(receiver: any, at: any): nil,
+
+    --- Records that an expression's owner has been handed over.
+    moveExpression: function(
+        expr: any,
+        t: Type?,
+        reason: string,
+        expectedKind: string?,
+        allowPartial: boolean?
+    ): boolean
+}
+
+--- Installs the ownership bookkeeping on one run.
+---
+--- @param c the run's state
+--- @return the operations the walk calls
+function ownership.install(c: state.Checker): ownership.Ops
+    local own = {}
+    local pendingGenericCleanupBounds = {}
+    local emptyCapabilityFacts = new T.CapabilityFacts()
+
+    function own.capabilityFacts(entry, result, create)
+        entry = own.ownershipState(entry)
+        if not entry then
+            return emptyCapabilityFacts
+        end
+        if not entry.capabilityFacts and create ~= false then
+            entry.capabilityFacts = new T.CapabilityFacts()
+        end
+        if result then
+            local existing = entry.resultCapabilityFacts and entry.resultCapabilityFacts[result]
+            if existing then
+                return existing
+            elseif create == false then
+                return result == 1 and entry.capabilityFacts or emptyCapabilityFacts
+            end
+            entry.resultCapabilityFacts = entry.resultCapabilityFacts or {}
+            entry.resultCapabilityFacts[result] = (result == 1 and entry.capabilityFacts) or new T.CapabilityFacts()
+            return entry.resultCapabilityFacts[result]
+        end
+
+        return entry.capabilityFacts or emptyCapabilityFacts
+    end
+
+    function own.capabilityOf(t, entry)
+        entry = own.ownershipState(entry)
+        t = t or (entry and entry.t) or T.any
+
+        return T.capability(t, entry and own.capabilityFacts(entry, nil, false) or nil)
+    end
+
+    function own.ownershipKind(t)
+        return t and T.capabilityKind(own.capabilityOf(t)) or nil
+    end
+
+    function own.ownershipState(entry)
+        return entry and (entry.ownershipOrigin or entry) or nil
+    end
+
+    function own.borrowRoot(entry)
+        entry = own.ownershipState(entry)
+        local seen = {}
+        local roots = entry and own.capabilityFacts(entry, nil, false).roots or nil
+        while entry and roots and roots[1] and not seen[entry] do
+            seen[entry] = true
+            entry = own.ownershipState(roots[1])
+            roots = entry and own.capabilityFacts(entry, nil, false).roots or nil
+        end
+
+        return entry
+    end
+
+    --- The value type behind any ownership qualifier.
+
+    --- Whether values of this type are pointers at run time.
+    function own.pointerShaped(t: Type): boolean
+        t = rawType(t)
+        if t.tag == "ptr" or t.tag == "carray" or t == T.cstring or t == T.voidptr then
+            return true
+        end
+        if t.tag == "union" and t.hasNil then
+            for _, member in ipairs(t.members) do
+                if member ~= T.nil_ and not own.pointerShaped(member) then
+                    return false
+                end
+            end
+            return true
+        end
+
+        return false
+    end
+
+    function own.optionalOwned(t)
+        local inner = rawType(t)
+        return own.ownershipKind(t) == "affine" and inner.tag == "union" and inner.hasNil
+    end
+
+    -- Terminal lookup reaches through an optional owner, while the owner itself still
+    -- carries the optional resource. Keeping those roles separate is what lets
+    -- `affine(T?, cleanup)` inherit T's terminal without ceasing to admit nil.
+    function own.resourceBehind(t)
+        local resource = rawType(t)
+        if resource.tag == "union" then
+            for _, member in ipairs(resource.members) do
+                if member ~= T.nil_ then
+                    return member
+                end
+            end
+        end
+
+        return resource
+    end
+
+    local function addRegistration(node, cleanup, after)
+        if not node or cleanup.kind ~= "function" then
+            return
+        end
+        local registrations = node.cleanupRegistrations or {}
+        node.cleanupRegistrations = registrations
+        for _, current in ipairs(registrations) do
+            if current.cleanup.id == cleanup.id and current.after == after then
+                return
+            end
+        end
+        registrations[#registrations + 1] = {cleanup = cleanup, after = after}
+    end
+
+    -- One key per cleanup declaration, and the same key every run. It names the
+    -- function in the generated registry, and it reaches the interned identity of
+    -- every owned type discharged by it -- so a key that moved when unrelated text
+    -- above the declaration moved would make a type built this run compare unequal
+    -- to the same type read from the cache.
+    --
+    -- The first declaration of a name in a module is the bare name; a second one is
+    -- numbered after it. Two locals may share a name in sibling scopes, and giving
+    -- them one key would register one cleanup over the other and discharge owners
+    -- through the wrong function.
+    local cleanupOrdinals: {[string]: integer} = {}
+    local cleanupKeys: {[any]: string} = {}
+
+    local function stableOrigin(origin: string): string
+        while origin:sub(1, 2) == "./" or origin:sub(1, 2) == ".\\" do
+            origin = origin:sub(3)
+        end
+        return origin
+    end
+
+    local function cleanupKey(origin: string, name: string, definition: any): string
+        local base = ("%s#%s"):format(origin, name)
+        if not definition then
+            return base
+        end
+        local known = cleanupKeys[definition]
+        if known then
+            return known
+        end
+        local seen = cleanupOrdinals[base] or 0
+        cleanupOrdinals[base] = seen + 1
+        local key = seen == 0 and base or ("%s#%d"):format(base, seen)
+        cleanupKeys[definition] = key
+
+        return key
+    end
+
+    -- A method or static declared in a nominal body is hoisted onto that nominal rather
+    -- than into the lexical value table. Resolve the owner through the ordinary type
+    -- scopes, then its declared member, so `File.destroy` works both inside and after
+    -- the declaration without leaking a block-local `File` beyond its scope.
+    local function declaredFunctionEntry(name)
+        local direct = c.lookupEntry(name) or c.qualifiedFunctionEntries[name]
+        if not direct and not name:find(
+            "%."
+        ) and c.moduleExports and c.moduleExports.values and c.moduleExports.values[name] then
+            direct = {
+                t = c.moduleExports.values[name],
+                definition = c.moduleExports.valueDefs and c.moduleExports.valueDefs[name] or nil,
+            }
+        end
+        if direct then
+            -- A member of the module's own export namespace registers under the
+            -- name importers can reconstruct: the export member. `heap.destroyArray`
+            -- inside nupp.mem.heap and `heap.destroyArray` through a require of it
+            -- must mint one key, or the declaring module registers a terminal no
+            -- other module's drop can find.
+            local ownName, ownMember = name:match("^(.*)%.([^.]*)$")
+            if ownName ~= nil and ownName == c.moduleLocal and direct.canonicalName == nil then
+                return {t = direct.t, definition = direct.definition, canonicalName = ownMember}
+            end
+            return direct
+        end
+        local ownerName, member = name:match("^(.*)%.([^.]*)$")
+        local owner = ownerName and c.lookupType(ownerName) or nil
+        if not owner or owner.tag ~= "nominal" then
+            local moduleName, exportName = name:match("^(.*)%.([^.]+)$")
+            -- A terminal is written under the local name its module was bound to
+            -- rather than the module's own name, so `const handles =
+            -- require("resources.handles")` reaches `resources.handles.release` as
+            -- `handles.release`. Substitute the binding's module before asking
+            -- for exports, the same way a qualified type resolves.
+            if moduleName then
+                local first = moduleName:match("^[^.]+")
+                local holder = first and c.lookupEntry(first) or nil
+                if holder and holder.requiredModule then
+                    local firstName = first as string
+                    moduleName = holder.requiredModule .. moduleName:sub(#firstName + 1)
+                end
+            end
+            local exports = moduleName and c.env and c.env.resolveModuleExports and c.env.resolveModuleExports(
+                c.env,
+                moduleName
+            ) or nil
+            local exported = exports and exports.values and exports.values[exportName] or nil
+            local exportedDefinition = exports and exports.valueDefs and exports.valueDefs[exportName] or nil
+            if exported and exportedDefinition then
+                -- The key a terminal is compared under has to be the one its declaring
+                -- module registered. Reaching it through an alias would otherwise make
+                -- `affine(T, gate.release)` a different type from the `affine(T,
+                -- release)` that module returns.
+                return {t = exported, definition = exportedDefinition, canonicalName = exportName}
+            end
+            return nil
+        end
+        local functionType = owner.byname and owner.byname[member] or owner.staticByname and owner.staticByname[member]
+        local definition = owner.fieldDefs and owner.fieldDefs[
+            member
+        ] or owner.staticFieldDefs and owner.staticFieldDefs[member]
+        if not functionType or not definition then
+            return nil
+        end
+
+        return {t = functionType, definition = definition}
+    end
+
+    -- The same key a cleanup is registered under, for a caller that wants to name a
+    -- cleanup without declaring one -- a const function argument is that caller. It
+    -- has to be the same key, or a terminal written in the type would compare unequal
+    -- to the identical terminal written in an annotation.
+    --
+    -- The definition object is not the CST declaration gen sees, but its token is:
+    -- recording the registration there lets each declaration emit it immediately
+    -- after binding the function. That matters for a top-level owner, which can be
+    -- discharged before a module-level registration appended near the return runs.
+    function own.cleanupKeyFor(name)
+        local entry = declaredFunctionEntry(name)
+        local definition = entry and entry.definition or nil
+        if not definition then
+            return nil, nil
+        end
+        local definitionModule = definition.filename and c.env and c.env.moduleNameForPath and c.env.moduleNameForPath(
+            c.env,
+            definition.filename
+        )
+        local origin = stableOrigin(
+            definitionModule or definition and definition.filename or c.result.moduleName or c.filename or "<module>"
+        )
+        local key = cleanupKey(origin, entry.canonicalName or name, definition)
+        local bound = entry and entry.t or nil
+        if bound and bound.tag == "func" then
+            addRegistration(definition.token, T.functionCleanup(key, name, bound), false)
+        end
+
+        return key, entry
+    end
+
+    local function resolvedFunctionCleanup(name, at, registrationNode, after, knownType)
+        local entry = declaredFunctionEntry(name)
+        local definition = entry and entry.definition or nil
+        local definitionModule = definition
+            and definition.filename
+            and c.env
+            and c.env.moduleNameForPath
+            and c.env.moduleNameForPath(
+            c.env,
+            definition.filename
+        )
+        local origin = stableOrigin(
+            definitionModule or definition and definition.filename or c.result.moduleName or c.filename or "<module>"
+        )
+        local key = cleanupKey(origin, entry and entry.canonicalName or name, definition)
+        local cleanup = T.functionCleanup(key, name, knownType or entry and entry.t or nil)
+        addRegistration(registrationNode, cleanup, after == true)
+
+        return cleanup
+    end
+
+    function own.resolveCleanups(cleanups, at, registrationNode)
+        local resolved: {T.Cleanup} = {}
+        registrationNode = registrationNode or at and at.cleanupRegistrationNode or nil
+        for j, cleanup in ipairs(cleanups or {}) do
+            if type(cleanup) == "table" and cleanup.kind then
+                if cleanup.kind == "function" and not cleanup.functionType then
+                    resolved[j] = resolvedFunctionCleanup(cleanup.name, at, registrationNode, false)
+                else
+                    resolved[j] = cleanup
+                    addRegistration(registrationNode, cleanup, false)
+                end
+            else
+                resolved[j] = resolvedFunctionCleanup(cleanup, at, registrationNode, false)
+            end
+        end
+
+        return resolved
+    end
+
+    function own.validateCleanups(valueT, cleanups, at, code)
+        code = code or "NUPP2602"
+        local cleanupValue = rawType(valueT)
+        -- Optional ownership carries no obligation in its nil state, so the terminal
+        -- contract is the present representation and lowering guards the call.
+        if cleanupValue.tag == "union" and cleanupValue.hasNil then
+            local present = {}
+            for _, member in ipairs(cleanupValue.members) do
+                if member ~= T.nil_ then
+                    present[#present + 1] = member
+                end
+            end
+            cleanupValue = T.union(present)
+        end
+        local signature = {cleanupValue.id}
+        for _, cleanup in ipairs(cleanups or {}) do
+            local cleanupT = cleanup.kind == "function" and (cleanup.functionType or c.lookupVar(cleanup.name)) or nil
+            signature[#signature + 1] = cleanup.id .. ":" .. (cleanupT and cleanupT.id or "?")
+        end
+        local contractKey = table.concat(signature, "|")
+        if c.validatedCleanupContracts[contractKey] then
+            return
+        end
+        c.validatedCleanupContracts[contractKey] = true
+        for j, cleanup in ipairs(cleanups or {}) do
+            if cleanup.kind == "function" then
+                local function validateFunctionCleanup()
+                    local cleanupT = cleanup.functionType or c.lookupVar(cleanup.name)
+                    local cleanupFunc = cleanupT and cleanupT.tag == "func" and cleanupT or nil
+                    local cleanupEntry = declaredFunctionEntry(cleanup.name)
+                    local cVoidTerminal = cleanupFunc
+                        and #cleanupFunc.rets == 0
+                        and cleanupFunc.retPack.tail == nil
+                        and cleanupEntry
+                        and cleanupEntry.definition
+                        and cleanupEntry.definition.cdef
+                    if cleanup.kind == "function" and c.nosuspend and c.nosuspend.cleanup then
+                        local localDefinition = cleanupEntry
+                            and cleanupEntry.definition
+                            and cleanupEntry.definition.filename == c.filename
+                            and cleanupEntry.definition
+                            or nil
+                        cleanup.token = localDefinition and localDefinition.token or nil
+                        cleanup.visibleBody = localDefinition and (
+                            not c.declarationFile or c.result.moduleName == "nupp.prelude"
+                        ) or nil
+                        c.nosuspend.cleanup(cleanup, at)
+                    end
+                    local firstParam = cleanupFunc and cleanupFunc.params[1] or nil
+                    local genericBound = nil
+                    if firstParam and firstParam.tag == "typevar" and cleanupFunc then
+                        for parameter, typeParameter in ipairs(cleanupFunc.typeParams or {}) do
+                            if typeParameter == firstParam then
+                                genericBound = cleanupFunc.typeBounds and cleanupFunc.typeBounds[parameter] or nil
+                            end
+                        end
+                    end
+                    if not cleanupT and cleanup.key then
+                        -- An instantiated exported affine alias carries the stable key
+                        -- of a cleanup already checked in its defining module. The
+                        -- declaration's local function type is intentionally not part
+                        -- of the importing value namespace; requiring it again here
+                        -- made sound public aliases unusable from another module. A
+                        -- directly written unknown function never gets a key and still
+                        -- follows the diagnostic below.
+                        return
+                    elseif not cleanupT then
+                        c.diag(code, at, ("cleanup %q is not declared"):format(cleanup.name), nil, {
+                            notes = {
+                                "a cleanup is resolved here, where the owner "
+                                .. "is declared, so it has to name a function this file "
+                                .. "can see"
+                            }
+                        })
+                    elseif genericBound and not isA(cleanupValue, genericBound) then
+                        pendingGenericCleanupBounds[
+                            #pendingGenericCleanupBounds + 1
+                        ] = {cleanup = cleanup, value = cleanupValue, bound = genericBound, at = at, code = code,}
+                    elseif cleanupT and cleanupT ~= T.any and not cleanupFunc then
+                        c.diag(code, at, ("terminal %q must be a function"):format(cleanup.name))
+                    elseif cleanupFunc and (
+                        #cleanupFunc.params ~= 1 or cleanupFunc.paramPack.tail ~= nil or cleanupFunc.paramModes[
+                            1
+                        ] ~= "takes"
+                    ) then
+                        c.diag(code, at, ("terminal %q must take exactly one consuming argument"):format(cleanup.name))
+                    elseif cleanupFunc and not genericBound and (
+                        not firstParam or firstParam.id ~= cleanupValue.id
+                    ) then
+                        c.diag(
+                            code,
+                            at,
+                            ("terminal %q must take exactly %s"):format(cleanup.name, T.tostring(cleanupValue))
+                        )
+                    elseif cleanupFunc and (
+                        not cVoidTerminal and (
+                            #cleanupFunc.rets ~= 1 or cleanupFunc.retPack.tail ~= nil or cleanupFunc.rets[1] ~= T.nil_
+                        )
+                    ) then
+                        c.diag(code, at, ("terminal %q must return nil"):format(cleanup.name))
+                    elseif cleanupFunc and not cleanupFunc.noYield and cleanup.visibleBody ~= true then
+                        c.diag(code, at, ("terminal %q must be nosuspend"):format(cleanup.name))
+                    elseif cleanupFunc and j < #(cleanups or {}) and cleanupFunc.paramModes[1] == "takes" then
+                        c.diag("NUPP2615", at, ("cleanup %q takes before the final step"):format(cleanup.name))
+                    end
+                    if cleanupT then
+                        cleanup.validated = true
+                    end
+                end
+
+                validateFunctionCleanup()
+            end
+        end
+    end
+
+    function own.finalizeCleanupBounds()
+        for _, pending in ipairs(pendingGenericCleanupBounds) do
+            if not isA(pending.value, pending.bound) then
+                c.diag(
+                    pending.code,
+                    pending.at,
+                    (
+                        "cleanup %q requires %s to satisfy %s"
+                    ):format(pending.cleanup.name, T.tostring(pending.value), T.tostring(pending.bound))
+                )
+            end
+        end
+    end
+
+    -- One fix builder serves function statements and callable fields. What resolved
+    -- decides whether the rewrite is sound; the annotation's written arguments decide
+    -- its spelling, so a bare contract keeps following the type's unique default.
+    function own.ownershipEntry(expr)
+        while expr and (expr.kind == "paren" or expr.kind == "castExpr") do
+            expr = expr.expr
+        end
+        if expr and expr.kind == "name" then
+            return own.ownershipState(c.lookupEntry(expr.token.text)), expr
+        end
+
+        return nil, expr
+    end
+
+    function own.regionsOverlap(left, right)
+        return T.regionsOverlap(left, right)
+    end
+
+    function own.regionContains(parent, child)
+        return T.regionContains(parent, child)
+    end
+
+    function own.conflictDetails(root, path, exclusiveOnly)
+        for borrowed, site in pairs(root and root.activeBorrowSites or {}) do
+            local borrowedFacts = own.capabilityFacts(borrowed, nil, false)
+            if not borrowed.moved and (
+                not exclusiveOnly or borrowedFacts.exclusive
+            ) and (not path or own.regionsOverlap(path, borrowedFacts.regionPath or "")) then
+                local related = c.related(site, "overlapping borrow is declared here")
+                return {
+                    help = "end the overlapping borrow before requesting this access",
+                    related = related and {related} or nil,
+                }
+            end
+        end
+
+        return {help = "end the overlapping borrow before requesting this access"}
+    end
+
+    function own.checkExclusiveReceiver(receiver, at)
+        local entry, nameNode = own.ownershipEntry(receiver)
+        entry = own.ownershipState(entry)
+        local entryFacts = entry and own.capabilityFacts(entry, nil, false) or nil
+        local regionRoot, regionPath = own.regionOf(receiver)
+        local roots = entry and {entry} or own.provenanceOwners(receiver)
+        if #roots == 0 then
+            c.diag("NUPP2602", at or receiver, "an indexed write requires a named or rooted exclusive view")
+            return
+        end
+        for _, root in ipairs(roots) do
+            local blocked = (root.activeBorrows or 0) > 0
+            if regionRoot and regionPath and regionPath ~= "" then
+                blocked = false
+                for activePath, count in pairs(regionRoot.activeRegions or {}) do
+                    local ownCount = entry
+                        and entryFacts
+                        and entryFacts.regionRoot == regionRoot
+                        and entryFacts.regionPath == regionPath
+                        and 1
+                        or 0
+                    if (
+                        activePath == regionPath and count > ownCount
+                    ) or (
+                        activePath ~= regionPath and c.regionsOverlap(
+                            activePath,
+                            regionPath
+                        ) and not c.regionContains(activePath, regionPath)
+                    ) then
+                        blocked = true
+                        break
+                    end
+                end
+            end
+            if blocked then
+                c.diag(
+                    "NUPP2607",
+                    nameNode or at or receiver,
+                    "an indexed write cannot overlap a live derived view",
+                    nil,
+                    own.conflictDetails(regionRoot or root, regionPath)
+                )
+                return
+            end
+        end
+    end
+
+    function own.regionOf(expr)
+        while expr and (expr.kind == "paren" or expr.kind == "castExpr") do
+            expr = expr.expr
+        end
+        if not expr then
+            return nil, nil
+        end
+        local exprFacts = own.capabilityFacts(expr, nil, false)
+        if exprFacts.regionRoot then
+            return exprFacts.regionRoot, exprFacts.regionPath or ""
+        end
+        if expr.kind == "name" then
+            local entry = own.ownershipState(c.lookupEntry(expr.token.text))
+            if entry then
+                local facts = own.capabilityFacts(entry, nil, false)
+                if facts.exclusive then
+                    own.capabilityFacts(expr).exclusive = true
+                end
+                return facts.regionRoot or own.borrowRoot(
+                    facts.roots and facts.roots[1] or entry
+                ), facts.regionPath or ""
+            end
+        elseif expr.kind == "dotIndex" or expr.kind == "safeIndex" then
+            if expr.indexedField and expr.obj and expr.obj.indexedAccess and expr.obj.obj then
+                local root, path = own.regionOf(expr.obj.obj)
+                if root then
+                    path = T.regionField(path, expr.indexedField.name)
+                    local key = expr.obj.expr and c.infer(expr.obj.expr) or nil
+                    local exact = key and key.tag == "literal" and type(
+                        key.constant
+                    ) == "number" and key.constant % 1 == 0 and key.constant or nil
+                    return root, T.regionIndex(path, exact)
+                end
+            elseif expr.soaField and expr.obj and expr.obj.soaRow and expr.obj.obj then
+                local root, path = own.regionOf(expr.obj.obj)
+                if root then
+                    path = T.regionField(path, expr.soaField.name)
+                    local key = expr.obj.expr and c.infer(expr.obj.expr) or nil
+                    local exact = key and key.tag == "literal" and type(
+                        key.constant
+                    ) == "number" and key.constant % 1 == 0 and key.constant or nil
+                    return root, T.regionIndex(path, exact)
+                end
+            end
+            local root, path = own.regionOf(expr.obj)
+            local objectRef = c.refType(expr.obj)
+            local objectType = objectRef and rawType(objectRef) or nil
+            if root and objectType and objectType.tag == "ptr" then
+                path = T.regionDeref(path)
+            end
+            local fields = expr.obj.partitionFields
+            if not fields and expr.obj.kind == "name" then
+                local entry = own.ownershipState(c.lookupEntry(expr.obj.token.text))
+                fields = entry and entry.partitionFields or nil
+            end
+            local suffix = fields and fields[expr.name.text] or nil
+            if root and suffix then
+                own.capabilityFacts(expr).exclusive = true
+                local side = suffix == "L" and "left" or suffix == "R" and "right" or suffix
+                return root, T.regionPartition(path, side)
+            elseif root then
+                return root, T.regionField(path, expr.name.text)
+            end
+            return root, path
+        elseif expr.kind == "bracketIndex" or expr.kind == "safeBracket" then
+            local root, path = own.regionOf(expr.obj)
+            if root then
+                local key = expr.expr and c.infer(expr.expr) or nil
+                local exact = key and key.tag == "literal" and type(
+                    key.constant
+                ) == "number" and key.constant % 1 == 0 and key.constant or nil
+                local referenced = c.refType(expr.obj)
+                local objectType = referenced and rawType(referenced) or nil
+                if objectType and objectType.tag == "tuple" and exact and exact >= 1 and exact <= #objectType.elems then
+                    return root, T.regionTupleSlot(path, exact)
+                end
+                if objectType and objectType.tag == "ptr" then
+                    path = T.regionDeref(path)
+                end
+                return root, T.regionIndex(path, exact)
+            end
+            return root, path
+        end
+
+        local owner = own.provenanceOwner(expr)
+
+        return owner, owner and "" or nil
+    end
+
+    function own.provenanceOwner(expr)
+        -- `new` wraps the construction it decides, and provenance is about where a
+        -- value came from rather than how it was written, so it reads through the word
+        -- exactly as it reads through a paren or a cast.
+        while expr and (expr.kind == "paren" or expr.kind == "castExpr" or expr.kind == "newExpr") do
+            expr = expr.kind == "newExpr" and expr.call or expr.expr
+        end
+        if not expr then
+            return nil
+        end
+        local exprRoots = own.capabilityFacts(expr, nil, false).roots
+        if exprRoots and exprRoots[1] then
+            return own.borrowRoot(exprRoots[1])
+        end
+        if expr.kind == "name" then
+            local entry = own.ownershipState(c.lookupEntry(expr.token.text))
+            local roots = entry and own.capabilityFacts(entry, nil, false).roots or nil
+            return own.borrowRoot(entry and (roots and roots[1] or entry))
+        elseif expr.kind == "dotIndex"
+            or expr.kind == "safeIndex"
+            or expr.kind == "bracketIndex"
+            or expr.kind == "safeBracket"
+        then
+            return own.provenanceOwner(expr.obj)
+        elseif expr.kind == "tableExpr" then
+            for _, field in ipairs(expr.fields or {}) do
+                local owner = own.provenanceOwner(field.value)
+                if owner then
+                    return owner
+                end
+            end
+        elseif expr.kind == "binop" then
+            local owner = own.provenanceOwner(expr.lhs)
+            if owner then
+                return owner
+            end
+            return own.provenanceOwner(expr.rhs)
+        elseif expr.kind == "call" and expr.recordConstruct then
+            for _, binding in ipairs(expr.recordFields or {}) do
+                local owner = own.provenanceOwner(binding.node)
+                if owner then
+                    return owner
+                end
+            end
+        end
+
+        return nil
+    end
+
+    function own.provenanceOwners(expr, out, seen)
+        out, seen = out or {}, seen or {}
+        if not expr or cst.isToken(expr) then
+            return out
+        end
+        if expr.kind == "newExpr" then
+            return own.provenanceOwners(expr.call, out, seen)
+        end
+        local exprRoots = own.capabilityFacts(expr, nil, false).roots
+        if exprRoots then
+            for _, owner in ipairs(exprRoots) do
+                owner = own.borrowRoot(owner)
+                if owner and not seen[owner] then
+                    seen[owner], out[#out + 1] = true, owner
+                end
+            end
+            return out
+        end
+        local one = own.provenanceOwner(expr)
+        if one and not seen[one] then
+            seen[one], out[#out + 1] = true, one
+        end
+        if expr.kind == "tableExpr" then
+            for _, field in ipairs(expr.fields or {}) do
+                own.provenanceOwners(field.value, out, seen)
+            end
+        elseif expr.kind == "call" and expr.recordConstruct then
+            -- The fields the checker resolved, rather than the arguments as written:
+            -- a value named by its field and one placed by its order fill the same
+            -- slot, and what a construction carries in is what landed in a field.
+            for _, binding in ipairs(expr.recordFields or {}) do
+                own.provenanceOwners(binding.node, out, seen)
+            end
+        elseif expr.kind == "binop" then
+            own.provenanceOwners(expr.lhs, out, seen)
+            own.provenanceOwners(expr.rhs, out, seen)
+        end
+
+        return out
+    end
+
+    function own.liveSuspensionObligation()
+        local current, seen = c.scope, {}
+        while current do
+            for name, entry in pairs(current.vars or {}) do
+                local state = own.ownershipState(entry)
+                if state and not seen[state] and (state.functionDepth or 0) == c.functionDepth and not state.moved then
+                    seen[state] = true
+                    local capability = own.capabilityOf(state.t, state)
+                    if T.capabilityHasMovable(
+                        capability
+                    ) or #capability.loans > 0 or (state.activeBorrows or 0) > 0 then
+                        return name
+                    end
+                end
+            end
+            current = current.parent
+        end
+
+        return nil
+    end
+
+    --- Releases every lifetime link carried by a borrow or dependent owner. An
+    --- exclusive link is counted separately so a shared operation can distinguish a
+    --- live writer from another shared reader without weakening ordinary borrow
+    --- accounting.
+    function own.releaseBorrowLinks(entry)
+        entry = own.ownershipState(entry)
+        -- Narrowed bindings share their declaration's flow state but do not acquire a
+        -- second loan. Leaving the narrowing scope must therefore not release the
+        -- declaration's roots.
+        if entry.ownershipOrigin then
+            return
+        end
+        if not entry.capabilityFacts then
+            return
+        end
+        local facts = own.capabilityFacts(entry, nil, false)
+        if facts.regionRoot and facts.regionPath then
+            local active = facts.regionRoot.activeRegions
+            if active and active[facts.regionPath] then
+                active[facts.regionPath] = math.max(0, active[facts.regionPath] - 1)
+                if active[facts.regionPath] == 0 then
+                    active[facts.regionPath] = nil
+                end
+            end
+            if facts.exclusive then
+                local exclusive = facts.regionRoot.activeExclusiveRegions
+                if exclusive and exclusive[facts.regionPath] then
+                    exclusive[facts.regionPath] = math.max(0, exclusive[facts.regionPath] - 1)
+                    if exclusive[facts.regionPath] == 0 then
+                        exclusive[facts.regionPath] = nil
+                    end
+                end
+            end
+        end
+        for _, owner in ipairs(facts.roots or {}) do
+            if owner.activeBorrowSites then
+                owner.activeBorrowSites[entry] = nil
+            end
+            owner.activeBorrows = math.max(0, (owner.activeBorrows or 1) - 1)
+            if facts.exclusive then
+                owner.activeExclusiveBorrows = math.max(0, (owner.activeExclusiveBorrows or 1) - 1)
+            end
+        end
+        facts.roots = nil
+        facts.exclusive = nil
+        facts.regionRoot = nil
+        facts.regionPath = nil
+    end
+
+    function own.moveExpression(expr, t, reason, expectedKind, allowPartial)
+        expectedKind = expectedKind or "affine"
+        local dropOperation = c.consumingFieldStack[#c.consumingFieldStack]
+        if dropOperation
+            and expectedKind == "affine"
+            and expr
+            and expr.kind == "name"
+            and expr.token
+            and expr.token.text == dropOperation.root
+        then
+            dropOperation.wholeMoved = true
+        end
+        if dropOperation
+            and expectedKind == "affine"
+            and expr
+            and expr.kind == "dotIndex"
+            and expr.obj
+            and expr.obj.kind == "name"
+            and expr.obj.token.text == dropOperation.root
+        then
+            local field = expr.name.text
+            if dropOperation.allowed[field] then
+                if dropOperation.done[field] then
+                    c.diag("NUPP2602", expr, ("owned field %q is dropped more than once"):format(field))
+                    return false
+                end
+                dropOperation.done[field] = true
+                return true
+            end
+        end
+        local entry, nameNode = own.ownershipEntry(expr)
+        entry = own.ownershipState(entry)
+        if own.ownershipKind(t) ~= expectedKind then
+            c.diag("NUPP2602", expr, (reason or "ownership transfer") .. " requires a " .. expectedKind .. " value")
+            return false
+        end
+        if expr and expr.kind == "dotIndex" and expectedKind == "affine" then
+            local container = expr.obj and own.ownershipState((own.ownershipEntry(expr.obj))) or nil
+            local field = expr.name and expr.name.text
+            local aggregate = container and rawType(container.t) or nil
+            local declared = aggregate and aggregate.tag == "nominal" and aggregate.byname[field] or nil
+            if not container or own.ownershipKind(
+                container.t
+            ) ~= "affine" or own.ownershipKind(declared) ~= "affine" then
+                c.diag("NUPP2602", expr, "only a declared affine field of a named owning record can move")
+                return false
+            end
+            container.movedFields = container.movedFields or {}
+            if container.movedFields[field] then
+                c.diag("NUPP2601", expr, ("owned field %q was already moved"):format(field))
+                return false
+            end
+            if aggregate
+                and aggregate.tag == "nominal"
+                and aggregate.borrowedRootFields
+                and aggregate.borrowedRootFields[
+                field
+            ] then
+                c.diag("NUPP2602", expr, ("owned field %q cannot move while a sibling field borrows it"):format(field))
+                return false
+            end
+            if (container.activeBorrows or 0) > 0 then
+                c.diag("NUPP2602", expr, ("owned field %q cannot move while the record is borrowed"):format(field))
+                return false
+            end
+            container.movedFields[field] = true
+            container.movedFieldTypes = container.movedFieldTypes or {}
+            container.movedFieldTypes[field] = t
+            if container.automaticOwner then
+                expr.automaticOwnerMove = {owner = container.automaticOwner, field = field}
+                container.automaticOwner.movedFields = container.automaticOwner.movedFields or {}
+                container.automaticOwner.movedFields[field] = true
+            end
+            return true
+        elseif expr and expr.kind == "bracketIndex" and expectedKind == "affine" then
+            c.diag("NUPP2602", expr, "computed partial moves cannot prove which affine field moved")
+            return false
+        end
+        if entry and entry.movedFields and next(entry.movedFields) and not allowPartial then
+            c.diag("NUPP2602", nameNode or expr, "a partially moved record cannot be moved or consumed as a whole")
+            return false
+        end
+        if entry then
+            if own.ownershipKind(entry.t) ~= expectedKind then
+                c.diag("NUPP2602", expr, (reason or "ownership transfer") .. " requires a " .. expectedKind .. " value")
+                return false
+            end
+            if entry.moved then
+                if not nameNode.ownershipUseReported then
+                    local related = entry.movedAt and c.related(entry.movedAt, "owner was moved here") or nil
+                    c.diag("NUPP2601", nameNode, ("owner %q was already moved"):format(nameNode.token.text), nil, {
+                        related = related and {related} or nil,
+                        help = "use the owner before this transfer, or borrow it " .. "instead of moving it"
+                    })
+                end
+                return false
+            end
+            if (entry.activeBorrows or 0) > 0 then
+                c.diag("NUPP2602", nameNode, ("owner %q cannot move while it is borrowed"):format(nameNode.token.text))
+                return false
+            end
+            if expectedKind == "pinned" and own.capabilityFacts(entry, nil, false).retention then
+                c.diag(
+                    "NUPP2602",
+                    nameNode,
+                    ("pinned handle %q cannot move while C retains it"):format(nameNode.token.text)
+                )
+                return false
+            end
+            if entry.automaticOwner then
+                nameNode.automaticOwnerMove = entry.automaticOwner
+                entry.automaticOwner.moved = true
+            end
+            entry.moved = true
+            entry.movedAt = nameNode or expr
+            -- An owner that retained a borrow releases it when it is discharged, so the
+            -- source becomes free at that point rather than at the end of the scope.
+            own.releaseBorrowLinks(entry)
+        end
+        -- Owned temporaries (principally calls returning `own`) transfer directly and
+        -- need no variable state update.
+
+        return true
+    end
+
+    -- Also on the checker, so a pass in another module reaches them the same way the
+    -- walk does.
+    c.ownershipKind = own.ownershipKind
+    c.capabilityOf = own.capabilityOf
+    c.ownershipState = own.ownershipState
+    c.pointerShaped = own.pointerShaped
+    c.moveExpression = own.moveExpression
+    c.borrowRoot = own.borrowRoot
+    c.ownershipEntry = own.ownershipEntry
+    c.liveSuspensionObligation = own.liveSuspensionObligation
+    c.releaseBorrowLinks = own.releaseBorrowLinks
+    c.regionOf = own.regionOf
+    c.regionsOverlap = own.regionsOverlap
+    c.regionContains = own.regionContains
+    c.validateCleanups = own.validateCleanups
+
+    return own
+end
+
+export = ownership

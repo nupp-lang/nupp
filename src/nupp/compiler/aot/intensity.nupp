@@ -1,0 +1,208 @@
+module nupp.compiler.aot.intensity
+
+--[[
+Whether lane lowering is worth doing.
+
+Running several iterations at once is a large win where a loop stays in registers
+and a large loss where it streams memory. Measured against their own scalar
+bodies on Apple arm64, a Mandelbrot kernel runs about twice its scalar speed with
+four lanes, while a component update runs between a tenth and four fifths of its.
+
+Two explanations for the losing side are wrong, and both were tested. Shrinking
+the AoS element to two fields does not remove the loss. Neither does avoiding
+binary64 gang widening: the same kernel in binary32 through an eight-lane gang
+loses by about as much. Projecting the fields from column storage does remove
+the strided-load loss, but leaves lanes tied with scalar because at tens of
+gigabytes a second there is still no arithmetic to amortize vector machinery.
+
+So what separates the two is arithmetic per byte, and that is what this counts.
+It is an estimate standing in for a measurement, which is why the source
+overrides it in either direction rather than being stuck with it.
+
+The estimate is deliberately static. Measuring at build time would choose better
+and would make two builds of one source disagree, which an artifact cache cannot
+have.
+]]
+
+local lane = require("nupp.compiler.aot.lane")
+local scalarIR = require("nupp.compiler.aot.scalar")
+
+local intensity = {}
+
+--- What one loop body costs and what it does with it.
+record intensity.Estimate
+    --- Arithmetic operations per byte touched. Zero bytes means a body that
+    --- touches no span at all, which reports its operation count instead.
+    perByte: number
+
+    --- Arithmetic operations, with those inside a data-dependent inner loop
+    --- weighted.
+    operations: number
+
+    --- Distinct span fields read or written, in bytes.
+    bytes: number
+
+    --- Reads and writes through fields of consecutive AoS elements. These are
+    --- the accesses column projection makes contiguous.
+    fieldAccesses: integer
+
+    --- Whether the estimate clears the threshold.
+    worthwhile: boolean
+end
+
+--- The operations that count as arithmetic.
+---
+--- Comparisons are absent on purpose: they are what a mask is made of rather
+--- than work a vector amortizes, and counting them would make a loop that mostly
+--- branches look like one that mostly computes.
+const intensity.ARITHMETIC = {
+    ["add"] = true,
+    ["sub"] = true,
+    ["mul"] = true,
+    ["div"] = true,
+    ["neg"] = true,
+    ["mod"] = true,
+    ["pow"] = true,
+    ["math"] = true,
+    ["band"] = true,
+    ["bor"] = true,
+    ["bxor"] = true,
+    ["bnot"] = true,
+    ["lshift"] = true,
+    ["rshift"] = true,
+    ["arshift"] = true,
+    ["f32_add"] = true,
+    ["f32_sub"] = true,
+    ["f32_mul"] = true,
+    ["f32_div"] = true,
+    ["f32_sqrt"] = true,
+    ["f32_min"] = true,
+    ["f32_max"] = true,
+    ["f32_fma"] = true,
+    ["i32_add"] = true,
+    ["i32_sub"] = true,
+    ["i32_mul"] = true,
+}
+
+--- How wide each element is where it is stored, which is not how wide the lane
+--- carrying it is. A `float` field is four bytes however many bits the gang
+--- widens it to, because the bytes are what crosses memory.
+const intensity.SOURCE_BYTES = {
+    ["number"] = 8,
+    ["float"] = 4,
+    ["int8"] = 1,
+    ["uint8"] = 1,
+    ["int16"] = 2,
+    ["uint16"] = 2,
+    ["int32"] = 4,
+    ["uint32"] = 4,
+}
+
+const intensity.CANONICAL_SOURCE = {["f64"] = "number", ["f32"] = "float", ["i32"] = "int32", ["u32"] = "uint32",}
+
+local function sourceBytes(valueType: string, sourceType: string?): integer
+    return intensity.SOURCE_BYTES[sourceType or tostring(intensity.CANONICAL_SOURCE[valueType])] or 8
+end
+
+--- Counts one loop body.
+---
+--- A field read twice is one load, because the second is in a register; a field
+--- both read and written costs both, because both cross memory. Statements
+--- inside a data-dependent inner loop are weighted, since they run many times
+--- per iteration of the loop being lowered and the trip count is not a static
+--- fact -- the weight stands in for that count rather than claiming it.
+---
+--- @param program the scalar AOT IR program
+--- @return what it costs, and whether that clears the threshold
+function intensity.estimate(program: scalarIR.Program): intensity.Estimate
+    local operations = 0
+    local fieldAccesses: integer = 0
+    local touched: {[string]: integer} = {}
+    local spans: {[string]: integer} = {}
+    local fields: {[string]: integer} = {}
+    for _, param in ipairs(program.params) do
+        if param.kind ~= "uniform" then
+            spans[param.name] = sourceBytes(param.type, param.sourceType)
+        end
+    end
+    for _, layout in ipairs(program.layouts or {}) do
+        for _, field in ipairs(layout.fields) do
+            fields[layout.name .. "." .. field.name] = sourceBytes(field.type, field.sourceType)
+        end
+    end
+
+    local countExpr: function(any, integer): nil
+    countExpr = function(node: any, weight: integer): nil
+        if type(node) ~= "table" or not node.op then
+            return
+        end
+        if intensity.ARITHMETIC[node.op] then
+            operations = operations + weight
+        end
+        if node.op == "field_load" then
+            fieldAccesses = fieldAccesses + 1
+            local key = tostring(node.layout) .. "." .. tostring(node.field)
+            touched["r:" .. key] = fields[key] or 8
+        elseif node.op == "load" then
+            touched["r:" .. tostring(node.span)] = spans[tostring(node.span)] or 8
+        end
+        countExpr(node.left, weight)
+        countExpr(node.right, weight)
+        countExpr(node.value, weight)
+        countExpr(node.object, weight)
+        for _, argument in ipairs(node.args or {}) do
+            countExpr(argument, weight)
+        end
+    end
+
+    local countBlock: function({any}, integer): nil
+    countBlock = function(block: {any}, weight: integer): nil
+        for _, statement in ipairs(block or {}) do
+            if statement.op == "store" then
+                touched["w:" .. tostring(statement.span)] = spans[tostring(statement.span)] or 8
+            end
+            countExpr(statement.value, weight)
+            countExpr(statement.call, weight)
+            countExpr(statement.condition, weight)
+            countExpr(statement.from, weight)
+            countExpr(statement.to, weight)
+            for _, assignment in ipairs(statement.values or {}) do
+                countExpr(assignment.value, weight)
+                local target = assignment.target
+                if target and target.kind == "field" then
+                    fieldAccesses = fieldAccesses + 1
+                    local key = tostring(target.layout) .. "." .. tostring(target.field)
+                    touched["w:" .. key] = fields[key] or 8
+                end
+            end
+            for _, clause in ipairs(statement.clauses or {}) do
+                countExpr(clause.condition, weight)
+                countBlock(clause.body, weight)
+            end
+            countBlock(statement.elseBody, weight)
+            local inner = statement.op == "while" or statement.op == "fornum"
+            countBlock(statement.body, inner and weight * lane.INNER_LOOP_WEIGHT or weight)
+        end
+    end
+
+    local loop = program.loop
+    if loop ~= nil then
+        countBlock((loop as scalarIR.Loop).statements, 1)
+    end
+
+    local bytes = 0
+    for _, width in pairs(touched) do
+        bytes = bytes + width
+    end
+    local perByte = bytes == 0 and operations or operations / bytes
+
+    return new intensity.Estimate(
+        perByte = perByte,
+        operations = operations,
+        bytes = bytes,
+        fieldAccesses = fieldAccesses,
+        worthwhile = perByte >= lane.INTENSITY_THRESHOLD
+    )
+end
+
+export = intensity

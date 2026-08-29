@@ -1,0 +1,1343 @@
+module nupp.derive
+
+--[[
+Both halves of the standard derives: the comptime providers that decide what a
+derived member is, and the runtime that member calls.
+
+See [derives.md](docs/reference/derives.md) for what each standard derive writes, and
+[reflection.md](docs/concepts/reflection.md) for the descriptors the JSON codec is memoized
+against.
+]]
+
+local derive = {}
+
+interface derive.JSONContract is nupp.data.json.JSONEncodable
+end
+
+--- One derived type, as the registry holds it.
+record derive.Entry
+    --- The recipe fingerprint the entry is filed under.
+    key: string?
+
+    --- The type's runtime table, which is its instances' metatable.
+    mt: any
+
+    --- The recipe's data, plus the JSON field list and unknown-field policy that
+    --- `jsonCodec` folds onto it the first time the type is encoded.
+    schema: {
+        data: {[string]: any},
+        [string]: any
+    }
+
+    codec: nupp.reflect.FieldCodec<any>
+
+    --- The JSON decoder, present once the codec has been built.
+    decoder: any
+end
+
+-- Every derived type, keyed by the fingerprint generation stamped onto its metatable.
+-- Named `derived` rather than `types` because a bare `types` resolves to the
+-- compiler's own module under qualified-path lookup; the namespace still publishes it
+-- as `types`, which is the name everything reading the registry already uses.
+local derived: any = {}
+local derivedByType: any = setmetatable({}, {__mode = "k"})
+
+-- Set by `install`, and nil until then. The JSON codec is memoized as a reflection
+-- extension rather than a field, so a type whose program never installed reflection
+-- has no JSON either, which is the same condition the bootstrap already sequenced,
+-- kept here rather than assumed.
+local reflect: any = nil
+
+-- The module value is required only by the allocating encode wrappers. `writeJSON`
+-- receives its buffer, so that path neither allocates one nor loads the constructor.
+local bufferModule: any = nil
+local serdeRuntime: any = nil
+
+local function newBuffer(): string.buffer.Buffer
+    if bufferModule == nil then
+        bufferModule = require("string.buffer")
+    end
+
+    return bufferModule.new() as string.buffer.Buffer
+end
+
+--- Copies a field default so two instances never share one table.
+--- @raises when the default refers to itself
+local function copied(value: any, seen: any): any
+    if type(value) ~= "table" then
+        return value
+    end
+    local visiting = seen or {}
+    if visiting[value] then
+        error("nupp: cyclic field default", 3)
+    end
+    visiting[value] = true
+    local out: any = {}
+    for k, v in pairs(value) do
+        out[copied(k, visiting)] = copied(v, visiting)
+    end
+    visiting[value] = nil
+
+    return out
+end
+
+--- The value a field default describes.
+--- @param spec the default the recipe recorded
+--- @return a fresh copy of it
+--- @raises when the default is not a literal
+local function defaultValue(spec: any): any
+    if spec ~= nil and spec.kind == "literal" then
+        return copied(spec.value, nil)
+    end
+    error("nupp: unsupported field default", 3)
+end
+
+local function finite(value: number): boolean
+    return value == value and value ~= math.huge and value ~= -math.huge
+end
+
+-- Depth and cycles are both refused rather than truncated: a document that stops
+-- short is worse than one that was never written.
+local function enter(value: any, state: any, path: string): nil
+    if state.depth >= 128 then
+        error(path .. ": JSON nesting exceeds 128 containers", 3)
+    end
+    if state.active[value] then
+        error(path .. ": cyclic JSON value", 3)
+    end
+    state.active[value] = true
+    state.depth = state.depth + 1
+end
+
+local function leave(value: any, state: any): nil
+    state.depth = state.depth - 1
+    state.active[value] = nil
+end
+
+-- Mutually recursive: a field's type may be a shape, and a shape's fields have types.
+local writeValue: function(
+    value: any,
+    spec: any,
+    exclusive out: nupp.data.json.Writer,
+    json: any,
+    state: any,
+    path: string
+): nil
+
+-- An object is written from the field list rather than from the value, so a field the
+-- schema does not name never reaches the document however the value came to hold it.
+local function writeObject(
+    value: any,
+    fields: any,
+    unknown: any,
+    exclusive out: nupp.data.json.Writer,
+    json: any,
+    state: any,
+    path: string
+): nil
+    if type(value) ~= "table" then
+        error(path .. ": expected object", 3)
+    end
+    enter(value, state, path)
+    out:startObject()
+    for _, field in ipairs(fields) do
+        if not field.omit then
+            local item = rawget(value, field.name)
+            local empty = item == nil or item == "" or item == false or type(item) == "table" and next(item) == nil
+            if not (field.omitEmpty and empty) then
+                local name = field.jsonName or field.name
+                local encodedName = field.encodedName
+                if encodedName == nil then
+                    encodedName = json.encodedString(name)
+                    field.encodedName = encodedName
+                end
+                out:key(encodedName as nupp.data.json.EncodedString)
+                writeValue(item, field.jsonType, out, json, state, path .. "." .. name)
+            end
+        end
+    end
+    out:endObject()
+    leave(value, state)
+end
+
+-- Every failure carries the path it happened at, because the value being encoded is
+-- often nested several containers deep and "expected finite number" alone does not say
+-- which field held the NaN.
+writeValue = function(
+    value: any,
+    spec: any,
+    exclusive out: nupp.data.json.Writer,
+    json: any,
+    state: any,
+    path: string
+): nil
+    local kind: any = spec and spec.kind
+    if kind == "optional" then
+        if value == nil then
+            out:null()
+        else
+            writeValue(value, spec.value, out, json, state, path)
+        end
+
+        return
+    elseif kind == "union" then
+        if type(value) ~= "table" then
+            error(path .. ": expected discriminated object", 3)
+        end
+        local selected = spec.choices[rawget(value, spec.tagField)]
+        if not selected then
+            error(path .. "." .. spec.jsonTag .. ": unknown discriminant", 3)
+        end
+
+        return writeValue(value, selected, out, json, state, path)
+    elseif kind == "record" then
+        local nested = derived[spec.typeKey]
+        if not nested then
+            error(path .. ": derived JSON dependency is not loaded", 3)
+        end
+
+        return writeObject(value, nested.schema.fields, nested.schema.unknown, out, json, state, path)
+    elseif kind == "string" then
+        if type(value) ~= "string" then
+            error(path .. ": expected string", 3)
+        end
+        out:write(value as string)
+
+        return
+    elseif kind == "boolean" then
+        if type(value) ~= "boolean" then
+            error(path .. ": expected boolean", 3)
+        end
+        out:write(value as boolean)
+
+        return
+    elseif kind == "literal" then
+        if value ~= spec.value then
+            error(path .. ": literal value does not match", 3)
+        end
+        local encoded = spec.encoded
+        if encoded == nil then
+            encoded = json.encoded(spec.value)
+            spec.encoded = encoded
+        end
+        out:write(encoded as nupp.data.json.EncodedValue)
+
+        return
+    end
+    if kind == "number" or kind == "float" or kind == "integer" then
+        local number = tonumber(value)
+        if not number or not finite(number) then
+            error(path .. ": expected finite number", 3)
+        end
+        if kind == "integer" and (
+            number % 1 ~= 0 or spec.minimum and number < spec.minimum or spec.maximum and number > spec.maximum
+        ) then
+            error(path .. ": integer is out of range", 3)
+        end
+        out:write(number)
+
+        return
+    end
+    if type(value) ~= "table" then
+        error(path .. ": expected table", 3)
+    end
+    if kind == "array" then
+        enter(value, state, path)
+        -- A Lua table with a hole is not a JSON array, and `#` alone will not say so.
+        -- Counting the keys and comparing against the largest is what catches it.
+        local count, maximum = 0, 0
+        for key in pairs(value) do
+            if type(key) ~= "number" or key % 1 ~= 0 or key < 1 then
+                error(path .. ": expected dense array", 3)
+            end
+            count = count + 1
+            if key > maximum then
+                maximum = key
+            end
+        end
+        if count ~= maximum then
+            error(path .. ": expected dense array", 3)
+        end
+        out:startArray()
+        for i = 1, maximum do
+            writeValue(value[i], spec.value, out, json, state, path .. "[" .. i .. "]")
+        end
+        out:endArray()
+        leave(value, state)
+
+        return
+    elseif kind == "tuple" then
+        enter(value, state, path)
+        for key in pairs(value) do
+            if type(key) ~= "number" or key % 1 ~= 0 or key < 1 or key > #spec.items then
+                error(path .. ": tuple shape does not match", 3)
+            end
+        end
+        out:startArray()
+        for i, item in ipairs(spec.items) do
+            writeValue(value[i], item, out, json, state, path .. "[" .. i .. "]")
+        end
+        out:endArray()
+        leave(value, state)
+
+        return
+    elseif kind == "map" then
+        enter(value, state, path)
+        out:startObject()
+        -- Sorted, so the same map encodes to the same bytes twice running.
+        local keys: {string} = {}
+        for key in pairs(value) do
+            if type(key) ~= "string" then
+                error(path .. ": JSON map key is not a string", 3)
+            end
+            keys[#keys + 1] = key
+        end
+        table.sort(keys)
+        for _, key in ipairs(keys) do
+            out:key(key)
+            writeValue(value[key], spec.value, out, json, state, path .. "." .. key)
+        end
+        out:endObject()
+        leave(value, state)
+
+        return
+    elseif kind == "shape" then
+        return writeObject(value, spec.fields, spec.unknown, out, json, state, path)
+    end
+    error(path .. ": unsupported JSON value", 3)
+end
+
+-- Decoding answers `ok, value, message` rather than raising, because a document that
+-- does not match is an ordinary answer about somebody else's input, not a fault in the
+-- program reading it.
+local decodeValue: function(value: any, spec: any, entry: any, path: string): (boolean, any, string?)
+
+-- Forward-declared because a record-typed field materializes the nested type's codec
+-- before decoding into it, and the codec builder below decodes through this.
+local jsonCodecFor: function(entry: any): any
+
+local nativeJsonPlanForEntry: function(entry: any): any
+
+local function nativeJsonPlanForSpec(spec: any): any
+    local kind: any = spec and spec.kind
+    if kind == "optional" then
+        return {kind = "optional", element = nativeJsonPlanForSpec(spec.value)}
+    elseif kind == "array" then
+        return {kind = "list", element = nativeJsonPlanForSpec(spec.value)}
+    elseif kind == "map" then
+        return {kind = "map", value = nativeJsonPlanForSpec(spec.value)}
+    elseif kind == "record" then
+        local nested = derived[spec.typeKey]
+        return nested ~= nil and nativeJsonPlanForEntry(nested) or {kind = "document"}
+    elseif kind == "boolean" or kind == "string" or kind == "number" or kind == "float" or kind == "integer" then
+        return {kind = kind == "float" and "number" or kind}
+    end
+    -- Unions, anonymous shapes and tuples need their complete local document to
+    -- select a variant or validate positional arity. They still remain inside the
+    -- enclosing field instead of forcing the root through a generic DOM.
+
+    return {kind = "document"}
+end
+
+nativeJsonPlanForEntry = function(entry: any): any
+    if entry.nativeJsonPlan ~= nil then
+        return entry.nativeJsonPlan
+    end
+    local plan: any = {kind = "structure", access = "record", typeObject = entry.mt, fields = {}}
+    entry.nativeJsonPlan = plan
+    local json = entry.schema.data and entry.schema.data.json
+    for _, field in ipairs(json and json.fields or {}) do
+        if not field.omit then
+            local hasDefault = field.default ~= nil
+            plan.fields[
+                #plan.fields + 1
+            ] = {
+                name = field.name,
+                wire = field.jsonName or field.name,
+                target = nativeJsonPlanForSpec(field.jsonType),
+                required = not hasDefault and field.jsonType.kind ~= "optional",
+                hasDefault = hasDefault,
+                defaultValue = hasDefault and defaultValue(field.default) or nil,
+            }
+        else
+            plan.completeHint = false
+        end
+    end
+
+    return plan
+end
+
+local function decodeObject(value: any, entry: any, path: string): (boolean, any, string?)
+    if type(value) ~= "table" then
+        return false, nil, path .. ": expected object"
+    end
+    local schema = entry.schema
+    local known: any = {}
+    local out: any = {}
+    for _, field in ipairs(schema.fields) do
+        if not field.omit then
+            local key = field.jsonName or field.name
+            known[key] = true
+            local raw = rawget(value, key)
+            if raw == nil then
+                -- Absent is three different things: a field with a declaration default
+                -- takes it, an optional field stays nil, and anything else is missing.
+                if field.default then
+                    local ok, result = pcall(defaultValue, field.default)
+                    if not ok then
+                        return false, nil, path .. "." .. key .. ": " .. tostring(result)
+                    end
+                    if result ~= nil then
+                        out[field.name] = result
+                    end
+                elseif field.jsonType and field.jsonType.kind == "optional" then
+                else
+                    return false, nil, path .. "." .. key .. ": required field is absent"
+                end
+            else
+                local ok, result, err = decodeValue(raw, field.jsonType, entry, path .. "." .. key)
+                if not ok then
+                    return false, nil, err
+                end
+                if result ~= nil then
+                    out[field.name] = result
+                end
+            end
+        elseif field.default then
+            -- An omitted field never appears in the document, so its default is the
+            -- only value it can have and it is applied without consulting the input.
+            local result = defaultValue(field.default)
+            if result ~= nil then
+                out[field.name] = result
+            end
+        end
+    end
+    if schema.unknown ~= "ignore" then
+        for key in pairs(value) do
+            if not known[key] then
+                return false, nil, path .. ": unknown field " .. string.format("%q", tostring(key))
+            end
+        end
+    end
+
+    return true, setmetatable(out, entry.mt), nil
+end
+
+decodeValue = function(value: any, spec: any, entry: any, path: string): (boolean, any, string?)
+    local kind: any = spec and spec.kind
+    if kind == "optional" then
+        if value == entry.decoder.NULL then
+            return true, nil, nil
+        end
+
+        return decodeValue(value, spec.value, entry, path)
+    elseif value == entry.decoder.NULL then
+        return false, nil, path .. ": null is not allowed"
+    elseif kind == "union" then
+        if type(value) ~= "table" then
+            return false, nil, path .. ": expected discriminated object"
+        end
+        local selected = spec.choices[rawget(value, spec.jsonTag)]
+        if not selected then
+            return false, nil, path .. "." .. spec.jsonTag .. ": unknown discriminant"
+        end
+
+        return decodeValue(value, selected, entry, path)
+    elseif kind == "record" then
+        local nested = derived[spec.typeKey]
+        if not nested then
+            return false, nil, path .. ": derived JSON dependency is not loaded"
+        end
+        -- Materialized for its decoder, which `decodeObject` reads off the entry.
+        jsonCodecFor(nested)
+
+        return decodeObject(value, nested, path)
+    elseif kind == "string" then
+        return type(value) == "string", value, type(value) == "string" and nil or path .. ": expected string"
+    elseif kind == "boolean" then
+        return type(value) == "boolean", value, type(value) == "boolean" and nil or path .. ": expected boolean"
+    elseif kind == "literal" then
+        return value == spec.value, value, value == spec.value and nil or path .. ": literal value does not match"
+    elseif kind == "number" or kind == "float" or kind == "integer" then
+        if type(value) ~= "number" or not finite(value) then
+            return false, nil, path .. ": expected finite number"
+        end
+        if kind == "integer" and (
+            value % 1 ~= 0 or spec.minimum and value < spec.minimum or spec.maximum and value > spec.maximum
+        ) then
+            return false, nil, path .. ": expected integer in range"
+        end
+
+        return true, value, nil
+    end
+    if type(value) ~= "table" then
+        return false, nil, path .. ": expected table"
+    end
+    if kind == "array" then
+        local out: any = {}
+        local count = #value
+        for key in pairs(value) do
+            if type(key) ~= "number" or key % 1 ~= 0 or key < 1 or key > count then
+                return false, nil, path .. ": expected dense array"
+            end
+        end
+        for i = 1, count do
+            local ok, result, err = decodeValue(value[i], spec.value, entry, path .. "[" .. i .. "]")
+            if not ok then
+                return false, nil, err
+            end
+            out[i] = result
+        end
+
+        return true, out, nil
+    elseif kind == "tuple" then
+        if #value ~= #spec.items then
+            return false, nil, path .. ": tuple length does not match"
+        end
+        local out: any = {}
+        for i, item in ipairs(spec.items) do
+            local ok, result, err = decodeValue(value[i], item, entry, path .. "[" .. i .. "]")
+            if not ok then
+                return false, nil, err
+            end
+            out[i] = result
+        end
+
+        return true, out, nil
+    elseif kind == "map" then
+        local out: any = {}
+        for key, item in pairs(value) do
+            if type(key) ~= "string" then
+                return false, nil, path .. ": expected string map key"
+            end
+            local ok, result, err = decodeValue(item, spec.value, entry, path .. "." .. key)
+            if not ok then
+                return false, nil, err
+            end
+            out[key] = result
+        end
+
+        return true, out, nil
+    elseif kind == "shape" then
+        -- A shape is an object with no type of its own, so it borrows the object
+        -- decoder through a stand-in entry and the metatable is taken back off.
+        local standIn = {schema = {fields = spec.fields, unknown = spec.unknown or "reject"}, decoder = entry.decoder}
+        local ok, result, err = decodeObject(value, standIn, path)
+        if ok then
+            setmetatable(result, nil)
+        end
+
+        return ok, result, err
+    end
+
+    return false, nil, path .. ": unsupported JSON value"
+end
+
+--- Records a derived type and answers its registry entry.
+---
+--- The key is stamped onto the metatable as well as used to file the entry, so a value
+--- can be traced back to its entry with nothing but `getmetatable`.
+local function register(key: string, mt: any, schema: any): any
+    local entry = {key = key, mt = mt, schema = schema}
+    -- Record witnesses are tables and keep the historical fast stamp. Struct
+    -- witnesses are LuaJIT ctypes, which cannot be rawset; the identity side table is
+    -- the uniform route used by serde.of(Type).
+    if type(mt) == "table" then
+        rawset(mt, "__nuppDeriveKey", key)
+    end
+    derivedByType[mt] = entry
+    local json = schema.data and schema.data.json
+    if json then
+        schema.fields = json.fields
+        schema.unknown = json.unknown
+    end
+    derived[key] = entry
+
+    return entry
+end
+
+--- Reads the derive entry registered for a type witness.
+--- @internal
+function derive.entry(typeObject: any): derive.Entry?
+    return derivedByType[typeObject]
+end
+
+--- Builds the JSON codec for a type, or answers the one already built.
+---
+--- Deferred rather than built during `register`, because a program that derives JSON
+--- for a type it never encodes should not load the decoder or walk the schema.
+--- @raises when JSON was not derived for the type
+jsonCodecFor = function(entry: any): any
+    local existing = entry.codec
+    if existing then
+        return existing
+    end
+    local schema = entry.schema
+    local json = schema.data and schema.data.json
+    if not json then
+        error("nupp: JSON was not derived for this type", 3)
+    end
+    schema.fields = json.fields
+    schema.unknown = json.unknown
+    local decoder = require("nupp.data.json")
+    entry.decoder = decoder
+    local codec: any = {fingerprint = "derive-json-v1|emit=1|decode=nupp-simd|schema=" .. schema.fingerprint,}
+    local nativeProvider: any = require("nupp.data.json.provider")
+    if nativeProvider.compileSerde ~= nil then
+        codec.nativeProvider = nativeProvider
+        codec.nativeDecode = nativeProvider.compileSerde(nativeJsonPlanForEntry(entry), schema.unknown)
+    end
+    -- The codec's own encode is the shallow one the field-codec contract asks for: it
+    -- selects and renames fields and stops there. Producing the document is
+    -- `writeJSON`.
+    function codec:encode(value: any): any
+        local out: any = {}
+        for _, field in ipairs(schema.fields) do
+            if not field.omit then
+                local item = rawget(value, field.name)
+                local empty = item == nil or item == "" or item == false or type(item) == "table" and next(item) == nil
+                if item ~= nil and not (field.omitEmpty and empty) then
+                    out[field.jsonName or field.name] = item
+                end
+            end
+        end
+
+        return out
+    end
+
+    function codec:decode(value: any): (any, string?)
+        local ok, result, err = decodeObject(value, entry, "$")
+        if ok then
+            return result, nil
+        end
+
+        return nil, err
+    end
+
+    entry.codec = codec
+
+    return codec
+end
+
+local decodeProjectedValue: function(value: any, spec: any, entry: any, path: string): (boolean, any, string?)
+
+local function decodeProjectedObject(value: any, entry: any, path: string): (boolean, any, string?)
+    if type(value) ~= "table" then
+        return false, nil, path .. ": expected object"
+    end
+    for _, field in ipairs(entry.schema.fields) do
+        if not field.omit then
+            local item = rawget(value, field.name)
+            if item == nil then
+                if field.default then
+                    local ok, result = pcall(defaultValue, field.default)
+                    if not ok then
+                        return false, nil, path .. "." .. (field.jsonName or field.name) .. ": " .. tostring(result)
+                    end
+                    if result ~= nil then
+                        rawset(value, field.name, result)
+                    end
+                elseif field.jsonType and field.jsonType.kind == "optional" then
+                else
+                    return false, nil, path .. "." .. (field.jsonName or field.name) .. ": required field is absent"
+                end
+            else
+                local ok, result, err = decodeProjectedValue(
+                    item,
+                    field.jsonType,
+                    entry,
+                    path .. "." .. (field.jsonName or field.name)
+                )
+                if not ok then
+                    return false, nil, err
+                end
+                rawset(value, field.name, result)
+            end
+        elseif field.default then
+            local result = defaultValue(field.default)
+            if result ~= nil then
+                rawset(value, field.name, result)
+            end
+        end
+    end
+
+    return true, setmetatable(value, entry.mt), nil
+end
+
+decodeProjectedValue = function(value: any, spec: any, entry: any, path: string): (boolean, any, string?)
+    local kind: any = spec and spec.kind
+    if kind == "optional" then
+        if value == nil then
+            return true, nil, nil
+        end
+        return decodeProjectedValue(value, spec.value, entry, path)
+    elseif kind == "record" then
+        local nested = derived[spec.typeKey]
+        if nested == nil then
+            return false, nil, path .. ": derived JSON dependency is not loaded"
+        end
+        jsonCodecFor(nested)
+        return decodeProjectedObject(value, nested, path)
+    elseif kind == "array" then
+        if type(value) ~= "table" then
+            return false, nil, path .. ": expected table"
+        end
+        local count = #value
+        for key in pairs(value) do
+            if type(key) ~= "number" or key % 1 ~= 0 or key < 1 or key > count then
+                return false, nil, path .. ": expected dense array"
+            end
+        end
+        for index = 1, count do
+            local ok, result, err = decodeProjectedValue(value[index], spec.value, entry, path .. "[" .. index .. "]")
+            if not ok then
+                return false, nil, err
+            end
+            value[index] = result
+        end
+        return true, value, nil
+    elseif kind == "map" then
+        if type(value) ~= "table" then
+            return false, nil, path .. ": expected table"
+        end
+        for key, item in pairs(value) do
+            if type(key) ~= "string" then
+                return false, nil, path .. ": expected string map key"
+            end
+            local ok, result, err = decodeProjectedValue(item, spec.value, entry, path .. "." .. key)
+            if not ok then
+                return false, nil, err
+            end
+            value[key] = result
+        end
+        return true, value, nil
+    end
+
+    return decodeValue(value, spec, entry, path)
+end
+
+-- Reached through reflection rather than called directly, so that one memoized codec
+-- answers every route to it: the derived members here, `nupp.data.json`'s type-directed
+-- entry points, and a program asking the reflection extension itself.
+local function derivedJSON(entry: any): any
+    return entry.mt:reflect():extension(reflect.json)
+end
+
+--- Renders a derived record the way `@derive(Debug)` promises.
+---
+--- Nothing calls this by hand. `@derive(Debug)` writes the `debug` member that
+--- does, with the type's own registry entry already bound.
+---
+--- @param value the record to render
+--- @param entry the type's registry entry
+--- @return the rendered text
+function derive.debug(value: any, entry: derive.Entry): string
+    if serdeRuntime == nil then
+        serdeRuntime = require("nupp.data.serde")
+    end
+    return serdeRuntime.debugEntry(value, entry) as string
+end
+
+--- Writes a derived record as one JSON value.
+---
+--- The field list, the renaming and the omission rules all come from the recipe
+--- `@derive(JSON)` folded, so the document is what the declaration asked for rather
+--- than what the runtime table happens to hold.
+---
+--- @param value the record to encode
+--- @param entry the type's registry entry
+--- @param out the checked destination
+function derive.writeJSON<T is table>(value: T, entry: derive.Entry, exclusive out: nupp.data.json.Writer): nil
+    derivedJSON(entry)
+    writeObject(value, entry.schema.fields, entry.schema.unknown, out, entry.decoder, {active = {}, depth = 0}, "$")
+end
+
+--- Encodes a derived record into a newly allocated string.
+---
+--- Kept behind the type-directed convenience functions. The derived value contract
+--- writes into caller-owned storage and does not expose this allocating route.
+local function encodeJSON<T is table>(value: T, entry: derive.Entry): string
+    local out = newBuffer()
+    local json = require("nupp.data.json")
+    local writer = json.writer(out)
+    derive.writeJSON(value, entry, writer)
+    writer:close()
+
+    return out:tostring()
+end
+
+--- Decodes a JSON document into a derived record.
+---
+--- @param text the document to decode
+--- @param entry the type's registry entry
+--- @return the record, or nil when the document did not fit it
+--- @return what was wrong with the document, when something was
+function derive.fromJSON<T is table>(text: string, entry: derive.Entry): (T?, string?)
+    local codec = entry.codec or derivedJSON(entry)
+    if codec.nativeDecode ~= nil then
+        local ok, value, problem = pcall(codec.nativeProvider.decodeSerde, codec.nativeDecode, text)
+        if not ok then
+            return nil, tostring(value)
+        elseif value == nil and problem ~= nil then
+            return nil, problem
+        end
+        if codec.nativeDecode.complete == true then
+            return value as T, nil
+        end
+        local matched, result, err = decodeProjectedObject(value, entry, "$")
+        return matched and result as T or nil, err
+    end
+    local ok, value = pcall(entry.decoder.decode, text, entry.decoder.NULL)
+    if not ok then
+        return nil, tostring(value)
+    end
+    local result, err = codec:decode(value)
+    if not result then
+        return nil, err
+    end
+
+    return result, nil
+end
+
+--- The field codec a derived type's `fieldCodec` static answers.
+---
+--- Built on first use and memoized as a reflection extension, so every route to it
+--- answers the same codec.
+---
+--- @param entry the type's registry entry
+--- @return the codec, built if this is the first ask
+function derive.fieldCodec(entry: derive.Entry): nupp.reflect.FieldCodec<any>
+    return derivedJSON(entry)
+end
+
+--- Reads a derived type's registry entry from its type object.
+--- @raises when the type has no derived JSON
+local function jsonEntry(typeObject: any): any
+    local entry = typeObject and derived[rawget(typeObject, "__nuppDeriveKey")]
+    if not entry then
+        error("nupp: JSON was not derived for this type", 3)
+    end
+
+    return entry
+end
+
+--- Fills a program's derive namespace in and wires JSON to reflection.
+---
+--- The second half is conditional because reflection is its own feature. A program
+--- that derives only Debug has no registry of descriptors, and the JSON codec is
+--- memoized as a reflection extension, so what it does not get is JSON.
+---
+--- @param namespace the program's `nupp` table
+--- @export
+function derive.install(namespace: any): nil
+    local runtime = rawget(namespace, "__derive")
+    if runtime == nil then
+        runtime = {}
+        rawset(namespace, "__derive", runtime)
+    end
+    runtime.types = derived
+    runtime.byType = derivedByType
+    runtime.register = register
+    runtime.entry = derive.entry
+    runtime.debug = derive.debug
+    runtime.jsonCodec = jsonCodecFor
+    runtime.writeJSON = derive.writeJSON
+    runtime.fromJSON = derive.fromJSON
+    runtime.fieldCodec = derive.fieldCodec
+    reflect = rawget(namespace, "__reflect")
+    if reflect == nil then
+        return
+    end
+    reflect.json.build = function(info: any): any
+        local mt = info.type
+        local entry = mt and derived[rawget(mt, "__nuppDeriveKey")]
+        if not entry then
+            error("nupp: JSON was not derived for this type", 2)
+        end
+
+        return jsonCodecFor(entry)
+    end
+    -- `nupp.data.json`'s type-directed entry points are the derived codec seen from
+    -- the other side: the caller names a type rather than holding a derived value.
+    local api = require("nupp.data.json")
+    local mutable = api as {[string]: any}
+    mutable.decodeAs = function(typeObject: any, text: string): (any, string?)
+        return derive.fromJSON(text, jsonEntry(typeObject))
+    end
+    mutable.writeAs = function(typeObject: any, value: any, out: any): nil
+        derive.writeJSON(value, jsonEntry(typeObject), out)
+    end
+    mutable.writeRecord = function(value: any, out: any): nil
+        derive.writeJSON(value, jsonEntry(getmetatable(value)), out)
+    end
+    mutable.encodeAs = function(typeObject: any, value: any): string
+        return encodeJSON(value, jsonEntry(typeObject))
+    end
+    mutable.encodeRecord = function(value: any): string
+        return encodeJSON(value, jsonEntry(getmetatable(value)))
+    end
+end
+
+local comptime function option(items, annotationName: string, name: string): any
+    for _, item in ipairs(items) do
+        if item.name == annotationName then
+            for index, argument in ipairs(item.arguments) do
+                if argument.name == name or name == "value" and index == 1 then
+                    return argument.value
+                end
+            end
+        end
+    end
+
+    return nil
+end
+
+local comptime function detail(T: type): any
+    local value = nupp.types.describe(T)
+    if value.sourceKind then
+        local normalized = {}
+        for key, item in pairs(value) do
+            normalized[key] = item
+        end
+        normalized.kind = value.sourceKind
+        return normalized
+    end
+
+    return value
+end
+
+local comptime function optional(T: type): type?
+    local value = detail(T)
+    if value.kind ~= "union" then
+        return nil
+    end
+    local rest = {}
+    for _, member in ipairs(value.members or {}) do
+        local memberDetail = detail(member)
+        if not (memberDetail.kind == "primitive" and memberDetail.name == "nil") then
+            rest[#rest + 1] = member
+        end
+    end
+    if #rest == 1 then
+        return rest[1]
+    end
+
+    return nil
+end
+
+local comptime function debugSpec(T: type, contract: type): any
+    local inner = optional(T)
+    if inner ~= nil then
+        return {kind = "optional", value = debugSpec(inner, contract)}
+    end
+    local value = detail(T)
+    if value.kind == "literal" then
+        return {kind = "literal", value = value.value}
+    end
+    if value.kind == "primitive" then
+        if value.name == "nil"
+            or value.name == "boolean"
+            or value.name == "string"
+            or value.name == "number"
+            or value.name == "integer"
+            or value.name == "float"
+            or value.name:find(
+            "int",
+            1,
+            true
+        ) or value.name:find("uint", 1, true) then
+            return {kind = value.name}
+        end
+    elseif value.kind == "array" then
+        return {kind = "array", value = debugSpec(value.element, contract)}
+    elseif value.kind == "map" then
+        return {kind = "map", key = debugSpec(value.readKey, contract), value = debugSpec(value.readValue, contract)}
+    elseif value.kind == "tuple" then
+        local items = {}
+        for index, member in ipairs(value.members or {}) do
+            items[index] = debugSpec(member, contract)
+        end
+        return {kind = "tuple", items = items}
+    elseif value.kind == "shape" then
+        local fields = {}
+        for index, field in ipairs(value.fields or {}) do
+            local fieldType = field.read
+            if fieldType == nil then
+                fieldType = field.write
+            end
+            fields[index] = {name = field.name, type = debugSpec(fieldType, contract)}
+        end
+        return {kind = "shape", fields = fields}
+    elseif value.kind == "reference" and value.nominal then
+        if value.nominal.deriveKey and nupp.derive.claims(T, contract) then
+            return {kind = "record", typeKey = value.nominal.deriveKey}
+        elseif nupp.derive.claims(T, contract) then
+            return {kind = "customDebug"}
+        end
+    end
+
+    return nil
+end
+
+local comptime function jsonSpec(T: type, contract: type): any
+    local inner = optional(T)
+    if inner ~= nil then
+        local value = jsonSpec(inner, contract)
+        return value and {kind = "optional", value = value} or nil
+    end
+    local value = detail(T)
+    if value.kind == "literal" then
+        return {kind = "literal", value = value.value}
+    end
+    if value.kind == "primitive" then
+        if value.name == "nil"
+            or value.name == "boolean"
+            or value.name == "string"
+            or value.name == "number"
+            or value.name == "float"
+        then
+            return {kind = value.name}
+        end
+        if value.name == "integer"
+            or value.name == "int8"
+            or value.name == "int16"
+            or value.name == "int32"
+            or value.name == "uint8"
+            or value.name == "uint16"
+            or value.name == "uint32"
+        then
+            return {kind = "integer"}
+        end
+    elseif value.kind == "array" then
+        local item = jsonSpec(value.element, contract)
+        return item and {kind = "array", value = item} or nil
+    elseif value.kind == "map" then
+        local key = detail(value.readKey)
+        local item = key.name == "string" and jsonSpec(value.readValue, contract) or nil
+        return item and {kind = "map", value = item} or nil
+    elseif value.kind == "tuple" then
+        local items = {}
+        for index, member in ipairs(value.members or {}) do
+            local item = jsonSpec(member, contract)
+            if not item then
+                return nil
+            end
+            items[index] = item
+        end
+        return {kind = "tuple", items = items}
+    elseif value.kind == "shape" then
+        local fields = {}
+        for index, field in ipairs(value.fields or {}) do
+            local fieldType = field.read
+            if fieldType == nil then
+                fieldType = field.write
+            end
+            local item = jsonSpec(fieldType, contract)
+            if not item then
+                return nil
+            end
+            fields[index] = {name = field.name, type = item}
+        end
+        return {kind = "shape", fields = fields, unknown = "reject"}
+    elseif value.kind == "union" then
+        local members = value.members or {}
+        if #members > 0 then
+            local first = detail(members[1])
+            local firstNominal = first.nominal
+            if first.kind == "reference" and firstNominal ~= nil and firstNominal.kind == "record" then
+                for _, candidate in ipairs(firstNominal.fields or {}) do
+                    local choices, seen = {}, {}
+                    local jsonName, valid = nil, true
+                    for _, member in ipairs(members) do
+                        local memberDetail = detail(member)
+                        local nominal = memberDetail.nominal
+                        local tagged = nil
+                        if memberDetail.kind == "reference"
+                            and nominal ~= nil
+                            and nominal.kind == "record"
+                            and nominal.deriveKey ~= nil
+                            and nupp.derive.claims(
+                            member,
+                            contract
+                        ) then
+                            for _, field in ipairs(nominal.fields or {}) do
+                                if field.name == candidate.name then
+                                    tagged = field
+                                end
+                            end
+                        end
+                        if tagged == nil then
+                            valid = false
+                            break
+                        end
+                        local tagType = tagged.read
+                        if tagType == nil then
+                            tagType = tagged.write
+                        end
+                        local tag = detail(tagType)
+                        if tag.kind ~= "literal" or seen[tag.value] then
+                            valid = false
+                            break
+                        end
+                        local encoded = option(tagged.annotations, "json", "name")
+                        if encoded == nil then
+                            encoded = candidate.name
+                        end
+                        if jsonName ~= nil and jsonName ~= encoded then
+                            valid = false
+                            break
+                        end
+                        jsonName = encoded
+                        seen[tag.value] = true
+                        choices[tag.value] = {kind = "record", typeKey = nominal.deriveKey}
+                    end
+                    if valid then
+                        return {kind = "union", tagField = candidate.name, jsonTag = jsonName, choices = choices}
+                    end
+                end
+            end
+        end
+        return nil
+    elseif value.kind == "reference" and value.nominal and value.nominal.deriveKey and nupp.derive.claims(
+        T,
+        contract
+    ) then
+        return {kind = "record", typeKey = value.nominal.deriveKey}
+    end
+
+    return nil
+end
+
+-- The serde recipe preserves semantic scalar widths and contains no JSON member
+-- policy. Unsupported topology is refused instead of being weakened to `document`.
+local comptime function serdeSpec(T: type, contract: type): any
+    local inner = optional(T)
+    if inner ~= nil then
+        local item = serdeSpec(inner, contract)
+        return item and {kind = "optional", value = item} or nil
+    end
+    local value = detail(T)
+    if value.kind == "literal" then
+        return {kind = "literal", value = value.value}
+    elseif value.kind == "primitive" then
+        if value.name == "nil"
+            or value.name == "boolean"
+            or value.name == "string"
+            or value.name == "number"
+            or value.name == "float"
+            or value.name == "integer"
+            or value.name == "int8"
+            or value.name == "int16"
+            or value.name == "int32"
+            or value.name == "uint8"
+            or value.name == "uint16"
+            or value.name == "uint32"
+        then
+            return {kind = value.name}
+        end
+    elseif value.kind == "array" then
+        local item = serdeSpec(value.element, contract)
+        return item and {kind = "array", value = item} or nil
+    elseif value.kind == "map" then
+        local key = detail(value.readKey)
+        local item = key.name == "string" and serdeSpec(value.readValue, contract) or nil
+        return item and {kind = "map", value = item} or nil
+    elseif value.kind == "tuple" then
+        local items = {}
+        for index, member in ipairs(value.members or {}) do
+            local item = serdeSpec(member, contract)
+            if not item then
+                return nil
+            end
+            items[index] = item
+        end
+        return {kind = "tuple", items = items}
+    elseif value.kind == "union" then
+        local choices = {}
+        for index, member in ipairs(value.members or {}) do
+            local item = serdeSpec(member, contract)
+            if item == nil or item.kind ~= "literal" then
+                return nil
+            end
+            choices[index] = item
+        end
+        return #choices ~= 0 and {kind = "union", choices = choices} or nil
+    elseif value.kind == "reference" and value.nominal and value.nominal.deriveKey and nupp.derive.claims(
+        T,
+        contract
+    ) then
+        return {kind = "record", typeKey = value.nominal.deriveKey}
+    end
+
+    return nil
+end
+
+comptime function derive.Debug(info: nupp.derive.Info): nupp.derive.Result<nupp.Debug>
+    if info.kind ~= "record" and info.kind ~= "struct" then
+        return nupp.derive.error("Debug can be derived only for records or structs", info.reference, "NUPP2803")
+    end
+    local serdeFields = {}
+    for index, field in ipairs(info.fields) do
+        local skip = option(field.annotations, "debug", "skip") == true
+        local redact = option(field.annotations, "debug", "redact") == true
+        if skip and redact then
+            return nupp.derive.error(
+                "field " .. field.name .. " cannot be both skipped and redacted",
+                field.reference,
+                "NUPP2803"
+            )
+        end
+        local spec = field.name ~= "debug" and not skip and not redact and debugSpec(
+            field.readType,
+            info.interfaceType
+        ) or nil
+        if not skip and not redact and not spec then
+            if field.name ~= "debug" then
+                return nupp.derive.error("field type cannot be formatted by Debug", field.reference, "NUPP2803")
+            end
+        end
+        local defaultField = field as any
+        serdeFields[index] = {
+            index = index,
+            name = field.name,
+            -- A skipped or redacted field is never traversed. Its Debug-only schema
+            -- still needs a node, while a co-derived public Serde recipe replaces
+            -- this placeholder with the field's actual logical type.
+            serdeType = spec or {kind = "any"},
+            required = optional(field.readType) == nil and not defaultField.hasDefault,
+            default = defaultField.hasDefault and {kind = "literal", value = defaultField.defaultValue} or nil,
+            debugSkip = skip,
+            debugRedact = redact,
+        }
+    end
+
+    -- A standalone Debug derive still materializes the common schema/binding
+    -- representation, but does not claim Serializable. When Serde is requested on
+    -- the same owner, the derive merger folds these policies into Serde's recipe.
+    local data: any = {
+        debug = {schema = true},
+        serde = {name = info.name, representation = info.kind, fields = serdeFields, debugOnly = true,},
+    }
+
+    return nupp.derive.implement{
+        methods = {
+            debug = nupp.derive.forward{
+                helper = nupp.derive.helper(derive, "debug"),
+                arguments = {nupp.derive.receiver(), nupp.derive.entry()},
+            }
+        },
+        data = data,
+    }
+end
+
+comptime function derive.JSON(info: nupp.derive.Info): nupp.derive.Result<nupp.data.json.JSONEncodable>
+    if info.kind ~= "record" then
+        return nupp.derive.error("JSON can be derived only for records", info.reference, "NUPP2806")
+    end
+    local fields, seen = {}, {}
+    for index, field in ipairs(info.fields) do
+        local name = option(field.annotations, "json", "name") or field.name
+        if seen[name] then
+            return nupp.derive.error("JSON field name " .. name .. " is duplicated", field.reference, "NUPP2806")
+        end
+        seen[name] = true
+        local defaultField = field as any
+        local omit = option(field.annotations, "json", "omit") == true
+        if omit and not defaultField.hasDefault then
+            return nupp.derive.error(
+                "an omitted JSON field needs an explicit declaration default",
+                field.reference,
+                "NUPP2806"
+            )
+        end
+        local spec = not omit and jsonSpec(field.readType, info.interfaceType) or nil
+        if not omit and not spec then
+            return nupp.derive.error("type is not supported by JSON", field.reference, "NUPP2806")
+        end
+        fields[
+            index
+        ] = {
+            name = field.name,
+            jsonName = name,
+            omit = omit,
+            omitEmpty = option(field.annotations, "json", "omitEmpty") == true,
+            jsonType = spec,
+            default = defaultField.hasDefault and {kind = "literal", value = defaultField.defaultValue} or nil,
+        }
+    end
+    local text = nupp.types.string
+    local nullable = nupp.types.optional(info.ownerType)
+    local problem = nupp.types.optional(text)
+
+    return nupp.derive.implement{
+        methods = {
+            writeJSON = nupp.derive.forward{
+                helper = nupp.derive.helper(derive, "writeJSON"),
+                arguments = {nupp.derive.receiver(), nupp.derive.entry(), nupp.derive.argument("out")},
+            }
+        },
+        statics = {
+            fromJSON = nupp.derive.member{
+                signature = nupp.types.function_(
+                    nupp.types.pack({
+                        text
+                    }),
+                    nupp.types.pack({
+                        nullable,
+                        problem
+                    })
+                ),
+                parameters = {"text"},
+                forward = nupp.derive.forward{
+                    helper = nupp.derive.helper(derive, "fromJSON"),
+                    arguments = {nupp.derive.argument("text"), nupp.derive.entry()},
+                },
+            },
+            fieldCodec = nupp.derive.member{
+                signature = nupp.types.function_(
+                    nupp.types.pack({}),
+                    nupp.types.pack({
+                        nupp.types.any
+                    })
+                ),
+                forward = nupp.derive.forward{
+                    helper = nupp.derive.helper(derive, "fieldCodec"),
+                    arguments = {nupp.derive.entry()},
+                },
+            },
+        },
+        data = {json = {fields = fields, unknown = option(info.annotations, "json", "unknown") or "reject"}},
+        effects = {"native.json"},
+    }
+end
+
+--- Derives one format-neutral schema and physical binding blueprint.
+---
+--- Unlike `JSON`, this provider admits both records and fixed-layout structs and
+--- generates no per-format traversal methods.
+comptime function derive.Serde(info: nupp.derive.Info): nupp.derive.Result<nupp.data.serde.Serializable>
+    if info.kind ~= "record" and info.kind ~= "struct" then
+        return nupp.derive.error("Serde can be derived only for records or structs", info.reference, "NUPP2803")
+    end
+    local fields = {}
+    for index, field in ipairs(info.fields) do
+        local spec = serdeSpec(field.readType, info.interfaceType)
+        if not spec then
+            return nupp.derive.error("type is not supported by Serde", field.reference, "NUPP2803")
+        end
+        local defaultField = field as any
+        fields[
+            index
+        ] = {
+            index = index,
+            name = field.name,
+            serdeType = spec,
+            required = optional(field.readType) == nil and not defaultField.hasDefault,
+            default = defaultField.hasDefault and {kind = "literal", value = defaultField.defaultValue} or nil,
+        }
+    end
+
+    return nupp.derive.implement{data = {serde = {name = info.name, representation = info.kind, fields = fields,},},}
+end
+
+export = derive

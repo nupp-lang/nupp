@@ -1,0 +1,11 @@
+module main
+
+-- The stamped host supplies nupp.workers; the ordinary Lua runner remains the
+-- source of discovery, planning, reporting, and the serial fallback used by its
+-- own tests. Keeping that policy in one place prevents the two entry points from
+-- drifting.
+rawset(_G, "__NUPP_TEST_WORKER_HOST", true)
+arg[0] = "tests/run.lua"
+
+const run = assert(loadfile(arg[0]))
+run()

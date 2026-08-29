@@ -1,0 +1,756 @@
+module nupp.compiler.build.package
+
+--[[
+One file that is the whole program.
+
+A bundle is every module a target reaches, concatenated into one Lua file with
+each registered in `package.preload`, so the result runs anywhere LuaJIT does
+with nothing beside it. A binary goes one step further: the bundle becomes a
+payload appended to a prebuilt host stub, found at run time by a magic trailer
+rather than by anything the filesystem has to be asked.
+]]
+
+local hash = require("nupp.compiler.build.hash")
+local process = require("nupp.compiler.build.process")
+local fs = require("nupp.compiler.fs")
+local deps = require("nupp.compiler.build.deps")
+local modulesMod = require("nupp.compiler.build.modules")
+
+local normalize, join = fs.normalize, fs.join
+local dirname = fs.dirname
+local readFile, writeFile = fs.readFile, fs.writeFile
+local expandGlob = deps.expandGlob
+local resourceOutput = modulesMod.resourceOutput
+
+local package_ = {}
+
+-- Component source assembly deliberately uses a runtime format string. The
+-- arguments are compiler metadata rather than a user-facing typed format, so
+-- routing these calls through the compile-time format contract adds no safety.
+local function interpolate(format: string, ...: any): string
+    return string.format(format, ...)
+end
+
+local function stringArray(values: {string}?): string
+    local quoted = {}
+    for _, value in ipairs(values or {}) do
+        quoted[#quoted + 1] = interpolate("%q", value)
+    end
+
+    return "{" .. table.concat(quoted, ",") .. "}"
+end
+
+--- Runtime contract between a compiler-owned payload and host. Container format
+--- compatibility remains `PAYLOAD_VERSION`; target C layout has its own ABI.
+local hostAbiVersion = 1
+
+-- Named by module path rather than required: nothing of these is wanted at run time.
+local type Config = nupp.compiler.build.manifest.Config
+local type Target = nupp.compiler.build.manifest.Target
+local type ModuleRecord = nupp.compiler.build.cache.ModuleRecord
+
+--- `text` as a Lua long string, at a bracket level the text itself does not use.
+---
+--- A declaration file is prose and code, both of which contain `]]`, so the level is
+--- chosen by looking rather than by hoping. The leading newline is there because Lua
+--- drops one immediately after the opening bracket, and a file whose first line matters
+--- would otherwise come back one line short.
+local function longString(text: string): string
+    local level = 0
+    for closing in text:gmatch("%]=*%]") do
+        level = math.max(level, #closing - 2 + 1)
+    end
+    local equals = ("="):rep(level)
+
+    return "[" .. equals .. "[\n" .. text .. "]" .. equals .. "]"
+end
+
+--- The Lua module name a target's entry compiles to, and where its `.lua` lands.
+local function entryModule(root: string, outDir: string, target: Target): string, string
+    local mainName = "nupp.compiler.main"
+    local entries = target.entries or {}
+    if entries[1] and not entries[1]:match("%.nupp$") then
+        mainName = entries[1]
+    end
+
+    return mainName, join(root, join(outDir, mainName:gsub("%.", "/") .. ".lua"))
+end
+
+--- One target as a single Lua chunk: every module it built preloaded, every rock module
+--- it asked to carry preloaded beside them, every resource it declared alongside those,
+--- and the entry's own code last.
+---
+--- The result runs under a plain `luajit` with nothing beside it. That is what makes it
+--- worth having on its own, and it is also the payload a stub carries; see
+--- [distribution.md](docs/reference/distribution.md).
+---
+--- Resources go in rather than beside, keyed by their path relative to the entry
+--- module's directory, the same key `nupp.compiler.env` reads its own declarations
+--- through, so a program's resources and the compiler's behave identically. A bundle
+--- that carried them beside itself would lose them the moment somebody moved the one
+--- file, and lose them quietly.
+---
+--- Deterministic by construction: modules arrive from `listFiles`, which sorts,
+--- resources are sorted here, and nothing records a time or a building machine's path.
+--- Two builds of one tree produce identical bytes, which is what the packaging fixpoint
+--- rests on.
+---
+--- @param modules what the build recorded, so the bundle carries the modules it
+---     compiled rather than everything that has since appeared beside them
+--- @return the chunk, or nil when one of its parts could not be read
+--- @return why not
+--- @return the resources that had no key a running program could ask for
+local function bundleText(
+    root: string,
+    config: Config,
+    target: Target,
+    banner: string?,
+    modules: {[string]: ModuleRecord}?,
+    workerDispatch: boolean?,
+    workerBootstrap: string?,
+    runtimeModules: {string}?,
+    hostFeatures: {string}?,
+    component: boolean?
+): string?, string?, {string}?
+    local outDir = target.outDir or "build"
+    local mainName, mainPath = entryModule(root, outDir, target)
+    local chunks = component and {
+        "-- NUPP-COMPONENT 1\n",
+        interpolate(
+            "return {format=1,hostAbi=%d,entry=%q,layoutTarget=%s,exports=%s,requiredHostFeatures=%s,install=function()\n",
+            hostAbiVersion,
+            mainName,
+            target.layoutTarget and interpolate("%q", target.layoutTarget) or "nil",
+            stringArray(target.exports),
+            stringArray(hostFeatures)
+        ),
+    } or {banner or ""}
+    local collisionIndex
+    local installedModules = {}
+
+    if hostFeatures then
+        local selected = {}
+        for _, feature in ipairs(hostFeatures) do
+            selected[feature] = true
+        end
+        chunks[#chunks + 1] = "do\nlocal __nuppHost = rawget(_G, \"__nuppHost\")\n"
+        chunks[
+            #chunks + 1
+        ] = (
+            "if type(__nuppHost) ~= \"table\" or __nuppHost.hostAbi ~= %d then "
+            .. "error(\"nupp: payload requires host ABI %d\", 0) end\n"
+        ):format(hostAbiVersion, hostAbiVersion)
+        chunks[#chunks + 1] = "local __nuppHostFeatures = __nuppHost.hostFeatures or {}\n"
+        for _, feature in ipairs(hostFeatures) do
+            chunks[
+                #chunks + 1
+            ] = (
+                "if not __nuppHostFeatures[%q] then error(%q, 0) end\n"
+            ):format(feature, "nupp: payload requires host feature " .. feature)
+        end
+        if not component then
+            local preloads = {
+                {feature = "lpeg", modules = {"lpeg"}},
+                {feature = "lua-utf8", modules = {"lua-utf8"}},
+                {feature = "workers", modules = {"nupp.workers.native"}},
+            }
+            for _, feature in ipairs(preloads) do
+                if not selected[feature.feature] then
+                    for _, moduleName in ipairs(feature.modules) do
+                        chunks[#chunks + 1] = ("package.preload[%q] = nil\n"):format(moduleName)
+                    end
+                end
+            end
+            chunks[#chunks + 1] = "rawset(_G, \"__nuppHost\", nil)\n"
+        end
+        chunks[#chunks + 1] = "end\n"
+    end
+    if component then
+        collisionIndex = #chunks + 1
+        chunks[collisionIndex] = ""
+    end
+
+    -- The modules this build compiled, under the names it compiled them as.
+    --
+    -- Not every `.lua` under the output directory, which was the first attempt and is
+    -- wrong twice over. That directory is also where native dependencies build, and
+    -- their trees are full of `.lua` that is examples and scripts, some libraries'
+    -- opens with a hashbang, a syntax error the moment a preload wraps it in a
+    -- function. And a resource that happens to end in `.lua` is not a module: a table
+    -- of lexers opened by path, never required, once added sixteen thousand lines to
+    -- the bundle that nothing could ever have asked for.
+    --
+    -- The build already knows the difference, and it knows the module's name rather
+    -- than a path a name has to be guessed back out of. The rocks first, so a project
+    -- module and a rock module of one name leave the project's own in place: a bundle
+    -- should run what the build compiled.
+    for _, rock in ipairs(deps.rockModules(root, config, target)) do
+        local text, readErr = readFile(rock.path)
+        if not text then
+            return nil, readErr
+        end
+        installedModules[#installedModules + 1] = rock.name
+        chunks[#chunks + 1] = ("package.preload[%q] = function(...)\n"):format(rock.name)
+        chunks[#chunks + 1] = text
+        chunks[#chunks + 1] = "\nend\n"
+    end
+
+    local built = modules or {}
+    local names = {}
+    for name in pairs(built) do
+        names[#names + 1] = name
+    end
+    table.sort(names)
+    for _, name in ipairs(names) do
+        local path = (built[name] as nupp.compiler.build.cache.ModuleRecord).output
+        if path and (component or normalize(path) ~= normalize(mainPath)) then
+            local text, readErr = readFile(path)
+            if not text then
+                return nil, readErr
+            end
+            installedModules[#installedModules + 1] = name
+            chunks[#chunks + 1] = ("package.preload[%q] = function(...)\n"):format(name)
+            chunks[#chunks + 1] = text
+            chunks[#chunks + 1] = "\nend\n"
+        end
+    end
+
+    -- Compiler-provided implementation modules are staged after ordinary module
+    -- compilation, so they are not in the module records above. A binary still has to
+    -- carry them in its payload: the native provider and its Nupp state machine are one
+    -- selected facility, not a shared library with a filesystem dependency hidden
+    -- behind it.
+    for _, name in ipairs(runtimeModules or {}) do
+        if built[name] == nil and name ~= mainName then
+            local path = join(root, join(outDir, name:gsub("%.", "/") .. ".lua"))
+            local text, readErr = readFile(path)
+            if not text then
+                return nil, readErr
+            end
+            installedModules[#installedModules + 1] = name
+            chunks[#chunks + 1] = ("package.preload[%q] = function(...)\n"):format(name)
+            chunks[#chunks + 1] = text
+            chunks[#chunks + 1] = "\nend\n"
+        end
+    end
+
+    local moduleDirPath = normalize(dirname(mainPath))
+    local resources, unreachable = {}, {}
+    for _, resource in ipairs(target.resources or {}) do
+        local pattern: string
+        if type(resource) == "table" then
+            pattern = (resource as nupp.compiler.build.manifest.Resource).source
+        else
+            pattern = resource as string
+        end
+        for _, source in ipairs(expandGlob(root, pattern)) do
+            local staged = normalize(join(root, join(outDir, resourceOutput(config, resource, source, root))))
+            if staged:sub(1, #moduleDirPath + 1) == moduleDirPath .. "/" then
+                local text, readErr = readFile(staged)
+                if not text then
+                    return nil, readErr
+                end
+                resources[#resources + 1] = {name = staged:sub(#moduleDirPath + 1), text = text}
+            else
+                -- A resource staged beside the entry's directory rather than under it
+                -- has no key a running program could ask for, since a program asks
+                -- relative to where its own modules are. Left out and said out loud: a
+                -- bundle that quietly dropped files would be discovered by whatever
+                -- stopped working.
+                unreachable[#unreachable + 1] = staged
+            end
+        end
+    end
+    table.sort(resources, function(a, b)
+        return a.name < b.name
+    end)
+    if not component or #resources > 0 then
+        installedModules[#installedModules + 1] = "nupp.embedded"
+        chunks[#chunks + 1] = 'package.preload["nupp.embedded"] = function()\n'
+        chunks[#chunks + 1] = "return {\n"
+        for _, resource in ipairs(resources) do
+            chunks[#chunks + 1] = ("[%q] = %s,\n"):format(resource.name, longString(resource.text))
+        end
+        chunks[#chunks + 1] = "}\nend\n"
+    end
+
+    local mainText
+    if not component or built[mainName] == nil then
+        local mainErr
+        mainText, mainErr = readFile(mainPath)
+        if not mainText then
+            return nil, mainErr
+        end
+    end
+    if component then
+        if built[mainName] == nil then
+            installedModules[#installedModules + 1] = mainName
+            chunks[#chunks + 1] = ("package.preload[%q] = function(...)\n"):format(mainName)
+            chunks[#chunks + 1] = assert(mainText)
+            chunks[#chunks + 1] = "\nend\n"
+        end
+
+        local collision = {"do\nlocal __nuppLoaded = package.loaded\nlocal __nuppPreload = package.preload\n",}
+        for _, name in ipairs(installedModules) do
+            collision[
+                #collision + 1
+            ] = interpolate(
+                "if __nuppLoaded[%q] ~= nil or __nuppPreload[%q] ~= nil then error(%q, 0) end\n",
+                name,
+                name,
+                "nupp: component module collision: " .. name
+            )
+        end
+        collision[#collision + 1] = "local __nuppPublic = rawget(_G, \"__nuppComponentExports\") or {}\n"
+        for _, name in ipairs(target.exports or {}) do
+            collision[
+                #collision + 1
+            ] = interpolate(
+                "if __nuppPublic[%q] then error(%q, 0) end\n",
+                name,
+                "nupp: component export collision: " .. name
+            )
+        end
+        collision[#collision + 1] = "rawset(_G, \"__nuppComponentExports\", __nuppPublic)\n"
+        for _, name in ipairs(target.exports or {}) do
+            collision[#collision + 1] = interpolate("__nuppPublic[%q] = true\n", name)
+        end
+        collision[#collision + 1] = "end\n"
+        chunks[assert(collisionIndex)] = table.concat(collision)
+
+        chunks[#chunks + 1] = "local __nuppExports = {}\n"
+        for _, name in ipairs(target.exports or {}) do
+            local moduleName, member = name:match("^(.*)%.([^.]+)$")
+            chunks[
+                #chunks + 1
+            ] = interpolate(
+                "__nuppExports[%q] = function(...) local __nuppModule = require(%q); "
+                .. "local __nuppCallable = __nuppModule[%q]; "
+                .. "if type(__nuppCallable) ~= \"function\" then error(%q, 0) end; "
+                .. "return __nuppCallable(...) end\n",
+                name,
+                moduleName,
+                member,
+                "nupp: component export is not callable: " .. name
+            )
+        end
+        chunks[
+            #chunks + 1
+        ] = interpolate("return {start=function() return require(%q) end,exports=__nuppExports}\nend}\n", mainName)
+    elseif workerDispatch then
+        -- A scheduler lane runs the same immutable payload in a fresh state, but
+        -- selects the workers runtime instead of executing the ordinary entry. This
+        -- branch is emitted only where a target reached worker tasks, so worker-free
+        -- bundles retain their exact former bytes and startup path.
+        chunks[#chunks + 1] = ("package.preload[%q] = function(...)\n"):format(mainName)
+        chunks[#chunks + 1] = mainText
+        chunks[#chunks + 1] = "\nend\n"
+        chunks[#chunks + 1] = "local __nuppEntry = rawget(_G, \"__nuppWorkerEntry\")\n"
+        -- Selected backends install in the entry module's own bootstrap, which a lane
+        -- never runs. A seam-supplied workers runtime is reached under its public
+        -- module name, so a lane has to install the same backends the entry would.
+        if workerBootstrap ~= nil and workerBootstrap ~= "" then
+            chunks[#chunks + 1] = ("if __nuppEntry ~= nil then %s end\n"):format(workerBootstrap)
+        end
+        -- The workers runtime owns the scheduler loop. User callables remain ordinary
+        -- preloaded modules and are required by that loop when their first task runs.
+        -- Its own module body performs no wait, so reaching it through `require` is
+        -- what it should be: one module, loaded once, cached like any other.
+        chunks[#chunks + 1] = "if __nuppEntry ~= nil then\n"
+        chunks[#chunks + 1] = "local __nuppServed = require(__nuppEntry)\n"
+        chunks[#chunks + 1] = "if __nuppEntry == \"nupp.workers\" and type(__nuppServed) == \"table\" then\n"
+        chunks[#chunks + 1] = "local __nuppServe = rawget(__nuppServed, \"__runScheduler\")\n"
+        chunks[#chunks + 1] = "if type(__nuppServe) == \"function\" then __nuppServe() end\n"
+        chunks[#chunks + 1] = "end\n"
+        chunks[#chunks + 1] = "return __nuppServed\n"
+        chunks[#chunks + 1] = "end\n"
+        -- The ordinary entry is called where the payload runs rather than through
+        -- `require`. `require` is a C function, and stock Lua will not yield out of
+        -- one -- so on a host whose every wait is a yield back to it, going through
+        -- `require` here would cost the application suspension entirely: no sleep, no
+        -- request, no awaited worker task. Calling the preloaded body directly is the
+        -- same body with no frame in between, and is what the entry has always been
+        -- where no worker dispatch was emitted at all.
+        chunks[#chunks + 1] = ("local __nuppLoaded = package.preload[%q](%q)\n"):format(mainName, mainName)
+        chunks[#chunks + 1] = "if __nuppLoaded == nil then return end\n"
+        chunks[#chunks + 1] = "return __nuppLoaded\n"
+    else
+        chunks[#chunks + 1] = mainText
+    end
+
+    return table.concat(chunks), nil, unreachable
+end
+
+--- Where a `bundle` target writes its one file.
+local function bundleOutput(root: string, target: Target, name: string): string
+    local outDir = target.outDir or "build"
+    return join(root, target.output or join(outDir, name .. ".lua"))
+end
+
+--- Where a `component` target writes its versioned in-memory artifact.
+local function componentOutput(root: string, target: Target, name: string): string
+    local outDir = target.outDir or "build"
+    return join(root, target.output or join(outDir, name .. ".nuppc"))
+end
+
+--- Where one binary platform writes its raw stamped executable.
+local function binaryOutput(
+    root: string,
+    target: Target,
+    name: string,
+    outDir: string,
+    selectedPlatform: string?
+): string
+    if selectedPlatform then
+        local configured = target.platformOutputs and target.platformOutputs[selectedPlatform]
+        local suffix = require("nupp.compiler.build.platform").executableSuffix(selectedPlatform)
+        return join(root, configured or join(outDir, join(name, join(selectedPlatform, name .. suffix))))
+    end
+
+    -- A build for this machine gets this machine's suffix. Only the explicitly
+    -- selected platform above used to, so building a binary on Windows wrote
+    -- `app` where Windows will only run `app.exe` -- the stamp was correct and
+    -- what it was called was not. An `output` the project spelled out is left
+    -- alone: it named the file it wanted.
+    if target.output then
+        return join(root, target.output)
+    end
+    local hostKey = require("nupp.compiler.build.platform").hostKey()
+    local hostSuffix = hostKey and require("nupp.compiler.build.platform").executableSuffix(hostKey) or ""
+
+    return join(root, join(outDir, name .. hostSuffix))
+end
+
+-- The trailer a stub reads to find its payload. Specified in
+-- docs/reference/distribution.md; the two implementations are this one and the host's,
+-- and they are meant to be read side by side.
+local PAYLOAD_MAGIC = "NUPPLOAD"
+local PAYLOAD_VERSION = 1
+local TRAILER_LENGTH = 48
+
+-- The payload is precompiled LuaJIT bytecode rather than Lua source.
+--
+-- A bit in the field the trailer reserves, rather than a format version, because it
+-- does not change where a payload is or how it is found: a host that knows only
+-- source can still locate this one, and `luaL_loadbuffer` would in fact load it.
+-- What it cannot do is say so. An older stub refuses on the reserved bytes and
+-- reports something newer wrote the file, which is the truth and is more use than
+-- a bytecode header it was never told to expect.
+local PAYLOAD_FLAG_BYTECODE: integer = 1
+
+--- `value` as `width` little-endian bytes.
+local function littleEndian(value, width)
+    local bytes = {}
+    for index = 1, width do
+        bytes[index] = string.char(value % 256)
+        value = math.floor(value / 256)
+    end
+
+    return table.concat(bytes)
+end
+
+local function integerAt(text: string, offset: number, width: integer): number?
+    if offset < 0 or offset + width > #text then
+        return nil
+    end
+    local value = 0
+    for index = width - 1, 0, -1 do
+        value = value * 256 + text:byte(offset + index + 1)
+    end
+
+    return value
+end
+
+local function replaceAt(text: string, offset: number, replacement: string): string
+    return text:sub(1, offset) .. replacement .. text:sub(offset + #replacement + 1)
+end
+
+--- Updates the file-backed size of Mach-O's __LINKEDIT segment. Code signing
+--- requires every byte before its signature to belong to a segment; the payload is
+--- deliberately part of __LINKEDIT even though the loader itself reads the trailer.
+local function sizeMachOLinkedit(text: string): string?, string?
+    if text:sub(1, 4) ~= "\207\250\237\254" then
+        return text
+    end
+    local commands = integerAt(text, 16, 4)
+    local commandBytes = integerAt(text, 20, 4)
+    if not commands or not commandBytes or 32 + commandBytes > #text then
+        return nil, "cannot stamp malformed arm64 Mach-O load commands"
+    end
+    local cursor: number = 32
+    for _ = 1, commands do
+        local kind = integerAt(text, cursor, 4)
+        local length = integerAt(text, cursor + 4, 4)
+        if not kind or not length or length < 8 or cursor + length > 32 + commandBytes then
+            return nil, "cannot stamp malformed arm64 Mach-O load command"
+        end
+        if kind == 0x19 and text:sub(cursor + 9, cursor + 24):match("^__LINKEDIT") then
+            local fileOffset = integerAt(text, cursor + 40, 8)
+            if not fileOffset or fileOffset > #text then
+                return nil, "cannot stamp malformed arm64 Mach-O __LINKEDIT segment"
+            end
+            return replaceAt(text, cursor + 48, littleEndian(#text - fileOffset, 8))
+        end
+        cursor = cursor + length
+    end
+
+    return text
+end
+
+--- Removes an existing Mach-O signature before stamping. Leaving it in place creates
+--- trailing bytes which Apple's signer refuses; removing its load command and blob
+--- lets a native release signer cover the complete payload afterwards.
+local function unsignedMachOStub(text: string): string?, string?
+    if text:sub(1, 4) ~= "\207\250\237\254" then
+        return text
+    end
+    local commands = integerAt(text, 16, 4)
+    local commandBytes = integerAt(text, 20, 4)
+    if not commands or not commandBytes or 32 + commandBytes > #text then
+        return nil, "cannot stamp malformed arm64 Mach-O load commands"
+    end
+    local cursor: number = 32
+    local signatureAt: number?
+    local signatureSize: number?
+    local signatureCommand: number?
+    local signatureCommandSize: number?
+    for _ = 1, commands do
+        local kind = integerAt(text, cursor, 4)
+        local length = integerAt(text, cursor + 4, 4)
+        if not kind or not length or length < 8 or cursor + length > 32 + commandBytes then
+            return nil, "cannot stamp malformed arm64 Mach-O load command"
+        end
+        if kind == 0x1d then
+            signatureAt = integerAt(text, cursor + 8, 4)
+            signatureSize = integerAt(text, cursor + 12, 4)
+            signatureCommand, signatureCommandSize = cursor, length
+            break
+        end
+        cursor = cursor + length
+    end
+    if not signatureCommand then
+        return text
+    end
+    if not signatureAt or not signatureSize or signatureAt + signatureSize ~= #text then
+        return nil, "cannot stamp a Mach-O whose code signature is not its final blob"
+    end
+    local foundCommand = assert(signatureCommand)
+    local foundCommandSize = assert(signatureCommandSize)
+    local loadCommands = text:sub(33, 32 + commandBytes)
+    local relative = foundCommand - 32
+    loadCommands = loadCommands:sub(
+        1,
+        relative
+    ) .. loadCommands:sub(relative + foundCommandSize + 1) .. ("\0"):rep(foundCommandSize)
+    text = replaceAt(text, 16, littleEndian(commands - 1, 4))
+    text = replaceAt(text, 20, littleEndian(commandBytes - foundCommandSize, 4))
+    text = replaceAt(text, 32, loadCommands)
+    text = text:sub(1, signatureAt)
+
+    return sizeMachOLinkedit(text)
+end
+
+--- A hex digest's first `count` bytes, as bytes.
+--- A stub with `payload` appended and a trailer saying where it starts. A signed
+--- Mach-O is first made unsigned and its __LINKEDIT segment grows over the appended
+--- bytes, so Apple's native signer can put a new signature after the trailer.
+local function stampBinary(stubText, payload, selectedPlatform, flags)
+    local macTarget = selectedPlatform == "aarch64-apple-darwin" or (
+        selectedPlatform == nil and jit.os == "OSX" and stubText:sub(1, 4) == "\207\250\237\254"
+    )
+    if macTarget then
+        local unsigned, unsignedErr = unsignedMachOStub(stubText)
+        if not unsigned then
+            return nil, unsignedErr
+        end
+        stubText = unsigned
+    end
+    local offset = #stubText
+    local trailer = PAYLOAD_MAGIC .. littleEndian(
+        PAYLOAD_VERSION,
+        4
+    ) .. littleEndian(
+        flags or 0,
+        4
+    ) .. littleEndian(
+        offset,
+        8
+    ) .. littleEndian(#payload, 8) .. hash.trailerDigest(payload) .. littleEndian(TRAILER_LENGTH, 8)
+    assert(#trailer == TRAILER_LENGTH, "the trailer is a fixed size")
+
+    local stamped = stubText .. payload .. trailer
+    if macTarget then
+        return sizeMachOLinkedit(stamped)
+    end
+
+    return stamped
+end
+
+local function tarField(value: string, width: integer): string
+    assert(#value < width, "tar field fits its fixed width")
+    return value .. ("\0"):rep(width - #value)
+end
+
+--- A deterministic single-file POSIX tar. It is emitted on every compiler host so a
+--- Windows filesystem never gets to erase the executable mode in transit.
+local function posixArchive(output: string, text: string): string?, string?
+    local name = fs.basename(output)
+    if #name >= 100 then
+        return nil, "cannot archive " .. output .. ": executable name exceeds the tar header limit"
+    end
+    local parts = {
+        tarField(name, 100),
+        "0000755\0",
+        "0000000\0",
+        "0000000\0",
+        ("%011o\0"):format(#text),
+        "00000000000\0",
+        "        ",
+        "0",
+        ("\0"):rep(100),
+        "ustar\0",
+        "00",
+        ("\0"):rep(32),
+        ("\0"):rep(32),
+        ("\0"):rep(8),
+        ("\0"):rep(8),
+        ("\0"):rep(155),
+        ("\0"):rep(12),
+    }
+    local header = table.concat(parts)
+    assert(#header == 512, "tar header is one block")
+    local checksum = 0
+    for index = 1, #header do
+        checksum = checksum + header:byte(index)
+    end
+    local checksumField = ("%06o\0 "):format(checksum)
+    header = header:sub(1, 148) .. checksumField .. header:sub(157)
+    local padding = (512 - (#text % 512)) % 512
+    local archive = output .. ".tar"
+    local written, writeErr = writeFile(archive, header .. text .. ("\0"):rep(padding) .. ("\0"):rep(1024))
+    if not written then
+        return nil, tostring(writeErr)
+    end
+
+    return archive
+end
+
+--- The bytes a binary carries for `text`, and the trailer flags describing them.
+---
+--- A bundle is one chunk holding every module as a nested function, so loading it
+--- parses all of them before the program reaches its first statement -- about
+--- fifty-five milliseconds for the compiler's own bundle, paid on every start and
+--- again in every worker, whichever command was asked for. Precompiling moves that
+--- work here, where it happens once.
+---
+--- The `d` flag is what makes this reproducible. A plain dump is not: a table
+--- constructor with string keys becomes a template table, and those are written in
+--- the order the keys hash, which varies per process. `d` sorts them, so the same
+--- bundle dumps to the same bytes and `nupp fixpoint --binary` still means what it
+--- says.
+---
+--- `s` is what keeps the payload behaving like a payload. A dump that carries debug
+--- information carries the name of the chunk it was made from, and a name settled
+--- here is a name settled before anyone knows where the binary will be; the host
+--- names the payload after the executable it found itself in, and code in the bundle
+--- reads that name to find what travels beside it -- the native library, the AOT
+--- builder, the compiler's own staged declarations. Stripped, there is no name in
+--- the dump and the host's applies, exactly as it does to source today. What it
+--- costs is the line number on a traceback out of a stamped binary. That is a real
+--- loss and a small one: the same crash reproduces under the module build, which is
+--- not stamped and keeps every line.
+---
+--- Only for a binary that will run on the machine building it. A dump records the
+--- endianness and the VM configuration it was made for and is refused by a VM that
+--- does not match, so a cross-stamped binary keeps its source payload rather than
+--- carrying bytecode its host would reject at startup.
+local function payloadBytes(text: string, selectedPlatform: string?): string?, integer?, string?
+    local hostKey = require("nupp.compiler.build.platform").hostKey()
+    if selectedPlatform ~= nil and selectedPlatform ~= hostKey then
+        return text, 0
+    end
+    local chunk, loadErr = loadstring(text, "=nupp-payload")
+    if not chunk then
+        return nil, nil, "the bundle did not compile: " .. tostring(loadErr)
+    end
+    local ok, dumped = pcall(string.dump, chunk, "ds")
+    if not ok then
+        return nil, nil, "the bundle did not dump: " .. tostring(dumped)
+    end
+
+    return dumped as string, PAYLOAD_FLAG_BYTECODE
+end
+
+--- Writes `payload` into a copy of the stub at `output`.
+---
+--- A selected macOS result is deliberately unsigned. On a Mac, `codesign --sign -`
+--- makes a development artifact runnable; release automation uses a Developer ID and
+--- notarizes the archive. See
+--- [distribution.md](docs/reference/distribution.md).
+local function stampFile(
+    output: string,
+    stubText: string,
+    payload: string,
+    selectedPlatform: string?,
+    flags: integer?
+): boolean?, string?, string?
+    local stampedText, stampErr = stampBinary(stubText, payload, selectedPlatform, flags)
+    if not stampedText then
+        return nil, stampErr
+    end
+    local written, writeErr = writeFile(output, stampedText)
+    if not written then
+        return nil, tostring(writeErr)
+    end
+    local posixTarget = selectedPlatform == nil or require("nupp.compiler.build.platform").isPosix(selectedPlatform)
+    if posixTarget and jit.os ~= "Windows" then
+        local code, chmodErr = process.capture({"chmod", "+x", output})
+        if code ~= 0 then
+            return nil, "cannot make " .. output .. " executable: " .. tostring(chmodErr)
+        end
+    end
+
+    -- A current-platform source build must be immediately runnable. Ad-hoc signing
+    -- has no timestamp and a fixed identifier, so it preserves the packaging
+    -- fixpoint. Explicit cross-target output remains unsigned and byte-identical on
+    -- every compiler host; release automation signs it on macOS.
+    if selectedPlatform == nil and jit.os == "OSX" and stubText:sub(1, 4) == "\207\250\237\254" then
+        local code, signErr = process.capture({
+            "codesign",
+            "--force",
+            "--sign",
+            "-",
+            "--identifier",
+            "org.nupp.binary",
+            output
+        })
+        if code ~= 0 then
+            return nil, "cannot ad-hoc sign " .. output .. ": " .. tostring(signErr)
+        end
+    end
+
+    local archive
+    if selectedPlatform and posixTarget then
+        local archiveErr
+        archive, archiveErr = posixArchive(output, stampedText)
+        if not archive then
+            return nil, archiveErr
+        end
+    end
+
+    return true, nil, archive
+end
+
+package_.longString = longString
+package_.entryModule = entryModule
+package_.bundleText = bundleText
+package_.bundleOutput = bundleOutput
+package_.componentOutput = componentOutput
+package_.binaryOutput = binaryOutput
+package_.stampFile = stampFile
+package_.payloadBytes = payloadBytes
+package_.payloadFlagBytecode = PAYLOAD_FLAG_BYTECODE
+package_.posixArchive = posixArchive
+package_.hostAbiVersion = hostAbiVersion
+
+export = package_

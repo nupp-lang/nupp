@@ -1,0 +1,11 @@
+@!internal
+module nupp.runtime.seam.browsercryptosuite
+
+local suite = {}
+
+function suite.test(provider: any): (boolean, string?)
+    local problem = require("nupp.runtime.seam.browsercrypto").validate(provider)
+    return problem == nil, problem
+end
+
+export = suite

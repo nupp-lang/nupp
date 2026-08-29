@@ -1,0 +1,33 @@
+local span = require("nupp.mem.span")
+local indexed = require("nupp.mem.indexed")
+
+local struct Point
+    x: float
+    y: float
+end
+
+const storage = carray(Point, 4)
+const writable = span.writeCarray(storage, 4)
+const rows = indexed.range(1, #writable, writable)
+for index = rows.first, rows.last do
+    writable[index].x = index
+    writable[index].y = index * 2
+end
+const middle = writable:slice(2, 3)
+for index = 1, #middle do
+    middle[index].y += 1
+end
+drop middle
+drop writable
+
+const readable = span.fromCarray(storage, 4)
+assert(#readable == 4)
+assert(readable[3].x == 3)
+assert(readable[3].y == 7)
+const outer = readable:slice(2, 4)
+const inner = outer:slice(1, 2)
+local total = 0
+for index = 1, #inner do
+    total += inner[index].x
+end
+assert(total == 5)

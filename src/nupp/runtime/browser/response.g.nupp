@@ -1,0 +1,19 @@
+@!internal
+module nupp.runtime.browser.response
+
+local effects = require("nupp.runtime.browser.effects")
+local suspension = require("nupp.suspension")
+local response = {}
+
+function response.await(kind: string, payload: any): any
+    local answer = suspension.suspend("browser " .. kind, function(resume: function(any): nil): function()
+        return effects.request(kind, payload, resume)
+    end)
+    if not answer.ok then
+        error("nupp: browser " .. kind .. " failed: " .. tostring(answer.error), 2)
+    end
+
+    return answer.value
+end
+
+export = response

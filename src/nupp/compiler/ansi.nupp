@@ -1,0 +1,247 @@
+module nupp.compiler.ansi
+
+--[[
+Colour, and the question of whether anything should be coloured at all.
+
+Escape codes are easy; deciding to write them is the whole problem. A compiler
+writes to a terminal, to a pipe, to a CI log, and to a file a script will read
+back, and only the first of those wants control characters in it. So the
+decision is made once per stream, from the conventions every other tool already
+follows, reading `NO_COLOR`, `CLICOLOR_FORCE`, `TERM=dumb`, `--color`, and failing
+all of those, whether the stream is a terminal. It is cached, because none of those
+answers change while a process runs.
+
+What comes back is a style table whose entries are functions. When colour is on
+each one wraps its argument in a precomputed escape prefix and a reset; when it
+is off every one of them is the *same* identity function, returning the string
+it was given. The no-colour path therefore allocates nothing and the caller
+never branches: it styles unconditionally and this module decides what that
+means. Adding colour to a report costs nothing when nobody is watching.
+
+`stdout` and `stderr` are asked separately, because redirecting one says
+nothing about the other.
+]]
+
+local ansi = {}
+
+--- How a stream gets styled. Every field takes a string and returns it decorated, or
+--- unchanged when colour is off, so callers style unconditionally.
+record ansi.Style
+    --- Emphasis for the text a reader should land on first: a message, a heading.
+    strong: function(string): string
+
+    --- Receded, for what is present but rarely read: a diagnostic code, a column
+    --- header, a repeated path.
+    faint: function(string): string
+
+    --- A file name or a path.
+    path: function(string): string
+
+    --- The `N |` rail beside a quoted source line.
+    gutter: function(string): string
+
+    --- Keyed by severity name. A diagnostic carries its severity as data, so this has
+    --- to be reached with a runtime string; `ansi.forSeverity` is the way to do it,
+    --- since a lookup that can miss is not directly callable.
+    severity: {[string]: function(string): string}
+end
+
+-- Select Graphic Rendition parameters, spelled once. Bold is folded into the colour
+-- rather than emitted separately so a style is one escape, not two.
+local SGR = {strong = "1", faint = "2", red = "1;31", yellow = "1;33", cyan = "1;36", green = "1;32", blue = "1;34",}
+
+local RESET = "\27[0m"
+
+-- Every styler is this when colour is off: one shared function, so a plain report
+-- neither allocates nor copies. The argument is returned as it came in.
+local function plain(text: string): string
+    return text
+end
+
+-- One styler, closed over its finished prefix. The concatenation is three pieces LuaJIT
+-- resolves in a single buffer, and the prefix is never rebuilt.
+local function styler(code: string): function(string): string
+    local prefix = "\27[" .. code .. "m"
+    return function(text: string): string
+        return prefix .. text .. RESET
+    end
+end
+
+-- The severities a diagnostic can carry, in the colours compilers have agreed on: red
+-- stops a build, yellow does not, and the two kinds of commentary that follow a
+-- diagnostic are cooler than either so they read as subordinate.
+local SEVERITY_COLOUR = {error = "red", warning = "yellow", note = "cyan", help = "green",}
+
+local PLAIN_SEVERITY: {[string]: function(string): string} = {}
+for name in pairs(SEVERITY_COLOUR) do
+    PLAIN_SEVERITY[name] = plain
+end
+
+local PLAIN: ansi.Style = new ansi.Style(
+    strong = plain,
+    faint = plain,
+    path = plain,
+    gutter = plain,
+    severity = PLAIN_SEVERITY
+)
+
+local COLOURED: ansi.Style = new ansi.Style(
+    strong = styler(SGR.strong),
+    faint = styler(SGR.faint),
+    path = styler(SGR.strong),
+    gutter = styler(SGR.blue),
+    severity = {}
+)
+for name, colour in pairs(SEVERITY_COLOUR) do
+    COLOURED.severity[name] = styler(SGR[colour])
+end
+
+local windows = package.config:sub(1, 1) == "\\"
+
+--- Whether a value set in the environment counts as asking for something. The
+--- `NO_COLOR` convention is that presence is the signal, but an empty or "0" setting is
+--- what a shell leaves behind when it means to unset, so neither is taken as a request.
+local function requested(name: string): boolean
+    local value = os.getenv(name)
+    return value ~= nil and value ~= "" and value ~= "0"
+end
+
+-- Asks the operating system whether a descriptor is a terminal.
+--
+-- LuaJIT has no isatty, so this goes through the FFI, and every step of it is guarded:
+-- a build without the FFI, a libc that spells the symbol differently, or a redefinition
+-- from somewhere else must all end in "assume not a terminal" rather than in a compiler
+-- that cannot start. Colour is not worth a crash.
+local function isatty(fd: integer): boolean
+    local loaded, ffi = pcall(require, "ffi")
+    if not loaded then
+        return false
+    end
+    -- May fail because another module already declared it, which is not a problem: what
+    -- matters is that the symbol is declared by the time it is called, not that this
+    -- call is the one that declared it.
+    pcall(ffi.cdef, "int isatty(int);")
+    local ok, result = pcall(function()
+        local C: any = ffi.C
+        return C.isatty(fd)
+    end)
+    if ok then
+        return result ~= 0
+    end
+    -- The Microsoft C runtime keeps it under the reserved-name spelling.
+    pcall(ffi.cdef, "int _isatty(int);")
+    local retried, retriedResult = pcall(function()
+        local C: any = ffi.C
+        return C._isatty(fd)
+    end)
+
+    return retried and retriedResult ~= 0
+end
+
+-- A terminal that understands escapes. On Unix that is any terminal that has not
+-- announced itself as incapable; on Windows it is only the consoles known to have
+-- turned virtual-terminal processing on, since the older one prints the escapes rather
+-- than acting on them.
+local function capable(fd: integer): boolean
+    if os.getenv("TERM") == "dumb" then
+        return false
+    end
+    if windows and not (
+        requested("WT_SESSION") or requested("ANSICON") or requested("ConEmuANSI") or os.getenv("TERM")
+    ) then
+        return false
+    end
+
+    return isatty(fd)
+end
+
+-- "auto", "always", or "never"; moved by --color and by nothing else.
+local mode = "auto"
+
+-- Answers cached per stream. Detection touches the environment and the FFI, and neither
+-- can change under a running process, so it is asked once.
+local decided: {[LuaFile]: boolean} = {}
+
+-- Standard input is here for `isTerminal` rather than for colour: a command that
+-- wants to ask a question first has to know whether anyone is there to answer it.
+local DESCRIPTOR = {[io.stdin] = 0, [io.stdout] = 1, [io.stderr] = 2}
+
+--- Sets what `--color` asked for: "auto" to decide per stream, or "always" or "never"
+--- to answer without looking. Clears what was already decided, so a flag parsed after
+--- something has printed still governs what follows.
+function ansi.setMode(wanted: string): nil
+    if wanted ~= mode then
+        mode = wanted
+        decided = {}
+    end
+end
+
+--- Runs `body` with a temporary colour mode, restoring the caller's mode even when
+--- `body` raises. This is for renderers and tests that need stable text while the
+--- surrounding process may have made its own colour choice.
+--- @raises whatever `body` raises, after restoring the caller's mode
+function ansi.withMode(wanted: string, body: function(): nil): nil
+    local before = mode
+    ansi.setMode(wanted)
+    local ok, err = pcall(body)
+    ansi.setMode(before)
+    if not ok then
+        error(err, 0)
+    end
+end
+
+--- Whether `stream` should be written to in colour.
+function ansi.enabled(stream: LuaFile): boolean
+    local known = decided[stream]
+    if known ~= nil then
+        return known
+    end
+    local answer: boolean
+    if mode == "always" then
+        answer = true
+    elseif mode == "never" then
+        answer = false
+    elseif requested("NO_COLOR") then
+        -- The convention is one-way: it can refuse colour and cannot ask for it.
+        answer = false
+    elseif requested("CLICOLOR_FORCE") then
+        answer = true
+    else
+        answer = capable(DESCRIPTOR[stream] or 1)
+    end
+    decided[stream] = answer
+
+    return answer
+end
+
+--- Whether `stream` is a terminal, which is a different question from whether to colour
+--- it. `NO_COLOR` refuses escapes and says nothing about whether somebody is watching,
+--- and a build reporting its own progress wants the second answer: it writes plain text
+--- to a person and nothing at all to a pipe. Cached per descriptor, since neither the
+--- process's descriptors nor the FFI's answer about them changes while it runs.
+local terminals: {[LuaFile]: boolean} = {}
+
+function ansi.isTerminal(stream: LuaFile): boolean
+    local known = terminals[stream]
+    if known == nil then
+        known = isatty(DESCRIPTOR[stream] or 1)
+        terminals[stream] = known
+    end
+
+    return known
+end
+
+--- The style table for `stream`. Two tables exist for the life of the process and this
+--- hands back whichever one applies, so styling never builds anything.
+function ansi.style(stream: LuaFile): ansi.Style
+    return ansi.enabled(stream) and COLOURED or PLAIN
+end
+
+--- How to paint text carrying `name`'s severity, and its carets with it. A severity
+--- arrives as data and may be absent or unrecognised, which is the same case the
+--- renderer already treats as an error, so that is what it paints as.
+function ansi.forSeverity(style: ansi.Style, name: string?): function(string): string
+    return style.severity[name or "error"] or style.severity.error or PLAIN.strong
+end
+
+export = ansi

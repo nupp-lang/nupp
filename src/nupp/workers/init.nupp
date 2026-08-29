@@ -1,0 +1,1998 @@
+module nupp.workers
+
+--[[
+Structured parallel tasks.
+
+An ordinary sendable function may run locally or on the shared worker scheduler.
+The scheduler owns a bounded set of native threads, and every thread owns one
+isolated LuaJIT state. Arguments and results are copied; Lua heap identity is never
+shared.
+
+```nupp
+const workers = require("nupp.workers")
+const jobs = require("jobs")
+
+with scope = workers.scope() do
+    const left = scope:spawn(first, jobs.hash)
+    const right = scope:spawn(second, jobs.hash)
+    return left:await() .. right:await()
+end
+```
+
+Leaving the scope waits for every child, including children the body did not await.
+The first unobserved child failure is raised after all children have settled. A wait
+blocks efficiently in an ordinary program and parks under a suspension handler.
+]]
+
+local type BufferValue = {
+    encode: nosuspend function(any, any): any,
+    decode: nosuspend function(any): any,
+    get: nosuspend function(any): string,
+    reset: nosuspend function(any): any,
+    set: nosuspend function(any, string): any
+}
+local type Buffer = {
+    new: nosuspend function(table?): BufferValue,
+    encode: nosuspend function(any): any,
+    decode: nosuspend function(string): any
+}
+local buffer = require("string.buffer") as Buffer
+local suspension = require("nupp.suspension")
+local suspensionRuntime = suspension as any
+
+local type Native = {
+    channelCreate: nosuspend function(): any,
+    channelDestroy: nosuspend function(any),
+    channelClose: nosuspend function(any),
+    channelPush: nosuspend function(any, string, string): boolean,
+    channelPushNumberTask: nosuspend function(any, integer, string, string, number): boolean,
+    channelPushNumberReply: nosuspend function(any, integer, number): boolean,
+    channelPushStringTask: nosuspend function(any, integer, string, string, string): boolean,
+    channelPushStringReply: nosuspend function(any, integer, string): boolean,
+    channelSchemaRegister: nosuspend function(any, string, string, {string}, {string}): integer?,
+    channelPushRecordTask: nosuspend function(any, integer, string, string, integer, any): integer,
+    channelPushRecordReply: nosuspend function(any, integer, integer, any): integer,
+    channelDictRegister: nosuspend function(any, string): integer?,
+    channelDictCount: nosuspend function(any): integer,
+    channelDictAddress: nosuspend function(any, integer): string?,
+    channelPushBufferTask: nosuspend function(any, integer, string, string, number, string, any): boolean,
+    channelPushBufferReply: nosuspend function(any, integer, number, string, any): boolean,
+    channelPop: nosuspend function(
+        any,
+        integer
+    ): (string?, string?, integer?, integer?, string?, string?, any, number?, any),
+    channelCount: nosuspend function(any): integer,
+    channelClosed: nosuspend function(any): boolean,
+    workerSpawn: nosuspend function(any, any): (any?, string?),
+    workerJoin: nosuspend function(any): (integer, string?),
+    workerParallelism: nosuspend function(): integer,
+    workerTaskCreate: nosuspend function(any, integer, number?): boolean,
+    workerTaskCancel: nosuspend function(any, integer): integer,
+    workerTaskStart: nosuspend function(integer): (boolean, boolean),
+    workerTaskCheckpoint: nosuspend function(): (boolean, boolean),
+    workerTaskFinish: nosuspend function(integer): (boolean, boolean),
+    workerTaskRelease: nosuspend function(any, integer): nil,
+    workerTaskStatus: nosuspend function(any, integer): integer,
+    current: nosuspend function(): (any?, any?)
+}
+local native = require("nupp.workers.native") as Native
+
+rawset(_G.nupp, "__workerCheckpoint", native.workerTaskCheckpoint)
+
+local workers = {}
+
+rawset(workers, "__parallelism", native.workerParallelism)
+
+local type Packed = {
+    values: {any},
+    count: integer
+}
+
+local type TransferState = {
+    seen: {[any]: boolean},
+    records: {[string]: any}?,
+    addresses: {string}?,
+    hasRegions: boolean?,
+    hasMoved: boolean?
+}
+
+-- What a handle is parameterized by: any function, since a task type is derived from
+-- the signature alone and says nothing about where the function came from.
+local type Callable = function(...: any): any
+
+-- What may actually be submitted. A sendable callable is either a module member or
+-- an outlined literal whose effectively-final captures can be copied to another lane.
+local type Submittable = sendable function(...: any): any
+
+--- Whether one type is an engine-backed owner a lane boundary moves rather than
+--- copies: a [](nupp.mem.heap) array of a fixed-width element. The storage lives in
+--- neither Lua heap, so handing its pointer to another lane is sound, and the affine
+--- layer consumes the sender's binding where the move is written. The element names
+--- here must agree with the runtime tag map in `nupp.mem.heap`. See NEP 23.
+local comptime function movableOwner(T: type): boolean
+    local described = nupp.types.describe(T) as {[string]: any}
+    if described.kind ~= "reference" then
+        return false
+    end
+    local nominal = described.nominal as {[string]: any}
+    if nominal == nil or nominal.moduleName ~= "nupp.mem.heap" or nominal.name ~= "Array" then
+        return false
+    end
+    local arguments = nupp.types.arguments(T)
+    if arguments[1] == nil then
+        return false
+    end
+    local element = nupp.types.describe(arguments[1]) as {[string]: any}
+    if element.kind ~= "primitive" then
+        return false
+    end
+    local movable = {
+        uint8 = true,
+        int8 = true,
+        uint16 = true,
+        int16 = true,
+        uint32 = true,
+        int32 = true,
+        uint64 = true,
+        int64 = true,
+        float = true,
+        number = true,
+    }
+
+    return movable[element.name as string] == true
+end
+
+--- Why one type in a submitted signature can never cross a lane boundary, or nil when
+--- nothing about it rules that out.
+---
+--- Arguments and results are copied between isolated Lua states, so a type no copy can
+--- reproduce is a mistake in the signature rather than in one call. Only what can never
+--- cross is named here. `any`, a bare `table`, and a record say nothing definite about
+--- the value that will arrive, and identity -- a cycle, a repeated table, depth -- is a
+--- property of values rather than of their types. Both stay with the copy itself.
+---
+--- The walk terminates on a self-referential type because the edge that would close the
+--- loop is one the compile-time view of a type does not carry.
+local comptime function unsendable(T: type, label: string): string?
+    local named = {
+        thread = "a thread",
+        userdata = "userdata",
+        cdata = "cdata",
+        cstring = "a C string",
+        voidptr = "a pointer",
+    }
+    local pending = {{at = T, path = label}}
+    local index: integer = 1
+    while index <= #pending do
+        local item = pending[index]
+        index = index + 1
+        local kind = nupp.types.kind(item.at)
+        if kind == "primitive" then
+            local why = named[nupp.types.describe(item.at).name]
+            if why ~= nil then
+                return item.path .. " is " .. why
+            end
+        elseif kind == "function" then
+            return item.path .. " is a function"
+        elseif kind == "affine" then
+            -- An affine owner of engine-backed storage moves: the message carries its
+            -- pointer, and the receiving lane becomes the one owner. Anything whose
+            -- representation lives in a Lua heap keeps the refusal.
+            local inner = nupp.types.elements(item.at)
+            if inner == nil or not movableOwner(inner[1]) then
+                return item.path .. " is an affine owner"
+            end
+        elseif kind == "ptr" or kind == "carray" then
+            return item.path .. " is a C pointer"
+        elseif kind == "array" then
+            for _, element in ipairs(nupp.types.elements(item.at)) do
+                pending[#pending + 1] = {at = element, path = item.path .. "[]"}
+            end
+        elseif kind == "tuple" then
+            for position, member in ipairs(nupp.types.elements(item.at)) do
+                pending[#pending + 1] = {at = member, path = item.path .. "[" .. tostring(position) .. "]"}
+            end
+        elseif kind == "union" or kind == "intersection" then
+            for position, member in ipairs(nupp.types.elements(item.at)) do
+                pending[#pending + 1] = {at = member, path = item.path .. " (alternative " .. tostring(position) .. ")"}
+            end
+        elseif kind == "const" or kind == "borrowed" or kind == "pinned" then
+            for _, inner in ipairs(nupp.types.elements(item.at)) do
+                pending[#pending + 1] = {at = inner, path = item.path}
+            end
+        elseif kind == "shape" then
+            for _, field in ipairs(nupp.types.describe(item.at).fields or {}) do
+                if field.read ~= nil then
+                    pending[#pending + 1] = {at = field.read, path = item.path .. "." .. field.name}
+                end
+            end
+        end
+    end
+
+    return nil
+end
+
+--- The arguments a submitted function takes, once its whole signature is known to be
+--- copyable. Reached only from `spawn`: naming `Task<F>` describes a handle rather than
+--- a crossing, so a signature is held to this where it is submitted and nowhere else.
+local comptime function Submitted(F: type): typepack
+    if nupp.types.kind(F) ~= "function" then
+        return nupp.types.error("a worker task must name a function type")
+    end
+    local packs = {{of = nupp.types.parameters(F), what = "argument"}, {of = nupp.types.results(F), what = "result"},}
+    for _, one in ipairs(packs) do
+        local described = nupp.types.describe(one.of)
+        -- An ownership mode is a promise about one Lua heap: the caller's. Named before
+        -- the types are walked, because a pack carrying one cannot be rebuilt at all
+        -- and would otherwise report that instead of the reason.
+        local headTypes = described.head as {any} or {}
+        for position, mode in ipairs(described.modes or {}) do
+            -- One exception: a `takes` parameter whose type is an engine-backed owner
+            -- is a move rather than a copy, and the affine layer consumes the caller's
+            -- binding at the spawn. Every other ownership mode keeps the refusal.
+            local moved = mode == "takes" and one.what == "argument" and movableOwner(headTypes[position])
+            if mode ~= "plain" and not moved then
+                return nupp.types.error(
+                    one.what .. " " .. tostring(
+                        position
+                    ) .. " is an owner or a borrow, which cannot cross into another Lua state"
+                )
+            end
+        end
+        for position, member in ipairs(described.head or {}) do
+            local why = unsendable(member, one.what .. " " .. tostring(position))
+            if why ~= nil then
+                return nupp.types.error(why .. ", which cannot cross into another Lua state")
+            end
+        end
+        if described.tail ~= nil then
+            local why = unsendable(described.tail, "every extra " .. one.what)
+            if why ~= nil then
+                return nupp.types.error(why .. ", which cannot cross into another Lua state")
+            end
+        end
+    end
+
+    return nupp.types.parameters(F)
+end
+
+local comptime function TaskType(F: type): type
+    if nupp.types.kind(F) ~= "function" then
+        return nupp.types.error("a worker task must name a function type")
+    end
+    return nupp.types.shape({
+        {
+            name = "await",
+            read = nupp.types.function_(
+                nupp.types.pack({
+                    nupp.types.any
+                }),
+                nupp.types.results(F)
+            ),
+        },
+        {
+            name = "isDone",
+            read = nupp.types.function_(
+                nupp.types.pack({
+                    nupp.types.any
+                }),
+                nupp.types.pack({
+                    nupp.types.boolean
+                })
+            ),
+        },
+        {
+            name = "status",
+            read = nupp.types.function_(
+                nupp.types.pack({
+                    nupp.types.any
+                }),
+                nupp.types.pack({
+                    nupp.types.string
+                })
+            ),
+        },
+        {
+            name = "cancel",
+            read = nupp.types.function_(
+                nupp.types.pack({
+                    nupp.types.any,
+                    nupp.types.optional(nupp.types.string)
+                }),
+                nupp.types.pack({nupp.types.boolean})
+            ),
+        },
+    })
+end
+
+--- The typed handle for one submitted function.
+type workers.Task<F is Callable> = TaskType(F)
+
+local function pack(...: any): Packed
+    return {values = {...}, count = select("#", ...)}
+end
+
+local type SendableDescriptor = {
+    module: string,
+    member: string,
+    captures: Packed,
+    input: any,
+    output: any
+}
+
+local registeredSendables = rawget(_G.nupp, "__workerSendables")
+if type(registeredSendables) ~= "table" then
+    registeredSendables = setmetatable({}, {__mode = "k"})
+    rawset(_G.nupp, "__workerSendables", registeredSendables)
+end
+local sendableDescriptors = registeredSendables as {[any]: SendableDescriptor}
+local outlinedSendables: {[string]: any} = {}
+
+local function sendableKey(moduleName: string, member: string): string
+    return moduleName .. "\0" .. member
+end
+
+--- Compiler hook: publishes an outlined body when its module loads in this Lua state.
+local function defineSendable(moduleName: string, member: string, fn: any): nil
+    outlinedSendables[sendableKey(moduleName, member)] = fn
+end
+
+--- Compiler hook: associates a local closure with its loadable body and captures.
+local function describeSendable(fn: any, moduleName: string, member: string, ...: any): any
+    sendableDescriptors[fn] = {module = moduleName, member = member, captures = pack(...)}
+    return fn
+end
+
+-- Generated code reaches these private hooks after checking, so keep them off the
+-- authored module surface while retaining them on the runtime table.
+rawset(workers, "__defineSendable", defineSendable)
+rawset(workers, "__sendable", describeSendable)
+
+local type Frame = {
+    kind: string,
+    id: integer?,
+    ok: boolean?,
+    module: string?,
+    member: string?,
+    bytes: string?,
+    records: {string}?,
+    encoding: string?,
+    value: any,
+    error: string?,
+    cancelled: boolean?,
+    deadline: boolean?
+}
+
+local record Channel
+    handle: any
+    owned: boolean
+    destroyed: boolean
+    codec: any
+    registered: any
+end
+
+local record Lane
+    handle: any
+    inbox: Channel
+    outbox: Channel
+    nextId: integer
+    inflight: integer
+    pending: {[integer]: boolean}
+    replies: {[integer]: Frame}
+    waiters: {[integer]: {function(boolean)}}
+    tasks: {[integer]: any}
+    schemaIds: {[any]: any}
+end
+
+local record Scheduler
+    lanes: {Lane}
+    source: suspension.Source?
+    waitCursor: integer
+end
+
+--- The runtime state of a child computation.
+local record TaskImpl
+    _lane: Lane
+    _scheduler: Scheduler
+    _id: integer
+    _state: string
+    _values: {any}
+    _count: integer
+    _error: string?
+    _cancelled: any
+    _observed: boolean
+    _observer: any
+
+    --- Waits for the child and returns exactly the values its function returned.
+    await: function(TaskImpl): ...any
+
+    --- Whether the child has settled and its reply has reached this Lua state.
+    isDone: nosuspend function(TaskImpl): boolean
+
+    status: nosuspend function(TaskImpl): string
+
+    cancel: nosuspend function(TaskImpl, string?): boolean
+end
+
+--- The cleanup contract a structured worker scope carries.
+affine interface workers.ScopeToken
+    terminal drop: nosuspend function(takes self: workers.ScopeToken): nil
+end
+
+--- A lexical family of parallel child tasks.
+record workers.Scope is workers.ScopeToken
+    _scheduler: Scheduler
+    _tasks: {any}
+    _closed: boolean
+    _deadline: number?
+    _observer: any
+
+    --- Starts one sendable function with copied arguments.
+    spawn: function<F is Submittable>(borrows self: workers.Scope, F, ...: unpackof Submitted(F)): workers.Task<F>
+
+    --- Waits for every child. Idempotent.
+    close: function(workers.Scope): nil
+
+    --- Closes the scope on every structured exit.
+    drop: nosuspend function(takes self: workers.Scope): nil
+
+    private _cancelAll: function(workers.Scope, string?): nil
+end
+
+local ChannelMT: metatable<Channel> = {__index = Channel}
+local TaskMT: metatable<TaskImpl> = {__index = TaskImpl}
+local ScopeMT: metatable<workers.Scope> = {__index = workers.Scope}
+
+local function channel(handle: any, owned: boolean): Channel
+    return setmetatable({handle = handle, owned = owned, destroyed = false}, ChannelMT) as Channel
+end
+
+local function newChannel(): Channel
+    local handle = native.channelCreate()
+    if handle == nil then
+        error("nupp: cannot create a worker channel", 3)
+    end
+
+    return channel(handle, true)
+end
+
+local SENDABLE: {[string]: boolean} = {["nil"] = true, boolean = true, number = true, string = true,}
+
+--- The stable address code generation publishes for an exported record table. The
+--- table is weak-keyed, so loading and releasing a program does not retain its types.
+local function recordAddress(metatable: any): string?
+    local namespace = _G.nupp and rawget(_G.nupp, "__workerRecords")
+    local address = type(namespace) == "table" and namespace[metatable] or nil
+
+    return type(address) == "string" and address or nil
+end
+
+-- Moved-array hooks load on the first heap array seen, so a program without
+-- moved buffers never loads the module. A sender holding one necessarily
+-- loaded nupp.mem.heap already; a receiver loads it to rebuild the owner.
+local heapArrayMovable: any = nil
+local heapArrayParts: any = nil
+local heapArrayFromParts: any = nil
+local heapArrayFree: any = nil
+
+local function heapHooks(): nil
+    if heapArrayParts == nil then
+        local heapModule = require("nupp.mem.heap") as any
+        heapArrayMovable = rawget(heapModule as table, "__heapArrayMovable")
+        heapArrayParts = rawget(heapModule as table, "__heapArrayParts")
+        heapArrayFromParts = rawget(heapModule as table, "__heapArrayFromParts")
+        heapArrayFree = rawget(heapModule as table, "__heapArrayFree")
+    end
+end
+
+local function unsendable(value: any, path: string, depth: integer, state: TransferState): string?
+    local kind = type(value)
+    if SENDABLE[kind] then
+        return nil
+    end
+    @allow("exhaustiveness")
+    if kind ~= "table" then
+        return ("%s is a %s"):format(path, kind)
+    end
+    local metatable = getmetatable(value)
+    if metatable ~= nil then
+        if metatable == (_G.nupp and rawget(_G.nupp, "__regionMetatable")) then
+            -- An engine-owned region crosses by reference: a leaf here, an
+            -- attachment on the message, a fresh local handle on the far side.
+            state.hasRegions = true
+
+            return nil
+        end
+        if metatable == (_G.nupp and rawget(_G.nupp, "__heapArrayMetatable")) then
+            -- An engine-backed owned array moves: the message takes its
+            -- allocation, and the receiving lane becomes the one owner. The
+            -- element layout has to be one the tag vocabulary carries, and a
+            -- husk whose allocation already left cannot move again.
+            heapHooks()
+            if (heapArrayMovable as function(any): integer?)(value) == nil then
+                return ("%s is a heap array that cannot move"):format(path)
+            end
+            state.hasMoved = true
+
+            return nil
+        end
+        local address = recordAddress(metatable)
+        if address == nil then
+            return ("%s has a metatable"):format(path)
+        end
+        local records = state.records
+        local prior = records ~= nil and records[address] or nil
+        if prior ~= nil and prior ~= metatable then
+            return ("%s has an ambiguous record metatable"):format(path)
+        end
+        if prior == nil then
+            if records == nil then
+                records = {}
+                state.records = records
+            end
+            records[address] = metatable
+            local addresses = state.addresses
+            if addresses == nil then
+                addresses = {}
+                state.addresses = addresses
+            end
+            addresses[#addresses + 1] = address
+        end
+    end
+    if depth >= 32 then
+        return ("%s nests deeper than 32 tables"):format(path)
+    end
+    if state.seen[value] then
+        return ("%s repeats a table already present in the message"):format(path)
+    end
+    state.seen[value] = true
+    -- Match string.buffer's raw table walk. A record may declare __pairs, but worker
+    -- transfer copies stored data rather than invoking user iteration behavior.
+    for key, item in next, value as {any: any} do
+        local keyKind = type(key)
+        if not SENDABLE[keyKind] then
+            return ("%s has a %s key"):format(path, keyKind)
+        end
+        if not SENDABLE[type(item)] then
+            local rejected = unsendable(item, ("%s[%s]"):format(path, tostring(key)), depth + 1, state)
+            if rejected ~= nil then
+                return rejected
+            end
+        end
+    end
+
+    return nil
+end
+
+local function validatedTaskTransfer(captures: Packed, arguments: Packed): TransferState
+    local transfer: TransferState = {seen = {}, records = nil, addresses = nil}
+    local rejectedCaptures = unsendable(captures.values, "captures", 0, transfer)
+    if rejectedCaptures ~= nil then
+        error("nupp: cannot copy task captures: " .. rejectedCaptures, 3)
+    end
+    local rejected = unsendable(arguments.values, "arguments", 0, transfer)
+    if rejected ~= nil then
+        error("nupp: cannot copy task arguments: " .. rejected, 3)
+    end
+
+    return transfer
+end
+
+local function resolveRecord(address: string): any
+    local moduleName, memberPath = address:match("^(.-)%z(.+)$")
+    if moduleName == nil or moduleName == "" or memberPath == nil then
+        error("nupp: a worker value names an invalid record", 3)
+    end
+    local value = require(moduleName)
+    for member in memberPath:gmatch("[^.]+") do
+        if not member:match("^[%a_][%w_]*$") or type(value) ~= "table" then
+            error("nupp: a worker value names an invalid record", 3)
+        end
+        value = (value as {[string]: any})[member]
+    end
+    local namespace = _G.nupp and rawget(_G.nupp, "__workerRecords")
+    if type(value) ~= "table" or type(namespace) ~= "table" or namespace[value] ~= address then
+        error("nupp: a worker value names an unknown record", 3)
+    end
+
+    return value
+end
+
+-- A native record frame names its metatable by stable address on every message.
+-- Resolving that address walks require and the member path, so each state keeps
+-- the answer; the weak values do not retain a record a hot reload replaced.
+local resolvedRecords: {[string]: any} = setmetatable({}, {__mode = "v"}) as {[string]: any}
+
+local function resolveRecordCached(address: string): any
+    local metatable = resolvedRecords[address]
+    if metatable == nil then
+        metatable = resolveRecord(address)
+        resolvedRecords[address] = metatable
+    end
+
+    return metatable
+end
+
+local noRecords: {string} = {}
+
+-- One string.buffer codec per channel, whose metatable dictionary is the
+-- channel's ordered, append-only address registry. The sender registers an
+-- address once and invalidates its codec; the receiver compares the native
+-- dictionary count per message, because the dictionary only grows and each
+-- channel has exactly one sender. Messages therefore carry no address lists.
+local function channelCodec(target: Channel): any
+    local codec = target.codec as any
+    if codec ~= nil then
+        return codec
+    end
+    local count = native.channelDictCount(target.handle)
+    local metatables = {}
+    for index = 1, count do
+        local address = native.channelDictAddress(target.handle, index)
+        metatables[index] = resolveRecordCached(address as string)
+    end
+    codec = {
+        count = count,
+        encoder = buffer.new({
+            metatable = metatables
+        }),
+        decoder = buffer.new({
+            metatable = metatables
+        }),
+    }
+    target.codec = codec
+
+    return codec
+end
+
+local function registerDictAddress(target: Channel, address: string): nil
+    local registered = target.registered as {[string]: boolean}
+    if registered == nil then
+        registered = {}
+        target.registered = registered
+    end
+    if not registered[address] then
+        if native.channelDictRegister(target.handle, address) == nil then
+            error("nupp: a worker channel dictionary is full", 3)
+        end
+        registered[address] = true
+        target.codec = nil
+    end
+end
+
+local function registerTransferRecords(target: Channel, transfer: TransferState): nil
+    local addresses = transfer.addresses
+    if addresses == nil then
+        return
+    end
+    for _, address in ipairs(addresses) do
+        registerDictAddress(target, address)
+    end
+end
+
+local function encodePacked(target: Channel, packed: Packed): (number, string)
+    if packed.count == 0 then
+        return 0, ""
+    end
+    local encoder = channelCodec(target).encoder as BufferValue
+    encoder:reset()
+    if packed.count == 1 then
+        encoder:encode(packed.values[1])
+    else
+        encoder:encode(packed.values)
+    end
+
+    return packed.count, encoder:get()
+end
+
+-- The decode is not wrapped in a pcall: raising from the serializer's decode
+-- through one segfaults in libunwind on macOS arm64, so a dictionary the
+-- message may have outgrown is detected by count beforehand instead.
+local function decodePacked(target: Channel, count: number, bytes: string): Packed
+    if count == 0 then
+        return {values = {}, count = 0}
+    end
+    local codec = channelCodec(target) as any
+    local decoder = codec.decoder as BufferValue
+    if native.channelDictCount(target.handle) ~= codec.count then
+        target.codec = nil
+        codec = channelCodec(target) as any
+        decoder = codec.decoder as BufferValue
+    end
+    decoder:set(bytes)
+    local value = decoder:decode()
+    if count == 1 then
+        return {values = {value}, count = 1}
+    end
+
+    return {values = value as {any}, count = count as integer}
+end
+
+-- Region hooks load on the first region seen, so a program without regions
+-- never loads the module.
+local regionParts: any = nil
+local regionFromParts: any = nil
+
+local function regionHooks(): nil
+    if regionParts == nil then
+        local sharedbytesModule = require("nupp.mem.sharedbytes") as any
+        regionParts = rawget(sharedbytesModule as table, "__regionParts")
+        regionFromParts = rawget(sharedbytesModule as table, "__regionFromParts")
+    end
+end
+
+local type AttachmentPack = {
+    flat: {any},
+    count: integer,
+    map: {[any]: integer},
+    moved: {string}?
+}
+
+-- Substitutes each attachment-crossing value in a copied spine with a
+-- placeholder naming its attachment index. Only the tables along the way are
+-- copied; strings and other leaves are referenced, and record metatables are
+-- preserved for the codec dictionary. One attachment serves every occurrence
+-- of one region, so alias identity survives the crossing; a moved array
+-- occurs once by the walk's seen set, and taking its parts neutralizes the
+-- sender's husk, so the flat triples own the allocations until the native
+-- push accepts them.
+local function rewriteAttachments(value: any, regionMT: any, arrayMT: any, state: AttachmentPack): any
+    if type(value) ~= "table" then
+        return value
+    end
+    local metatable = getmetatable(value)
+    if metatable ~= nil and metatable == regionMT then
+        local index = state.map[value]
+        if index == nil then
+            local handle, first, length = (regionParts as function(any): (any, integer, integer))(value)
+            local flat = state.flat
+            flat[#flat + 1] = handle
+            flat[#flat + 1] = first
+            flat[#flat + 1] = length
+            state.count = state.count + 1
+            index = state.count
+            state.map[value] = index
+        end
+
+        return {__nuppRegion = index}
+    end
+    if metatable ~= nil and metatable == arrayMT then
+        local bytes, count, tag = (heapArrayParts as function(any): (string?, integer?, integer?))(value)
+        if bytes == nil then
+            error("nupp: a heap array cannot move", 0)
+        end
+        local flat = state.flat
+        flat[#flat + 1] = bytes
+        flat[#flat + 1] = count
+        flat[#flat + 1] = tag
+        state.count = state.count + 1
+        local moved = state.moved as {string}
+        if moved == nil then
+            moved = {}
+            state.moved = moved
+        end
+        moved[#moved + 1] = bytes as string
+
+        return {__nuppMoved = state.count}
+    end
+    local copy: {[any]: any} = {}
+    for key, item in next, value as {any: any} do
+        copy[key] = rewriteAttachments(item, regionMT, arrayMT, state)
+    end
+
+    return setmetatable(copy, metatable)
+end
+
+local function packAttachments(packed: Packed, transfer: TransferState): (Packed, {any}, {string}?)
+    if transfer.hasRegions then
+        regionHooks()
+    end
+    if transfer.hasMoved then
+        heapHooks()
+    end
+    local regionMT = _G.nupp and rawget(_G.nupp, "__regionMetatable")
+    local arrayMT = _G.nupp and rawget(_G.nupp, "__heapArrayMetatable")
+    local state: AttachmentPack = {flat = {}, count = 0, map = {}, moved = nil}
+    local values = rewriteAttachments(packed.values, regionMT, arrayMT, state) as {any}
+
+    return {values = values, count = packed.count}, state.flat, state.moved
+end
+
+-- Frees moved allocations a failed send left ownerless: extraction neutralized
+-- the sender's husks, and the message that would have owned them never formed.
+local function releaseMoved(moved: {string}?): nil
+    if moved == nil then
+        return
+    end
+    heapHooks()
+    for _, bytes in ipairs(moved) do
+        (heapArrayFree as function(any): nil)(bytes)
+    end
+end
+
+-- Replaces each placeholder in a freshly decoded spine with its attachment:
+-- a region wrapped around the message's handle, or the one owner rebuilt
+-- around a moved allocation's pointer. Region indexes are cached so aliased
+-- placeholders plant one local handle; a moved index occurs once.
+local function plantAttachments(value: any, flat: {any}, cache: {any}): any
+    if type(value) ~= "table" then
+        return value
+    end
+    local regionIndex = rawget(value as table, "__nuppRegion")
+    if type(regionIndex) == "number" then
+        local index = regionIndex as integer
+        local built = cache[index]
+        if built == nil then
+            regionHooks()
+            local base = (index - 1) * 3
+            built = (
+                regionFromParts as function(any, integer, integer): any
+            )(flat[base + 1], flat[base + 2] as integer, flat[base + 3] as integer)
+            cache[index] = built
+        end
+
+        return built
+    end
+    local movedIndex = rawget(value as table, "__nuppMoved")
+    if type(movedIndex) == "number" then
+        heapHooks()
+        local base = (movedIndex as integer - 1) * 3
+        local pointer = flat[base + 1]
+        local built = (
+            heapArrayFromParts as function(any, integer, integer): any
+        )(pointer, flat[base + 2] as integer, flat[base + 3] as integer)
+        if built == nil then
+            (heapArrayFree as function(any): nil)(pointer)
+            error("nupp: a moved buffer's element layout is not supported by this lane", 0)
+        end
+
+        return built
+    end
+    for key, item in next, value as {any: any} do
+        if type(item) == "table" then
+            rawset(value as table, key, plantAttachments(item, flat, cache))
+        end
+    end
+
+    return value
+end
+
+local function decodePackedFrame(source: Channel, count: number, bytes: string, attachments: any): Packed
+    local packed = decodePacked(source, count, bytes)
+    if attachments ~= nil then
+        packed.values = plantAttachments(packed.values, attachments as {any}, {}) as {any}
+    end
+
+    return packed
+end
+
+-- Frees moved allocations planted into values nothing will consume: a
+-- pre-cancelled task's arguments, a discarded or refused result. A husk whose
+-- allocation was already taken carries a nil pointer and is skipped, so the
+-- walk is safe wherever the values may have been consumed first.
+local function releasePlantedMoved(value: any, depth: integer): nil
+    if type(value) ~= "table" or depth > 33 then
+        return
+    end
+    local metatable = getmetatable(value)
+    if metatable ~= nil and metatable == (_G.nupp and rawget(_G.nupp, "__heapArrayMetatable")) then
+        heapHooks()
+        local bytes = (heapArrayParts as function(any): (string?, integer?, integer?))(value)
+        if bytes ~= nil then
+            (heapArrayFree as function(any): nil)(bytes)
+        end
+
+        return
+    end
+    for _, item in next, value as {any: any} do
+        releasePlantedMoved(item, depth + 1)
+    end
+end
+
+--- One reply or task value as the packed values its native frame carried,
+--- whatever predefined shape it travelled in.
+--- @raises when the frame names an encoding no native frame produces
+local function packedValue(encoding: string?, bytes: string?, value: any): Packed
+    if encoding == "packed" then
+        return value as Packed
+    elseif encoding == "string" then
+        return {values = {bytes}, count = 1}
+    elseif encoding == "value" or encoding == "record" then
+        return {values = {value}, count = 1}
+    end
+    error("nupp: a worker returned an invalid value payload", 3)
+
+    return {values = {}, count = 0}
+end
+
+local function preparedRecord(plan: any, value: any): any
+    if type(
+        plan
+    ) ~= "table" or plan.kind ~= "record" or type(
+        plan.schema
+    ) ~= "string" or type(
+        plan.address
+    ) ~= "string" or type(
+        plan.record
+    ) ~= "table" or type(
+        plan.fields
+    ) ~= "table" or type(plan.types) ~= "table" or type(value) ~= "table" or getmetatable(value) ~= plan.record then
+        return nil
+    end
+
+    return plan
+end
+
+--- The published layout for a value that is an exact exported record, whatever
+--- the signature it travels under says. A record reaching a worker through
+--- `any` carries the same layout its declaration published, so it can use the
+--- native schema path; anything mutated away from that layout is rejected by
+--- the native shape guards and returns to the dynamic copy.
+local function dynamicRecordPlan(value: any): any
+    if type(value) ~= "table" then
+        return nil
+    end
+    local metatable = getmetatable(value)
+    if metatable == nil then
+        return nil
+    end
+    local namespace = _G.nupp and rawget(_G.nupp, "__workerRecordSchemas")
+    if type(namespace) ~= "table" then
+        return nil
+    end
+
+    return (namespace as {[any]: any})[metatable]
+end
+
+-- A channel schema crosses into C once and is addressed by its short native id
+-- on every later push. False remembers a refusal, so a layout the channel
+-- cannot hold does not retry registration per call. The weak keys do not
+-- retain a plan whose module a hot reload replaced.
+local function channelSchemaId(cache: {[any]: any}, handle: any, plan: any): integer?
+    local known = cache[plan]
+    if known ~= nil then
+        if known == false then
+            return nil
+        end
+
+        return known as integer
+    end
+    local id = native.channelSchemaRegister(handle, plan.schema, plan.address, plan.fields, plan.types)
+    cache[plan] = id == nil and false or id
+
+    return id
+end
+
+-- Worker replies all leave through the one outbox this Lua state was started
+-- with, so its schema ids are cached per state rather than per lane.
+local replySchemaIds: {[any]: any} = setmetatable({}, {__mode = "k"}) as {[any]: any}
+
+local function encodeFrame(frame: Frame): string
+    local header: any
+    if frame.kind == "task" then
+        if frame.encoding == "buffer" then
+            header = {"t", frame.id, frame.module, frame.member, frame.records}
+        elseif frame.encoding == "string" then
+            header = {"ts", frame.id, frame.module, frame.member}
+        elseif frame.encoding == "value" then
+            header = {"tv", frame.id, frame.module, frame.member, frame.value}
+        else
+            header = {"te", frame.id, frame.module, frame.member}
+        end
+    elseif frame.cancelled == true then
+        header = {"c", frame.id, frame.deadline == true}
+    elseif frame.ok == true then
+        if frame.encoding == "buffer" then
+            header = {"r", frame.id, frame.records}
+        elseif frame.encoding == "string" then
+            header = {"rs", frame.id}
+        elseif frame.encoding == "value" then
+            header = {"rv", frame.id, frame.value}
+        else
+            header = {"re", frame.id}
+        end
+    else
+        header = {"e", frame.id, frame.error}
+    end
+
+    return buffer.encode(header) as string
+end
+
+local function decode(bytes: string): Frame
+    local value = buffer.decode(bytes)
+    if type(value) ~= "table" then
+        error("nupp: a worker returned an invalid task frame", 3)
+    end
+    local header = value as {any}
+    local tag = header[1]
+    if type(header[2]) == "number" then
+        if tag == "t" and type(
+            header[3]
+        ) == "string" and type(header[4]) == "string" and type(header[5]) == "table" then
+            return {
+                kind = "task",
+                id = header[2] as integer,
+                module = header[3] as string,
+                member = header[4] as string,
+                encoding = "buffer",
+                records = header[5] as {string},
+            }
+        elseif (tag == "ts" or tag == "te") and type(header[3]) == "string" and type(header[4]) == "string" then
+            return {
+                kind = "task",
+                id = header[2] as integer,
+                module = header[3] as string,
+                member = header[4] as string,
+                encoding = tag == "ts" and "string" or "empty",
+                records = noRecords,
+            }
+        elseif tag == "tv" and type(header[3]) == "string" and type(header[4]) == "string" then
+            return {
+                kind = "task",
+                id = header[2] as integer,
+                module = header[3] as string,
+                member = header[4] as string,
+                encoding = "value",
+                records = noRecords,
+                value = header[5],
+            }
+        elseif tag == "r" and type(header[3]) == "table" then
+            return {
+                kind = "reply",
+                id = header[2] as integer,
+                ok = true,
+                encoding = "buffer",
+                records = header[3] as {string},
+            }
+        elseif tag == "rs" or tag == "re" then
+            return {
+                kind = "reply",
+                id = header[2] as integer,
+                ok = true,
+                encoding = tag == "rs" and "string" or "empty",
+                records = noRecords,
+            }
+        elseif tag == "rv" then
+            return {
+                kind = "reply",
+                id = header[2] as integer,
+                ok = true,
+                encoding = "value",
+                records = noRecords,
+                value = header[3],
+            }
+        elseif tag == "e" and type(header[3]) == "string" then
+            return {kind = "reply", id = header[2] as integer, ok = false, error = header[3] as string,}
+        elseif tag == "c" and type(header[3]) == "boolean" then
+            return {kind = "reply", id = header[2] as integer, cancelled = true, deadline = header[3] as boolean,}
+        end
+    end
+    error("nupp: a worker returned an invalid task frame", 3)
+
+    return {kind = "invalid"}
+end
+
+-- Only the cold control frames remain on the byte-encoded envelope: failures
+-- and cancellations. Every value-carrying frame is predefined and native.
+local function push(target: Channel, frame: Frame): nil
+    local accepted = not target.destroyed and native.channelPush(target.handle, encodeFrame(frame), frame.bytes or "")
+    if not accepted then
+        error("nupp: a worker queue is closed or full", 3)
+    end
+end
+
+local function pop(source: Channel, timeoutMs: integer): Frame?
+    if source.destroyed then
+        return nil
+    end
+    local header, body, nativeKind, nativeId, nativeModule, nativeMember, nativeValue, nativeCount, nativeAttachments = native.channelPop(
+        source.handle,
+        timeoutMs
+    )
+    if nativeKind == 7 and nativeId ~= nil and nativeModule ~= nil and nativeMember ~= nil and type(
+        nativeValue
+    ) == "string" and nativeCount ~= nil then
+        return {
+            kind = "task",
+            id = nativeId,
+            module = nativeModule,
+            member = nativeMember,
+            bytes = "",
+            records = noRecords,
+            encoding = "packed",
+            value = decodePackedFrame(source, nativeCount, nativeValue as string, nativeAttachments),
+        }
+    elseif nativeKind == 8 and nativeId ~= nil and type(nativeValue) == "string" and nativeCount ~= nil then
+        return {
+            kind = "reply",
+            id = nativeId,
+            ok = true,
+            bytes = "",
+            records = noRecords,
+            encoding = "packed",
+            value = decodePackedFrame(source, nativeCount, nativeValue as string, nativeAttachments),
+        }
+    end
+    if nativeKind == 1 and nativeId ~= nil and nativeModule ~= nil and nativeMember ~= nil and nativeValue ~= nil then
+        return {
+            kind = "task",
+            id = nativeId,
+            module = nativeModule,
+            member = nativeMember,
+            bytes = "",
+            records = noRecords,
+            encoding = "value",
+            value = nativeValue,
+        }
+    elseif nativeKind == 2 and nativeId ~= nil and nativeValue ~= nil then
+        return {
+            kind = "reply",
+            id = nativeId,
+            ok = true,
+            bytes = "",
+            records = noRecords,
+            encoding = "value",
+            value = nativeValue,
+        }
+    elseif nativeKind == 3 and nativeId ~= nil and nativeModule ~= nil and nativeMember ~= nil and type(
+        nativeValue
+    ) == "string" then
+        return {
+            kind = "task",
+            id = nativeId,
+            module = nativeModule,
+            member = nativeMember,
+            bytes = nativeValue as string,
+            records = noRecords,
+            encoding = "string",
+            value = nil,
+        }
+    elseif nativeKind == 4 and nativeId ~= nil and type(nativeValue) == "string" then
+        return {
+            kind = "reply",
+            id = nativeId,
+            ok = true,
+            bytes = nativeValue as string,
+            records = noRecords,
+            encoding = "string",
+            value = nil,
+        }
+    elseif (nativeKind == 5 or nativeKind == 6) and nativeId ~= nil and type(nativeValue) == "table" then
+        local address = rawget(nativeValue as {[any]: any}, 0)
+        if type(address) ~= "string" then
+            error("nupp: a worker returned an invalid native record frame", 3)
+        end
+        rawset(nativeValue as {[any]: any}, 0, nil)
+        setmetatable(nativeValue, resolveRecordCached(address as string))
+        if nativeKind == 5 and nativeModule ~= nil and nativeMember ~= nil then
+            return {
+                kind = "task",
+                id = nativeId,
+                module = nativeModule,
+                member = nativeMember,
+                bytes = "",
+                records = noRecords,
+                encoding = "record",
+                value = nativeValue,
+            }
+        elseif nativeKind == 6 then
+            return {
+                kind = "reply",
+                id = nativeId,
+                ok = true,
+                bytes = "",
+                records = noRecords,
+                encoding = "record",
+                value = nativeValue,
+            }
+        end
+        error("nupp: a worker returned an invalid native record frame", 3)
+    elseif nativeKind ~= nil then
+        error("nupp: a worker returned an invalid native task frame", 3)
+    end
+    if header == nil then
+        return nil
+    end
+    if body == nil then
+        error("nupp: a worker returned an invalid task frame", 3)
+    end
+    local frame = decode(header)
+    if frame.kind == "task" or frame.ok == true then
+        frame.bytes = body
+    elseif body ~= "" then
+        error("nupp: a worker returned an invalid task frame", 3)
+    end
+
+    return frame
+end
+
+local function destroy(value: Channel): nil
+    if value.destroyed or not value.owned then
+        return
+    end
+    value.destroyed = true
+    native.channelDestroy(value.handle)
+    value.handle = nil
+end
+
+local function startLane(): Lane
+    local inbox = newChannel()
+    local outbox = newChannel()
+    local handle, problem = native.workerSpawn(inbox.handle, outbox.handle)
+    if handle == nil then
+        destroy(inbox)
+        destroy(outbox)
+        error("nupp: cannot start the worker scheduler: " .. (problem or "unknown failure"), 3)
+    end
+
+    return new Lane(
+        handle = handle,
+        inbox = inbox,
+        outbox = outbox,
+        nextId = 1,
+        inflight = 0,
+        pending = {},
+        replies = {},
+        waiters = {},
+        tasks = {},
+        schemaIds = setmetatable({}, {__mode = "k"}) as {[any]: any}
+    )
+end
+
+local sharedScheduler: Scheduler? = nil
+local settleReply: any = nil
+local BLOCKING_REPLY_SLICE_MS: integer = 10
+
+local function scheduler(): Scheduler
+    if sharedScheduler ~= nil then
+        return sharedScheduler
+    end
+    local workerInbox = native.current()
+    if workerInbox ~= nil then
+        error("nupp: a worker task cannot open another worker scope", 3)
+    end
+    local count = math.max(1, math.min(native.workerParallelism(), 64)) as integer
+    local lanes: {Lane} = {}
+    for index = 1, count do
+        local ok, lane = pcall(startLane)
+        if not ok then
+            for _, started in ipairs(lanes) do
+                native.channelClose(started.inbox.handle)
+                native.workerJoin(started.handle)
+                destroy(started.inbox)
+                destroy(started.outbox)
+            end
+            error(lane, 3)
+        end
+        lanes[index] = lane as Lane
+    end
+    sharedScheduler = new Scheduler(lanes = lanes, source = nil, waitCursor = 1)
+
+    return sharedScheduler
+end
+
+local function route(lane: Lane, timeoutMs: integer): boolean
+    local frame = pop(lane.outbox, timeoutMs)
+    if frame == nil then
+        return false
+    end
+    local id = frame.id
+    if frame.kind ~= "reply" or id == nil or not lane.pending[id] then
+        error("nupp: a worker returned an unknown task reply", 3)
+    end
+    lane.pending[id] = nil
+    lane.inflight = lane.inflight - 1
+    native.workerTaskRelease(lane.handle, id)
+    local task = lane.tasks[id]
+    lane.tasks[id] = nil
+    if task == nil then
+        error("nupp: a worker returned a task with no parent handle", 3)
+    end
+    if task._state ~= "cancelled" then
+        lane.replies[id] = frame
+        settleReply(task, frame)
+    end
+    local waiting = lane.waiters[id]
+    if waiting ~= nil then
+        lane.waiters[id] = nil
+        for index = 1, #waiting do
+            waiting[index](true)
+        end
+    end
+
+    return true
+end
+
+local function ended(lane: Lane): boolean
+    return native.channelClosed(lane.outbox.handle) and native.channelCount(lane.outbox.handle) == 0
+end
+
+local function ready(lane: Lane, id: integer): boolean
+    return lane.replies[id] ~= nil
+end
+
+local function wakeEndedLane(lane: Lane): integer
+    if lane.inflight == 0 or not ended(lane) then
+        return 0
+    end
+    local waiters = lane.waiters
+    lane.waiters = {}
+    local woke = 0
+    for _, waiting in pairs(waiters) do
+        for index = 1, #waiting do
+            waiting[index](true)
+            woke = woke + 1
+        end
+    end
+
+    return woke as integer
+end
+
+local function pollScheduler(value: Scheduler): integer
+    local moved = 0
+    for _, lane in ipairs(value.lanes) do
+        while route(lane, 0) do
+            moved = moved + 1
+        end
+        moved = moved + wakeEndedLane(lane)
+    end
+
+    return moved as integer
+end
+
+local function waitScheduler(value: Scheduler, timeoutMs: integer): integer
+    if pollScheduler(value) > 0 then
+        return 1
+    end
+    local count = #value.lanes
+    for offset = 0, count - 1 do
+        local index = (value.waitCursor + offset - 1) % count + 1
+        local lane = value.lanes[index]
+        if lane.inflight > 0 and not ended(lane) then
+            value.waitCursor = index % count + 1
+            local bounded = timeoutMs < 0 and BLOCKING_REPLY_SLICE_MS or math.min(
+                timeoutMs,
+                BLOCKING_REPLY_SLICE_MS
+            ) as integer
+
+            return route(lane, bounded) and 1 or 0
+        end
+    end
+
+    return 0
+end
+
+local function schedulerSource(value: Scheduler): suspension.Source
+    local existing = value.source
+    if existing ~= nil and not (existing as any).released then
+        return existing
+    end
+    local created = suspension.source(
+        "nupp.workers",
+        50,
+        function(): integer
+            return pollScheduler(value)
+        end,
+        function(timeoutMs: integer): integer
+            return waitScheduler(value, timeoutMs)
+        end
+    )
+    rawset(created as any, "active", function(): boolean
+        for _, lane in ipairs(value.lanes) do
+            if lane.inflight > 0 and not ended(lane) then
+                return true
+            end
+        end
+
+        return false
+    end)
+    value.source = created
+
+    return created
+end
+
+local function waitForBlocking(lane: Lane, id: integer): nil
+    while not ready(lane, id) do
+        if not route(lane, -1) and ended(lane) then
+            error("nupp: a worker thread ended before answering a task", 3)
+        end
+    end
+end
+
+local function waitFor(value: Scheduler, lane: Lane, id: integer): nil
+    if ready(lane, id) then
+        return
+    end
+    -- An ordinary program blocks on the one channel the reply must arrive on.
+    -- Only a handled extent pays for subscription and scheduler-wide polling.
+    if not suspension.handled() then
+        waitForBlocking(lane, id)
+
+        return
+    end
+    local function subscribe(resume: function(boolean), context: suspension.Context): function()
+        context:uses(schedulerSource(value))
+        local waiting = lane.waiters[id]
+        if waiting == nil then
+            waiting = {}
+            lane.waiters[id] = waiting
+        end
+        waiting[#waiting + 1] = resume
+
+        return function(): nil
+            local current = lane.waiters[id]
+            if current == nil then
+                return
+            end
+            for index = #current, 1, -1 do
+                if current[index] == resume then
+                    table.remove(current, index)
+
+                    break
+                end
+            end
+            if #current == 0 then
+                lane.waiters[id] = nil
+            end
+        end
+    end
+
+    while not ready(lane, id) and not ended(lane) do
+        suspension.suspend("worker task", subscribe)
+    end
+    if not ready(lane, id) then
+        error("nupp: a worker thread ended before answering a task", 3)
+    end
+end
+
+-- A function with no compiler descriptor is located by scanning every loaded
+-- module once; the answer is a property of the function value, so it is kept.
+-- Failures are not kept: the module that will publish the function may simply
+-- not have loaded yet.
+local scannedAddresses: {[any]: {string}} = setmetatable({}, {__mode = "k"}) as {[any]: {string}}
+
+local function callableAddress(fn: any): (string?, string?)
+    local described = sendableDescriptors[fn]
+    if described ~= nil then
+        return described.module, described.member
+    end
+    local scanned = scannedAddresses[fn]
+    if scanned ~= nil then
+        return scanned[1], scanned[2]
+    end
+    local found: {string} = {}
+    local loaded = package.loaded as {[any]: any}
+    for moduleName, moduleValue in pairs(loaded) do
+        if type(moduleName) == "string" and type(moduleValue) == "table" then
+            for member, value in pairs(moduleValue as {[any]: any}) do
+                if type(member) == "string" and value == fn then
+                    found[#found + 1] = moduleName .. "\0" .. member
+                end
+            end
+        end
+    end
+    table.sort(found)
+    local address = found[1]
+    if address == nil then
+        return nil, nil
+    end
+    local moduleName, member = address:match("^(.-)%z(.*)$")
+    scannedAddresses[fn] = {moduleName as string, member as string}
+
+    return moduleName, member
+end
+
+local function leastBusy(value: Scheduler): Lane
+    local selected = value.lanes[1]
+    for index = 2, #value.lanes do
+        local candidate = value.lanes[index]
+        if candidate.inflight < selected.inflight then
+            selected = candidate
+        end
+    end
+
+    return selected
+end
+
+local function spawnImpl(self: workers.Scope, fn: any, ...: any): any
+    if self._closed then
+        error("nupp: cannot spawn into a closed worker scope", 2)
+    end
+    local moduleName, member = callableAddress(fn)
+    if moduleName == nil or member == nil then
+        error("nupp: this function has no sendable module outline", 2)
+    end
+    local descriptor = sendableDescriptors[fn]
+    local captures = descriptor and descriptor.captures or pack()
+    local arguments = pack(...)
+    local preparedInput = descriptor and descriptor.input or nil
+    local recordInput = captures.count == 0 and arguments.count == 1 and (
+        preparedRecord(preparedInput, arguments.values[1]) or dynamicRecordPlan(arguments.values[1])
+    ) or nil
+    local prepared = captures.count == 0 and arguments.count == 1 and (
+        preparedInput == "number" and type(
+            arguments.values[1]
+        ) == "number" or preparedInput == "string" and type(arguments.values[1]) == "string" or recordInput ~= nil
+    )
+    local transfer: TransferState? = nil
+    if not prepared then
+        transfer = validatedTaskTransfer(captures, arguments)
+    end
+    local submittedArguments = arguments
+    if captures.count > 0 then
+        submittedArguments = {values = {}, count = captures.count + arguments.count}
+        for index = 1, captures.count do
+            submittedArguments.values[index] = captures.values[index]
+        end
+        for index = 1, arguments.count do
+            submittedArguments.values[captures.count + index] = arguments.values[index]
+        end
+    end
+    local lane = leastBusy(self._scheduler)
+    local id = lane.nextId
+    lane.nextId = id + 1
+    if not native.workerTaskCreate(lane.handle, id, self._deadline) then
+        error("nupp: cannot register worker task state", 2)
+    end
+    schedulerSource(self._scheduler)
+    local task = setmetatable(
+        {
+            _lane = lane,
+            _scheduler = self._scheduler,
+            _id = id,
+            _state = "queued",
+            _values = {},
+            _count = 0,
+            _error = nil,
+            _cancelled = nil,
+            _observed = false,
+            _observer = self._observer,
+        },
+        TaskMT
+    )
+    lane.inflight = lane.inflight + 1
+    lane.pending[id] = true
+    lane.tasks[id] = task
+    local movedPointers: {string}? = nil
+    local submitted, problem = pcall(function(): nil
+        if preparedInput == "number" and prepared then
+            if not native.channelPushNumberTask(
+                lane.inbox.handle,
+                id,
+                moduleName,
+                member,
+                arguments.values[1] as number
+            ) then
+                error("nupp: a worker queue is closed or full", 3)
+            end
+        elseif preparedInput == "string" and prepared then
+            if not native.channelPushStringTask(
+                lane.inbox.handle,
+                id,
+                moduleName,
+                member,
+                arguments.values[1] as string
+            ) then
+                error("nupp: a worker queue is closed or full", 3)
+            end
+        elseif recordInput ~= nil and prepared then
+            local schemaId = channelSchemaId(lane.schemaIds, lane.inbox.handle, recordInput)
+            local status = 0
+            if schemaId ~= nil then
+                status = native.channelPushRecordTask(
+                    lane.inbox.handle,
+                    id,
+                    moduleName,
+                    member,
+                    schemaId,
+                    arguments.values[1]
+                )
+            end
+            if status < 0 then
+                error("nupp: a worker queue is closed or full", 3)
+            elseif status == 0 then
+                transfer = validatedTaskTransfer(captures, arguments)
+                registerTransferRecords(lane.inbox, transfer as TransferState)
+                local outgoing = submittedArguments
+                local attachments: any = nil
+                if (transfer as TransferState).hasRegions or (transfer as TransferState).hasMoved then
+                    outgoing, attachments, movedPointers = packAttachments(
+                        submittedArguments,
+                        transfer as TransferState
+                    )
+                end
+                local count, bytes = encodePacked(lane.inbox, outgoing)
+                -- The native push owns moved allocations from the call on,
+                -- success or refusal, so a refusal must not free them here.
+                movedPointers = nil
+                if not native.channelPushBufferTask(
+                    lane.inbox.handle,
+                    id,
+                    moduleName,
+                    member,
+                    count,
+                    bytes,
+                    attachments
+                ) then
+                    error("nupp: a worker queue is closed or full", 3)
+                end
+            end
+        else
+            registerTransferRecords(lane.inbox, transfer as TransferState)
+            local outgoing = submittedArguments
+            local attachments: any = nil
+            if (transfer as TransferState).hasRegions or (transfer as TransferState).hasMoved then
+                outgoing, attachments, movedPointers = packAttachments(submittedArguments, transfer as TransferState)
+            end
+            local count, bytes = encodePacked(lane.inbox, outgoing)
+            movedPointers = nil
+            if not native.channelPushBufferTask(
+                lane.inbox.handle,
+                id,
+                moduleName,
+                member,
+                count,
+                bytes,
+                attachments
+            ) then
+                error("nupp: a worker queue is closed or full", 3)
+            end
+        end
+    end)
+    if not submitted then
+        releaseMoved(movedPointers)
+        lane.pending[id] = nil
+        lane.tasks[id] = nil
+        lane.inflight = lane.inflight - 1
+        native.workerTaskRelease(lane.handle, id)
+        error(problem, 2)
+    end
+    self._tasks[#self._tasks + 1] = task
+    if self._observer ~= nil and self._observer.created ~= nil then
+        self._observer.created(self._observer, task)
+    end
+
+    return task
+end
+
+local spawnSurface: function<F is Submittable>(
+    borrows self: workers.Scope,
+    F,
+    ...: unpackof Submitted(F)
+): workers.Task<F>
+unsafe do
+    spawnSurface = spawnImpl as any
+    workers.Scope.spawn = spawnSurface as any
+end
+
+function TaskImpl:isDone(): boolean
+    if self._state ~= "queued" then
+        return true
+    end
+    while route(self._lane, 0) do
+    end
+
+    return self._state == "done" or self._state == "failed" or self._state == "cancelled"
+end
+
+function TaskImpl:status(): string
+    if not self:isDone() then
+        local status = native.workerTaskStatus(self._lane.handle, self._id)
+        if status == 2 or status == 3 then
+            return "running"
+        end
+    end
+
+    return self._state
+end
+
+local function notifySettled(task: any): nil
+    local observer = task._observer
+    if observer ~= nil and observer.settled ~= nil then
+        observer.settled(observer, task, task._state, task._error or task._cancelled)
+    end
+end
+
+settleReply = function(task: any, reply: Frame): nil
+    if task._state == "cancelled" then
+        -- The task's awaiter is gone, so a moved allocation in this discarded
+        -- result has no owner left but the reply itself.
+        releasePlantedMoved(reply.value, 0)
+        return
+    end
+    if reply.cancelled == true then
+        task._cancelled = task._cancelled or suspensionRuntime.__taskCancellation(
+            "worker task",
+            reply.deadline == true and "its deadline passed" or nil
+        )
+        task._state = "cancelled"
+    elseif reply.ok == true then
+        local packed = packedValue(reply.encoding, reply.bytes, reply.value)
+        task._values = packed.values
+        task._count = packed.count
+        task._state = "done"
+    else
+        task._error = reply.error or "worker task failed without an error"
+        task._state = "failed"
+    end
+    notifySettled(task)
+end
+
+function TaskImpl:cancel(reason: string?): boolean
+    if self:isDone() then
+        return false
+    end
+    local requested = native.workerTaskCancel(self._lane.handle, self._id)
+    if requested == 0 then
+        return false
+    end
+    self._cancelled = suspensionRuntime.__taskCancellation("worker task", reason)
+    if requested == 1 then
+        self._state = "cancelled"
+        notifySettled(self)
+    end
+
+    return true
+end
+
+function TaskImpl:await(): ...any
+    self._observed = true
+    if not self:isDone() then
+        waitFor(self._scheduler, self._lane, self._id)
+    end
+    self._lane.replies[self._id] = nil
+    if self._state == "failed" then
+        error("nupp: worker task failed: " .. (self._error or "unknown failure"), 2)
+    end
+    if self._state == "cancelled" then
+        error(self._cancelled, 2)
+    end
+
+    return unpack(self._values, 1, self._count)
+end
+
+local function settleBlocking(task: any): string?
+    task._observed = true
+    if not TaskImpl.isDone(task) then
+        waitForBlocking(task._lane, task._id)
+    end
+    task._lane.replies[task._id] = nil
+
+    return task._state == "failed" and "nupp: worker task failed: " .. (task._error or "unknown failure") or nil
+end
+
+local function closeBlocking(takes self: workers.Scope): nil
+    if self._closed then
+        return
+    end
+    self._closed = true
+    local firstFailure: any = nil
+    for _, task in ipairs(self._tasks) do
+        local observed = task._observed == true
+        local problem = settleBlocking(task)
+        if not observed then
+            -- Nothing will consume an unawaited result, and a moved
+            -- allocation in one has exactly this owner left.
+            releasePlantedMoved(task._values, 0)
+        end
+        if problem ~= nil and not observed and firstFailure == nil then
+            firstFailure = problem
+        end
+    end
+    if firstFailure ~= nil then
+        error(firstFailure, 2)
+    end
+end
+
+function workers.Scope:close(): nil
+    if self._closed then
+        return
+    end
+    self._closed = true
+    local firstFailure: any = nil
+    for _, task in ipairs(self._tasks) do
+        local observed = task._observed == true
+        local ok, problem = pcall(function(): nil
+            task:await()
+        end)
+        if not observed then
+            releasePlantedMoved(task._values, 0)
+        end
+        if not ok and not observed and firstFailure == nil then
+            firstFailure = problem
+        end
+    end
+    if firstFailure ~= nil then
+        error(firstFailure, 2)
+    end
+end
+
+function workers.Scope.drop(takes self: workers.Scope): nil
+    closeBlocking(self)
+end
+
+function workers.Scope:_cancelAll(reason: string?): nil
+    for _, task in ipairs(self._tasks) do
+        task:cancel(reason)
+    end
+end
+
+local function openScope(deadline: number?, observer: any): workers.Scope
+    return setmetatable(
+        {_scheduler = scheduler(), _tasks = {}, _closed = false, _deadline = deadline, _observer = observer,},
+        ScopeMT
+    ) as workers.Scope
+end
+
+--- Opens a structured family on the process-wide bounded worker scheduler.
+function workers.scope(): affine(workers.Scope)
+    return openScope(nil, nil)
+end
+
+rawset(workers, "__scope", openScope)
+
+local function workerReply(outbox: Channel, id: integer, ok: boolean, answer: any, preparedOutput: any): nil
+    if not ok then
+        if suspensionRuntime.__isTaskCancellation(answer) then
+            local cancelled = answer as any
+            push(outbox, {
+                kind = "reply",
+                id = id,
+                cancelled = true,
+                deadline = cancelled.reason == "its deadline passed",
+            })
+
+            return
+        end
+        push(outbox, {kind = "reply", id = id, ok = false, error = tostring(answer)})
+        return
+    end
+    local packed = answer as Packed
+    local recordOutput = packed.count == 1 and (
+        preparedRecord(preparedOutput, packed.values[1]) or dynamicRecordPlan(packed.values[1])
+    ) or nil
+    local prepared = packed.count == 1 and (
+        preparedOutput == "number" and type(
+            packed.values[1]
+        ) == "number" or preparedOutput == "string" and type(packed.values[1]) == "string" or recordOutput ~= nil
+    )
+    local transfer: TransferState? = nil
+    local rejected: string? = nil
+    if not prepared then
+        transfer = {seen = {}, records = nil, addresses = nil}
+        rejected = unsendable(answer, "results", 0, transfer)
+    end
+    if rejected ~= nil then
+        releasePlantedMoved(packed.values, 0)
+        push(outbox, {kind = "reply", id = id, ok = false, error = "results cannot be copied: " .. rejected})
+    elseif preparedOutput == "number" and prepared then
+        if not native.channelPushNumberReply(outbox.handle, id, packed.values[1] as number) then
+            error("nupp: a worker queue is closed or full", 3)
+        end
+    elseif preparedOutput == "string" and prepared then
+        if not native.channelPushStringReply(outbox.handle, id, packed.values[1] as string) then
+            error("nupp: a worker queue is closed or full", 3)
+        end
+    elseif recordOutput ~= nil and prepared then
+        local schemaId = channelSchemaId(replySchemaIds, outbox.handle, recordOutput)
+        local status = 0
+        if schemaId ~= nil then
+            status = native.channelPushRecordReply(outbox.handle, id, schemaId, packed.values[1])
+        end
+        if status < 0 then
+            error("nupp: a worker queue is closed or full", 3)
+        elseif status == 0 then
+            transfer = {seen = {}, records = nil, addresses = nil}
+            rejected = unsendable(answer, "results", 0, transfer)
+            if rejected ~= nil then
+                releasePlantedMoved(packed.values, 0)
+                push(outbox, {kind = "reply", id = id, ok = false, error = "results cannot be copied: " .. rejected,})
+            else
+                registerTransferRecords(outbox, transfer as TransferState)
+                local outgoing = packed
+                local attachments: any = nil
+                local movedPointers: {string}? = nil
+                if (transfer as TransferState).hasRegions or (transfer as TransferState).hasMoved then
+                    outgoing, attachments, movedPointers = packAttachments(packed, transfer as TransferState)
+                end
+                local encoded, count, bytes = pcall(encodePacked, outbox, outgoing)
+                if not encoded then
+                    releaseMoved(movedPointers)
+                    error(count, 0)
+                end
+                if not native.channelPushBufferReply(
+                    outbox.handle,
+                    id,
+                    count as number,
+                    bytes as string,
+                    attachments
+                ) then
+                    error("nupp: a worker queue is closed or full", 3)
+                end
+            end
+        end
+    else
+        registerTransferRecords(outbox, transfer as TransferState)
+        local outgoing = packed
+        local attachments: any = nil
+        local movedPointers: {string}? = nil
+        if (transfer as TransferState).hasRegions or (transfer as TransferState).hasMoved then
+            outgoing, attachments, movedPointers = packAttachments(packed, transfer as TransferState)
+        end
+        local encoded, count, bytes = pcall(encodePacked, outbox, outgoing)
+        if not encoded then
+            releaseMoved(movedPointers)
+            error(count, 0)
+        end
+        if not native.channelPushBufferReply(outbox.handle, id, count as number, bytes as string, attachments) then
+            error("nupp: a worker queue is closed or full", 3)
+        end
+    end
+end
+
+--- Runs the scheduler loop inside a native worker state. Compiler-owned bootstrap only.
+--- @raises when called outside the compiler-owned worker bootstrap
+function workers.__runScheduler(): nil
+    local inHandle, outHandle = native.current()
+    if inHandle == nil or outHandle == nil then
+        error("nupp: worker scheduler started outside a worker state", 2)
+    end
+    local inbox = channel(inHandle, false)
+    local outbox = channel(outHandle, false)
+    while true do
+        local frame = pop(inbox, -1)
+        if frame == nil then
+            return
+        end
+        local id = frame.id
+        if frame.kind ~= "task"
+            or id == nil
+            or frame.module == nil
+            or frame.member == nil
+            or frame.bytes == nil
+            or frame.records == nil
+            or frame.encoding == nil
+        then
+            error("nupp: worker scheduler received an invalid task", 2)
+        end
+        local shouldRun, deadline = native.workerTaskStart(id)
+        if not shouldRun then
+            releasePlantedMoved(frame.value, 0)
+            native.workerTaskFinish(id)
+            push(outbox, {kind = "reply", id = id, cancelled = true, deadline = deadline,})
+        else
+            local preparedOutput: any = nil
+            local ok, answer = pcall(function(): Packed
+                local moduleName = frame.module as string
+                local member = frame.member as string
+                local moduleValue = require(moduleName)
+                local callable = outlinedSendables[
+                    sendableKey(moduleName, member)
+                ] or (type(moduleValue) == "table" and (moduleValue as {[string]: any})[member] or nil)
+                if type(callable) ~= "function" then
+                    error(("%s.%s is not a registered sendable function"):format(moduleName, member), 0)
+                end
+                local descriptor = sendableDescriptors[callable]
+                preparedOutput = descriptor and descriptor.output or nil
+                local arguments = packedValue(frame.encoding, frame.bytes, frame.value)
+
+                return pack(callable(unpack(arguments.values, 1, arguments.count)))
+            end)
+            local cancelled, finishedDeadline = native.workerTaskFinish(id)
+            if ok and cancelled then
+                releasePlantedMoved((answer as Packed).values, 0)
+                push(outbox, {kind = "reply", id = id, cancelled = true, deadline = finishedDeadline,})
+            else
+                if not ok then
+                    releasePlantedMoved(frame.value, 0)
+                end
+                workerReply(outbox, id, ok, answer, preparedOutput)
+            end
+        end
+    end
+end
+
+workers.Scope = workers.Scope
+workers.ScopeToken = workers.ScopeToken
+
+export = workers

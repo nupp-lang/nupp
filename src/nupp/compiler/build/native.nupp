@@ -1,0 +1,244 @@
+module nupp.compiler.build.native
+
+--[[
+Staging compiler-provided native features.
+
+This consumes effects recorded by the checker.  It deliberately does not read
+the manifest: project dependencies and compiler-native features have different
+owners and must not be conflated.
+]]
+
+local envMod = require("nupp.compiler.env")
+local native = require("nupp.compiler.native")
+local fs = require("nupp.compiler.fs")
+local process = require("nupp.compiler.build.process")
+local deps = require("nupp.compiler.build.deps")
+
+local stage = {}
+
+local join = fs.join
+local windows = package.config:sub(1, 1) == "\\"
+
+--- Runs the toolchain driver and answers the path it printed.
+---
+--- The driver decides where a build lands and how it is cached, keyed by the
+--- compiler this machine has, so nothing here names a directory. Its progress
+--- goes to standard error and its answer to standard output; the capture merges
+--- them, so the answer is the last line that says anything.
+local function driven(compilerRoot: string, what: string, features: {string}): (string?, string)
+    local driver = join(compilerRoot, "scripts/toolchain")
+    -- os.execute reaches cmd.exe on Windows, which does not interpret a
+    -- shebang. The driver belongs to the Git Bash environment used to launch
+    -- Nupp, so name its shell explicitly there.
+    local argv = windows and {
+        "sh.exe",
+        driver,
+        what,
+        table.concat(features, ",")
+    } or {driver, what, table.concat(features, ",")}
+    local code, text = process.capture(argv)
+    if code ~= 0 then
+        return nil, text
+    end
+    local answer = nil
+    for line in text:gmatch("[^\r\n]+") do
+        if line:match("%S") then
+            answer = line
+        end
+    end
+    if not answer then
+        return nil, "the toolchain driver built " .. what .. " but named no file"
+    end
+
+    return answer, ""
+end
+
+--- Adds effects found in the Lua modules selected from rock dependencies.
+function stage.dependencyEffects(
+    root: string,
+    config: nupp.compiler.build.manifest.Config,
+    target: nupp.compiler.build.manifest.Target?,
+    effects: {[string]: any}?
+): {[string]: any}
+    local resolved = {}
+    for effect in pairs(effects or {}) do
+        resolved[effect] = true
+    end
+    local env = envMod.new(root, {config = config})
+    for _, module in ipairs(deps.rockModules(root, config, target)) do
+        local source = fs.readFile(module.path)
+        if source then
+            for effect in pairs(native.sourceEffects(source, module.path, env as {[string]: any})) do
+                resolved[effect] = true
+            end
+        end
+    end
+
+    return resolved
+end
+
+function stage.resolve(effects: {[string]: any}?, overrides: {[string]: boolean}?): {[string]: boolean}
+    return native.resolve(effects, overrides)
+end
+
+--- Builds the compiler-owned binary host with exactly the host features in the resolved
+--- effect set. A path-valued third-party stub remains its owner's artifact.
+function stage.hostStub(
+    root: string,
+    outDir: string,
+    target: nupp.compiler.build.manifest.Target,
+    effects: {[string]: any}?
+): string?, string?
+    if target.stub ~= "nupp" then
+        return target.stub
+    end
+    if target.platforms then
+        local required = {}
+        for _, feature in ipairs(native.features(effects)) do
+            if feature.host then
+                required[#required + 1] = feature.host
+            end
+        end
+        table.sort(required)
+        local stubs = require("nupp.compiler.build.stubs")
+        local record, recordErr = target._stubRecord, nil
+        if not record then
+            record, recordErr = stubs.record(assert(target.layoutTarget))
+        end
+        if not record then
+            return nil, recordErr
+        end
+        return stubs.acquire(root, record, required)
+    end
+    local compilerRoot = envMod.compilerRoot()
+    if not compilerRoot then
+        return nil, "the compiler-owned Nupp stub needs compiler source; "
+            .. "use a source checkout or name a prebuilt stub path"
+    end
+    local featureNames = {}
+    for _, feature in ipairs(native.features(effects)) do
+        if feature.host then
+            featureNames[#featureNames + 1] = feature.host
+        end
+    end
+    table.sort(featureNames)
+    local built, problem = driven(compilerRoot, "host", featureNames)
+    if not built then
+        return nil, "cannot build the compiler-owned Nupp host:\n" .. problem
+    end
+
+    return built
+end
+
+local function libraryFile(name: string): string
+    if jit.os == "Windows" then
+        return name .. ".dll"
+    end
+    if jit.os == "OSX" then
+        return "lib" .. name .. ".dylib"
+    end
+
+    return "lib" .. name .. ".so"
+end
+
+--- Builds and stages every native feature in `effects`, returning its files.
+function stage.build(
+    root: string,
+    outDir: string,
+    effects: {[string]: any}?,
+    selectedPlatform: string?,
+    availableOutputs: {[string]: boolean}?
+): {[string]: boolean}?, string?
+    local outputs = {}
+    local providers: {[string]: {
+        provider: string,
+        library: string,
+        names: {string},
+        providerFeatures: {string}
+    }} = {}
+    local providerKeys = {}
+    for _, feature in ipairs(native.features(effects)) do
+        if feature.provider then
+            if selectedPlatform and feature.host then
+                -- The compiler-owned catalog stub carries this implementation. A
+                -- current-machine sidecar beside a foreign executable is invalid.
+                goto continue
+            end
+            if selectedPlatform and not feature.host then
+                return nil, (
+                    "binary target %s needs sidecar-only native feature %s; no %s provider artifact exists"
+                ):format(tostring(selectedPlatform), feature.name, tostring(selectedPlatform))
+            end
+            local libraryName = feature.library as string
+            local key = feature.provider .. "\0" .. libraryName
+            local provider = providers[key]
+            if not provider then
+                provider = {provider = feature.provider, library = libraryName, names = {}, providerFeatures = {}}
+                providers[key] = provider
+                providerKeys[#providerKeys + 1] = key
+            end
+            provider.names[#provider.names + 1] = feature.name
+            if feature.providerFeature then
+                provider.providerFeatures[#provider.providerFeatures + 1] = feature.providerFeature
+            end
+        end
+        ::continue::
+    end
+    local compilerRoot = envMod.compilerRoot()
+    table.sort(providerKeys)
+    for _, key in ipairs(providerKeys) do
+        local provider = assert(providers[key])
+        if not compilerRoot then
+            return nil, "native facilities need compiler source; use a source checkout to build this target"
+        end
+        table.sort(provider.names)
+        table.sort(provider.providerFeatures)
+        local built, problem = driven(compilerRoot, "native", provider.providerFeatures)
+        if not built then
+            return nil, ("cannot build native facilities %s:\n%s"):format(table.concat(provider.names, ", "), problem)
+        end
+        local filename = libraryFile(provider.library)
+        -- The sidecar has one public name on POSIX. Windows' loader appends
+        -- `.dll` to an extensionless path, so keep that suffix there while
+        -- leaving the provider name stable everywhere else.
+        local staged = jit.os == "Windows" and filename or provider.library
+        local output = join(root, join(outDir, join("lib", staged)))
+        local copied, err = fs.copyFile(built, output)
+        if not copied then
+            return nil, (
+                "cannot stage native facilities %s: %s"
+            ):format(table.concat(provider.names, ", "), tostring(err))
+        end
+        outputs[output] = true
+    end
+
+    -- A compiler-provided Nupp module a facility needs at run time. A target whose
+    -- own source set contains that module has already compiled the exact artifact
+    -- it asked for; replacing it with the compiler checkout's differently configured
+    -- artifact breaks both that contract and the next build's content check. Otherwise
+    -- stage the compiler's build so an application need not compile the runtime again.
+    for _, feature in ipairs(native.features(effects)) do
+        local moduleName = feature.runtimeModule
+        if moduleName then
+            if not compilerRoot then
+                return nil, (
+                    "the %s runtime needs compiler source; use a source checkout to build this target"
+                ):format(feature.name)
+            end
+            local relative = (moduleName:gsub("%.", "/")) .. ".lua"
+            local built = join(compilerRoot, join("build", relative))
+            local output = join(root, join(outDir, relative))
+            if not availableOutputs or not availableOutputs[output] then
+                local copied, err = fs.copyFile(built, output)
+                if not copied then
+                    return nil, ("cannot stage the %s runtime: %s"):format(feature.name, tostring(err))
+                end
+            end
+            outputs[output] = true
+        end
+    end
+
+    return outputs
+end
+
+export = stage

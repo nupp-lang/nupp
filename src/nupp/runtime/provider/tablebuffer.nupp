@@ -1,0 +1,89 @@
+module nupp.runtime.provider.tablebuffer
+
+--[[
+A `text.buffer` provider for targets with no LuaJIT buffer.
+
+Appends are collected in an array and joined once, which is the portable way to
+build a string without rebuilding it on every append: `..` in a loop copies
+everything written so far each time round, and this copies it once at the end.
+
+Only the appending half of `string.buffer` is here. The seam contract is `new`,
+`put`, `tostring` and `reset`, because that is what the standard library reaches
+a buffer for; the FIFO reads, the serializer and the pointer methods sit at the
+FFI boundary a portable target does not have, and a program that wants them
+wants LuaJIT.
+]]
+
+const buffer = {}
+
+--- An appended-to byte sequence, with the pieces still separate.
+---
+--- Not exported, and it does not have to be: what a program names is the declared
+--- `string.buffer.Buffer`, because a `text.buffer` provider implements a module the
+--- compiler declares rather than being one. Nothing outside here writes this type.
+local record Buffer
+    private pieces: {string}
+    private count: integer
+
+    metamethod __len: function(self): integer
+    metamethod __concat: function(self, other: any): string
+    metamethod __tostring: function(self): string
+
+    --- Appends each argument, in order.
+    ---
+    --- A number is written the way `tostring` writes it, and anything else has to
+    --- answer `tostring` itself, which is what LuaJIT's buffer accepts too.
+    ---
+    --- @param ... the values to append
+    --- @return this buffer, so calls chain
+    function put(self, ...: any): Buffer
+        const arrived = select("#", ...)
+        for index = 1, arrived do
+            const value = select(index, ...)
+            const text = type(value) == "string" and value as string or tostring(value)
+            self.count = self.count + 1
+            self.pieces[self.count] = text
+        end
+
+        return self
+    end
+
+    --- The contents so far, leaving them in place.
+    function tostring(self): string
+        if self.count > 1 then
+            const joined = table.concat(self.pieces, "", 1, self.count)
+            self.pieces[1] = joined
+            for index = self.count, 2, -1 do
+                self.pieces[index] = nil
+            end
+            self.count = 1
+        end
+
+        return self.count == 0 and "" or self.pieces[1]
+    end
+
+    --- Empties the buffer, keeping the array it has already grown.
+    function reset(self): Buffer
+        for index = self.count, 1, -1 do
+            self.pieces[index] = nil
+        end
+        self.count = 0
+
+        return self
+    end
+end
+
+--- Creates a buffer.
+---
+--- The arguments are LuaJIT's and are accepted so the two are called the same way.
+--- Neither means anything here: there is no allocation to size in advance, and the
+--- serializer the options configure is not part of this contract.
+---
+--- @param size ignored, or the options table when it is the only argument
+--- @param options ignored
+--- @return the new buffer
+function buffer.new(size: (integer | table)?, options: table?): Buffer
+    return new Buffer(pieces = {}, count = 0)
+end
+
+export = buffer

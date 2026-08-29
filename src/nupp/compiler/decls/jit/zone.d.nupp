@@ -1,0 +1,44 @@
+--[[
+Declarations for LuaJIT's jit.zone module, loaded for `require("jit.zone")`.
+
+A hierarchical zone stack, which is what `jit.profile`'s `"z"` mode and
+`dumpstack`'s `"Z"` frame format attribute samples to. Pushing names a region of
+work; popping ends it.
+
+The value is literally the stack: a plain table whose array part holds the pushed
+names, with `flush` and `get` on it and `__call` doing the pushing and popping.
+Reading the array directly is possible but not typed here, so it needs a cast.
+
+The stock implementation does its table work whether or not a profiler is
+listening, which makes an instrumented hot path pay for zones it is not being
+measured with. `nupp.profile.zone` wraps this and gates it; prefer that over calling
+this module directly.
+]]
+
+--- The profiler zone stack. Callable: with a name it pushes, with no argument it pops
+--- and returns the name it removed.
+---
+--- Exported, so code that holds the stack can name what it is holding.
+record Zone
+    --- Pushes `name`, or pops and returns the innermost zone when `name` is omitted.
+    --- Popping an empty stack raises "empty zone stack".
+    ---
+    --- @param z the zone stack
+    --- @param name the zone to push, or nil to pop
+    --- @return the popped zone, when popping
+    metamethod __call: function(z: Zone, name: string?): string?
+
+    --- Discards every pushed zone, leaving the stack empty.
+    ---
+    --- @param z the zone stack
+    flush: function(z: Zone)
+
+    --- Returns the innermost zone without popping it.
+    ---
+    --- @param z the zone stack
+    --- @return the innermost zone, or nil when nothing is pushed
+    get: function(z: Zone): string?
+end
+
+local zone: Zone
+return zone

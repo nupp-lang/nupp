@@ -1,0 +1,170 @@
+module nupp.compiler.migrate
+
+-- Shared source migration planner. The CLI and editor adapter consume these exact
+-- edits so they cannot grow separate interpretations of annotated Lua.
+
+local parser = require("nupp.compiler.parser")
+local annotated = require("nupp.compiler.annotatedlua")
+local cst = require("nupp.compiler.cst")
+
+local migrate = {}
+
+record migrate.Edit
+    offset: integer
+    length: integer
+    newText: string
+end
+
+record migrate.Plan
+    source: string
+    destination: string
+    text: string
+    edits: {migrate.Edit}
+    warnings: {annotated.Warning}
+    dialect: string
+end
+
+local function typeText(node: cst.Node): string
+    return (cst.textOf(node):gsub("^%s+", ""):gsub("%s+$", ""))
+end
+
+local function addEdit(edits: {migrate.Edit}, offset: integer, text: string)
+    edits[#edits + 1] = new migrate.Edit(offset = offset, length = 0, newText = text)
+end
+
+local function bodyClose(body: cst.Funcbody)
+    for _, child in ipairs(body) do
+        if cst.isToken(child) and child.kind == ")" then
+            return child
+        end
+    end
+
+    return nil
+end
+
+local function collectBody(body: cst.Funcbody, edits: {migrate.Edit})
+    for _, writtenParam in ipairs(body.params or {}) do
+        local param = writtenParam as cst.Param
+        if param.type and param.type.foreignAnnotation then
+            local anchor = param.name or cst.firstToken(param)
+            if anchor then
+                addEdit(edits, anchor.offset + #anchor.text, ": " .. typeText(param.type))
+            end
+        end
+    end
+    if body.generics and body.generics.foreignAnnotation then
+        local open = cst.firstToken(body)
+        if open then
+            addEdit(edits, open.offset, typeText(body.generics))
+        end
+    end
+    if body.returnPack and body.returnPack.foreignAnnotation then
+        local close = bodyClose(body)
+        if close then
+            local pieces = {}
+            for _, ret in ipairs(body.rets or {}) do
+                pieces[#pieces + 1] = typeText(ret)
+            end
+            addEdit(edits, math.floor(close.offset + #close.text), ": " .. table.concat(pieces, ", "))
+        end
+    end
+end
+
+local function collectNode(node: any, edits: {migrate.Edit})
+    if type(node) ~= "table" or cst.isToken(node) then
+        return
+    end
+    if node.kind == "localStmt" then
+        for index, name in ipairs(node.names or {}) do
+            local t = node.types and node.types[index]
+            if t and t.foreignAnnotation then
+                addEdit(edits, math.floor(name.offset + #name.text), ": " .. typeText(t))
+            end
+        end
+    end
+    local body = nil
+    if node.kind == "localFuncStmt" or node.kind == "funcStmt" then
+        body = node.body
+    elseif node.kind == "funcExpr" then
+        body = node.body
+    end
+    if body then
+        collectBody(body, edits)
+    end
+    for _, child in ipairs(node) do
+        collectNode(child, edits)
+    end
+end
+
+local function collectSemantic(node: any, edits: {migrate.Edit})
+    if type(node) ~= "table" or cst.isToken(node) then
+        return
+    end
+    if node.kind == "block" then
+        for _, stat in ipairs(node.stats or {}) do
+            if stat.kind == "assignStmt" and stat.foreignAnnotation and stat.foreignInsertOffset then
+                addEdit(edits, stat.foreignInsertOffset, "\n" .. cst.textOf(stat):gsub("^%s+", ""))
+            end
+        end
+    end
+    for _, child in ipairs(node) do
+        collectSemantic(child, edits)
+    end
+end
+
+local function apply(source: string, edits: {migrate.Edit}): string
+    table.sort(edits, function(a, b)
+        if a.offset == b.offset then
+            return a.newText > b.newText
+        end
+        return a.offset > b.offset
+    end)
+    for _, edit in ipairs(edits) do
+        source = source:sub(1, edit.offset - 1) .. edit.newText .. source:sub(edit.offset + edit.length)
+    end
+
+    return source
+end
+
+--- Plans one source-family migration. Extension dispatch belongs here, not in a
+--- command, so the editor gets the same refusal for unsupported inputs.
+function migrate.plan(source: string, path: string, dialect: string?): migrate.Plan?, string?
+    if not path:match("%.lua$") then
+        return nil, "unsupported migration source extension in " .. path
+    end
+    dialect = dialect or "auto"
+    if dialect ~= "auto" and dialect ~= "luacats" and dialect ~= "emmy" and dialect ~= "luadoc" then
+        return nil, "unsupported annotated Lua dialect " .. dialect
+    end
+    local parsed = parser.parse(source, path)
+    if #parsed.errors > 0 then
+        return nil, parsed.errors[1].msg
+    end
+    local warnings = annotated.decorate(parsed, path, dialect)
+    local edits: {migrate.Edit} = {}
+    local declarations = {}
+    local first = parsed.root.blocks and parsed.root.blocks[1]
+    for _, stat in ipairs(first and first.stats or {}) do
+        if stat.foreignAnnotation and (stat.kind == "typeAlias" or stat.kind == "recordDecl") then
+            declarations[#declarations + 1] = cst.textOf(stat):gsub("^%s+", "")
+        end
+    end
+    if #declarations > 0 then
+        local offset = source:match("^#![^\n]*\n") and (assert(source:find("\n", 1, true)) + 1) or 1
+        addEdit(edits, offset, table.concat(declarations, "") .. "\n")
+    end
+    collectNode(parsed.root, edits)
+    collectSemantic(parsed.root, edits)
+    local destination = path:gsub("%.lua$", ".g.nupp")
+
+    return new migrate.Plan(
+        source = path,
+        destination = destination,
+        text = apply(source, edits),
+        edits = edits,
+        warnings = warnings,
+        dialect = dialect
+    ), nil
+end
+
+export = migrate

@@ -1,0 +1,84 @@
+module nupp.runtime.backend
+
+--[[
+Runtime half of a backend assembled from independently testable seams.
+
+The compiler checks the same interfaces without executing a backend. An
+artifact calls `install` for the backend it selected, while backend authors and
+package CI call `test` explicitly to run every seam's behavioral contract.
+]]
+
+local backend = {}
+
+backend.moduleName = "nupp.runtime.backend"
+
+--- One versioned unit of substitutable behavior and its conformance suite.
+--- @export
+export interface Seam
+    readonly name: string
+    readonly version: integer
+    readonly binding: string?
+    install: function(self: Seam): nil
+    test: function(self: Seam): (boolean, string?)
+end
+
+--- One named collection of complete seam implementations.
+--- @export
+export interface Backend
+    readonly name: string
+    readonly seams: {Seam}
+    install: function(self: Backend): nil
+    test: function(self: Backend): (boolean, string?)
+end
+
+--- Constructs a backend after rejecting duplicate seam names.
+--- @raises when two seams have the same name
+function backend.new(name: string, seams: {Seam}): Backend
+    if name == "" then
+        error("nupp: a backend must have a non-empty name", 2)
+    end
+    if #seams == 0 then
+        error("nupp: backend " .. name .. " must supply at least one seam", 2)
+    end
+    local seen = {}
+    for _, seam in ipairs(seams) do
+        if seen[seam.name] then
+            error("nupp: backend " .. name .. " supplies seam " .. seam.name .. " more than once", 2)
+        end
+        seen[seam.name] = true
+    end
+
+    local selected: any = {name = name, seams = seams,}
+    function selected:install(): nil
+        for _, seam in ipairs(self.seams) do
+            seam:install()
+        end
+    end
+
+    function selected:test(): (boolean, string?)
+        for _, seam in ipairs(self.seams) do
+            local ok, problem = seam:test()
+            if not ok then
+                return false, (
+                    "backend %s failed %s contract %d: %s"
+                ):format(self.name, seam.name, seam.version, tostring(problem))
+            end
+        end
+
+        return true
+    end
+
+    return selected as Backend
+end
+
+--- Installs every seam supplied by one selected backend.
+function backend.install(selected: Backend): nil
+    selected:install()
+end
+
+--- Runs every seam's explicit behavioral suite.
+function backend.test(selected: Backend): (boolean, string?)
+    return selected:test()
+end
+
+export = backend

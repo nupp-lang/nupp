@@ -1,0 +1,13 @@
+local m = {}
+
+function m.render(report: any, endpoint: any): nil
+    report:put("header"):putf("%s rows", 12):put("separator"):putf("%d columns", 4):put("footer"):put("done")
+    local production = endpoint:withUserInfo(nil)
+        :withHost("api.example.com")
+        :withPort(nil)
+        :withQuery(nil)
+        :withFragment(nil)
+    report:put(production)
+end
+
+return m

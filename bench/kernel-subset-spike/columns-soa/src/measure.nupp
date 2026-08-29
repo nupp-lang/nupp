@@ -1,0 +1,55 @@
+local ffi = require("ffi")
+local soa = require("nupp.mem.soa")
+local span = require("nupp.mem.span")
+local kernel = require("kernel")
+
+local struct Entity
+    x: float
+    y: float
+    vx: float
+    vy: float
+end
+
+local function run(count: integer, steps: integer, scalar: boolean): (number, number)
+    local entities = soa.allocate(ffi.typeof<Entity>(), count)
+    local elapsed = 0.0
+    local checksum = 0.0
+    with rows = entities:write() do
+        local xs: span.Writable<float> = rows:field("x")
+        local ys: span.Writable<float> = rows:field("y")
+        local writeVxs: span.Writable<float> = rows:field("vx")
+        local writeVys: span.Writable<float> = rows:field("vy")
+        for index = 1, count do
+            xs[index] = index % 17 * 0.25 - 2
+            ys[index] = index % 23 * 0.5 - 3
+            writeVxs[index] = index % 13 * 0.0625 - 0.5
+            writeVys[index] = index % 19 * 0.03125 - 0.25
+        end
+        do
+            local vxs = writeVxs:shared()
+            local vys = writeVys:shared()
+
+            local started = os.clock()
+            for _ = 1, steps do
+                if scalar then
+                    kernel.advanceScalar(xs, ys, vxs, vys, 1, count, 0.5)
+                else
+                    kernel.advance(xs, ys, vxs, vys, 1, count, 0.5)
+                end
+            end
+            elapsed = os.clock() - started
+            for index = 1, count do
+                checksum = checksum + xs[index] + ys[index]
+            end
+        end
+
+        drop writeVys
+        drop writeVxs
+        drop ys
+        drop xs
+    end
+
+    return elapsed, checksum
+end
+
+return {run = run,}

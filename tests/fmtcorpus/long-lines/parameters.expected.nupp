@@ -1,0 +1,12 @@
+local m = {}
+
+function m.configure(
+    firstParameter: string,
+    secondParameter: integer,
+    thirdParameter: boolean,
+    fourthParameter: number
+): nil
+    print(firstParameter, secondParameter, thirdParameter, fourthParameter)
+end
+
+return m

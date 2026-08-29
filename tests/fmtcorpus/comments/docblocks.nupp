@@ -1,0 +1,19 @@
+local m = {}
+--- A handle somebody has to close.
+record m.Handle
+    --- What the operating system calls it.
+    id: integer
+    --- Releases it. Scope exit invokes this automatically.
+    @deprecated("use close")
+    close: function(takes self: m.Handle): nil
+    --- Reads the whole thing.
+    read: function(borrows self: m.Handle): string borrows (self)
+end
+--- Opens one.
+---
+--- @param path where to open
+--- @return the handle
+function m.open(path: string): m.Handle
+    return new m.Handle(id = #path)
+end
+return m

@@ -1,0 +1,546 @@
+module nupp.compiler.lsp.navigate
+
+--[[
+Where a name is declared, and everywhere it is used.
+
+Go-to-definition, references, rename, and hover all ask the same question in
+different words: given a position, what does the name there refer to, and where
+else does that thing appear? The answer comes from the checker's marks where the
+file checks and from the tokens where it does not, and it has to reach files the
+editor never opened, which is what the project index is for.
+
+Members are the harder half. `m.f` is a field of a module rather than a binding,
+so it has no declaration site of its own until the module that defines it is
+found and asked.
+]]
+
+local cst = require("nupp.compiler.cst")
+local lexer = require("nupp.compiler.lexer")
+local T = require("nupp.compiler.types")
+local text = require("nupp.compiler.lsp.text")
+local tree = require("nupp.compiler.lsp.tree")
+local complete = require("nupp.compiler.lsp.complete")
+local wire = require("nupp.compiler.lsp.wire")
+
+local uriToPath, pathToUri = text.uriToPath, text.pathToUri
+local positionAtOffset, offsetAtPosition = text.positionAtOffset, text.offsetAtPosition
+local tokenRange, readFile = text.tokenRange, text.readFile
+local findDeclaration, tokenAt = tree.findDeclaration, tree.tokenAt
+local symbolKey, memberOccurrences = tree.symbolKey, tree.memberOccurrences
+local moduleMemberAt, documentationAt = tree.moduleMemberAt, tree.documentationAt
+local fromTrivia, functionSignature = tree.fromTrivia, tree.functionSignature
+local documentationOf = tree.documentationOf
+local membersOf = complete.membersOf
+
+local json = wire.json
+
+local navigate = {}
+
+--- What navigation reads of a session: the documents it holds open, the lex it keeps
+--- per file, and the query graph every closed file comes from.
+type navigate.Session = {
+    documents: {[string]: any},
+
+    --- The last lex of each file, so a question needing only tokens does not reparse.
+    lexed: {[string]: any},
+
+    inc: any
+}
+
+--- What installing navigation gives the session back. The handlers reach these through
+--- the session they were installed on, so the whole set is named here.
+type navigate.Api = {
+    --- The tokens of a file, lexed once per text.
+    fileTokens: function(filename: string, source: string): {lexer.Token},
+
+    --- What a file reads as right now: the editor's buffer, or the disk.
+    sourceForPath: function(path: string): string?,
+
+    definitionSource: function(def: any): string?,
+
+    --- Where `def` stands in `tokens`, or nil when it is no longer there at all.
+    declarationIndex: function(def: any, source: string, tokens: {lexer.Token}): integer?,
+
+    resolveDefinition: function(def: any): (string?, {lexer.Token}?, integer?),
+
+    --- The protocol Location of a declaration, or the null the protocol wants.
+    definitionLocation: function(def: any): any,
+
+    documentationFor: function(def: any): string?,
+
+    --- The URI a request names, and the document held under it. The URI is read
+    --- straight off the request's untyped parameters and is not validated here.
+    documentAt: function(params: any): (any, any),
+
+    --- The same, plus the token a request's position falls on and that offset. The
+    --- token carries the checker's marks, which the lexer's declaration has no room
+    --- for, so it arrives as what those passes left rather than as a bare token.
+    symbolAt: function(params: any): (any, any, any, integer?),
+
+    isOpenDefinition: function(def: any): boolean,
+
+    --- Whether the file declaring `def` is one this session can rewrite.
+    isProjectDefinition: function(def: any): boolean,
+
+    --- Every checked file that could mention `name`, as {uri, source, result}.
+    documentsMentioning: function(name: string): {any},
+
+    referencesFor: function(def: any, includeDeclaration: boolean?): {any},
+
+    --- The `function m.f` declaring a member, with the file it is in.
+    memberDeclaration: function(moduleName: string, memberName: string): (any, lexer.Token?, cst.FuncStmt?),
+
+    memberAt: function(doc: any, offset: integer?): tree.MemberRef?,
+
+    memberLocation: function(member: tree.MemberRef): any,
+
+    memberReferences: function(member: any, includeDeclaration: boolean?): {any},
+
+    memberHover: function(member: tree.MemberRef): string?,
+
+    --- The type a receiver path names, plus the module it holds when it holds one.
+    resolveReceiver: function(checked: any, path: {string}): (T.Type?, string?)
+}
+
+--- Installs the navigation questions on one session.
+---
+--- @param s the session's state
+function navigate.install(s: navigate.Session): navigate.Api
+
+    local function fileTokens(filename, source)
+        local entry = s.lexed[filename]
+        if entry and entry.source == source then
+            return entry.tokens
+        end
+        local tokens = lexer.lex(source)
+        s.lexed[filename] = {source = source, tokens = tokens}
+
+        return tokens
+    end
+
+    -- What a file reads as right now: the editor's buffer where there is one, and
+    -- otherwise the disk, never both.
+    local function sourceForPath(path)
+        for uri, doc in pairs(s.documents) do
+            if uriToPath(uri) == path then
+                return doc.text
+            end
+        end
+
+        return readFile(path)
+    end
+
+    local function definitionSource(def)
+        return sourceForPath(def.filename)
+    end
+
+    -- Where `def` is declared in `source`, or nil when it is no longer there at all.
+    -- Callers report nothing rather than navigate somewhere wrong.
+    local function declarationIndex(def, source, tokens)
+        local tok = def.token
+        if not tok or not tok.text then
+            return nil
+        end
+        local found
+        if source:sub(tok.offset, tok.offset + #tok.text - 1) == tok.text then
+            found = tok.offset
+        else
+            local relocated = findDeclaration(tokens, tok.text, tok.offset)
+            if not relocated then
+                return nil
+            end
+            found = relocated.offset
+        end
+        for index, candidate in ipairs(tokens) do
+            if candidate.offset == found then
+                return index
+            end
+        end
+
+        return nil
+    end
+
+    local function resolveDefinition(def)
+        if not def or not def.token or not def.filename then
+            return nil
+        end
+        if def.generatedBy and def.generatedOrigin then
+            def = {
+                token = def.generatedOrigin,
+                filename = def.generatedOrigin.filename or def.filename,
+                documentationToken = def.documentationToken,
+            }
+        end
+        local source = definitionSource(def)
+        if not source then
+            return nil
+        end
+        local tokens = fileTokens(def.filename, source)
+        local index = declarationIndex(def, source, tokens)
+        if not index then
+            return nil
+        end
+
+        return source, tokens, index
+    end
+
+    local function definitionLocation(def)
+        local source, tokens, index = resolveDefinition(def)
+        if not source then
+            return json.NULL
+        end
+        local tok = tokens[index]
+
+        return {
+            uri = pathToUri(def.filename),
+            range = {
+                start = positionAtOffset(source, tok.offset),
+                ["end"] = positionAtOffset(source, tok.offset + #tok.text),
+            },
+        }
+    end
+
+    local function documentationFor(def)
+        local _, tokens, index = resolveDefinition(def)
+        if not tokens then
+            if not def then
+                return nil
+            end
+            if def.documentationToken then
+                return documentationOf(def.documentationToken)
+            end
+
+            return def.token and fromTrivia(def.token.trivia)
+        end
+
+        return documentationAt(tokens, index) or documentationOf(def.documentationToken)
+    end
+
+    local function documentAt(params)
+        local uri = params and params.textDocument and params.textDocument.uri
+        return uri, uri and s.documents[uri] or nil
+    end
+
+    local function symbolAt(params)
+        local uri, doc = documentAt(params)
+        if not doc or not doc.result or not params.position then
+            return uri, doc, nil, nil
+        end
+        local offset = offsetAtPosition(doc.text, params.position)
+
+        return uri, doc, offset and tokenAt(doc.result, offset) or nil, offset
+    end
+
+    local function isOpenDefinition(def)
+        if not def or not def.filename then
+            return false
+        end
+        for uri in pairs(s.documents) do
+            if uriToPath(uri) == def.filename then
+                return true
+            end
+        end
+
+        return false
+    end
+
+    -- A symbol may be renamed when the file declaring it is one this session can
+    -- rewrite: an open document, or a file of the project. A name from the bundled
+    -- prelude is declared somewhere the user is not editing, and a rename that could
+    -- only reach the uses would be a rename that breaks them.
+    local function isProjectDefinition(def)
+        if not def or not def.filename then
+            return false
+        end
+        -- Not yet. References group by spelling, and an associated type's name means
+        -- something only against the contract that states it: two unrelated contracts
+        -- may both call one `Item`, and renaming by spelling would edit both. Refusing
+        -- is the safe half of that -- a partial rename leaves a project that neither
+        -- compiles nor says why. Once references are requirement-identity based this
+        -- can allow the single-contract case; a name answered for two coalesced
+        -- contracts stays refused, since one answer cannot be renamed two ways.
+        if def.associated or def.generatedBy then
+            return false
+        end
+        if isOpenDefinition(def) then
+            return true
+        end
+        for _, path in ipairs(s.inc.projectFiles()) do
+            if path == def.filename then
+                return true
+            end
+        end
+
+        return false
+    end
+
+    -- Every checked file that could mention `name`, as {uri, source, result}.
+    --
+    -- References run over the whole project, not only what the editor has open: a
+    -- rename that silently skipped a closed file would leave the project broken with
+    -- nothing said. Text is the cheap filter, since a reference has to spell the name,
+    -- so a file that never does needs no checking, and checking is the expensive half.
+    -- Open s.documents contribute their overlay and are never read from disk behind the
+    -- editor's back.
+    local function documentsMentioning(name)
+        local out, seen = {}, {}
+        for uri, doc in pairs(s.documents) do
+            seen[uriToPath(uri)] = true
+            if doc.result and doc.text:find(name, 1, true) then
+                out[#out + 1] = {uri = uri, source = doc.text, result = doc.result}
+            end
+        end
+        for _, path in ipairs(s.inc.projectFiles()) do
+            if not seen[path] then
+                local source = s.inc.fileText(path)
+                if source and source:find(name, 1, true) then
+                    local checked = s.inc.checkFile(path)
+                    if checked and checked.result then
+                        out[#out + 1] = {uri = pathToUri(path), source = source, result = checked.result}
+                    end
+                end
+            end
+        end
+
+        return out
+    end
+
+    local function referencesFor(def, includeDeclaration)
+        local wanted = symbolKey(def)
+        local locations = wire.array({})
+        if not wanted or not def.token then
+            return locations
+        end
+        local seen = {}
+        local spelling = def.generatedBy and def.name or def.token.text
+        for _, entry in ipairs(documentsMentioning(spelling)) do
+            local declaring = uriToPath(entry.uri) == def.filename
+            for _, tok in ipairs(entry.result.tokens or {}) do
+                -- Told apart by where it is, not which object it is: a file checked
+                -- here and a file the index read were parsed twice, so the declaration
+                -- arrives as two tokens standing in one place.
+                local isDeclaration = declaring and tok.offset == def.token.offset
+                if symbolKey(tok.definition) == wanted and (includeDeclaration or not isDeclaration) then
+                    local key = entry.uri .. ":" .. tostring(tok.offset)
+                    if not seen[key] then
+                        seen[key] = true
+                        locations[#locations + 1] = {uri = entry.uri, range = tokenRange(entry.source, tok),}
+                    end
+                end
+            end
+        end
+        if includeDeclaration then
+            local location = definitionLocation(def)
+            if location ~= json.NULL then
+                local key = location.uri .. ":" .. tostring(def.token.offset)
+                if not seen[key] then
+                    locations[#locations + 1] = location
+                end
+            end
+        end
+        table.sort(locations, function(a, b)
+            if a.uri ~= b.uri then
+                return a.uri < b.uri
+            end
+            local ap, bp = a.range.start, b.range.start
+
+            return ap.line < bp.line or (ap.line == bp.line and ap.character < bp.character)
+        end)
+
+        return locations
+    end
+
+    -- Plain module members, the requests -------------------------------------
+    --
+    -- A member is not a symbol the checker bound, so none of the machinery above
+    -- reaches it: there is no definition object to key on and no interned type to
+    -- compare. What there is instead is the same syntactic question asked of every file
+    -- of which `m.f` names this member, so these run over the project exactly the way
+    -- references does, and for the same reason: a rename that skipped a closed file
+    -- would break it silently.
+
+    --- The `function m.f` statement declaring a member, with the file it is in.
+    local function memberDeclaration(moduleName, memberName)
+        local path = s.inc.modulePath(moduleName)
+        if not path then
+            return nil
+        end
+        local checked = s.inc.checkFile(path)
+        local result = checked and checked.result
+        if not result then
+            return nil
+        end
+        for _, hit in ipairs(memberOccurrences(result, moduleName, memberName)) do
+            if hit.stat then
+                return path, hit.token, hit.stat
+            end
+        end
+
+        return nil
+    end
+
+    --- The plain module member a position names. These keep their project-wide member
+    --- navigation even when tooling metadata gives the checker a definition sidecar.
+    local function memberAt(doc, offset)
+        if not doc or not doc.result or not offset then
+            return nil
+        end
+        local member = moduleMemberAt(doc.result, offset)
+        if not member then
+            return nil
+        end
+        if not memberDeclaration(member.moduleName, member.name) then
+            return nil
+        end
+
+        return member
+    end
+
+    local function memberLocation(member)
+        local path, tok = memberDeclaration(member.moduleName, member.name)
+        if not path then
+            return json.NULL
+        end
+        local source = sourceForPath(path)
+        if not source then
+            return json.NULL
+        end
+
+        return {
+            uri = pathToUri(path),
+            range = {
+                start = positionAtOffset(source, tok.offset),
+                ["end"] = positionAtOffset(source, tok.offset + #tok.text),
+            },
+        }
+    end
+
+    local function memberReferences(member, includeDeclaration)
+        local locations = wire.array({})
+        local seen = {}
+        for _, entry in ipairs(documentsMentioning(member.name)) do
+            local hits = memberOccurrences(entry.result, member.moduleName, member.name)
+            for _, hit in ipairs(hits) do
+                local key = entry.uri .. ":" .. tostring(hit.token.offset)
+                if (includeDeclaration or not hit.stat) and not seen[key] then
+                    seen[key] = true
+                    locations[#locations + 1] = {uri = entry.uri, range = tokenRange(entry.source, hit.token),}
+                end
+            end
+        end
+        table.sort(locations, function(a, b)
+            if a.uri ~= b.uri then
+                return a.uri < b.uri
+            end
+            local ap, bp = a.range.start, b.range.start
+
+            return ap.line < bp.line or (ap.line == bp.line and ap.character < bp.character)
+        end)
+
+        return locations
+    end
+
+    --- Hover for a member: the declaration as it was written, and its docblock. There
+    --- is no type to render, the table it sits on having been inferred open, and the
+    --- line the author wrote says more than `any` would.
+    local function memberHover(member)
+        local path, tok, stat = memberDeclaration(member.moduleName, member.name)
+        if not path then
+            return nil
+        end
+        local value = "```nupp\n" .. functionSignature(stat) .. "\n```"
+        local source = sourceForPath(path)
+        if source then
+            local tokens = fileTokens(path, source)
+            for index, candidate in ipairs(tokens) do
+                if candidate.offset == tok.offset then
+                    local docs = documentationAt(tokens, index)
+                    if docs then
+                        value = value .. "\n\n" .. docs
+                    end
+                    break
+                end
+            end
+        end
+
+        return value
+    end
+
+    --- The type a receiver path names in `checked`, plus the module it holds when it
+    --- holds one. Resolved by name rather than by position: the file the types came
+    --- from is a keystroke behind the one the cursor is in, so every offset in it may
+    --- have moved.
+    local function resolveReceiver(checked, path)
+        if not checked then
+            return nil
+        end
+        if path[1] == "ffi" and path[2] == "C" then
+            local t = checked.cNamespaceType
+            for index = 3, #path do
+                local member = t and membersOf(t)[path[index]]
+                t = member and member.type or nil
+                if not t then
+                    return nil
+                end
+            end
+
+            return t
+        end
+        local base = nil
+        for _, def in ipairs(checked.symbols or {}) do
+            if def.name == path[1] and (def.type or def.requiredModule) then
+                base = def
+                break
+            end
+        end
+        if not base then
+            return nil
+        end
+        local moduleName = base.requiredModule
+        if not moduleName and checked.moduleLocal == path[1] then
+            moduleName = checked.moduleName
+        end
+        local t = base.type
+        for index = 2, #path do
+            -- A module's declarations are reached through the index, not through the
+            -- module table's type: that table is inferred open.
+            if moduleName and index == 2 then
+                return nil, nil
+            end
+            local member = t and membersOf(t)[path[index]]
+            t = member and member.type or nil
+            if not t then
+                return nil, nil
+            end
+        end
+        if #path > 1 then
+            moduleName = nil
+        end
+
+        return t, moduleName
+    end
+
+    return {
+        fileTokens = fileTokens,
+        sourceForPath = sourceForPath,
+        definitionSource = definitionSource,
+        declarationIndex = declarationIndex,
+        resolveDefinition = resolveDefinition,
+        definitionLocation = definitionLocation,
+        documentationFor = documentationFor,
+        documentAt = documentAt,
+        symbolAt = symbolAt,
+        isOpenDefinition = isOpenDefinition,
+        isProjectDefinition = isProjectDefinition,
+        documentsMentioning = documentsMentioning,
+        referencesFor = referencesFor,
+        memberDeclaration = memberDeclaration,
+        memberAt = memberAt,
+        memberLocation = memberLocation,
+        memberReferences = memberReferences,
+        memberHover = memberHover,
+        resolveReceiver = resolveReceiver,
+    }
+end
+
+export = navigate

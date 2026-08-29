@@ -1,0 +1,25 @@
+local m = {}
+
+function m.parse(token: any): string?
+    if not token then
+        return nil
+    end
+    if token.kind == "eof" then
+        return nil
+    end
+    local text = token.text
+    if #text == 0 then
+        return ""
+    end
+
+    for _, child in ipairs(token) do
+        visit(child)
+    end
+    while token.parent do
+        token = token.parent
+    end
+
+    return text
+end
+
+return m

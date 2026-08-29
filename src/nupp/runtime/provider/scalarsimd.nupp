@@ -1,0 +1,337 @@
+module nupp.runtime.provider.scalarsimd
+
+--[[Sixteen-lane scalar implementation of the confined SIMD vocabulary.]]
+
+local provider = {lanes = 16}
+local function bits(): any
+    local value = rawget(_G, "__nuppBitops")
+    assert(value ~= nil, "nupp: numeric.simd scalar provider requires the numeric.bitops seam")
+    return value
+end
+
+local function byte(value: number): number
+    return value % 256
+end
+
+local function popcount(value: number): integer
+    local count: integer = 0
+    while value ~= 0 do
+        value = bits().band(value, value - 1)
+        count = count + 1
+    end
+
+    return count
+end
+
+local vectorMethods, maskMethods, mask64Methods = {}, {}, {}
+local vectorMt = {__index = vectorMethods}
+local maskMt = {__index = maskMethods}
+local mask64Mt = {__index = mask64Methods}
+local function vector(lanes: {number}): any
+    return setmetatable({lanes = lanes}, vectorMt)
+end
+
+local function mask(value: number): any
+    return setmetatable({value = bits().band(value, 0xffff)}, maskMt)
+end
+
+local function mask64(low: number, high: number): any
+    return setmetatable({low = low, high = high}, mask64Mt)
+end
+
+function vectorMethods:equal(value: number): any
+    local out = 0
+    for i = 1, 16 do
+        if self.lanes[i] == byte(value) then
+            out = out + 2 ^ (i - 1)
+        end
+    end
+
+    return mask(out)
+end
+
+function vectorMethods:inRange(low: number, high: number): any
+    local out = 0
+    for i = 1, 16 do
+        local value = self.lanes[i];
+        if value >= byte(low) and value <= byte(high) then
+            out = out + 2 ^ (i - 1)
+        end
+    end
+
+    return mask(out)
+end
+
+local function vectorBinary(left: any, right: any, op: string): any
+    local out = {}
+    for i = 1, 16 do
+        out[i] = byte(bits()[op](left.lanes[i], right.lanes[i]))
+    end
+
+    return vector(out)
+end
+
+function vectorMethods:andBits(other: any): any
+    return vectorBinary(self, other, "band")
+end
+
+function vectorMethods:orBits(other: any): any
+    return vectorBinary(self, other, "bor")
+end
+
+function vectorMethods:xorBits(other: any): any
+    return vectorBinary(self, other, "bxor")
+end
+
+function vectorMethods:notBits(): any
+    local out = {};
+    for i = 1, 16 do
+        out[i] = byte(bits().bnot(self.lanes[i]))
+    end;
+
+    return vector(out)
+end
+
+function vectorMethods:shiftRight(count: number): any
+    local out = {};
+    for i = 1, 16 do
+        out[i] = byte(bits().rshift(self.lanes[i], count))
+    end;
+
+    return vector(out)
+end
+
+function vectorMethods:lookup16(table16: any): any
+    local out = {};
+    for i = 1, 16 do
+        local at = self.lanes[i];
+        out[i] = at < 16 and table16.lanes[at + 1] or 0
+    end;
+
+    return vector(out)
+end
+
+function maskMethods:andBits(other: any): any
+    return mask(bits().band(self.value, other.value))
+end
+
+function maskMethods:orBits(other: any): any
+    return mask(bits().bor(self.value, other.value))
+end
+
+function maskMethods:xorBits(other: any): any
+    return mask(bits().bxor(self.value, other.value))
+end
+
+function maskMethods:notBits(): any
+    return mask(bits().bnot(self.value))
+end
+
+function maskMethods:select(whenTrue: any, whenFalse: any): any
+    local out = {};
+    for i = 1, 16 do
+        out[i] = bits().band(self.value, 2 ^ (i - 1)) ~= 0 and whenTrue.lanes[i] or whenFalse.lanes[i]
+    end;
+
+    return vector(out)
+end
+
+function maskMethods:any(): boolean
+    return self.value ~= 0
+end
+
+function maskMethods:all(): boolean
+    return self.value == 0xffff
+end
+
+function maskMethods:count(): number
+    return popcount(self.value)
+end
+
+function maskMethods:bits(): number
+    return self.value
+end
+
+local function binary64(left: any, right: any, op: string): any
+    return mask64(bits()[op](left.low, right.low), bits()[op](left.high, right.high))
+end
+
+function mask64Methods:andBits(other: any): any
+    return binary64(self, other, "band")
+end
+
+function mask64Methods:orBits(other: any): any
+    return binary64(self, other, "bor")
+end
+
+function mask64Methods:xorBits(other: any): any
+    return binary64(self, other, "bxor")
+end
+
+function mask64Methods:notBits(): any
+    return mask64(bits().bnot(self.low), bits().bnot(self.high))
+end
+
+function mask64Methods:shiftLeft(count: number): any
+    count = count % 64
+    if count == 0 then
+        return mask64(self.low, self.high)
+    end
+    if count < 32 then
+        return mask64(
+            bits().lshift(self.low, count),
+            bits().bor(bits().lshift(self.high, count), bits().rshift(self.low, 32 - count))
+        )
+    end
+
+    return mask64(0, bits().lshift(self.low, count - 32))
+end
+
+function mask64Methods:shiftRight(count: number): any
+    count = count % 64
+    if count == 0 then
+        return mask64(self.low, self.high)
+    end
+    if count < 32 then
+        return mask64(
+            bits().bor(bits().rshift(self.low, count), bits().lshift(self.high, 32 - count)),
+            bits().rshift(self.high, count)
+        )
+    end
+
+    return mask64(bits().rshift(self.high, count - 32), 0)
+end
+
+function mask64Methods:prefixXor(carry: boolean): any
+    local low, high, state = 0, 0, carry
+    for i = 0, 63 do
+        if bits().band(i < 32 and self.low or self.high, 2 ^ (i % 32)) ~= 0 then
+            state = not state
+        end
+        if state then
+            if i < 32 then
+                low = low + 2 ^ i
+            else
+                high = high + 2 ^ (i - 32)
+            end
+        end
+    end
+
+    return mask64(low, high)
+end
+
+function mask64Methods:lowBits(): number
+    return self.low
+end
+
+function mask64Methods:highBits(): number
+    return self.high
+end
+
+function mask64Methods:any(): boolean
+    return self.low ~= 0 or self.high ~= 0
+end
+
+function mask64Methods:count(): number
+    return popcount(self.low) + popcount(self.high)
+end
+
+function mask64Methods:firstSet(): number
+    for i = 0, 31 do
+        if bits().band(self.low, 2 ^ i) ~= 0 then
+            return i
+        end
+    end
+    for i = 0, 31 do
+        if bits().band(self.high, 2 ^ i) ~= 0 then
+            return i + 32
+        end
+    end
+
+    return 64
+end
+
+function mask64Methods:clearFirst(): any
+    if self.low ~= 0 then
+        return mask64(bits().band(self.low, self.low - 1), self.high)
+    end
+    return mask64(self.low, bits().band(self.high, self.high - 1))
+end
+
+local species: any = {lanes = 16}
+function species:splat(value: number): any
+    local out = {};
+    for i = 1, 16 do
+        out[i] = byte(value)
+    end;
+
+    return vector(out)
+end
+
+function species:load(source: any, offset: number): any
+    local out = {};
+    for i = 1, 16 do
+        out[i] = byte(source.get and source:get(offset + i - 1) or source[offset + i - 1] or 0)
+    end;
+
+    return vector(out)
+end
+
+function species:loadString(source: string, offset: number): any
+    local out = {};
+    for i = 1, 16 do
+        out[i] = source:byte(offset + i) or 0
+    end;
+
+    return vector(out)
+end
+
+function species:tail(active: number): any
+    return mask(2 ^ math.max(0, math.min(16, active)) - 1)
+end
+
+function provider.preferredU8(): any
+    return species
+end
+
+function provider.maskBits64(low: number, high: number): any
+    return mask64(low, high)
+end
+
+function provider.tableU8x16(...): any
+    local values = {...};
+    for i = 1, 16 do
+        values[i] = byte(values[i])
+    end;
+
+    return vector(values)
+end
+
+function provider.alignBytes(previous: any, current: any, offset: number): any
+    local joined, out = {}, {};
+    for i = 1, 16 do
+        joined[i] = previous.lanes[i];
+        joined[i + 16] = current.lanes[i]
+    end
+    for i = 1, 16 do
+        out[i] = joined[17 - offset + i - 1]
+    end;
+
+    return vector(out)
+end
+
+function provider.paddedStringU8(source: string): any
+    local full = math.floor(#source / 16) * 16
+    local padded: any = {length = #source, fullLength = full, tailLength = #source - full,}
+    function padded:loadFull(offset: number): any
+        return species:loadString(source, offset)
+    end
+
+    function padded:loadTail(): any
+        return species:loadString(source, full)
+    end
+
+    return padded
+end
+
+export = provider

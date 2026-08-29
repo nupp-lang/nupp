@@ -1,0 +1,78 @@
+module nupp.compiler.luaformat
+
+-- Compiler lowering for the fixed `string.format` directive grammar and Nupp's
+-- `%?` extension. This scanner is compiler-private and needs no PEG runtime.
+
+local record Analysis
+    format: string
+    debugArguments: {boolean}
+end
+
+local record luaFormat
+    analyze: function(string): (Analysis?, string?)
+end
+
+local FLAGS = "-+ #0"
+local DIGITS = "0123456789"
+local CONVERSIONS = "aAcdiouxXeEfgGpqs?"
+
+local function contains(haystack: string, byte: string): boolean
+    return byte ~= "" and haystack:find(byte, 1, true) ~= nil
+end
+
+function luaFormat.analyze(format: string): (Analysis?, string?)
+    local debugArguments, pieces = {}, {}
+    local copiedFrom, index = 1, 1
+    while index <= #format do
+        if format:sub(index, index) ~= "%" then
+            index = index + 1
+        elseif format:sub(index + 1, index + 1) == "%" then
+            index = index + 2
+        else
+            local directive = index
+            index = index + 1
+            while contains(FLAGS, format:sub(index, index)) do
+                index = index + 1
+            end
+            local width = index
+            while contains(DIGITS, format:sub(index, index)) do
+                index = index + 1
+            end
+            if index - width > 2 then
+                return nil, 'invalid string.format directive starting at "' .. format:sub(directive, width + 2) .. '"'
+            end
+            if format:sub(index, index) == "." then
+                local precision = index
+                index = index + 1
+                while contains(DIGITS, format:sub(index, index)) do
+                    index = index + 1
+                end
+                if index - precision > 3 then
+                    return nil, 'invalid string.format directive starting at "' .. format:sub(
+                        directive,
+                        precision + 3
+                    ) .. '"'
+                end
+            end
+            local conversion = format:sub(index, index)
+            if not contains(CONVERSIONS, conversion) then
+                local ending = format:find("%", index + 1, true)
+                ending = ending and ending - 1 or #format
+                return nil, 'invalid string.format directive starting at "' .. format:sub(directive, ending) .. '"'
+            end
+            local debug = conversion == "?"
+            debugArguments[#debugArguments + 1] = debug
+            if debug then
+                pieces[#pieces + 1] = format:sub(copiedFrom, index - 1)
+                pieces[#pieces + 1] = "s"
+                copiedFrom = index + 1
+            end
+            index = index + 1
+        end
+    end
+    pieces[#pieces + 1] = format:sub(copiedFrom)
+
+    return new Analysis(format = table.concat(pieces), debugArguments = debugArguments), nil
+end
+
+export = luaFormat

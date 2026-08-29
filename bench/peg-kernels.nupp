@@ -1,0 +1,118 @@
+-- Compare Nupp's automatic specialization layer with forced LPeg lowering.
+-- Run with: ./bin/nupp run -O2 bench/peg-kernels.nupp
+
+local jit: any = require("jit")
+
+local ROUNDS = 9
+local ITERATIONS = 500000
+
+local AutoSpan = nupp.peg.compile("[a-zA-Z_] [a-zA-Z_0-9]* !.")
+local LPEGSpan = nupp.peg.compile("[a-zA-Z_] [a-zA-Z_0-9]* !.", {backend = "lpeg"})
+local AutoList = nupp.peg.compile("{| { [a-z]+ } (',' { [a-z]+ })* |} !.")
+local LPEGList = nupp.peg.compile("{| { [a-z]+ } (',' { [a-z]+ })* |} !.", {backend = "lpeg"})
+local AutoNested = nupp.peg.compile("start <- value !. value <- 'x' / '(' value ')'")
+local LPEGNested = nupp.peg.compile("start <- value !. value <- 'x' / '(' value ')'", {backend = "lpeg"})
+local AutoRoute = nupp.peg.compile(
+    [[
+    ('GET' / 'POST' / 'PUT' / 'PATCH' / 'DELETE') ' '
+    [a-z0-9/_-]+ ' HTTP/1.' ('0' / '1') !.
+]]
+)
+local LPEGRoute = nupp.peg.compile(
+    [[
+    ('GET' / 'POST' / 'PUT' / 'PATCH' / 'DELETE') ' '
+    [a-z0-9/_-]+ ' HTTP/1.' ('0' / '1') !.
+]],
+    {backend = "lpeg"}
+)
+
+local record Workload
+    name: string
+    automatic: nupp.peg.Peg<any>
+    lpeg: nupp.peg.Peg<any>
+    subjects: {string}
+end
+
+local workloads = {
+    new Workload(
+        name = "single-span",
+        automatic = AutoSpan,
+        lpeg = LPEGSpan,
+        subjects = {"alpha_123", "_name9", "long_identifier_1234567890", "x", "9bad", "bad-name", "", "two words",}
+    ),
+    new Workload(
+        name = "capture-list",
+        automatic = AutoList,
+        lpeg = LPEGList,
+        subjects = {"one,two,three", "a,b,c,d", "single", "many,small,words,here", "one,", ",two", "UPPER", "",}
+    ),
+    new Workload(
+        name = "nested",
+        automatic = AutoNested,
+        lpeg = LPEGNested,
+        subjects = {"x", "(x)", "((x))", "((((x))))", "((x)", "(x))", "y", ""}
+    ),
+    new Workload(
+        name = "packed-route",
+        automatic = AutoRoute,
+        lpeg = LPEGRoute,
+        subjects = {
+            "GET /users/42 HTTP/1.1",
+            "POST /items HTTP/1.0",
+            "DELETE /x HTTP/1.1",
+            "PATCH /a-b_9 HTTP/1.1",
+            "HEAD / HTTP/1.1",
+            "GET  HTTP/1.1",
+            "GET /x HTTP/2.0",
+            "GET /X HTTP/1.1",
+        }
+    ),
+}
+
+local sink = 0
+
+local function median(values: {number}): number
+    table.sort(values)
+    return values[math.ceil(#values / 2)]
+end
+
+local function measure(matcher: nupp.peg.Peg<any>, subjects: {string}): number
+    local cycles = math.floor(ITERATIONS / #subjects)
+    jit.flush()
+    for _ = 1, 10000 do
+        for _, subject in ipairs(subjects) do
+            if matcher(subject) ~= nil then
+                sink = sink + 1
+            end
+        end
+    end
+    local samples = {}
+    for round = 1, ROUNDS do
+        local hits = 0
+        local started = os.clock()
+        for _ = 1, cycles do
+            for _, subject in ipairs(subjects) do
+                if matcher(subject) ~= nil then
+                    hits = hits + 1
+                end
+            end
+        end
+        samples[round] = cycles * #subjects / (os.clock() - started)
+        sink = sink + hits
+    end
+
+    return median(samples)
+end
+
+print(string.format("PEG automatic/LPeg comparison, %s, %d rounds x %d matches", jit.version, ROUNDS, ITERATIONS))
+print("workload                   automatic/s        LPeg/s   LPeg/automatic")
+print("------------------------  ------------  -----------  -------------")
+for _, workload in ipairs(workloads) do
+    for _, subject in ipairs(workload.subjects) do
+        assert(workload.automatic(subject) ~= nil == (workload.lpeg(subject) ~= nil))
+    end
+    local automatic = measure(workload.automatic, workload.subjects)
+    local lpeg = measure(workload.lpeg, workload.subjects)
+    print(string.format("%-24s  %12.0f  %11.0f  %12.2fx", workload.name, automatic, lpeg, lpeg / automatic))
+end
+assert(sink > 0)

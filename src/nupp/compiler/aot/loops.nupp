@@ -1,0 +1,196 @@
+module nupp.compiler.aot.loops
+
+-- Per-loop AOT facts. The established map-loop rewrite still owns its gang;
+-- structured bodies are inventoried independently so diagnostics and future
+-- transforms no longer collapse every loop into one function-level answer.
+
+local effects = require("nupp.compiler.aot.effects")
+local scalarIR = require("nupp.compiler.aot.scalar")
+
+local loops = {}
+
+record loops.Report
+    id: integer
+    kind: 'map' | 'fornum' | 'while'
+    line: integer
+    column: integer
+    nodes: integer
+    simdOperations: integer
+    luaOperations: integer
+    nativeReads: integer
+    nativeWrites: integer
+    mayRaise: boolean
+    outcome: 'lowered' | 'declined' | 'refused' | 'explicit-simd' | 'scalar'
+    reason: string?
+end
+
+record loops.Counts
+    nodes: integer
+    simdOperations: integer
+    luaOperations: integer
+    nativeReads: integer
+    nativeWrites: integer
+    mayRaise: boolean
+end
+
+local STATEMENTS: {
+    [string]: boolean
+} = {
+    let = true,
+    multi_let = true,
+    assign = true,
+    store = true,
+    lua_set_index = true,
+    lua_set_key = true,
+    lua_string_buffer_append = true,
+    lua_scratch_u32_set = true,
+    lua_scratch_u8_set = true,
+    lua_scratch_u8_set4 = true,
+    simd_store4_u8 = true,
+    lua_scratch_u8_reset = true,
+    lua_builder_open_array = true,
+    lua_builder_open_object = true,
+    lua_builder_key = true,
+    lua_builder_string = true,
+    lua_builder_number = true,
+    lua_builder_number_slice = true,
+    lua_builder_integer_slice = true,
+    lua_builder_integer64 = true,
+    lua_builder_decimal64 = true,
+    lua_builder_boolean = true,
+    lua_builder_null = true,
+    lua_builder_close = true,
+    lua_builder_key_scratch = true,
+    lua_builder_string_scratch = true,
+    lua_builder_key_escapes = true,
+    lua_builder_string_escapes = true,
+    ["if"] = true,
+    ["while"] = true,
+    fornum = true,
+    block = true,
+    ["break"] = true,
+    ["continue"] = true,
+    ["return"] = true,
+}
+
+local function count(value: any, counts: loops.Counts): nil
+    if type(value) ~= "table" then
+        return
+    end
+    if value.op ~= nil then
+        local op = tostring(value.op)
+        local facts = STATEMENTS[op] and effects.statement(op) or effects.expression(op)
+        counts.nodes = counts.nodes + 1
+        if op:match("^simd_") ~= nil then
+            counts.simdOperations = counts.simdOperations + 1
+        end
+        if facts.usesLua then
+            counts.luaOperations = counts.luaOperations + 1
+        end
+        if facts.readsNative then
+            counts.nativeReads = counts.nativeReads + 1
+        end
+        if facts.writesNative then
+            counts.nativeWrites = counts.nativeWrites + 1
+        end
+        counts.mayRaise = counts.mayRaise or facts.mayRaise
+    end
+    for key, child in pairs(value) do
+        if key ~= "source" and key ~= "cursorBounds" then
+            count(child, counts)
+        end
+    end
+end
+
+local function measurements(value: any): loops.Counts
+    local answer = new loops.Counts(
+        nodes = 0,
+        simdOperations = 0,
+        luaOperations = 0,
+        nativeReads = 0,
+        nativeWrites = 0,
+        mayRaise = false
+    )
+    count(value, answer)
+
+    return answer
+end
+
+local function append(
+    reports: {loops.Report},
+    kind: 'map' | 'fornum' | 'while',
+    source: scalarIR.Source?,
+    value: any,
+    outcome: 'lowered' | 'declined' | 'refused' | 'explicit-simd' | 'scalar',
+    reason: string?
+): nil
+    local counts = measurements(value)
+    reports[
+        #reports + 1
+    ] = new loops.Report(
+        id = #reports + 1,
+        kind = kind,
+        line = source ~= nil and (source as scalarIR.Source).line or 1,
+        column = source ~= nil and (source as scalarIR.Source).column or 1,
+        nodes = counts.nodes,
+        simdOperations = counts.simdOperations,
+        luaOperations = counts.luaOperations,
+        nativeReads = counts.nativeReads,
+        nativeWrites = counts.nativeWrites,
+        mayRaise = counts.mayRaise,
+        outcome = outcome,
+        reason = reason
+    )
+end
+
+local function structured(statements: {scalarIR.Statement}, reports: {loops.Report}): nil
+    for _, statement in ipairs(statements) do
+        if statement.op == "while" or statement.op == "fornum" then
+            local counts = measurements(statement)
+            local explicit = counts.simdOperations > 0
+            local reason: string? = nil
+            if not explicit then
+                reason = "structured loop has no automatic lane rewrite"
+            end
+            append(reports, statement.op, statement.source, statement, explicit and "explicit-simd" or "scalar", reason)
+            structured(statement.body, reports)
+        elseif statement.op == "if" then
+            for _, clause in ipairs(statement.clauses) do
+                structured(clause.body, reports)
+            end
+            if statement.elseBody ~= nil then
+                structured(statement.elseBody as {scalarIR.Statement}, reports)
+            end
+        elseif statement.op == "block" then
+            structured(statement.body, reports)
+        end
+    end
+end
+
+--- Inventories every loop in source order after optimization and lane choice.
+function loops.program(program: scalarIR.Program): {loops.Report}
+    local reports: {loops.Report} = {}
+    if program.loop ~= nil then
+        local outcome: 'lowered'
+            | 'declined'
+            | 'refused' = program.lanes ~= nil
+            and "lowered"
+            or program.lanesDeclined == true
+            and "declined"
+            or "refused"
+        append(
+            reports,
+            "map",
+            (program.loop as scalarIR.Loop).source,
+            (program.loop as scalarIR.Loop).statements,
+            outcome,
+            outcome == "refused" and "map loop wanted lanes but its body was not lowerable" or nil
+        )
+    else
+        structured(program.body or {}, reports)
+    end
+
+    return reports
+end
+
+export = loops

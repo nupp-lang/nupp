@@ -1,0 +1,50 @@
+module kernels
+
+-- An ahead-of-time compiled kernel and the ordinary exported function that runs it.
+-- A lane is a fresh Lua state in a fresh Wasm instance, so the packaged side module
+-- has to register there as well as on the page: the kernel is what proves it did.
+
+const wasm = require("nupp.wasm")
+
+local struct Sample
+    value: float
+    bias: number
+    weight: float
+end
+
+@aot(lanes = true)
+local function scale(
+    exclusive output: wasm.WriteSpan<Sample>,
+    borrows input: wasm.Span<Sample>,
+    factor: number
+): nil
+    if #output ~= #input then
+        error("length mismatch", 2)
+    end
+    for index = 1, #output do
+        output[index].value = input[index].value * factor
+        output[index].bias = input[index].bias + factor
+        output[index].weight = input[index].weight + factor
+    end
+end
+
+--- Scales a fresh array through the compiled kernel and answers copyable numbers.
+export function scaled(count: integer, factor: number): {number}
+    local input = wasm.array(new Sample(), count)
+    local rows = input:write()
+    for index = 1, count do
+        rows[index] = new Sample(index, index * 10, index * 100)
+    end
+    rows:drop()
+
+    local output = wasm.array(new Sample(), count)
+    scale(output:write(), input:read(), factor)
+
+    local produced = output:read()
+    local values: {number} = {}
+    for index = 1, count do
+        values[index] = produced[index].value + produced[index].bias + produced[index].weight
+    end
+
+    return values
+end

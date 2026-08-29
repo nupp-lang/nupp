@@ -1,0 +1,629 @@
+module nupp.compiler.cli.aot
+
+--[[
+`nupp aot`: what an `@aot` function compiles to, and whether it vectorised.
+
+Two questions, and they are asked for different reasons.
+
+The first is what the backend actually did. An `@aot` body is compiled somewhere
+a reader cannot see, so `--emit ir` shows the verified IR, `--emit c` shows the
+generated C, `--emit asm` shows the instructions that C became, and
+`--emit binding` shows the module that stands in front of it. Reading the C is
+how you tell a mask stack from a branch, and how you check that the loop you
+thought was register-resident is.
+
+`--emit asm` is where that stops being a guess. The C compiler is the last thing
+between a lowering decision and the machine, and until it was readable from here
+the only way to see what it did was to compile the emitted C by hand and run a
+disassembler over it -- four commands, typed differently every time, producing an
+answer that could not be compared with last week's. It takes `--function` and
+`--features`, so what is asked for is one body at one tier, and it counts the
+listing by kind so that two runs of the same kernel can be put side by side.
+
+The second is `--check`, and it exists for the same reason `nupp bc --check`
+does. Whether a loop ran several iterations at once is a performance property:
+no answer depends on it, no test fails when it stops happening, and an ordinary
+edit can quietly take it away. So it gets the same treatment -- a check that
+names the construct that stopped it and exits 1, rather than an annotation that
+turns a performance property into a build error for everyone.
+
+`--check` distinguishes three outcomes, and only one of them is a failure. A body
+that lowered is fine. A body that declined -- because the arithmetic per byte says
+lanes will not pay, or because the source wrote `@aot(lanes = false)` -- is fine,
+and saying so is the point of being able to decline. A body that wanted lanes and
+did not get them is the failure, and it is reported with the construct that
+refused.
+]]
+
+local aot = require("nupp.compiler.aot.compile")
+local buildAot = require("nupp.compiler.build.aot")
+local instructionsMod = require("nupp.compiler.aot.instructions")
+local targets = require("nupp.compiler.aot.target")
+local optionsMod = require("nupp.compiler.cli.options")
+local spec = require("nupp.compiler.cli.spec")
+local report = require("nupp.compiler.cli.report")
+
+--- What this command accepts beyond the shared `--format` trio.
+local function aotOptions(): {any}
+    local list = optionsMod.format()
+    list[
+        #list + 1
+    ] = {
+        name = "--emit",
+        key = "emit",
+        value = "ARTIFACT",
+        choices = {"ir", "c", "asm", "binding"},
+        help = "Print one artifact: ir, c, asm, or binding",
+    }
+    list[
+        #list + 1
+    ] = {
+        name = "--function",
+        key = "function",
+        value = "NAME",
+        help = "Show only this function, named as the source or the symbol spells it",
+    }
+    list[
+        #list + 1
+    ] = {
+        name = "--check",
+        key = "check",
+        help = "Exit non-zero for a map loop that wanted lanes and ran one iteration at a time",
+    }
+    list[
+        #list + 1
+    ] = {
+        name = "--target",
+        key = "target",
+        value = "TRIPLE",
+        help = "The target triple to compile for; the host's by default",
+    }
+    list[
+        #list + 1
+    ] = {
+        name = "--features",
+        key = "features",
+        value = "TIER",
+        help = "The CPU feature tier to promise: baseline, avx2, avx512f, neon, scalar, or simd128",
+    }
+    list[
+        #list + 1
+    ] = {
+        name = "--library",
+        key = "library",
+        value = "PATH",
+        help = "Where the compiled object will be found, for the generated binding",
+    }
+
+    return list
+end
+
+local command = spec.command{
+    name = "aot",
+    summary = "Show what the @aot functions in a file compile to",
+    usage = {
+        "nupp aot [--emit ir|c|asm|binding] [--check] [--function NAME] "
+        .. "[--target TRIPLE] [--features TIER] <file>",
+    },
+    intro = "Reports what the ahead-of-time backend produces for one file, without writing it. "
+    .. "A native build emits the same artifacts under `aot = \"emit-c\"` or `aot = \"require\"`; "
+    .. "Lua 5.1 Wasm applications use `emit-wasm` or `require-wasm`.",
+    options = aotOptions(),
+    schema = {
+        type = "object",
+        description = "What every @aot function in one file lowered to.",
+        properties = {
+            file = {type = "string"},
+            target = {
+                type = "object",
+                description = "What the gangs were chosen for.",
+                properties = {triple = {type = "string"}, architecture = {type = "string"}, tier = {type = "string"},},
+            },
+            functions = {
+                type = "array",
+                description = "One entry per @aot function, in source order.",
+                items = {
+                    type = "object",
+                    properties = {
+                        name = {type = "string"},
+                        symbol = {type = "string"},
+                        entryMode = {type = "string", enum = {"kernel", "lua-builder"}},
+                        builderMode = {type = "string", enum = {"eager", "pull", "serde"}},
+                        runtimeAbi = {type = "string"},
+                        registrar = {type = "string"},
+                        optimization = {
+                            type = "object",
+                            description = "Verified scalar AOT rewrites applied before lane selection.",
+                            properties = {
+                                beforeNodes = {type = "integer"},
+                                afterNodes = {type = "integer"},
+                                folds = {type = "integer"},
+                                propagatedConstants = {type = "integer"},
+                                specializedHelperCalls = {type = "integer"},
+                                unrolledLoops = {type = "integer"},
+                                unrolledIterations = {type = "integer"},
+                                removedStatements = {type = "integer"},
+                                iterations = {type = "integer"},
+                            },
+                        },
+                        loops = {
+                            type = "array",
+                            description = "One measured decision per loop, in source order.",
+                            items = {
+                                type = "object",
+                                properties = {
+                                    id = {type = "integer"},
+                                    kind = {type = "string", enum = {"map", "fornum", "while"}},
+                                    line = {type = "integer"},
+                                    column = {type = "integer"},
+                                    nodes = {type = "integer"},
+                                    simdOperations = {type = "integer"},
+                                    luaOperations = {type = "integer"},
+                                    nativeReads = {type = "integer"},
+                                    nativeWrites = {type = "integer"},
+                                    mayRaise = {type = "boolean"},
+                                    outcome = {
+                                        type = "string",
+                                        enum = {"lowered", "declined", "refused", "explicit-simd", "scalar"},
+                                    },
+                                    reason = {type = "string"},
+                                },
+                            },
+                        },
+                        intensity = {
+                            type = "object",
+                            description = "Arithmetic per byte the loop body touches, and the two counts behind it.",
+                            properties = {
+                                perByte = {type = "number"},
+                                operations = {type = "number"},
+                                bytes = {type = "number"},
+                            },
+                        },
+                        lanes = {
+                            type = "object",
+                            description = "The gang the loop was lowered to, absent when it was not.",
+                            properties = {
+                                shape = {type = "string"},
+                                lanes = {type = "integer"},
+                                rounded = {
+                                    type = "boolean",
+                                    description = "Whether explicit fixed-width work was performed wider and rounded.",
+                                },
+                            },
+                        },
+                        outcome = {
+                            type = "string",
+                            enum = {"lowered", "declined", "refused"},
+                            description = "Whether the loop vectorised, was not expected to, or wanted to and could not.",
+                        },
+                        refusals = {
+                            type = "array",
+                            description = "Why it ran one iteration at a time, when it wanted not to.",
+                            items = {
+                                type = "object",
+                                properties = {
+                                    file = {type = "string"},
+                                    line = {type = "integer"},
+                                    column = {type = "integer"},
+                                    message = {type = "string"},
+                                },
+                            },
+                        },
+                    },
+                },
+            },
+            ir = {type = "string"},
+            c = {type = "string"},
+            binding = {type = "string"},
+            asm = {
+                type = "object",
+                description = "The instructions the generated C compiled to. Present only for "
+                .. "--emit asm, because producing it runs a C compiler.",
+                properties = {
+                    toolchain = {
+                        type = "object",
+                        description = "The compiler that produced them, which is part of the answer: "
+                        .. "two runs are comparable only when this is the same.",
+                        properties = {
+                            command = {type = "string"},
+                            version = {type = "string"},
+                            dialect = {type = "string"},
+                        },
+                    },
+                    flags = {
+                        type = "array",
+                        description = "Every flag it was given, in order. The same flags a build compiles "
+                        .. "this tier's translation unit with.",
+                        items = {type = "string"},
+                    },
+                    functions = {
+                        type = "array",
+                        description = "One entry per emitted symbol that has instructions, ordered "
+                        .. "by role and then by where the compiler wrote it.",
+                        items = {
+                            type = "object",
+                            properties = {
+                                symbol = {type = "string"},
+                                name = {type = "string"},
+                                role = {
+                                    type = "string",
+                                    description = "Which body this symbol is. Listings are reported "
+                                    .. "in this order.",
+                                    enum = {"kernel", "oracle", "wrapper", "registrar", "reporter", "helper"},
+                                },
+                                counts = {
+                                    type = "object",
+                                    description = "`total` is every instruction. The rest are the "
+                                    .. "architecture's rules over the mnemonic and the operand shape.",
+                                    properties = {
+                                        total = {type = "integer"},
+                                        vector = {type = "integer"},
+                                        loads = {type = "integer"},
+                                        stores = {type = "integer"},
+                                        branches = {type = "integer"},
+                                        calls = {type = "integer"},
+                                        stack = {type = "integer"},
+                                    },
+                                    required = {"total"},
+                                },
+                                instructions = {
+                                    type = "array",
+                                    items = {
+                                        type = "object",
+                                        properties = {
+                                            label = {
+                                                type = "string",
+                                                description = "The label this is the first instruction "
+                                                .. "under. Absent when none precedes it.",
+                                            },
+                                            text = {type = "string"},
+                                            mnemonic = {type = "string"},
+                                            operands = {type = "string"},
+                                            kinds = {type = "array", items = {type = "string"}},
+                                        },
+                                        required = {"text", "mnemonic", "kinds"},
+                                    },
+                                },
+                            },
+                            required = {"symbol", "role", "counts", "instructions"},
+                        },
+                    },
+                },
+            },
+        },
+    },
+}
+
+--- Which of the three outcomes this body had.
+---
+--- `declined` and `refused` are deliberately not one answer. A loop nobody
+--- expected to vectorise and a loop that tried and could not are different
+--- facts, and a check that conflated them would either fail on the first or stay
+--- quiet about the second.
+local function outcome(program: any): string
+    if program.lanes ~= nil then
+        return "lowered"
+    end
+    if program.lanesDeclined == true then
+        return "declined"
+    end
+
+    return "refused"
+end
+
+--- One line saying what happened, for a person.
+local function summarise(path: string, program: any): string
+    local shape = program.lanes ~= nil and program.lanes.shape or "none"
+    local how = outcome(program)
+    local why = ""
+    if how == "declined" and program.thin == true then
+        why = ", too little arithmetic per byte for lanes to pay"
+        if program.stridedFields == true then
+            why = why .. "; project hot fields from `nupp.mem.soa` column storage to make them contiguous"
+        end
+    elseif how == "declined" then
+        why = ", declined by `@aot(lanes = false)`"
+    elseif how == "refused" then
+        why = ", ran one iteration at a time"
+    end
+
+    return (
+        "%s: %s, %s, %.2f operations per byte (%d over %d), %s%s"
+    ):format(
+        path,
+        program.name,
+        program.entryMode,
+        program.intensity or 0,
+        program.operations or 0,
+        program.touchedBytes or 0,
+        how == "lowered" and (
+            shape .. ", " .. tostring(
+                program.lanes.lanes
+            ) .. " lanes" .. (program.lanes.rounded == true and ", rounding explicit fixed-width work" or "")
+        ) or shape,
+        why
+    )
+end
+
+--- What every symbol in the generated C compiled to.
+---
+--- Everything here is the build's: the toolchain it would have used, the flags
+--- it would have used for this tier, and the C it would have compiled. A
+--- listing produced any other way would answer a question about this command
+--- rather than about the artifact.
+---
+--- @param wanted one function, named as the source or the symbol spells it
+--- @return the report, or nothing and what stopped it
+local function assembly(artifacts: any, selected: targets.Target, wanted: string?): (any?, string?)
+    if not instructionsMod.reads(selected.architecture) then
+        return nil, (
+            "there are no instruction rules for %s; --emit asm reads %s"
+        ):format(selected.architecture, table.concat(instructionsMod.ARCHITECTURES, " and "))
+    end
+
+    local chain, chainErr = buildAot.toolchain()
+    if chain == nil then
+        return nil, tostring(chainErr)
+    end
+    local selectedChain = chain as nupp.compiler.build.aot.Toolchain
+    local text, assembleErr = buildAot.assemble(selectedChain, selected, artifacts.c)
+    if text == nil then
+        return nil, tostring(assembleErr)
+    end
+
+    local listings = instructionsMod.parse(text as string, selected.architecture, targets.system(selected.triple))
+    -- Which body a symbol is, rather than only what it is called. The oracle is
+    -- the forced-scalar twin the lane body is diffed against, and reading a
+    -- listing without knowing which of the two is in front of you is how a
+    -- vectorised kernel gets mistaken for one that was not.
+    local claims: {[string]: nupp.compiler.aot.instructions.Claim} = {}
+    for _, program in ipairs(artifacts.programs) do
+        claims[program.symbol] = new instructionsMod.Claim(name = program.name, role = "kernel")
+        claims[program.symbol .. "_forced_scalar"] = new instructionsMod.Claim(name = program.name, role = "oracle")
+        claims[program.symbol .. "_lua"] = new instructionsMod.Claim(name = program.name, role = "wrapper")
+        if program.registrar ~= nil then
+            claims[tostring(program.registrar)] = new instructionsMod.Claim(name = program.name, role = "registrar")
+        end
+    end
+    instructionsMod.claim(listings, claims)
+
+    local shown = instructionsMod.order(listings)
+    if wanted ~= nil then
+        -- Narrowed from the ordered listings rather than the emitted ones, so
+        -- naming a function whose two bodies are both here shows them in the
+        -- same order asking for the whole file would have.
+        shown = instructionsMod.select(shown, wanted as string)
+        if #shown == 0 then
+            return nil, (
+                "no function named %s was compiled here; this file has %s"
+            ):format(wanted as string, table.concat(instructionsMod.names(listings), ", "))
+        end
+    end
+
+    return {
+        toolchain = {
+            command = selectedChain.command,
+            version = selectedChain.version,
+            dialect = selectedChain.dialect,
+        },
+        flags = buildAot.compileFlags(selected, selectedChain),
+        functions = shown,
+    }, nil
+end
+
+--- One symbol's listing, for a person.
+local function writeListing(listing: nupp.compiler.aot.instructions.Listing): nil
+    local counts = listing.counts
+    io.write(
+        (
+            "-- %s%s, %s: %d instructions, %d vector, %d loads, %d stores, %d branches, %d calls, %d stack\n"
+        ):format(
+            listing.symbol,
+            listing.name ~= nil and (" (" .. tostring(listing.name) .. ")") or "",
+            listing.role,
+            counts.total,
+            counts.vector,
+            counts.loads,
+            counts.stores,
+            counts.branches,
+            counts.calls,
+            counts.stack
+        )
+    )
+    for _, one in ipairs(listing.instructions) do
+        if one.label ~= nil then
+            io.write(tostring(one.label) .. ":\n")
+        end
+        -- Padded only when there is something to pad away from, so a listing
+        -- carries no trailing space for a diff to trip over.
+        io.write(
+            one.operands ~= "" and (
+                "      %-7s %s\n"
+            ):format(one.mnemonic, one.operands) or ("      " .. one.mnemonic .. "\n")
+        )
+    end
+    io.write("\n")
+end
+
+local function run(parsed: any): integer
+    local paths: {string} = parsed.positional
+    if #paths ~= 1 then
+        return command:usageError("exactly one source file is required")
+    end
+
+    local path = paths[1]
+    local fs = require("nupp.compiler.fs")
+    local source, readErr = fs.readFile(path)
+    if source == nil then
+        io.stderr:write("nupp: " .. tostring(readErr) .. "\n")
+
+        return 1
+    end
+
+    -- A placeholder rather than a guess: where the object lands is a build
+    -- decision this command does not make, and a binding printed for reading
+    -- says so rather than naming a path nobody will produce.
+    local selected, targetErr = targets.select(parsed.values.target, parsed.values.features)
+    if selected == nil then
+        io.stderr:write("nupp: " .. tostring(targetErr) .. "\n")
+
+        return 1
+    end
+
+    -- Inspection lowers the same checked tree a production build does. Parsing
+    -- here would make `nupp aot` disagree with `nupp build` precisely on the
+    -- aliases, ownership modes, effects and resolved layouts it exists to show.
+    local parser = require("nupp.compiler.parser")
+    local tree = parser.parse(source as string, path)
+    local diagnosticMod = require("nupp.compiler.diagnostics")
+    if #tree.errors > 0 then
+        diagnosticMod.report(tree.errors)
+
+        return 1
+    end
+    local envMod = require("nupp.compiler.env")
+    local environment = envMod.new(".")
+    -- The command is an inspection of AOT output even when the manifest's
+    -- build policy is off. Keep every other project setting and make only that
+    -- question explicit while checking AOT-only values such as preferredU8.
+    environment.config._target = environment.config._target or {}
+    environment.config._target.aot = "emit-c"
+    local checked = require("nupp.compiler.check").check(tree, path, environment as {[string]: any})
+    local failed = false
+    for _, diagnostic in ipairs(checked) do
+        failed = failed or diagnosticMod.isFatal(diagnostic)
+    end
+    if failed then
+        diagnosticMod.report(checked)
+
+        return 1
+    end
+
+    local library = parsed.values.library or "<object>"
+    local artifacts, diagnostics = aot.artifacts(source as string, path, tree, library, selected as targets.Target)
+    if artifacts == nil then
+        for _, problem in ipairs(diagnostics) do
+            io.stderr:write(aot.renderDiagnostic(problem) .. "\n")
+        end
+
+        return 1
+    end
+
+    local emit = parsed.values.emit
+    local refused = false
+    -- Compiled once, before either branch prints: producing it runs a C
+    -- compiler, so it happens when it was asked for and never as a side effect
+    -- of choosing an output format.
+    local instructionReport: any = nil
+    if emit == "asm" then
+        local built, instructionErr = assembly(artifacts, selected as targets.Target, parsed.values["function"])
+        if built == nil then
+            io.stderr:write("nupp: " .. tostring(instructionErr) .. "\n")
+
+            return 1
+        end
+        instructionReport = built
+    end
+    if parsed.values.format == "json" then
+        -- An absent list is an empty array rather than an empty object, so a
+        -- consumer reading `refusals` never has to handle two shapes.
+        -- Lane counts and widths are integers the backend settled on, so a NaN here
+        -- would be a fault rather than a measurement.
+
+        local functions: {any} = {}
+        for position, program in ipairs(artifacts.programs) do
+            local refusals: {any} = {}
+            for index, problem in ipairs(program.laneRefusals or {}) do
+                refusals[index] = problem
+            end
+            functions[
+                position
+            ] = {
+                name = program.name,
+                symbol = program.symbol,
+                entryMode = program.entryMode,
+                builderMode = program.builderMode,
+                runtimeAbi = program.runtimeAbi,
+                registrar = program.registrar,
+                optimization = artifacts.optimizations[position],
+                loops = artifacts.loops[position],
+                intensity = {
+                    perByte = program.intensity,
+                    operations = program.operations,
+                    bytes = program.touchedBytes,
+                },
+                lanes = program.lanes ~= nil and {
+                    shape = program.lanes.shape,
+                    lanes = program.lanes.lanes,
+                    rounded = program.lanes.rounded == true,
+                } or nil,
+                outcome = outcome(program),
+                refusals = refusals,
+            }
+        end
+        io.write(
+            report.encode({
+                file = path,
+                target = {
+                    triple = (selected as targets.Target).triple,
+                    architecture = (selected as targets.Target).architecture,
+                    tier = (selected as targets.Target).tier,
+                },
+                functions = functions,
+                ir = (emit == nil or emit == "ir") and artifacts.irText or nil,
+                c = (emit == nil or emit == "c") and artifacts.c or nil,
+                binding = (emit == nil or emit == "binding") and artifacts.binding or nil,
+                asm = instructionReport,
+            }) .. "\n"
+        )
+    elseif emit == "ir" then
+        io.write(artifacts.irText)
+    elseif emit == "c" then
+        io.write(artifacts.c)
+    elseif emit == "asm" then
+        io.write(
+            (
+                "-- %s, %s, %s, %s\n"
+            ):format(
+                path,
+                (selected as targets.Target).triple,
+                (selected as targets.Target).tier,
+                instructionReport.toolchain.version
+            )
+        )
+        for _, listing in ipairs(instructionReport.functions) do
+            writeListing(listing)
+        end
+    elseif emit == "binding" then
+        io.write(artifacts.binding)
+    else
+        for _, program in ipairs(artifacts.programs) do
+            io.write(summarise(path, program) .. "\n")
+        end
+    end
+
+    for _, program in ipairs(artifacts.programs) do
+        if outcome(program) == "refused" then
+            refused = true
+        end
+    end
+    if parsed.values.check and refused then
+        -- stdout is buffered and stderr is not, so the summary would otherwise
+        -- arrive after the failure it summarises.
+        io.stdout:flush()
+        for _, program in ipairs(artifacts.programs) do
+            if outcome(program) == "refused" then
+                io.stderr:write(("nupp: %s ran one iteration at a time\n"):format(program.name))
+                for _, problem in ipairs(program.laneRefusals or {}) do
+                    io.stderr:write("  " .. aot.renderDiagnostic(problem) .. "\n")
+                end
+            end
+        end
+
+        return 1
+    end
+
+    return 0
+end
+
+export = new spec.Handler(spec = command, run = run)

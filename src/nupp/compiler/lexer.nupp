@@ -1,0 +1,852 @@
+module nupp.compiler.lexer
+
+--[[
+The lossless lexer.
+
+The token stream preserves every byte of the input: each token carries its
+leading trivia, meaning whitespace, comments, hashbang and byte-order mark, and the final
+`eof` token carries the file's trailing trivia. The invariant is that
+concatenating every token's trivia and text, in order, reproduces the source.
+
+A token is a kind, its text, its offset, line and column, and its trivia. The
+kind is `name`, `number`, `string`, `error`, `eof`, a keyword, or an operator.
+
+The grammar base is LuaJIT 3.0: the bit operators, the customary spellings
+`!`, `&&`, `||` and `!=`, floor division, the ternary conditional, safe
+navigation, and the `LL`, `ULL` and `i` number suffixes. A customary spelling
+is lexed as the operator it spells, so `&&` arrives as an `and` token whose
+text is `&&`.
+
+The lexer never throws. Malformed input becomes `error` tokens that still round
+trip, which is what lets an editor keep working in a file that is mid-edit.
+]]
+
+local lexer = {}
+local triviaarena = require("nupp.compiler.triviaarena")
+
+-- Trivia kinds as the small integers an arena record stores, and the way back.
+const TRIVIA_WHITESPACE = 1
+const TRIVIA_COMMENT = 2
+const TRIVIA_HASHBANG = 3
+const TRIVIA_BOM = 4
+const TRIVIA_KIND_NAMES = {"whitespace", "comment", "hashbang", "bom"}
+
+-- Words to an arena record: kind, offset, length, line, column.
+
+--- Every trivia in one file, five words to a record, in one growable block.
+---
+--- A trivia is a kind and a span and nothing else, so it needs no object: its text is a
+--- slice of the source this holds, cut when something asks for it rather than while
+--- lexing. What a token keeps is the index of its first record and how many follow,
+--- which is two numbers where it used to be a list of tables.
+---
+--- The block belongs to one file's token stream and is reachable only from its tokens,
+--- so it is released when they are. That is what lets an index into it stand alone: an
+--- index outliving its arena would need a generation beside it to be caught, and one
+--- cannot, because there is no way to hold the index without holding a token that holds
+--- the arena.
+type lexer.TriviaArena = nupp.compiler.triviaarena.Arena
+
+--- A file's trivia block, empty.
+function lexer.arena(source: string): lexer.TriviaArena
+    return triviaarena.new(source)
+end
+
+--- The block a token with no trivia of its own can point at, so that every token has
+--- one and `cst.isToken` keeps its test.
+lexer.EMPTY_TRIVIA = lexer.arena("")
+
+--- A run of text that carries no meaning to the grammar but must survive the round
+--- trip: whitespace, a comment, the hashbang line, or a leading byte-order mark.
+---
+--- The lexer stores these in a `TriviaArena` rather than building them; this is the
+--- shape they take when a caller that has to hand one on as plain data asks for it
+--- through `lexer.triviaRecord`.
+type lexer.Trivia = {
+    --- One of "whitespace", "comment", "hashbang", "bom".
+    kind: string,
+
+    --- The exact bytes, so reprinting is lossless.
+    ---
+    --- Cut while lexing rather than on demand, which was tried: deferring it behind a
+    --- metatable raised the build's collector share from 3.3% to 5.2%, because the
+    --- build reads most of it after all -- `docblock`, `cst` and the incremental hash
+    --- all walk trivia -- and filling the field afterwards rehashes a table that was
+    --- sized without it.
+    text: string,
+
+    --- Byte offset of the first character, 1-based.
+    offset: integer,
+
+    --- 1-based line of the first character.
+    line: integer,
+
+    --- 1-based column of the first character.
+    col: integer
+}
+
+--- One token, carrying the trivia that preceded it. The final "eof" token carries the
+--- file's trailing trivia, so every byte of the input belongs to exactly one token.
+type lexer.Token = {
+    --- "name", "number", "string", "error", "eof", a keyword, or an operator.
+    kind: string,
+
+    --- The exact bytes of the token itself, trivia excluded.
+    text: string,
+
+    --- Byte offset of the first character, 1-based.
+    offset: integer,
+
+    --- 1-based line of the first character.
+    line: integer,
+
+    --- 1-based column of the first character.
+    col: integer,
+
+    --- The block holding everything skipped to reach this token. Shared by every token
+    --- of the file, and never nil, which is how `cst` tells a token from a node.
+    trivia: lexer.TriviaArena,
+
+    --- Index of the first of this token's trivia records, counting from 1.
+    triviaFirst: integer,
+
+    --- How many records are this token's, in source order.
+    triviaCount: integer,
+
+    --- Set on a token the parser inserted to recover from a syntax error. Such a token
+    --- has empty text, so it never reprints.
+    missing: boolean?,
+
+    -- Marks the parser leaves on a token for the passes after it. They say what role a
+    -- punctuation token plays, which reprinting does not need but formatting and
+    -- erasure do.
+
+    --- The `:` introducing a type annotation, which erases with the type.
+    typeColon: boolean?,
+
+    --- A `,` separating annotated types rather than code.
+    typeSeparator: boolean?,
+
+    --- A `(`, `)` or `|` enclosing an annotated type pack, which erases with it.
+    ---
+    --- Separate from `typeSeparator` because a pack's punctuation can end up spliced
+    --- into the declaration that carries it, where nothing else records that these
+    --- tokens were type material and not code.
+    typeBracket: boolean?,
+
+    --- A `?`, `*` or `[` closing over a type, which sets tight spacing.
+    typePostfix: boolean?,
+
+    --- An angle bracket of a generic clause or application, likewise tight.
+    generic: boolean?,
+
+    --- `...` introducing a homogeneous type-pack tail, kept tight to its type.
+    homogeneousPack: boolean?,
+
+    --- The name of a named vararg parameter, `...rest`.
+    namedVararg: boolean?,
+
+    --- A contextual operator lexed as a name: the `as` of a cast, the `is` of a type
+    --- test. It takes a type on its right, so it is not the callee its spelling makes
+    --- it look like.
+    contextualOp: boolean?,
+
+    --- The capability granted by a contextual `readonly` or `writeonly`
+    --- property/indexer modifier: "read" or "write".
+    propertyCapability: string?,
+
+    --- The last token of the type a `new` builds. A construction's brace stands off its
+    --- type, as in `new R(x = 1)`, where the `f{...}` call sugar it otherwise looks
+    --- like hugs its callee.
+    constructTarget: boolean?,
+
+    --- Where the name this token spells was declared, attached by the checker so the
+    --- editor can jump to it. Its shape belongs to the checker, not the lexer.
+    definition: any,
+
+    --- Tooling-only migration detail inherited by the declaration definition.
+    deprecation: any,
+
+    --- The @deprecated wrapper's own token, which owns the leading trivia the
+    --- declaration's documentation is read from. The token rather than the trivia,
+    --- because trivia is reached through the token that points into the block. A shape
+    --- cannot name itself, so this is `any` as the other token-valued marks are.
+    deprecationToken: any,
+
+    --- The definition whose deprecation lint was already emitted at this token.
+    deprecationReported: any,
+
+    --- Other declarations contributing the same composed intersection member.
+    additionalDefinitions: {any}?,
+
+    --- A resolved field token whose value is stored in a structure-of-arrays
+    --- column. Tooling reports this semantic identity without exposing storage.
+    soaColumn: any,
+
+    -- Marks the formatter leaves on a token, in the pass that decides layout, for the
+    -- pass that emits it. They say nothing about the program, and a token nobody has
+    -- formatted carries none of them.
+
+    --- Always separated from its neighbours, whatever the spacing rules say.
+    spacedTok: boolean?,
+    spaceBeforeTok: boolean?,
+
+    --- An operator a long expression may break before.
+    breakOp: boolean?,
+
+    --- The `:` of a method call whose receiver is itself a call, so it continues a
+    --- chain rather than starting one. A long chain breaks before each of them.
+    chainStep: boolean?,
+
+    --- The `|` or `&` of a union or an intersection. It joins whole types, so a
+    --- signature too long to fit breaks there before it breaks inside one of them.
+    typeOp: boolean?,
+
+    --- A unary operator, which hugs its operand.
+    unaryTok: boolean?,
+
+    --- How deep the statement holding this token is nested.
+    blockDepth: integer?,
+
+    --- The group whose breaking decision this token follows, and the group it opens
+    --- when it opens one.
+    groupRef: any,
+
+    opensGroup: any,
+
+    --- The first token of a statement, carrying that statement's last token, so the
+    --- blank-line policy can be applied to whole statements.
+    startsStat: boolean?,
+
+    --- A shape cannot name itself, so this is the token it is rather than `Token?`.
+    stmtLastTok: any,
+
+    --- Whether a blank line goes before or after this token.
+    blankBefore: boolean?,
+
+    blankAfter: boolean?,
+
+    --- Begins a new output line regardless of its source trivia.
+    forceBreak: boolean?,
+
+    --- The final top-level return in a function body, and that body's first token.
+    finalFunctionReturn: boolean?,
+
+    functionBodyFirstTok: any,
+
+    --- Which output line it landed on.
+    lineIdx: integer?,
+
+    --- The `do` closing a wrapped `with` header, which stays with that header.
+    withHeaderClose: boolean?,
+
+    --- Left out of the output: an annotation argument the canonical single-value
+    --- spelling makes implicit.
+    formatOmit: boolean?,
+
+    --- The pipes of a short function, which hug their parameters.
+    _shortfnOpen: boolean?,
+
+    _shortfnClose: boolean?
+}
+
+--- A lexical error. The lexer never throws: it reports and carries on, so the token
+--- stream still round-trips.
+type lexer.LexError = {
+    code: string,
+    offset: integer,
+    length: integer,
+    line: integer,
+    col: integer,
+    msg: string,
+    filename: string?,
+    help: string?
+}
+
+local KEYWORDS: {[string]: boolean} = {}
+for word in (
+    "and break do else elseif end false for function goto if in local "
+    .. "nil not or repeat return sealed then true until while"
+):gmatch("%S+") do
+    KEYWORDS[word] = true
+end
+lexer.KEYWORDS = KEYWORDS
+
+-- Longest-match operator table, grouped by length.
+local OPS4: {[string]: boolean} = {["~>>="] = true}
+local OPS3: {[string]: boolean} = {}
+for op in ("~>> ... <<= >>= //= ..= ??="):gmatch("%S+") do
+    OPS3[op] = true
+end
+local OPS2: {[string]: boolean} = {}
+for op in ("<< >> == ~= <= >= ?. :: // .. -> ?? += -= *= /= %= &= |= " .. "&& || !="):gmatch("%S+") do
+    OPS2[op] = true
+end
+local OPS1: {[string]: boolean} = {}
+for op in ("+ - * / % ^ # & ~ | < > = ( ) { } [ ] ; : , . ? @ !"):gmatch("%S+") do
+    OPS1[op] = true
+end
+
+-- The same four tables keyed by their bytes packed into one integer, which is how the
+-- scanner reads them. Matching an operator by string meant cutting four candidate
+-- substrings out of the source at every operator, and punctuation is the most common
+-- thing in a file; the packed key is arithmetic on bytes already in registers. The
+-- value is the operator itself, so the token that comes out of a hit carries the
+-- table's own string rather than another cut of the same bytes.
+local OPS1BYTE: {[number]: string} = {}
+local OPS2BYTE: {[number]: string} = {}
+local OPS3BYTE: {[number]: string} = {}
+local OPS4BYTE: {[number]: string} = {}
+for op in pairs(OPS1) do
+    OPS1BYTE[string.byte(op, 1)] = op
+end
+for op in pairs(OPS2) do
+    local a, b = string.byte(op, 1, 2)
+    OPS2BYTE[a * 256 + b] = op
+end
+for op in pairs(OPS3) do
+    local a, b, c = string.byte(op, 1, 3)
+    OPS3BYTE[(a * 256 + b) * 256 + c] = op
+end
+for op in pairs(OPS4) do
+    local a, b, c, d = string.byte(op, 1, 4)
+    OPS4BYTE[((a * 256 + b) * 256 + c) * 256 + d] = op
+end
+
+-- LuaJIT 3.0's "customary operators" are alternate spellings, not new operators, so
+-- they are folded into the classic token kind here and the rest of the compiler never
+-- learns they exist. `text` keeps the bytes that were written, which is what the round
+-- trip and the formatter run on.
+--
+-- `||` doubles as the empty parameter list of a short function. That is a position, not
+-- a spelling: at the start of an operand `||` can only be `|| -> e`, and in
+-- binary-operator position it can only be `or`. The parser decides, so the lexer hands
+-- it the one token either way.
+local CUSTOMARY: {[string]: string} = {["!"] = "not", ["&&"] = "and", ["||"] = "or", ["!="] = "~=",}
+
+--- The classic spelling of each customary operator, keyed by the customary one. Reading
+--- a token's text through this is how anything downstream tells which form was written,
+--- since the kind no longer says.
+lexer.CUSTOMARY = CUSTOMARY
+
+local byte, sub, find = string.byte, string.sub, string.find
+
+local function isDigit(c: integer?): boolean?
+    return c and c >= 48 and c <= 57
+end
+
+local function isHex(c: integer?): boolean?
+    return c and (isDigit(c) or (c >= 97 and c <= 102) or (c >= 65 and c <= 70))
+end
+
+local function isNameStart(c: integer?): boolean?
+    return c and ((c >= 97 and c <= 122) or (c >= 65 and c <= 90) or c == 95)
+end
+
+local function isNameChar(c: integer?): boolean?
+    return isNameStart(c) or isDigit(c)
+end
+
+--- Scans a long-bracket body starting at the opening '['.
+---
+--- Returns the position one past the closing bracket, or nil when there is no long
+--- bracket at `pos` at all. `terminated` says whether the closing bracket was actually
+--- found; when it is false the returned position is the end of the source.
+---
+--- @param src the whole source text
+--- @param pos offset of the opening '['
+local function scanLongBracket(src: string, pos: integer): integer?, boolean
+    if byte(src, pos) ~= 91 then
+        return nil, false
+    end -- '['
+    local level: integer = 0
+    local p = pos + 1
+    while byte(src, p) == 61 do
+        level = level + 1;
+        p = p + 1
+    end -- '='
+    if byte(src, p) ~= 91 then
+        return nil, false
+    end
+    local close = "]" .. ("="):rep(level) .. "]"
+    local s = find(src, close, p + 1, true)
+    if not s then
+        return #src + 1, false
+    end
+
+    return s + #close, true
+end
+
+function lexer.lex(source: string, filename: string?): {lexer.Token}, {lexer.LexError}
+    local tokens: {lexer.Token} = {}
+    local errors: {lexer.LexError} = {}
+    local arena = lexer.arena(source)
+    local pos: integer = 1
+    local line: integer = 1
+    local lineStart: integer = 1 -- offset of the first byte of the current line
+    local len = #source
+    -- Interpolated-string state: one brace-depth counter per nesting level. While
+    -- inside `${ ... }`, "{" and "}" adjust the top counter so table constructors work
+    -- inside interpolations; "}" at depth 0 resumes the string scan.
+    local interp = {}
+
+    local function colOf(offset: integer): integer
+        return offset - lineStart + 1
+    end
+
+    -- The next newline at or after everything consumed so far, or one past the end when
+    -- there is none left. Held across tokens because the scan only ever moves forward:
+    -- the file is searched once between them all rather than once per token, and the
+    -- span that was consumed no longer has to exist as a string to be counted.
+    local nextNewline: integer = find(source, "\n", 1, true) or (len + 1)
+
+    -- Update line accounting for everything consumed up to `endpos` (exclusive).
+    local function advanceLines(endpos: integer)
+        while nextNewline < endpos do
+            line = line + 1
+            lineStart = nextNewline + 1
+            nextNewline = find(source, "\n", nextNewline + 1, true) or (len + 1)
+        end
+    end
+
+    local function addError(offset: integer, l: integer, c: integer, msg: string)
+        errors[
+            #errors + 1
+        ] = {
+            code = "NUPP1001",
+            offset = offset,
+            length = math.max(1, pos - offset),
+            line = l,
+            col = c,
+            msg = msg,
+            filename = filename
+        }
+    end
+
+    -- Collect leading trivia starting at `pos` into the arena; returns the index of the
+    -- first record taken and how many there were.
+    local function scanTrivia(): integer, integer
+        local first = arena.count + 1
+        local taken: integer = 0
+        while pos <= len do
+            local start = pos
+            local l, c = line, colOf(pos)
+            local ch = byte(source, pos)
+            local kind: integer
+            if pos == 1 and sub(source, 1, 3) == "\239\187\191" then
+                kind, pos = TRIVIA_BOM, 4
+            elseif pos == 1 and sub(source, 1, 1) == "#" then
+                kind = TRIVIA_HASHBANG
+                local nl = find(source, "\n", pos, true)
+                pos = nl and (nl + 1) or (len + 1)
+            elseif ch == 32 or ch == 9 or ch == 13 or ch == 10 or ch == 11 or ch == 12 then
+                kind = TRIVIA_WHITESPACE
+                repeat
+                    pos = pos + 1
+                    ch = byte(source, pos)
+                until not (ch == 32 or ch == 9 or ch == 13 or ch == 10 or ch == 11 or ch == 12)
+            elseif ch == 45 and byte(source, pos + 1) == 45 then -- '--'
+                kind = TRIVIA_COMMENT
+                local after, terminated = scanLongBracket(source, pos + 2)
+                if after and terminated then
+                    pos = after
+                elseif after then
+                    pos = len + 1
+                    addError(start, l, c, "unterminated long comment")
+                else
+                    local nl = find(source, "\n", pos + 2, true)
+                    pos = nl or (len + 1) -- newline goes to the next whitespace trivia
+                end
+            else
+                break
+            end
+            arena:append(kind, start, pos - start, l, c)
+            taken = taken + 1
+            advanceLines(pos)
+        end
+
+        return first, taken
+    end
+
+    -- Scan one short-string token starting at the quote character. Returns endpos
+    -- (exclusive) and true if terminated.
+    local function scanShortString(quote: integer): integer, boolean
+        local p = pos + 1
+        while p <= len do
+            local ch = byte(source, p)
+            if ch == quote then
+                return p + 1, true
+            elseif ch == 92 then -- backslash: consume escaped char (incl. newline)
+                p = p + 2
+            elseif ch == 10 then
+                return p, false -- unescaped newline: unterminated
+            else
+                p = p + 1
+            end
+        end
+
+        return len + 1, false
+    end
+
+    -- Scans an interpolated-string segment starting at '`' (opening = true) or at the
+    -- '}' that terminates an interpolation (opening = false). Emits: "string" (backtick
+    -- string without interpolation), "istringOpen" (`...${), "istringMid" (}...${),
+    -- "istringClose" (}...`). Raw newlines are allowed; backslash escapes ` $ and
+    -- friends.
+    local function scanIstring(opening: boolean): string
+        local start = pos
+        local l, c = line, colOf(pos)
+        pos = pos + 1 -- skip ` or }
+        while pos <= len do
+            local ch = byte(source, pos)
+            if ch == 92 then -- backslash escape
+                pos = pos + 2
+            elseif ch == 96 then -- closing '`'
+                pos = pos + 1
+                if opening then
+                    return "string"
+                end
+                interp[#interp] = nil
+                return "istringClose"
+            elseif ch == 36 and byte(source, pos + 1) == 123 then -- '${'
+                pos = pos + 2
+                if opening then
+                    interp[#interp + 1] = 0
+                else
+                    interp[#interp] = 0
+                end
+                return opening and "istringOpen" or "istringMid"
+            else
+                pos = pos + 1
+            end
+        end
+        if not opening then
+            interp[#interp] = nil
+        end
+        addError(start, l, c, "unterminated interpolated string")
+
+        return "error"
+    end
+
+    -- Scan a number starting at `pos` (first char is a digit, or '.' + digit). Returns
+    -- endpos (exclusive) and true if well-formed.
+    local function scanNumber(): integer, boolean
+        local p = pos
+        local wellformed = true
+
+        -- LuaJIT 3.0 ignores underscores anywhere after the initial digit, including
+        -- around radix/exponent markers and inside suffixes.
+        local function skipUnderscores(at: integer): integer
+            while byte(source, at) == 95 do
+                at = at + 1
+            end
+            return at
+        end
+
+        local function scanDigits(at: integer, predicate: function(c: integer?): boolean?): integer, integer
+            local digits: integer = 0
+            while predicate(byte(source, at)) do
+                digits = digits + 1
+                at = skipUnderscores(at + 1)
+            end
+
+            return at, digits
+        end
+
+        local marker = byte(source, p) == 48 and skipUnderscores(p + 1) or p + 1
+        if byte(source, p) == 48 and (byte(source, marker) == 120 or byte(source, marker) == 88) then
+            -- hex: 0x hexdigits [. hexdigits] [pP [+-] digits]
+            p = skipUnderscores(marker + 1)
+            local digits, more
+            p, digits = scanDigits(p, isHex)
+            if byte(source, p) == 46 and byte(source, p + 1) ~= 46 then
+                p = skipUnderscores(p + 1)
+                p, more = scanDigits(p, isHex)
+                digits = digits + more
+            end
+            if digits == 0 then
+                wellformed = false
+            end
+            local e = byte(source, p)
+            if e == 112 or e == 80 then -- p P
+                p = skipUnderscores(p + 1)
+                local s = byte(source, p)
+                if s == 43 or s == 45 then
+                    p = skipUnderscores(p + 1)
+                end
+                if not isDigit(byte(source, p)) then
+                    wellformed = false
+                end
+                p = scanDigits(p, isDigit)
+            end
+        else
+            -- decimal: digits [. digits] [eE [+-] digits] (also handles ".5")
+            if byte(source, p) == 46 then
+                p = p + 1
+            end
+            p = scanDigits(p, isDigit)
+            if byte(source, p) == 46 and byte(source, p + 1) ~= 46 then
+                p = skipUnderscores(p + 1)
+                p = scanDigits(p, isDigit)
+            end
+            local e = byte(source, p)
+            if e == 101 or e == 69 then -- e E
+                p = skipUnderscores(p + 1)
+                local s = byte(source, p)
+                if s == 43 or s == 45 then
+                    p = skipUnderscores(p + 1)
+                end
+                if not isDigit(byte(source, p)) then
+                    wellformed = false
+                end
+                p = scanDigits(p, isDigit)
+            end
+        end
+        -- LuaJIT cdata literal suffixes: LL, ULL (any case), imaginary i/I.
+        local function suffix(word: string): integer?
+            local at = p
+            for j = 1, #word do
+                local ch = byte(source, at)
+                if ch and ch >= 65 and ch <= 90 then
+                    ch = ch + 32
+                end
+                if ch ~= byte(word, j) then
+                    return nil
+                end
+                at = skipUnderscores(at + 1)
+            end
+
+            return at
+        end
+
+        p = suffix("ull") or suffix("ll") or suffix("i") or p
+        -- A number immediately followed by a name character is malformed (0x, 12abc).
+        if isNameChar(byte(source, p)) then
+            repeat
+                p = p + 1
+            until not isNameChar(byte(source, p))
+            wellformed = false
+        end
+
+        return p, wellformed
+    end
+
+    while true do
+        local triviaFirst, triviaCount = scanTrivia()
+        if pos > len then
+            if #interp > 0 then
+                addError(pos, line, colOf(pos), "unterminated interpolated string")
+            end
+            tokens[
+                #tokens + 1
+            ] = {
+                kind = "eof",
+                text = "",
+                offset = pos,
+                line = line,
+                col = colOf(pos),
+                trivia = arena,
+                triviaFirst = triviaFirst,
+                triviaCount = triviaCount
+            }
+            break
+        end
+
+        local start = pos
+        local l, c = line, colOf(pos)
+        local ch = byte(source, pos)
+        local kind
+        -- Set by any branch that already knows the bytes it consumed, so the token can
+        -- be built without cutting them out of the source a second time. Every operator
+        -- and every keyword knows them: the text is the table key that matched.
+        local text: string? = nil
+
+        if isNameStart(ch) then
+            repeat
+                pos = pos + 1
+            until not isNameChar(byte(source, pos))
+            text = sub(source, start, pos - 1)
+            kind = KEYWORDS[text] and text or "name"
+        elseif isDigit(ch) or (ch == 46 and isDigit(byte(source, pos + 1))) then
+            local endpos, ok = scanNumber()
+            pos = endpos
+            if ok then
+                kind = "number"
+            else
+                kind = "error"
+                addError(start, l, c, "malformed number")
+            end
+        elseif ch == 34 or ch == 39 then -- " '
+            local endpos, terminated = scanShortString(ch)
+            pos = endpos
+            if terminated then
+                kind = "string"
+            else
+                kind = "error"
+                addError(start, l, c, "unterminated string")
+            end
+        elseif ch == 96 then -- '`', interpolated string
+            kind = scanIstring(true)
+        elseif ch == 123 and #interp > 0 then -- '{' inside an interpolation
+            interp[#interp] = interp[#interp] + 1
+            pos = pos + 1
+            kind = "{"
+        elseif ch == 125 and #interp > 0 and interp[#interp] == 0 then
+            kind = scanIstring(false) -- '}' resumes the string
+        elseif ch == 125 and #interp > 0 then -- nested '}'
+            interp[#interp] = interp[#interp] - 1
+            pos = pos + 1
+            kind = "}"
+        elseif ch == 91 then -- '[', long string or bracket
+            local after, terminated = scanLongBracket(source, pos)
+            if after and terminated then
+                pos = after
+                kind = "string"
+            elseif after then
+                pos = len + 1
+                kind = "error"
+                addError(start, l, c, "unterminated long string")
+            else
+                pos = pos + 1
+                kind = "["
+            end
+        else
+            local remaining = len - pos + 1
+            local b1 = ch as integer
+            local packed = b1
+            local matched: string? = OPS1BYTE[packed]
+            if remaining >= 2 then
+                packed = packed * 256 + (byte(source, pos + 1) as integer)
+                matched = OPS2BYTE[packed] or matched
+                if remaining >= 3 then
+                    packed = packed * 256 + (byte(source, pos + 2) as integer)
+                    matched = OPS3BYTE[packed] or matched
+                    if remaining >= 4 then
+                        packed = packed * 256 + (byte(source, pos + 3) as integer)
+                        matched = OPS4BYTE[packed] or matched
+                    end
+                end
+            end
+            if matched then
+                pos = pos + #matched
+                kind = matched
+                text = matched
+            else
+                pos = pos + 1
+                kind = "error"
+                addError(start, l, c, ("unexpected character %q"):format(sub(source, start, start)))
+            end
+        end
+
+        kind = CUSTOMARY[kind] or kind
+        tokens[
+            #tokens + 1
+        ] = {
+            kind = kind,
+            text = text or sub(source, start, pos - 1),
+            offset = start,
+            line = l,
+            col = c,
+            trivia = arena,
+            triviaFirst = triviaFirst,
+            triviaCount = triviaCount
+        }
+        advanceLines(pos)
+    end
+
+    return tokens, errors
+end
+
+local function triviaIndex(tok: lexer.Token, index: integer): integer
+    return tok.triviaFirst + index - 1
+end
+
+--- How many trivia precede `tok`.
+function lexer.triviaCount(tok: lexer.Token): integer
+    return tok.triviaCount
+end
+
+--- The kind of `tok`'s `index`-th trivia: "whitespace", "comment", "hashbang" or "bom".
+function lexer.triviaKind(tok: lexer.Token, index: integer): string
+    local code = tok.trivia:record(triviaIndex(tok, index))
+
+    return TRIVIA_KIND_NAMES[code] as string
+end
+
+--- The bytes of `tok`'s `index`-th trivia, cut from the source when asked for.
+function lexer.triviaText(tok: lexer.Token, index: integer): string
+    local arena = tok.trivia
+    local _, offset, length = arena:record(triviaIndex(tok, index))
+
+    return sub(arena.source, offset, offset + length - 1)
+end
+
+--- Where `tok`'s `index`-th trivia starts: offset, line and column.
+function lexer.triviaAt(tok: lexer.Token, index: integer): integer, integer, integer
+    local _, offset, _, line, col = tok.trivia:record(triviaIndex(tok, index))
+
+    return offset, line, col
+end
+
+--- One trivia as an ordinary record, for a caller that has to hand it on as plain data
+--- rather than read it where it lies.
+function lexer.triviaRecord(tok: lexer.Token, index: integer): lexer.Trivia
+    local offset, line, col = lexer.triviaAt(tok, index)
+
+    return {
+        kind = lexer.triviaKind(tok, index),
+        text = lexer.triviaText(tok, index),
+        offset = offset,
+        line = line,
+        col = col
+    }
+end
+
+-- Reconstructs the exact source from a token stream (the round-trip identity).
+function lexer.textOf(tokens: {lexer.Token}): string
+    local parts: {string} = {}
+    for _, tok in ipairs(tokens) do
+        for index = 1, tok.triviaCount do
+            parts[#parts + 1] = lexer.triviaText(tok, index)
+        end
+        parts[#parts + 1] = tok.text
+    end
+
+    return table.concat(parts)
+end
+
+--- The bytes a short string literal spells, or nothing for a token that spells
+--- none.
+---
+--- A literal's value is the string it denotes, not the source that spells it, so
+--- `"\1"` is one byte and every reader of that value has to agree about it.
+--- Decoding is done by handing the text back to Lua, which is whose escape
+--- syntax it is; a backtick literal without interpolation is first turned into
+--- the Lua literal the generator emits for it, so the two spellings answer the
+--- same. A long-bracket string is not answered here: its runtime bytes are
+--- whatever the dedent rule that owns it leaves, not an escape question.
+function lexer.stringValue(text: string): string?
+    local first = text:sub(1, 1)
+    local quoted: string?
+    if first == "\"" or first == "'" then
+        quoted = text
+    elseif first == "`" and #text >= 2 and text:sub(-1) == "`" then
+        local body = text:sub(2, -2):gsub("\\([`$])", "%1"):gsub("\"", "\\\""):gsub("\n", "\\n")
+        quoted = "\"" .. body .. "\""
+    end
+    if quoted == nil then
+        return nil
+    end
+    local chunk = loadstring("return " .. (quoted as string))
+    if not chunk then
+        return nil
+    end
+    local ok, value = pcall(chunk as function(): any)
+    if not ok or type(value) ~= "string" then
+        return nil
+    end
+
+    return value as string
+end
+
+export = lexer

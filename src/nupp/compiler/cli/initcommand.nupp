@@ -1,0 +1,345 @@
+module nupp.compiler.cli.initcommand
+
+--[[
+`nupp init`: turn a template into a project.
+
+Named `initcommand` because `nupp.compiler.cli.init` is the dispatcher this
+registers with, the same collision `completionscommand` already works around.
+
+The scaffolding is all in `nupp.compiler.template`. What is here is the argument
+grammar, the one question this command asks before writing somebody else's tree,
+and the reporting -- including saying which post-init steps a remote template
+asked for and did not get, which is a rule worth explaining every time it costs
+somebody something rather than only in the documentation.
+]]
+
+local files = require("nupp.io.files")
+local ansi = require("nupp.compiler.ansi")
+local spec = require("nupp.compiler.cli.spec")
+
+local command = spec.command{
+    name = "init",
+    summary = "Create a project from a template",
+    usage = {"nupp init [TEMPLATE] [DIRECTORY]", "nupp init --from PATH [DIRECTORY]", "nupp init --list",},
+    positionals = {{name = "TEMPLATE"}, {name = "DIRECTORY"}},
+    options = require(
+        "nupp.compiler.cli.options"
+    ).join(
+        {name = "--name", value = "NAME", help = "Project name; defaults to the directory basename"},
+        {
+            name = "--set",
+            value = "KEY=VALUE",
+            repeats = true,
+            help = "Set a template variable; may be given more than once"
+        },
+        {name = "--from", value = "PATH", help = "Use a template directory on disk"},
+        {name = "--rev", value = "REV", help = "Commit, tag or branch for a repository template"},
+        {name = "--list", help = "List the built-in templates and exit"},
+        {name = "--yes", help = "Do not ask before writing a repository template"},
+        {name = "--dry-run", help = "Print what would be written and write nothing"},
+        require("nupp.compiler.cli.options").format()
+    ),
+    schema = {
+        type = "object",
+        properties = {
+            ok = {type = "boolean"},
+            directory = {type = "string"},
+            template = {
+                type = "object",
+                description = "What the TEMPLATE argument resolved to.",
+                properties = {
+                    kind = {type = "string", enum = {"builtin", "directory", "remote"}},
+                    name = {type = "string", description = "The built-in's name."},
+                    path = {type = "string", description = "The directory it was read from."},
+                    url = {type = "string"},
+                    subdir = {type = "string"},
+                    commit = {type = "string", description = "The commit a repository template resolved to."},
+                },
+                required = {"kind"},
+            },
+            variables = {
+                type = "object",
+                description = "Every variable value used, derived ones included.",
+                additionalProperties = {type = "string"},
+            },
+            written = {
+                type = "array",
+                items = {type = "string"},
+                description = "The paths written, or the paths that would be under --dry-run."
+            },
+            dryRun = {type = "boolean"},
+            steps = {
+                type = "array",
+                description = "The post-init steps that ran, and whether each succeeded.",
+                items = {
+                    type = "object",
+                    properties = {name = {type = "string"}, ok = {type = "boolean"}},
+                    required = {"name", "ok"},
+                },
+            },
+            dropped = {
+                type = "array",
+                items = {type = "string"},
+                description = "Steps the template asked for that a repository template does not get."
+            },
+        },
+        required = {"ok", "directory", "template", "variables", "written", "dryRun", "steps", "dropped"},
+    },
+    detail = [[With no TEMPLATE, the built-in `app`. A name with no slash is a built-in,
+a path beginning with `.`, `/` or `~` is a directory, and `owner/repo`, optionally
+followed by a path within it and by `@rev`, is a repository on GitHub; a full URL is
+used as given.
+
+A repository template is fetched with git, named by the commit it resolved to, and
+confirmed before anything is written. Its post-init steps are reduced to `git init`:
+`check`, `build` and `test` all load the scaffolded `nupp.lua`, which is ordinary
+unrestricted Lua, so running them would execute code that was just downloaded.]],
+}
+
+local function fail(message: string): integer
+    io.stderr:write(ansi.forSeverity(ansi.style(io.stderr), "error")("nupp:") .. " " .. message .. "\n")
+
+    return 1
+end
+
+--- Reads `--set` into a table, last spelling of a key winning.
+local function settings(given: {string}?): {[string]: string}?, string?
+    local values: {[string]: string} = {}
+    for _, entry in ipairs(given or {}) do
+        local key, value = entry:match("^([^=]+)=(.*)$")
+        if not key then
+            return nil, "--set takes KEY=VALUE, not " .. entry
+        end
+        values[key] = value
+    end
+
+    return values
+end
+
+--- Where a template lands when the command line did not say.
+---
+--- The basename of whatever names the template, which is what `git clone` does
+--- with a URL and is the only guess that does not need the template to have been
+--- read first.
+local function defaultDirectory(source: any): string
+    local fs = require("nupp.compiler.fs")
+    if source.kind == "builtin" then
+        return source.name as string
+    end
+    if source.kind == "directory" then
+        return fs.basename(source.path as string)
+    end
+    if source.subdir then
+        return fs.basename(source.subdir as string)
+    end
+
+    return (fs.basename(source.url as string):gsub("%.git$", ""))
+end
+
+--- Asks before writing a tree this machine has just fetched.
+---
+--- Refused rather than assumed when nobody is at the terminal: a scaffold that
+--- silently proceeds in a script is the case the question exists for.
+local function confirm(description: string, count: integer, destination: string): boolean, string?
+    io.write(
+        "About to write " .. count .. " file" .. (
+            count == 1 and "" or "s"
+        ) .. " from " .. description .. "\n  into " .. destination .. "\n"
+    )
+    if not ansi.isTerminal(io.stdin) then
+        return false, "refusing to write a repository template without a terminal to ask"
+            .. "\nPass --yes to accept it unread."
+    end
+    io.write("Continue? [y/N] ")
+    io.stdout:flush()
+    local answer = io.read("*l")
+    if answer ~= "y" and answer ~= "Y" and answer ~= "yes" then
+        return false, nil
+    end
+
+    return true
+end
+
+local function listBuiltins(): integer
+    local template = require("nupp.compiler.template")
+    local style = ansi.style(io.stdout)
+    local names = template.builtins()
+    local width = 0
+    for _, name in ipairs(names) do
+        if #name > width then
+            width = #name
+        end
+    end
+    io.write(style.strong("Built-in templates:") .. "\n")
+    for _, name in ipairs(names) do
+        io.write(
+            "  " .. ansi.forSeverity(
+                style,
+                "note"
+            )(name) .. (" "):rep(width - #name + 2) .. template.builtinDescription(name) .. "\n"
+        )
+    end
+
+    return 0
+end
+
+local function reportSteps(plan: any, destination: string, dryRun: boolean): {any}
+    local template = require("nupp.compiler.template")
+    local ran: {any} = {}
+    if dryRun then
+        return ran
+    end
+    -- A step runs the compiler in the scaffolded project rather than doing the
+    -- work in this process, so a `nupp.lua` that calls `os.exit` ends its own run
+    -- rather than this one. `NUPP` names the executable for an installation that
+    -- is not on the path, which is also how the suite points a step at the
+    -- compiler it just built.
+    local nupp = os.getenv("NUPP") or "nupp"
+    for _, step in ipairs(plan.steps) do
+        local ok = template.step(step, destination, nupp)
+        ran[#ran + 1] = {name = step, ok = ok}
+        if not ok then
+            io.stderr:write("nupp: the " .. step .. " step did not succeed\n")
+        end
+    end
+
+    return ran
+end
+
+--- Everything past resolution, with a remote already fetched.
+---
+--- Split out so the temporary directory a fetch needs has one place to be
+--- created and one place to be removed, however many ways the work below can
+--- decline to finish.
+local function scaffold(source: any, destination: string, values: any, set: {[string]: string}): integer
+    local template = require("nupp.compiler.template")
+    local fs = require("nupp.compiler.fs")
+    local asJson = values.format == "json"
+    local dryRun = values.dryRun and true or false
+    local plan, planErr = template.plan(source, destination, {name = values.name, set = set})
+    if not plan then
+        return fail(planErr as string)
+    end
+    if source.kind == "remote" and not values.yes and not dryRun then
+        local accepted, refusal = confirm(template.describe(source), #plan.files, plan.destination)
+        if not accepted then
+            if refusal then
+                return fail(refusal)
+            end
+            io.write("Nothing was written.\n")
+
+            return 1
+        end
+    end
+    local written: {string} = {}
+    if dryRun then
+        for _, file in ipairs(plan.files) do
+            written[#written + 1] = fs.join(plan.destination, file.output)
+        end
+    else
+        local paths, writeErr = template.write(plan)
+        if not paths then
+            return fail(writeErr as string)
+        end
+        written = paths
+    end
+    local ran = reportSteps(plan, plan.destination, dryRun)
+    if asJson then
+        require("nupp.compiler.cli.report").write({
+            ok = true,
+            directory = plan.destination,
+            template = {
+                kind = source.kind,
+                name = source.name,
+                path = source.path,
+                url = source.url,
+                subdir = source.subdir,
+                commit = source.commit,
+            },
+            variables = plan.values,
+            written = written,
+            dryRun = dryRun,
+            steps = ran,
+            dropped = plan.dropped,
+        })
+
+        return 0
+    end
+    local style = ansi.style(io.stdout)
+    if dryRun then
+        io.write("Would write " .. #written .. " files into " .. plan.destination .. ":\n")
+        for _, path in ipairs(written) do
+            io.write("  " .. path .. "\n")
+        end
+    else
+        io.write("Created " .. style.strong(plan.destination) .. " from " .. template.describe(source) .. "\n")
+    end
+    if #plan.dropped > 0 then
+        io.write(
+            "\nNot run, because a repository template's steps are reduced to git init: " .. table.concat(
+                plan.dropped,
+                ", "
+            ) .. "\nRead the project, then run them yourself.\n"
+        )
+    end
+    if not dryRun then
+        io.write("\nNext:\n  cd " .. plan.destination .. "\n  nupp check\n  nupp test\n")
+    end
+
+    return 0
+end
+
+local function run(parsed: any): integer
+    local values = parsed.values
+    local positional: {string} = parsed.positional
+    if values.list then
+        if #positional > 0 or values.from then
+            return command:usageError("--list takes no other arguments")
+        end
+
+        return listBuiltins()
+    end
+    -- `--from` names the template, so the one positional left is the directory.
+    -- Without it the first positional is the template and the second the
+    -- directory, which is why the two forms have separate usage lines.
+    local spelling = not values.from and positional[1] or nil
+    local named = values.from and positional[1] or positional[2]
+    local limit = values.from and 1 or 2
+    if #positional > limit then
+        return command:usageError("unexpected argument " .. positional[limit + 1])
+    end
+    local set, setErr = settings(values.set)
+    if not set then
+        return command:usageError(setErr as string)
+    end
+    local template = require("nupp.compiler.template")
+    local source, resolveErr = template.resolve(spelling, values.from, values.rev)
+    if not source then
+        return fail(resolveErr as string)
+    end
+    local destination = named or values.name or defaultDirectory(source)
+    if source.kind ~= "remote" then
+        return scaffold(source, destination, values, set)
+    end
+    -- A fetched tree lands in a directory this command owns and removes, so a
+    -- refused confirmation, a tree that turns out not to be a template, and a
+    -- finished scaffold all leave the same nothing behind. One creation and one
+    -- close, with the work between them, because the handle is affine.
+    local owned, scratchErr = files.createTemporaryDirectory({prefix = "nupp-template-"} as files.TemporaryOptions)
+    if not owned then
+        return fail("cannot create a temporary directory: " .. tostring(scratchErr))
+    end
+    local code: integer
+    local fetched, fetchErr = template.fetch(source, owned:toString())
+    if not fetched then
+        code = fail(fetchErr as string)
+    else
+        code = scaffold(source, destination, values, set)
+    end
+    files.remove(owned:toString(), true)
+    owned:close()
+
+    return code
+end
+
+export = new spec.Handler(spec = command, run = run)

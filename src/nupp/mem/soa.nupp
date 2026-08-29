@@ -1,0 +1,641 @@
+module nupp.mem.soa
+
+--[[
+Structure-of-arrays storage for reified structs.
+
+Every top-level field of a reified struct gets its own contiguous column, so a
+loop that walks one field of many rows brings nothing else along.
+
+```nupp
+local soa = require("nupp.mem.soa")
+local ffi = require("ffi")
+
+local struct Position
+    x: float
+    velocity: float
+end
+
+local positions = soa.allocate(ffi.typeof<Position>(), 128)
+with rows = positions:write() do
+    for index = 1, #rows do
+        rows[index].x += rows[index].velocity
+    end
+end
+```
+
+The compiler supplies the private layout argument to `allocate` and `layoutof`,
+and lowers indexed row fields directly to the typed columns kept by these views.
+This module owns allocation, checked whole-row operations, slicing, and
+field-span construction; it never exposes the slab or its column pointers in the
+public types.
+
+::: tip Nonescaping views at -O1
+A nonescaping `read` or `write` can remain virtual, so no row-view wrapper is
+allocated. An escape or an opaque call materializes the same checked view.
+:::
+
+See [structure-of-arrays.md](docs/concepts/structure-of-arrays.md) for when this layout is the one to
+reach for, and [0010-structure-of-arrays.md](docs/neps/0010-structure-of-arrays.md) for why the container
+rather than the declaration chooses it.
+]]
+
+local soa = {}
+local ffi = require("ffi")
+local span = require("nupp.mem.span")
+
+cdef function malloc(size: uint64): voidptr
+cdef function free(takes pointer: voidptr)
+local free_nosuspend = free as nosuspend function(takes pointer: voidptr): nil
+
+local MAX_EXACT_INTEGER = 9007199254740991
+
+--- One stored top-level field in a SoA descriptor.
+--- @export
+record soa.FieldLayout
+    --- The field's name, as the struct declared it.
+    readonly name: string
+
+    --- The struct name and the field name joined, which is what a fingerprint
+    --- entry is filed under.
+    readonly identity: string
+
+    --- The C type of one element of this column.
+    readonly ctype: string
+
+    --- Where this field sits in the declaration, counted from one.
+    readonly ordinal: integer
+
+    --- Bytes per element.
+    readonly elementSize: integer
+
+    --- The alignment the column starts on.
+    readonly alignment: integer
+
+    private readonly pointerType: any
+end
+
+--- One field segment for a particular element count.
+--- @export
+record soa.SegmentLayout
+    --- Which field this segment holds.
+    readonly field: soa.FieldLayout
+
+    --- Where the segment starts, in bytes from the slab's aligned base.
+    readonly offset: integer
+
+    --- How many bytes it occupies.
+    readonly byteCount: integer
+end
+
+--- The count-dependent layout of one complete SoA slab.
+--- @export
+record soa.InstanceLayout
+    --- The row count this layout was computed for.
+    readonly count: integer
+
+    --- The slab's size in bytes, before alignment padding.
+    readonly byteSize: integer
+
+    --- One segment per field, in declaration order.
+    readonly segments: {soa.SegmentLayout}
+end
+
+--- Immutable reflection for a reified struct's SoA representation.
+--- @export
+record soa.Layout
+    --- The struct's name.
+    readonly name: string
+
+    --- Every field's identity, type, size and alignment in one string, so two
+    --- layouts can be compared without walking them.
+    readonly fingerprint: string
+
+    --- The alignment the whole slab starts on, which is the widest field's.
+    readonly alignment: integer
+
+    --- One entry per stored top-level field, in declaration order.
+    readonly fields: {soa.FieldLayout}
+
+    --- Computes checked segment offsets for `count` rows without allocating storage.
+    --- @raises when count is negative or the slab size overflows a Lua integer
+    function forCount(self, count: integer): soa.InstanceLayout
+        if count < 0 then
+            error("SoA row count cannot be negative", 2)
+        end
+
+        local segments: {soa.SegmentLayout} = {}
+        local cursor: integer = 0
+        for ordinal, field in ipairs(self.fields) do
+            if count > 0 and count > MAX_EXACT_INTEGER // field.elementSize then
+                error("SoA field byte size is too large", 2)
+            end
+            local byteCount = (field.elementSize * count) as integer
+            local remainder = cursor % field.alignment
+            if remainder ~= 0 then
+                cursor = (cursor + field.alignment - remainder) as integer
+            end
+            if cursor > MAX_EXACT_INTEGER - byteCount then
+                error("SoA slab byte size is too large", 2)
+            end
+            segments[ordinal] = new soa.SegmentLayout(field = field, offset = cursor, byteCount = byteCount)
+            cursor = (cursor + byteCount) as integer
+        end
+
+        return new soa.InstanceLayout(count = count, byteSize = cursor, segments = segments)
+    end
+end
+
+local layoutCache: {[table]: soa.Layout} = setmetatable({}, {__mode = "k"}) as any
+
+--- Converts compiler-emitted C layout facts into the public count-independent SoA
+--- descriptor. The raw layout also carries private ctype witnesses used only to build
+--- typed column pointers.
+function soa._layout(raw: table): soa.Layout
+    local prior = layoutCache[raw]
+    if prior then
+        return prior
+    end
+
+    local fields: {soa.FieldLayout} = {}
+    local fingerprint = {"soa1", raw.name as string}
+    local alignment: integer = 1
+    for ordinal, source in ipairs(raw.fields as {any}) do
+        local fieldAlignment = source.alignment as integer
+        if fieldAlignment > alignment then
+            alignment = fieldAlignment as integer
+        end
+        local field = new soa.FieldLayout(
+            name = source.name as string,
+            identity = (raw.name as string) .. "." .. (source.name as string),
+            ctype = source.ctype as string,
+            ordinal = ordinal,
+            elementSize = source.size as integer,
+            alignment = fieldAlignment,
+            pointerType = source.pointerType
+        )
+        fields[ordinal] = field
+        fingerprint[
+            #fingerprint + 1
+        ] = string.format("%s:%s@%d/%d", field.identity, field.ctype, field.elementSize, field.alignment)
+    end
+
+    local layout = new soa.Layout(
+        name = raw.name as string,
+        fingerprint = table.concat(fingerprint, "|"),
+        alignment = alignment,
+        fields = fields
+    )
+    layoutCache[raw] = layout
+
+    return layout
+end
+
+sealed interface soa.ArrayToken
+    close: nosuspend function(takes self: ArrayToken): nil
+end
+
+sealed interface soa.WriteToken
+    drop: nosuspend function(takes self: WriteToken): nil
+end
+
+--- Frees a slab, which is what every SoA array's contract names.
+---
+--- Nothing calls this by hand. It is the terminal consumer `affine` carries, so a
+--- scope boundary or an explicit `drop` reaches it.
+---
+--- @param self the array, spent by this call
+--- @export
+function soa.destroyArray<T is soa.ArrayToken>(takes self: T): nil
+    self:close()
+end
+
+--- Ends a row writer, which is what every writable row view's contract names.
+---
+--- Nothing calls this by hand. It is the terminal consumer `affine` carries, so a
+--- scope boundary or an explicit `drop` reaches it.
+---
+--- @param self the writer, spent by this call
+--- @export
+function soa.destroyWriteSpan<T is soa.WriteToken>(takes self: T): nil
+    nosuspend do
+        local _raw = unsafe release self
+    end
+end
+
+--- A shared checked view over SoA rows.
+--- @export
+sealed interface soa.Span<T>
+    metamethod __len: function(self: Span<T>): integer
+    metamethod __index: function(borrows self: Span<T>, index: integer): T
+
+    --- Answers a subrange of rows, inclusive at both ends.
+    ---
+    --- The result borrows this view, and omitting `last` runs through to the end.
+    slice: function(borrows self: Span<T>, first: integer, last: integer?): soa.Span<T> borrows (self)
+
+    --- Answers one field's column as a [](nupp.mem.span) view over this range.
+    ---
+    --- The name must be a string literal naming a stored field, which is what lets
+    --- the checker give the result that field's element type rather than `any`. A
+    --- dynamic string or a missing field reports `NUPP2403`.
+    ---
+    --- ```nupp
+    --- const rows = positions:read()
+    --- const velocity: span.Span<float> = rows:field("velocity")
+    --- for index = 1, #velocity do
+    ---     print(velocity[index])
+    --- end
+    --- ```
+    field: function(borrows self: Span<T>, name: string): any borrows (self)
+end
+
+local record SpanImpl<T> is soa.Span<T>
+    private readonly anchor: any
+    private readonly element: ctype<T>
+    private readonly layout: soa.Layout
+    private readonly columns: {any}
+    private readonly offset: integer
+    readonly count: integer
+
+    function checkedIndex(self, index: integer): integer
+        if index < 1 or index > self.count then
+            error("SoA row index out of bounds", 2)
+        end
+        return self.offset + index - 1
+    end
+
+    function get(self, index: integer): T
+        local physical = self:checkedIndex(index)
+        local value = ffi.new(self.element) as T
+        for ordinal, field in ipairs(self.layout.fields) do
+            (value as any)[field.name] = (self.columns[ordinal] as {[integer]: any})[physical]
+        end
+
+        return value
+    end
+
+    function slice(self, first: integer, last: integer?): soa.Span<T> borrows (self)
+        local finish = last or self.count
+        if first < 1 or finish < first - 1 or finish > self.count then
+            error("SoA slice out of bounds", 2)
+        end
+
+        return new SpanImpl(
+            anchor = self,
+            element = self.element,
+            layout = self.layout,
+            columns = self.columns,
+            offset = self.offset + first - 1,
+            count = finish - first + 1
+        ) as soa.Span<T>
+    end
+
+    function field(self, name: string): any
+        error("SoA field projection requires compiler lowering: " .. tostring(name), 2)
+    end
+
+    function fieldBySlot(borrows self, ordinal: integer): span.Span<any> borrows (self)
+        local pointer = (self.columns[ordinal] as any) + self.offset
+        unsafe do
+            local rooted = borrowFrom(pointer as voidptr, self)
+            return span.fromCarray(rooted as any, self.count)
+        end
+    end
+end
+
+--- An affine exclusive checked view over SoA rows.
+--- @export
+sealed interface soa.WriteSpan<T>
+    metamethod __len: function(self: WriteSpan<T>): integer
+    metamethod __index: function(borrows self: WriteSpan<T>, index: integer): T
+    metamethod __newindex: function(exclusive self: WriteSpan<T>, index: integer, value: T): nil
+
+    --- Answers one field's column as a writable [](nupp.mem.span) view.
+    ---
+    --- Two different fields may be projected at once, because the columns do not
+    --- overlap. The name must be a string literal naming a stored field; a dynamic
+    --- string or a missing field reports `NUPP2403`.
+    ---
+    --- ```nupp
+    --- with rows = particles:write(),
+    ---     xs: span.Writable<float> = rows:field("x"),
+    ---     ys: span.Writable<float> = rows:field("y")
+    --- do
+    ---     xs[1] = 3.5
+    ---     ys[1] = 4.5
+    --- end
+    --- ```
+    field: function(exclusive self: WriteSpan<T>, name: string): any borrows (self)
+
+    --- Downgrades this writer to a shared row view for the lifetime of the result.
+    shared: function(borrows self: WriteSpan<T>): soa.Span<T> borrows (self)
+
+    --- Copies a row range from another view of the same struct.
+    ---
+    --- Both ranges are checked before the first byte moves, and the copy is one
+    --- contiguous run per column rather than a row at a time, so no row struct is
+    --- ever materialized.
+    ---
+    --- ```nupp
+    --- with rows = target:write() do
+    ---     rows:copyFrom(3, source:read(), 1, 2)
+    --- end
+    --- ```
+    copyFrom: function(
+        exclusive self: WriteSpan<T>,
+        targetFirst: integer,
+        borrows source: soa.Span<T>,
+        sourceFirst: integer,
+        count: integer
+    ): nil
+
+    --- Answers an affine writable subrange of rows, inclusive at both ends.
+    ---
+    --- The child borrows this view, so the parent is unusable until the child is
+    --- dropped. Row indexes start at one in the child, as they do in the parent.
+    slice: function(
+        exclusive self: WriteSpan<T>,
+        first: integer,
+        last: integer?
+    ): affine(soa.WriteToken & soa.WriteSpan<T>, soa.destroyWriteSpan) borrows (self)
+end
+
+--- An affine exclusive row view, released at its lexical boundary.
+--- @export
+type soa.Writable<T> = affine(soa.WriteToken & soa.WriteSpan<T>, soa.destroyWriteSpan)
+
+local record WriteSpanImpl<T> is soa.WriteToken, soa.WriteSpan<T>
+    private readonly anchor: any
+    private readonly element: ctype<T>
+    private readonly layout: soa.Layout
+    private readonly columns: {any}
+    private readonly offset: integer
+    readonly count: integer
+
+    function checkedIndex(self, index: integer): integer
+        if index < 1 or index > self.count then
+            error("SoA row index out of bounds", 2)
+        end
+        return self.offset + index - 1
+    end
+
+    function get(self, index: integer): T
+        local physical = self:checkedIndex(index)
+        local value = ffi.new(self.element) as T
+        for ordinal, field in ipairs(self.layout.fields) do
+            (value as any)[field.name] = (self.columns[ordinal] as {[integer]: any})[physical]
+        end
+
+        return value
+    end
+
+    function set(exclusive self, index: integer, value: T): nil
+        local physical = self:checkedIndex(index)
+        for ordinal, field in ipairs(self.layout.fields) do
+            (self.columns[ordinal] as {[integer]: any})[physical] = (value as any)[field.name]
+        end
+    end
+
+    function field(exclusive self, name: string): any
+        error("SoA field projection requires compiler lowering: " .. tostring(name), 2)
+    end
+
+    function fieldBySlot(exclusive self, ordinal: integer): span.Writable<any> borrows (self)
+        local pointer = (self.columns[ordinal] as any) + self.offset
+        unsafe do
+            local rooted = borrowFrom(pointer as voidptr, self)
+            return span.writeCarray(rooted as any, self.count)
+        end
+    end
+
+    function shared(self): soa.Span<T> borrows (self)
+        return new SpanImpl(
+            anchor = self,
+            element = self.element,
+            layout = self.layout,
+            columns = self.columns,
+            offset = self.offset,
+            count = self.count
+        ) as soa.Span<T>
+    end
+
+    --- Copies complete rows field-by-field. Every range is checked before the first
+    --- byte moves, and the implementation performs one contiguous copy per column.
+    --- @raises when either requested row range is outside its view
+    function copyFrom(
+        exclusive self,
+        targetFirst: integer,
+        borrows source: soa.Span<T>,
+        sourceFirst: integer,
+        count: integer
+    ): nil
+        if count < 0
+            or targetFirst < 1
+            or sourceFirst < 1
+            or targetFirst
+            - 1 > self.count
+            - count
+            or sourceFirst
+            - 1 > #source
+            - count
+        then
+            error("SoA copy range is out of bounds", 2)
+        end
+        if count == 0 then
+            return
+        end
+        local other = source as any
+        for ordinal, field in ipairs(self.layout.fields) do
+            local destination = (self.columns[ordinal] as any) + self.offset + targetFirst - 1
+            local input = (other.columns[ordinal] as any) + other.offset + sourceFirst - 1
+            ffi.copy(destination, input, count * field.elementSize)
+        end
+    end
+
+    function slice(
+        exclusive self,
+        first: integer,
+        last: integer?
+    ): affine(soa.WriteToken & soa.WriteSpan<T>, soa.destroyWriteSpan) borrows (self)
+        local finish = last or self.count
+        if first < 1 or finish < first - 1 or finish > self.count then
+            error("SoA slice out of bounds", 2)
+        end
+
+        return new WriteSpanImpl(
+            anchor = self,
+            element = self.element,
+            layout = self.layout,
+            columns = self.columns,
+            offset = self.offset + first - 1,
+            count = finish - first + 1
+        ) as(soa.WriteToken & soa.WriteSpan<T>)
+    end
+
+    drop: nosuspend function(takes self: WriteSpanImpl<T>): nil
+end
+
+function WriteSpanImpl.drop<T>(takes self: WriteSpanImpl<T>): nil
+    nosuspend do
+        local _raw = unsafe release self
+    end
+end
+
+--- One owned native slab whose top-level struct fields occupy separate segments.
+--- @export
+record soa.Array<T> is soa.ArrayToken
+    private raw: voidptr
+    private readonly element: ctype<T>
+    private readonly layout: soa.Layout
+    private readonly columns: {any}
+
+    --- How many rows the slab holds.
+    readonly count: integer
+
+    --- The layout fingerprint the slab was allocated under.
+    readonly fingerprint: string
+
+    --- Borrows the rows as a shared checked view.
+    ---
+    --- The borrow lasts as long as the view does, so a writer cannot be taken out
+    --- while one is live.
+    read: function(borrows self: Array<T>): soa.Span<T> borrows (self)
+
+    --- Borrows the rows as an exclusive checked view.
+    ---
+    --- Exclusive for as long as the writer is live, and affine, so a scope
+    --- boundary or an explicit `drop` is what ends it.
+    write: function(
+        exclusive self: Array<T>
+    ): affine(soa.WriteToken & soa.WriteSpan<T>, soa.destroyWriteSpan) borrows (self)
+
+    --- Frees the slab. `drop` and scope exit both reach this.
+    close: nosuspend function(takes self: Array<T>): nil
+
+    drop: nosuspend function(takes self: Array<T>): nil
+end
+
+function soa.Array.read<T>(borrows self: soa.Array<T>): soa.Span<T> borrows (self)
+    return new SpanImpl(
+        anchor = self,
+        element = self.element,
+        layout = self.layout,
+        columns = self.columns,
+        offset = 0,
+        count = self.count
+    ) as soa.Span<T>
+end
+
+function soa.Array.write<T>(
+    exclusive self: soa.Array<T>
+): affine(soa.WriteToken & soa.WriteSpan<T>, soa.destroyWriteSpan) borrows (self)
+    return new WriteSpanImpl(
+        anchor = self,
+        element = self.element,
+        layout = self.layout,
+        columns = self.columns,
+        offset = 0,
+        count = self.count
+    ) as(soa.WriteToken & soa.WriteSpan<T>)
+end
+
+local function finishArray(takes self: any): nil
+    nosuspend do
+        local raw = unsafe release self
+        local pointer = unsafe adopt raw.raw as affine(voidptr, free_nosuspend)
+        free_nosuspend(pointer)
+    end
+end
+
+local finishArrayNosuspend = finishArray as nosuspend function(takes self: any): nil
+
+function soa.Array.close<T>(takes self: soa.Array<T>): nil
+    finishArrayNosuspend(self)
+end
+
+function soa.Array.drop<T>(takes self: soa.Array<T>): nil
+    self:close()
+end
+
+--- Compiler lowering target for `soa.allocate`.
+--- @raises when count is negative, layout arithmetic overflows, or allocation fails
+function soa._allocate<T>(element: ctype<T>, count: integer, rawLayout: table): affine(soa.Array<T>, soa.destroyArray)
+    local layout = soa._layout(rawLayout)
+    local instance = layout:forCount(count)
+    local bytes = instance.byteSize
+    local alignment = layout.alignment
+    local padding = alignment - 1
+    if bytes > MAX_EXACT_INTEGER - padding then
+        error("SoA aligned slab byte size is too large", 2)
+    end
+    local allocationBytes = bytes + padding
+    if allocationBytes == 0 then
+        allocationBytes = 1
+    end
+    local raw = malloc(allocationBytes as uint64)
+    if raw == nil then
+        error("SoA allocation failed", 2)
+    end
+
+    local columns: {any} = {}
+    unsafe do
+        local rawAddress = tonumber(ffi.cast<uint64>(raw)) as integer
+        local adjustment = (alignment - (rawAddress % alignment)) % alignment
+        local allocation = borrowFrom(ffi.cast<uint8*>(raw), raw)
+        local base = borrowFrom(allocation + adjustment, raw)
+        for ordinal, segment in ipairs(instance.segments) do
+            columns[ordinal] = ffi.cast(segment.field.pointerType, base + segment.offset)
+        end
+        return new soa.Array(
+            raw = raw,
+            element = element,
+            layout = layout,
+            columns = columns,
+            count = count,
+            fingerprint = layout.fingerprint
+        ) as soa.Array<T>
+    end
+end
+
+--- Allocates one SoA slab for a reified struct type.
+---
+--- The compiler injects the descriptor, and aliases of this exact function retain
+--- the intrinsic identity. The result owns the slab and frees it at its lexical
+--- boundary; the bytes are not zeroed.
+---
+--- ```nupp
+--- local positions = soa.allocate(ffi.typeof<Position>(), 128)
+--- with rows = positions:write() do
+---     rows[1].x = 3.5
+--- end
+--- ```
+---
+--- @param element the ctype of one row
+--- @param count how many rows to allocate
+--- @return the slab, owned by the caller
+--- @export
+--- @raises when count is negative, layout arithmetic overflows, or allocation fails
+function soa.allocate<T>(element: ctype<T>, count: integer): affine(soa.Array<T>, soa.destroyArray)
+    error("soa.allocate requires compiler lowering", 2)
+end
+
+--- Answers immutable SoA reflection for a reified struct type without allocating.
+---
+--- Only top-level fields are split, so a nested struct or fixed array is one field
+--- here whatever it holds.
+---
+--- ```nupp
+--- local layout = soa.layoutof(ffi.typeof<Sample>())
+--- assert(#layout.fields == 2)
+--- assert(layout.fields[1].name == "position")
+--- ```
+---
+--- @param element the ctype of one row
+--- @return the count-independent descriptor
+--- @export
+--- @raises when compiler lowering is unavailable
+function soa.layoutof<T>(element: ctype<T>): soa.Layout
+    error("soa.layoutof requires compiler lowering", 2)
+end
+
+export = soa

@@ -1,0 +1,232 @@
+module nupp.compiler.runtimesurface
+
+--[[
+The ambient Lua identities that have one contract across the portable runtime
+matrix.
+
+The declaration prelude describes LuaJIT, because that remains the native
+dialect. A portable check still resolves through those same definitions so
+hover and field typing do not fork. This closed table is the second half of
+that arrangement: it identifies the declarations whose runtime contract is
+shared by Lua 5.1 through 5.4 and LuaJIT. Everything else fails closed.
+
+Recognition is by the prelude definition, never by spelling. A local named
+`setfenv`, or a field named `loaders` on an ordinary table, is application code
+and does not belong to this table.
+]]
+
+local surface = {}
+
+-- Positive rather than negative: extending lua.d.nupp never widens the
+-- portable surface until the new identity is accounted for here.
+local COMMON_ROOTS: {
+    [string]: boolean
+} = {
+    _G = true,
+    _VERSION = true,
+    print = true,
+    type = true,
+    tostring = true,
+    tonumber = true,
+    pairs = true,
+    ipairs = true,
+    next = true,
+    select = true,
+    rawget = true,
+    rawset = true,
+    rawequal = true,
+    setmetatable = true,
+    getmetatable = true,
+    assert = true,
+    error = true,
+    pcall = true,
+    xpcall = true,
+    require = true,
+    dofile = true,
+    loadfile = true,
+    string = true,
+    table = true,
+    math = true,
+    os = true,
+    package = true,
+    io = true,
+    coroutine = true,
+    debug = true,
+}
+
+-- Common contracts produced by a compiler-owned lexical binding.
+local LOWERED_ROOTS: {[string]: boolean} = {unpack = true, loadstring = true,}
+
+-- Library tables need the same fail-closed accounting at member granularity.
+-- The portable table intrinsics are admitted because the generator lowers
+-- them; none depends on a VM module.
+local COMMON_MEMBERS: {
+    [string]: {[string]: boolean}
+} = {
+    string = {
+        byte = true,
+        char = true,
+        find = true,
+        format = true,
+        gmatch = true,
+        gsub = true,
+        len = true,
+        lower = true,
+        match = true,
+        reverse = true,
+        rep = true,
+        sub = true,
+        upper = true,
+    },
+    table = {concat = true, insert = true, remove = true, sort = true, new = true, clear = true, clone = true,},
+    math = {
+        abs = true,
+        ceil = true,
+        floor = true,
+        sqrt = true,
+        exp = true,
+        log = true,
+        pow = true,
+        fmod = true,
+        modf = true,
+        sin = true,
+        cos = true,
+        tan = true,
+        asin = true,
+        acos = true,
+        atan = true,
+        deg = true,
+        rad = true,
+        min = true,
+        max = true,
+        random = true,
+        randomseed = true,
+        pi = true,
+        huge = true,
+        frexp = true,
+    },
+    os = {
+        clock = true,
+        date = true,
+        difftime = true,
+        execute = true,
+        exit = true,
+        getenv = true,
+        remove = true,
+        rename = true,
+        time = true,
+        tmpname = true,
+    },
+    package = {config = true, path = true, cpath = true, preload = true, loaded = true, loadlib = true,},
+    io = {
+        open = true,
+        lines = true,
+        read = true,
+        write = true,
+        close = true,
+        type = true,
+        input = true,
+        output = true,
+        popen = true,
+        tmpfile = true,
+        stdout = true,
+        stderr = true,
+        stdin = true,
+    },
+    coroutine = {create = true, resume = true, yield = true, status = true, wrap = true, running = true,},
+    debug = {
+        getinfo = true,
+        traceback = true,
+        sethook = true,
+        gethook = true,
+        getlocal = true,
+        setlocal = true,
+        getupvalue = true,
+        setupvalue = true,
+        getmetatable = true,
+        setmetatable = true,
+        getregistry = true,
+    },
+}
+
+-- Modules supplied by LuaJIT rather than by the common Lua runtime surface.
+-- Ordinary third-party modules are intentionally not listed: their runtime
+-- check belongs to the package adapter that selected them.
+local RUNTIME_MODULES: {
+    [string]: boolean
+} = {
+    ffi = true,
+    bit = true,
+    ["table.new"] = true,
+    ["table.clear"] = true,
+    ["string.buffer"] = true,
+    ["jit.util"] = true,
+    ["jit.profile"] = true,
+    ["jit.zone"] = true,
+    ["jit.vmdef"] = true,
+    ["nupp.workers.native"] = true,
+}
+
+--- Answers the exact bundled Lua-prelude root a token resolves to.
+function surface.resolvedRoot(checker: any, token: any): string?
+    if not token or not checker.env or not checker.env.globals then
+        return nil
+    end
+    local global = checker.env.globals[token.text]
+    local resolved = global ~= nil
+        and token.definition ~= nil
+        and token.definition == global.definition
+        and token.definition.filename == "nupp:lua.d.nupp"
+
+    return resolved and token.text or nil
+end
+
+--- Reports a source read of a runtime-specific prelude identity.
+function surface.requireIdentity(checker: any, root: string?, member: string?, at: any)
+    if checker.opts.dialect ~= "lua51" or not root then
+        return
+    end
+    local members = COMMON_MEMBERS[root]
+    local unavailable = member and members and not members[
+        member
+    ] or not member and not (COMMON_ROOTS[root] or LOWERED_ROOTS[root])
+    if not unavailable then
+        return
+    end
+    local identity = member and root .. "." .. member or root
+    checker.diag(
+        "NUPP3010",
+        at,
+        ("the `lua51` runtime surface does not include prelude identity `%s`"):format(identity),
+        nil,
+        {help = "use a portable module adapter or bind an application value with a different definition"}
+    )
+end
+
+--- Reports an exact prelude token, before any local alias carries its root.
+function surface.requireRoot(checker: any, token: any, member: string?, at: any?)
+    surface.requireIdentity(checker, surface.resolvedRoot(checker, token), member, at or token)
+end
+
+--- Reports a resolved require of a runtime-specific VM module.
+function surface.requireModule(checker: any, name: string, at: any)
+    if checker.opts.dialect ~= "lua51" or not RUNTIME_MODULES[name] then
+        return
+    end
+    local classification = require("nupp.compiler.standardsurface").classify(name)
+    local selected = classification
+        and classification.seam
+        and checker.opts.backendResolution
+        and checker.opts.backendResolution.seams
+        and checker.opts.backendResolution.seams[
+        classification.seam
+    ] or nil
+    if selected then
+        return
+    end
+    checker.diag("NUPP3010", at, ("the `lua51` runtime surface does not include module `%s`"):format(name), nil, {
+        help = "select a portable backend seam or require a third-party adapter that checks its runtime dependency"
+    })
+end
+
+export = surface

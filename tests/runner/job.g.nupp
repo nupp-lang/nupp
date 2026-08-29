@@ -1,0 +1,34 @@
+module job
+
+-- Runs one dynamically-fed lane in an isolated worker Lua state. Environment
+-- lookups are state-local Lua calls even though the underlying process
+-- environment is shared, so each lane can retain its own compiler cache without
+-- mutating process-wide state.
+export function run(argument: string, cacheDir: string, progressFd: integer?, verbose: boolean, colorMode: string): any
+    rawset(_G, "__NUPP_TEST_EMBEDDED", true)
+    rawset(_G, "__NUPP_TEST_PROGRESS_FD", progressFd)
+    rawset(_G, "__NUPP_TEST_LANE_CACHE", cacheDir)
+
+    local getenv = os.getenv
+    os.getenv = function(name)
+        if name == "NUPP_CACHE_DIR" then
+            return cacheDir
+        elseif name == "NUPP_COMPTIME_WORKER_CHILD" then
+            -- This Lua state is already isolated on a Nupp worker lane. A
+            -- second long-lived compiler subprocess adds no isolation and can
+            -- outlive the task that opened it; evaluate directly in this state.
+            return "1"
+        end
+
+        return getenv(name)
+    end
+
+    arg = {[0] = "tests/run.lua", "--json", argument, "--color=" .. colorMode}
+    if verbose then
+        arg[#arg + 1] = "--verbose"
+    end
+
+    const execute = assert(loadfile(arg[0]))
+
+    return execute()
+end

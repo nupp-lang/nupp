@@ -1,0 +1,383 @@
+module harness
+
+-- Shared process, transcript, filesystem, and accounting support for agent
+-- evaluations. The tiers own their tasks and graders; this module owns how an
+-- agent is run and how its work is recorded.
+
+local files = require("nupp.io.files")
+local paths = require("nupp.io.path")
+local process = require("nupp.io.process")
+local time = require("nupp.time")
+local json = nupp.data.json
+
+local harness = {}
+
+type harness.CommandResult = {
+    returncode: integer,
+    stdout: string,
+    stderr: string,
+    timedOut: boolean
+}
+
+type harness.AgentRun = {
+    result: any,
+    events: {any}
+}
+
+harness.REPAIR_TOOLS = {"Read", "Edit", "Write", "Bash"}
+
+local NUPP_COMMANDS: {
+    [string]: boolean
+} = {
+    check = true,
+    build = true,
+    test = true,
+    explain = true,
+    fmt = true,
+    lsp = true,
+    bc = true,
+    aot = true,
+    run = true,
+    lints = true,
+    tasks = true,
+}
+
+local function rounded(value: number, places: integer): number
+    local scale = 10 ^ places
+
+    return math.floor(value * scale + 0.5) / scale
+end
+
+function harness.absolute(path: string): string
+    local answer, reason = paths.newPath(path):absolute()
+    if answer == nil then
+        error(reason or "cannot make path absolute: " .. path, 2)
+    end
+
+    return answer:normalize():toString()
+end
+
+function harness.join(first: string, ...: string): string
+    return paths.newPath(first):join(...):toString()
+end
+
+function harness.parent(path: string): string
+    local parent = paths.newPath(path):parent()
+    if parent == nil then
+        return "."
+    end
+
+    return parent:toString()
+end
+
+function harness.write(path: string, text: string): nil
+    local made, makeErr = files.createDirectory(harness.parent(path))
+    if not made then
+        error("cannot create " .. harness.parent(path) .. ": " .. tostring(makeErr), 2)
+    end
+    local written, writeErr = files.write(path, text)
+    if not written then
+        error("cannot write " .. path .. ": " .. tostring(writeErr), 2)
+    end
+end
+
+function harness.read(path: string): string
+    local text, reason = files.read(path)
+    if text == nil then
+        error("cannot read " .. path .. ": " .. tostring(reason), 2)
+    end
+
+    return text
+end
+
+function harness.remove(path: string): nil
+    if files.exists(path) then
+        local removed, reason = files.remove(path, true)
+        if not removed then
+            error("cannot remove " .. path .. ": " .. tostring(reason), 2)
+        end
+    end
+end
+
+--- Creates a unique directory which the caller removes explicitly.
+--- @raises when the platform cannot create or retain the directory
+function harness.temporaryDirectory(prefix: string): string
+    local temporary, reason = files.createTemporaryDirectory(new files.TemporaryOptions(prefix = prefix))
+    if temporary == nil then
+        error("cannot create a temporary directory: " .. tostring(reason), 2)
+    end
+    local original = temporary:toString()
+    local persistent = original .. "-work"
+    local kept, keepErr = temporary:persist(persistent)
+    if not kept then
+        error("cannot retain temporary directory: " .. tostring(keepErr), 2)
+    end
+
+    return persistent
+end
+
+function harness.copyTree(from: string, to: string): nil
+    local made, makeErr = files.createDirectory(to)
+    if not made then
+        error("cannot create " .. to .. ": " .. tostring(makeErr), 2)
+    end
+    local entries, listErr = files.list(from)
+    if entries == nil then
+        error("cannot list " .. from .. ": " .. tostring(listErr), 2)
+    end
+    for _, entry in ipairs(entries) do
+        local source = harness.join(from, entry.name)
+        local destination = harness.join(to, entry.name)
+        if entry.kind == "directory" then
+            harness.copyTree(source, destination)
+        elseif entry.kind == "symlink" then
+            local target, readErr = files.readLink(source)
+            if target == nil then
+                error("cannot read link " .. source .. ": " .. tostring(readErr), 2)
+            end
+            local linked, linkErr = files.createSymlink(target, destination)
+            if not linked then
+                error("cannot create link " .. destination .. ": " .. tostring(linkErr), 2)
+            end
+        elseif entry.kind == "file" then
+            local copied, copyErr = files.copy(source, destination)
+            if not copied then
+                error("cannot copy " .. source .. ": " .. tostring(copyErr), 2)
+            end
+        end
+    end
+end
+
+function harness.run(
+    argv: {string},
+    cwd: string?,
+    env: {[string]: string}?,
+    timeoutSeconds: number?
+): harness.CommandResult
+    local options: process.Options = {
+        args = argv,
+        cwd = cwd,
+        env = env,
+        stdin = "null",
+        stdout = "pipe",
+        stderr = "pipe",
+        timeoutMs = timeoutSeconds ~= nil and math.floor(timeoutSeconds * 1000) or nil,
+    }
+    local child = new process.Process(options)
+    local result, reason = child:communicate()
+    child:close()
+    if result == nil then
+        error("cannot communicate with " .. tostring(argv[1]) .. ": " .. tostring(reason), 2)
+    end
+
+    return {
+        returncode = result.exit.exitCode,
+        stdout = result.output,
+        stderr = result.errorOutput,
+        timedOut = result.exit.timedOut,
+    }
+end
+
+function harness.commandAvailable(name: string): boolean
+    local ok = pcall(function(): nil
+        harness.run({name, "--version"}, nil, nil, 10)
+    end)
+
+    return ok
+end
+
+local function decodeEvents(output: string): {any}
+    local events: {any} = {}
+    for line in output:gmatch("[^\r\n]+") do
+        line = line:match("^%s*(.-)%s*$") or ""
+        if line ~= "" then
+            local ok, value = pcall(json.decode, line, json.NULL)
+            if ok then
+                events[#events + 1] = value
+            end
+        end
+    end
+
+    return events
+end
+
+--- Deterministic readable JSON for evaluation records and scoreboards.
+--- @raises when the value is cyclic or cannot be represented as JSON
+local function pretty(value: any, depth: integer, seen: {[table]: boolean}): string
+    if value == json.NULL then
+        return "null"
+    end
+    local kind = type(value)
+    @allow("exhaustiveness")
+    if kind ~= "table" then
+        return json.encode(value)
+    end
+    local entries = value as table
+    if seen[entries] then
+        error("evaluation JSON contains a cycle")
+    end
+    seen[entries] = true
+    local current = ("  "):rep(depth)
+    local nested = ("  "):rep(depth + 1)
+    local parts: {string} = {}
+    local opening, closing
+    if json.isArray(entries) then
+        opening, closing = "[", "]"
+        for index = 1, #entries do
+            parts[index] = nested .. pretty(entries[index], depth + 1, seen)
+        end
+    else
+        opening, closing = "{", "}"
+        local keys: {string} = {}
+        for key in pairs(entries) do
+            if type(key) ~= "string" then
+                error("evaluation JSON object has a non-string key")
+            end
+            keys[#keys + 1] = key
+        end
+        table.sort(keys)
+        for index, key in ipairs(keys) do
+            parts[index] = nested .. json.encode(key) .. ": " .. pretty(entries[key], depth + 1, seen)
+        end
+    end
+    seen[entries] = nil
+    if #parts == 0 then
+        return opening .. closing
+    end
+
+    return opening .. "\n" .. table.concat(parts, ",\n") .. "\n" .. current .. closing
+end
+
+function harness.writeJson(path: string, value: any): nil
+    harness.write(path, pretty(value, 0, {}) .. "\n")
+end
+
+function harness.runAgent(
+    workspace: string,
+    prompt: string,
+    transcript: string,
+    model: string?,
+    pathPrefix: string?,
+    tools: {string}?,
+    timeoutSeconds: number?
+): harness.AgentRun
+    local argv = {
+        "claude",
+        "-p",
+        "--output-format",
+        "stream-json",
+        "--verbose",
+        "--permission-mode",
+        "bypassPermissions",
+    }
+    if tools ~= nil then
+        argv[#argv + 1] = "--allowedTools"
+        for _, tool in ipairs(tools) do
+            argv[#argv + 1] = tool
+        end
+    end
+    if model ~= nil then
+        argv[#argv + 1] = "--model"
+        argv[#argv + 1] = model
+    end
+    argv[#argv + 1] = prompt
+
+    local env: {[string]: string}? = nil
+    if pathPrefix ~= nil then
+        local separator = package.config:sub(1, 1) == "\\" and ";" or ":"
+        env = {PATH = pathPrefix .. separator .. (os.getenv("PATH") or "")}
+    end
+    local started = time.now()
+    local done = harness.run(argv, workspace, env, timeoutSeconds)
+    local events = decodeEvents(done.stdout)
+    local transcriptLines: {string} = {}
+    for index, event in ipairs(events) do
+        transcriptLines[index] = json.encode(event) .. "\n"
+    end
+    harness.write(transcript, table.concat(transcriptLines))
+    if #events == 0 then
+        error(("the agent produced no events; exit %d: %s"):format(done.returncode, done.stderr:sub(1, 400)), 2)
+    end
+    local result: any = {}
+    for index = #events, 1, -1 do
+        local event = events[index]
+        if type(event) == "table" and event.type == "result" then
+            result = event
+            break
+        end
+    end
+    result.wallClockSeconds = rounded((time.now() - started) / 1000, 1)
+    result.timedOut = done.timedOut
+
+    return {result = result, events = events}
+end
+
+local function toolCalls(events: {any}): ({[string]: integer}, integer)
+    local counts: {[string]: integer} = {}
+    local nuppRuns: integer = 0
+    for _, event in ipairs(events) do
+        if type(event) == "table" and event.type == "assistant" then
+            local content = type(event.message) == "table" and event.message.content or nil
+            if type(content) == "table" then
+                for _, block in ipairs(content) do
+                    if type(block) == "table" and block.type == "tool_use" then
+                        local name = type(block.name) == "string" and block.name or "?"
+                        counts[name] = (counts[name] or 0) + 1
+                        local command = type(block.input) == "table" and block.input.command or nil
+                        if name == "Bash" and type(command) == "string" then
+                            for verb in command:gmatch("%f[%w]nupp%s+([%a]+)") do
+                                if NUPP_COMMANDS[verb] then
+                                    nuppRuns = nuppRuns + 1
+                                end
+                            end
+                        end
+                    end
+                end
+            end
+        end
+    end
+
+    return counts, nuppRuns
+end
+
+local function optional(value: any): any
+    return value == nil and json.NULL or value
+end
+
+function harness.agentRecord(result: any, events: {any}, model: string?): any
+    local counts, nuppRuns = toolCalls(events)
+    local total = 0
+    for _, count in pairs(counts) do
+        total = total + count
+    end
+    local usage = type(result.usage) == "table" and result.usage or {}
+
+    return {
+        model = model or "default",
+        turns = optional(result.num_turns),
+        costUsd = optional(result.total_cost_usd),
+        durationMs = optional(result.duration_ms),
+        wallClockSeconds = optional(result.wallClockSeconds),
+        outputTokens = optional(usage.output_tokens),
+        isError = optional(result.is_error),
+        timedOut = result.timedOut == true,
+        toolCalls = json.asObject(counts),
+        toolCallTotal = total,
+        nuppInvocations = nuppRuns,
+    }
+end
+
+function harness.spent(record: any): string
+    local cost = record.costUsd
+    if type(cost) ~= "number" then
+        return "?"
+    end
+
+    return ("$%.4f"):format(cost)
+end
+
+function harness.rounded(value: number, places: integer): number
+    return rounded(value, places)
+end
+
+export = harness

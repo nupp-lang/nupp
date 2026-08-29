@@ -1,0 +1,86 @@
+module jobs
+
+export record Payload
+    id: integer
+    label: string
+    bytes: string
+end
+
+export function identity(value: integer): integer
+    return value
+end
+
+export function echoText(value: string): string
+    return value
+end
+
+export function echoPayload(value: Payload): Payload
+    return value
+end
+
+export function echoDynamic(value: any): any
+    return value
+end
+
+export record Sparse
+    id: integer
+    label: string
+    bytes: string
+    note: string?
+end
+
+export function echoSparse(value: Sparse): Sparse
+    return value
+end
+
+const sharedbytes = require("nupp.mem.sharedbytes")
+
+export function regionSize(corpus: sharedbytes.Region): integer
+    return corpus:size()
+end
+
+export function countRange(corpus: sharedbytes.Region, first: integer, last: integer): integer
+    const bytes = corpus:view(first, last)
+    local count: integer = 0
+    for index = 1, #bytes do
+        if bytes[index] == 0x0A then
+            count = count + 1
+        end
+    end
+
+    return count
+end
+
+export function countText(value: string): integer
+    local count: integer = 0
+    for index = 1, #value do
+        if value:byte(index) == 0x0A then
+            count = count + 1
+        end
+    end
+
+    return count
+end
+
+const heap = require("nupp.mem.heap")
+
+export function bounce(takes frame: heap.Array<uint8>): affine(heap.Array<uint8>, heap.destroyArray)
+    return frame
+end
+
+export function bump(takes frame: heap.Array<uint8>, seed: integer): affine(heap.Array<uint8>, heap.destroyArray)
+    local writable = frame:write()
+    writable[1] = seed % 256
+    drop writable
+
+    return frame
+end
+
+export function burn(iterations: integer): number
+    local value = 1.0
+    for index = 1, iterations do
+        value = value * 1.0000001 + index % 7
+    end
+
+    return value
+end

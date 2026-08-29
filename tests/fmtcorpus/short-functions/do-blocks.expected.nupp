@@ -1,0 +1,12 @@
+local m = {}
+
+local blocky = |x: number| -> do
+    return x + 1
+end
+
+local wide = |first: number, second: number| -> do
+    local total = first + second
+    return total
+end
+
+return m, blocky, wide

@@ -1,0 +1,52 @@
+module nupp.runtime.seam.files
+
+local common = require("nupp.runtime.seam.module")
+local runtimeBackend = require("nupp.runtime.backend")
+local seam = {moduleName = "nupp.runtime.seam.files", suiteModuleName = "nupp.runtime.seam.filessuite",}
+local CONTRACT = common.contract("host.files", {
+    globalName = "__nuppFiles",
+    requiredFunctions = {
+        "append",
+        "copy",
+        "createDirectory",
+        "createSymlink",
+        "createTemporaryDirectory",
+        "createTemporaryFile",
+        "currentDirectory",
+        "exists",
+        "glob",
+        "info",
+        "isDirectory",
+        "isFile",
+        "isSymlink",
+        "lines",
+        "list",
+        "open",
+        "pendingTransfers",
+        "read",
+        "readLink",
+        "remove",
+        "rename",
+        "setReadOnly",
+        "userFolder",
+        "write",
+        "writeAtomic",
+    },
+    requiredValues = {"Entry", "File", "FileReader", "FileWriter", "Info", "TemporaryOptions", "TemporaryPath"},
+    suiteModule = seam.suiteModuleName,
+    modules = {["nupp.io.files"] = "",},
+})
+
+function seam.validate(value: any): string?
+    return common.validate(CONTRACT, value)
+end
+
+function seam.seam(moduleName: string): runtimeBackend.Seam
+    return common.seam(CONTRACT, moduleName)
+end
+
+function seam.backend(moduleName: string): runtimeBackend.Backend
+    return runtimeBackend.new("host-files:" .. moduleName, {seam.seam(moduleName)})
+end
+
+export = seam

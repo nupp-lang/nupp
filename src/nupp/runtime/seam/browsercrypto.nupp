@@ -1,0 +1,26 @@
+module nupp.runtime.seam.browsercrypto
+
+local common = require("nupp.runtime.seam.module")
+local runtimeBackend = require("nupp.runtime.backend")
+local seam = {moduleName = "nupp.runtime.seam.browsercrypto", suiteModuleName = "nupp.runtime.seam.browsercryptosuite",}
+local CONTRACT = common.contract("host.browser_crypto", {
+    globalName = "__nuppBrowserCrypto",
+    requiredFunctions = {"digest", "hex", "randomBytes", "sha256", "uuid4", "uuid7"},
+    requiredValues = {},
+    suiteModule = seam.suiteModuleName,
+    modules = {["nupp.browser.crypto"] = "",},
+})
+
+function seam.validate(value: any): string?
+    return common.validate(CONTRACT, value)
+end
+
+function seam.seam(moduleName: string): runtimeBackend.Seam
+    return common.seam(CONTRACT, moduleName)
+end
+
+function seam.backend(moduleName: string): runtimeBackend.Backend
+    return runtimeBackend.new("browser-crypto:" .. moduleName, {seam.seam(moduleName)})
+end
+
+export = seam

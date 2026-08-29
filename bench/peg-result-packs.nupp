@@ -1,0 +1,70 @@
+-- Compare native multiple PEG results with an explicitly requested table capture.
+-- Run with: ./bin/nupp run -O2 bench/peg-result-packs.nupp
+
+local jit: any = require("jit")
+
+local ROUNDS = 9
+local ITERATIONS = 1000000
+local SUBJECT = "identifier"
+
+local Native: nupp.peg.Peg<(integer, integer)> = nupp.peg.compile(
+    "{} [a-z]+ {} !."
+)
+local Collected: nupp.peg.Peg<{integer}> = nupp.peg.compile(
+    "{| {} [a-z]+ {} |} !."
+)
+
+local sink = 0
+
+local function median(samples: {number}): number
+    table.sort(samples)
+    return samples[math.ceil(#samples / 2)]
+end
+
+local function measureNative(): number
+    jit.flush()
+    for _ = 1, 10000 do
+        local first, nextPosition = Native(SUBJECT)
+        sink = sink + (first or 0) + (nextPosition or 0)
+    end
+    local samples = {}
+    for round = 1, ROUNDS do
+        local started = os.clock()
+        for _ = 1, ITERATIONS do
+            local first, nextPosition = Native(SUBJECT)
+            sink = sink + (first or 0) + (nextPosition or 0)
+        end
+        samples[round] = ITERATIONS / (os.clock() - started)
+    end
+    return median(samples)
+end
+
+local function measureCollected(): number
+    jit.flush()
+    for _ = 1, 10000 do
+        local positions = assert(Collected(SUBJECT))
+        sink = sink + positions[1] + positions[2]
+    end
+    local samples = {}
+    for round = 1, ROUNDS do
+        local started = os.clock()
+        for _ = 1, ITERATIONS do
+            local positions = assert(Collected(SUBJECT))
+            sink = sink + positions[1] + positions[2]
+        end
+        samples[round] = ITERATIONS / (os.clock() - started)
+    end
+    return median(samples)
+end
+
+local first, nextPosition = Native(SUBJECT)
+local positions = assert(Collected(SUBJECT))
+assert(first == positions[1] and nextPosition == positions[2])
+
+local native = measureNative()
+local collected = measureCollected()
+print(string.format("PEG result materialization, %s", jit.version))
+print(string.format("native pack:   %12.0f matches/s", native))
+print(string.format("table capture: %12.0f matches/s", collected))
+print(string.format("native/table:  %12.2fx", native / collected))
+assert(sink > 0)

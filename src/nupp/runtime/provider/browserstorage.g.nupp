@@ -1,0 +1,37 @@
+module nupp.runtime.provider.browserstorage
+
+-- Persistent UTF-8 key/value storage backed by IndexedDB in the application
+-- Worker. The host owns quotas and database lifetime; this module owns the
+-- checked, backend-independent call surface.
+
+local response = require("nupp.runtime.browser.response")
+local storage = {}
+
+local function key(value: string): string
+    if value == "" then
+        error("nupp: browser storage key must not be empty", 3)
+    elseif #value > 1024 then
+        error("nupp: browser storage key exceeds 1024 bytes", 3)
+    end
+
+    return value
+end
+
+function storage.get(name: string): string?
+    local value = response.await("storage", {operation = "get", key = key(name),})
+    return value.found and value.value as string or nil
+end
+
+function storage.set(name: string, value: string): nil
+    response.await("storage", {operation = "set", key = key(name), value = value,})
+end
+
+function storage.remove(name: string): nil
+    response.await("storage", {operation = "remove", key = key(name),})
+end
+
+function storage.clear(): nil
+    response.await("storage", {operation = "clear",})
+end
+
+export = storage

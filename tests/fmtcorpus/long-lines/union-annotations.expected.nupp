@@ -1,0 +1,19 @@
+local m = {}
+
+local type Reply = m.Accepted
+    | m.Retried
+    | m.Redirected
+    | m.Failed
+    | m.TimedOut
+    | m.Cancelled
+    | m.Refused
+    | m.Deferred
+    | nil
+
+local type Pcall = function<A..., R...>(scoped f: function(A...): R..., A...): ((true, R...) | (false, any))
+    & function<A..., R...>(takes f: function(A...): R..., A...): ((true, R...) | (false, any))
+
+local reply: Reply = nil
+local protected: Pcall = nil as any
+
+return m, reply, protected

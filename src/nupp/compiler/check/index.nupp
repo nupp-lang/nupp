@@ -1,0 +1,986 @@
+module nupp.compiler.check.index
+
+--[[
+Reaching a field.
+
+`a.b` and `a[k]` are the same question asked of different syntax, and the answer
+depends on what `a` turns out to be: a record's declared member, a shape's field,
+a map's value type, an array's element, a module's export, or a metamethod
+contract that says indexing means something else entirely.
+
+The safe forms `a?.b` and `a?.[k]` differ only in what a nil receiver means -- an
+answer of nil rather than a diagnostic -- so they are the same handler.
+]]
+
+local T = require("nupp.compiler.types")
+local relations = require("nupp.compiler.relations")
+local cst = require("nupp.compiler.cst")
+local state = require("nupp.compiler.check.state")
+local scalarIntrinsics = require("nupp.compiler.scalarintrinsics")
+local fixedWidth = require("nupp.compiler.fixedwidth")
+local native = require("nupp.compiler.native")
+local indexedViews = require("nupp.compiler.indexedviews")
+local runtimeSurface = require("nupp.compiler.runtimesurface")
+local standardSurface = require("nupp.compiler.standardsurface")
+
+local isA = relations.isA
+local rawType = T.unwrapOwnership
+
+--- A type, as nupp.compiler.types builds them.
+local type Type = T.Type
+
+local index = {}
+
+-- Compiler intrinsics keep precedence over disk modules with the same dotted spelling.
+-- `nupp.derive` is both the compile-time recipe API and the historical module holding
+-- the standard recipes; the latter remains available through explicit require.
+local INTRINSIC_NAMESPACE = {["nupp.derive"] = true, ["nupp.types"] = true, ["nupp.reflect"] = true,}
+
+-- Modules projected through builtin namespaces. The source path deliberately lives
+-- apart from the prelude table's runtime shape: LuaJIT does not put these modules on
+-- that table, so codegen replaces the whole expression with a private require binding.
+-- Recognition by the root's definition leaves a locally shadowed namespace alone.
+local COMPILER_MODULES: {[string]: string} = {["string.buffer"] = "string.buffer"}
+
+--- A node of the tree being checked.
+local type Node = cst.Node
+
+--- Whether a projected value belongs exclusively to the compile-time evaluator.
+local function compilerOnlyValue(t: Type): boolean
+    if t == T.type_ or t == T.typepack or t == T.functionConst or t.tag == "typeHandle" then
+        return true
+    end
+    if t.tag == "func" then
+        if t.comptimeOnly then
+            return true
+        end
+        for _, parameter in ipairs(t.params) do
+            if compilerOnlyValue(parameter) then
+                return true
+            end
+        end
+        for _, result in ipairs(t.rets) do
+            if compilerOnlyValue(result) then
+                return true
+            end
+        end
+    elseif t.tag == "intersection" or t.tag == "union" then
+        for _, member in ipairs(t.members) do
+            if compilerOnlyValue(member) then
+                return true
+            end
+        end
+    end
+
+    return false
+end
+
+--- Installs the index expressions on one run.
+---
+--- @param c the run's state
+--- @return the expression kinds this family answers
+function index.install(c: state.Checker): state.ExprHandlers
+    local handlers = {}
+
+    local function dottedPath(node): string?, string?, {any}?
+        local parts = {}
+        local names = {}
+        local current = node
+        while current and current.kind == "dotIndex" do
+            if not current.name then
+                return nil, nil
+            end
+            table.insert(parts, 1, current.name.text)
+            table.insert(names, 1, current.name)
+            current = current.obj
+        end
+        if not current or current.kind ~= "name" or not current.token then
+            return nil, nil
+        end
+        table.insert(parts, 1, current.token.text)
+        table.insert(names, 1, current.token)
+
+        return table.concat(parts, "."), current.token.text, names
+    end
+
+    local function qualifiedModule(node): Type?
+        if node.kind ~= "dotIndex" or node.writeContext or not c.env or not c.env.ensureProjectIndex then
+            return nil
+        end
+        local written, root, nameTokens = dottedPath(node)
+        if not written or not root then
+            return nil
+        end
+        for intrinsic in pairs(INTRINSIC_NAMESPACE) do
+            if written == intrinsic or written:sub(1, #intrinsic + 1) == intrinsic .. "." then
+                return nil
+            end
+        end
+        local lexical = c.lookupEntry(root)
+        local builtin = c.env.globals and c.env.globals[root]
+        if lexical and (not builtin or lexical.definition ~= builtin.definition) then
+            return nil
+        end
+        local registry = c.env.ensureProjectIndex(c.env)
+        local candidate = written
+        local suffix = {}
+        while candidate do
+            -- A module the compiler ships is not in the project index, but it is still
+            -- a declared module and a qualified path may name it. Only declared ones: a
+            -- legacy return-table module stays unreachable this way, so migration is
+            -- explicit rather than reinterpreting some Lua table as a package tree.
+            local declared = registry.declaredModules and registry.declaredModules[candidate] or false
+            if not declared and c.env.bundled then
+                local shipped = c.env.bundled[candidate]
+                declared = shipped ~= nil and shipped ~= false and shipped.declared == true
+            end
+            if declared then
+                local moduleType = c.env.resolveModule and c.env.resolveModule(c.env, candidate) or nil
+                if not moduleType then
+                    return nil
+                end
+                local resolved = moduleType
+                local definition = nil
+                for _, memberName in ipairs(suffix) do
+                    resolved, definition = c.fieldType(resolved, memberName)
+                    if not resolved then
+                        c.diag(
+                            "NUPP2004",
+                            node.name or node,
+                            ("module %q has no exported member %q"):format(candidate, memberName)
+                        )
+                        return T.any
+                    end
+                end
+                -- Selecting a module through a qualified path is how a program reaches
+                -- one that used to be a field of the ambient table, so it has to record
+                -- the same feature effect an explicit require would. Without this the
+                -- native library a module stands on stops being carried.
+                local moduleEffect = suffix[
+                    1
+                ] and (
+                    standardSurface.requireMember(
+                        c,
+                        candidate,
+                        suffix[1],
+                        node.name or node
+                    ) or native.forModuleMember(candidate, suffix[1])
+                ) or native.forModule(candidate)
+                if moduleEffect and c.recordEffect then
+                    (node as any).compilerFeatureEffect = moduleEffect
+                    c.recordEffect(moduleEffect)
+                end
+                node.qualifiedModule = candidate
+                node.qualifiedMembers = suffix
+                if #suffix == 1 then
+                    node.exactCallExport = {
+                        module = candidate,
+                        member = suffix[1],
+                        identity = candidate .. "." .. suffix[1],
+                    }
+                end
+                node.immutablePath = true
+                node.resolvedType = resolved
+                local qualifiedTokens = nameTokens or {}
+                local prefix = ""
+                for tokenIndex = 1, #qualifiedTokens - #suffix do
+                    local token = qualifiedTokens[tokenIndex]
+                    prefix = prefix == "" and token.text or prefix .. "." .. token.text
+                    local moduleDefinition = registry.moduleDefinitions and registry.moduleDefinitions[prefix] or nil
+                    c.markToken(token, moduleDefinition, nil, "module")
+                end
+                if node.name then
+                    local exports = c.env.resolveModuleExports and c.env.resolveModuleExports(c.env, candidate) or nil
+                    local exported = #suffix == 0 and registry.moduleDefinitions and registry.moduleDefinitions[
+                        candidate
+                    ] or #suffix == 1 and exports and exports.valueDefs and exports.valueDefs[suffix[1]] or definition
+                    c.markToken(node.name, exported, resolved, exported and exported.kind or "property")
+                end
+                return resolved
+            end
+            local parent, last = candidate:match("^(.*)%.([^.]+)$")
+            if not parent then
+                break
+            end
+            table.insert(suffix, 1, last)
+            candidate = parent
+        end
+
+        return nil
+    end
+
+    --- Whether a name stands for a loaded module's table: one this file required, or
+    --- the table this module exports. A function member read off either is sendable.
+    local function moduleHolder(holderName: string): boolean
+        if holderName == "" then
+            return false
+        end
+        if c.moduleLocal and holderName == c.moduleLocal then
+            return true
+        end
+        local holder = c.lookupEntry(holderName)
+
+        return holder ~= nil and holder.requiredModule ~= nil
+    end
+
+    local fieldOf: function(node: cst.DotIndex | cst.SafeIndex): Type
+    fieldOf = function(node: cst.DotIndex | cst.SafeIndex): Type
+        local kind = node.kind
+        local member = node.name
+        local target = node.obj
+        if not member or not target then
+            return T.any
+        end
+        local memberName = member.text
+        node.fixedWidthUntrusted = nil
+        local projected = qualifiedModule(node)
+        if projected then
+            return projected
+        end
+        -- the name it is dotted off, when the object is a plain name
+        local holderName = ""
+        if target.kind == "name" then
+            local holderTok = target.token
+            holderName = holderTok and holderTok.text or ""
+        end
+        if kind == "dotIndex" and not node.writeContext then
+            local sourcePath = holderName ~= "" and holderName .. "." .. memberName or ""
+            local moduleName = COMPILER_MODULES[sourcePath]
+            local holder = moduleName and c.lookupEntry(holderName) or nil
+            local builtin = moduleName and c.env and c.env.globals and c.env.globals[holderName] or nil
+            if holder and builtin and holder.definition == builtin.definition and c.env and c.env.resolveModule then
+                local moduleType = c.env.resolveModule(c.env, moduleName)
+                if moduleType then
+                    c.infer(target)
+                    runtimeSurface.requireIdentity(c, (target as any).runtimeSurfaceRoot, memberName, member)
+                    node.compilerModule = moduleName
+                    node.immutablePath = true
+                    node.resolvedType = moduleType
+                    c.markToken(member, nil, moduleType, "property")
+                    return moduleType
+                end
+            end
+        end
+        if kind == "dotIndex" and memberName == "C" and holderName == "ffi" then
+            return c.cNamespaceType()
+        end
+        if kind == "dotIndex" and not node.writeContext then
+            local key = c.pathKey(node)
+            if c.moduleLocal and key == c.moduleLocal .. "." .. memberName then
+                c.resolveModuleFunction(memberName)
+            end
+            local narrowed = key and c.lookupNarrowed(key)
+            if narrowed then
+                local narrowedObject = c.infer(target) -- keep definitions and side effects
+                c.fixedWidth.mark(node, narrowed)
+                c.fixedWidth.trust(node, narrowed)
+                if holderName == c.moduleLocal then
+                    local definition = c.moduleFieldDefs[memberName]
+                    c.markToken(member, definition, narrowed, definition and definition.kind or "function")
+                else
+                    local _, definition, definitions = c.fieldType(rawType(narrowedObject), memberName)
+                    c.markToken(member, definition, narrowed, "property")
+                    member.additionalDefinitions = definitions
+                end
+                return narrowed
+            end
+            -- A declaration qualified by a table binds under its whole path, so
+            -- `M.Point` is the record itself rather than an ordinary field read of M.
+            -- `key` is built from source text alone, so a path whose root also names an
+            -- ambient global answers this the same way whether that global is still in
+            -- scope or a local has shadowed it. Only a root that names a global is at
+            -- risk: a module-local qualifier like `profile` in `profile.Sample` has
+            -- nothing to shadow, and skipping the shortcut there breaks the ordinary
+            -- case instead of protecting it.
+            local declared = key and c.lookupEntry(key)
+            if declared then
+                local rootName = key:match("^[^.]+")
+                local globalRoot = rootName and c.env and c.env.globals and c.env.globals[rootName]
+                local localRoot = globalRoot and c.lookupEntry(rootName)
+                local shadowed = globalRoot and localRoot and localRoot.definition ~= globalRoot.definition
+                if not shadowed then
+                    c.infer(target)
+                    c.markToken(
+                        member,
+                        declared.definition,
+                        declared.t,
+                        declared.definition and declared.definition.kind or "variable"
+                    )
+                    return declared.t
+                end
+            end
+        end
+        local trackedObject = c.infer(target)
+        runtimeSurface.requireIdentity(c, (target as any).runtimeSurfaceRoot, memberName, member)
+        local intrinsicPath = c.pathKey(node)
+        if intrinsicPath then
+            local root = target
+            while root and (root.kind == "dotIndex" or root.kind == "safeIndex") do
+                root = root.obj
+            end
+            local token = root and root.kind == "name" and root.token or nil
+            local builtin = c.env and c.env.globals and c.env.globals.nupp or nil
+            if token and builtin and token.definition == builtin.definition then
+                node.scalarIntrinsic = scalarIntrinsics.forPath(intrinsicPath)
+            end
+        end
+        -- Keep the exact value identity beside the projection. Function types are
+        -- intentionally not qualified with allocation/raising facts; a checked region
+        -- can nevertheless ask for this one exported definition's sidecar entry.
+        if not node.writeContext and holderName ~= "" then
+            local holder = c.lookupEntry(holderName)
+            if holder and holder.requiredModule then
+                node.exactCallExport = {
+                    module = holder.requiredModule,
+                    member = memberName,
+                    identity = holder.requiredModule .. "." .. memberName,
+                }
+            end
+        end
+        local ot = trackedObject
+        local base = kind == "safeIndex" and ot.tag == "union" and T.union(ot.members) or ot
+        base = rawType(base)
+        local indexedView = indexedViews.describe(base)
+        if indexedView and (
+            memberName == "get" or memberName == "getMut" or memberName == "set" or memberName == "count"
+        ) then
+            local replacement = memberName == "count"
+                and "use #view"
+                or memberName == "set"
+                and "use view[index] = value"
+                or memberName == "getMut"
+                and "use view[index].field as the writable place"
+                or "use view[index]"
+            c.diag("NUPP2004", member, ("indexed views no longer expose %q; %s"):format(memberName, replacement), nil, {
+                help = replacement
+            })
+            return T.any
+        end
+        if base.tag == "ptr" and not c.ownershipKind(trackedObject) then
+            if c.unsafeDepth == 0 then
+                c.diag(
+                    "NUPP2604",
+                    node,
+                    "dereferencing a raw pointer requires unsafe do; use an "
+                    .. "owned or borrowed value in checked code"
+                )
+            else
+                node.unsafeOwnershipOperation = "raw pointer dereference"
+            end
+        end
+        -- A required module's exported records and structs are values as well as types:
+        -- `geom.Point` both names the type and stamps instances. A declaration is not a
+        -- field of the module's table, so it is never among the members its surface
+        -- records, and this is the only place the pairing is known.
+        local function exportedValue(): Type?
+            local holder = holderName ~= "" and c.lookupEntry(holderName) or nil
+            local exporting = holder and holder.requiredModule
+            if not exporting or not c.env or not c.env.exportedNominal then
+                return nil
+            end
+            local t, def = c.env.exportedNominal(c.env, exporting, memberName)
+            if t and t.tag == "nominal" and (
+                t.declKind == "record" or t.declKind == "struct" or t.declKind == "interface"
+            ) then
+                -- The same value the declaring module bound, so a record arrives as the
+                -- metatable its table is rather than as an instance of it.
+                local held = t.declKind == "struct" and t or T.typeObject(t)
+                c.markToken(member, def, held, def and def.kind or "variable")
+                return held
+            end
+
+            return nil
+        end
+
+        if base == T.any or base == T.table_ then
+            local exported = exportedValue()
+            if exported then
+                return exported
+            end
+            return T.any
+        end
+        -- safe navigation tolerates nil in the object
+        if kind == "safeIndex" and base.tag == "union" then
+            local nonnil = {}
+            for _, m in ipairs(base.members) do
+                if m ~= T.nil_ then
+                    nonnil[#nonnil + 1] = m
+                end
+            end
+            base = T.union(nonnil)
+        end
+        local writing = node.writeContext == true
+        local ft, fieldDef, fieldDefs
+        if writing then
+            ft, fieldDef, fieldDefs = c.fieldWriteType(base, memberName)
+            local physicalOwner = base
+            while physicalOwner.tag == "ptr" do
+                physicalOwner = rawType(physicalOwner.elem)
+            end
+            if physicalOwner.tag == "nominal"
+                and physicalOwner.declKind == "struct"
+                and physicalOwner.writeFieldDefs
+                and physicalOwner.writeFieldDefs[
+                memberName
+            ] then
+                node.fixedWidthPhysicalStore = true
+            end
+            local after = c.fieldType(base, memberName)
+            if not after then
+                node.postWriteType = false
+            elseif after ~= ft then
+                node.postWriteType = after
+            end
+        else
+            ft, fieldDef, fieldDefs = c.fieldType(base, memberName)
+        end
+        local nominal = base.tag == "nominal" and base or nil
+        local declaration = nominal and (((nominal as T.Nominal).origin or nominal) as T.Nominal) or nil
+        if declaration and declaration.privateFields and declaration.privateFields[
+            memberName
+        ] and declaration.moduleName ~= c.result.moduleName then
+            c.diag(
+                "NUPP2209",
+                member,
+                ("field %q is private to module %q"):format(memberName, declaration.moduleName or "?")
+            )
+            return T.any
+        end
+        if not fieldDef and not writing then
+            if holderName == c.moduleLocal then
+                fieldDef = c.moduleFieldDefs and c.moduleFieldDefs[memberName] or nil
+            else
+                local holder = holderName ~= "" and c.lookupEntry(holderName) or nil
+                local exporting = holder and holder.requiredModule
+                local exports = exporting and c.env and c.env.resolveModuleExports and c.env.resolveModuleExports(
+                    c.env,
+                    exporting
+                ) or nil
+                fieldDef = exports and exports.valueDefs and exports.valueDefs[memberName] or nil
+            end
+        end
+        if not ft then
+            local opposite = writing and c.fieldType(base, memberName) or c.fieldWriteType(base, memberName)
+            if opposite then
+                c.diag(
+                    "NUPP2009",
+                    member,
+                    ("property %q is %s-only"):format(memberName, writing and "read" or "write"),
+                    nil,
+                    {
+                        help = writing
+                        and "assign through a view that grants write access"
+                        or "read through a view that grants read access"
+                    }
+                )
+                return T.any
+            end
+            -- A declared metamethod is a name on the metatable, so reaching one through
+            -- a `metatable<R>` is reaching the contract and writing one is installing
+            -- it. Asked before the index contract, which says what happens to the names
+            -- the declaration does not have.
+            local contract = c.metamethodOf(base, memberName)
+            if contract and (base.tag == "metatable" or base.tag == "typeobject") then
+                node.metamethodName = memberName
+                node.metamethodReceiver = base
+                c.markToken(member, nil, contract, "property")
+                local installed = kind == "safeIndex" and T.optional(contract) or contract
+                node.resolvedType = installed
+                return installed
+            elseif contract then
+                -- On an instance the same name is an ordinary field, and writing it
+                -- puts a function somewhere the operator never looks.
+                c.diag(
+                    "NUPP2004",
+                    member,
+                    ("%s is a metamethod of %s, not a field of one"):format(memberName, T.tostring(base)),
+                    nil,
+                    {
+                        help = (
+                            "write it on the declaration's own table, which is " .. "the metatable an instance carries"
+                        )
+                    }
+                )
+                return T.any
+            end
+            if indexedView then
+                c.diag("NUPP2004", member, ("no field %q in %s"):format(memberName, T.tostring(base)), nil, {
+                    help = "use #view for length and view[index] for element access"
+                })
+                return T.any
+            end
+            local contractName = writing and "__newindex" or "__index"
+            local mm = c.metamethodOf(base, contractName)
+            if mm then
+                local keyType = T.literal(memberName, T.string)
+                node.indexObjectType, node.indexKeyType = base, keyType
+                node.usesIndexContract = true
+                if writing then
+                    return T.any
+                end
+                local out = c.applyContract(mm, {base, keyType}, {target, node}, node, contractName)
+                return kind == "safeIndex" and T.optional(out) or out
+            end
+            local exported = exportedValue()
+            if exported then
+                return exported
+            end
+            local fixes = c.edits.nameSpellingFix(member, c.fieldNames(base, writing))
+            -- A double-underscore name is reaching for a contract rather than a field,
+            -- so it is spelled against the ones the receiver declares. Without this the
+            -- misspelling and the absence read alike.
+            local contracted = memberName:sub(1, 2) == "__"
+            if not fixes and contracted then
+                fixes = c.edits.spellingFix(member, c.metamethodNames(base))
+            end
+            c.diag("NUPP2004", member, ("no field %q in %s"):format(memberName, T.tostring(base)), fixes, {
+                help = fixes and (
+                    contracted and "use the suggested contract spelling" or "use the suggested field spelling"
+                ) or "check the receiver type and available fields"
+            })
+            return T.any
+        end
+        local staticOwner = (base.tag == "metatable" or base.tag == "typeobject") and rawType(base.of) or nil
+        if not writing
+            and staticOwner
+            and staticOwner.tag == "nominal"
+            and staticOwner.overloadedStatics
+            and staticOwner.overloadedStatics[
+            memberName
+        ] then
+            node.staticOverloadOwner = staticOwner
+            node.staticOverloadName = memberName
+            if not node.callCallee then
+                c.diag(
+                    "NUPP2126",
+                    member,
+                    ("overloaded static function %q has no single field value"):format(memberName),
+                    nil,
+                    {help = "call it through the declaration table so the arguments select one body"}
+                )
+            end
+        elseif not writing and base.tag == "nominal" and base.overloadedMethods and base.overloadedMethods[
+            memberName
+        ] then
+            c.diag("NUPP2126", member, ("overloaded method %q has no single field value"):format(memberName), nil, {
+                help = "call it with `:` so the arguments select one body"
+            })
+        end
+        -- A declaration table reads as `metatable<T>`, so a static's feature effect is
+        -- recorded against the declaration `T` and found through it.
+        local effects = c.env and c.env.featureEffects or nil
+        local featureFields = effects and (effects[base] or staticOwner and effects[staticOwner]) or nil
+        local effect = featureFields and featureFields[memberName] or nil
+        if not effect and target.kind == "name" and target.token then
+            local holder = c.lookupEntry(target.token.text)
+            if holder and holder.requiredModule then
+                effect = standardSurface.requireMember(
+                    c,
+                    holder.requiredModule,
+                    memberName,
+                    member
+                ) or native.forModuleMember(holder.requiredModule, memberName)
+            end
+        end
+        if effect and c.recordEffect then
+            (node as any).compilerFeatureEffect = effect
+            c.recordEffect(effect)
+        end
+        local ownerState = target.kind == "name" and c.ownershipState((c.ownershipEntry(target))) or nil
+        if ownerState and ownerState.movedFields and ownerState.movedFields[memberName] and not node.writeContext then
+            c.diag("NUPP2601", node, ("owned field %q was moved and has not been reinitialized"):format(memberName))
+        end
+        if ownerState and c.ownershipKind(ft) == "affine" and c.ownershipKind(ownerState.t) == "affine" then
+            local exact = {}
+            for _, cleanup in ipairs(ownerState.t.cleanups or {}) do
+                if cleanup.kind == "field" and cleanup.field == memberName and cleanup.cleanup then
+                    exact[#exact + 1] = cleanup.cleanup
+                end
+            end
+            ft = T.affine(rawType(ft), exact)
+        end
+        if not writing and compilerOnlyValue(
+            ft
+        ) and (c.comptimeDepth or 0) == 0 and (c.comptimeFunctionDepth or 0) == 0 then
+            c.diag("NUPP2421", member, ("compiler-only member %q is available only inside comptime"):format(memberName))
+            return T.any
+        end
+        c.markToken(member, fieldDef, ft, "property")
+        member.additionalDefinitions = fieldDefs
+        local out = kind == "safeIndex" and T.optional(ft) or ft
+        node.resolvedType = out
+        if kind == "dotIndex" and target.indexedAccess then
+            local access = target.indexedAccess
+            local element = access.element as Type
+            local ordinal = nil
+            if access.adapter == "soa" and element.tag == "nominal" then
+                for position, name in ipairs(element.fieldOrder or {}) do
+                    if name == memberName then
+                        ordinal = position
+                        break
+                    end
+                end
+            end
+            if writing and not access.writable then
+                c.diag("NUPP2009", member, "shared indexed views are read-only", nil, {
+                    help = "request an exclusive writable view from the owner"
+                })
+            end
+            node.indexedField = {
+                adapter = access.adapter,
+                name = memberName,
+                ordinal = ordinal,
+                writable = access.writable,
+                element = element,
+                access = target,
+            }
+            if access.adapter == "soa" and ordinal then
+                node.soaField = {name = memberName, ordinal = ordinal, writable = access.writable, element = element,}
+                member.soaColumn = {
+                    identity = (element as T.Nominal).name .. "." .. memberName,
+                    ordinal = ordinal,
+                    access = access.writable and "read-write" or "read-only",
+                }
+                if writing then
+                    node.fixedWidthPhysicalStore = true
+                end
+            elseif access.adapter == "span" and writing then
+                node.fixedWidthPhysicalStore = true
+            end
+        elseif kind == "dotIndex" and target.soaRow then
+            -- Kept only while older checked trees are accepted during bootstrap.
+            local row = target.soaRow
+            local element = row.element as Type
+            local ordinal = nil
+            if element.tag == "nominal" then
+                for position, name in ipairs(element.fieldOrder or {}) do
+                    if name == memberName then
+                        ordinal = position
+                        break
+                    end
+                end
+            end
+            if ordinal then
+                if writing and not row.writable then
+                    c.diag("NUPP2009", member, "SoA shared rows are read-only", nil, {
+                        help = "request an exclusive writable view from the owner"
+                    })
+                end
+                node.soaField = {name = memberName, ordinal = ordinal, writable = row.writable, element = element,}
+                member.soaColumn = {
+                    identity = (element as T.Nominal).name .. "." .. memberName,
+                    ordinal = ordinal,
+                    access = row.writable and "read-write" or "read-only",
+                }
+                if writing then
+                    node.fixedWidthPhysicalStore = true
+                end
+            end
+        end
+        if not writing and fixedWidth.isValue(out) then
+            if not (base.tag == "nominal" and base.declKind == "record") or target.fixedWidthTrusted == true then
+                c.fixedWidth.mark(node, out)
+            else
+                node.fixedWidthUntrusted = true
+            end
+        end
+        if not writing and fixedWidth.requiresTrust(out) and target.fixedWidthTrusted == true then
+            c.fixedWidth.trust(node, out)
+        end
+        node.immutablePath = kind == "dotIndex" and target.immutablePath == true and c.fieldWriteType(
+            base,
+            memberName
+        ) == nil
+
+        return out
+    end
+
+    --- `jobs.hash` is reachable as `require("jobs").hash` from any Lua state, so
+    --- reading it mints the fact on the type. Wrapping the whole rule rather than one
+    --- of its exits: a member read leaves by whichever answer settled it first, and
+    --- every one of them read the same module.
+    handlers.dotIndex = function(node: cst.DotIndex | cst.SafeIndex): Type
+        local out = fieldOf(node)
+        if node.kind ~= "dotIndex" or node.writeContext or out.tag ~= "func" then
+            return out
+        end
+        local target = node.obj
+        local holderTok = target and target.kind == "name" and target.token or nil
+        if not moduleHolder(holderTok and holderTok.text or "") then
+            return out
+        end
+
+        return T.withSendable(out)
+    end
+
+    handlers.safeIndex = fieldOf
+
+    handlers.bracketIndex = function(node: cst.BracketIndex | cst.SafeBracket): Type
+        local kind = node.kind
+        local target, key = node.obj, node.expr
+        if not target or not key then
+            return T.any
+        end
+        local trackedObject = c.infer(target)
+        local ot = rawType(trackedObject)
+        local writing = node.writeContext == true
+        local it = c.infer(key)
+        local view = indexedViews.describe(ot)
+        if view then
+            if not (it == T.any or isA(it, T.integer)) then
+                c.diag("NUPP2004", key, ("indexed view index must be integer, got %s"):format(T.tostring(it)))
+            end
+            if writing and not view.writable then
+                c.diag("NUPP2009", node, "shared indexed views are read-only", nil, {
+                    help = "request an exclusive writable view from the owner"
+                })
+            elseif writing then
+                c.own.checkExclusiveReceiver(target, node)
+            end
+            local receiverDefinition = target.kind == "name" and target.token and target.token.definition or nil
+            local indexDefinition = key.kind == "name" and key.token and key.token.definition or nil
+            node.indexedAccess = {
+                adapter = view.adapter,
+                element = view.element,
+                writable = view.writable,
+                writing = writing,
+                descriptor = view,
+                receiverDefinition = receiverDefinition,
+                indexDefinition = indexDefinition,
+            }
+            node.indexObjectType, node.indexKeyType = ot, it
+            node.usesIndexContract = true
+            if view.adapter == "soa" then
+                node.soaRow = {element = view.element, writable = view.writable}
+            end
+            node.containerTag = view.adapter
+            node.fixedWidthPhysicalStore = writing
+            local result = not writing and fixedWidth.loaded(view.element) or view.element
+            if not writing and fixedWidth.isValue(result) then
+                c.fixedWidth.mark(node, result)
+                c.fixedWidth.trust(node, result)
+            end
+            return result
+        end
+        local staticallyBounded = ot.tag == "carray" and ot.count ~= nil and it.tag == "literal" and type(
+            it.constant
+        ) == "number" and it.constant % 1 == 0 and it.constant >= 0 and it.constant < ot.count
+        local literalIndex = it.tag == "literal" and type(it.constant) == "number" and it.constant % 1 == 0
+        local boundsReported = false
+        if ot.tag == "carray" and ot.count ~= nil and literalIndex and not staticallyBounded then
+            c.diag("NUPP2604", node, "fixed C array index is outside its declared bound")
+            boundsReported = true
+        elseif ot.tag == "carray" and ot.count ~= nil and not staticallyBounded then
+            node.carrayBound = ot.count
+        end
+        if (ot.tag == "ptr" or ot.tag == "carray") and not staticallyBounded then
+            if boundsReported then
+                -- The precise static bounds diagnostic above already explains it.
+            elseif node.carrayBound and c.unsafeDepth == 0 then
+                -- Code generation checks the dynamic index against this fixed bound.
+            elseif c.unsafeDepth == 0 then
+                c.diag(
+                    "NUPP2604",
+                    node,
+                    "indexing C memory requires unsafe do; use a checked span " .. "when a runtime bound is available"
+                )
+            else
+                node.unsafeOwnershipOperation = "unchecked C memory indexing"
+            end
+        end
+        if ot == T.any or ot == T.table_ then
+            return T.any
+        end
+        -- remembered for the assignment rule: only a real container may have an entry
+        -- removed by writing nil
+        node.containerTag = ot.tag
+        node.containerIsSequence = ot.tag == "nominal" and ot.arrayOf ~= nil
+        if ot.tag == "union" then
+            -- Indexing a union indexes every member, which is what makes the `xs or {}`
+            -- default usable: the empty table contributes `table`, and reading it
+            -- yields any.
+            local outs = {}
+            for _, m in ipairs(ot.members) do
+                local mt = rawType(m)
+                if mt == T.any or mt == T.table_ then
+                    outs[#outs + 1] = T.any
+                elseif mt.tag == "array" or mt.tag == "carray" then
+                    outs[#outs + 1] = mt.tag == "carray" and not writing and fixedWidth.loaded(mt.elem) or mt.elem
+                elseif mt.tag == "map" then
+                    if writing and mt.writeValue then
+                        outs[#outs + 1] = mt.writeValue
+                    elseif not writing and mt.readable then
+                        outs[#outs + 1] = T.optional(mt.value)
+                    else
+                        outs = nil
+                        break
+                    end
+                elseif mt.tag == "tuple" then
+                    outs[#outs + 1] = T.union(mt.elems)
+                elseif mt.tag == "nominal" and mt.arrayOf then
+                    outs[#outs + 1] = mt.arrayOf
+                elseif (mt.tag == "shape" or mt.tag == "nominal") and writing and mt.indexWriteValue then
+                    outs[#outs + 1] = mt.indexWriteValue
+                elseif (mt.tag == "shape" or mt.tag == "nominal") and not writing and mt.indexReadValue then
+                    outs[#outs + 1] = T.optional(mt.indexReadValue)
+                else
+                    outs = nil
+                    break
+                end
+            end
+            if outs and writing then
+                node.postWriteType = false -- re-read the union instead of narrowing
+                local accepted = nil
+                for _, candidate in ipairs(outs) do
+                    if not accepted or isA(candidate, accepted) then
+                        accepted = candidate
+                    elseif not isA(accepted, candidate) then
+                        accepted = T.never
+                    end
+                end
+                return accepted or T.never
+            elseif outs then
+                return T.union(outs)
+            end
+        end
+        if ot.tag == "intersection" then
+            local outs, sawCapability = {}, false
+            for _, member in ipairs(ot.members) do
+                local mt = rawType(member)
+                local keyType, valueType, optional = nil, nil, false
+                if mt.tag == "array" or mt.tag == "carray" then
+                    keyType = T.integer
+                    valueType = mt.tag == "carray" and not writing and fixedWidth.loaded(mt.elem) or mt.elem
+                elseif mt.tag == "tuple" then
+                    keyType, valueType = T.integer, T.union(mt.elems)
+                elseif mt.tag == "map" then
+                    keyType = writing and mt.writeKey or (mt.readable and mt.key or nil)
+                    valueType = writing and mt.writeValue or (mt.readable and mt.value or nil)
+                    optional = not writing
+                elseif mt.tag == "nominal" and mt.arrayOf then
+                    keyType, valueType = T.integer, mt.arrayOf
+                elseif mt.tag == "shape" or mt.tag == "nominal" then
+                    keyType = writing and mt.indexWriteKey or mt.indexReadKey
+                    valueType = writing and mt.indexWriteValue or mt.indexReadValue
+                    optional = not writing
+                end
+                if keyType and valueType then
+                    sawCapability = true
+                    if isA(it, keyType) then
+                        outs[#outs + 1] = optional and T.optional(valueType) or valueType
+                    end
+                end
+            end
+            if #outs > 0 then
+                if writing then
+                    node.postWriteType = false
+                    return T.union(outs)
+                end
+                return T.intersection(outs)
+            elseif sawCapability then
+                c.diag("NUPP2004", key, ("no intersection indexer accepts %s"):format(T.tostring(it)))
+                return T.any
+            end
+        end
+        if ot.tag == "carray" then
+            -- numeric, not strictly integer: `integer` here is advisory, and ordinary
+            -- arithmetic on an index yields `number`
+            if not (it == T.any or isA(it, T.number)) then
+                c.diag("NUPP2004", key, ("carray index must be numeric, got %s"):format(T.tostring(it)))
+            end
+            -- zero-based, and always present: no optional here
+            if writing then
+                node.fixedWidthPhysicalStore = true
+                return ot.elem
+            end
+            local loaded = fixedWidth.loaded(ot.elem)
+            c.fixedWidth.mark(node, loaded)
+            return loaded
+        end
+        if ot.tag == "nominal" and ot.arrayOf then
+            if not (it == T.any or isA(it, T.integer)) then
+                c.diag("NUPP2004", key, ("array index must be integer, got %s"):format(T.tostring(it)))
+            end
+            return ot.arrayOf or T.any
+        elseif ot.tag == "array" then
+            if not (it == T.any or isA(it, T.integer)) then
+                c.diag("NUPP2004", key, ("array index must be integer, got %s"):format(T.tostring(it)))
+            end
+            -- pragmatic: dense-array reads yield T rather than T?, while maps keep the
+            -- optional, where absent keys are expected
+            return ot.elem
+        elseif ot.tag == "map" then
+            if writing and not ot.writeValue then
+                c.diag("NUPP2009", node, "indexer is read-only", nil, {
+                    help = "assign through a view that grants write access"
+                })
+                return T.any
+            elseif not writing and not ot.readable then
+                c.diag("NUPP2009", node, "indexer is write-only", nil, {
+                    help = "read through a view that grants read access"
+                })
+                return T.any
+            end
+            local keyType = writing and ot.writeKey or ot.key
+            local valueType = writing and ot.writeValue or ot.value
+            local ok, why = isA(it, keyType)
+            if not ok then
+                c.diag("NUPP2004", key, ("map key: %s"):format(why))
+            end
+            if writing then
+                if not ot.readable then
+                    node.postWriteType = false
+                elseif ot.value ~= valueType then
+                    node.postWriteType = T.optional(ot.value)
+                end
+                return valueType
+            end
+            return T.optional(valueType)
+        elseif ot.tag == "tuple" then
+            return T.union(ot.elems)
+        end
+        if ot.tag == "shape" or ot.tag == "nominal" then
+            local keyType = writing and ot.indexWriteKey or ot.indexReadKey
+            local valueType = writing and ot.indexWriteValue or ot.indexReadValue
+            if keyType and valueType then
+                local ok, why = isA(it, keyType)
+                if not ok then
+                    c.diag("NUPP2004", key, ("indexer key: %s"):format(why))
+                end
+                if writing then
+                    if not ot.indexReadValue then
+                        node.postWriteType = false
+                    elseif ot.indexReadValue ~= valueType then
+                        node.postWriteType = T.optional(ot.indexReadValue)
+                    end
+                    return valueType
+                end
+                return T.optional(valueType)
+            end
+            local opposite = writing and ot.indexReadValue or ot.indexWriteValue
+            if opposite then
+                c.diag("NUPP2009", node, writing and "indexer is read-only" or "indexer is write-only")
+                return T.any
+            end
+        end
+        local contractName = writing and "__newindex" or "__index"
+        local mm = c.metamethodOf(ot, contractName)
+        if mm then
+            node.indexObjectType, node.indexKeyType = ot, it
+            node.usesIndexContract = true
+            if writing then
+                return T.any
+            end
+            local out = c.applyContract(mm, {ot, it}, {target, key}, node, contractName)
+            return kind == "safeBracket" and T.optional(out) or out
+        end
+        c.diag("NUPP2004", node, ("cannot index %s"):format(T.tostring(ot)))
+
+        return T.any
+    end
+    handlers.safeBracket = handlers.bracketIndex
+
+    return handlers
+end
+
+export = index

@@ -1,0 +1,247 @@
+module base64bench
+
+--[[
+Base64 encoding, scalar, as an `@aot` entry.
+
+This is the baseline half of a spike. The vectorized codecs in the literature
+turn twelve input bytes into sixteen output bytes with a byte shuffle and one
+bit-field extraction, and `nupp.simd` can express neither: its vocabulary
+consumes bytes and produces masks, so a kernel that has to *write* sixteen
+bytes has nowhere to put them. What the missing operations would be worth is
+the distance between this entry and the vectorized C beside it, and that is
+the number this project exists to produce.
+
+Nothing here is on any hot path in the tree. `nupp.runtime.browser.base64` is
+the only base64 Nupp ships, it is browser-only, and its cost is the Lua layer
+rather than the codec.
+]]
+
+local valuebuilder = require("nupp.data.valuebuilder")
+
+local base64bench = {}
+
+const ALPHABET = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/"
+
+local function u32(value: integer): uint32
+    return nupp.math.u32.wrap(value)
+end
+
+local function add(a: uint32, b: uint32): uint32
+    return nupp.math.u32.add(a, b)
+end
+
+local function shr(value: uint32, count: uint32): uint32
+    return nupp.math.u32.shiftRightLogical(value, count)
+end
+
+local function shl(value: uint32, count: uint32): uint32
+    return nupp.math.u32.shiftLeft(value, count)
+end
+
+local function andBits(a: uint32, b: uint32): uint32
+    return nupp.math.u32.andBits(a, b)
+end
+
+local function orBits(a: uint32, b: uint32): uint32
+    return nupp.math.u32.orBits(a, b)
+end
+
+
+--- Encodes `source` as standard base64 with padding.
+---
+--- The output buffer is bounded rather than exact: `2n + 4` covers `4*ceil(n/3)`
+--- for every `n`, and the scratch tracks the length actually written, so the
+--- entry needs no division to size itself.
+--- @raises when the builder cannot allocate or publish
+@aot(lanes = false)
+local function encodeAot(source: string, alphabet: string, nullValue: any): any
+    local length = valuebuilder.length(source)
+    local bound = add(shl(length, u32(1)), u32(4))
+    local builder = valuebuilder.newSized(nullValue, u32(2), bound)
+    local scratch = valuebuilder.newByteScratch(bound)
+
+    local at: uint32 = u32(0)
+    local out: uint32 = u32(0)
+    while add(at, u32(3)) <= length do
+        local b0 = valuebuilder.byte(source, at)
+        local b1 = valuebuilder.byte(source, add(at, u32(1)))
+        local b2 = valuebuilder.byte(source, add(at, u32(2)))
+
+        valuebuilder.setScratchByte(scratch, out, valuebuilder.byte(alphabet, shr(b0, u32(2))))
+        valuebuilder.setScratchByte(
+            scratch,
+            add(out, u32(1)),
+            valuebuilder.byte(alphabet, orBits(shl(andBits(b0, u32(3)), u32(4)), shr(b1, u32(4))))
+        )
+        valuebuilder.setScratchByte(
+            scratch,
+            add(out, u32(2)),
+            valuebuilder.byte(alphabet, orBits(shl(andBits(b1, u32(15)), u32(2)), shr(b2, u32(6))))
+        )
+        valuebuilder.setScratchByte(scratch, add(out, u32(3)), valuebuilder.byte(alphabet, andBits(b2, u32(63))))
+
+        at = add(at, u32(3))
+        out = add(out, u32(4))
+    end
+
+    -- One or two bytes left over, padded to a whole quantum. Written as two
+    -- cases rather than one loop because the padding differs between them and
+    -- a loop would have to branch on the same thing anyway.
+    local rest = nupp.math.u32.sub(length, at)
+    if rest == 1 then
+        local b0 = valuebuilder.byte(source, at)
+        valuebuilder.setScratchByte(scratch, out, valuebuilder.byte(alphabet, shr(b0, u32(2))))
+        valuebuilder.setScratchByte(scratch, add(out, u32(1)), valuebuilder.byte(alphabet, shl(andBits(b0, u32(3)), u32(4))))
+        valuebuilder.setScratchByte(scratch, add(out, u32(2)), u32(61))
+        valuebuilder.setScratchByte(scratch, add(out, u32(3)), u32(61))
+        out = add(out, u32(4))
+    elseif rest == 2 then
+        local b0 = valuebuilder.byte(source, at)
+        local b1 = valuebuilder.byte(source, add(at, u32(1)))
+        valuebuilder.setScratchByte(scratch, out, valuebuilder.byte(alphabet, shr(b0, u32(2))))
+        valuebuilder.setScratchByte(
+            scratch,
+            add(out, u32(1)),
+            valuebuilder.byte(alphabet, orBits(shl(andBits(b0, u32(3)), u32(4)), shr(b1, u32(4))))
+        )
+        valuebuilder.setScratchByte(scratch, add(out, u32(2)), valuebuilder.byte(alphabet, shl(andBits(b1, u32(15)), u32(2))))
+        valuebuilder.setScratchByte(scratch, add(out, u32(3)), u32(61))
+        out = add(out, u32(4))
+    end
+
+    valuebuilder.stringScratch(builder, scratch, u32(0), out)
+
+    return valuebuilder.finish(builder)
+end
+
+-- One native-endian word reversed to the big-endian view base64 wants, which
+-- is `nupp.data.digest`'s `bigEndianWord` spelled in `uint32` rather than
+-- `int32`. Unconditional, as digest's is: every target in `targetlayout` is
+-- little-endian.
+local function reversed(word: uint32): uint32
+    return orBits(
+        orBits(shl(word, u32(24)), shl(andBits(word, u32(65280)), u32(8))),
+        orBits(andBits(shr(word, u32(8)), u32(65280)), shr(word, u32(24)))
+    )
+end
+
+
+
+
+
+--- The word-storing encoder, reading its alphabet from the `const`.
+---
+--- Twelve input bytes are four twenty-four bit groups and sixteen output
+--- bytes, which is four `uint32` stores rather than sixteen byte stores. The
+--- reads and the arithmetic are the word entry's; only the output path differs,
+--- which is what makes the pair a measurement of that path.
+--- @raises when the builder cannot allocate or publish
+@aot(lanes = false)
+local function encodeConstAot(source: string, nullValue: any): any
+    local length = valuebuilder.length(source)
+    local bound = add(shl(length, u32(1)), u32(4))
+    local builder = valuebuilder.newSized(nullValue, u32(2), bound)
+    local scratch = valuebuilder.newByteScratch(bound)
+
+    local at: uint32 = u32(0)
+    local out: uint32 = u32(0)
+    while add(at, u32(12)) <= length do
+        local wi = shr(at, u32(2))
+        local w0 = reversed(valuebuilder.word(source, wi))
+        local w1 = reversed(valuebuilder.word(source, add(wi, u32(1))))
+        local w2 = reversed(valuebuilder.word(source, add(wi, u32(2))))
+
+        local g0 = shr(w0, u32(8))
+        local g1 = orBits(shl(andBits(w0, u32(255)), u32(16)), shr(w1, u32(16)))
+        local g2 = orBits(shl(andBits(w1, u32(65535)), u32(8)), shr(w2, u32(24)))
+        local g3 = andBits(w2, u32(16777215))
+        valuebuilder.setScratchBytes4(scratch, out, orBits(
+            orBits(valuebuilder.byte(ALPHABET, andBits(shr(g0, u32(18)), u32(63))), shl(valuebuilder.byte(ALPHABET, andBits(shr(g0, u32(12)), u32(63))), u32(8))),
+            orBits(shl(valuebuilder.byte(ALPHABET, andBits(shr(g0, u32(6)), u32(63))), u32(16)), shl(valuebuilder.byte(ALPHABET, andBits(g0, u32(63))), u32(24)))
+        ))
+        valuebuilder.setScratchBytes4(scratch, add(out, u32(4)), orBits(
+            orBits(valuebuilder.byte(ALPHABET, andBits(shr(g1, u32(18)), u32(63))), shl(valuebuilder.byte(ALPHABET, andBits(shr(g1, u32(12)), u32(63))), u32(8))),
+            orBits(shl(valuebuilder.byte(ALPHABET, andBits(shr(g1, u32(6)), u32(63))), u32(16)), shl(valuebuilder.byte(ALPHABET, andBits(g1, u32(63))), u32(24)))
+        ))
+        valuebuilder.setScratchBytes4(scratch, add(out, u32(8)), orBits(
+            orBits(valuebuilder.byte(ALPHABET, andBits(shr(g2, u32(18)), u32(63))), shl(valuebuilder.byte(ALPHABET, andBits(shr(g2, u32(12)), u32(63))), u32(8))),
+            orBits(shl(valuebuilder.byte(ALPHABET, andBits(shr(g2, u32(6)), u32(63))), u32(16)), shl(valuebuilder.byte(ALPHABET, andBits(g2, u32(63))), u32(24)))
+        ))
+        valuebuilder.setScratchBytes4(scratch, add(out, u32(12)), orBits(
+            orBits(valuebuilder.byte(ALPHABET, andBits(shr(g3, u32(18)), u32(63))), shl(valuebuilder.byte(ALPHABET, andBits(shr(g3, u32(12)), u32(63))), u32(8))),
+            orBits(shl(valuebuilder.byte(ALPHABET, andBits(shr(g3, u32(6)), u32(63))), u32(16)), shl(valuebuilder.byte(ALPHABET, andBits(g3, u32(63))), u32(24)))
+        ))
+
+        at = add(at, u32(12))
+        out = add(out, u32(16))
+    end
+
+    -- Whatever twelve did not cover, by the byte, and then the padded quantum.
+    while add(at, u32(3)) <= length do
+        local b0 = valuebuilder.byte(source, at)
+        local b1 = valuebuilder.byte(source, add(at, u32(1)))
+        local b2 = valuebuilder.byte(source, add(at, u32(2)))
+        valuebuilder.setScratchByte(scratch, out, valuebuilder.byte(ALPHABET, shr(b0, u32(2))))
+        valuebuilder.setScratchByte(
+            scratch,
+            add(out, u32(1)),
+            valuebuilder.byte(ALPHABET, orBits(shl(andBits(b0, u32(3)), u32(4)), shr(b1, u32(4))))
+        )
+        valuebuilder.setScratchByte(
+            scratch,
+            add(out, u32(2)),
+            valuebuilder.byte(ALPHABET, orBits(shl(andBits(b1, u32(15)), u32(2)), shr(b2, u32(6))))
+        )
+        valuebuilder.setScratchByte(scratch, add(out, u32(3)), valuebuilder.byte(ALPHABET, andBits(b2, u32(63))))
+        at = add(at, u32(3))
+        out = add(out, u32(4))
+    end
+
+    local rest = nupp.math.u32.sub(length, at)
+    if rest == 1 then
+        local b0 = valuebuilder.byte(source, at)
+        valuebuilder.setScratchByte(scratch, out, valuebuilder.byte(ALPHABET, shr(b0, u32(2))))
+        valuebuilder.setScratchByte(scratch, add(out, u32(1)), valuebuilder.byte(ALPHABET, shl(andBits(b0, u32(3)), u32(4))))
+        valuebuilder.setScratchByte(scratch, add(out, u32(2)), u32(61))
+        valuebuilder.setScratchByte(scratch, add(out, u32(3)), u32(61))
+        out = add(out, u32(4))
+    elseif rest == 2 then
+        local b0 = valuebuilder.byte(source, at)
+        local b1 = valuebuilder.byte(source, add(at, u32(1)))
+        valuebuilder.setScratchByte(scratch, out, valuebuilder.byte(ALPHABET, shr(b0, u32(2))))
+        valuebuilder.setScratchByte(
+            scratch,
+            add(out, u32(1)),
+            valuebuilder.byte(ALPHABET, orBits(shl(andBits(b0, u32(3)), u32(4)), shr(b1, u32(4))))
+        )
+        valuebuilder.setScratchByte(scratch, add(out, u32(2)), valuebuilder.byte(ALPHABET, shl(andBits(b1, u32(15)), u32(2))))
+        valuebuilder.setScratchByte(scratch, add(out, u32(3)), u32(61))
+        out = add(out, u32(4))
+    end
+
+    valuebuilder.stringScratch(builder, scratch, u32(0), out)
+
+    return valuebuilder.finish(builder)
+end
+
+--- The word-storing encoder, as a callable entry.
+--- @param value the bytes to encode
+--- @return the encoded text
+--- @export
+function base64bench.encodeConst(value: string): string
+    return encodeConstAot(value, false) as string
+end
+
+
+
+
+
+--- Encodes bytes as standard base64 with padding.
+--- @param value the bytes to encode
+--- @return the encoded text
+--- @export
+function base64bench.encode(value: string): string
+    return encodeAot(value, ALPHABET, false) as string
+end
+
+export = base64bench

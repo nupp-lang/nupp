@@ -1,0 +1,20 @@
+@!internal
+module fixtures.substituted_suspension
+
+-- Stands in for a whole public module the way a selected seam's provider does. The
+-- record is self-referential on purpose: a field whose type is the record itself is
+-- what turns "these resolve to two nominals" into a report that a Handler is not a
+-- Handler.
+
+local suspension = {}
+
+record suspension.Handler
+    park: function(suspension.Handler, string): nil
+    canPark: function(suspension.Handler): boolean
+end
+
+function suspension.canSuspend(): boolean
+    return true
+end
+
+export = suspension

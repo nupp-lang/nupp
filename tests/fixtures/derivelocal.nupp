@@ -1,0 +1,57 @@
+local M = {}
+
+interface M.Named
+    named: function(self): string
+end
+
+interface M.Labelled
+    label: function(self): string
+end
+
+function M.nameValue(value: string): string
+    return "name=" .. value
+end
+
+function M.genericLabel(): string
+    return "generic"
+end
+
+comptime function M.deriveNamed(info: nupp.derive.Info): nupp.derive.Result<M.Named>
+    local field = info.fields[1]
+    if not field or field.name ~= "name" then
+        return nupp.derive.error("Named requires a first field named name", info.reference)
+    end
+
+    return nupp.derive.implement{
+        methods = {
+            named = nupp.derive.forward{
+                helper = nupp.derive.helper(M, "nameValue"),
+                arguments = {nupp.derive.field(field)},
+            },
+        },
+    }
+end
+
+comptime function M.deriveLabelled(info: nupp.derive.Info): nupp.derive.Result<M.Labelled>
+    return nupp.derive.implement{
+        methods = {label = nupp.derive.forward{helper = nupp.derive.helper(M, "genericLabel"), arguments = {},},},
+    }
+end
+
+@derive(M.deriveNamed)
+record M.Value
+    name: string
+end
+
+local value = new M.Value(name = "local")
+assert(value:named() == "name=local")
+
+@derive(M.deriveLabelled)
+record M.Box<T>
+    value: T
+end
+
+local box = new M.Box(value = "anything")
+assert(box:label() == "generic")
+
+return M

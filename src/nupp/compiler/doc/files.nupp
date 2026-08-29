@@ -1,0 +1,150 @@
+module nupp.compiler.doc.files
+
+--[[
+Paths and the filesystem.
+
+Documentation reads a source tree and writes a site, and both halves want the
+same normalized, forward-slashed paths regardless of platform.
+]]
+
+local fs = require("nupp.compiler.fs")
+
+local files = {}
+
+-- `nupp.compiler.fs` carries no annotations, so these arrive untyped. They are
+-- re-exported below, and a module boundary is where a type has to be written down, so
+-- each one's shape is spelled out here instead.
+local normalize: (
+    function(path: string): string
+), join: (
+    function(left: string?, right: string): string
+), dirname: (function(path: string): string) = fs.normalize, fs.join, fs.dirname
+local readFile: (
+    function(path: string): (string?, string?)
+), exists: (function(path: string): boolean) = fs.readFile, fs.exists
+
+-- `nupp doc --json` reports the paths a run wrote, and a site is written from a dozen
+-- places: pages, assets, redirects, the copied public tree. Recording at the one
+-- function all of them already call beats returning a list from each and threading it
+-- back out through every renderer.
+local collector: {string}? = nil
+
+local function writeFile(path: string, contents: string): boolean?, string?
+    local ok, err = fs.writeFileIfChanged(path, contents)
+    if ok and collector then
+        collector[#collector + 1] = normalize(path)
+    end
+
+    return ok, err
+end
+
+--- Records every path `writeFile` writes into `into`, until `collect(nil)`.
+function files.collect(into: {string}?): nil
+    collector = into
+end
+
+-- The parentheses matter: `gsub` also returns how many replacements it made, and a path
+-- that arrives somewhere expecting varargs, as `loadfile(path)` does, would silently
+-- pick that count up as a second argument.
+local function hiddenBelow(root, candidate)
+    local relative = candidate
+    if candidate:sub(1, #root + 1) == root .. "/" then
+        relative = candidate:sub(#root + 2)
+    end
+
+    return relative:match("^%.[^/]") ~= nil or relative:match("/%.[^/]") ~= nil
+end
+
+-- Private source trees stay out of public API documentation by default. This is based
+-- on the path below the configured source root so a checkout living in an underscored
+-- parent directory is still documentable.
+--
+-- `internal` names a private module whether a directory or a single file spells it, so
+-- `internal.nupp` is hidden on the same rule as `internal/`. Both say the same thing
+-- about the module they produce, and which one a namespace is written as is a question
+-- of how many files it grew to need.
+local function privateSource(root: string, candidate: string): boolean
+    local relative = candidate
+    if candidate:sub(1, #root + 1) == root .. "/" then
+        relative = candidate:sub(#root + 2)
+    end
+    local filename = relative:match("([^/]+)$") or relative
+
+    return filename:sub(
+        1,
+        1
+    ) == "_" or filename == "internal.nupp" or relative:match(
+        "^internal/"
+    ) ~= nil or relative:match("/internal/") ~= nil
+end
+
+local function listDirectoryFiles(path)
+    local paths = {}
+    for _, candidate in ipairs(fs.listFiles(path)) do
+        candidate = normalize(candidate)
+        if not hiddenBelow(path, candidate) then
+            paths[#paths + 1] = candidate
+        end
+    end
+    table.sort(paths)
+
+    return paths
+end
+
+local function listFiles(path: string): {string}
+    local paths = {}
+    for _, candidate in ipairs(listDirectoryFiles(path)) do
+        if candidate:match("%.nupp$") then
+            paths[#paths + 1] = candidate
+        end
+    end
+
+    return paths
+end
+
+-- Sorted, because a directory of documents is read in the order its names give. The
+-- listing below it is already sorted; this only narrows it to the markdown.
+local function listMarkdown(path: string): {string}
+    local paths = {}
+    for _, candidate in ipairs(listDirectoryFiles(path)) do
+        if candidate:match("%.md$") then
+            paths[#paths + 1] = candidate
+        end
+    end
+
+    return paths
+end
+
+local function copyPublicFiles(root: string, outDir: string, public: string?): boolean?, string?
+    if not public or public == "" then
+        return true
+    end
+    local directory = join(root, public)
+    for _, source in ipairs(listDirectoryFiles(directory)) do
+        local relative = source:sub(#directory + 2)
+        local contents, err = readFile(source)
+        if not contents then
+            return nil, err
+        end
+        local ok
+        ok, err = writeFile(join(outDir, relative), contents)
+        if not ok then
+            return nil, err
+        end
+    end
+
+    return true
+end
+
+files.normalize = normalize
+files.join = join
+files.dirname = dirname
+files.readFile = readFile
+files.exists = exists
+files.writeFile = writeFile
+files.privateSource = privateSource
+files.listFiles = listFiles
+files.listMarkdown = listMarkdown
+files.copyPublicFiles = copyPublicFiles
+
+export = files

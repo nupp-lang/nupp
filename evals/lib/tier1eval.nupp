@@ -1,0 +1,227 @@
+module tier1eval
+
+-- Tier 1: give an isolated agent one diagnostic example and grade the repair
+-- only by what the compiler reports afterwards.
+
+local files = require("nupp.io.files")
+local harness = require("harness")
+local json = nupp.data.json
+
+local tier1 = {}
+
+tier1.PROMPT = [[The file `sample.nupp` in this directory does not type-check.
+
+Run `nupp check` to see what is wrong with it, and then fix it. Keep the
+program doing what it was evidently written to do -- repair the mistake rather
+than deleting the code that has one, and leave the file checking cleanly.
+
+Work only inside this directory. Do not look for the Nupp compiler's own
+source; `nupp` and its subcommands are the tools available to you.
+]]
+
+local MANIFEST = [[return {
+   include = { "." },
+   build = {
+      outDir = "build",
+      default = "app",
+      targets = { app = { kind = "modules", entries = { "sample" } } },
+   },
+}
+]]
+
+local COMPANION = [[local mathutil = {}
+function mathutil.double(value: number): number return value * 2 end
+return mathutil
+]]
+
+local function shellQuote(value: string): string
+    return "'" .. value:gsub("'", "'\\''") .. "'"
+end
+
+function tier1.loadTask(nupp: string, code: string): any
+    local done = harness.run({nupp, "explain", code, "--json"})
+    if done.returncode ~= 0 then
+        error("nupp explain " .. code .. " failed: " .. (done.stderr:match("^%s*(.-)%s*$") or ""), 2)
+    end
+    local ok, entry = pcall(json.decode, done.stdout, json.NULL)
+    if not ok then
+        error("nupp explain " .. code .. " wrote invalid JSON: " .. tostring(entry), 2)
+    end
+    if entry.family ~= nil and entry.family ~= false and entry.family ~= json.NULL then
+        error(code .. " resolves only through its family; no example", 2)
+    end
+    if type(entry.wrong) ~= "string" or entry.wrong == "" then
+        error(code .. " has no `wrong` example to repair", 2)
+    end
+
+    return entry
+end
+
+function tier1.makeWorkspace(root: string, nupp: string, entry: any): string
+    local workspace = harness.join(root, "workspace")
+    local bin = harness.join(workspace, "bin")
+    local made, reason = files.createDirectory(bin)
+    if not made then
+        error("cannot create tier-1 workspace: " .. tostring(reason), 2)
+    end
+    harness.write(harness.join(workspace, "nupp.lua"), MANIFEST)
+    harness.write(harness.join(workspace, "sample.nupp"), entry.wrong)
+    harness.write(harness.join(workspace, "mathutil.g.nupp"), COMPANION)
+    local shim = harness.join(bin, "nupp")
+    harness.write(shim, "#!/bin/sh\nexec " .. shellQuote(nupp) .. " \"$@\"\n")
+    local chmod = harness.run({"chmod", "+x", shim})
+    if chmod.returncode ~= 0 then
+        error("cannot make the compiler shim executable: " .. chmod.stderr, 2)
+    end
+
+    return workspace
+end
+
+function tier1.check(nupp: string, workspace: string, entry: any): {any}
+    local code = tostring(entry.code)
+    local verb = code:match("^NUPP3") and "build" or "check"
+    local argv = {nupp, verb, "--json"}
+    if entry.strict == true then
+        argv[#argv + 1] = "--strict"
+    end
+    local done = harness.run(argv, workspace)
+    local ok, answer = pcall(json.decode, done.stdout, json.NULL)
+    if not ok then
+        error(("%s --json wrote no JSON: %s / %s"):format(verb, done.stdout:sub(1, 200), done.stderr:sub(1, 200)), 2)
+    end
+    local diagnostics = type(answer.diagnostics) == "table" and answer.diagnostics or {}
+    if answer.ok ~= true and #diagnostics == 0 then
+        error(
+            (
+                "%s --json reported neither success nor a diagnostic; the workspace is not checkable: %s"
+            ):format(verb, done.stderr:sub(1, 200)),
+            2
+        )
+    end
+
+    return diagnostics
+end
+
+local function diagnosticCodes(diagnostics: {any}): {string}
+    local codes: {string} = {}
+    for _, diagnostic in ipairs(diagnostics) do
+        if type(diagnostic.code) == "string" then
+            codes[#codes + 1] = diagnostic.code
+        end
+    end
+
+    return codes
+end
+
+function tier1.grade(before: {any}, after: {any}, entry: any, source: string): any
+    local code = tostring(entry.code)
+    local targetGone = true
+    local errors = 0
+    for _, diagnostic in ipairs(after) do
+        if diagnostic.code == code then
+            targetGone = false
+        end
+        if diagnostic.severity == "error" then
+            errors = errors + 1
+        end
+    end
+    local original = tostring(entry.wrong):match("^%s*(.-)%s*$") or ""
+    local repaired = source:match("^%s*(.-)%s*$") or ""
+
+    return {
+        code = code,
+        targetCodeGone = targetGone,
+        errorsRemaining = errors,
+        passed = targetGone and errors == 0,
+        suspiciousShrink = #repaired < #original * 0.5,
+        diagnosticsBefore = json.asArray(diagnosticCodes(before)),
+        diagnosticsAfter = json.asArray(diagnosticCodes(after)),
+    }
+end
+
+function tier1.evaluate(
+    nupp: string,
+    code: string,
+    out: string,
+    model: string?,
+    keep: boolean,
+    lean: boolean,
+    timeoutSeconds: number?
+): any
+    local entry = tier1.loadTask(nupp, code)
+    local made, makeErr = files.createDirectory(out)
+    if not made then
+        error("cannot create evaluation output directory: " .. tostring(makeErr), 2)
+    end
+    local root = harness.temporaryDirectory("nupp-eval-" .. code .. "-")
+    local ok, record = pcall(function(): any
+        local workspace = tier1.makeWorkspace(root, nupp, entry)
+        local before = tier1.check(nupp, workspace, entry)
+        local reported: {[string]: boolean} = {}
+        for _, diagnostic in ipairs(before) do
+            if type(diagnostic.code) == "string" then
+                reported[diagnostic.code] = true
+            end
+        end
+        if not reported[entry.code] then
+            local found: {string} = {}
+            for foundCode in pairs(reported) do
+                found[#found + 1] = foundCode
+            end
+            table.sort(found)
+            error(
+                tostring(entry.code) .. " is not reported by its own example; got " .. json.encode(json.asArray(found)),
+                0
+            )
+        end
+
+        local transcript = harness.join(out, code .. "-transcript.jsonl")
+        local agent = harness.runAgent(
+            workspace,
+            tier1.PROMPT,
+            transcript,
+            model,
+            harness.join(workspace, "bin"),
+            lean and harness.REPAIR_TOOLS or nil,
+            timeoutSeconds
+        )
+        local sample = harness.join(workspace, "sample.nupp")
+        local source = files.exists(sample) and harness.read(sample) or ""
+        local after = tier1.check(nupp, workspace, entry)
+        local hadFix = false
+        for _, diagnostic in ipairs(before) do
+            if type(diagnostic.fixes) == "table" and #diagnostic.fixes > 0 then
+                hadFix = true
+                break
+            end
+        end
+        local answer = {
+            task = {
+                tier = 1,
+                code = entry.code,
+                summary = entry.summary,
+                strict = entry.strict == true,
+                hadFix = hadFix,
+                lean = lean,
+            },
+            agent = harness.agentRecord(agent.result, agent.events, model),
+            grade = tier1.grade(before, after, entry, source),
+            finalSource = source,
+            transcript = transcript,
+            workspace = keep and workspace or json.NULL,
+        }
+        harness.writeJson(harness.join(out, code .. "-run.json"), answer)
+
+        return answer
+    end)
+    if not keep then
+        harness.remove(root)
+    end
+    if not ok then
+        error(record, 0)
+    end
+
+    return record
+end
+
+export = tier1

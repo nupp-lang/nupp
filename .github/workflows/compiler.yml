@@ -1,0 +1,299 @@
+name: Compiler matrix
+
+on:
+  # Restricted to the trunk because an unfiltered `push` fires alongside
+  # `pull_request` for every branch in this repository, which ran the whole
+  # matrix twice for each commit of a pull request and told us nothing the
+  # second time.
+  push:
+    branches:
+      - main
+    tags:
+      - "*"
+  pull_request:
+
+permissions:
+  contents: read
+
+# A pull request is only ever asked about its tip, so a superseded run is work
+# nobody is waiting on. The trunk is not cancelled: every commit that lands
+# there keeps its own answer, which is what makes a later bisection possible.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  portable-compiler:
+    name: Portable compiler on official Lua 5.1.5
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - name: Check out the repository
+        uses: actions/checkout@v5
+
+      - name: Restore the pinned build tools
+        uses: actions/cache@v4
+        with:
+          path: |
+            ${{ runner.temp }}/nupp-ci-tools
+            .rocks
+          key: >-
+            nupp-tools-${{ runner.os }}-${{ runner.arch }}-${{
+            hashFiles('scripts/toolchain.pins') }}
+
+      - name: Restore the provisioned toolchain
+        uses: actions/cache@v4
+        with:
+          path: .nupp-cache/toolchain
+          key: >-
+            nupp-toolchain-${{ runner.os }}-${{ runner.arch }}-${{
+            hashFiles('scripts/toolchain.pins', 'scripts/toolchain') }}
+          restore-keys: |
+            nupp-toolchain-${{ runner.os }}-${{ runner.arch }}-
+
+      - name: Provision the pinned toolchain
+        shell: bash
+        run: ./scripts/toolchain --all
+
+      - name: Bootstrap the compiler
+        shell: bash
+        run: ./bin/nupp build
+
+      - name: Run the portable compiler in the six-library host
+        shell: bash
+        run: .github/scripts/test-portable-compiler.sh
+
+  compiler:
+    name: ${{ matrix.name }}
+    runs-on: ${{ matrix.os }}
+    # A timeout is here to end a hang, so it has to sit above the work rather
+    # than across it. Windows ran 24m48s and 29m36s on its green runs and was
+    # killed at exactly 30 on a slower runner, which reads as a cancelled job
+    # and is really a suite that was still going. A killed job also skips its
+    # post steps, so it never saved the caches above and would have missed
+    # every time.
+    timeout-minutes: ${{ matrix.timeout }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: Linux x64
+            os: ubuntu-24.04
+            timeout: 40
+          - name: macOS arm64
+            os: macos-15
+            timeout: 30
+          - name: Windows x64
+            os: windows-2022
+            timeout: 45
+    steps:
+      - name: Check out the repository
+        uses: actions/checkout@v5
+
+      # After the checkout rather than before it: `actions/checkout` cleans the
+      # workspace, and `.rocks` is ignored, so anything restored first would be
+      # removed again before a step could use it.
+      #
+      # The key carries both setup scripts because each pins the commits it
+      # builds. Editing either rebuilds every platform's tools, which is a few
+      # minutes on a change nobody makes weekly, and is the version of this that
+      # cannot serve a tree built from different pins.
+      - name: Restore the pinned build tools
+        uses: actions/cache@v4
+        with:
+          path: |
+            ${{ runner.temp }}/nupp-ci-tools
+            .rocks
+          key: >-
+            nupp-tools-${{ runner.os }}-${{ runner.arch }}-${{
+            hashFiles('scripts/toolchain.pins') }}
+
+      # Each entry validates its own content, so an approximate match is useful
+      # here where it would not be above: a lock file that moved on rebuilds the
+      # crates that changed and reuses the rest.
+      - name: Restore the provisioned toolchain
+        uses: actions/cache@v4
+        with:
+          path: .nupp-cache/toolchain
+          key: >-
+            nupp-toolchain-${{ runner.os }}-${{ runner.arch }}-${{
+            hashFiles('scripts/toolchain.pins', 'scripts/toolchain') }}
+          restore-keys: |
+            nupp-toolchain-${{ runner.os }}-${{ runner.arch }}-
+
+      - name: Provision the pinned toolchain
+        if: runner.os != 'Windows'
+        shell: bash
+        run: ./scripts/toolchain --all
+
+      - name: Provision the pinned toolchain
+        if: runner.os == 'Windows'
+        shell: bash
+        run: ./scripts/toolchain --all
+
+      - name: Bootstrap the compiler
+        shell: bash
+        run: ./bin/nupp build
+
+      - name: Install the portable Lua matrix
+        if: runner.os == 'Linux'
+        shell: bash
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y lua5.1 lua5.2 lua5.3 lua5.4
+
+      - name: Run the portable generated-output corpus
+        if: runner.os == 'Linux'
+        shell: bash
+        run: |
+          luajit=$(./scripts/toolchain luajit)
+          scripts/portable-lua-corpus.sh \
+            lua5.1 lua5.2 lua5.3 lua5.4 "$luajit/bin/luajit"
+
+      - name: Build the same library for LuaJIT and Lua 5.1
+        if: runner.os == 'Linux'
+        shell: bash
+        run: scripts/dual-dialect-library.sh lua5.1
+
+      - name: Diagnose a Windows native-library load failure
+        if: failure() && runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          Get-ChildItem build/lib
+          dumpbin /dependents build/lib/nupp_native.dll
+
+      - name: Install the development rocks
+        shell: bash
+        run: |
+          ./bin/nupp build --target bootstrapCompiler
+          ./bin/nupp build --target docs
+
+      - name: Check the compiler
+        shell: bash
+        run: ./bin/nupp check
+
+      # The AOT lane body is written in compiler vector extensions, and what a
+      # select, a mask lane and a horizontal test lower to is completely
+      # different on NEON, SSE2 and AVX2. Every measurement and every
+      # differential before this ran on one architecture, so this is the first
+      # time the lowering is executed anywhere else. It needs only a built
+      # compiler and a C compiler, so it runs here rather than only where a host
+      # LuaJIT is set up.
+      #
+      # Deliberately before the suite. It does not depend on the suite passing,
+      # and a step placed after one that is red for an unrelated reason is a step
+      # that never runs -- which is what happened the first time this landed.
+      - name: Compare the AOT lane and scalar bodies
+        shell: bash
+        run: bench/kernel-subset-spike/crosscheck.sh
+
+      # The step above targets the tier a gang fits -- AVX on x86-64, where a
+      # 32-byte vector is one register. This one adds the rest of v3, because a
+      # feature tier changes which instructions the same vector operations lower
+      # to and passing one says nothing about another.
+      - name: Compare them again at the full v3 feature tier
+        if: runner.os == 'Linux'
+        shell: bash
+        env:
+          NUPP_CHECK_CFLAGS: -march=x86-64-v3
+        run: bench/kernel-subset-spike/crosscheck.sh
+
+      # And at the x86-64 baseline, which is what a build gets when nothing asked
+      # for a wider tier -- the 16-byte gangs, compiled for plain SSE2. This is
+      # the combination most users get, so it is the one least worth inferring
+      # from the others.
+      - name: Compare them at the x86-64 baseline
+        if: runner.os == 'Linux'
+        shell: bash
+        env:
+          NUPP_CHECK_GANG_FEATURES: baseline
+          NUPP_CHECK_CFLAGS: " "
+        run: bench/kernel-subset-spike/crosscheck.sh
+
+      # No hosted runner promises AVX-512. Compile the mixed-width differential
+      # at that tier without executing it, so the 64-byte vector ABI and every
+      # helper call are still held warning-clean by the same -Werror boundary.
+      - name: Compile the eight-lane mixed gang at AVX-512
+        if: runner.os == 'Linux'
+        shell: bash
+        env:
+          NUPP_CHECK_KERNELS: mixedwidth
+          NUPP_CHECK_GANG_FEATURES: avx512f
+          NUPP_CHECK_CFLAGS: -mavx512f
+          NUPP_CHECK_COMPILE_ONLY: 1
+        run: bench/kernel-subset-spike/crosscheck.sh
+
+      # Windows is a supported target for this backend and MSVC is not a
+      # supported compiler for it: the generated C needs `vector_size` and
+      # `__builtin_convertvector`, which Clang and MinGW GCC have and MSVC has
+      # neither of. Nothing about that is Windows-specific, so the way to know it
+      # holds is to run the same differential there rather than to reason about
+      # it -- which is what this job did not do while Windows was skipped.
+      - name: Name the C compiler this Windows runner offers
+        if: runner.os == 'Windows'
+        shell: bash
+        run: |
+          for candidate in clang gcc cc; do
+            if command -v "$candidate" >/dev/null 2>&1; then
+              echo "$candidate: $("$candidate" --version 2>&1 | head -1)"
+            else
+              echo "$candidate: absent"
+            fi
+          done
+
+      # Everything so far has been compiled by Clang. `aot=require` will hand
+      # the generated C to whatever compiler the user has, so if GCC does not
+      # accept it that is better known now than at the point it compiles for
+      # someone. The generated C uses `vector_size` and `__builtin_convertvector`
+      # and nothing else either compiler lacks.
+      - name: Compare them again through GCC
+        if: runner.os == 'Linux'
+        shell: bash
+        env:
+          NUPP_NATIVE_CC: gcc
+        run: bench/kernel-subset-spike/crosscheck.sh
+
+      # The suite's own `aot = "require"` tests take whichever compiler the
+      # runner offers first, which is Clang. Running them again under GCC checks
+      # the version parsing, the dialect flags and `-Werror` against the other
+      # compiler a user is likely to have. The spike above exercises none of
+      # that, because it builds its own command line rather than the build's.
+      - name: Build and load an aot = "require" project through GCC
+        if: runner.os == 'Linux'
+        shell: bash
+        env:
+          NUPP_NATIVE_CC: gcc
+        run: ./bin/nupp test --jobs=1 --shard=aotbuildtest
+
+      # Serialized when the comptime worker's deadline was 2000 ms and parallel
+      # shards pushed past it; that deadline is 10000 ms now, chosen with
+      # headroom for exactly this contention. Serialized again when the first
+      # attempt at this showed `coveragetest` and `aotbuildtest` racing whatever
+      # else was building -- which the runner now runs alone. The runner
+      # defaults to two shards per core.
+      - name: Run the compiler suite
+        if: runner.os != 'Windows'
+        shell: bash
+        run: ./bin/nupp test
+
+      # These name the Git Bash the suite hands its POSIX commands to. They were
+      # set by a provisioning script that no longer exists, and an undefined
+      # `env` expands to the empty string rather than failing, so the suite spent
+      # two days launching `""` and reporting no tests at all. Resolve them in
+      # the step that uses them: this shell is that bash, so nothing has to be
+      # carried between steps to be dropped again.
+      - name: Run the compiler suite
+        if: runner.os == 'Windows'
+        shell: bash
+        run: |
+          set -euo pipefail
+          bash_path=$(command -v bash)
+          sh_path=$(dirname "$bash_path")/sh.exe
+          test -f "$sh_path"
+          NUPP_TEST_BASH=$(cygpath -w "$bash_path") \
+          NUPP_TEST_SH=$(cygpath -w "$sh_path") \
+          ./bin/nupp test
+
+      - name: Verify the self-hosting fixpoint
+        shell: bash
+        run: ./bin/nupp fixpoint

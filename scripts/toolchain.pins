@@ -1,0 +1,90 @@
+# Pinned sources Nupp provisions for itself.
+#
+# One record per component: the version or revision, the SHA-256 of the exact
+# archive, the URL it comes from, and a file the archive is known to contain.
+# The digest authenticates the bytes; the URL only says where to look first, and
+# a mirror may replace it. Nothing here is committed to the tree, because a
+# generated dependency in the tree is one to keep current by hand.
+#
+# Bumping a pin means bumping its digest and, where the component ships a
+# licence Nupp redistributes, refreshing host/notices beside it. `scripts/toolchain`
+# refuses to build a source whose notice has drifted.
+
+# LuaJIT v2.1, at 2.1.1785763465. The floor is 2.1.1784535649, the first build
+# carrying the backported operators; anything older rejects generated Nupp at
+# parse time. This is why the pin lives here rather than trailing a package
+# manager: the interpreter has to be new enough to parse what the compiler emits.
+LUAJIT_REV=1edc3e52b67eaf6ce5f809be8e17d6862594b8bc
+LUAJIT_SHA256=85497ea149d136afbe2d7ef222e08849248e52cecc6dc8deefd8588e551e4e00
+LUAJIT_URL='https://github.com/LuaJIT/LuaJIT/archive/${LUAJIT_REV}.tar.gz'
+LUAJIT_MARKER=src/lj_arch.h
+LUAJIT_DIRECTORY='LuaJIT-${LUAJIT_REV}'
+
+# The dependency resolver. It is a build tool rather than a runtime library,
+# but pinning it keeps documentation and release builds off the host image.
+LUAROCKS_VERSION=3.13.0
+LUAROCKS_SHA256=71adfead6966e2912034b8fb8103dd343c3adc6c91a276f1d209eebbaefe3a15
+LUAROCKS_URL='https://github.com/luarocks/luarocks/archive/refs/tags/v${LUAROCKS_VERSION}.tar.gz'
+LUAROCKS_MARKER=src/luarocks/core/cfg.lua
+LUAROCKS_DIRECTORY='luarocks-${LUAROCKS_VERSION}'
+
+LPEG_VERSION=1.1.0
+LPEG_SHA256=4b155d67d2246c1ffa7ad7bc466c1ea899bbc40fef0257cc9c03cecbaed4352a
+LPEG_URL='https://www.inf.puc-rio.br/~roberto/lpeg/lpeg-${LPEG_VERSION}.tar.gz'
+LPEG_MARKER=lptree.c
+LPEG_DIRECTORY='lpeg-${LPEG_VERSION}'
+
+# Lunamark's entity table needs a utf8.char that Lua 5.1 does not have.
+LUAUTF8_VERSION=0.2.1
+LUAUTF8_SHA256=ea52075cd960aed8c37512ab31cdc166aa77a6458504d29f33ae40b93d2d8594
+LUAUTF8_URL='https://github.com/starwing/luautf8/archive/refs/tags/${LUAUTF8_VERSION}.tar.gz'
+LUAUTF8_MARKER=lutf8lib.c
+LUAUTF8_DIRECTORY='luautf8-${LUAUTF8_VERSION}'
+
+# The HTTP transport and the TLS under it. Pinned together: a libcurl is built
+# against one TLS backend, and the pair is what was tested.
+#
+# Owning these means owning their security updates. A CVE in either is a digest
+# change here and a release; that is the price of a build that does not depend
+# on what the machine happens to have.
+CURL_VERSION=8.11.1
+CURL_SHA256=a889ac9dbba3644271bd9d1302b5c22a088893719b72be3487bc3d401e5c4e80
+CURL_URL='https://curl.se/download/curl-${CURL_VERSION}.tar.gz'
+CURL_MARKER=configure
+CURL_DIRECTORY='curl-${CURL_VERSION}'
+
+# The long-term-support line, and the release tarball rather than the GitHub
+# archive: only the release carries the framework the build reads.
+MBEDTLS_VERSION=3.6.2
+MBEDTLS_SHA256=8b54fb9bcf4d5a7078028e0520acddefb7900b3e66fec7f7175bb5b7d85ccdca
+MBEDTLS_URL='https://github.com/Mbed-TLS/mbedtls/releases/download/mbedtls-${MBEDTLS_VERSION}/mbedtls-${MBEDTLS_VERSION}.tar.bz2'
+MBEDTLS_SUFFIX=.tar.bz2
+MBEDTLS_MARKER=Makefile
+MBEDTLS_DIRECTORY='mbedtls-${MBEDTLS_VERSION}'
+
+# The URL parser. WHATWG rather than RFC 3986, which is the model
+# `nupp.io.uri` documents: an opaque `mailto:` keeps its path, a non-special
+# scheme keeps its host's case, and a default port is not written down.
+#
+# Distributed as three loose files rather than an archive, which is why this pin
+# carries a digest for each. C++20, and the only thing in the tree that needs
+# more than C++17.
+ADA_VERSION=4.0.0
+ADA_URL='https://github.com/ada-url/ada/releases/download/v${ADA_VERSION}'
+ADA_CPP_SHA256=1c722f8f5355d6bf2bf3601870684edc875aa8f56b4d4735440d96263dd0207c
+ADA_H_SHA256=0010b17b3ff489e13998e86d921b16e1643e370ee3276c584f1b0c4b72bdf628
+ADA_C_H_SHA256=75641082708f01f61f4a8924ae6df19e172e737ced7265965b01a83ebec14f7c
+ADA_LICENSE_SHA256=af0d7d2cef91fc243cf4ad98570b03d1f26f5e0227cad0f5f4a7376e2feb3160
+
+# The platform layer: filesystem, processes, pipes, threads and an event loop,
+# on Linux, macOS and Windows. Node.js runs on it, which is the only reason to
+# trust its Windows half more than one written here and never run.
+#
+# Built from a source list rather than through its own build system: libuv needs
+# autoconf or CMake, and it has no generated configuration header, so naming the
+# files it compiles on each platform is cheaper than asking for either.
+LIBUV_VERSION=1.52.1
+LIBUV_SHA256=478baf2599bfbc882c355288c9cb6f92e0e7dda435fa04031fa5b607cf3f414c
+LIBUV_URL='https://github.com/libuv/libuv/archive/refs/tags/v${LIBUV_VERSION}.tar.gz'
+LIBUV_MARKER=include/uv.h
+LIBUV_DIRECTORY='libuv-${LIBUV_VERSION}'

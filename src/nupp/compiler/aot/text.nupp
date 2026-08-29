@@ -1,0 +1,663 @@
+module nupp.compiler.aot.text
+
+--[[
+The readable form of an AOT program.
+
+Not a serialisation format and not something the compiler reads back: this is
+what a person opens when they want to know what the front end actually admitted,
+and what a test asserts against when the claim is about the IR rather than about
+the machine code under it. It is the one place the whole program appears at once
+-- the signature, what ownership proved, the loop, and the lane rewrite beside
+the scalar body it came from.
+
+It keeps the spellings the vocabulary used before its families were given one tag
+each. `vand` rather than `vmask`, `vtobits` rather than `vbits`, because the
+reader wants the operation and not the record it happens to share.
+]]
+
+local lane = require("nupp.compiler.aot.lane")
+local scalarIR = require("nupp.compiler.aot.scalar")
+
+local text = {}
+
+--- Any operation rendered as its opcode over a list of operands.
+---
+--- The IR text walks every vocabulary at once, so it reads the few fields it
+--- needs through a shape that says what those are rather than through the union
+--- of every record that might carry them.
+record text.Operands
+    op: string
+    type: string?
+    verb: string?
+    direction: string?
+
+    --- The element a rounding names, which is the only thing that tells two
+    --- roundings apart.
+    element: string?
+
+    args: {any}
+end
+
+--- Any operation rendered as its opcode over exactly two operands.
+record text.Pair
+    op: string
+    left: any
+    right: any
+end
+
+--- The opcodes whose operands are a list.
+---
+--- Everything else with operands has two, in `left` and `right`. `f32_fma` is
+--- the one corrected operation with three, which is why it appears here and its
+--- two-operand siblings do not.
+const text.LIST_OPERANDS = {
+    ["vsplat"] = true,
+    ["vbool_splat"] = true,
+    ["vselect"] = true,
+    ["vmask"] = true,
+    ["vshort"] = true,
+    ["vbinary"] = true,
+    ["vunary"] = true,
+    ["vbitwise"] = true,
+    ["vbits"] = true,
+    ["vcorrected"] = true,
+    ["vround"] = true,
+    ["vmask_cast"] = true,
+    ["vconvert"] = true,
+    ["f32_fma"] = true,
+}
+
+--- The opcodes that wrap one operand, held in `value`.
+const text.ONE_OPERAND = {
+    ["widen_f32_f64"] = true,
+    ["narrow_f64_f32"] = true,
+    ["int_to_f64"] = true,
+    ["numeric_cast"] = true,
+    ["neg"] = true,
+    ["not"] = true,
+    ["bnot"] = true,
+    ["f32_sqrt"] = true,
+    ["u32_not"] = true,
+    ["u32_popcount"] = true,
+    ["u32_ctz"] = true,
+    ["u32_clz"] = true,
+}
+
+--- Where something came from, as the IR text writes it.
+---
+--- A missing position reads as the start of the file, which is what lowering
+--- already does for a construct with no token of its own.
+local function at(source: scalarIR.Source?): string
+    local site = source or new scalarIR.Source(line = 1, column = 1)
+
+    return ("@%d:%d"):format(site.line, site.column)
+end
+
+--- What one operation is called in the IR text.
+function text.displayOp(node: text.Operands): string
+    local op = node.op
+    if op == "vmask" then
+        return "vm" .. tostring(node.verb)
+    elseif op == "vshort" then
+        return "vshort_" .. tostring(node.verb)
+    elseif op == "vbits" then
+        return node.direction == "to" and "vtobits" or "vfrombits"
+    elseif op == "vmask_cast" then
+        return "vmask." .. tostring(node.type)
+    elseif op == "vconvert" then
+        return "vconv." .. tostring(node.type)
+    elseif op == "vbinary" or op == "vunary" then
+        return "v" .. tostring(node.verb)
+    elseif op == "vbitwise" then
+        return "vbit." .. tostring(node.verb)
+    elseif op == "vround" then
+        return "vround." .. tostring(node.element)
+    end
+
+    return op
+end
+
+--- One expression, and everything under it.
+function text.expression(node: scalarIR.Expr | lane.Expr): string
+    local op = node.op
+    if op == "load" then
+        local index = node.cursor ~= nil and node.cursor .. "+1" or node.index
+        return "load:" .. node.type .. " " .. node.span .. "[" .. index .. "]"
+    elseif op == "span_count" then
+        return "count " .. node.span
+    elseif op == "element_ref" then
+        local index = node.cursor ~= nil and node.cursor .. "+1" or node.index
+        return "element_ref:" .. node.layout .. " " .. node.span .. "[" .. index .. "]"
+    elseif op == "field_load" then
+        return "field:" .. node.type .. " " .. text.expression(node.object) .. "." .. node.field
+    elseif op == "vfield_load" then
+        return "vfield:" .. node.type .. " " .. node.span .. "[i..i+" .. tostring(node.lanes - 1) .. "]." .. node.field
+    elseif op == "vspan_load" then
+        return "vspan:" .. node.type .. " " .. node.span .. "[i..i+" .. tostring(node.lanes - 1) .. "]"
+    elseif op == "uniform" or op == "local" or op == "helper_param" then
+        return op .. ":" .. node.type .. " " .. (node as scalarIR.Name).name
+    elseif op == "constant_i32" or op == "constant_i64" then
+        return "constant:" .. node.type .. " " .. node.value
+    elseif op == "constant" then
+        return "constant:f64 " .. node.value
+    elseif op == "bool" then
+        return "bool " .. tostring(node.value)
+    elseif op == "lua_nil" then
+        return "lua.nil"
+    elseif op == "lua_string" then
+        return "lua.string " .. string.format("%q", node.value)
+    elseif op == "lua_concat" then
+        return "lua.concat(" .. text.expression(node.left) .. ", " .. text.expression(node.right) .. ")"
+    elseif op == "lua_substring" then
+        return "lua.substring(" .. text.expression(
+            node.bytes
+        ) .. ", " .. text.expression(
+            node.first
+        ) .. (node.last ~= nil and ", " .. text.expression(node.last) or "") .. ")"
+    elseif op == "lua_string_byte_lua" then
+        return "lua.byte(" .. text.expression(node.bytes) .. ", " .. text.expression(node.index) .. ")"
+    elseif op == "lua_table_get_index" then
+        return "lua.get_index(" .. text.expression(node.table) .. ", " .. text.expression(node.key) .. ")"
+    elseif op == "lua_string_buffer" then
+        return "lua.string_buffer(" .. text.expression(node.initial) .. ")"
+    elseif op == "lua_string_buffer_finish" then
+        return "lua.string_buffer_finish(" .. text.expression(node.buffer) .. ")"
+    elseif op == "lua_new_table" then
+        local created = node as scalarIR.LuaNewTable
+        local fields: {string} = {}
+        for position, field in ipairs(created.fields or {}) do
+            fields[
+                position
+            ] = (
+                field.indexed and "index " or "key "
+            ) .. text.expression(field.key) .. " = " .. text.expression(field.value)
+        end
+        return "lua.new_table(" .. text.expression(
+            created.arrayCapacity
+        ) .. ", " .. text.expression(created.hashCapacity) .. "){" .. table.concat(fields, "; ") .. "}"
+    elseif op == "lua_tree" then
+        local tree = node as scalarIR.LuaTree
+        return "lua.tree(" .. table.concat(
+            {
+                text.expression(tree.nodes),
+                text.expression(tree.links),
+                text.expression(tree.sourceBytes),
+                text.expression(tree.root),
+                text.expression(tree.nullValue),
+            },
+            ", "
+        ) .. ")"
+    elseif op == "lua_builder" then
+        local builder = node as scalarIR.LuaBuilder
+        local values = {builder.mode, text.expression(builder.nullValue)}
+        if builder.maxDepth ~= nil then
+            values[#values + 1] = text.expression(builder.maxDepth as scalarIR.Expr)
+            values[#values + 1] = text.expression(builder.stringCapacity as scalarIR.Expr)
+            if builder.arrayMarker ~= nil then
+                values[#values + 1] = text.expression(builder.arrayMarker as scalarIR.Expr)
+                values[#values + 1] = text.expression(builder.objectMarker as scalarIR.Expr)
+                if builder.selectionShape ~= nil then
+                    values[#values + 1] = text.expression(builder.selectionShape as scalarIR.Expr)
+                    values[#values + 1] = text.expression(builder.arrayShapeMarker as scalarIR.Expr)
+                    values[#values + 1] = text.expression(builder.serdeMarkers as scalarIR.Expr)
+                end
+            end
+        end
+        return "lua.builder(" .. table.concat(values, ", ") .. ")"
+    elseif op == "lua_scratch_u32" then
+        return "lua.scratch_u32(" .. text.expression((node as scalarIR.LuaScratchU32).capacity) .. ")"
+    elseif op == "lua_scratch_u32_get" or op == "lua_scratch_u32_escape_get" then
+        local loaded = node as scalarIR.LuaScratchU32Get
+        return (
+            op == "lua_scratch_u32_escape_get" and "lua.scratch_u32_escape_get(" or "lua.scratch_u32_get("
+        ) .. text.expression(loaded.scratch) .. ", " .. text.expression(loaded.index) .. ")"
+    elseif op == "lua_scratch_u32_length" or op == "lua_scratch_u32_escape_length" then
+        return (
+            op == "lua_scratch_u32_escape_length" and "lua.scratch_u32_escape_length(" or "lua.scratch_u32_length("
+        ) .. text.expression((node as scalarIR.LuaScratchU32Length).scratch) .. ")"
+    elseif op == "lua_scratch_u32_append_bits" or op == "lua_scratch_u32_append_bits_eager" then
+        local appended = node as scalarIR.LuaScratchU32AppendBits
+        return (
+            op == "lua_scratch_u32_append_bits_eager"
+            and "lua.scratch_u32_append_bits_eager("
+            or "lua.scratch_u32_append_bits("
+        ) .. table.concat(
+            {
+                text.expression(appended.scratch),
+                text.expression(appended.index),
+                text.expression(appended.base),
+                text.expression(appended.bits),
+            },
+            ", "
+        ) .. ")"
+    elseif op == "lua_scratch_u32_append_string_bits" then
+        local appended = node as scalarIR.LuaScratchU32AppendStringBits
+        local values = {
+            text.expression(appended.scratch),
+            text.expression(appended.index),
+            text.expression(appended.base),
+            text.expression(appended.events),
+            text.expression(appended.quotes),
+            text.expression(appended.slashes),
+            text.expression(appended.inString),
+            text.expression(appended.stringEscaped),
+        }
+        local name = "lua.scratch_u32_append_string_bits("
+        if appended.sharedEscapes then
+            name = "lua.scratch_u32_append_string_shared_bits("
+        end
+        if appended.escapeScratch ~= nil then
+            values = {
+                text.expression(appended.scratch),
+                text.expression(appended.escapeScratch as scalarIR.Expr),
+                text.expression(appended.index),
+                text.expression(appended.base),
+                text.expression(appended.events),
+                text.expression(appended.quotes),
+                text.expression(appended.slashes),
+                text.expression(appended.slashCarry as scalarIR.Expr),
+                text.expression(appended.slashOdd as scalarIR.Expr),
+                text.expression(appended.inString),
+                text.expression(appended.stringEscaped),
+            }
+            name = "lua.scratch_u32_append_string_escape_bits("
+        end
+        return name .. table.concat(values, ", ") .. ")"
+    elseif op == "lua_scratch_u8" then
+        return "lua.scratch_u8(" .. text.expression((node as scalarIR.LuaScratchU8).capacity) .. ")"
+    elseif op == "lua_scratch_u8_get" then
+        local loaded = node as scalarIR.LuaScratchU8Get
+        return "lua.scratch_u8_get(" .. text.expression(loaded.scratch) .. ", " .. text.expression(loaded.index) .. ")"
+    elseif op == "lua_string_length" then
+        return "lua.length(" .. text.expression((node as scalarIR.LuaBytes).bytes) .. ")"
+    elseif op == "lua_string_byte" or op == "lua_string_byte_at" or op == "lua_string_u32" then
+        local bytes = node as scalarIR.LuaBytes
+        return op .. "(" .. text.expression(bytes.bytes) .. ", " .. text.expression(bytes.index as scalarIR.Expr) .. ")"
+    elseif op == "lua_builder_finish" then
+        return "lua.builder_finish(" .. text.expression((node as scalarIR.LuaBuilderFinish).builder) .. ")"
+    elseif op == "lua_builder_depth"
+        or op == "lua_builder_kind"
+        or op == "lua_builder_count"
+        or op == "lua_builder_state"
+    then
+        return op .. "(" .. text.expression((node as scalarIR.LuaBuilderQuery).builder) .. ")"
+    elseif op == "lua_builder_number_token" then
+        local number = node as scalarIR.LuaBuilderNumberToken
+        return op .. ":u32(" .. table.concat(
+            {
+                text.expression(number.builder),
+                text.expression(number.sourceBytes),
+                text.expression(number.start),
+                text.expression(number.limit),
+            },
+            ", "
+        ) .. ")"
+    elseif tostring(op):match("^simd_") ~= nil then
+        local simd = node as scalarIR.Simd
+        local values: {string} = {}
+        for position, argument in ipairs(simd.args) do
+            values[position] = text.expression(argument)
+        end
+        if simd.span ~= nil then
+            values[#values + 1] = "span:" .. (simd.span as string)
+        end
+        return tostring(op) .. ":" .. simd.type .. "(" .. table.concat(values, ", ") .. ")"
+    elseif text.ONE_OPERAND[tostring(op)] == true then
+        return op .. "(" .. text.expression((node as scalarIR.Unary).value) .. ")"
+    end
+
+    --- The operands of one operation, in order.
+    local function operands(args: {any}): string
+        local rendered: {string} = {}
+        for position, argument in ipairs(args) do
+            rendered[position] = text.expression(argument)
+        end
+
+        return table.concat(rendered, ", ")
+    end
+
+    if op == "math" then
+        return "math." .. node.intrinsic .. "(" .. operands(node.args) .. ")"
+    elseif op == "vmath" then
+        return "vmath." .. node.intrinsic .. ":" .. node.type .. "(" .. operands(node.args) .. ")"
+    elseif op == "helper_call" then
+        return "call " .. node.helper .. "(" .. operands(node.args) .. ")"
+    elseif text.LIST_OPERANDS[tostring(op)] == true then
+        local listed = node as text.Operands
+
+        return text.displayOp(listed) .. ":" .. tostring(listed.type) .. "(" .. operands(listed.args) .. ")"
+    end
+
+    local pair = node as text.Pair
+
+    return op .. "(" .. text.expression(pair.left) .. ", " .. text.expression(pair.right) .. ")"
+end
+
+--- One assignment target, scalar or lane.
+local function target(assignment: any, lanes: integer): string
+    if assignment.target.kind == "local" then
+        return assignment.target.name
+    elseif assignment.target.kind == "vfield" then
+        return assignment.target.span .. "[i..i+" .. tostring(lanes - 1) .. "]." .. assignment.target.field
+    elseif assignment.target.kind == "vspan" then
+        return assignment.target.span .. "[i..i+" .. tostring(lanes - 1) .. "]"
+    end
+
+    return text.expression(assignment.target.object) .. "." .. assignment.target.field
+end
+
+--- One block of statements, scalar or lane, indented by `depth`.
+---
+--- @param lanes how wide a lane store is, for a body that was rewritten
+function text.block(statements: {any}, depth: integer, lanes: integer): {string}
+    local lines: {string} = {}
+    local prefix = string.rep("  ", depth)
+
+    --- Appends the rendering of a nested block.
+    local function nested(body: {any}): nil
+        for _, line in ipairs(text.block(body, depth + 1, lanes)) do
+            lines[#lines + 1] = line
+        end
+    end
+
+    for _, statement in ipairs(statements) do
+        local op = statement.op
+        if op == "let" then
+            lines[
+                #lines + 1
+            ] = prefix .. "let " .. statement.name .. ":" .. statement.type .. " = " .. text.expression(statement.value)
+        elseif op == "multi_let" then
+            local names: {string} = {}
+            for position, bound in ipairs(statement.bindings) do
+                names[position] = bound.name .. ":" .. bound.type
+            end
+            lines[#lines + 1] = prefix .. "let " .. table.concat(names, ",") .. " = " .. text.expression(statement.call)
+        elseif op == "store" then
+            local index = statement.cursor ~= nil and statement.cursor .. "+1" or statement.index
+            lines[
+                #lines + 1
+            ] = prefix .. "store " .. statement.span .. "[" .. index .. "] = " .. text.expression(statement.value)
+        elseif op == "lua_set_index" or op == "lua_set_key" then
+            lines[
+                #lines + 1
+            ] = prefix .. op .. " " .. text.expression(
+                statement.table
+            ) .. "[" .. text.expression(statement.key) .. "] = " .. text.expression(statement.value)
+        elseif op == "lua_string_buffer_append" then
+            lines[
+                #lines + 1
+            ] = prefix .. "lua.string_buffer_append(" .. text.expression(
+                statement.buffer
+            ) .. ", " .. text.expression(statement.value) .. ")"
+        elseif op == "lua_scratch_u32_set" then
+            local write = statement as scalarIR.LuaScratchU32Set
+            lines[
+                #lines + 1
+            ] = prefix .. "lua.scratch_u32_set " .. text.expression(
+                write.scratch
+            ) .. "[" .. text.expression(write.index) .. "] = " .. text.expression(write.value)
+        elseif op == "lua_scratch_u8_set" then
+            local write = statement as scalarIR.LuaScratchU8Set
+            lines[
+                #lines + 1
+            ] = prefix .. "lua.scratch_u8_set " .. text.expression(
+                write.scratch
+            ) .. "[" .. text.expression(
+                write.index as scalarIR.Expr
+            ) .. "] = " .. text.expression(write.value as scalarIR.Expr)
+        elseif op == "simd_store4_u8" then
+            local store = statement as scalarIR.Simd
+            local rendered: {string} = {}
+            for _, argument in ipairs(store.args) do
+                rendered[#rendered + 1] = text.expression(argument)
+            end
+            lines[#lines + 1] = prefix .. "simd.store4 " .. table.concat(rendered, ", ")
+        elseif op == "lua_scratch_u8_set4" then
+            local write = statement as scalarIR.LuaScratchU8Set
+            lines[
+                #lines + 1
+            ] = prefix .. "lua.scratch_u8_set4 " .. text.expression(
+                write.scratch
+            ) .. "[" .. text.expression(
+                write.index as scalarIR.Expr
+            ) .. "] = " .. text.expression(write.value as scalarIR.Expr)
+        elseif op == "lua_scratch_u8_reset" then
+            lines[
+                #lines + 1
+            ] = prefix .. "lua.scratch_u8_reset " .. text.expression((statement as scalarIR.LuaScratchU8Set).scratch)
+        elseif tostring(op):match("^lua_builder_") ~= nil then
+            local event = statement as scalarIR.LuaBuild
+            local values: {string} = {text.expression(event.builder)}
+            for _, value in ipairs({
+                event.capacity,
+                event.sourceBytes,
+                event.start,
+                event.length,
+                event.escaped,
+                event.value,
+                event.negative,
+                event.scratch,
+                event.escapeScratch,
+                event.escapeIndex,
+                event.escapeCount,
+            }) do
+                if value ~= nil then
+                    values[#values + 1] = text.expression(value as scalarIR.Expr)
+                end
+            end
+            lines[#lines + 1] = prefix .. op .. "(" .. table.concat(values, ", ") .. ")"
+        elseif op == "assign" or op == "vassign" then
+            local verb = op == "assign" and "set " or "vset "
+            for _, assignment in ipairs(statement.values) do
+                lines[
+                    #lines + 1
+                ] = prefix .. verb .. target(assignment, lanes) .. " = " .. text.expression(assignment.value)
+            end
+        elseif op == "vwhile" then
+            lines[
+                #lines + 1
+            ] = prefix .. "vwhile any " .. statement.live.name .. " = " .. text.expression(statement.initial)
+            lines[#lines + 1] = prefix .. "  executing " .. statement.executing.name
+            nested(statement.body)
+            lines[#lines + 1] = prefix .. "  retest " .. text.expression(statement.condition)
+            lines[#lines + 1] = prefix .. "end"
+        elseif op == "vwhile_uniform" then
+            lines[#lines + 1] = prefix .. "vwhile all " .. text.expression(statement.condition)
+            nested(statement.body)
+            lines[#lines + 1] = prefix .. "end"
+        elseif op == "vbreak" or op == "vcontinue" then
+            lines[#lines + 1] = prefix .. op .. " " .. text.expression(statement.mask)
+        elseif op == "if" then
+            for position, clause in ipairs(statement.clauses) do
+                lines[
+                    #lines + 1
+                ] = prefix .. (position == 1 and "if " or "elseif ") .. text.expression(clause.condition)
+                nested(clause.body)
+            end
+            if statement.elseBody ~= nil then
+                lines[#lines + 1] = prefix .. "else"
+                nested(statement.elseBody)
+            end
+            lines[#lines + 1] = prefix .. "end"
+        elseif op == "fornum" then
+            lines[
+                #lines + 1
+            ] = prefix .. "for " .. statement.binding.name .. " = " .. text.expression(
+                statement.from
+            ) .. " .. " .. text.expression(statement.to)
+            nested(statement.body)
+            lines[#lines + 1] = prefix .. "end"
+        elseif op == "while" then
+            lines[#lines + 1] = prefix .. "while " .. text.expression(statement.condition)
+            nested(statement.body)
+            lines[#lines + 1] = prefix .. "end"
+        elseif op == "block" then
+            lines[#lines + 1] = prefix .. "block"
+            nested(statement.body)
+        elseif op == "return" then
+            local values: {string} = {}
+            for position, value in ipairs(statement.values) do
+                values[position] = text.expression(value)
+            end
+            lines[#lines + 1] = prefix .. "return " .. table.concat(values, ", ")
+        else
+            lines[#lines + 1] = prefix .. op
+        end
+    end
+
+    return lines
+end
+
+--- What the signature and the ownership proofs say.
+local function preamble(program: scalarIR.Program): {string}
+    local lines: {
+        string
+    } = {"native-c-ir " .. tostring(scalarIR.VERSION), "function " .. program.name, "symbol " .. program.symbol,}
+    lines[#lines + 1] = "entry " .. program.entryMode
+    -- Printed so the reuse claim can be pinned in the IR, where it is proved,
+    -- rather than by grepping the C it eventually shapes.
+    if program.reusableScratch ~= nil then
+        lines[#lines + 1] = "reuses scratch " .. tostring(program.reusableScratch)
+    end
+    if program.runtimeAbi ~= nil then
+        lines[
+            #lines + 1
+        ] = "runtime " .. tostring(program.runtimeAbi) .. " registrar(" .. tostring(program.registrar) .. ")"
+    end
+
+    -- The contract is part of what the IR means and not a build setting,
+    -- because it decides what the function answers rather than only how fast it
+    -- gets there.
+    if program.fpContract == true then
+        lines[#lines + 1] = "contract fp-contract(fused)"
+    end
+    if program.simdWidth ~= nil then
+        lines[#lines + 1] = "simd species(uint8," .. tostring(program.simdWidth) .. ")"
+    end
+
+    lines[#lines + 1] = "layouts"
+    for _, layout in ipairs(program.layouts or {}) do
+        local fields: {string} = {}
+        for position, field in ipairs(layout.fields) do
+            fields[position] = field.name .. ":" .. field.type .. " source(" .. tostring(field.sourceType) .. ")"
+        end
+        lines[#lines + 1] = "  " .. layout.name .. "{" .. table.concat(fields, ",") .. "}"
+    end
+
+    lines[#lines + 1] = "params"
+    for _, param in ipairs(program.params) do
+        if param.region ~= nil then
+            lines[
+                #lines + 1
+            ] = (
+                "  %s %s:%s source(%s) span(%s) region(%s) %s %s"
+            ):format(
+                param.kind,
+                param.name,
+                param.type,
+                tostring(param.sourceType),
+                tostring(param.spanModule),
+                tostring(param.region),
+                tostring(param.access),
+                at(param.source)
+            )
+        else
+            lines[
+                #lines + 1
+            ] = (
+                "  %s %s:%s source(%s) %s"
+            ):format(param.kind, param.name, param.type, tostring(param.sourceType), at(param.source))
+        end
+    end
+
+    lines[#lines + 1] = "aliasing"
+    for _, fact in ipairs(program.aliasFacts) do
+        lines[#lines + 1] = ("  %s %s %s proof(%s)"):format(fact.relation, fact.left, fact.right, fact.proof)
+    end
+
+    lines[#lines + 1] = "helpers"
+    for _, helper in ipairs(program.helpers or {}) do
+        lines[
+            #lines + 1
+        ] = ("  %s -> %s %s"):format(helper.name, table.concat(helper.resultTypes, ","), at(helper.source))
+    end
+
+    lines[#lines + 1] = "guards"
+    for _, guard in ipairs(program.guards) do
+        lines[#lines + 1] = ("  equal_count %s %s %s"):format(guard.left, guard.right, at(guard.source))
+    end
+
+    local rangeGuard = program.rangeGuard
+    if rangeGuard ~= nil then
+        local guard = rangeGuard as scalarIR.RangeGuard
+        lines[
+            #lines + 1
+        ] = ("  range %s %s count(%s) %s"):format(guard.first, guard.last, guard.count, at(guard.source))
+    end
+
+    local resultTypes = program.resultTypes or {}
+    lines[#lines + 1] = "results " .. (#resultTypes == 0 and "nil" or table.concat(resultTypes, ","))
+    if program.maxStack ~= nil then
+        lines[#lines + 1] = "lua_stack " .. tostring(program.maxStack)
+    end
+
+    local loop = program.loop
+    if loop ~= nil then
+        local scalarLoop = loop as scalarIR.Loop
+        lines[
+            #lines + 1
+        ] = (
+            "loop %s = %s .. %s count(%s) %s"
+        ):format(
+            scalarLoop.index,
+            tostring(scalarLoop.first),
+            tostring(scalarLoop.last),
+            scalarLoop.count,
+            at(scalarLoop.source)
+        )
+    else
+        lines[#lines + 1] = "block"
+    end
+
+    return lines
+end
+
+--- One whole program, as text.
+---
+--- The lane body appears after the scalar one it was rewritten from, rather
+--- than in place of it, because the two being readable side by side is what
+--- makes a lane rewrite reviewable at all.
+function text.program(program: scalarIR.Program): string
+    local lines = preamble(program)
+    local lanes = program.lanes
+    local width = lanes ~= nil and (lanes as scalarIR.LaneBody).lanes or 0
+    local loop = program.loop
+    local statements = loop ~= nil and (loop as scalarIR.Loop).statements or program.body or {}
+    for _, line in ipairs(text.block(statements, 1, width)) do
+        lines[#lines + 1] = line
+    end
+    if lanes ~= nil then
+        local body = lanes as scalarIR.LaneBody
+        lines[#lines + 1] = "simd lanes(" .. tostring(body.lanes) .. ")"
+        for _, line in ipairs(text.block(body.statements, 1, body.lanes)) do
+            lines[#lines + 1] = line
+        end
+    end
+
+    return table.concat(lines, "\n") .. "\n"
+end
+
+--- Every program in one file, as text.
+---
+--- Separated by a blank line and nothing else. Each carries its own header, so
+--- a reader can tell where one function ends without a marker between them.
+function text.programs(programs: {scalarIR.Program}): string
+    local parts: {string} = {}
+    for position, program in ipairs(programs) do
+        parts[position] = text.program(program)
+    end
+
+    return table.concat(parts, "\n")
+end
+
+export = text
