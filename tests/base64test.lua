@@ -12,6 +12,7 @@
 
 local check = require("assert")
 local base64 = require("nupp.data.base64")
+local suite = require("nupp.runtime.seam.base64suite")
 
 local M = {}
 
@@ -74,6 +75,15 @@ function M.aCharacterOutsideTheAlphabetIsRefused()
    check.equal(pcall(base64.decode, "ab!="), false)
    check.equal(pcall(base64.decode, "....") , false)
    check.equal(pcall(base64.decode, "Zm9v\128\129\130\131"), false)
+end
+
+--- The seam's own contract, run against the implementation that answers when
+--- no provider is installed. A backend substituting a faster base64 is held to
+--- this suite, so the default failing it would mean the contract described
+--- something other than what Nupp does.
+function M.theDefaultSatisfiesTheSeamContract()
+   local ok, why = suite.test(base64)
+   check.equal(ok, true, tostring(why))
 end
 
 return M

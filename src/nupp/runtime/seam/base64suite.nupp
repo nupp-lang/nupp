@@ -1,0 +1,36 @@
+@!internal
+module nupp.runtime.seam.base64suite
+local suite = {}
+
+--- RFC 4648's own vectors, which pin the alphabet and both padding cases, and
+--- a round trip over every byte so no entry of the alphabet or its inverse
+--- goes untried by a provider that claims this seam.
+function suite.test(provider: any): (boolean, string?)
+    local ok, problem = pcall(function()
+        assert(provider.encode("") == "", "encode must answer the empty string with itself")
+        assert(provider.encode("f") == "Zg==", "encode must pad a one-byte remainder with two")
+        assert(provider.encode("fo") == "Zm8=", "encode must pad a two-byte remainder with one")
+        assert(provider.encode("foo") == "Zm9v", "encode must leave a whole group unpadded")
+        assert(provider.encode("foobar") == "Zm9vYmFy", "encode must carry across groups")
+        assert(provider.decode("") == "", "decode must answer the empty string with itself")
+        assert(provider.decode("Zg==") == "f", "decode must drop two padding characters")
+        assert(provider.decode("Zm8=") == "fo", "decode must drop one padding character")
+        assert(provider.decode("Zm9vYmFy") == "foobar", "decode must carry across groups")
+
+        local bytes = {}
+        for value = 0, 255 do
+            bytes[#bytes + 1] = string.char(value)
+        end
+        local all = table.concat(bytes)
+        assert(provider.decode(provider.encode(all)) == all, "every byte must survive a round trip")
+        assert(not pcall(provider.decode, "abc"), "decode must refuse a length that is not a quantum")
+        assert(not pcall(provider.decode, "ab!="), "decode must refuse a character outside the alphabet")
+    end)
+    if not ok then
+        return false, tostring(problem)
+    end
+
+    return true
+end
+
+export = suite

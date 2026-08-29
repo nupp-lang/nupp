@@ -73,6 +73,16 @@ local CONTRACTS: {any} = {
         exports = {["nupp.data.crc32"] = "crc32", ["nupp.data.fnv1a64"] = "fnv1a64",}
     },
     {name = "data.utf8", effect = "runtime.data_utf8", binding = "runtime", factoryModule = "nupp.runtime.seam.utf8"},
+    -- A faster base64 than the one `nupp.data.base64` compiles to, where a
+    -- backend has one. The host's is measurably that in a browser, and a SIMD
+    -- kernel is that natively; `nupp.data.base64` is what answers when neither
+    -- is installed, which is why this seam is optional rather than required.
+    {
+        name = "data.base64",
+        effect = "runtime.data_base64",
+        binding = "runtime",
+        factoryModule = "nupp.runtime.seam.base64"
+    },
     {
         name = "data.uuid",
         effect = "native.uuid",

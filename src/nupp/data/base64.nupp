@@ -276,6 +276,15 @@ end
 --- @return the encoded text
 --- @export
 function base64.encode(value: string): string
+    -- A backend may install something faster than this compiles to: in a
+    -- browser the host's own base64 reads the bytes where they already are,
+    -- which `bench/base64/results/wasm-host-vs-compiled.md` measures at about
+    -- six times this. Absent one, the compiled entry is the answer.
+    local provider = rawget(_G, "__nuppBase64")
+    if provider ~= nil then
+        return provider.encode(value)
+    end
+
     return encodeAot(value, false) as string
 end
 
@@ -290,6 +299,10 @@ end
 ---     the alphabet
 --- @export
 function base64.decode(text: string): string
+    local provider = rawget(_G, "__nuppBase64")
+    if provider ~= nil then
+        return provider.decode(text)
+    end
     if #text % 4 ~= 0 then
         error("nupp: base64 input length is not a multiple of four", 2)
     end
