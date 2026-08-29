@@ -5,11 +5,13 @@
 -- programs assembled at random from the grammar's shapes, at random widths, with
 -- the line breaks and indentation of the input deliberately arbitrary.
 --
--- Three claims per program, and none of them needs a golden file:
+-- Five claims per program, and none of them needs a golden file:
 --
+--   * lexing is lossless -- printing the tokens returns the input;
+--   * parsing is lossless -- printing the CST returns the input;
 --   * formatting is a fixed point -- `fmt(fmt(x))` is `fmt(x)`;
 --   * formatting is whitespace -- the output re-lexes to the input's tokens;
---   * the output parses.
+--   * parsing the output returns the same syntax tree.
 --
 -- The seed is fixed, so a run is reproducible and a failure is not a story about
 -- a machine somebody no longer has. Set NUPP_FMT_FUZZ_SEED to explore, and
@@ -17,6 +19,7 @@
 -- fewest statements that still fail and printed as a whole file, ready to be
 -- checked into `tests/fmtcorpus/regressions/` as an ordinary case.
 local fmt = require("nupp.compiler.fmt")
+local cst = require("nupp.compiler.cst")
 local lexer = require("nupp.compiler.lexer")
 local parser = require("nupp.compiler.parser")
 
@@ -133,39 +136,56 @@ local function build(next_)
 end
 
 -- The input's own layout must not matter, so it is made not to: every statement is
--- indented at random and separated by a random number of newlines.
+-- indented at random and separated by a random number of newlines. Keep each laid-out
+-- statement separate so minimization drops only text from the failing input; drawing
+-- fresh whitespace while shrinking can make the printed fixture stop reproducing.
 local function scatter(statements, next_)
-   local parts = {}
+   local chunks = {}
    for _, text in ipairs(statements) do
-      parts[#parts + 1] = ("\n"):rep(next_(3) - 1) .. (" "):rep(next_(9) - 1) .. text
+      chunks[#chunks + 1] = ("\n"):rep(next_(3) - 1)
+         .. (" "):rep(next_(9) - 1) .. text
    end
-   return table.concat(parts, "\n") .. "\n"
+   return chunks
 end
 
-local function tokens(source)
+local function sourceOf(chunks)
+   return table.concat(chunks, "\n") .. "\n"
+end
+
+local function lexed(source)
+   local all = lexer.lex(source)
    local out = {}
-   for _, token in ipairs(lexer.lex(source)) do
+   for _, token in ipairs(all) do
       if token.kind ~= "eof" then
          out[#out + 1] = token.kind .. "\1" .. tostring(token.text)
       end
    end
-   return table.concat(out, "\2")
+   return all, table.concat(out, "\2")
 end
 
--- What the three claims come to for one source. Returns nil when it holds, and why
+-- What the five claims come to for one source. Returns nil when they hold, and why
 -- when it does not.
 local function failure(source)
+   local inputTokens, inputTokenText = lexed(source)
+   if lexer.textOf(inputTokens) ~= source then
+      return "the lexer did not round-trip the input"
+   end
    local parsed = parser.parse(source, "fuzz.nupp")
    if #parsed.errors > 0 then
-      -- The generator only writes programs that parse. One that does not is this
-      -- suite's bug rather than the formatter's, so it is not a finding.
-      return nil
+      return "the generated input does not parse: " .. tostring(parsed.errors[1].msg)
+   end
+   if cst.textOf(parsed.root) ~= source then
+      return "the parser did not round-trip the input"
    end
    local once, problems = fmt.format(source, "fuzz.nupp")
    if #problems > 0 then
       return "the formatter refused it: " .. tostring(problems[1].msg)
    end
-   if tokens(once) ~= tokens(source) then
+   local outputTokens, outputTokenText = lexed(once)
+   if lexer.textOf(outputTokens) ~= once then
+      return "the lexer did not round-trip the formatted output"
+   end
+   if outputTokenText ~= inputTokenText then
       return "formatting changed the token sequence"
    end
    local twice = fmt.format(once, "fuzz.nupp")
@@ -176,21 +196,27 @@ local function failure(source)
    if #reparsed.errors > 0 then
       return "the output does not parse: " .. tostring(reparsed.errors[1].msg)
    end
+   if cst.textOf(reparsed.root) ~= once then
+      return "the parser did not round-trip the formatted output"
+   end
+   if cst.dump(reparsed.root) ~= cst.dump(parsed.root) then
+      return "formatting changed the parse tree"
+   end
    return nil
 end
 
 -- The fewest of these statements that still fails, by dropping one at a time for as
 -- long as dropping keeps the failure. Linear rather than clever: a generated program
 -- is a dozen statements, and a wrong minimization is worse than a slow one.
-local function minimize(statements, next_)
-   local best = statements
+local function minimize(chunks, wanted)
+   local best = chunks
    local index = 1
    while index <= #best do
       local without = {}
       for at, text in ipairs(best) do
          if at ~= index then without[#without + 1] = text end
       end
-      if #without > 0 and failure(scatter(without, next_)) then
+      if failure(sourceOf(without)) == wanted then
          best = without
       else
          index = index + 1
@@ -211,10 +237,12 @@ function M.formattingIsAFixedPointOnRandomPrograms()
       for _ = 1, next_(8) do
          statements[#statements + 1] = statement(0)
       end
-      local source = scatter(statements, next_)
+      local chunks = scatter(statements, next_)
+      local source = sourceOf(chunks)
       local why = failure(source)
       if why then
-         local smallest = scatter(minimize(statements, generator(SEED + program)), generator(SEED + program))
+         local smallest = sourceOf(minimize(chunks, why))
+         assert(failure(smallest) == why, "minimized input stopped reproducing")
          error(("%s\n  seed %d, program %d\n  check this in under tests/fmtcorpus/regressions/:\n%s")
             :format(why, SEED, program, smallest), 0)
       end

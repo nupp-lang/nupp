@@ -79,8 +79,3 @@ work makes sense in.
       run `./tests/run`, the tl.lua oracle, and import-c fixture tests; track
       `bench/reification.lua` and `bench/aos.nupp` numbers as an artifact per
       commit (regression fence around the reification speedup).
-- [ ] **Fuzzing.** No corpus exists — `tests/corpustest.lua` is an oracle over
-      two hardcoded external paths, skipped when absent. Grow a random-input
-      corpus for lexer/parser round-trip and fmt idempotency (`fmt∘fmt = fmt`,
-      `parse∘fmt = parse`); minimize and check in failures as regression
-      fixtures.

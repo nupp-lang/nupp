@@ -38,7 +38,10 @@ read is a record of a bug as readily as of a rule. Commit both files together.
  typed             every annotation position, and cdef blocks left alone
 ```
 
-`tests/fmtfuzztest.lua` covers the same claims on programs nobody wrote down.
-When it finds a failure it prints the minimized program; that program belongs
-in `regressions/` as an ordinary case, so the next run of the corpus proves it
-stays fixed whether or not the fuzz draws it again.
+`tests/fmtfuzztest.lua` covers the same claims on programs nobody wrote down,
+and also proves that the lexer and parser reproduce both the input and the
+formatted output byte for byte. It compares the parse trees before and after
+formatting, too. When it finds a failure it prints the minimized, still-failing
+program; that program belongs in `regressions/` as an ordinary case, so the
+next run of the corpus proves it stays fixed whether or not the fuzz draws it
+again.
