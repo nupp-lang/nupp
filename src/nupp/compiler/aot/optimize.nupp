@@ -10,11 +10,21 @@ binary64 contract, dead pure declarations, statically selected branches,
 derivation of proven break-result flags, small literal loop expansion, and
 unreachable statement tails. A bounded repeat exposes declarations made dead
 by an earlier removal without turning this into an open-ended fixpoint.
+
+Expression rewriting is one fused walk -- root propagation, child descent,
+fold saturation, then helper specialization -- scheduled here and answered by
+`propagate`, `fold`, and `specialize`, which own no optimizer state. One walk
+was chosen over sequential whole-tree phases so a replacement is finished the
+moment it is made and the interleaving the rule catalog was written against
+cannot drift; room for a future analysis is a new mode on the walk, not a
+pass manager.
 ]]
 
 local effects = require("nupp.compiler.aot.effects")
 local fold = require("nupp.compiler.aot.fold")
+local propagate = require("nupp.compiler.aot.propagate")
 local scalarIR = require("nupp.compiler.aot.scalar")
+local specialize = require("nupp.compiler.aot.specialize")
 local visit = require("nupp.compiler.aot.visit")
 
 local optimize = {}
@@ -43,11 +53,18 @@ record optimize.State
     unrollBudget: integer
     helpers: {[string]: scalarIR.Helper}
     foldContext: fold.Context
+    specializeContext: specialize.Context
     ruleApplications: {[string]: integer}
     unrolledLoops: integer
     unrolledIterations: integer
     removedStatements: integer
     changed: boolean
+end
+
+--- Which stages of the fused walk one entrypoint runs.
+record optimize.RewriteMode
+    propagation: boolean
+    specialization: boolean
 end
 
 local function countRule(state: optimize.State, id: string): nil
@@ -60,20 +77,6 @@ end
 const optimize.MAX_UNROLL_TRIPS = 4
 
 const optimize.MAX_UNROLL_GROWTH = 96
-
-local function expressionNodes(value: any): integer
-    if type(value) ~= "table" then
-        return 0
-    end
-    local count = value.op ~= nil and 1 or 0
-    for key, child in pairs(value) do
-        if key ~= "source" then
-            count = count + expressionNodes(child)
-        end
-    end
-
-    return count as integer
-end
 
 local function containsLoopExit(value: any): boolean
     if type(value) ~= "table" then
@@ -89,24 +92,6 @@ local function containsLoopExit(value: any): boolean
     end
 
     return false
-end
-
-local function copySpecialized(value: any, replacements: {[string]: scalarIR.Expr}): any
-    if type(value) ~= "table" then
-        return value
-    end
-    if value.op == "helper_param" then
-        local identity = tostring(value.cName or value.name)
-        if replacements[identity] ~= nil then
-            return copySpecialized(replacements[identity], {})
-        end
-    end
-    local copied: {[any]: any} = {}
-    for key, child in pairs(value) do
-        copied[key] = key == "source" and child or copySpecialized(child, replacements)
-    end
-
-    return copied
 end
 
 local function sourceOf(node: any): scalarIR.Source?
@@ -135,26 +120,57 @@ local function exactInteger(node: scalarIR.Expr): number?
     return fold.exactInteger(node)
 end
 
-local foldExpression: function(scalarIR.Expr, optimize.State): scalarIR.Expr
-local literal: function(scalarIR.Expr): boolean
+--- Body expressions: substitute from the block environment, fold, specialize.
+local BODY_REWRITE = new optimize.RewriteMode(propagation = true, specialization = true)
 
---- Rewrites every expression child while preserving the enclosing record.
+--- Every other entrypoint -- helper values, fold-created children, specialized
+--- replacements, statement-path folding -- folds and specializes with no
+--- constant environment.
+local FOLD_REWRITE = new optimize.RewriteMode(propagation = false, specialization = true)
+
+local rewriteExpression: function(
+    scalarIR.Expr,
+    propagate.Constants?,
+    optimize.RewriteMode,
+    optimize.State
+): scalarIR.Expr
+
+--- Rewrites one expression tree in a single fused walk.
 ---
---- This is a structural visitor rather than an opcode whitelist. The effect
---- lookup above it is the whitelist: a new operation cannot reach this code
---- until its root behaviour has been classified.
-local function foldChildren(node: scalarIR.Expr, state: optimize.State): nil
-    visit.expressionChildren(node, function(child: scalarIR.Expr): scalarIR.Expr
-        return foldExpression(child, state)
-    end)
-end
-
-foldExpression = function(node: scalarIR.Expr, state: optimize.State): scalarIR.Expr
+--- The ordering is the contract: an optional root substitution, one descent
+--- rewriting every child in the same mode, fold saturation at the root with
+--- each replacement's children rewritten fold-only, then one specialization
+--- attempt whose accepted body is reprocessed fold-only. A substituted local
+--- returns immediately -- the environment admits only leaf literals, so there
+--- is nothing beneath the replacement to rewrite and no rule matches a bare
+--- literal root. The effect lookup is the whitelist in front of everything: a
+--- new operation cannot reach a rewrite until its root behaviour has been
+--- classified.
+rewriteExpression = function(
+    node: scalarIR.Expr,
+    constants: propagate.Constants?,
+    mode: optimize.RewriteMode,
+    state: optimize.State
+): scalarIR.Expr
     effects.expression(tostring(node.op))
-    foldChildren(node, state)
+    if mode.propagation and constants ~= nil then
+        local substituted, ruleID = propagate.apply(node, constants as propagate.Constants)
+        if substituted ~= nil then
+            countRule(state, ruleID as string)
+            state.changed = true
+            return substituted as scalarIR.Expr
+        end
+    end
+    visit.expressionChildren(node, function(child: scalarIR.Expr): scalarIR.Expr
+        return rewriteExpression(child, constants, mode, state)
+    end)
 
     local fuel = 16
     local history: {string} = {}
+    local function refoldChild(child: scalarIR.Expr): scalarIR.Expr
+        return rewriteExpression(child, nil, FOLD_REWRITE, state)
+    end
+
     while true do
         local replacement, ruleID = fold.apply(node, state.foldContext)
         if replacement == nil then
@@ -169,36 +185,17 @@ foldExpression = function(node: scalarIR.Expr, state: optimize.State): scalarIR.
         state.changed = true
         node = replacement as scalarIR.Expr
         effects.expression(tostring(node.op))
-        foldChildren(node, state)
+        visit.expressionChildren(node, refoldChild)
     end
 
-    if node.op == "helper_call" then
-        local call = node as scalarIR.HelperCall
-        local helper = state.helpers[call.helper]
-        local replacements: {[string]: scalarIR.Expr} = {}
-        local allConstant = helper ~= nil
-            and helper.native ~= true
-            and #helper.values == 1
-            and #helper.params == #call.args
-        if allConstant then
-            for position, argument in ipairs(call.args) do
-                if not literal(argument) then
-                    allConstant = false
-                    break
-                end
-                local param = (helper as scalarIR.Helper).params[position]
-                replacements[tostring(param.cName or param.name)] = argument
-            end
-        end
-        if allConstant then
-            local replacement = copySpecialized((helper as scalarIR.Helper).values[1], replacements) as scalarIR.Expr
-            local growth = expressionNodes(replacement) - expressionNodes(node)
-            if growth <= state.specializationBudget then
-                state.specializationBudget = state.specializationBudget - math.max(growth, 0)
-                countRule(state, "specialize.helper-constant")
-                state.changed = true
-                return foldExpression(replacement, state)
-            end
+    if mode.specialization and node.op == "helper_call" then
+        local candidate = specialize.propose(node, state.specializeContext)
+        if candidate ~= nil and (candidate as specialize.Candidate).growth <= state.specializationBudget then
+            local accepted = candidate as specialize.Candidate
+            state.specializationBudget = state.specializationBudget - math.max(accepted.growth, 0)
+            countRule(state, accepted.ruleID)
+            state.changed = true
+            return rewriteExpression(accepted.replacement, nil, FOLD_REWRITE, state)
         end
     end
 
@@ -208,7 +205,7 @@ end
 local function foldStatementExpressions(statement: scalarIR.Statement, state: optimize.State): nil
     effects.statement(tostring(statement.op))
     visit.statementExpressions(statement, function(child: scalarIR.Expr): scalarIR.Expr
-        return foldExpression(child, state)
+        return rewriteExpression(child, nil, FOLD_REWRITE, state)
     end)
 end
 
@@ -348,7 +345,7 @@ local function pairedBreaks(statements: {scalarIR.Statement}, found: any): boole
                 return false
             end
             local assignment = previous.values[1]
-            if assignment.target.kind ~= "local" or not literal(assignment.value) then
+            if assignment.target.kind ~= "local" or not fold.isLiteral(assignment.value) then
                 return false
             end
             local identity = localIdentity(assignment.target)
@@ -460,7 +457,7 @@ local function breakResult(statements: {scalarIR.Statement}, position: integer, 
             break
         end
     end
-    if declaration == nil or not literal(
+    if declaration == nil or not fold.isLiteral(
         declaration.value
     ) or declaration.type ~= found.value.type or sameLiteral(declaration.value, found.value) then
         return nil
@@ -500,8 +497,8 @@ local function deriveBreakResults(statements: {scalarIR.Statement}, state: optim
             if found ~= nil then
                 loop.body = removeBreakWrites(loop.body, found)
                 local assignment = new scalarIR.Assignment(
-                    target = copySpecialized(found.target, {}),
-                    value = copySpecialized(found.value, {})
+                    target = specialize.copy(found.target, {}),
+                    value = specialize.copy(found.value, {})
                 )
                 rewritten[
                     #rewritten + 1
@@ -509,7 +506,7 @@ local function deriveBreakResults(statements: {scalarIR.Statement}, state: optim
                     op = "if",
                     clauses = {
                         new scalarIR.Clause(
-                            condition = copySpecialized(loop.condition, {}),
+                            condition = specialize.copy(loop.condition, {}),
                             body = {new scalarIR.Assign(op = "assign", values = {assignment}, source = found.source),},
                             source = loop.source
                         ),
@@ -532,35 +529,6 @@ local function inheritConstants(values: {[string]: scalarIR.Expr}): {[string]: s
     end
 
     return copied
-end
-
-literal = function(node: scalarIR.Expr): boolean
-    return node.op == "constant" or node.op == "constant_i32" or node.op == "constant_i64" or node.op == "bool"
-end
-
-local propagateExpression: function(scalarIR.Expr, {[string]: scalarIR.Expr}, optimize.State): scalarIR.Expr
-
-propagateExpression = function(
-    node: scalarIR.Expr,
-    constants: {[string]: scalarIR.Expr},
-    state: optimize.State
-): scalarIR.Expr
-    effects.expression(tostring(node.op))
-    if node.op == "local" then
-        local named = node as scalarIR.Name
-        local replacement = constants[tostring(named.cName or named.name)]
-        if replacement ~= nil then
-            countRule(state, "propagate.local-constant")
-            state.changed = true
-            return replacement
-        end
-    end
-
-    visit.expressionChildren(node, function(child: scalarIR.Expr): scalarIR.Expr
-        return propagateExpression(child, constants, state)
-    end)
-
-    return foldExpression(node, state)
 end
 
 local function mutatedLocals(value: any, mutated: {[string]: boolean}): nil
@@ -602,7 +570,7 @@ propagateBlock = function(
 ): nil
     local constants = inheritConstants(inherited)
     local function rewrite(child: scalarIR.Expr): scalarIR.Expr
-        return propagateExpression(child, constants, state)
+        return rewriteExpression(child, constants, BODY_REWRITE, state)
     end
 
     for _, statement in ipairs(statements) do
@@ -611,7 +579,7 @@ propagateBlock = function(
         visit.statementExpressions(statement, rewrite)
         if statement.op == "let" and mutated[
             statement.cName
-        ] ~= true and mutated[statement.name] ~= true and literal(statement.value) then
+        ] ~= true and mutated[statement.name] ~= true and fold.isLiteral(statement.value) then
             constants[statement.cName] = statement.value
         elseif statement.op == "if" then
             -- The statement walk above already rewrote every clause condition
@@ -688,10 +656,10 @@ optimizeBlock = function(statements: {scalarIR.Statement}, state: optimize.State
                 ) or nil
                 if trips ~= nil and trips <= optimize.MAX_UNROLL_TRIPS and not containsLoopExit(loop.body) then
                     local expanded: {scalarIR.Statement} = {}
-                    local growth = -expressionNodes(loop)
+                    local growth = -specialize.nodes(loop)
                     for offset = 0, (trips as number) - 1 do
                         local value = integerConstant((first as number) + offset, loop.binding.type, loop)
-                        local body = copySpecialized(loop.body, {}) as {scalarIR.Statement}
+                        local body = specialize.copy(loop.body, {}) as {scalarIR.Statement}
                         local iterationBody: {
                             scalarIR.Statement
                         } = {
@@ -709,7 +677,7 @@ optimizeBlock = function(statements: {scalarIR.Statement}, state: optimize.State
                         end
                         local iteration = new scalarIR.Block(op = "block", body = iterationBody, source = loop.source)
                         expanded[#expanded + 1] = iteration
-                        growth = growth + expressionNodes(iteration)
+                        growth = growth + specialize.nodes(iteration)
                     end
                     if growth <= state.unrollBudget then
                         for _, iteration in ipairs(expanded) do
@@ -792,20 +760,6 @@ local function removeDead(statements: {scalarIR.Statement}, state: optimize.Stat
     return kept
 end
 
-local function nodeCount(value: any): integer
-    if type(value) ~= "table" then
-        return 0
-    end
-    local count = value.op ~= nil and 1 or 0
-    for key, child in pairs(value) do
-        if key ~= "source" then
-            count = count + nodeCount(child)
-        end
-    end
-
-    return count as integer
-end
-
 local function markHelperUses(value: any, used: {[string]: boolean}, helpers: {[string]: scalarIR.Helper}): nil
     if type(value) ~= "table" then
         return
@@ -847,7 +801,7 @@ end
 --- @return counters describing the actual rewrite
 --- @raises when an IR opcode has no effect classification
 function optimize.program(program: scalarIR.Program): optimize.Stats
-    local before = nodeCount(program)
+    local before = specialize.nodes(program)
     local helpers: {[string]: scalarIR.Helper} = {}
     for _, helper in ipairs(program.helpers or {}) do
         helpers[helper.name] = helper
@@ -858,6 +812,7 @@ function optimize.program(program: scalarIR.Program): optimize.Stats
         unrollBudget = optimize.MAX_UNROLL_GROWTH,
         helpers = helpers,
         foldContext = new fold.Context(helpers = helpers),
+        specializeContext = new specialize.Context(helpers = helpers),
         ruleApplications = {},
         unrolledLoops = 0,
         unrolledIterations = 0,
@@ -872,7 +827,7 @@ function optimize.program(program: scalarIR.Program): optimize.Stats
         state.changed = false
         for _, helper in ipairs(program.helpers or {}) do
             for position, value in ipairs(helper.values) do
-                helper.values[position] = foldExpression(value, state)
+                helper.values[position] = rewriteExpression(value, nil, FOLD_REWRITE, state)
             end
         end
         if program.loop ~= nil then
@@ -907,7 +862,7 @@ function optimize.program(program: scalarIR.Program): optimize.Stats
 
     return new optimize.Stats(
         beforeNodes = before,
-        afterNodes = nodeCount(program),
+        afterNodes = specialize.nodes(program),
         folds = expressionFolds + state.statementFolds,
         propagatedConstants = state.ruleApplications["propagate.local-constant"] or 0,
         specializedHelperCalls = state.ruleApplications["specialize.helper-constant"] or 0,

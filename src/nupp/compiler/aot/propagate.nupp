@@ -1,0 +1,36 @@
+module nupp.compiler.aot.propagate
+
+-- Root substitution of a local known to hold a literal. The optimizer owns
+-- the block environment, its mutation analysis, and every counter; this
+-- module answers one question about one node.
+
+local scalarIR = require("nupp.compiler.aot.scalar")
+
+local propagate = {}
+
+type propagate.Constants = {[string]: scalarIR.Expr}
+
+--- The stable rule ID the ledger records for a substitution.
+const propagate.RULE = "propagate.local-constant"
+
+--- Substitutes the environment's node for a matching local.
+---
+--- Returns the stored node object itself, never a copy: the let and every
+--- substituted use site deliberately alias one node, which is safe exactly
+--- because the environment admits only leaf literals. The lookup falls back
+--- from the C identity to the source name, while the optimizer inserts under
+--- the C identity alone.
+function propagate.apply(node: scalarIR.Expr, constants: propagate.Constants): scalarIR.Expr?, string?
+    if node.op ~= "local" then
+        return nil, nil
+    end
+    local named = node as scalarIR.Name
+    local replacement = constants[tostring(named.cName or named.name)]
+    if replacement == nil then
+        return nil, nil
+    end
+
+    return replacement, propagate.RULE
+end
+
+export = propagate

@@ -1,0 +1,93 @@
+module nupp.compiler.aot.specialize
+
+-- Constant-helper specialization as a pure proposal. The optimizer owns the
+-- budget, the ledger, and the accept-or-decline decision; this module owns
+-- eligibility, the parameter-substituting copy, and the growth arithmetic.
+-- The copy and the node counter are also what loop unrolling uses, so they
+-- are exported rather than duplicated there.
+
+local fold = require("nupp.compiler.aot.fold")
+local scalarIR = require("nupp.compiler.aot.scalar")
+
+local specialize = {}
+
+record specialize.Candidate
+    replacement: scalarIR.Expr
+    growth: integer
+    ruleID: string
+end
+
+record specialize.Context
+    helpers: {[string]: scalarIR.Helper}
+end
+
+--- The stable rule ID the ledger records for an accepted proposal.
+const specialize.RULE = "specialize.helper-constant"
+
+--- Counts the op-bearing nodes under a value, sources excluded.
+function specialize.nodes(value: any): integer
+    if type(value) ~= "table" then
+        return 0
+    end
+    local count = value.op ~= nil and 1 or 0
+    for key, child in pairs(value) do
+        if key ~= "source" then
+            count = count + specialize.nodes(child)
+        end
+    end
+
+    return count as integer
+end
+
+--- Deep copy with helper parameters replaced; `source` fields are shared.
+function specialize.copy(value: any, replacements: {[string]: scalarIR.Expr}): any
+    if type(value) ~= "table" then
+        return value
+    end
+    if value.op == "helper_param" then
+        local identity = tostring(value.cName or value.name)
+        if replacements[identity] ~= nil then
+            return specialize.copy(replacements[identity], {})
+        end
+    end
+    local copied: {[any]: any} = {}
+    for key, child in pairs(value) do
+        copied[key] = key == "source" and child or specialize.copy(child, replacements)
+    end
+
+    return copied
+end
+
+--- Proposes replacing a constant-argument helper call with its copied body.
+---
+--- Declines with nil for anything ineligible: an unknown or native helper, a
+--- multi-value helper, an arity mismatch, or a nonliteral argument. Proposing
+--- spends and counts nothing; the caller owns the budget it is checked
+--- against.
+function specialize.propose(node: scalarIR.Expr, context: specialize.Context): specialize.Candidate?
+    if node.op ~= "helper_call" then
+        return nil
+    end
+    local call = node as scalarIR.HelperCall
+    local helper = context.helpers[call.helper]
+    if helper == nil or helper.native == true or #helper.values ~= 1 or #helper.params ~= #call.args then
+        return nil
+    end
+    local replacements: {[string]: scalarIR.Expr} = {}
+    for position, argument in ipairs(call.args) do
+        if not fold.isLiteral(argument) then
+            return nil
+        end
+        local param = helper.params[position]
+        replacements[tostring(param.cName or param.name)] = argument
+    end
+    local replacement = specialize.copy(helper.values[1], replacements) as scalarIR.Expr
+
+    return new specialize.Candidate(
+        replacement = replacement,
+        growth = specialize.nodes(replacement) - specialize.nodes(node),
+        ruleID = specialize.RULE
+    )
+end
+
+export = specialize

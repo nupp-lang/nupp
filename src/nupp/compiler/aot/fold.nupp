@@ -120,6 +120,11 @@ function fold.exactInteger(node: scalarIR.Expr): number?
     return exactIntegerText(tostring((node as any).value))
 end
 
+--- Whether a node is one of the four literal leaves.
+function fold.isLiteral(node: scalarIR.Expr): boolean
+    return node.op == "bool" or node.op == "constant" or node.op == "constant_i32" or node.op == "constant_i64"
+end
+
 local function semanticSame(left: any, right: any): boolean
     if left == right then
         return true
@@ -476,7 +481,7 @@ local function matches(node: scalarIR.Expr, shape: fold.Pattern?, other: scalarI
     if shape == nil or shape == "any" then
         return true
     elseif shape == "literal" then
-        return node.op == "bool" or node.op == "constant" or node.op == "constant_i32" or node.op == "constant_i64"
+        return fold.isLiteral(node)
     elseif shape == "numeric" then
         return fold.exactInteger(node) ~= nil
     elseif shape == "true" or shape == "false" then
