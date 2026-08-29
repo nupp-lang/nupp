@@ -405,6 +405,20 @@ function M.constFunctionInferenceRequiresIdenticalKnownValues()
    }, "\n")), "NUPP2131")
 end
 
+function M.constInferenceSeparatesIntegersThatShareADecimalSpelling()
+   -- `tostring` on a LuaJIT number is %.14g, so these two admitted integers
+   -- share a spelling. Interning a literal under that spelling gave them one
+   -- type, and a const parameter then agreed with itself across both.
+   assertEq(codes(table.concat({
+      "local function same<const N: integer>(left: N, right: N): nil end",
+      "same(1000000000000000, 1000000000000001)",
+   }, "\n")), "NUPP2131")
+   clean(table.concat({
+      "local function same<const N: integer>(left: N, right: N): nil end",
+      "same(1000000000000001, 1000000000000001)",
+   }, "\n"))
+end
+
 function M.numericLiteralAndMemberIndexSyntaxStayDistinct()
    clean(table.concat({
       "local type Sixteen = 16",

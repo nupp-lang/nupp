@@ -146249,8 +146249,20 @@ packVarArena [ key ] = made
 return made
 end
 
+
+
+
+
+local function internSpelling ( value ) 
+if type ( value ) == "number" then
+return string . format ( "%.17g" , value )
+end
+
+return tostring ( value )
+end
+
 function types . constLiteral ( domain , value ) 
-local key = "cl(" .. domain .. ":" .. tostring ( value ) .. ")"
+local key = "cl(" .. domain .. ":" .. internSpelling ( value ) .. ")"
 local found = constArena [ key ]
 if found then
 return found
@@ -146970,7 +146982,7 @@ end
 
 function types . literal ( value , base ) 
 local of = base or types . string
-local internKey = "lit(" .. of . tag .. ":" .. tostring ( value ) .. ")"
+local internKey = "lit(" .. of . tag .. ":" .. internSpelling ( value ) .. ")"
 
 local existing = interned ( internKey )
 if existing then
