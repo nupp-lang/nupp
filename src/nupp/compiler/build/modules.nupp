@@ -1120,7 +1120,15 @@ local function buildModules(root: string, outDir: string, config: Config, target
             acceptedSpecializations, declinedSpecializations = constspecialize.selectGraph(specializationPlans)
         end
     end
-    local constSelection = {accepted = acceptedSpecializations, declined = declinedSpecializations,}
+    -- Only a computed selection is handed down. An empty one would still be a
+    -- selection, and the pass would read it as "this deliverable demands nothing"
+    -- rather than "nobody looked" -- the two are the same silence at the call site
+    -- but not the same answer, and OPT-8's own level and `-Zno-opt` gates already
+    -- decide whether it runs.
+    local constSelection: any? = constEnabled and {
+        accepted = acceptedSpecializations,
+        declined = declinedSpecializations,
+    } or nil
     local acceptedBodies = 0
     for _, specialization in ipairs(acceptedSpecializations) do
         if specialization.physical == specialization and not (

@@ -2548,14 +2548,18 @@ end
 -- keeps ownership/effect annotations and semantic definitions attached to the exact
 -- nodes the checker proved.
 local function constMonomorphizeWalk(result, remarks, selection: any?, selectedFilename: string?)
+    -- One name for the module, resolved before collection rather than beside it.
+    -- Collecting under `result.filename` (which nothing populates) while matching
+    -- owners against the caller's name made the pass a silent no-op wherever a
+    -- caller passed one, which is every route except a bare `optimize.run`.
+    local filename = selectedFilename or result.filename or "<source>"
     local accepted, declined
     if selection ~= nil then
         accepted, declined = selection.accepted, selection.declined
     else
-        local plans = constspecialize.collect(result, result.filename)
+        local plans = constspecialize.collect(result, filename)
         accepted, declined = constspecialize.select(plans)
     end
-    local filename = selectedFilename or result.filename or "<source>"
     local acceptedByOwner = {}
     local aliasesByOwner = {}
     for _, specialization in ipairs(accepted) do
@@ -2588,10 +2592,14 @@ local function constMonomorphizeWalk(result, remarks, selection: any?, selectedF
         return a.key < b.key
     end
 
+    -- What this module actually emitted, which is the count a build reports. Only
+    -- the physical representatives are bodies; coalesced keys share one.
+    local emittedBodies: integer = 0
     for owner, bodies in pairs(acceptedByOwner) do
         table.sort(bodies, byConstKey)
         owner.declaration.constSpecializations = bodies
         owner.declaration.constSpecializationAliases = aliasesByOwner[owner]
+        emittedBodies = emittedBodies + #bodies
     end
     for _, specialization in ipairs(declined) do
         for _, call in ipairs(specialization.calls) do
@@ -2607,6 +2615,8 @@ local function constMonomorphizeWalk(result, remarks, selection: any?, selectedF
             end
         end
     end
+
+    return emittedBodies
 end
 
 --- What a pass works on: the tree it rewrites in place, the analysis the checker left
@@ -2638,7 +2648,9 @@ type optimize.Options = {
 --- @param result the parse result, whose `root` is rewritten
 --- @param opts `level` is the `-O` level; `disabled` is a set of codes to skip
 --- @return the remarks the passes produced, in source order
-function optimize.run(result: optimize.Checked, opts: optimize.Options?): {any}
+--- @return how many private const bodies OPT-8 emitted for this module, which a
+---   caller with no module graph of its own has no other way to count
+function optimize.run(result: optimize.Checked, opts: optimize.Options?): ({any}, integer)
     opts = opts or {} as optimize.Options
     local level = opts.level or 0
     local disabled = opts.disabled or {}
@@ -2672,14 +2684,15 @@ function optimize.run(result: optimize.Checked, opts: optimize.Options?): {any}
     if level >= optimize.passes["OPT-7"].level and not disabled["OPT-7"] then
         inlineReturnHelperWalk(result, remarks)
     end
+    local specializedBodies: integer = 0
     if level >= optimize.passes["OPT-8"].level and not disabled["OPT-8"] then
-        constMonomorphizeWalk(result, remarks, opts.constSelection, opts.filename)
+        specializedBodies = constMonomorphizeWalk(result, remarks, opts.constSelection, opts.filename)
     end
     for _, entry in ipairs(remarks) do
         entry.filename = result.filename or opts.filename
     end
 
-    return remarks
+    return remarks, specializedBodies
 end
 
 --- Recomputes compiler runtime effects from the tree that generation will emit.

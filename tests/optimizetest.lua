@@ -1107,6 +1107,24 @@ function M.constSpecializationCapsModuleBodyClasses()
    assertEq(declined, 1, "the ninth key carries a decline remark")
 end
 
+function M.constSpecializationSeparatesIntegersThatShareADecimalSpelling()
+   local source = table.concat({
+      "local function pick<const N: integer>(value: number, count: N): number",
+      "   return value + (count as integer)",
+      "end",
+      "return pick(1.0, 1000000000000000), pick(1.0, 1000000000000001)",
+   }, "\n")
+   local code = compile(source)
+   local _, declarations = code:gsub("local function __nuppConst_pick_", "")
+   assertEq(declarations, 2, "two admitted const integers get two bodies")
+   assertTrue(code:find("1e+15", 1, true) == nil,
+      "a substituted const keeps its exact spelling: " .. code)
+   local specialA, specialB = run(source)
+   local genericA, genericB = run(source, 0)
+   assertEq(specialA, genericA, "the first application answers like -O0")
+   assertEq(specialB, genericB, "the second application answers like -O0")
+end
+
 function M.constSpecializationCoalescesKeysWithOneBackendBody()
    local calls = {}
    for count = 1, 9 do

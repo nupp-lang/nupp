@@ -198,6 +198,54 @@ function M.crossModuleConstBodiesBelongToTheDeclarationAndTrackIncomingKeys()
       "and still owns the replacement body")
 end
 
+function M.aFileBuildCountsTheBodiesItEmitted()
+   -- `nupp build FILE` does not use the project module graph, so it reports its
+   -- own count. It read zero however many bodies OPT-8 emitted, which made the
+   -- number say a build specialized nothing whenever it specialized anything.
+   local dir = tempDir()
+   local file = assert(io.open(dir .. "/only.nupp", "wb"))
+   file:write(table.concat({
+      "local function accumulate<const N: integer>(value: number, count: N): number",
+      "    local total = value",
+      "    for offset = 1, count as integer do total = total + offset end",
+      "    return total",
+      "end",
+      "return accumulate(10.0, 4) + accumulate(10.0, 7)",
+   }, "\n") .. "\n")
+   file:close()
+   local out, err = run(dir, "build -O1 --json only.nupp")
+   assertEq(err, "", "the file build succeeds quietly")
+   local decoded = require("testjson").decode(out)
+   assertEq(decoded.ok, true, "the file build worked: " .. out)
+   local emitted = 0
+   for _ in readAll(dir .. "/only.lua"):gmatch("local function __nuppConst_accumulate_") do
+      emitted = emitted + 1
+   end
+   assertEq(emitted, 2, "two closed tuples emit two private bodies")
+   assertEq(decoded.timing.specializedBodies, emitted,
+      "and the reported count is the number of bodies emitted")
+end
+
+function M.aFileBuildAtLevelZeroCountsNothing()
+   local dir = tempDir()
+   local file = assert(io.open(dir .. "/only.nupp", "wb"))
+   file:write(table.concat({
+      "local function accumulate<const N: integer>(value: number, count: N): number",
+      "    local total = value",
+      "    for offset = 1, count as integer do total = total + offset end",
+      "    return total",
+      "end",
+      "return accumulate(10.0, 4)",
+   }, "\n") .. "\n")
+   file:close()
+   local out, err = run(dir, "build -O0 --json only.nupp")
+   assertEq(err, "", "the unoptimized file build succeeds quietly")
+   local decoded = require("testjson").decode(out)
+   assertEq(decoded.timing.specializedBodies, 0, "-O0 emits and counts nothing")
+   assert(not readAll(dir .. "/only.lua"):find("__nuppConst_accumulate_", 1, true),
+      "-O0 leaves the generic declaration and call")
+end
+
 function M.levelZeroDoesNotPlanOrCountProjectConstBodies()
    local dir = constProject()
    local out, err = run(dir, "build -O0 --json")

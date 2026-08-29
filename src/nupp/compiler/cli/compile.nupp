@@ -49,6 +49,10 @@ record compile.Settings
     --- Public derive recipe observations collected for JSON build output.
     derives: {any}?
 
+    --- Private const bodies OPT-8 emitted, totalled across the files this command
+    --- reached. Nil when the caller does not report them.
+    specializedBodies: integer?
+
     --- Coverage is a separate generated artifact. It is intentionally absent from
     --- ordinary settings so normal compilation does not even build a site manifest.
     coverage: boolean
@@ -139,12 +143,17 @@ function compile.module(path: string, env: table, settings: compile.Settings): s
     if say(diags) then
         return nil, "type errors"
     end
-    local remarks = require("nupp.compiler.optimize").run(result, {
+    local remarks, specializedBodies = require("nupp.compiler.optimize").run(result, {
         level = settings.optLevel or 0,
         filename = path,
         disabled = settings.disabled,
         relaxed = settings.relaxed
     })
+    -- The file shape reaches its modules one at a time and has no module graph to
+    -- total, so the count is accumulated here the way materializations are.
+    if settings.specializedBodies ~= nil then
+        settings.specializedBodies = (settings.specializedBodies as integer) + specializedBodies
+    end
     if settings.remarks then
         say(remarks)
     end

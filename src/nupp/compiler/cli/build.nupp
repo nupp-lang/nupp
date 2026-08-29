@@ -402,6 +402,7 @@ local function run(parsed: any): integer
     local env = require("nupp.compiler.env").new(".")
     settings.materializations = materializations
     settings.derives = derives
+    settings.specializedBodies = 0
     -- The file shape has no module graph to count through, since what it will reach is
     -- discovered by reaching it, so its reporter names files as it gets to them and
     -- leaves the counter off.
@@ -418,7 +419,9 @@ local function run(parsed: any): integer
         report:at("compile")
         report:step("compiling " .. path)
         local startedAt = progressMod.now()
+        local before = settings.specializedBodies as integer
         local code = compile.module(path, env, settings)
+        report:addSpecialized((settings.specializedBodies as integer) - before)
         report:spent(path, progressMod.now() - startedAt)
         report:resolved()
         if not code then
