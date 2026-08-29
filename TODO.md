@@ -25,21 +25,35 @@ work makes sense in.
 
 ## Build, codegen and distribution
 
-- [ ] **`aotbuildtest` relinks under a loaded full-suite run.**
-      `theLibraryIsNotRelinkedWhenNothingChanged` records the AOT library's
-      modification time, rebuilds, and asks that it is unchanged. Twice during
-      full runs it was not, the two stamps 44 and 59 seconds apart; the suite
-      passes 53 of 53 on its own, and under three spinning cores. What relinks is
-      `previousLibraryKey ~= key or not fs.exists(library)`, which is
-      deterministic, and the key covers the artifact keys, the toolchain's
-      version line, the flags and the linkage -- none of which a busy machine
-      moves. So either the state file it reads the previous key from was not
-      what the earlier build wrote, or the library was not there to find. The
-      suite runs as two shards in separate processes, and the fixture cache is
-      per process, so the two do not share a directory; the repository-wide
-      native cache they both link against is shared. Worth an answer before it
-      is dismissed as load, because a relink that nothing asked for is the cache
-      missing.
+- [ ] **`nupp test` can hang at the join instead of finishing.** A full run
+      stops with the runner and its shell at nought per cent, no worker left
+      alive, and no result written; it stays that way indefinitely. Eight of
+      them were sitting on this machine at once, aged between one and two days,
+      across several worktrees, so it is neither rare nor local to one tree.
+      `--jobs=1` gets an answer. A run that neither passes nor fails is worse
+      than one that fails, because nothing downstream can tell the difference
+      between this and slow.
+
+- [ ] **Full-suite failures that no suite reproduces on its own.** Across five
+      full runs, three came back with failures that every named suite then passed
+      cleanly: `aotbuildtest` twice, once for a library relinked when its key
+      should have matched and once for an artifact key that moved when only a
+      comment was appended, and `pegmaterializetest` for eight cases at once. Run
+      alone each is 53 of 53 and 58 of 58, including under three spinning cores,
+      so it is not CPU.
+
+      What the runs had in common is other worktrees building at the same time,
+      one of them AOT work. Worktrees share the repository-wide native cache by
+      design, which is the obvious channel and is worth confirming or ruling out
+      first. Inside the suite there is a second candidate: five `aotbuildtest`
+      cases share one cached `emit-c` project and three of them mutate it -- one
+      deletes the artifact, one corrupts it, one appends to the source and leaves
+      it appended -- while Lua promises no order over the test table and the
+      suite runs as two shards in separate processes.
+
+      Until one of those is settled, a red full run is not evidence on its own;
+      re-run the named suite before believing it. A cache that misses when
+      nothing changed is still worth an answer.
 
 - [ ] **Single-binary host.** LuaJIT, LPeg, luautf8, libuv, ada,
       libcurl and mbedTLS are pinned by revision and SHA-256 and built from
