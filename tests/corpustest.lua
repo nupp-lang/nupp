@@ -10,10 +10,12 @@ local envMod = require("nupp.compiler.env")
 
 local HERE = assert(debug.getinfo(1, "S").source:match("^@(.*)[/\\]"))
 
--- Corpus files are large real-world Lua; skipped when unavailable so the
--- suite still runs on a bare checkout.
-local CORPUS = {
-}
+-- A bare checkout has no third-party corpus, while CI supplies the pinned
+-- tl.lua it promises to exercise. Naming one is a contract: a misspelled or
+-- missing configured file fails instead of turning the oracle into a skip.
+local configuredCorpus = os.getenv("NUPP_LUA_CORPUS")
+local CORPUS = configuredCorpus and configuredCorpus ~= ""
+   and {configuredCorpus} or {}
 
 local function read(path)
    local f = io.open(path, "rb")
@@ -26,7 +28,6 @@ end
 local M = {}
 
 function M.realWorldLuaStaysClean()
-   local env = envMod.new(HERE .. "/..")
    -- The corpus is an oracle for accepted Lua, not a style guide for projects
    -- outside this one. Its `else`/`if` chains are legal and intentionally left
    -- as-written, even though this project's default style warns about them, and
@@ -41,8 +42,14 @@ function M.realWorldLuaStaysClean()
    local checked = 0
    for _, path in ipairs(CORPUS) do
       local src = read(path)
+      assert(src, "configured Lua corpus is unreadable: " .. path)
       if src then
          checked = checked + 1
+         -- This source is not part of Nupp's project. Resolving its bare
+         -- requires against Nupp's module graph would turn an ordinary
+         -- `require("utf8")` into project-specific module-name advice.
+         local root = path:match("^(.*)[/\\]") or "."
+         local env = envMod.new(root, {config = {}, cache = false})
          local result = parser.parse(src, path)
          if #result.errors > 0 then
             local e = result.errors[1]

@@ -25,15 +25,6 @@ A living list, not a design record. Items are removed when completed.
       `MBEDTLS_SSL_TRANSPORT_DATAGRAM`, its own timer callbacks, and a cookie
       exchange the server drives. Wanted by the same use that wanted datagrams.
 
-## Testing and CI
-
-- [ ] **CI matrix** (GitHub Actions). The process-only Windows job is the first
-      executable slice; the project-wide matrix remains. Add macOS + Linux,
-      LuaJIT 2.1 rolling (2.1.1784535649 is the floor) + (when released) 3.0;
-      run `./tests/run`, the tl.lua oracle, and import-c fixture tests; track
-      `bench/reification.lua` and `bench/aos.nupp` numbers as an artifact per
-      commit (regression fence around the reification speedup).
-
 ## Specialization
 
 - [ ] **11. Prototype deterministic tuning.** Conditional on several

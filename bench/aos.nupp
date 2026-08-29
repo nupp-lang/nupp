@@ -23,27 +23,37 @@ end
 -- reified: one contiguous block of Particle
 local function runStruct(): number
     local ps = carray(Particle, N)
-    for i = 0, N - 1 do
-        ps[i].x = i
-        ps[i].y = i * 2
-        ps[i].vx = 0.1
-        ps[i].vy = 0.2
-        ps[i].vz = 0.3
+    unsafe do
+        -- This benchmark deliberately measures the raw carray lowering. N is
+        -- both the allocation bound and the loop bound; the unsafe boundary
+        -- records that invariant without adding a checked-view cost to one arm.
+        for i = 0, N - 1 do
+            ps[i].x = i
+            ps[i].y = i * 2
+            ps[i].vx = 0.1
+            ps[i].vy = 0.2
+            ps[i].vz = 0.3
+        end
     end
     local times: {number} = {}
     for r = 0, ROUNDS do
         local t0 = os.clock()
         local dt = 1 / 60
-        for _ = 1, STEPS do
-            for i = 0, N - 1 do
-                local p = ps[i]
-                p.x = p.x + p.vx * dt
-                p.y = p.y + p.vy * dt
-                p.z = p.z + p.vz * dt
+        unsafe do
+            for _ = 1, STEPS do
+                for i = 0, N - 1 do
+                    local p = ps[i]
+                    p.x = p.x + p.vx * dt
+                    p.y = p.y + p.vy * dt
+                    p.z = p.z + p.vz * dt
+                end
             end
         end
-        if r > 0 then table.insert(times, os.clock() - t0) end
+        if r > 0 then
+            table.insert(times, os.clock() - t0)
+        end
     end
+
     return median(times)
 end
 
@@ -65,8 +75,11 @@ local function runTables(): number
                 p.z = p.z + p.vz * dt
             end
         end
-        if r > 0 then table.insert(times, os.clock() - t0) end
+        if r > 0 then
+            table.insert(times, os.clock() - t0)
+        end
     end
+
     return median(times)
 end
 

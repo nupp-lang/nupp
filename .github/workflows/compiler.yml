@@ -64,7 +64,7 @@ jobs:
         run: .github/scripts/test-portable-compiler.sh
 
   compiler:
-    name: ${{ matrix.name }}
+    name: ${{ matrix.name }} / LuaJIT ${{ matrix.luajit }}
     runs-on: ${{ matrix.os }}
     # A timeout is here to end a hang, so it has to sit above the work rather
     # than across it. Windows ran 24m48s and 29m36s on its green runs and was
@@ -80,15 +80,33 @@ jobs:
           - name: Linux x64
             os: ubuntu-24.04
             timeout: 40
+            luajit: 2.1 rolling
+            benchmark_artifact: linux-x64-luajit-2.1
           - name: macOS arm64
             os: macos-15
             timeout: 30
+            luajit: 2.1 rolling
+            benchmark_artifact: macos-arm64-luajit-2.1
           - name: Windows x64
             os: windows-2022
             timeout: 45
+            luajit: 2.1 rolling
+            benchmark_artifact: windows-x64-luajit-2.1
     steps:
       - name: Check out the repository
         uses: actions/checkout@v5
+
+      # This is a parser/checker oracle, not a build dependency. Pinning the
+      # source keeps a language change from being conflated with an upstream
+      # corpus change, and sparse checkout avoids fetching the rest of Teal.
+      - name: Check out the Teal 0.8.0 tl.lua oracle
+        uses: actions/checkout@v5
+        with:
+          repository: teal-language/tl
+          ref: 8ea89e75751e6cea0547f3838e0e244497d88bd6
+          path: .ci-corpus/teal
+          sparse-checkout: tl.lua
+          sparse-checkout-cone-mode: false
 
       # After the checkout rather than before it: `actions/checkout` cleans the
       # workspace, and `.rocks` is ignored, so anything restored first would be
@@ -131,6 +149,28 @@ jobs:
         shell: bash
         run: ./scripts/toolchain --all
 
+      # LuaJIT 3.0 has not been released. Its matrix entries belong beside
+      # these when it has a source revision to pin; accepting an unversioned
+      # development branch here would make two runs of one commit test
+      # different interpreters. The rolling 2.1 pin must retain the syntax
+      # backports generated Nupp uses.
+      - name: Verify the LuaJIT matrix member
+        shell: bash
+        run: |
+          set -euo pipefail
+          . ./scripts/luajit.sh
+          export NUPP_LUAJIT_FLOOR="$LUAJIT_FLOOR"
+          luajit=$(./scripts/toolchain luajit)
+          "$luajit/bin/luajit" -e '
+            local floor = assert(tonumber(os.getenv("NUPP_LUAJIT_FLOOR")))
+            local rolling = jit.version:match("^LuaJIT 2%.1%.(%d+)")
+            assert(rolling, "expected LuaJIT 2.1 rolling, got " .. jit.version)
+            assert(tonumber(rolling) >= floor,
+              ("LuaJIT 2.1.%s is below the 2.1.%d floor"):format(rolling, floor))
+            print(jit.version)
+          '
+          echo "$luajit/bin" >> "$GITHUB_PATH"
+
       - name: Bootstrap the compiler
         shell: bash
         run: ./bin/nupp build
@@ -171,6 +211,53 @@ jobs:
       - name: Check the compiler
         shell: bash
         run: ./bin/nupp check
+
+      # Keep the external corpus and the C importer explicit. The full suite
+      # below reaches both too, but a configured corpus used to be absent and
+      # silently skipped, while an import-c failure could be buried among
+      # thousands of unrelated cases.
+      - name: Run the tl.lua oracle and import-c fixtures
+        shell: bash
+        run: |
+          compiler_root=$PWD
+          if command -v cygpath >/dev/null 2>&1; then
+            compiler_root=$(cygpath -m "$compiler_root")
+          fi
+          export NUPP_COMPILER_ROOT="$compiler_root"
+          export NUPP_LUA_CORPUS="$compiler_root/.ci-corpus/teal/tl.lua"
+          export NUPP_NATIVE_LIBRARY
+          NUPP_NATIVE_LIBRARY=$(./scripts/toolchain \
+            native files,net,tls,process,http,filesystem,uri,uuid)
+          ./bin/nupp build --target testRunner
+          ./tests/run --jobs=1 corpustest importctest
+
+      # These are measurements rather than a noisy shared-runner pass/fail
+      # threshold. One immutable, platform-qualified artifact per commit keeps
+      # the reification speedup bisectable without pretending hosted runner
+      # timing is stable enough for an absolute wall-clock gate.
+      - name: Measure reification performance
+        shell: bash
+        run: |
+          set -euo pipefail
+          results=build/ci-benchmarks
+          mkdir -p "$results"
+          {
+            printf 'commit=%s\n' "$GITHUB_SHA"
+            printf 'runner=%s/%s\n' "$RUNNER_OS" "$RUNNER_ARCH"
+            luajit -e 'print(jit.version .. " " .. jit.os .. "/" .. jit.arch)'
+          } > "$results/metadata.txt"
+          luajit bench/reification.lua | tee "$results/reification.txt"
+          ./bin/nupp run bench/aos.nupp | tee "$results/aos.txt"
+
+      - name: Upload reification measurements
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: >-
+            reification-${{ matrix.benchmark_artifact }}-${{ github.sha }}
+          path: build/ci-benchmarks
+          if-no-files-found: error
+          retention-days: 90
 
       # The AOT lane body is written in compiler vector extensions, and what a
       # select, a mask lane and a horizontal test lower to is completely
