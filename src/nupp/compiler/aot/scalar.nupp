@@ -42,7 +42,7 @@ type scalarIR.EntryMode = 'kernel' | 'lua-builder'
 --- agree about every field of a program and disagree about whether an operator
 --- contracts, and an artifact built under one contract must not be reused under
 --- another. Bumped when the meaning changes, never when the spelling does.
-const scalarIR.NUMERIC_CONTRACT = 1
+const scalarIR.NUMERIC_CONTRACT = 2
 
 --- The C symbol one `@aot` function exports.
 ---
@@ -503,27 +503,29 @@ end
 --- Not contracted and not reassociated: `a * b + c` is two roundings unless the
 --- source asked for one, because an AOT function's answer should be a property
 --- of what was written rather than of the target that compiled it.
+type scalarIR.BinaryOp = 'add'
+    | 'sub'
+    | 'mul'
+    | 'div'
+    | 'mod'
+    | 'pow'
+    | 'lt'
+    | 'le'
+    | 'gt'
+    | 'ge'
+    | 'eq'
+    | 'ne'
+    | 'and'
+    | 'or'
+    | 'band'
+    | 'bor'
+    | 'bxor'
+    | 'lshift'
+    | 'rshift'
+    | 'arshift'
+
 record scalarIR.Binary
-    op: 'add'
-        | 'sub'
-        | 'mul'
-        | 'div'
-        | 'mod'
-        | 'pow'
-        | 'lt'
-        | 'le'
-        | 'gt'
-        | 'ge'
-        | 'eq'
-        | 'ne'
-        | 'and'
-        | 'or'
-        | 'band'
-        | 'bor'
-        | 'bxor'
-        | 'lshift'
-        | 'rshift'
-        | 'arshift'
+    op: scalarIR.BinaryOp
     left: scalarIR.Expr
     right: scalarIR.Expr
     type: scalarIR.Type
@@ -531,8 +533,10 @@ record scalarIR.Binary
 end
 
 --- Negation, logical negation, and bitwise complement.
+type scalarIR.UnaryOp = 'neg' | 'not' | 'bnot'
+
 record scalarIR.Unary
-    op: 'neg' | 'not' | 'bnot'
+    op: scalarIR.UnaryOp
     value: scalarIR.Expr
     type: scalarIR.Type
     source: scalarIR.Source?
@@ -554,22 +558,30 @@ end
 --- is at least twice 24 plus 2. That is what lets these lower directly rather
 --- than being a relaxation. `f32_min`, `f32_max` and `f32_fma` are not covered by
 --- that argument and carry a correction instead.
+type scalarIR.FixedOp = 'f32_add'
+    | 'f32_sub'
+    | 'f32_mul'
+    | 'f32_div'
+    | 'i32_add'
+    | 'i32_sub'
+    | 'i32_mul'
+    | 'u32_add'
+    | 'u32_sub'
+    | 'u32_mul'
+    | 'u32_and'
+    | 'u32_or'
+    | 'u32_xor'
+    | 'u32_shl'
+    | 'u32_shr'
+    | 'i64_add'
+    | 'i64_sub'
+    | 'i64_mul'
+    | 'u64_add'
+    | 'u64_sub'
+    | 'u64_mul'
+
 record scalarIR.Fixed
-    op: 'f32_add'
-        | 'f32_sub'
-        | 'f32_mul'
-        | 'f32_div'
-        | 'i32_add'
-        | 'i32_sub'
-        | 'i32_mul'
-        | 'u32_add'
-        | 'u32_sub'
-        | 'u32_mul'
-        | 'u32_and'
-        | 'u32_or'
-        | 'u32_xor'
-        | 'u32_shl'
-        | 'u32_shr'
+    op: scalarIR.FixedOp
     left: scalarIR.Expr
     right: scalarIR.Expr
     type: scalarIR.Type
@@ -577,8 +589,10 @@ record scalarIR.Fixed
 end
 
 --- `nupp.math.f32.sqrt`, which takes one operand.
+type scalarIR.FixedUnaryOp = 'f32_sqrt' | 'u32_not' | 'u32_popcount' | 'u32_ctz' | 'u32_clz'
+
 record scalarIR.FixedUnary
-    op: 'f32_sqrt' | 'u32_not' | 'u32_popcount' | 'u32_ctz' | 'u32_clz'
+    op: scalarIR.FixedUnaryOp
     value: scalarIR.Expr
     type: scalarIR.Type
     source: scalarIR.Source?
@@ -605,8 +619,10 @@ end
 --- These are where a width changes, and the only places it does. An operator
 --- never changes one, which is what keeps `float` a storage fact rather than an
 --- arithmetic type.
+type scalarIR.ConvertOp = 'narrow_f64_f32' | 'widen_f32_f64' | 'int_to_f64' | 'numeric_cast'
+
 record scalarIR.Convert
-    op: 'narrow_f64_f32' | 'widen_f32_f64' | 'int_to_f64' | 'numeric_cast'
+    op: scalarIR.ConvertOp
     value: scalarIR.Expr
     type: scalarIR.Type
     source: scalarIR.Source?

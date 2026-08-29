@@ -16,6 +16,7 @@ thing to the checker and another to this backend.
 ]]
 
 local scalar = require("nupp.compiler.scalarintrinsics")
+local scalarIR = require("nupp.compiler.aot.scalar")
 
 local admit = {}
 
@@ -38,20 +39,25 @@ const admit.STORAGE = {
 }
 
 --- Ordinary arithmetic, which is binary64 whatever the operands were stored as.
-const admit.ARITHMETIC = {["+"] = "add", ["-"] = "sub", ["*"] = "mul", ["/"] = "div", ["%"] = "mod", ["^"] = "pow",}
+local ARITHMETIC: {
+    [string]: scalarIR.BinaryOp
+} = {["+"] = "add", ["-"] = "sub", ["*"] = "mul", ["/"] = "div", ["%"] = "mod", ["^"] = "pow",}
+
+const admit.ARITHMETIC = ARITHMETIC
 
 --- The bitwise operators, which work on 32-bit patterns.
-const admit.BITWISE = {
-    ["&"] = "band",
-    ["|"] = "bor",
-    ["~"] = "bxor",
-    ["<<"] = "lshift",
-    [">>"] = "rshift",
-    ["~>>"] = "arshift",
-}
+local BITWISE: {
+    [string]: scalarIR.BinaryOp
+} = {["&"] = "band", ["|"] = "bor", ["~"] = "bxor", ["<<"] = "lshift", [">>"] = "rshift", ["~>>"] = "arshift",}
+
+const admit.BITWISE = BITWISE
 
 --- The comparisons, which produce a boolean whatever they compared.
-const admit.COMPARISON = {["<"] = "lt", ["<="] = "le", [">"] = "gt", [">="] = "ge", ["=="] = "eq", ["~="] = "ne",}
+local COMPARISON: {
+    [string]: scalarIR.BinaryOp
+} = {["<"] = "lt", ["<="] = "le", [">"] = "gt", [">="] = "ge", ["=="] = "eq", ["~="] = "ne",}
+
+const admit.COMPARISON = COMPARISON
 
 --- One admitted fixed-width intrinsic.
 record admit.Fixed

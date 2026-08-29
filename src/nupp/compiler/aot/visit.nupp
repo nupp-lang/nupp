@@ -15,6 +15,8 @@ local scalarIR = require("nupp.compiler.aot.scalar")
 
 local visit = {}
 
+type visit.ScalarRewrite = function(scalarIR.Expr): scalarIR.Expr
+
 record visit.Visitor
     scalarExpression: (function(scalarIR.Expr): nil)?
     scalarStatement: (function(scalarIR.Statement): nil)?
@@ -28,43 +30,251 @@ local scalarStatement: function(scalarIR.Statement, visit.Visitor): nil
 local laneExpression: function(lane.Expr, visit.Visitor): nil
 local laneStatement: function(lane.Statement, visit.Visitor): nil
 
-local function scalarExpressions(values: {scalarIR.Expr}, visitor: visit.Visitor): nil
-    for _, value in ipairs(values) do
-        scalarExpression(value, visitor)
+local function rewriteExpressions(values: {scalarIR.Expr}, rewrite: visit.ScalarRewrite): nil
+    for position, value in ipairs(values) do
+        values[position] = rewrite(value)
     end
 end
 
-local function optionalScalar(value: scalarIR.Expr?, visitor: visit.Visitor): nil
+local function rewriteOptional(value: scalarIR.Expr?, rewrite: visit.ScalarRewrite): scalarIR.Expr?
     if value ~= nil then
-        scalarExpression(value as scalarIR.Expr, visitor)
+        return rewrite(value as scalarIR.Expr)
     end
+
+    return nil
 end
 
-local function builderEvent(node: scalarIR.LuaBuild, visitor: visit.Visitor): nil
-    scalarExpression(node.builder, visitor)
-    optionalScalar(node.sourceBytes, visitor)
-    optionalScalar(node.start, visitor)
-    optionalScalar(node.length, visitor)
-    optionalScalar(node.escaped, visitor)
-    optionalScalar(node.value, visitor)
-    optionalScalar(node.negative, visitor)
-    optionalScalar(node.exponent, visitor)
-    optionalScalar(node.exact, visitor)
-    optionalScalar(node.capacity, visitor)
-    optionalScalar(node.scratch, visitor)
-    optionalScalar(node.escapeScratch, visitor)
-    optionalScalar(node.escapeIndex, visitor)
-    optionalScalar(node.escapeCount, visitor)
+local function builderEvent(node: scalarIR.LuaBuild, rewrite: visit.ScalarRewrite): nil
+    node.builder = rewrite(node.builder)
+    node.sourceBytes = rewriteOptional(node.sourceBytes, rewrite)
+    node.start = rewriteOptional(node.start, rewrite)
+    node.length = rewriteOptional(node.length, rewrite)
+    node.escaped = rewriteOptional(node.escaped, rewrite)
+    node.value = rewriteOptional(node.value, rewrite)
+    node.negative = rewriteOptional(node.negative, rewrite)
+    node.exponent = rewriteOptional(node.exponent, rewrite)
+    node.exact = rewriteOptional(node.exact, rewrite)
+    node.capacity = rewriteOptional(node.capacity, rewrite)
+    node.scratch = rewriteOptional(node.scratch, rewrite)
+    node.escapeScratch = rewriteOptional(node.escapeScratch, rewrite)
+    node.escapeIndex = rewriteOptional(node.escapeIndex, rewrite)
+    node.escapeCount = rewriteOptional(node.escapeCount, rewrite)
 end
 
-local function scratchU32Set(node: scalarIR.LuaScratchU32Set, visitor: visit.Visitor): nil
-    scalarExpressions({node.scratch, node.index, node.value}, visitor)
+local function scratchU32Set(node: scalarIR.LuaScratchU32Set, rewrite: visit.ScalarRewrite): nil
+    node.scratch = rewrite(node.scratch)
+    node.index = rewrite(node.index)
+    node.value = rewrite(node.value)
 end
 
-local function scratchU8Set(node: scalarIR.LuaScratchU8Set, visitor: visit.Visitor): nil
-    scalarExpression(node.scratch, visitor)
-    optionalScalar(node.index, visitor)
-    optionalScalar(node.value, visitor)
+local function scratchU8Set(node: scalarIR.LuaScratchU8Set, rewrite: visit.ScalarRewrite): nil
+    node.scratch = rewrite(node.scratch)
+    node.index = rewriteOptional(node.index, rewrite)
+    node.value = rewriteOptional(node.value, rewrite)
+end
+
+--- Rewrites each direct scalar-expression child exactly once.
+---
+--- This is the single owner of scalar expression shape. Analyses use an
+--- identity callback; transformations return replacement children.
+function visit.expressionChildren(node: scalarIR.Expr, rewrite: visit.ScalarRewrite): nil
+    return switch node.op do
+        case "constant", "constant_i32", "constant_i64", "bool", "lua_nil", "lua_string", "local", "uniform", "helper_param", "span_count", "load", "element_ref" -> nil
+        case "lua_concat" -> do
+            local value = node as scalarIR.LuaConcat
+            value.left = rewrite(value.left)
+            value.right = rewrite(value.right)
+            yield nil
+        end
+        case "lua_substring" -> do
+            local value = node as scalarIR.LuaSubstring
+            value.bytes = rewrite(value.bytes)
+            value.first = rewrite(value.first)
+            value.last = rewriteOptional(value.last, rewrite)
+            yield nil
+        end
+        case "lua_string_byte_lua" -> do
+            local value = node as scalarIR.LuaStringByte
+            value.bytes = rewrite(value.bytes)
+            value.index = rewrite(value.index)
+            yield nil
+        end
+        case "lua_table_get_index" -> do
+            local value = node as scalarIR.LuaTableGet
+            value.table = rewrite(value.table)
+            value.key = rewrite(value.key)
+            yield nil
+        end
+        case "lua_string_buffer" -> do
+            local value = node as scalarIR.LuaStringBuffer
+            value.initial = rewrite(value.initial)
+            yield nil
+        end
+        case "lua_string_buffer_finish" -> do
+            local value = node as scalarIR.LuaStringBufferFinish
+            value.buffer = rewrite(value.buffer)
+            yield nil
+        end
+        case "lua_new_table" -> do
+            local value = node as scalarIR.LuaNewTable
+            value.arrayCapacity = rewrite(value.arrayCapacity)
+            value.hashCapacity = rewrite(value.hashCapacity)
+            for _, field in ipairs(value.fields or {}) do
+                field.key = rewrite(field.key)
+                field.value = rewrite(field.value)
+            end
+            yield nil
+        end
+        case "lua_tree" -> do
+            local value = node as scalarIR.LuaTree
+            value.nodes = rewrite(value.nodes)
+            value.links = rewrite(value.links)
+            value.sourceBytes = rewrite(value.sourceBytes)
+            value.root = rewrite(value.root)
+            value.nullValue = rewrite(value.nullValue)
+            yield nil
+        end
+        case "lua_builder" -> do
+            local value = node as scalarIR.LuaBuilder
+            value.nullValue = rewrite(value.nullValue)
+            value.maxDepth = rewriteOptional(value.maxDepth, rewrite)
+            value.stringCapacity = rewriteOptional(value.stringCapacity, rewrite)
+            value.arrayMarker = rewriteOptional(value.arrayMarker, rewrite)
+            value.objectMarker = rewriteOptional(value.objectMarker, rewrite)
+            value.selectionShape = rewriteOptional(value.selectionShape, rewrite)
+            value.arrayShapeMarker = rewriteOptional(value.arrayShapeMarker, rewrite)
+            value.serdeMarkers = rewriteOptional(value.serdeMarkers, rewrite)
+            yield nil
+        end
+        case "lua_scratch_u32" -> do
+            local value = node as scalarIR.LuaScratchU32
+            value.capacity = rewrite(value.capacity)
+            yield nil
+        end
+        case "lua_scratch_u8" -> do
+            local value = node as scalarIR.LuaScratchU8
+            value.capacity = rewrite(value.capacity)
+            yield nil
+        end
+        case "lua_scratch_u32_get", "lua_scratch_u32_escape_get" -> do
+            local value = node as scalarIR.LuaScratchU32Get
+            value.scratch = rewrite(value.scratch)
+            value.index = rewrite(value.index)
+            yield nil
+        end
+        case "lua_scratch_u8_get" -> do
+            local value = node as scalarIR.LuaScratchU8Get
+            value.scratch = rewrite(value.scratch)
+            value.index = rewrite(value.index)
+            yield nil
+        end
+        case "lua_scratch_u32_length", "lua_scratch_u32_escape_length" -> do
+            local value = node as scalarIR.LuaScratchU32Length
+            value.scratch = rewrite(value.scratch)
+            yield nil
+        end
+        case "lua_scratch_u32_append_bits", "lua_scratch_u32_append_bits_eager" -> do
+            local value = node as scalarIR.LuaScratchU32AppendBits
+            value.scratch = rewrite(value.scratch)
+            value.index = rewrite(value.index)
+            value.base = rewrite(value.base)
+            value.bits = rewrite(value.bits)
+            yield nil
+        end
+        case "lua_scratch_u32_append_string_bits" -> do
+            local value = node as scalarIR.LuaScratchU32AppendStringBits
+            value.scratch = rewrite(value.scratch)
+            value.escapeScratch = rewriteOptional(value.escapeScratch, rewrite)
+            value.index = rewrite(value.index)
+            value.base = rewrite(value.base)
+            value.events = rewrite(value.events)
+            value.quotes = rewrite(value.quotes)
+            value.slashes = rewrite(value.slashes)
+            value.slashCarry = rewriteOptional(value.slashCarry, rewrite)
+            value.slashOdd = rewriteOptional(value.slashOdd, rewrite)
+            value.inString = rewrite(value.inString)
+            value.stringEscaped = rewrite(value.stringEscaped)
+            yield nil
+        end
+        case "lua_string_byte", "lua_string_byte_at", "lua_string_u32", "lua_string_length" -> do
+            local value = node as scalarIR.LuaBytes
+            value.bytes = rewrite(value.bytes)
+            value.index = rewriteOptional(value.index, rewrite)
+            yield nil
+        end
+        case "lua_builder_finish" -> do
+            local value = node as scalarIR.LuaBuilderFinish
+            value.builder = rewrite(value.builder)
+            yield nil
+        end
+        case "lua_builder_depth", "lua_builder_kind", "lua_builder_count", "lua_builder_state" -> do
+            local value = node as scalarIR.LuaBuilderQuery
+            value.builder = rewrite(value.builder)
+            yield nil
+        end
+        case "lua_builder_number_token" -> do
+            local value = node as scalarIR.LuaBuilderNumberToken
+            value.builder = rewrite(value.builder)
+            value.sourceBytes = rewrite(value.sourceBytes)
+            value.start = rewrite(value.start)
+            value.limit = rewrite(value.limit)
+            yield nil
+        end
+        case "lua_builder_open_array", "lua_builder_open_object", "lua_builder_key", "lua_builder_string", "lua_builder_number", "lua_builder_number_slice", "lua_builder_integer_slice", "lua_builder_integer64", "lua_builder_decimal64", "lua_builder_boolean", "lua_builder_null", "lua_builder_close", "lua_builder_key_scratch", "lua_builder_string_scratch", "lua_builder_key_escapes", "lua_builder_string_escapes" -> builderEvent(
+            node as scalarIR.LuaBuild,
+            rewrite
+        )
+        case "lua_scratch_u32_set" -> scratchU32Set(node as scalarIR.LuaScratchU32Set, rewrite)
+        case "lua_scratch_u8_set", "lua_scratch_u8_set4", "lua_scratch_u8_reset" -> scratchU8Set(
+            node as scalarIR.LuaScratchU8Set,
+            rewrite
+        )
+        case "field_load" -> do
+            local value = node as scalarIR.FieldLoad
+            value.object = rewrite(value.object)
+            yield nil
+        end
+        case "add", "sub", "mul", "div", "mod", "pow", "lt", "le", "gt", "ge", "eq", "ne", "and", "or", "band", "bor", "bxor", "lshift", "rshift", "arshift" -> do
+            local value = node as scalarIR.Binary
+            value.left = rewrite(value.left)
+            value.right = rewrite(value.right)
+            yield nil
+        end
+        case "f32_add", "f32_sub", "f32_mul", "f32_div", "i32_add", "i32_sub", "i32_mul", "u32_add", "u32_sub", "u32_mul", "u32_and", "u32_or", "u32_xor", "u32_shl", "u32_shr", "i64_add", "i64_sub", "i64_mul", "u64_add", "u64_sub", "u64_mul" -> do
+            local value = node as scalarIR.Fixed
+            value.left = rewrite(value.left)
+            value.right = rewrite(value.right)
+            yield nil
+        end
+        case "neg", "not", "bnot" -> do
+            local value = node as scalarIR.Unary
+            value.value = rewrite(value.value)
+            yield nil
+        end
+        case "f32_sqrt", "u32_not", "u32_popcount", "u32_ctz", "u32_clz" -> do
+            local value = node as scalarIR.FixedUnary
+            value.value = rewrite(value.value)
+            yield nil
+        end
+        case "narrow_f64_f32", "widen_f32_f64", "int_to_f64", "numeric_cast" -> do
+            local value = node as scalarIR.Convert
+            value.value = rewrite(value.value)
+            yield nil
+        end
+        case "math" -> rewriteExpressions((node as scalarIR.Math).args, rewrite)
+        case "helper_call" -> rewriteExpressions((node as scalarIR.HelperCall).args, rewrite)
+        case "f32_min", "f32_max", "f32_fma" -> do
+            local value = node as scalarIR.Corrected
+            value.left = rewriteOptional(value.left, rewrite)
+            value.right = rewriteOptional(value.right, rewrite)
+            rewriteExpressions(value.args or {}, rewrite)
+            yield nil
+        end
+        case "simd_species_u8", "simd_lanes", "simd_load_u8", "simd_load_string_u8", "simd_load_stride3_u8", "simd_splat_u8", "simd_shr_u8", "simd_shl_u8", "simd_table_u8x16", "simd_lookup16_u8", "simd_lookup64_u8", "simd_store4_u8", "simd_align_bytes_u8", "simd_padded_string_u8", "simd_padded_length", "simd_padded_full_length", "simd_padded_tail_length", "simd_padded_load_full_u8", "simd_padded_load_tail_u8", "simd_block64_load_u8", "simd_block64_and_byte_u8", "simd_block64_and_u8", "simd_block64_shr_u8", "simd_block64_lookup16_u8", "simd_block64_any_bits_u8", "simd_block64_last_u8", "simd_block64_utf8_errors_u8", "simd_block64_eq_u8", "simd_block64_eq_any6_u8", "simd_block64_range_u8", "simd_block64_outside_range_u8", "simd_tail_u8", "simd_eq_u8", "simd_range_u8", "simd_vec_and", "simd_vec_or", "simd_vec_xor", "simd_vec_not", "simd_mask_and", "simd_mask_or", "simd_mask_xor", "simd_mask_not", "simd_select_u8", "simd_any", "simd_all", "simd_count", "simd_bits", "simd_mask64", "simd_mask64_add", "simd_mask64_and", "simd_mask64_or", "simd_mask64_xor", "simd_mask64_not", "simd_mask64_shl", "simd_mask64_shr", "simd_mask64_prefix_xor", "simd_mask64_low", "simd_mask64_high", "simd_mask64_any", "simd_mask64_count", "simd_mask64_first", "simd_mask64_clear_first" -> rewriteExpressions(
+            (node as scalarIR.Simd).args,
+            rewrite
+        )
+    end
 end
 
 scalarExpression = function(node: scalarIR.Expr, visitor: visit.Visitor): nil
@@ -72,146 +282,15 @@ scalarExpression = function(node: scalarIR.Expr, visitor: visit.Visitor): nil
     if callback ~= nil then
         callback(node)
     end
+    visit.expressionChildren(node, function(child: scalarIR.Expr): scalarIR.Expr
+        scalarExpression(child, visitor)
+        return child
+    end)
+end
 
-    return switch node.op do
-        case "constant", "constant_i32", "constant_i64", "bool", "lua_nil", "lua_string", "local", "uniform", "helper_param", "span_count", "load", "element_ref" -> nil
-        case "lua_concat" -> do
-            local value = node as scalarIR.LuaConcat
-            scalarExpressions({value.left, value.right}, visitor)
-            yield nil
-        end
-        case "lua_substring" -> do
-            local value = node as scalarIR.LuaSubstring
-            scalarExpressions({value.bytes, value.first}, visitor)
-            optionalScalar(value.last, visitor)
-            yield nil
-        end
-        case "lua_string_byte_lua" -> do
-            local value = node as scalarIR.LuaStringByte
-            scalarExpressions({value.bytes, value.index}, visitor)
-            yield nil
-        end
-        case "lua_table_get_index" -> do
-            local value = node as scalarIR.LuaTableGet
-            scalarExpressions({value.table, value.key}, visitor)
-            yield nil
-        end
-        case "lua_string_buffer" -> scalarExpression((node as scalarIR.LuaStringBuffer).initial, visitor)
-        case "lua_string_buffer_finish" -> scalarExpression((node as scalarIR.LuaStringBufferFinish).buffer, visitor)
-        case "lua_new_table" -> do
-            local value = node as scalarIR.LuaNewTable
-            scalarExpressions({value.arrayCapacity, value.hashCapacity}, visitor)
-            for _, field in ipairs(value.fields or {}) do
-                scalarExpressions({field.key, field.value}, visitor)
-            end
-            yield nil
-        end
-        case "lua_tree" -> do
-            local value = node as scalarIR.LuaTree
-            scalarExpressions({value.nodes, value.links, value.sourceBytes, value.root, value.nullValue}, visitor)
-            yield nil
-        end
-        case "lua_builder" -> do
-            local value = node as scalarIR.LuaBuilder
-            scalarExpression(value.nullValue, visitor)
-            optionalScalar(value.maxDepth, visitor)
-            optionalScalar(value.stringCapacity, visitor)
-            optionalScalar(value.arrayMarker, visitor)
-            optionalScalar(value.objectMarker, visitor)
-            optionalScalar(value.selectionShape, visitor)
-            optionalScalar(value.arrayShapeMarker, visitor)
-            optionalScalar(value.serdeMarkers, visitor)
-            yield nil
-        end
-        case "lua_scratch_u32" -> scalarExpression((node as scalarIR.LuaScratchU32).capacity, visitor)
-        case "lua_scratch_u8" -> scalarExpression((node as scalarIR.LuaScratchU8).capacity, visitor)
-        case "lua_scratch_u32_get", "lua_scratch_u32_escape_get" -> do
-            local value = node as scalarIR.LuaScratchU32Get
-            scalarExpressions({value.scratch, value.index}, visitor)
-            yield nil
-        end
-        case "lua_scratch_u8_get" -> do
-            local value = node as scalarIR.LuaScratchU8Get
-            scalarExpressions({value.scratch, value.index}, visitor)
-            yield nil
-        end
-        case "lua_scratch_u32_length", "lua_scratch_u32_escape_length" -> scalarExpression(
-            (node as scalarIR.LuaScratchU32Length).scratch,
-            visitor
-        )
-        case "lua_scratch_u32_append_bits", "lua_scratch_u32_append_bits_eager" -> do
-            local value = node as scalarIR.LuaScratchU32AppendBits
-            scalarExpressions({value.scratch, value.index, value.base, value.bits}, visitor)
-            yield nil
-        end
-        case "lua_scratch_u32_append_string_bits" -> do
-            local value = node as scalarIR.LuaScratchU32AppendStringBits
-            scalarExpression(value.scratch, visitor)
-            optionalScalar(value.escapeScratch, visitor)
-            scalarExpressions({value.index, value.base, value.events, value.quotes, value.slashes}, visitor)
-            optionalScalar(value.slashCarry, visitor)
-            optionalScalar(value.slashOdd, visitor)
-            scalarExpressions({value.inString, value.stringEscaped}, visitor)
-            yield nil
-        end
-        case "lua_string_byte", "lua_string_byte_at", "lua_string_u32", "lua_string_length" -> do
-            local value = node as scalarIR.LuaBytes
-            scalarExpression(value.bytes, visitor)
-            optionalScalar(value.index, visitor)
-            yield nil
-        end
-        case "lua_builder_finish" -> scalarExpression((node as scalarIR.LuaBuilderFinish).builder, visitor)
-        case "lua_builder_depth", "lua_builder_kind", "lua_builder_count", "lua_builder_state" -> scalarExpression(
-            (node as scalarIR.LuaBuilderQuery).builder,
-            visitor
-        )
-        case "lua_builder_number_token" -> do
-            local value = node as scalarIR.LuaBuilderNumberToken
-            scalarExpressions({value.builder, value.sourceBytes, value.start, value.limit}, visitor)
-            yield nil
-        end
-        case "lua_builder_open_array", "lua_builder_open_object", "lua_builder_key", "lua_builder_string", "lua_builder_number", "lua_builder_number_slice", "lua_builder_integer_slice", "lua_builder_integer64", "lua_builder_decimal64", "lua_builder_boolean", "lua_builder_null", "lua_builder_close", "lua_builder_key_scratch", "lua_builder_string_scratch", "lua_builder_key_escapes", "lua_builder_string_escapes" -> builderEvent(
-            node as scalarIR.LuaBuild,
-            visitor
-        )
-        case "lua_scratch_u32_set" -> scratchU32Set(node as scalarIR.LuaScratchU32Set, visitor)
-        case "lua_scratch_u8_set", "lua_scratch_u8_set4", "lua_scratch_u8_reset" -> scratchU8Set(
-            node as scalarIR.LuaScratchU8Set,
-            visitor
-        )
-        case "field_load" -> scalarExpression((node as scalarIR.FieldLoad).object, visitor)
-        case "add", "sub", "mul", "div", "mod", "pow", "lt", "le", "gt", "ge", "eq", "ne", "and", "or", "band", "bor", "bxor", "lshift", "rshift", "arshift" -> do
-            local value = node as scalarIR.Binary
-            scalarExpressions({value.left, value.right}, visitor)
-            yield nil
-        end
-        case "f32_add", "f32_sub", "f32_mul", "f32_div", "i32_add", "i32_sub", "i32_mul", "u32_add", "u32_sub", "u32_mul", "u32_and", "u32_or", "u32_xor", "u32_shl", "u32_shr" -> do
-            local value = node as scalarIR.Fixed
-            scalarExpressions({value.left, value.right}, visitor)
-            yield nil
-        end
-        case "neg", "not", "bnot" -> scalarExpression((node as scalarIR.Unary).value, visitor)
-        case "f32_sqrt", "u32_not", "u32_popcount", "u32_ctz", "u32_clz" -> scalarExpression(
-            (node as scalarIR.FixedUnary).value,
-            visitor
-        )
-        case "narrow_f64_f32", "widen_f32_f64", "int_to_f64", "numeric_cast" -> scalarExpression(
-            (node as scalarIR.Convert).value,
-            visitor
-        )
-        case "math" -> scalarExpressions((node as scalarIR.Math).args, visitor)
-        case "helper_call" -> scalarExpressions((node as scalarIR.HelperCall).args, visitor)
-        case "f32_min", "f32_max", "f32_fma" -> do
-            local value = node as scalarIR.Corrected
-            optionalScalar(value.left, visitor)
-            optionalScalar(value.right, visitor)
-            scalarExpressions(value.args or {}, visitor)
-            yield nil
-        end
-        case "simd_species_u8", "simd_lanes", "simd_load_u8", "simd_load_string_u8", "simd_load_stride3_u8", "simd_splat_u8", "simd_shr_u8", "simd_shl_u8", "simd_table_u8x16", "simd_lookup16_u8", "simd_lookup64_u8", "simd_store4_u8", "simd_align_bytes_u8", "simd_padded_string_u8", "simd_padded_length", "simd_padded_full_length", "simd_padded_tail_length", "simd_padded_load_full_u8", "simd_padded_load_tail_u8", "simd_block64_load_u8", "simd_block64_and_byte_u8", "simd_block64_and_u8", "simd_block64_shr_u8", "simd_block64_lookup16_u8", "simd_block64_any_bits_u8", "simd_block64_last_u8", "simd_block64_utf8_errors_u8", "simd_block64_eq_u8", "simd_block64_eq_any6_u8", "simd_block64_range_u8", "simd_block64_outside_range_u8", "simd_tail_u8", "simd_eq_u8", "simd_range_u8", "simd_vec_and", "simd_vec_or", "simd_vec_xor", "simd_vec_not", "simd_mask_and", "simd_mask_or", "simd_mask_xor", "simd_mask_not", "simd_select_u8", "simd_any", "simd_all", "simd_count", "simd_bits", "simd_mask64", "simd_mask64_add", "simd_mask64_and", "simd_mask64_or", "simd_mask64_xor", "simd_mask64_not", "simd_mask64_shl", "simd_mask64_shr", "simd_mask64_prefix_xor", "simd_mask64_low", "simd_mask64_high", "simd_mask64_any", "simd_mask64_count", "simd_mask64_first", "simd_mask64_clear_first" -> scalarExpressions(
-            (node as scalarIR.Simd).args,
-            visitor
-        )
+local function scalarExpressions(values: {scalarIR.Expr}, visitor: visit.Visitor): nil
+    for _, value in ipairs(values) do
+        scalarExpression(value, visitor)
     end
 end
 
@@ -221,76 +300,105 @@ local function scalarBlock(block: {scalarIR.Statement}, visitor: visit.Visitor):
     end
 end
 
-scalarStatement = function(node: scalarIR.Statement, visitor: visit.Visitor): nil
-    local callback = visitor.scalarStatement
-    if callback ~= nil then
-        callback(node)
-    end
-
+--- Rewrites direct statement expressions without entering nested block scopes.
+function visit.statementExpressions(node: scalarIR.Statement, rewrite: visit.ScalarRewrite): nil
     return switch node.op do
-        case "let" -> scalarExpression((node as scalarIR.Let).value, visitor)
-        case "multi_let" -> scalarExpression((node as scalarIR.MultiLet).call, visitor)
+        case "let" -> do
+            local value = node as scalarIR.Let
+            value.value = rewrite(value.value)
+            yield nil
+        end
+        case "multi_let" -> do
+            local value = node as scalarIR.MultiLet
+            value.call = rewrite(value.call) as scalarIR.HelperCall
+            yield nil
+        end
         case "assign" -> do
             for _, assignment in ipairs((node as scalarIR.Assign).values) do
-                optionalScalar(assignment.target.object, visitor)
-                scalarExpression(assignment.value, visitor)
+                assignment.target.object = rewriteOptional(assignment.target.object, rewrite)
+                assignment.value = rewrite(assignment.value)
             end
             yield nil
         end
-        case "store" -> scalarExpression((node as scalarIR.Store).value, visitor)
+        case "store" -> do
+            local value = node as scalarIR.Store
+            value.value = rewrite(value.value)
+            yield nil
+        end
         case "lua_set_index", "lua_set_key" -> do
             local value = node as scalarIR.LuaSet
-            scalarExpressions({value.table, value.key, value.value}, visitor)
+            value.table = rewrite(value.table)
+            value.key = rewrite(value.key)
+            value.value = rewrite(value.value)
             yield nil
         end
         case "lua_string_buffer_append" -> do
             local value = node as scalarIR.LuaStringBufferAppend
-            scalarExpressions({value.buffer, value.value}, visitor)
+            value.buffer = rewrite(value.buffer)
+            value.value = rewrite(value.value)
             yield nil
         end
         case "lua_builder_open_array", "lua_builder_open_object", "lua_builder_key", "lua_builder_string", "lua_builder_number", "lua_builder_number_slice", "lua_builder_integer_slice", "lua_builder_integer64", "lua_builder_decimal64", "lua_builder_boolean", "lua_builder_null", "lua_builder_close", "lua_builder_key_scratch", "lua_builder_string_scratch", "lua_builder_key_escapes", "lua_builder_string_escapes" -> builderEvent(
             node as scalarIR.LuaBuild,
-            visitor
+            rewrite
         )
-        case "lua_scratch_u32_set" -> scratchU32Set(node as scalarIR.LuaScratchU32Set, visitor)
+        case "lua_scratch_u32_set" -> scratchU32Set(node as scalarIR.LuaScratchU32Set, rewrite)
         case "lua_scratch_u8_set", "lua_scratch_u8_set4", "lua_scratch_u8_reset" -> scratchU8Set(
             node as scalarIR.LuaScratchU8Set,
-            visitor
+            rewrite
         )
         case "if" -> do
             local value = node as scalarIR.If
             for _, clause in ipairs(value.clauses) do
-                scalarExpression(clause.condition, visitor)
-                scalarBlock(clause.body, visitor)
-            end
-            if value.elseBody ~= nil then
-                scalarBlock(value.elseBody as {scalarIR.Statement}, visitor)
+                clause.condition = rewrite(clause.condition)
             end
             if value.nativeSwitch ~= nil then
-                scalarExpression((value.nativeSwitch as scalarIR.NativeSwitch).selector, visitor)
+                local nativeSwitch = value.nativeSwitch as scalarIR.NativeSwitch
+                nativeSwitch.selector = rewrite(nativeSwitch.selector)
             end
             yield nil
         end
         case "while" -> do
             local value = node as scalarIR.While
-            scalarExpression(value.condition, visitor)
-            scalarBlock(value.body, visitor)
+            value.condition = rewrite(value.condition)
             yield nil
         end
         case "fornum" -> do
             local value = node as scalarIR.Fornum
-            scalarExpressions({value.from, value.to}, visitor)
-            scalarBlock(value.body, visitor)
+            value.from = rewrite(value.from)
+            value.to = rewrite(value.to)
             yield nil
         end
-        case "block" -> scalarBlock((node as scalarIR.Block).body, visitor)
-        case "break", "continue" -> nil
-        case "return" -> scalarExpressions((node as scalarIR.Return).values, visitor)
+        case "block", "break", "continue" -> nil
+        case "return" -> rewriteExpressions((node as scalarIR.Return).values, rewrite)
             --- A statement the switch does not name is walked as an expression
             --- rather than skipped. Skipping is how `simd_store4_u8` came to have
             --- its operands invisible to every pass while looking registered, and
             --- walking is the direction that fails safe.
-        else -> scalarExpression(node as scalarIR.Expr, visitor)
+        else -> visit.expressionChildren(node as scalarIR.Expr, rewrite)
+    end
+end
+
+scalarStatement = function(node: scalarIR.Statement, visitor: visit.Visitor): nil
+    local callback = visitor.scalarStatement
+    if callback ~= nil then
+        callback(node)
+    end
+    visit.statementExpressions(node, function(child: scalarIR.Expr): scalarIR.Expr
+        scalarExpression(child, visitor)
+        return child
+    end)
+
+    if node.op == "if" then
+        local value = node as scalarIR.If
+        for _, clause in ipairs(value.clauses) do
+            scalarBlock(clause.body, visitor)
+        end
+        if value.elseBody ~= nil then
+            scalarBlock(value.elseBody as {scalarIR.Statement}, visitor)
+        end
+    elseif node.op == "while" or node.op == "fornum" or node.op == "block" then
+        scalarBlock((node as any).body as {scalarIR.Statement}, visitor)
     end
 end
 

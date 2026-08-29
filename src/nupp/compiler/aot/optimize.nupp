@@ -14,6 +14,7 @@ an open-ended fixpoint.
 
 local effects = require("nupp.compiler.aot.effects")
 local scalarIR = require("nupp.compiler.aot.scalar")
+local visit = require("nupp.compiler.aot.visit")
 
 local optimize = {}
 
@@ -159,16 +160,64 @@ local function integerRange(valueType: scalarIR.Type): (number?, number?)
     return nil, nil
 end
 
-local function exactInteger(node: scalarIR.Expr): number?
-    if node.op ~= "constant" and node.op ~= "constant_i32" and node.op ~= "constant_i64" then
+--- Parses a decimal integer spelling without first rounding it through the
+--- host binary64 value. The AOT wide-constant model is deliberately bounded
+--- to exactly represented integers, so a spelling such as 9007199254740993
+--- must not become the adjacent representable value merely because tonumber
+--- rounded it there.
+local function exactIntegerText(text: string): number?
+    local sign, body = text:match("^([+-]?)(.+)$")
+    if body == nil then
+        sign, body = "", text
+    end
+    local mantissa, exponentText = (body as string):match("^([^eE]+)[eE]([+-]?%d+)$")
+    if mantissa == nil then
+        mantissa, exponentText = body, "0"
+    end
+    local whole, fraction = (mantissa as string):match("^(%d*)%.(%d*)$")
+    if whole == nil then
+        whole = (mantissa as string):match("^(%d+)$")
+        fraction = ""
+    end
+    if whole == nil or (whole == "" and fraction == "") then
         return nil
     end
-    local value = tonumber((node as any).value)
-    if value == nil or not finite(value) or value % 1 ~= 0 then
+    local exponent = tonumber(exponentText)
+    if exponent == nil or exponent % 1 ~= 0 or math.abs(exponent) > 100000 then
+        return nil
+    end
+
+    local digits = (whole as string) .. (fraction as string)
+    local decimal = #(whole as string) + exponent
+    if decimal < #digits then
+        if digits:sub(decimal + 1):match("[^0]") ~= nil then
+            return nil
+        end
+        digits = decimal > 0 and digits:sub(1, decimal) or "0"
+    elseif decimal > #digits then
+        digits = digits .. string.rep("0", decimal - #digits)
+    end
+    digits = digits:gsub("^0+", "")
+    if digits == "" then
+        digits = "0"
+    end
+    local limit = "9007199254740992"
+    if #digits > #limit or (#digits == #limit and digits > limit) then
+        return nil
+    end
+    local value = tonumber((sign as string) .. digits)
+    if value == nil or not finite(value) then
         return nil
     end
 
     return value
+end
+
+local function exactInteger(node: scalarIR.Expr): number?
+    if node.op ~= "constant" and node.op ~= "constant_i32" and node.op ~= "constant_i64" then
+        return nil
+    end
+    return exactIntegerText(tostring((node as any).value))
 end
 
 local foldExpression: function(scalarIR.Expr, optimize.State): scalarIR.Expr
@@ -180,56 +229,9 @@ local literal: function(scalarIR.Expr): boolean
 --- lookup above it is the whitelist: a new operation cannot reach this code
 --- until its root behaviour has been classified.
 local function foldChildren(node: scalarIR.Expr, state: optimize.State): nil
-    local value = node as any
-    for _, field in ipairs({
-        "left",
-        "right",
-        "value",
-        "object",
-        "arrayCapacity",
-        "hashCapacity",
-        "nodes",
-        "links",
-        "sourceBytes",
-        "root",
-        "nullValue",
-        "maxDepth",
-        "stringCapacity",
-        "arrayMarker",
-        "objectMarker",
-        "selectionShape",
-        "arrayShapeMarker",
-        "serdeMarkers",
-        "capacity",
-        "scratch",
-        "escapeScratch",
-        "index",
-        "base",
-        "bits",
-        "events",
-        "quotes",
-        "slashes",
-        "slashCarry",
-        "slashOdd",
-        "inString",
-        "stringEscaped",
-        "bytes",
-        "builder",
-        "start",
-        "limit",
-    }) do
-        if value[field] ~= nil and type(value[field]) == "table" and value[field].op ~= nil then
-            value[field] = foldExpression(value[field] as scalarIR.Expr, state)
-        end
-    end
-    for _, argument in ipairs(value.args or {}) do
-        local position = _
-        value.args[position] = foldExpression(argument as scalarIR.Expr, state)
-    end
-    for _, field in ipairs(value.fields or {}) do
-        field.key = foldExpression(field.key as scalarIR.Expr, state)
-        field.value = foldExpression(field.value as scalarIR.Expr, state)
-    end
+    visit.expressionChildren(node, function(child: scalarIR.Expr): scalarIR.Expr
+        return foldExpression(child, state)
+    end)
 end
 
 foldExpression = function(node: scalarIR.Expr, state: optimize.State): scalarIR.Expr
@@ -348,7 +350,7 @@ foldExpression = function(node: scalarIR.Expr, state: optimize.State): scalarIR.
                 answer = left * right
             end
             local unsigned = node.op:sub(1, 3) == "u64"
-            if math.abs(answer) <= 9007199254740992 and (not unsigned or answer >= 0) then
+            if math.abs(answer) < 9007199254740992 and (not unsigned or answer >= 0) then
                 state.folds = state.folds + 1
                 state.changed = true
                 return integerConstant(answer, unsigned and "u64" or "i64", node)
@@ -424,104 +426,22 @@ local function discardable(node: scalarIR.Expr): boolean
     if root.observable or root.mayRaise then
         return false
     end
-    local value = node as any
-    for _, field in ipairs({
-        "left",
-        "right",
-        "value",
-        "object",
-        "arrayCapacity",
-        "hashCapacity",
-        "nodes",
-        "links",
-        "sourceBytes",
-        "root",
-        "nullValue",
-        "maxDepth",
-        "stringCapacity",
-        "arrayMarker",
-        "objectMarker",
-        "selectionShape",
-        "arrayShapeMarker",
-        "serdeMarkers",
-        "capacity",
-        "scratch",
-        "escapeScratch",
-        "index",
-        "base",
-        "bits",
-        "events",
-        "quotes",
-        "slashes",
-        "slashCarry",
-        "slashOdd",
-        "inString",
-        "stringEscaped",
-        "bytes",
-        "builder",
-        "start",
-        "limit",
-    }) do
-        if value[field] ~= nil and type(value[field]) == "table" and value[field].op ~= nil then
-            if not discardable(value[field] as scalarIR.Expr) then
-                return false
-            end
+    local safe = true
+    visit.expressionChildren(node, function(child: scalarIR.Expr): scalarIR.Expr
+        if not discardable(child) then
+            safe = false
         end
-    end
-    for _, argument in ipairs(value.args or {}) do
-        if not discardable(argument as scalarIR.Expr) then
-            return false
-        end
-    end
-    for _, field in ipairs(value.fields or {}) do
-        if not discardable(field.key as scalarIR.Expr) or not discardable(field.value as scalarIR.Expr) then
-            return false
-        end
-    end
+        return child
+    end)
 
-    return true
+    return safe
 end
 
 local function foldStatementExpressions(statement: scalarIR.Statement, state: optimize.State): nil
     effects.statement(tostring(statement.op))
-    local value = statement as any
-    for _, field in ipairs({
-        "value",
-        "call",
-        "condition",
-        "from",
-        "to",
-        "table",
-        "key",
-        "builder",
-        "sourceBytes",
-        "start",
-        "length",
-        "escaped",
-        "negative",
-        "exponent",
-        "exact",
-        "capacity",
-        "scratch",
-        "escapeScratch",
-        "escapeIndex",
-        "escapeCount",
-        "index"
-    }) do
-        if value[field] ~= nil and type(value[field]) == "table" and value[field].op ~= nil then
-            value[field] = foldExpression(value[field] as scalarIR.Expr, state)
-        end
-    end
-    for position, entry in ipairs(value.values or {}) do
-        if statement.op == "return" then
-            value.values[position] = foldExpression(entry as scalarIR.Expr, state)
-        else
-            entry.value = foldExpression(entry.value as scalarIR.Expr, state)
-            if entry.target.object ~= nil then
-                entry.target.object = foldExpression(entry.target.object as scalarIR.Expr, state)
-            end
-        end
-    end
+    visit.statementExpressions(statement, function(child: scalarIR.Expr): scalarIR.Expr
+        return foldExpression(child, state)
+    end)
 end
 
 local optimizeBlock: function({scalarIR.Statement}, optimize.State): {scalarIR.Statement}
@@ -557,55 +477,9 @@ propagateExpression = function(
         end
     end
 
-    local value = node as any
-    for _, field in ipairs({
-        "left",
-        "right",
-        "value",
-        "object",
-        "arrayCapacity",
-        "hashCapacity",
-        "nodes",
-        "links",
-        "sourceBytes",
-        "root",
-        "nullValue",
-        "maxDepth",
-        "stringCapacity",
-        "arrayMarker",
-        "objectMarker",
-        "selectionShape",
-        "arrayShapeMarker",
-        "serdeMarkers",
-        "capacity",
-        "scratch",
-        "escapeScratch",
-        "index",
-        "base",
-        "bits",
-        "events",
-        "quotes",
-        "slashes",
-        "slashCarry",
-        "slashOdd",
-        "inString",
-        "stringEscaped",
-        "bytes",
-        "builder",
-        "start",
-        "limit",
-    }) do
-        if value[field] ~= nil and type(value[field]) == "table" and value[field].op ~= nil then
-            value[field] = propagateExpression(value[field] as scalarIR.Expr, constants, state)
-        end
-    end
-    for position, argument in ipairs(value.args or {}) do
-        value.args[position] = propagateExpression(argument as scalarIR.Expr, constants, state)
-    end
-    for _, field in ipairs(value.fields or {}) do
-        field.key = propagateExpression(field.key as scalarIR.Expr, constants, state)
-        field.value = propagateExpression(field.value as scalarIR.Expr, constants, state)
-    end
+    visit.expressionChildren(node, function(child: scalarIR.Expr): scalarIR.Expr
+        return propagateExpression(child, constants, state)
+    end)
 
     return foldExpression(node, state)
 end
@@ -648,46 +522,14 @@ propagateBlock = function(
     state: optimize.State
 ): nil
     local constants = inheritConstants(inherited)
+    local function rewrite(child: scalarIR.Expr): scalarIR.Expr
+        return propagateExpression(child, constants, state)
+    end
+
     for _, statement in ipairs(statements) do
         effects.statement(tostring(statement.op))
         local value = statement as any
-        for _, field in ipairs({
-            "value",
-            "call",
-            "condition",
-            "from",
-            "to",
-            "table",
-            "key",
-            "builder",
-            "sourceBytes",
-            "start",
-            "length",
-            "escaped",
-            "negative",
-            "exponent",
-            "exact",
-            "capacity",
-            "scratch",
-            "escapeScratch",
-            "escapeIndex",
-            "escapeCount",
-            "index"
-        }) do
-            if value[field] ~= nil and type(value[field]) == "table" and value[field].op ~= nil then
-                value[field] = propagateExpression(value[field] as scalarIR.Expr, constants, state)
-            end
-        end
-        for position, entry in ipairs(value.values or {}) do
-            if statement.op == "return" then
-                value.values[position] = propagateExpression(entry as scalarIR.Expr, constants, state)
-            else
-                entry.value = propagateExpression(entry.value as scalarIR.Expr, constants, state)
-                if entry.target.object ~= nil then
-                    entry.target.object = propagateExpression(entry.target.object as scalarIR.Expr, constants, state)
-                end
-            end
-        end
+        visit.statementExpressions(statement, rewrite)
         if statement.op == "let" and mutated[
             statement.cName
         ] ~= true and mutated[statement.name] ~= true and literal(statement.value) then

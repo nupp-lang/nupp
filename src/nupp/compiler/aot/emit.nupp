@@ -679,7 +679,7 @@ function emit.scalar(node: scalarIR.Expr): string
 
     local operator = emit.BINARY[operation]
     if operator ~= nil then
-        local binary = node as scalarIR.Binary
+        local binary = node as scalarIR.Fixed
 
         return "(" .. emit.scalar(binary.left) .. " " .. (operator as string) .. " " .. emit.scalar(binary.right) .. ")"
     end
@@ -700,7 +700,7 @@ function emit.scalarCall(node: scalarIR.Expr): string
     local fixed = {["f32_add"] = "+", ["f32_sub"] = "-", ["f32_mul"] = "*", ["f32_div"] = "/",}
     local operator = fixed[operation]
     if operator ~= nil then
-        local binary = node as scalarIR.Binary
+        local binary = node as scalarIR.Fixed
 
         return "((float)(" .. emit.scalar(
             binary.left
@@ -711,7 +711,7 @@ function emit.scalarCall(node: scalarIR.Expr): string
     local wrapping = {["i32_add"] = "+", ["i32_sub"] = "-", ["i32_mul"] = "*"}
     operator = wrapping[operation]
     if operator ~= nil then
-        local binary = node as scalarIR.Binary
+        local binary = node as scalarIR.Fixed
 
         return "((int32_t)(nupp_u32(" .. emit.scalar(
             binary.left
@@ -728,7 +728,7 @@ function emit.scalarCall(node: scalarIR.Expr): string
     }
     operator = unsigned[operation]
     if operator ~= nil then
-        local binary = node as scalarIR.Binary
+        local binary = node as scalarIR.Fixed
 
         return "((uint32_t)(" .. emit.scalar(
             binary.left
@@ -746,11 +746,11 @@ function emit.scalarCall(node: scalarIR.Expr): string
     local wide = {u64_add = "+", u64_sub = "-", u64_mul = "*", i64_add = "+", i64_sub = "-", i64_mul = "*"}
     operator = wide[operation]
     if operator ~= nil then
-        local binary = node as scalarIR.Binary
-        local target = operation:sub(1, 1) == "u" and "uint64_t" or "int64_t"
-        return "((" .. target .. ")(" .. emit.scalar(
+        local binary = node as scalarIR.Fixed
+        local result = "((uint64_t)(" .. emit.scalar(
             binary.left
-        ) .. " " .. (operator as string) .. " " .. emit.scalar(binary.right) .. "))"
+        ) .. ") " .. (operator as string) .. " (uint64_t)(" .. emit.scalar(binary.right) .. "))"
+        return operation:sub(1, 1) == "u" and result or "((int64_t)" .. result .. ")"
     end
 
     if operation == "f32_sqrt" then

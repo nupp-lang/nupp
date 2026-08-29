@@ -1031,12 +1031,12 @@ local function binary(node: cst.Binop, left: scalarIR.Expr, right: scalarIR.Expr
         if wide ~= nil and (written == "+" or written == "-" or written == "*") then
             left = lower.convert(left, wide as scalarIR.Type, source, context)
             right = lower.convert(right, wide as scalarIR.Type, source, context)
-            return new scalarIR.Binary(
+            return new scalarIR.Fixed(
                 op = (
                     (
                         wide == "u64" and "u64_" or "i64_"
                     ) .. (written == "+" and "add" or written == "-" and "sub" or "mul")
-                ) as any,
+                ) as scalarIR.FixedOp,
                 left = left,
                 right = right,
                 type = wide as scalarIR.Type,
@@ -1044,7 +1044,7 @@ local function binary(node: cst.Binop, left: scalarIR.Expr, right: scalarIR.Expr
             )
         end
         return new scalarIR.Binary(
-            op = arithmetic as any,
+            op = arithmetic,
             left = promote(left, node, context),
             right = promote(right, node, context),
             type = "f64",
@@ -1058,7 +1058,7 @@ local function binary(node: cst.Binop, left: scalarIR.Expr, right: scalarIR.Expr
             context.reject(source, "bitwise operands must be fixed 32-bit values or nonnegative uint32 literals")
         end
 
-        return new scalarIR.Binary(op = bitwise as any, left = left, right = right, type = "i32", source = source)
+        return new scalarIR.Binary(op = bitwise, left = left, right = right, type = "i32", source = source)
     end
 
     local comparison = admit.COMPARISON[written]
@@ -1079,7 +1079,7 @@ local function binary(node: cst.Binop, left: scalarIR.Expr, right: scalarIR.Expr
         local narrowedRight = exactWidthConstant(right, left.type) or right
 
         return new scalarIR.Binary(
-            op = comparison as any,
+            op = comparison,
             left = narrowedLeft,
             right = narrowedRight,
             type = "bool",
@@ -1092,7 +1092,13 @@ local function binary(node: cst.Binop, left: scalarIR.Expr, right: scalarIR.Expr
             context.reject(source, "native and/or operands must both be boolean")
         end
 
-        return new scalarIR.Binary(op = written as any, left = left, right = right, type = "bool", source = source)
+        return new scalarIR.Binary(
+            op = written as scalarIR.BinaryOp,
+            left = left,
+            right = right,
+            type = "bool",
+            source = source
+        )
     end
 
     if written == ".." then

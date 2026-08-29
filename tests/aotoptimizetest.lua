@@ -174,6 +174,32 @@ function M.foldsExactWideIntegerArithmeticWithoutBinary64Rounding()
    assert(ir.body[1].values[1].value == "42")
 end
 
+function M.declinesRoundedWideIntegerArithmetic()
+   local ir = program({
+      {
+         op = "return",
+         values = {
+            {
+               op = "i64_add",
+               left = {op = "constant_i64", value = "9007199254740991", type = "i64"},
+               right = {op = "constant_i64", value = "2", type = "i64"},
+               type = "i64",
+            },
+            {
+               op = "numeric_cast",
+               value = {op = "constant", value = "9007199254740993", type = "f64"},
+               type = "i64",
+            },
+         },
+      },
+   })
+
+   local stats = optimize.program(ir)
+   assert(stats.folds == 0)
+   assert(ir.body[1].values[1].op == "i64_add")
+   assert(ir.body[1].values[2].op == "numeric_cast")
+end
+
 function M.unrollsOnlySmallLiteralTripCountsWithinOneGrowthBudget()
    local function loop(last)
       return {
