@@ -7644,6 +7644,29 @@ function gen.generate(
     -- `nupp` is an intrinsic namespace, not a module the application must require. A
     -- feature only adds its bootstrap in modules that resolved it.
     local runtimeEffects = emittedFeatureEffects
+    local useYieldableCleanupCalls = false
+    local cleanupCoroutineCreate = "coroutine.create"
+    if needsCleanupRegions then
+        local selectedSuspension = false
+        for _, seam in pairs(backendResolution and backendResolution.seams or {}) do
+            selectedSuspension = selectedSuspension or seam.effect == "runtime.suspension"
+        end
+        useYieldableCleanupCalls = yieldableXpcallName ~= nil and (
+            emittedFeatureEffects["runtime.suspension"] or selectedSuspension
+        )
+        if useYieldableCleanupCalls then
+            if emittedFeatureEffects["runtime.suspension"] then
+                cleanupCoroutineCreate = suspensionModule() .. ".create"
+            else
+                -- A selected portable provider may have been installed by another
+                -- module. Look it up when the region runs rather than caching the
+                -- absence observed while this module was loading.
+                cleanupCoroutineCreate = "(function(body) local provider=rawget(_G,"
+                    .. "\"__nuppSuspensionProvider\");local create=provider and "
+                    .. "rawget(provider,\"create\");return (create or coroutine.create)(body) end)"
+            end
+        end
+    end
     -- Bound here rather than with the required modules below, because those are
     -- independent of the bootstrap and this one is not: it reads the table the
     -- installer publishes, so it has to land after it rather than before.
@@ -7675,26 +7698,19 @@ function gen.generate(
         runtimeBootstrap = runtimeBootstrap .. ("local %s=_G.__nuppInt64;"):format(int64Name)
     end
     if needsCleanupRegions then
-        local selectedSuspension = false
-        for _, seam in pairs(backendResolution and backendResolution.seams or {}) do
-            selectedSuspension = selectedSuspension or seam.effect == "runtime.suspension"
-        end
-        local useYieldableXpcall = yieldableXpcallName ~= nil and (
-            emittedFeatureEffects["runtime.suspension"] or selectedSuspension
-        )
         -- A cleanup region runs its terminals inside a protected call, and stock Lua
         -- will not yield out of one. A terminal may not suspend, but on a host whose
         -- only wait is a return to it -- a browser, where the application is a
         -- coroutine the host resumes -- draining is a yield all the same. So the
         -- protected call becomes the coroutine-driven one there too.
-        local yieldableCleanupPcall = useYieldableXpcall and yieldablePcallName ~= nil
+        local yieldableCleanupPcall = useYieldableCleanupCalls and yieldablePcallName ~= nil
         local names, values = {}, {}
         for _, name in ipairs({"pcall", "xpcall", "error", "unpack", "select", "setmetatable", "tostring", "ipairs"}) do
             names[#names + 1] = cleanupGlobals[name]
             values[
                 #values + 1
             ] = name == "xpcall"
-                and useYieldableXpcall
+                and useYieldableCleanupCalls
                 and yieldableXpcallName
                 or name == "pcall"
                 and yieldableCleanupPcall
@@ -7714,14 +7730,15 @@ function gen.generate(
         ):format(
             "select"
         ) .. (
-            useYieldableXpcall and (
-                "const function %s(body,handler,...) local thread=coroutine.create(body);"
+            useYieldableCleanupCalls and (
+                "const function %s(body,handler,...) local thread=%s(body);"
                 .. "local input=%s(...);while true do local resumed=%s(coroutine.resume(thread,"
                 .. "%s(input,1,input.n)));if not resumed[1] then return false,handler(resumed[2]) end;"
                 .. "if coroutine.status(thread)==\"dead\" then return true,%s(resumed,2,resumed.n) end;"
                 .. "input=%s(coroutine.yield(%s(resumed,2,resumed.n))) end end; "
             ):format(
                 yieldableXpcallName,
+                cleanupCoroutineCreate,
                 cleanupPackName,
                 cleanupPackName,
                 "unpack",
@@ -8035,11 +8052,24 @@ function gen.generate(
             portableSuspension = portableSuspension or seam.effect == "runtime.suspension"
         end
         if portableSuspension or runtimeEffects["runtime.suspension"] then
+            -- This wrapper precedes the module body and therefore cannot close over
+            -- a suspension require emitted inside that body. Raw lookup is also what
+            -- keeps the protected call used to load the provider from recursively
+            -- asking that same provider for `create`. Once any handler has been
+            -- installed the seam binding has published `create`, and inheritance is
+            -- used; while the provider itself is loading there is nothing to inherit.
+            local portableCoroutineCreate = "(function(body) local provider=rawget(_G,"
+                .. "\"__nuppSuspensionProvider\");"
+                .. "local create=provider and rawget(provider,\"create\");"
+                .. "return (create or coroutine.create)(body) end)"
             code = "local function __nuppYieldPack(...) return {n=select(\"#\",...),...} end;"
                 -- The body is wrapped rather than handed over: `coroutine.create`
                 -- takes a Lua function, and a protected call takes anything callable.
-                .. "local function __nuppProtected(handler,body,...) "
-                .. "local thread=coroutine.create(function(...) return body(...) end);"
+                .. "local function __nuppProtected(handler,body,...) " .. (
+                "local thread=%s(function(...) return body(...) end);"
+            ):format(
+                portableCoroutineCreate
+            )
                 .. "local input=__nuppYieldPack(...);"
                 .. "while true do "
                 .. "local out=__nuppYieldPack(coroutine.resume(thread,unpack(input,1,input.n)));"

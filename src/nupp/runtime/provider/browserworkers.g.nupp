@@ -40,7 +40,7 @@ worker tasks are structured this way.
 @allow("unused-binding")
 const DYNAMIC_REQUIRES = "@requires-dynamically nothing"
 
-local base64 = require("nupp.runtime.browser.base64")
+local base64 = require("nupp.data.base64")
 local browserEffects = require("nupp.runtime.browser.effects")
 local codec = require("nupp.runtime.browser.workercodec")
 local suspension = require("nupp.suspension")

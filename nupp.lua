@@ -238,7 +238,6 @@ for _, resource in ipairs({
    "src/nupp/compiler/runtime/math.nupp",
    "src/nupp/compiler/runtime/reflect.nupp",
    "src/nupp/data/digest.nupp",
-   "src/nupp/runtime/browser/base64.g.nupp",
    "src/nupp/runtime/browser/effects.g.nupp",
    "src/nupp/runtime/browser/response.g.nupp",
    "src/nupp/runtime/browser/workercodec.g.nupp",

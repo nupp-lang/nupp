@@ -84,17 +84,29 @@ function moduleSeam.install(contract: Contract, moduleName: string): nil
     if rawget(_G, contract.globalName) ~= nil then
         error("nupp: " .. contract.name .. " runtime binding already exists", 0)
     end
+    local binding = {}
     local loaded: any = nil
     local function provider(): any
         if loaded == nil then
-            loaded = loadProvider(contract, moduleName)
+            local value = loadProvider(contract, moduleName)
+            loaded = value
+            -- Publish the complete promised surface once the provider has loaded.
+            -- Generated suspension wrappers use raw lookup for `create`: that
+            -- inherits an installed handler after the provider is available, but
+            -- does not recursively load the suspension provider from the protected
+            -- call that is loading it.
+            for _, name in ipairs(contract.requiredFunctions) do
+                rawset(binding, name, value[name])
+            end
+            for _, name in ipairs(contract.requiredValues) do
+                rawset(binding, name, value[name])
+            end
         end
 
         return loaded
     end
 
     selections[contract.name] = moduleName
-    local binding = {}
     setmetatable(binding, {
         __index = function(self, name)
             local value = provider()[name]

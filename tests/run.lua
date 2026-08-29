@@ -531,21 +531,31 @@ local suites = {}
 -- A process working from a queue does not know what it will run until it claims
 -- it, so it cannot filter the listing the way one handed a list can.
 local byName = {}
+local suiteCatalog = {}
 do
-   local p = assert(io.popen("ls '" .. dir .. "'"), "cannot list test directory")
-   for f in p:lines() do
+   local function found(f)
       local name, extension = f:match("^(.*test)%.([^.]+)$")
       if name and (extension == "lua" or extension == "nupp") then
          local info = {name = name, extension = extension}
          byName[name] = info
+         suiteCatalog[#suiteCatalog + 1] = f
          if (not chosenSet or chosenSet[name]) and (not wanted or wanted[name])
             and not queueDir then
             suites[#suites + 1] = info
          end
       end
    end
-   p:close()
+   local inherited = rawget(_G, "__NUPP_TEST_SUITE_CATALOG")
+   if type(inherited) == "string" then
+      for f in inherited:gmatch("[^\n]+") do found(f) end
+   else
+      local p = assert(io.popen("ls '" .. dir .. "'"), "cannot list test directory")
+      for f in p:lines() do found(f) end
+      p:close()
+   end
 end
+table.sort(suiteCatalog)
+suiteCatalog = table.concat(suiteCatalog, "\n")
 table.sort(suites, function(a, b)
    return a.name .. "." .. a.extension < b.name .. "." .. b.extension
 end)
@@ -1008,6 +1018,18 @@ local PROCESS_ISOLATED = {
    -- operation is built as a source fixture rather than called by the Lua test.
    bundletest = true,
    comptimetest = true,
+   -- Their compiler fixtures reach build commands through shared helpers, so the
+   -- process call is not text in the suite for the source scan below to find.
+   deriveacceptancetest = true,
+   deriveprovidertest = true,
+   derivetest = true,
+   loggingtest = true,
+   runtimereflectiontest = true,
+   serdetest = true,
+   typeleveltest = true,
+   -- Imports cheadertest as a fixture; its top level asks the shell for an
+   -- absolute checkout path on hosts where debug information is relative.
+   hotreloadguaranteetest = true,
    projectlinktest = true,
    profiletest = true,
    runnertest = true,
@@ -1113,7 +1135,7 @@ if #shard == 0 and #suites > 0
                   index = index,
                   startedAt = now() - started,
                   task = scope:spawn(job.run, lane.arg, cache, progressFd,
-                     verbose, colorMode),
+                     verbose, colorMode, suiteCatalog),
                }
             end
 

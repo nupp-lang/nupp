@@ -1,4 +1,5 @@
 local wasm = require("nupp.wasm")
+local base64 = require("nupp.data.base64")
 local valuebuilder = require("nupp.data.valuebuilder")
 local wasmProvider = require("nupp.runtime.provider.wasmstorage")
 local wasmSuite = require("nupp.runtime.seam.wasmsuite")
@@ -32,6 +33,8 @@ end
 
 assert(copyString("Lua-builder in Wasm", nil) == "Lua-builder in Wasm")
 assert(copyString("", nil) == "")
+assert(base64.encode("browser bytes\0\255") == "YnJvd3NlciBieXRlcwD/")
+assert(base64.decode("YnJvd3NlciBieXRlcwD/") == "browser bytes\0\255")
 local description = describe("wasm", 3)
 assert(description.name == "wasm" and description.count == 3 and description.values[3] == 3)
 

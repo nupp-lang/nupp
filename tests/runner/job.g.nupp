@@ -4,10 +4,31 @@ module job
 -- lookups are state-local Lua calls even though the underlying process
 -- environment is shared, so each lane can retain its own compiler cache without
 -- mutating process-wide state.
-export function run(argument: string, cacheDir: string, progressFd: integer?, verbose: boolean, colorMode: string): any
+export function run(
+    argument: string,
+    cacheDir: string,
+    progressFd: integer?,
+    verbose: boolean,
+    colorMode: string,
+    suiteCatalog: string
+): any
     rawset(_G, "__NUPP_TEST_EMBEDDED", true)
     rawset(_G, "__NUPP_TEST_PROGRESS_FD", progressFd)
     rawset(_G, "__NUPP_TEST_LANE_CACHE", cacheDir)
+    rawset(_G, "__NUPP_TEST_SUITE_CATALOG", suiteCatalog)
+
+    -- A Nupp worker is a Lua state inside this process. libc's popen walks and
+    -- locks the process-wide stdio table; concurrent calls from worker states can
+    -- each hold one stream while waiting for another and deadlock the entire run.
+    -- The parent classifies direct process users into subprocess lanes. If a
+    -- transitive call escapes that classification, fail the case instead of
+    -- turning it into a run that never reports an answer.
+    os.execute = function(): nil
+        error("nupp: os.execute requires a process-isolated test lane", 2)
+    end
+    io.popen = function(): nil
+        error("nupp: io.popen requires a process-isolated test lane", 2)
+    end
 
     local getenv = os.getenv
     os.getenv = function(name)

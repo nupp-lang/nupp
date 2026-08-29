@@ -723,6 +723,44 @@ function M.aRecordASubstitutedProviderDeclaresIsOneNominalWhereverItIsNamed()
       "constructing and naming the provider's record must reach one declaration")
 end
 
+function M.lua51ProtectedCallsInheritTheInstalledSuspensionHandler()
+   local resolution = suspensionResolution()
+   resolution.seams.suspension.runtimeModule =
+      "nupp.runtime.provider.browsersuspension"
+   local env = envMod.new(HERE, {backendResolution = resolution})
+   local source = table.concat({
+      "local suspension = require('nupp.suspension')",
+      "local handler = new suspension.Handler(",
+      "    park = function(_: suspension.Handler, _: suspension.Waiting, cancel: function(): nil): nil cancel() end,",
+      "    canPark = function(_: suspension.Handler): boolean return true end,",
+      "    shutdown = function(_: suspension.Handler): nil end",
+      ")",
+      "handle suspension with handler do",
+      "    coroutine.yield()",
+      "end",
+   }, "\n")
+   local result = parser.parse(source, "lua51-cleanup-suspension.nupp")
+   assertEq(#result.errors, 0, "syntax errors in suspension cleanup fixture")
+   local diags = check.check(result, "lua51-cleanup-suspension.nupp", env, {
+      dialect = "lua51", backendResolution = resolution,
+   })
+   assertEq(diags[1] and diags[1].msg or "", "",
+      "the handled cleanup fixture checks")
+   local code, generated = gen.generate(
+      result, "lua51-cleanup-suspension.nupp", nil, nil, resolution
+   )
+   assertEq(generated[1] and generated[1].msg or "", "",
+      "the handled cleanup fixture generates")
+   local suspensionBinding = code:match(
+      'local ([%w_]+) = require%("nupp%.suspension"%)'
+   )
+   assert(code:find('rawget(provider,"create")', 1, true),
+      "the portable protected-call wrapper inherits the installed handler:\n" .. code)
+   assert(suspensionBinding
+      and code:find(suspensionBinding .. ".create(body)", 1, true),
+      "the cleanup wrapper creates its coroutine through the suspension provider:\n" .. code)
+end
+
 function M.browserProvidersPassTheirPublicContracts()
    local cases = {
       {suspensionSeam, "nupp.runtime.provider.browsersuspension", "suspension"},

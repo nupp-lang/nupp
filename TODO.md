@@ -14,43 +14,19 @@ work makes sense in.
 
 ## Build, codegen and distribution
 
-- [ ] **`nupp test` can hang at the join instead of finishing.** A full run
-      stops with the runner and its shell at nought per cent, no worker left
-      alive, and no result written; it stays that way indefinitely. Eight of
-      them were sitting on this machine at once, aged between one and two days,
-      across several worktrees, so it is neither rare nor local to one tree.
-      `--jobs=1` gets an answer. A run that neither passes nor fails is worse
-      than one that fails, because nothing downstream can tell the difference
-      between this and slow.
+- [x] **`nupp test` can hang at the join instead of finishing.** Embedded test
+      workers discovered suites with concurrent `io.popen` calls. libc walks and
+      locks the process-wide stdio table for `popen`, so the worker states could
+      deadlock one another after every useful test had finished. The parent now
+      supplies the suite catalog, and process calls that escape lane
+      classification fail with a result instead of hanging the run.
 
-- [ ] **Full-suite failures that no suite reproduces on its own.** Across five
-      full runs, three came back with failures that every named suite then passed
-      cleanly: `aotbuildtest` twice, once for a library relinked when its key
-      should have matched and once for an artifact key that moved when only a
-      comment was appended, and `pegmaterializetest` for eight cases at once. Run
-      alone each is 53 of 53 and 58 of 58, including under three spinning cores,
-      so it is not CPU.
-
-      The relink is answered and fixed: `bin/nupp` chose which compiler to run on
-      the completion stamp, a build removes that stamp before it writes anything,
-      and `hostbinarytest` builds `--target dist` into the same directory for
-      about a minute of every full run. Commands landing in that window ran the
-      bootstrap instead, and the compiler's own digest keys every artifact, so
-      the key moved and the library relinked. Not the shared native cache, which
-      was the standing suspicion.
-
-      The same swap moves any key the compiler's digest is in, so the artifact
-      key that moved under an appended comment and `pegmaterializetest`'s
-      provider fingerprints are candidates for the same cause -- neither has been
-      reproduced since to say so. The other standing candidate is untouched: five
-      `aotbuildtest` cases share one cached `emit-c` project and three of them
-      mutate it -- one deletes the artifact, one corrupts it, one appends to the
-      source and leaves it appended -- while Lua promises no order over the test
-      table and the suite runs as two shards in separate processes.
-
-      Until that one is settled too, re-run the named suite before believing a
-      red full run. A cache that misses when nothing changed is still worth an
-      answer rather than a shrug -- the relink was one.
+- [x] **Full-suite failures that no suite reproduces on its own.** The compiler
+      completion-stamp race accounted for keys moving during `hostbinarytest`.
+      The remaining shared-state candidate was real too: cache-repair cases in
+      `aotbuildtest` deleted, corrupted, or changed one cached `emit-c` project.
+      Mutating cache assertions now build private fixtures; only read-only cases
+      share the warm project.
 
 - [ ] **Single-binary host.** LuaJIT, LPeg, luautf8, libuv, ada,
       libcurl and mbedTLS are pinned by revision and SHA-256 and built from
@@ -79,18 +55,12 @@ work makes sense in.
         only name assets that already exist. So cross-target stamping is a
         second-release feature whatever happens now; no source translation step
         remains to land before it.
-- [ ] **A `lua51` cleanup region hides an installed suspension handler.** The
-      region runs its body on a coroutine of its own, so the body can still yield
-      through what is a protected call underneath. Anything keyed by the running
-      coroutine is invisible in there, and an installed suspension handler is:
-      code that suspends inside a `with` extent finds none, parks on the host
-      instead of on whoever is scheduling it, and starves the siblings that were
-      supposed to make it ready. `nupp.tasks` hit exactly this, and the way out
-      was to stop `nupp.runtime.provider.browsersuspension.install` returning an
-      affine value so its block has no region at all -- which works for that one
-      caller and leaves the rule wrong. The wrapper's coroutine wants the
-      inheritance `suspension.create` performs, and generated code has no way to
-      ask a provider for it; the shape of that hook is the open question.
+- [x] **A `lua51` cleanup region hides an installed suspension handler.** Cleanup
+      and portable protected-call wrappers now create their coroutine through the
+      selected suspension runtime when one has loaded, inheriting the current
+      handler. Provider bindings publish their promised surface after loading so
+      this hook can be read without recursively loading the provider. Browser
+      suspension installation is affine again.
 
 ## Transport security
 

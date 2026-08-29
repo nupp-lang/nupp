@@ -310,6 +310,33 @@ function M.workersDivideAQueueBetweenThem()
    os.execute("rm -rf " .. string.format("%q", dir))
 end
 
+function M.embeddedWorkersDiscoverFromTheParentCatalogWithoutPopen()
+   local dir = os.tmpname()
+   os.remove(dir)
+   assert(os.execute("mkdir -p " .. string.format("%q", dir .. "/queue")) == 0)
+   write(dir .. "/run.lua", read(ROOT .. "/tests/run.lua"))
+   write(dir .. "/assert.lua", read(ROOT .. "/tests/assert.lua"))
+   write(dir .. "/catalogtest.lua", [[
+local M = {}
+function M.passes() end
+return M
+]])
+   write(dir .. "/queue/order", "catalogtest\n")
+   write(dir .. "/queue/piece-1", "catalogtest\n")
+   write(dir .. "/host.lua", ([=[
+rawset(_G, "__NUPP_TEST_EMBEDDED", true)
+rawset(_G, "__NUPP_TEST_SUITE_CATALOG", "catalogtest.lua")
+io.popen = function() error("worker discovery called popen", 0) end
+arg = {[0] = %q, "--json", "--queue=" .. %q, "--no-color"}
+local report = dofile(arg[0])
+io.write(report.total, "\n", report.tests[1].name, "\n")
+]=]):format(dir .. "/run.lua", dir .. "/queue"))
+
+   local output = run(dir .. "/host.lua")
+   test.equal(output, ".\n1\npasses\n", "the catalogued suite ran")
+   os.execute("rm -rf " .. string.format("%q", dir))
+end
+
 function M.runsLifecycleHooksInOrder()
    local dir = os.tmpname()
    os.remove(dir)

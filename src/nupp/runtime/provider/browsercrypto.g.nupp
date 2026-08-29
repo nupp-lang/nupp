@@ -3,7 +3,7 @@ module nupp.runtime.provider.browsercrypto
 -- Web Crypto provider for random bytes, SHA-256, HMAC-SHA256, and UUIDs. The
 -- Worker performs the primitive; formatting and the Nupp contracts stay here.
 
-local base64 = require("nupp.runtime.browser.base64")
+local base64 = require("nupp.data.base64")
 local response = require("nupp.runtime.browser.response")
 local crypto = {}
 

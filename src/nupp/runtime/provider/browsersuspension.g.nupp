@@ -336,13 +336,7 @@ function suspension.destroyInstalled(takes self: suspension.Installed): nil
 end
 
 --- Installs `value` for suspensions performed on this coroutine.
----
---- Deliberately not affine here, where the native provider's is. An affine result
---- gives its block a cleanup region, and on stock Lua 5.1 a cleanup region runs its
---- body on a coroutine of its own so that the body can still yield. A handler is
---- keyed by the coroutine it was installed on, and that nested one is not it: the
---- body would install a handler and then suspend as though it had none.
-function suspension.install(value: suspension.Handler): suspension.Installed
+function suspension.install(value: suspension.Handler): affine(suspension.Installed, suspension.destroyInstalled)
     local coroutine = running()
     local previous = coroutine == nil and suspension._main or suspension._installed[coroutine]
     local installed = new suspension.Installed(

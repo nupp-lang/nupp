@@ -570,11 +570,10 @@ local function build(dir)
    return (out:gsub("__exit__:%d+%s*$", "")), code
 end
 
--- The immutable baseline two families of assertions read. Most of these cases
--- used to create and compile an identical project of their own, even though the
--- thing they ask about is a different byte in the same output. Cache-repair cases
--- may remove or edit an artifact, but each one rebuilds it before returning, so
--- the next reader still starts from a complete fixture.
+-- The immutable baseline read-only assertions share. Cases that make cache
+-- assertions get a fixture of their own below: suite slicing can run several
+-- cases in one long-lived process, and a case that appends source or damages an
+-- artifact must not decide what a later case starts from.
 local builtFixtures = {}
 local function builtFixture(policy)
    local existing = builtFixtures[policy]
@@ -584,6 +583,14 @@ local function builtFixture(policy)
    local out, code = build(dir)
    test.equal(code, 0, out)
    builtFixtures[policy] = dir
+
+   return dir
+end
+
+local function freshBuiltFixture(policy)
+   local dir = project(policy)
+   local out, code = build(dir)
+   test.equal(code, 0, out)
 
    return dir
 end
@@ -732,7 +739,7 @@ local function modified(path)
 end
 
 function M.anUnchangedArtifactIsNotRewritten()
-   local dir = builtFixture("emit-c")
+   local dir = freshBuiltFixture("emit-c")
    local path = tieredC(dir, firstHostTier())
    local first = assert(modified(path), "the artifact was written")
 
@@ -747,7 +754,7 @@ function M.anUnchangedArtifactIsNotRewritten()
 end
 
 function M.aMissingArtifactIsWrittenAgain()
-   local dir = builtFixture("emit-c")
+   local dir = freshBuiltFixture("emit-c")
    local path = tieredC(dir, firstHostTier())
    local first = assert(read(path))
    assert(key(dir), "the build recorded what it built the artifact under")
@@ -762,7 +769,7 @@ function M.aMissingArtifactIsWrittenAgain()
 end
 
 function M.anEditedArtifactIsOverwritten()
-   local dir = builtFixture("emit-c")
+   local dir = freshBuiltFixture("emit-c")
    local path = tieredC(dir, firstHostTier())
    local first = assert(read(path))
 
@@ -777,7 +784,7 @@ function M.anEditedArtifactIsOverwritten()
 end
 
 function M.theKeyIsOverTheIRRatherThanTheSource()
-   local dir = builtFixture("emit-c")
+   local dir = freshBuiltFixture("emit-c")
    local before = assert(key(dir), "a key was recorded")
 
    local handle = assert(io.open(dir .. "/src/kernel.nupp", "ab"))
