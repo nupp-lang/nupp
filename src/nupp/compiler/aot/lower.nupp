@@ -1189,17 +1189,32 @@ local function fixedCall(
 
     if fixed.arity == 1 then
         if fixed.op == "f32_sqrt" or tostring(fixed.op):match("^u32_") ~= nil then
-            return new scalarIR.FixedUnary(op = fixed.op as any, value = args[1], type = fixed.result, source = source)
+            return new scalarIR.FixedUnary(
+                op = fixed.op as scalarIR.FixedUnaryOp,
+                value = args[1],
+                type = fixed.result,
+                source = source
+            )
         end
 
-        return new scalarIR.Convert(op = fixed.op as any, value = args[1], type = fixed.result, source = source)
+        return new scalarIR.Convert(
+            op = fixed.op as scalarIR.ConvertOp,
+            value = args[1],
+            type = fixed.result,
+            source = source
+        )
     end
     if fixed.arity == 3 then
-        return new scalarIR.Corrected(op = fixed.op as any, args = args, type = fixed.result, source = source)
+        return new scalarIR.Corrected(
+            op = fixed.op as scalarIR.CorrectedOp,
+            args = args,
+            type = fixed.result,
+            source = source
+        )
     end
     if fixed.op == "f32_min" or fixed.op == "f32_max" then
         return new scalarIR.Corrected(
-            op = fixed.op as any,
+            op = fixed.op as scalarIR.CorrectedOp,
             left = args[1],
             right = args[2],
             type = fixed.result,
@@ -1208,7 +1223,7 @@ local function fixedCall(
     end
 
     return new scalarIR.Fixed(
-        op = fixed.op as any,
+        op = fixed.op as scalarIR.FixedOp,
         left = args[1],
         right = args[2],
         type = fixed.result,

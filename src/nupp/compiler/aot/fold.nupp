@@ -1,0 +1,762 @@
+module nupp.compiler.aot.fold
+
+-- Declarative scalar AOT fold rules. The optimizer owns walk ordering and
+-- budgets; this module owns pattern priority, numeric guards, and safe local
+-- replacement.
+
+local effects = require("nupp.compiler.aot.effects")
+local scalar = require("nupp.compiler.scalarintrinsics")
+local scalarIR = require("nupp.compiler.aot.scalar")
+local visit = require("nupp.compiler.aot.visit")
+
+local fold = {}
+
+type fold.Pattern = 'any' | 'literal' | 'numeric' | 'true' | 'false' | 'zero' | 'one' | 'negzero' | 'allones' | 'same'
+
+record fold.Rule
+    id: string
+    op: string
+    entrypoint: 'fold-root' | 'propagate-only'
+    valueType: scalarIR.Type?
+    left: fold.Pattern?
+    right: fold.Pattern?
+    value: fold.Pattern?
+    action: string
+    changesGrouping: boolean
+end
+
+record fold.Context
+    helpers: {[string]: scalarIR.Helper}
+end
+
+local function finite(value: number): boolean
+    return value == value and value ~= math.huge and value ~= -math.huge
+end
+
+local function numberText(value: number): string
+    if value == 0 and 1 / value < 0 then
+        return "-0.0"
+    end
+    local written = ("%.17g"):format(value)
+
+    return written:match("^[+-]?%d+$") ~= nil and written .. ".0" or written
+end
+
+local function sourceOf(node: any): scalarIR.Source?
+    return node.source as scalarIR.Source?
+end
+
+local function bool(value: boolean, node: any): scalarIR.Bool
+    return new scalarIR.Bool(op = "bool", value = value, type = "bool", source = sourceOf(node))
+end
+
+local function constant(value: number, node: any): scalarIR.Constant
+    return new scalarIR.Constant(op = "constant", value = numberText(value), type = "f64", source = sourceOf(node))
+end
+
+local function integerConstant(value: number, valueType: scalarIR.Type, node: any): scalarIR.Expr
+    if valueType == "i64" or valueType == "u64" then
+        return new scalarIR.Int64Constant(
+            op = "constant_i64",
+            value = ("%.0f"):format(value),
+            type = valueType,
+            source = sourceOf(node)
+        )
+    end
+
+    return new scalarIR.IntConstant(
+        op = "constant_i32",
+        value = ("%.0f"):format(value),
+        type = valueType,
+        source = sourceOf(node)
+    )
+end
+
+local function exactIntegerText(text: string): number?
+    local sign, body = text:match("^([+-]?)(.+)$")
+    if body == nil then
+        sign, body = "", text
+    end
+    local mantissa, exponentText = (body as string):match("^([^eE]+)[eE]([+-]?%d+)$")
+    if mantissa == nil then
+        mantissa, exponentText = body, "0"
+    end
+    local whole, fraction = (mantissa as string):match("^(%d*)%.(%d*)$")
+    if whole == nil then
+        whole = (mantissa as string):match("^(%d+)$")
+        fraction = ""
+    end
+    if whole == nil or (whole == "" and fraction == "") then
+        return nil
+    end
+    local exponent = tonumber(exponentText)
+    if exponent == nil or exponent % 1 ~= 0 or math.abs(exponent) > 100000 then
+        return nil
+    end
+    local digits = (whole as string) .. (fraction as string)
+    local decimal = #(whole as string) + exponent
+    if decimal < #digits then
+        if digits:sub(decimal + 1):match("[^0]") ~= nil then
+            return nil
+        end
+        digits = decimal > 0 and digits:sub(1, decimal) or "0"
+    elseif decimal > #digits then
+        digits = digits .. string.rep("0", decimal - #digits)
+    end
+    digits = digits:gsub("^0+", "")
+    if digits == "" then
+        digits = "0"
+    end
+    local limit = "9007199254740992"
+    if #digits > #limit or (#digits == #limit and digits > limit) then
+        return nil
+    end
+
+    return tonumber((sign as string) .. digits)
+end
+
+function fold.exactInteger(node: scalarIR.Expr): number?
+    if node.op ~= "constant" and node.op ~= "constant_i32" and node.op ~= "constant_i64" then
+        return nil
+    end
+    return exactIntegerText(tostring((node as any).value))
+end
+
+local function semanticSame(left: any, right: any): boolean
+    if left == right then
+        return true
+    end
+    if type(left) ~= type(right) or type(left) ~= "table" then
+        return false
+    end
+    for key, value in pairs(left) do
+        if key ~= "source" and not semanticSame(value, right[key]) then
+            return false
+        end
+    end
+    for key in pairs(right) do
+        if key ~= "source" and left[key] == nil then
+            return false
+        end
+    end
+
+    return true
+end
+
+fold.same = semanticSame
+
+local stableExpression: function(scalarIR.Expr, fold.Context, {[string]: boolean}): boolean
+
+stableExpression = function(node: scalarIR.Expr, context: fold.Context, active: {[string]: boolean}): boolean
+    local root = effects.expression(tostring(node.op))
+    if root.observable
+        or root.mayRaise
+        or root.readsNative
+        or root.writesNative
+        or root.usesLua
+        or root.allocatesLua
+    then
+        return false
+    end
+    if node.op == "helper_call" then
+        local helper = context.helpers[(node as scalarIR.HelperCall).helper]
+        if helper == nil or helper.native == true or active[helper.name] then
+            return false
+        end
+        active[helper.name] = true
+        for _, value in ipairs(helper.values) do
+            if not stableExpression(value, context, active) then
+                active[helper.name] = nil
+                return false
+            end
+        end
+        active[helper.name] = nil
+    end
+    local stable = true
+    visit.expressionChildren(node, function(child: scalarIR.Expr): scalarIR.Expr
+        if not stableExpression(child, context, active) then
+            stable = false
+        end
+        return child
+    end)
+
+    return stable
+end
+
+local function stable(node: scalarIR.Expr, context: fold.Context): boolean
+    return stableExpression(node, context, {})
+end
+
+local function discardable(node: scalarIR.Expr): boolean
+    local root = effects.expression(tostring(node.op))
+    if root.observable or root.mayRaise then
+        return false
+    end
+    local safe = true
+    visit.expressionChildren(node, function(child: scalarIR.Expr): scalarIR.Expr
+        if not discardable(child) then
+            safe = false
+        end
+        return child
+    end)
+
+    return safe
+end
+
+local function containsObject(root: any, wanted: any): boolean
+    if root == wanted then
+        return true
+    end
+    if type(root) ~= "table" then
+        return false
+    end
+    for key, child in pairs(root) do
+        if key ~= "source" and containsObject(child, wanted) then
+            return true
+        end
+    end
+
+    return false
+end
+
+local RANK: {
+    [string]: integer
+} = {
+    any = 0,
+    literal = 1,
+    numeric = 2,
+    zero = 3,
+    one = 3,
+    negzero = 4,
+    allones = 4,
+    ["true"] = 4,
+    ["false"] = 4,
+    same = 5,
+}
+
+local function priority(rule: fold.Rule): (integer, integer, integer)
+    local left = RANK[tostring(rule.left or rule.value or "any")] or 0
+    local right = RANK[tostring(rule.right or "any")] or 0
+    return left + right, left, right
+end
+
+local function before(left: fold.Rule, right: fold.Rule): boolean
+    local lt, ll, lr = priority(left)
+    local rt, rl, rr = priority(right)
+    if lt ~= rt then
+        return lt > rt
+    elseif ll ~= rl then
+        return ll > rl
+    elseif lr ~= rr then
+        return lr > rr
+    end
+
+    return left.id < right.id
+end
+
+function fold.validate(rules: {fold.Rule}): nil
+    local ids: {[string]: boolean} = {}
+    local registrations: {[string]: string} = {}
+    for _, rule in ipairs(rules) do
+        if ids[rule.id] then
+            error("duplicate AOT fold rule ID " .. rule.id, 0)
+        end
+        ids[rule.id] = true
+        local registration = table.concat(
+            {
+                rule.op,
+                rule.entrypoint,
+                tostring(rule.valueType),
+                tostring(rule.left),
+                tostring(rule.right),
+                tostring(rule.value),
+            },
+            "\0"
+        )
+        local previous = registrations[registration]
+        if previous ~= nil then
+            error("duplicate AOT fold registration " .. rule.id .. " and " .. (previous as string), 0)
+        end
+        registrations[registration] = rule.id
+    end
+end
+
+local RULES: {fold.Rule} = {}
+
+local function binaryRule(
+    id: string,
+    op: string,
+    valueType: scalarIR.Type?,
+    left: fold.Pattern,
+    right: fold.Pattern,
+    action: string,
+    changesGrouping: boolean?
+): nil
+    RULES[
+        #RULES + 1
+    ] = new fold.Rule(
+        id = id,
+        op = op,
+        entrypoint = "fold-root",
+        valueType = valueType,
+        left = left,
+        right = right,
+        action = action,
+        changesGrouping = changesGrouping == true
+    )
+end
+
+local function unaryRule(id: string, op: string, valueType: scalarIR.Type?, value: fold.Pattern, action: string): nil
+    RULES[
+        #RULES + 1
+    ] = new fold.Rule(
+        id = id,
+        op = op,
+        entrypoint = "fold-root",
+        valueType = valueType,
+        value = value,
+        action = action,
+        changesGrouping = false
+    )
+end
+
+unaryRule("bool.not.literal", "not", "bool", "literal", "bool_not")
+binaryRule("bool.and.left-false", "and", "bool", "false", "any", "left")
+binaryRule("bool.and.left-true", "and", "bool", "true", "any", "right")
+binaryRule("bool.or.left-false", "or", "bool", "false", "any", "right")
+binaryRule("bool.or.left-true", "or", "bool", "true", "any", "left")
+binaryRule("bool.and.right-true", "and", "bool", "any", "true", "left")
+binaryRule("bool.and.right-false", "and", "bool", "any", "false", "false")
+binaryRule("bool.or.right-false", "or", "bool", "any", "false", "left")
+binaryRule("bool.or.right-true", "or", "bool", "any", "true", "true")
+
+for _, op in ipairs({"add", "sub", "mul", "div"}) do
+    binaryRule("f64." .. op .. ".constants", op, "f64", "literal", "literal", "f64_constants")
+end
+unaryRule("f64.neg.constant", "neg", "f64", "literal", "f64_neg")
+binaryRule("f64.add.left-negzero", "add", "f64", "negzero", "any", "right")
+binaryRule("f64.add.right-negzero", "add", "f64", "any", "negzero", "left")
+binaryRule("f64.sub.right-zero", "sub", "f64", "any", "zero", "left")
+binaryRule("f64.mul.left-one", "mul", "f64", "one", "any", "right")
+binaryRule("f64.mul.right-one", "mul", "f64", "any", "one", "left")
+binaryRule("f64.div.right-one", "div", "f64", "any", "one", "left")
+
+unaryRule("convert.numeric-cast.constant", "numeric_cast", nil, "numeric", "numeric_cast")
+unaryRule("convert.int-to-f64.constant", "int_to_f64", "f64", "numeric", "int_to_f64")
+unaryRule("convert.numeric-cast.same-width", "numeric_cast", nil, "any", "same_width_cast")
+
+for _, op in ipairs({"u32_add", "u32_sub", "u32_mul", "i32_add", "i32_sub", "i32_mul"}) do
+    binaryRule("fixed." .. op .. ".constants", op, op:sub(1, 3), "numeric", "numeric", "fixed_constants")
+end
+for _, op in ipairs({"u32_and", "u32_or", "u32_xor", "u32_shl", "u32_shr"}) do
+    binaryRule("fixed." .. op .. ".constants", op, "u32", "numeric", "numeric", "fixed_constants")
+end
+unaryRule("fixed.u32_not.constant", "u32_not", "u32", "numeric", "fixed_unary_constant")
+for _, op in ipairs({"u64_add", "u64_sub", "u64_mul", "i64_add", "i64_sub", "i64_mul"}) do
+    binaryRule("fixed." .. op .. ".constants", op, op:sub(1, 3), "numeric", "numeric", "wide_constants")
+end
+
+for _, op in ipairs({"eq", "ne", "lt", "le", "gt", "ge"}) do
+    binaryRule("compare." .. op .. ".constants", op, "bool", "numeric", "numeric", "compare_constants")
+end
+
+for _, family in ipairs({"i32", "u32", "i64", "u64"}) do
+    binaryRule("fixed." .. family .. ".add.left-zero", family .. "_add", family, "zero", "any", "right")
+    binaryRule("fixed." .. family .. ".add.right-zero", family .. "_add", family, "any", "zero", "left")
+    binaryRule("fixed." .. family .. ".sub.right-zero", family .. "_sub", family, "any", "zero", "left")
+    binaryRule("fixed." .. family .. ".sub.same", family .. "_sub", family, "any", "same", "integer_zero")
+    binaryRule("fixed." .. family .. ".mul.left-one", family .. "_mul", family, "one", "any", "right")
+    binaryRule("fixed." .. family .. ".mul.right-one", family .. "_mul", family, "any", "one", "left")
+    binaryRule("fixed." .. family .. ".mul.left-zero", family .. "_mul", family, "zero", "any", "integer_zero")
+    binaryRule("fixed." .. family .. ".mul.right-zero", family .. "_mul", family, "any", "zero", "integer_zero")
+end
+
+binaryRule("u32.and.left-allones", "u32_and", "u32", "allones", "any", "right")
+binaryRule("u32.and.right-allones", "u32_and", "u32", "any", "allones", "left")
+binaryRule("u32.and.left-zero", "u32_and", "u32", "zero", "any", "integer_zero")
+binaryRule("u32.and.right-zero", "u32_and", "u32", "any", "zero", "integer_zero")
+binaryRule("u32.and.same", "u32_and", "u32", "any", "same", "left")
+binaryRule("u32.or.left-zero", "u32_or", "u32", "zero", "any", "right")
+binaryRule("u32.or.right-zero", "u32_or", "u32", "any", "zero", "left")
+binaryRule("u32.or.left-allones", "u32_or", "u32", "allones", "any", "allones")
+binaryRule("u32.or.right-allones", "u32_or", "u32", "any", "allones", "allones")
+binaryRule("u32.or.same", "u32_or", "u32", "any", "same", "left")
+binaryRule("u32.xor.left-zero", "u32_xor", "u32", "zero", "any", "right")
+binaryRule("u32.xor.right-zero", "u32_xor", "u32", "any", "zero", "left")
+binaryRule("u32.xor.same", "u32_xor", "u32", "any", "same", "integer_zero")
+binaryRule("u32.shl.right-zero", "u32_shl", "u32", "any", "zero", "left")
+binaryRule("u32.shr.right-zero", "u32_shr", "u32", "any", "zero", "left")
+binaryRule("u32.shl.left-zero", "u32_shl", "u32", "zero", "any", "integer_zero")
+binaryRule("u32.shr.left-zero", "u32_shr", "u32", "zero", "any", "integer_zero")
+unaryRule("u32.not.double", "u32_not", "u32", "any", "double_not")
+
+for _, op in ipairs({
+    "i32_add",
+    "u32_add",
+    "i64_add",
+    "u64_add",
+    "i32_mul",
+    "u32_mul",
+    "i64_mul",
+    "u64_mul",
+    "u32_and",
+    "u32_or",
+    "u32_xor"
+}) do
+    binaryRule("reassociate." .. op, op, op:sub(1, 3), "any", "any", "reassociate", true)
+end
+binaryRule("normalize.i32_sub", "i32_sub", "i32", "any", "numeric", "normalize_sub")
+binaryRule("normalize.u32_sub", "u32_sub", "u32", "any", "numeric", "normalize_sub")
+binaryRule("normalize.i64_sub", "i64_sub", "i64", "any", "numeric", "normalize_sub")
+
+fold.validate(RULES)
+
+local INDEX: {[string]: {fold.Rule}} = {}
+for _, rule in ipairs(RULES) do
+    local key = rule.op .. "\0" .. rule.entrypoint
+    local bucket = INDEX[key]
+    if bucket == nil then
+        bucket = {}
+        INDEX[key] = bucket
+    end
+    bucket[#bucket + 1] = rule
+end
+for _, bucket in pairs(INDEX) do
+    table.sort(bucket, before)
+end
+
+local function matches(node: scalarIR.Expr, shape: fold.Pattern?, other: scalarIR.Expr?): boolean
+    if shape == nil or shape == "any" then
+        return true
+    elseif shape == "literal" then
+        return node.op == "bool" or node.op == "constant" or node.op == "constant_i32" or node.op == "constant_i64"
+    elseif shape == "numeric" then
+        return fold.exactInteger(node) ~= nil
+    elseif shape == "true" or shape == "false" then
+        return node.op == "bool" and (node as scalarIR.Bool).value == (shape == "true")
+    elseif shape == "same" then
+        return other ~= nil and semanticSame(other, node)
+    end
+    local value = fold.exactInteger(node)
+    if shape == "one" then
+        return value == 1
+    elseif shape == "allones" then
+        return node.type == "u32" and value == 4294967295
+    elseif shape == "negzero" then
+        return node.op == "constant" and tonumber(
+            (node as scalarIR.Constant).value
+        ) == 0 and 1 / (tonumber((node as scalarIR.Constant).value) as number) < 0
+    elseif shape == "zero" then
+        if node.op == "constant" then
+            local number = tonumber((node as scalarIR.Constant).value)
+            return number == 0 and 1 / (number as number) > 0
+        end
+        return value == 0
+    end
+
+    return false
+end
+
+local function integerRange(valueType: scalarIR.Type): (number?, number?)
+    if valueType == "u32" then
+        return 0, 4294967295
+    elseif valueType == "i32" then
+        return -2147483648, 2147483647
+    elseif valueType == "u64" then
+        return 0, 9007199254740992
+    elseif valueType == "i64" then
+        return -9007199254740992, 9007199254740992
+    end
+
+    return nil, nil
+end
+
+local function fixedIdentity(op: string): string?
+    local identities: {
+        [string]: string
+    } = {
+        i32_add = "i32.add",
+        i32_sub = "i32.sub",
+        i32_mul = "i32.mul",
+        u32_add = "u32.add",
+        u32_sub = "u32.sub",
+        u32_mul = "u32.mul",
+        u32_and = "u32.andBits",
+        u32_or = "u32.orBits",
+        u32_xor = "u32.xorBits",
+        u32_shl = "u32.shiftLeft",
+        u32_shr = "u32.shiftRightLogical",
+        u32_not = "u32.notBits",
+    }
+
+    return identities[op]
+end
+
+local function compare(op: string, left: number, right: number): boolean
+    if op == "eq" then
+        return left == right
+    elseif op == "ne" then
+        return left ~= right
+    elseif op == "lt" then
+        return left < right
+    elseif op == "le" then
+        return left <= right
+    elseif op == "gt" then
+        return left > right
+    end
+
+    return left >= right
+end
+
+local function combine(op: string, left: number, right: number, valueType: scalarIR.Type): number?
+    local identity = fixedIdentity(op)
+    if identity ~= nil then
+        local result = scalar.fold(identity as string, {left, right})
+        return type(result) == "number" and result as number or nil
+    end
+    local answer = op:match("_add$") ~= nil and left + right or left * right
+    if not finite(answer) or math.abs(answer) >= 9007199254740992 or (valueType == "u64" and answer < 0) then
+        return nil
+    end
+
+    return answer
+end
+
+local function reassociate(node: scalarIR.Expr, context: fold.Context): scalarIR.Expr?
+    if not stable(node, context) then
+        return nil
+    end
+    local op = tostring(node.op)
+    local valueType = node.type
+    local operands: {scalarIR.Expr} = {}
+    local constants: {number} = {}
+    local function flatten(value: scalarIR.Expr): nil
+        if value.op == node.op and value.type == valueType then
+            local binary = value as scalarIR.Fixed
+            flatten(binary.left)
+            flatten(binary.right)
+        else
+            local exact = fold.exactInteger(value)
+            if exact == nil then
+                operands[#operands + 1] = value
+            else
+                constants[#constants + 1] = exact as number
+            end
+        end
+    end
+
+    flatten(node)
+    if #constants == 0 then
+        return nil
+    end
+    local combined = constants[1]
+    for position = 2, #constants do
+        combined = combine(op, combined, constants[position], valueType)
+        if combined == nil then
+            return nil
+        end
+    end
+    operands[#operands + 1] = integerConstant(combined as number, valueType, node)
+    local rebuilt = operands[1]
+    for position = 2, #operands do
+        rebuilt = new scalarIR.Fixed(
+            op = node.op as scalarIR.FixedOp,
+            left = rebuilt,
+            right = operands[position],
+            type = valueType,
+            source = sourceOf(node)
+        )
+    end
+
+    return rebuilt
+end
+
+local function action(rule: fold.Rule, node: scalarIR.Expr, context: fold.Context): scalarIR.Expr?
+    local name = rule.action
+    if name == "left" then
+        return (node as scalarIR.Binary).left
+    elseif name == "right" then
+        return (node as scalarIR.Binary).right
+    elseif name == "true" then
+        return bool(true, node)
+    elseif name == "false" then
+        return bool(false, node)
+    elseif name == "integer_zero" then
+        return integerConstant(0, node.type, node)
+    elseif name == "allones" then
+        return integerConstant(4294967295, "u32", node)
+    elseif name == "bool_not" then
+        local value = (node as scalarIR.Unary).value
+        return value.op == "bool" and bool(not (value as scalarIR.Bool).value, node) or nil
+    elseif name == "f64_constants" then
+        local pair = node as scalarIR.Binary
+        if pair.left.op ~= "constant" or pair.right.op ~= "constant" then
+            return nil
+        end
+        local left = tonumber((pair.left as scalarIR.Constant).value) as number
+        local right = tonumber((pair.right as scalarIR.Constant).value) as number
+        local answer = node.op == "add"
+            and left
+            + right
+            or node.op == "sub"
+            and left
+            - right
+            or node.op == "mul"
+            and left
+            * right
+            or left
+            / right
+        return finite(answer) and constant(answer, node) or nil
+    elseif name == "f64_neg" then
+        local value = (node as scalarIR.Unary).value
+        if value.op ~= "constant" then
+            return nil
+        end
+        local answer = -(tonumber((value as scalarIR.Constant).value) as number)
+        return finite(answer) and constant(answer, node) or nil
+    elseif name == "numeric_cast" then
+        local converted = node as scalarIR.Convert
+        local value = fold.exactInteger(converted.value)
+        local low, high = integerRange(converted.type)
+        return value ~= nil and low ~= nil and value >= (
+            low as number
+        ) and value <= (high as number) and integerConstant(value, converted.type, node) or nil
+    elseif name == "int_to_f64" then
+        local value = fold.exactInteger((node as scalarIR.Convert).value)
+        return value ~= nil and math.abs(value) <= 9007199254740992 and constant(value, node) or nil
+    elseif name == "same_width_cast" then
+        local converted = node as scalarIR.Convert
+        return converted.value.type == converted.type and converted.value or nil
+    elseif name == "fixed_constants" then
+        local pair = node as scalarIR.Fixed
+        local left, right = fold.exactInteger(pair.left), fold.exactInteger(pair.right)
+        local identity = fixedIdentity(tostring(node.op))
+        if left == nil or right == nil or identity == nil then
+            return nil
+        end
+        local result = scalar.fold(identity as string, {left, right})
+        return type(result) == "number" and integerConstant(result as number, node.type, node) or nil
+    elseif name == "fixed_unary_constant" then
+        local value = fold.exactInteger((node as scalarIR.FixedUnary).value)
+        local identity = fixedIdentity(tostring(node.op))
+        if value == nil or identity == nil then
+            return nil
+        end
+        local result = scalar.fold(identity as string, {value})
+        return type(result) == "number" and integerConstant(result as number, node.type, node) or nil
+    elseif name == "wide_constants" then
+        local pair = node as scalarIR.Fixed
+        local left, right = fold.exactInteger(pair.left), fold.exactInteger(pair.right)
+        if left == nil or right == nil then
+            return nil
+        end
+        local answer = node.op:match(
+            "_add$"
+        ) ~= nil and left + right or node.op:match("_sub$") ~= nil and left - right or left * right
+        return finite(
+            answer
+        ) and math.abs(
+            answer
+        ) < 9007199254740992 and (node.type ~= "u64" or answer >= 0) and integerConstant(answer, node.type, node) or nil
+    elseif name == "compare_constants" then
+        local pair = node as scalarIR.Binary
+        local left, right = fold.exactInteger(pair.left), fold.exactInteger(pair.right)
+        return left ~= nil and right ~= nil and bool(compare(tostring(node.op), left, right), node) or nil
+    elseif name == "double_not" then
+        local inner = (node as scalarIR.FixedUnary).value
+        return inner.op == "u32_not" and (inner as scalarIR.FixedUnary).value or nil
+    elseif name == "normalize_sub" then
+        local pair = node as scalarIR.Fixed
+        local right = fold.exactInteger(pair.right)
+        if right == nil then
+            return nil
+        end
+        local negated: number?
+        if node.type == "u32" or node.type == "i32" then
+            local result = scalar.fold(node.type .. ".sub", {0, right})
+            negated = type(result) == "number" and result as number or nil
+        elseif node.type == "i64" and right ~= -9007199254740992 then
+            negated = -right
+        end
+        if negated == nil then
+            return nil
+        end
+        return new scalarIR.Fixed(
+            op = (node.type .. "_add") as scalarIR.FixedOp,
+            left = pair.left,
+            right = integerConstant(negated, node.type, node),
+            type = node.type,
+            source = sourceOf(node)
+        )
+    elseif name == "reassociate" then
+        return reassociate(node, context)
+    end
+
+    return nil
+end
+
+local function removalSafe(node: scalarIR.Expr, replacement: scalarIR.Expr): boolean
+    if node.op == "neg"
+        or node.op == "not"
+        or node.op == "bnot"
+        or node.op == "f32_sqrt"
+        or node.op == "u32_not"
+        or node.op == "u32_popcount"
+        or node.op == "u32_ctz"
+        or node.op == "u32_clz"
+        or node.op == "narrow_f64_f32"
+        or node.op == "widen_f32_f64"
+        or node.op == "int_to_f64"
+        or node.op == "numeric_cast"
+    then
+        local operand = (node as scalarIR.Unary).value
+        return containsObject(replacement, operand) or discardable(operand)
+    end
+    local pair = node as scalarIR.Binary
+    if not containsObject(replacement, pair.left) and not discardable(pair.left) then
+        return false
+    end
+    local rightEvaluated = true
+    if (node.op == "and" or node.op == "or") and pair.left.op == "bool" then
+        local left = (pair.left as scalarIR.Bool).value
+        rightEvaluated = node.op == "and" and left or node.op == "or" and not left
+    end
+
+    return not rightEvaluated or containsObject(replacement, pair.right) or discardable(pair.right)
+end
+
+--- Applies the highest-priority matching rule, falling through when an action
+--- or its semantic guards decline.
+function fold.apply(node: scalarIR.Expr, context: fold.Context, entrypoint: string?): scalarIR.Expr?, string?
+    local bucket = INDEX[tostring(node.op) .. "\0" .. (entrypoint or "fold-root")]
+    if bucket == nil then
+        return nil, nil
+    end
+    for _, rule in ipairs(bucket) do
+        if (rule.valueType == nil or rule.valueType == node.type) then
+            local matched = false
+            local sameRule = false
+            if rule.value ~= nil then
+                matched = matches((node as scalarIR.Unary).value, rule.value, nil)
+            else
+                local pair = node as scalarIR.Binary
+                matched = matches(pair.left, rule.left, nil) and matches(pair.right, rule.right, pair.left)
+                sameRule = rule.right == "same"
+            end
+            if matched and (not sameRule or stable((node as scalarIR.Binary).left, context)) then
+                local replacement = action(rule, node, context)
+                if replacement ~= nil and not semanticSame(node, replacement) and removalSafe(node, replacement) then
+                    return replacement, rule.id
+                end
+            end
+        end
+    end
+
+    return nil, nil
+end
+
+function fold.rules(): {fold.Rule}
+    return RULES
+end
+
+export = fold

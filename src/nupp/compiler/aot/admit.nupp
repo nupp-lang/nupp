@@ -65,7 +65,7 @@ record admit.Fixed
     identity: string
 
     --- The IR operation it lowers to.
-    op: string
+    op: scalarIR.FixedOp | scalarIR.FixedUnaryOp | scalarIR.ConvertOp | scalarIR.CorrectedOp
 
     --- How many operands it takes.
     arity: integer

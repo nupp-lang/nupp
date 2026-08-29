@@ -551,7 +551,7 @@ record scalarIR.Math
     source: scalarIR.Source?
 end
 
---- One explicitly binary32 or wrapping int32 operation.
+--- One explicitly binary32 or wrapping fixed-width integer operation.
 ---
 --- A binary32 operation over binary32 operands computed in binary64 and rounded
 --- once is bit-identical to the native single-precision instruction, because 53
@@ -599,8 +599,10 @@ record scalarIR.FixedUnary
 end
 
 --- `min`, `max` and `fma`, through the helper that repairs their NaN behaviour.
+type scalarIR.CorrectedOp = 'f32_min' | 'f32_max' | 'f32_fma'
+
 record scalarIR.Corrected
-    op: 'f32_min' | 'f32_max' | 'f32_fma'
+    op: scalarIR.CorrectedOp
 
     --- Present for the two-operand forms.
     left: scalarIR.Expr?

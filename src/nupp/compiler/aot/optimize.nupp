@@ -13,10 +13,16 @@ an open-ended fixpoint.
 ]]
 
 local effects = require("nupp.compiler.aot.effects")
+local fold = require("nupp.compiler.aot.fold")
 local scalarIR = require("nupp.compiler.aot.scalar")
 local visit = require("nupp.compiler.aot.visit")
 
 local optimize = {}
+
+record optimize.RuleApplication
+    id: string
+    count: integer
+end
 
 record optimize.Stats
     beforeNodes: integer
@@ -28,19 +34,24 @@ record optimize.Stats
     unrolledIterations: integer
     removedStatements: integer
     iterations: integer
+    ruleApplications: {optimize.RuleApplication}
 end
 
 record optimize.State
-    folds: integer
-    propagatedConstants: integer
-    specializedHelperCalls: integer
+    statementFolds: integer
     specializationBudget: integer
     unrollBudget: integer
     helpers: {[string]: scalarIR.Helper}
+    foldContext: fold.Context
+    ruleApplications: {[string]: integer}
     unrolledLoops: integer
     unrolledIterations: integer
     removedStatements: integer
     changed: boolean
+end
+
+local function countRule(state: optimize.State, id: string): nil
+    state.ruleApplications[id] = (state.ruleApplications[id] or 0) + 1
 end
 
 --- Fixed-count expansion stays deliberately small. Four is the measured `mix`
@@ -102,32 +113,6 @@ local function sourceOf(node: any): scalarIR.Source?
     return node.source as scalarIR.Source?
 end
 
-local function boolean(value: boolean, node: any): scalarIR.Bool
-    return new scalarIR.Bool(op = "bool", value = value, type = "bool", source = sourceOf(node))
-end
-
-local function finite(value: number): boolean
-    return value == value and value ~= math.huge and value ~= -math.huge
-end
-
---- A C binary64 spelling which preserves negative zero.
-local function numberText(value: number): string
-    if value == 0 and 1 / value < 0 then
-        return "-0.0"
-    end
-
-    local written = ("%.17g"):format(value)
-    if written:match("^[+-]?%d+$") ~= nil then
-        written = written .. ".0"
-    end
-
-    return written
-end
-
-local function constant(value: number, node: any): scalarIR.Constant
-    return new scalarIR.Constant(op = "constant", value = numberText(value), type = "f64", source = sourceOf(node))
-end
-
 local function integerConstant(value: number, valueType: scalarIR.Type, node: any): scalarIR.Expr
     if valueType == "i64" or valueType == "u64" then
         return new scalarIR.Int64Constant(
@@ -146,78 +131,8 @@ local function integerConstant(value: number, valueType: scalarIR.Type, node: an
     )
 end
 
-local function integerRange(valueType: scalarIR.Type): (number?, number?)
-    if valueType == "u32" then
-        return 0, 4294967295
-    elseif valueType == "i32" then
-        return -2147483648, 2147483647
-    elseif valueType == "u64" then
-        return 0, 9007199254740992
-    elseif valueType == "i64" then
-        return -9007199254740992, 9007199254740992
-    end
-
-    return nil, nil
-end
-
---- Parses a decimal integer spelling without first rounding it through the
---- host binary64 value. The AOT wide-constant model is deliberately bounded
---- to exactly represented integers, so a spelling such as 9007199254740993
---- must not become the adjacent representable value merely because tonumber
---- rounded it there.
-local function exactIntegerText(text: string): number?
-    local sign, body = text:match("^([+-]?)(.+)$")
-    if body == nil then
-        sign, body = "", text
-    end
-    local mantissa, exponentText = (body as string):match("^([^eE]+)[eE]([+-]?%d+)$")
-    if mantissa == nil then
-        mantissa, exponentText = body, "0"
-    end
-    local whole, fraction = (mantissa as string):match("^(%d*)%.(%d*)$")
-    if whole == nil then
-        whole = (mantissa as string):match("^(%d+)$")
-        fraction = ""
-    end
-    if whole == nil or (whole == "" and fraction == "") then
-        return nil
-    end
-    local exponent = tonumber(exponentText)
-    if exponent == nil or exponent % 1 ~= 0 or math.abs(exponent) > 100000 then
-        return nil
-    end
-
-    local digits = (whole as string) .. (fraction as string)
-    local decimal = #(whole as string) + exponent
-    if decimal < #digits then
-        if digits:sub(decimal + 1):match("[^0]") ~= nil then
-            return nil
-        end
-        digits = decimal > 0 and digits:sub(1, decimal) or "0"
-    elseif decimal > #digits then
-        digits = digits .. string.rep("0", decimal - #digits)
-    end
-    digits = digits:gsub("^0+", "")
-    if digits == "" then
-        digits = "0"
-    end
-    local limit = "9007199254740992"
-    if #digits > #limit or (#digits == #limit and digits > limit) then
-        return nil
-    end
-    local value = tonumber((sign as string) .. digits)
-    if value == nil or not finite(value) then
-        return nil
-    end
-
-    return value
-end
-
 local function exactInteger(node: scalarIR.Expr): number?
-    if node.op ~= "constant" and node.op ~= "constant_i32" and node.op ~= "constant_i64" then
-        return nil
-    end
-    return exactIntegerText(tostring((node as any).value))
+    return fold.exactInteger(node)
 end
 
 local foldExpression: function(scalarIR.Expr, optimize.State): scalarIR.Expr
@@ -238,125 +153,26 @@ foldExpression = function(node: scalarIR.Expr, state: optimize.State): scalarIR.
     effects.expression(tostring(node.op))
     foldChildren(node, state)
 
-    if node.op == "not" then
-        local unary = node as scalarIR.Unary
-        if unary.value.op == "bool" then
-            state.folds = state.folds + 1
-            state.changed = true
-            return boolean(not (unary.value as scalarIR.Bool).value, node)
+    local fuel = 16
+    local history: {string} = {}
+    while true do
+        local replacement, ruleID = fold.apply(node, state.foldContext, "fold-root")
+        if replacement == nil then
+            break
         end
-    elseif node.op == "and" or node.op == "or" then
-        local binary = node as scalarIR.Binary
-        if binary.left.op == "bool" then
-            local left = (binary.left as scalarIR.Bool).value
-            state.folds = state.folds + 1
-            state.changed = true
-            if node.op == "and" then
-                return left and binary.right or binary.left
-            end
+        if fuel == 0 then
+            error("AOT fold fuel exhausted after " .. table.concat(history, ", "), 0)
+        end
+        fuel = fuel - 1
+        history[#history + 1] = ruleID as string
+        countRule(state, ruleID as string)
+        state.changed = true
+        node = replacement as scalarIR.Expr
+        effects.expression(tostring(node.op))
+        foldChildren(node, state)
+    end
 
-            return left and binary.left or binary.right
-        end
-    elseif node.op == "add" or node.op == "sub" or node.op == "mul" or node.op == "div" then
-        local binary = node as scalarIR.Binary
-        if binary.left.op == "constant" and binary.right.op == "constant" then
-            local left = tonumber((binary.left as scalarIR.Constant).value) as number
-            local right = tonumber((binary.right as scalarIR.Constant).value) as number
-            local answer = 0.0
-            if node.op == "add" then
-                answer = left + right
-            elseif node.op == "sub" then
-                answer = left - right
-            elseif node.op == "mul" then
-                answer = left * right
-            else
-                answer = left / right
-            end
-            if finite(answer) then
-                state.folds = state.folds + 1
-                state.changed = true
-                return constant(answer, node)
-            end
-        end
-    elseif node.op == "neg" then
-        local unary = node as scalarIR.Unary
-        if unary.value.op == "constant" then
-            local answer = -(tonumber((unary.value as scalarIR.Constant).value) as number)
-            if finite(answer) then
-                state.folds = state.folds + 1
-                state.changed = true
-                return constant(answer, node)
-            end
-        end
-    elseif node.op == "numeric_cast" then
-        local converted = node as scalarIR.Convert
-        local value = exactInteger(converted.value)
-        local low, high = integerRange(converted.type)
-        if value ~= nil and low ~= nil and value >= (low as number) and value <= (high as number) then
-            state.folds = state.folds + 1
-            state.changed = true
-            return integerConstant(value, converted.type, node)
-        end
-    elseif node.op == "int_to_f64" then
-        local converted = node as scalarIR.Convert
-        local value = exactInteger(converted.value)
-        if value ~= nil and math.abs(value) <= 9007199254740992 then
-            state.folds = state.folds + 1
-            state.changed = true
-            return constant(value, node)
-        end
-    elseif node.op == "u32_add" or node.op == "u32_sub" then
-        local pair = node as scalarIR.Fixed
-        local left = exactInteger(pair.left as scalarIR.Expr)
-        local right = exactInteger(pair.right as scalarIR.Expr)
-        if left ~= nil and right ~= nil then
-            local answer = node.op == "u32_add" and left + right or left - right
-            answer = answer % 4294967296
-            state.folds = state.folds + 1
-            state.changed = true
-            return integerConstant(answer, "u32", node)
-        end
-    elseif node.op == "i32_add" or node.op == "i32_sub" then
-        local pair = node as scalarIR.Fixed
-        local left = exactInteger(pair.left as scalarIR.Expr)
-        local right = exactInteger(pair.right as scalarIR.Expr)
-        if left ~= nil and right ~= nil then
-            local answer = node.op == "i32_add" and left + right or left - right
-            answer = answer % 4294967296
-            if answer >= 2147483648 then
-                answer = answer - 4294967296
-            end
-            state.folds = state.folds + 1
-            state.changed = true
-            return integerConstant(answer, "i32", node)
-        end
-    elseif node.op == "u64_add"
-        or node.op == "u64_sub"
-        or node.op == "u64_mul"
-        or node.op == "i64_add"
-        or node.op == "i64_sub"
-        or node.op == "i64_mul"
-    then
-        local pair = node as scalarIR.Fixed
-        local left = exactInteger(pair.left)
-        local right = exactInteger(pair.right)
-        if left ~= nil and right ~= nil then
-            local answer = 0
-            if node.op == "u64_add" or node.op == "i64_add" then
-                answer = left + right
-            elseif node.op == "u64_sub" or node.op == "i64_sub" then
-                answer = left - right
-            else
-                answer = left * right
-            end
-            local unsigned = node.op:sub(1, 3) == "u64"
-            if math.abs(answer) < 9007199254740992 and (not unsigned or answer >= 0) then
-                state.folds = state.folds + 1
-                state.changed = true
-                return integerConstant(answer, unsigned and "u64" or "i64", node)
-            end
-        end
-    elseif node.op == "helper_call" then
+    if node.op == "helper_call" then
         local call = node as scalarIR.HelperCall
         local helper = state.helpers[call.helper]
         local replacements: {[string]: scalarIR.Expr} = {}
@@ -379,41 +195,10 @@ foldExpression = function(node: scalarIR.Expr, state: optimize.State): scalarIR.
             local growth = expressionNodes(replacement) - expressionNodes(node)
             if growth <= state.specializationBudget then
                 state.specializationBudget = state.specializationBudget - math.max(growth, 0)
-                state.specializedHelperCalls = state.specializedHelperCalls + 1
+                countRule(state, "specialize.helper-constant")
                 state.changed = true
                 return foldExpression(replacement, state)
             end
-        end
-    elseif node.op == "eq"
-        or node.op == "ne"
-        or node.op == "lt"
-        or node.op == "le"
-        or node.op == "gt"
-        or node.op == "ge"
-    then
-        local binary = node as scalarIR.Binary
-        local left: number?
-        local right: number?
-        left = exactInteger(binary.left)
-        right = exactInteger(binary.right)
-        if left ~= nil and right ~= nil then
-            local answer = false
-            if node.op == "eq" then
-                answer = left == right
-            elseif node.op == "ne" then
-                answer = left ~= right
-            elseif node.op == "lt" then
-                answer = left < right
-            elseif node.op == "le" then
-                answer = left <= right
-            elseif node.op == "gt" then
-                answer = left > right
-            else
-                answer = left >= right
-            end
-            state.folds = state.folds + 1
-            state.changed = true
-            return boolean(answer, node)
         end
     end
 
@@ -471,7 +256,7 @@ propagateExpression = function(
         local named = node as scalarIR.Name
         local replacement = constants[tostring(named.cName or named.name)]
         if replacement ~= nil then
-            state.propagatedConstants = state.propagatedConstants + 1
+            countRule(state, "propagate.local-constant")
             state.changed = true
             return replacement
         end
@@ -591,7 +376,7 @@ optimizeBlock = function(statements: {scalarIR.Statement}, state: optimize.State
                     rewritten[
                         #rewritten + 1
                     ] = new scalarIR.Block(op = "block", body = selected, source = branch.source)
-                    state.folds = state.folds + 1
+                    state.statementFolds = state.statementFolds + 1
                     state.changed = true
                 else
                     rewritten[#rewritten + 1] = statement
@@ -780,12 +565,12 @@ function optimize.program(program: scalarIR.Program): optimize.Stats
         helpers[helper.name] = helper
     end
     local state = new optimize.State(
-        folds = 0,
-        propagatedConstants = 0,
-        specializedHelperCalls = 0,
+        statementFolds = 0,
         specializationBudget = math.max(math.floor(before / 10), 1),
         unrollBudget = optimize.MAX_UNROLL_GROWTH,
         helpers = helpers,
+        foldContext = new fold.Context(helpers = helpers),
+        ruleApplications = {},
         unrolledLoops = 0,
         unrolledIterations = 0,
         removedStatements = 0,
@@ -820,16 +605,29 @@ function optimize.program(program: scalarIR.Program): optimize.Stats
     -- recompute the bound instead of merely agreeing with the first pass.
     program.maxStack = nil
 
+    local applications: {optimize.RuleApplication} = {}
+    local expressionFolds: integer = 0
+    for id, count in pairs(state.ruleApplications) do
+        applications[#applications + 1] = new optimize.RuleApplication(id = id, count = count)
+        if id ~= "propagate.local-constant" and id ~= "specialize.helper-constant" then
+            expressionFolds = expressionFolds + count
+        end
+    end
+    table.sort(applications, function(left: optimize.RuleApplication, right: optimize.RuleApplication): boolean
+        return left.id < right.id
+    end)
+
     return new optimize.Stats(
         beforeNodes = before,
         afterNodes = nodeCount(program),
-        folds = state.folds,
-        propagatedConstants = state.propagatedConstants,
-        specializedHelperCalls = state.specializedHelperCalls,
+        folds = expressionFolds + state.statementFolds,
+        propagatedConstants = state.ruleApplications["propagate.local-constant"] or 0,
+        specializedHelperCalls = state.ruleApplications["specialize.helper-constant"] or 0,
         unrolledLoops = state.unrolledLoops,
         unrolledIterations = state.unrolledIterations,
         removedStatements = state.removedStatements,
-        iterations = iterations as integer
+        iterations = iterations as integer,
+        ruleApplications = applications
     )
 end
 

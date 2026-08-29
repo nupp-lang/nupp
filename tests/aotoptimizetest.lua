@@ -5,6 +5,7 @@
 -- AOT CLI and build suites.
 
 local effects = require("nupp.compiler.aot.effects")
+local fold = require("nupp.compiler.aot.fold")
 local optimize = require("nupp.compiler.aot.optimize")
 
 local M = {}
@@ -15,6 +16,26 @@ end
 
 local function program(body)
    return {body = body, helpers = {}, maxStack = 19}
+end
+
+local function integer(value, valueType)
+   return {
+      op = (valueType == "i64" or valueType == "u64") and "constant_i64" or "constant_i32",
+      value = tostring(value), type = valueType,
+   }
+end
+
+local function named(name, valueType)
+   return {op = "local", name = name, cName = name, type = valueType}
+end
+
+local function ruleCount(stats, wanted)
+   for _, application in ipairs(stats.ruleApplications) do
+      if application.id == wanted then
+         return application.count
+      end
+   end
+   return 0
 end
 
 function M.effectsFailClosed()
@@ -198,6 +219,110 @@ function M.declinesRoundedWideIntegerArithmetic()
    assert(stats.folds == 0)
    assert(ir.body[1].values[1].op == "i64_add")
    assert(ir.body[1].values[2].op == "numeric_cast")
+end
+
+function M.foldsFractionalBinary64ConstantsThroughThePatternCatalog()
+   local ir = program({{op = "return", values = {{
+      op = "add", left = constant(2.5), right = constant(0.25), type = "f64",
+   }}}})
+   local stats = optimize.program(ir)
+   assert(ir.body[1].values[1].value == "2.75")
+   assert(ruleCount(stats, "f64.add.constants") == 1)
+end
+
+function M.distinguishesPositiveAndNegativeBinary64Zero()
+   local x = named("x", "f64")
+   local ir = program({{op = "return", values = {
+      {op = "add", left = x, right = constant(-0.0), type = "f64"},
+      {op = "add", left = x, right = constant(0.0), type = "f64"},
+      {op = "sub", left = x, right = constant(0.0), type = "f64"},
+      {op = "sub", left = x, right = constant(-0.0), type = "f64"},
+   }}})
+   local stats = optimize.program(ir)
+   assert(ir.body[1].values[1].op == "local")
+   assert(ir.body[1].values[2].op == "add")
+   assert(ir.body[1].values[3].op == "local")
+   assert(ir.body[1].values[4].op == "sub")
+   assert(ruleCount(stats, "f64.add.right-negzero") == 1)
+   assert(ruleCount(stats, "f64.sub.right-zero") == 1)
+end
+
+function M.removesEvaluationsOnlyWhenTheyAreDiscardable()
+   local effectful = {
+      op = "lua_table_get_index",
+      table = named("table", "lua_table"),
+      key = constant(1),
+      type = "bool",
+   }
+   local ir = program({{op = "return", values = {
+      {op = "and", left = named("pure", "bool"), right = {op = "bool", value = false, type = "bool"}, type = "bool"},
+      {op = "and", left = effectful, right = {op = "bool", value = false, type = "bool"}, type = "bool"},
+   }}})
+   optimize.program(ir)
+   assert(ir.body[1].values[1].op == "bool" and ir.body[1].values[1].value == false)
+   assert(ir.body[1].values[2].op == "and")
+end
+
+function M.foldsExactU32MultiplyAndNormalizesBitResults()
+   local ir = program({{op = "return", values = {
+      {op = "u32_mul", left = integer(4294967295, "u32"), right = integer(4294967295, "u32"), type = "u32"},
+      {op = "u32_not", value = integer(0, "u32"), type = "u32"},
+      {op = "u32_and", left = integer(4294967295, "u32"), right = integer(4294967295, "u32"), type = "u32"},
+   }}})
+   optimize.program(ir)
+   assert(ir.body[1].values[1].value == "1")
+   assert(ir.body[1].values[2].value == "4294967295")
+   assert(ir.body[1].values[3].value == "4294967295")
+end
+
+function M.normalizesSubtractionOnlyInAdmittedIntegerDomains()
+   local ir = program({{op = "return", values = {
+      {op = "i32_sub", left = named("i", "i32"), right = integer(-2147483648, "i32"), type = "i32"},
+      {op = "u32_sub", left = named("u", "u32"), right = integer(1, "u32"), type = "u32"},
+      {op = "u64_sub", left = named("wide", "u64"), right = integer(1, "u64"), type = "u64"},
+   }}})
+   optimize.program(ir)
+   assert(ir.body[1].values[1].op == "i32_add" and ir.body[1].values[1].right.value == "-2147483648")
+   assert(ir.body[1].values[2].op == "u32_add" and ir.body[1].values[2].right.value == "4294967295")
+   assert(ir.body[1].values[3].op == "u64_sub")
+end
+
+function M.reassociatesOnlyStableFixedWidthTreesAndDeclinesCanonicalOnes()
+   local ir = program({{op = "return", values = {{
+      op = "i32_add",
+      left = {op = "i32_add", left = named("a", "i32"), right = integer(2, "i32"), type = "i32"},
+      right = {op = "i32_add", left = named("b", "i32"), right = integer(3, "i32"), type = "i32"},
+      type = "i32",
+   }}}})
+   local stats = optimize.program(ir)
+   local result = ir.body[1].values[1]
+   assert(result.op == "i32_add" and result.right.value == "5")
+   assert(result.left.left.name == "a" and result.left.right.name == "b")
+   assert(ruleCount(stats, "reassociate.i32_add") == 1)
+
+   local canonical = program({{op = "return", values = {result}}})
+   local canonicalStats = optimize.program(canonical)
+   assert(ruleCount(canonicalStats, "reassociate.i32_add") == 0)
+
+   local load = {op = "load", span = "values", index = "i", type = "i32"}
+   local unstable = program({{op = "return", values = {{
+      op = "i32_sub", left = load, right = {op = "load", span = "values", index = "i", type = "i32"}, type = "i32",
+   }}}})
+   optimize.program(unstable)
+   assert(unstable.body[1].values[1].op == "i32_sub", "native reads are not stable enough for same")
+end
+
+function M.rejectsDuplicatePatternRegistrationsButAllowsMirrors()
+   local base = {
+      id = "left", op = "u32_add", entrypoint = "fold-root", valueType = "u32",
+      left = "zero", right = "any", action = "right", changesGrouping = false,
+   }
+   fold.validate({base, {
+      id = "right", op = "u32_add", entrypoint = "fold-root", valueType = "u32",
+      left = "any", right = "zero", action = "left", changesGrouping = false,
+   }})
+   local ok, message = pcall(fold.validate, {base, base})
+   assert(not ok and tostring(message):match("duplicate AOT fold rule ID left"))
 end
 
 function M.unrollsOnlySmallLiteralTripCountsWithinOneGrowthBudget()
