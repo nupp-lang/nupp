@@ -59,6 +59,10 @@ work makes sense in.
       source and leaves it appended -- while Lua promises no order over the test
       table and the suite runs as two shards in separate processes.
 
+      Until that one is settled too, re-run the named suite before believing a
+      red full run. A cache that misses when nothing changed is still worth an
+      answer rather than a shrug -- the relink was one.
+
 - [ ] **Single-binary host.** LuaJIT, LPeg, luautf8, libuv, ada,
       libcurl and mbedTLS are pinned by revision and SHA-256 and built from
       source by `scripts/toolchain`, not committed. LPeg is a small optional
