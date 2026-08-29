@@ -67,14 +67,12 @@ work makes sense in.
 
 ## Testing and CI
 
-- [ ] **Complete the operator-contract matrix.** Only `__add` has a direct
-      contract test (`tests/checktest.lua:319`); no test anywhere mentions
-      `__unm`, `__sub`, `__mul`, `__div`, `__mod`, `__pow`, `__lt`, `__le`,
-      `__concat` or `__eq` dispatch. The table under test is
-      `operators.metamethod`/`contractMetamethod`
-      (`src/nupp/compiler/check/operators.nupp:45`). Needed: unary minus, subtraction,
-      multiplication, division, modulo, power, right-hand fallback, and
-      comparison reversal/`__lt` fallback for `<=`.
+- [x] **Complete the operator-contract matrix.** `tests/checktest.lua` covers
+      unary minus; every arithmetic and concatenation contract; right-hand
+      fallback with source-order arguments; comparison reversal; and the
+      reversed `__lt` fallback for `<=`. Equality stays outside contract
+      dispatch because it is always valid and always returns `boolean`; its
+      shared-handler identity rule is not expressible by a function type.
 - [ ] **CI matrix** (GitHub Actions). The process-only Windows job is the first
       executable slice; the project-wide matrix remains. Add macOS + Linux,
       LuaJIT 2.1 rolling (2.1.1784535649 is the floor) + (when released) 3.0;

@@ -345,14 +345,80 @@ function M.genericIndexContracts()
    }, "\n"))
 end
 
-function M.arithmeticAndLengthContracts()
+function M.operatorContracts()
+   local function binaryContract(metamethod, operator)
+      assertClean(table.concat({
+         "local record Result end",
+         "local record Right end",
+         "local record Left",
+         ("   metamethod %s: function(left: Left, right: Right): Result")
+            :format(metamethod),
+         "end",
+         "local left, right: Left, Right = new Left(), new Right()",
+         ("local result: Result = left %s right"):format(operator),
+      }, "\n"))
+   end
+
+   binaryContract("__add", "+")
+   binaryContract("__sub", "-")
+   binaryContract("__mul", "*")
+   binaryContract("__div", "/")
+   binaryContract("__mod", "%")
+   binaryContract("__pow", "^")
+   binaryContract("__concat", "..")
+
    assertClean(table.concat({
-      "local record I64",
-      "   metamethod __add: function(self: I64, other: I64): I64",
+      "local record Result end",
+      "local record Operand",
+      "   metamethod __unm: function(operand: Operand): Result",
       "end",
-      "local a, b: I64, I64 = new I64(), new I64()",
-      "local c: I64 = a + b",
+      "local operand: Operand = new Operand()",
+      "local result: Result = -operand",
    }, "\n"))
+
+   -- Lua consults the right operand when the left has no matching contract,
+   -- but the contract still receives operands in source order.
+   assertClean(table.concat({
+      "local record Result end",
+      "local record Scale",
+      "   metamethod __mul: function(left: number, right: Scale): Result",
+      "end",
+      "local scale: Scale = new Scale()",
+      "local result: Result = 2 * scale",
+   }, "\n"))
+
+   local function comparisonContract(metamethod, operator, contractOnRight)
+      local contract = ("   metamethod %s: function(left: %s, right: %s): boolean")
+         :format(metamethod,
+            contractOnRight and "Right" or "Left",
+            contractOnRight and "Left" or "Right")
+      local left = contractOnRight and "local record Left end" or table.concat({
+         "local record Left",
+         contract,
+         "end",
+      }, "\n")
+      local right = contractOnRight and table.concat({
+         "local record Right",
+         contract,
+         "end",
+      }, "\n") or "local record Right end"
+      assertClean(table.concat({
+         left,
+         right,
+         "local left, right: Left, Right = new Left(), new Right()",
+         ("local result: boolean = left %s right"):format(operator),
+      }, "\n"))
+   end
+
+   comparisonContract("__lt", "<", false)
+   comparisonContract("__lt", ">", true)
+   comparisonContract("__le", "<=", false)
+   comparisonContract("__le", ">=", true)
+
+   -- Lua implements <= without __le as not (right < left), including the
+   -- corresponding operand reversal.
+   comparisonContract("__lt", "<=", true)
+
    assertEq((diagsOf("local n = #true")), "NUPP2003:1")
    assertEq((diagsOf("local record A end\nlocal record B end\nlocal x: A = new A()\nlocal y: B = new B()\nprint(x < y)")),
       "NUPP2003:5")
