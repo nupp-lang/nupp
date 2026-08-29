@@ -1,5 +1,5 @@
 #!/bin/sh
-# Build and run the checksum-only SIMD Mandelbrot at equal and preferred widths.
+# Build and run the matched point-batch Mandelbrot at equal and preferred widths.
 set -eu
 
 ROOT=$(CDPATH= cd -- "$(dirname -- "$0")/../.." && pwd)

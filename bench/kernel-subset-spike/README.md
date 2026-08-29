@@ -344,50 +344,6 @@ MANDELBROT_KERNEL=mandelbrot_f32 luajit bench/kernel-subset-spike/mandelbrot_mai
 luajit bench/kernel-subset-spike/divergence.lua
 ```
 
-### Forgo comparison uses one point-batch contract
-
-`forgo.sh` compares the exact binary32 body with
-`forgo/examples/mandelbrot`. Both timed functions consume the same precomputed
-array of binary32 points and write one `{int32 iterations, uint32 escaped}`
-record per pixel. Grid generation, checksums, allocation and correctness checks
-remain outside the timed boundary. The recurrence uses separate multiply and
-add operations in both implementations, and the runner compares all 786,432
-result records byte-for-byte before reporting success.
-
-The backends remain free to choose their own execution width. On Apple arm64,
-Nupp's automatic lane lowering uses an eight-pixel gang over two Neon
-registers, while Forgo's explicit SIMD source uses one four-pixel Neon vector.
-That is an implementation result rather than a difference in the benchmark
-contract.
-
-Point `FORGO_ROOT` at the Forgo source checkout carrying the matching example.
-When that checkout is not itself a built toolchain, point `FORGO_GOROOT` and
-`FORGO_BIN` at an installed one:
-
-```sh
-FORGO_ROOT=/path/to/forgo \
-FORGO_GOROOT=/path/to/forgo-toolchain \
-FORGO_BIN=/path/to/forgo-toolchain/bin/forgo \
-bench/kernel-subset-spike/forgo.sh
-```
-
-Three runs of each implementation on Apple arm64 with Forgo 0.6.1, at 1024x768 and 256
-iterations, measured:
-
-```
- Implementation       lanes   median MPix/s   range
- -------------------  ------  --------------  --------------
- Nupp AOT              f32x8           174.81  171.54--175.76
- Forgo explicit SIMD   f32x4           153.73  153.36--153.87
- Nupp forced scalar    scalar           61.02   60.51--61.52
- Forgo scalar          scalar           59.72   59.71--59.86
-```
-
-Nupp was 1.14x Forgo on the matched native boundary. The scalar controls were
-within three percent; the remaining difference is in the lane implementations,
-not coordinate generation, output work or numerical precision. Every run
-produced checksum `46372998` and the same 6,291,456 result bytes.
-
 `mandelbrot.nupp` carries `@relax("fp-contract")` and `mandelbrot_f32.nupp` does
 not, so the two are not comparable as written. `mandelbrot_exact.nupp` and
 `mandelbrot_f32fma.nupp` are the missing corners. On the current Apple arm64

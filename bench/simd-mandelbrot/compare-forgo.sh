@@ -16,13 +16,8 @@ fi
 WORK=$(mktemp -d)
 trap 'rm -rf "$WORK"' EXIT
 
-bench/kernel-subset-spike/mandelbrot.sh mandelbrot_f32 >/dev/null
-MANDELBROT_PROFILE=forgo \
-MANDELBROT_KERNEL=mandelbrot_f32 \
-MANDELBROT_QUIET=1 \
-MANDELBROT_NATIVE_ONLY=1 \
 MANDELBROT_RESULTS="$WORK/nupp.bin" \
-luajit bench/kernel-subset-spike/mandelbrot_main.lua >"$WORK/nupp.txt"
+bench/simd-mandelbrot/run.sh >"$WORK/nupp.txt"
 
 (
     cd "$FORGO_ROOT/examples/mandelbrot"
