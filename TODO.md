@@ -42,18 +42,22 @@ work makes sense in.
       alone each is 53 of 53 and 58 of 58, including under three spinning cores,
       so it is not CPU.
 
-      What the runs had in common is other worktrees building at the same time,
-      one of them AOT work. Worktrees share the repository-wide native cache by
-      design, which is the obvious channel and is worth confirming or ruling out
-      first. Inside the suite there is a second candidate: five `aotbuildtest`
-      cases share one cached `emit-c` project and three of them mutate it -- one
-      deletes the artifact, one corrupts it, one appends to the source and leaves
-      it appended -- while Lua promises no order over the test table and the
-      suite runs as two shards in separate processes.
+      The relink is answered and fixed: `bin/nupp` chose which compiler to run on
+      the completion stamp, a build removes that stamp before it writes anything,
+      and `hostbinarytest` builds `--target dist` into the same directory for
+      about a minute of every full run. Commands landing in that window ran the
+      bootstrap instead, and the compiler's own digest keys every artifact, so
+      the key moved and the library relinked. Not the shared native cache, which
+      was the standing suspicion.
 
-      Until one of those is settled, a red full run is not evidence on its own;
-      re-run the named suite before believing it. A cache that misses when
-      nothing changed is still worth an answer.
+      The same swap moves any key the compiler's digest is in, so the artifact
+      key that moved under an appended comment and `pegmaterializetest`'s
+      provider fingerprints are candidates for the same cause -- neither has been
+      reproduced since to say so. The other standing candidate is untouched: five
+      `aotbuildtest` cases share one cached `emit-c` project and three of them
+      mutate it -- one deletes the artifact, one corrupts it, one appends to the
+      source and leaves it appended -- while Lua promises no order over the test
+      table and the suite runs as two shards in separate processes.
 
 - [ ] **Single-binary host.** LuaJIT, LPeg, luautf8, libuv, ada,
       libcurl and mbedTLS are pinned by revision and SHA-256 and built from
@@ -95,20 +99,6 @@ work makes sense in.
       inheritance `suspension.create` performs, and generated code has no way to
       ask a provider for it; the shape of that hook is the open question.
 
-- [ ] **A compiler rebuilt mid-run fails whatever was building against it.**
-      `bin/nupp` rebuilds `build/nupp/compiler` whenever a source is newer than
-      the completion stamp, and a build removes that stamp before it writes
-      anything. A full `nupp test` rebuilds two or three times while it runs --
-      the stamp's mtime changes that often, and a watcher catches it missing --
-      and a suite compiling native artifacts through its own `nupp build`
-      subprocess reads a tree that is being rewritten under it. What comes out
-      is not a hang but a wrong answer: `aotbuildtest` reports a `-Werror`
-      unused parameter in generated C, an artifact rewritten under an unchanged
-      key, or C written outside the output directory, a different one or two
-      each run, and every one of them passes when the suite runs alone.
-      Reproduces on a clean `main`, so it is the harness rather than any change
-      standing on it. What is missing first is why the rebuilds happen at all:
-      nothing in a test run should be making a source newer than the stamp
 ## Transport security
 
 - [ ] **Session resumption.** Tickets and session IDs, so a client reconnecting

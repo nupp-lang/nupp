@@ -2,6 +2,23 @@
 
 ## Unreleased
 
+- A build no longer changes which compiler every other command in the tree runs.
+  A build removes the completion stamp before it writes anything, and `bin/nupp`
+  read the stamp's absence as "there is no compiler here" and ran the bootstrap
+  instead -- for the whole minute a `nupp build --target dist` takes. The two are
+  different compilers with different digests, and the compiler's digest keys
+  every artifact a build writes, so a project built in that window relinked its
+  native library under a key nothing had changed and a comptime worker could be
+  handed a value its parent did not recognize. Which compiler runs is now decided
+  on whether one is there, which is the choice the rebuild already made for
+  itself.
+
+  A build of this tree also takes the build lock now, whatever target it was
+  asked for. Only the rebuild `bin/nupp` decides on for itself was taking it, so
+  a build somebody asked for by name ran beside a second build of the same output
+  directory; and a `nupp build` of some other project through this launcher waits
+  for a build of this tree rather than loading a compiler that is half rewritten.
+
 - A binary that carries some of what the compiler carries no longer reports that
   it carries none of the rest. `bundledlist.list` read the presence of an
   embedded resource table as proof that it was the only place to look, so the

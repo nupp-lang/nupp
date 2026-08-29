@@ -552,9 +552,16 @@ for, so a copied build directory is ignored until a build rewrites it.
 
 The checker and generator finish before module outputs are changed. Each file
 is written through a sibling temporary file, state is saved after the
-artifacts, and `.nupp-complete` is written last. `bin/nupp` only selects a
-compiler build carrying that marker; otherwise it falls back to the tracked
-bootstrap compiler.
+artifacts, and `.nupp-complete` is written last. `bin/nupp` reads that marker to
+decide whether the compiler in `build/` has seen every edit and needs rebuilding
+before the command it was asked for.
+
+It is not how the compiler to run is chosen. A build removes the marker before
+it writes anything, so for as long as a build takes there is a working compiler
+in `build/` and no marker beside it; `bin/nupp` runs the compiler that is there,
+and falls back to the tracked bootstrap only when there is none. One build at a
+time writes a tree -- a build takes a lock for as long as it runs, and a command
+that has to read the compiler waits for it.
 
 ## Build progress and timing
 

@@ -62,6 +62,106 @@ function M.launcherFallsBackToTrackedBootstrap()
    os.execute("rm -rf '" .. dir .. "'")
 end
 
+-- A tree carrying the launcher and two compilers that do nothing but say which
+-- one they are. What these cases test is the launcher's choice between them and
+-- what it waits for on the way, and a real pair would take a build to produce
+-- and answer the same question.
+--
+-- The native provider is planted rather than built for the same reason: the
+-- launcher stages one before every command that reads a source, and this tree
+-- has no `runtime` to build one from. Planted under all three platform names,
+-- because which one is looked for is decided by `uname` and none of them is
+-- ever opened.
+local function plantedTree()
+   local dir = os.tmpname()
+   os.remove(dir)
+   assert(os.execute((
+      "mkdir -p '%s/bin' '%s/bootstrap' '%s/build/nupp/compiler' '%s/build/lib'"
+   ):format(dir, dir, dir, dir)) == 0)
+   assert(os.execute(("cp '%s/bin/nupp' '%s/bin/nupp'"):format(ROOT, dir)) == 0)
+   assert(os.execute(("cp -R '%s/scripts' '%s/scripts'"):format(ROOT, dir)) == 0)
+   local function plant(path, text)
+      local file = assert(io.open(dir .. "/" .. path, "wb"))
+      file:write(text)
+      file:close()
+   end
+   plant("bootstrap/nupp.lua", 'print("BOOTSTRAP")\n')
+   plant("build/nupp/compiler/main.lua", 'print("BUILT")\n')
+   for _, name in ipairs({
+      "libnupp_native_dev.dylib", "libnupp_native_dev.so", "nupp_native_dev.dll",
+   }) do
+      plant("build/lib/" .. name, "")
+   end
+
+   return dir, plant
+end
+
+local function ran(dir, command)
+   local p = assert(io.popen(("cd '%s' && ./bin/nupp %s 2>&1"):format(dir, command)))
+   local out = p:read("*a")
+   p:close()
+   return out
+end
+
+-- Which compiler a command runs is decided on whether one is there, not on
+-- whether the completion stamp says the last build finished. Those two differ
+-- for the length of every build, because a build removes the stamp before it
+-- writes anything -- and a command answering "no compiler here" then runs the
+-- bootstrap instead, which is a different compiler with a different digest.
+-- Every content key a build writes carries that digest, so a project whose
+-- native library one of them linked relinks under the other with nothing
+-- changed.
+function M.aStamplessTreeStillRunsTheCompilerItHas()
+   local dir = plantedTree()
+
+   -- `--help` reads no source, so what it prints is the choice and nothing else.
+   assert(ran(dir, "--help"):find("BUILT", 1, true),
+      "a build in progress has removed the stamp, and the compiler it is rewriting "
+      .. "is still a better answer than one from whenever stage zero was refreshed")
+
+   local stamp = assert(io.open(dir .. "/build/.nupp-complete", "wb"))
+   stamp:write("complete\n")
+   stamp:close()
+   assert(ran(dir, "--help"):find("BUILT", 1, true), "and is the answer once the stamp is back")
+
+   assert(os.remove(dir .. "/build/nupp/compiler/main.lua"))
+   assert(ran(dir, "--help"):find("BOOTSTRAP", 1, true),
+      "the bootstrap is for a tree that has no compiler, not for one mid-build")
+
+   os.execute("rm -rf '" .. dir .. "'")
+end
+
+-- A build of a tree is one writer of it however it was asked for, so it waits
+-- for whoever is already writing. `nupp build --target dist` used to be outside
+-- the lock entirely: it removed the completion stamp for the minute it ran, and
+-- every other command in the tree read that as a tree nobody had built and
+-- started its own build over the same output directory.
+function M.aBuildWaitsForTheBuildAlreadyRunning()
+   local dir = plantedTree()
+
+   -- Held by something that is alive, since a lock whose holder is gone is one
+   -- a killed build left behind and is taken rather than waited for.
+   local script = ([[
+      cd '%s' && mkdir -p build/.nupp-build-lock
+      sleep 4 & printf '%%s\n' "$!" > build/.nupp-build-lock/pid
+      ./bin/nupp build > ran.txt 2>&1 &
+      sleep 2
+      printf 'while held: [%%s]\n' "$(cat ran.txt)"
+      wait
+      printf 'after: [%%s]\n' "$(cat ran.txt)"
+   ]]):format(dir)
+   local p = assert(io.popen(script .. " 2>&1"))
+   local out = p:read("*a")
+   p:close()
+
+   assert(out:find("while held: []", 1, true),
+      "a build ran while another held the lock: " .. out)
+   assert(out:find("after: [BUILT]", 1, true),
+      "and did not run once the lock was free: " .. out)
+
+   os.execute("rm -rf '" .. dir .. "'")
+end
+
 -- Help output proves only that the tracked Lua loads. The bootstrap also has to
 -- understand every language and resolver change used by the current compiler, or a
 -- fresh checkout cannot produce its first build.
