@@ -99,21 +99,29 @@ local function burn(seconds)
    return total, rounds
 end
 
--- A fresh function every time, because a trace abort is a one-off: once the
--- compiler has given up on a piece of code it stops trying, and the second
--- test to run the same function would see nothing. Creating a closure directly
--- in the loop is FNEW bytecode, which the recorder refuses on every host; putting
--- it behind `coroutine.wrap` let the x64 recorder stitch past the refusal.
-local function newAbortingWorkload()
-   return assert(loadstring([[
-      local rounds = ...
-      local total = 0
-      for i = 1, rounds do
-         local function step() return i end
-         total = total + step()
-      end
-      return total
-   ]], "@abortworkload.lua"))
+local function fnewAbortPayload()
+   local registry = require("nupp.profile.trace")
+   local vmdef = require("jit.vmdef")
+   local errorCode
+   for code, format in pairs(vmdef.traceerr) do
+      if format:find("NYI: bytecode", 1, true) then errorCode = code; break end
+   end
+   local opcode
+   for code = 0, #vmdef.bcnames / 6 - 1 do
+      if registry.opcodeName(code) == "FNEW" then opcode = code; break end
+   end
+
+   return assert(errorCode), assert(opcode)
+end
+
+local FNEW_ERROR_CODE, FNEW_OPCODE = fnewAbortPayload()
+
+-- Feed the collector the same arguments `jit.attach` supplies for an abort.
+-- Testing the event handler directly keeps aggregation independent of when the
+-- JIT decides a loop is hot enough to attempt a trace.
+local function emitFnewAbort(session)
+   session.callback("abort", 1, emitFnewAbort, 0,
+      FNEW_ERROR_CODE, FNEW_OPCODE)
 end
 
 local M = {}
@@ -312,16 +320,7 @@ end
 
 function M.recordedTracePayloadUsesTheStaticReasonIdentity()
    local registry = require("nupp.profile.trace")
-   local vmdef = require("jit.vmdef")
-   local errorCode
-   for code, format in pairs(vmdef.traceerr) do
-      if format:find("NYI: bytecode", 1, true) then errorCode = code; break end
-   end
-   local opcode
-   for code = 0, #vmdef.bcnames / 6 - 1 do
-      if registry.opcodeName(code) == "FNEW" then opcode = code; break end
-   end
-   local reason, raw = registry.runtime(errorCode, opcode)
+   local reason, raw = registry.runtime(FNEW_ERROR_CODE, FNEW_OPCODE)
    assertEq(reason.id, "jit/loop-function-construction",
       "recorded VM payload and static bytecode share an identity")
    assertEq(reason.class, "blocker", "the operation-level classification")
@@ -336,11 +335,24 @@ function M.unknownTracePayloadStaysVisibleWithoutInventedAdvice()
    assertMatch(raw, "2147483647", "the raw VM identity remains visible")
 end
 
-function M.traceReportRendersAsCsv()
-   local workload = newAbortingWorkload()
-   jit.flush()
+function M.traceRecordsWhereTheCompilerGaveUp()
    local session = profile.trace()
-   workload(3000)
+   emitFnewAbort(session)
+   local report = session:stop()
+
+   assertEq(report.totalAborts, 1, "the emitted abort is counted")
+   assertEq(#report.sites, 1, "the emitted abort has one site")
+   assertEq(report.sites[1].reasonId, "jit/loop-function-construction",
+      "the unrecordable bytecode is reported")
+   assertEq(report.sites[1].reasonClass, "blocker",
+      "the operation-level classification is preserved")
+   assertMatch(report.sites[1].rawReason, "FNEW",
+      "the VM's bytecode detail remains visible")
+end
+
+function M.traceReportRendersAsCsv()
+   local session = profile.trace()
+   emitFnewAbort(session)
    local report = session:stop()
 
    local rows = lines(tostring(report))
@@ -353,10 +365,8 @@ end
 
 function M.traceWritesTheCsvItReturns()
    local path = os.tmpname()
-   local workload = newAbortingWorkload()
-   jit.flush()
    local session = profile.trace()
-   workload(2000)
+   emitFnewAbort(session)
    local report = session:stop(path)
 
    assertEq(readFile(path), tostring(report), "the file is the report")
@@ -364,11 +374,9 @@ function M.traceWritesTheCsvItReturns()
 end
 
 function M.tracePauseLeavesTheWindowOut()
-   local workload = newAbortingWorkload()
-   jit.flush()
    local session = profile.trace()
    session:pause()
-   workload(3000)
+   emitFnewAbort(session)
    local report = session:stop()
 
    assertEq(report.totalAborts, 0, "a paused session counts nothing")

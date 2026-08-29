@@ -136,10 +136,3 @@ work makes sense in.
       corpus for lexer/parser round-trip and fmt idempotency (`fmt∘fmt = fmt`,
       `parse∘fmt = parse`); minimize and check in failures as regression
       fixtures.
-- [ ] **`tests/profiletest.lua traceRecordsWhereTheCompilerGaveUp` is
-      flaky.** Recorded failing once in six runs with "unrecordable bytecode
-      must be reported"; it depends on the JIT attempting and aborting a trace
-      within 3000 iterations after `jit.flush()`. Sixteen consecutive runs pass
-      today, so the rate is lower than recorded or machine-dependent — but a
-      test whose result depends on trace timing will keep costing somebody a
-      bisect.
