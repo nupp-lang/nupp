@@ -39,4 +39,6 @@ ${NUPP_NATIVE_CC:-clang} -std=c11 -O3 -ffp-contract=off -fno-fast-math \
 ./bin/nupp build -O2 -o "$OUT/fallback" "$SPIKE/$SOURCE.nupp"
 mkdir -p "$OUT/fallback/nupp/mem"
 ./bin/nupp build -O2 -o "$OUT/fallback/nupp/mem" src/nupp/mem/span.nupp
+mkdir -p "$OUT/fallback/nupp/compiler/runtime"
+./bin/nupp build -O2 -o "$OUT/fallback/nupp/compiler/runtime" src/nupp/compiler/runtime/math.nupp
 echo "$LIB"
