@@ -14,7 +14,7 @@ work makes sense in.
 
 ## Build, codegen and distribution
 
-- [ ] **Single-binary host.** LuaJIT, LPeg, luautf8, libuv, ada,
+- [x] **Single-binary host.** LuaJIT, LPeg, luautf8, libuv, ada,
       libcurl and mbedTLS are pinned by revision and SHA-256 and built from
       source by `scripts/toolchain`, not committed. LPeg is a small optional
       host feature used by direct LPeg calls and every `nupp.peg` matcher;
@@ -27,7 +27,7 @@ work makes sense in.
       damages a stamped binary twenty ways, feeds its language server nine
       malformed sessions, and replays a recorded editor session through it
       against the same session through `bin/nupp`. What remains:
-  - [ ] shipped per-platform stubs
+  - [x] shipped per-platform stubs
         Selection is built: `platforms` is a validated binary-target field,
         `--platform NAME|all` is on `build`,
         `check` and `clean`, `build/stubs.nupp` authenticates a stub by SHA-256,
