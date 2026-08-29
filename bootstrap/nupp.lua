@@ -4487,6 +4487,63 @@ end
 return table . concat ( lines , "\n" )
 end
 
+local function specializedLiteral ( value ) 
+if value . op == "constant" then
+return ( value ) . value
+elseif value . op == "bool" then
+return tostring ( ( value ) . value )
+elseif value . op == "lua_string" then
+return string . format ( "%q" , ( value ) . value )
+end
+
+error ( "const specialization carries a non-scalar value" , 0 )
+end
+
+
+
+
+
+function binding . familyReplacement ( family , library , tiers , includeDetector ) 
+local lines = { }
+for position , program in ipairs ( family . programs ) do
+lines [ # lines + 1 ] = binding . replacement ( program , library , tiers , includeDetector == true and position == 1 )
+lines [ # lines + 1 ] = ""
+end
+
+lines [ # lines + 1 ] = family . header
+for position , specialization in ipairs ( family . specializations ) do
+local conditions = { }
+for _ , binder in ipairs ( family . binders ) do
+for _ , carrier in ipairs ( binder . carriers ) do
+local value = specialization . values [ carrier . name ]
+conditions [ # conditions + 1 ] = carrier . name .. " == " .. specializedLiteral ( value )
+end
+end
+local program = ( family . dispatchPrograms or family . programs ) [ position ]
+local arguments = { }
+for _ , param in ipairs ( program . params ) do
+arguments [ # arguments + 1 ] = param . name
+end
+local branch = position == 1 and "if" or "elseif"
+lines [ # lines + 1 ] = "    " .. branch .. " " .. table . concat ( conditions , " and " ) .. " then"
+lines [ # lines + 1 ] = "        return " .. program . name .. "(" .. table . concat ( arguments , ", " ) .. ")"
+end
+lines [ # lines + 1 ] = "    end"
+lines [ # lines + 1 ] = "    error(\"no compiled const application exists for this argument tuple\", 2)"
+lines [ # lines + 1 ] = "end"
+
+local first = family . programs [ 1 ]
+local registry = first . symbol .. "_compiledEntries"
+lines [ # lines + 1 ] = "local " .. registry .. ": any = rawget(_G, \"__nuppAotCompiled\")"
+lines [ # lines + 1 ] = "if " .. registry .. " == nil then"
+lines [ # lines + 1 ] = "    " .. registry .. " = setmetatable({}, {__mode = \"k\"})"
+lines [ # lines + 1 ] = "    rawset(_G, \"__nuppAotCompiled\", " .. registry .. ")"
+lines [ # lines + 1 ] = "end"
+lines [ # lines + 1 ] = registry .. "[" .. family . name .. "] = true"
+
+return table . concat ( lines , "\n" )
+end
+
 
 
 function binding . module ( programs , library ) 
@@ -4586,6 +4643,7 @@ local rewrite = require ( "nupp.compiler.aot.rewrite" )
 local scalarIR = require ( "nupp.compiler.aot.scalar" )
 local targets = require ( "nupp.compiler.aot.target" )
 local text = require ( "nupp.compiler.aot.text" )
+local types = require ( "nupp.compiler.types" )
 local verify = require ( "nupp.compiler.aot.verify" )
 
 local compile = { }
@@ -4616,6 +4674,9 @@ compile.Site = {} compile.Site.__index = compile.Site
 
 
 compile.Artifacts = {} compile.Artifacts.__index = compile.Artifacts
+
+
+
 
 
 
@@ -4723,9 +4784,13 @@ context . reject ( nil , "no @aot function was found" )
 end
 
 local programs = { }
-for position , application in ipairs ( found . applications ) do
-programs [ position ] = lower . program ( found , application , wasChecked , context )
-sites [ position ] = compile . site ( application )
+for _ , application in ipairs ( found . applications ) do
+local declaration = application . tail
+local body = declaration ~= nil and declaration . body or nil
+if body == nil or ( body ) . generics == nil then
+programs [ # programs + 1 ] = lower . program ( found , application , wasChecked , context )
+sites [ # sites + 1 ] = compile . site ( application )
+end
 end
 
 local builderSymbols = { }
@@ -4768,21 +4833,13 @@ end
 
 
 
-
-
-
-
-
-
-
-
-
 function compile . constSpecializations (
 source ,
 filename ,
 parsed ,
 selected ,
-symbolTier
+symbolTier ,
+plans
 ) 
 const maxPerModule = 8
 local diagnostics = { }
@@ -4804,6 +4861,7 @@ end
 
 local found = lower . scan ( parsed . root , true )
 local candidates = { }
+local candidatesByDefinition = { }
 for _ , application in ipairs ( found . applications ) do
 local declaration = application . tail
 local body = declaration ~= nil and declaration . kind == "localFuncStmt" and (
@@ -4849,15 +4907,17 @@ complete = complete and # binder . carriers > 0
 end
 local name = ( declaration ) . name
 if complete and name ~= nil then
-candidates [
-name . text
-] = {
+local candidate = {
 application = application ,
 definition = name . definition ,
 binders = binders ,
 seen = { } ,
 specializations = { } ,
+dispatches = { } ,
+classIndex = { } ,
 }
+candidates [ name . text ] = candidate
+candidatesByDefinition [ name . definition ] = candidate
 end
 end
 end
@@ -4897,6 +4957,7 @@ return nil , nil
 end
 
 local specializationLines = { }
+local specializationSites = { }
 local function walk ( node ) 
 if node == nil or cst . isToken ( node ) then
 return
@@ -4909,6 +4970,7 @@ local candidate = token ~= nil and candidates [ ( token ) . text ] or nil
 if candidate ~= nil and ( token ) . definition == candidate . definition then
 local signature = ( call ) . signatureType
 local values = { }
+local omitted = { }
 local tuple = { }
 local sourceSite = lower . site ( call )
 local complete = signature ~= nil and signature . tag == "func"
@@ -4926,36 +4988,34 @@ break
 end
 binderKey = key
 values [ carrier . name ] = value
+omitted [ carrier . position ] = true
 end
 if not complete or binderKey == nil then
 break
 end
-tuple [ # tuple + 1 ] = binder . name .. "=" .. binderKey
+tuple [ # tuple + 1 ] = binder . domain .. ":" .. binder . name .. "=" .. binderKey
 end
 if complete then
-local key = table . concat ( tuple , "\0" )
+local canonical = filename .. "\0" .. (
+token
+) . text .. "\0" .. types . tostring ( signature ) .. "\0" .. table . concat ( tuple , "\0" )
+local key = hash . digest ( canonical )
 if not candidate . seen [ key ] then
-if # specializationLines >= maxPerModule then
-local prior = { }
-for _ , line in ipairs ( specializationLines ) do
-prior [ # prior + 1 ] = tostring ( line )
-end
-context . reject (
-sourceSite ,
-(
-"const specialization prototype exceeds %d bodies in this module; prior call lines: %s"
-) : format ( maxPerModule , table . concat ( prior , ", " ) )
-)
-end
 candidate . seen [ key ] = true
 specializationLines [ # specializationLines + 1 ] = sourceSite . line
-candidate . specializations [
-# candidate . specializations + 1
-] = setmetatable({ name =
-( token ) . text .. "__const_" .. hash . digest ( key ) : sub ( 1 , 16 ) ,  signature =
+specializationSites [ # specializationSites + 1 ] = { file = filename , line = sourceSite . line , }
+local lowered = setmetatable({ name =
+"__nuppConst_" .. (
+token
+) . text : gsub ( "[^%w_]" , "_" ) .. "_" .. key : sub ( 1 , 16 ) ,  signature =
 signature ,  values =
-values }, lower.Specialization)
+values ,  omitted =
+omitted }, lower.Specialization)
 
+candidate . specializations [ # candidate . specializations + 1 ] = lowered
+candidate . dispatches [
+# candidate . dispatches + 1
+] = { specialization = lowered , index = # candidate . specializations , }
 end
 end
 end
@@ -4965,18 +5025,131 @@ walk ( child )
 end
 end
 
+if plans ~= nil then
+for _ , plan in ipairs ( plans ) do
+local candidate = candidatesByDefinition [ plan . definition ]
+if candidate ~= nil then
+for _ , specialization in ipairs ( plan . specializations ) do
+if not candidate . seen [ specialization . key ] then
+candidate . seen [ specialization . key ] = true
+local values = { }
+local complete = true
+for _ , binder in ipairs ( candidate . binders ) do
+for _ , carrier in ipairs ( binder . carriers ) do
+local _ , value = literal ( specialization . signature . params [ carrier . position ] , nil )
+if value == nil then
+complete = false
+break
+end
+values [ carrier . name ] = value
+end
+if not complete then
+break
+end
+end
+if complete then
+local physical = specialization . physical or specialization
+local lowered = setmetatable({ name =
+physical . name ,  signature =
+specialization . signature ,  values =
+values ,  omitted =
+specialization . omitted }, lower.Specialization)
+
+local class = specialization . bodyClass or specialization . key
+local index = candidate . classIndex [ class ]
+if index == nil then
+candidate . specializations [ # candidate . specializations + 1 ] = lowered
+index = # candidate . specializations
+candidate . classIndex [ class ] = index
+end
+candidate . dispatches [ # candidate . dispatches + 1 ] = { specialization = lowered , index = index , }
+for _ , call in ipairs ( specialization . calls ) do
+local line = lower . site ( call ) . line
+specializationLines [ # specializationLines + 1 ] = line
+specializationSites [
+# specializationSites + 1
+] = { file = specialization . callFiles [ call ] or filename , line = line , }
+end
+end
+end
+end
+end
+end
+else
 walk ( parsed . root )
+end
+
+local function bySpecializationName ( a , b ) 
+return a . name < b . name
+end
+
+for _ , candidate in pairs ( candidates ) do
+if plans == nil then
+table . sort ( candidate . specializations , bySpecializationName )
+candidate . dispatches = { }
+for index , specialization in ipairs ( candidate . specializations ) do
+candidate . dispatches [ # candidate . dispatches + 1 ] = { specialization = specialization , index = index , }
+end
+end
+end
+
+local specializationCount = 0
+for _ , candidate in pairs ( candidates ) do
+specializationCount = specializationCount + # candidate . specializations
+end
+if specializationCount > maxPerModule then
+local sites = { }
+for _ , site in ipairs ( specializationSites ) do
+sites [ # sites + 1 ] = site . file .. ":" .. tostring ( site . line )
+end
+diagnostics [
+# diagnostics + 1
+] = setmetatable({ file =
+filename ,  line =
+specializationLines [ maxPerModule + 1 ] or specializationLines [ 1 ] or 1 ,  column =
+1 ,  message =
+(
+"const specialization requires %d body classes in this module, over the cap of %d; demanding call sites: %s"
+) : format ( specializationCount , maxPerModule , table . concat ( sites , ", " ) ) }, compile.Diagnostic)
+
+return nil , diagnostics
+end
 
 local ok , answer = pcall ( function ( ) 
 local programs = { }
+local families = { }
 for _ , application in ipairs ( found . applications ) do
 local declaration = application . tail
 local name = declaration ~= nil and declaration . name ~= nil and declaration . name . text or ""
 local candidate = candidates [ name ]
+local familyPrograms = { }
+local familySpecializations = { }
+local familyDispatchPrograms = { }
 for _ , specialization in ipairs ( candidate ~= nil and candidate . specializations or { } ) do
-programs [
-# programs + 1
-] = verify . program ( lower . program ( found , application , true , context , specialization ) )
+local program = verify . program ( lower . program ( found , application , true , context , specialization ) )
+programs [ # programs + 1 ] = program
+familyPrograms [ # familyPrograms + 1 ] = program
+end
+for _ , dispatch in ipairs ( candidate ~= nil and candidate . dispatches or { } ) do
+familySpecializations [ # familySpecializations + 1 ] = dispatch . specialization
+familyDispatchPrograms [ # familyDispatchPrograms + 1 ] = familyPrograms [ dispatch . index ]
+end
+if # familyPrograms > 0 and declaration ~= nil and declaration . body ~= nil then
+local first = cst . firstToken ( declaration )
+local bodyFirst = cst . firstToken ( ( declaration . body ) . body )
+local headerFrom = first ~= nil and first . offset or 1
+local headerTo = bodyFirst ~= nil and bodyFirst . offset - 1 or headerFrom
+families [
+# families + 1
+] = {
+site = compile . site ( application ) ,
+header = source : sub ( headerFrom , headerTo ) ,
+name = name ,
+binders = candidate . binders ,
+programs = familyPrograms ,
+specializations = familySpecializations ,
+dispatchPrograms = familyDispatchPrograms ,
+}
 end
 end
 if # programs == 0 then
@@ -4999,7 +5172,8 @@ loopReports ,  irText =
 text . programs ( programs ) ,  c =
 emit . program ( programs , symbolTier ) ,  binding =
 "" ,  sites =
-{ } }, compile.Artifacts)
+{ } ,  constFamilies =
+families }, compile.Artifacts)
 
 end )
 if not ok then
@@ -5112,11 +5286,36 @@ filename ,
 parsed ,
 library ,
 selected ,
-symbolTier
+symbolTier ,
+constPlans
 ) 
 local programs , diagnostics , sites = compile . lower ( source , filename , parsed )
-if # programs == 0 then
+if # diagnostics > 0 then
 return nil , diagnostics
+end
+
+local constArtifacts = nil
+if parsed ~= nil then
+local specialized , specializationDiagnostics = compile . constSpecializations (
+source ,
+filename ,
+parsed ,
+selected ,
+symbolTier ,
+constPlans
+)
+if specialized ~= nil then
+constArtifacts = specialized
+elseif specializationDiagnostics [
+1
+] ~= nil and specializationDiagnostics [ 1 ] . message ~= "no closed const-generic AOT applications were found" then
+return nil , specializationDiagnostics
+end
+end
+if # programs == 0 and constArtifacts == nil then
+return nil , { setmetatable({ file =
+filename ,  line =  1 ,  column =  1 ,  message =  "no @aot function was found" }, compile.Diagnostic)
+}
 end
 
 local optimizations = { }
@@ -5130,6 +5329,13 @@ verify . program ( program )
 compile . lanes ( program , filename , selected )
 loopReports [ position ] = loopAnalysis . program ( program )
 end
+if constArtifacts ~= nil then
+for position , program in ipairs ( ( constArtifacts ) . programs ) do
+programs [ # programs + 1 ] = program
+optimizations [ # optimizations + 1 ] = ( constArtifacts ) . optimizations [ position ]
+loopReports [ # loopReports + 1 ] = ( constArtifacts ) . loops [ position ]
+end
+end
 
 return setmetatable({ programs =
 programs ,  optimizations =
@@ -5138,7 +5344,8 @@ loopReports ,  irText =
 text . programs ( programs ) ,  c =
 emit . program ( programs , symbolTier ) ,  binding =
 bindingRules . module ( programs , library ) ,  sites =
-sites }, compile.Artifacts)
+sites ,  constFamilies =
+constArtifacts ~= nil and ( constArtifacts ) . constFamilies or nil }, compile.Artifacts)
 , diagnostics
 end
 
@@ -16812,10 +17019,14 @@ checkedSignature ,
 declarations ,
 layouts ,
 context ,
-useSignatureTypes
+useSignatureTypes ,
+omitted
 ) 
 local signature = setmetatable({ params =  { } ,  byName =  { } ,  spans =  { } ,  writes =  { } ,  reads =  { } }, lower.Signature)
 for position , raw in ipairs ( raws ) do
+if omitted ~= nil and omitted [ position ] == true then
+goto continue
+end
 local name = raw . name ~= nil and ( raw . name ) . text or nil
 if name == nil then
 context . reject ( lower . site ( raw ) , "every kernel parameter must be named" )
@@ -16939,6 +17150,7 @@ end
 
 signature . params [ # signature . params + 1 ] = param
 signature . byName [ name ] = param
+:: continue ::
 end
 
 return signature
@@ -17216,9 +17428,8 @@ lower.Application = {} lower.Application.__index = lower.Application
 
 
 
-
-
 lower.Specialization = {} lower.Specialization.__index = lower.Specialization
+
 
 
 
@@ -17482,7 +17693,8 @@ checkedSignature ,
 declarations . structs ,
 layouts ,
 context ,
-specialization ~= nil
+specialization ~= nil ,
+specialization ~= nil and ( specialization ) . omitted or nil
 )
 local regions , aliasFacts = lower . regions ( signature . spans )
 local sourceName = ( fn . name ) . text
@@ -17580,6 +17792,11 @@ end ) ( ) ,  serial =
 context }, lower.Kernel)
 
 local environment = { }
+if specialization ~= nil then
+for carrier , value in pairs ( ( specialization ) . values ) do
+environment [ carrier ] = value
+end
+end
 for position , param in ipairs ( signature . params ) do
 if param . kind == "uniform" or param . kind == "scalar" then
 if param . kind == "scalar" then
@@ -17693,6 +17910,11 @@ context }, lower.Kernel)
 
 
 local environment = { }
+if specialization ~= nil then
+for carrier , value in pairs ( ( specialization ) . values ) do
+environment [ carrier ] = value
+end
+end
 for position , param in ipairs ( signature . params ) do
 if param . kind == "uniform" or param . kind == "scalar" then
 if param . kind == "scalar" then
@@ -27545,9 +27767,11 @@ local bindingRules = require ( "nupp.compiler.aot.binding" )
 local wasmBinding = require ( "nupp.compiler.aot.wasmbinding" )
 local wasmEmitter = require ( "nupp.compiler.aot.wasmemit" )
 local compile = require ( "nupp.compiler.aot.compile" )
+local constspecialize = require ( "nupp.compiler.constspecialize" )
 local emitter = require ( "nupp.compiler.aot.emit" )
 local diagnosticMod = require ( "nupp.compiler.diagnostics" )
 local fs = require ( "nupp.compiler.fs" )
+local envMod = require ( "nupp.compiler.env" )
 local cache = require ( "nupp.compiler.build.cache" )
 local hash = require ( "nupp.compiler.build.hash" )
 local process = require ( "nupp.compiler.build.process" )
@@ -28047,22 +28271,43 @@ source ,
 programs ,
 sites ,
 library ,
-tiers
+tiers ,
+constFamilies
 ) 
 local rewritten = source
-for position = # programs , 1 , - 1 do
+local replacements = { }
+local detectorAt = nil
+for _ , site in ipairs ( sites ) do
+detectorAt = detectorAt == nil and site . from or math . min ( detectorAt , site . from )
+end
+for _ , family in ipairs ( constFamilies or { } ) do
+detectorAt = detectorAt == nil and family . site . from or math . min ( detectorAt , family . site . from )
+end
+for _ , family in ipairs ( constFamilies or { } ) do
+replacements [
+# replacements + 1
+] = {
+site = family . site ,
+text = bindingRules . familyReplacement ( family , library , tiers , family . site . from == detectorAt ) ,
+}
+end
+for position = 1 , # programs do
 local site = sites [ position ]
 if site ~= nil then
-rewritten = rewritten : sub (
-1 ,
-site . from - 1
-) .. bindingRules . replacement (
-programs [ position ] ,
-library ,
-tiers ,
-position == 1
-) .. rewritten : sub ( site . to + 1 )
+replacements [
+# replacements + 1
+] = {
+site = site ,
+text = bindingRules . replacement ( programs [ position ] , library , tiers , site . from == detectorAt ) ,
+}
 end
+end
+table . sort ( replacements , function ( a , b ) 
+return a . site . from > b . site . from
+end )
+for _ , replacement in ipairs ( replacements ) do
+local site = replacement . site
+rewritten = rewritten : sub ( 1 , site . from - 1 ) .. replacement . text .. rewritten : sub ( site . to + 1 )
 end
 
 return rewritten
@@ -28425,19 +28670,47 @@ end
 
 local emitted = { }
 local seen = { }
+local sources = { }
+local sourceText = { }
+local sourceDirectory = { }
+local checkedBySource = { }
+local checkedModules = { }
 for _ , directory in ipairs ( roots ) do
 for _ , source in ipairs ( fs . listFiles ( fs . join ( root , directory ) ) ) do
 if not seen [ source ] and source : match ( "%.nupp$" ) ~= nil then
 seen [ source ] = true
-
 local text = fs . readFile ( source )
-local tree = nil
-if text ~= nil and mentionsAot ( text ) then
+if text ~= nil then
 local checkedSource , unusedHere = checkedTree ( session , source )
-tree = checkedSource
+if checkedSource ~= nil then
+sources [ # sources + 1 ] = source
+sourceText [ source ] = text
+sourceDirectory [ source ] = directory
+checkedBySource [ source ] = checkedSource
+checkedModules [
+# checkedModules + 1
+] = {
+filename = source ,
+module = envMod . moduleNameForPath ( session . inc . env , source ) ,
+result = checkedSource ,
+}
+if mentionsAot ( text ) then
 authoredUnused [ source ] = unusedHere
 end
-if tree ~= nil then
+end
+end
+end
+end
+end
+table . sort ( sources )
+local constPlans = constspecialize . collectGraph ( checkedModules )
+local acceptedConst , declinedConst = constspecialize . selectGraph ( constPlans )
+local constSelection = { accepted = acceptedConst , declined = declinedConst , plans = constPlans , }
+for _ , source in ipairs ( sources ) do
+local text = sourceText [ source ]
+local tree = checkedBySource [ source ]
+local directory = sourceDirectory [ source ]
+if mentionsAot ( text ) then
 for tierPosition , tierTarget in ipairs ( selected ) do
 local artifacts , diagnostics = compile . artifacts (
 text ,
@@ -28445,7 +28718,8 @@ source ,
 tree ,
 "<object>" ,
 tierTarget ,
-tierTarget . tier
+tierTarget . tier ,
+constPlans
 )
 if artifacts == nil then
 
@@ -28519,8 +28793,6 @@ end
 end
 end
 end
-end
-end
 
 
 
@@ -28554,11 +28826,17 @@ true }, aot.Emitted)
 
 end
 
-return emitted , nil , produced , authoredUnused
+return emitted , nil , produced , authoredUnused , constSelection
 end
 
 
 aot.Result = {} aot.Result.__index = aot.Result
+
+
+
+
+
+
 
 
 
@@ -28657,7 +28935,7 @@ if wasmPolicy then
 triple = "wasm32-unknown-emscripten"
 features = features or "scalar"
 end
-local emitted , emitErr , produced , authoredUnused = aot . emitC (
+local emitted , emitErr , produced , authoredUnused , constSelection = aot . emitC (
 root ,
 outDir ,
 roots ,
@@ -28668,6 +28946,17 @@ triple
 )
 if emitted == nil then
 return nil , emitErr
+end
+local specializedBodies = 0
+local countedSources = { }
+for _ , one in ipairs ( emitted ) do
+local artifacts = produced [ one . source ]
+if not countedSources [ one . source ] and artifacts ~= nil then
+countedSources [ one . source ] = true
+for _ , family in ipairs ( ( artifacts ) . constFamilies or { } ) do
+specializedBodies = specializedBodies + # family . programs
+end
+end
 end
 local selectedForManifest , selectedErr = targets . buildTiers ( triple , features )
 if selectedForManifest == nil then
@@ -28724,11 +29013,19 @@ wasmToolchain ,  manifest =
 manifest ,  dispatch =
 dispatch ,  authoredUnused =
 authoredUnused ,  wasmModules =
-wasmModules }, aot.Result)
+wasmModules ,  specializedBodies =
+specializedBodies ,  constSelection =
+constSelection }, aot.Result)
 , nil
 end
 if not aot . linksNative ( policy ) or # ( emitted ) == 0 then
-return setmetatable({ emitted =  emitted ,  manifest =  manifest ,  dispatch =  { } }, aot.Result) , nil
+return setmetatable({ emitted =
+emitted ,  manifest =
+manifest ,  dispatch =
+{ } ,  specializedBodies =
+specializedBodies ,  constSelection =
+constSelection }, aot.Result)
+, nil
 end
 
 local chain , chainErr = aot . toolchain ( )
@@ -28799,7 +29096,8 @@ text ,
 ( artifacts ) . programs ,
 ( artifacts ) . sites ,
 reference ,
-tierNames
+tierNames ,
+( artifacts ) . constFamilies
 )
 end
 end
@@ -28811,7 +29109,9 @@ key ,  toolchain =
 ( chain ) . version ,  manifest =
 manifest ,  dispatch =
 dispatch ,  authoredUnused =
-authoredUnused }, aot.Result)
+authoredUnused ,  specializedBodies =
+specializedBodies ,  constSelection =
+constSelection }, aot.Result)
 , nil
 end
 
@@ -28850,6 +29150,7 @@ local readFile , writeFile = fs . readFile , fs . writeFile
 local listFiles = fs . listFiles
 
 local cache = { }
+
 
 
 
@@ -32035,6 +32336,7 @@ local deps = require ( "nupp.compiler.build.deps" )
 local materializeObserve = require ( "nupp.compiler.materialize.observe" )
 local progress = require ( "nupp.compiler.build.progress" )
 local backends = require ( "nupp.compiler.backends" )
+local constspecialize = require ( "nupp.compiler.constspecialize" )
 local native = require ( "nupp.compiler.native" )
 
 local normalize , join = fs . normalize , fs . join
@@ -32124,6 +32426,7 @@ table . sort ( items )
 
 return table . concat ( items , "\0" )
 end
+
 
 
 
@@ -32604,6 +32907,7 @@ materializations = record . materializations ,
 derives = record . derives ,
 backend = record . backend ,
 backendHash = record . backendHash ,
+specializationHash = record . specializationHash ,
 }
 end
 
@@ -33092,6 +33396,79 @@ end
 end
 end
 
+local suppliedConstSelection = ( target ) . _constSelection
+local constEnabled = not checkOnly and ( config . _optLevel or 0 ) >= 1 and not ( config . _disabledPasses or { } ) [ "OPT-8" ]
+local specializationPlans = { }
+local acceptedSpecializations = { }
+local declinedSpecializations = { }
+if constEnabled then
+
+
+
+
+
+local checkedForSpecialization = { }
+local specializationCursor = 1
+while specializationCursor <= # queue do
+local item = queue [ specializationCursor ]
+specializationCursor = specializationCursor + 1
+local checked = inc . checkFile ( item . path )
+if checked . result ~= nil and checked . missing ~= true and checked . syntax ~= true then
+checkedForSpecialization [
+# checkedForSpecialization + 1
+] = { filename = item . path , module = item . name , result = checked . result , }
+end
+for _ , dependency in ipairs ( inc . moduleDependencies ( item . path ) ) do
+local dependencyPath = inc . modulePath ( dependency )
+if dependencyPath ~= nil then
+seed ( dependency , dependencyPath )
+end
+end
+end
+if suppliedConstSelection ~= nil then
+specializationPlans = suppliedConstSelection . plans
+acceptedSpecializations = suppliedConstSelection . accepted
+declinedSpecializations = suppliedConstSelection . declined
+else
+specializationPlans = constspecialize . collectGraph ( checkedForSpecialization )
+acceptedSpecializations , declinedSpecializations = constspecialize . selectGraph ( specializationPlans )
+end
+end
+
+
+
+
+
+local constSelection = constEnabled and {
+accepted = acceptedSpecializations ,
+declined = declinedSpecializations ,
+} or nil
+local acceptedBodies = 0
+for _ , specialization in ipairs ( acceptedSpecializations ) do
+if specialization . physical == specialization and not (
+suppliedConstSelection ~= nil and specialization . requiredAot
+) then
+acceptedBodies = acceptedBodies + 1
+end
+end
+local specializationKeys = { }
+for _ , plan in ipairs ( specializationPlans ) do
+local keys = specializationKeys [ normalize ( plan . filename ) ]
+if keys == nil then
+keys = { }
+specializationKeys [ normalize ( plan . filename ) ] = keys
+end
+for _ , specialization in ipairs ( plan . specializations ) do
+keys [ # keys + 1 ] = specialization . key
+end
+end
+local specializationHashes = { }
+for path , keys in pairs ( specializationKeys ) do
+table . sort ( keys )
+specializationHashes [ path ] = hash . digest ( table . concat ( keys , "\0" ) )
+end
+local emptySpecializationHash = hash . digest ( "" )
+
 local records , reused , codeFor , paths = { } , { } , { } , { }
 local order , queued , cursor = { } , { } , 1
 
@@ -33104,6 +33481,8 @@ report : expect ( # queue )
 local generateMs = { }
 stats = ( stats or { } )
 stats . checkedModules , stats . generatedModules , stats . reusedModules = 0 , 0 , 0
+stats . specializedBodies = acceptedBodies
+report : addSpecialized ( acceptedBodies )
 
 
 
@@ -33189,7 +33568,8 @@ level = config . _optLevel or 0 ,
 filename = path ,
 disabled = config . _disabledPasses ,
 relaxed = config . _relaxedGuarantees ,
-dialect = ( config . _target or { } ) . dialect
+dialect = ( config . _target or { } ) . dialect ,
+constSelection = constSelection ,
 } )
 if config . _remarks then
 for _ , note in ipairs ( remarks ) do
@@ -33259,6 +33639,7 @@ materializations = jsonArray ( materializations ) ,
 derives = jsonArray ( derives ) ,
 backend = result . backend ,
 backendHash = backendResolution . fingerprint ,
+specializationHash = specializationHashes [ normalize ( path ) ] or emptySpecializationHash ,
 }
 codeFor [ name ] = code
 reused [ name ] = nil
@@ -33301,9 +33682,9 @@ local output = external and nil or join ( root , join ( outDir , item . name : g
 local usable = cacheCompatible
 and previous
 and previous . sourceHash == sourceHash
-and previous . backendHash == backendResolution . fingerprint
-and previous . interfaceHash
-and type (
+and previous . specializationHash == (
+specializationHashes [ normalize ( path ) ] or emptySpecializationHash
+) and previous . backendHash == backendResolution . fingerprint and previous . interfaceHash and type (
 previous . dependencies
 ) == "table" and type (
 previous . projectDependencies
@@ -35006,6 +35387,7 @@ local progress = { }
 
 
 
+
 progress . SLOWEST = 5
 
 
@@ -35154,6 +35536,7 @@ progress.Reporter = {} progress.Reporter.__index = progress.Reporter
 
 
 
+
 function progress.Reporter:at(activity) 
 local moment = clock ( )
 self . spans [ self . activity ] = ( self . spans [ self . activity ] or 0 ) + ( moment - self . since )
@@ -35228,6 +35611,12 @@ self . compiled , self . reused = compiled , reused
 end
 
 
+
+function progress.Reporter:addSpecialized(count) 
+self . specialized = self . specialized + count
+end
+
+
 function progress.Reporter:timing() 
 local phases = { }
 for _ , name in ipairs ( self . order ) do
@@ -35259,6 +35648,7 @@ return {
 totalMs = clock ( ) - self . startedAt ,
 compiledModules = self . compiled ,
 reusedModules = self . reused ,
+specializedBodies = self . specialized ,
 phases = phases ,
 slowest = slowest ,
 }
@@ -35281,6 +35671,9 @@ if measured . compiledModules == 0 then
 counts = ( "%d module%s reused" ) : format ( measured . reusedModules , measured . reusedModules == 1 and "" or "s" )
 else
 counts = ( "%d compiled, %d reused" ) : format ( measured . compiledModules , measured . reusedModules )
+end
+if measured . specializedBodies > 0 then
+counts = counts .. ( ", %d specialized" ) : format ( measured . specializedBodies )
 end
 local success = ansi . forSeverity ( style , "help" )
 local detail = ansi . forSeverity ( style , "note" )
@@ -35349,6 +35742,7 @@ started ,  spans =
 0 ,  done =
 0 ,  compiled =
 0 ,  reused =
+0 ,  specialized =
 0 ,  paintedAt =
 0 ,  onScreen =
 false ,  columns =
@@ -35765,6 +36159,9 @@ io . stderr : write ( "nupp: " .. tostring ( aotErr ) .. "\n" )
 
 return 1
 end
+report : addSpecialized ( ( produced ) . specializedBodies or 0 )
+local internalTarget = target
+internalTarget . _constSelection = ( produced ) . constSelection
 
 
 local keys = { }
@@ -69722,6 +70119,10 @@ properties = {
 totalMs = { type = "number" , description = "Wall-clock milliseconds for the whole build." } ,
 compiledModules = { type = "integer" } ,
 reusedModules = { type = "integer" } ,
+specializedBodies = {
+type = "integer" ,
+description = "Logical const-specialized bodies emitted independently of module count." ,
+} ,
 phases = {
 type = "array" ,
 description = "Every activity that took measurable time, longest "
@@ -69743,7 +70144,7 @@ required = { "module" , "durationMs" } ,
 } ,
 } ,
 } ,
-required = { "totalMs" , "compiledModules" , "reusedModules" , "phases" , "slowest" } ,
+required = { "totalMs" , "compiledModules" , "reusedModules" , "specializedBodies" , "phases" , "slowest" , } ,
 } ,
 ok = {
 type = "boolean" ,
@@ -69911,6 +70312,7 @@ end
 local env = require ( "nupp.compiler.env" ) . new ( "." )
 settings . materializations = materializations
 settings . derives = derives
+settings . specializedBodies = 0
 
 
 
@@ -69927,7 +70329,9 @@ written [ path ] = true
 report : at ( "compile" )
 report : step ( "compiling " .. path )
 local startedAt = progressMod . now ( )
+local before = settings . specializedBodies
 local code = compile . module ( path , env , settings )
+report : addSpecialized ( ( settings . specializedBodies ) - before )
 report : spent ( path , progressMod . now ( ) - startedAt )
 report : resolved ( )
 if not code then
@@ -70064,6 +70468,7 @@ properties = {
 totalMs = { type = "number" , description = "Wall-clock milliseconds for the whole check." } ,
 compiledModules = { type = "integer" } ,
 reusedModules = { type = "integer" } ,
+specializedBodies = { type = "integer" } ,
 phases = {
 type = "array" ,
 description = "Every activity that took measurable time, longest "
@@ -70087,7 +70492,7 @@ required = { "module" , "durationMs" } ,
 } ,
 } ,
 } ,
-required = { "totalMs" , "compiledModules" , "reusedModules" , "phases" , "slowest" } ,
+required = { "totalMs" , "compiledModules" , "reusedModules" , "specializedBodies" , "phases" , "slowest" , } ,
 } ,
 } ,
 required = { "ok" , "diagnostics" , "dialect" } ,
@@ -70409,6 +70814,10 @@ compile.Settings = {} compile.Settings.__index = compile.Settings
 
 
 
+
+
+
+
 local LEVELS = { [ "0" ] = 0 , [ "1" ] = 1 , [ "2" ] = 2 }
 
 
@@ -70491,12 +70900,17 @@ end
 if say ( diags ) then
 return nil , "type errors"
 end
-local remarks = require ( "nupp.compiler.optimize" ) . run ( result , {
+local remarks , specializedBodies = require ( "nupp.compiler.optimize" ) . run ( result , {
 level = settings . optLevel or 0 ,
 filename = path ,
 disabled = settings . disabled ,
 relaxed = settings . relaxed
 } )
+
+
+if settings . specializedBodies ~= nil then
+settings . specializedBodies = ( settings . specializedBodies ) + specializedBodies
+end
 if settings . remarks then
 say ( remarks )
 end
@@ -79373,6 +79787,442 @@ end
 
 const __nuppExportValue= consteval ;__nuppExports=__nuppExportValue
  end);if not __nuppOk then package.loaded["nupp.compiler.consteval"]=nil;error(__nuppWhy,0) end;package.loaded["nupp.compiler.consteval"]=__nuppExports;return __nuppExports
+end
+package.preload["nupp.compiler.constspecialize"] = function(...)
+_G.assert(_G.loadstring("local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppMath=rawget(__nupp,\"math\")or{};rawset(__nupp,\"math\",__nuppMath) local function __nuppCloseFile(handle)if io.type(handle)==\"closed file\"then return end;local ok,reason=handle:close();if not ok then error(reason or \"the file could not be closed\",0)end end local __nuppManagedBrand=_G.__nuppManagedBrand if not __nuppManagedBrand then __nuppManagedBrand={};_G.__nuppManagedBrand=__nuppManagedBrand end local __nuppManagedCells=_G.__nuppManagedCells if not __nuppManagedCells then __nuppManagedCells=setmetatable({},{__mode=\"k\"});_G.__nuppManagedCells=__nuppManagedCells end local __nuppManagedOwner={};__nuppManagedOwner.__index=__nuppManagedOwner;local __nuppManagedAlias={};__nuppManagedAlias.__index=__nuppManagedAlias local function __nuppManagedError(code,message)return{code=code,message=message}end local function __nuppManagedProblem(cell) if type(cell)~=\"table\"or cell._brand~=__nuppManagedBrand then return __nuppManagedError(\"NUPP2614\",\"value is not a managed alias\")end if cell._state==\"taken\"then return __nuppManagedError(\"NUPP2614\",\"managed ownership was already taken\")end if cell._state==\"closed\"or cell._state==\"closing\"then return __nuppManagedError(\"NUPP2614\",\"managed resource is closed\")end return nil end local function __nuppManagedClose(cell,checked) local problem=__nuppManagedProblem(cell);if problem then if checked then return problem end;return nil end if cell._borrows~=0 or cell._exclusive then local busy=__nuppManagedError(\"NUPP2620\",\"managed resource has an active borrow\");if checked then return busy end;error(busy.message,0)end cell._state=\"closing\";local value,cleanup=cell._value,cell._cleanup;cell._value=nil;cell._cleanup=nil local ok,reason=pcall(cleanup,value);cell._state=\"closed\";if not ok then error(reason,0)end;return nil end function __nuppManagedOwner:alias()return setmetatable({_cell=self,_brand=__nuppManagedBrand},__nuppManagedAlias)end function __nuppManagedOwner:close()return __nuppManagedClose(self,false)end local function __nuppAliasCell(self) if type(self)~=\"table\"or self._brand~=__nuppManagedBrand or getmetatable(self)~=__nuppManagedAlias then return nil,__nuppManagedError(\"NUPP2614\",\"value is not a managed alias\")end local cell=self._cell;local problem=__nuppManagedProblem(cell);if problem then return nil,problem end;return cell,nil end function __nuppManagedAlias:with(callback) local cell,problem=__nuppAliasCell(self);if not cell then return nil,problem end if cell._exclusive then return nil,__nuppManagedError(\"NUPP2620\",\"managed resource is exclusively borrowed\")end cell._borrows=cell._borrows+1;cell._state=\"shared-borrowed(\"..cell._borrows..\")\" local ok,result=pcall(callback,cell._value);cell._borrows=cell._borrows-1;cell._state=cell._borrows>0 and(\"shared-borrowed(\"..cell._borrows..\")\")or\"live\" if not ok then error(result,0)end;return result,nil end function __nuppManagedAlias:withExclusive(callback) local cell,problem=__nuppAliasCell(self);if not cell then return nil,problem end if cell._exclusive or cell._borrows~=0 then return nil,__nuppManagedError(\"NUPP2620\",\"managed resource is already borrowed\")end cell._exclusive=true;cell._state=\"exclusive-borrowed\";local ok,result=pcall(callback,cell._value);cell._exclusive=false;cell._state=\"live\" if not ok then error(result,0)end;return result,nil end function __nuppManagedAlias:take() local cell,problem=__nuppAliasCell(self);if not cell then return nil,problem end if cell._exclusive or cell._borrows~=0 then return nil,__nuppManagedError(\"NUPP2620\",\"managed resource has an active borrow\")end cell._state=\"taken\";local value=cell._value;cell._value=nil;cell._cleanup=nil;return value,nil end function __nuppManagedAlias:close() local cell,problem=__nuppAliasCell(self);if not cell then return problem end;return __nuppManagedClose(cell,true)end function __nuppManagedAlias:_downcast(policy) local cell,problem=__nuppAliasCell(self);if not cell then return nil,problem end if cell._policy~=policy then return nil,__nuppManagedError(\"NUPP2613\",\"managed alias has the wrong type or cleanup policy\")end return self,nil end function __nupp.__manage(value,cleanup,policy) local cell=setmetatable({_brand=__nuppManagedBrand,_value=value,_cleanup=cleanup,_policy=policy,_state=\"live\",_borrows=0,_exclusive=false},__nuppManagedOwner);__nuppManagedCells[cell]=true;return cell end function __nupp.__recoverAlias(value) if type(value)~=\"table\"or value._brand~=__nuppManagedBrand or getmetatable(value)~=__nuppManagedAlias then return nil,__nuppManagedError(\"NUPP2614\",\"value is not a managed alias\")end local cell,problem=__nuppAliasCell(value);if not cell then return nil,problem end;return value,nil end _G.__nuppManagedPolicyCount=function(policy)local count=0;for cell in pairs(__nuppManagedCells)do if cell._policy==policy and(cell._state==\"live\"or cell._state:match(\"borrowed\"))then count=count+1 end end;return count end local __nuppManagedGroup={};__nuppManagedGroup.__index=__nuppManagedGroup function __nuppManagedGroup:flush()end function __nuppManagedGroup:adopt(cell) if self._closed then error(\"managed group is closed\",2)end local handle=cell:alias();self._entries[#self._entries+1]=handle return handle end function __nuppManagedGroup:remove(handle) if self._closed then error(\"managed group is closed\",2)end for index=#self._entries,1,-1 do if self._entries[index]==handle then table.remove(self._entries,index);local value,problem=handle:take();if problem then error(problem.message,2)end;return value end end error(\"managed alias is not registered in this group\",2) end local function __nuppManagedCloseEntry(entry)local problem=entry:close();if problem and problem.code~=\"NUPP2614\"then error(problem.message,0)end end function __nuppManagedGroup:close() if self._closed then return end;self._closed=true;local first,suppressed=nil,0 for index=#self._entries,1,-1 do local ok,reason=pcall(__nuppManagedCloseEntry,self._entries[index]);if not ok then if first==nil then first=reason else suppressed=suppressed+1 end end end self._entries={};if first~=nil then if suppressed>0 then error(tostring(first)..\" (suppressed \"..tostring(suppressed)..\" cleanup failure(s))\",0)end;error(first,0)end end function __nupp.managedGroup()return setmetatable({_entries={},_closed=false},__nuppManagedGroup)end;\n","@nupp-prelude"))();local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppMath=rawget(__nupp,"math")or{};rawset(__nupp,"math",__nuppMath) local function __nuppCloseFile(handle)if io.type(handle)=="closed file"then return end;local ok,reason=handle:close();if not ok then error(reason or "the file could not be closed",0)end end local __nuppManagedBrand=_G.__nuppManagedBrand if not __nuppManagedBrand then __nuppManagedBrand={};_G.__nuppManagedBrand=__nuppManagedBrand end local __nuppManagedCells=_G.__nuppManagedCells if not __nuppManagedCells then __nuppManagedCells=setmetatable({},{__mode="k"});_G.__nuppManagedCells=__nuppManagedCells end local __nuppManagedOwner={};__nuppManagedOwner.__index=__nuppManagedOwner;local __nuppManagedAlias={};__nuppManagedAlias.__index=__nuppManagedAlias local function __nuppManagedError(code,message)return{code=code,message=message}end local function __nuppManagedProblem(cell) if type(cell)~="table"or cell._brand~=__nuppManagedBrand then return __nuppManagedError("NUPP2614","value is not a managed alias")end if cell._state=="taken"then return __nuppManagedError("NUPP2614","managed ownership was already taken")end if cell._state=="closed"or cell._state=="closing"then return __nuppManagedError("NUPP2614","managed resource is closed")end return nil end local function __nuppManagedClose(cell,checked) local problem=__nuppManagedProblem(cell);if problem then if checked then return problem end;return nil end if cell._borrows~=0 or cell._exclusive then local busy=__nuppManagedError("NUPP2620","managed resource has an active borrow");if checked then return busy end;error(busy.message,0)end cell._state="closing";local value,cleanup=cell._value,cell._cleanup;cell._value=nil;cell._cleanup=nil local ok,reason=pcall(cleanup,value);cell._state="closed";if not ok then error(reason,0)end;return nil end function __nuppManagedOwner:alias()return setmetatable({_cell=self,_brand=__nuppManagedBrand},__nuppManagedAlias)end function __nuppManagedOwner:close()return __nuppManagedClose(self,false)end local function __nuppAliasCell(self) if type(self)~="table"or self._brand~=__nuppManagedBrand or getmetatable(self)~=__nuppManagedAlias then return nil,__nuppManagedError("NUPP2614","value is not a managed alias")end local cell=self._cell;local problem=__nuppManagedProblem(cell);if problem then return nil,problem end;return cell,nil end function __nuppManagedAlias:with(callback) local cell,problem=__nuppAliasCell(self);if not cell then return nil,problem end if cell._exclusive then return nil,__nuppManagedError("NUPP2620","managed resource is exclusively borrowed")end cell._borrows=cell._borrows+1;cell._state="shared-borrowed("..cell._borrows..")" local ok,result=pcall(callback,cell._value);cell._borrows=cell._borrows-1;cell._state=cell._borrows>0 and("shared-borrowed("..cell._borrows..")")or"live" if not ok then error(result,0)end;return result,nil end function __nuppManagedAlias:withExclusive(callback) local cell,problem=__nuppAliasCell(self);if not cell then return nil,problem end if cell._exclusive or cell._borrows~=0 then return nil,__nuppManagedError("NUPP2620","managed resource is already borrowed")end cell._exclusive=true;cell._state="exclusive-borrowed";local ok,result=pcall(callback,cell._value);cell._exclusive=false;cell._state="live" if not ok then error(result,0)end;return result,nil end function __nuppManagedAlias:take() local cell,problem=__nuppAliasCell(self);if not cell then return nil,problem end if cell._exclusive or cell._borrows~=0 then return nil,__nuppManagedError("NUPP2620","managed resource has an active borrow")end cell._state="taken";local value=cell._value;cell._value=nil;cell._cleanup=nil;return value,nil end function __nuppManagedAlias:close() local cell,problem=__nuppAliasCell(self);if not cell then return problem end;return __nuppManagedClose(cell,true)end function __nuppManagedAlias:_downcast(policy) local cell,problem=__nuppAliasCell(self);if not cell then return nil,problem end if cell._policy~=policy then return nil,__nuppManagedError("NUPP2613","managed alias has the wrong type or cleanup policy")end return self,nil end function __nupp.__manage(value,cleanup,policy) local cell=setmetatable({_brand=__nuppManagedBrand,_value=value,_cleanup=cleanup,_policy=policy,_state="live",_borrows=0,_exclusive=false},__nuppManagedOwner);__nuppManagedCells[cell]=true;return cell end function __nupp.__recoverAlias(value) if type(value)~="table"or value._brand~=__nuppManagedBrand or getmetatable(value)~=__nuppManagedAlias then return nil,__nuppManagedError("NUPP2614","value is not a managed alias")end local cell,problem=__nuppAliasCell(value);if not cell then return nil,problem end;return value,nil end _G.__nuppManagedPolicyCount=function(policy)local count=0;for cell in pairs(__nuppManagedCells)do if cell._policy==policy and(cell._state=="live"or cell._state:match("borrowed"))then count=count+1 end end;return count end local __nuppManagedGroup={};__nuppManagedGroup.__index=__nuppManagedGroup function __nuppManagedGroup:flush()end function __nuppManagedGroup:adopt(cell) if self._closed then error("managed group is closed",2)end local handle=cell:alias();self._entries[#self._entries+1]=handle return handle end function __nuppManagedGroup:remove(handle) if self._closed then error("managed group is closed",2)end for index=#self._entries,1,-1 do if self._entries[index]==handle then table.remove(self._entries,index);local value,problem=handle:take();if problem then error(problem.message,2)end;return value end end error("managed alias is not registered in this group",2) end local function __nuppManagedCloseEntry(entry)local problem=entry:close();if problem and problem.code~="NUPP2614"then error(problem.message,0)end end function __nuppManagedGroup:close() if self._closed then return end;self._closed=true;local first,suppressed=nil,0 for index=#self._entries,1,-1 do local ok,reason=pcall(__nuppManagedCloseEntry,self._entries[index]);if not ok then if first==nil then first=reason else suppressed=suppressed+1 end end end self._entries={};if first~=nil then if suppressed>0 then error(tostring(first).." (suppressed "..tostring(suppressed).." cleanup failure(s))",0)end;error(first,0)end end function __nupp.managedGroup()return setmetatable({_entries={},_closed=false},__nuppManagedGroup)end;local __nuppExports;local __nuppOk,__nuppWhy=pcall(function()
+
+
+
+
+
+
+
+
+
+
+
+local cst = require ( "nupp.compiler.cst" )
+local hash = require ( "nupp.compiler.build.hash" )
+local types = require ( "nupp.compiler.types" )
+
+local constspecialize = { }
+
+constspecialize . maxBodiesPerModule = 8
+
+local function walk ( node , visit ) 
+if node == nil or cst . isToken ( node ) then
+return
+end
+visit ( node )
+for _ , child in ipairs ( node ) do
+walk ( child , visit )
+end
+end
+
+local function scalarLiteral ( t ) 
+if t == nil or t . tag ~= "literal" or t . base == nil then
+return nil , nil , nil
+end
+local domain = t . base . tag
+if domain == "integer" then
+
+
+
+local value = string . format ( "%.0f" , t . constant )
+return "integer:" .. value , value , t . constant
+elseif domain == "boolean" then
+local value = t . constant == true
+return "boolean:" .. tostring ( value ) , tostring ( value ) , value
+elseif domain == "string" then
+local value = tostring ( t . constant )
+return "string:" .. tostring ( # value ) .. ":" .. value , string . format ( "%q" , value ) , value
+end
+
+return nil , nil , nil
+end
+
+local function candidate ( node , filename ) 
+if node . kind ~= "localFuncStmt" or node . name == nil or node . body == nil or node . body . generics == nil then
+return nil
+end
+local clause = node . body . generics
+if # clause . names == 0 then
+return nil
+end
+local binders , byName = { } , { }
+for position , token in ipairs ( clause . names ) do
+if clause . consts [ position ] ~= true then
+return nil
+end
+local domain = clause . domains [ position ] and clause . domains [ position ] . text or ""
+if domain ~= "integer" and domain ~= "boolean" and domain ~= "string" then
+return nil
+end
+local binder = { name = token . text , domain = domain , carriers = { } }
+binders [ # binders + 1 ] = binder
+byName [ token . text ] = binder
+end
+for position , raw in ipairs ( node . body . params or { } ) do
+local param = raw
+local annotation = param . type
+local binder = annotation ~= nil
+and annotation . kind == "tname"
+and annotation . typeArgs == nil
+and annotation . base ~= nil
+and byName [
+annotation . base . text
+] or nil
+if binder ~= nil and param . name ~= nil then
+binder . carriers [
+# binder . carriers + 1
+] = { position = position , name = param . name . text , definition = param . name . definition , }
+end
+end
+for _ , binder in ipairs ( binders ) do
+if # binder . carriers == 0 then
+return nil
+end
+end
+walk ( node . body , function ( part ) 
+if part . kind == "name" and part . token ~= nil then
+for _ , binder in ipairs ( binders ) do
+for _ , carrier in ipairs ( binder . carriers ) do
+if part . token . definition == carrier . definition then
+binder . used = true
+end
+end
+end
+end
+end )
+
+
+
+local definition = node . name . definition
+local stableIdentity = filename .. "\0" .. node . name . text
+
+return {
+declaration = node ,
+definition = definition ,
+identity = stableIdentity ,
+filename = filename ,
+name = node . name . text ,
+requiredAot = node . body . aotRequired == true ,
+binders = binders ,
+specializations = { } ,
+byKey = { } ,
+}
+end
+
+local function definitionKey ( definition ) 
+if definition == nil or definition . filename == nil then
+return nil
+end
+
+return tostring (
+definition . filename
+) .. "\0" .. tostring (
+definition . name or definition . token and definition . token . text or ""
+) .. "\0" .. tostring ( definition . kind or "variable" )
+end
+
+local function looseDefinitionKey ( definition ) 
+if definition == nil or definition . filename == nil then
+return nil
+end
+
+return tostring (
+definition . filename
+) .. "\0" .. tostring ( definition . name or definition . token and definition . token . text or "" )
+end
+
+local function byKey ( a , b ) 
+return a . key < b . key
+end
+
+local function byPriority ( a , b ) 
+if a . requiredAot ~= b . requiredAot then
+return a . requiredAot == true
+end
+
+return a . key < b . key
+end
+
+
+
+
+function constspecialize . collect ( result , filename ) 
+filename = filename or result . filename or "<source>"
+local candidates , plans = { } , { }
+constspecialize . collectCandidates ( result , filename , candidates , plans )
+constspecialize . collectCalls ( result , filename , candidates )
+
+constspecialize . sort ( plans )
+
+return plans
+end
+
+function constspecialize . collectCandidates (
+result ,
+filename ,
+candidates ,
+plans ,
+moduleName
+) 
+walk ( result . root , function ( node ) 
+local found = candidate ( node , filename )
+if found ~= nil and found . definition ~= nil then
+candidates [ found . definition ] = found
+local stable = definitionKey ( found . definition )
+if stable ~= nil then
+candidates [ stable ] = found
+end
+local loose = looseDefinitionKey ( found . definition )
+if loose ~= nil then
+candidates [ loose ] = found
+end
+plans [ # plans + 1 ] = found
+end
+end )
+
+
+walk ( result . root , function ( node ) 
+if node . kind == "localStmt" and node . isConst then
+for position , name in ipairs ( node . names or { } ) do
+local value = ( node . exprs or { } ) [ position ]
+local token = value ~= nil and value . kind == "name" and value . token or nil
+local found = token ~= nil and candidates [ token . definition ] or nil
+if found ~= nil and name . definition ~= nil then
+candidates [ name . definition ] = found
+end
+end
+end
+end )
+if moduleName ~= nil and result . moduleExports ~= nil then
+for member , definition in pairs ( result . moduleExports . valueDefs or { } ) do
+local found = candidates [ definition ]
+if found ~= nil then
+candidates [ "export\0" .. moduleName .. "." .. member ] = found
+end
+end
+end
+if moduleName ~= nil then
+local assignment = cst . exportAssignment ( result . root )
+local returned = assignment ~= nil and assignment . value or nil
+if returned == nil then
+for _ , block in ipairs ( result . root . blocks or { } ) do
+if block . kind == "block" then
+for _ , statement in ipairs ( block . stats or { } ) do
+if statement . kind == "returnStmt" and # ( statement . exprs or { } ) == 1 then
+returned = statement . exprs [ 1 ]
+end
+end
+end
+end
+end
+if returned ~= nil and returned . kind == "tableExpr" then
+for _ , field in ipairs ( returned . fields or { } ) do
+local value = field . kind == "fieldNamed" and field . value or nil
+local token = value ~= nil and value . kind == "name" and value . token or nil
+local found = token ~= nil and candidates [ token . definition ] or nil
+if found ~= nil and field . name ~= nil then
+candidates [ "export\0" .. moduleName .. "." .. field . name . text ] = found
+end
+end
+end
+end
+end
+
+function constspecialize . collectCalls ( result , filename , candidates ) 
+walk ( result . root , function ( node ) 
+if node . kind ~= "call" or node . obj == nil then
+return
+end
+local callee = node . obj . kind == "name"
+and node . obj . token
+or node . obj . kind == "dotIndex"
+and node . obj . name
+or nil
+if callee == nil then
+return
+end
+local stableDefinition = definitionKey ( callee . definition )
+local looseDefinition = looseDefinitionKey ( callee . definition )
+local exact = node . obj . exactCallExport or callee . definition and callee . definition . exactCallExport
+local exportIdentity = exact ~= nil and exact . identity or nil
+local owner = candidates [
+callee . definition
+] or stableDefinition ~= nil and candidates [
+stableDefinition
+] or looseDefinition ~= nil and candidates [
+looseDefinition
+] or exportIdentity ~= nil and candidates [ "export\0" .. exportIdentity ] or nil
+local signature = node . signatureType
+if owner == nil or signature == nil or signature . tag ~= "func" then
+return
+end
+local tuple , bodyTuple , substitutions , omitted , values = { } , { } , { } , { } , { }
+for _ , binder in ipairs ( owner . binders ) do
+local binderKey = nil
+for _ , carrier in ipairs ( binder . carriers ) do
+local key , emitted , value = scalarLiteral ( signature . params [ carrier . position ] )
+if key == nil or emitted == nil or binderKey ~= nil and binderKey ~= key then
+return
+end
+binderKey = key
+substitutions [ carrier . definition ] = emitted
+omitted [ carrier . position ] = true
+values [ carrier . position ] = value
+end
+tuple [ # tuple + 1 ] = binder . domain .. ":" .. binder . name .. "=" .. ( binderKey )
+if binder . used then
+bodyTuple [ # bodyTuple + 1 ] = binder . domain .. ":" .. binder . name .. "=" .. ( binderKey )
+end
+end
+local signatureFingerprint = types . tostring ( signature )
+local abi = { }
+for position , parameter in ipairs ( signature . params ) do
+if not omitted [ position ] then
+abi [ # abi + 1 ] = tostring ( signature . paramModes [ position ] or "plain" ) .. ":" .. types . tostring ( parameter )
+end
+end
+abi [ # abi + 1 ] = "returns"
+for _ , resultType in ipairs ( signature . rets ) do
+abi [ # abi + 1 ] = types . tostring ( resultType )
+end
+local canonical = owner . identity .. "\0" .. signatureFingerprint .. "\0" .. table . concat ( tuple , "\0" )
+local key = hash . digest ( canonical )
+local specialization = owner . byKey [ key ]
+if specialization == nil then
+specialization = {
+key = key ,
+canonical = canonical ,
+name = "__nuppConst_" .. owner . name : gsub ( "[^%w_]" , "_" ) .. "_" .. key : sub ( 1 , 16 ) ,
+signature = signature ,
+tuple = tuple ,
+substitutions = substitutions ,
+omitted = omitted ,
+values = values ,
+bodyClass = hash . digest (
+owner . identity .. "\0" .. table . concat ( abi , "\0" ) .. "\0" .. table . concat ( bodyTuple , "\0" )
+) ,
+calls = { } ,
+owner = owner ,
+requiredAot = owner . requiredAot ,
+}
+owner . byKey [ key ] = specialization
+owner . specializations [ # owner . specializations + 1 ] = specialization
+end
+specialization . calls [ # specialization . calls + 1 ] = node
+specialization . callFiles = specialization . callFiles or { }
+specialization . callFiles [ node ] = filename
+end )
+end
+
+function constspecialize . sort ( plans ) 
+for _ , plan in ipairs ( plans ) do
+table . sort ( plan . specializations , byKey )
+end
+table . sort ( plans , function ( a , b ) 
+if a . identity ~= b . identity then
+return a . identity < b . identity
+end
+return a . name < b . name
+end )
+end
+
+
+function constspecialize . collectGraph ( checked ) 
+local candidates , plans = { } , { }
+for _ , module in ipairs ( checked ) do
+constspecialize . collectCandidates ( module . result , module . filename , candidates , plans , module . module )
+end
+for _ , module in ipairs ( checked ) do
+constspecialize . collectCalls ( module . result , module . filename , candidates )
+end
+constspecialize . sort ( plans )
+
+return plans
+end
+
+
+
+function constspecialize . select ( plans , maximum ) 
+maximum = maximum or constspecialize . maxBodiesPerModule
+local all = { }
+for _ , plan in ipairs ( plans ) do
+for _ , specialization in ipairs ( plan . specializations ) do
+all [ # all + 1 ] = specialization
+end
+end
+table . sort ( all , byPriority )
+local accepted , declined = { } , { }
+local classes = { }
+local classCount = 0
+for _ , specialization in ipairs ( all ) do
+local representative = classes [ specialization . bodyClass ]
+if representative ~= nil then
+specialization . physical = representative
+specialization . selected = true
+accepted [ # accepted + 1 ] = specialization
+elseif classCount < ( maximum ) then
+classCount = classCount + 1
+classes [ specialization . bodyClass ] = specialization
+specialization . physical = specialization
+specialization . selected = true
+accepted [ # accepted + 1 ] = specialization
+else
+specialization . selected = false
+declined [ # declined + 1 ] = specialization
+end
+end
+
+return accepted , declined
+end
+
+function constspecialize . selectGraph ( plans , maximum ) 
+maximum = maximum or constspecialize . maxBodiesPerModule
+local modules = { }
+for _ , plan in ipairs ( plans ) do
+local bodies = modules [ plan . filename ]
+if bodies == nil then
+bodies = { }
+modules [ plan . filename ] = bodies
+end
+for _ , specialization in ipairs ( plan . specializations ) do
+bodies [ # bodies + 1 ] = specialization
+end
+end
+local accepted , declined = { } , { }
+for _ , bodies in pairs ( modules ) do
+table . sort ( bodies , byPriority )
+local classes = { }
+local classCount = 0
+for _ , specialization in ipairs ( bodies ) do
+local representative = classes [ specialization . bodyClass ]
+if representative ~= nil then
+specialization . physical = representative
+specialization . selected = true
+accepted [ # accepted + 1 ] = specialization
+elseif classCount < ( maximum ) then
+classCount = classCount + 1
+classes [ specialization . bodyClass ] = specialization
+specialization . physical = specialization
+specialization . selected = true
+accepted [ # accepted + 1 ] = specialization
+else
+specialization . selected = false
+declined [ # declined + 1 ] = specialization
+end
+end
+end
+table . sort ( accepted , byKey )
+table . sort ( declined , byKey )
+
+return accepted , declined
+end
+
+const __nuppExportValue= constspecialize ;__nuppExports=__nuppExportValue
+ end);if not __nuppOk then package.loaded["nupp.compiler.constspecialize"]=nil;error(__nuppWhy,0) end;package.loaded["nupp.compiler.constspecialize"]=__nuppExports;return __nuppExports
 end
 package.preload["nupp.compiler.coverage"] = function(...)
 _G.assert(_G.loadstring("local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppMath=rawget(__nupp,\"math\")or{};rawset(__nupp,\"math\",__nuppMath) local function __nuppCloseFile(handle)if io.type(handle)==\"closed file\"then return end;local ok,reason=handle:close();if not ok then error(reason or \"the file could not be closed\",0)end end local __nuppManagedBrand=_G.__nuppManagedBrand if not __nuppManagedBrand then __nuppManagedBrand={};_G.__nuppManagedBrand=__nuppManagedBrand end local __nuppManagedCells=_G.__nuppManagedCells if not __nuppManagedCells then __nuppManagedCells=setmetatable({},{__mode=\"k\"});_G.__nuppManagedCells=__nuppManagedCells end local __nuppManagedOwner={};__nuppManagedOwner.__index=__nuppManagedOwner;local __nuppManagedAlias={};__nuppManagedAlias.__index=__nuppManagedAlias local function __nuppManagedError(code,message)return{code=code,message=message}end local function __nuppManagedProblem(cell) if type(cell)~=\"table\"or cell._brand~=__nuppManagedBrand then return __nuppManagedError(\"NUPP2614\",\"value is not a managed alias\")end if cell._state==\"taken\"then return __nuppManagedError(\"NUPP2614\",\"managed ownership was already taken\")end if cell._state==\"closed\"or cell._state==\"closing\"then return __nuppManagedError(\"NUPP2614\",\"managed resource is closed\")end return nil end local function __nuppManagedClose(cell,checked) local problem=__nuppManagedProblem(cell);if problem then if checked then return problem end;return nil end if cell._borrows~=0 or cell._exclusive then local busy=__nuppManagedError(\"NUPP2620\",\"managed resource has an active borrow\");if checked then return busy end;error(busy.message,0)end cell._state=\"closing\";local value,cleanup=cell._value,cell._cleanup;cell._value=nil;cell._cleanup=nil local ok,reason=pcall(cleanup,value);cell._state=\"closed\";if not ok then error(reason,0)end;return nil end function __nuppManagedOwner:alias()return setmetatable({_cell=self,_brand=__nuppManagedBrand},__nuppManagedAlias)end function __nuppManagedOwner:close()return __nuppManagedClose(self,false)end local function __nuppAliasCell(self) if type(self)~=\"table\"or self._brand~=__nuppManagedBrand or getmetatable(self)~=__nuppManagedAlias then return nil,__nuppManagedError(\"NUPP2614\",\"value is not a managed alias\")end local cell=self._cell;local problem=__nuppManagedProblem(cell);if problem then return nil,problem end;return cell,nil end function __nuppManagedAlias:with(callback) local cell,problem=__nuppAliasCell(self);if not cell then return nil,problem end if cell._exclusive then return nil,__nuppManagedError(\"NUPP2620\",\"managed resource is exclusively borrowed\")end cell._borrows=cell._borrows+1;cell._state=\"shared-borrowed(\"..cell._borrows..\")\" local ok,result=pcall(callback,cell._value);cell._borrows=cell._borrows-1;cell._state=cell._borrows>0 and(\"shared-borrowed(\"..cell._borrows..\")\")or\"live\" if not ok then error(result,0)end;return result,nil end function __nuppManagedAlias:withExclusive(callback) local cell,problem=__nuppAliasCell(self);if not cell then return nil,problem end if cell._exclusive or cell._borrows~=0 then return nil,__nuppManagedError(\"NUPP2620\",\"managed resource is already borrowed\")end cell._exclusive=true;cell._state=\"exclusive-borrowed\";local ok,result=pcall(callback,cell._value);cell._exclusive=false;cell._state=\"live\" if not ok then error(result,0)end;return result,nil end function __nuppManagedAlias:take() local cell,problem=__nuppAliasCell(self);if not cell then return nil,problem end if cell._exclusive or cell._borrows~=0 then return nil,__nuppManagedError(\"NUPP2620\",\"managed resource has an active borrow\")end cell._state=\"taken\";local value=cell._value;cell._value=nil;cell._cleanup=nil;return value,nil end function __nuppManagedAlias:close() local cell,problem=__nuppAliasCell(self);if not cell then return problem end;return __nuppManagedClose(cell,true)end function __nuppManagedAlias:_downcast(policy) local cell,problem=__nuppAliasCell(self);if not cell then return nil,problem end if cell._policy~=policy then return nil,__nuppManagedError(\"NUPP2613\",\"managed alias has the wrong type or cleanup policy\")end return self,nil end function __nupp.__manage(value,cleanup,policy) local cell=setmetatable({_brand=__nuppManagedBrand,_value=value,_cleanup=cleanup,_policy=policy,_state=\"live\",_borrows=0,_exclusive=false},__nuppManagedOwner);__nuppManagedCells[cell]=true;return cell end function __nupp.__recoverAlias(value) if type(value)~=\"table\"or value._brand~=__nuppManagedBrand or getmetatable(value)~=__nuppManagedAlias then return nil,__nuppManagedError(\"NUPP2614\",\"value is not a managed alias\")end local cell,problem=__nuppAliasCell(value);if not cell then return nil,problem end;return value,nil end _G.__nuppManagedPolicyCount=function(policy)local count=0;for cell in pairs(__nuppManagedCells)do if cell._policy==policy and(cell._state==\"live\"or cell._state:match(\"borrowed\"))then count=count+1 end end;return count end local __nuppManagedGroup={};__nuppManagedGroup.__index=__nuppManagedGroup function __nuppManagedGroup:flush()end function __nuppManagedGroup:adopt(cell) if self._closed then error(\"managed group is closed\",2)end local handle=cell:alias();self._entries[#self._entries+1]=handle return handle end function __nuppManagedGroup:remove(handle) if self._closed then error(\"managed group is closed\",2)end for index=#self._entries,1,-1 do if self._entries[index]==handle then table.remove(self._entries,index);local value,problem=handle:take();if problem then error(problem.message,2)end;return value end end error(\"managed alias is not registered in this group\",2) end local function __nuppManagedCloseEntry(entry)local problem=entry:close();if problem and problem.code~=\"NUPP2614\"then error(problem.message,0)end end function __nuppManagedGroup:close() if self._closed then return end;self._closed=true;local first,suppressed=nil,0 for index=#self._entries,1,-1 do local ok,reason=pcall(__nuppManagedCloseEntry,self._entries[index]);if not ok then if first==nil then first=reason else suppressed=suppressed+1 end end end self._entries={};if first~=nil then if suppressed>0 then error(tostring(first)..\" (suppressed \"..tostring(suppressed)..\" cleanup failure(s))\",0)end;error(first,0)end end function __nupp.managedGroup()return setmetatable({_entries={},_closed=false},__nuppManagedGroup)end;\n","@nupp-prelude"))();--[[nupp-backends: resolved=data.json|2|runtime|nupp.runtime.backend.lunajson|8bdff32722f35edeb5fe6f35b5917e55966222abcfab16b083c41e57e7b49121|nupp.runtime.provider.lunajson||]]local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppMath=rawget(__nupp,"math")or{};rawset(__nupp,"math",__nuppMath) local function __nuppCloseFile(handle)if io.type(handle)=="closed file"then return end;local ok,reason=handle:close();if not ok then error(reason or "the file could not be closed",0)end end local __nuppManagedBrand=_G.__nuppManagedBrand if not __nuppManagedBrand then __nuppManagedBrand={};_G.__nuppManagedBrand=__nuppManagedBrand end local __nuppManagedCells=_G.__nuppManagedCells if not __nuppManagedCells then __nuppManagedCells=setmetatable({},{__mode="k"});_G.__nuppManagedCells=__nuppManagedCells end local __nuppManagedOwner={};__nuppManagedOwner.__index=__nuppManagedOwner;local __nuppManagedAlias={};__nuppManagedAlias.__index=__nuppManagedAlias local function __nuppManagedError(code,message)return{code=code,message=message}end local function __nuppManagedProblem(cell) if type(cell)~="table"or cell._brand~=__nuppManagedBrand then return __nuppManagedError("NUPP2614","value is not a managed alias")end if cell._state=="taken"then return __nuppManagedError("NUPP2614","managed ownership was already taken")end if cell._state=="closed"or cell._state=="closing"then return __nuppManagedError("NUPP2614","managed resource is closed")end return nil end local function __nuppManagedClose(cell,checked) local problem=__nuppManagedProblem(cell);if problem then if checked then return problem end;return nil end if cell._borrows~=0 or cell._exclusive then local busy=__nuppManagedError("NUPP2620","managed resource has an active borrow");if checked then return busy end;error(busy.message,0)end cell._state="closing";local value,cleanup=cell._value,cell._cleanup;cell._value=nil;cell._cleanup=nil local ok,reason=pcall(cleanup,value);cell._state="closed";if not ok then error(reason,0)end;return nil end function __nuppManagedOwner:alias()return setmetatable({_cell=self,_brand=__nuppManagedBrand},__nuppManagedAlias)end function __nuppManagedOwner:close()return __nuppManagedClose(self,false)end local function __nuppAliasCell(self) if type(self)~="table"or self._brand~=__nuppManagedBrand or getmetatable(self)~=__nuppManagedAlias then return nil,__nuppManagedError("NUPP2614","value is not a managed alias")end local cell=self._cell;local problem=__nuppManagedProblem(cell);if problem then return nil,problem end;return cell,nil end function __nuppManagedAlias:with(callback) local cell,problem=__nuppAliasCell(self);if not cell then return nil,problem end if cell._exclusive then return nil,__nuppManagedError("NUPP2620","managed resource is exclusively borrowed")end cell._borrows=cell._borrows+1;cell._state="shared-borrowed("..cell._borrows..")" local ok,result=pcall(callback,cell._value);cell._borrows=cell._borrows-1;cell._state=cell._borrows>0 and("shared-borrowed("..cell._borrows..")")or"live" if not ok then error(result,0)end;return result,nil end function __nuppManagedAlias:withExclusive(callback) local cell,problem=__nuppAliasCell(self);if not cell then return nil,problem end if cell._exclusive or cell._borrows~=0 then return nil,__nuppManagedError("NUPP2620","managed resource is already borrowed")end cell._exclusive=true;cell._state="exclusive-borrowed";local ok,result=pcall(callback,cell._value);cell._exclusive=false;cell._state="live" if not ok then error(result,0)end;return result,nil end function __nuppManagedAlias:take() local cell,problem=__nuppAliasCell(self);if not cell then return nil,problem end if cell._exclusive or cell._borrows~=0 then return nil,__nuppManagedError("NUPP2620","managed resource has an active borrow")end cell._state="taken";local value=cell._value;cell._value=nil;cell._cleanup=nil;return value,nil end function __nuppManagedAlias:close() local cell,problem=__nuppAliasCell(self);if not cell then return problem end;return __nuppManagedClose(cell,true)end function __nuppManagedAlias:_downcast(policy) local cell,problem=__nuppAliasCell(self);if not cell then return nil,problem end if cell._policy~=policy then return nil,__nuppManagedError("NUPP2613","managed alias has the wrong type or cleanup policy")end return self,nil end function __nupp.__manage(value,cleanup,policy) local cell=setmetatable({_brand=__nuppManagedBrand,_value=value,_cleanup=cleanup,_policy=policy,_state="live",_borrows=0,_exclusive=false},__nuppManagedOwner);__nuppManagedCells[cell]=true;return cell end function __nupp.__recoverAlias(value) if type(value)~="table"or value._brand~=__nuppManagedBrand or getmetatable(value)~=__nuppManagedAlias then return nil,__nuppManagedError("NUPP2614","value is not a managed alias")end local cell,problem=__nuppAliasCell(value);if not cell then return nil,problem end;return value,nil end _G.__nuppManagedPolicyCount=function(policy)local count=0;for cell in pairs(__nuppManagedCells)do if cell._policy==policy and(cell._state=="live"or cell._state:match("borrowed"))then count=count+1 end end;return count end local __nuppManagedGroup={};__nuppManagedGroup.__index=__nuppManagedGroup function __nuppManagedGroup:flush()end function __nuppManagedGroup:adopt(cell) if self._closed then error("managed group is closed",2)end local handle=cell:alias();self._entries[#self._entries+1]=handle return handle end function __nuppManagedGroup:remove(handle) if self._closed then error("managed group is closed",2)end for index=#self._entries,1,-1 do if self._entries[index]==handle then table.remove(self._entries,index);local value,problem=handle:take();if problem then error(problem.message,2)end;return value end end error("managed alias is not registered in this group",2) end local function __nuppManagedCloseEntry(entry)local problem=entry:close();if problem and problem.code~="NUPP2614"then error(problem.message,0)end end function __nuppManagedGroup:close() if self._closed then return end;self._closed=true;local first,suppressed=nil,0 for index=#self._entries,1,-1 do local ok,reason=pcall(__nuppManagedCloseEntry,self._entries[index]);if not ok then if first==nil then first=reason else suppressed=suppressed+1 end end end self._entries={};if first~=nil then if suppressed>0 then error(tostring(first).." (suppressed "..tostring(suppressed).." cleanup failure(s))",0)end;error(first,0)end end function __nupp.managedGroup()return setmetatable({_entries={},_closed=false},__nuppManagedGroup)end (require("nupp.runtime.backend.lunajson")):install();const __nuppModule = require("nupp.data.json"); local __nuppExports;local __nuppOk,__nuppWhy=pcall(function()
@@ -100921,6 +101771,120 @@ emit ( child )
 end
 end
 
+
+
+
+pluck . const = { emission = nil , }
+pluck . const . integer = function ( node ) 
+if node == nil or cst . isToken ( node ) then
+return nil
+end
+if node . kind == "number" and node . token ~= nil then
+local value = tonumber ( ( node . token . text : gsub ( "_" , "" ) ) )
+if value ~= nil and value == math . floor ( value ) then
+return value
+end
+elseif node . kind == "name" and node . token ~= nil and pluck . const . emission ~= nil then
+local emission = pluck . const . emission
+local written = emission . substitutions [ node . token . definition ]
+local value = written ~= nil and tonumber ( written ) or nil
+if value ~= nil and value == math . floor ( value ) then
+return value
+end
+elseif node . kind == "castExpr" then
+return pluck . const . integer ( node . expr )
+elseif node . folded ~= nil then
+local value = tonumber ( node . folded )
+if value ~= nil and value == math . floor ( value ) then
+return value
+end
+end
+
+return nil
+end
+
+pluck . const . unrollableBody = function ( node ) 
+local admitted = true
+local function walkConst ( child ) 
+if not admitted or child == nil or cst . isToken ( child ) then
+return
+end
+if child ~= node and ( child . kind == "funcbody" or child . kind == "funcExpr" or child . kind == "shortfn" ) then
+return
+end
+if child . kind == "breakStmt"
+or child . kind == "continueStmt"
+or child . kind == "gotoStmt"
+or child . kind == "labelStmt"
+then
+admitted = false
+return
+end
+for _ , nested in ipairs ( child ) do
+walkConst ( nested )
+end
+end
+
+walkConst ( node )
+
+return admitted
+end
+
+pluck . const . emitSpecialization = function ( declaration , specialization ) 
+local prior = pluck . const . emission
+pluck . const . emission = { substitutions = { } , specialization = specialization , }
+for definition , value in pairs ( specialization . substitutions ) do
+pluck . const . emission . substitutions [ definition ] = value
+end
+local body = declaration . body
+e ( ";local function " .. specialization . name .. "(" , sourceLine ( declaration ) )
+local wrote = false
+for position , param in ipairs ( body . params or { } ) do
+if not specialization . omitted [ position ] then
+if wrote then
+e ( "," )
+end
+emit ( param )
+wrote = true
+end
+end
+e ( ")" )
+emitDepth . fn = emitDepth . fn + 1
+emitDepth . beginActivation ( )
+if coverageOn then
+coverageHit ( "function" , body )
+end
+if body . varargParam then
+e ( ( "const %s = { n = select(\"#\", ...), ... }" ) : format ( body . varargParam . name . text ) )
+end
+if body . body then
+emit ( body . body )
+end
+emitDepth . endActivation ( )
+emitDepth . fn = emitDepth . fn - 1
+e ( "end" )
+pluck . const . emission = prior
+end
+
+pluck . const . emitRegistrations = function ( declaration ) 
+local specializations = declaration . constSpecializationAliases or declaration . constSpecializations or { }
+if # specializations == 0 or declaration . name == nil then
+return
+end
+local registry = nextTemp ( )
+local family = nextTemp ( )
+e ( ";local " .. registry .. "=rawget(_G,\"__nuppConstSpecializations\")" , sourceLine ( declaration ) )
+e ( ";if not " .. registry .. " then " .. registry .. "=setmetatable({},{__mode=\"k\"});" )
+e ( "rawset(_G,\"__nuppConstSpecializations\"," .. registry .. ") end" )
+e ( ";local " .. family .. "=" .. registry .. "[" .. declaration . name . text .. "]" )
+e ( ";if not " .. family .. " then " .. family .. "={};" .. registry .. "[" )
+e ( declaration . name . text .. "]=" .. family .. " end" )
+for _ , specialization in ipairs ( specializations ) do
+local physical = specialization . physical or specialization
+e ( ";" .. family .. "[" .. string . format ( "%q" , specialization . key ) .. "]=" .. physical . name )
+end
+end
+
 emitDepth . switchTemps = setmetatable ( { } , { __mode = "k" } )
 emitDepth . switchValueTemps = setmetatable ( { } , { __mode = "k" } )
 emitDepth . switchResult = nil
@@ -102595,6 +103559,41 @@ pluck . emitCall ( x , activePlan )
 return
 end
 end
+if kind == "call" and x . constSpecialization ~= nil and x . args ~= nil then
+local specialization = x . constSpecialization
+local physical = specialization . physical or specialization
+if x . constSpecializationExternal then
+e ( "(_G.__nuppConstSpecializations[" , sourceLine ( x ) )
+emit ( x . obj )
+e ( "][" .. string . format ( "%q" , specialization . key ) .. "])(" )
+else
+e ( physical . name .. "(" , sourceLine ( x ) )
+end
+local wrote = false
+if x . args . loweredArgs ~= nil then
+for position , argument in ipairs ( x . args . loweredArgs ) do
+if not specialization . omitted [ position ] then
+if wrote then
+e ( "," )
+end
+pluck . emitArgument ( argument , x . args )
+wrote = true
+end
+end
+else
+for position , argument in ipairs ( x . args . exprs or { } ) do
+if not specialization . omitted [ position ] then
+if wrote then
+e ( "," )
+end
+emit ( argument )
+wrote = true
+end
+end
+end
+e ( ")" )
+return
+end
 if kind == "args" and x . loweredArgs then
 e ( "(" , sourceLine ( x ) )
 pluck . emitArgs ( x )
@@ -102641,6 +103640,14 @@ for _ , effect in ipairs ( observation and observation . runtimeFeatures or { } 
 pluck . needRuntimeEffect ( effect )
 end
 return
+end
+if pluck . const . emission ~= nil and kind == "name" and x . token ~= nil then
+local emission = pluck . const . emission
+local replacement = emission . substitutions [ x . token . definition ]
+if replacement ~= nil then
+e ( replacement , sourceLine ( x ) )
+return
+end
 end
 if x . folded then
 e ( x . folded , sourceLine ( x ) )
@@ -102965,6 +103972,37 @@ if x . value then
 emit ( x . value )
 end
 return
+end
+if pluck . const . emission ~= nil and kind == "fornumStmt" and x . var ~= nil and x . body ~= nil then
+local first = pluck . const . integer ( x . start )
+local last = pluck . const . integer ( x . stop )
+local step = x . step ~= nil and pluck . const . integer ( x . step ) or 1
+if first ~= nil and last ~= nil and step ~= nil and step ~= 0 and pluck . const . unrollableBody ( x . body ) then
+local count = step > 0 and first <= last and math . floor (
+( last - first ) / step
+) + 1 or step < 0 and first >= last and math . floor ( ( first - last ) / - step ) + 1 or 0
+if count <= 8 then
+local definition = x . var . definition
+local emission = pluck . const . emission
+local prior = definition ~= nil and emission . substitutions [ definition ] or nil
+e ( "do" , sourceLine ( x ) )
+local value = first
+for _ = 1 , count do
+if definition ~= nil then
+emission . substitutions [ definition ] = tostring ( value )
+end
+e ( "do" )
+emit ( x . body )
+e ( "end" )
+value = value + step
+end
+if definition ~= nil then
+emission . substitutions [ definition ] = prior
+end
+e ( "end" )
+return
+end
+end
 end
 if x . constantLoopNone then
 
@@ -105426,6 +106464,10 @@ e ( ( x . name and x . name . text or "__nuppMissing" ) .. "=function" , sourceL
 if x . body then
 emit ( x . body )
 end
+for _ , specialization in ipairs ( x . constSpecializations or { } ) do
+pluck . const . emitSpecialization ( x , specialization )
+end
+pluck . const . emitRegistrations ( x )
 
 elseif kind == "localFuncStmt" then
 if x . comptimeFunction or x . comptimeTok then
@@ -105438,6 +106480,10 @@ dispatch . emit ( planned )
 else
 emitChildren ( x )
 end
+for _ , specialization in ipairs ( x . constSpecializations or { } ) do
+pluck . const . emitSpecialization ( x , specialization )
+end
+pluck . const . emitRegistrations ( x )
 for _ , registration in ipairs ( x . name and x . name . cleanupRegistrations or { } ) do
 local cleanup = registration . cleanup
 e ( ( ";%s[%q]=%s" ) : format ( cleanupRegistry ( ) , cleanup . key , cleanup . name ) , sourceLine ( x ) )
@@ -125900,6 +126946,7 @@ _G.assert(_G.loadstring("local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppM
 
 
 local cst = require ( "nupp.compiler.cst" )
+local constspecialize = require ( "nupp.compiler.constspecialize" )
 local indexedViews = require ( "nupp.compiler.indexedviews" )
 
 local optimize = { }
@@ -125940,6 +126987,13 @@ summary = "lower proved trusted indexed-view accesses through their physical ada
 name = "inline-return-helper" ,
 level = 1 ,
 summary = "inline a module's own single-return local helpers where they are called" ,
+} ,
+[
+"OPT-8"
+] = {
+name = "const-monomorphize" ,
+level = 1 ,
+summary = "emit bounded private bodies for closed scalar const applications" ,
 } ,
 }
 
@@ -128418,6 +129472,87 @@ end
 
 
 
+local function constMonomorphizeWalk ( result , remarks , selection , selectedFilename ) 
+
+
+
+
+local filename = selectedFilename or result . filename or "<source>"
+local accepted , declined
+if selection ~= nil then
+accepted , declined = selection . accepted , selection . declined
+else
+local plans = constspecialize . collect ( result , filename )
+accepted , declined = constspecialize . select ( plans )
+end
+local acceptedByOwner = { }
+local aliasesByOwner = { }
+for _ , specialization in ipairs ( accepted ) do
+local owner = specialization . owner
+if owner . filename == filename then
+local aliases = aliasesByOwner [ owner ]
+if aliases == nil then
+aliases = { }
+aliasesByOwner [ owner ] = aliases
+end
+aliases [ # aliases + 1 ] = specialization
+if specialization . physical == specialization then
+local bodies = acceptedByOwner [ owner ]
+if bodies == nil then
+bodies = { }
+acceptedByOwner [ owner ] = bodies
+end
+bodies [ # bodies + 1 ] = specialization
+end
+end
+for _ , call in ipairs ( specialization . calls ) do
+if specialization . callFiles [ call ] == filename then
+call . constSpecialization = specialization
+call . constSpecializationExternal = owner . filename ~= filename
+remark ( remarks , call , "OPT-8" , "const-monomorphize: calls private " .. specialization . name )
+end
+end
+end
+local function byConstKey ( a , b ) 
+return a . key < b . key
+end
+
+
+
+local emittedBodies = 0
+for owner , bodies in pairs ( acceptedByOwner ) do
+table . sort ( bodies , byConstKey )
+owner . declaration . constSpecializations = bodies
+owner . declaration . constSpecializationAliases = aliasesByOwner [ owner ]
+emittedBodies = emittedBodies + # bodies
+end
+for _ , specialization in ipairs ( declined ) do
+for _ , call in ipairs ( specialization . calls ) do
+if specialization . callFiles [ call ] == filename then
+remark (
+remarks ,
+call ,
+"OPT-8" ,
+(
+"const-monomorphize: declines body because this module already selected %d body classes"
+) : format ( constspecialize . maxBodiesPerModule )
+)
+end
+end
+end
+
+return emittedBodies
+end
+
+
+
+
+
+
+
+
+
+
 
 
 
@@ -128474,11 +129609,15 @@ end
 if level >= optimize . passes [ "OPT-7" ] . level and not disabled [ "OPT-7" ] then
 inlineReturnHelperWalk ( result , remarks )
 end
+local specializedBodies = 0
+if level >= optimize . passes [ "OPT-8" ] . level and not disabled [ "OPT-8" ] then
+specializedBodies = constMonomorphizeWalk ( result , remarks , opts . constSelection , opts . filename )
+end
 for _ , entry in ipairs ( remarks ) do
 entry . filename = result . filename or opts . filename
 end
 
-return remarks
+return remarks , specializedBodies
 end
 
 
