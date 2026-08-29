@@ -14,10 +14,6 @@ local now = dofile(here .. "wallclock.lua")
 -- is the same algorithm written in explicit binary32, which is a different
 -- program with different escape counts and is checked against its own oracle.
 local KERNEL = os.getenv("MANDELBROT_KERNEL") or "mandelbrot"
-local PROFILE = os.getenv("MANDELBROT_PROFILE") or "display"
-if PROFILE == "forgo" and KERNEL ~= "mandelbrot_f32" then
-    error("the forgo comparison profile requires mandelbrot_f32", 0)
-end
 local OUT = here .. "build/" .. KERNEL .. "/"
 package.path = OUT .. "fallback/?.lua;" .. OUT .. "fallback/?/init.lua;" .. package.path
 
@@ -35,57 +31,32 @@ void ks_mandelbrot_forced_scalar(KsEscape *escapes, const KsPoint *points,
 
 local lib = ffi.load(OUT .. "lib" .. KERNEL .. (jit.os == "OSX" and ".dylib" or ".so"))
 
-local WIDTH = tonumber(os.getenv("MANDELBROT_WIDTH") or (PROFILE == "forgo" and 1024 or 78))
-local HEIGHT = tonumber(os.getenv("MANDELBROT_HEIGHT") or (PROFILE == "forgo" and 768 or 30))
-local MAX_ITERATIONS = tonumber(os.getenv("MANDELBROT_ITERATIONS") or (PROFILE == "forgo" and 256 or 500))
-local MIN_X = tonumber(os.getenv("MANDELBROT_MIN_X") or (PROFILE == "forgo" and -2.0 or -2.2))
-local MAX_X = tonumber(os.getenv("MANDELBROT_MAX_X") or (PROFILE == "forgo" and 1.0 or 0.9))
+local WIDTH = tonumber(os.getenv("MANDELBROT_WIDTH") or 78)
+local HEIGHT = tonumber(os.getenv("MANDELBROT_HEIGHT") or 30)
+local MAX_ITERATIONS = tonumber(os.getenv("MANDELBROT_ITERATIONS") or 500)
+local MIN_X = tonumber(os.getenv("MANDELBROT_MIN_X") or -2.2)
+local MAX_X = tonumber(os.getenv("MANDELBROT_MAX_X") or 0.9)
 local MIN_Y = tonumber(os.getenv("MANDELBROT_MIN_Y") or -1.2)
 local MAX_Y = tonumber(os.getenv("MANDELBROT_MAX_Y") or 1.2)
 -- Whether a pixel samples its cell's corner or its centre, and whether the step
 -- divides by the pixel count or the gaps between them. Both conventions are in
 -- use and they give different checksums, so neither is assumed.
-local SAMPLE = os.getenv("MANDELBROT_SAMPLE") or (PROFILE == "forgo" and "cells" or "gaps")
+local SAMPLE = os.getenv("MANDELBROT_SAMPLE") or "gaps"
 local count = WIDTH * HEIGHT
 
 local points = ffi.new("KsPoint[?]", count)
-if PROFILE == "forgo" then
-    -- Match the benchmark in forgo/examples/mandelbrot operation for operation.
-    -- Each assignment through this cell is an explicit binary32 rounding point,
-    -- including the precomputed grid that both timed kernels only consume.
-    local cell = ffi.new("float[1]")
-    local function f32(value)
-        cell[0] = value
-        return tonumber(cell[0])
-    end
-
-    local dx = f32(f32(3.0) / f32(WIDTH))
-    local dy = f32(f32(2.4) / f32(HEIGHT))
-    for row = 0, HEIGHT - 1 do
-        local yOffset = f32(f32(row) * dy)
-        local cy = f32(f32(-1.2) + yOffset)
-        for column = 0, WIDTH - 1 do
-            local xOffset = f32(f32(column) * dx)
-            local cx = f32(f32(-2.0) + xOffset)
-            local point = points[row * WIDTH + column]
-            point.re = cx
-            point.im = cy
-        end
-    end
-else
-    for row = 0, HEIGHT - 1 do
-        for column = 0, WIDTH - 1 do
-            local point = points[row * WIDTH + column]
-            if SAMPLE == "centre" then
-                point.re = MIN_X + (MAX_X - MIN_X) * (column + 0.5) / WIDTH
-                point.im = MIN_Y + (MAX_Y - MIN_Y) * (row + 0.5) / HEIGHT
-            elseif SAMPLE == "cells" then
-                point.re = MIN_X + (MAX_X - MIN_X) * column / WIDTH
-                point.im = MIN_Y + (MAX_Y - MIN_Y) * row / HEIGHT
-            else
-                point.re = MIN_X + (MAX_X - MIN_X) * column / (WIDTH - 1)
-                point.im = MIN_Y + (MAX_Y - MIN_Y) * row / (HEIGHT - 1)
-            end
+for row = 0, HEIGHT - 1 do
+    for column = 0, WIDTH - 1 do
+        local point = points[row * WIDTH + column]
+        if SAMPLE == "centre" then
+            point.re = MIN_X + (MAX_X - MIN_X) * (column + 0.5) / WIDTH
+            point.im = MIN_Y + (MAX_Y - MIN_Y) * (row + 0.5) / HEIGHT
+        elseif SAMPLE == "cells" then
+            point.re = MIN_X + (MAX_X - MIN_X) * column / WIDTH
+            point.im = MIN_Y + (MAX_Y - MIN_Y) * row / HEIGHT
+        else
+            point.re = MIN_X + (MAX_X - MIN_X) * column / (WIDTH - 1)
+            point.im = MIN_Y + (MAX_Y - MIN_Y) * row / (HEIGHT - 1)
         end
     end
 end

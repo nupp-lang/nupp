@@ -461,12 +461,6 @@ overhead and the horizontal test over twice the lanes, and that alone is worth
 1.39x against the same source at four. It pays this despite carrying more
 divergence waste, 1.43x against 1.22x.
 
-Against `forgo`, a Go fork whose `archsimd` exposes only `Float32x4` on arm64
-and so cannot write an eight-lane float32 kernel at all: at four lanes its
-generated code is about 1.12x this backend's, and the eight-lane gang here is
-about 1.24x its four-lane one. The gap at equal width is modest; the width is
-where the win is.
-
 ## Checked boundary
 
 The scalar subset currently covers:

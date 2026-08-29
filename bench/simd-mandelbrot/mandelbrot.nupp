@@ -1,6 +1,6 @@
--- Binary32 Mandelbrot over precomputed points, matching Forgo's benchmark
--- operation for operation. The timed body only reads points and writes escape
--- records; grid construction and checksum reduction belong to the harness.
+-- Binary32 Mandelbrot over precomputed points. The timed body only reads points
+-- and writes escape records; grid construction and checksum reduction belong
+-- to the harness.
 local span = require("nupp.mem.span")
 
 local struct Point

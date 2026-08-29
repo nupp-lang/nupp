@@ -1,6 +1,6 @@
--- Measure the same point-input/result-output contract as Forgo's benchmark.
--- Point generation, allocation, correctness checks, and checksum reduction are
--- deliberately outside the timed native calls.
+-- Measure a point-input/result-output Mandelbrot kernel. Point generation,
+-- allocation, correctness checks, and checksum reduction are deliberately
+-- outside the timed native calls.
 local ffi = require("ffi")
 
 local here = assert(debug.getinfo(1, "S").source:match("^@(.*[/\\])"))
@@ -30,7 +30,7 @@ local function f32(value)
     return tonumber(cell[0])
 end
 
--- Match Forgo's makePoints function, including every binary32 rounding point.
+-- Construct the grid with an explicit binary32 rounding point after each step.
 local points = ffi.new("KsPoint[?]", count)
 local dx = f32(f32(3.0) / f32(width))
 local dy = f32(f32(2.4) / f32(height))
