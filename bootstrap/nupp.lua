@@ -4768,6 +4768,258 @@ end
 
 
 
+
+
+
+
+
+
+
+
+
+function compile . constSpecializations (
+source ,
+filename ,
+parsed ,
+selected ,
+symbolTier
+) 
+const maxPerModule = 8
+local diagnostics = { }
+local context = setmetatable({ checked =  true ,  reject =  function ( at , message ) 
+diagnostics [
+# diagnostics + 1
+] = setmetatable({ file =
+filename ,  line =
+at ~= nil and ( at ) . line or 1 ,  column =
+at ~= nil and ( at ) . column or 1 ,  message =
+message }, compile.Diagnostic)
+
+error ( REFUSED , 0 )
+end }, lower.Context)
+
+if # parsed . errors > 0 then
+context . reject ( nil , "const specialization needs a checked source" )
+end
+
+local found = lower . scan ( parsed . root , true )
+local candidates = { }
+for _ , application in ipairs ( found . applications ) do
+local declaration = application . tail
+local body = declaration ~= nil and declaration . kind == "localFuncStmt" and (
+declaration
+) . body or nil
+local generics = body ~= nil and ( body ) . generics or nil
+if generics ~= nil then
+local clause = generics
+local binders = { }
+local onlyConst = # clause . names > 0
+for position , token in ipairs ( clause . names ) do
+onlyConst = onlyConst and clause . consts [ position ] == true
+if clause . consts [ position ] == true then
+binders [
+# binders + 1
+] = {
+name = token . text ,
+domain = clause . domains [ position ] ~= nil and clause . domains [ position ] . text or "" ,
+carriers = { } ,
+}
+end
+end
+if onlyConst and # binders > 0 then
+local byBinder = { }
+for _ , binder in ipairs ( binders ) do
+byBinder [ binder . name ] = binder
+end
+for position , raw in ipairs ( ( body ) . params or { } ) do
+local param = raw
+local annotation = param . type
+local binder = annotation ~= nil and annotation . kind == "tname" and (
+annotation
+) . typeArgs == nil and (
+annotation
+) . base ~= nil and byBinder [ ( ( annotation ) . base ) . text ] or nil
+if binder ~= nil and param . name ~= nil then
+binder . carriers [ # binder . carriers + 1 ] = { position = position , name = param . name . text , }
+end
+end
+local complete = true
+for _ , binder in ipairs ( binders ) do
+complete = complete and # binder . carriers > 0
+end
+local name = ( declaration ) . name
+if complete and name ~= nil then
+candidates [
+name . text
+] = {
+application = application ,
+definition = name . definition ,
+binders = binders ,
+seen = { } ,
+specializations = { } ,
+}
+end
+end
+end
+end
+
+local function literal ( parameter , source ) 
+if parameter == nil or parameter . tag ~= "literal" or parameter . base == nil then
+return nil , nil
+end
+local domain = parameter . base . tag
+if domain == "integer" then
+local written = tostring ( parameter . constant )
+return "integer:" .. written , setmetatable({ op =
+"constant" ,  value =
+written ,  type =
+"f64" ,  source =
+source }, scalarIR.Constant)
+
+elseif domain == "boolean" then
+local value = parameter . constant == true
+return "boolean:" .. tostring (
+value
+) , setmetatable({ op =  "bool" ,  value =  value ,  type =  "bool" ,  source =  source }, scalarIR.Bool)
+elseif domain == "string" then
+local value = tostring ( parameter . constant )
+return "string:" .. tostring (
+# value
+) .. ":" .. value , setmetatable({ op =
+"lua_string" ,  value =
+value ,  type =
+"lua_string" ,  source =
+source }, scalarIR.LuaString)
+
+end
+
+return nil , nil
+end
+
+local specializationLines = { }
+local function walk ( node ) 
+if node == nil or cst . isToken ( node ) then
+return
+end
+if node . kind == "call" then
+local call = node
+local callee = call . obj
+local token = callee ~= nil and callee . kind == "name" and ( callee ) . token or nil
+local candidate = token ~= nil and candidates [ ( token ) . text ] or nil
+if candidate ~= nil and ( token ) . definition == candidate . definition then
+local signature = ( call ) . signatureType
+local values = { }
+local tuple = { }
+local sourceSite = lower . site ( call )
+local complete = signature ~= nil and signature . tag == "func"
+for _ , binder in ipairs ( candidate . binders ) do
+local binderKey = nil
+for _ , carrier in ipairs ( binder . carriers ) do
+local key = nil
+local value = nil
+if complete then
+key , value = literal ( signature . params [ carrier . position ] , sourceSite )
+end
+if key == nil or value == nil or binderKey ~= nil and binderKey ~= key then
+complete = false
+break
+end
+binderKey = key
+values [ carrier . name ] = value
+end
+if not complete or binderKey == nil then
+break
+end
+tuple [ # tuple + 1 ] = binder . name .. "=" .. binderKey
+end
+if complete then
+local key = table . concat ( tuple , "\0" )
+if not candidate . seen [ key ] then
+if # specializationLines >= maxPerModule then
+local prior = { }
+for _ , line in ipairs ( specializationLines ) do
+prior [ # prior + 1 ] = tostring ( line )
+end
+context . reject (
+sourceSite ,
+(
+"const specialization prototype exceeds %d bodies in this module; prior call lines: %s"
+) : format ( maxPerModule , table . concat ( prior , ", " ) )
+)
+end
+candidate . seen [ key ] = true
+specializationLines [ # specializationLines + 1 ] = sourceSite . line
+candidate . specializations [
+# candidate . specializations + 1
+] = setmetatable({ name =
+( token ) . text .. "__const_" .. hash . digest ( key ) : sub ( 1 , 16 ) ,  signature =
+signature ,  values =
+values }, lower.Specialization)
+
+end
+end
+end
+end
+for _ , child in ipairs ( node ) do
+walk ( child )
+end
+end
+
+walk ( parsed . root )
+
+local ok , answer = pcall ( function ( ) 
+local programs = { }
+for _ , application in ipairs ( found . applications ) do
+local declaration = application . tail
+local name = declaration ~= nil and declaration . name ~= nil and declaration . name . text or ""
+local candidate = candidates [ name ]
+for _ , specialization in ipairs ( candidate ~= nil and candidate . specializations or { } ) do
+programs [
+# programs + 1
+] = verify . program ( lower . program ( found , application , true , context , specialization ) )
+end
+end
+if # programs == 0 then
+context . reject ( nil , "no closed const-generic AOT applications were found" )
+end
+
+local optimizations = { }
+local loopReports = { }
+for position , program in ipairs ( programs ) do
+optimizations [ position ] = aotOptimize . program ( program )
+verify . program ( program )
+compile . lanes ( program , filename , selected )
+loopReports [ position ] = loopAnalysis . program ( program )
+end
+
+return setmetatable({ programs =
+programs ,  optimizations =
+optimizations ,  loops =
+loopReports ,  irText =
+text . programs ( programs ) ,  c =
+emit . program ( programs , symbolTier ) ,  binding =
+"" ,  sites =
+{ } }, compile.Artifacts)
+
+end )
+if not ok then
+if answer ~= REFUSED then
+error ( answer , 0 )
+end
+return nil , diagnostics
+end
+
+return answer , diagnostics
+end
+
+
+
+
+
+
+
+
+
 function compile . lanes ( program , filename , selected ) 
 if program . usesSimd == true then
 program . simdWidth = ( selected . tier == "avx2" or selected . tier == "avx512f" ) and 32 or 16
@@ -12706,7 +12958,9 @@ return nil
 end
 local raw = semanticRaw ( t )
 local tag = raw . tag
-if tag == "boolean" then
+if tag == "literal" then
+return semanticValueType ( raw . base , helper )
+elseif tag == "boolean" then
 return "bool"
 elseif tag == "number" or tag == "integer" then
 return "f64"
@@ -15027,6 +15281,16 @@ end
 
 
 
+if bound . op == "constant" or bound . op == "constant_i32" or bound . op == "bool" then
+return bound
+elseif bound . op == "lua_string" then
+markLua ( kernel , lower . site ( node ) )
+return bound
+end
+
+
+
+
 
 
 
@@ -16547,7 +16811,8 @@ raws ,
 checkedSignature ,
 declarations ,
 layouts ,
-context
+context ,
+useSignatureTypes
 ) 
 local signature = setmetatable({ params =  { } ,  byName =  { } ,  spans =  { } ,  writes =  { } ,  reads =  { } }, lower.Signature)
 for position , raw in ipairs ( raws ) do
@@ -16560,7 +16825,9 @@ context . reject ( lower . site ( raw ) , "duplicate kernel parameter " .. ( nam
 end
 
 local spelling = lower . compactType ( raw . type )
-local resolved = checkedType ( raw . type , context )
+local resolved = useSignatureTypes == true and checkedSignature ~= nil and checkedSignature . params [
+position
+] or checkedType ( raw . type , context )
 local mode = context . checked and checkedSignature ~= nil and checkedSignature . paramModes [
 position
 ] or raw . modeTok ~= nil and ( raw . modeTok ) . text or nil
@@ -16947,6 +17214,17 @@ lower.Application = {} lower.Application.__index = lower.Application
 
 
 
+
+
+
+
+lower.Specialization = {} lower.Specialization.__index = lower.Specialization
+
+
+
+
+
+
 lower.Declarations = {} lower.Declarations.__index = lower.Declarations
 
 
@@ -17151,7 +17429,11 @@ return contract
 end
 
 
-function lower . kernelBody ( application , context ) 
+function lower . kernelBody (
+application ,
+context ,
+specialization
+) 
 local fn = application . tail
 if fn == nil or fn . kind ~= "localFuncStmt" then
 context . reject ( lower . site ( fn or application . at ) , "@aot must decorate a local function with a visible body" )
@@ -17161,6 +17443,7 @@ local declaration = fn
 local body = declaration . body
 if body == nil
 or body . generics ~= nil
+and specialization == nil
 or body . varargParam ~= nil
 or body . captureTakes ~= nil
 or body . captureBorrows ~= nil
@@ -17180,13 +17463,16 @@ function lower . program (
 declarations ,
 application ,
 checked ,
-context
+context ,
+specialization
 ) 
-local fn , body = lower . kernelBody ( application , context )
+local fn , body = lower . kernelBody ( application , context , specialization )
 local contract = lower . contract ( application , body , checked , context )
 
 local layouts = setmetatable({ ordered =  { } ,  byName =  { } }, lower.Layouts)
-local checkedSignature = context . checked and body . signatureType or nil
+local checkedSignature = context . checked and (
+specialization ~= nil and ( specialization ) . signature or body . signatureType
+) or nil
 if context . checked and checkedSignature == nil then
 context . reject ( lower . site ( body ) , "the checker did not publish this AOT signature" )
 end
@@ -17195,10 +17481,13 @@ local signature = lower . parameters (
 checkedSignature ,
 declarations . structs ,
 layouts ,
-context
+context ,
+specialization ~= nil
 )
 local regions , aliasFacts = lower . regions ( signature . spans )
-local name = ( fn . name ) . text
+local sourceName = ( fn . name ) . text
+local name = specialization ~= nil and ( specialization ) . name or sourceName
+local symbol = scalarIR . privateSymbol ( name )
 
 local resultTypes = { }
 local resultSourceTypes = { }
@@ -17263,7 +17552,7 @@ declarations . constantNumbers ,  helperState =
 declarations . modules ,  intrinsicAliases =
 declarations . intrinsicAliases ,  stringAccumulators =
 lower . stringAccumulators ( statements ) ,  symbol =
-scalarIR . privateSymbol ( name ) ,  loopSource =
+symbol ,  loopSource =
 lower . site ( body . body or body ) ,  index =
 "" ,  mapEntry =
 false ,  indexCName =
@@ -17296,7 +17585,9 @@ if param . kind == "uniform" or param . kind == "scalar" then
 if param . kind == "scalar" then
 ( param ) . cName = tostring ( position )
 end
-environment [ param . name ] = param
+environment [
+param . name
+] = specialization ~= nil and ( specialization ) . values [ param . name ] or param
 end
 end
 local lowered = lower . block ( statements , environment , kernel )
@@ -17308,11 +17599,11 @@ local entryMode = kernel . usesLua and "lua-builder" or "kernel"
 local blockProgram = setmetatable({ version =
 scalarIR . VERSION ,  name =
 name ,  symbol =
-scalarIR . privateSymbol ( name ) ,  entryMode =
+symbol ,  entryMode =
 entryMode ,  builderMode =
 kernel . builderMode ,  runtimeAbi =
 kernel . usesLua and "lua-5.1" or nil ,  registrar =
-kernel . usesLua and scalarIR . privateSymbol ( name ) .. "_register" or nil ,  fpContract =
+kernel . usesLua and symbol .. "_register" or nil ,  fpContract =
 contract . fpContract ,  wantsLanes =
 false ,  lanesRequired =
 false ,  params =
@@ -17385,7 +17676,7 @@ declarations . constantNumbers ,  helperState =
 declarations . modules ,  intrinsicAliases =
 declarations . intrinsicAliases ,  stringAccumulators =
 { } ,  symbol =
-scalarIR . privateSymbol ( name ) ,  loopSource =
+symbol ,  loopSource =
 lower . site ( loop ) ,  index =
 index ,  indexCName =
 "i" ,  mapEntry =
@@ -17407,7 +17698,9 @@ if param . kind == "uniform" or param . kind == "scalar" then
 if param . kind == "scalar" then
 ( param ) . cName = tostring ( position )
 end
-environment [ param . name ] = param
+environment [
+param . name
+] = specialization ~= nil and ( specialization ) . values [ param . name ] or param
 end
 end
 
@@ -17432,7 +17725,7 @@ end
 return setmetatable({ version =
 scalarIR . VERSION ,  name =
 name ,  symbol =
-scalarIR . privateSymbol ( name ) ,  entryMode =
+symbol ,  entryMode =
 "kernel" ,  fpContract =
 contract . fpContract ,  wantsLanes =
 contract . wantsLanes ,  lanesRequired =

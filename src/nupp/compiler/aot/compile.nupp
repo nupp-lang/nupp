@@ -208,6 +208,258 @@ function compile.lower(
     return lowered as {scalarIR.Program}, diagnostics, sites
 end
 
+--- Lowers the closed const tuples inferred at direct calls to generic `@aot`
+--- declarations in one checked source file.
+---
+--- This is the item-10 experiment, not the production build path. It proves
+--- the backend seam without changing `@aot` semantics: there is no generic
+--- fallback wrapper, cross-module discovery, incremental identity, or public
+--- diagnostic yet. Each emitted body keeps the original ABI and replaces only
+--- carrier parameters inside its IR, so the existing optimizer and lane pass
+--- see the constants without source rewriting or syntax-tree generation.
+---
+--- The narrow prototype admits only const binders carried directly by a
+--- parameter of that singleton type, such as `rounds: Rounds`. Calls are bound
+--- by semantic declaration identity, and the specialized signature published
+--- by the checker supplies the tuple, so a const local works as readily as a
+--- written literal.
+--- @raises when lowering or verification exposes a compiler bug rather than an
+---   authored specialization refusal
+function compile.constSpecializations(
+    source: string,
+    filename: string,
+    parsed: parser.ParseResult,
+    selected: targets.Target,
+    symbolTier: string?
+): (compile.Artifacts?, {compile.Diagnostic})
+    const maxPerModule = 8
+    local diagnostics: {compile.Diagnostic} = {}
+    local context = new lower.Context(checked = true, reject = function(at: scalarIR.Source?, message: string): nil
+        diagnostics[
+            #diagnostics + 1
+        ] = new compile.Diagnostic(
+            file = filename,
+            line = at ~= nil and (at as scalarIR.Source).line or 1,
+            column = at ~= nil and (at as scalarIR.Source).column or 1,
+            message = message
+        )
+        error(REFUSED, 0)
+    end)
+
+    if #parsed.errors > 0 then
+        context.reject(nil, "const specialization needs a checked source")
+    end
+
+    local found = lower.scan(parsed.root, true)
+    local candidates: {[string]: any} = {}
+    for _, application in ipairs(found.applications) do
+        local declaration = application.tail
+        local body = declaration ~= nil and declaration.kind == "localFuncStmt" and (
+            declaration as cst.LocalFuncStmt
+        ).body or nil
+        local generics = body ~= nil and (body as cst.Funcbody).generics or nil
+        if generics ~= nil then
+            local clause = generics as cst.Generics
+            local binders: {any} = {}
+            local onlyConst = #clause.names > 0
+            for position, token in ipairs(clause.names) do
+                onlyConst = onlyConst and clause.consts[position] == true
+                if clause.consts[position] == true then
+                    binders[
+                        #binders + 1
+                    ] = {
+                        name = token.text,
+                        domain = clause.domains[position] ~= nil and clause.domains[position].text or "",
+                        carriers = {},
+                    }
+                end
+            end
+            if onlyConst and #binders > 0 then
+                local byBinder: {[string]: any} = {}
+                for _, binder in ipairs(binders) do
+                    byBinder[binder.name] = binder
+                end
+                for position, raw in ipairs((body as cst.Funcbody).params or {}) do
+                    local param = raw as cst.Param
+                    local annotation = param.type
+                    local binder = annotation ~= nil and annotation.kind == "tname" and (
+                        annotation as cst.Tname
+                    ).typeArgs == nil and (
+                        annotation as cst.Tname
+                    ).base ~= nil and byBinder[((annotation as cst.Tname).base as lexer.Token).text] or nil
+                    if binder ~= nil and param.name ~= nil then
+                        binder.carriers[#binder.carriers + 1] = {position = position, name = param.name.text,}
+                    end
+                end
+                local complete = true
+                for _, binder in ipairs(binders) do
+                    complete = complete and #binder.carriers > 0
+                end
+                local name = (declaration as cst.LocalFuncStmt).name
+                if complete and name ~= nil then
+                    candidates[
+                        name.text
+                    ] = {
+                        application = application,
+                        definition = name.definition,
+                        binders = binders,
+                        seen = {},
+                        specializations = {},
+                    }
+                end
+            end
+        end
+    end
+
+    local function literal(parameter: any, source: scalarIR.Source?): (string?, scalarIR.Expr?)
+        if parameter == nil or parameter.tag ~= "literal" or parameter.base == nil then
+            return nil, nil
+        end
+        local domain = parameter.base.tag
+        if domain == "integer" then
+            local written = tostring(parameter.constant)
+            return "integer:" .. written, new scalarIR.Constant(
+                op = "constant",
+                value = written,
+                type = "f64",
+                source = source
+            )
+        elseif domain == "boolean" then
+            local value = parameter.constant == true
+            return "boolean:" .. tostring(
+                value
+            ), new scalarIR.Bool(op = "bool", value = value, type = "bool", source = source)
+        elseif domain == "string" then
+            local value = tostring(parameter.constant)
+            return "string:" .. tostring(
+                #value
+            ) .. ":" .. value, new scalarIR.LuaString(
+                op = "lua_string",
+                value = value,
+                type = "lua_string",
+                source = source
+            )
+        end
+
+        return nil, nil
+    end
+
+    local specializationLines: {integer} = {}
+    local function walk(node: any): nil
+        if node == nil or cst.isToken(node) then
+            return
+        end
+        if node.kind == "call" then
+            local call = node as cst.Call
+            local callee = call.obj
+            local token = callee ~= nil and callee.kind == "name" and (callee as cst.NameExpr).token or nil
+            local candidate = token ~= nil and candidates[(token as lexer.Token).text] or nil
+            if candidate ~= nil and (token as lexer.Token).definition == candidate.definition then
+                local signature = (call as any).signatureType
+                local values: {[string]: scalarIR.Expr} = {}
+                local tuple: {string} = {}
+                local sourceSite = lower.site(call)
+                local complete = signature ~= nil and signature.tag == "func"
+                for _, binder in ipairs(candidate.binders) do
+                    local binderKey: string? = nil
+                    for _, carrier in ipairs(binder.carriers) do
+                        local key: string? = nil
+                        local value: scalarIR.Expr? = nil
+                        if complete then
+                            key, value = literal(signature.params[carrier.position], sourceSite)
+                        end
+                        if key == nil or value == nil or binderKey ~= nil and binderKey ~= key then
+                            complete = false
+                            break
+                        end
+                        binderKey = key
+                        values[carrier.name] = value
+                    end
+                    if not complete or binderKey == nil then
+                        break
+                    end
+                    tuple[#tuple + 1] = binder.name .. "=" .. binderKey
+                end
+                if complete then
+                    local key = table.concat(tuple, "\0")
+                    if not candidate.seen[key] then
+                        if #specializationLines >= maxPerModule then
+                            local prior: {string} = {}
+                            for _, line in ipairs(specializationLines) do
+                                prior[#prior + 1] = tostring(line)
+                            end
+                            context.reject(
+                                sourceSite,
+                                (
+                                    "const specialization prototype exceeds %d bodies in this module; prior call lines: %s"
+                                ):format(maxPerModule, table.concat(prior, ", "))
+                            )
+                        end
+                        candidate.seen[key] = true
+                        specializationLines[#specializationLines + 1] = sourceSite.line
+                        candidate.specializations[
+                            #candidate.specializations + 1
+                        ] = new lower.Specialization(
+                            name = (token as lexer.Token).text .. "__const_" .. hash.digest(key):sub(1, 16),
+                            signature = signature,
+                            values = values
+                        )
+                    end
+                end
+            end
+        end
+        for _, child in ipairs(node as {any}) do
+            walk(child)
+        end
+    end
+
+    walk(parsed.root)
+
+    local ok, answer = pcall(function(): compile.Artifacts
+        local programs: {scalarIR.Program} = {}
+        for _, application in ipairs(found.applications) do
+            local declaration = application.tail as cst.LocalFuncStmt?
+            local name = declaration ~= nil and declaration.name ~= nil and declaration.name.text or ""
+            local candidate = candidates[name]
+            for _, specialization in ipairs(candidate ~= nil and candidate.specializations or {}) do
+                programs[
+                    #programs + 1
+                ] = verify.program(lower.program(found, application, true, context, specialization))
+            end
+        end
+        if #programs == 0 then
+            context.reject(nil, "no closed const-generic AOT applications were found")
+        end
+
+        local optimizations: {aotOptimize.Stats} = {}
+        local loopReports: {{loopAnalysis.Report}} = {}
+        for position, program in ipairs(programs) do
+            optimizations[position] = aotOptimize.program(program)
+            verify.program(program)
+            compile.lanes(program, filename, selected)
+            loopReports[position] = loopAnalysis.program(program)
+        end
+
+        return new compile.Artifacts(
+            programs = programs,
+            optimizations = optimizations,
+            loops = loopReports,
+            irText = text.programs(programs),
+            c = emit.program(programs, symbolTier),
+            binding = "",
+            sites = {}
+        )
+    end)
+    if not ok then
+        if answer ~= REFUSED then
+            error(answer, 0)
+        end
+        return nil, diagnostics
+    end
+
+    return answer as compile.Artifacts, diagnostics
+end
+
 --- Decides whether to run the loop several iterations at once, and does it.
 ---
 --- Two answers, in order. Whether lanes pay at all is an estimate from the

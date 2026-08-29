@@ -169,6 +169,42 @@ The lane verifier checks vector types and arities, writable roots, layouts,
 field types, masks, selects, loop masks, lane exits, and the fixed group width.
 Tests deliberately corrupt lane IR to prove the verifier rejects it.
 
+## Const-monomorphization prototype
+
+`const-monomorph-prototype.nupp` is an item-10 experiment, not part of the
+ordinary AOT build. It declares a const-generic `@aot` body and calls it through
+an ordinary wrapper with `Rounds = 4`. The experimental compiler entry finds
+that direct call by semantic declaration identity, reads the singleton argument
+from the checker's specialized call signature, and emits a separately named
+private body. No source is evaluated or generated.
+
+That is enough to feed the existing fixed-trip and lane passes. The resulting
+IR contains four straight-line rounds and a four-lane body. Against the same
+body with a runtime round count, one paired fifteen-sample Apple arm64 run over
+1,048,576 doubles measured:
+
+```
+ Body                         median       speedup
+ -------------------------  -----------  ---------
+ runtime round count          1,084,359 ns    1.000x
+ automatic, forced scalar       512,742 ns    2.121x
+ automatic, four lanes          259,625 ns    4.176x
+```
+
+The differential covers empty input, vector tails, exact gangs, and 1,000
+elements before timing. Run the whole experiment with:
+
+```sh
+bench/kernel-subset-spike/const-monomorph-prototype.sh
+```
+
+The prototype deliberately stops before production integration. It does not
+emit or dispatch to a generic fallback, discover cross-module calls, enter a
+const tuple into incremental dependency identity, or report per-body timing and
+code size. Its per-module cap is eight and its diagnostic names the call lines
+already consuming the cap, but that policy is exercised only through the
+experimental compiler entry.
+
 ## Running it
 
 The Tecs-shaped scalar AOT workload supports four build modes:

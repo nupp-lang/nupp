@@ -1,0 +1,52 @@
+-- A manual ceiling for const monomorphization. `rounds4` is the body the
+-- compiler could derive from `general` after learning `rounds == 4` at a call.
+local span = require("nupp.mem.span")
+
+@aot(lanes = false)
+local function general(
+    exclusive output: span.WriteSpan<number>,
+    borrows input: span.Span<number>,
+    first: integer,
+    last: integer,
+    rounds: integer
+): nil
+    if #output ~= #input then
+        error("length mismatch", 2)
+    end
+    if first < 1 or last > #output or first > last + 1 then
+        error("range out of bounds", 2)
+    end
+
+    for index = first, last do
+        local value = input[index]
+        for round = 1, rounds do
+            value = value * 1.0009765625 + round * 0.125
+        end
+        output[index] = value
+    end
+end
+
+@aot(lanes = true)
+local function rounds4(
+    exclusive output: span.WriteSpan<number>,
+    borrows input: span.Span<number>,
+    first: integer,
+    last: integer
+): nil
+    if #output ~= #input then
+        error("length mismatch", 2)
+    end
+    if first < 1 or last > #output or first > last + 1 then
+        error("range out of bounds", 2)
+    end
+
+    for index = first, last do
+        local value = input[index]
+        for round = 1, 4 do
+            value = value * 1.0009765625 + round * 0.125
+        end
+        output[index] = value
+    end
+end
+
+return {general = general, rounds4 = rounds4,}

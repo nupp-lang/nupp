@@ -281,7 +281,9 @@ local function semanticValueType(t: any?, helper: boolean?): scalarIR.Type?
     end
     local raw = semanticRaw(t)
     local tag = raw.tag
-    if tag == "boolean" then
+    if tag == "literal" then
+        return semanticValueType(raw.base, helper)
+    elseif tag == "boolean" then
         return "bool"
     elseif tag == "number" or tag == "integer" then
         return "f64"
@@ -2599,6 +2601,16 @@ function lower.expression(
             context.reject(lower.site(node), "value " .. tostring(name) .. " is not available in native code")
         end
 
+        -- A specialization binds its const carriers to IR values rather than
+        -- to runtime parameters. Keep those values as values: turning one back
+        -- into a Name below would discard the tuple before optimization sees it.
+        if bound.op == "constant" or bound.op == "constant_i32" or bound.op == "bool" then
+            return bound as scalarIR.Expr
+        elseif bound.op == "lua_string" then
+            markLua(kernel, lower.site(node))
+            return bound as scalarIR.Expr
+        end
+
         -- A name keeps whatever refinement its binding holds. Only a physical
         -- load widens eagerly, because that is where ordinary Nupp turns storage
         -- into a number; widening here as well would make an established `float`
@@ -4122,7 +4134,8 @@ function lower.parameters(
     checkedSignature: any?,
     declarations: {[string]: cst.RecordDecl},
     layouts: lower.Layouts,
-    context: lower.Context
+    context: lower.Context,
+    useSignatureTypes: boolean?
 ): lower.Signature
     local signature = new lower.Signature(params = {}, byName = {}, spans = {}, writes = {}, reads = {})
     for position, raw in ipairs(raws) do
@@ -4135,7 +4148,9 @@ function lower.parameters(
         end
 
         local spelling = lower.compactType(raw.type)
-        local resolved = checkedType(raw.type, context)
+        local resolved = useSignatureTypes == true and checkedSignature ~= nil and checkedSignature.params[
+            position
+        ] or checkedType(raw.type, context)
         local mode = context.checked and checkedSignature ~= nil and checkedSignature.paramModes[
             position
         ] or raw.modeTok ~= nil and (raw.modeTok as lexer.Token).text or nil
@@ -4521,6 +4536,17 @@ record lower.Application
     at: cst.PragmaStmt
 end
 
+--- One experimental const-generic application lowered as its own native body.
+---
+--- This is deliberately only the backend seam used by the item-10 prototype.
+--- Discovery, caps, diagnostics, dispatch, and incremental identity remain
+--- outside the production pipeline until the measurement justifies them.
+record lower.Specialization
+    name: string
+    signature: any
+    values: {[string]: scalarIR.Expr}
+end
+
 --- What one module offers this backend.
 record lower.Declarations
     applications: {lower.Application}
@@ -4726,7 +4752,11 @@ function lower.contract(
 end
 
 --- The one `@aot` function this backend compiles, and its body.
-function lower.kernelBody(application: lower.Application, context: lower.Context): (cst.LocalFuncStmt, cst.Funcbody)
+function lower.kernelBody(
+    application: lower.Application,
+    context: lower.Context,
+    specialization: lower.Specialization?
+): (cst.LocalFuncStmt, cst.Funcbody)
     local fn = application.tail
     if fn == nil or fn.kind ~= "localFuncStmt" then
         context.reject(lower.site(fn or application.at), "@aot must decorate a local function with a visible body")
@@ -4736,6 +4766,7 @@ function lower.kernelBody(application: lower.Application, context: lower.Context
     local body = declaration.body as cst.Funcbody?
     if body == nil
         or body.generics ~= nil
+        and specialization == nil
         or body.varargParam ~= nil
         or body.captureTakes ~= nil
         or body.captureBorrows ~= nil
@@ -4755,13 +4786,16 @@ function lower.program(
     declarations: lower.Declarations,
     application: lower.Application,
     checked: boolean,
-    context: lower.Context
+    context: lower.Context,
+    specialization: lower.Specialization?
 ): scalarIR.Program
-    local fn, body = lower.kernelBody(application, context)
+    local fn, body = lower.kernelBody(application, context, specialization)
     local contract = lower.contract(application, body, checked, context)
 
     local layouts = new lower.Layouts(ordered = {}, byName = {})
-    local checkedSignature = context.checked and body.signatureType or nil
+    local checkedSignature = context.checked and (
+        specialization ~= nil and (specialization as lower.Specialization).signature or body.signatureType
+    ) or nil
     if context.checked and checkedSignature == nil then
         context.reject(lower.site(body), "the checker did not publish this AOT signature")
     end
@@ -4770,10 +4804,13 @@ function lower.program(
         checkedSignature,
         declarations.structs,
         layouts,
-        context
+        context,
+        specialization ~= nil
     )
     local regions, aliasFacts = lower.regions(signature.spans)
-    local name = (fn.name as lexer.Token).text
+    local sourceName = (fn.name as lexer.Token).text
+    local name = specialization ~= nil and (specialization as lower.Specialization).name or sourceName
+    local symbol = scalarIR.privateSymbol(name)
 
     local resultTypes: {scalarIR.Type} = {}
     local resultSourceTypes: {string} = {}
@@ -4838,7 +4875,7 @@ function lower.program(
             modules = declarations.modules,
             intrinsicAliases = declarations.intrinsicAliases,
             stringAccumulators = lower.stringAccumulators(statements),
-            symbol = scalarIR.privateSymbol(name),
+            symbol = symbol,
             loopSource = lower.site(body.body or body),
             index = "",
             mapEntry = false,
@@ -4871,7 +4908,9 @@ function lower.program(
                 if param.kind == "scalar" then
                     (param as any).cName = tostring(position)
                 end
-                environment[param.name] = param
+                environment[
+                    param.name
+                ] = specialization ~= nil and (specialization as lower.Specialization).values[param.name] or param
             end
         end
         local lowered = lower.block(statements, environment, kernel)
@@ -4883,11 +4922,11 @@ function lower.program(
         local blockProgram = new scalarIR.Program(
             version = scalarIR.VERSION,
             name = name,
-            symbol = scalarIR.privateSymbol(name),
+            symbol = symbol,
             entryMode = entryMode as any,
             builderMode = kernel.builderMode,
             runtimeAbi = kernel.usesLua and "lua-5.1" or nil,
-            registrar = kernel.usesLua and scalarIR.privateSymbol(name) .. "_register" or nil,
+            registrar = kernel.usesLua and symbol .. "_register" or nil,
             fpContract = contract.fpContract,
             wantsLanes = false,
             lanesRequired = false,
@@ -4960,7 +4999,7 @@ function lower.program(
         modules = declarations.modules,
         intrinsicAliases = declarations.intrinsicAliases,
         stringAccumulators = {},
-        symbol = scalarIR.privateSymbol(name),
+        symbol = symbol,
         loopSource = lower.site(loop),
         index = index,
         indexCName = "i",
@@ -4982,7 +5021,9 @@ function lower.program(
             if param.kind == "scalar" then
                 (param as any).cName = tostring(position)
             end
-            environment[param.name] = param
+            environment[
+                param.name
+            ] = specialization ~= nil and (specialization as lower.Specialization).values[param.name] or param
         end
     end
 
@@ -5007,7 +5048,7 @@ function lower.program(
     return new scalarIR.Program(
         version = scalarIR.VERSION,
         name = name,
-        symbol = scalarIR.privateSymbol(name),
+        symbol = symbol,
         entryMode = "kernel",
         fpContract = contract.fpContract,
         wantsLanes = contract.wantsLanes,
