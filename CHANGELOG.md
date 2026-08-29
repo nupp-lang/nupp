@@ -2,6 +2,14 @@
 
 ## Unreleased
 
+- A binary that carries some of what the compiler carries no longer reports that
+  it carries none of the rest. `bundledlist.list` read the presence of an
+  embedded resource table as proof that it was the only place to look, so the
+  test binary -- which embeds the modules and not the templates -- answered that
+  there are no built-in templates, and `nupp test templatetest` failed ten cases
+  on a machine where `nupp init` worked. It falls through to the directory the
+  way `bundled.source` always has.
+
 - A declaration that carries a runtime value is refused beside `export =`, as
   `NUPP2143`, rather than compiling to a module that raises when it is first
   required. `export record`, `export function` and `export const` were writing

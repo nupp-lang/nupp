@@ -372,7 +372,13 @@ function M.everyBuiltInTemplateFileIsStagedByTheManifest()
          end
       end
    end
-   local _, listing = shell("find '" .. ROOT .. "/templates' -type f")
+   -- A template is a project, and running one leaves the things running a project
+   -- leaves: a dependency tree, a build directory. They are ignored by the
+   -- repository and are nobody's template source, so a run that left one behind
+   -- must not read as a template file somebody forgot to list.
+   local _, listing = shell("find '" .. ROOT .. "/templates' -type f"
+      .. " -not -path '*/.nupp/*' -not -path '*/build/*'"
+      .. " -not -path '*/dist/*' -not -path '*/.rocks/*'")
    local missing = {}
    for path in listing:gmatch("[^\n]+") do
       local relative = path:sub(#ROOT + 2)

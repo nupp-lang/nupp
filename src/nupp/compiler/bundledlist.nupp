@@ -16,8 +16,16 @@ function resource.list(prefix: string): {string}
                 found[#found + 1] = path
             end
         end
-        table.sort(found)
-        return found
+        -- Only when it answered. A table carrying some of what the compiler carries
+        -- is not proof that it carries all of it: the test binary embeds the modules
+        -- and not the templates, and reading "no entries under this prefix" as "there
+        -- are none" made the templates disappear from a worker that ran inside it and
+        -- not from a process that did not. `source` falls through the same way for
+        -- the same reason.
+        if #found > 0 then
+            table.sort(found)
+            return found
+        end
     end
     local found, pending = {}, {prefix}
     while #pending > 0 do

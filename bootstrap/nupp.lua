@@ -37785,8 +37785,16 @@ if path : sub ( 1 , # prefix + 1 ) == prefix .. "/" then
 found [ # found + 1 ] = path
 end
 end
+
+
+
+
+
+
+if # found > 0 then
 table . sort ( found )
 return found
+end
 end
 local found , pending = { } , { prefix }
 while # pending > 0 do
