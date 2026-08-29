@@ -28,8 +28,19 @@ function compiler.compile(source, filename, checked)
    -- The host, at whatever tier holds a gang. The spike compiles for the machine
    -- it is about to run on, so a conservative default would only mean the
    -- differentials stopped testing the lane bodies.
-   local selected = assert(targets.select(nil, targets.tiers(
-      targets.architecture(assert(require("nupp.compiler.targetlayout").hostKey())))[1]))
+   local host = assert(require("nupp.compiler.targetlayout").hostKey())
+   local architecture = targets.architecture(host)
+   local selected = assert(targets.select(nil, targets.tiers(architecture)[1]))
+   local gangBytes = os.getenv("NUPP_AOT_BENCH_GANG_BYTES")
+   if gangBytes ~= nil and gangBytes ~= "16" then
+      error("NUPP_AOT_BENCH_GANG_BYTES accepts only 16")
+   end
+   -- The SIMD Mandelbrot comparison holds the source fixed while asking for
+   -- one physical Neon register. This is a benchmark ceiling, not a target
+   -- available to ordinary project builds.
+   if gangBytes == "16" then
+      selected = {triple = host, architecture = architecture, tier = "baseline"}
+   end
    local artifacts, diagnostics = aot.artifacts(source, filename, checked, SPIKE_LIBRARY, selected)
    if not artifacts then return nil, diagnostics end
 

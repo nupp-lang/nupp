@@ -1,0 +1,88 @@
+-- Checksum-only SIMD Mandelbrot, expressed as an AOT map over independent
+-- checksum streams. Coordinate generation and the final per-stream accumulation
+-- remain inside the native kernel; unlike the point-batch benchmark, this
+-- function neither reads points nor writes pixel results.
+--
+-- Four adjacent streams reproduce the original Forgo coordinate gang and its
+-- binary32 rounding exactly. Eight AOT lanes process two such gangs at once on
+-- Apple arm64, leaving lane width and gang termination to Nupp's ordinary
+-- automatic lowering.
+local span = require("nupp.mem.span")
+
+local struct Stream
+    lane: int32
+    groupOffset: int32
+end
+
+@aot(lanes = true)
+local function simdMandelbrot(
+    exclusive sums: span.WriteSpan<int32>,
+    borrows streams: span.Span<Stream>,
+    first: integer,
+    last: integer,
+    width: int32,
+    height: int32,
+    maxIterations: int32
+): nil
+    if #sums ~= #streams then
+        error("length mismatch", 2)
+    end
+    if first < 1 or last > #sums or first > last + 1 then
+        error("range out of bounds", 2)
+    end
+
+    for i = first, last do
+        local stream = streams[i]
+        local lane = stream.lane
+        local groupOffset = stream.groupOffset
+        local dx = nupp.math.f32.div(3.0, nupp.math.f32.narrow(width))
+        local dy = nupp.math.f32.div(nupp.math.f32.narrow(2.4), nupp.math.f32.narrow(height))
+        local laneDX = nupp.math.f32.mul(nupp.math.f32.narrow(lane), dx)
+        local checksum = nupp.math.i32.wrap(0)
+
+        local y = nupp.math.i32.wrap(0)
+        while y < height do
+            local ci = nupp.math.f32.fma(nupp.math.f32.narrow(y), dy, nupp.math.f32.narrow(-1.2))
+            local ySquared = nupp.math.f32.mul(ci, ci)
+            local groupX = groupOffset
+            while groupX < width do
+                local base = nupp.math.f32.fma(nupp.math.f32.narrow(groupX), dx, nupp.math.f32.narrow(-2.0))
+                local cr = nupp.math.f32.add(base, laneDX)
+                local cardioidX = nupp.math.f32.sub(cr, 0.25)
+                local cardioidSquare = nupp.math.f32.mul(cardioidX, cardioidX)
+                local q = nupp.math.f32.add(cardioidSquare, ySquared)
+                local inCardioid = nupp.math.f32.mul(
+                    q,
+                    nupp.math.f32.add(q, cardioidX)
+                ) <= nupp.math.f32.mul(0.25, ySquared)
+                local crPlusOne = nupp.math.f32.add(cr, 1.0)
+                local bulbSquare = nupp.math.f32.mul(crPlusOne, crPlusOne)
+                local inPeriod2Bulb = nupp.math.f32.add(bulbSquare, ySquared) <= 0.0625
+                if inCardioid or inPeriod2Bulb then
+                    checksum = nupp.math.i32.add(checksum, maxIterations)
+                else
+                    local zr = nupp.math.f32.narrow(0.0)
+                    local zi = nupp.math.f32.narrow(0.0)
+                    local iteration = nupp.math.i32.wrap(0)
+                    while iteration < maxIterations do
+                        local zrSquared = nupp.math.f32.mul(zr, zr)
+                        local ziSquared = nupp.math.f32.mul(zi, zi)
+                        if nupp.math.f32.add(zrSquared, ziSquared) > 4.0 then
+                            break
+                        end
+                        local product = nupp.math.f32.mul(zr, zi)
+                        zi = nupp.math.f32.add(nupp.math.f32.add(product, product), ci)
+                        zr = nupp.math.f32.add(nupp.math.f32.sub(zrSquared, ziSquared), cr)
+                        iteration = nupp.math.i32.add(iteration, 1)
+                    end
+                    checksum = nupp.math.i32.add(checksum, iteration)
+                end
+                groupX = nupp.math.i32.add(groupX, 8)
+            end
+            y = nupp.math.i32.add(y, 1)
+        end
+        sums[i] = checksum
+    end
+end
+
+return {simdMandelbrot = simdMandelbrot, Stream = Stream,}
