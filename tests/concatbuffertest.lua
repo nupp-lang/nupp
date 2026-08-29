@@ -17,11 +17,16 @@ local function assertEq(got, want, label)
    end
 end
 
-local function compile(src, level)
+local function compile(src, level, dialect)
    local result = parser.parse(src, "test.g.nupp")
    assertEq(#result.errors, 0, "syntax errors in test source")
    check.check(result, "test.g.nupp", env)
-   local remarks = optimize.run(result, {level = level})
+   local remarks = optimize.run(result, {
+      level = level,
+      filename = "test.g.nupp",
+      relaxed = {},
+      dialect = dialect or "luajit",
+   })
    local code, diags = gen.generate(result, "test")
    assertEq(#diags, 0, "gen diagnostics for " .. src)
    return code, remarks
@@ -244,6 +249,22 @@ return out
    end
 end
 
+function M.lua51DialectSkipsThePass()
+   local source = [[
+local out = ""
+for i = 1, 3 do
+    out = out .. i
+end
+return out
+]]
+   local code, remarks = compile(source, 1, "lua51")
+   for _, entry in ipairs(remarks) do
+      assertEq(entry.code ~= "OPT-5", true, "Lua 5.1 cannot use string.buffer")
+   end
+   assertEq(code:find("__nuppBuffer", 1, true), nil,
+      "Lua 5.1 output does not require LuaJIT's string.buffer")
+end
+
 function M.disablingThePassLeavesItAlone()
    local result = parser.parse([[
 local out = ""
@@ -253,7 +274,13 @@ end
 return out
 ]], "test")
    check.check(result, "test.g.nupp", env)
-   local remarks = optimize.run(result, {level = 1, disabled = {["OPT-5"] = true}})
+   local remarks = optimize.run(result, {
+      level = 1,
+      filename = "test.g.nupp",
+      disabled = {["OPT-5"] = true},
+      relaxed = {},
+      dialect = "luajit",
+   })
    for _, entry in ipairs(remarks) do
       assertEq(entry.code ~= "OPT-5", true, "-Zno-opt=OPT-5 turns it off")
    end

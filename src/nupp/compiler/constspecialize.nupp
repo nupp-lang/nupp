@@ -160,7 +160,7 @@ end
 --- Imported declarations are collected by the deliverable planner, which has their
 --- source trees; a single-file optimization cannot emit a private body it cannot see.
 function constspecialize.collect(result: any, filename: string?): {any}
-    filename = filename or result.filename or "<source>"
+    filename = filename or "<source>"
     local candidates, plans = {}, {}
     constspecialize.collectCandidates(result, filename as string, candidates, plans)
     constspecialize.collectCalls(result, filename as string, candidates)

@@ -79951,7 +79951,7 @@ end
 
 
 function constspecialize . collect ( result , filename ) 
-filename = filename or result . filename or "<source>"
+filename = filename or "<source>"
 local candidates , plans = { } , { }
 constspecialize . collectCandidates ( result , filename , candidates , plans )
 constspecialize . collectCalls ( result , filename , candidates )
@@ -129476,8 +129476,7 @@ local function constMonomorphizeWalk ( result , remarks , selection , selectedFi
 
 
 
-
-local filename = selectedFilename or result . filename or "<source>"
+local filename = selectedFilename or "<source>"
 local accepted , declined
 if selection ~= nil then
 accepted , declined = selection . accepted , selection . declined
@@ -129575,6 +129574,8 @@ end
 
 
 
+
+
 function optimize . run ( result , opts ) 
 opts = opts or { }
 local level = opts . level or 0
@@ -129614,7 +129615,7 @@ if level >= optimize . passes [ "OPT-8" ] . level and not disabled [ "OPT-8" ] t
 specializedBodies = constMonomorphizeWalk ( result , remarks , opts . constSelection , opts . filename )
 end
 for _ , entry in ipairs ( remarks ) do
-entry . filename = result . filename or opts . filename
+entry . filename = opts . filename
 end
 
 return remarks , specializedBodies

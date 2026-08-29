@@ -2549,10 +2549,9 @@ end
 -- nodes the checker proved.
 local function constMonomorphizeWalk(result, remarks, selection: any?, selectedFilename: string?)
     -- One name for the module, resolved before collection rather than beside it.
-    -- Collecting under `result.filename` (which nothing populates) while matching
-    -- owners against the caller's name made the pass a silent no-op wherever a
-    -- caller passed one, which is every route except a bare `optimize.run`.
-    local filename = selectedFilename or result.filename or "<source>"
+    -- The caller owns that name: parse results do not, and accepting a second
+    -- source made collection and remark attribution capable of disagreeing.
+    local filename = selectedFilename or "<source>"
     local accepted, declined
     if selection ~= nil then
         accepted, declined = selection.accepted, selection.declined
@@ -2619,17 +2618,19 @@ local function constMonomorphizeWalk(result, remarks, selection: any?, selectedF
     return emittedBodies
 end
 
---- What a pass works on: the tree it rewrites in place, the analysis the checker left
---- beside it, and the name a remark is filed under.
+--- What a pass works on: the tree it rewrites in place and the analysis the checker
+--- left beside it.
 type optimize.Checked = {
     readonly root: cst.Chunk,
-    readonly filename: string?,
     readonly analysis: any?
 }
 
 --- What the passes were asked for.
 type optimize.Options = {
     readonly level: integer?,
+
+    --- The sole source name used for ownership and remark attribution. Parse results
+    --- deliberately do not carry a competing name.
     readonly filename: string?,
     readonly disabled: {[string]: boolean}?,
     readonly relaxed: {[string]: boolean}?,
@@ -2689,7 +2690,7 @@ function optimize.run(result: optimize.Checked, opts: optimize.Options?): ({any}
         specializedBodies = constMonomorphizeWalk(result, remarks, opts.constSelection, opts.filename)
     end
     for _, entry in ipairs(remarks) do
-        entry.filename = result.filename or opts.filename
+        entry.filename = opts.filename
     end
 
     return remarks, specializedBodies
