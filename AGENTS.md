@@ -11,6 +11,14 @@ When complete, delete the worktree. Leave no attribution in commits,
 do not use conventional commits, use imperative language, and keep commit
 lines under 72 characters.
 
+Main moving underneath you while you integrate, and the rebase that follows,
+is the expected, natural consequence of other agents working in parallel out
+of their own worktrees. Do not report this or call it out as needing
+attention: it is not an incident. Only report when integrating surfaces an
+actual incident — one that changes the design or implementation in a way
+the original work did not anticipate. Adjusting code to resolve a rebase
+conflict does not on its own meet that bar.
+
 ### The development rock tree
 
 `.rocks` holds the rocks this repository develops against -- lunamark and
