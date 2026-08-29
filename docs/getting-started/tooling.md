@@ -23,7 +23,7 @@ Every command takes `-h`, and `nupp help <command>` prints the same reference.
 | `build` | Compile to Lua, incrementally | [build.md](../guides/build.md) |
 | `run` | Compile and run; profile behind a flag | [profiling.md](../guides/profiling.md) |
 | `bc --check` | Find deterministic LuaJIT recorder blockers | [jit-trace-checking.md](../guides/jit-trace-checking.md) |
-| `test` | Build, then run the configured suite | [testing.md](../guides/testing.md) |
+| `test` | Build, then run the bundled or configured suite | [testing.md](../guides/testing.md) |
 | `fmt` | Format; fixed style | [fmt.md](../guides/fmt.md) |
 | `doc` | Generate an API site from the parse | [doc.md](../guides/doc.md) |
 | `lsp` | Language server, and CLI equivalents | [lsp.md](../guides/lsp.md) |

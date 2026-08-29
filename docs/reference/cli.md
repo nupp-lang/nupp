@@ -33,12 +33,14 @@ The commands, in the order `nupp help` lists them:
 - [`reference`](#reference): list or print a focused Nupp reference chapter
 - [`completions`](#completions): print a shell completion script
 - [`test`](#test): build and run the configured test command
+- [`test-runner`](#test-runner): run test suites with the bundled runner
 - [`coverage`](#coverage): run tests and write a source coverage report
 - [`task`](#task): build, then run a named task from `nupp.lua`
 - [`doc`](#doc): generate API documentation from source comments
 - [`fixpoint`](#fixpoint): verify a byte-identical self-hosting rebuild
 - [`run`](#run): compile and run a Nupp or Lua program
 - [`import-c`](#import-c): generate typed Nupp bindings from a C header
+- [`migrate`](#migrate): migrate typed foreign source into gradual Nupp
 - [`export-c`](#export-c): export canonical C declarations for Nupp structs
 - [`rock`](#rock): create and package typed LuaRocks libraries
 - [`lsp`](#lsp): language-server and semantic source operations
@@ -69,9 +71,10 @@ A given `--color` decides on its own. With none, `NO_COLOR` refuses escapes,
 terminal that understands them, which `TERM=dumb` says it is not. JSON output is
 never colored.
 
-[`test`](#test), [`task`](#task), [`rock`](#rock) and the [`lsp`](#lsp) group
+[`test`](#test), [`test-runner`](#test-runner), [`task`](#task), [`rock`](#rock)
+and the [`lsp`](#lsp) group
 hand their arguments to another program or parse them per operation, so the
-three are not appended to them. Each of the four takes `-h`, and `lsp` declares
+three are not appended to them. Each takes `-h`, and `lsp` declares
 a grammar of its own.
 
 ## JSON and schemas
@@ -87,7 +90,7 @@ nupp check --schema
 `init`, `ast`, `aot`, `bc`, `check`, `fmt`, `build`, `backend`, `clean`, `tasks`, `lints`,
 `ownership-audit`, `explain`, `doc`, `fixpoint`, `import-c` and `export-c` take
 all three, and so does every `lsp` operation. `reference` names its
-formats `markdown`, `skill` and `json` instead. `coverage`, `test` and `run`
+formats `markdown`, `skill` and `json` instead. `coverage`, `test`, `test-runner` and `run`
 take `--json` and `--schema` with no `--format`, because the JSON each writes is
 one particular artifact rather than a rendering of the whole result.
 `completions`, `task` and `rock` produce no structured result and take neither.
@@ -1389,7 +1392,7 @@ _nupp() {
   cur="${COMP_WORDS[COMP_CWORD]}"
   prev="${COMP_WORDS[COMP_CWORD - 1]}"
   if (( COMP_CWORD == 1 )); then
-    COMPREPLY=( $(compgen -W 'init ast aot bc check fmt build clean tasks lints ownership-audit explain reference completions test coverage task doc fixpoint run import-c export-c rock lsp help' -- "$cur") )
+    COMPREPLY=( $(compgen -W 'init ast aot bc check fmt build backend clean tasks lints ownership-audit explain reference completions test test-runner coverage task doc fixpoint run import-c migrate export-c rock lsp help' -- "$cur") )
     return 0
   fi
   command="${COMP_WORDS[1]}"
@@ -1422,7 +1425,7 @@ a test argument named --help.
 
 --json is passed along to the test command rather than interpreted here, since
 the arguments past this point are that command's. --schema describes what the
-runner in tests/run.lua writes for it.
+bundled runner writes for it.
 ```
 
 The example project configures no test command, so these two run in Nupp's own
@@ -1493,6 +1496,33 @@ because a single named suite runs in one.
   other than Nupp's has to write
 - [coverage](#coverage) for running the same suites under instrumentation
 :::
+
+### `test-runner`
+
+```text [nupp test-runner --help]
+Run test suites with the bundled runner
+
+Usage:
+  nupp test-runner [suite...] [options]
+
+Options:
+  --json          Write one JSON test report instead of progress text
+  --verbose       Show output captured from passing tests
+  --jobs N        Use N parallel workers
+  --timings[=N]   Show every timing, or only the N slowest suites and cases
+  --color[=WHEN]  Color output: always, never, or auto
+  --no-color      Never color output
+  -h, --help      Show this help
+  --schema        Print the JSON Schema of --json output and exit
+
+Discovers tests/*test.lua and tests/*test.nupp. Each suite returns a
+table of test functions and may define beforeAll, afterAll, beforeEach, and
+afterEach hooks. A suite name selects one or more files without their extension.
+```
+
+Run `nupp test` for the normal build-then-test path. `test-runner` is the
+manifest command Nupp's templates select, and is useful directly when the
+artifact under test is already current.
 
 ### `coverage`
 
@@ -2148,6 +2178,7 @@ Commands:
   reference        List or print a focused Nupp reference chapter
   completions      Print a shell completion script
   test             Build and run the configured test command
+  test-runner      Run test suites with the bundled runner
   coverage         Run tests and write a source coverage report
   task             Build, then run a named task from nupp.lua
   doc              Generate API documentation from source comments

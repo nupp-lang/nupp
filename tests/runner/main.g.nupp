@@ -7,5 +7,10 @@ module main
 rawset(_G, "__NUPP_TEST_WORKER_HOST", true)
 arg[0] = "tests/run.lua"
 
+-- The runner is loaded as a file, so its dependency is invisible to the module
+-- graph unless the host names it. Keeping the public module loaded also means every
+-- worker state and every suite observes the same assertion implementation.
+package.loaded["nupp.test"] = require("nupp.test")
+
 const run = assert(loadfile(arg[0]))
 run()

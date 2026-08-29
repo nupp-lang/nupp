@@ -1,0 +1,63 @@
+module nupp.compiler.cli.testrunner
+
+--[[Runs the first-party test harness carried by the compiler.]]
+
+local spec = require("nupp.compiler.cli.spec")
+
+local command = spec.command{
+    name = "test-runner",
+    summary = "Run test suites with the bundled runner",
+    usage = {"nupp test-runner [suite...] [options]"},
+    universal = false,
+    options = {
+        {name = "--json", help = "Write one JSON test report instead of progress text"},
+        {name = "--verbose", help = "Show output captured from passing tests"},
+        {name = "--jobs", value = "N", help = "Use N parallel workers"},
+        {
+            name = "--timings",
+            value = "N",
+            form = "optional",
+            help = "Show every timing, or only the N slowest suites and cases"
+        },
+        {name = "--color", value = "WHEN", form = "optional", help = "Color output: always, never, or auto"},
+        {name = "--no-color", help = "Never color output"},
+        spec.helpOption,
+    },
+    schema = require("nupp.compiler.cli.test").spec.schema,
+    detail = [[Discovers tests/*test.lua and tests/*test.nupp. Each suite returns a
+table of test functions and may define beforeAll, afterAll, beforeEach, and
+afterEach hooks. A suite name selects one or more files without their extension.]],
+}
+
+local function run(args: any): integer
+    local compilerRoot = os.getenv("NUPP_COMPILER_ROOT")
+    local executable = compilerRoot and compilerRoot .. "/bin/nupp" or tostring(arg[0] or "nupp")
+    local forwarded = {[0] = executable}
+    for index, argument in ipairs(args) do
+        forwarded[index] = argument
+    end
+    arg = forwarded
+
+    -- The carried runner is still one ordinary Lua program. These two values are
+    -- the process facts a file invocation used to derive from arg[0]: where suites
+    -- live, and how a parallel child invokes the same program again.
+    rawset(_G, "__NUPP_TEST_DIR", "tests")
+    rawset(_G, "__NUPP_TEST_RUNNER_COMMAND", string.format("%q", executable) .. " test-runner")
+
+    -- A suite requiring the public assertion module receives this exact instance.
+    -- The literal require also keeps it in a stamped compiler whose runner source is
+    -- loaded dynamically below.
+    package.loaded["nupp.test"] = require("nupp.test")
+
+    local source = assert(require("nupp.compiler.bundled").source("/nupp/test/runner.lua"))
+    local execute, problem = loadstring(source, "@nupp:test-runner")
+    if execute == nil then
+        io.stderr:write("nupp: cannot load the bundled test runner: " .. tostring(problem) .. "\n")
+        return 1
+    end
+    local result: any = execute()
+
+    return type(result) == "number" and result or 0
+end
+
+export = new spec.Handler(spec = command, raw = true, run = run)

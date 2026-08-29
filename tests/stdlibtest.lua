@@ -249,7 +249,7 @@ function M.standardSurfaceRequiresExactPortableSeams()
       "nupp.data.serde", "nupp.data.utf8", "nupp.io.files",
       "nupp.io.http", "nupp.io.process", "nupp.io.path", "nupp.io.uri",
       "nupp.mem", "nupp.runtime.native", "nupp.simd", "nupp.time", "nupp.wasm",
-      "nupp.workers",
+      "nupp.test", "nupp.workers",
    }) do
       assert(classified[name], "public standard module is classified: " .. name)
    end
@@ -1001,6 +1001,9 @@ function M.nativeFeaturesAreResolvedEffects()
 
    local json = effectsOf("local json = require('nupp.data.json')")
    assert(json["native.json"], "require('nupp.data.json') records its JSON effect")
+
+   local test = effectsOf("local test = require('nupp.test')")
+   assert(test["runtime.test"], "require('nupp.test') carries the assertion module")
 
    local process = effectsOf("local process = require('nupp.io.process')")
    assert(process["native.process"], "the public process module selects its provider")

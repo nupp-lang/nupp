@@ -869,6 +869,14 @@ function project.test(root: string?, args: {string}?, opts: project.TestOptions?
     for _, item in ipairs(args or {}) do
         argv[#argv + 1] = item
     end
+    -- The built-in runner is another compiler command. In a source checkout the
+    -- process itself is build/nupp/compiler/main.lua, not the launcher a shell can
+    -- execute, so resolve the conventional manifest spelling back to that launcher.
+    -- A stamped compiler has no checkout root and is already its own executable.
+    if argv[1] == "nupp" and argv[2] == "test-runner" then
+        local compilerRoot = os.getenv("NUPP_COMPILER_ROOT")
+        argv[1] = compilerRoot and compilerRoot .. "/bin/nupp" or tostring(arg[0] or argv[1])
+    end
     local env: {[string]: string} = {}
     for key, value in pairs(test.env or {}) do
         env[key] = value
@@ -876,6 +884,8 @@ function project.test(root: string?, args: {string}?, opts: project.TestOptions?
     for key, value in pairs(asked.env or {}) do
         env[key] = value
     end
+    local builtTarget = assert(targetConfig(config, test.build))
+    env.NUPP_TEST_BUILD = env.NUPP_TEST_BUILD or normalize(asked.outDir or builtTarget.outDir or "build")
     -- The rocks the tested target depends on were installed into a tree that belongs to
     -- the project, and the test command is a fresh interpreter that has never heard of
     -- it. A trailing empty entry is where Lua substitutes its own path, so the tree is

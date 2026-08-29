@@ -10,6 +10,7 @@ if not ROOT then
    ROOT = p:read("*l")
    p:close()
 end
+local NUPP = os.getenv("NUPP_TEST_BIN") or ROOT .. "/bin/nupp"
 
 local function read(path)
    local f = assert(io.open(path, "rb"))
@@ -55,6 +56,35 @@ local function runWorkerHost(args)
    local output = pipe:read("*a")
    pipe:close()
    return output
+end
+
+function M.bundledRunnerWorksOutsideTheCompilerCheckout()
+   local dir = os.tmpname()
+   os.remove(dir)
+   assert(os.execute("mkdir -p " .. string.format("%q", dir .. "/tests")) == 0)
+   for _, name in ipairs({"alpha", "beta"}) do
+      write(("%s/tests/%stest.lua"):format(dir, name), ([=[
+local test = require("nupp.test")
+local M = {}
+function M.passes() test.equal(%q, %q) end
+return M
+]=]):format(name, name))
+   end
+
+   local command = ("cd %q && NUPP_TEST_BUILD=%q %q test-runner "
+      .. "--jobs=2 --json 2>/dev/null"):format(dir, dir .. "/build", NUPP)
+   local pipe = assert(io.popen(command))
+   local output = pipe:read("*a")
+   local ok = pipe:close()
+   assert(ok, "the bundled runner failed outside its checkout: " .. output)
+   local report = require("testjson").decode(output)
+   test.equal(report.total, 2, "both external suites ran")
+   test.equal(report.passed, 2, "both external suites passed")
+   test.equal(#report.shards, 2, "the external run used both requested workers")
+   local timings = read(dir .. "/build/.nupp-test-times.json")
+   test.matches(timings, '"alphatest"', "external timing history is persisted")
+   test.matches(timings, '"betatest"', "every external suite is timed")
+   os.execute("rm -rf " .. string.format("%q", dir))
 end
 
 function M.workerHostDogfoodsNuppWorkersForOrdinarySuites()

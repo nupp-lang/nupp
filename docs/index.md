@@ -437,7 +437,7 @@ language-aware compiler. No glue scripts required.
 ```text
 nupp check                # type-check the project
 nupp fmt                  # apply Nupp's fixed style
-nupp test                 # build and run the configured suite
+nupp test                 # build and run the bundled parallel test runner
 nupp build --target dist  # stamp a self-contained binary
 nupp run --profile        # write a speedscope-compatible profile
 nupp lsp                  # start the language server

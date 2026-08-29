@@ -1,0 +1,129 @@
+module nupp.test
+
+--[[
+Assertions shared by Nupp's bundled test runner and project test suites.
+
+Every failure names the values that differed. The functions return their
+successful input where that is useful, so an assertion may narrow or validate a
+value without forcing the caller to spell it twice.
+]]
+
+local function show(value: any, seen: table?, depth: integer?): string
+    depth = depth or 0
+    local kind = type(value)
+    if kind ~= "table" then
+        if kind == "string" then
+            return string.format("%q", value)
+        else
+            return tostring(value)
+        end
+    end
+    if depth >= 2 then
+        return "{...}"
+    end
+    seen = seen or {}
+    if seen[value] then
+        return "<cycle>"
+    end
+    seen[value] = true
+    local parts: {string} = {}
+    for key, item in pairs(value) do
+        parts[#parts + 1] = "[" .. show(key, seen, depth + 1) .. "]=" .. show(item, seen, depth + 1)
+    end
+    table.sort(parts)
+    seen[value] = nil
+
+    return "{" .. table.concat(parts, ", ") .. "}"
+end
+
+local function fail(message: string, level: integer?): never
+    error(message, (level or 1) + 1)
+end
+
+--- Requires a truthy value and returns its complete input pack.
+--- @raise when value is false or nil
+export function assert(value: any, ...: any): any
+    if value then
+        return value, ...
+    end
+    local message = ...
+    local detail = "expected a truthy value, got " .. show(value)
+    if message ~= nil then
+        detail = detail .. ": " .. tostring(message)
+    end
+    fail(detail, 2)
+end
+
+--- Requires two values to be equal and returns the actual value.
+--- @raise when actual and expected differ
+export function equal(actual: any, expected: any, message: string?): any
+    if actual == expected then
+        return actual
+    end
+    local detail = "expected " .. show(expected) .. ", got " .. show(actual)
+    if message ~= nil then
+        detail = detail .. ": " .. message
+    end
+    fail(detail, 2)
+end
+
+--- Requires two values to differ and returns the actual value.
+--- @raise when actual and unwanted are equal
+export function notEqual(actual: any, unwanted: any, message: string?): any
+    if actual ~= unwanted then
+        return actual
+    end
+    local detail = "did not expect " .. show(unwanted)
+    if message ~= nil then
+        detail = detail .. ": " .. message
+    end
+    fail(detail, 2)
+end
+
+--- Requires a string value containing a Lua pattern and returns the string.
+--- @raise when value is not a string or does not contain pattern
+export function matches(value: any, pattern: string, message: string?): string
+    if type(value) == "string" and value:find(pattern) then
+        return value
+    end
+    local detail = "expected " .. show(value) .. " to match " .. show(pattern)
+    if message ~= nil then
+        detail = detail .. ": " .. message
+    end
+    fail(detail, 2)
+end
+
+--- Requires a callback to raise and returns its error value.
+--- @raise when the callback returns, or its error does not match pattern
+export function raises(fn: function(...: any): any, pattern: string?): any
+    local ok, problem = pcall(fn)
+    if ok then
+        fail("expected function to raise an error", 2)
+    end
+    if pattern ~= nil and not tostring(problem):find(pattern) then
+        fail("expected error " .. show(problem) .. " to match " .. show(pattern), 2)
+    end
+
+    return problem
+end
+
+local skipped = {}
+
+--- Skips the current test case with a reason.
+export function skip(reason: string): never
+    error({skip = skipped, reason = reason}, 0)
+end
+
+--- Answers whether a caught error is a skip raised by this module.
+export function isSkip(value: any): boolean
+    return type(value) == "table" and value.skip == skipped
+end
+
+--- Returns the reason carried by a skip error.
+export function skipReason(value: any): string?
+    if isSkip(value) then
+        return value.reason as string
+    end
+
+    return nil
+end

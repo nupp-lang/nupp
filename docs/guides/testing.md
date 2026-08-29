@@ -5,8 +5,8 @@ order: 580
 # Testing
 
 `nupp test` builds the configured target, then runs the command the manifest
-names, so a test never runs against a stale compiler. The harness is your
-choice, named in `test.argv`.
+names, so a test never runs against stale output. New projects use Nupp's
+bundled runner; another harness remains a manifest choice in `test.argv`.
 
 ```bash
 nupp test
@@ -32,7 +32,7 @@ return {
 
    test = {
       build = "app",
-      argv = { "luajit", "tests/run.lua" },
+      argv = { "nupp", "test-runner" },
       env = { NUPP_TEST_MODE = "ci" },
    },
 }
@@ -61,14 +61,15 @@ command. The consequences:
   a test argument literally named `--help`.
 - `--json` is passed along rather than interpreted, so the test command decides
   what it means.
-- `--verbose` asks `tests/run.lua` to print output captured from every test.
+- `--verbose` asks the bundled runner to print output captured from every test.
   Without it, output is shown only for failures.
 
 ## Nupp's runner
 
-`tests/run.lua` is the runner the compiler's own suite uses, and the one
-`nupp test --schema` describes. It loads every `tests/*test.lua` and compiles
-every `tests/*test.nupp`, and both kinds return a table of test functions:
+`nupp test-runner` is the runner Nupp ships and uses in its project templates;
+the compiler's own suite uses the same implementation. It loads every
+`tests/*test.lua` and compiles every `tests/*test.nupp`, and both kinds return a
+table of test functions. `nupp test --schema` describes its JSON report.
 
 ```bash
 nupp test              # everything
@@ -112,10 +113,10 @@ floor no number of further shards moves.
 prints N of them, and `--timings=0` prints none. Under `--json` the same
 measurements are `suites` and `shards` beside `tests`.
 
-It is not installed for you. The `lib` template writes a manifest whose
-`test.argv` names `tests/run.lua`, and puts a two-line assertion script at that
-path to replace; a project that wants this runner copies it and
-`tests/assert.lua` out of the Nupp repository.
+The `app`, `lib`, and `love` templates configure this runner and include a real
+suite using `nupp.test`. Running `nupp test-runner` directly skips the build;
+the normal project command is `nupp test`, which builds first and forwards its
+remaining arguments to the runner.
 
 ::: deepdive
 The runner is written in Lua rather than Nupp because it loads the compiler
@@ -132,7 +133,7 @@ runner.
 A test is a function on the table a suite returns:
 
 ```lua
-local test = require("assert")
+local test = require("nupp.test")
 local M = {}
 
 function M.narrowsOnIs()
@@ -143,11 +144,12 @@ end
 return M
 ```
 
-`test.equal`, `test.notEqual`, `test.matches`, and `test.raises` include their
-expected and actual values in failures. `test.skip("reason")` records a skipped
-test. The ordinary `assert` is also upgraded by the runner to say which falsy
-value it received, so existing tests get better failures without being
-rewritten.
+`nupp.test` is a shipped module, not a file copied from Nupp's own tests.
+`test.assert`, `test.equal`, `test.notEqual`, `test.matches`, and `test.raises`
+include the relevant values in failures; table values are rendered to make
+structural differences visible. `test.skip("reason")` records a skipped test.
+The runner also upgrades the ordinary global `assert` to report the falsy value
+it received, so existing suites get better failures without being rewritten.
 
 ### Lifecycle hooks
 
@@ -197,13 +199,14 @@ does:
 module tests.arithmetictest
 
 local fixture = require("tests.nuppfixture")
+local test = require("nupp.test")
 
 export function addsNumbers(): nil
-    assert(20 + 22 == 42)
+    test.equal(20 + 22, 42)
 end
 
 export function requiresNuppProjectModules(): nil
-    assert(fixture.answer == 42)
+    test.equal(fixture.answer, 42)
 end
 ```
 
@@ -254,10 +257,9 @@ a shard, and while [coverage](#coverage) is collected, where the shards would
 race each other for the one counter file `NUPP_COVERAGE_FILE` names.
 
 ::: deepdive
-Two workers per core rather than one, because a worker spends much of its life
-waiting on a compiler it started rather than running one. Measured on eight
-cores: 71s at one per core, 63s at two, and no further gain at three; on
-eighteen, 36 workers beat 18 and both beat 12.
+The default is one worker per processor. `--jobs=N` is explicit because the
+useful count depends on the machine and on whether the suites spend their time
+computing, compiling, or waiting on subprocesses.
 
 What neither the count nor the queue fixes is a single test case longer than a
 fair share. A case is the smallest thing that can be handed out, so the longest
@@ -267,8 +269,8 @@ a minute and a half under load, and no arrangement of workers goes under it.
 
 ## JSON output
 
-`nupp test --schema` prints the schema the runner in `tests/run.lua` writes
-for. The shape is a summary plus a record per test:
+`nupp test --schema` prints the schema the bundled runner writes. The shape is
+a summary plus a record per test:
 
 ```json
 {
@@ -319,11 +321,11 @@ test = {
 What moves to the harness with it:
 
 - **The meaning of `--json` and `--verbose`.** Both are appended rather than
-  interpreted, and `nupp test --schema` still prints what `tests/run.lua`
+  interpreted, and `nupp test --schema` still prints what the bundled runner
   writes, so a project answering `--json` differently is the one documenting
   it.
 - **Splitting the run.** Nothing in `nupp test` divides work across processes;
-  the sharding above belongs to `tests/run.lua`.
+  the sharding above belongs to `nupp test-runner`.
 - **The coverage protocol.** A custom runner must load the build directory
   `NUPP_COVERAGE_BUILD` names ahead of its ordinary output and flush the
   generated global `__nuppCoverage.hits` to the file named by
@@ -354,7 +356,7 @@ so opening the report does not load the source for the whole project. Green
 means executed, red means executable but missed, amber means a partial branch,
 and gray is non-executable source such as a type-only line.
 
-`tests/run.lua` reads `NUPP_COVERAGE_BUILD` and writes the coverage shard
+The bundled runner reads `NUPP_COVERAGE_BUILD` and writes the coverage shard
 automatically. A runner that does not follow that protocol leaves
 `nupp coverage` reporting incomplete data rather than treating it as zero
 coverage. Coverage probes add runtime work by design, so time a run with
@@ -393,7 +395,7 @@ that a change to the compiler does not quietly change its output. See
 ### Why did `nupp test --json` print no JSON?
 
 `--json` is appended to `test.argv` rather than interpreted, so a harness that
-ignores it prints what it always prints. `tests/run.lua` answers it, and
+ignores it prints what it always prints. The bundled runner answers it, and
 `nupp test --schema` prints the shape that runner writes.
 
 ### Why is the first parallel run slower than the next one?

@@ -161,7 +161,7 @@ to build first and the command to run:
 ```lua
 test = {
    build = "app",
-   argv = { "luajit", "tests/run.lua" }
+   argv = { "nupp", "test-runner" }
 }
 ```
 

@@ -175,7 +175,7 @@ One binary, built from one parse of your source:
 - `nupp fmt` formats to a fixed style with nothing to configure.
 - `nupp doc` generates an API site from the parse tree.
 - `nupp lsp` serves hover, rename, and code actions.
-- `nupp test` builds, then runs the configured suite.
+- `nupp test` ships assertions and a parallel runner, and still accepts another harness.
 - `nupp explain` describes a diagnostic code, with worked examples.
 - `nupp import-c` turns a C header into typed declarations.
 

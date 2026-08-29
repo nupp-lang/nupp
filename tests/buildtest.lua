@@ -92,6 +92,30 @@ function M.buildEmitsTheDependencyClosure()
    os.execute("rm -rf '" .. dir .. "'")
 end
 
+function M.buildCarriesThePublicTestModule()
+   local dir = tempProject({
+      ["nupp.lua"] = [[
+return {
+   include = {"src"},
+   build = {outDir = "build", entries = {"main"}},
+}
+]],
+      ["src/main.nupp"] = [[
+local test = require("nupp.test")
+test.equal(42, 42)
+return true
+]],
+   })
+   local out = capture(("cd %q && %q build"):format(dir, NUPP))
+   assertEq(out, "", "the public assertion module builds: " .. out)
+   assert(exists(dir .. "/build/nupp/test.lua"),
+      "the compiler-carried assertion module is linked into the project")
+   local ran = capture(("cd %q && LUA_PATH='./build/?.lua;;' luajit -e "
+      .. "%q"):format(dir, "assert(require('main'))"))
+   assertEq(ran, "", "the linked assertion module runs under plain LuaJIT")
+   os.execute("rm -rf " .. string.format("%q", dir))
+end
+
 function M.explicitBuildCreatesItsOutputDirectory()
    local dir = tempProject({
       ["nupp.lua"] = 'return {include = {"."}}\n',

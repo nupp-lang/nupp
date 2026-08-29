@@ -15,14 +15,21 @@
 -- wrote no report", which loses every other suite's result and reads like an
 -- infrastructure failure rather than the one test that broke.
 local runnerPath = arg[0]
-if package.config:sub(1, 1) == "\\" then
-   runnerPath = runnerPath:gsub("^/([A-Za-z])(/)", function(drive, slash)
-      return drive:upper() .. ":" .. slash
-   end)
+local dir = rawget(_G, "__NUPP_TEST_DIR")
+if not dir then
+   if package.config:sub(1, 1) == "\\" then
+      runnerPath = runnerPath:gsub("^/([A-Za-z])(/)", function(drive, slash)
+         return drive:upper() .. ":" .. slash
+      end)
+   end
+   dir = runnerPath:match("^(.*)[/\\]") or "."
 end
-local dir = runnerPath:match("^(.*)[/\\]") or "."
-local buildDir = os.getenv("NUPP_COVERAGE_BUILD") or "build"
-package.path = dir .. "/../" .. buildDir .. "/?.lua;" .. dir .. "/?.lua;"
+local buildDir = os.getenv("NUPP_COVERAGE_BUILD")
+   or os.getenv("NUPP_TEST_BUILD") or "build"
+local absoluteBuild = buildDir:match("^[/\\]")
+   or buildDir:match("^[A-Za-z]:[/\\]")
+local buildRoot = absoluteBuild and buildDir or dir .. "/../" .. buildDir
+package.path = buildRoot .. "/?.lua;" .. dir .. "/?.lua;"
    .. package.path
 -- A runner copied out of the repository -- which is how its own suite exercises
 -- it as the program a person runs -- resolves the two paths above against
@@ -179,10 +186,10 @@ if package.config:sub(1, 1) == "\\" then
    end
 end
 
-local test = require("assert")
+local test = require("nupp.test")
 
 -- Existing suites use Lua's familiar assert spelling.  Give those assertions
--- useful falsy diagnostics, while `require("assert")` exposes equal, matches,
+-- useful falsy diagnostics, while `require("nupp.test")` exposes equal, matches,
 -- raises and skip for new assertions that can say exactly what differed.
 assert = test.assert
 
@@ -761,14 +768,14 @@ end
 --- sixteen. Source size is no guide, so the only honest estimate is what happened last
 --- time. A first run with no record is evenly guessed and slow; every one after it is
 --- packed from measurement.
-local timingsPath = dir .. "/../" .. buildDir .. "/.nupp-test-times.json"
+local timingsPath = buildRoot .. "/.nupp-test-times.json"
 
 --- Where each shard's content-keyed store goes.
 ---
 --- Under the build directory, so `nupp clean` removes it with everything else, and
 --- keyed by nothing: the stores inside stamp and key their own entries, so a stale one
 --- is a miss rather than a wrong answer.
-local shardCacheRoot = dir .. "/../" .. buildDir .. "/.nupp-test-cache"
+local shardCacheRoot = buildRoot .. "/.nupp-test-cache"
 
 local recordedOnce = nil
 local function recorded()
@@ -1203,8 +1210,10 @@ if #shard == 0 and #suites > 0
                -- until the first worker finished.
                local progress = progressFd
                   and ("NUPP_TEST_PROGRESS_FD=%d "):format(progressFd) or ""
-               local command = ("{ %s%sluajit '%s' --json %s --color=%s%s; echo \"__status__:$?\" >&2; } 2>'%s'")
-                  :format(cache, progress, arg[0], lane.arg,
+               local invocation = rawget(_G, "__NUPP_TEST_RUNNER_COMMAND")
+                  or ("luajit '%s'"):format(arg[0])
+               local command = ("{ %s%s%s --json %s --color=%s%s; echo \"__status__:$?\" >&2; } 2>'%s'")
+                  :format(cache, progress, invocation, lane.arg,
                      colorMode, verbose and " --verbose" or "", errors)
                running[#running + 1] = {label = label, errors = errors,
                   index = index, startedAt = now() - started,

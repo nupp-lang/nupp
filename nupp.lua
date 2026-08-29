@@ -50,7 +50,7 @@ local TEMPLATE_FILES = {
    "app/src/greeting.nupp",
    "app/src/main.nupp",
    "app/template.lua",
-   "app/tests/run.lua",
+   "app/tests/greetingtest.nupp",
    "browser/.gitignore",
    "browser/README.md",
    "browser/nupp.lua",
@@ -79,13 +79,13 @@ local TEMPLATE_FILES = {
    "love/src/game.nupp",
    "love/src/main.nupp",
    "love/template.lua",
-   "love/tests/run.lua",
+   "love/tests/gametest.nupp",
    "lib/${name}-dev-1.rockspec",
    "lib/nupp.lua",
    "lib/nupp/${moduleName}.d.nupp",
    "lib/src/${moduleName}.nupp",
    "lib/template.lua",
-   "lib/tests/run.lua",
+   "lib/tests/greettest.nupp",
 }
 
 -- What the compiler carries, which both the module build and the stamped binary
@@ -94,6 +94,8 @@ local TEMPLATE_FILES = {
 local RESOURCES = {
    "src/nupp/compiler/decls/*.d.nupp",
    "src/nupp/compiler/decls/jit/*.d.nupp",
+   {source = "src/nupp/test.g.nupp", output = "nupp/compiler/nupp/test.g.nupp"},
+   {source = "tests/run.lua", output = "nupp/compiler/nupp/test/runner.lua"},
    {
       source = "src/nupp/compiler/build/stub-catalog.json",
       output = "nupp/compiler/build/stub-catalog.json",
@@ -484,6 +486,7 @@ return {
    test = {
       build = "testRunner",
       argv = { "build/nupp-test" },
+      env = {NUPP_TEST_BUILD = "build"},
    },
 
    tasks = {

@@ -1,0 +1,9 @@
+local test = require("nupp.test")
+local greeting = require("greeting")
+local suite = {}
+
+function suite.greetsByName(): nil
+    test.equal(greeting.forName("Nupp"), "Hello, Nupp!")
+end
+
+return suite

@@ -37,7 +37,7 @@ local command = spec.command{
     schema = {
         type = "object",
         description = "One run: the totals, and a record per test. This is what "
-        .. "the runner in tests/run.lua writes; a project that configures a "
+        .. "the bundled runner writes; a project that configures a "
         .. "different test command is the one answering for its --json.",
         properties = {
             ok = {type = "boolean"},
@@ -163,7 +163,7 @@ a test argument named --help.
 
 --json is passed along to the test command rather than interpreted here, since
 the arguments past this point are that command's. --schema describes what the
-runner in tests/run.lua writes for it.]],
+bundled runner writes for it.]],
 }
 
 local function run(args: any): integer

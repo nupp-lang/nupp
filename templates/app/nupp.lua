@@ -14,8 +14,7 @@ return {
    },
 
    test = {
-      argv = { "luajit", "tests/run.lua" },
-      env = { LUA_PATH = "build/?.lua;;" },
+      argv = { "nupp", "test-runner" },
    },
 
    tasks = {

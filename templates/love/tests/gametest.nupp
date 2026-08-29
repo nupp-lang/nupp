@@ -1,0 +1,9 @@
+local test = require("nupp.test")
+local game = require("game")
+local suite = {}
+
+function suite.advancesAtItsVelocity(): nil
+    test.equal(game.advance(10, 8, 0.5), 14)
+end
+
+return suite
