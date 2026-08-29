@@ -2,6 +2,17 @@
 
 ## Unreleased
 
+- A native comparison mixing signed and unsigned fixed-width operands now
+  answers by mathematical value, as the interpreter and the constant folder
+  already did. C's usual arithmetic conversions decided `int32` against
+  `uint32` and any signed width against `uint64` in unsigned arithmetic, so a
+  comparison over a negative signed value answered differently compiled than
+  interpreted -- and differently again once the folder could see both
+  operands as constants. A binary32 operand now meets an integer in binary64
+  for the same reason. The numeric contract bump this carries, like the one
+  before it, re-keys cached AOT artifacts: the first build after upgrading
+  rebuilds them once.
+
 - AOT scalar optimization now uses one exhaustive child mapper and a
   deterministic pattern catalog. Fixed-width arithmetic, bitwise identities,
   and safe modular reassociation are attributed by stable rule ID in `nupp aot

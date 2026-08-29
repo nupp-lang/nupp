@@ -54,6 +54,15 @@ const emit.BINARY = {
     ["or"] = "||",
 }
 
+--- How each comparison reads with its operands swapped.
+local COMPARISON_SWAP: {
+    [string]: string
+} = {["lt"] = "gt", ["le"] = "ge", ["gt"] = "lt", ["ge"] = "le", ["eq"] = "eq", ["ne"] = "ne",}
+
+local SIGNED_FIXED: {[string]: boolean} = {["i32"] = true, ["i64"] = true}
+
+local INTEGER_FIXED: {[string]: boolean} = {["i32"] = true, ["u32"] = true, ["i64"] = true, ["u64"] = true}
+
 --- The C spelling of each elementwise lane verb.
 ---
 --- Vector extensions give these their elementwise meaning, so a lane operation
@@ -194,6 +203,43 @@ function emit.doubleLiteral(value: string): string
 end
 
 local luaSite: function(source: scalarIR.Source?): string
+
+--- A value comparison for the mixed pairings C converts lossily.
+---
+--- C's usual arithmetic conversions decide a mixed comparison by converting
+--- the signed operand to unsigned, or an integer operand to binary32, so the
+--- bare operator answers a different question than the source wrote and the
+--- constant folder answers. Pairings whose implicit conversion preserves the
+--- value keep the bare operator; the rest compare by value here.
+local function mixedComparison(operation: string, left: scalarIR.Expr, right: scalarIR.Expr): string?
+    if COMPARISON_SWAP[operation] == nil or left.type == right.type then
+        return nil
+    end
+    local operator = emit.BINARY[operation] as string
+    local leftType, rightType = tostring(left.type), tostring(right.type)
+    -- A binary32 operand drags the integer to float; both are exact in binary64.
+    if (
+        leftType == "f32" and INTEGER_FIXED[rightType] == true
+    ) or (rightType == "f32" and INTEGER_FIXED[leftType] == true) then
+        return "((double)" .. emit.scalar(left) .. " " .. operator .. " (double)" .. emit.scalar(right) .. ")"
+    end
+    -- int32 and uint32 both convert exactly into int64.
+    if (leftType == "i32" and rightType == "u32") or (leftType == "u32" and rightType == "i32") then
+        return "((int64_t)" .. emit.scalar(left) .. " " .. operator .. " (int64_t)" .. emit.scalar(right) .. ")"
+    end
+    -- uint64 wins the usual conversions against any signed width, so a helper
+    -- checks the signed operand's sign before comparing in unsigned.
+    if SIGNED_FIXED[leftType] == true and rightType == "u64" then
+        return "ks_" .. operation .. "_i64_u64(" .. emit.scalar(left) .. ", " .. emit.scalar(right) .. ")"
+    end
+    if leftType == "u64" and SIGNED_FIXED[rightType] == true then
+        local swapped = COMPARISON_SWAP[operation] as string
+
+        return "ks_" .. swapped .. "_i64_u64(" .. emit.scalar(right) .. ", " .. emit.scalar(left) .. ")"
+    end
+
+    return nil
+end
 
 --- One scalar expression, as a C expression.
 ---
@@ -680,6 +726,10 @@ function emit.scalar(node: scalarIR.Expr): string
     local operator = emit.BINARY[operation]
     if operator ~= nil then
         local binary = node as scalarIR.Fixed
+        local mixed = mixedComparison(tostring(operation), binary.left, binary.right)
+        if mixed ~= nil then
+            return mixed as string
+        end
 
         return "(" .. emit.scalar(binary.left) .. " " .. (operator as string) .. " " .. emit.scalar(binary.right) .. ")"
     end
@@ -1378,6 +1428,15 @@ function emit.includes(): {string}
         "static KS_UNUSED KsMaskBits64 ks_mask64_shl(KsMaskBits64 a, uint32_t n) { if (n >= 64u) return ks_mask64(0u, 0u); if (n == 0u) return a; if (n >= 32u) return ks_mask64(0u, a.low << (n - 32u)); return ks_mask64(a.low << n, (a.high << n) | (a.low >> (32u - n))); }",
         "static KS_UNUSED KsMaskBits64 ks_mask64_shr(KsMaskBits64 a, uint32_t n) { if (n >= 64u) return ks_mask64(0u, 0u); if (n == 0u) return a; if (n >= 32u) return ks_mask64(a.high >> (n - 32u), 0u); return ks_mask64((a.low >> n) | (a.high << (32u - n)), a.high >> n); }",
         "static KS_UNUSED KsMaskBits64 ks_mask64_prefix_xor(KsMaskBits64 a, bool carry) { uint32_t lo = a.low, hi = a.high; lo ^= lo << 1; lo ^= lo << 2; lo ^= lo << 4; lo ^= lo << 8; lo ^= lo << 16; hi ^= hi << 1; hi ^= hi << 2; hi ^= hi << 4; hi ^= hi << 8; hi ^= hi << 16; if ((lo & UINT32_C(0x80000000)) != 0u) hi = ~hi; if (carry) { lo = ~lo; hi = ~hi; } return ks_mask64(lo, hi); }",
+        "/* C's usual arithmetic conversions decide a mixed signed/unsigned",
+        " * comparison in unsigned arithmetic. These compare by mathematical",
+        " * value, which is what the source wrote and the folder answers. */",
+        "static KS_UNUSED bool ks_lt_i64_u64(int64_t l, uint64_t r) { return l < 0 || (uint64_t)l < r; }",
+        "static KS_UNUSED bool ks_le_i64_u64(int64_t l, uint64_t r) { return l < 0 || (uint64_t)l <= r; }",
+        "static KS_UNUSED bool ks_gt_i64_u64(int64_t l, uint64_t r) { return l >= 0 && (uint64_t)l > r; }",
+        "static KS_UNUSED bool ks_ge_i64_u64(int64_t l, uint64_t r) { return l >= 0 && (uint64_t)l >= r; }",
+        "static KS_UNUSED bool ks_eq_i64_u64(int64_t l, uint64_t r) { return l >= 0 && (uint64_t)l == r; }",
+        "static KS_UNUSED bool ks_ne_i64_u64(int64_t l, uint64_t r) { return l < 0 || (uint64_t)l != r; }",
         "",
     }
 end

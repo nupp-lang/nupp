@@ -1218,6 +1218,16 @@ For int32 and int64 the modular result is converted back to the signed type;
 generated native code relies on GCC 9 and Clang's documented modular
 unsigned-to-signed conversion behavior.
 
+A comparison whose operands mix these widths answers by mathematical value.
+C's usual arithmetic conversions would instead decide it in unsigned
+arithmetic -- converting `-1` above `5` -- so generated code widens an
+`int32`/`uint32` pairing into `int64`, routes a signed operand against
+`uint64` through a sign-checked helper, and meets a binary32 operand and an
+integer in binary64. The interpreter, the constant folder, and generated
+native code therefore agree on every mixed comparison; a 64-bit operand
+beyond 2^53 meeting `number` keeps binary64's exactness boundary, because
+the comparison itself is performed in binary64 there.
+
 The binary32 operations lower to native single-precision instructions, and this
 is exact rather than a relaxation: a binary32 operation over binary32 operands
 computed in binary64 and rounded once is bit-identical to the native

@@ -638,6 +638,60 @@ export = {checkAdd = checkAdd, checkMultiply = checkMultiply}
    return dir
 end
 
+local function mixedComparisonProject()
+   local dir = os.tmpname()
+   os.remove(dir)
+   assert(os.execute("mkdir -p '" .. dir .. "/src'") == 0)
+   local manifest = assert(io.open(dir .. "/nupp.lua", "wb"))
+   manifest:write([=[
+return {
+   include = {"src"},
+   build = {targets = {native = {
+      kind = "modules", entries = {"mixedcmp"}, outDir = "build/native",
+      aot = "require",
+   }}},
+}
+]=])
+   manifest:close()
+   local source = assert(io.open(dir .. "/src/mixedcmp.nupp", "wb"))
+   source:write([=[
+module mixedcmp
+
+@aot(lanes = false)
+local function negativeBelowSmall(x: int32): boolean
+    local negative: int32 = nupp.math.i32.sub(0, x)
+    return negative < nupp.math.u32.wrap(5)
+end
+
+@aot(lanes = false)
+local function negativeEqualsWrapped(x: int32): boolean
+    local negative: int32 = nupp.math.i32.sub(0, x)
+    return negative == nupp.math.u32.wrap(4294967295)
+end
+
+@aot(lanes = false)
+local function wideNegativeBelowSmall(x: uint32): boolean
+    local negative: int64 = 0 - (x as int64)
+    return negative < (5 as uint64)
+end
+
+@aot(lanes = false)
+local function foldedNegativeBelowSmall(): boolean
+    local negative: int32 = nupp.math.i32.sub(0, 1)
+    return negative < nupp.math.u32.wrap(5)
+end
+
+export = {
+    negativeBelowSmall = negativeBelowSmall,
+    negativeEqualsWrapped = negativeEqualsWrapped,
+    wideNegativeBelowSmall = wideNegativeBelowSmall,
+    foldedNegativeBelowSmall = foldedNegativeBelowSmall,
+}
+]=])
+   source:close()
+   return dir
+end
+
 local function build(dir)
    -- These cases assert what this project's artifacts and stamps did between
    -- two builds. A shard-wide content cache is useful to most of the suite,
@@ -871,6 +925,23 @@ function M.signedWideOverflowExecutesWithWrappingSemantics()
 local wide = require("wide")
 assert(wide.checkAdd(), "signed addition did not wrap")
 assert(wide.checkMultiply(), "signed multiplication did not wrap")
+]]
+   local pipe = assert(io.popen(("cd %q && luajit -e %q 2>&1; echo '__exit__:'$?"):format(dir, script)))
+   local runOut = pipe:read("*a")
+   pipe:close()
+   test.equal(tonumber(runOut:match("__exit__:(%d+)%s*$")), 0, runOut)
+end
+
+function M.mixedSignednessComparisonsAnswerByValue()
+   local dir = mixedComparisonProject()
+   local out, code = build(dir)
+   test.equal(code, 0, out)
+   local script = searchPathPrelude() .. [[
+local mixedcmp = require("mixedcmp")
+assert(mixedcmp.negativeBelowSmall(1), "i32 -1 compared above u32 5")
+assert(not mixedcmp.negativeEqualsWrapped(1), "i32 -1 compared equal to u32 4294967295")
+assert(mixedcmp.wideNegativeBelowSmall(1), "i64 -1 compared above u64 5")
+assert(mixedcmp.foldedNegativeBelowSmall(), "the folded mixed comparison disagrees with the runtime one")
 ]]
    local pipe = assert(io.popen(("cd %q && luajit -e %q 2>&1; echo '__exit__:'$?"):format(dir, script)))
    local runOut = pipe:read("*a")
