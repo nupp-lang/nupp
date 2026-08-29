@@ -67,18 +67,23 @@ local function validateExecutable(platform: string, text: string, path: string):
     return true
 end
 
+local function decodeCatalogText(text: string, where: string): any?, string?
+    local json = nupp.data.json
+    local ok, value = pcall(json.decode, text, json.NULL)
+    if not ok then
+        return nil, "cannot decode stub catalog " .. where .. ": " .. tostring(value)
+    end
+
+    return value
+end
+
 local function decodeCatalog(path: string): any?, string?
     local text, readErr = fs.readFile(path)
     if not text then
         return nil, "cannot read stub catalog " .. path .. ": " .. tostring(readErr)
     end
-    local json = nupp.data.json
-    local ok, value = pcall(json.decode, text, json.NULL)
-    if not ok then
-        return nil, "cannot decode stub catalog " .. path .. ": " .. tostring(value)
-    end
 
-    return value
+    return decodeCatalogText(text, path)
 end
 
 local function catalog(): any?, string?
@@ -87,7 +92,13 @@ local function catalog(): any?, string?
     if path and path ~= "" then
         value, err = decodeCatalog(path)
     else
-        value = require("nupp.compiler.build.stubcatalog")
+        const relative = "/build/stub-catalog.json"
+        local text = require("nupp.compiler.bundled").source(relative)
+        if text then
+            value, err = decodeCatalogText(text, relative)
+        else
+            err = "embedded stub catalog is absent"
+        end
     end
     if not value then
         return nil, err

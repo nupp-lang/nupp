@@ -94,6 +94,10 @@ local TEMPLATE_FILES = {
 local RESOURCES = {
    "src/nupp/compiler/decls/*.d.nupp",
    "src/nupp/compiler/decls/jit/*.d.nupp",
+   {
+      source = "src/nupp/compiler/build/stub-catalog.json",
+      output = "nupp/compiler/build/stub-catalog.json",
+   },
    {source = "src/nupp/derive.nupp", output = "nupp/compiler/nupp/derive.nupp"},
    {source = "src/nupp/profile/zone.nupp", output = "nupp/compiler/nupp/profile/zone.nupp"},
    {source = "src/nupp/profile/trace.nupp", output = "nupp/compiler/nupp/profile/trace.nupp"},

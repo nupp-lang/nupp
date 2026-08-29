@@ -14,13 +14,14 @@ work makes sense in.
 
 ## Architecture tripwires
 
-- **Committed Nupp source generators: 1; review threshold: 3.** `nupp import-c`
-  is the one current tool that writes Nupp source. `scripts/release.nupp`
-  writes JSON today and joins the count only when its pending half writes
-  `stub_catalog.nupp`. Before adding a third committed source generator,
-  inventory what all three need that a closed declaration provider cannot
-  express and reconsider that boundary. The threshold calls for a review; it
-  does not by itself admit source or AST macros.
+- **Committed semantic Nupp source generators: 2; review threshold: 3.** `nupp
+  import-c` ejects an editable C binding module and `nupp migrate` translates a
+  foreign source file. The candidate third was release metadata, not source:
+  the compiler now bundles the immutable `stub-catalog.json` directly instead
+  of translating it into a Nupp module. The review kept the provider boundary
+  closed; [NEP 3 records why](docs/neps/0003-comptime.md#2026-08-29-source-generator-review).
+  Reconsider it again before adding a third semantic generator. The threshold
+  calls for a review; it does not by itself admit source or AST macros.
 
 ## Build, codegen and distribution
 
@@ -59,15 +60,14 @@ work makes sense in.
         `check` and `clean`, `build/stubs.nupp` authenticates a stub by SHA-256,
         size and `hostAbi`, and release CI builds a stub, its notices and its
         catalog record on all three native runners, then assembles and validates
-        an immutable `stub-catalog.json`. What is missing is the catalog itself:
-        `src/nupp/compiler/build/stub_catalog.nupp` is a development placeholder
-        with no stubs in it, and by the release-order constraint the plan states
-        it has to stay that way -- release N publishes the stubs, release N+1
-        names them, and a compiler may only name assets that already exist. So
-        cross-target stamping is a second-release feature whatever happens now.
-        The one piece that has to land before then: `scripts/release.nupp`
-        has `record` and `catalog` but nothing that turns a published
-        `stub-catalog.json` back into `stub_catalog.nupp`
+        an immutable `stub-catalog.json`. The compiler carries that artifact
+        directly; `src/nupp/compiler/build/stub-catalog.json` is the development
+        catalog with no stubs in it. By the release-order constraint the plan
+        states it has to stay that way -- release N publishes the stubs and this
+        JSON artifact, release N+1 commits those same bytes, and a compiler may
+        only name assets that already exist. So cross-target stamping is a
+        second-release feature whatever happens now; no source translation step
+        remains to land before it.
 - [ ] **A `lua51` cleanup region hides an installed suspension handler.** The
       region runs its body on a coroutine of its own, so the body can still yield
       through what is a protected call underneath. Anything keyed by the running

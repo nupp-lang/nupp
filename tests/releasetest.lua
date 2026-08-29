@@ -35,6 +35,27 @@ end
 
 local M = {}
 
+function M.theEmbeddedCatalogIsTheCommittedJsonArtifact()
+   local relative = "/build/stub-catalog.json"
+   local text = assert(require("nupp.compiler.bundled").source(relative),
+      "the compiler carries " .. relative)
+   local catalog = json.decode(text)
+   assert(catalog.catalogRelease == "development")
+   assert(catalog.hostAbi == 1)
+   assert(next(catalog.stubs) == nil)
+
+   local getenv = os.getenv
+   os.getenv = function(name)
+      if name == "NUPP_STUB_CATALOG" then return nil end
+      return getenv(name)
+   end
+   local record, problem = require("nupp.compiler.build.stubs")
+      .record("x86_64-unknown-linux-gnu")
+   os.getenv = getenv
+   assert(not record and problem:find("stub catalog development has no", 1, true),
+      "the default catalog is decoded through the production path: " .. tostring(problem))
+end
+
 function M.recordsAndVerifiesACompleteStubCatalog()
    local dir = temporaryDirectory()
    local catalogRelease = "release-123"

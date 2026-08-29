@@ -353,3 +353,36 @@ reject that provider, not to widen the derive system.**
 **Letting a provider choose arbitrary member signatures.** The shape of a
 generated surface would be invisible until the provider ran, so no tool could
 describe it without executing package code.
+
+## 2026-08-29 source-generator review
+
+The repository tripwire was reached earlier than its recorded count said:
+`nupp migrate` already wrote committed Nupp source alongside `nupp import-c`.
+The pending release-catalog work would have been a third generator if it had
+translated the published JSON catalog into a Nupp module. Reviewing the three
+showed three different requirements rather than one missing language facility:
+
+| Candidate | Authority it needs |
+| --- | --- |
+| `nupp import-c` | Read and preprocess a foreign header, introduce a module and top-level `cdef` declarations, install runtime bindings, and leave editable residue for declarations C can express but Nupp cannot. |
+| `nupp migrate` | Translate and rename a whole foreign source file while preserving its runtime statements, comments, source order, and gradual floor, and introduce whatever top-level erased declarations its authored annotations state. |
+| Stub catalog | Carry an immutable table of release names, sizes, digests, ABI facts, and feature lists. It needs no declaration or executable source. |
+
+The first two remain explicit tools. A closed materializer or derive provider
+cannot create a module, top-level names, or whole-file edits, and giving it that
+authority would erase the boundary this proposal chose. They are visible
+transitions from foreign source into source the user owns, not invisible
+expansion during compilation.
+
+The catalog did not justify a generator at all. Its JSON artifact is now bundled
+as compiler data and decoded directly, so the published release artifact is the
+same format the next source release commits. Translating data into Nupp syntax
+would have manufactured source only to recover the same table at runtime.
+
+The provider table therefore stays closed, and the empirical threshold stays at
+three *semantic* source generators. Project templates do not count: they copy
+authored scaffold files with substitutions rather than translate external
+semantic facts. Compiler Lua, C, documentation, and editor rewrites do not count
+either because their outputs are build artifacts or edits to source already
+owned by the user. A future third semantic generator triggers another review;
+the count is evidence to reconsider the boundary, not permission to add macros.
