@@ -3730,6 +3730,7 @@ _G.assert(_G.loadstring("local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppM
 
 
 local scalar = require ( "nupp.compiler.scalarintrinsics" )
+local scalarIR = require ( "nupp.compiler.aot.scalar" )
 
 local admit = { }
 
@@ -3752,20 +3753,25 @@ admit . STORAGE = {
 }
 
 
-admit . ARITHMETIC = { [ "+" ] = "add" , [ "-" ] = "sub" , [ "*" ] = "mul" , [ "/" ] = "div" , [ "%" ] = "mod" , [ "^" ] = "pow" , }
+local ARITHMETIC
+
+= { [ "+" ] = "add" , [ "-" ] = "sub" , [ "*" ] = "mul" , [ "/" ] = "div" , [ "%" ] = "mod" , [ "^" ] = "pow" , }
+
+admit . ARITHMETIC = ARITHMETIC
 
 
-admit . BITWISE = {
-[ "&" ] = "band" ,
-[ "|" ] = "bor" ,
-[ "~" ] = "bxor" ,
-[ "<<" ] = "lshift" ,
-[ ">>" ] = "rshift" ,
-[ "~>>" ] = "arshift" ,
-}
+local BITWISE
+
+= { [ "&" ] = "band" , [ "|" ] = "bor" , [ "~" ] = "bxor" , [ "<<" ] = "lshift" , [ ">>" ] = "rshift" , [ "~>>" ] = "arshift" , }
+
+admit . BITWISE = BITWISE
 
 
-admit . COMPARISON = { [ "<" ] = "lt" , [ "<=" ] = "le" , [ ">" ] = "gt" , [ ">=" ] = "ge" , [ "==" ] = "eq" , [ "~=" ] = "ne" , }
+local COMPARISON
+
+= { [ "<" ] = "lt" , [ "<=" ] = "le" , [ ">" ] = "gt" , [ ">=" ] = "ge" , [ "==" ] = "eq" , [ "~=" ] = "ne" , }
+
+admit . COMPARISON = COMPARISON
 
 
 admit.Fixed = {} admit.Fixed.__index = admit.Fixed
@@ -5611,6 +5617,35 @@ lua_scratch_u8_reset = true ,
 
 local NATIVE_WRITE_OPS = { store = true , assign = true , }
 
+local STATEMENT_LUA_MUTATE_OPS
+
+= {
+lua_set_index = true ,
+lua_set_key = true ,
+lua_string_buffer_append = true ,
+lua_builder_open_array = true ,
+lua_builder_open_object = true ,
+lua_builder_key = true ,
+lua_builder_string = true ,
+lua_builder_number = true ,
+lua_builder_number_slice = true ,
+lua_builder_integer_slice = true ,
+lua_builder_integer64 = true ,
+lua_builder_decimal64 = true ,
+lua_builder_boolean = true ,
+lua_builder_null = true ,
+lua_builder_close = true ,
+lua_builder_key_scratch = true ,
+lua_builder_string_scratch = true ,
+lua_builder_key_escapes = true ,
+lua_builder_string_escapes = true ,
+lua_scratch_u32_set = true ,
+lua_scratch_u8_set = true ,
+lua_scratch_u8_set4 = true ,
+lua_scratch_u8_reset = true ,
+simd_store4_u8 = true ,
+}
+
 local CONTROL_OPS
 
 = {
@@ -5646,15 +5681,54 @@ end
 
 
 function effects . statement ( op ) 
-if LUA_MUTATE_OPS [ op ] == true then
+if STATEMENT_LUA_MUTATE_OPS [ op ] == true then
 return LUA_MUTATE
 elseif NATIVE_WRITE_OPS [ op ] == true then
 return NATIVE_WRITE
 elseif CONTROL_OPS [ op ] == true then
 return CONTROL
+elseif op : match ( "^simd_" ) ~= nil then
+return effects . expression ( op )
 end
 
 error ( "unclassified AOT statement opcode " .. op , 2 )
+end
+
+local function merge ( into , from ) 
+for op in pairs ( from ) do
+into [ op ] = true
+end
+end
+
+
+function effects . expressionOpcodes ( ) 
+local opcodes = { }
+merge ( opcodes , PURE_OPS )
+merge ( opcodes , NATIVE_READ_OPS )
+merge ( opcodes , LUA_READ_OPS )
+merge ( opcodes , LUA_ALLOCATE_OPS )
+for op in pairs ( LUA_MUTATE_OPS ) do
+if op ~= "lua_set_index" and op ~= "lua_set_key" and op ~= "lua_string_buffer_append" then
+opcodes [ op ] = true
+end
+end
+
+return opcodes
+end
+
+
+function effects . statementOpcodes ( ) 
+local opcodes = { }
+merge ( opcodes , STATEMENT_LUA_MUTATE_OPS )
+merge ( opcodes , NATIVE_WRITE_OPS )
+merge ( opcodes , CONTROL_OPS )
+for op in pairs ( effects . expressionOpcodes ( ) ) do
+if op : match ( "^simd_" ) ~= nil then
+opcodes [ op ] = true
+end
+end
+
+return opcodes
 end
 
 const __nuppExportValue= effects ;__nuppExports=__nuppExportValue
@@ -6410,10 +6484,10 @@ local wide = { u64_add = "+" , u64_sub = "-" , u64_mul = "*" , i64_add = "+" , i
 operator = wide [ operation ]
 if operator ~= nil then
 local binary = node
-local target = operation : sub ( 1 , 1 ) == "u" and "uint64_t" or "int64_t"
-return "((" .. target .. ")(" .. emit . scalar (
+local result = "((uint64_t)(" .. emit . scalar (
 binary . left
-) .. " " .. ( operator ) .. " " .. emit . scalar ( binary . right ) .. "))"
+) .. ") " .. ( operator ) .. " (uint64_t)(" .. emit . scalar ( binary . right ) .. "))"
+return operation : sub ( 1 , 1 ) == "u" and result or "((int64_t)" .. result .. ")"
 end
 
 if operation == "f32_sqrt" then
@@ -11316,6 +11390,813 @@ end
 const __nuppExportValue= emit ;__nuppExports=__nuppExportValue
  end);if not __nuppOk then package.loaded["nupp.compiler.aot.emit"]=nil;error(__nuppWhy,0) end;package.loaded["nupp.compiler.aot.emit"]=__nuppExports;return __nuppExports
 end
+package.preload["nupp.compiler.aot.fold"] = function(...)
+_G.assert(_G.loadstring("local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppMath=rawget(__nupp,\"math\")or{};rawset(__nupp,\"math\",__nuppMath) local function __nuppCloseFile(handle)if io.type(handle)==\"closed file\"then return end;local ok,reason=handle:close();if not ok then error(reason or \"the file could not be closed\",0)end end local __nuppManagedBrand=_G.__nuppManagedBrand if not __nuppManagedBrand then __nuppManagedBrand={};_G.__nuppManagedBrand=__nuppManagedBrand end local __nuppManagedCells=_G.__nuppManagedCells if not __nuppManagedCells then __nuppManagedCells=setmetatable({},{__mode=\"k\"});_G.__nuppManagedCells=__nuppManagedCells end local __nuppManagedOwner={};__nuppManagedOwner.__index=__nuppManagedOwner;local __nuppManagedAlias={};__nuppManagedAlias.__index=__nuppManagedAlias local function __nuppManagedError(code,message)return{code=code,message=message}end local function __nuppManagedProblem(cell) if type(cell)~=\"table\"or cell._brand~=__nuppManagedBrand then return __nuppManagedError(\"NUPP2614\",\"value is not a managed alias\")end if cell._state==\"taken\"then return __nuppManagedError(\"NUPP2614\",\"managed ownership was already taken\")end if cell._state==\"closed\"or cell._state==\"closing\"then return __nuppManagedError(\"NUPP2614\",\"managed resource is closed\")end return nil end local function __nuppManagedClose(cell,checked) local problem=__nuppManagedProblem(cell);if problem then if checked then return problem end;return nil end if cell._borrows~=0 or cell._exclusive then local busy=__nuppManagedError(\"NUPP2620\",\"managed resource has an active borrow\");if checked then return busy end;error(busy.message,0)end cell._state=\"closing\";local value,cleanup=cell._value,cell._cleanup;cell._value=nil;cell._cleanup=nil local ok,reason=pcall(cleanup,value);cell._state=\"closed\";if not ok then error(reason,0)end;return nil end function __nuppManagedOwner:alias()return setmetatable({_cell=self,_brand=__nuppManagedBrand},__nuppManagedAlias)end function __nuppManagedOwner:close()return __nuppManagedClose(self,false)end local function __nuppAliasCell(self) if type(self)~=\"table\"or self._brand~=__nuppManagedBrand or getmetatable(self)~=__nuppManagedAlias then return nil,__nuppManagedError(\"NUPP2614\",\"value is not a managed alias\")end local cell=self._cell;local problem=__nuppManagedProblem(cell);if problem then return nil,problem end;return cell,nil end function __nuppManagedAlias:with(callback) local cell,problem=__nuppAliasCell(self);if not cell then return nil,problem end if cell._exclusive then return nil,__nuppManagedError(\"NUPP2620\",\"managed resource is exclusively borrowed\")end cell._borrows=cell._borrows+1;cell._state=\"shared-borrowed(\"..cell._borrows..\")\" local ok,result=pcall(callback,cell._value);cell._borrows=cell._borrows-1;cell._state=cell._borrows>0 and(\"shared-borrowed(\"..cell._borrows..\")\")or\"live\" if not ok then error(result,0)end;return result,nil end function __nuppManagedAlias:withExclusive(callback) local cell,problem=__nuppAliasCell(self);if not cell then return nil,problem end if cell._exclusive or cell._borrows~=0 then return nil,__nuppManagedError(\"NUPP2620\",\"managed resource is already borrowed\")end cell._exclusive=true;cell._state=\"exclusive-borrowed\";local ok,result=pcall(callback,cell._value);cell._exclusive=false;cell._state=\"live\" if not ok then error(result,0)end;return result,nil end function __nuppManagedAlias:take() local cell,problem=__nuppAliasCell(self);if not cell then return nil,problem end if cell._exclusive or cell._borrows~=0 then return nil,__nuppManagedError(\"NUPP2620\",\"managed resource has an active borrow\")end cell._state=\"taken\";local value=cell._value;cell._value=nil;cell._cleanup=nil;return value,nil end function __nuppManagedAlias:close() local cell,problem=__nuppAliasCell(self);if not cell then return problem end;return __nuppManagedClose(cell,true)end function __nuppManagedAlias:_downcast(policy) local cell,problem=__nuppAliasCell(self);if not cell then return nil,problem end if cell._policy~=policy then return nil,__nuppManagedError(\"NUPP2613\",\"managed alias has the wrong type or cleanup policy\")end return self,nil end function __nupp.__manage(value,cleanup,policy) local cell=setmetatable({_brand=__nuppManagedBrand,_value=value,_cleanup=cleanup,_policy=policy,_state=\"live\",_borrows=0,_exclusive=false},__nuppManagedOwner);__nuppManagedCells[cell]=true;return cell end function __nupp.__recoverAlias(value) if type(value)~=\"table\"or value._brand~=__nuppManagedBrand or getmetatable(value)~=__nuppManagedAlias then return nil,__nuppManagedError(\"NUPP2614\",\"value is not a managed alias\")end local cell,problem=__nuppAliasCell(value);if not cell then return nil,problem end;return value,nil end _G.__nuppManagedPolicyCount=function(policy)local count=0;for cell in pairs(__nuppManagedCells)do if cell._policy==policy and(cell._state==\"live\"or cell._state:match(\"borrowed\"))then count=count+1 end end;return count end local __nuppManagedGroup={};__nuppManagedGroup.__index=__nuppManagedGroup function __nuppManagedGroup:flush()end function __nuppManagedGroup:adopt(cell) if self._closed then error(\"managed group is closed\",2)end local handle=cell:alias();self._entries[#self._entries+1]=handle return handle end function __nuppManagedGroup:remove(handle) if self._closed then error(\"managed group is closed\",2)end for index=#self._entries,1,-1 do if self._entries[index]==handle then table.remove(self._entries,index);local value,problem=handle:take();if problem then error(problem.message,2)end;return value end end error(\"managed alias is not registered in this group\",2) end local function __nuppManagedCloseEntry(entry)local problem=entry:close();if problem and problem.code~=\"NUPP2614\"then error(problem.message,0)end end function __nuppManagedGroup:close() if self._closed then return end;self._closed=true;local first,suppressed=nil,0 for index=#self._entries,1,-1 do local ok,reason=pcall(__nuppManagedCloseEntry,self._entries[index]);if not ok then if first==nil then first=reason else suppressed=suppressed+1 end end end self._entries={};if first~=nil then if suppressed>0 then error(tostring(first)..\" (suppressed \"..tostring(suppressed)..\" cleanup failure(s))\",0)end;error(first,0)end end function __nupp.managedGroup()return setmetatable({_entries={},_closed=false},__nuppManagedGroup)end;\n","@nupp-prelude"))();local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppMath=rawget(__nupp,"math")or{};rawset(__nupp,"math",__nuppMath) local function __nuppCloseFile(handle)if io.type(handle)=="closed file"then return end;local ok,reason=handle:close();if not ok then error(reason or "the file could not be closed",0)end end local __nuppManagedBrand=_G.__nuppManagedBrand if not __nuppManagedBrand then __nuppManagedBrand={};_G.__nuppManagedBrand=__nuppManagedBrand end local __nuppManagedCells=_G.__nuppManagedCells if not __nuppManagedCells then __nuppManagedCells=setmetatable({},{__mode="k"});_G.__nuppManagedCells=__nuppManagedCells end local __nuppManagedOwner={};__nuppManagedOwner.__index=__nuppManagedOwner;local __nuppManagedAlias={};__nuppManagedAlias.__index=__nuppManagedAlias local function __nuppManagedError(code,message)return{code=code,message=message}end local function __nuppManagedProblem(cell) if type(cell)~="table"or cell._brand~=__nuppManagedBrand then return __nuppManagedError("NUPP2614","value is not a managed alias")end if cell._state=="taken"then return __nuppManagedError("NUPP2614","managed ownership was already taken")end if cell._state=="closed"or cell._state=="closing"then return __nuppManagedError("NUPP2614","managed resource is closed")end return nil end local function __nuppManagedClose(cell,checked) local problem=__nuppManagedProblem(cell);if problem then if checked then return problem end;return nil end if cell._borrows~=0 or cell._exclusive then local busy=__nuppManagedError("NUPP2620","managed resource has an active borrow");if checked then return busy end;error(busy.message,0)end cell._state="closing";local value,cleanup=cell._value,cell._cleanup;cell._value=nil;cell._cleanup=nil local ok,reason=pcall(cleanup,value);cell._state="closed";if not ok then error(reason,0)end;return nil end function __nuppManagedOwner:alias()return setmetatable({_cell=self,_brand=__nuppManagedBrand},__nuppManagedAlias)end function __nuppManagedOwner:close()return __nuppManagedClose(self,false)end local function __nuppAliasCell(self) if type(self)~="table"or self._brand~=__nuppManagedBrand or getmetatable(self)~=__nuppManagedAlias then return nil,__nuppManagedError("NUPP2614","value is not a managed alias")end local cell=self._cell;local problem=__nuppManagedProblem(cell);if problem then return nil,problem end;return cell,nil end function __nuppManagedAlias:with(callback) local cell,problem=__nuppAliasCell(self);if not cell then return nil,problem end if cell._exclusive then return nil,__nuppManagedError("NUPP2620","managed resource is exclusively borrowed")end cell._borrows=cell._borrows+1;cell._state="shared-borrowed("..cell._borrows..")" local ok,result=pcall(callback,cell._value);cell._borrows=cell._borrows-1;cell._state=cell._borrows>0 and("shared-borrowed("..cell._borrows..")")or"live" if not ok then error(result,0)end;return result,nil end function __nuppManagedAlias:withExclusive(callback) local cell,problem=__nuppAliasCell(self);if not cell then return nil,problem end if cell._exclusive or cell._borrows~=0 then return nil,__nuppManagedError("NUPP2620","managed resource is already borrowed")end cell._exclusive=true;cell._state="exclusive-borrowed";local ok,result=pcall(callback,cell._value);cell._exclusive=false;cell._state="live" if not ok then error(result,0)end;return result,nil end function __nuppManagedAlias:take() local cell,problem=__nuppAliasCell(self);if not cell then return nil,problem end if cell._exclusive or cell._borrows~=0 then return nil,__nuppManagedError("NUPP2620","managed resource has an active borrow")end cell._state="taken";local value=cell._value;cell._value=nil;cell._cleanup=nil;return value,nil end function __nuppManagedAlias:close() local cell,problem=__nuppAliasCell(self);if not cell then return problem end;return __nuppManagedClose(cell,true)end function __nuppManagedAlias:_downcast(policy) local cell,problem=__nuppAliasCell(self);if not cell then return nil,problem end if cell._policy~=policy then return nil,__nuppManagedError("NUPP2613","managed alias has the wrong type or cleanup policy")end return self,nil end function __nupp.__manage(value,cleanup,policy) local cell=setmetatable({_brand=__nuppManagedBrand,_value=value,_cleanup=cleanup,_policy=policy,_state="live",_borrows=0,_exclusive=false},__nuppManagedOwner);__nuppManagedCells[cell]=true;return cell end function __nupp.__recoverAlias(value) if type(value)~="table"or value._brand~=__nuppManagedBrand or getmetatable(value)~=__nuppManagedAlias then return nil,__nuppManagedError("NUPP2614","value is not a managed alias")end local cell,problem=__nuppAliasCell(value);if not cell then return nil,problem end;return value,nil end _G.__nuppManagedPolicyCount=function(policy)local count=0;for cell in pairs(__nuppManagedCells)do if cell._policy==policy and(cell._state=="live"or cell._state:match("borrowed"))then count=count+1 end end;return count end local __nuppManagedGroup={};__nuppManagedGroup.__index=__nuppManagedGroup function __nuppManagedGroup:flush()end function __nuppManagedGroup:adopt(cell) if self._closed then error("managed group is closed",2)end local handle=cell:alias();self._entries[#self._entries+1]=handle return handle end function __nuppManagedGroup:remove(handle) if self._closed then error("managed group is closed",2)end for index=#self._entries,1,-1 do if self._entries[index]==handle then table.remove(self._entries,index);local value,problem=handle:take();if problem then error(problem.message,2)end;return value end end error("managed alias is not registered in this group",2) end local function __nuppManagedCloseEntry(entry)local problem=entry:close();if problem and problem.code~="NUPP2614"then error(problem.message,0)end end function __nuppManagedGroup:close() if self._closed then return end;self._closed=true;local first,suppressed=nil,0 for index=#self._entries,1,-1 do local ok,reason=pcall(__nuppManagedCloseEntry,self._entries[index]);if not ok then if first==nil then first=reason else suppressed=suppressed+1 end end end self._entries={};if first~=nil then if suppressed>0 then error(tostring(first).." (suppressed "..tostring(suppressed).." cleanup failure(s))",0)end;error(first,0)end end function __nupp.managedGroup()return setmetatable({_entries={},_closed=false},__nuppManagedGroup)end;local __nuppExports;local __nuppOk,__nuppWhy=pcall(function()
+
+
+
+
+
+local effects = require ( "nupp.compiler.aot.effects" )
+local scalar = require ( "nupp.compiler.scalarintrinsics" )
+local scalarIR = require ( "nupp.compiler.aot.scalar" )
+local visit = require ( "nupp.compiler.aot.visit" )
+
+local fold = { }
+
+
+
+fold.Rule = {} fold.Rule.__index = fold.Rule
+
+
+
+
+
+
+
+
+
+
+
+fold.Context = {} fold.Context.__index = fold.Context
+
+
+
+local function finite ( value ) 
+return value == value and value ~= math . huge and value ~= - math . huge
+end
+
+local function numberText ( value ) 
+if value == 0 and 1 / value < 0 then
+return "-0.0"
+end
+local written = ( "%.17g" ) : format ( value )
+
+return written : match ( "^[+-]?%d+$" ) ~= nil and written .. ".0" or written
+end
+
+local function sourceOf ( node ) 
+return node . source
+end
+
+local function bool ( value , node ) 
+return setmetatable({ op =  "bool" ,  value =  value ,  type =  "bool" ,  source =  sourceOf ( node ) }, scalarIR.Bool)
+end
+
+local function constant ( value , node ) 
+return setmetatable({ op =  "constant" ,  value =  numberText ( value ) ,  type =  "f64" ,  source =  sourceOf ( node ) }, scalarIR.Constant)
+end
+
+local function integerConstant ( value , valueType , node ) 
+if valueType == "i64" or valueType == "u64" then
+return setmetatable({ op =
+"constant_i64" ,  value =
+( "%.0f" ) : format ( value ) ,  type =
+valueType ,  source =
+sourceOf ( node ) }, scalarIR.Int64Constant)
+
+end
+
+return setmetatable({ op =
+"constant_i32" ,  value =
+( "%.0f" ) : format ( value ) ,  type =
+valueType ,  source =
+sourceOf ( node ) }, scalarIR.IntConstant)
+
+end
+
+local function exactIntegerText ( text ) 
+local sign , body = text : match ( "^([+-]?)(.+)$" )
+if body == nil then
+sign , body = "" , text
+end
+local mantissa , exponentText = ( body ) : match ( "^([^eE]+)[eE]([+-]?%d+)$" )
+if mantissa == nil then
+mantissa , exponentText = body , "0"
+end
+local whole , fraction = ( mantissa ) : match ( "^(%d*)%.(%d*)$" )
+if whole == nil then
+whole = ( mantissa ) : match ( "^(%d+)$" )
+fraction = ""
+end
+if whole == nil or ( whole == "" and fraction == "" ) then
+return nil
+end
+local exponent = tonumber ( exponentText )
+if exponent == nil or exponent % 1 ~= 0 or math . abs ( exponent ) > 100000 then
+return nil
+end
+local digits = ( whole ) .. ( fraction )
+local decimal = # ( whole ) + exponent
+if decimal < # digits then
+if digits : sub ( decimal + 1 ) : match ( "[^0]" ) ~= nil then
+return nil
+end
+digits = decimal > 0 and digits : sub ( 1 , decimal ) or "0"
+elseif decimal > # digits then
+digits = digits .. string . rep ( "0" , decimal - # digits )
+end
+digits = digits : gsub ( "^0+" , "" )
+if digits == "" then
+digits = "0"
+end
+local limit = "9007199254740992"
+if # digits > # limit or ( # digits == # limit and digits > limit ) then
+return nil
+end
+
+return tonumber ( ( sign ) .. digits )
+end
+
+function fold . exactInteger ( node ) 
+if node . op ~= "constant" and node . op ~= "constant_i32" and node . op ~= "constant_i64" then
+return nil
+end
+return exactIntegerText ( tostring ( ( node ) . value ) )
+end
+
+local function semanticSame ( left , right ) 
+if left == right then
+return true
+end
+if type ( left ) ~= type ( right ) or type ( left ) ~= "table" then
+return false
+end
+for key , value in pairs ( left ) do
+if key ~= "source" and not semanticSame ( value , right [ key ] ) then
+return false
+end
+end
+for key in pairs ( right ) do
+if key ~= "source" and left [ key ] == nil then
+return false
+end
+end
+
+return true
+end
+
+fold . same = semanticSame
+
+local stableExpression
+
+stableExpression = function ( node , context , active ) 
+local root = effects . expression ( tostring ( node . op ) )
+if root . observable
+or root . mayRaise
+or root . readsNative
+or root . writesNative
+or root . usesLua
+or root . allocatesLua
+then
+return false
+end
+if node . op == "helper_call" then
+local helper = context . helpers [ ( node ) . helper ]
+if helper == nil or helper . native == true or active [ helper . name ] then
+return false
+end
+active [ helper . name ] = true
+for _ , value in ipairs ( helper . values ) do
+if not stableExpression ( value , context , active ) then
+active [ helper . name ] = nil
+return false
+end
+end
+active [ helper . name ] = nil
+end
+local stable = true
+visit . expressionChildren ( node , function ( child ) 
+if not stableExpression ( child , context , active ) then
+stable = false
+end
+return child
+end )
+
+return stable
+end
+
+local function stable ( node , context ) 
+return stableExpression ( node , context , { } )
+end
+
+local reorderableExpression
+
+reorderableExpression = function ( node , context , active ) 
+local root = effects . expression ( tostring ( node . op ) )
+if root . observable
+or root . mayRaise
+or root . readsNative
+or root . writesNative
+or root . usesLua
+or root . allocatesLua
+then
+return false
+end
+if node . op == "helper_call" then
+local helper = context . helpers [ ( node ) . helper ]
+if helper == nil or helper . native == true or active [ helper . name ] then
+return false
+end
+active [ helper . name ] = true
+for _ , value in ipairs ( helper . values ) do
+if not reorderableExpression ( value , context , active ) then
+active [ helper . name ] = nil
+return false
+end
+end
+active [ helper . name ] = nil
+end
+local reorderable = true
+visit . expressionChildren ( node , function ( child ) 
+if not reorderableExpression ( child , context , active ) then
+reorderable = false
+end
+return child
+end )
+
+return reorderable
+end
+
+local function reorderable ( node , context ) 
+return reorderableExpression ( node , context , { } )
+end
+
+local function discardable ( node ) 
+local root = effects . expression ( tostring ( node . op ) )
+if root . observable or root . mayRaise then
+return false
+end
+local safe = true
+visit . expressionChildren ( node , function ( child ) 
+if not discardable ( child ) then
+safe = false
+end
+return child
+end )
+
+return safe
+end
+
+local function containsObject ( root , wanted ) 
+if root == wanted then
+return true
+end
+if type ( root ) ~= "table" then
+return false
+end
+for key , child in pairs ( root ) do
+if key ~= "source" and containsObject ( child , wanted ) then
+return true
+end
+end
+
+return false
+end
+
+local RANK
+
+= {
+any = 0 ,
+literal = 1 ,
+numeric = 2 ,
+zero = 3 ,
+one = 3 ,
+negzero = 4 ,
+allones = 4 ,
+[ "true" ] = 4 ,
+[ "false" ] = 4 ,
+same = 5 ,
+}
+
+local function priority ( rule ) 
+local left = RANK [ tostring ( rule . left or rule . value or "any" ) ] or 0
+local right = RANK [ tostring ( rule . right or "any" ) ] or 0
+return left + right , left , right
+end
+
+local function before ( left , right ) 
+local lt , ll , lr = priority ( left )
+local rt , rl , rr = priority ( right )
+if lt ~= rt then
+return lt > rt
+elseif ll ~= rl then
+return ll > rl
+elseif lr ~= rr then
+return lr > rr
+end
+
+return left . id < right . id
+end
+
+function fold . validate ( rules ) 
+local ids = { }
+local registrations = { }
+for _ , rule in ipairs ( rules ) do
+if ids [ rule . id ] then
+error ( "duplicate AOT fold rule ID " .. rule . id , 0 )
+end
+ids [ rule . id ] = true
+local registration = table . concat (
+{
+rule . op ,
+rule . entrypoint ,
+tostring ( rule . valueType ) ,
+tostring ( rule . left ) ,
+tostring ( rule . right ) ,
+tostring ( rule . value ) ,
+} ,
+"\0"
+)
+local previous = registrations [ registration ]
+if previous ~= nil then
+error ( "duplicate AOT fold registration " .. rule . id .. " and " .. ( previous ) , 0 )
+end
+registrations [ registration ] = rule . id
+end
+end
+
+local RULES = { }
+
+local function binaryRule (
+id ,
+op ,
+valueType ,
+left ,
+right ,
+action ,
+changesGrouping
+) 
+RULES [
+# RULES + 1
+] = setmetatable({ id =
+id ,  op =
+op ,  entrypoint =
+"fold-root" ,  valueType =
+valueType ,  left =
+left ,  right =
+right ,  action =
+action ,  changesGrouping =
+changesGrouping == true }, fold.Rule)
+
+end
+
+local function unaryRule ( id , op , valueType , value , action ) 
+RULES [
+# RULES + 1
+] = setmetatable({ id =
+id ,  op =
+op ,  entrypoint =
+"fold-root" ,  valueType =
+valueType ,  value =
+value ,  action =
+action ,  changesGrouping =
+false }, fold.Rule)
+
+end
+
+unaryRule ( "bool.not.literal" , "not" , "bool" , "literal" , "bool_not" )
+binaryRule ( "bool.and.left-false" , "and" , "bool" , "false" , "any" , "left" )
+binaryRule ( "bool.and.left-true" , "and" , "bool" , "true" , "any" , "right" )
+binaryRule ( "bool.or.left-false" , "or" , "bool" , "false" , "any" , "right" )
+binaryRule ( "bool.or.left-true" , "or" , "bool" , "true" , "any" , "left" )
+binaryRule ( "bool.and.right-true" , "and" , "bool" , "any" , "true" , "left" )
+binaryRule ( "bool.and.right-false" , "and" , "bool" , "any" , "false" , "false" )
+binaryRule ( "bool.or.right-false" , "or" , "bool" , "any" , "false" , "left" )
+binaryRule ( "bool.or.right-true" , "or" , "bool" , "any" , "true" , "true" )
+
+for _ , op in ipairs ( { "add" , "sub" , "mul" , "div" } ) do
+binaryRule ( "f64." .. op .. ".constants" , op , "f64" , "literal" , "literal" , "f64_constants" )
+end
+unaryRule ( "f64.neg.constant" , "neg" , "f64" , "literal" , "f64_neg" )
+binaryRule ( "f64.add.left-negzero" , "add" , "f64" , "negzero" , "any" , "right" )
+binaryRule ( "f64.add.right-negzero" , "add" , "f64" , "any" , "negzero" , "left" )
+binaryRule ( "f64.sub.right-zero" , "sub" , "f64" , "any" , "zero" , "left" )
+binaryRule ( "f64.mul.left-one" , "mul" , "f64" , "one" , "any" , "right" )
+binaryRule ( "f64.mul.right-one" , "mul" , "f64" , "any" , "one" , "left" )
+binaryRule ( "f64.div.right-one" , "div" , "f64" , "any" , "one" , "left" )
+
+unaryRule ( "convert.numeric-cast.constant" , "numeric_cast" , nil , "numeric" , "numeric_cast" )
+unaryRule ( "convert.int-to-f64.constant" , "int_to_f64" , "f64" , "numeric" , "int_to_f64" )
+unaryRule ( "convert.numeric-cast.same-width" , "numeric_cast" , nil , "any" , "same_width_cast" )
+
+for _ , op in ipairs ( { "u32_add" , "u32_sub" , "u32_mul" , "i32_add" , "i32_sub" , "i32_mul" } ) do
+binaryRule ( "fixed." .. op .. ".constants" , op , op : sub ( 1 , 3 ) , "numeric" , "numeric" , "fixed_constants" )
+end
+for _ , op in ipairs ( { "u32_and" , "u32_or" , "u32_xor" , "u32_shl" , "u32_shr" } ) do
+binaryRule ( "fixed." .. op .. ".constants" , op , "u32" , "numeric" , "numeric" , "fixed_constants" )
+end
+unaryRule ( "fixed.u32_not.constant" , "u32_not" , "u32" , "numeric" , "fixed_unary_constant" )
+for _ , op in ipairs ( { "u64_add" , "u64_sub" , "u64_mul" , "i64_add" , "i64_sub" , "i64_mul" } ) do
+binaryRule ( "fixed." .. op .. ".constants" , op , op : sub ( 1 , 3 ) , "numeric" , "numeric" , "wide_constants" )
+end
+
+for _ , op in ipairs ( { "eq" , "ne" , "lt" , "le" , "gt" , "ge" } ) do
+binaryRule ( "compare." .. op .. ".constants" , op , "bool" , "numeric" , "numeric" , "compare_constants" )
+end
+
+for _ , family in ipairs ( { "i32" , "u32" , "i64" , "u64" } ) do
+binaryRule ( "fixed." .. family .. ".add.left-zero" , family .. "_add" , family , "zero" , "any" , "right" )
+binaryRule ( "fixed." .. family .. ".add.right-zero" , family .. "_add" , family , "any" , "zero" , "left" )
+binaryRule ( "fixed." .. family .. ".sub.right-zero" , family .. "_sub" , family , "any" , "zero" , "left" )
+binaryRule ( "fixed." .. family .. ".sub.same" , family .. "_sub" , family , "any" , "same" , "integer_zero" )
+binaryRule ( "fixed." .. family .. ".mul.left-one" , family .. "_mul" , family , "one" , "any" , "right" )
+binaryRule ( "fixed." .. family .. ".mul.right-one" , family .. "_mul" , family , "any" , "one" , "left" )
+binaryRule ( "fixed." .. family .. ".mul.left-zero" , family .. "_mul" , family , "zero" , "any" , "integer_zero" )
+binaryRule ( "fixed." .. family .. ".mul.right-zero" , family .. "_mul" , family , "any" , "zero" , "integer_zero" )
+end
+
+binaryRule ( "u32.and.left-allones" , "u32_and" , "u32" , "allones" , "any" , "right" )
+binaryRule ( "u32.and.right-allones" , "u32_and" , "u32" , "any" , "allones" , "left" )
+binaryRule ( "u32.and.left-zero" , "u32_and" , "u32" , "zero" , "any" , "integer_zero" )
+binaryRule ( "u32.and.right-zero" , "u32_and" , "u32" , "any" , "zero" , "integer_zero" )
+binaryRule ( "u32.and.same" , "u32_and" , "u32" , "any" , "same" , "left" )
+binaryRule ( "u32.or.left-zero" , "u32_or" , "u32" , "zero" , "any" , "right" )
+binaryRule ( "u32.or.right-zero" , "u32_or" , "u32" , "any" , "zero" , "left" )
+binaryRule ( "u32.or.left-allones" , "u32_or" , "u32" , "allones" , "any" , "allones" )
+binaryRule ( "u32.or.right-allones" , "u32_or" , "u32" , "any" , "allones" , "allones" )
+binaryRule ( "u32.or.same" , "u32_or" , "u32" , "any" , "same" , "left" )
+binaryRule ( "u32.xor.left-zero" , "u32_xor" , "u32" , "zero" , "any" , "right" )
+binaryRule ( "u32.xor.right-zero" , "u32_xor" , "u32" , "any" , "zero" , "left" )
+binaryRule ( "u32.xor.same" , "u32_xor" , "u32" , "any" , "same" , "integer_zero" )
+binaryRule ( "u32.shl.right-zero" , "u32_shl" , "u32" , "any" , "zero" , "left" )
+binaryRule ( "u32.shr.right-zero" , "u32_shr" , "u32" , "any" , "zero" , "left" )
+binaryRule ( "u32.shl.left-zero" , "u32_shl" , "u32" , "zero" , "any" , "integer_zero" )
+binaryRule ( "u32.shr.left-zero" , "u32_shr" , "u32" , "zero" , "any" , "integer_zero" )
+unaryRule ( "u32.not.double" , "u32_not" , "u32" , "any" , "double_not" )
+
+for _ , op in ipairs ( {
+"i32_add" ,
+"u32_add" ,
+"i64_add" ,
+"u64_add" ,
+"i32_mul" ,
+"u32_mul" ,
+"i64_mul" ,
+"u64_mul" ,
+"u32_and" ,
+"u32_or" ,
+"u32_xor"
+} ) do
+binaryRule ( "reassociate." .. op , op , op : sub ( 1 , 3 ) , "any" , "any" , "reassociate" , true )
+end
+binaryRule ( "normalize.i32_sub" , "i32_sub" , "i32" , "any" , "numeric" , "normalize_sub" )
+binaryRule ( "normalize.u32_sub" , "u32_sub" , "u32" , "any" , "numeric" , "normalize_sub" )
+binaryRule ( "normalize.i64_sub" , "i64_sub" , "i64" , "any" , "numeric" , "normalize_sub" )
+
+fold . validate ( RULES )
+
+local INDEX = { }
+for _ , rule in ipairs ( RULES ) do
+local key = rule . op .. "\0" .. rule . entrypoint
+local bucket = INDEX [ key ]
+if bucket == nil then
+bucket = { }
+INDEX [ key ] = bucket
+end
+bucket [ # bucket + 1 ] = rule
+end
+for _ , bucket in pairs ( INDEX ) do
+table . sort ( bucket , before )
+end
+
+local function matches ( node , shape , other ) 
+if shape == nil or shape == "any" then
+return true
+elseif shape == "literal" then
+return node . op == "bool" or node . op == "constant" or node . op == "constant_i32" or node . op == "constant_i64"
+elseif shape == "numeric" then
+return fold . exactInteger ( node ) ~= nil
+elseif shape == "true" or shape == "false" then
+return node . op == "bool" and ( node ) . value == ( shape == "true" )
+elseif shape == "same" then
+return other ~= nil and semanticSame ( other , node )
+end
+local value = fold . exactInteger ( node )
+if shape == "one" then
+return value == 1
+elseif shape == "allones" then
+return node . type == "u32" and value == 4294967295
+elseif shape == "negzero" then
+return node . op == "constant" and tonumber (
+( node ) . value
+) == 0 and 1 / ( tonumber ( ( node ) . value ) ) < 0
+elseif shape == "zero" then
+if node . op == "constant" then
+local number = tonumber ( ( node ) . value )
+return number == 0 and 1 / ( number ) > 0
+end
+return value == 0
+end
+
+return false
+end
+
+local function integerRange ( valueType ) 
+if valueType == "u32" then
+return 0 , 4294967295
+elseif valueType == "i32" then
+return - 2147483648 , 2147483647
+elseif valueType == "u64" then
+return 0 , 9007199254740992
+elseif valueType == "i64" then
+return - 9007199254740992 , 9007199254740992
+end
+
+return nil , nil
+end
+
+local function fixedIdentity ( op ) 
+local identities
+
+= {
+i32_add = "i32.add" ,
+i32_sub = "i32.sub" ,
+i32_mul = "i32.mul" ,
+u32_add = "u32.add" ,
+u32_sub = "u32.sub" ,
+u32_mul = "u32.mul" ,
+u32_and = "u32.andBits" ,
+u32_or = "u32.orBits" ,
+u32_xor = "u32.xorBits" ,
+u32_shl = "u32.shiftLeft" ,
+u32_shr = "u32.shiftRightLogical" ,
+u32_not = "u32.notBits" ,
+}
+
+return identities [ op ]
+end
+
+local function compare ( op , left , right ) 
+if op == "eq" then
+return left == right
+elseif op == "ne" then
+return left ~= right
+elseif op == "lt" then
+return left < right
+elseif op == "le" then
+return left <= right
+elseif op == "gt" then
+return left > right
+end
+
+return left >= right
+end
+
+local function combine ( op , left , right , valueType ) 
+local identity = fixedIdentity ( op )
+if identity ~= nil then
+local result = scalar . fold ( identity , { left , right } )
+return type ( result ) == "number" and result or nil
+end
+local answer = op : match ( "_add$" ) ~= nil and left + right or left * right
+if not finite ( answer ) or math . abs ( answer ) >= 9007199254740992 or ( valueType == "u64" and answer < 0 ) then
+return nil
+end
+
+return answer
+end
+
+local function reassociate ( node , context ) 
+if not reorderable ( node , context ) then
+return nil
+end
+local op = tostring ( node . op )
+local valueType = node . type
+local operands = { }
+local constants = { }
+local function flatten ( value ) 
+if value . op == node . op and value . type == valueType then
+local binary = value
+flatten ( binary . left )
+flatten ( binary . right )
+else
+local exact = fold . exactInteger ( value )
+if exact == nil then
+operands [ # operands + 1 ] = value
+else
+constants [ # constants + 1 ] = exact
+end
+end
+end
+
+flatten ( node )
+if # constants == 0 then
+return nil
+end
+local combined = constants [ 1 ]
+for position = 2 , # constants do
+combined = combine ( op , combined , constants [ position ] , valueType )
+if combined == nil then
+return nil
+end
+end
+operands [ # operands + 1 ] = integerConstant ( combined , valueType , node )
+local rebuilt = operands [ 1 ]
+for position = 2 , # operands do
+rebuilt = setmetatable({ op =
+node . op ,  left =
+rebuilt ,  right =
+operands [ position ] ,  type =
+valueType ,  source =
+sourceOf ( node ) }, scalarIR.Fixed)
+
+end
+
+return rebuilt
+end
+
+local function action ( rule , node , context ) 
+local name = rule . action
+if name == "left" then
+return ( node ) . left
+elseif name == "right" then
+return ( node ) . right
+elseif name == "true" then
+return bool ( true , node )
+elseif name == "false" then
+return bool ( false , node )
+elseif name == "integer_zero" then
+return integerConstant ( 0 , node . type , node )
+elseif name == "allones" then
+return integerConstant ( 4294967295 , "u32" , node )
+elseif name == "bool_not" then
+local value = ( node ) . value
+return value . op == "bool" and bool ( not ( value ) . value , node ) or nil
+elseif name == "f64_constants" then
+local pair = node
+if pair . left . op ~= "constant" or pair . right . op ~= "constant" then
+return nil
+end
+local left = tonumber ( ( pair . left ) . value )
+local right = tonumber ( ( pair . right ) . value )
+local answer = node . op == "add"
+and left
++ right
+or node . op == "sub"
+and left
+- right
+or node . op == "mul"
+and left
+* right
+or left
+/ right
+return finite ( answer ) and constant ( answer , node ) or nil
+elseif name == "f64_neg" then
+local value = ( node ) . value
+if value . op ~= "constant" then
+return nil
+end
+local answer = - ( tonumber ( ( value ) . value ) )
+return finite ( answer ) and constant ( answer , node ) or nil
+elseif name == "numeric_cast" then
+local converted = node
+local value = fold . exactInteger ( converted . value )
+local low , high = integerRange ( converted . type )
+return value ~= nil and low ~= nil and value >= (
+low
+) and value <= ( high ) and integerConstant ( value , converted . type , node ) or nil
+elseif name == "int_to_f64" then
+local value = fold . exactInteger ( ( node ) . value )
+return value ~= nil and math . abs ( value ) <= 9007199254740992 and constant ( value , node ) or nil
+elseif name == "same_width_cast" then
+local converted = node
+return converted . value . type == converted . type and converted . value or nil
+elseif name == "fixed_constants" then
+local pair = node
+local left , right = fold . exactInteger ( pair . left ) , fold . exactInteger ( pair . right )
+local identity = fixedIdentity ( tostring ( node . op ) )
+if left == nil or right == nil or identity == nil then
+return nil
+end
+local result = scalar . fold ( identity , { left , right } )
+return type ( result ) == "number" and integerConstant ( result , node . type , node ) or nil
+elseif name == "fixed_unary_constant" then
+local value = fold . exactInteger ( ( node ) . value )
+local identity = fixedIdentity ( tostring ( node . op ) )
+if value == nil or identity == nil then
+return nil
+end
+local result = scalar . fold ( identity , { value } )
+return type ( result ) == "number" and integerConstant ( result , node . type , node ) or nil
+elseif name == "wide_constants" then
+local pair = node
+local left , right = fold . exactInteger ( pair . left ) , fold . exactInteger ( pair . right )
+if left == nil or right == nil then
+return nil
+end
+local answer = node . op : match (
+"_add$"
+) ~= nil and left + right or node . op : match ( "_sub$" ) ~= nil and left - right or left * right
+return finite (
+answer
+) and math . abs (
+answer
+) < 9007199254740992 and ( node . type ~= "u64" or answer >= 0 ) and integerConstant ( answer , node . type , node ) or nil
+elseif name == "compare_constants" then
+local pair = node
+local left , right = fold . exactInteger ( pair . left ) , fold . exactInteger ( pair . right )
+return left ~= nil and right ~= nil and bool ( compare ( tostring ( node . op ) , left , right ) , node ) or nil
+elseif name == "double_not" then
+local inner = ( node ) . value
+return inner . op == "u32_not" and ( inner ) . value or nil
+elseif name == "normalize_sub" then
+local pair = node
+local right = fold . exactInteger ( pair . right )
+if right == nil then
+return nil
+end
+local negated
+if node . type == "u32" or node . type == "i32" then
+local result = scalar . fold ( node . type .. ".sub" , { 0 , right } )
+negated = type ( result ) == "number" and result or nil
+elseif node . type == "i64" and right ~= - 9007199254740992 then
+negated = - right
+end
+if negated == nil then
+return nil
+end
+return setmetatable({ op =
+( node . type .. "_add" ) ,  left =
+pair . left ,  right =
+integerConstant ( negated , node . type , node ) ,  type =
+node . type ,  source =
+sourceOf ( node ) }, scalarIR.Fixed)
+
+elseif name == "reassociate" then
+return reassociate ( node , context )
+end
+
+return nil
+end
+
+local function removalSafe ( node , replacement ) 
+if node . op == "neg"
+or node . op == "not"
+or node . op == "bnot"
+or node . op == "f32_sqrt"
+or node . op == "u32_not"
+or node . op == "u32_popcount"
+or node . op == "u32_ctz"
+or node . op == "u32_clz"
+or node . op == "narrow_f64_f32"
+or node . op == "widen_f32_f64"
+or node . op == "int_to_f64"
+or node . op == "numeric_cast"
+then
+local operand = ( node ) . value
+return containsObject ( replacement , operand ) or discardable ( operand )
+end
+local pair = node
+if not containsObject ( replacement , pair . left ) and not discardable ( pair . left ) then
+return false
+end
+local rightEvaluated = true
+if ( node . op == "and" or node . op == "or" ) and pair . left . op == "bool" then
+local left = ( pair . left ) . value
+rightEvaluated = node . op == "and" and left or node . op == "or" and not left
+end
+
+return not rightEvaluated or containsObject ( replacement , pair . right ) or discardable ( pair . right )
+end
+
+
+
+function fold . apply ( node , context , entrypoint ) 
+local bucket = INDEX [ tostring ( node . op ) .. "\0" .. ( entrypoint or "fold-root" ) ]
+if bucket == nil then
+return nil , nil
+end
+for _ , rule in ipairs ( bucket ) do
+if ( rule . valueType == nil or rule . valueType == node . type ) then
+local matched = false
+local sameRule = false
+if rule . value ~= nil then
+matched = matches ( ( node ) . value , rule . value , nil )
+else
+local pair = node
+matched = matches ( pair . left , rule . left , nil ) and matches ( pair . right , rule . right , pair . left )
+sameRule = rule . right == "same"
+end
+if matched and ( not sameRule or stable ( ( node ) . left , context ) ) then
+local replacement = action ( rule , node , context )
+if replacement ~= nil and not semanticSame ( node , replacement ) and removalSafe ( node , replacement ) then
+return replacement , rule . id
+end
+end
+end
+end
+
+return nil , nil
+end
+
+function fold . rules ( ) 
+return RULES
+end
+
+const __nuppExportValue= fold ;__nuppExports=__nuppExportValue
+ end);if not __nuppOk then package.loaded["nupp.compiler.aot.fold"]=nil;error(__nuppWhy,0) end;package.loaded["nupp.compiler.aot.fold"]=__nuppExports;return __nuppExports
+end
 package.preload["nupp.compiler.aot.instructions"] = function(...)
 _G.assert(_G.loadstring("local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppMath=rawget(__nupp,\"math\")or{};rawset(__nupp,\"math\",__nuppMath) local function __nuppCloseFile(handle)if io.type(handle)==\"closed file\"then return end;local ok,reason=handle:close();if not ok then error(reason or \"the file could not be closed\",0)end end local __nuppManagedBrand=_G.__nuppManagedBrand if not __nuppManagedBrand then __nuppManagedBrand={};_G.__nuppManagedBrand=__nuppManagedBrand end local __nuppManagedCells=_G.__nuppManagedCells if not __nuppManagedCells then __nuppManagedCells=setmetatable({},{__mode=\"k\"});_G.__nuppManagedCells=__nuppManagedCells end local __nuppManagedOwner={};__nuppManagedOwner.__index=__nuppManagedOwner;local __nuppManagedAlias={};__nuppManagedAlias.__index=__nuppManagedAlias local function __nuppManagedError(code,message)return{code=code,message=message}end local function __nuppManagedProblem(cell) if type(cell)~=\"table\"or cell._brand~=__nuppManagedBrand then return __nuppManagedError(\"NUPP2614\",\"value is not a managed alias\")end if cell._state==\"taken\"then return __nuppManagedError(\"NUPP2614\",\"managed ownership was already taken\")end if cell._state==\"closed\"or cell._state==\"closing\"then return __nuppManagedError(\"NUPP2614\",\"managed resource is closed\")end return nil end local function __nuppManagedClose(cell,checked) local problem=__nuppManagedProblem(cell);if problem then if checked then return problem end;return nil end if cell._borrows~=0 or cell._exclusive then local busy=__nuppManagedError(\"NUPP2620\",\"managed resource has an active borrow\");if checked then return busy end;error(busy.message,0)end cell._state=\"closing\";local value,cleanup=cell._value,cell._cleanup;cell._value=nil;cell._cleanup=nil local ok,reason=pcall(cleanup,value);cell._state=\"closed\";if not ok then error(reason,0)end;return nil end function __nuppManagedOwner:alias()return setmetatable({_cell=self,_brand=__nuppManagedBrand},__nuppManagedAlias)end function __nuppManagedOwner:close()return __nuppManagedClose(self,false)end local function __nuppAliasCell(self) if type(self)~=\"table\"or self._brand~=__nuppManagedBrand or getmetatable(self)~=__nuppManagedAlias then return nil,__nuppManagedError(\"NUPP2614\",\"value is not a managed alias\")end local cell=self._cell;local problem=__nuppManagedProblem(cell);if problem then return nil,problem end;return cell,nil end function __nuppManagedAlias:with(callback) local cell,problem=__nuppAliasCell(self);if not cell then return nil,problem end if cell._exclusive then return nil,__nuppManagedError(\"NUPP2620\",\"managed resource is exclusively borrowed\")end cell._borrows=cell._borrows+1;cell._state=\"shared-borrowed(\"..cell._borrows..\")\" local ok,result=pcall(callback,cell._value);cell._borrows=cell._borrows-1;cell._state=cell._borrows>0 and(\"shared-borrowed(\"..cell._borrows..\")\")or\"live\" if not ok then error(result,0)end;return result,nil end function __nuppManagedAlias:withExclusive(callback) local cell,problem=__nuppAliasCell(self);if not cell then return nil,problem end if cell._exclusive or cell._borrows~=0 then return nil,__nuppManagedError(\"NUPP2620\",\"managed resource is already borrowed\")end cell._exclusive=true;cell._state=\"exclusive-borrowed\";local ok,result=pcall(callback,cell._value);cell._exclusive=false;cell._state=\"live\" if not ok then error(result,0)end;return result,nil end function __nuppManagedAlias:take() local cell,problem=__nuppAliasCell(self);if not cell then return nil,problem end if cell._exclusive or cell._borrows~=0 then return nil,__nuppManagedError(\"NUPP2620\",\"managed resource has an active borrow\")end cell._state=\"taken\";local value=cell._value;cell._value=nil;cell._cleanup=nil;return value,nil end function __nuppManagedAlias:close() local cell,problem=__nuppAliasCell(self);if not cell then return problem end;return __nuppManagedClose(cell,true)end function __nuppManagedAlias:_downcast(policy) local cell,problem=__nuppAliasCell(self);if not cell then return nil,problem end if cell._policy~=policy then return nil,__nuppManagedError(\"NUPP2613\",\"managed alias has the wrong type or cleanup policy\")end return self,nil end function __nupp.__manage(value,cleanup,policy) local cell=setmetatable({_brand=__nuppManagedBrand,_value=value,_cleanup=cleanup,_policy=policy,_state=\"live\",_borrows=0,_exclusive=false},__nuppManagedOwner);__nuppManagedCells[cell]=true;return cell end function __nupp.__recoverAlias(value) if type(value)~=\"table\"or value._brand~=__nuppManagedBrand or getmetatable(value)~=__nuppManagedAlias then return nil,__nuppManagedError(\"NUPP2614\",\"value is not a managed alias\")end local cell,problem=__nuppAliasCell(value);if not cell then return nil,problem end;return value,nil end _G.__nuppManagedPolicyCount=function(policy)local count=0;for cell in pairs(__nuppManagedCells)do if cell._policy==policy and(cell._state==\"live\"or cell._state:match(\"borrowed\"))then count=count+1 end end;return count end local __nuppManagedGroup={};__nuppManagedGroup.__index=__nuppManagedGroup function __nuppManagedGroup:flush()end function __nuppManagedGroup:adopt(cell) if self._closed then error(\"managed group is closed\",2)end local handle=cell:alias();self._entries[#self._entries+1]=handle return handle end function __nuppManagedGroup:remove(handle) if self._closed then error(\"managed group is closed\",2)end for index=#self._entries,1,-1 do if self._entries[index]==handle then table.remove(self._entries,index);local value,problem=handle:take();if problem then error(problem.message,2)end;return value end end error(\"managed alias is not registered in this group\",2) end local function __nuppManagedCloseEntry(entry)local problem=entry:close();if problem and problem.code~=\"NUPP2614\"then error(problem.message,0)end end function __nuppManagedGroup:close() if self._closed then return end;self._closed=true;local first,suppressed=nil,0 for index=#self._entries,1,-1 do local ok,reason=pcall(__nuppManagedCloseEntry,self._entries[index]);if not ok then if first==nil then first=reason else suppressed=suppressed+1 end end end self._entries={};if first~=nil then if suppressed>0 then error(tostring(first)..\" (suppressed \"..tostring(suppressed)..\" cleanup failure(s))\",0)end;error(first,0)end end function __nupp.managedGroup()return setmetatable({_entries={},_closed=false},__nuppManagedGroup)end;\n","@nupp-prelude"))();local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppMath=rawget(__nupp,"math")or{};rawset(__nupp,"math",__nuppMath) local function __nuppCloseFile(handle)if io.type(handle)=="closed file"then return end;local ok,reason=handle:close();if not ok then error(reason or "the file could not be closed",0)end end local __nuppManagedBrand=_G.__nuppManagedBrand if not __nuppManagedBrand then __nuppManagedBrand={};_G.__nuppManagedBrand=__nuppManagedBrand end local __nuppManagedCells=_G.__nuppManagedCells if not __nuppManagedCells then __nuppManagedCells=setmetatable({},{__mode="k"});_G.__nuppManagedCells=__nuppManagedCells end local __nuppManagedOwner={};__nuppManagedOwner.__index=__nuppManagedOwner;local __nuppManagedAlias={};__nuppManagedAlias.__index=__nuppManagedAlias local function __nuppManagedError(code,message)return{code=code,message=message}end local function __nuppManagedProblem(cell) if type(cell)~="table"or cell._brand~=__nuppManagedBrand then return __nuppManagedError("NUPP2614","value is not a managed alias")end if cell._state=="taken"then return __nuppManagedError("NUPP2614","managed ownership was already taken")end if cell._state=="closed"or cell._state=="closing"then return __nuppManagedError("NUPP2614","managed resource is closed")end return nil end local function __nuppManagedClose(cell,checked) local problem=__nuppManagedProblem(cell);if problem then if checked then return problem end;return nil end if cell._borrows~=0 or cell._exclusive then local busy=__nuppManagedError("NUPP2620","managed resource has an active borrow");if checked then return busy end;error(busy.message,0)end cell._state="closing";local value,cleanup=cell._value,cell._cleanup;cell._value=nil;cell._cleanup=nil local ok,reason=pcall(cleanup,value);cell._state="closed";if not ok then error(reason,0)end;return nil end function __nuppManagedOwner:alias()return setmetatable({_cell=self,_brand=__nuppManagedBrand},__nuppManagedAlias)end function __nuppManagedOwner:close()return __nuppManagedClose(self,false)end local function __nuppAliasCell(self) if type(self)~="table"or self._brand~=__nuppManagedBrand or getmetatable(self)~=__nuppManagedAlias then return nil,__nuppManagedError("NUPP2614","value is not a managed alias")end local cell=self._cell;local problem=__nuppManagedProblem(cell);if problem then return nil,problem end;return cell,nil end function __nuppManagedAlias:with(callback) local cell,problem=__nuppAliasCell(self);if not cell then return nil,problem end if cell._exclusive then return nil,__nuppManagedError("NUPP2620","managed resource is exclusively borrowed")end cell._borrows=cell._borrows+1;cell._state="shared-borrowed("..cell._borrows..")" local ok,result=pcall(callback,cell._value);cell._borrows=cell._borrows-1;cell._state=cell._borrows>0 and("shared-borrowed("..cell._borrows..")")or"live" if not ok then error(result,0)end;return result,nil end function __nuppManagedAlias:withExclusive(callback) local cell,problem=__nuppAliasCell(self);if not cell then return nil,problem end if cell._exclusive or cell._borrows~=0 then return nil,__nuppManagedError("NUPP2620","managed resource is already borrowed")end cell._exclusive=true;cell._state="exclusive-borrowed";local ok,result=pcall(callback,cell._value);cell._exclusive=false;cell._state="live" if not ok then error(result,0)end;return result,nil end function __nuppManagedAlias:take() local cell,problem=__nuppAliasCell(self);if not cell then return nil,problem end if cell._exclusive or cell._borrows~=0 then return nil,__nuppManagedError("NUPP2620","managed resource has an active borrow")end cell._state="taken";local value=cell._value;cell._value=nil;cell._cleanup=nil;return value,nil end function __nuppManagedAlias:close() local cell,problem=__nuppAliasCell(self);if not cell then return problem end;return __nuppManagedClose(cell,true)end function __nuppManagedAlias:_downcast(policy) local cell,problem=__nuppAliasCell(self);if not cell then return nil,problem end if cell._policy~=policy then return nil,__nuppManagedError("NUPP2613","managed alias has the wrong type or cleanup policy")end return self,nil end function __nupp.__manage(value,cleanup,policy) local cell=setmetatable({_brand=__nuppManagedBrand,_value=value,_cleanup=cleanup,_policy=policy,_state="live",_borrows=0,_exclusive=false},__nuppManagedOwner);__nuppManagedCells[cell]=true;return cell end function __nupp.__recoverAlias(value) if type(value)~="table"or value._brand~=__nuppManagedBrand or getmetatable(value)~=__nuppManagedAlias then return nil,__nuppManagedError("NUPP2614","value is not a managed alias")end local cell,problem=__nuppAliasCell(value);if not cell then return nil,problem end;return value,nil end _G.__nuppManagedPolicyCount=function(policy)local count=0;for cell in pairs(__nuppManagedCells)do if cell._policy==policy and(cell._state=="live"or cell._state:match("borrowed"))then count=count+1 end end;return count end local __nuppManagedGroup={};__nuppManagedGroup.__index=__nuppManagedGroup function __nuppManagedGroup:flush()end function __nuppManagedGroup:adopt(cell) if self._closed then error("managed group is closed",2)end local handle=cell:alias();self._entries[#self._entries+1]=handle return handle end function __nuppManagedGroup:remove(handle) if self._closed then error("managed group is closed",2)end for index=#self._entries,1,-1 do if self._entries[index]==handle then table.remove(self._entries,index);local value,problem=handle:take();if problem then error(problem.message,2)end;return value end end error("managed alias is not registered in this group",2) end local function __nuppManagedCloseEntry(entry)local problem=entry:close();if problem and problem.code~="NUPP2614"then error(problem.message,0)end end function __nuppManagedGroup:close() if self._closed then return end;self._closed=true;local first,suppressed=nil,0 for index=#self._entries,1,-1 do local ok,reason=pcall(__nuppManagedCloseEntry,self._entries[index]);if not ok then if first==nil then first=reason else suppressed=suppressed+1 end end end self._entries={};if first~=nil then if suppressed>0 then error(tostring(first).." (suppressed "..tostring(suppressed).." cleanup failure(s))",0)end;error(first,0)end end function __nupp.managedGroup()return setmetatable({_entries={},_closed=false},__nuppManagedGroup)end;local __nuppExports;local __nuppOk,__nuppWhy=pcall(function()
 
@@ -13924,7 +14805,7 @@ wide == "u64" and "u64_" or "i64_"
 left ,  right =
 right ,  type =
 wide ,  source =
-source }, scalarIR.Binary)
+source }, scalarIR.Fixed)
 
 end
 return setmetatable({ op =
@@ -13976,7 +14857,13 @@ if left . type ~= "bool" or right . type ~= "bool" then
 context . reject ( source , "native and/or operands must both be boolean" )
 end
 
-return setmetatable({ op =  written ,  left =  left ,  right =  right ,  type =  "bool" ,  source =  source }, scalarIR.Binary)
+return setmetatable({ op =
+written ,  left =
+left ,  right =
+right ,  type =
+"bool" ,  source =
+source }, scalarIR.Binary)
+
 end
 
 if written == ".." then
@@ -14067,13 +14954,28 @@ end
 
 if fixed . arity == 1 then
 if fixed . op == "f32_sqrt" or tostring ( fixed . op ) : match ( "^u32_" ) ~= nil then
-return setmetatable({ op =  fixed . op ,  value =  args [ 1 ] ,  type =  fixed . result ,  source =  source }, scalarIR.FixedUnary)
+return setmetatable({ op =
+fixed . op ,  value =
+args [ 1 ] ,  type =
+fixed . result ,  source =
+source }, scalarIR.FixedUnary)
+
 end
 
-return setmetatable({ op =  fixed . op ,  value =  args [ 1 ] ,  type =  fixed . result ,  source =  source }, scalarIR.Convert)
+return setmetatable({ op =
+fixed . op ,  value =
+args [ 1 ] ,  type =
+fixed . result ,  source =
+source }, scalarIR.Convert)
+
 end
 if fixed . arity == 3 then
-return setmetatable({ op =  fixed . op ,  args =  args ,  type =  fixed . result ,  source =  source }, scalarIR.Corrected)
+return setmetatable({ op =
+fixed . op ,  args =
+args ,  type =
+fixed . result ,  source =
+source }, scalarIR.Corrected)
+
 end
 if fixed . op == "f32_min" or fixed . op == "f32_max" then
 return setmetatable({ op =
@@ -17995,11 +18897,19 @@ _G.assert(_G.loadstring("local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppM
 
 
 local effects = require ( "nupp.compiler.aot.effects" )
+local fold = require ( "nupp.compiler.aot.fold" )
 local scalarIR = require ( "nupp.compiler.aot.scalar" )
+local visit = require ( "nupp.compiler.aot.visit" )
 
 local optimize = { }
 
+optimize.RuleApplication = {} optimize.RuleApplication.__index = optimize.RuleApplication
+
+
+
+
 optimize.Stats = {} optimize.Stats.__index = optimize.Stats
+
 
 
 
@@ -18023,6 +18933,10 @@ optimize.State = {} optimize.State.__index = optimize.State
 
 
 
+
+local function countRule ( state , id ) 
+state . ruleApplications [ id ] = ( state . ruleApplications [ id ] or 0 ) + 1
+end
 
 
 
@@ -18083,32 +18997,6 @@ local function sourceOf ( node )
 return node . source
 end
 
-local function boolean ( value , node ) 
-return setmetatable({ op =  "bool" ,  value =  value ,  type =  "bool" ,  source =  sourceOf ( node ) }, scalarIR.Bool)
-end
-
-local function finite ( value ) 
-return value == value and value ~= math . huge and value ~= - math . huge
-end
-
-
-local function numberText ( value ) 
-if value == 0 and 1 / value < 0 then
-return "-0.0"
-end
-
-local written = ( "%.17g" ) : format ( value )
-if written : match ( "^[+-]?%d+$" ) ~= nil then
-written = written .. ".0"
-end
-
-return written
-end
-
-local function constant ( value , node ) 
-return setmetatable({ op =  "constant" ,  value =  numberText ( value ) ,  type =  "f64" ,  source =  sourceOf ( node ) }, scalarIR.Constant)
-end
-
 local function integerConstant ( value , valueType , node ) 
 if valueType == "i64" or valueType == "u64" then
 return setmetatable({ op =
@@ -18127,30 +19015,8 @@ sourceOf ( node ) }, scalarIR.IntConstant)
 
 end
 
-local function integerRange ( valueType ) 
-if valueType == "u32" then
-return 0 , 4294967295
-elseif valueType == "i32" then
-return - 2147483648 , 2147483647
-elseif valueType == "u64" then
-return 0 , 9007199254740992
-elseif valueType == "i64" then
-return - 9007199254740992 , 9007199254740992
-end
-
-return nil , nil
-end
-
 local function exactInteger ( node ) 
-if node . op ~= "constant" and node . op ~= "constant_i32" and node . op ~= "constant_i64" then
-return nil
-end
-local value = tonumber ( ( node ) . value )
-if value == nil or not finite ( value ) or value % 1 ~= 0 then
-return nil
-end
-
-return value
+return fold . exactInteger ( node )
 end
 
 local foldExpression
@@ -18162,181 +19028,35 @@ local literal
 
 
 local function foldChildren ( node , state ) 
-local value = node
-for _ , field in ipairs ( {
-"left" ,
-"right" ,
-"value" ,
-"object" ,
-"arrayCapacity" ,
-"hashCapacity" ,
-"nodes" ,
-"links" ,
-"sourceBytes" ,
-"root" ,
-"nullValue" ,
-"maxDepth" ,
-"stringCapacity" ,
-"arrayMarker" ,
-"objectMarker" ,
-"selectionShape" ,
-"arrayShapeMarker" ,
-"serdeMarkers" ,
-"capacity" ,
-"scratch" ,
-"escapeScratch" ,
-"index" ,
-"base" ,
-"bits" ,
-"events" ,
-"quotes" ,
-"slashes" ,
-"slashCarry" ,
-"slashOdd" ,
-"inString" ,
-"stringEscaped" ,
-"bytes" ,
-"builder" ,
-"start" ,
-"limit" ,
-} ) do
-if value [ field ] ~= nil and type ( value [ field ] ) == "table" and value [ field ] . op ~= nil then
-value [ field ] = foldExpression ( value [ field ] , state )
-end
-end
-for _ , argument in ipairs ( value . args or { } ) do
-local position = _
-value . args [ position ] = foldExpression ( argument , state )
-end
-for _ , field in ipairs ( value . fields or { } ) do
-field . key = foldExpression ( field . key , state )
-field . value = foldExpression ( field . value , state )
-end
+visit . expressionChildren ( node , function ( child ) 
+return foldExpression ( child , state )
+end )
 end
 
 foldExpression = function ( node , state ) 
 effects . expression ( tostring ( node . op ) )
 foldChildren ( node , state )
 
-if node . op == "not" then
-local unary = node
-if unary . value . op == "bool" then
-state . folds = state . folds + 1
-state . changed = true
-return boolean ( not ( unary . value ) . value , node )
+local fuel = 16
+local history = { }
+while true do
+local replacement , ruleID = fold . apply ( node , state . foldContext , "fold-root" )
+if replacement == nil then
+break
 end
-elseif node . op == "and" or node . op == "or" then
-local binary = node
-if binary . left . op == "bool" then
-local left = ( binary . left ) . value
-state . folds = state . folds + 1
+if fuel == 0 then
+error ( "AOT fold fuel exhausted after " .. table . concat ( history , ", " ) , 0 )
+end
+fuel = fuel - 1
+history [ # history + 1 ] = ruleID
+countRule ( state , ruleID )
 state . changed = true
-if node . op == "and" then
-return left and binary . right or binary . left
+node = replacement
+effects . expression ( tostring ( node . op ) )
+foldChildren ( node , state )
 end
 
-return left and binary . left or binary . right
-end
-elseif node . op == "add" or node . op == "sub" or node . op == "mul" or node . op == "div" then
-local binary = node
-if binary . left . op == "constant" and binary . right . op == "constant" then
-local left = tonumber ( ( binary . left ) . value )
-local right = tonumber ( ( binary . right ) . value )
-local answer = 0.0
-if node . op == "add" then
-answer = left + right
-elseif node . op == "sub" then
-answer = left - right
-elseif node . op == "mul" then
-answer = left * right
-else
-answer = left / right
-end
-if finite ( answer ) then
-state . folds = state . folds + 1
-state . changed = true
-return constant ( answer , node )
-end
-end
-elseif node . op == "neg" then
-local unary = node
-if unary . value . op == "constant" then
-local answer = - ( tonumber ( ( unary . value ) . value ) )
-if finite ( answer ) then
-state . folds = state . folds + 1
-state . changed = true
-return constant ( answer , node )
-end
-end
-elseif node . op == "numeric_cast" then
-local converted = node
-local value = exactInteger ( converted . value )
-local low , high = integerRange ( converted . type )
-if value ~= nil and low ~= nil and value >= ( low ) and value <= ( high ) then
-state . folds = state . folds + 1
-state . changed = true
-return integerConstant ( value , converted . type , node )
-end
-elseif node . op == "int_to_f64" then
-local converted = node
-local value = exactInteger ( converted . value )
-if value ~= nil and math . abs ( value ) <= 9007199254740992 then
-state . folds = state . folds + 1
-state . changed = true
-return constant ( value , node )
-end
-elseif node . op == "u32_add" or node . op == "u32_sub" then
-local pair = node
-local left = exactInteger ( pair . left )
-local right = exactInteger ( pair . right )
-if left ~= nil and right ~= nil then
-local answer = node . op == "u32_add" and left + right or left - right
-answer = answer % 4294967296
-state . folds = state . folds + 1
-state . changed = true
-return integerConstant ( answer , "u32" , node )
-end
-elseif node . op == "i32_add" or node . op == "i32_sub" then
-local pair = node
-local left = exactInteger ( pair . left )
-local right = exactInteger ( pair . right )
-if left ~= nil and right ~= nil then
-local answer = node . op == "i32_add" and left + right or left - right
-answer = answer % 4294967296
-if answer >= 2147483648 then
-answer = answer - 4294967296
-end
-state . folds = state . folds + 1
-state . changed = true
-return integerConstant ( answer , "i32" , node )
-end
-elseif node . op == "u64_add"
-or node . op == "u64_sub"
-or node . op == "u64_mul"
-or node . op == "i64_add"
-or node . op == "i64_sub"
-or node . op == "i64_mul"
-then
-local pair = node
-local left = exactInteger ( pair . left )
-local right = exactInteger ( pair . right )
-if left ~= nil and right ~= nil then
-local answer = 0
-if node . op == "u64_add" or node . op == "i64_add" then
-answer = left + right
-elseif node . op == "u64_sub" or node . op == "i64_sub" then
-answer = left - right
-else
-answer = left * right
-end
-local unsigned = node . op : sub ( 1 , 3 ) == "u64"
-if math . abs ( answer ) <= 9007199254740992 and ( not unsigned or answer >= 0 ) then
-state . folds = state . folds + 1
-state . changed = true
-return integerConstant ( answer , unsigned and "u64" or "i64" , node )
-end
-end
-elseif node . op == "helper_call" then
+if node . op == "helper_call" then
 local call = node
 local helper = state . helpers [ call . helper ]
 local replacements = { }
@@ -18359,41 +19079,10 @@ local replacement = copySpecialized ( ( helper ) . values [ 1 ] , replacements )
 local growth = expressionNodes ( replacement ) - expressionNodes ( node )
 if growth <= state . specializationBudget then
 state . specializationBudget = state . specializationBudget - math . max ( growth , 0 )
-state . specializedHelperCalls = state . specializedHelperCalls + 1
+countRule ( state , "specialize.helper-constant" )
 state . changed = true
 return foldExpression ( replacement , state )
 end
-end
-elseif node . op == "eq"
-or node . op == "ne"
-or node . op == "lt"
-or node . op == "le"
-or node . op == "gt"
-or node . op == "ge"
-then
-local binary = node
-local left
-local right
-left = exactInteger ( binary . left )
-right = exactInteger ( binary . right )
-if left ~= nil and right ~= nil then
-local answer = false
-if node . op == "eq" then
-answer = left == right
-elseif node . op == "ne" then
-answer = left ~= right
-elseif node . op == "lt" then
-answer = left < right
-elseif node . op == "le" then
-answer = left <= right
-elseif node . op == "gt" then
-answer = left > right
-else
-answer = left >= right
-end
-state . folds = state . folds + 1
-state . changed = true
-return boolean ( answer , node )
 end
 end
 
@@ -18406,104 +19095,22 @@ local root = effects . expression ( tostring ( node . op ) )
 if root . observable or root . mayRaise then
 return false
 end
-local value = node
-for _ , field in ipairs ( {
-"left" ,
-"right" ,
-"value" ,
-"object" ,
-"arrayCapacity" ,
-"hashCapacity" ,
-"nodes" ,
-"links" ,
-"sourceBytes" ,
-"root" ,
-"nullValue" ,
-"maxDepth" ,
-"stringCapacity" ,
-"arrayMarker" ,
-"objectMarker" ,
-"selectionShape" ,
-"arrayShapeMarker" ,
-"serdeMarkers" ,
-"capacity" ,
-"scratch" ,
-"escapeScratch" ,
-"index" ,
-"base" ,
-"bits" ,
-"events" ,
-"quotes" ,
-"slashes" ,
-"slashCarry" ,
-"slashOdd" ,
-"inString" ,
-"stringEscaped" ,
-"bytes" ,
-"builder" ,
-"start" ,
-"limit" ,
-} ) do
-if value [ field ] ~= nil and type ( value [ field ] ) == "table" and value [ field ] . op ~= nil then
-if not discardable ( value [ field ] ) then
-return false
+local safe = true
+visit . expressionChildren ( node , function ( child ) 
+if not discardable ( child ) then
+safe = false
 end
-end
-end
-for _ , argument in ipairs ( value . args or { } ) do
-if not discardable ( argument ) then
-return false
-end
-end
-for _ , field in ipairs ( value . fields or { } ) do
-if not discardable ( field . key ) or not discardable ( field . value ) then
-return false
-end
-end
+return child
+end )
 
-return true
+return safe
 end
 
 local function foldStatementExpressions ( statement , state ) 
 effects . statement ( tostring ( statement . op ) )
-local value = statement
-for _ , field in ipairs ( {
-"value" ,
-"call" ,
-"condition" ,
-"from" ,
-"to" ,
-"table" ,
-"key" ,
-"builder" ,
-"sourceBytes" ,
-"start" ,
-"length" ,
-"escaped" ,
-"negative" ,
-"exponent" ,
-"exact" ,
-"capacity" ,
-"scratch" ,
-"escapeScratch" ,
-"escapeIndex" ,
-"escapeCount" ,
-"index"
-} ) do
-if value [ field ] ~= nil and type ( value [ field ] ) == "table" and value [ field ] . op ~= nil then
-value [ field ] = foldExpression ( value [ field ] , state )
-end
-end
-for position , entry in ipairs ( value . values or { } ) do
-if statement . op == "return" then
-value . values [ position ] = foldExpression ( entry , state )
-else
-entry . value = foldExpression ( entry . value , state )
-if entry . target . object ~= nil then
-entry . target . object = foldExpression ( entry . target . object , state )
-end
-end
-end
+visit . statementExpressions ( statement , function ( child ) 
+return foldExpression ( child , state )
+end )
 end
 
 local optimizeBlock
@@ -18533,61 +19140,15 @@ if node . op == "local" then
 local named = node
 local replacement = constants [ tostring ( named . cName or named . name ) ]
 if replacement ~= nil then
-state . propagatedConstants = state . propagatedConstants + 1
+countRule ( state , "propagate.local-constant" )
 state . changed = true
 return replacement
 end
 end
 
-local value = node
-for _ , field in ipairs ( {
-"left" ,
-"right" ,
-"value" ,
-"object" ,
-"arrayCapacity" ,
-"hashCapacity" ,
-"nodes" ,
-"links" ,
-"sourceBytes" ,
-"root" ,
-"nullValue" ,
-"maxDepth" ,
-"stringCapacity" ,
-"arrayMarker" ,
-"objectMarker" ,
-"selectionShape" ,
-"arrayShapeMarker" ,
-"serdeMarkers" ,
-"capacity" ,
-"scratch" ,
-"escapeScratch" ,
-"index" ,
-"base" ,
-"bits" ,
-"events" ,
-"quotes" ,
-"slashes" ,
-"slashCarry" ,
-"slashOdd" ,
-"inString" ,
-"stringEscaped" ,
-"bytes" ,
-"builder" ,
-"start" ,
-"limit" ,
-} ) do
-if value [ field ] ~= nil and type ( value [ field ] ) == "table" and value [ field ] . op ~= nil then
-value [ field ] = propagateExpression ( value [ field ] , constants , state )
-end
-end
-for position , argument in ipairs ( value . args or { } ) do
-value . args [ position ] = propagateExpression ( argument , constants , state )
-end
-for _ , field in ipairs ( value . fields or { } ) do
-field . key = propagateExpression ( field . key , constants , state )
-field . value = propagateExpression ( field . value , constants , state )
-end
+visit . expressionChildren ( node , function ( child ) 
+return propagateExpression ( child , constants , state )
+end )
 
 return foldExpression ( node , state )
 end
@@ -18630,46 +19191,14 @@ mutated ,
 state
 ) 
 local constants = inheritConstants ( inherited )
+local function rewrite ( child ) 
+return propagateExpression ( child , constants , state )
+end
+
 for _ , statement in ipairs ( statements ) do
 effects . statement ( tostring ( statement . op ) )
 local value = statement
-for _ , field in ipairs ( {
-"value" ,
-"call" ,
-"condition" ,
-"from" ,
-"to" ,
-"table" ,
-"key" ,
-"builder" ,
-"sourceBytes" ,
-"start" ,
-"length" ,
-"escaped" ,
-"negative" ,
-"exponent" ,
-"exact" ,
-"capacity" ,
-"scratch" ,
-"escapeScratch" ,
-"escapeIndex" ,
-"escapeCount" ,
-"index"
-} ) do
-if value [ field ] ~= nil and type ( value [ field ] ) == "table" and value [ field ] . op ~= nil then
-value [ field ] = propagateExpression ( value [ field ] , constants , state )
-end
-end
-for position , entry in ipairs ( value . values or { } ) do
-if statement . op == "return" then
-value . values [ position ] = propagateExpression ( entry , constants , state )
-else
-entry . value = propagateExpression ( entry . value , constants , state )
-if entry . target . object ~= nil then
-entry . target . object = propagateExpression ( entry . target . object , constants , state )
-end
-end
-end
+visit . statementExpressions ( statement , rewrite )
 if statement . op == "let" and mutated [
 statement . cName
 ] ~= true and mutated [ statement . name ] ~= true and literal ( statement . value ) then
@@ -18731,7 +19260,7 @@ selected = selected or branch . elseBody or { }
 rewritten [
 # rewritten + 1
 ] = setmetatable({ op =  "block" ,  body =  selected ,  source =  branch . source }, scalarIR.Block)
-state . folds = state . folds + 1
+state . statementFolds = state . statementFolds + 1
 state . changed = true
 else
 rewritten [ # rewritten + 1 ] = statement
@@ -18919,13 +19448,13 @@ local helpers = { }
 for _ , helper in ipairs ( program . helpers or { } ) do
 helpers [ helper . name ] = helper
 end
-local state = setmetatable({ folds =
-0 ,  propagatedConstants =
-0 ,  specializedHelperCalls =
+local state = setmetatable({ statementFolds =
 0 ,  specializationBudget =
 math . max ( math . floor ( before / 10 ) , 1 ) ,  unrollBudget =
 optimize . MAX_UNROLL_GROWTH ,  helpers =
-helpers ,  unrolledLoops =
+helpers ,  foldContext =  setmetatable({ helpers =
+helpers }, fold.Context) ,  ruleApplications =
+{ } ,  unrolledLoops =
 0 ,  unrolledIterations =
 0 ,  removedStatements =
 0 ,  changed =
@@ -18960,16 +19489,29 @@ removeUnusedHelpers ( program , helpers )
 
 program . maxStack = nil
 
+local applications = { }
+local expressionFolds = 0
+for id , count in pairs ( state . ruleApplications ) do
+applications [ # applications + 1 ] = setmetatable({ id =  id ,  count =  count }, optimize.RuleApplication)
+if id ~= "propagate.local-constant" and id ~= "specialize.helper-constant" then
+expressionFolds = expressionFolds + count
+end
+end
+table . sort ( applications , function ( left , right ) 
+return left . id < right . id
+end )
+
 return setmetatable({ beforeNodes =
 before ,  afterNodes =
 nodeCount ( program ) ,  folds =
-state . folds ,  propagatedConstants =
-state . propagatedConstants ,  specializedHelperCalls =
-state . specializedHelperCalls ,  unrolledLoops =
+expressionFolds + state . statementFolds ,  propagatedConstants =
+state . ruleApplications [ "propagate.local-constant" ] or 0 ,  specializedHelperCalls =
+state . ruleApplications [ "specialize.helper-constant" ] or 0 ,  unrolledLoops =
 state . unrolledLoops ,  unrolledIterations =
 state . unrolledIterations ,  removedStatements =
 state . removedStatements ,  iterations =
-iterations }, optimize.Stats)
+iterations ,  ruleApplications =
+applications }, optimize.Stats)
 
 end
 
@@ -20921,7 +21463,7 @@ scalarIR . VERSION = 20
 
 
 
-scalarIR . NUMERIC_CONTRACT = 1
+scalarIR . NUMERIC_CONTRACT = 2
 
 
 
@@ -21382,24 +21924,28 @@ scalarIR.FieldLoad = {} scalarIR.FieldLoad.__index = scalarIR.FieldLoad
 
 
 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 scalarIR.Binary = {} scalarIR.Binary.__index = scalarIR.Binary
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 
 
 
@@ -21433,19 +21979,29 @@ scalarIR.Math = {} scalarIR.Math.__index = scalarIR.Math
 
 
 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 scalarIR.Fixed = {} scalarIR.Fixed.__index = scalarIR.Fixed
-
-
-
-
-
-
-
-
-
-
-
-
 
 
 
@@ -21464,7 +22020,11 @@ scalarIR.FixedUnary = {} scalarIR.FixedUnary.__index = scalarIR.FixedUnary
 
 
 
+
+
 scalarIR.Corrected = {} scalarIR.Corrected.__index = scalarIR.Corrected
+
+
 
 
 
@@ -23154,6 +23714,7 @@ _G.assert(_G.loadstring("local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppM
 
 
 
+local effects = require ( "nupp.compiler.aot.effects" )
 local lane = require ( "nupp.compiler.aot.lane" )
 local scalarIR = require ( "nupp.compiler.aot.scalar" )
 local visit = require ( "nupp.compiler.aot.visit" )
@@ -24262,7 +24823,16 @@ end
 
 
 function verify . expression ( node , values , scope ) 
+effects . expression ( tostring ( node . op ) )
 scalarWalk ( node , values , scope )
+end
+
+function verify . expressionOpcodes ( ) 
+return effects . expressionOpcodes ( )
+end
+
+function verify . statementOpcodes ( ) 
+return effects . statementOpcodes ( )
 end
 
 
@@ -24659,6 +25229,7 @@ stored
 ) 
 local values = inherit ( inherited )
 for _ , statement in ipairs ( statements ) do
+effects . statement ( tostring ( statement . op ) )
 if statement . op == "let" then
 holds ( values [ statement . name ] == nil and statement . type == statement . value . type , "invalid local declaration" )
 scalarWalk ( statement . value , values , scope )
@@ -25789,6 +26360,8 @@ local scalarIR = require ( "nupp.compiler.aot.scalar" )
 
 local visit = { }
 
+
+
 visit.Visitor = {} visit.Visitor.__index = visit.Visitor
 
 
@@ -25802,43 +26375,251 @@ local scalarStatement
 local laneExpression
 local laneStatement
 
-local function scalarExpressions ( values , visitor ) 
-for _ , value in ipairs ( values ) do
-scalarExpression ( value , visitor )
+local function rewriteExpressions ( values , rewrite ) 
+for position , value in ipairs ( values ) do
+values [ position ] = rewrite ( value )
 end
 end
 
-local function optionalScalar ( value , visitor ) 
+local function rewriteOptional ( value , rewrite ) 
 if value ~= nil then
-scalarExpression ( value , visitor )
-end
-end
-
-local function builderEvent ( node , visitor ) 
-scalarExpression ( node . builder , visitor )
-optionalScalar ( node . sourceBytes , visitor )
-optionalScalar ( node . start , visitor )
-optionalScalar ( node . length , visitor )
-optionalScalar ( node . escaped , visitor )
-optionalScalar ( node . value , visitor )
-optionalScalar ( node . negative , visitor )
-optionalScalar ( node . exponent , visitor )
-optionalScalar ( node . exact , visitor )
-optionalScalar ( node . capacity , visitor )
-optionalScalar ( node . scratch , visitor )
-optionalScalar ( node . escapeScratch , visitor )
-optionalScalar ( node . escapeIndex , visitor )
-optionalScalar ( node . escapeCount , visitor )
+return rewrite ( value )
 end
 
-local function scratchU32Set ( node , visitor ) 
-scalarExpressions ( { node . scratch , node . index , node . value } , visitor )
+return nil
 end
 
-local function scratchU8Set ( node , visitor ) 
-scalarExpression ( node . scratch , visitor )
-optionalScalar ( node . index , visitor )
-optionalScalar ( node . value , visitor )
+local function builderEvent ( node , rewrite ) 
+node . builder = rewrite ( node . builder )
+node . sourceBytes = rewriteOptional ( node . sourceBytes , rewrite )
+node . start = rewriteOptional ( node . start , rewrite )
+node . length = rewriteOptional ( node . length , rewrite )
+node . escaped = rewriteOptional ( node . escaped , rewrite )
+node . value = rewriteOptional ( node . value , rewrite )
+node . negative = rewriteOptional ( node . negative , rewrite )
+node . exponent = rewriteOptional ( node . exponent , rewrite )
+node . exact = rewriteOptional ( node . exact , rewrite )
+node . capacity = rewriteOptional ( node . capacity , rewrite )
+node . scratch = rewriteOptional ( node . scratch , rewrite )
+node . escapeScratch = rewriteOptional ( node . escapeScratch , rewrite )
+node . escapeIndex = rewriteOptional ( node . escapeIndex , rewrite )
+node . escapeCount = rewriteOptional ( node . escapeCount , rewrite )
+end
+
+local function scratchU32Set ( node , rewrite ) 
+node . scratch = rewrite ( node . scratch )
+node . index = rewrite ( node . index )
+node . value = rewrite ( node . value )
+end
+
+local function scratchU8Set ( node , rewrite ) 
+node . scratch = rewrite ( node . scratch )
+node . index = rewriteOptional ( node . index , rewrite )
+node . value = rewriteOptional ( node . value , rewrite )
+end
+
+
+
+
+
+function visit . expressionChildren ( node , rewrite ) 
+local __nuppT7= node . op ;local __nuppT8;
+if  __nuppT7== "constant"  or  __nuppT7== "constant_i32"  or  __nuppT7== "constant_i64"  or  __nuppT7== "bool"  or  __nuppT7== "lua_nil"  or  __nuppT7== "lua_string"  or  __nuppT7== "local"  or  __nuppT7== "uniform"  or  __nuppT7== "helper_param"  or  __nuppT7== "span_count"  or  __nuppT7== "load"  or  __nuppT7== "element_ref"  then  __nuppT8= nil
+elseif  __nuppT7== "lua_concat"  then
+local value = node
+value . left = rewrite ( value . left )
+value . right = rewrite ( value . right )
+__nuppT8= nil
+
+elseif  __nuppT7== "lua_substring"  then
+local value = node
+value . bytes = rewrite ( value . bytes )
+value . first = rewrite ( value . first )
+value . last = rewriteOptional ( value . last , rewrite )
+__nuppT8= nil
+
+elseif  __nuppT7== "lua_string_byte_lua"  then
+local value = node
+value . bytes = rewrite ( value . bytes )
+value . index = rewrite ( value . index )
+__nuppT8= nil
+
+elseif  __nuppT7== "lua_table_get_index"  then
+local value = node
+value . table = rewrite ( value . table )
+value . key = rewrite ( value . key )
+__nuppT8= nil
+
+elseif  __nuppT7== "lua_string_buffer"  then
+local value = node
+value . initial = rewrite ( value . initial )
+__nuppT8= nil
+
+elseif  __nuppT7== "lua_string_buffer_finish"  then
+local value = node
+value . buffer = rewrite ( value . buffer )
+__nuppT8= nil
+
+elseif  __nuppT7== "lua_new_table"  then
+local value = node
+value . arrayCapacity = rewrite ( value . arrayCapacity )
+value . hashCapacity = rewrite ( value . hashCapacity )
+for _ , field in ipairs ( value . fields or { } ) do
+field . key = rewrite ( field . key )
+field . value = rewrite ( field . value )
+end
+__nuppT8= nil
+
+elseif  __nuppT7== "lua_tree"  then
+local value = node
+value . nodes = rewrite ( value . nodes )
+value . links = rewrite ( value . links )
+value . sourceBytes = rewrite ( value . sourceBytes )
+value . root = rewrite ( value . root )
+value . nullValue = rewrite ( value . nullValue )
+__nuppT8= nil
+
+elseif  __nuppT7== "lua_builder"  then
+local value = node
+value . nullValue = rewrite ( value . nullValue )
+value . maxDepth = rewriteOptional ( value . maxDepth , rewrite )
+value . stringCapacity = rewriteOptional ( value . stringCapacity , rewrite )
+value . arrayMarker = rewriteOptional ( value . arrayMarker , rewrite )
+value . objectMarker = rewriteOptional ( value . objectMarker , rewrite )
+value . selectionShape = rewriteOptional ( value . selectionShape , rewrite )
+value . arrayShapeMarker = rewriteOptional ( value . arrayShapeMarker , rewrite )
+value . serdeMarkers = rewriteOptional ( value . serdeMarkers , rewrite )
+__nuppT8= nil
+
+elseif  __nuppT7== "lua_scratch_u32"  then
+local value = node
+value . capacity = rewrite ( value . capacity )
+__nuppT8= nil
+
+elseif  __nuppT7== "lua_scratch_u8"  then
+local value = node
+value . capacity = rewrite ( value . capacity )
+__nuppT8= nil
+
+elseif  __nuppT7== "lua_scratch_u32_get"  or  __nuppT7== "lua_scratch_u32_escape_get"  then
+local value = node
+value . scratch = rewrite ( value . scratch )
+value . index = rewrite ( value . index )
+__nuppT8= nil
+
+elseif  __nuppT7== "lua_scratch_u8_get"  then
+local value = node
+value . scratch = rewrite ( value . scratch )
+value . index = rewrite ( value . index )
+__nuppT8= nil
+
+elseif  __nuppT7== "lua_scratch_u32_length"  or  __nuppT7== "lua_scratch_u32_escape_length"  then
+local value = node
+value . scratch = rewrite ( value . scratch )
+__nuppT8= nil
+
+elseif  __nuppT7== "lua_scratch_u32_append_bits"  or  __nuppT7== "lua_scratch_u32_append_bits_eager"  then
+local value = node
+value . scratch = rewrite ( value . scratch )
+value . index = rewrite ( value . index )
+value . base = rewrite ( value . base )
+value . bits = rewrite ( value . bits )
+__nuppT8= nil
+
+elseif  __nuppT7== "lua_scratch_u32_append_string_bits"  then
+local value = node
+value . scratch = rewrite ( value . scratch )
+value . escapeScratch = rewriteOptional ( value . escapeScratch , rewrite )
+value . index = rewrite ( value . index )
+value . base = rewrite ( value . base )
+value . events = rewrite ( value . events )
+value . quotes = rewrite ( value . quotes )
+value . slashes = rewrite ( value . slashes )
+value . slashCarry = rewriteOptional ( value . slashCarry , rewrite )
+value . slashOdd = rewriteOptional ( value . slashOdd , rewrite )
+value . inString = rewrite ( value . inString )
+value . stringEscaped = rewrite ( value . stringEscaped )
+__nuppT8= nil
+
+elseif  __nuppT7== "lua_string_byte"  or  __nuppT7== "lua_string_byte_at"  or  __nuppT7== "lua_string_u32"  or  __nuppT7== "lua_string_length"  then
+local value = node
+value . bytes = rewrite ( value . bytes )
+value . index = rewriteOptional ( value . index , rewrite )
+__nuppT8= nil
+
+elseif  __nuppT7== "lua_builder_finish"  then
+local value = node
+value . builder = rewrite ( value . builder )
+__nuppT8= nil
+
+elseif  __nuppT7== "lua_builder_depth"  or  __nuppT7== "lua_builder_kind"  or  __nuppT7== "lua_builder_count"  or  __nuppT7== "lua_builder_state"  then
+local value = node
+value . builder = rewrite ( value . builder )
+__nuppT8= nil
+
+elseif  __nuppT7== "lua_builder_number_token"  then
+local value = node
+value . builder = rewrite ( value . builder )
+value . sourceBytes = rewrite ( value . sourceBytes )
+value . start = rewrite ( value . start )
+value . limit = rewrite ( value . limit )
+__nuppT8= nil
+
+elseif  __nuppT7== "lua_builder_open_array"  or  __nuppT7== "lua_builder_open_object"  or  __nuppT7== "lua_builder_key"  or  __nuppT7== "lua_builder_string"  or  __nuppT7== "lua_builder_number"  or  __nuppT7== "lua_builder_number_slice"  or  __nuppT7== "lua_builder_integer_slice"  or  __nuppT7== "lua_builder_integer64"  or  __nuppT7== "lua_builder_decimal64"  or  __nuppT7== "lua_builder_boolean"  or  __nuppT7== "lua_builder_null"  or  __nuppT7== "lua_builder_close"  or  __nuppT7== "lua_builder_key_scratch"  or  __nuppT7== "lua_builder_string_scratch"  or  __nuppT7== "lua_builder_key_escapes"  or  __nuppT7== "lua_builder_string_escapes"  then  __nuppT8= builderEvent (
+node ,
+rewrite
+)
+elseif  __nuppT7== "lua_scratch_u32_set"  then  __nuppT8= scratchU32Set ( node , rewrite )
+elseif  __nuppT7== "lua_scratch_u8_set"  or  __nuppT7== "lua_scratch_u8_set4"  or  __nuppT7== "lua_scratch_u8_reset"  then  __nuppT8= scratchU8Set (
+node ,
+rewrite
+)
+elseif  __nuppT7== "field_load"  then
+local value = node
+value . object = rewrite ( value . object )
+__nuppT8= nil
+
+elseif  __nuppT7== "add"  or  __nuppT7== "sub"  or  __nuppT7== "mul"  or  __nuppT7== "div"  or  __nuppT7== "mod"  or  __nuppT7== "pow"  or  __nuppT7== "lt"  or  __nuppT7== "le"  or  __nuppT7== "gt"  or  __nuppT7== "ge"  or  __nuppT7== "eq"  or  __nuppT7== "ne"  or  __nuppT7== "and"  or  __nuppT7== "or"  or  __nuppT7== "band"  or  __nuppT7== "bor"  or  __nuppT7== "bxor"  or  __nuppT7== "lshift"  or  __nuppT7== "rshift"  or  __nuppT7== "arshift"  then
+local value = node
+value . left = rewrite ( value . left )
+value . right = rewrite ( value . right )
+__nuppT8= nil
+
+elseif  __nuppT7== "f32_add"  or  __nuppT7== "f32_sub"  or  __nuppT7== "f32_mul"  or  __nuppT7== "f32_div"  or  __nuppT7== "i32_add"  or  __nuppT7== "i32_sub"  or  __nuppT7== "i32_mul"  or  __nuppT7== "u32_add"  or  __nuppT7== "u32_sub"  or  __nuppT7== "u32_mul"  or  __nuppT7== "u32_and"  or  __nuppT7== "u32_or"  or  __nuppT7== "u32_xor"  or  __nuppT7== "u32_shl"  or  __nuppT7== "u32_shr"  or  __nuppT7== "i64_add"  or  __nuppT7== "i64_sub"  or  __nuppT7== "i64_mul"  or  __nuppT7== "u64_add"  or  __nuppT7== "u64_sub"  or  __nuppT7== "u64_mul"  then
+local value = node
+value . left = rewrite ( value . left )
+value . right = rewrite ( value . right )
+__nuppT8= nil
+
+elseif  __nuppT7== "neg"  or  __nuppT7== "not"  or  __nuppT7== "bnot"  then
+local value = node
+value . value = rewrite ( value . value )
+__nuppT8= nil
+
+elseif  __nuppT7== "f32_sqrt"  or  __nuppT7== "u32_not"  or  __nuppT7== "u32_popcount"  or  __nuppT7== "u32_ctz"  or  __nuppT7== "u32_clz"  then
+local value = node
+value . value = rewrite ( value . value )
+__nuppT8= nil
+
+elseif  __nuppT7== "narrow_f64_f32"  or  __nuppT7== "widen_f32_f64"  or  __nuppT7== "int_to_f64"  or  __nuppT7== "numeric_cast"  then
+local value = node
+value . value = rewrite ( value . value )
+__nuppT8= nil
+
+elseif  __nuppT7== "math"  then  __nuppT8= rewriteExpressions ( ( node ) . args , rewrite )
+elseif  __nuppT7== "helper_call"  then  __nuppT8= rewriteExpressions ( ( node ) . args , rewrite )
+elseif  __nuppT7== "f32_min"  or  __nuppT7== "f32_max"  or  __nuppT7== "f32_fma"  then
+local value = node
+value . left = rewriteOptional ( value . left , rewrite )
+value . right = rewriteOptional ( value . right , rewrite )
+rewriteExpressions ( value . args or { } , rewrite )
+__nuppT8= nil
+
+elseif  __nuppT7== "simd_species_u8"  or  __nuppT7== "simd_lanes"  or  __nuppT7== "simd_load_u8"  or  __nuppT7== "simd_load_string_u8"  or  __nuppT7== "simd_load_stride3_u8"  or  __nuppT7== "simd_splat_u8"  or  __nuppT7== "simd_shr_u8"  or  __nuppT7== "simd_shl_u8"  or  __nuppT7== "simd_table_u8x16"  or  __nuppT7== "simd_lookup16_u8"  or  __nuppT7== "simd_lookup64_u8"  or  __nuppT7== "simd_store4_u8"  or  __nuppT7== "simd_align_bytes_u8"  or  __nuppT7== "simd_padded_string_u8"  or  __nuppT7== "simd_padded_length"  or  __nuppT7== "simd_padded_full_length"  or  __nuppT7== "simd_padded_tail_length"  or  __nuppT7== "simd_padded_load_full_u8"  or  __nuppT7== "simd_padded_load_tail_u8"  or  __nuppT7== "simd_block64_load_u8"  or  __nuppT7== "simd_block64_and_byte_u8"  or  __nuppT7== "simd_block64_and_u8"  or  __nuppT7== "simd_block64_shr_u8"  or  __nuppT7== "simd_block64_lookup16_u8"  or  __nuppT7== "simd_block64_any_bits_u8"  or  __nuppT7== "simd_block64_last_u8"  or  __nuppT7== "simd_block64_utf8_errors_u8"  or  __nuppT7== "simd_block64_eq_u8"  or  __nuppT7== "simd_block64_eq_any6_u8"  or  __nuppT7== "simd_block64_range_u8"  or  __nuppT7== "simd_block64_outside_range_u8"  or  __nuppT7== "simd_tail_u8"  or  __nuppT7== "simd_eq_u8"  or  __nuppT7== "simd_range_u8"  or  __nuppT7== "simd_vec_and"  or  __nuppT7== "simd_vec_or"  or  __nuppT7== "simd_vec_xor"  or  __nuppT7== "simd_vec_not"  or  __nuppT7== "simd_mask_and"  or  __nuppT7== "simd_mask_or"  or  __nuppT7== "simd_mask_xor"  or  __nuppT7== "simd_mask_not"  or  __nuppT7== "simd_select_u8"  or  __nuppT7== "simd_any"  or  __nuppT7== "simd_all"  or  __nuppT7== "simd_count"  or  __nuppT7== "simd_bits"  or  __nuppT7== "simd_mask64"  or  __nuppT7== "simd_mask64_add"  or  __nuppT7== "simd_mask64_and"  or  __nuppT7== "simd_mask64_or"  or  __nuppT7== "simd_mask64_xor"  or  __nuppT7== "simd_mask64_not"  or  __nuppT7== "simd_mask64_shl"  or  __nuppT7== "simd_mask64_shr"  or  __nuppT7== "simd_mask64_prefix_xor"  or  __nuppT7== "simd_mask64_low"  or  __nuppT7== "simd_mask64_high"  or  __nuppT7== "simd_mask64_any"  or  __nuppT7== "simd_mask64_count"  or  __nuppT7== "simd_mask64_first"  or  __nuppT7== "simd_mask64_clear_first"  then  __nuppT8= rewriteExpressions (
+( node ) . args ,
+rewrite
+)
+end; return __nuppT8
 end
 
 scalarExpression = function ( node , visitor ) 
@@ -25846,147 +26627,16 @@ local callback = visitor . scalarExpression
 if callback ~= nil then
 callback ( node )
 end
-
-local __nuppT7= node . op ;local __nuppT8;
-if  __nuppT7== "constant"  or  __nuppT7== "constant_i32"  or  __nuppT7== "constant_i64"  or  __nuppT7== "bool"  or  __nuppT7== "lua_nil"  or  __nuppT7== "lua_string"  or  __nuppT7== "local"  or  __nuppT7== "uniform"  or  __nuppT7== "helper_param"  or  __nuppT7== "span_count"  or  __nuppT7== "load"  or  __nuppT7== "element_ref"  then  __nuppT8= nil
-elseif  __nuppT7== "lua_concat"  then
-local value = node
-scalarExpressions ( { value . left , value . right } , visitor )
-__nuppT8= nil
-
-elseif  __nuppT7== "lua_substring"  then
-local value = node
-scalarExpressions ( { value . bytes , value . first } , visitor )
-optionalScalar ( value . last , visitor )
-__nuppT8= nil
-
-elseif  __nuppT7== "lua_string_byte_lua"  then
-local value = node
-scalarExpressions ( { value . bytes , value . index } , visitor )
-__nuppT8= nil
-
-elseif  __nuppT7== "lua_table_get_index"  then
-local value = node
-scalarExpressions ( { value . table , value . key } , visitor )
-__nuppT8= nil
-
-elseif  __nuppT7== "lua_string_buffer"  then  __nuppT8= scalarExpression ( ( node ) . initial , visitor )
-elseif  __nuppT7== "lua_string_buffer_finish"  then  __nuppT8= scalarExpression ( ( node ) . buffer , visitor )
-elseif  __nuppT7== "lua_new_table"  then
-local value = node
-scalarExpressions ( { value . arrayCapacity , value . hashCapacity } , visitor )
-for _ , field in ipairs ( value . fields or { } ) do
-scalarExpressions ( { field . key , field . value } , visitor )
+visit . expressionChildren ( node , function ( child ) 
+scalarExpression ( child , visitor )
+return child
+end )
 end
-__nuppT8= nil
 
-elseif  __nuppT7== "lua_tree"  then
-local value = node
-scalarExpressions ( { value . nodes , value . links , value . sourceBytes , value . root , value . nullValue } , visitor )
-__nuppT8= nil
-
-elseif  __nuppT7== "lua_builder"  then
-local value = node
-scalarExpression ( value . nullValue , visitor )
-optionalScalar ( value . maxDepth , visitor )
-optionalScalar ( value . stringCapacity , visitor )
-optionalScalar ( value . arrayMarker , visitor )
-optionalScalar ( value . objectMarker , visitor )
-optionalScalar ( value . selectionShape , visitor )
-optionalScalar ( value . arrayShapeMarker , visitor )
-optionalScalar ( value . serdeMarkers , visitor )
-__nuppT8= nil
-
-elseif  __nuppT7== "lua_scratch_u32"  then  __nuppT8= scalarExpression ( ( node ) . capacity , visitor )
-elseif  __nuppT7== "lua_scratch_u8"  then  __nuppT8= scalarExpression ( ( node ) . capacity , visitor )
-elseif  __nuppT7== "lua_scratch_u32_get"  or  __nuppT7== "lua_scratch_u32_escape_get"  then
-local value = node
-scalarExpressions ( { value . scratch , value . index } , visitor )
-__nuppT8= nil
-
-elseif  __nuppT7== "lua_scratch_u8_get"  then
-local value = node
-scalarExpressions ( { value . scratch , value . index } , visitor )
-__nuppT8= nil
-
-elseif  __nuppT7== "lua_scratch_u32_length"  or  __nuppT7== "lua_scratch_u32_escape_length"  then  __nuppT8= scalarExpression (
-( node ) . scratch ,
-visitor
-)
-elseif  __nuppT7== "lua_scratch_u32_append_bits"  or  __nuppT7== "lua_scratch_u32_append_bits_eager"  then
-local value = node
-scalarExpressions ( { value . scratch , value . index , value . base , value . bits } , visitor )
-__nuppT8= nil
-
-elseif  __nuppT7== "lua_scratch_u32_append_string_bits"  then
-local value = node
-scalarExpression ( value . scratch , visitor )
-optionalScalar ( value . escapeScratch , visitor )
-scalarExpressions ( { value . index , value . base , value . events , value . quotes , value . slashes } , visitor )
-optionalScalar ( value . slashCarry , visitor )
-optionalScalar ( value . slashOdd , visitor )
-scalarExpressions ( { value . inString , value . stringEscaped } , visitor )
-__nuppT8= nil
-
-elseif  __nuppT7== "lua_string_byte"  or  __nuppT7== "lua_string_byte_at"  or  __nuppT7== "lua_string_u32"  or  __nuppT7== "lua_string_length"  then
-local value = node
-scalarExpression ( value . bytes , visitor )
-optionalScalar ( value . index , visitor )
-__nuppT8= nil
-
-elseif  __nuppT7== "lua_builder_finish"  then  __nuppT8= scalarExpression ( ( node ) . builder , visitor )
-elseif  __nuppT7== "lua_builder_depth"  or  __nuppT7== "lua_builder_kind"  or  __nuppT7== "lua_builder_count"  or  __nuppT7== "lua_builder_state"  then  __nuppT8= scalarExpression (
-( node ) . builder ,
-visitor
-)
-elseif  __nuppT7== "lua_builder_number_token"  then
-local value = node
-scalarExpressions ( { value . builder , value . sourceBytes , value . start , value . limit } , visitor )
-__nuppT8= nil
-
-elseif  __nuppT7== "lua_builder_open_array"  or  __nuppT7== "lua_builder_open_object"  or  __nuppT7== "lua_builder_key"  or  __nuppT7== "lua_builder_string"  or  __nuppT7== "lua_builder_number"  or  __nuppT7== "lua_builder_number_slice"  or  __nuppT7== "lua_builder_integer_slice"  or  __nuppT7== "lua_builder_integer64"  or  __nuppT7== "lua_builder_decimal64"  or  __nuppT7== "lua_builder_boolean"  or  __nuppT7== "lua_builder_null"  or  __nuppT7== "lua_builder_close"  or  __nuppT7== "lua_builder_key_scratch"  or  __nuppT7== "lua_builder_string_scratch"  or  __nuppT7== "lua_builder_key_escapes"  or  __nuppT7== "lua_builder_string_escapes"  then  __nuppT8= builderEvent (
-node ,
-visitor
-)
-elseif  __nuppT7== "lua_scratch_u32_set"  then  __nuppT8= scratchU32Set ( node , visitor )
-elseif  __nuppT7== "lua_scratch_u8_set"  or  __nuppT7== "lua_scratch_u8_set4"  or  __nuppT7== "lua_scratch_u8_reset"  then  __nuppT8= scratchU8Set (
-node ,
-visitor
-)
-elseif  __nuppT7== "field_load"  then  __nuppT8= scalarExpression ( ( node ) . object , visitor )
-elseif  __nuppT7== "add"  or  __nuppT7== "sub"  or  __nuppT7== "mul"  or  __nuppT7== "div"  or  __nuppT7== "mod"  or  __nuppT7== "pow"  or  __nuppT7== "lt"  or  __nuppT7== "le"  or  __nuppT7== "gt"  or  __nuppT7== "ge"  or  __nuppT7== "eq"  or  __nuppT7== "ne"  or  __nuppT7== "and"  or  __nuppT7== "or"  or  __nuppT7== "band"  or  __nuppT7== "bor"  or  __nuppT7== "bxor"  or  __nuppT7== "lshift"  or  __nuppT7== "rshift"  or  __nuppT7== "arshift"  then
-local value = node
-scalarExpressions ( { value . left , value . right } , visitor )
-__nuppT8= nil
-
-elseif  __nuppT7== "f32_add"  or  __nuppT7== "f32_sub"  or  __nuppT7== "f32_mul"  or  __nuppT7== "f32_div"  or  __nuppT7== "i32_add"  or  __nuppT7== "i32_sub"  or  __nuppT7== "i32_mul"  or  __nuppT7== "u32_add"  or  __nuppT7== "u32_sub"  or  __nuppT7== "u32_mul"  or  __nuppT7== "u32_and"  or  __nuppT7== "u32_or"  or  __nuppT7== "u32_xor"  or  __nuppT7== "u32_shl"  or  __nuppT7== "u32_shr"  then
-local value = node
-scalarExpressions ( { value . left , value . right } , visitor )
-__nuppT8= nil
-
-elseif  __nuppT7== "neg"  or  __nuppT7== "not"  or  __nuppT7== "bnot"  then  __nuppT8= scalarExpression ( ( node ) . value , visitor )
-elseif  __nuppT7== "f32_sqrt"  or  __nuppT7== "u32_not"  or  __nuppT7== "u32_popcount"  or  __nuppT7== "u32_ctz"  or  __nuppT7== "u32_clz"  then  __nuppT8= scalarExpression (
-( node ) . value ,
-visitor
-)
-elseif  __nuppT7== "narrow_f64_f32"  or  __nuppT7== "widen_f32_f64"  or  __nuppT7== "int_to_f64"  or  __nuppT7== "numeric_cast"  then  __nuppT8= scalarExpression (
-( node ) . value ,
-visitor
-)
-elseif  __nuppT7== "math"  then  __nuppT8= scalarExpressions ( ( node ) . args , visitor )
-elseif  __nuppT7== "helper_call"  then  __nuppT8= scalarExpressions ( ( node ) . args , visitor )
-elseif  __nuppT7== "f32_min"  or  __nuppT7== "f32_max"  or  __nuppT7== "f32_fma"  then
-local value = node
-optionalScalar ( value . left , visitor )
-optionalScalar ( value . right , visitor )
-scalarExpressions ( value . args or { } , visitor )
-__nuppT8= nil
-
-elseif  __nuppT7== "simd_species_u8"  or  __nuppT7== "simd_lanes"  or  __nuppT7== "simd_load_u8"  or  __nuppT7== "simd_load_string_u8"  or  __nuppT7== "simd_load_stride3_u8"  or  __nuppT7== "simd_splat_u8"  or  __nuppT7== "simd_shr_u8"  or  __nuppT7== "simd_shl_u8"  or  __nuppT7== "simd_table_u8x16"  or  __nuppT7== "simd_lookup16_u8"  or  __nuppT7== "simd_lookup64_u8"  or  __nuppT7== "simd_store4_u8"  or  __nuppT7== "simd_align_bytes_u8"  or  __nuppT7== "simd_padded_string_u8"  or  __nuppT7== "simd_padded_length"  or  __nuppT7== "simd_padded_full_length"  or  __nuppT7== "simd_padded_tail_length"  or  __nuppT7== "simd_padded_load_full_u8"  or  __nuppT7== "simd_padded_load_tail_u8"  or  __nuppT7== "simd_block64_load_u8"  or  __nuppT7== "simd_block64_and_byte_u8"  or  __nuppT7== "simd_block64_and_u8"  or  __nuppT7== "simd_block64_shr_u8"  or  __nuppT7== "simd_block64_lookup16_u8"  or  __nuppT7== "simd_block64_any_bits_u8"  or  __nuppT7== "simd_block64_last_u8"  or  __nuppT7== "simd_block64_utf8_errors_u8"  or  __nuppT7== "simd_block64_eq_u8"  or  __nuppT7== "simd_block64_eq_any6_u8"  or  __nuppT7== "simd_block64_range_u8"  or  __nuppT7== "simd_block64_outside_range_u8"  or  __nuppT7== "simd_tail_u8"  or  __nuppT7== "simd_eq_u8"  or  __nuppT7== "simd_range_u8"  or  __nuppT7== "simd_vec_and"  or  __nuppT7== "simd_vec_or"  or  __nuppT7== "simd_vec_xor"  or  __nuppT7== "simd_vec_not"  or  __nuppT7== "simd_mask_and"  or  __nuppT7== "simd_mask_or"  or  __nuppT7== "simd_mask_xor"  or  __nuppT7== "simd_mask_not"  or  __nuppT7== "simd_select_u8"  or  __nuppT7== "simd_any"  or  __nuppT7== "simd_all"  or  __nuppT7== "simd_count"  or  __nuppT7== "simd_bits"  or  __nuppT7== "simd_mask64"  or  __nuppT7== "simd_mask64_add"  or  __nuppT7== "simd_mask64_and"  or  __nuppT7== "simd_mask64_or"  or  __nuppT7== "simd_mask64_xor"  or  __nuppT7== "simd_mask64_not"  or  __nuppT7== "simd_mask64_shl"  or  __nuppT7== "simd_mask64_shr"  or  __nuppT7== "simd_mask64_prefix_xor"  or  __nuppT7== "simd_mask64_low"  or  __nuppT7== "simd_mask64_high"  or  __nuppT7== "simd_mask64_any"  or  __nuppT7== "simd_mask64_count"  or  __nuppT7== "simd_mask64_first"  or  __nuppT7== "simd_mask64_clear_first"  then  __nuppT8= scalarExpressions (
-( node ) . args ,
-visitor
-)
-end; return __nuppT8
+local function scalarExpressions ( values , visitor ) 
+for _ , value in ipairs ( values ) do
+scalarExpression ( value , visitor )
+end
 end
 
 local function scalarBlock ( block , visitor ) 
@@ -25995,77 +26645,106 @@ scalarStatement ( statement , visitor )
 end
 end
 
+
+function visit . statementExpressions ( node , rewrite ) 
+local __nuppT14= node . op ;local __nuppT15;
+if  __nuppT14== "let"  then
+local value = node
+value . value = rewrite ( value . value )
+__nuppT15= nil
+
+elseif  __nuppT14== "multi_let"  then
+local value = node
+value . call = rewrite ( value . call )
+__nuppT15= nil
+
+elseif  __nuppT14== "assign"  then
+for _ , assignment in ipairs ( ( node ) . values ) do
+assignment . target . object = rewriteOptional ( assignment . target . object , rewrite )
+assignment . value = rewrite ( assignment . value )
+end
+__nuppT15= nil
+
+elseif  __nuppT14== "store"  then
+local value = node
+value . value = rewrite ( value . value )
+__nuppT15= nil
+
+elseif  __nuppT14== "lua_set_index"  or  __nuppT14== "lua_set_key"  then
+local value = node
+value . table = rewrite ( value . table )
+value . key = rewrite ( value . key )
+value . value = rewrite ( value . value )
+__nuppT15= nil
+
+elseif  __nuppT14== "lua_string_buffer_append"  then
+local value = node
+value . buffer = rewrite ( value . buffer )
+value . value = rewrite ( value . value )
+__nuppT15= nil
+
+elseif  __nuppT14== "lua_builder_open_array"  or  __nuppT14== "lua_builder_open_object"  or  __nuppT14== "lua_builder_key"  or  __nuppT14== "lua_builder_string"  or  __nuppT14== "lua_builder_number"  or  __nuppT14== "lua_builder_number_slice"  or  __nuppT14== "lua_builder_integer_slice"  or  __nuppT14== "lua_builder_integer64"  or  __nuppT14== "lua_builder_decimal64"  or  __nuppT14== "lua_builder_boolean"  or  __nuppT14== "lua_builder_null"  or  __nuppT14== "lua_builder_close"  or  __nuppT14== "lua_builder_key_scratch"  or  __nuppT14== "lua_builder_string_scratch"  or  __nuppT14== "lua_builder_key_escapes"  or  __nuppT14== "lua_builder_string_escapes"  then  __nuppT15= builderEvent (
+node ,
+rewrite
+)
+elseif  __nuppT14== "lua_scratch_u32_set"  then  __nuppT15= scratchU32Set ( node , rewrite )
+elseif  __nuppT14== "lua_scratch_u8_set"  or  __nuppT14== "lua_scratch_u8_set4"  or  __nuppT14== "lua_scratch_u8_reset"  then  __nuppT15= scratchU8Set (
+node ,
+rewrite
+)
+elseif  __nuppT14== "if"  then
+local value = node
+for _ , clause in ipairs ( value . clauses ) do
+clause . condition = rewrite ( clause . condition )
+end
+if value . nativeSwitch ~= nil then
+local nativeSwitch = value . nativeSwitch
+nativeSwitch . selector = rewrite ( nativeSwitch . selector )
+end
+__nuppT15= nil
+
+elseif  __nuppT14== "while"  then
+local value = node
+value . condition = rewrite ( value . condition )
+__nuppT15= nil
+
+elseif  __nuppT14== "fornum"  then
+local value = node
+value . from = rewrite ( value . from )
+value . to = rewrite ( value . to )
+__nuppT15= nil
+
+elseif  __nuppT14== "block"  or  __nuppT14== "break"  or  __nuppT14== "continue"  then  __nuppT15= nil
+elseif  __nuppT14== "return"  then  __nuppT15= rewriteExpressions ( ( node ) . values , rewrite )
+
+
+
+
+else  __nuppT15= visit . expressionChildren ( node , rewrite )
+end; return __nuppT15
+end
+
 scalarStatement = function ( node , visitor ) 
 local callback = visitor . scalarStatement
 if callback ~= nil then
 callback ( node )
 end
+visit . statementExpressions ( node , function ( child ) 
+scalarExpression ( child , visitor )
+return child
+end )
 
-local __nuppT11= node . op ;local __nuppT12;
-if  __nuppT11== "let"  then  __nuppT12= scalarExpression ( ( node ) . value , visitor )
-elseif  __nuppT11== "multi_let"  then  __nuppT12= scalarExpression ( ( node ) . call , visitor )
-elseif  __nuppT11== "assign"  then
-for _ , assignment in ipairs ( ( node ) . values ) do
-optionalScalar ( assignment . target . object , visitor )
-scalarExpression ( assignment . value , visitor )
-end
-__nuppT12= nil
-
-elseif  __nuppT11== "store"  then  __nuppT12= scalarExpression ( ( node ) . value , visitor )
-elseif  __nuppT11== "lua_set_index"  or  __nuppT11== "lua_set_key"  then
-local value = node
-scalarExpressions ( { value . table , value . key , value . value } , visitor )
-__nuppT12= nil
-
-elseif  __nuppT11== "lua_string_buffer_append"  then
-local value = node
-scalarExpressions ( { value . buffer , value . value } , visitor )
-__nuppT12= nil
-
-elseif  __nuppT11== "lua_builder_open_array"  or  __nuppT11== "lua_builder_open_object"  or  __nuppT11== "lua_builder_key"  or  __nuppT11== "lua_builder_string"  or  __nuppT11== "lua_builder_number"  or  __nuppT11== "lua_builder_number_slice"  or  __nuppT11== "lua_builder_integer_slice"  or  __nuppT11== "lua_builder_integer64"  or  __nuppT11== "lua_builder_decimal64"  or  __nuppT11== "lua_builder_boolean"  or  __nuppT11== "lua_builder_null"  or  __nuppT11== "lua_builder_close"  or  __nuppT11== "lua_builder_key_scratch"  or  __nuppT11== "lua_builder_string_scratch"  or  __nuppT11== "lua_builder_key_escapes"  or  __nuppT11== "lua_builder_string_escapes"  then  __nuppT12= builderEvent (
-node ,
-visitor
-)
-elseif  __nuppT11== "lua_scratch_u32_set"  then  __nuppT12= scratchU32Set ( node , visitor )
-elseif  __nuppT11== "lua_scratch_u8_set"  or  __nuppT11== "lua_scratch_u8_set4"  or  __nuppT11== "lua_scratch_u8_reset"  then  __nuppT12= scratchU8Set (
-node ,
-visitor
-)
-elseif  __nuppT11== "if"  then
+if node . op == "if" then
 local value = node
 for _ , clause in ipairs ( value . clauses ) do
-scalarExpression ( clause . condition , visitor )
 scalarBlock ( clause . body , visitor )
 end
 if value . elseBody ~= nil then
 scalarBlock ( value . elseBody , visitor )
 end
-if value . nativeSwitch ~= nil then
-scalarExpression ( ( value . nativeSwitch ) . selector , visitor )
+elseif node . op == "while" or node . op == "fornum" or node . op == "block" then
+scalarBlock ( ( node ) . body , visitor )
 end
-__nuppT12= nil
-
-elseif  __nuppT11== "while"  then
-local value = node
-scalarExpression ( value . condition , visitor )
-scalarBlock ( value . body , visitor )
-__nuppT12= nil
-
-elseif  __nuppT11== "fornum"  then
-local value = node
-scalarExpressions ( { value . from , value . to } , visitor )
-scalarBlock ( value . body , visitor )
-__nuppT12= nil
-
-elseif  __nuppT11== "block"  then  __nuppT12= scalarBlock ( ( node ) . body , visitor )
-elseif  __nuppT11== "break"  or  __nuppT11== "continue"  then  __nuppT12= nil
-elseif  __nuppT11== "return"  then  __nuppT12= scalarExpressions ( ( node ) . values , visitor )
-
-
-
-
-else  __nuppT12= scalarExpression ( node , visitor )
-end; return __nuppT12
 end
 
 local function laneExpressions ( values , visitor ) 
@@ -26080,23 +26759,23 @@ if callback ~= nil then
 callback ( node )
 end
 
-local __nuppT15= node . op ;local __nuppT16;
-if  __nuppT15== "local"  or  __nuppT15== "vfield_load"  or  __nuppT15== "vspan_load"  then  __nuppT16= nil
-elseif  __nuppT15== "vsplat"  then  __nuppT16= scalarExpressions ( ( node ) . args , visitor )
-elseif  __nuppT15== "vbool_splat"  then  __nuppT16= scalarExpression ( ( node ) . args [ 1 ] , visitor )
-elseif  __nuppT15== "vbinary"  then  __nuppT16= laneExpressions ( ( node ) . args , visitor )
-elseif  __nuppT15== "vunary"  then  __nuppT16= laneExpressions ( ( node ) . args , visitor )
-elseif  __nuppT15== "vmask"  then  __nuppT16= laneExpressions ( ( node ) . args , visitor )
-elseif  __nuppT15== "vshort"  then  __nuppT16= laneExpressions ( ( node ) . args , visitor )
-elseif  __nuppT15== "vselect"  then  __nuppT16= laneExpressions ( ( node ) . args , visitor )
-elseif  __nuppT15== "vmath"  then  __nuppT16= laneExpressions ( ( node ) . args , visitor )
-elseif  __nuppT15== "vcorrected"  then  __nuppT16= laneExpressions ( ( node ) . args , visitor )
-elseif  __nuppT15== "vbitwise"  then  __nuppT16= laneExpressions ( ( node ) . args , visitor )
-elseif  __nuppT15== "vbits"  then  __nuppT16= laneExpressions ( ( node ) . args , visitor )
-elseif  __nuppT15== "vround"  then  __nuppT16= laneExpressions ( ( node ) . args , visitor )
-elseif  __nuppT15== "vmask_cast"  then  __nuppT16= laneExpressions ( ( node ) . args , visitor )
-elseif  __nuppT15== "vconvert"  then  __nuppT16= laneExpressions ( ( node ) . args , visitor )
-end; return __nuppT16
+local __nuppT20= node . op ;local __nuppT21;
+if  __nuppT20== "local"  or  __nuppT20== "vfield_load"  or  __nuppT20== "vspan_load"  then  __nuppT21= nil
+elseif  __nuppT20== "vsplat"  then  __nuppT21= scalarExpressions ( ( node ) . args , visitor )
+elseif  __nuppT20== "vbool_splat"  then  __nuppT21= scalarExpression ( ( node ) . args [ 1 ] , visitor )
+elseif  __nuppT20== "vbinary"  then  __nuppT21= laneExpressions ( ( node ) . args , visitor )
+elseif  __nuppT20== "vunary"  then  __nuppT21= laneExpressions ( ( node ) . args , visitor )
+elseif  __nuppT20== "vmask"  then  __nuppT21= laneExpressions ( ( node ) . args , visitor )
+elseif  __nuppT20== "vshort"  then  __nuppT21= laneExpressions ( ( node ) . args , visitor )
+elseif  __nuppT20== "vselect"  then  __nuppT21= laneExpressions ( ( node ) . args , visitor )
+elseif  __nuppT20== "vmath"  then  __nuppT21= laneExpressions ( ( node ) . args , visitor )
+elseif  __nuppT20== "vcorrected"  then  __nuppT21= laneExpressions ( ( node ) . args , visitor )
+elseif  __nuppT20== "vbitwise"  then  __nuppT21= laneExpressions ( ( node ) . args , visitor )
+elseif  __nuppT20== "vbits"  then  __nuppT21= laneExpressions ( ( node ) . args , visitor )
+elseif  __nuppT20== "vround"  then  __nuppT21= laneExpressions ( ( node ) . args , visitor )
+elseif  __nuppT20== "vmask_cast"  then  __nuppT21= laneExpressions ( ( node ) . args , visitor )
+elseif  __nuppT20== "vconvert"  then  __nuppT21= laneExpressions ( ( node ) . args , visitor )
+end; return __nuppT21
 end
 
 local function laneBlock ( block , visitor ) 
@@ -26111,17 +26790,17 @@ if callback ~= nil then
 callback ( node )
 end
 
-local __nuppT19= node . op ;local __nuppT20;
-if  __nuppT19== "let"  then
+local __nuppT24= node . op ;local __nuppT25;
+if  __nuppT24== "let"  then
 local value = ( node ) . value
 if tostring ( value . type ) : match ( "^[fimu]%d+x%d+$" ) ~= nil then
 laneExpression ( value , visitor )
 else
 scalarExpression ( value , visitor )
 end
-__nuppT20= nil
+__nuppT25= nil
 
-elseif  __nuppT19== "vassign"  then
+elseif  __nuppT24== "vassign"  then
 for _ , assignment in ipairs ( ( node ) . values ) do
 local targetCallback = visitor . laneTarget
 if targetCallback ~= nil then
@@ -26129,23 +26808,23 @@ targetCallback ( assignment . target )
 end
 laneExpression ( assignment . value , visitor )
 end
-__nuppT20= nil
+__nuppT25= nil
 
-elseif  __nuppT19== "vwhile"  then
+elseif  __nuppT24== "vwhile"  then
 local value = node
 laneExpressions ( { value . initial , value . condition } , visitor )
 laneBlock ( value . body , visitor )
-__nuppT20= nil
+__nuppT25= nil
 
-elseif  __nuppT19== "vwhile_uniform"  then
+elseif  __nuppT24== "vwhile_uniform"  then
 local value = node
 scalarExpression ( value . condition , visitor )
 laneBlock ( value . body , visitor )
-__nuppT20= nil
+__nuppT25= nil
 
-elseif  __nuppT19== "vbreak"  then  __nuppT20= laneExpression ( ( node ) . mask , visitor )
-elseif  __nuppT19== "vcontinue"  then  __nuppT20= laneExpression ( ( node ) . mask , visitor )
-end; return __nuppT20
+elseif  __nuppT24== "vbreak"  then  __nuppT25= laneExpression ( ( node ) . mask , visitor )
+elseif  __nuppT24== "vcontinue"  then  __nuppT25= laneExpression ( ( node ) . mask , visitor )
+end; return __nuppT25
 end
 
 function visit . program ( program , visitor ) 
@@ -68589,6 +69268,13 @@ unrolledLoops = { type = "integer" } ,
 unrolledIterations = { type = "integer" } ,
 removedStatements = { type = "integer" } ,
 iterations = { type = "integer" } ,
+ruleApplications = {
+type = "array" ,
+items = {
+type = "object" ,
+properties = { id = { type = "string" } , count = { type = "integer" } , } ,
+} ,
+} ,
 } ,
 } ,
 loops = {
