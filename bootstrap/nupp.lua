@@ -19391,6 +19391,317 @@ end
 
 local optimizeBlock
 
+
+
+
+
+
+local function repeatable ( value ) 
+
+
+
+if value . op == "helper_call" then
+return false
+end
+local root = effects . expression ( tostring ( value . op ) )
+if root . observable
+or root . mayRaise
+or root . readsNative
+or root . writesNative
+or root . usesLua
+or root . allocatesLua
+then
+return false
+end
+
+local safe = true
+visit . expressionChildren ( value , function ( child ) 
+if not repeatable ( child ) then
+safe = false
+end
+return child
+end )
+
+return safe
+end
+
+local function localIdentity ( value ) 
+return tostring ( value . cName or value . name )
+end
+
+local function sameLiteral ( left , right ) 
+return left . op == right . op and left . type == right . type and ( left ) . value == ( right ) . value
+end
+
+
+local function localActivity ( value , identity ) 
+if type ( value ) ~= "table" then
+return 0 , 0
+end
+
+local reads = value . op == "local" and localIdentity ( value ) == identity and 1 or 0
+local writes = 0
+if value . op == "assign" then
+for _ , assignment in ipairs ( value . values or { } ) do
+if assignment . target . kind == "local" and localIdentity ( assignment . target ) == identity then
+writes = writes + 1
+end
+end
+end
+for key , child in pairs ( value ) do
+if key ~= "source" then
+local childReads , childWrites = localActivity ( child , identity )
+reads = ( reads + childReads )
+writes = ( writes + childWrites )
+end
+end
+
+return reads , writes
+end
+
+
+local function conditionLocals ( value , names ) 
+if type ( value ) ~= "table" then
+return nil
+end
+if value . op == "local" then
+names [ localIdentity ( value ) ] = true
+end
+for key , child in pairs ( value ) do
+if key ~= "source" then
+conditionLocals ( child , names )
+end
+end
+
+return nil
+end
+
+local function writesAny ( value , names ) 
+if type ( value ) ~= "table" then
+return false
+end
+if value . op == "assign" then
+for _ , assignment in ipairs ( value . values or { } ) do
+if assignment . target . kind == "local" and names [ localIdentity ( assignment . target ) ] then
+return true
+end
+end
+end
+for key , child in pairs ( value ) do
+if key ~= "source" and writesAny ( child , names ) then
+return true
+end
+end
+
+return false
+end
+
+local function containsBreak ( value ) 
+if type ( value ) ~= "table" then
+return false
+end
+if value . op == "break" then
+return true
+elseif value . op == "while" or value . op == "fornum" then
+return false
+end
+for key , child in pairs ( value ) do
+if key ~= "source" and containsBreak ( child ) then
+return true
+end
+end
+
+return false
+end
+
+
+
+
+local function pairedBreaks ( statements , found ) 
+for position , statement in ipairs ( statements ) do
+if statement . op == "break" then
+local previous = statements [ position - 1 ]
+if previous == nil or previous . op ~= "assign" or # previous . values ~= 1 then
+return false
+end
+local assignment = previous . values [ 1 ]
+if assignment . target . kind ~= "local" or not literal ( assignment . value ) then
+return false
+end
+local identity = localIdentity ( assignment . target )
+if found . identity == nil then
+found . identity = identity
+found . target = assignment . target
+found . value = assignment . value
+found . source = previous . source
+elseif found . identity ~= identity or not sameLiteral ( found . value , assignment . value ) then
+return false
+end
+found . breaks = found . breaks + 1
+elseif statement . op == "continue" or statement . op == "while" or statement . op == "fornum" then
+return false
+elseif statement . op == "if" then
+for _ , clause in ipairs ( statement . clauses ) do
+if not pairedBreaks ( clause . body , found ) then
+return false
+end
+end
+if statement . elseBody ~= nil and not pairedBreaks ( statement . elseBody , found ) then
+return false
+end
+elseif statement . op == "block" and not pairedBreaks ( statement . body , found ) then
+return false
+end
+end
+
+return true
+end
+
+local function matchingBreakWrite (
+statement ,
+nextStatement ,
+found
+) 
+if nextStatement == nil or nextStatement . op ~= "break" or statement . op ~= "assign" or # statement . values ~= 1 then
+return false
+end
+local assignment = statement . values [ 1 ]
+
+return assignment . target . kind == "local" and localIdentity (
+assignment . target
+) == found . identity and sameLiteral ( assignment . value , found . value )
+end
+
+
+local function removeBreakWrites ( statements , found ) 
+local kept = { }
+for position , statement in ipairs ( statements ) do
+if not matchingBreakWrite ( statement , statements [ position + 1 ] , found ) then
+if statement . op == "if" then
+for _ , clause in ipairs ( statement . clauses ) do
+clause . body = removeBreakWrites ( clause . body , found )
+end
+if statement . elseBody ~= nil then
+statement . elseBody = removeBreakWrites ( statement . elseBody , found )
+end
+elseif statement . op == "block" then
+statement . body = removeBreakWrites ( statement . body , found )
+end
+kept [ # kept + 1 ] = statement
+end
+end
+
+return kept
+end
+
+
+local function breakResult ( statements , position , loop ) 
+if not repeatable ( loop . condition ) then
+return nil
+end
+
+local found = { breaks = 0 , }
+if not pairedBreaks ( loop . body , found ) or found . breaks == 0 then
+return nil
+end
+local identity = found . identity
+local reads , writes = localActivity ( loop . body , identity )
+if reads ~= 0 or writes ~= found . breaks then
+return nil
+end
+
+
+
+
+local dependencies = { }
+conditionLocals ( loop . condition , dependencies )
+local lastBreak = 0
+for bodyPosition , statement in ipairs ( loop . body ) do
+if containsBreak ( statement ) then
+lastBreak = bodyPosition
+end
+end
+for bodyPosition , bodyStatement in ipairs ( loop . body ) do
+if bodyPosition <= lastBreak and writesAny ( bodyStatement , dependencies ) then
+return nil
+end
+end
+
+local declaration
+local declarationPosition = 0
+for before = position - 1 , 1 , - 1 do
+local statement = statements [ before ]
+if statement . op == "let" and localIdentity ( statement ) == identity then
+declaration = statement
+declarationPosition = before
+break
+end
+end
+if declaration == nil or not literal (
+declaration . value
+) or declaration . type ~= found . value . type or sameLiteral ( declaration . value , found . value ) then
+return nil
+end
+for between , intervening in ipairs ( statements ) do
+if between > declarationPosition and between < position then
+local _ , interveningWrites = localActivity ( intervening , identity )
+if interveningWrites ~= 0 then
+return nil
+end
+end
+end
+
+local usedAfter = 0
+for after , later in ipairs ( statements ) do
+if after > position then
+local laterReads = localActivity ( later , identity )
+usedAfter = usedAfter + laterReads
+end
+end
+if usedAfter == 0 then
+return nil
+end
+
+return found
+end
+
+
+
+local function deriveBreakResults ( statements , state ) 
+local rewritten = { }
+for position , statement in ipairs ( statements ) do
+rewritten [ # rewritten + 1 ] = statement
+if statement . op == "while" then
+local loop = statement
+local found = breakResult ( statements , position , loop )
+if found ~= nil then
+loop . body = removeBreakWrites ( loop . body , found )
+local assignment = setmetatable({ target =
+copySpecialized ( found . target , { } ) ,  value =
+copySpecialized ( found . value , { } ) }, scalarIR.Assignment)
+
+rewritten [
+# rewritten + 1
+] = setmetatable({ op =
+"if" ,  clauses =
+{ setmetatable({ condition =
+
+copySpecialized ( loop . condition , { } ) ,  body =
+{ setmetatable({ op =  "assign" ,  values =  { assignment } ,  source =  found . source }, scalarIR.Assign) , } ,  source =
+loop . source }, scalarIR.Clause)
+,
+} ,  source =
+loop . source }, scalarIR.If)
+
+countRule ( state , "derive.break-result" )
+state . changed = true
+end
+end
+end
+
+return rewritten
+end
+
 local function inheritConstants ( values ) 
 local copied = { }
 for name , value in pairs ( values ) do
@@ -19611,7 +19922,7 @@ terminated = statement . op == "return" or statement . op == "break" or statemen
 end
 end
 
-return rewritten
+return deriveBreakResults ( rewritten , state )
 end
 
 local function countUses ( value , uses ) 

@@ -177,6 +177,13 @@ do
       "varying break did not retire lanes")
    assert(mandelbrot.irText:find("vbreak exit-if-empty", 1, true),
       "profitable lane retirement did not receive the loop liveness test")
+   local laneLoopStart = assert(mandelbrot.irText:find("vwhile any", 1, true))
+   local laneLoopEnd = assert(mandelbrot.irText:find("\n  end", laneLoopStart, true))
+   assert(not mandelbrot.irText:sub(laneLoopStart, laneLoopEnd):find("vset escaped", 1, true),
+      "break result remains loop-carried")
+   assert(mandelbrot.irText:sub(laneLoopEnd):find(
+      "vset escaped = vselect", 1, true
+   ), "break result was not derived once after the loop")
    assert(mandelbrot.irText:find("escapes[i..i+3].iterations", 1, true),
       "integer field store lost its lane narrowing")
    -- Named for the mask it tests, so a file holding two gangs gets one of these

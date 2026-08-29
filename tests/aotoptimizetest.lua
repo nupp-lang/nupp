@@ -439,4 +439,108 @@ function M.unrollsOnlySmallLiteralTripCountsWithinOneGrowthBudget()
    assert(retained, "the shared growth budget leaves later fixed loops intact")
 end
 
+local function breakResultProgram()
+   local condition = {
+      op = "lt",
+      left = named("iteration", "i32"),
+      right = named("limit", "i32"),
+      type = "bool",
+   }
+   local setEscaped = {
+      op = "assign",
+      values = {{
+         target = {kind = "local", name = "escaped", cName = "escaped", type = "i32"},
+         value = integer(1, "i32"),
+      }},
+   }
+   local iterationStep = {
+      op = "assign",
+      values = {{
+         target = {kind = "local", name = "iteration", cName = "iteration", type = "i32"},
+         value = {
+            op = "i32_add",
+            left = named("iteration", "i32"),
+            right = integer(1, "i32"),
+            type = "i32",
+         },
+      }},
+   }
+   return program({
+      {op = "let", name = "iteration", cName = "iteration", type = "i32", value = integer(0, "i32")},
+      {op = "let", name = "escaped", cName = "escaped", type = "i32", value = integer(0, "i32")},
+      {
+         op = "while",
+         condition = condition,
+         body = {
+            {
+               op = "if",
+               clauses = {{condition = named("stop", "bool"), body = {setEscaped, {op = "break"}}}},
+            },
+            iterationStep,
+         },
+      },
+      {op = "return", values = {named("escaped", "i32")}},
+   })
+end
+
+function M.derivesABreakFlagFromTheFinalLoopCondition()
+   local ir = breakResultProgram()
+   local stats = optimize.program(ir)
+   assert(ruleCount(stats, "derive.break-result") == 1)
+
+   local loop = ir.body[3]
+   assert(loop.op == "while")
+   assert(loop.body[1].op == "if" and #loop.body[1].clauses[1].body == 1)
+   assert(loop.body[1].clauses[1].body[1].op == "break",
+      "the loop-carried flag write remains beside break")
+
+   local derived = ir.body[4]
+   assert(derived.op == "if" and derived.clauses[1].condition.op == "lt")
+   local assignment = derived.clauses[1].body[1].values[1]
+   assert(assignment.target.cName == "escaped" and assignment.value.value == "1")
+end
+
+function M.derivesBreakFlagsOnlyWhenTheFinalConditionProvesThem()
+   local function declined(ir, why)
+      local stats = optimize.program(ir)
+      assert(ruleCount(stats, "derive.break-result") == 0, why)
+   end
+
+   local changedBeforeBreak = breakResultProgram()
+   local loop = changedBeforeBreak.body[3]
+   loop.body[1].clauses[1].body = {loop.body[2], loop.body[1].clauses[1].body[1], {op = "break"}}
+   loop.body[2] = {op = "block", body = {}}
+   declined(changedBeforeBreak, "a changed condition operand was treated as the header value")
+
+   local alternateBreak = breakResultProgram()
+   table.insert(alternateBreak.body[3].body, 1, {
+      op = "if",
+      clauses = {{condition = named("abort", "bool"), body = {{op = "break"}}}},
+   })
+   declined(alternateBreak, "an unpaired break was treated as the result-setting exit")
+
+   local readInLoop = breakResultProgram()
+   table.insert(readInLoop.body[3].body, 1, {
+      op = "if",
+      clauses = {{
+         condition = {op = "eq", left = named("escaped", "i32"), right = integer(1, "i32"), type = "bool"},
+         body = {},
+      }},
+   })
+   declined(readInLoop, "a loop-visible flag was moved out of the loop")
+
+   local continued = breakResultProgram()
+   table.insert(continued.body[3].body, 1, {
+      op = "if",
+      clauses = {{condition = named("skip", "bool"), body = {{op = "continue"}}}},
+   })
+   declined(continued, "a loop with continue received a break-result rewrite")
+
+   local nativeCondition = breakResultProgram()
+   nativeCondition.body[3].condition = {
+      op = "load", span = "values", index = "i", type = "bool",
+   }
+   declined(nativeCondition, "a native read was repeated after the loop")
+end
+
 return M
