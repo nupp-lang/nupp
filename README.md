@@ -1,3 +1,5 @@
+<img src="docs/public/images/og.png" alt="Nupp" width="460" align="center"/>
+
 # Nupp
 
 *A typed programming language for LuaJIT.*
@@ -11,7 +13,7 @@ every existing typed Lua, its types are not always erased: `struct` declarations
 lower to FFI cdata (fixed layout, no hash lookups) and C headers import as typed
 declarations. Owned resources are affine: an `affine(T, cleanup)` result records
 a deterministic cleanup obligation, `takes` calls move it, borrows cannot
-escape, and `pinned<T>` handles keep Lua-managed pointers alive across declared
+escape, and `pinned(T)` handles keep Lua-managed pointers alive across declared
 `retains`/`releases` C calls. Raw-pointer reconstruction is confined to explicit
 `unsafe do` blocks. See
 [docs/type-system/ownership.md](docs/type-system/ownership.md). Its [trace-aware
@@ -37,5 +39,3 @@ Nupp can also be linked as an application language: a C host can create or
 attach a LuaJIT state, load inert checked components from memory, call named
 exports through GC-safe handles, and keep ownership of its event loop. See the
 [embedding guide](docs/guides/embedding.md).
-
-<img src="docs/public/images/nupp.png" alt="Nupp" width="460" align="center"/>
