@@ -864,10 +864,14 @@ shape. The JSON report counts expanded loops and iterations under
 That `optimization` object also reports `beforeNodes`, `afterNodes`, `folds`,
 `propagatedConstants`, `specializedHelperCalls`, `unrolledLoops`,
 `unrolledIterations`, `removedStatements`, and `iterations`. Its
-`ruleApplications` array contains `{id, count}` entries for the expression
-rules that actually applied, sorted by stable rule ID; rules with a zero count
-are omitted. The aggregate fields are retained for dashboards that do not need
-per-rule attribution.
+`ruleApplications` array contains `{id, count}` entries for every rule and
+pseudo-rule that actually applied -- the fold catalog plus
+`propagate.local-constant` and `specialize.helper-constant` -- sorted by
+stable rule ID; rules with a zero count are omitted. The aggregate fields are
+derived from the same ledger, so summing the array double-counts against
+them: `propagatedConstants` and `specializedHelperCalls` repeat the two
+pseudo-rule counts, and `folds` adds statement-level branch selection to the
+remaining entries.
 
 Where it cannot, the body still compiles: it keeps its scalar loop, and the
 refusal names the construct that stopped it. A loop that does not vectorize is a

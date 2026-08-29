@@ -146,6 +146,8 @@ local command = spec.command{
                                 iterations = {type = "integer"},
                                 ruleApplications = {
                                     type = "array",
+                                    description = "Applied rules and pseudo-rules, sorted by stable ID; "
+                                    .. "zero-count rules are omitted.",
                                     items = {
                                         type = "object",
                                         properties = {id = {type = "string"}, count = {type = "integer"},},
