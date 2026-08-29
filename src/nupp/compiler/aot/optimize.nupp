@@ -156,7 +156,7 @@ foldExpression = function(node: scalarIR.Expr, state: optimize.State): scalarIR.
     local fuel = 16
     local history: {string} = {}
     while true do
-        local replacement, ruleID = fold.apply(node, state.foldContext, "fold-root")
+        local replacement, ruleID = fold.apply(node, state.foldContext)
         if replacement == nil then
             break
         end
@@ -203,23 +203,6 @@ foldExpression = function(node: scalarIR.Expr, state: optimize.State): scalarIR.
     end
 
     return node
-end
-
---- Whether discarding an expression also discards observable behaviour.
-local function discardable(node: scalarIR.Expr): boolean
-    local root = effects.expression(tostring(node.op))
-    if root.observable or root.mayRaise then
-        return false
-    end
-    local safe = true
-    visit.expressionChildren(node, function(child: scalarIR.Expr): scalarIR.Expr
-        if not discardable(child) then
-            safe = false
-        end
-        return child
-    end)
-
-    return safe
 end
 
 local function foldStatementExpressions(statement: scalarIR.Statement, state: optimize.State): nil
@@ -631,21 +614,13 @@ propagateBlock = function(
         ] ~= true and mutated[statement.name] ~= true and literal(statement.value) then
             constants[statement.cName] = statement.value
         elseif statement.op == "if" then
+            -- The statement walk above already rewrote every clause condition
+            -- and the native switch selector; only the nested blocks remain.
             for _, clause in ipairs(statement.clauses) do
-                clause.condition = propagateExpression(clause.condition, constants, state)
                 propagateBlock(clause.body, constants, mutated, state)
             end
             if statement.elseBody ~= nil then
                 propagateBlock(statement.elseBody as {scalarIR.Statement}, constants, mutated, state)
-            end
-            if statement.nativeSwitch ~= nil then
-                (
-                    statement.nativeSwitch as scalarIR.NativeSwitch
-                ).selector = propagateExpression(
-                    (statement.nativeSwitch as scalarIR.NativeSwitch).selector,
-                    constants,
-                    state
-                )
             end
         elseif statement.op == "fornum" or statement.op == "while" or statement.op == "block" then
             propagateBlock(value.body as {scalarIR.Statement}, constants, mutated, state)
@@ -663,9 +638,10 @@ optimizeBlock = function(statements: {scalarIR.Statement}, state: optimize.State
         else
             foldStatementExpressions(statement, state)
             if statement.op == "if" then
+                -- Conditions and the selector were folded by the statement
+                -- walk above; only the nested blocks remain.
                 local branch = statement as scalarIR.If
                 for _, clause in ipairs(branch.clauses) do
-                    clause.condition = foldExpression(clause.condition, state)
                     clause.body = optimizeBlock(clause.body, state)
                 end
                 if branch.elseBody ~= nil then
@@ -694,7 +670,6 @@ optimizeBlock = function(statements: {scalarIR.Statement}, state: optimize.State
                 end
             elseif statement.op == "while" then
                 local loop = statement as scalarIR.While
-                loop.condition = foldExpression(loop.condition, state)
                 loop.body = optimizeBlock(loop.body, state)
                 if loop.condition.op == "bool" and not (loop.condition as scalarIR.Bool).value then
                     state.removedStatements = state.removedStatements + 1
@@ -804,7 +779,9 @@ local function removeDead(statements: {scalarIR.Statement}, state: optimize.Stat
             (statement as any).body = removeDead((statement as any).body as {scalarIR.Statement}, state)
         end
 
-        if statement.op == "let" and uses[statement.cName] == nil and discardable(statement.value) then
+        if statement.op == "let" and uses[
+            statement.cName
+        ] == nil and fold.discardable(statement.value, state.foldContext) then
             state.removedStatements = state.removedStatements + 1
             state.changed = true
         else

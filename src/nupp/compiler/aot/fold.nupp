@@ -16,13 +16,11 @@ type fold.Pattern = 'any' | 'literal' | 'numeric' | 'true' | 'false' | 'zero' | 
 record fold.Rule
     id: string
     op: string
-    entrypoint: 'fold-root' | 'propagate-only'
     valueType: scalarIR.Type?
     left: fold.Pattern?
     right: fold.Pattern?
     value: fold.Pattern?
     action: string
-    changesGrouping: boolean
 end
 
 record fold.Context
@@ -229,20 +227,49 @@ local function reorderable(node: scalarIR.Expr, context: fold.Context): boolean
     return reorderableExpression(node, context, {})
 end
 
-local function discardable(node: scalarIR.Expr): boolean
+local discardableExpression: function(scalarIR.Expr, fold.Context, {[string]: boolean}): boolean
+
+discardableExpression = function(node: scalarIR.Expr, context: fold.Context, active: {[string]: boolean}): boolean
     local root = effects.expression(tostring(node.op))
     if root.observable or root.mayRaise then
         return false
     end
+    if node.op == "helper_call" then
+        local helper = context.helpers[(node as scalarIR.HelperCall).helper]
+        if helper == nil then
+            return false
+        end
+        -- A native callee already passed the lowering effect gate; a local
+        -- body is walked here anyway, because the sibling predicates above
+        -- re-check that guarantee locally and trusting less survives more.
+        if helper.native ~= true then
+            if active[helper.name] then
+                return false
+            end
+            active[helper.name] = true
+            for _, value in ipairs(helper.values) do
+                if not discardableExpression(value, context, active) then
+                    active[helper.name] = nil
+                    return false
+                end
+            end
+            active[helper.name] = nil
+        end
+    end
     local safe = true
     visit.expressionChildren(node, function(child: scalarIR.Expr): scalarIR.Expr
-        if not discardable(child) then
+        if not discardableExpression(child, context, active) then
             safe = false
         end
         return child
     end)
 
     return safe
+end
+
+--- Whether discarding an expression also discards observable behaviour.
+function fold.discardable(node: scalarIR.Expr, context: fold.Context): boolean
+    return discardableExpression(node, context, {})
 end
 
 local function containsObject(root: any, wanted: any): boolean
@@ -304,15 +331,14 @@ function fold.validate(rules: {fold.Rule}): nil
             error("duplicate AOT fold rule ID " .. rule.id, 0)
         end
         ids[rule.id] = true
+        -- The matcher hands the left operand across only when it tests the
+        -- right pattern, so `same` anywhere else can never match and a rule
+        -- written that way is dead rather than wrong-looking.
+        if rule.left == "same" or rule.value == "same" then
+            error("AOT fold rule " .. rule.id .. " uses same outside the right operand", 0)
+        end
         local registration = table.concat(
-            {
-                rule.op,
-                rule.entrypoint,
-                tostring(rule.valueType),
-                tostring(rule.left),
-                tostring(rule.right),
-                tostring(rule.value),
-            },
+            {rule.op, tostring(rule.valueType), tostring(rule.left), tostring(rule.right), tostring(rule.value),},
             "\0"
         )
         local previous = registrations[registration]
@@ -331,35 +357,15 @@ local function binaryRule(
     valueType: scalarIR.Type?,
     left: fold.Pattern,
     right: fold.Pattern,
-    action: string,
-    changesGrouping: boolean?
+    action: string
 ): nil
     RULES[
         #RULES + 1
-    ] = new fold.Rule(
-        id = id,
-        op = op,
-        entrypoint = "fold-root",
-        valueType = valueType,
-        left = left,
-        right = right,
-        action = action,
-        changesGrouping = changesGrouping == true
-    )
+    ] = new fold.Rule(id = id, op = op, valueType = valueType, left = left, right = right, action = action)
 end
 
 local function unaryRule(id: string, op: string, valueType: scalarIR.Type?, value: fold.Pattern, action: string): nil
-    RULES[
-        #RULES + 1
-    ] = new fold.Rule(
-        id = id,
-        op = op,
-        entrypoint = "fold-root",
-        valueType = valueType,
-        value = value,
-        action = action,
-        changesGrouping = false
-    )
+    RULES[#RULES + 1] = new fold.Rule(id = id, op = op, valueType = valueType, value = value, action = action)
 end
 
 unaryRule("bool.not.literal", "not", "bool", "literal", "bool_not")
@@ -445,7 +451,7 @@ for _, op in ipairs({
     "u32_or",
     "u32_xor"
 }) do
-    binaryRule("reassociate." .. op, op, op:sub(1, 3), "any", "any", "reassociate", true)
+    binaryRule("reassociate." .. op, op, op:sub(1, 3), "any", "any", "reassociate")
 end
 binaryRule("normalize.i32_sub", "i32_sub", "i32", "any", "numeric", "normalize_sub")
 binaryRule("normalize.u32_sub", "u32_sub", "u32", "any", "numeric", "normalize_sub")
@@ -455,11 +461,10 @@ fold.validate(RULES)
 
 local INDEX: {[string]: {fold.Rule}} = {}
 for _, rule in ipairs(RULES) do
-    local key = rule.op .. "\0" .. rule.entrypoint
-    local bucket = INDEX[key]
+    local bucket = INDEX[rule.op]
     if bucket == nil then
         bucket = {}
-        INDEX[key] = bucket
+        INDEX[rule.op] = bucket
     end
     bucket[#bucket + 1] = rule
 end
@@ -565,9 +570,6 @@ local function combine(op: string, left: number, right: number, valueType: scala
 end
 
 local function reassociate(node: scalarIR.Expr, context: fold.Context): scalarIR.Expr?
-    if not reorderable(node, context) then
-        return nil
-    end
     local op = tostring(node.op)
     local valueType = node.type
     local operands: {scalarIR.Expr} = {}
@@ -608,6 +610,15 @@ local function reassociate(node: scalarIR.Expr, context: fold.Context): scalarIR
             type = valueType,
             source = sourceOf(node)
         )
+    end
+    -- The apply loop would decline an identical rebuild anyway; declining it
+    -- here first keeps the recursive effects walk off every canonical chain,
+    -- which is the common shape once this rule has run once.
+    if semanticSame(node, rebuilt) then
+        return nil
+    end
+    if not reorderable(node, context) then
+        return nil
     end
 
     return rebuilt
@@ -737,7 +748,7 @@ local function action(rule: fold.Rule, node: scalarIR.Expr, context: fold.Contex
     return nil
 end
 
-local function removalSafe(node: scalarIR.Expr, replacement: scalarIR.Expr): boolean
+local function removalSafe(node: scalarIR.Expr, replacement: scalarIR.Expr, context: fold.Context): boolean
     if node.op == "neg"
         or node.op == "not"
         or node.op == "bnot"
@@ -752,10 +763,10 @@ local function removalSafe(node: scalarIR.Expr, replacement: scalarIR.Expr): boo
         or node.op == "numeric_cast"
     then
         local operand = (node as scalarIR.Unary).value
-        return containsObject(replacement, operand) or discardable(operand)
+        return containsObject(replacement, operand) or fold.discardable(operand, context)
     end
     local pair = node as scalarIR.Binary
-    if not containsObject(replacement, pair.left) and not discardable(pair.left) then
+    if not containsObject(replacement, pair.left) and not fold.discardable(pair.left, context) then
         return false
     end
     local rightEvaluated = true
@@ -764,13 +775,13 @@ local function removalSafe(node: scalarIR.Expr, replacement: scalarIR.Expr): boo
         rightEvaluated = node.op == "and" and left or node.op == "or" and not left
     end
 
-    return not rightEvaluated or containsObject(replacement, pair.right) or discardable(pair.right)
+    return not rightEvaluated or containsObject(replacement, pair.right) or fold.discardable(pair.right, context)
 end
 
 --- Applies the highest-priority matching rule, falling through when an action
 --- or its semantic guards decline.
-function fold.apply(node: scalarIR.Expr, context: fold.Context, entrypoint: string?): scalarIR.Expr?, string?
-    local bucket = INDEX[tostring(node.op) .. "\0" .. (entrypoint or "fold-root")]
+function fold.apply(node: scalarIR.Expr, context: fold.Context): scalarIR.Expr?, string?
+    local bucket = INDEX[tostring(node.op)]
     if bucket == nil then
         return nil, nil
     end
@@ -787,7 +798,10 @@ function fold.apply(node: scalarIR.Expr, context: fold.Context, entrypoint: stri
             end
             if matched and (not sameRule or stable((node as scalarIR.Binary).left, context)) then
                 local replacement = action(rule, node, context)
-                if replacement ~= nil and not semanticSame(node, replacement) and removalSafe(node, replacement) then
+                if replacement ~= nil and not semanticSame(
+                    node,
+                    replacement
+                ) and removalSafe(node, replacement, context) then
                     return replacement, rule.id
                 end
             end

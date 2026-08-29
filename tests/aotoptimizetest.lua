@@ -336,15 +336,23 @@ end
 
 function M.rejectsDuplicatePatternRegistrationsButAllowsMirrors()
    local base = {
-      id = "left", op = "u32_add", entrypoint = "fold-root", valueType = "u32",
-      left = "zero", right = "any", action = "right", changesGrouping = false,
+      id = "left", op = "u32_add", valueType = "u32",
+      left = "zero", right = "any", action = "right",
    }
    fold.validate({base, {
-      id = "right", op = "u32_add", entrypoint = "fold-root", valueType = "u32",
-      left = "any", right = "zero", action = "left", changesGrouping = false,
+      id = "right", op = "u32_add", valueType = "u32",
+      left = "any", right = "zero", action = "left",
    }})
    local ok, message = pcall(fold.validate, {base, base})
    assert(not ok and tostring(message):match("duplicate AOT fold rule ID left"))
+
+   local dead = {
+      id = "dead", op = "u32_add", valueType = "u32",
+      left = "same", right = "any", action = "right",
+   }
+   ok, message = pcall(fold.validate, {dead})
+   assert(not ok and tostring(message):match("uses same outside the right operand"),
+      "a same pattern the matcher can never test must be rejected at registration")
 end
 
 function M.sameAndReassociationRejectUnavailableOrRaisingHelpers()
