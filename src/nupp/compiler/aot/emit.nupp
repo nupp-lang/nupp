@@ -1316,6 +1316,12 @@ function emit.includes(): {string}
         "#include <stdlib.h>",
         "#if defined(__aarch64__)",
         "#include <arm_neon.h>",
+        "#if defined(__clang__) || defined(__GNUC__)",
+        "typedef float ks_alias_float __attribute__((may_alias));",
+        "typedef double ks_alias_double __attribute__((may_alias));",
+        "typedef int32_t ks_alias_i32 __attribute__((may_alias));",
+        "typedef uint32_t ks_alias_u32 __attribute__((may_alias));",
+        "#endif",
         "#elif defined(__x86_64__) || defined(_M_X64)",
         "#include <immintrin.h>",
         "#endif",
@@ -3256,12 +3262,19 @@ local function vectorHelpers(shape: lane.Shape): {string}
     for index = 0, shape.lanes - 1 do
         terms[index + 1] = "m[" .. tostring(index) .. "]"
     end
-    lines[
-        #lines + 1
-    ] = unused .. "bool ks_any_" .. shape.mask .. "(ks_" .. shape.mask .. " m) { return (" .. table.concat(
-        terms,
-        " | "
-    ) .. ") != 0; }"
+    lines[#lines + 1] = unused .. "bool ks_any_" .. shape.mask .. "(ks_" .. shape.mask .. " m) {"
+    lines[#lines + 1] = "#if defined(__aarch64__)"
+    lines[#lines + 1] = "    uint32x4_t chunks[sizeof(m) / sizeof(uint32x4_t)];"
+    lines[#lines + 1] = "    memcpy(chunks, &m, sizeof(m));"
+    local reductions: {string} = {}
+    for index = 0, math.floor(shape.bytes / 16) - 1 do
+        reductions[#reductions + 1] = "vmaxvq_u32(chunks[" .. tostring(index) .. "])"
+    end
+    lines[#lines + 1] = "    return (" .. table.concat(reductions, " | ") .. ") != 0;"
+    lines[#lines + 1] = "#else"
+    lines[#lines + 1] = "    return (" .. table.concat(terms, " | ") .. ") != 0;"
+    lines[#lines + 1] = "#endif"
+    lines[#lines + 1] = "}"
 
     -- A splat and a select are wanted for every vector that carries values, and
     -- for nothing else. The bit vector is not one of them in a binary64 gang --
@@ -4558,6 +4571,9 @@ record emit.Body
     --- How wide a lane store is, for a body that was rewritten.
     lanes: integer
 
+    --- Reified layouts by IR name, for legal target-specific load fusion.
+    layouts: {[string]: scalarIR.Layout}
+
     --- The private aggregate returned by a multi-result entry.
     resultStruct: string?
 end
@@ -5161,11 +5177,151 @@ local function localCType(typeName: string, mutable: boolean): string
     return emit.cType(typeName) .. " "
 end
 
+--- Whether a rewritten loop moved its recurring liveness test behind lane
+--- retirement. The rewrite keeps the marked retirement at this block's top
+--- level; nested loops own their own tests.
+local function exitsWhenEmpty(statements: {any}): boolean
+    for _, statement in ipairs(statements) do
+        if statement.op == "vbreak" and statement.exitWhenEmpty == true then
+            return true
+        end
+    end
+
+    return false
+end
+
+--- Neon spellings for naturally interleaved pairs of scalar fields.
+local NEON_PAIR: {
+    [string]: any
+} = {
+    ["float"] = {lanes = 4, element = "f32", tuple = "float32x4x2_t", load = "vld2q_f32", alias = "ks_alias_float",},
+    ["number"] = {lanes = 2, element = "f64", tuple = "float64x2x2_t", load = "vld2q_f64", alias = "ks_alias_double",},
+    ["int32"] = {lanes = 4, element = "i32", tuple = "int32x4x2_t", load = "vld2q_s32", alias = "ks_alias_i32",},
+    ["uint32"] = {lanes = 4, element = "u32", tuple = "uint32x4x2_t", load = "vld2q_u32", alias = "ks_alias_u32",},
+}
+
+--- The canonical physical spelling of a lane element.
+local CANONICAL_SOURCE: {[string]: string} = {f64 = "number", f32 = "float", i32 = "int32", u32 = "uint32",}
+
+local function physicalSource(load: lane.FieldLoad): string
+    return load.sourceType or tostring(CANONICAL_SOURCE[load.scalarType])
+end
+
+--- Peels the one exact arithmetic conversion a physical field load may carry.
+local function fieldLoad(value: any): lane.FieldLoad?
+    if value.op == "vfield_load" then
+        return value as lane.FieldLoad
+    elseif value.op == "vconvert" and #value.args == 1 and value.args[1].op == "vfield_load" then
+        return value.args[1] as lane.FieldLoad
+    end
+
+    return nil
+end
+
+--- Describes two adjacent field loads that are one complete, padding-free AoS
+--- pair. Anything less exact keeps the ordinary gather spelling.
+local function neonFieldPair(first: any, second: any, body: emit.Body): any
+    if first.op ~= "let" or second.op ~= "let" then
+        return nil
+    end
+
+    local left = fieldLoad(first.value)
+    local right = fieldLoad(second.value)
+    if left == nil or right == nil then
+        return nil
+    end
+    if left.span ~= right.span
+        or left.layout ~= right.layout
+        or left.lanes ~= right.lanes
+        or left.field == right.field
+        or left.scalarType ~= right.scalarType
+        or left.type ~= right.type
+        or first.type ~= second.type
+    then
+        return nil
+    end
+
+    local layout = body.layouts[left.layout]
+    local source = physicalSource(left)
+    local neon = NEON_PAIR[source]
+    if layout == nil or #layout.fields ~= 2 or neon == nil or physicalSource(right) ~= source then
+        return nil
+    end
+    local fields = (layout as scalarIR.Layout).fields
+    local firstSource = fields[1].sourceType or tostring(CANONICAL_SOURCE[fields[1].type])
+    local secondSource = fields[2].sourceType or tostring(CANONICAL_SOURCE[fields[2].type])
+    if firstSource ~= source or secondSource ~= source then
+        return nil
+    end
+
+    local leftIndex = fields[1].name == left.field and 0 or fields[2].name == left.field and 1 or nil
+    local rightIndex = fields[1].name == right.field and 0 or fields[2].name == right.field and 1 or nil
+    local nativeLanes = neon.lanes as integer
+    if leftIndex == nil
+        or rightIndex == nil
+        or leftIndex == rightIndex
+        or left.lanes % nativeLanes ~= 0
+        or left.lanes
+        / nativeLanes > 2
+    then
+        return nil
+    end
+
+    local resultElement = tostring(first.type):match("^([fiu]%d+)x")
+    if resultElement == nil then
+        return nil
+    end
+
+    return {
+        left = left,
+        right = right,
+        resultType = first.type,
+        resultElement = resultElement,
+        leftIndex = leftIndex,
+        rightIndex = rightIndex,
+        neon = neon,
+    }
+end
+
+--- Renders one member of a deinterleaved load, joining two physical Neon
+--- registers when the selected gang is wider than one register.
+local function neonPairValue(
+    temps: {string},
+    member: integer,
+    vector: string,
+    lanes: integer,
+    sourceElement: string,
+    resultElement: string
+): string
+    local loaded
+    if #temps == 1 then
+        loaded = temps[1] .. ".val[" .. tostring(member) .. "]"
+    else
+        local indices: {string} = {}
+        for index = 0, lanes - 1 do
+            indices[#indices + 1] = tostring(index)
+        end
+
+        loaded = "__builtin_shufflevector(" .. temps[
+            1
+        ] .. ".val[" .. tostring(
+            member
+        ) .. "], " .. temps[2] .. ".val[" .. tostring(member) .. "], " .. table.concat(indices, ", ") .. ")"
+    end
+
+    if sourceElement ~= resultElement then
+        return "__builtin_convertvector(" .. loaded .. ", ks_" .. vector .. ")"
+    end
+
+    return "(ks_" .. vector .. ")" .. loaded
+end
+
 --- One block of statements, scalar or lane, indented by `depth`.
 function emit.block(statements: {any}, depth: integer, body: emit.Body): {string}
     local lines: {string} = {}
     local prefix = string.rep("    ", depth)
     local temporary = 0
+    local pairedPrevious = false
 
     --- Appends the rendering of a nested block.
     local function nested(inner: {any}): nil
@@ -5174,16 +5330,98 @@ function emit.block(statements: {any}, depth: integer, body: emit.Body): {string
         end
     end
 
-    for _, statement in ipairs(statements) do
+    for position, statement in ipairs(statements) do
         local op = statement.op
+        if op ~= "let" then
+            pairedPrevious = false
+        end
         if op == "let" then
-            if statement.type ~= "simd_species_u8" then
+            local pair = position > 1 and not pairedPrevious and neonFieldPair(
+                statements[position - 1],
+                statement,
+                body
+            ) or nil
+            if pair ~= nil then
+                -- The immediately preceding let emitted one ordinary gather.
+                -- Replace it and this one with a target branch containing the
+                -- paired load, retaining those gathers as the portable branch.
+                lines[#lines] = nil
+                temporary = temporary + 1
+                local info = pair as any
+                local neon = info.neon
+                local chunks = info.left.lanes / (neon.lanes as integer)
+                local temps: {string} = {}
+                lines[#lines + 1] = prefix .. "#if defined(__aarch64__) && (defined(__clang__) || defined(__GNUC__))"
+                for chunk = 0, chunks - 1 do
+                    local temp = "aos" .. tostring(temporary) .. "_" .. tostring(chunk)
+                    temps[#temps + 1] = temp
+                    lines[
+                        #lines + 1
+                    ] = prefix
+                        .. neon.tuple
+                        .. " "
+                        .. temp
+                        .. " = "
+                        .. neon.load
+                        .. "((const "
+                        .. neon.alias
+                        .. " *)&p_"
+                        .. info.left.span
+                        .. "[i + "
+                        .. tostring(
+                        chunk * (neon.lanes as integer)
+                    ) .. "]);"
+                end
+                local previous = statements[position - 1]
+                lines[
+                    #lines + 1
+                ] = prefix .. emit.cType(
+                    previous.type
+                ) .. " " .. previous.cName .. " = " .. neonPairValue(
+                    temps,
+                    info.leftIndex,
+                    info.resultType,
+                    info.left.lanes,
+                    neon.element,
+                    info.resultElement
+                ) .. ";"
+                lines[
+                    #lines + 1
+                ] = prefix .. emit.cType(
+                    statement.type
+                ) .. " " .. statement.cName .. " = " .. neonPairValue(
+                    temps,
+                    info.rightIndex,
+                    info.resultType,
+                    info.right.lanes,
+                    neon.element,
+                    info.resultElement
+                ) .. ";"
+                lines[#lines + 1] = prefix .. "#else"
+                lines[
+                    #lines + 1
+                ] = prefix .. localCType(
+                    previous.type,
+                    previous.value.mutable == true
+                ) .. previous.cName .. " = " .. emit.lane(previous.value) .. ";"
                 lines[
                     #lines + 1
                 ] = prefix .. localCType(
                     statement.type,
                     statement.value.mutable == true
                 ) .. statement.cName .. " = " .. emit.lane(statement.value) .. ";"
+                lines[#lines + 1] = prefix .. "#endif"
+                pairedPrevious = true
+            elseif statement.type ~= "simd_species_u8" then
+                lines[
+                    #lines + 1
+                ] = prefix .. localCType(
+                    statement.type,
+                    statement.value.mutable == true
+                ) .. statement.cName .. " = " .. emit.lane(statement.value) .. ";"
+                pairedPrevious = false
+            else
+                pairedPrevious = false
             end
         elseif op == "multi_let" then
             temporary = temporary + 1
@@ -5306,23 +5544,44 @@ function emit.block(statements: {any}, depth: integer, body: emit.Body): {string
         elseif op == "vwhile" then
             -- The loop runs while any lane is live, and a lane that retired
             -- stops contributing without stopping the others.
+            local immediateExit = exitsWhenEmpty(statement.body)
             lines[
                 #lines + 1
             ] = prefix .. emit.cType(
                 statement.live.type
             ) .. " " .. statement.live.cName .. " = " .. emit.lane(statement.initial) .. ";"
+            if immediateExit then
+                lines[
+                    #lines + 1
+                ] = prefix .. "if (ks_any_" .. tostring(statement.live.type) .. "(" .. statement.live.cName .. ")) {"
+                lines[#lines + 1] = prefix .. "    while (true) {"
+            else
+                lines[
+                    #lines + 1
+                ] = prefix .. "while (ks_any_" .. tostring(statement.live.type) .. "(" .. statement.live.cName .. ")) {"
+            end
             lines[
                 #lines + 1
-            ] = prefix .. "while (ks_any_" .. tostring(statement.live.type) .. "(" .. statement.live.cName .. ")) {"
-            lines[
-                #lines + 1
-            ] = prefix .. "    " .. emit.cType(
+            ] = prefix .. (
+                immediateExit and "        " or "    "
+            ) .. emit.cType(
                 statement.executing.type
             ) .. " " .. statement.executing.cName .. " = " .. statement.live.cName .. ";"
-            nested(statement.body)
+            if immediateExit then
+                for _, line in ipairs(emit.block(statement.body, depth + 2, body)) do
+                    lines[#lines + 1] = line
+                end
+            else
+                nested(statement.body)
+            end
             lines[
                 #lines + 1
-            ] = prefix .. "    " .. statement.live.cName .. " &= " .. emit.lane(statement.condition) .. ";"
+            ] = prefix .. (
+                immediateExit and "        " or "    "
+            ) .. statement.live.cName .. " &= " .. emit.lane(statement.condition) .. ";"
+            if immediateExit then
+                lines[#lines + 1] = prefix .. "    }"
+            end
             lines[#lines + 1] = prefix .. "}"
         elseif op == "vwhile_uniform" then
             -- An ordinary loop over lane-parallel statements. The condition is
@@ -5334,6 +5593,13 @@ function emit.block(statements: {any}, depth: integer, body: emit.Body): {string
             local mask = emit.lane(statement.mask)
             lines[#lines + 1] = prefix .. statement.live.cName .. " &= ~(" .. mask .. ");"
             lines[#lines + 1] = prefix .. statement.executing.cName .. " &= ~(" .. mask .. ");"
+            if statement.exitWhenEmpty == true then
+                lines[
+                    #lines + 1
+                ] = prefix .. "if (!ks_any_" .. tostring(
+                    statement.live.type
+                ) .. "(" .. statement.live.cName .. ")) break;"
+            end
         elseif op == "vcontinue" then
             lines[#lines + 1] = prefix .. statement.executing.cName .. " &= ~(" .. emit.lane(statement.mask) .. ");"
         elseif op == "fornum" then
@@ -5509,7 +5775,11 @@ function emit.program(programs: {scalarIR.Program}, tier: string?): string
         local width = lanes ~= nil and (lanes as scalarIR.LaneBody).lanes or 0
         local resultTypes = program.resultTypes or {}
         local resultStruct = #resultTypes > 1 and scalarIR.cIdentifier("KsResult", program.symbol) or nil
-        local body = new emit.Body(helpers = helpers, lanes = width, resultStruct = resultStruct)
+        local layouts: {[string]: scalarIR.Layout} = {}
+        for _, layout in ipairs(program.layouts or {}) do
+            layouts[layout.name] = layout
+        end
+        local body = new emit.Body(helpers = helpers, lanes = width, layouts = layouts, resultStruct = resultStruct)
         local general = program.body ~= nil
         if program.entryMode == "lua-builder" then
             explicitScalar = false

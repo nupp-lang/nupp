@@ -175,12 +175,22 @@ do
       "varying inner loop did not become a live-mask loop")
    assert(mandelbrot.irText:find("vbreak", 1, true),
       "varying break did not retire lanes")
+   assert(mandelbrot.irText:find("vbreak exit-if-empty", 1, true),
+      "profitable lane retirement did not receive the loop liveness test")
    assert(mandelbrot.irText:find("escapes[i..i+3].iterations", 1, true),
       "integer field store lost its lane narrowing")
    -- Named for the mask it tests, so a file holding two gangs gets one of these
    -- per gang rather than two definitions of the same name.
-   assert(mandelbrot.c:find("while (ks_any_m64x4(", 1, true),
-      "generated C lost horizontal live-lane termination")
+   assert(mandelbrot.c:find("if (ks_any_m64x4(", 1, true)
+      and mandelbrot.c:find("while (true)", 1, true)
+      and mandelbrot.c:find("if (!ks_any_m64x4(", 1, true),
+      "generated C did not move horizontal termination behind retirement")
+   assert(mandelbrot.c:find("vmaxvq_u32", 1, true),
+      "AArch64 mask-any helper lost its native horizontal reduction")
+   assert(mandelbrot.c:find("vld2q_f32", 1, true),
+      "adjacent two-field AoS loads did not become a Neon deinterleave")
+   assert(mandelbrot.c:find("p_points[i + 0].re", 1, true),
+      "AoS deinterleave lost its portable gather fallback")
 
    local laneLoop
    for _, statement in ipairs(mandelbrot.ir.lanes.statements) do
@@ -214,6 +224,24 @@ do
    assert(continuedResult.irText:find(
       "vmand:m64x4(local:m64x4 $if", 1, true
    ), "statements after a lane exit lost the current executing mask")
+   assert(not continuedResult.irText:find("exit-if-empty", 1, true),
+      "a loop with continue unsafely moved its horizontal liveness test")
+
+   local laneContinue
+   for _, statement in ipairs(continuedResult.ir.lanes.statements) do
+      if statement.op == "vwhile" then
+         for _, inner in ipairs(statement.body) do
+            if inner.op == "vcontinue" then laneContinue = inner break end
+         end
+      end
+      if laneContinue then break end
+   end
+   assert(laneContinue, "continued fixture contains no lane continue")
+   laneContinue.exitWhenEmpty = true
+   local continueOk, continueProblem = pcall(compiler.verifyIR, continuedResult.ir)
+   laneContinue.exitWhenEmpty = nil
+   assert(not continueOk and tostring(continueProblem):find("immediate lane%-loop exit"),
+      "IR accepted an immediate empty-loop exit on continue")
 end
 
 local unaryMath = {"abs", "floor", "ceil", "sin", "cos", "tan", "asin", "acos", "atan", "sinh", "cosh", "tanh", "exp", "log", "deg", "rad"}

@@ -466,7 +466,11 @@ function text.block(statements: {any}, depth: integer, lanes: integer): {string}
             nested(statement.body)
             lines[#lines + 1] = prefix .. "end"
         elseif op == "vbreak" or op == "vcontinue" then
-            lines[#lines + 1] = prefix .. op .. " " .. text.expression(statement.mask)
+            lines[
+                #lines + 1
+            ] = prefix .. op .. (
+                statement.exitWhenEmpty == true and " exit-if-empty " or " "
+            ) .. text.expression(statement.mask)
         elseif op == "if" then
             for position, clause in ipairs(statement.clauses) do
                 lines[

@@ -2015,6 +2015,43 @@ end
 --- A `break` or `continue` names the masks it retires from, and they have to be
 --- that loop's: retiring from a loop this statement is not in would be control
 --- flow that no mask expresses.
+local function validImmediateExit(statements: {any}): boolean
+    local hasImmediateExit = false
+    for _, statement in ipairs(statements) do
+        hasImmediateExit = hasImmediateExit or (statement.op == "vbreak" and statement.exitWhenEmpty == true)
+    end
+    if not hasImmediateExit then
+        return true
+    end
+
+    local marked = false
+    local prefixSafe = true
+    for _, statement in ipairs(statements) do
+        if statement.op == "vbreak" and statement.exitWhenEmpty == true then
+            if marked or not prefixSafe then
+                return false
+            end
+            marked = true
+        elseif statement.op == "vcontinue" then
+            return false
+        elseif not marked then
+            if statement.op == "let" then
+                -- Lane expressions are pure.
+            elseif statement.op == "vassign" then
+                for _, assignment in ipairs(statement.values) do
+                    if assignment.target.kind ~= "local" then
+                        prefixSafe = false
+                    end
+                end
+            else
+                prefixSafe = false
+            end
+        end
+    end
+
+    return true
+end
+
 local function laneBlock(
     statements: {any},
     inherited: {[string]: string},
@@ -2112,6 +2149,7 @@ local function laneBlock(
                 statement.initial.type == mask and statement.condition.type == mask,
                 "invalid lane-loop condition"
             )
+            laneHolds(validImmediateExit(statement.body), "invalid immediate lane-loop exit")
 
             local inner = inherit(values)
             inner[statement.live.name] = mask
@@ -2133,6 +2171,10 @@ local function laneBlock(
             )
             laneWalk(statement.mask, values, context)
             laneHolds(statement.mask.type == mask, "lane loop control needs a mask")
+            laneHolds(
+                statement.exitWhenEmpty == nil or (statement.op == "vbreak" and statement.exitWhenEmpty == true),
+                "invalid immediate lane-loop exit"
+            )
         else
             refuse("unknown lane statement opcode " .. tostring(statement.op))
         end

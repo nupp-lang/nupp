@@ -7053,6 +7053,12 @@ return {
 "#include <stdlib.h>" ,
 "#if defined(__aarch64__)" ,
 "#include <arm_neon.h>" ,
+"#if defined(__clang__) || defined(__GNUC__)" ,
+"typedef float ks_alias_float __attribute__((may_alias));" ,
+"typedef double ks_alias_double __attribute__((may_alias));" ,
+"typedef int32_t ks_alias_i32 __attribute__((may_alias));" ,
+"typedef uint32_t ks_alias_u32 __attribute__((may_alias));" ,
+"#endif" ,
 "#elif defined(__x86_64__) || defined(_M_X64)" ,
 "#include <immintrin.h>" ,
 "#endif" ,
@@ -8993,12 +8999,19 @@ local terms = { }
 for index = 0 , shape . lanes - 1 do
 terms [ index + 1 ] = "m[" .. tostring ( index ) .. "]"
 end
-lines [
-# lines + 1
-] = unused .. "bool ks_any_" .. shape . mask .. "(ks_" .. shape . mask .. " m) { return (" .. table . concat (
-terms ,
-" | "
-) .. ") != 0; }"
+lines [ # lines + 1 ] = unused .. "bool ks_any_" .. shape . mask .. "(ks_" .. shape . mask .. " m) {"
+lines [ # lines + 1 ] = "#if defined(__aarch64__)"
+lines [ # lines + 1 ] = "    uint32x4_t chunks[sizeof(m) / sizeof(uint32x4_t)];"
+lines [ # lines + 1 ] = "    memcpy(chunks, &m, sizeof(m));"
+local reductions = { }
+for index = 0 , math . floor ( shape . bytes / 16 ) - 1 do
+reductions [ # reductions + 1 ] = "vmaxvq_u32(chunks[" .. tostring ( index ) .. "])"
+end
+lines [ # lines + 1 ] = "    return (" .. table . concat ( reductions , " | " ) .. ") != 0;"
+lines [ # lines + 1 ] = "#else"
+lines [ # lines + 1 ] = "    return (" .. table . concat ( terms , " | " ) .. ") != 0;"
+lines [ # lines + 1 ] = "#endif"
+lines [ # lines + 1 ] = "}"
 
 
 
@@ -10301,6 +10314,9 @@ emit.Body = {} emit.Body.__index = emit.Body
 
 
 
+
+
+
 local function luaPush ( value , prefix ) 
 if value . type == "lua_table" then
 if value . op == "lua_new_table" then
@@ -10899,10 +10915,150 @@ return emit . cType ( typeName ) .. " "
 end
 
 
+
+
+local function exitsWhenEmpty ( statements ) 
+for _ , statement in ipairs ( statements ) do
+if statement . op == "vbreak" and statement . exitWhenEmpty == true then
+return true
+end
+end
+
+return false
+end
+
+
+local NEON_PAIR
+
+= {
+[ "float" ] = { lanes = 4 , element = "f32" , tuple = "float32x4x2_t" , load = "vld2q_f32" , alias = "ks_alias_float" , } ,
+[ "number" ] = { lanes = 2 , element = "f64" , tuple = "float64x2x2_t" , load = "vld2q_f64" , alias = "ks_alias_double" , } ,
+[ "int32" ] = { lanes = 4 , element = "i32" , tuple = "int32x4x2_t" , load = "vld2q_s32" , alias = "ks_alias_i32" , } ,
+[ "uint32" ] = { lanes = 4 , element = "u32" , tuple = "uint32x4x2_t" , load = "vld2q_u32" , alias = "ks_alias_u32" , } ,
+}
+
+
+local CANONICAL_SOURCE = { f64 = "number" , f32 = "float" , i32 = "int32" , u32 = "uint32" , }
+
+local function physicalSource ( load ) 
+return load . sourceType or tostring ( CANONICAL_SOURCE [ load . scalarType ] )
+end
+
+
+local function fieldLoad ( value ) 
+if value . op == "vfield_load" then
+return value
+elseif value . op == "vconvert" and # value . args == 1 and value . args [ 1 ] . op == "vfield_load" then
+return value . args [ 1 ]
+end
+
+return nil
+end
+
+
+
+local function neonFieldPair ( first , second , body ) 
+if first . op ~= "let" or second . op ~= "let" then
+return nil
+end
+
+local left = fieldLoad ( first . value )
+local right = fieldLoad ( second . value )
+if left == nil or right == nil then
+return nil
+end
+if left . span ~= right . span
+or left . layout ~= right . layout
+or left . lanes ~= right . lanes
+or left . field == right . field
+or left . scalarType ~= right . scalarType
+or left . type ~= right . type
+or first . type ~= second . type
+then
+return nil
+end
+
+local layout = body . layouts [ left . layout ]
+local source = physicalSource ( left )
+local neon = NEON_PAIR [ source ]
+if layout == nil or # layout . fields ~= 2 or neon == nil or physicalSource ( right ) ~= source then
+return nil
+end
+local fields = ( layout ) . fields
+local firstSource = fields [ 1 ] . sourceType or tostring ( CANONICAL_SOURCE [ fields [ 1 ] . type ] )
+local secondSource = fields [ 2 ] . sourceType or tostring ( CANONICAL_SOURCE [ fields [ 2 ] . type ] )
+if firstSource ~= source or secondSource ~= source then
+return nil
+end
+
+local leftIndex = fields [ 1 ] . name == left . field and 0 or fields [ 2 ] . name == left . field and 1 or nil
+local rightIndex = fields [ 1 ] . name == right . field and 0 or fields [ 2 ] . name == right . field and 1 or nil
+local nativeLanes = neon . lanes
+if leftIndex == nil
+or rightIndex == nil
+or leftIndex == rightIndex
+or left . lanes % nativeLanes ~= 0
+or left . lanes
+/ nativeLanes > 2
+then
+return nil
+end
+
+local resultElement = tostring ( first . type ) : match ( "^([fiu]%d+)x" )
+if resultElement == nil then
+return nil
+end
+
+return {
+left = left ,
+right = right ,
+resultType = first . type ,
+resultElement = resultElement ,
+leftIndex = leftIndex ,
+rightIndex = rightIndex ,
+neon = neon ,
+}
+end
+
+
+
+local function neonPairValue (
+temps ,
+member ,
+vector ,
+lanes ,
+sourceElement ,
+resultElement
+) 
+local loaded
+if # temps == 1 then
+loaded = temps [ 1 ] .. ".val[" .. tostring ( member ) .. "]"
+else
+local indices = { }
+for index = 0 , lanes - 1 do
+indices [ # indices + 1 ] = tostring ( index )
+end
+
+loaded = "__builtin_shufflevector(" .. temps [
+1
+] .. ".val[" .. tostring (
+member
+) .. "], " .. temps [ 2 ] .. ".val[" .. tostring ( member ) .. "], " .. table . concat ( indices , ", " ) .. ")"
+end
+
+if sourceElement ~= resultElement then
+return "__builtin_convertvector(" .. loaded .. ", ks_" .. vector .. ")"
+end
+
+return "(ks_" .. vector .. ")" .. loaded
+end
+
+
 function emit . block ( statements , depth , body ) 
 local lines = { }
 local prefix = string . rep ( "    " , depth )
 local temporary = 0
+local pairedPrevious = false
 
 
 local function nested ( inner ) 
@@ -10911,16 +11067,98 @@ lines [ # lines + 1 ] = line
 end
 end
 
-for _ , statement in ipairs ( statements ) do
+for position , statement in ipairs ( statements ) do
 local op = statement . op
+if op ~= "let" then
+pairedPrevious = false
+end
 if op == "let" then
-if statement . type ~= "simd_species_u8" then
+local pair = position > 1 and not pairedPrevious and neonFieldPair (
+statements [ position - 1 ] ,
+statement ,
+body
+) or nil
+if pair ~= nil then
+
+
+
+lines [ # lines ] = nil
+temporary = temporary + 1
+local info = pair
+local neon = info . neon
+local chunks = info . left . lanes / ( neon . lanes )
+local temps = { }
+lines [ # lines + 1 ] = prefix .. "#if defined(__aarch64__) && (defined(__clang__) || defined(__GNUC__))"
+for chunk = 0 , chunks - 1 do
+local temp = "aos" .. tostring ( temporary ) .. "_" .. tostring ( chunk )
+temps [ # temps + 1 ] = temp
+lines [
+# lines + 1
+] = prefix
+.. neon . tuple
+.. " "
+.. temp
+.. " = "
+.. neon . load
+.. "((const "
+.. neon . alias
+.. " *)&p_"
+.. info . left . span
+.. "[i + "
+.. tostring (
+chunk * ( neon . lanes )
+) .. "]);"
+end
+local previous = statements [ position - 1 ]
+lines [
+# lines + 1
+] = prefix .. emit . cType (
+previous . type
+) .. " " .. previous . cName .. " = " .. neonPairValue (
+temps ,
+info . leftIndex ,
+info . resultType ,
+info . left . lanes ,
+neon . element ,
+info . resultElement
+) .. ";"
+lines [
+# lines + 1
+] = prefix .. emit . cType (
+statement . type
+) .. " " .. statement . cName .. " = " .. neonPairValue (
+temps ,
+info . rightIndex ,
+info . resultType ,
+info . right . lanes ,
+neon . element ,
+info . resultElement
+) .. ";"
+lines [ # lines + 1 ] = prefix .. "#else"
+lines [
+# lines + 1
+] = prefix .. localCType (
+previous . type ,
+previous . value . mutable == true
+) .. previous . cName .. " = " .. emit . lane ( previous . value ) .. ";"
 lines [
 # lines + 1
 ] = prefix .. localCType (
 statement . type ,
 statement . value . mutable == true
 ) .. statement . cName .. " = " .. emit . lane ( statement . value ) .. ";"
+lines [ # lines + 1 ] = prefix .. "#endif"
+pairedPrevious = true
+elseif statement . type ~= "simd_species_u8" then
+lines [
+# lines + 1
+] = prefix .. localCType (
+statement . type ,
+statement . value . mutable == true
+) .. statement . cName .. " = " .. emit . lane ( statement . value ) .. ";"
+pairedPrevious = false
+else
+pairedPrevious = false
 end
 elseif op == "multi_let" then
 temporary = temporary + 1
@@ -11043,23 +11281,44 @@ end
 elseif op == "vwhile" then
 
 
+local immediateExit = exitsWhenEmpty ( statement . body )
 lines [
 # lines + 1
 ] = prefix .. emit . cType (
 statement . live . type
 ) .. " " .. statement . live . cName .. " = " .. emit . lane ( statement . initial ) .. ";"
+if immediateExit then
+lines [
+# lines + 1
+] = prefix .. "if (ks_any_" .. tostring ( statement . live . type ) .. "(" .. statement . live . cName .. ")) {"
+lines [ # lines + 1 ] = prefix .. "    while (true) {"
+else
 lines [
 # lines + 1
 ] = prefix .. "while (ks_any_" .. tostring ( statement . live . type ) .. "(" .. statement . live . cName .. ")) {"
+end
 lines [
 # lines + 1
-] = prefix .. "    " .. emit . cType (
+] = prefix .. (
+immediateExit and "        " or "    "
+) .. emit . cType (
 statement . executing . type
 ) .. " " .. statement . executing . cName .. " = " .. statement . live . cName .. ";"
+if immediateExit then
+for _ , line in ipairs ( emit . block ( statement . body , depth + 2 , body ) ) do
+lines [ # lines + 1 ] = line
+end
+else
 nested ( statement . body )
+end
 lines [
 # lines + 1
-] = prefix .. "    " .. statement . live . cName .. " &= " .. emit . lane ( statement . condition ) .. ";"
+] = prefix .. (
+immediateExit and "        " or "    "
+) .. statement . live . cName .. " &= " .. emit . lane ( statement . condition ) .. ";"
+if immediateExit then
+lines [ # lines + 1 ] = prefix .. "    }"
+end
 lines [ # lines + 1 ] = prefix .. "}"
 elseif op == "vwhile_uniform" then
 
@@ -11071,6 +11330,13 @@ elseif op == "vbreak" then
 local mask = emit . lane ( statement . mask )
 lines [ # lines + 1 ] = prefix .. statement . live . cName .. " &= ~(" .. mask .. ");"
 lines [ # lines + 1 ] = prefix .. statement . executing . cName .. " &= ~(" .. mask .. ");"
+if statement . exitWhenEmpty == true then
+lines [
+# lines + 1
+] = prefix .. "if (!ks_any_" .. tostring (
+statement . live . type
+) .. "(" .. statement . live . cName .. ")) break;"
+end
 elseif op == "vcontinue" then
 lines [ # lines + 1 ] = prefix .. statement . executing . cName .. " &= ~(" .. emit . lane ( statement . mask ) .. ");"
 elseif op == "fornum" then
@@ -11246,7 +11512,11 @@ local lanes = program . lanes
 local width = lanes ~= nil and ( lanes ) . lanes or 0
 local resultTypes = program . resultTypes or { }
 local resultStruct = # resultTypes > 1 and scalarIR . cIdentifier ( "KsResult" , program . symbol ) or nil
-local body = setmetatable({ helpers =  helpers ,  lanes =  width ,  resultStruct =  resultStruct }, emit.Body)
+local layouts = { }
+for _ , layout in ipairs ( program . layouts or { } ) do
+layouts [ layout . name ] = layout
+end
+local body = setmetatable({ helpers =  helpers ,  lanes =  width ,  layouts =  layouts ,  resultStruct =  resultStruct }, emit.Body)
 local general = program . body ~= nil
 if program . entryMode == "lua-builder" then
 explicitScalar = false
@@ -13536,6 +13806,12 @@ aotLane.UniformWhile = {} aotLane.UniformWhile.__index = aotLane.UniformWhile
 
 
 aotLane.Break = {} aotLane.Break.__index = aotLane.Break
+
+
+
+
+
+
 
 
 
@@ -21136,6 +21412,77 @@ end
 
 
 
+local function containsLaneContinue ( statements ) 
+for _ , statement in ipairs ( statements ) do
+if statement . op == "vcontinue" then
+return true
+end
+end
+
+return false
+end
+
+
+
+
+
+
+local function laneStatementCost ( statement ) 
+if statement . op == "vassign" then
+return math . max ( 1 , # statement . values )
+elseif statement . op == "let" then
+return 1
+end
+
+return 0
+end
+
+
+
+
+
+
+
+
+
+local function markRetirementExit ( statements ) 
+if containsLaneContinue ( statements ) then
+return nil
+end
+
+local prefixSafe = true
+for position , statement in ipairs ( statements ) do
+if statement . op == "vbreak" then
+local suffixCost = 0
+for suffix = position + 1 , # statements do
+suffixCost = suffixCost + laneStatementCost ( statements [ suffix ] )
+end
+if prefixSafe and suffixCost >= 4 then
+statement . exitWhenEmpty = true
+return nil
+end
+elseif statement . op == "let" then
+
+elseif statement . op == "vassign" then
+for _ , assignment in ipairs ( statement . values ) do
+if assignment . target . kind ~= "local" then
+prefixSafe = false
+end
+end
+else
+prefixSafe = false
+end
+end
+
+return nil
+end
+
+
+
+
+
+
+
 function rewrite . block (
 statements ,
 mask ,
@@ -21254,6 +21601,15 @@ statement . source }, lane.UniformWhile)
 else
 local context = rewrite . loopContext ( statement , readsAfter [ position ] or { } , block , state )
 local condition = rewrite . conditionMask ( statement . condition , state )
+local body = rewrite . block (
+statement . body ,
+rewrite . maskLocal ( context . executing , statement . source , state ) ,
+context ,
+nil ,
+block ,
+state
+)
+markRetirementExit ( body )
 out [
 # out + 1
 ] = setmetatable({ op =
@@ -21262,14 +21618,7 @@ context . live ,  executing =
 context . executing ,  initial =
 rewrite . maskAnd ( statementMask , condition , statement . source , state ) ,  condition =
 condition ,  body =
-rewrite . block (
-statement . body ,
-rewrite . maskLocal ( context . executing , statement . source , state ) ,
-context ,
-nil ,
-block ,
-state
-) ,  source =
+body ,  source =
 statement . source }, lane.While)
 
 end
@@ -21449,7 +21798,7 @@ local scalarIR = { }
 
 
 
-scalarIR . VERSION = 20
+scalarIR . VERSION = 21
 
 
 
@@ -23484,7 +23833,11 @@ lines [ # lines + 1 ] = prefix .. "vwhile all " .. text . expression ( statement
 nested ( statement . body )
 lines [ # lines + 1 ] = prefix .. "end"
 elseif op == "vbreak" or op == "vcontinue" then
-lines [ # lines + 1 ] = prefix .. op .. " " .. text . expression ( statement . mask )
+lines [
+# lines + 1
+] = prefix .. op .. (
+statement . exitWhenEmpty == true and " exit-if-empty " or " "
+) .. text . expression ( statement . mask )
 elseif op == "if" then
 for position , clause in ipairs ( statement . clauses ) do
 lines [
@@ -25699,6 +26052,43 @@ end
 
 
 
+local function validImmediateExit ( statements ) 
+local hasImmediateExit = false
+for _ , statement in ipairs ( statements ) do
+hasImmediateExit = hasImmediateExit or ( statement . op == "vbreak" and statement . exitWhenEmpty == true )
+end
+if not hasImmediateExit then
+return true
+end
+
+local marked = false
+local prefixSafe = true
+for _ , statement in ipairs ( statements ) do
+if statement . op == "vbreak" and statement . exitWhenEmpty == true then
+if marked or not prefixSafe then
+return false
+end
+marked = true
+elseif statement . op == "vcontinue" then
+return false
+elseif not marked then
+if statement . op == "let" then
+
+elseif statement . op == "vassign" then
+for _ , assignment in ipairs ( statement . values ) do
+if assignment . target . kind ~= "local" then
+prefixSafe = false
+end
+end
+else
+prefixSafe = false
+end
+end
+end
+
+return true
+end
+
 local function laneBlock (
 statements ,
 inherited ,
@@ -25796,6 +26186,7 @@ laneHolds (
 statement . initial . type == mask and statement . condition . type == mask ,
 "invalid lane-loop condition"
 )
+laneHolds ( validImmediateExit ( statement . body ) , "invalid immediate lane-loop exit" )
 
 local inner = inherit ( values )
 inner [ statement . live . name ] = mask
@@ -25817,6 +26208,10 @@ and statement . executing . name == loopContext . executing . name ,
 )
 laneWalk ( statement . mask , values , context )
 laneHolds ( statement . mask . type == mask , "lane loop control needs a mask" )
+laneHolds (
+statement . exitWhenEmpty == nil or ( statement . op == "vbreak" and statement . exitWhenEmpty == true ) ,
+"invalid immediate lane-loop exit"
+)
 else
 refuse ( "unknown lane statement opcode " .. tostring ( statement . op ) )
 end

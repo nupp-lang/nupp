@@ -631,6 +631,12 @@ record aotLane.Break
     mask: aotLane.Expr
     live: any
     executing: any
+
+    --- Move the loop's horizontal liveness test here. The rewrite sets this
+    --- only when the remaining iteration is expensive enough to skip and the
+    --- prefix is safe to revisit once with an empty mask.
+    exitWhenEmpty: boolean?
+
     source: aotLane.Source?
 end
 

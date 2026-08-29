@@ -1609,6 +1609,77 @@ function rewrite.containsExit(statements: {any}): boolean
     return false
 end
 
+--- Whether a rewritten lane block continues its enclosing loop.
+---
+--- Nested loops own their control flow and are deliberately not descended
+--- into. A loop with a continue cannot move its only horizontal liveness test
+--- into the middle of the body: a continued lane remains live even though it
+--- no longer executes the suffix.
+local function containsLaneContinue(statements: {any}): boolean
+    for _, statement in ipairs(statements) do
+        if statement.op == "vcontinue" then
+            return true
+        end
+    end
+
+    return false
+end
+
+--- A small target-independent estimate of work remaining in one iteration.
+---
+--- This is intentionally a count, not a target latency model. It answers only
+--- whether moving the already-required horizontal test can skip a meaningful
+--- suffix; instruction selection still decides how each expression runs.
+local function laneStatementCost(statement: any): integer
+    if statement.op == "vassign" then
+        return math.max(1, #statement.values)
+    elseif statement.op == "let" then
+        return 1
+    end
+
+    return 0
+end
+
+--- Moves a varying loop's liveness test immediately behind profitable lane
+--- retirement.
+---
+--- The transformed loop has one horizontal test per iteration, exactly as the
+--- ordinary form does. Its initial test becomes a guard and the recurring test
+--- is attached to this break. If the bottom condition retires the last lane,
+--- the next pass revisits only this proven-safe local prefix under an empty
+--- execution mask before reaching the test.
+local function markRetirementExit(statements: {any}): nil
+    if containsLaneContinue(statements) then
+        return nil
+    end
+
+    local prefixSafe = true
+    for position, statement in ipairs(statements) do
+        if statement.op == "vbreak" then
+            local suffixCost = 0
+            for suffix = position + 1, #statements do
+                suffixCost = suffixCost + laneStatementCost(statements[suffix])
+            end
+            if prefixSafe and suffixCost >= 4 then
+                statement.exitWhenEmpty = true
+                return nil
+            end
+        elseif statement.op == "let" then
+            -- Lane expressions are pure.
+        elseif statement.op == "vassign" then
+            for _, assignment in ipairs(statement.values) do
+                if assignment.target.kind ~= "local" then
+                    prefixSafe = false
+                end
+            end
+        else
+            prefixSafe = false
+        end
+    end
+
+    return nil
+end
+
 --- Rewrites a block of statements to run several iterations at once.
 ---
 --- @param mask which lanes this block runs under, or nothing at the top level
@@ -1733,6 +1804,15 @@ function rewrite.block(
             else
                 local context = rewrite.loopContext(statement, readsAfter[position] or {}, block, state)
                 local condition = rewrite.conditionMask(statement.condition, state)
+                local body = rewrite.block(
+                    statement.body,
+                    rewrite.maskLocal(context.executing, statement.source, state),
+                    context,
+                    nil,
+                    block,
+                    state
+                )
+                markRetirementExit(body)
                 out[
                     #out + 1
                 ] = new lane.While(
@@ -1741,14 +1821,7 @@ function rewrite.block(
                     executing = context.executing,
                     initial = rewrite.maskAnd(statementMask, condition, statement.source, state),
                     condition = condition,
-                    body = rewrite.block(
-                        statement.body,
-                        rewrite.maskLocal(context.executing, statement.source, state),
-                        context,
-                        nil,
-                        block,
-                        state
-                    ),
+                    body = body,
                     source = statement.source
                 )
             end
