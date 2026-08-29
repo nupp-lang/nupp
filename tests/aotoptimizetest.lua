@@ -551,4 +551,115 @@ function M.derivesBreakFlagsOnlyWhenTheFinalConditionProvesThem()
    declined(nativeCondition, "a native read was repeated after the loop")
 end
 
+-- Characterizations of the rewrite scheduler's ordering. These pin how the
+-- fused walk behaves today so a rearrangement of the driver has something
+-- sharper than suite green to answer to.
+
+function M.propagatesAndFoldsInOneIterationThenGoesQuiet()
+   local ir = program({
+      {op = "let", name = "x", cName = "x", value = integer(2, "u32"), type = "u32"},
+      {op = "return", values = {{
+         op = "u32_add", left = named("x", "u32"), right = integer(3, "u32"), type = "u32",
+      }}},
+   })
+   local stats = optimize.program(ir)
+   assert(ruleCount(stats, "propagate.local-constant") == 1)
+   assert(stats.propagatedConstants == 1)
+   assert(ir.body[#ir.body].values[1].op == "constant_i32")
+   assert(ir.body[#ir.body].values[1].value == "5")
+   assert(stats.removedStatements == 1, "the propagated let is dead in the same iteration")
+   assert(stats.iterations == 2, "one changing pass and one quiet pass")
+end
+
+function M.propagationInsertsTheSharedValueNodeItself()
+   local value = integer(2, "u32")
+   local use = {op = "return", values = {named("x", "u32")}}
+   local ir = program({
+      {op = "let", name = "x", cName = "x", value = value, type = "u32"},
+      use,
+   })
+   optimize.program(ir)
+   assert(rawequal(use.values[1], value),
+      "propagation must insert the environment's node, not a copy")
+end
+
+function M.helperValuesFoldWithoutTheBodyEnvironment()
+   local ir = program({
+      {op = "let", name = "m", cName = "m", value = integer(7, "u32"), type = "u32"},
+      {op = "return", values = {
+         named("m", "u32"),
+         {
+            op = "helper_call", helper = "bump", cName = "bump",
+            args = {named("q", "u32")}, resultTypes = {"u32"}, type = "u32",
+         },
+      }},
+   })
+   ir.helpers = {{
+      name = "bump", cName = "bump",
+      params = {{op = "helper_param", name = "value", cName = "value_1", type = "u32"}},
+      values = {{
+         op = "u32_add", left = named("m", "u32"), right = integer(1, "u32"), type = "u32",
+      }},
+      resultType = "u32", resultTypes = {"u32"},
+   }}
+   local stats = optimize.program(ir)
+   assert(stats.specializedHelperCalls == 0, "a nonliteral argument blocks specialization")
+   assert(ir.helpers[1].values[1].left.op == "local",
+      "a helper value never sees the body's constant environment")
+   assert(stats.propagatedConstants == 1, "only the body use of m propagates")
+end
+
+function M.specializedReplacementsWaitForTheNextPassToPropagate()
+   local body = {}
+   for index = 1, 10 do
+      body[index] = {
+         op = "let", name = "pad" .. index, cName = "pad" .. index,
+         value = integer(index, "u32"), type = "u32",
+      }
+   end
+   body[#body + 1] = {op = "let", name = "m", cName = "m", value = integer(7, "u32"), type = "u32"}
+   body[#body + 1] = {op = "return", values = {{
+      op = "helper_call", helper = "bump", cName = "bump", args = {},
+      resultTypes = {"u32"}, type = "u32",
+   }}}
+   local ir = program(body)
+   ir.helpers = {{
+      name = "bump", cName = "bump", params = {},
+      values = {{
+         op = "u32_add", left = named("m", "u32"), right = integer(1, "u32"), type = "u32",
+      }},
+      resultType = "u32", resultTypes = {"u32"},
+   }}
+   local stats = optimize.program(ir)
+   assert(stats.specializedHelperCalls == 1)
+   assert(stats.propagatedConstants == 1)
+   assert(ir.body[#ir.body].values[1].op == "constant_i32")
+   assert(ir.body[#ir.body].values[1].value == "8")
+   assert(stats.iterations == 3,
+      "a specialized body meets the constant environment only on the next pass")
+end
+
+function M.declinedSpecializationChangesNothing()
+   local chain = named("value", "u32")
+   for _ = 1, 12 do
+      chain = {op = "u32_add", left = chain, right = named("value", "u32"), type = "u32"}
+   end
+   local ir = program({
+      {op = "return", values = {{
+         op = "helper_call", helper = "wide", cName = "wide",
+         args = {integer(1, "u32")}, resultTypes = {"u32"}, type = "u32",
+      }}},
+   })
+   ir.helpers = {{
+      name = "wide", cName = "wide",
+      params = {{op = "helper_param", name = "value", cName = "value", type = "u32"}},
+      values = {chain},
+      resultType = "u32", resultTypes = {"u32"},
+   }}
+   local stats = optimize.program(ir)
+   assert(stats.specializedHelperCalls == 0, "growth beyond the budget declines")
+   assert(ir.body[1].values[1].op == "helper_call", "the call survives a declined proposal")
+   assert(stats.iterations == 1, "a declined proposal marks nothing changed")
+end
+
 return M
