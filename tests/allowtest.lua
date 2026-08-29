@@ -63,6 +63,207 @@ local CHAIN = table.concat({
    "end",
 }, "\n")
 
+local function source(...)
+   return table.concat({...}, "\n")
+end
+
+-- One pair per registry entry: the smallest source that demonstrates the
+-- judgement, and a neighbouring source just outside it. Keeping these keyed by
+-- code makes an added lint incomplete until both sides of its boundary exist.
+local lintFixtures = {
+   NUPP2120 = {
+      reports = "return lints.get('NUPP2107')",
+      quiet = source(
+         "local lints = require('nupp.compiler.lints')",
+         "return lints.get('NUPP2107')"),
+   },
+   NUPP2107 = {
+      reports = COLOR .. "\n" .. CHAIN,
+      quiet = COLOR .. "\n" .. source(
+         "local function name(c: Color): string",
+         "    if c == 'red' then",
+         "        return 'r'",
+         "    else",
+         "        return '?'",
+         "    end",
+         "end"),
+   },
+   NUPP2501 = {
+      reports = "return ffi.cast<cstring>('a' .. 'b')",
+      quiet = source(
+         "local text = 'a' .. 'b'",
+         "return ffi.cast<cstring>(text)"),
+   },
+   NUPP2502 = {
+      reports = source(
+         "cdef function each(fn: function(int32), n: int32)",
+         "local function visit(value: int32) print(value) end",
+         "local function run() each(visit, 1) end",
+         "return run"),
+      quiet = source(
+         "cdef function each(fn: function(int32), n: int32)",
+         "local function visit(value: int32) print(value) end",
+         "jit.off(visit)",
+         "local function run() each(visit, 1) end",
+         "return run"),
+   },
+   NUPP2504 = {
+      reports = "local value = true\nreturn !value",
+      quiet = "local value = true\nreturn not value",
+   },
+   NUPP2505 = {
+      reports = source(
+         "for i = 1, 10 do",
+         "   register(function() return 1 end)",
+         "end"),
+      quiet = source(
+         "for i = 1, 10 do",
+         "   register(function() return i end)",
+         "end"),
+   },
+   NUPP2506 = {
+      reports = source(
+         "--- Loads a value.",
+         "local function load() error('missing') end",
+         "return load"),
+      quiet = source(
+         "--- Loads a value.",
+         "--- @raises when the value is missing",
+         "local function load() error('missing') end",
+         "return load"),
+   },
+   NUPP2507 = {
+      reports = "local value = 1\nreturn 2",
+      quiet = "local value = 1\nreturn value",
+   },
+   NUPP2508 = {
+      reports = source(
+         "local function double(value: number): number return value * 2 end",
+         "double(21)",
+         "return double"),
+      quiet = source(
+         "local function double(value: number): number return value * 2 end",
+         "local answer = double(21)",
+         "return answer"),
+   },
+   NUPP2509 = {
+      reports = source(
+         "local record Vec2",
+         "   x: float",
+         "   y: float",
+         "end"),
+      quiet = source(
+         "local record Vec2",
+         "   x: float",
+         "   label: string",
+         "end"),
+   },
+   NUPP2510 = {
+      reports = source(
+         "if first then",
+         "   firstAction()",
+         "else",
+         "   if second then secondAction() end",
+         "end"),
+      quiet = source(
+         "if first then",
+         "   firstAction()",
+         "elseif second then",
+         "   secondAction()",
+         "end"),
+   },
+   NUPP2511 = {
+      reports = source(
+         "local interface Holds",
+         "   associated type Item",
+         "end",
+         "local function held<T is Holds>(value: T): T.Item",
+         "   return nil as any",
+         "end",
+         "return held(nil as any)"),
+      quiet = source(
+         "local interface Holds",
+         "   associated type Item",
+         "end",
+         "local record Typed is Holds",
+         "   associated type Item = string",
+         "end",
+         "local function held<T is Holds>(value: T): T.Item",
+         "   return nil as any",
+         "end",
+         "return held(new Typed())"),
+   },
+   NUPP2512 = {
+      reports = source(
+         "local record Point",
+         "   x: integer",
+         "   y: integer",
+         "end",
+         "return new Point(1, 2)"),
+      quiet = source(
+         "local record Point",
+         "   x: integer",
+         "   y: integer",
+         "end",
+         "return new Point(x = 1, y = 2)"),
+   },
+   NUPP2513 = {
+      reports = source(
+         "@deprecated local function legacy(): integer return 1 end",
+         "return legacy()"),
+      quiet = source(
+         "@deprecated local function legacy(): integer return 1 end",
+         "return 1"),
+   },
+   NUPP2514 = {
+      reports = source(
+         "cdef function printf(format: cstring, ...): int32",
+         "local function run() printf('%d', 1) end",
+         "return run"),
+      quiet = source(
+         "cdef function printf(format: cstring, ...): int32",
+         "local function run() printf('%d', 1) end",
+         "jit.off(run)",
+         "return run"),
+   },
+   NUPP2515 = {
+      reports = source(
+         "for _, item in ipairs(items) do",
+         "   register(function() return item.id end)",
+         "end"),
+      quiet = source(
+         "for _, item in ipairs(items) do",
+         "   register(function() return item.id end)",
+         "   break",
+         "end"),
+   },
+   NUPP2516 = {
+      reports = source(
+         "module fixture",
+         "local record Coordinate x: number end",
+         "export record Point coordinate: Coordinate end"),
+      quiet = source(
+         "module fixture",
+         "export record Coordinate x: number end",
+         "export record Point coordinate: Coordinate end"),
+      opts = {moduleName = "fixture"},
+   },
+   NUPP2517 = {
+      reports = source(
+         "const workers = require('nupp.workers')",
+         "local function run(): nil",
+         "   with scope = workers.scope() do scope:close() end",
+         "end",
+         "return run"),
+      quiet = source(
+         "const tasks = require('nupp.tasks')",
+         "tasks.run(function(scope: tasks.Scope): nil",
+         "   local parallel = scope:workers()",
+         "   print(parallel)",
+         "end)"),
+   },
+}
+
 local M = {}
 
 local function environmentWithPreludeDiagnostic(severity)
@@ -148,6 +349,36 @@ function M.everyLintIsWellFormed()
    for category in pairs(check.lintCategories) do
       assert(categoryMembers[category],
          "lint category has no members: " .. category)
+   end
+end
+
+function M.everyLintHasAReportingAndQuietFixture()
+   local registered = {}
+   for _, lint in ipairs(check.lints) do
+      registered[lint.code] = true
+      local fixture = lintFixtures[lint.code]
+      assert(fixture, "lint " .. lint.name .. ": needs a fixture pair")
+
+      local function diagnosticsFor(src)
+         local opts = {}
+         for key, value in pairs(fixture.opts or {}) do opts[key] = value end
+         opts.lints = withFragmentDefaults({[lint.name] = "warning"})
+         return checkOf(src, opts)
+      end
+
+      local reported = 0
+      for _, diag in ipairs(diagnosticsFor(fixture.reports)) do
+         if diag.code == lint.code then reported = reported + 1 end
+      end
+      assertEq(reported, 1, "lint " .. lint.name .. ": reporting fixture")
+
+      for _, diag in ipairs(diagnosticsFor(fixture.quiet)) do
+         assert(diag.code ~= lint.code,
+            "lint " .. lint.name .. ": quiet fixture reported it")
+      end
+   end
+   for code in pairs(lintFixtures) do
+      assert(registered[code], "fixture has no registered lint: " .. code)
    end
 end
 

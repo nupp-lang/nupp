@@ -136,17 +136,6 @@ work makes sense in.
       corpus for lexer/parser round-trip and fmt idempotency (`fmt∘fmt = fmt`,
       `parse∘fmt = parse`); minimize and check in failures as regression
       fixtures.
-- [ ] **Every lint has to be exercised, by construction.** All twelve have a
-      test today, but nothing enforces it: the next one can land untested and
-      the suite stays green. `tests/allowtest.lua:everyLintIsWellFormed`
-      already iterates `check.lints` to check each entry's shape, so the missing
-      half is a fixture table keyed by code — one source that must report it,
-      one neighbouring source that must not — driven off the same registry, so
-      a lint with no fixture fails the run rather than being noticed later.
-
-      Both halves matter. `reifiable-record` was written whitelist-first and
-      the silent cases are most of its value; a lint with only a positive test
-      passes while firing on everything.
 - [ ] **`tests/profiletest.lua traceRecordsWhereTheCompilerGaveUp` is
       flaky.** Recorded failing once in six runs with "unrecordable bytecode
       must be reported"; it depends on the JIT attempting and aborting a trace
