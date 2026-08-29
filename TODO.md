@@ -14,20 +14,6 @@ work makes sense in.
 
 ## Build, codegen and distribution
 
-- [x] **`nupp test` can hang at the join instead of finishing.** Embedded test
-      workers discovered suites with concurrent `io.popen` calls. libc walks and
-      locks the process-wide stdio table for `popen`, so the worker states could
-      deadlock one another after every useful test had finished. The parent now
-      supplies the suite catalog, and process calls that escape lane
-      classification fail with a result instead of hanging the run.
-
-- [x] **Full-suite failures that no suite reproduces on its own.** The compiler
-      completion-stamp race accounted for keys moving during `hostbinarytest`.
-      The remaining shared-state candidate was real too: cache-repair cases in
-      `aotbuildtest` deleted, corrupted, or changed one cached `emit-c` project.
-      Mutating cache assertions now build private fixtures; only read-only cases
-      share the warm project.
-
 - [ ] **Single-binary host.** LuaJIT, LPeg, luautf8, libuv, ada,
       libcurl and mbedTLS are pinned by revision and SHA-256 and built from
       source by `scripts/toolchain`, not committed. LPeg is a small optional
@@ -55,12 +41,6 @@ work makes sense in.
         only name assets that already exist. So cross-target stamping is a
         second-release feature whatever happens now; no source translation step
         remains to land before it.
-- [x] **A `lua51` cleanup region hides an installed suspension handler.** Cleanup
-      and portable protected-call wrappers now create their coroutine through the
-      selected suspension runtime when one has loaded, inheriting the current
-      handler. Provider bindings publish their promised surface after loading so
-      this hook can be read without recursively loading the provider. Browser
-      suspension installation is affine again.
 
 ## Transport security
 
