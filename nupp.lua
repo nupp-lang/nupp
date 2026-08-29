@@ -163,6 +163,14 @@ local RESOURCES = {
    },
    {source = "src/nupp/wasm.nupp", output = "nupp/compiler/nupp/wasm.nupp"},
    {
+      source = "src/nupp/runtime/seam/base64.nupp",
+      output = "nupp/compiler/nupp/runtime/seam/base64.nupp",
+   },
+   {
+      source = "src/nupp/runtime/seam/base64suite.nupp",
+      output = "nupp/compiler/nupp/runtime/seam/base64suite.nupp",
+   },
+   {
       source = "src/nupp/runtime/seam/json.nupp",
       output = "nupp/compiler/nupp/runtime/seam/json.nupp",
    },
@@ -179,6 +187,7 @@ local RESOURCES = {
       output = "nupp/compiler/nupp/runtime/seam/bitopssuite.nupp",
    },
    {source = "src/nupp/data/utf8.nupp", output = "nupp/compiler/nupp/data/utf8.nupp"},
+   {source = "src/nupp/data/base64.nupp", output = "nupp/compiler/nupp/data/base64.nupp"},
    {source = "src/nupp/runtime/native.nupp", output = "nupp/compiler/nupp/runtime/native.nupp"},
    {source = "src/nupp/data/init.nupp", output = "nupp/compiler/nupp/data/init.nupp"},
    {source = "src/nupp/mem/init.nupp", output = "nupp/compiler/nupp/mem/init.nupp"},

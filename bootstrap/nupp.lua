@@ -193138,6 +193138,325 @@ end
 
 export = reflectruntime
 ]=],
+["/nupp/data/base64.nupp"] = [=[
+module nupp.data.base64
+
+--[[
+Standard base64, encoded and decoded as `@aot` entries.
+
+The alphabet and its inverse are `const` strings, so a compiled entry reads
+them out of static arrays whose bounds the C compiler holds rather than out of
+a rooted argument whose length it must load. With `aot = "off"` this is the
+same source on LuaJIT.
+
+Whole words rather than single bytes on both sides: twelve input bytes are
+three aligned words and four twenty-four bit groups, and four output bytes are
+one word. `bench/base64` measures what that is worth, and measures this
+against the vectorized C it could be.
+]]
+
+local valuebuilder = require("nupp.data.valuebuilder")
+
+local base64 = {}
+
+const ALPHABET = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/"
+
+--- The alphabet's inverse, indexed by byte. 255 is not a base64 character.
+const INVERSE = "\255\255\255\255\255\255\255\255\255\255\255\255\255\255\255\255\255\255\255\255\255\255\255\255\255\255\255\255\255\255\255\255\255\255\255\255\255\255\255\255\255\255\255\062\255\255\255\063\052\053\054\055\056\057\058\059\060\061\255\255\255\255\255\255\255\000\001\002\003\004\005\006\007\008\009\010\011\012\013\014\015\016\017\018\019\020\021\022\023\024\025\255\255\255\255\255\255\026\027\028\029\030\031\032\033\034\035\036\037\038\039\040\041\042\043\044\045\046\047\048\049\050\051\255\255\255\255\255\255\255\255\255\255\255\255\255\255\255\255\255\255\255\255\255\255\255\255\255\255\255\255\255\255\255\255\255\255\255\255\255\255\255\255\255\255\255\255\255\255\255\255\255\255\255\255\255\255\255\255\255\255\255\255\255\255\255\255\255\255\255\255\255\255\255\255\255\255\255\255\255\255\255\255\255\255\255\255\255\255\255\255\255\255\255\255\255\255\255\255\255\255\255\255\255\255\255\255\255\255\255\255\255\255\255\255\255\255\255\255\255\255\255\255\255\255\255\255\255\255\255\255\255\255\255\255\255"
+
+-- The sentinel a decode publishes instead of a string when the text is not
+-- base64. Private, so no caller can pass a value that collides with it.
+const INVALID = {}
+
+local function u32(value: integer): uint32
+    return nupp.math.u32.wrap(value)
+end
+
+local function add(a: uint32, b: uint32): uint32
+    return nupp.math.u32.add(a, b)
+end
+
+local function shr(value: uint32, count: uint32): uint32
+    return nupp.math.u32.shiftRightLogical(value, count)
+end
+
+local function shl(value: uint32, count: uint32): uint32
+    return nupp.math.u32.shiftLeft(value, count)
+end
+
+local function andBits(a: uint32, b: uint32): uint32
+    return nupp.math.u32.andBits(a, b)
+end
+
+local function orBits(a: uint32, b: uint32): uint32
+    return nupp.math.u32.orBits(a, b)
+end
+
+-- One native-endian word as the big-endian view the encoding is stated in.
+-- `nupp.data.digest` spells the same reversal in `int32`; every target
+-- `targetlayout` models is little-endian, so neither is conditional.
+local function reversed(word: uint32): uint32
+    return orBits(
+        orBits(shl(word, u32(24)), shl(andBits(word, u32(65280)), u32(8))),
+        orBits(andBits(shr(word, u32(8)), u32(65280)), shr(word, u32(24)))
+    )
+end
+
+--- @raises when the builder cannot allocate or publish
+@aot(lanes = false)
+local function encodeAot(source: string, nullValue: any): any
+    local length = valuebuilder.length(source)
+    -- Four output bytes per three input, about `1.34n`. There is no division
+    -- among the admitted uint32 intrinsics and `1.5n + 4` covers every `n`.
+    local bound = add(add(length, shr(length, u32(1))), u32(4))
+    local builder = valuebuilder.newSized(nullValue, u32(2), bound)
+    local scratch = valuebuilder.newByteScratch(bound)
+
+    local at: uint32 = u32(0)
+    local out: uint32 = u32(0)
+    while add(at, u32(12)) <= length do
+        local wi = shr(at, u32(2))
+        local w0 = reversed(valuebuilder.word(source, wi))
+        local w1 = reversed(valuebuilder.word(source, add(wi, u32(1))))
+        local w2 = reversed(valuebuilder.word(source, add(wi, u32(2))))
+
+        local g0 = shr(w0, u32(8))
+        local g1 = orBits(shl(andBits(w0, u32(255)), u32(16)), shr(w1, u32(16)))
+        local g2 = orBits(shl(andBits(w1, u32(65535)), u32(8)), shr(w2, u32(24)))
+        local g3 = andBits(w2, u32(16777215))
+
+        valuebuilder.setScratchBytes4(
+            scratch,
+            out,
+            orBits(
+                orBits(
+                    valuebuilder.byte(ALPHABET, andBits(shr(g0, u32(18)), u32(63))),
+                    shl(valuebuilder.byte(ALPHABET, andBits(shr(g0, u32(12)), u32(63))), u32(8))
+                ),
+                orBits(
+                    shl(valuebuilder.byte(ALPHABET, andBits(shr(g0, u32(6)), u32(63))), u32(16)),
+                    shl(valuebuilder.byte(ALPHABET, andBits(g0, u32(63))), u32(24))
+                )
+            )
+        )
+        valuebuilder.setScratchBytes4(
+            scratch,
+            add(out, u32(4)),
+            orBits(
+                orBits(
+                    valuebuilder.byte(ALPHABET, andBits(shr(g1, u32(18)), u32(63))),
+                    shl(valuebuilder.byte(ALPHABET, andBits(shr(g1, u32(12)), u32(63))), u32(8))
+                ),
+                orBits(
+                    shl(valuebuilder.byte(ALPHABET, andBits(shr(g1, u32(6)), u32(63))), u32(16)),
+                    shl(valuebuilder.byte(ALPHABET, andBits(g1, u32(63))), u32(24))
+                )
+            )
+        )
+        valuebuilder.setScratchBytes4(
+            scratch,
+            add(out, u32(8)),
+            orBits(
+                orBits(
+                    valuebuilder.byte(ALPHABET, andBits(shr(g2, u32(18)), u32(63))),
+                    shl(valuebuilder.byte(ALPHABET, andBits(shr(g2, u32(12)), u32(63))), u32(8))
+                ),
+                orBits(
+                    shl(valuebuilder.byte(ALPHABET, andBits(shr(g2, u32(6)), u32(63))), u32(16)),
+                    shl(valuebuilder.byte(ALPHABET, andBits(g2, u32(63))), u32(24))
+                )
+            )
+        )
+        valuebuilder.setScratchBytes4(
+            scratch,
+            add(out, u32(12)),
+            orBits(
+                orBits(
+                    valuebuilder.byte(ALPHABET, andBits(shr(g3, u32(18)), u32(63))),
+                    shl(valuebuilder.byte(ALPHABET, andBits(shr(g3, u32(12)), u32(63))), u32(8))
+                ),
+                orBits(
+                    shl(valuebuilder.byte(ALPHABET, andBits(shr(g3, u32(6)), u32(63))), u32(16)),
+                    shl(valuebuilder.byte(ALPHABET, andBits(g3, u32(63))), u32(24))
+                )
+            )
+        )
+
+        at = add(at, u32(12))
+        out = add(out, u32(16))
+    end
+
+    while add(at, u32(3)) <= length do
+        local b0 = valuebuilder.byte(source, at)
+        local b1 = valuebuilder.byte(source, add(at, u32(1)))
+        local b2 = valuebuilder.byte(source, add(at, u32(2)))
+        valuebuilder.setScratchByte(scratch, out, valuebuilder.byte(ALPHABET, shr(b0, u32(2))))
+        valuebuilder.setScratchByte(
+            scratch,
+            add(out, u32(1)),
+            valuebuilder.byte(ALPHABET, orBits(shl(andBits(b0, u32(3)), u32(4)), shr(b1, u32(4))))
+        )
+        valuebuilder.setScratchByte(
+            scratch,
+            add(out, u32(2)),
+            valuebuilder.byte(ALPHABET, orBits(shl(andBits(b1, u32(15)), u32(2)), shr(b2, u32(6))))
+        )
+        valuebuilder.setScratchByte(scratch, add(out, u32(3)), valuebuilder.byte(ALPHABET, andBits(b2, u32(63))))
+        at = add(at, u32(3))
+        out = add(out, u32(4))
+    end
+
+    local rest = nupp.math.u32.sub(length, at)
+    if rest == 1 then
+        local c0 = valuebuilder.byte(source, at)
+        valuebuilder.setScratchByte(scratch, out, valuebuilder.byte(ALPHABET, shr(c0, u32(2))))
+        valuebuilder.setScratchByte(
+            scratch,
+            add(out, u32(1)),
+            valuebuilder.byte(ALPHABET, shl(andBits(c0, u32(3)), u32(4)))
+        )
+        valuebuilder.setScratchByte(scratch, add(out, u32(2)), u32(61))
+        valuebuilder.setScratchByte(scratch, add(out, u32(3)), u32(61))
+        out = add(out, u32(4))
+    elseif rest == 2 then
+        local d0 = valuebuilder.byte(source, at)
+        local d1 = valuebuilder.byte(source, add(at, u32(1)))
+        valuebuilder.setScratchByte(scratch, out, valuebuilder.byte(ALPHABET, shr(d0, u32(2))))
+        valuebuilder.setScratchByte(
+            scratch,
+            add(out, u32(1)),
+            valuebuilder.byte(ALPHABET, orBits(shl(andBits(d0, u32(3)), u32(4)), shr(d1, u32(4))))
+        )
+        valuebuilder.setScratchByte(
+            scratch,
+            add(out, u32(2)),
+            valuebuilder.byte(ALPHABET, shl(andBits(d1, u32(15)), u32(2)))
+        )
+        valuebuilder.setScratchByte(scratch, add(out, u32(3)), u32(61))
+        out = add(out, u32(4))
+    end
+
+    valuebuilder.stringScratch(builder, scratch, u32(0), out)
+
+    return valuebuilder.finish(builder)
+end
+
+--- Publishes `nullValue` rather than a string when the text holds a character
+--- outside the alphabet. An `@aot` body has no `error` of its own, and the
+--- caller cannot be asked to pre-scan the input without paying for the scan
+--- twice, so invalidity leaves through the value and `base64.decode` raises.
+@aot(lanes = false)
+local function decodeAot(text: string, nullValue: any): any
+    local length = valuebuilder.length(text)
+    local builder = valuebuilder.newSized(nullValue, u32(2), add(length, u32(4)))
+    local scratch = valuebuilder.newByteScratch(add(length, u32(4)))
+
+    local padding: uint32 = u32(0)
+    if length > 0 then
+        if valuebuilder.byte(text, nupp.math.u32.sub(length, u32(1))) == 61 then
+            padding = u32(1)
+        end
+        if length > 1 and valuebuilder.byte(text, nupp.math.u32.sub(length, u32(2))) == 61 then
+            padding = u32(2)
+        end
+    end
+
+    local at: uint32 = u32(0)
+    local out: uint32 = u32(0)
+    local bad: uint32 = u32(0)
+    local whole = length
+    if padding > 0 then
+        whole = nupp.math.u32.sub(length, u32(4))
+    end
+    while at < whole do
+        local a = valuebuilder.byte(INVERSE, valuebuilder.byte(text, at))
+        local b = valuebuilder.byte(INVERSE, valuebuilder.byte(text, add(at, u32(1))))
+        local c = valuebuilder.byte(INVERSE, valuebuilder.byte(text, add(at, u32(2))))
+        local d = valuebuilder.byte(INVERSE, valuebuilder.byte(text, add(at, u32(3))))
+        bad = orBits(bad, orBits(orBits(a, b), orBits(c, d)))
+        local value = orBits(orBits(shl(a, u32(18)), shl(b, u32(12))), orBits(shl(c, u32(6)), d))
+        valuebuilder.setScratchByte(scratch, out, andBits(shr(value, u32(16)), u32(255)))
+        valuebuilder.setScratchByte(scratch, add(out, u32(1)), andBits(shr(value, u32(8)), u32(255)))
+        valuebuilder.setScratchByte(scratch, add(out, u32(2)), andBits(value, u32(255)))
+        at = add(at, u32(4))
+        out = add(out, u32(3))
+    end
+
+    if padding > 0 then
+        local a = valuebuilder.byte(INVERSE, valuebuilder.byte(text, at))
+        local b = valuebuilder.byte(INVERSE, valuebuilder.byte(text, add(at, u32(1))))
+        local c: uint32 = u32(0)
+        if padding == 1 then
+            c = valuebuilder.byte(INVERSE, valuebuilder.byte(text, add(at, u32(2))))
+        end
+        bad = orBits(bad, orBits(orBits(a, b), c))
+        local value = orBits(orBits(shl(a, u32(18)), shl(b, u32(12))), shl(c, u32(6)))
+        valuebuilder.setScratchByte(scratch, out, andBits(shr(value, u32(16)), u32(255)))
+        out = add(out, u32(1))
+        if padding == 1 then
+            valuebuilder.setScratchByte(scratch, out, andBits(shr(value, u32(8)), u32(255)))
+            out = add(out, u32(1))
+        end
+    end
+
+    if bad > 63 then
+        valuebuilder.null(builder)
+    else
+        valuebuilder.stringScratch(builder, scratch, u32(0), out)
+    end
+
+    return valuebuilder.finish(builder)
+end
+
+--- Encodes bytes as standard base64, padded.
+---
+--- ```nupp
+--- assert(nupp.data.base64.encode("Nupp") == "TnVwcA==")
+--- ```
+--- @param value the bytes to encode
+--- @return the encoded text
+--- @export
+function base64.encode(value: string): string
+    -- A backend may install something faster than this compiles to: in a
+    -- browser the host's own base64 reads the bytes where they already are,
+    -- which `bench/base64/results/wasm-host-vs-compiled.md` measures at about
+    -- six times this. Absent one, the compiled entry is the answer.
+    local provider = rawget(_G, "__nuppBase64")
+    if provider ~= nil then
+        return provider.encode(value)
+    end
+
+    return encodeAot(value, false) as string
+end
+
+--- Decodes standard base64, padded.
+---
+--- ```nupp
+--- assert(nupp.data.base64.decode("TnVwcA==") == "Nupp")
+--- ```
+--- @param text the text to decode
+--- @return the decoded bytes
+--- @raises when the length is not a multiple of four, or a character is not in
+---     the alphabet
+--- @export
+function base64.decode(text: string): string
+    local provider = rawget(_G, "__nuppBase64")
+    if provider ~= nil then
+        return provider.decode(text)
+    end
+    if #text % 4 ~= 0 then
+        error("nupp: base64 input length is not a multiple of four", 2)
+    end
+    local decoded = decodeAot(text, INVALID)
+    if decoded == INVALID then
+        error("nupp: base64 input has a character outside the alphabet", 2)
+    end
+
+    return decoded as string
+end
+
+export = base64
+]=],
 ["/nupp/data/digest.nupp"] = [=[
 @!internal
 
@@ -223291,6 +223610,71 @@ end
 
 export = factory
 ]=],
+["/nupp/runtime/seam/base64.nupp"] = [[
+module nupp.runtime.seam.base64
+
+local common = require("nupp.runtime.seam.module")
+local runtimeBackend = require("nupp.runtime.backend")
+local seam = {moduleName = "nupp.runtime.seam.base64", suiteModuleName = "nupp.runtime.seam.base64suite",}
+local CONTRACT = common.contract("data.base64", {
+    globalName = "__nuppBase64",
+    requiredFunctions = {"encode", "decode"},
+    requiredValues = {},
+    suiteModule = seam.suiteModuleName,
+})
+
+function seam.validate(value: any): string?
+    return common.validate(CONTRACT, value)
+end
+
+function seam.seam(moduleName: string): runtimeBackend.Seam
+    return common.seam(CONTRACT, moduleName)
+end
+
+function seam.backend(moduleName: string): runtimeBackend.Backend
+    return runtimeBackend.new("base64:" .. moduleName, {seam.seam(moduleName)})
+end
+
+export = seam
+]],
+["/nupp/runtime/seam/base64suite.nupp"] = [[
+@!internal
+module nupp.runtime.seam.base64suite
+local suite = {}
+
+--- RFC 4648's own vectors, which pin the alphabet and both padding cases, and
+--- a round trip over every byte so no entry of the alphabet or its inverse
+--- goes untried by a provider that claims this seam.
+function suite.test(provider: any): (boolean, string?)
+    local ok, problem = pcall(function()
+        assert(provider.encode("") == "", "encode must answer the empty string with itself")
+        assert(provider.encode("f") == "Zg==", "encode must pad a one-byte remainder with two")
+        assert(provider.encode("fo") == "Zm8=", "encode must pad a two-byte remainder with one")
+        assert(provider.encode("foo") == "Zm9v", "encode must leave a whole group unpadded")
+        assert(provider.encode("foobar") == "Zm9vYmFy", "encode must carry across groups")
+        assert(provider.decode("") == "", "decode must answer the empty string with itself")
+        assert(provider.decode("Zg==") == "f", "decode must drop two padding characters")
+        assert(provider.decode("Zm8=") == "fo", "decode must drop one padding character")
+        assert(provider.decode("Zm9vYmFy") == "foobar", "decode must carry across groups")
+
+        local bytes = {}
+        for value = 0, 255 do
+            bytes[#bytes + 1] = string.char(value)
+        end
+        local all = table.concat(bytes)
+        assert(provider.decode(provider.encode(all)) == all, "every byte must survive a round trip")
+        assert(not pcall(provider.decode, "abc"), "decode must refuse a length that is not a quantum")
+        assert(not pcall(provider.decode, "ab!="), "decode must refuse a character outside the alphabet")
+    end)
+    if not ok then
+        return false, tostring(problem)
+    end
+
+    return true
+end
+
+export = suite
+]],
 ["/nupp/runtime/seam/bitops.nupp"] = [=[
 module nupp.runtime.seam.bitops
 
