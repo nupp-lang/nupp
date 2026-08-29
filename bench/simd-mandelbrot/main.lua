@@ -5,8 +5,8 @@
 local ffi = require("ffi")
 
 local here = assert(debug.getinfo(1, "S").source:match("^@(.*[/\\])"))
-local now = dofile(here .. "wallclock.lua")
-local out = here .. "build/simd_mandelbrot/"
+local now = dofile(here .. "clock.lua")
+local out = here .. "build/preferred/"
 
 ffi.cdef [[
 typedef struct { int32_t lane; int32_t groupOffset; } KsForgoStream;
@@ -18,10 +18,10 @@ void ks_simd_mandelbrot_forced_scalar(int32_t *sums,
     int32_t width, int32_t height, int32_t maxIterations, size_t count);
 ]]
 
-local lib = ffi.load(out .. "libsimd_mandelbrot" ..
+local lib = ffi.load(out .. "libmandelbrot" ..
     (jit.os == "OSX" and ".dylib" or ".so"))
-local libX4 = ffi.load(out .. "../simd_mandelbrot_x4/" ..
-    "libsimd_mandelbrot_x4" .. (jit.os == "OSX" and ".dylib" or ".so"))
+local libX4 = ffi.load(out .. "../equal-width/" ..
+    "libmandelbrot_x4" .. (jit.os == "OSX" and ".dylib" or ".so"))
 local width = tonumber(os.getenv("MANDELBROT_WIDTH") or 1024)
 local height = tonumber(os.getenv("MANDELBROT_HEIGHT") or 768)
 local maxIterations = tonumber(os.getenv("MANDELBROT_ITERATIONS") or 256)
