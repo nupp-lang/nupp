@@ -170,19 +170,33 @@ function M.mapperAndEffectVocabulariesMatchTheScalarDeclarations()
          expected[path] = true
          return {op = "constant", value = "0.0", type = "f64", _auditPath = path}
       end
+      -- Lists get two elements so a mapper that visits only the first is
+      -- caught, not just one that skips the list entirely.
       makeValue = function(typeText, path)
          if typeText:find("scalarIR.Expr", 1, true) then
-            if typeText:sub(1, 1) == "{" then return {sentinel(path .. "[]")} end
+            if typeText:sub(1, 1) == "{" then return {sentinel(path .. "[1]"), sentinel(path .. "[2]")} end
             return sentinel(path)
          end
          local referred = typeText:match("scalarIR%.([%w_]+)")
          if referred and expressionRecords[referred] then
-            if typeText:sub(1, 1) == "{" then return {sentinel(path .. "[]")} end
+            if typeText:sub(1, 1) == "{" then return {sentinel(path .. "[1]"), sentinel(path .. "[2]")} end
             return sentinel(path)
          elseif referred and records[referred] and referred ~= "Source" and not active[referred] then
-            if typeText:sub(1, 1) == "{" then return {makeRecord(referred, nil, path .. "[]")} end
+            if typeText:sub(1, 1) == "{" then
+               return {makeRecord(referred, nil, path .. "[1]"), makeRecord(referred, nil, path .. "[2]")}
+            end
             return makeRecord(referred, nil, path)
-         elseif typeText:sub(1, 1) == "{" then
+         end
+         -- A named scalarIR type the resolver cannot place would silently
+         -- under-cover the audit; refuse it instead of defaulting. Source and
+         -- guarded recursion are known Expr-free, and a named alias must not
+         -- hide expressions behind its name.
+         if referred and not records[referred] and referred ~= "Type" then
+            local alias = aliases[referred]
+            assert(alias, "the audit cannot classify " .. typeText)
+            assert(not alias:find("Expr", 1, true), "alias " .. referred .. " hides expressions from the audit")
+         end
+         if typeText:sub(1, 1) == "{" then
             return {}
          elseif typeText:find("boolean", 1, true) then
             return false
@@ -222,6 +236,66 @@ function M.mapperAndEffectVocabulariesMatchTheScalarDeclarations()
    for name in pairs(statementRecords) do
       for _, op in ipairs(recordOps(name)) do auditRecord(name, op, visit.statementExpressions) end
    end
+end
+
+-- The audit above covers direct children; block recursion lives in the
+-- observing walk and needs its own witness, or a dropped elseBody descent
+-- would pass every mapper check.
+function M.observingWalkReachesEveryNestedBlockAndEveryListElement()
+   local function let(name)
+      return {op = "let", name = name, cName = name, value = localValue(name), type = "u32"}
+   end
+   local program = {
+      body = {
+         {
+            op = "if",
+            clauses = {
+               {condition = localValue("c1"), body = {let("inThen")}},
+               {condition = localValue("c2"), body = {let("inElseif")}},
+            },
+            elseBody = {let("inElseFirst"), let("inElseSecond")},
+         },
+         {op = "while", condition = localValue("w"), body = {let("inWhile")}},
+         {
+            op = "fornum",
+            from = localValue("from"),
+            to = localValue("to"),
+            binding = {name = "i", cName = "i", type = "i32"},
+            body = {let("inFor")},
+         },
+         {op = "block", body = {let("inBlock")}},
+      },
+   }
+   local seen = {}
+   visit.program(program, {scalarStatement = function(statement)
+      if statement.op == "let" then seen[statement.cName] = true end
+   end})
+   for _, name in ipairs({
+      "inThen", "inElseif", "inElseFirst", "inElseSecond", "inWhile", "inFor", "inBlock",
+   }) do
+      assert(seen[name], "the observing walk missed " .. name)
+   end
+end
+
+function M.pointerSpansSeeLoadsBeneathWideArithmetic()
+   local emit = require("nupp.compiler.aot.emit")
+   local program = {
+      body = {{
+         op = "let", name = "wide", cName = "wide", type = "i64",
+         value = {
+            op = "i64_add",
+            left = {
+               op = "numeric_cast",
+               value = {op = "load", span = "values", index = "i", type = "i32"},
+               type = "i64",
+            },
+            right = {op = "constant_i64", value = "1", type = "i64"},
+            type = "i64",
+         },
+      }},
+   }
+   local used = emit.pointerSpans(program)
+   assert(used.values == true, "a span read beneath 64-bit arithmetic must count as used")
 end
 
 return M
