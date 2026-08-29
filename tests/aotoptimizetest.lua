@@ -247,6 +247,21 @@ function M.distinguishesPositiveAndNegativeBinary64Zero()
    assert(ruleCount(stats, "f64.sub.right-zero") == 1)
 end
 
+function M.preservesNonfiniteAndForbiddenBinary64Identities()
+   local x = named("x", "f64")
+   local ir = program({{op = "return", values = {
+      {op = "div", left = constant(1), right = constant(0), type = "f64"},
+      {op = "div", left = constant(0), right = constant(0), type = "f64"},
+      {op = "mul", left = x, right = constant(0), type = "f64"},
+      {op = "sub", left = x, right = named("x", "f64"), type = "f64"},
+   }}})
+   local stats = optimize.program(ir)
+   for _, value in ipairs(ir.body[1].values) do
+      assert(value.op == "div" or value.op == "mul" or value.op == "sub")
+   end
+   assert(stats.folds == 0)
+end
+
 function M.removesEvaluationsOnlyWhenTheyAreDiscardable()
    local effectful = {
       op = "lua_table_get_index",
@@ -280,11 +295,18 @@ function M.normalizesSubtractionOnlyInAdmittedIntegerDomains()
       {op = "i32_sub", left = named("i", "i32"), right = integer(-2147483648, "i32"), type = "i32"},
       {op = "u32_sub", left = named("u", "u32"), right = integer(1, "u32"), type = "u32"},
       {op = "u64_sub", left = named("wide", "u64"), right = integer(1, "u64"), type = "u64"},
+      {op = "i64_sub", left = named("signed", "i64"), right = integer(1, "i64"), type = "i64"},
+      {
+         op = "i64_sub", left = named("edge", "i64"),
+         right = integer(-9007199254740992, "i64"), type = "i64",
+      },
    }}})
    optimize.program(ir)
    assert(ir.body[1].values[1].op == "i32_add" and ir.body[1].values[1].right.value == "-2147483648")
    assert(ir.body[1].values[2].op == "u32_add" and ir.body[1].values[2].right.value == "4294967295")
    assert(ir.body[1].values[3].op == "u64_sub")
+   assert(ir.body[1].values[4].op == "i64_add" and ir.body[1].values[4].right.value == "-1")
+   assert(ir.body[1].values[5].op == "i64_sub")
 end
 
 function M.reassociatesOnlyStableFixedWidthTreesAndDeclinesCanonicalOnes()
@@ -323,6 +345,47 @@ function M.rejectsDuplicatePatternRegistrationsButAllowsMirrors()
    }})
    local ok, message = pcall(fold.validate, {base, base})
    assert(not ok and tostring(message):match("duplicate AOT fold rule ID left"))
+end
+
+function M.sameAndReassociationRejectUnavailableOrRaisingHelpers()
+   local argument = named("value", "u32")
+   local function call()
+      return {
+         op = "helper_call", helper = "unavailable", cName = "unavailable",
+         args = {argument}, resultTypes = {"u32"}, type = "u32",
+      }
+   end
+   local same = {op = "u32_xor", left = call(), right = call(), type = "u32"}
+   local replacement = fold.apply(same, {helpers = {}})
+   assert(replacement == nil, "an unavailable helper body cannot prove value stability")
+
+   local raising = {
+      op = "lua_string_byte",
+      bytes = named("bytes", "lua_string"),
+      index = integer(0, "u32"),
+      type = "u32",
+   }
+   local raisingSame = {
+      op = "u32_xor", left = raising,
+      right = {
+         op = "lua_string_byte",
+         bytes = named("bytes", "lua_string"),
+         index = integer(0, "u32"),
+         type = "u32",
+      },
+      type = "u32",
+   }
+   replacement = fold.apply(raisingSame, {helpers = {}})
+   assert(replacement == nil, "a raising Lua read cannot prove value stability")
+
+   local tree = {
+      op = "u32_add",
+      left = {op = "u32_add", left = call(), right = integer(1, "u32"), type = "u32"},
+      right = integer(2, "u32"),
+      type = "u32",
+   }
+   replacement = fold.apply(tree, {helpers = {}})
+   assert(replacement == nil, "reassociation needs an available stable helper body")
 end
 
 function M.unrollsOnlySmallLiteralTripCountsWithinOneGrowthBudget()

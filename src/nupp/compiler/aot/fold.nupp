@@ -187,6 +187,48 @@ local function stable(node: scalarIR.Expr, context: fold.Context): boolean
     return stableExpression(node, context, {})
 end
 
+local reorderableExpression: function(scalarIR.Expr, fold.Context, {[string]: boolean}): boolean
+
+reorderableExpression = function(node: scalarIR.Expr, context: fold.Context, active: {[string]: boolean}): boolean
+    local root = effects.expression(tostring(node.op))
+    if root.observable
+        or root.mayRaise
+        or root.readsNative
+        or root.writesNative
+        or root.usesLua
+        or root.allocatesLua
+    then
+        return false
+    end
+    if node.op == "helper_call" then
+        local helper = context.helpers[(node as scalarIR.HelperCall).helper]
+        if helper == nil or helper.native == true or active[helper.name] then
+            return false
+        end
+        active[helper.name] = true
+        for _, value in ipairs(helper.values) do
+            if not reorderableExpression(value, context, active) then
+                active[helper.name] = nil
+                return false
+            end
+        end
+        active[helper.name] = nil
+    end
+    local reorderable = true
+    visit.expressionChildren(node, function(child: scalarIR.Expr): scalarIR.Expr
+        if not reorderableExpression(child, context, active) then
+            reorderable = false
+        end
+        return child
+    end)
+
+    return reorderable
+end
+
+local function reorderable(node: scalarIR.Expr, context: fold.Context): boolean
+    return reorderableExpression(node, context, {})
+end
+
 local function discardable(node: scalarIR.Expr): boolean
     local root = effects.expression(tostring(node.op))
     if root.observable or root.mayRaise then
@@ -523,7 +565,7 @@ local function combine(op: string, left: number, right: number, valueType: scala
 end
 
 local function reassociate(node: scalarIR.Expr, context: fold.Context): scalarIR.Expr?
-    if not stable(node, context) then
+    if not reorderable(node, context) then
         return nil
     end
     local op = tostring(node.op)

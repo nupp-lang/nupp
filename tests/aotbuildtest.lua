@@ -592,6 +592,52 @@ return {
    return dir
 end
 
+local function wideOverflowProject()
+   local dir = os.tmpname()
+   os.remove(dir)
+   assert(os.execute("mkdir -p '" .. dir .. "/src'") == 0)
+   local manifest = assert(io.open(dir .. "/nupp.lua", "wb"))
+   manifest:write([=[
+return {
+   include = {"src"},
+   build = {targets = {native = {
+      kind = "modules", entries = {"wide"}, outDir = "build/native",
+      aot = "require",
+   }}},
+}
+]=])
+   manifest:close()
+   local source = assert(io.open(dir .. "/src/wide.nupp", "wb"))
+   source:write([=[
+module wide
+
+@aot(lanes = false)
+local function checkAdd(): boolean
+    local two32: int64 = 4294967296
+    local high: int64 = 2147483647
+    local low: int64 = 4294967295
+    local one: int64 = 1
+    local minimumHigh: int64 = -2147483648
+    local maximum: int64 = high * two32 + low
+    local minimum: int64 = minimumHigh * two32
+    return maximum + one == minimum
+end
+
+@aot(lanes = false)
+local function checkMultiply(): boolean
+    local two32: int64 = 4294967296
+    local minimumHigh: int64 = -2147483648
+    local negativeOne: int64 = -1
+    local minimum: int64 = minimumHigh * two32
+    return minimum * negativeOne == minimum
+end
+
+export = {checkAdd = checkAdd, checkMultiply = checkMultiply}
+]=])
+   source:close()
+   return dir
+end
+
 local function build(dir)
    -- These cases assert what this project's artifacts and stamps did between
    -- two builds. A shard-wide content cache is useful to most of the suite,
@@ -815,6 +861,21 @@ function M.checkedAliasesFeedTypesOwnershipLayoutsAndIntrinsics()
       "the checked nominal field layout, not alias text, selects physical storage")
    assert(c:find("+", 1, true),
       "the fixed-width operation aliased through a local reaches native IR")
+end
+
+function M.signedWideOverflowExecutesWithWrappingSemantics()
+   local dir = wideOverflowProject()
+   local out, code = build(dir)
+   test.equal(code, 0, out)
+   local script = searchPathPrelude() .. [[
+local wide = require("wide")
+assert(wide.checkAdd(), "signed addition did not wrap")
+assert(wide.checkMultiply(), "signed multiplication did not wrap")
+]]
+   local pipe = assert(io.popen(("cd %q && luajit -e %q 2>&1; echo '__exit__:'$?"):format(dir, script)))
+   local runOut = pipe:read("*a")
+   pipe:close()
+   test.equal(tonumber(runOut:match("__exit__:(%d+)%s*$")), 0, runOut)
 end
 
 --- Every key one source's artifacts were recorded under, tier by tier, or
