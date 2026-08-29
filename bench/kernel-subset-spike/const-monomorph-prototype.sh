@@ -41,4 +41,5 @@ ${NUPP_NATIVE_CC:-clang} -std=c11 -O3 -ffp-contract=off -fno-fast-math \
     -fPIC $SHARED_FLAGS "$OUT/kernel.c" $MATH_LIB -o "$LIB"
 
 "$SPIKE/mandelbrot.sh" const-monomorph-ceiling >/dev/null
+env -u NUPP_NATIVE_LIBRARY luajit "$SPIKE/const-monomorph-lua_main.lua"
 luajit "$SPIKE/const-monomorph-prototype_main.lua"

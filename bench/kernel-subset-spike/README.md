@@ -188,8 +188,23 @@ body with a runtime round count, one paired fifteen-sample Apple arm64 run over
  -------------------------  -----------  ---------
  runtime round count          1,084,359 ns    1.000x
  automatic, forced scalar       512,742 ns    2.121x
- automatic, four lanes          259,625 ns    4.176x
+automatic, four lanes          259,625 ns    4.176x
 ```
+
+The same script also builds `const-monomorph-ceiling.nupp` through the ordinary
+`-O2` Lua path and times three checked source shapes: the runtime round count,
+the literal four with its inner loop retained, and those four rounds written
+straight-line. This is the source rewrite proposed for `-O1`; it is deliberately
+separate from the FFI/native measurements above. Three paired fifteen-sample
+Apple arm64 runs, with a fresh LuaJIT recorder for each shape, measured the
+literal-bound loop at 1.057x-1.073x the runtime body and the straight-line body
+at 11.896x-12.556x. The harness checks empty input, tails, and all 1,048,576
+timed elements before reporting either ratio.
+
+The third run was the complete script after adding that harness. Its native
+rows measured 2.109x for the automatic scalar body and 4.054x with four lanes,
+rerunning the separately recorded 2.121x and 4.176x result above rather than
+leaving its endpoints orphaned.
 
 The differential covers empty input, vector tails, exact gangs, and 1,000
 elements before timing. Run the whole experiment with:
