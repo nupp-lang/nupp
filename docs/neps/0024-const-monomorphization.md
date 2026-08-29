@@ -1,6 +1,6 @@
 ---
 title: Const monomorphization
-status: Draft
+status: Accepted
 created: 2026-08-28
 ---
 
@@ -86,10 +86,20 @@ private emitted body is enough.
 ### A literal bound is not the useful result on LuaJIT
 
 The proving spike used a map whose inner recurrence ran four rounds. On the
-same Apple arm64 machine, paired fifteen-sample ordinary-Lua runs gave the
+same Apple arm64 machine, three paired fifteen-sample ordinary-Lua runs gave the
 generic body a baseline of `1.000x`, a separate body still containing
-`for round = 1, 4` between `1.033x` and `1.071x`, and the same body with those
-four rounds written straight-line between `11.703x` and `12.060x`.
+`for round = 1, 4` between `1.057x` and `1.073x`, and the same body with those
+four rounds written straight-line between `11.896x` and `12.556x`. Each shape
+ran with a fresh LuaJIT recorder so trace state from one candidate could not
+change another candidate's result.
+
+The retained `bench/kernel-subset-spike/const-monomorph-lua_main.lua` harness
+runs all three checked Nupp shapes, checks empty and tail inputs, and times the
+complete 1,048,576-element body. The encompassing
+`bench/kernel-subset-spike/const-monomorph-prototype.sh` script builds those
+shapes and runs both this harness and the native differential; the numbers in
+this decision therefore remain reproducible rather than surviving only as
+prose.
 
 LuaJIT's trace report explained the difference. Both loop spellings formed an
 inner loop trace and side traces; the straight-line body kept the outer loop on
@@ -100,10 +110,10 @@ unrolling to consume it.
 ### AOT gains twice from the same fact
 
 The native spike first forced scalar emission, separating constant substitution
-from vectorization. The closed four-round body was between `2.116x` and
+from vectorization. The closed four-round body was between `2.109x` and
 `2.121x` faster than the runtime-count body while still scalar. Once unrolling
 removed the nested loop, existing lane lowering admitted the outer map and the
-complete body reached between `4.052x` and `4.176x`.
+complete body reached between `4.054x` and `4.176x`.
 
 That is not evidence that every const application should clone. It is evidence
 that the opportunity is material in both backends and that the compiler, not
@@ -154,16 +164,31 @@ under `check`. It only supplies a specialization demand to an optimizing build.
 
 ### Eligibility
 
+A **const carrier** is an ordinary value parameter whose checked parameter type
+directly names a scalar const binder. In the worked example, `rounds: Rounds` is
+the carrier for `Rounds`. The binder is not itself a value in the function body,
+and there is no explicit type-application call syntax. A scalar binder on a
+runtime function therefore needs at least one carrier parameter; it can be
+inferred only from the checked const argument supplied for such a parameter.
+
 A demand is eligible when all of these hold:
 
 - the callee resolves to one function declaration by semantic identity;
-- that declaration has at least one `const` binder in the `string`, `boolean`,
-  or `integer` domain;
-- the selected call signature closes every const binder and every other generic
-  component needed by the runtime signature;
+- that declaration has at least one `const` binder, every binder is in the
+  `string`, `boolean`, or `integer` domain, and every binder has at least one
+  carrier;
+- the resolved call's checked signature already contains the closed const tuple
+  and every concrete type or pack substitution needed by its runtime
+  representation;
 - every const value came through the checker's admitted deterministic const
   expression rules; and
 - the declaration's body is available to the deliverable being built.
+
+There is no later inference step whose failure makes an otherwise checked call
+ineligible. The checker either closes each carrier from an admitted const
+argument or rejects the source call; a runtime value cannot be used to infer the
+binder and then recovered by the optimizer. A declaration whose required const
+application includes the `function` domain is outside this proposal.
 
 Aliases and imports do not change declaration identity. Named arguments do not
 change binder order. Two parameters that infer one binder contribute one tuple
@@ -175,6 +200,14 @@ Recursive calls with the same key reuse the body already being formed. A
 recursive call that computes a different closed tuple contributes another
 demand and is subject to the same module cap; the diagnostic carries the demand
 chain so const recursion cannot turn compilation into an unbounded evaluator.
+An `@aot` recursion that requires more distinct emitted body classes than remain
+under the module's eight-class cap is therefore not admissible as written. It
+must keep the changing quantity as a runtime parameter or otherwise reduce the
+closed family.
+
+A suspendable declaration is eligible only for ordinary Lua specialization,
+which retains its suspension contract. It cannot become an AOT family because
+NEP 9 excludes coroutines and suspension from the admitted native subset.
 
 ### Canonical identity
 
@@ -199,6 +232,12 @@ independent reason to clone. A digest of this key supplies the private logical
 symbol suffix; the existing target-tier suffix then supplies its physical native
 symbol.
 
+Consequently the demand set is the product of const tuples and
+representation-affecting generic instantiations, not merely the number of
+distinct const tuples. Two calls with tuple `(4)` but incompatible concrete
+runtime representations have different keys and ordinarily need different
+bodies.
+
 Source positions and call-site lists are diagnostic metadata and never enter
 the key. Moving a call past a comment does not rebuild a body. Changing its
 tuple does.
@@ -216,6 +255,12 @@ specialization manifest and the artifacts made from it; it does not make that
 module or its ordinary dependents type-check again. The manifest fingerprint is
 part of the build key independently of the module's checked-source fingerprint.
 
+Each checked module deterministically publishes its outgoing demand records as
+part of its checked result. `nupp check` need not aggregate a whole deliverable,
+but it always produces the same local records from the same checked source. A
+build aggregates those records, computes the declaring modules' specialization
+manifest fingerprints, and includes those fingerprints in their emission keys.
+
 A dependency distributed without its checked body cannot accept new native
 specialization demands. Its generic Lua callable remains usable, but a direct
 call that requires an `@aot` specialization reports that the dependency did not
@@ -224,7 +269,10 @@ ship specializable source rather than silently choosing Lua.
 ### Ordinary Lua lowering
 
 At `-O0`, const monomorphization emits nothing. The generic function and call
-erase exactly as the source does.
+erase exactly as the source does. Ad-hoc `nupp build file.nupp` builds default
+to `-O0`, so the ordinary-Lua specialization appears only when such a build
+selects `-O1` or above, or when a manifest or target build selects its optimized
+default.
 
 At `-O1` and above, an eligible demand enters the ordinary optimization
 pipeline with its const carriers bound to exact values. Existing constant
@@ -253,19 +301,23 @@ transform__const_Rounds_4(output, input)
 The spelling above is explanatory. Generated names use the key digest, and all
 statements retain the original declaration's source positions.
 
-An exported function, a function stored as a value, and a cross-module call
-keep the original callable identity. Its generated wrapper may tail-dispatch a
-known runtime carrier tuple to a private clone and otherwise tail-call the
-generic body. Direct same-module calls bypass that branch. Declining an
-ordinary Lua clone is silent unless optimization remarks were requested, and
-never makes valid source fail to build.
+An exported function and a function stored as a value keep the original callable
+identity. Entry from unchecked Lua or `any` reaches its public wrapper, which
+may tail-dispatch a known runtime carrier tuple to a private clone and otherwise
+tail-call the generic body. A checked cross-module direct call already knows its
+tuple: the declaring artifact publishes a backend-private entry under the key
+digest, and the caller links to that entry without a runtime tuple branch.
+Neither the private entry nor its name becomes a source export. Checked direct
+calls in the declaring module likewise bypass the wrapper. Declining an ordinary
+Lua clone is silent unless optimization remarks were requested, and never makes
+valid source fail to build.
 
 Substitution does not imply unrolling. The ordinary optimizer applies its
 normal proof and growth limits, and may retain a literal-bound loop or decline
 the clone if no profitable rewrite remains. `--remarks` identifies the tuple,
 the resulting body, and the proof or budget that declined it. The pass receives
-its own stable `OPT-n` code and may be disabled for miscompile bisection like
-the rest of the catalog.
+the stable code `OPT-7` and may be disabled with `-Zno-opt=OPT-7` for
+miscompile bisection like the rest of the catalog.
 
 ### Ahead-of-time lowering
 
@@ -301,31 +353,60 @@ expressions are already restricted to compile-time-known, effect-free values,
 so omitting them from a private ABI removes no evaluation. Every other argument
 is evaluated once, left to right, before the selected body is entered.
 
-The clone retains the declaration's effects, ownership modes, suspension
-contract, result policy, source lines, and logical debug name. Navigation,
-references, hover, reflection, and diagnostics continue to identify the written
-declaration. A generated body may appear in IR, assembly, timing, and
-optimization reports under its tuple-qualified artifact name, but never as a
-second source symbol.
+Public wrappers tail-dispatch for observability, not only speed. A source body
+such as the worked example may use `error("length mismatch", 2)` to blame its
+caller. Adding a live wrapper frame would make that level name the wrapper
+instead; a tail call lets the selected clone occupy the one source-described
+function frame and preserves both the frame sequence and error site.
 
-`nupp check` neither emits nor requires optional specializations. It may publish
-the canonical demands used by a later build, but the result of checking is
+The clone retains the declaration's effects, ownership modes, result policy,
+source lines, logical debug name, and, on the ordinary Lua route, suspension
+contract. Navigation, references, hover, reflection, diagnostics, ordinary
+stack traces, and coverage continue to identify the written declaration. This
+rewrite consumes neither the `frames` nor `error-site` relaxation. An
+implementation may use a non-tail wrapper only where the source or build
+explicitly grants the affected guarantee through `@relax` or `--relax`; without
+that grant, optional Lua specialization is declined and a required AOT lowering
+that cannot preserve its backend's existing contract fails. A generated body
+may appear in IR, assembly, timing, and optimization reports under its
+tuple-qualified artifact name, but never as a second source symbol.
+
+`nupp check` neither emits nor requires optional specializations. It publishes
+the canonical local demands described above, but the result of checking is
 independent of optimization level. A required AOT refusal and a module-cap
 refusal remain build diagnostics because they depend on the selected backend
 and the whole deliverable's demand set.
 
 ### Body cap and diagnostics
 
-A source module may emit at most eight logical const specialization keys. The
-cap is counted before target tiers multiply physical bodies and is shared by
-ordinary Lua and AOT, because both consume one logical plan. Repeated calls with
-one key count once.
+A source module may emit at most eight logical const specialization body
+classes. Repeated calls with one semantic key count once. Distinct keys also
+share one class when every enabled backend produces the same canonical
+optimized body and private ABI for them; if native target tiers are enabled,
+the comparison must hold at every tier. The enabled-backend fingerprint vector
+is deterministic from checked source and build configuration. It is computed
+before allocating the budget, so coalescing cannot depend on discovery order.
 
-Required AOT keys take precedence. If they alone exceed the cap, the build
-reports the declaration, every tuple at the boundary, and every call site that
-demanded those tuples. The ninth call is not blamed alone: the conflict is the
-set. If required keys fit, optional Lua keys beyond the remaining budget stay on
-the generic route and appear only as declined optimization remarks.
+The cap is counted before target tiers multiply one accepted class into physical
+bodies and is shared by ordinary Lua and AOT, because both consume one logical
+plan. A later compiler or linker coincidence that was not established by the
+canonical fingerprints does not retroactively free a slot. Separate semantic
+keys retain separate demand, diagnostic, and dispatch identities even when they
+share the body slot.
+
+Required AOT keys take precedence. Their canonical keys are sorted, mapped to
+body classes, and all admitted if the required classes fit. Otherwise the build
+reports the module boundary grouped by declaration: every class and key at the
+boundary, their const tuples and concrete signature instantiations, and every
+call site that demanded them. The ninth class or last visited call is not blamed
+alone; the conflict is the whole module set.
+
+If required classes fit, optional Lua keys are considered in the same canonical
+key order used for emission. A key that maps to an admitted class is accepted
+without consuming another slot; otherwise it receives the next free slot.
+Optional keys beyond the remaining budget stay on the generic route and appear
+only as declined optimization remarks. This ordering makes the winning optional
+set independent of traversal, parallel checking, and cache arrival order.
 
 The cap is a compatibility floor: a compiler may raise it but does not lower it
 within a supported language line. A project cannot configure it upward, because
@@ -345,10 +426,11 @@ bytecode, private prototype bytes. The module total includes dispatch and
 generic fallback separately, so a specialization cannot appear cheap by
 charging its shared boundary elsewhere.
 
-Two specialization keys whose backend-canonical optimized bodies are
-byte-identical may share one physical body and dispatch entry. They remain
-separate semantic keys in diagnostics and incremental demand records, and the
-code-size report names the deduplication rather than counting the bytes twice.
+Two specialization keys assigned to one body class share its physical bodies;
+each dispatch identity points to that class. They remain separate semantic keys
+in diagnostics and incremental demand records, and the code-size report names
+the coalescing rather than counting the bytes twice. Any further backend or
+linker deduplication is reported separately and does not affect the cap.
 
 ## Risks and assumptions
 
@@ -356,21 +438,25 @@ code-size report names the deduplication rather than counting the bytes twice.
   callee module whose source did not change. Separating emission identity from
   type-check identity keeps that cost visible but does not remove it.
 - **Eight bodies may be the wrong ceiling.** The retained workloads exercise a
-  few hot tuples, not libraries with many dimensions. The cap protects builds
-  while risking an AOT refusal for a legitimate family.
+  few hot tuples, not libraries with many dimensions or representation products.
+  The cap protects builds while risking an AOT refusal for a legitimate family.
 - **Lua cloning can fragment traces.** A clone gets its own hot counters and
-  machine traces. The measured fixed-loop case benefits dramatically, but a
+  machine traces. The measured unrolled case benefits dramatically, but a
   small body can lose to extra prototypes, dispatch, and instruction-cache
   pressure.
-- **Cross-module wrappers add a branch.** Same-module direct calls avoid it;
-  exported and indirect calls do not. The selected clone has to do enough work
-  to amortize that boundary.
-- **Source identity and runtime frames can drift.** Private clones must map back
-  to one declaration without exposing generated names in ordinary stack traces
-  or coverage.
+- **Private cross-module linkage becomes artifact ABI.** Checked callers avoid a
+  tuple branch by naming a backend-private entry. Its digest and availability
+  therefore have to invalidate callers even though language tooling must not
+  expose it as a source export.
+- **Debug fidelity constrains lowering.** Private clones must map back to one
+  declaration without exposing generated names in ordinary stack traces or
+  coverage. A backend that cannot do so loses an optional optimization or
+  refuses a required body rather than silently drifting.
 - **Recursive const applications can exhaust the cap deliberately or by
-  accident.** The demand chain has to remain finite, deterministic, and
-  diagnosable rather than becoming a hidden evaluation budget.
+  accident.** An `@aot` recursive family needing more distinct body classes
+  than remain under its module's cap is unusable in that form; the demand chain
+  has to make that finite, deterministic consequence diagnosable rather than
+  becoming a hidden evaluation budget.
 - **Backend opportunity will differ.** One tuple may help Lua tracing, another
   may unlock lanes only on some tiers, and another may change no optimized body.
   A shared key does not imply a shared profitability answer.
@@ -385,9 +471,11 @@ code-size report names the deduplication rather than counting the bytes twice.
 
 **AOT-only const monomorphization.** This was the original scope. Rejected after
 the ordinary-Lua spike: substituting and unrolling the same four-round body
-improved LuaJIT by roughly twelve times. Making native compilation the only
-route through a useful source-shape optimizer would overuse AOT and give two
-backends separate application discovery.
+improved LuaJIT by roughly twelve times. The retained
+`const-monomorph-prototype.sh` experiment rebuilds and remeasures that result.
+Making native compilation the only route through a useful source-shape
+optimizer would overuse AOT and give two backends separate application
+discovery.
 
 **Rely on LuaJIT's trace specialization.** A call with a literal four and a
 separate function containing a literal four both retained the nested loop trace.
@@ -413,9 +501,10 @@ across callers. A declaration owns its implementation and its private names, so
 its module owns the clone.
 
 **Always dispatch through the public wrapper.** Simple across modules and adds a
-tuple branch to the hottest direct calls. A semantically resolved same-module
-call can name the private body without changing function-value identity, so it
-does.
+tuple branch to the hottest direct calls. Any semantically resolved checked call
+already knows the key. Same-module calls name the private body directly and
+cross-module calls use backend-private linkage, without changing the public
+function-value identity.
 
 **Make every specialization mandatory.** Predictable and turns an optimization
 budget into a source-validity rule for ordinary Lua. Only `@aot` already carries
