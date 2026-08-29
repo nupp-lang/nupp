@@ -12,17 +12,6 @@ Grouped by the part of the system a change lands in. Nothing here is
 prioritised by tier; the ordering inside a section is roughly the order the
 work makes sense in.
 
-## Architecture tripwires
-
-- **Committed semantic Nupp source generators: 2; review threshold: 3.** `nupp
-  import-c` ejects an editable C binding module and `nupp migrate` translates a
-  foreign source file. The candidate third was release metadata, not source:
-  the compiler now bundles the immutable `stub-catalog.json` directly instead
-  of translating it into a Nupp module. The review kept the provider boundary
-  closed; [NEP 3 records why](docs/neps/0003-comptime.md#2026-08-29-source-generator-review).
-  Reconsider it again before adding a third semantic generator. The threshold
-  calls for a review; it does not by itself admit source or AST macros.
-
 ## Build, codegen and distribution
 
 - [ ] **`nupp test` can hang at the join instead of finishing.** A full run
