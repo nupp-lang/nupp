@@ -86,12 +86,13 @@ private emitted body is enough.
 ### A literal bound is not the useful result on LuaJIT
 
 The proving spike used a map whose inner recurrence ran four rounds. On the
-same Apple arm64 machine, three paired fifteen-sample ordinary-Lua runs gave the
-generic body a baseline of `1.000x`, a separate body still containing
-`for round = 1, 4` between `1.057x` and `1.073x`, and the same body with those
-four rounds written straight-line between `11.896x` and `12.556x`. Each shape
-ran with a fresh LuaJIT recorder so trace state from one candidate could not
-change another candidate's result.
+same Apple arm64 machine, three paired fifteen-sample ordinary-Lua runs measured
+a separate body still containing `for round = 1, 4` at `1.057x`, `1.070x`, and
+`1.073x` the generic body, and the same body with those four rounds written
+straight-line at `11.896x`, `12.266x`, and `12.556x`. A subsequent independent
+rerun measured `1.017x` and `12.156x` respectively. Each shape ran with a fresh
+LuaJIT recorder so trace state from one candidate could not change another
+candidate's result.
 
 The retained `bench/kernel-subset-spike/const-monomorph-lua_main.lua` harness
 runs all three checked Nupp shapes, checks empty and tail inputs, and times the
@@ -110,10 +111,11 @@ unrolling to consume it.
 ### AOT gains twice from the same fact
 
 The native spike first forced scalar emission, separating constant substitution
-from vectorization. The closed four-round body was between `2.109x` and
-`2.121x` faster than the runtime-count body while still scalar. Once unrolling
-removed the nested loop, existing lane lowering admitted the outer map and the
-complete body reached between `4.054x` and `4.176x`.
+from vectorization. Two retained runs measured the closed four-round scalar body
+at `2.109x` and `2.121x` the runtime-count body; the independent rerun measured
+`2.107x`. Once unrolling removed the nested loop, existing lane lowering
+admitted the outer map: the retained runs measured `4.054x` and `4.176x`, and
+the independent rerun measured `4.083x`.
 
 That is not evidence that every const application should clone. It is evidence
 that the opportunity is material in both backends and that the compiler, not
@@ -363,13 +365,17 @@ The clone retains the declaration's effects, ownership modes, result policy,
 source lines, logical debug name, and, on the ordinary Lua route, suspension
 contract. Navigation, references, hover, reflection, diagnostics, ordinary
 stack traces, and coverage continue to identify the written declaration. This
-rewrite consumes neither the `frames` nor `error-site` relaxation. An
-implementation may use a non-tail wrapper only where the source or build
-explicitly grants the affected guarantee through `@relax` or `--relax`; without
-that grant, optional Lua specialization is declined and a required AOT lowering
-that cannot preserve its backend's existing contract fails. A generated body
-may appear in IR, assembly, timing, and optimization reports under its
-tuple-qualified artifact name, but never as a second source symbol.
+rewrite consumes none of the `function-identity`, `frames`, or `error-site`
+relaxations. The public callable remains the only function value source can
+store, return, or compare; a direct call naming its private clone does not expose
+a second identity. An implementation may use a non-tail wrapper only where the
+source or build explicitly grants the affected frame or error-site guarantee
+through `@relax` or `--relax`; without that grant, optional Lua specialization
+is declined and a required AOT lowering that cannot preserve its backend's
+existing contract fails. A `function-identity` grant never makes a generated
+clone source-visible. A generated body may appear in IR, assembly, timing, and
+optimization reports under its tuple-qualified artifact name, but never as a
+second source symbol.
 
 `nupp check` neither emits nor requires optional specializations. It publishes
 the canonical local demands described above, but the result of checking is
