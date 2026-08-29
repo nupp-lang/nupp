@@ -908,12 +908,23 @@ build_native_library() {
             curlDefine="-DCURL_STATICLIB"
         fi
     fi
+    sdlInclude=""
+    sdlLibraries=""
+    case " $providerSources " in
+        *" c/glob.c "*)
+            [ -n "${NUPP_SDL_FRAMEWORK_ROOT:-}" ] \
+                || die "the SDL glob spike needs NUPP_SDL_FRAMEWORK_ROOT"
+            sdlInclude="-F$NUPP_SDL_FRAMEWORK_ROOT"
+            sdlLibraries="-F$NUPP_SDL_FRAMEWORK_ROOT -framework SDL3"
+            sdlLibraries="$sdlLibraries -Wl,-rpath,$NUPP_SDL_FRAMEWORK_ROOT"
+            ;;
+    esac
     objects=""
     for source in $providerSources; do
         object="$out/objects/$(basename "$source" .c).o"
         # shellcheck disable=SC2086
         "$CC" -c -std=gnu11 -O2 -fPIC -DNDEBUG -Wall -Wextra \
-            -I"$ROOT/runtime/native/c" -I"$include" $uvInclude $curlInclude \
+            -I"$ROOT/runtime/native/c" -I"$include" $uvInclude $curlInclude $sdlInclude \
             $curlDefine $adaInclude $tlsInclude \
             -o "$object" "$ROOT/runtime/native/$source" >&2
         objects="$objects $object"
@@ -930,7 +941,7 @@ build_native_library() {
         *)       shared="-shared"; name="libnupp_native.so"; extra="-lpthread -ldl" ;;
     esac
     # shellcheck disable=SC2086
-    "$linker" $shared -o "$out/$name" $objects $libraries $extra >&2
+    "$linker" $shared -o "$out/$name" $objects $libraries $sdlLibraries $extra >&2
     printf '%s\n' "$name" > "$out/.filename"
     printf 'done\n' > "$out/.complete"
     release_lock

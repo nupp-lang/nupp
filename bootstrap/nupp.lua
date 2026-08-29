@@ -164185,7 +164185,6 @@ end ;__nuppExports["list"]=list
 
 
 
-
 glob=function ( pattern ) 
 local text = named ( pattern , "glob pattern" , 2 )
 local handle = C . nuppFilesGlob ( text , # text )
@@ -207747,9 +207746,8 @@ end
 
 --- Expands a filesystem pattern into matching paths.
 ---
---- `*` and `?` match within one path component, character classes use `[abc]` or
---- `[!abc]`, and `**` crosses directory boundaries. The returned paths are sorted, and
---- no matches is an empty list.
+--- `*` and `?` match within one path component, and `**` crosses directory
+--- boundaries. The returned paths are sorted, and no matches is an empty list.
 ---
 --- #### Examples
 ---

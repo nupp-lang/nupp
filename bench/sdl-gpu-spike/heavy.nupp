@@ -1,0 +1,26 @@
+local span = require("nupp.mem.span")
+
+@aot(lanes = false)
+local function heavy(
+    exclusive output: span.WriteSpan<float>,
+    borrows input: span.Span<float>,
+    steps: int32,
+    scale: float,
+    bias: float
+): nil
+    if #output ~= #input then
+        error("length mismatch", 2)
+    end
+
+    for index = 1, #output do
+        local value = nupp.math.f32.narrow(input[index])
+        local step: int32 = 0
+        while step < steps do
+            value = nupp.math.f32.add(nupp.math.f32.mul(value, scale), bias)
+            step = nupp.math.i32.add(step, 1)
+        end
+        output[index] = value
+    end
+end
+
+return heavy

@@ -161,10 +161,8 @@ function M.globbingMatchesRecursivelyAndSortsPaths()
    test.equal(#assert(files.glob(inRoot("glob/*.txt"))), 0,
       "no matches answers an empty list")
 
-   local invalid, reason = files.glob(inRoot("glob/["))
-   test.equal(invalid, nil)
-   assert(type(reason) == "string" and #reason > 0,
-      "an invalid pattern answers a reason")
+   test.equal(#assert(files.glob(inRoot("glob/["))), 0,
+      "characters other than star and question mark are literal")
 end
 
 function M.renamingAndRemovingMoveAndDeletePaths()
