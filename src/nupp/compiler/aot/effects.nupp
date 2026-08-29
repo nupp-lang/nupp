@@ -256,6 +256,35 @@ local LUA_MUTATE_OPS: {
 
 local NATIVE_WRITE_OPS: {[string]: boolean} = {store = true, assign = true,}
 
+local STATEMENT_LUA_MUTATE_OPS: {
+    [string]: boolean
+} = {
+    lua_set_index = true,
+    lua_set_key = true,
+    lua_string_buffer_append = true,
+    lua_builder_open_array = true,
+    lua_builder_open_object = true,
+    lua_builder_key = true,
+    lua_builder_string = true,
+    lua_builder_number = true,
+    lua_builder_number_slice = true,
+    lua_builder_integer_slice = true,
+    lua_builder_integer64 = true,
+    lua_builder_decimal64 = true,
+    lua_builder_boolean = true,
+    lua_builder_null = true,
+    lua_builder_close = true,
+    lua_builder_key_scratch = true,
+    lua_builder_string_scratch = true,
+    lua_builder_key_escapes = true,
+    lua_builder_string_escapes = true,
+    lua_scratch_u32_set = true,
+    lua_scratch_u8_set = true,
+    lua_scratch_u8_set4 = true,
+    lua_scratch_u8_reset = true,
+    simd_store4_u8 = true,
+}
+
 local CONTROL_OPS: {
     [string]: boolean
 } = {
@@ -291,15 +320,54 @@ end
 --- Classifies one statement opcode. Unknown means compiler bug, never pure.
 --- @raises when the opcode is not in the closed AOT vocabulary
 function effects.statement(op: string): effects.Facts
-    if LUA_MUTATE_OPS[op] == true then
+    if STATEMENT_LUA_MUTATE_OPS[op] == true then
         return LUA_MUTATE
     elseif NATIVE_WRITE_OPS[op] == true then
         return NATIVE_WRITE
     elseif CONTROL_OPS[op] == true then
         return CONTROL
+    elseif op:match("^simd_") ~= nil then
+        return effects.expression(op)
     end
 
     error("unclassified AOT statement opcode " .. op, 2)
+end
+
+local function merge(into: {[string]: boolean}, from: {[string]: boolean}): nil
+    for op in pairs(from) do
+        into[op] = true
+    end
+end
+
+--- The complete expression vocabulary classified above.
+function effects.expressionOpcodes(): {[string]: boolean}
+    local opcodes: {[string]: boolean} = {}
+    merge(opcodes, PURE_OPS)
+    merge(opcodes, NATIVE_READ_OPS)
+    merge(opcodes, LUA_READ_OPS)
+    merge(opcodes, LUA_ALLOCATE_OPS)
+    for op in pairs(LUA_MUTATE_OPS) do
+        if op ~= "lua_set_index" and op ~= "lua_set_key" and op ~= "lua_string_buffer_append" then
+            opcodes[op] = true
+        end
+    end
+
+    return opcodes
+end
+
+--- The complete statement vocabulary classified above.
+function effects.statementOpcodes(): {[string]: boolean}
+    local opcodes: {[string]: boolean} = {}
+    merge(opcodes, STATEMENT_LUA_MUTATE_OPS)
+    merge(opcodes, NATIVE_WRITE_OPS)
+    merge(opcodes, CONTROL_OPS)
+    for op in pairs(effects.expressionOpcodes()) do
+        if op:match("^simd_") ~= nil then
+            opcodes[op] = true
+        end
+    end
+
+    return opcodes
 end
 
 export = effects

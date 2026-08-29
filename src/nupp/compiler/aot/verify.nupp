@@ -30,6 +30,7 @@ admits is not silently valid in another, which is what keeps a binary64 value
 from entering a 32-bit gang that would change its answers.
 ]]
 
+local effects = require("nupp.compiler.aot.effects")
 local lane = require("nupp.compiler.aot.lane")
 local scalarIR = require("nupp.compiler.aot.scalar")
 local visit = require("nupp.compiler.aot.visit")
@@ -1138,7 +1139,16 @@ end
 --- @param scope what the rules need from the rest of the program
 --- @raises when the expression is not well formed
 function verify.expression(node: scalarIR.Expr, values: {[string]: string}, scope: verify.Scope): nil
+    effects.expression(tostring(node.op))
     scalarWalk(node, values, scope)
+end
+
+function verify.expressionOpcodes(): {[string]: boolean}
+    return effects.expressionOpcodes()
+end
+
+function verify.statementOpcodes(): {[string]: boolean}
+    return effects.statementOpcodes()
 end
 
 --- Every vector this gang may mention, so an opcode naming one that belongs to
@@ -1535,6 +1545,7 @@ local function block(
 ): nil
     local values = inherit(inherited)
     for _, statement in ipairs(statements) do
+        effects.statement(tostring(statement.op))
         if statement.op == "let" then
             holds(values[statement.name] == nil and statement.type == statement.value.type, "invalid local declaration")
             scalarWalk(statement.value, values, scope)
