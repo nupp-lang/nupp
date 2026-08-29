@@ -185,6 +185,16 @@ from its subject, which usually means writing the subject plural.
 | A wait parks one coroutine | Waits park one coroutine |
 | The checker tracks it | Suspension propagates through calls |
 
+**"One" standing in for an article is the same mistake.** "One command to
+modify files" is "A command to modify files" with the number word doing the
+article's job, and it is banned the same way: name the subject, usually as a
+gerund.
+
+| Banned | Write instead |
+| --- | --- |
+| One command to modify files | Modifying files |
+| One way to configure a task | Configuring a task |
+
 **A title never ends with "is" or "are".** A trailing copula stops one word
 short of the answer, so the title poses the question and withholds the thing it
 is about. Name the subject as a noun phrase, or finish the sentence and state
