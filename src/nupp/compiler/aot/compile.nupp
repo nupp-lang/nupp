@@ -34,6 +34,7 @@ local rewrite = require("nupp.compiler.aot.rewrite")
 local scalarIR = require("nupp.compiler.aot.scalar")
 local targets = require("nupp.compiler.aot.target")
 local text = require("nupp.compiler.aot.text")
+local types = require("nupp.compiler.types")
 local verify = require("nupp.compiler.aot.verify")
 
 local compile = {}
@@ -85,6 +86,9 @@ record compile.Artifacts
 
     --- Where each program's declaration was written, in the same order.
     sites: {compile.Site}
+
+    --- Const-generic declarations whose several programs share one source site.
+    constFamilies: {any}?
 end
 
 --- One diagnostic, as a line a person reads.
@@ -171,9 +175,13 @@ function compile.lower(
         end
 
         local programs: {scalarIR.Program} = {}
-        for position, application in ipairs(found.applications) do
-            programs[position] = lower.program(found, application, wasChecked, context)
-            sites[position] = compile.site(application)
+        for _, application in ipairs(found.applications) do
+            local declaration = application.tail as cst.LocalFuncStmt?
+            local body = declaration ~= nil and declaration.body or nil
+            if body == nil or (body as cst.Funcbody).generics == nil then
+                programs[#programs + 1] = lower.program(found, application, wasChecked, context)
+                sites[#sites + 1] = compile.site(application)
+            end
         end
 
         local builderSymbols: {string} = {}
@@ -208,21 +216,12 @@ function compile.lower(
     return lowered as {scalarIR.Program}, diagnostics, sites
 end
 
---- Lowers the closed const tuples inferred at direct calls to generic `@aot`
---- declarations in one checked source file.
+--- Lowers the closed const tuples collected for generic `@aot` declarations.
 ---
---- This is the item-10 experiment, not the production build path. It proves
---- the backend seam without changing `@aot` semantics: there is no generic
---- fallback wrapper, cross-module discovery, incremental identity, or public
---- diagnostic yet. Each emitted body keeps the original ABI and replaces only
---- carrier parameters inside its IR, so the existing optimizer and lane pass
---- see the constants without source rewriting or syntax-tree generation.
----
---- The narrow prototype admits only const binders carried directly by a
---- parameter of that singleton type, such as `rounds: Rounds`. Calls are bound
---- by semantic declaration identity, and the specialized signature published
---- by the checker supplies the tuple, so a const local works as readily as a
---- written literal.
+--- The deliverable planner supplies semantic demands from every checked module.
+--- Carrier parameters disappear from the private ABI, their values seed the IR
+--- environment, and the ordinary optimizer and lane pass consume the result.
+--- The single-source fallback remains for the retained backend harness.
 --- @raises when lowering or verification exposes a compiler bug rather than an
 ---   authored specialization refusal
 function compile.constSpecializations(
@@ -230,7 +229,8 @@ function compile.constSpecializations(
     filename: string,
     parsed: parser.ParseResult,
     selected: targets.Target,
-    symbolTier: string?
+    symbolTier: string?,
+    plans: {any}?
 ): (compile.Artifacts?, {compile.Diagnostic})
     const maxPerModule = 8
     local diagnostics: {compile.Diagnostic} = {}
@@ -252,6 +252,7 @@ function compile.constSpecializations(
 
     local found = lower.scan(parsed.root, true)
     local candidates: {[string]: any} = {}
+    local candidatesByDefinition: {[any]: any} = {}
     for _, application in ipairs(found.applications) do
         local declaration = application.tail
         local body = declaration ~= nil and declaration.kind == "localFuncStmt" and (
@@ -297,15 +298,17 @@ function compile.constSpecializations(
                 end
                 local name = (declaration as cst.LocalFuncStmt).name
                 if complete and name ~= nil then
-                    candidates[
-                        name.text
-                    ] = {
+                    local candidate = {
                         application = application,
                         definition = name.definition,
                         binders = binders,
                         seen = {},
                         specializations = {},
+                        dispatches = {},
+                        classIndex = {},
                     }
+                    candidates[name.text] = candidate
+                    candidatesByDefinition[name.definition] = candidate
                 end
             end
         end
@@ -345,6 +348,7 @@ function compile.constSpecializations(
     end
 
     local specializationLines: {integer} = {}
+    local specializationSites: {any} = {}
     local function walk(node: any): nil
         if node == nil or cst.isToken(node) then
             return
@@ -357,6 +361,7 @@ function compile.constSpecializations(
             if candidate ~= nil and (token as lexer.Token).definition == candidate.definition then
                 local signature = (call as any).signatureType
                 local values: {[string]: scalarIR.Expr} = {}
+                local omitted: {[integer]: boolean} = {}
                 local tuple: {string} = {}
                 local sourceSite = lower.site(call)
                 local complete = signature ~= nil and signature.tag == "func"
@@ -374,36 +379,34 @@ function compile.constSpecializations(
                         end
                         binderKey = key
                         values[carrier.name] = value
+                        omitted[carrier.position] = true
                     end
                     if not complete or binderKey == nil then
                         break
                     end
-                    tuple[#tuple + 1] = binder.name .. "=" .. binderKey
+                    tuple[#tuple + 1] = binder.domain .. ":" .. binder.name .. "=" .. binderKey
                 end
                 if complete then
-                    local key = table.concat(tuple, "\0")
+                    local canonical = filename .. "\0" .. (
+                        token as lexer.Token
+                    ).text .. "\0" .. types.tostring(signature) .. "\0" .. table.concat(tuple, "\0")
+                    local key = hash.digest(canonical)
                     if not candidate.seen[key] then
-                        if #specializationLines >= maxPerModule then
-                            local prior: {string} = {}
-                            for _, line in ipairs(specializationLines) do
-                                prior[#prior + 1] = tostring(line)
-                            end
-                            context.reject(
-                                sourceSite,
-                                (
-                                    "const specialization prototype exceeds %d bodies in this module; prior call lines: %s"
-                                ):format(maxPerModule, table.concat(prior, ", "))
-                            )
-                        end
                         candidate.seen[key] = true
                         specializationLines[#specializationLines + 1] = sourceSite.line
-                        candidate.specializations[
-                            #candidate.specializations + 1
-                        ] = new lower.Specialization(
-                            name = (token as lexer.Token).text .. "__const_" .. hash.digest(key):sub(1, 16),
+                        specializationSites[#specializationSites + 1] = {file = filename, line = sourceSite.line,}
+                        local lowered = new lower.Specialization(
+                            name = "__nuppConst_" .. (
+                                token as lexer.Token
+                            ).text:gsub("[^%w_]", "_") .. "_" .. key:sub(1, 16),
                             signature = signature,
-                            values = values
+                            values = values,
+                            omitted = omitted
                         )
+                        candidate.specializations[#candidate.specializations + 1] = lowered
+                        candidate.dispatches[
+                            #candidate.dispatches + 1
+                        ] = {specialization = lowered, index = #candidate.specializations,}
                     end
                 end
             end
@@ -413,18 +416,131 @@ function compile.constSpecializations(
         end
     end
 
-    walk(parsed.root)
+    if plans ~= nil then
+        for _, plan in ipairs(plans as {any}) do
+            local candidate = candidatesByDefinition[plan.definition]
+            if candidate ~= nil then
+                for _, specialization in ipairs(plan.specializations) do
+                    if not candidate.seen[specialization.key] then
+                        candidate.seen[specialization.key] = true
+                        local values: {[string]: scalarIR.Expr} = {}
+                        local complete = true
+                        for _, binder in ipairs(candidate.binders) do
+                            for _, carrier in ipairs(binder.carriers) do
+                                local _, value = literal(specialization.signature.params[carrier.position], nil)
+                                if value == nil then
+                                    complete = false
+                                    break
+                                end
+                                values[carrier.name] = value
+                            end
+                            if not complete then
+                                break
+                            end
+                        end
+                        if complete then
+                            local physical = specialization.physical or specialization
+                            local lowered = new lower.Specialization(
+                                name = physical.name,
+                                signature = specialization.signature,
+                                values = values,
+                                omitted = specialization.omitted
+                            )
+                            local class = specialization.bodyClass or specialization.key
+                            local index = candidate.classIndex[class]
+                            if index == nil then
+                                candidate.specializations[#candidate.specializations + 1] = lowered
+                                index = #candidate.specializations
+                                candidate.classIndex[class] = index
+                            end
+                            candidate.dispatches[#candidate.dispatches + 1] = {specialization = lowered, index = index,}
+                            for _, call in ipairs(specialization.calls) do
+                                local line = lower.site(call).line
+                                specializationLines[#specializationLines + 1] = line
+                                specializationSites[
+                                    #specializationSites + 1
+                                ] = {file = specialization.callFiles[call] or filename, line = line,}
+                            end
+                        end
+                    end
+                end
+            end
+        end
+    else
+        walk(parsed.root)
+    end
+
+    local function bySpecializationName(a, b): boolean
+        return a.name < b.name
+    end
+
+    for _, candidate in pairs(candidates) do
+        if plans == nil then
+            table.sort(candidate.specializations, bySpecializationName)
+            candidate.dispatches = {}
+            for index, specialization in ipairs(candidate.specializations) do
+                candidate.dispatches[#candidate.dispatches + 1] = {specialization = specialization, index = index,}
+            end
+        end
+    end
+
+    local specializationCount = 0
+    for _, candidate in pairs(candidates) do
+        specializationCount = specializationCount + #candidate.specializations
+    end
+    if specializationCount > maxPerModule then
+        local sites: {string} = {}
+        for _, site in ipairs(specializationSites) do
+            sites[#sites + 1] = site.file .. ":" .. tostring(site.line)
+        end
+        diagnostics[
+            #diagnostics + 1
+        ] = new compile.Diagnostic(
+            file = filename,
+            line = specializationLines[maxPerModule + 1] or specializationLines[1] or 1,
+            column = 1,
+            message = (
+                "const specialization requires %d body classes in this module, over the cap of %d; demanding call sites: %s"
+            ):format(specializationCount, maxPerModule, table.concat(sites, ", "))
+        )
+        return nil, diagnostics
+    end
 
     local ok, answer = pcall(function(): compile.Artifacts
         local programs: {scalarIR.Program} = {}
+        local families: {any} = {}
         for _, application in ipairs(found.applications) do
             local declaration = application.tail as cst.LocalFuncStmt?
             local name = declaration ~= nil and declaration.name ~= nil and declaration.name.text or ""
             local candidate = candidates[name]
+            local familyPrograms: {scalarIR.Program} = {}
+            local familySpecializations: {lower.Specialization} = {}
+            local familyDispatchPrograms: {scalarIR.Program} = {}
             for _, specialization in ipairs(candidate ~= nil and candidate.specializations or {}) do
-                programs[
-                    #programs + 1
-                ] = verify.program(lower.program(found, application, true, context, specialization))
+                local program = verify.program(lower.program(found, application, true, context, specialization))
+                programs[#programs + 1] = program
+                familyPrograms[#familyPrograms + 1] = program
+            end
+            for _, dispatch in ipairs(candidate ~= nil and candidate.dispatches or {}) do
+                familySpecializations[#familySpecializations + 1] = dispatch.specialization
+                familyDispatchPrograms[#familyDispatchPrograms + 1] = familyPrograms[dispatch.index]
+            end
+            if #familyPrograms > 0 and declaration ~= nil and declaration.body ~= nil then
+                local first = cst.firstToken(declaration)
+                local bodyFirst = cst.firstToken((declaration.body as cst.Funcbody).body)
+                local headerFrom = first ~= nil and first.offset or 1
+                local headerTo = bodyFirst ~= nil and bodyFirst.offset - 1 or headerFrom
+                families[
+                    #families + 1
+                ] = {
+                    site = compile.site(application),
+                    header = source:sub(headerFrom, headerTo),
+                    name = name,
+                    binders = candidate.binders,
+                    programs = familyPrograms,
+                    specializations = familySpecializations,
+                    dispatchPrograms = familyDispatchPrograms,
+                }
             end
         end
         if #programs == 0 then
@@ -447,7 +563,8 @@ function compile.constSpecializations(
             irText = text.programs(programs),
             c = emit.program(programs, symbolTier),
             binding = "",
-            sites = {}
+            sites = {},
+            constFamilies = families
         )
     end)
     if not ok then
@@ -560,11 +677,36 @@ function compile.artifacts(
     parsed: parser.ParseResult?,
     library: string,
     selected: targets.Target,
-    symbolTier: string?
+    symbolTier: string?,
+    constPlans: {any}?
 ): (compile.Artifacts?, {compile.Diagnostic})
     local programs, diagnostics, sites = compile.lower(source, filename, parsed)
-    if #programs == 0 then
+    if #diagnostics > 0 then
         return nil, diagnostics
+    end
+
+    local constArtifacts: compile.Artifacts? = nil
+    if parsed ~= nil then
+        local specialized, specializationDiagnostics = compile.constSpecializations(
+            source,
+            filename,
+            parsed as parser.ParseResult,
+            selected,
+            symbolTier,
+            constPlans
+        )
+        if specialized ~= nil then
+            constArtifacts = specialized
+        elseif specializationDiagnostics[
+            1
+        ] ~= nil and specializationDiagnostics[1].message ~= "no closed const-generic AOT applications were found" then
+            return nil, specializationDiagnostics
+        end
+    end
+    if #programs == 0 and constArtifacts == nil then
+        return nil, {
+            new compile.Diagnostic(file = filename, line = 1, column = 1, message = "no @aot function was found")
+        }
     end
 
     local optimizations: {aotOptimize.Stats} = {}
@@ -578,6 +720,13 @@ function compile.artifacts(
         compile.lanes(program, filename, selected)
         loopReports[position] = loopAnalysis.program(program)
     end
+    if constArtifacts ~= nil then
+        for position, program in ipairs((constArtifacts as compile.Artifacts).programs) do
+            programs[#programs + 1] = program
+            optimizations[#optimizations + 1] = (constArtifacts as compile.Artifacts).optimizations[position]
+            loopReports[#loopReports + 1] = (constArtifacts as compile.Artifacts).loops[position]
+        end
+    end
 
     return new compile.Artifacts(
         programs = programs,
@@ -586,7 +735,8 @@ function compile.artifacts(
         irText = text.programs(programs),
         c = emit.program(programs, symbolTier),
         binding = bindingRules.module(programs, library),
-        sites = sites
+        sites = sites,
+        constFamilies = constArtifacts ~= nil and (constArtifacts as compile.Artifacts).constFamilies or nil
     ), diagnostics
 end
 

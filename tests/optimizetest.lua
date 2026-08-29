@@ -1009,6 +1009,126 @@ function M.keepsACallWhoseComputedArgumentHasAnEffect()
       "an effectful computed argument keeps its call: " .. code)
 end
 
+-- OPT-8: closed scalar const applications become bounded private bodies.
+
+local CONST_ACCUMULATE = table.concat({
+   "local function accumulate<const N: integer>(value: number, count: N): number",
+   "   local total = value",
+   "   for offset = 1, count as integer do",
+   "      total = total + offset",
+   "   end",
+   "   return total",
+   "end",
+   "return accumulate(10.0, 4)",
+}, "\n")
+
+function M.monomorphizesAClosedConstApplication()
+   local code, remarks = compile(CONST_ACCUMULATE)
+   assertTrue(code:find("local function __nuppConst_accumulate_", 1, true) ~= nil,
+      "a private body was emitted: " .. code)
+   assertTrue(code:find("__nuppConst_accumulate_", 1, true)
+      < code:find("( 10", 1, true), "the call names the private body")
+   local found = false
+   for _, entry in ipairs(remarks) do
+      found = found or entry.code == "OPT-8"
+   end
+   assertTrue(found, "the rewrite emits an OPT-8 remark")
+end
+
+function M.constSpecializationOmitsItsCarrierAndUnrollsItsLoop()
+   local code = compile(CONST_ACCUMULATE)
+   local private = code:match(
+      "local function __nuppConst_accumulate_[%w_]+(.-)return total end") or ""
+   assertTrue(private:find("count", 1, true) == nil,
+      "the private ABI and body omit the carrier: " .. private)
+   assertTrue(private:find("for offset", 1, true) == nil,
+      "the bounded loop is straight-line: " .. private)
+   assertTrue(private:find("total = total + 4", 1, true) ~= nil,
+      "the final unrolled iteration is present: " .. private)
+end
+
+function M.constSpecializationDoesNotChangeTheAnswerOrFunctionIdentity()
+   local source = CONST_ACCUMULATE:gsub(
+      "return accumulate%(10%.0, 4%)",
+      "local held = accumulate\nlocal answer = accumulate(10.0, 4)\nreturn held == accumulate, answer"
+   )
+   local same, answer = run(source)
+   assertEq(same, true, "the public function remains the source value")
+   assertEq(answer, 20, "the private body answers like the generic body")
+   local genericSame, genericAnswer = run(source, 0)
+   assertEq(genericSame, same, "-O0 preserves the same public identity")
+   assertEq(genericAnswer, answer, "-O0 and OPT-8 agree")
+end
+
+function M.levelZeroDoesNotMonomorphizeConstApplications()
+   local code = compile(CONST_ACCUMULATE, 0)
+   assertTrue(code:find("__nuppConst_", 1, true) == nil,
+      "-O0 emits only the generic declaration and call")
+end
+
+function M.constSpecializationDeduplicatesAKey()
+   local code = compile(CONST_ACCUMULATE:gsub(
+      "return accumulate%(10%.0, 4%)",
+      "return accumulate(10.0, 4) + accumulate(20.0, 4)"
+   ))
+   local _, declarations = code:gsub("local function __nuppConst_accumulate_", "")
+   assertEq(declarations, 1, "one private body serves both calls")
+end
+
+function M.constSpecializationFollowsAConstAlias()
+   local source = CONST_ACCUMULATE:gsub(
+      "return accumulate%(10%.0, 4%)",
+      "const run = accumulate\nreturn run(10.0, 4)"
+   )
+   local code = compile(source)
+   assertTrue(code:find("local function __nuppConst_accumulate_", 1, true) ~= nil,
+      "the declaration still owns the aliased call's body")
+   assertEq(run(source), 20, "the const alias reaches the specialized body")
+end
+
+function M.constSpecializationCapsModuleBodyClasses()
+   local calls = {}
+   for count = 1, 9 do
+      calls[#calls + 1] = ("accumulate(0.0, %d)"):format(count)
+   end
+   local source = CONST_ACCUMULATE:gsub(
+      "return accumulate%(10%.0, 4%)",
+      "return " .. table.concat(calls, " + ")
+   )
+   local code, remarks = compile(source)
+   local _, declarations = code:gsub("local function __nuppConst_accumulate_", "")
+   assertEq(declarations, 8, "the module cap is eight private body classes")
+   local declined = 0
+   for _, entry in ipairs(remarks) do
+      if entry.code == "OPT-8" and entry.msg:find("declines", 1, true) then
+         declined = declined + 1
+      end
+   end
+   assertEq(declined, 1, "the ninth key carries a decline remark")
+end
+
+function M.constSpecializationCoalescesKeysWithOneBackendBody()
+   local calls = {}
+   for count = 1, 9 do
+      calls[#calls + 1] = ("tag(1.0, %d)"):format(count)
+   end
+   local source = table.concat({
+      "local function tag<const N: integer>(value: number, count: N): number",
+      "   return value + 1.0",
+      "end",
+      "return " .. table.concat(calls, " + "),
+   }, "\n")
+   local code, remarks = compile(source)
+   local _, declarations = code:gsub("local function __nuppConst_tag_", "")
+   assertEq(declarations, 1,
+      "keys whose omitted const never reaches the body share one physical body")
+   for _, entry in ipairs(remarks) do
+      assertTrue(not (entry.code == "OPT-8" and entry.msg:find("declines", 1, true)),
+         "coalesced semantic keys consume one cap slot")
+   end
+   assertEq(run(source), 18, "every key dispatches to the shared body")
+end
+
 function M.keepsACallWhoseComputedArgumentAllocates()
    local code = compile(
       "local function twice(v: string): string return v .. v end\n"

@@ -49,6 +49,7 @@ type cache.ModuleRecord = {
     interfaceHash: string?,
     artifactHash: string?,
     backendHash: string?,
+    specializationHash: string?,
     backend: any?,
     dependencies: {string}?,
 

@@ -63,6 +63,7 @@ local command = spec.command{
                     totalMs = {type = "number", description = "Wall-clock milliseconds for the whole check."},
                     compiledModules = {type = "integer"},
                     reusedModules = {type = "integer"},
+                    specializedBodies = {type = "integer"},
                     phases = {
                         type = "array",
                         description = "Every activity that took measurable time, longest "
@@ -86,7 +87,7 @@ local command = spec.command{
                         },
                     },
                 },
-                required = {"totalMs", "compiledModules", "reusedModules", "phases", "slowest"},
+                required = {"totalMs", "compiledModules", "reusedModules", "specializedBodies", "phases", "slowest",},
             },
         },
         required = {"ok", "diagnostics", "dialect"},

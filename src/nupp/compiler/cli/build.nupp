@@ -209,6 +209,10 @@ local command = spec.command{
                     totalMs = {type = "number", description = "Wall-clock milliseconds for the whole build."},
                     compiledModules = {type = "integer"},
                     reusedModules = {type = "integer"},
+                    specializedBodies = {
+                        type = "integer",
+                        description = "Logical const-specialized bodies emitted independently of module count.",
+                    },
                     phases = {
                         type = "array",
                         description = "Every activity that took measurable time, longest "
@@ -230,7 +234,7 @@ local command = spec.command{
                         },
                     },
                 },
-                required = {"totalMs", "compiledModules", "reusedModules", "phases", "slowest"},
+                required = {"totalMs", "compiledModules", "reusedModules", "specializedBodies", "phases", "slowest",},
             },
             ok = {
                 type = "boolean",

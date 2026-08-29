@@ -169,14 +169,14 @@ The lane verifier checks vector types and arities, writable roots, layouts,
 field types, masks, selects, loop masks, lane exits, and the fixed group width.
 Tests deliberately corrupt lane IR to prove the verifier rejects it.
 
-## Const-monomorphization prototype
+## Const-monomorphization evidence
 
-`const-monomorph-prototype.nupp` is an item-10 experiment, not part of the
-ordinary AOT build. It declares a const-generic `@aot` body and calls it through
-an ordinary wrapper with `Rounds = 4`. The experimental compiler entry finds
-that direct call by semantic declaration identity, reads the singleton argument
-from the checker's specialized call signature, and emits a separately named
-private body. No source is evaluated or generated.
+`const-monomorph-prototype.nupp` is the retained item-10 measurement fixture. It
+declares a const-generic `@aot` body and calls it through an ordinary wrapper
+with `Rounds = 4`. The compiler finds that call by semantic declaration
+identity, reads the singleton argument from the checker's specialized call
+signature, and emits a separately named private body. No source is evaluated or
+generated.
 
 That is enough to feed the existing fixed-trip and lane passes. The resulting
 IR contains four straight-line rounds and a four-lane body. Against the same
@@ -215,12 +215,12 @@ elements before timing. Run the whole experiment with:
 bench/kernel-subset-spike/const-monomorph-prototype.sh
 ```
 
-The prototype deliberately stops before production integration. It does not
-emit or dispatch to a generic fallback, discover cross-module calls, enter a
-const tuple into incremental dependency identity, or report per-body timing and
-code size. Its per-module cap is eight and its diagnostic names the call lines
-already consuming the cap, but that policy is exercised only through the
-experimental compiler entry.
+The production optimizer consumes the same checked key at `-O1` and above and
+the AOT build consumes it when `@aot` is selected. Deliverable-wide discovery,
+cross-module private linkage, incoming manifest invalidation, an eight-body-class
+module cap, unmatched-tuple diagnostics, and separate specialization timing are
+covered by the compiler suites. This script remains the reproducible performance
+and differential fixture rather than a second implementation.
 
 ## Running it
 

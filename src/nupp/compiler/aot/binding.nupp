@@ -570,6 +570,63 @@ function binding.replacement(
     return table.concat(lines, "\n")
 end
 
+local function specializedLiteral(value: scalarIR.Expr): string
+    if value.op == "constant" then
+        return (value as scalarIR.Constant).value
+    elseif value.op == "bool" then
+        return tostring((value as scalarIR.Bool).value)
+    elseif value.op == "lua_string" then
+        return string.format("%q", (value as scalarIR.LuaString).value)
+    end
+
+    error("const specialization carries a non-scalar value", 0)
+end
+
+--- One public const-generic declaration backed by several private native bodies.
+--- The source signature remains the authored signature.  Only the body changes: a
+--- checked tuple tail-dispatches to its private wrapper and an unchecked tuple that
+--- was not part of the deliverable fails instead of silently crossing to Lua.
+function binding.familyReplacement(family: any, library: string, tiers: {string}?, includeDetector: boolean?): string
+    local lines: {string} = {}
+    for position, program in ipairs(family.programs) do
+        lines[#lines + 1] = binding.replacement(program, library, tiers, includeDetector == true and position == 1)
+        lines[#lines + 1] = ""
+    end
+
+    lines[#lines + 1] = family.header
+    for position, specialization in ipairs(family.specializations) do
+        local conditions: {string} = {}
+        for _, binder in ipairs(family.binders) do
+            for _, carrier in ipairs(binder.carriers) do
+                local value = specialization.values[carrier.name]
+                conditions[#conditions + 1] = carrier.name .. " == " .. specializedLiteral(value)
+            end
+        end
+        local program = (family.dispatchPrograms or family.programs)[position]
+        local arguments: {string} = {}
+        for _, param in ipairs(program.params) do
+            arguments[#arguments + 1] = param.name
+        end
+        local branch = position == 1 and "if" or "elseif"
+        lines[#lines + 1] = "    " .. branch .. " " .. table.concat(conditions, " and ") .. " then"
+        lines[#lines + 1] = "        return " .. program.name .. "(" .. table.concat(arguments, ", ") .. ")"
+    end
+    lines[#lines + 1] = "    end"
+    lines[#lines + 1] = "    error(\"no compiled const application exists for this argument tuple\", 2)"
+    lines[#lines + 1] = "end"
+
+    local first = family.programs[1]
+    local registry = first.symbol .. "_compiledEntries"
+    lines[#lines + 1] = "local " .. registry .. ": any = rawget(_G, \"__nuppAotCompiled\")"
+    lines[#lines + 1] = "if " .. registry .. " == nil then"
+    lines[#lines + 1] = "    " .. registry .. " = setmetatable({}, {__mode = \"k\"})"
+    lines[#lines + 1] = "    rawset(_G, \"__nuppAotCompiled\", " .. registry .. ")"
+    lines[#lines + 1] = "end"
+    lines[#lines + 1] = registry .. "[" .. family.name .. "] = true"
+
+    return table.concat(lines, "\n")
+end
+
 --- The whole generated module: structs, their layout checks, the foreign
 --- declaration, the wrapper, and what all of it exports.
 function binding.module(programs: {scalarIR.Program}, library: string): string

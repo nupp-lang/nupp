@@ -35,9 +35,11 @@ local bindingRules = require("nupp.compiler.aot.binding")
 local wasmBinding = require("nupp.compiler.aot.wasmbinding")
 local wasmEmitter = require("nupp.compiler.aot.wasmemit")
 local compile = require("nupp.compiler.aot.compile")
+local constspecialize = require("nupp.compiler.constspecialize")
 local emitter = require("nupp.compiler.aot.emit")
 local diagnosticMod = require("nupp.compiler.diagnostics")
 local fs = require("nupp.compiler.fs")
+local envMod = require("nupp.compiler.env")
 local cache = require("nupp.compiler.build.cache")
 local hash = require("nupp.compiler.build.hash")
 local process = require("nupp.compiler.build.process")
@@ -537,22 +539,43 @@ function aot.dispatch(
     programs: {scalarIR.Program},
     sites: {compile.Site},
     library: string,
-    tiers: {string}?
+    tiers: {string}?,
+    constFamilies: {any}?
 ): string
     local rewritten = source
-    for position = #programs, 1, -1 do
+    local replacements: {any} = {}
+    local detectorAt: integer? = nil
+    for _, site in ipairs(sites) do
+        detectorAt = detectorAt == nil and site.from or math.min(detectorAt as integer, site.from)
+    end
+    for _, family in ipairs(constFamilies or {}) do
+        detectorAt = detectorAt == nil and family.site.from or math.min(detectorAt as integer, family.site.from)
+    end
+    for _, family in ipairs(constFamilies or {}) do
+        replacements[
+            #replacements + 1
+        ] = {
+            site = family.site,
+            text = bindingRules.familyReplacement(family, library, tiers, family.site.from == detectorAt),
+        }
+    end
+    for position = 1, #programs do
         local site = sites[position]
         if site ~= nil then
-            rewritten = rewritten:sub(
-                1,
-                site.from - 1
-            ) .. bindingRules.replacement(
-                programs[position],
-                library,
-                tiers,
-                position == 1
-            ) .. rewritten:sub(site.to + 1)
+            replacements[
+                #replacements + 1
+            ] = {
+                site = site,
+                text = bindingRules.replacement(programs[position], library, tiers, site.from == detectorAt),
+            }
         end
+    end
+    table.sort(replacements, function(a, b): boolean
+        return a.site.from > b.site.from
+    end)
+    for _, replacement in ipairs(replacements) do
+        local site = replacement.site
+        rewritten = rewritten:sub(1, site.from - 1) .. replacement.text .. rewritten:sub(site.to + 1)
     end
 
     return rewritten
@@ -903,7 +926,7 @@ function aot.emitC(
     session: nupp.compiler.build.modules.Session,
     features: string?,
     triple: string?
-): ({aot.Emitted}?, string?, {[string]: compile.Artifacts}, {[string]: {any}})
+): ({aot.Emitted}?, string?, {[string]: compile.Artifacts}, {[string]: {any}}, any?)
     local produced: {[string]: compile.Artifacts} = {}
     -- Kept for every source read here, and used only for the ones that end up
     -- rewritten, since only those are checked again as something else.
@@ -915,97 +938,124 @@ function aot.emitC(
 
     local emitted: {aot.Emitted} = {}
     local seen: {[string]: boolean} = {}
+    local sources: {string} = {}
+    local sourceText: {[string]: string} = {}
+    local sourceDirectory: {[string]: string} = {}
+    local checkedBySource: {[string]: nupp.compiler.parser.ParseResult} = {}
+    local checkedModules: {any} = {}
     for _, directory in ipairs(roots) do
         for _, source in ipairs(fs.listFiles(fs.join(root, directory))) do
             if not seen[source] and source:match("%.nupp$") ~= nil then
                 seen[source] = true
-
                 local text = fs.readFile(source)
-                local tree: nupp.compiler.parser.ParseResult? = nil
-                if text ~= nil and mentionsAot(text as string) then
+                if text ~= nil then
                     local checkedSource, unusedHere = checkedTree(session, source)
-                    tree = checkedSource
-                    authoredUnused[source] = unusedHere
-                end
-                if tree ~= nil then
-                    for tierPosition, tierTarget in ipairs(selected as {targets.Target}) do
-                        local artifacts, diagnostics = compile.artifacts(
-                            text as string,
-                            source,
-                            tree as nupp.compiler.parser.ParseResult,
-                            "<object>",
-                            tierTarget,
-                            tierTarget.tier
-                        )
-                        if artifacts == nil then
-                            -- A file that only mentioned the annotation is not
-                            -- an error. Every tier lowers from the same checked
-                            -- source, so only the first can discover that case.
-                            local first = diagnostics[1]
-                            if first ~= nil and first.message ~= "no @aot function was found" then
-                                return nil, compile.renderDiagnostic(first), produced, authoredUnused
-                            end
-                            break
-                        else
-                            -- Where the generated C goes, which has to be
-                            -- under `outDir` for every source the project
-                            -- reaches, including the ones it reaches by
-                            -- including a directory outside itself.
-                            --
-                            -- This used to strip the project root off the
-                            -- source with a pattern, and `root` is usually
-                            -- ".", whose pattern `^%./?` matches the first
-                            -- dot of a leading "..". A source two directories
-                            -- up came back as "./../src/x" and landed inside
-                            -- the build directory by luck; three up came back
-                            -- as "./../../src/x" and landed in the project's
-                            -- own source tree. Taking the path apart at the
-                            -- include directory it was listed under answers
-                            -- both: the traversal is spelled out rather than
-                            -- joined, so nothing escapes, and the directory
-                            -- stays in the name, so two includes offering the
-                            -- same module path cannot land on one file.
-                            -- Both sides without a leading "./", because
-                            -- `fs.join` writes one for a root of "." and the
-                            -- listed source does not carry it.
-                            local base = fs.join(root, directory):gsub("^%./", "")
-                            local listed = source:gsub("^%./", "")
-                            local relative = listed
-                            if listed:sub(1, #base + 1) == base .. "/" then
-                                relative = listed:sub(#base + 2)
-                            end
-                            local prefix = directory:gsub("^%./", ""):gsub("%.%./", "up/"):gsub("/$", "")
-                            local stem = (prefix == "" and relative or prefix .. "/" .. relative):gsub("%.nupp$", "")
-                            local output = outDir .. "/aot/" .. stem .. "." .. tierTarget.tier .. ".c"
-                            local cacheKey = source .. "#" .. tierTarget.tier
-                            local key = aot.key(artifacts.irText, tierTarget)
-
-                            -- The state is evidence, not authority: the bytes
-                            -- still have to be the ones this compiler emitted.
-                            local reused = previous[cacheKey] == key and fs.readFile(output) == artifacts.c
-                            if not reused then
-                                local ok, err = fs.writeFile(output, artifacts.c)
-                                if not ok then
-                                    return nil, tostring(err), produced, authoredUnused
-                                end
-                            end
-                            emitted[
-                                #emitted + 1
-                            ] = new aot.Emitted(
-                                source = source,
-                                tier = tierTarget.tier,
-                                cacheKey = cacheKey,
-                                output = output,
-                                functions = #artifacts.programs,
-                                key = key
-                            )
-                            produced[cacheKey] = artifacts as compile.Artifacts
-                            if tierPosition == 1 then
-                                -- Wrappers have one logical program and bind it
-                                -- to the physical entries every tier exported.
-                                produced[source] = artifacts as compile.Artifacts
-                            end
+                    if checkedSource ~= nil then
+                        sources[#sources + 1] = source
+                        sourceText[source] = text as string
+                        sourceDirectory[source] = directory
+                        checkedBySource[source] = checkedSource as nupp.compiler.parser.ParseResult
+                        checkedModules[
+                            #checkedModules + 1
+                        ] = {
+                            filename = source,
+                            module = envMod.moduleNameForPath(session.inc.env, source),
+                            result = checkedSource,
+                        }
+                        if mentionsAot(text as string) then
+                            authoredUnused[source] = unusedHere
                         end
+                    end
+                end
+            end
+        end
+    end
+    table.sort(sources)
+    local constPlans = constspecialize.collectGraph(checkedModules)
+    local acceptedConst, declinedConst = constspecialize.selectGraph(constPlans)
+    local constSelection = {accepted = acceptedConst, declined = declinedConst, plans = constPlans,}
+    for _, source in ipairs(sources) do
+        local text = sourceText[source] as string
+        local tree = checkedBySource[source] as nupp.compiler.parser.ParseResult
+        local directory = sourceDirectory[source] as string
+        if mentionsAot(text) then
+            for tierPosition, tierTarget in ipairs(selected as {targets.Target}) do
+                local artifacts, diagnostics = compile.artifacts(
+                    text,
+                    source,
+                    tree,
+                    "<object>",
+                    tierTarget,
+                    tierTarget.tier,
+                    constPlans
+                )
+                if artifacts == nil then
+                    -- A file that only mentioned the annotation is not
+                    -- an error. Every tier lowers from the same checked
+                    -- source, so only the first can discover that case.
+                    local first = diagnostics[1]
+                    if first ~= nil and first.message ~= "no @aot function was found" then
+                        return nil, compile.renderDiagnostic(first), produced, authoredUnused
+                    end
+                    break
+                else
+                    -- Where the generated C goes, which has to be
+                    -- under `outDir` for every source the project
+                    -- reaches, including the ones it reaches by
+                    -- including a directory outside itself.
+                    --
+                    -- This used to strip the project root off the
+                    -- source with a pattern, and `root` is usually
+                    -- ".", whose pattern `^%./?` matches the first
+                    -- dot of a leading "..". A source two directories
+                    -- up came back as "./../src/x" and landed inside
+                    -- the build directory by luck; three up came back
+                    -- as "./../../src/x" and landed in the project's
+                    -- own source tree. Taking the path apart at the
+                    -- include directory it was listed under answers
+                    -- both: the traversal is spelled out rather than
+                    -- joined, so nothing escapes, and the directory
+                    -- stays in the name, so two includes offering the
+                    -- same module path cannot land on one file.
+                    -- Both sides without a leading "./", because
+                    -- `fs.join` writes one for a root of "." and the
+                    -- listed source does not carry it.
+                    local base = fs.join(root, directory):gsub("^%./", "")
+                    local listed = source:gsub("^%./", "")
+                    local relative = listed
+                    if listed:sub(1, #base + 1) == base .. "/" then
+                        relative = listed:sub(#base + 2)
+                    end
+                    local prefix = directory:gsub("^%./", ""):gsub("%.%./", "up/"):gsub("/$", "")
+                    local stem = (prefix == "" and relative or prefix .. "/" .. relative):gsub("%.nupp$", "")
+                    local output = outDir .. "/aot/" .. stem .. "." .. tierTarget.tier .. ".c"
+                    local cacheKey = source .. "#" .. tierTarget.tier
+                    local key = aot.key(artifacts.irText, tierTarget)
+
+                    -- The state is evidence, not authority: the bytes
+                    -- still have to be the ones this compiler emitted.
+                    local reused = previous[cacheKey] == key and fs.readFile(output) == artifacts.c
+                    if not reused then
+                        local ok, err = fs.writeFile(output, artifacts.c)
+                        if not ok then
+                            return nil, tostring(err), produced, authoredUnused
+                        end
+                    end
+                    emitted[
+                        #emitted + 1
+                    ] = new aot.Emitted(
+                        source = source,
+                        tier = tierTarget.tier,
+                        cacheKey = cacheKey,
+                        output = output,
+                        functions = #artifacts.programs,
+                        key = key
+                    )
+                    produced[cacheKey] = artifacts as compile.Artifacts
+                    if tierPosition == 1 then
+                        -- Wrappers have one logical program and bind it
+                        -- to the physical entries every tier exported.
+                        produced[source] = artifacts as compile.Artifacts
                     end
                 end
             end
@@ -1044,13 +1094,16 @@ function aot.emitC(
         )
     end
 
-    return emitted, nil, produced, authoredUnused
+    return emitted, nil, produced, authoredUnused, constSelection
 end
 
 --- What one build of the policy produced.
 record aot.Result
     --- The C, one entry per source that carried an `@aot` function.
     emitted: {aot.Emitted}
+
+    --- Logical const-specialized families, counted once before target tiers.
+    specializedBodies: integer
 
     --- The shared library, when the policy asked for one.
     library: string?
@@ -1073,6 +1126,9 @@ record aot.Result
     --- nothing uses. The module build reports these instead of what the
     --- rewritten source says, which cannot see the readers the wrapper replaced.
     authoredUnused: {[string]: {any}}?
+
+    --- Internal whole-deliverable selection reused by ordinary Lua emission.
+    constSelection: any?
 
     --- Side-module C and Wasm paths, in deterministic source order.
     wasmModules: {string}?
@@ -1147,7 +1203,7 @@ function aot.apply(
         triple = "wasm32-unknown-emscripten"
         features = features or "scalar"
     end
-    local emitted, emitErr, produced, authoredUnused = aot.emitC(
+    local emitted, emitErr, produced, authoredUnused, constSelection = aot.emitC(
         root,
         outDir,
         roots,
@@ -1158,6 +1214,17 @@ function aot.apply(
     )
     if emitted == nil then
         return nil, emitErr
+    end
+    local specializedBodies: integer = 0
+    local countedSources: {[string]: boolean} = {}
+    for _, one in ipairs(emitted as {aot.Emitted}) do
+        local artifacts = produced[one.source]
+        if not countedSources[one.source] and artifacts ~= nil then
+            countedSources[one.source] = true
+            for _, family in ipairs((artifacts as compile.Artifacts).constFamilies or {}) do
+                specializedBodies = specializedBodies + #family.programs
+            end
+        end
     end
     local selectedForManifest, selectedErr = targets.buildTiers(triple, features)
     if selectedForManifest == nil then
@@ -1214,11 +1281,19 @@ function aot.apply(
             manifest = manifest,
             dispatch = dispatch,
             authoredUnused = authoredUnused,
-            wasmModules = wasmModules
+            wasmModules = wasmModules,
+            specializedBodies = specializedBodies,
+            constSelection = constSelection
         ), nil
     end
     if not aot.linksNative(policy) or #(emitted as {aot.Emitted}) == 0 then
-        return new aot.Result(emitted = emitted as {aot.Emitted}, manifest = manifest, dispatch = {}), nil
+        return new aot.Result(
+            emitted = emitted as {aot.Emitted},
+            manifest = manifest,
+            dispatch = {},
+            specializedBodies = specializedBodies,
+            constSelection = constSelection
+        ), nil
     end
 
     local chain, chainErr = aot.toolchain()
@@ -1289,7 +1364,8 @@ function aot.apply(
                 (artifacts as compile.Artifacts).programs,
                 (artifacts as compile.Artifacts).sites,
                 reference,
-                tierNames
+                tierNames,
+                (artifacts as compile.Artifacts).constFamilies
             )
         end
     end
@@ -1301,7 +1377,9 @@ function aot.apply(
         toolchain = (chain as aot.Toolchain).version,
         manifest = manifest,
         dispatch = dispatch,
-        authoredUnused = authoredUnused
+        authoredUnused = authoredUnused,
+        specializedBodies = specializedBodies,
+        constSelection = constSelection
     ), nil
 end
 

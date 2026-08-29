@@ -376,6 +376,7 @@ Each pass below is named by a stable `OPT-n` code.
 | `OPT-5` | concat-buffer | -O1 | Append to a string.buffer instead of rebuilding a string each pass |
 | `OPT-6` | indexed-range | -O1 | Select proved direct access and scalar-replace indexed views |
 | `OPT-7` | inline-return-helper | -O1 | Inline a module's own single-return local helpers where they are called |
+| `OPT-8` | const-monomorphize | -O1 | Emit bounded private bodies for closed scalar const applications |
 
 ::: deepdive
 A pass lands only with a LuaJIT-enabled benchmark and a static proof that it
@@ -1027,6 +1028,30 @@ A call is left alone unless all of this holds:
   a line that does not load.
 - The call is in expression position. A call standing alone is a statement, and
   a parenthesized expression is not one.
+
+### `OPT-8`, const monomorphization
+
+A runtime function with scalar `const` binders may receive a private body for a
+closed checked application. The private ABI omits const carrier parameters,
+substitutes their values into the checked body, and applies constant folding and
+bounded loop unrolling before Lua is emitted. The public function remains the
+only source-visible function value, and `-O0` emits only that generic body.
+
+Demands are collected across the built module graph. A direct cross-module call
+uses compiler-private linkage to the body owned by the declaring module, and a
+changed incoming tuple invalidates that module's emitted artifact without
+turning it into a new checked module. Repeated keys emit once. Keys proven to
+produce the same private ABI and body share a physical body class, and each
+source module is limited to eight such classes; optional keys beyond the limit
+keep the generic route and appear in `--remarks`.
+
+Only `const` binders in the `integer`, `boolean`, and `string` domains with a
+direct carrier parameter are eligible. Calls through `any`, unresolved function
+values, and dependencies without the checked body stay generic. Build JSON
+reports `timing.specializedBodies` separately from `compiledModules`.
+
+An `@aot` const-generic function uses the same checked key and body-class budget.
+See [const-specialized AOT families](ahead-of-time.md#const-specialized-families).
 
 ### Rewrites deliberately not made
 

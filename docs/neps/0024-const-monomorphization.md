@@ -1,6 +1,6 @@
 ---
 title: Const monomorphization
-status: Accepted
+status: Implemented
 created: 2026-08-28
 ---
 
@@ -318,7 +318,7 @@ Substitution does not imply unrolling. The ordinary optimizer applies its
 normal proof and growth limits, and may retain a literal-bound loop or decline
 the clone if no profitable rewrite remains. `--remarks` identifies the tuple,
 the resulting body, and the proof or budget that declined it. The pass receives
-the stable code `OPT-7` and may be disabled with `-Zno-opt=OPT-7` for
+the stable code `OPT-8` and may be disabled with `-Zno-opt=OPT-8` for
 miscompile bisection like the rest of the catalog.
 
 ### Ahead-of-time lowering

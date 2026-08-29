@@ -1,5 +1,5 @@
 -- Differential and paired timing for the dynamic ceiling fixture and the body
--- emitted by the experimental const-specialization discovery pass.
+-- emitted by the production const-specialization discovery pass.
 local ffi = require("ffi")
 
 local here = assert(debug.getinfo(1, "S").source:match("^@(.*[/\\])"))
@@ -17,9 +17,9 @@ void ks_general(double *output, const double *input,
 ]]
 ffi.cdef(([[
 void %s(double *output, const double *input,
-    double first, double last, double rounds, size_t count);
+    double first, double last, size_t count);
 void %s_forced_scalar(double *output, const double *input,
-    double first, double last, double rounds, size_t count);
+    double first, double last, size_t count);
 ]]):format(symbol, symbol))
 
 local suffix = jit.os == "OSX" and ".dylib" or ".so"
@@ -42,8 +42,8 @@ for _, count in ipairs({0, 1, 3, 4, 5, 7, 8, 33, 1000}) do
     local automatic = ffi.new("double[?]", math.max(count, 1))
     local scalar = ffi.new("double[?]", math.max(count, 1))
     ceiling.ks_general(dynamic, source, 1, count, 4, count)
-    specialized(automatic, source, 1, count, 4, count)
-    specializedScalar(scalar, source, 1, count, 4, count)
+    specialized(automatic, source, 1, count, count)
+    specializedScalar(scalar, source, 1, count, count)
     for index = 0, count - 1 do
         assert(dynamic[index] == automatic[index], "specialized body differs at " .. index)
         assert(dynamic[index] == scalar[index], "specialized scalar body differs at " .. index)
@@ -61,11 +61,11 @@ local function runDynamic()
 end
 
 local function runSpecialized()
-    specialized(automatic, source, 1, count, 4, count)
+    specialized(automatic, source, 1, count, count)
 end
 
 local function runScalar()
-    specializedScalar(scalar, source, 1, count, 4, count)
+    specializedScalar(scalar, source, 1, count, count)
 end
 
 local function calibrate(run)

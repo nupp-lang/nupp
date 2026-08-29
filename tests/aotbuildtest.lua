@@ -416,6 +416,46 @@ end
 return {aliased = aliased, Sample = Sample}
 ]]
 
+local CONST_KERNEL = [[
+module constkernel
+
+@aot(lanes = false)
+local function doubled<const N: integer>(value: number, count: N): number
+    local answer = value
+    for _ = 1, count as integer do
+        answer = answer * 2.0
+    end
+    return answer
+end
+
+local function doubled3(value: number): number
+    return doubled(value, 3)
+end
+
+export = {doubled = doubled, doubled3 = doubled3}
+]]
+
+local function constProject(policy)
+   local dir = os.tmpname()
+   os.remove(dir)
+   assert(os.execute("mkdir -p '" .. dir .. "/src'") == 0)
+   local manifest = assert(io.open(dir .. "/nupp.lua", "wb"))
+   manifest:write(([[
+return {
+   include = {"src"},
+   build = {targets = {native = {
+      kind = "modules", entries = {"constkernel"}, outDir = "build/native",
+      aot = "%s",
+   }}},
+}
+]]):format(policy))
+   manifest:close()
+   local source = assert(io.open(dir .. "/src/constkernel.nupp", "wb"))
+   source:write(CONST_KERNEL)
+   source:close()
+   return dir
+end
+
 local function project(policy)
    local dir = os.tmpname()
    os.remove(dir)
@@ -686,6 +726,77 @@ function M.emitCWritesTheCBesideTheBuild()
       "the external compiler handoff records each unit's tier")
    assert(read(dir .. "/build/native/kernel.lua"),
       "the ordinary Lua body is still emitted: emit-c adds an artifact, it does not replace one")
+end
+
+function M.constGenericEmitCOmitsTheCarrierAndUnrollsTheBody()
+   local dir = constProject("emit-c")
+   local out, code = build(dir)
+   test.equal(code, 0, out)
+   local c = assert(read(tieredC(dir, firstHostTier(), "constkernel")))
+   assert(c:find("ks___nupp_const_doubled_", 1, true),
+      "the canonical private key reaches the native symbol")
+   assert(not c:find("p_count", 1, true),
+      "the const carrier is absent from the private native ABI")
+   assert(c:find("answer = answer *", 1, true) or c:find("answer * 2", 1, true),
+      "the specialized arithmetic reached emitted C")
+end
+
+function M.constGenericAotCapCountsCoalescedBodiesNotKeys()
+   local dir = constProject("emit-c")
+   local source = assert(io.open(dir .. "/src/constkernel.nupp", "wb"))
+   local calls = {}
+   for count = 1, 9 do
+      calls[#calls + 1] = ("tag(1.0, %d)"):format(count)
+   end
+   source:write(table.concat({
+      "module constkernel",
+      "@aot(lanes = false)",
+      "local function tag<const N: integer>(value: number, count: N): number",
+      "    return value + 1.0",
+      "end",
+      "local answer = " .. table.concat(calls, " + "),
+      "export = {tag = tag, answer = answer}",
+   }, "\n"))
+   source:close()
+
+   local out, code = build(dir)
+   test.equal(code, 0, out)
+   local c = assert(read(tieredC(dir, firstHostTier(), "constkernel")))
+   local bodies = {}
+   for suffix in c:gmatch("ks___nupp_const_tag_([0-9a-f]+)") do
+      bodies[suffix] = true
+   end
+   local count = 0
+   for _ in pairs(bodies) do count = count + 1 end
+   test.equal(count, 1,
+      "nine semantic keys whose const is unused share one native body class")
+end
+
+function M.constGenericAotCapNamesTheWholeDemandSet()
+   local dir = constProject("emit-c")
+   local source = assert(io.open(dir .. "/src/constkernel.nupp", "wb"))
+   local calls = {}
+   for count = 1, 9 do
+      calls[#calls + 1] = ("tag(1.0, %d)"):format(count)
+   end
+   source:write(table.concat({
+      "module constkernel",
+      "@aot(lanes = false)",
+      "local function tag<const N: integer>(value: number, count: N): number",
+      "    local answer = value",
+      "    for _ = 1, count as integer do answer = answer + 1.0 end",
+      "    return answer",
+      "end",
+      "local answer = " .. table.concat(calls, " + "),
+      "export = {tag = tag, answer = answer}",
+   }, "\n"))
+   source:close()
+
+   local out, code = build(dir)
+   assert(code ~= 0, "a required ninth body class must fail")
+   assert(out:find("requires 9 body classes", 1, true), out)
+   local _, sites = out:gsub("src/constkernel.nupp:8", "")
+   assert(sites >= 9, "the diagnostic names every call in the conflicting set: " .. out)
 end
 
 function M.checkedAliasesFeedTypesOwnershipLayoutsAndIntrinsics()
@@ -1614,6 +1725,67 @@ function M.theBuiltLibraryLoadsAndComputes()
    test.equal(tonumber(result.v2), 2, "the second scalar result crosses the result aggregate")
    test.equal(tonumber(result.v3), 3, "the third scalar result crosses the result aggregate")
 
+end
+
+function M.constGenericDispatcherCallsTheBuiltBodyAndRejectsAnOpenTuple()
+   if not hasToolchain() then return end
+
+   local dir = constProject("require")
+   local out, code = build(dir)
+   test.equal(code, 0, out)
+   local generated = assert(read(dir .. "/build/native/constkernel.lua"))
+   assert(generated:find("local function __nuppConst_doubled_", 1, true),
+      "the checked overlay contains the private native wrapper")
+   assert(generated:find("no compiled const application exists", 1, true),
+      "the public generic value has an explicit unmatched-tuple boundary")
+
+   local script = searchPathPrelude() .. [[
+      local mod = require("constkernel")
+      assert(mod.doubled3(5.0) == 40.0)
+      assert(mod.doubled(5.0, 3) == 40.0)
+      local ok, why = pcall(mod.doubled, 5.0, 4)
+      assert(not ok and tostring(why):find("no compiled const application exists", 1, true))
+      print("CONST-AOT-OK")
+   ]]
+   local pipe = assert(io.popen(("cd %q && luajit -e %q 2>&1"):format(dir, script)))
+   local report = pipe:read("*a")
+   pipe:close()
+   assert(report:find("CONST-AOT-OK", 1, true),
+      "the dispatcher reaches only emitted tuples: " .. report)
+end
+
+function M.crossModuleConstDemandBuildsTheDeclaringAotFamily()
+   if not hasToolchain() then return end
+
+   local dir = constProject("require")
+   local manifest = assert(io.open(dir .. "/nupp.lua", "wb"))
+   manifest:write([[
+return {
+   include = {"src"},
+   build = {targets = {native = {
+      kind = "modules", entries = {"caller"}, outDir = "build/native",
+      aot = "require",
+   }}},
+}
+]])
+   manifest:close()
+   local caller = assert(io.open(dir .. "/src/caller.nupp", "wb"))
+   caller:write([[local kernel = require("constkernel")
+return kernel.doubled(5.0, 4)
+]])
+   caller:close()
+
+   local out, code = build(dir)
+   test.equal(code, 0, out)
+   local generated = assert(read(dir .. "/build/native/constkernel.lua"))
+   assert(generated:find("== 4", 1, true),
+      "the declaration dispatcher includes the tuple demanded by its caller")
+
+   local script = searchPathPrelude() .. [[assert(require("caller") == 80.0)]]
+   local pipe = assert(io.popen(("cd %q && luajit -e %q 2>&1"):format(dir, script)))
+   local report = pipe:read("*a")
+   local ok = pipe:close()
+   assert(ok, "the cross-module call reaches its declaring native family: " .. report)
 end
 
 function M.correctedBinary32OperationsMatchTheRuntimeBitForBit()

@@ -50,6 +50,7 @@ type progress.Timing = {
 
     compiledModules: number,
     reusedModules: number,
+    specializedBodies: number,
 
     --- Every activity that took measurable time, longest first.
     phases: {progress.Span},
@@ -196,6 +197,7 @@ record progress.Reporter
 
     compiled: number
     reused: number
+    specialized: number
 
     --- When the step line was last painted, and whether one is on screen now.
     paintedAt: number
@@ -281,6 +283,12 @@ record progress.Reporter
         self.compiled, self.reused = compiled, reused
     end
 
+    --- Adds logical const-specialized bodies to the work count without pretending
+    --- each body was another checked module.
+    function addSpecialized(self, count: number): nil
+        self.specialized = self.specialized + count
+    end
+
     --- What the run cost, in the shape `build --json` publishes.
     function timing(self): progress.Timing
         local phases: {progress.Span} = {}
@@ -313,6 +321,7 @@ record progress.Reporter
             totalMs = clock() - self.startedAt,
             compiledModules = self.compiled,
             reusedModules = self.reused,
+            specializedBodies = self.specialized,
             phases = phases,
             slowest = slowest,
         }
@@ -335,6 +344,9 @@ record progress.Reporter
             counts = ("%d module%s reused"):format(measured.reusedModules, measured.reusedModules == 1 and "" or "s")
         else
             counts = ("%d compiled, %d reused"):format(measured.compiledModules, measured.reusedModules)
+        end
+        if measured.specializedBodies > 0 then
+            counts = counts .. (", %d specialized"):format(measured.specializedBodies)
         end
         local success = ansi.forSeverity(style, "help")
         local detail = ansi.forSeverity(style, "note")
@@ -404,6 +416,7 @@ function progress.new(mode: string?, stream: LuaFile?): progress.Reporter
         done = 0,
         compiled = 0,
         reused = 0,
+        specialized = 0,
         paintedAt = 0,
         onScreen = false,
         columns = width()

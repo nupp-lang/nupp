@@ -21,6 +21,7 @@ See `docs/guides/performance.md`.
 ]]
 
 local cst = require("nupp.compiler.cst")
+local constspecialize = require("nupp.compiler.constspecialize")
 local indexedViews = require("nupp.compiler.indexedviews")
 
 local optimize = {}
@@ -61,6 +62,13 @@ optimize.passes = {
         name = "inline-return-helper",
         level = 1,
         summary = "inline a module's own single-return local helpers where they are called",
+    },
+    [
+        "OPT-8"
+    ] = {
+        name = "const-monomorphize",
+        level = 1,
+        summary = "emit bounded private bodies for closed scalar const applications",
     },
 }
 
@@ -2535,6 +2543,72 @@ local function inlineReturnHelperWalk(result, remarks)
     end
 end
 
+-- OPT-8 consumes the checked const tuple before erasure.  It does not copy the CST:
+-- generation re-emits the one checked body under a substitution environment, which
+-- keeps ownership/effect annotations and semantic definitions attached to the exact
+-- nodes the checker proved.
+local function constMonomorphizeWalk(result, remarks, selection: any?, selectedFilename: string?)
+    local accepted, declined
+    if selection ~= nil then
+        accepted, declined = selection.accepted, selection.declined
+    else
+        local plans = constspecialize.collect(result, result.filename)
+        accepted, declined = constspecialize.select(plans)
+    end
+    local filename = selectedFilename or result.filename or "<source>"
+    local acceptedByOwner = {}
+    local aliasesByOwner = {}
+    for _, specialization in ipairs(accepted) do
+        local owner = specialization.owner
+        if owner.filename == filename then
+            local aliases = aliasesByOwner[owner]
+            if aliases == nil then
+                aliases = {}
+                aliasesByOwner[owner] = aliases
+            end
+            aliases[#aliases + 1] = specialization
+            if specialization.physical == specialization then
+                local bodies = acceptedByOwner[owner]
+                if bodies == nil then
+                    bodies = {}
+                    acceptedByOwner[owner] = bodies
+                end
+                bodies[#bodies + 1] = specialization
+            end
+        end
+        for _, call in ipairs(specialization.calls) do
+            if specialization.callFiles[call] == filename then
+                call.constSpecialization = specialization
+                call.constSpecializationExternal = owner.filename ~= filename
+                remark(remarks, call, "OPT-8", "const-monomorphize: calls private " .. specialization.name)
+            end
+        end
+    end
+    local function byConstKey(a, b): boolean
+        return a.key < b.key
+    end
+
+    for owner, bodies in pairs(acceptedByOwner) do
+        table.sort(bodies, byConstKey)
+        owner.declaration.constSpecializations = bodies
+        owner.declaration.constSpecializationAliases = aliasesByOwner[owner]
+    end
+    for _, specialization in ipairs(declined) do
+        for _, call in ipairs(specialization.calls) do
+            if specialization.callFiles[call] == filename then
+                remark(
+                    remarks,
+                    call,
+                    "OPT-8",
+                    (
+                        "const-monomorphize: declines body because this module already selected %d body classes"
+                    ):format(constspecialize.maxBodiesPerModule)
+                )
+            end
+        end
+    end
+end
+
 --- What a pass works on: the tree it rewrites in place, the analysis the checker left
 --- beside it, and the name a remark is filed under.
 type optimize.Checked = {
@@ -2552,7 +2626,10 @@ type optimize.Options = {
 
     --- The dialect the result is generated for. `OPT-5` lowers to `string.buffer`,
     --- which is LuaJIT's, so a Lua 5.1 target does not get that pass.
-    readonly dialect: string?
+    readonly dialect: string?,
+
+    --- Whole-deliverable const body selection, when a project build supplied it.
+    readonly constSelection: any?
 }
 
 --- Runs the passes a level asks for over a parsed and checked file, annotating it in
@@ -2594,6 +2671,9 @@ function optimize.run(result: optimize.Checked, opts: optimize.Options?): {any}
     end
     if level >= optimize.passes["OPT-7"].level and not disabled["OPT-7"] then
         inlineReturnHelperWalk(result, remarks)
+    end
+    if level >= optimize.passes["OPT-8"].level and not disabled["OPT-8"] then
+        constMonomorphizeWalk(result, remarks, opts.constSelection, opts.filename)
     end
     for _, entry in ipairs(remarks) do
         entry.filename = result.filename or opts.filename

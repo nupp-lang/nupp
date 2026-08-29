@@ -30,6 +30,36 @@ Pure numeric and span bodies keep the small `kernel` ABI, and a body that
 constructs fresh Lua values uses the separate `lua-builder` ABI. Nothing in the
 source names an ABI, a lane, a mask, or a vector width.
 
+## Const-specialized families
+
+An `@aot` function may use scalar `const` binders when checked direct calls close
+their carrier parameters:
+
+```nupp
+@aot(lanes = false)
+local function doubled<const N: integer>(value: number, count: N): number
+    local answer = value
+    for _ = 1, count as integer do answer = answer * 2.0 end
+    return answer
+end
+
+local result = doubled(5.0, 3)
+```
+
+The build collects closed applications across the module graph, emits a private
+native body per admitted body class, and removes the carrier from that private
+ABI. Constant folding and bounded unrolling run before lane selection. Checked
+same- and cross-module calls use the private entry; the public function value
+dispatches tuples that were included in the deliverable and reports an unmatched
+tuple instead of silently falling back from an AOT-required build.
+
+One module may emit eight logical const body classes before target tiers multiply
+them into physical entries. Calls with the same semantic key deduplicate, and
+keys with the same proven body and ABI coalesce. Exceeding the cap is a build
+error for a required AOT family and names its demanding call sites. With AOT
+off, the generic Lua body remains available; at `-O1` and above it may still be
+specialized by [`OPT-8`](performance.md#opt-8-const-monomorphization).
+
 ## Annotation guarantees
 
 `@aot` promises three things, in order of how much they matter.

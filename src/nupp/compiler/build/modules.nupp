@@ -22,6 +22,7 @@ local deps = require("nupp.compiler.build.deps")
 local materializeObserve = require("nupp.compiler.materialize.observe")
 local progress = require("nupp.compiler.build.progress")
 local backends = require("nupp.compiler.backends")
+local constspecialize = require("nupp.compiler.constspecialize")
 local native = require("nupp.compiler.native")
 
 local normalize, join = fs.normalize, fs.join
@@ -128,6 +129,7 @@ type modules.Stats = {
     checkedModules: number,
     generatedModules: number,
     reusedModules: number,
+    specializedBodies: number,
     [string]: any
 }
 
@@ -591,6 +593,7 @@ local function copyModuleRecord(record)
         derives = record.derives,
         backend = record.backend,
         backendHash = record.backendHash,
+        specializationHash = record.specializationHash,
     }
 end
 
@@ -1079,6 +1082,71 @@ local function buildModules(root: string, outDir: string, config: Config, target
         end
     end
 
+    local suppliedConstSelection = (target as any)._constSelection
+    local constEnabled = not checkOnly and (config._optLevel or 0) >= 1 and not (config._disabledPasses or {})["OPT-8"]
+    local specializationPlans: {any} = {}
+    local acceptedSpecializations: {any} = {}
+    local declinedSpecializations: {any} = {}
+    if constEnabled then
+        -- Check the deliverable once before emission so incoming calls can request a
+        -- body from the module that declares it.  This is emission dependency
+        -- discovery, not a reverse type dependency: the incremental checker memoizes
+        -- these answers and a caller tuple enters only the declaring module's
+        -- specialization hash below.
+        local checkedForSpecialization: {any} = {}
+        local specializationCursor = 1
+        while specializationCursor <= #queue do
+            local item = queue[specializationCursor]
+            specializationCursor = specializationCursor + 1
+            local checked = inc.checkFile(item.path)
+            if checked.result ~= nil and checked.missing ~= true and checked.syntax ~= true then
+                checkedForSpecialization[
+                    #checkedForSpecialization + 1
+                ] = {filename = item.path, module = item.name, result = checked.result,}
+            end
+            for _, dependency in ipairs(inc.moduleDependencies(item.path)) do
+                local dependencyPath = inc.modulePath(dependency)
+                if dependencyPath ~= nil then
+                    seed(dependency, dependencyPath)
+                end
+            end
+        end
+        if suppliedConstSelection ~= nil then
+            specializationPlans = suppliedConstSelection.plans
+            acceptedSpecializations = suppliedConstSelection.accepted
+            declinedSpecializations = suppliedConstSelection.declined
+        else
+            specializationPlans = constspecialize.collectGraph(checkedForSpecialization)
+            acceptedSpecializations, declinedSpecializations = constspecialize.selectGraph(specializationPlans)
+        end
+    end
+    local constSelection = {accepted = acceptedSpecializations, declined = declinedSpecializations,}
+    local acceptedBodies = 0
+    for _, specialization in ipairs(acceptedSpecializations) do
+        if specialization.physical == specialization and not (
+            suppliedConstSelection ~= nil and specialization.requiredAot
+        ) then
+            acceptedBodies = acceptedBodies + 1
+        end
+    end
+    local specializationKeys: {[string]: {string}} = {}
+    for _, plan in ipairs(specializationPlans) do
+        local keys = specializationKeys[normalize(plan.filename)]
+        if keys == nil then
+            keys = {}
+            specializationKeys[normalize(plan.filename)] = keys
+        end
+        for _, specialization in ipairs(plan.specializations) do
+            keys[#keys + 1] = specialization.key
+        end
+    end
+    local specializationHashes: {[string]: string} = {}
+    for path, keys in pairs(specializationKeys) do
+        table.sort(keys)
+        specializationHashes[path] = hash.digest(table.concat(keys, "\0"))
+    end
+    local emptySpecializationHash = hash.digest("")
+
     local records, reused, codeFor, paths = {}, {}, {}, {}
     local order, queued, cursor = {}, {}, 1
     -- What the queue holds now is the whole source set; dependencies discovered later
@@ -1091,6 +1159,8 @@ local function buildModules(root: string, outDir: string, config: Config, target
     local generateMs: {[string]: number} = {}
     stats = (stats or {}) as modules.Stats
     stats.checkedModules, stats.generatedModules, stats.reusedModules = 0, 0, 0
+    stats.specializedBodies = acceptedBodies
+    report:addSpecialized(acceptedBodies)
 
     -- Everything one module had to say, by module name, rather than one list everything
     -- is appended to. A module reused early can be invalidated and recompiled later,
@@ -1176,7 +1246,8 @@ local function buildModules(root: string, outDir: string, config: Config, target
                 filename = path,
                 disabled = config._disabledPasses,
                 relaxed = config._relaxedGuarantees,
-                dialect = (config._target or {}).dialect
+                dialect = (config._target or {}).dialect,
+                constSelection = constSelection,
             })
             if config._remarks then
                 for _, note in ipairs(remarks) do
@@ -1246,6 +1317,7 @@ local function buildModules(root: string, outDir: string, config: Config, target
             derives = jsonArray(derives),
             backend = result.backend,
             backendHash = backendResolution.fingerprint,
+            specializationHash = specializationHashes[normalize(path)] or emptySpecializationHash,
         }
         codeFor[name] = code
         reused[name] = nil
@@ -1288,9 +1360,9 @@ local function buildModules(root: string, outDir: string, config: Config, target
                 local usable = cacheCompatible
                     and previous
                     and previous.sourceHash == sourceHash
-                    and previous.backendHash == backendResolution.fingerprint
-                    and previous.interfaceHash
-                    and type(
+                    and previous.specializationHash == (
+                    specializationHashes[normalize(path)] or emptySpecializationHash
+                ) and previous.backendHash == backendResolution.fingerprint and previous.interfaceHash and type(
                     previous.dependencies
                 ) == "table" and type(
                     previous.projectDependencies

@@ -1,4 +1,4 @@
--- Generate the experimental const-specialized C and its stable symbol.
+-- Generate the retained const-specialized C fixture and its stable symbol.
 local here = assert(debug.getinfo(1, "S").source:match("^@(.*[/\\])"))
 local root = here .. "../.."
 package.path = root .. "/build/?.lua;" .. package.path

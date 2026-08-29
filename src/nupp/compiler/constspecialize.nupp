@@ -1,0 +1,433 @@
+module nupp.compiler.constspecialize
+
+--[[
+Finds closed applications of scalar const-generic runtime functions.
+
+This module owns the semantic seam shared by ordinary Lua and AOT emission:
+backends receive checked declarations, checked signatures and canonical tuples;
+they never rediscover a tuple from source spelling.  Collection is deliberately
+side-effect free.  A consumer decides which bodies fit its budget and annotates
+the calls it will rewrite.
+]]
+
+local cst = require("nupp.compiler.cst")
+local hash = require("nupp.compiler.build.hash")
+local types = require("nupp.compiler.types")
+
+local constspecialize = {}
+
+constspecialize.maxBodiesPerModule = 8
+
+local function walk(node: any, visit: function(any): nil): nil
+    if node == nil or cst.isToken(node) then
+        return
+    end
+    visit(node)
+    for _, child in ipairs(node as {any}) do
+        walk(child, visit)
+    end
+end
+
+local function scalarLiteral(t: any): (string?, string?, any?)
+    if t == nil or t.tag ~= "literal" or t.base == nil then
+        return nil, nil, nil
+    end
+    local domain = t.base.tag
+    if domain == "integer" then
+        -- `tostring` is %.14g, which spells 1e15 and 1e15 + 1 alike.  A const key
+        -- that cannot tell two admitted integers apart would give them one body,
+        -- and the substituted literal has to be the exact value the checker read.
+        local value = string.format("%.0f", t.constant)
+        return "integer:" .. value, value, t.constant
+    elseif domain == "boolean" then
+        local value = t.constant == true
+        return "boolean:" .. tostring(value), tostring(value), value
+    elseif domain == "string" then
+        local value = tostring(t.constant)
+        return "string:" .. tostring(#value) .. ":" .. value, string.format("%q", value), value
+    end
+
+    return nil, nil, nil
+end
+
+local function candidate(node: any, filename: string): any?
+    if node.kind ~= "localFuncStmt" or node.name == nil or node.body == nil or node.body.generics == nil then
+        return nil
+    end
+    local clause = node.body.generics as cst.Generics
+    if #clause.names == 0 then
+        return nil
+    end
+    local binders, byName = {}, {}
+    for position, token in ipairs(clause.names) do
+        if clause.consts[position] ~= true then
+            return nil
+        end
+        local domain = clause.domains[position] and clause.domains[position].text or ""
+        if domain ~= "integer" and domain ~= "boolean" and domain ~= "string" then
+            return nil
+        end
+        local binder = {name = token.text, domain = domain, carriers = {}}
+        binders[#binders + 1] = binder
+        byName[token.text] = binder
+    end
+    for position, raw in ipairs(node.body.params or {}) do
+        local param = raw as cst.Param
+        local annotation = param.type
+        local binder = annotation ~= nil
+            and annotation.kind == "tname"
+            and annotation.typeArgs == nil
+            and annotation.base ~= nil
+            and byName[
+            annotation.base.text
+        ] or nil
+        if binder ~= nil and param.name ~= nil then
+            binder.carriers[
+                #binder.carriers + 1
+            ] = {position = position, name = param.name.text, definition = param.name.definition,}
+        end
+    end
+    for _, binder in ipairs(binders) do
+        if #binder.carriers == 0 then
+            return nil
+        end
+    end
+    walk(node.body, function(part): nil
+        if part.kind == "name" and part.token ~= nil then
+            for _, binder in ipairs(binders) do
+                for _, carrier in ipairs(binder.carriers) do
+                    if part.token.definition == carrier.definition then
+                        binder.used = true
+                    end
+                end
+            end
+        end
+    end)
+
+    -- The definition is the nominal identity inside a checked session.  The stable
+    -- spelling is retained beside it for artifact keys and diagnostics.
+    local definition = node.name.definition
+    local stableIdentity = filename .. "\0" .. node.name.text
+
+    return {
+        declaration = node,
+        definition = definition,
+        identity = stableIdentity,
+        filename = filename,
+        name = node.name.text,
+        requiredAot = node.body.aotRequired == true,
+        binders = binders,
+        specializations = {},
+        byKey = {},
+    }
+end
+
+local function definitionKey(definition: any): string?
+    if definition == nil or definition.filename == nil then
+        return nil
+    end
+
+    return tostring(
+        definition.filename
+    ) .. "\0" .. tostring(
+        definition.name or definition.token and definition.token.text or ""
+    ) .. "\0" .. tostring(definition.kind or "variable")
+end
+
+local function looseDefinitionKey(definition: any): string?
+    if definition == nil or definition.filename == nil then
+        return nil
+    end
+
+    return tostring(
+        definition.filename
+    ) .. "\0" .. tostring(definition.name or definition.token and definition.token.text or "")
+end
+
+local function byKey(a: any, b: any): boolean
+    return a.key < b.key
+end
+
+local function byPriority(a: any, b: any): boolean
+    if a.requiredAot ~= b.requiredAot then
+        return a.requiredAot == true
+    end
+
+    return a.key < b.key
+end
+
+--- Collects every same-source declaration and every checked direct application.
+--- Imported declarations are collected by the deliverable planner, which has their
+--- source trees; a single-file optimization cannot emit a private body it cannot see.
+function constspecialize.collect(result: any, filename: string?): {any}
+    filename = filename or result.filename or "<source>"
+    local candidates, plans = {}, {}
+    constspecialize.collectCandidates(result, filename as string, candidates, plans)
+    constspecialize.collectCalls(result, filename as string, candidates)
+
+    constspecialize.sort(plans)
+
+    return plans
+end
+
+function constspecialize.collectCandidates(
+    result: any,
+    filename: string,
+    candidates: {[any]: any},
+    plans: {any},
+    moduleName: string?
+): nil
+    walk(result.root, function(node): nil
+        local found = candidate(node, filename)
+        if found ~= nil and found.definition ~= nil then
+            candidates[found.definition] = found
+            local stable = definitionKey(found.definition)
+            if stable ~= nil then
+                candidates[stable] = found
+            end
+            local loose = looseDefinitionKey(found.definition)
+            if loose ~= nil then
+                candidates[loose] = found
+            end
+            plans[#plans + 1] = found
+        end
+    end)
+    -- A const local preserves the declaration identity of a direct function value.
+    -- Record that checked alias before exported tables and calls are matched.
+    walk(result.root, function(node): nil
+        if node.kind == "localStmt" and node.isConst then
+            for position, name in ipairs(node.names or {}) do
+                local value = (node.exprs or {})[position]
+                local token = value ~= nil and value.kind == "name" and value.token or nil
+                local found = token ~= nil and candidates[token.definition] or nil
+                if found ~= nil and name.definition ~= nil then
+                    candidates[name.definition] = found
+                end
+            end
+        end
+    end)
+    if moduleName ~= nil and result.moduleExports ~= nil then
+        for member, definition in pairs(result.moduleExports.valueDefs or {}) do
+            local found = candidates[definition]
+            if found ~= nil then
+                candidates["export\0" .. moduleName .. "." .. member] = found
+            end
+        end
+    end
+    if moduleName ~= nil then
+        local assignment = cst.exportAssignment(result.root)
+        local returned: any? = assignment ~= nil and assignment.value or nil
+        if returned == nil then
+            for _, block in ipairs(result.root.blocks or {}) do
+                if block.kind == "block" then
+                    for _, statement in ipairs(block.stats or {}) do
+                        if statement.kind == "returnStmt" and #(statement.exprs or {}) == 1 then
+                            returned = statement.exprs[1]
+                        end
+                    end
+                end
+            end
+        end
+        if returned ~= nil and returned.kind == "tableExpr" then
+            for _, field in ipairs(returned.fields or {}) do
+                local value = field.kind == "fieldNamed" and field.value or nil
+                local token = value ~= nil and value.kind == "name" and value.token or nil
+                local found = token ~= nil and candidates[token.definition] or nil
+                if found ~= nil and field.name ~= nil then
+                    candidates["export\0" .. moduleName .. "." .. field.name.text] = found
+                end
+            end
+        end
+    end
+end
+
+function constspecialize.collectCalls(result: any, filename: string, candidates: {[any]: any}): nil
+    walk(result.root, function(node): nil
+        if node.kind ~= "call" or node.obj == nil then
+            return
+        end
+        local callee = node.obj.kind == "name"
+            and node.obj.token
+            or node.obj.kind == "dotIndex"
+            and node.obj.name
+            or nil
+        if callee == nil then
+            return
+        end
+        local stableDefinition = definitionKey(callee.definition)
+        local looseDefinition = looseDefinitionKey(callee.definition)
+        local exact = node.obj.exactCallExport or callee.definition and callee.definition.exactCallExport
+        local exportIdentity = exact ~= nil and exact.identity or nil
+        local owner = candidates[
+            callee.definition
+        ] or stableDefinition ~= nil and candidates[
+            stableDefinition
+        ] or looseDefinition ~= nil and candidates[
+            looseDefinition
+        ] or exportIdentity ~= nil and candidates["export\0" .. exportIdentity] or nil
+        local signature = node.signatureType
+        if owner == nil or signature == nil or signature.tag ~= "func" then
+            return
+        end
+        local tuple, bodyTuple, substitutions, omitted, values = {}, {}, {}, {}, {}
+        for _, binder in ipairs(owner.binders) do
+            local binderKey: string? = nil
+            for _, carrier in ipairs(binder.carriers) do
+                local key, emitted, value = scalarLiteral(signature.params[carrier.position])
+                if key == nil or emitted == nil or binderKey ~= nil and binderKey ~= key then
+                    return
+                end
+                binderKey = key
+                substitutions[carrier.definition] = emitted
+                omitted[carrier.position] = true
+                values[carrier.position] = value
+            end
+            tuple[#tuple + 1] = binder.domain .. ":" .. binder.name .. "=" .. (binderKey as string)
+            if binder.used then
+                bodyTuple[#bodyTuple + 1] = binder.domain .. ":" .. binder.name .. "=" .. (binderKey as string)
+            end
+        end
+        local signatureFingerprint = types.tostring(signature)
+        local abi: {string} = {}
+        for position, parameter in ipairs(signature.params) do
+            if not omitted[position] then
+                abi[#abi + 1] = tostring(signature.paramModes[position] or "plain") .. ":" .. types.tostring(parameter)
+            end
+        end
+        abi[#abi + 1] = "returns"
+        for _, resultType in ipairs(signature.rets) do
+            abi[#abi + 1] = types.tostring(resultType)
+        end
+        local canonical = owner.identity .. "\0" .. signatureFingerprint .. "\0" .. table.concat(tuple, "\0")
+        local key = hash.digest(canonical)
+        local specialization = owner.byKey[key]
+        if specialization == nil then
+            specialization = {
+                key = key,
+                canonical = canonical,
+                name = "__nuppConst_" .. owner.name:gsub("[^%w_]", "_") .. "_" .. key:sub(1, 16),
+                signature = signature,
+                tuple = tuple,
+                substitutions = substitutions,
+                omitted = omitted,
+                values = values,
+                bodyClass = hash.digest(
+                    owner.identity .. "\0" .. table.concat(abi, "\0") .. "\0" .. table.concat(bodyTuple, "\0")
+                ),
+                calls = {},
+                owner = owner,
+                requiredAot = owner.requiredAot,
+            }
+            owner.byKey[key] = specialization
+            owner.specializations[#owner.specializations + 1] = specialization
+        end
+        specialization.calls[#specialization.calls + 1] = node
+        specialization.callFiles = specialization.callFiles or {}
+        specialization.callFiles[node] = filename
+    end)
+end
+
+function constspecialize.sort(plans: {any}): nil
+    for _, plan in ipairs(plans) do
+        table.sort(plan.specializations, byKey)
+    end
+    table.sort(plans, function(a, b): boolean
+        if a.identity ~= b.identity then
+            return a.identity < b.identity
+        end
+        return a.name < b.name
+    end)
+end
+
+--- Collects a whole checked deliverable before either backend emits it.
+function constspecialize.collectGraph(checked: {any}): {any}
+    local candidates, plans = {}, {}
+    for _, module in ipairs(checked) do
+        constspecialize.collectCandidates(module.result, module.filename, candidates, plans, module.module)
+    end
+    for _, module in ipairs(checked) do
+        constspecialize.collectCalls(module.result, module.filename, candidates)
+    end
+    constspecialize.sort(plans)
+
+    return plans
+end
+
+--- Chooses a deterministic prefix of body classes and annotates only its calls.
+--- Optional Lua emission declines the rest; required AOT emission diagnoses it.
+function constspecialize.select(plans: {any}, maximum: integer?): ({any}, {any})
+    maximum = maximum or constspecialize.maxBodiesPerModule
+    local all = {}
+    for _, plan in ipairs(plans) do
+        for _, specialization in ipairs(plan.specializations) do
+            all[#all + 1] = specialization
+        end
+    end
+    table.sort(all, byPriority)
+    local accepted, declined = {}, {}
+    local classes: {[string]: any} = {}
+    local classCount = 0
+    for _, specialization in ipairs(all) do
+        local representative = classes[specialization.bodyClass]
+        if representative ~= nil then
+            specialization.physical = representative
+            specialization.selected = true
+            accepted[#accepted + 1] = specialization
+        elseif classCount < (maximum as integer) then
+            classCount = classCount + 1
+            classes[specialization.bodyClass] = specialization
+            specialization.physical = specialization
+            specialization.selected = true
+            accepted[#accepted + 1] = specialization
+        else
+            specialization.selected = false
+            declined[#declined + 1] = specialization
+        end
+    end
+
+    return accepted, declined
+end
+
+function constspecialize.selectGraph(plans: {any}, maximum: integer?): ({any}, {any})
+    maximum = maximum or constspecialize.maxBodiesPerModule
+    local modules: {[string]: {any}} = {}
+    for _, plan in ipairs(plans) do
+        local bodies = modules[plan.filename]
+        if bodies == nil then
+            bodies = {}
+            modules[plan.filename] = bodies
+        end
+        for _, specialization in ipairs(plan.specializations) do
+            bodies[#bodies + 1] = specialization
+        end
+    end
+    local accepted, declined = {}, {}
+    for _, bodies in pairs(modules) do
+        table.sort(bodies, byPriority)
+        local classes: {[string]: any} = {}
+        local classCount = 0
+        for _, specialization in ipairs(bodies) do
+            local representative = classes[specialization.bodyClass]
+            if representative ~= nil then
+                specialization.physical = representative
+                specialization.selected = true
+                accepted[#accepted + 1] = specialization
+            elseif classCount < (maximum as integer) then
+                classCount = classCount + 1
+                classes[specialization.bodyClass] = specialization
+                specialization.physical = specialization
+                specialization.selected = true
+                accepted[#accepted + 1] = specialization
+            else
+                specialization.selected = false
+                declined[#declined + 1] = specialization
+            end
+        end
+    end
+    table.sort(accepted, byKey)
+    table.sort(declined, byKey)
+
+    return accepted, declined
+end
+
+export = constspecialize

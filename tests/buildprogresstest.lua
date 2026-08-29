@@ -48,6 +48,29 @@ local function tempProject()
    return dir
 end
 
+local function constProject()
+   local dir = tempDir()
+   local files = {
+      ["nupp.lua"] = 'return {include = {"."}, build = {targets = {app = {'
+         .. 'entries = {"main"}, outDir = "out", optimize = 1}}, default = "app"}}\n',
+      ["lib.nupp"] = table.concat({
+         "local function accumulate<const N: integer>(value: number, count: N): number",
+         "    local total = value",
+         "    for offset = 1, count as integer do total = total + offset end",
+         "    return total",
+         "end",
+         "return {accumulate = accumulate}",
+      }, "\n"),
+      ["main.nupp"] = "local lib = require('lib')\nreturn lib.accumulate(10.0, 4)\n",
+   }
+   for name, text in pairs(files) do
+      local file = assert(io.open(dir .. "/" .. name, "wb"))
+      file:write(text)
+      file:close()
+   end
+   return dir
+end
+
 -- Standard output and standard error kept apart, because which one a thing is
 -- written to is the whole question here: a build's report goes to stderr so that
 -- `--json` on stdout stays a document a program can read.
@@ -104,6 +127,7 @@ function M.theTimelineChargesEveryMillisecondToOneActivity()
       "the parts cannot add up to more than the whole")
    assertEq(timing.compiledModules, 2)
    assertEq(timing.reusedModules, 3)
+   assertEq(timing.specializedBodies, 0)
    for _, phase in ipairs(timing.phases) do
       assert(phase.durationMs >= 0, "no activity took negative time")
    end
@@ -141,6 +165,52 @@ function M.aQuietReporterMeasuresAndSaysNothing()
    os.remove(path)
 end
 
+function M.crossModuleConstBodiesBelongToTheDeclarationAndTrackIncomingKeys()
+   local dir = constProject()
+   local _, firstErr = run(dir, "build")
+   assertEq(firstErr, "", "the first optimized build succeeds")
+   local declaration = readAll(dir .. "/out/lib.lua")
+   local caller = readAll(dir .. "/out/main.lua")
+   assert(declaration:find("local function __nuppConst_accumulate_", 1, true),
+      "the private body is emitted with its declaration")
+   assert(declaration:find("__nuppConstSpecializations", 1, true),
+      "the declaration publishes private linkage by public function identity")
+   assert(caller:find("_G.__nuppConstSpecializations[", 1, true),
+      "the checked direct call names the body without a tuple branch")
+   assert(not caller:find("local function __nuppConst_accumulate_", 1, true),
+      "the caller does not duplicate the body")
+
+   local pipe = assert(io.popen((
+      "cd %q && luajit -e %q"
+   ):format(dir, 'package.path="out/?.lua;"..package.path; assert(require("main")==20)')))
+   pipe:read("*a")
+   assert(pipe:close(), "the cross-module private call answers")
+
+   local source = assert(io.open(dir .. "/main.nupp", "wb"))
+   source:write("local lib = require('lib')\nconst run = lib.accumulate\nreturn run(10.0, 5)\n")
+   source:close()
+   local _, secondErr = run(dir, "build")
+   assertEq(secondErr, "", "changing only the incoming tuple rebuilds cleanly")
+   local changed = readAll(dir .. "/out/lib.lua")
+   assert(changed ~= declaration,
+      "the declaring artifact changes when its incoming specialization manifest changes")
+   assert(changed:find("local function __nuppConst_accumulate_", 1, true),
+      "and still owns the replacement body")
+end
+
+function M.levelZeroDoesNotPlanOrCountProjectConstBodies()
+   local dir = constProject()
+   local out, err = run(dir, "build -O0 --json")
+   assertEq(err, "", "the unoptimized build succeeds quietly")
+   local decoded = require("testjson").decode(out)
+   assertEq(decoded.ok, true, "the unoptimized build worked: " .. out)
+   assertEq(decoded.timing.specializedBodies, 0,
+      "timing counts emitted bodies rather than eligible source calls")
+   local declaration = readAll(dir .. "/out/lib.lua")
+   assert(not declaration:find("__nuppConst_accumulate_", 1, true),
+      "-O0 never emits the optional private body")
+end
+
 function M.theSummarySaysHowLongAndWhatCostTheMost()
    local path = os.tmpname()
    local report, stream = reporterTo(path, "always")
@@ -149,12 +219,14 @@ function M.theSummarySaysHowLongAndWhatCostTheMost()
    report:spent("one.module", 1200)
    report:spent("two.module", 30)
    report:counted(1, 4)
+   report:addSpecialized(2)
    report:finish("built", "app")
    stream:close()
    local text = readAll(path)
    assert(text:match("checking one%.nupp"), "it said what it was doing: " .. text)
    assert(text:match("built app in %d"), "and how long that took: " .. text)
    assert(text:match("1 compiled, 4 reused"), "and what it did: " .. text)
+   assert(text:match("2 specialized"), "and counted bodies apart from modules: " .. text)
    os.remove(path)
 end
 

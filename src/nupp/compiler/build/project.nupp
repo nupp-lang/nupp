@@ -403,6 +403,9 @@ local function buildOne(root: string?, opts: project.BuildOptions?): integer
 
             return 1
         end
+        report:addSpecialized((produced as any).specializedBodies or 0)
+        local internalTarget = target as any
+        internalTarget._constSelection = (produced as any).constSelection
         -- Recorded like any other output, so `nupp clean` removes it and a
         -- rebuild knows it is there.
         local keys: {[string]: string} = {}

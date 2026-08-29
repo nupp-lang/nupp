@@ -2307,6 +2307,120 @@ function gen.generate(
         end
     end
 
+    -- OPT-8 re-emits a checked function body under exact scalar substitutions.
+    -- Keep its helpers on `pluck`, which the recursive emitter already captures: that
+    -- emitter deliberately sits at LuaJIT's 60-upvalue boundary.
+    pluck.const = {emission = nil,} as any
+    pluck.const.integer = function(node): integer?
+        if node == nil or cst.isToken(node) then
+            return nil
+        end
+        if node.kind == "number" and node.token ~= nil then
+            local value = tonumber((node.token.text:gsub("_", "")))
+            if value ~= nil and value == math.floor(value) then
+                return value as integer
+            end
+        elseif node.kind == "name" and node.token ~= nil and pluck.const.emission ~= nil then
+            local emission = pluck.const.emission as any
+            local written = emission.substitutions[node.token.definition]
+            local value = written ~= nil and tonumber(written) or nil
+            if value ~= nil and value == math.floor(value) then
+                return value as integer
+            end
+        elseif node.kind == "castExpr" then
+            return pluck.const.integer(node.expr)
+        elseif node.folded ~= nil then
+            local value = tonumber(node.folded)
+            if value ~= nil and value == math.floor(value) then
+                return value as integer
+            end
+        end
+
+        return nil
+    end
+
+    pluck.const.unrollableBody = function(node): boolean
+        local admitted = true
+        local function walkConst(child)
+            if not admitted or child == nil or cst.isToken(child) then
+                return
+            end
+            if child ~= node and (child.kind == "funcbody" or child.kind == "funcExpr" or child.kind == "shortfn") then
+                return
+            end
+            if child.kind == "breakStmt"
+                or child.kind == "continueStmt"
+                or child.kind == "gotoStmt"
+                or child.kind == "labelStmt"
+            then
+                admitted = false
+                return
+            end
+            for _, nested in ipairs(child) do
+                walkConst(nested)
+            end
+        end
+
+        walkConst(node)
+
+        return admitted
+    end
+
+    pluck.const.emitSpecialization = function(declaration, specialization): nil
+        local prior = pluck.const.emission
+        pluck.const.emission = {substitutions = {}, specialization = specialization,}
+        for definition, value in pairs(specialization.substitutions) do
+            pluck.const.emission.substitutions[definition] = value
+        end
+        local body = declaration.body
+        e(";local function " .. specialization.name .. "(", sourceLine(declaration))
+        local wrote = false
+        for position, param in ipairs(body.params or {}) do
+            if not specialization.omitted[position] then
+                if wrote then
+                    e(",")
+                end
+                emit(param)
+                wrote = true
+            end
+        end
+        e(")")
+        emitDepth.fn = emitDepth.fn + 1
+        emitDepth.beginActivation()
+        if coverageOn then
+            coverageHit("function", body)
+        end
+        if body.varargParam then
+            e(("const %s = { n = select(\"#\", ...), ... }"):format(body.varargParam.name.text))
+        end
+        if body.body then
+            emit(body.body)
+        end
+        emitDepth.endActivation()
+        emitDepth.fn = emitDepth.fn - 1
+        e("end")
+        pluck.const.emission = prior
+    end
+
+    pluck.const.emitRegistrations = function(declaration): nil
+        local specializations = declaration.constSpecializationAliases or declaration.constSpecializations or {}
+        if #specializations == 0 or declaration.name == nil then
+            return
+        end
+        local registry = nextTemp()
+        local family = nextTemp()
+        e(";local " .. registry .. "=rawget(_G,\"__nuppConstSpecializations\")", sourceLine(declaration))
+        e(";if not " .. registry .. " then " .. registry .. "=setmetatable({},{__mode=\"k\"});")
+        e("rawset(_G,\"__nuppConstSpecializations\"," .. registry .. ") end")
+        e(";local " .. family .. "=" .. registry .. "[" .. declaration.name.text .. "]")
+        e(";if not " .. family .. " then " .. family .. "={};" .. registry .. "[")
+        e(declaration.name.text .. "]=" .. family .. " end")
+        for _, specialization in ipairs(specializations) do
+            local physical = specialization.physical or specialization
+            e(";" .. family .. "[" .. string.format("%q", specialization.key) .. "]=" .. physical.name)
+        end
+    end
+
     emitDepth.switchTemps = setmetatable({}, {__mode = "k"})
     emitDepth.switchValueTemps = setmetatable({}, {__mode = "k"})
     emitDepth.switchResult = nil
@@ -3981,6 +4095,41 @@ function gen.generate(
                 return
             end
         end
+        if kind == "call" and x.constSpecialization ~= nil and x.args ~= nil then
+            local specialization = x.constSpecialization
+            local physical = specialization.physical or specialization
+            if x.constSpecializationExternal then
+                e("(_G.__nuppConstSpecializations[", sourceLine(x))
+                emit(x.obj)
+                e("][" .. string.format("%q", specialization.key) .. "])(")
+            else
+                e(physical.name .. "(", sourceLine(x))
+            end
+            local wrote = false
+            if x.args.loweredArgs ~= nil then
+                for position, argument in ipairs(x.args.loweredArgs) do
+                    if not specialization.omitted[position] then
+                        if wrote then
+                            e(",")
+                        end
+                        pluck.emitArgument(argument, x.args)
+                        wrote = true
+                    end
+                end
+            else
+                for position, argument in ipairs(x.args.exprs or {}) do
+                    if not specialization.omitted[position] then
+                        if wrote then
+                            e(",")
+                        end
+                        emit(argument)
+                        wrote = true
+                    end
+                end
+            end
+            e(")")
+            return
+        end
         if kind == "args" and x.loweredArgs then
             e("(", sourceLine(x))
             pluck.emitArgs(x)
@@ -4027,6 +4176,14 @@ function gen.generate(
                 pluck.needRuntimeEffect(effect)
             end
             return
+        end
+        if pluck.const.emission ~= nil and kind == "name" and x.token ~= nil then
+            local emission = pluck.const.emission as any
+            local replacement = emission.substitutions[x.token.definition]
+            if replacement ~= nil then
+                e(replacement, sourceLine(x))
+                return
+            end
         end
         if x.folded then
             e(x.folded, sourceLine(x))
@@ -4351,6 +4508,37 @@ function gen.generate(
                 emit(x.value)
             end
             return
+        end
+        if pluck.const.emission ~= nil and kind == "fornumStmt" and x.var ~= nil and x.body ~= nil then
+            local first = pluck.const.integer(x.start)
+            local last = pluck.const.integer(x.stop)
+            local step = x.step ~= nil and pluck.const.integer(x.step) or 1
+            if first ~= nil and last ~= nil and step ~= nil and step ~= 0 and pluck.const.unrollableBody(x.body) then
+                local count = step > 0 and first <= last and math.floor(
+                    (last - first) / step
+                ) + 1 or step < 0 and first >= last and math.floor((first - last) / -step) + 1 or 0
+                if count <= 8 then
+                    local definition = x.var.definition
+                    local emission = pluck.const.emission as any
+                    local prior = definition ~= nil and emission.substitutions[definition] or nil
+                    e("do", sourceLine(x))
+                    local value = first
+                    for _ = 1, count do
+                        if definition ~= nil then
+                            emission.substitutions[definition] = tostring(value)
+                        end
+                        e("do")
+                        emit(x.body)
+                        e("end")
+                        value = value + step
+                    end
+                    if definition ~= nil then
+                        emission.substitutions[definition] = prior
+                    end
+                    e("end")
+                    return
+                end
+            end
         end
         if x.constantLoopNone then
             -- OPT-3: the loop's constant bounds admit no first iteration. An empty `do`
@@ -6812,6 +7000,10 @@ function gen.generate(
             if x.body then
                 emit(x.body)
             end
+            for _, specialization in ipairs(x.constSpecializations or {}) do
+                pluck.const.emitSpecialization(x, specialization)
+            end
+            pluck.const.emitRegistrations(x)
 
         elseif kind == "localFuncStmt" then
             if x.comptimeFunction or x.comptimeTok then
@@ -6824,6 +7016,10 @@ function gen.generate(
             else
                 emitChildren(x)
             end
+            for _, specialization in ipairs(x.constSpecializations or {}) do
+                pluck.const.emitSpecialization(x, specialization)
+            end
+            pluck.const.emitRegistrations(x)
             for _, registration in ipairs(x.name and x.name.cleanupRegistrations or {}) do
                 local cleanup = registration.cleanup
                 e((";%s[%q]=%s"):format(cleanupRegistry(), cleanup.key, cleanup.name), sourceLine(x))

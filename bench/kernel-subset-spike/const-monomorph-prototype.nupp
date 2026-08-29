@@ -1,5 +1,5 @@
--- The item-10 prototype source. The ordinary wrapper call is the semantic use
--- from which the experimental compiler path discovers `Rounds = 4`; the
+-- The retained item-10 measurement source. The ordinary wrapper call is the
+-- semantic use from which the compiler discovers `Rounds = 4`; the
 -- backend emits the specialized body directly from the generic declaration.
 local span = require("nupp.mem.span")
 

@@ -4135,10 +4135,14 @@ function lower.parameters(
     declarations: {[string]: cst.RecordDecl},
     layouts: lower.Layouts,
     context: lower.Context,
-    useSignatureTypes: boolean?
+    useSignatureTypes: boolean?,
+    omitted: {[integer]: boolean}?
 ): lower.Signature
     local signature = new lower.Signature(params = {}, byName = {}, spans = {}, writes = {}, reads = {})
     for position, raw in ipairs(raws) do
+        if omitted ~= nil and omitted[position] == true then
+            goto continue
+        end
         local name = raw.name ~= nil and (raw.name as lexer.Token).text or nil
         if name == nil then
             context.reject(lower.site(raw), "every kernel parameter must be named")
@@ -4262,6 +4266,7 @@ function lower.parameters(
 
         signature.params[#signature.params + 1] = param
         signature.byName[name as string] = param
+        ::continue::
     end
 
     return signature
@@ -4536,15 +4541,14 @@ record lower.Application
     at: cst.PragmaStmt
 end
 
---- One experimental const-generic application lowered as its own native body.
----
---- This is deliberately only the backend seam used by the item-10 prototype.
---- Discovery, caps, diagnostics, dispatch, and incremental identity remain
---- outside the production pipeline until the measurement justifies them.
+--- One checked const-generic application lowered as its own native body.
+--- Discovery and budgeting happen once for the deliverable; this carries the
+--- selected private ABI and constant environment into ordinary AOT lowering.
 record lower.Specialization
     name: string
     signature: any
     values: {[string]: scalarIR.Expr}
+    omitted: {[integer]: boolean}
 end
 
 --- What one module offers this backend.
@@ -4805,7 +4809,8 @@ function lower.program(
         declarations.structs,
         layouts,
         context,
-        specialization ~= nil
+        specialization ~= nil,
+        specialization ~= nil and (specialization as lower.Specialization).omitted or nil
     )
     local regions, aliasFacts = lower.regions(signature.spans)
     local sourceName = (fn.name as lexer.Token).text
@@ -4903,6 +4908,11 @@ function lower.program(
             context = context
         )
         local environment: {[string]: any} = {}
+        if specialization ~= nil then
+            for carrier, value in pairs((specialization as lower.Specialization).values) do
+                environment[carrier] = value
+            end
+        end
         for position, param in ipairs(signature.params) do
             if param.kind == "uniform" or param.kind == "scalar" then
                 if param.kind == "scalar" then
@@ -5016,6 +5026,11 @@ function lower.program(
     )
 
     local environment: {[string]: any} = {}
+    if specialization ~= nil then
+        for carrier, value in pairs((specialization as lower.Specialization).values) do
+            environment[carrier] = value
+        end
+    end
     for position, param in ipairs(signature.params) do
         if param.kind == "uniform" or param.kind == "scalar" then
             if param.kind == "scalar" then
