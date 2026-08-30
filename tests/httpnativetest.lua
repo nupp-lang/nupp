@@ -200,6 +200,20 @@ function M.selectivelyInsecureClientsRerouteEveryRedirect()
    test.equal(response.body:read(1), "")
    response:close()
    client:close()
+   -- A second client must follow its own redirect after the first client has
+   -- closed. The hop re-enters send through `self`, and a lowering that parked
+   -- the first caller's receiver in a module-wide cache would dispatch this
+   -- client's hop through the closed one.
+   local second = newHttpClient({
+      insecureHosts = {"127.0.0.1"},
+      headers = {Authorization = "secret"},
+   })
+   local followed, why = second:send({url = endpoint("/redirect")})
+   assert(followed, why)
+   test.equal(followed.url:host(), "localhost")
+   test.equal(followed.body:read(16), "none")
+   followed:close()
+   second:close()
 end
 
 -- The hop from 127.0.0.1 to localhost changes the origin, so the cookie has

@@ -1900,26 +1900,20 @@ function http.Client:send(borrows request: http.Request): (http.Response?, strin
                 end
             end
             transfer:close()
-            -- A plain descriptor rather than `new http.Request`. The hop owns
-            -- nothing a request's cleanup would close -- a reader body refuses
-            -- to follow, and a dropped body is nil -- and an owned request here
-            -- would put the recursive call inside a cleanup region whose
-            -- lowering caches its closure module-wide with the first caller's
-            -- `self`, sending every later client's redirect through the first
-            -- client.
-            local redirected: any = {
-                url = target,
-                method = nextMethod,
-                headers = merged,
-                body = nextBody,
-                timeoutMs = given.timeoutMs,
-                stallTimeoutMs = given.stallTimeoutMs,
-                maxBytes = given.maxBytes,
-                _redirected = true,
-                _redirects = followed + 1,
-                _deadline = deadline,
-            }
-            return self:send(redirected)
+            return self:send(
+                new http.Request(
+                    url = target,
+                    method = nextMethod,
+                    headers = merged,
+                    body = nextBody,
+                    timeoutMs = given.timeoutMs,
+                    stallTimeoutMs = given.stallTimeoutMs,
+                    maxBytes = given.maxBytes,
+                    _redirected = true,
+                    _redirects = followed + 1,
+                    _deadline = deadline
+                )
+            )
         end
     end
     local bodyReady, bodyReason = transfer:takeBody()
