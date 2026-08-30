@@ -12,10 +12,6 @@ A living list, not a design record. Items are removed when completed.
       has no API and the file location varies by distribution.
 ## GPU compute
 
-- [ ] **Fixed-tree reductions over the declared workgroup size.** The CPU
-      implementation performs the same tree, so both sides share one specified
-      order. No unordered/fast reduction family: a backend-chosen order has no
-      CPU definition and would end the ordinary-semantics invariant.
 - [ ] **Tensor views and chained kernels, then a tiny transformer.** Shape and
       stride validation over resident buffers, subviews without allocation, no
       broadcasting. Cooperative-matrix variants come last, behind a tolerance

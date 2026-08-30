@@ -126,6 +126,13 @@ same Apple M5 Pro run, 512 cubed measured 0.780 ms tiled versus 0.819 ms naive,
 while 1024 cubed measured 4.581 ms tiled versus 4.416 ms naive. The phase model
 is feasible and exact, but tiling is not a portable speedup promise.
 
+`run-fixed-tree-reduction.sh` exercises the same proposal's reduction shape:
+two declared 256-lane trees reduce the polynomial exponential of 65,536
+values, one halving phase at a time. The CPU control executes the identical
+stage order. Both produced exactly `4317.14941`; Metal took 178.375 us, or
+367.41 million input values per second. There is no unordered or atomic
+variant.
+
 Run it on macOS with an SDL framework directory:
 
 ```sh

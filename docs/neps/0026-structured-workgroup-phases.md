@@ -152,6 +152,21 @@ This schedule defines results, including the order of any future fixed-tree
 reduction. Implementations may execute groups in parallel only when the
 existing span ownership and region proofs make their effects disjoint.
 
+### Fixed-tree reductions
+
+A reduction declares a power-of-two workgroup size and an identity value. Its
+first phase writes one input or the identity to each scratch slot. Subsequent
+phases use strides `size / 2`, `size / 4`, through `1`; local index `i` below
+the stride writes exactly `combine(shared[i], shared[i + stride])` back to
+`shared[i]`. The final value is slot zero after the last phase.
+
+The combine operation is one admitted scalar operation with its authored
+operand order. A larger reduction applies the same tree recursively to the
+ordered group results. The CPU meaning runs those same stage loops in that
+same order. There is deliberately no unordered, atomic, fast, or
+backend-selected reduction family: each of those would lack one ordinary CPU
+answer.
+
 ### GPU lowering
 
 One source group becomes one GPU workgroup, and one callback evaluation becomes
@@ -183,6 +198,13 @@ generated naive GPU kernel. A 512-cubed run measured 0.780 ms for the tiled
 kernel versus 0.819 ms naive; a 1024-cubed run measured 4.581 ms tiled versus
 4.416 ms naive. The mixed result is useful: the structure is expressible and
 exact, but tiling is not itself a portable performance promise.
+
+`bench/sdl-gpu-spike/run-fixed-tree-reduction.sh` validates the reduction
+schedule independently. It applies the compiler-owned binary32 exponential to
+65,536 values, reduces them through two 256-lane trees, and compares the Metal
+result with a CPU stage interpreter after every operation has the same
+binary32 meaning. The final bits agreed on the Apple M5 Pro; the two GPU levels
+measured 178.375 microseconds, or 367.41 million input values per second.
 
 ## Risks and assumptions
 
