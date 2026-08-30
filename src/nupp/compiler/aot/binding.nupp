@@ -313,7 +313,12 @@ end
 --- bindings. `package.loadlib` needs the resolved filesystem path, so this
 --- small loader performs the same bounded upward search and caches the closure
 --- in the generated module local.
-function binding.builderLoader(program: scalarIR.Program, library: string, tiers: {string}?): {string}
+function binding.builderLoader(
+    program: scalarIR.Program,
+    library: string,
+    tiers: {string}?,
+    detector: boolean?
+): {string}
     local prefix = program.symbol .. "_builder"
     local relative = library:match("^@(.+)$") or library
     local registrar = tostring(program.registrar)
@@ -321,6 +326,14 @@ function binding.builderLoader(program: scalarIR.Program, library: string, tiers
     if tiers ~= nil and #tiers > 0 then
         registrar = target.symbol(registrar, tiers[1])
         lines[#lines + 1] = "local " .. prefix .. "Registrar = \"" .. registrar .. "\""
+        -- After the local above rather than before it, for the reason
+        -- `binding.multiversion` gives: the first thing a replacement emits
+        -- inherits the doc comment of the declaration it stands in for.
+        if detector == true then
+            for _, line in ipairs(binding.featureDetector(library)) do
+                lines[#lines + 1] = line
+            end
+        end
         for position = 2, #tiers do
             local tier = tiers[position]
             lines[
@@ -461,12 +474,31 @@ end
 --- can retain the function's original name. All tier declarations have the
 --- same checked foreign type, which makes reassignment a type-checked claim
 --- rather than an FFI cast.
-function binding.multiversion(program: scalarIR.Program, library: string, tiers: {string}): ({string}, string)
+---
+--- `detector` asks for the module's one feature query, which only a module
+--- with more than one tier needs and only the earliest replacement emits. It
+--- goes here, after the tier declarations and before the first call of it,
+--- rather than at the top of the replacement: a replacement stands where a
+--- declaration was, so whatever it emits first inherits that declaration's
+--- doc comment. The tier declarations carry the authored parameter names and
+--- absorb it correctly; `ks_aot_feature_tier` takes none, so a `@param` above
+--- it names a parameter it does not have and reports NUPP1007.
+function binding.multiversion(
+    program: scalarIR.Program,
+    library: string,
+    tiers: {string},
+    detector: boolean?
+): ({string}, string)
     local lines: {string} = {}
     local native = program.symbol .. "_native"
     for _, tier in ipairs(tiers) do
         local symbol = target.symbol(program.symbol, tier)
         for _, line in ipairs(binding.foreign(program, library, symbol)) do
+            lines[#lines + 1] = line
+        end
+    end
+    if detector == true then
+        for _, line in ipairs(binding.featureDetector(library)) do
             lines[#lines + 1] = line
         end
     end
@@ -502,14 +534,13 @@ function binding.replacement(
     includeDetector: boolean?
 ): string
     local lines: {string} = {}
-    if includeDetector == true and tiers ~= nil and #tiers > 1 then
-        for _, line in ipairs(binding.featureDetector(library)) do
-            lines[#lines + 1] = line
-        end
-        lines[#lines + 1] = ""
-    end
+    -- Whether this replacement is the one carrying the module's feature query.
+    -- It is emitted from inside the tier declarations below rather than here,
+    -- so that the declaration's doc comment lands on something that has its
+    -- parameters -- see `binding.multiversion`.
+    local detector = includeDetector == true and tiers ~= nil and #tiers > 1
     if program.entryMode == "lua-builder" then
-        for _, line in ipairs(binding.builderLoader(program, library, tiers)) do
+        for _, line in ipairs(binding.builderLoader(program, library, tiers, detector)) do
             lines[#lines + 1] = line
         end
         lines[#lines + 1] = ""
@@ -548,7 +579,7 @@ function binding.replacement(
     end
     local native: string? = nil
     if tiers ~= nil and #tiers > 0 then
-        local declarations, selected = binding.multiversion(program, library, tiers)
+        local declarations, selected = binding.multiversion(program, library, tiers, detector)
         native = selected
         for _, line in ipairs(declarations) do
             lines[#lines + 1] = line

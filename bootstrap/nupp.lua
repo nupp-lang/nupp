@@ -4272,7 +4272,12 @@ end
 
 
 
-function binding . builderLoader ( program , library , tiers ) 
+function binding . builderLoader (
+program ,
+library ,
+tiers ,
+detector
+) 
 local prefix = program . symbol .. "_builder"
 local relative = library : match ( "^@(.+)$" ) or library
 local registrar = tostring ( program . registrar )
@@ -4280,6 +4285,14 @@ local lines = { }
 if tiers ~= nil and # tiers > 0 then
 registrar = target . symbol ( registrar , tiers [ 1 ] )
 lines [ # lines + 1 ] = "local " .. prefix .. "Registrar = \"" .. registrar .. "\""
+
+
+
+if detector == true then
+for _ , line in ipairs ( binding . featureDetector ( library ) ) do
+lines [ # lines + 1 ] = line
+end
+end
 for position = 2 , # tiers do
 local tier = tiers [ position ]
 lines [
@@ -4420,12 +4433,31 @@ end
 
 
 
-function binding . multiversion ( program , library , tiers ) 
+
+
+
+
+
+
+
+
+
+function binding . multiversion (
+program ,
+library ,
+tiers ,
+detector
+) 
 local lines = { }
 local native = program . symbol .. "_native"
 for _ , tier in ipairs ( tiers ) do
 local symbol = target . symbol ( program . symbol , tier )
 for _ , line in ipairs ( binding . foreign ( program , library , symbol ) ) do
+lines [ # lines + 1 ] = line
+end
+end
+if detector == true then
+for _ , line in ipairs ( binding . featureDetector ( library ) ) do
 lines [ # lines + 1 ] = line
 end
 end
@@ -4461,14 +4493,13 @@ tiers ,
 includeDetector
 ) 
 local lines = { }
-if includeDetector == true and tiers ~= nil and # tiers > 1 then
-for _ , line in ipairs ( binding . featureDetector ( library ) ) do
-lines [ # lines + 1 ] = line
-end
-lines [ # lines + 1 ] = ""
-end
+
+
+
+
+local detector = includeDetector == true and tiers ~= nil and # tiers > 1
 if program . entryMode == "lua-builder" then
-for _ , line in ipairs ( binding . builderLoader ( program , library , tiers ) ) do
+for _ , line in ipairs ( binding . builderLoader ( program , library , tiers , detector ) ) do
 lines [ # lines + 1 ] = line
 end
 lines [ # lines + 1 ] = ""
@@ -4507,7 +4538,7 @@ lines [ # lines + 1 ] = ""
 end
 local native = nil
 if tiers ~= nil and # tiers > 0 then
-local declarations , selected = binding . multiversion ( program , library , tiers )
+local declarations , selected = binding . multiversion ( program , library , tiers , detector )
 native = selected
 for _ , line in ipairs ( declarations ) do
 lines [ # lines + 1 ] = line
@@ -146024,6 +146055,11 @@ local MODULES = {
 
 
 [ "nupp.derive" ] = selected ( "runtime" , "text.buffer" ) ,
+
+
+
+
+[ "nupp.gpu" ] = { kind = "unavailable" , capability = "cinterop" } ,
 [ "nupp.runtime.hotreload" ] = { kind = "unavailable" , capability = "cinterop" } ,
 [ "nupp.io" ] = selected ( "runtime" , "io.bytes" ) ,
 [ "nupp.io.path.provider" ] = selected ( "host" , "host.path" ) ,
