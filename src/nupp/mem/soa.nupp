@@ -317,12 +317,15 @@ sealed interface soa.WriteSpan<T>
     --- string or a missing field reports `NUPP2403`.
     ---
     --- ```nupp
-    --- with rows = particles:write(),
-    ---     xs: span.Writable<float> = rows:field("x"),
-    ---     ys: span.Writable<float> = rows:field("y")
     --- do
+    ---     local rows = particles:write()
+    ---     local xs: span.Writable<float> = rows:field("x")
+    ---     local ys: span.Writable<float> = rows:field("y")
     ---     xs[1] = 3.5
     ---     ys[1] = 4.5
+    ---     drop xs
+    ---     drop ys
+    ---     drop rows
     --- end
     --- ```
     field: function(exclusive self: WriteSpan<T>, name: string): any borrows (self)

@@ -85,16 +85,17 @@ local struct Point
 end
 
 local function clear(exclusive points: span.WriteSpan<Point>): nil
-    const indexes = indexed.range(1, #points, points)
+    const view = points
+    const indexes = indexed.range(1, #view, view)
     for index = indexes.first, indexes.last do
-        points[index] = new Point(0, 0)
+        view[index] = new Point(0, 0)
     end
 end
 
 local storage = carray(Point, 4)
-with points = span.writeCarray(storage, 4) do
-    clear(points)
-end
+const points = span.writeCarray(storage, 4)
+clear(points)
+drop points
 ```
 
 Whole-element and direct field assignments write through the checked indexed
@@ -141,16 +142,22 @@ local struct Value
 end
 
 local function dot(
-    left: span.Span<Value>,
-    right: span.Span<Value>
+    borrows left: span.Span<Value>,
+    borrows right: span.Span<Value>
 ): integer
-    const indexes = indexed.range(1, #left, left, right)
-    local total = 0
+    const first = left
+    const second = right
+    const indexes = indexed.range(1, #first, first, second)
+    local total: integer = 0
     for index = indexes.first, indexes.last do
-        total = total + left[index].n * right[index].n
+        total = total + first[index].n * second[index].n
     end
     return total
 end
+
+const storage = carray(Value, 4)
+const values = span.fromCarray(storage, 4)
+print(dot(values, values))
 ```
 
 At least one span is required. Empty ranges use the same `first, first - 1`
@@ -181,8 +188,8 @@ projects the physical pointer and count arguments automatically.
 ::: seealso
 - [ownership.md](docs/concepts/ownership.md) for what makes a writable span
   affine and when its access ends
-- [exact-affine-scopes.md](docs/concepts/exact-affine-scopes.md) for the `with`
-  block the writable examples use
+- [exact-affine-scopes.md](docs/concepts/exact-affine-scopes.md) for the scopes
+  that end a writable span, including the `with` block
 - [c-interop.md](docs/concepts/c-interop.md) for the boundary `ref` and
   `countedBy` sit on
 :::
@@ -629,7 +636,8 @@ type span.ByteWriteSpan = span.WriteSpan<uint8>
 --- Creates a byte span over a Lua string and keeps that string rooted.
 ---
 --- ```nupp
---- const bytes = span.fromString("hello")
+--- const text = "hello"
+--- const bytes = span.fromString(text)
 --- assert(#bytes == 5 and bytes[1] == 104)
 --- ```
 ---
@@ -658,7 +666,11 @@ rawset(span as table, "__foreignByteSpan", foreignByteSpan)
 --- module cannot check for itself. Everything after it is checked against it.
 ---
 --- ```nupp
---- const storage = carray(int32, 4)
+--- local struct Value
+---     n: int32
+--- end
+---
+--- const storage = carray(Value, 4)
 --- const values = span.fromCarray(storage, 4)
 --- assert(#values == 4)
 --- ```
@@ -700,14 +712,18 @@ end
 --- the token. Nothing else may read or write the array in between.
 ---
 --- ```nupp
---- const storage = carray(int32, 4)
+--- local struct Value
+---     n: int32
+--- end
+---
+--- const storage = carray(Value, 4)
 --- do
 ---     local writable = span.writeCarray(storage, 4)
----     writable[1] = 42 as int32
+---     writable[1] = new Value(42)
 ---     drop writable
 --- end
 --- const values = span.fromCarray(storage, 4)
---- assert(values[1] == 42)
+--- assert(values[1].n == 42)
 --- ```
 ---
 --- @param source the array the view writes, held exclusively for its lifetime
