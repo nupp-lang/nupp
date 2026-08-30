@@ -15,6 +15,10 @@ below may name Lua types such as `LuaFile`.
 This file is parsed and checked by `nupp` itself, as is its Lua counterpart.
 ]]
 
+----------------------------------------------------------------------------
+-- Resources and aliases
+----------------------------------------------------------------------------
+
 --- A resource with a deterministic, consuming close operation.
 ---
 --- Declaring `is nupp.Closeable` makes construction and bare type annotations carry the
@@ -69,6 +73,10 @@ record nupp.Alias<T>
     close: nosuspend function(self: nupp.Alias<T>): nupp.AliasError?
     downcast: function<U>(self: nupp.Alias<T>): ((alias(U), nil) | (nil, nupp.AliasError))
 end
+
+----------------------------------------------------------------------------
+-- The compiler-provided namespace
+----------------------------------------------------------------------------
 
 --- Compiler-provided facilities. The namespace is always present; native members are
 --- linked automatically when source reaches them.
@@ -356,6 +364,10 @@ local nupp: {
     __materializationTest: nupp.__MaterializationTestAPI
 }
 
+----------------------------------------------------------------------------
+-- Type-level computations
+----------------------------------------------------------------------------
+
 -- Public checked computations under the compiler-owned nupp.types namespace use this
 -- implementation naming convention. Type-position resolution maps the public member
 -- to the checked prelude body, while the declaration above remains the API callers
@@ -436,6 +448,10 @@ local comptime function __NuppTypesFormatArguments(Format: type): typepack
     return nupp.types.pack(arguments)
 end
 
+----------------------------------------------------------------------------
+-- Hot reload
+----------------------------------------------------------------------------
+
 --- What one poll did, discriminated by `kind`.
 ---
 --- The four answers are `"prepared"`, when a patch was staged and committed and
@@ -481,6 +497,10 @@ record nupp.HotReload
     poll: function(): nupp.HotReloadPoll
 end
 
+----------------------------------------------------------------------------
+-- Materialization
+----------------------------------------------------------------------------
+
 --- A compile-time-only graph handle used by the compiler's materialization tests.
 --- @internal
 record nupp.__MaterializationBlueprint
@@ -514,6 +534,10 @@ record nupp.__MaterializationTestAPI
     node: function(value: integer): nupp.__MaterializationBlueprint
     factory: function(): nupp.__MaterializationFactoryBlueprint
 end
+
+----------------------------------------------------------------------------
+-- The derive namespace
+----------------------------------------------------------------------------
 
 --- Generates checked members on a declaration while that declaration is checked.
 ---
@@ -948,6 +972,10 @@ record nupp.derive
     --- @return whether `subject` claims `interface`
     claims: function(subject: any, interface: any): boolean
 end
+
+----------------------------------------------------------------------------
+-- The peg namespace
+----------------------------------------------------------------------------
 
 --- `nupp.peg` compiles textual parsing-expression grammars into reusable typed
 --- matchers. The same grammar language works inside
@@ -1786,6 +1814,10 @@ record nupp.peg
     compile: function(source: string, options: CompileOptions?): Peg<...any>
 end
 
+----------------------------------------------------------------------------
+-- The reflect namespace
+----------------------------------------------------------------------------
+
 --- Semantic type reflection and reflection-driven field codecs.
 ---
 --- Call the namespace with a concrete type inside `comptime` to obtain an immutable,
@@ -2139,6 +2171,10 @@ record nupp.reflect
     fieldCodec: comptime function(info: Info): FieldCodecBlueprint
 end
 
+----------------------------------------------------------------------------
+-- Annotations
+----------------------------------------------------------------------------
+
 --- Internal typed schema for the compiler-owned @deprecated annotation.
 --- @internal
 interface nupp.__DeprecatedAnnotation
@@ -2148,6 +2184,10 @@ interface nupp.__DeprecatedAnnotation
     --- The API spelling callers should migrate to.
     replacement: string?
 end
+
+----------------------------------------------------------------------------
+-- Math libraries
+----------------------------------------------------------------------------
 
 --- Two-dimensional vector operations on number pairs.
 --- @internal

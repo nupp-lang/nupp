@@ -24,6 +24,10 @@ the library they type is here. `nupp.Debug` comes with them: `format` names it, 
 it has to be declared before anything that reads a format string.
 ]]
 
+----------------------------------------------------------------------------
+-- The globals a chunk starts with
+----------------------------------------------------------------------------
+
 --- Writes every argument to standard output, converted with `tostring`, separated by
 --- tabs and followed by a newline.
 ---
@@ -290,6 +294,10 @@ local _VERSION: string
 
 -- Formatting APIs derive their trailing parameter pack from a literal first
 -- argument. A broad string deliberately retains the ordinary variadic fallback.
+
+----------------------------------------------------------------------------
+-- The comptime helpers the library needs
+----------------------------------------------------------------------------
 
 --- @local
 local comptime function __NuppFormatArguments(Format: type, Debug: type): typepack
@@ -571,6 +579,10 @@ local comptime function __NuppGsubResults(Pattern: type): typepack
     return nupp.types.pack({nupp.types.string, nupp.types.integer})
 end
 
+----------------------------------------------------------------------------
+-- string
+----------------------------------------------------------------------------
+
 --- String manipulation and pattern matching. Every function here is also reachable as a
 --- method on a string value, so `s:upper()` means `string.upper(s)`.
 local string: {
@@ -707,6 +719,10 @@ local string: {
     upper: nosuspend function(s: string): string
 }
 
+----------------------------------------------------------------------------
+-- table
+----------------------------------------------------------------------------
+
 --- Table manipulation. These functions work on the array part of a table: the integer
 --- keys 1 through `#t`.
 const table: {
@@ -779,6 +795,10 @@ const table: {
     --- @return a new table holding the same keys, values and metatable
     readonly clone: nosuspend function<T is table>(t: T): T
 }
+
+----------------------------------------------------------------------------
+-- math
+----------------------------------------------------------------------------
 
 --- Mathematical functions and constants, operating on the doubles that plain Lua
 --- numbers are.
@@ -964,6 +984,10 @@ local math: {
     huge: number
 }
 
+----------------------------------------------------------------------------
+-- os
+----------------------------------------------------------------------------
+
 --- Operating-system facilities: clocks and calendars, the environment, processes and
 --- file names.
 local os: {
@@ -1038,6 +1062,11 @@ local os: {
 }
 
 --- Lua's module-loader configuration.
+
+----------------------------------------------------------------------------
+-- package
+----------------------------------------------------------------------------
+
 local package: {
     --- Platform path separators and template markers.
     config: string,
@@ -1063,6 +1092,10 @@ local package: {
     loaders: {function(string): any},
     searchers: {function(string): any}?
 }
+
+----------------------------------------------------------------------------
+-- Layouts and file handles
+----------------------------------------------------------------------------
 
 --- One field of a reified `struct`, as it is actually laid out in C memory.
 ---
@@ -1130,6 +1163,11 @@ end
 local __nuppCloseFile: nosuspend function(takes handle: LuaFile): nil
 
 --- File input and output.
+
+----------------------------------------------------------------------------
+-- io
+----------------------------------------------------------------------------
+
 local io: {
     --- Opens the file at `path`. Modes are "r", "w" and "a", with "+" added for update
     --- and a trailing "b" for binary.
@@ -1212,6 +1250,11 @@ local io: {
 
 --- Cooperative multitasking. A callback with typed start, yield, resume, and return
 --- packs produces a protocol-bearing thread; bare `thread` erases that protocol.
+
+----------------------------------------------------------------------------
+-- coroutine
+----------------------------------------------------------------------------
+
 local coroutine: {
     --- Creates a coroutine with `f` as its body. The body does not start running until
     --- the first `resume`.
@@ -1277,6 +1320,11 @@ local coroutine: {
 --- LuaJIT's BitOp library, which is also the semantics behind the `&`, `|`, `~`, `<<`,
 --- `>>` and `~>>` operators: arguments are normalized to 32-bit integers and results
 --- come back signed.
+
+----------------------------------------------------------------------------
+-- bit
+----------------------------------------------------------------------------
+
 local bit: {
     --- Normalizes `x` into the signed 32-bit integer range, wrapping around.
     ---
@@ -1359,6 +1407,11 @@ local bit: {
 }
 
 --- Control and introspection for the JIT compiler itself.
+
+----------------------------------------------------------------------------
+-- jit
+----------------------------------------------------------------------------
+
 local jit: {
     --- The LuaJIT version string, such as "LuaJIT 2.1.0".
     version: string,
@@ -1444,6 +1497,11 @@ local jit: {
 
 --- The debug interface: stack inspection, hooks, locals and upvalues. Using it costs
 --- performance and voids assumptions the compiler would rather make.
+
+----------------------------------------------------------------------------
+-- debug
+----------------------------------------------------------------------------
+
 local debug: {
     --- Describes a function, or the activation record at a stack level.
     ---
