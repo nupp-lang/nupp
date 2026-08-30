@@ -1,0 +1,16 @@
+# Redistributable native compiler inputs used only for tagged release packs.
+# Every download is authenticated before extraction. LLVM's Linux archive is
+# trimmed to the C toolchain; llvm-mingw already ships as a relocatable native
+# compiler, linker, Windows headers, and UCRT import-library sysroot.
+
+LLVM_VERSION=22.1.8
+LLVM_LINUX_ARCHIVE="LLVM-${LLVM_VERSION}-Linux-X64.tar.xz"
+LLVM_LINUX_URL="https://github.com/llvm/llvm-project/releases/download/llvmorg-${LLVM_VERSION}/${LLVM_LINUX_ARCHIVE}"
+LLVM_LINUX_SHA256=df0e1ecf16caf3489a272a5eea4eec9b0d82878f6477fa309504f918a0006384
+LLVM_LINUX_SIZE=1938859476
+
+LLVM_MINGW_RELEASE=20260616
+LLVM_MINGW_ARCHIVE="llvm-mingw-${LLVM_MINGW_RELEASE}-ucrt-x86_64.zip"
+LLVM_MINGW_URL="https://github.com/mstorsjo/llvm-mingw/releases/download/${LLVM_MINGW_RELEASE}/${LLVM_MINGW_ARCHIVE}"
+LLVM_MINGW_SHA256=b9b68a4d276e16fa25802aaba458e4638f64b3884c290aaccdc2d87083b6ca35
+LLVM_MINGW_SIZE=187504083

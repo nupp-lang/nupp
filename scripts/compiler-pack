@@ -1,0 +1,125 @@
+#!/bin/sh
+# Assembles one relocatable native compiler pack from a self-contained C
+# toolchain and a full-feature compiler-owned host built with that toolchain.
+
+set -eu
+
+ROOT=$(CDPATH= cd -- "$(dirname "$0")/.." && pwd)
+
+die() { printf 'compiler-pack: %s\n' "$*" >&2; exit 1; }
+
+usage() {
+    cat >&2 <<'USAGE'
+usage: scripts/compiler-pack HOST TARGET VERSION PLATFORM TOOLCHAIN CC AR HOST_DIR PREFIX OUTPUT
+
+PLATFORM is linux or windows. TOOLCHAIN is a relocatable input tree; CC and AR
+are paths beneath it. HOST_DIR is the directory containing the full-feature
+host's objects, and PREFIX is the scripts/toolchain prefix that owns its static
+libraries. OUTPUT must not already contain HOST/TARGET.
+USAGE
+    exit 2
+}
+
+[ "$#" -eq 10 ] || usage
+host=$1
+target=$2
+version=$3
+platform=$4
+toolchain=$5
+cc_relative=$6
+ar_relative=$7
+host_dir=$8
+prefix=$9
+output=${10}
+
+case "$platform" in
+    linux) exe= ;;
+    windows) exe=.exe ;;
+    *) die "unsupported pack platform $platform" ;;
+esac
+
+[ -d "$toolchain" ] || die "no toolchain tree at $toolchain"
+[ -f "$toolchain/$cc_relative" ] || die "no compiler at $toolchain/$cc_relative"
+[ -f "$toolchain/$ar_relative" ] || die "no archiver at $toolchain/$ar_relative"
+[ -d "$host_dir/objects" ] || die "no host objects under $host_dir"
+
+pack="$output/$host/$target"
+[ ! -e "$pack" ] || die "pack output already exists at $pack"
+mkdir -p "$pack/bin" "$pack/host/lib"
+cp -R "$toolchain" "$pack/toolchain"
+
+set -- "$host_dir"/objects/*.o
+[ -f "$1" ] || die "the full-feature host has no objects"
+"$toolchain/$ar_relative" rcs "$pack/host/lib/libnupp-host.a" "$@"
+
+copy_library() {
+    source=$1
+    name=$2
+    [ -f "$source" ] || die "no required host library at $source"
+    cp "$source" "$pack/host/lib/$name"
+}
+
+copy_library "$prefix/lpeg/lib/liblpeg.a" liblpeg.a
+copy_library "$prefix/luautf8/lib/liblua-utf8.a" liblua-utf8.a
+copy_library "$prefix/mbedtls/lib/libmbedtls.a" libmbedtls.a
+copy_library "$prefix/mbedtls/lib/libmbedx509.a" libmbedx509.a
+copy_library "$prefix/mbedtls/lib/libmbedcrypto.a" libmbedcrypto.a
+copy_library "$prefix/libuv/lib/libuv.a" libuv.a
+copy_library "$prefix/luajit/lib/libluajit-5.1.a" libluajit.a
+
+cc_define=$(printf '%s' "$cc_relative" | sed 's/[\\"]/\\&/g')
+build_cc=${NUPP_PACK_BUILD_CC:-$toolchain/$cc_relative}
+"$build_cc" -std=c11 -O2 -Wall -Wextra -Werror \
+    "-DNUPP_PACK_CC_RELATIVE=\"toolchain/$cc_define\"" \
+    "$ROOT/scripts/compiler-pack-link.c" -o "$pack/bin/nupp-link-host$exe"
+chmod +x "$pack/bin/nupp-link-host$exe" 2>/dev/null || true
+
+cp "$ROOT/host/NOTICE.md" "$pack/NOTICE.md"
+cp -R "$ROOT/host/notices" "$pack/notices"
+
+if command -v shasum >/dev/null 2>&1; then
+    sha256() { shasum -a 256 "$1" | cut -d' ' -f1; }
+elif command -v sha256sum >/dev/null 2>&1; then
+    sha256() { sha256sum "$1" | cut -d' ' -f1; }
+else
+    die "no SHA-256 tool is available"
+fi
+size() { wc -c < "$1" | tr -d ' '; }
+
+cc_path="$pack/toolchain/$cc_relative"
+ar_path="$pack/toolchain/$ar_relative"
+link_path="$pack/bin/nupp-link-host$exe"
+if [ "$platform" = linux ]; then
+    compile_flags='["--sysroot={pack}/toolchain/sysroot", "--gcc-toolchain={pack}/toolchain/sysroot/usr", "--ld-path={pack}/toolchain/bin/ld.lld"]'
+    link_flags=$compile_flags
+else
+    compile_flags='[]'
+    link_flags='[]'
+fi
+cat > "$pack/pack.json" <<EOF
+{
+  "schemaVersion": 1,
+  "host": "$host",
+  "target": "$target",
+  "version": "$version",
+  "cc": {
+    "path": "toolchain/$cc_relative",
+    "sha256": "$(sha256 "$cc_path")",
+    "size": $(size "$cc_path")
+  },
+  "ar": {
+    "path": "toolchain/$ar_relative",
+    "sha256": "$(sha256 "$ar_path")",
+    "size": $(size "$ar_path")
+  },
+  "linkHost": {
+    "path": "bin/nupp-link-host$exe",
+    "sha256": "$(sha256 "$link_path")",
+    "size": $(size "$link_path")
+  },
+  "compileFlags": $compile_flags,
+  "linkFlags": $link_flags
+}
+EOF
+
+printf '%s\n' "$pack"

@@ -381,6 +381,11 @@ A distributed binary is deliberately none of these things.
   explicit exception: Nupp relinks its compiler-owned host with static C and
   AOT archives before stamping. It refuses a dependency or native feature for
   which no static implementation exists rather than quietly leaving a sidecar.
+- **Release compiler packs are currently native Linux and Windows assets.** The
+  tagged x86-64 archives carry and test their matching LLVM-based pack. macOS
+  arm64 native source builds still require local Xcode command-line tools, and
+  tagged releases do not yet publish cross-target compiler packs. Prebuilt
+  target-indexed C archives remain usable without compiling their sources.
 
   Nupp's compiler payload detects two native modules, and its compiler-owned
   host links exactly those features: LPeg, which backs direct LPeg patterns and every

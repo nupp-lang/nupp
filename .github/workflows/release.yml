@@ -73,12 +73,14 @@ jobs:
       matrix:
         include:
           - name: Linux x86-64
-            os: ubuntu-latest
+            os: ubuntu-24.04
             artifact: nupp-linux-x86_64
+            upload_artifact: base-nupp-linux-x86_64
             platform: x86_64-unknown-linux-gnu
           - name: macOS arm64
             os: macos-14
             artifact: nupp-macos-arm64
+            upload_artifact: nupp-macos-arm64
             platform: aarch64-apple-darwin
     runs-on: ${{ matrix.os }}
     timeout-minutes: 30
@@ -212,7 +214,7 @@ jobs:
       - name: Upload the standalone binary
         uses: actions/upload-artifact@v4
         with:
-          name: ${{ matrix.artifact }}
+          name: ${{ matrix.upload_artifact }}
           path: release/${{ matrix.artifact }}.tar.gz
           if-no-files-found: error
 
@@ -333,7 +335,7 @@ jobs:
       - name: Upload the standalone binary
         uses: actions/upload-artifact@v4
         with:
-          name: nupp-windows-x86_64
+          name: base-nupp-windows-x86_64
           path: release/nupp-windows-x86_64.zip
           if-no-files-found: error
 
@@ -345,6 +347,128 @@ jobs:
             release/nupp-host-x86_64-pc-windows-msvc.exe
             release/nupp-host-x86_64-pc-windows-msvc.exe-notices.zip
             release/stub-x86_64-pc-windows-msvc.json
+          if-no-files-found: error
+
+  build-compiler-pack-linux:
+    name: Linux x86-64 compiler pack
+    needs: build-unix
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
+    steps:
+      - name: Check out the repository
+        uses: actions/checkout@v4
+
+      - name: Download the base Linux compiler
+        uses: actions/download-artifact@v4
+        with:
+          name: base-nupp-linux-x86_64
+          path: release/base
+
+      - name: Build the authenticated LLVM pack
+        shell: bash
+        run: |
+          set -euo pipefail
+          chmod +x scripts/compiler-pack .github/scripts/build-compiler-pack-linux.sh
+          .github/scripts/build-compiler-pack-linux.sh \
+            "$GITHUB_WORKSPACE/release/nupp-compiler-pack-linux-x86_64.tar.gz"
+
+      - name: Exercise C FFI and AOT without an ambient compiler
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p release/package release/pack project poison
+          tar -xzf release/base/nupp-linux-x86_64.tar.gz -C release/package
+          tar -xzf release/nupp-compiler-pack-linux-x86_64.tar.gz -C release/package
+          cp -R tests/fixtures/release-compiler-pack/. project/
+          for command in cc gcc clang ar ld ld.lld; do
+            printf '#!/bin/sh\nexit 97\n' > "poison/$command"
+            chmod +x "poison/$command"
+          done
+          (cd project && \
+            PATH="$GITHUB_WORKSPACE/poison:$PATH" \
+            "$GITHUB_WORKSPACE/release/package/nupp" build \
+            --format json > "$GITHUB_WORKSPACE/release/compiler-pack-linux-result.json")
+          test "$(project/build/pack-smoke)" = 15
+          test ! -e project/build/lib/libtiny.so
+          test ! -e project/build/lib/libdefault_aot.so
+
+      - name: Repack Nupp with its native compiler pack
+        shell: bash
+        run: |
+          set -euo pipefail
+          tar -czf release/nupp-linux-x86_64.tar.gz -C release/package .
+
+      - name: Upload the compiler and pack
+        uses: actions/upload-artifact@v4
+        with:
+          name: nupp-linux-x86_64
+          path: |
+            release/nupp-linux-x86_64.tar.gz
+            release/nupp-compiler-pack-linux-x86_64.tar.gz
+            release/compiler-pack-linux-result.json
+          if-no-files-found: error
+
+  build-compiler-pack-windows:
+    name: Windows x86-64 compiler pack
+    needs: build-windows
+    runs-on: windows-2022
+    timeout-minutes: 90
+    steps:
+      - name: Check out the repository
+        uses: actions/checkout@v4
+
+      - name: Download the base Windows compiler
+        uses: actions/download-artifact@v4
+        with:
+          name: base-nupp-windows-x86_64
+          path: release/base
+
+      - name: Build the authenticated llvm-mingw pack
+        shell: bash
+        run: |
+          set -euo pipefail
+          chmod +x scripts/compiler-pack .github/scripts/build-compiler-pack-windows.sh
+          .github/scripts/build-compiler-pack-windows.sh \
+            "$GITHUB_WORKSPACE/release/nupp-compiler-pack-windows-x86_64.zip"
+
+      - name: Exercise C FFI and AOT without an ambient compiler
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force release/package, project, poison | Out-Null
+          Expand-Archive release/base/nupp-windows-x86_64.zip release/package
+          Expand-Archive release/nupp-compiler-pack-windows-x86_64.zip release/package
+          Copy-Item tests/fixtures/release-compiler-pack/* project -Recurse
+          foreach ($command in @("cc", "gcc", "clang", "ar", "ld", "lld-link")) {
+            "@exit /b 97" | Set-Content "poison/$command.cmd"
+          }
+          $env:PATH = "$env:GITHUB_WORKSPACE\poison;$env:PATH"
+          Push-Location project
+          & "$env:GITHUB_WORKSPACE\release\package\nupp.exe" build --format json |
+            Set-Content "$env:GITHUB_WORKSPACE\release\compiler-pack-windows-result.json"
+          if ($LASTEXITCODE -ne 0) { throw "installed compiler-pack build failed" }
+          $answer = & build/pack-smoke.exe
+          if ($LASTEXITCODE -ne 0 -or $answer -ne "15") {
+            throw "standalone compiler-pack output failed: $answer"
+          }
+          if ((Test-Path build/lib/tiny.dll) -or (Test-Path build/lib/default_aot.dll)) {
+            throw "standalone compiler-pack output retained a native sidecar"
+          }
+          Pop-Location
+
+      - name: Repack Nupp with its native compiler pack
+        shell: pwsh
+        run: |
+          Compress-Archive -Path release/package/* `
+            -DestinationPath release/nupp-windows-x86_64.zip
+
+      - name: Upload the compiler and pack
+        uses: actions/upload-artifact@v4
+        with:
+          name: nupp-windows-x86_64
+          path: |
+            release/nupp-windows-x86_64.zip
+            release/nupp-compiler-pack-windows-x86_64.zip
+            release/compiler-pack-windows-result.json
           if-no-files-found: error
 
   catalog:
@@ -493,6 +617,8 @@ jobs:
       - build-browser-runtime
       - build-unix
       - build-windows
+      - build-compiler-pack-linux
+      - build-compiler-pack-windows
       - catalog
       - verify-cross-unix
       - verify-cross-windows

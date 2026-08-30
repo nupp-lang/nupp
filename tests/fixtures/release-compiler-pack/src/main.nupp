@@ -1,0 +1,13 @@
+local tiny = require("tiny")
+
+@aot(lanes = false)
+local function triangular(count: integer): number
+    local result = 0.0
+    for index = 1, count do
+        result = result + index
+    end
+
+    return result
+end
+
+print(tiny.tiny_add(2, 3) + triangular(4))

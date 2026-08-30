@@ -34353,6 +34353,19 @@ end
 return out , nil
 end
 
+local function packFlags ( flags , root ) 
+local expanded = { }
+local function packRoot ( ) 
+return root
+end
+
+for _ , flag in ipairs ( flags ) do
+expanded [ # expanded + 1 ] = flag : gsub ( "{pack}" , packRoot )
+end
+
+return expanded
+end
+
 
 
 function packs . resolve ( target ) 
@@ -34362,52 +34375,67 @@ local host = layouts . hostKey ( )
 if host == nil or target == nil then
 return nil , "compiler pack selection needs modeled host and target triples"
 end
+local directories = { }
 if not explicit then
 local executable = tostring ( arg and arg [ 0 ] or "" )
 local bin = executable : match ( "^(.*)[/\\][^/\\]+$" )
 if bin == nil then
 return nil , nil
 end
-directory = fs . normalize ( fs . join ( bin , "../lib/nupp/compiler-packs" ) )
+
+
+
+directories [ # directories + 1 ] = fs . normalize ( fs . join ( bin , "../lib/nupp/compiler-packs" ) )
+directories [ # directories + 1 ] = fs . normalize ( fs . join ( bin , "lib/nupp/compiler-packs" ) )
+else
+directories [ 1 ] = directory
 end
-local selectedDirectory = directory
-local root = fs . join ( selectedDirectory , fs . join ( host , target ) )
-local manifestPath = fs . join ( root , "pack.json" )
-local text = fs . readFile ( manifestPath )
+local root , manifestPath , text = nil , nil , nil
+for _ , candidate in ipairs ( directories ) do
+local candidateRoot = fs . join ( candidate , fs . join ( host , target ) )
+local candidateManifest = fs . join ( candidateRoot , "pack.json" )
+local candidateText = fs . readFile ( candidateManifest )
+if candidateText ~= nil then
+root , manifestPath , text = candidateRoot , candidateManifest , candidateText
+break
+end
+end
 if text == nil then
 if not explicit then
 return nil , nil
 end
-return nil , "no compiler pack for " .. host .. " -> " .. target .. " under " .. selectedDirectory
+return nil , "no compiler pack for " .. host .. " -> " .. target .. " under " .. tostring ( directories [ 1 ] )
 end
+local selectedRoot = root
+local selectedManifest = manifestPath
 local ok , value = pcall ( __nuppModule .decode , text , __nuppModule .NULL )
 if not ok or type ( value ) ~= "table" then
-return nil , "cannot decode compiler pack " .. manifestPath .. ": " .. tostring ( value )
+return nil , "cannot decode compiler pack " .. selectedManifest .. ": " .. tostring ( value )
 end
 if value . schemaVersion ~= 1 or value . host ~= host or value . target ~= target then
-return nil , "compiler pack " .. manifestPath .. " does not describe " .. host .. " -> " .. target
+return nil , "compiler pack " .. selectedManifest .. " does not describe " .. host .. " -> " .. target
 end
 if type ( value . version ) ~= "string" or value . version == "" then
-return nil , "compiler pack " .. manifestPath .. " requires a version"
+return nil , "compiler pack " .. selectedManifest .. " requires a version"
 end
-local cc , ccErr = readTool ( root , value . cc , "compiler pack cc" )
+local cc , ccErr = readTool ( selectedRoot , value . cc , "compiler pack cc" )
 if not cc then
 return nil , ccErr
 end
-local ar , arErr = readTool ( root , value . ar , "compiler pack ar" )
+local ar , arErr = readTool ( selectedRoot , value . ar , "compiler pack ar" )
 if not ar then
 return nil , arErr
 end
 local cxx , cxxErr = nil , nil
 if value . cxx then
-cxx , cxxErr = readTool ( root , value . cxx , "compiler pack cxx" )
+cxx , cxxErr = readTool ( selectedRoot , value . cxx , "compiler pack cxx" )
 if not cxx then
 return nil , cxxErr
 end
 end
 local linkHost , linkErr = nil , nil
 if value . linkHost then
-linkHost , linkErr = readTool ( root , value . linkHost , "compiler pack linkHost" )
+linkHost , linkErr = readTool ( selectedRoot , value . linkHost , "compiler pack linkHost" )
 if not linkHost then
 return nil , linkErr
 end
@@ -34429,8 +34457,8 @@ cc ,  cxx =
 cxx ,  ar =
 ar ,  linkHost =
 linkHost ,  compileFlags =
-compileFlags ,  linkFlags =
-linkFlags }, packs.Pack)
+packFlags ( compileFlags , selectedRoot ) ,  linkFlags =
+packFlags ( linkFlags , selectedRoot ) }, packs.Pack)
 , nil
 end
 

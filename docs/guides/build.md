@@ -370,12 +370,29 @@ An explicit `NUPP_NATIVE_CC` or dependency `cc` remains the expert override and
 the ambient compiler search remains the compatibility fallback when no pack
 directory is configured.
 
+Tagged Linux x86-64 and Windows x86-64 archives carry their matching native
+pack under `lib/nupp/compiler-packs`, and the release publishes the same tree as
+a separate pack archive for an existing installation. Nupp finds the bundled
+tree both after a conventional `bin`/`lib` installation and while the release
+archive is being run directly. Release CI poisons ambient compiler names and
+requires the installed pack to build and run one standalone target containing
+both generated C FFI and AOT code before either archive is published.
+
+The macOS arm64 release does not carry a compiler pack. Apple does not permit a
+release to redistribute the Xcode SDK that a complete pack would require, so a
+macOS standalone native source build currently uses locally installed Xcode
+command-line tools. Ordinary stamped binaries and target-indexed prebuilt
+static C artifacts do not acquire that source-build requirement. Cross-target
+packs are not yet release artifacts.
+
 `pack.json` has `schemaVersion = 1`, `host`, `target`, `version`, authenticated
 `cc` and `ar` tool records, optional `cxx` and `linkHost` records, and
 `compileFlags`/`linkFlags` arrays for its sysroot. Each tool record contains a
 pack-relative `path`, `sha256`, and `size`. `linkHost`, when present, accepts
 `FEATURES OUTPUT ARCHIVE... -- LINK_FLAG...`; it owns the target host objects,
 VM, native-provider libraries, and platform SDK linkage.
+`{pack}` inside a compile or link flag expands to the selected pack directory,
+so a sysroot remains relocatable after the archive is installed elsewhere.
 
 ### Native artifacts
 
