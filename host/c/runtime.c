@@ -22,6 +22,8 @@
  * there is no directory beside a single-file program to find it in. */
 extern const unsigned char nupp_host_vmdef[];
 extern const unsigned int nupp_host_vmdef_length;
+extern const unsigned char nupp_host_zone[];
+extern const unsigned int nupp_host_zone_length;
 
 #if NUPP_FEATURE_LPEG
 extern int luaopen_lpeg(lua_State *state);
@@ -172,6 +174,9 @@ static char *preload_lua(lua_State *state, const char *name, const unsigned char
 static void open_libraries(lua_State *state) {
     luaL_openlibs(state);
     free(preload_lua(state, "jit.vmdef", nupp_host_vmdef, nupp_host_vmdef_length));
+    /* `nupp.profile.zone` requires this outright, and a stamped binary has no
+     * directory beside it to find the interpreter's own copy in. */
+    free(preload_lua(state, "jit.zone", nupp_host_zone, nupp_host_zone_length));
 #if NUPP_FEATURE_LPEG
     preload_opener(state, "lpeg", luaopen_lpeg);
 #endif

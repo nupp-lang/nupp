@@ -715,20 +715,30 @@ provider_sources() {
     done
 }
 
-# The pinned LuaJIT's own `jit/vmdef.lua`, as a C array. A host carrying an
-# interpreter has to carry what its `jit` library reads: there is no directory
-# beside a single-file program to find it in.
+# The pinned LuaJIT's own `jit/*.lua` modules the host needs, as C arrays. A
+# host carrying an interpreter has to carry what its `jit` library reads: there
+# is no directory beside a single-file program to find it in.
+#
+# `vmdef` is what the bytecode reader loads. `zone` is what the profiler loads,
+# and `nupp.profile.zone` requires it outright -- on a Unix host the
+# interpreter's compiled-in prefix finds it anyway, so only a stamped binary on
+# Windows, which searches `<exedir>\lua\?.lua` and is not beside the staged
+# interpreter, ever went without. Every Nupp worker in that binary failed on
+# `module 'jit.zone' not found`, and took the suites in its lane down as unrun.
 write_vmdef() {
     luajit_prefix=$(build_luajit; printf '%s' "$PREFIX/luajit")
-    vmdef=$(find "$luajit_prefix/share" -name vmdef.lua | head -n 1)
-    [ -n "$vmdef" ] || die "the staged LuaJIT has no jit/vmdef.lua"
-    {
-        printf '/* Generated from the pinned LuaJIT jit/vmdef.lua. */\n'
-        printf 'const unsigned char nupp_host_vmdef[] = {\n'
-        od -An -v -tu1 "$vmdef" | sed 's/[0-9][0-9]*/&,/g'
-        printf '};\nconst unsigned int nupp_host_vmdef_length = %su;\n' \
-            "$(wc -c < "$vmdef" | tr -d ' ')"
-    } > "$1"
+    : > "$1"
+    for module in vmdef zone; do
+        staged=$(find "$luajit_prefix/share" -name "$module.lua" | head -n 1)
+        [ -n "$staged" ] || die "the staged LuaJIT has no jit/$module.lua"
+        {
+            printf '/* Generated from the pinned LuaJIT jit/%s.lua. */\n' "$module"
+            printf 'const unsigned char nupp_host_%s[] = {\n' "$module"
+            od -An -v -tu1 "$staged" | sed 's/[0-9][0-9]*/&,/g'
+            printf '};\nconst unsigned int nupp_host_%s_length = %su;\n' \
+                "$module" "$(wc -c < "$staged" | tr -d ' ')"
+        } >> "$1"
+    done
 }
 
 # What libuv compiles, per platform. Taken from its CMakeLists, which is the
