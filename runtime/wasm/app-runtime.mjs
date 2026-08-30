@@ -578,8 +578,13 @@ export async function runPackagedNuppWasmApp(manifestUrl, options = {}) {
     // each booting this same verified manifest in its own Worker. The pool is the
     // page's, not one scope's, so it outlives every scope and closes with the run.
     if (manifest.workers && options.workers !== false) {
+      // The lane is executable and gets the same verification as every other
+      // asset; a stale or swapped worker-lane.mjs beside a verified package
+      // must not run. The Worker still loads it by URL, so its relative
+      // import of this loader keeps resolving.
+      await verifiedAsset(fetchAsset, base, manifest.workers.lane, "workers.lane");
       pool = createWorkerPool({
-        laneUrl: new URL(relativeAsset(manifest.workers.lane, "workers.lane"), base).href,
+        laneUrl: new URL(relativeAsset(manifest.workers.lane.file, "workers.lane"), base).href,
         manifestUrl: manifestAddress.href,
         maxLanes: manifest.workers.maxLanes,
         limits: options.limits || manifest.limits,

@@ -195,7 +195,7 @@ export function packageBrowserApp(options) {
     runtime: {module: runtimeManifest.module, wasm: runtimeManifest.wasm},
     app: asset(packagedApp, appName),
     sideModules,
-    ...(reachedWorkers ? {workers: {lane: runtimeManifest.lane.file, maxLanes: 8}} : {}),
+    ...(reachedWorkers ? {workers: {lane: runtimeManifest.lane, maxLanes: 8}} : {}),
     limits: {
       // Worker tasks make the effect boundary the transport for parallel work, so
       // an application that reached them is submitting and settling children where
