@@ -7,8 +7,8 @@ Nupp is a gradually typed superset of LuaJIT's Lua dialect, implementing every
 adding to them rather than subtracting (see
 [grammar.abnf](docs/grammar.abnf)). Most of that syntax is written straight
 through to the output, because LuaJIT 2.1 backported it; generated code needs
-LuaJIT 2.1.1784535649 or newer. Unlike every existing typed Lua, its types are
-not always erased: `struct` declarations lower to FFI cdata, with a fixed
+LuaJIT 2.1.1784535649 or newer. Its types are not always erased: `struct`
+declarations lower to FFI cdata, with a fixed
 layout and no hash lookups, and C headers import as typed declarations. Owned
 resources are affine: an `affine(T, cleanup)` result records a deterministic
 cleanup obligation, `takes` calls move it, borrows cannot escape, and
