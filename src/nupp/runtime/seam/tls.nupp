@@ -5,13 +5,8 @@ local runtimeBackend = require("nupp.runtime.backend")
 local seam = {moduleName = "nupp.runtime.seam.tls", suiteModuleName = "nupp.runtime.seam.tlssuite",}
 local CONTRACT = common.contract("host.tls", {
     globalName = "__nuppTls",
-    requiredFunctions = {
-        "client", "dtlsClient", "dtlsServer", "kernelOffloadSupported",
-        "server", "useBackend",
-    },
-    requiredValues = {
-        "Backend", "ClientOptions", "DatagramSession", "ServerOptions", "Session",
-    },
+    requiredFunctions = {"client", "dtlsClient", "dtlsServer", "kernelOffloadSupported", "server", "useBackend",},
+    requiredValues = {"Backend", "ClientOptions", "DatagramSession", "ServerOptions", "Session",},
     suiteModule = seam.suiteModuleName,
     modules = {["nupp.io.tls"] = "",},
 })

@@ -5122,9 +5122,14 @@ function lower.program(
     -- at the loop index must still be the primary or guarded equal to it, and
     -- the GPU emitter refuses anything else, while a cursor access carries its
     -- dominating bound check into the shader.
-    if contract.target == "gpu" and #resultTypes == 0 and #signature.writes > 0 and #signature.reads > 0
-        and #statements == 1 and statements[1].kind == "fornumStmt"
-    then
+    if contract.target == "gpu"
+        and #resultTypes == 0
+        and #signature.writes > 0
+        and #signature.reads > 0
+        and #statements == 1
+        and statements[
+        1
+    ].kind == "fornumStmt" then
         mapShape = true
     end
 

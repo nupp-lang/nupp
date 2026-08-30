@@ -12934,22 +12934,21 @@ for position , param in ipairs ( bindParams ) do
 append ( lines , "    " .. param .. ( position < # bindParams and "," or "" ) )
 end
 append ( lines , "): " .. bindingType .. " borrows (self)" )
-append (
-lines ,
-"    local raw = self._context:bindKernel(self._kernel, " .. artifact . countSpan .. ".count)"
-)
+append ( lines , "    local raw = self._context:bindKernel(self._kernel, " .. artifact . countSpan .. ".count)" )
 for slot , param in ipairs ( artifact . readonly ) do
 append (
 lines ,
-"    raw:setRead(" .. tostring ( slot - 1 ) .. ", " .. param . name .. ", "
-.. tostring ( artifact . exactCounts [ param . name ] == true ) .. ")"
+"    raw:setRead(" .. tostring (
+slot - 1
+) .. ", " .. param . name .. ", " .. tostring ( artifact . exactCounts [ param . name ] == true ) .. ")"
 )
 end
 for slot , param in ipairs ( artifact . writable ) do
 append (
 lines ,
-"    raw:setWrite(" .. tostring ( slot - 1 ) .. ", " .. param . name .. ", "
-.. tostring ( artifact . exactCounts [ param . name ] == true ) .. ")"
+"    raw:setWrite(" .. tostring (
+slot - 1
+) .. ", " .. param . name .. ", " .. tostring ( artifact . exactCounts [ param . name ] == true ) .. ")"
 )
 end
 append ( lines , "    return new " .. bindingType .. "(_context = self._context, _binding = raw)" )
@@ -13095,6 +13094,7 @@ assert (
 exactCounts [ value . span ] == true ,
 "a dispatch-indexed GPU span must be the loop bound or guarded equal to it: " .. tostring ( value . span )
 )
+
 return "[dispatch_index]"
 end
 
@@ -13127,8 +13127,9 @@ elseif FIXED [ op ] ~= nil or BINARY [ op ] ~= nil then
 
 
 assert (
-not ( ( op == "div" or op == "mod" )
-and ( value . left . op == "int_to_f64" or value . right . op == "int_to_f64" ) ) ,
+not (
+( op == "div" or op == "mod" ) and ( value . left . op == "int_to_f64" or value . right . op == "int_to_f64" )
+) ,
 "GPU subset does not emit binary64 division of integers"
 )
 local token = FIXED [ op ] or BINARY [ op ]
@@ -13198,8 +13199,9 @@ line ( depth , target .. " = " .. expression ( assignment . value ) .. ";" )
 elseif op == "store" then
 line (
 depth ,
-identifier ( statement . span ) .. provenSpanIndex ( statement ) .. " = "
-.. expression ( statement . value ) .. ";"
+identifier (
+statement . span
+) .. provenSpanIndex ( statement ) .. " = " .. expression ( statement . value ) .. ";"
 )
 elseif op == "while" then
 line ( depth , "while (" .. expression ( statement . condition ) .. ") {" )
@@ -13261,10 +13263,7 @@ spans [ # spans + 1 ] = param
 end
 for _ , param in ipairs ( uniforms ) do
 for _ , span in ipairs ( spans ) do
-assert (
-param . name ~= span . name .. "_count" ,
-"GPU uniform name collides with a span count: " .. param . name
-)
+assert ( param . name ~= span . name .. "_count" , "GPU uniform name collides with a span count: " .. param . name )
 end
 end
 local uniformBytes = 4 * ( 1 + # spans + # uniforms )
@@ -20034,9 +20033,14 @@ local mapShape = # resultTypes == 0 and # signature . writes > 0 and # signature
 
 
 
-if contract . target == "gpu" and # resultTypes == 0 and # signature . writes > 0 and # signature . reads > 0
-and # statements == 1 and statements [ 1 ] . kind == "fornumStmt"
-then
+if contract . target == "gpu"
+and # resultTypes == 0
+and # signature . writes > 0
+and # signature . reads > 0
+and # statements == 1
+and statements [
+1
+] . kind == "fornumStmt" then
 mapShape = true
 end
 
@@ -26073,8 +26077,9 @@ node . cursor
 else
 holds (
 node . index == scope . index and (
-scope . mapIndex == true and ( scope . indexSpans ) [ node . span ] == true
-or node . span == scope . boundSpan
+scope . mapIndex == true and (
+scope . indexSpans
+) [ node . span ] == true or node . span == scope . boundSpan
 ) ,
 "unbounded load index"
 )
@@ -26101,8 +26106,9 @@ node . cursor
 ] == "u32" and scope . cursorBounds [
 node . cursor
 ] == node . span and node . cursorCName ~= nil or node . cursor == nil and node . index == scope . index and (
-scope . mapIndex == true and ( scope . indexSpans ) [ node . span ] == true
-or node . span == scope . boundSpan
+scope . mapIndex == true and (
+scope . indexSpans
+) [ node . span ] == true or node . span == scope . boundSpan
 )
 holds ( node . mutable == ( span . kind == "write_span" ) and bounded , "invalid struct element access" )
 end
@@ -27281,8 +27287,9 @@ and statement . cursorCName ~= nil
 or statement . cursor == nil
 and statement . index == scope . index
 and (
-scope . mapIndex == true and ( scope . indexSpans ) [ statement . span ] == true
-or statement . span == scope . boundSpan
+scope . mapIndex == true and (
+scope . indexSpans
+) [ statement . span ] == true or statement . span == scope . boundSpan
 )
 holds ( scope . writes [ statement . span ] == true and bounded , "invalid store root" )
 scalarWalk ( statement . value , values , scope )
@@ -28039,10 +28046,7 @@ if param . region ~= nil and param . name ~= primary_ . name then
 
 
 
-holds (
-guarded [ param . name ] == true or program . executionTarget == "gpu" ,
-"unguarded IR span"
-)
+holds ( guarded [ param . name ] == true or program . executionTarget == "gpu" , "unguarded IR span" )
 end
 end
 end
@@ -162565,10 +162569,6 @@ local dispatchNative = C . nuppGpuBindingDispatch
 
 
 
-
-
-
-
 gpu.Buffer = {} gpu.Buffer.__index = gpu.Buffer
 
 
@@ -162620,16 +162620,6 @@ gpu.Binding = {} gpu.Binding.__index = gpu.Binding
 
 
 
-
-
-
-
-
-
-
-
-
-
 function gpu . destroyContext ( context ) 
 context : drop ( )
 end ;__nuppCleanups["nupp.gpu#destroyContext"]=gpu.destroyContext
@@ -162637,10 +162627,6 @@ end ;__nuppCleanups["nupp.gpu#destroyContext"]=gpu.destroyContext
 
 
 gpu.Context = {} gpu.Context.__index = gpu.Context
-
-
-
-
 
 
 
@@ -162811,12 +162797,7 @@ if handle == nil then
 error ( "nupp: " .. ffi . string ( C . nuppNativeError ( ) ) , 2 )
 end
 
-return setmetatable({ _anchor =
-self ,  _handle =
-handle ,  _uniformBytes =
-kernel . _uniformBytes ,  count =
-count }, gpu.Binding)
-
+return setmetatable({ _anchor =  self ,  _handle =  handle ,  _uniformBytes =  kernel . _uniformBytes ,  count =  count }, gpu.Binding)
 end
 
 function gpu . Binding . setRead (
@@ -186573,13 +186554,8 @@ local runtimeBackend = require ( "nupp.runtime.backend" )
 local seam = { moduleName = "nupp.runtime.seam.tls" , suiteModuleName = "nupp.runtime.seam.tlssuite" , }
 local CONTRACT = common . contract ( "host.tls" , {
 globalName = "__nuppTls" ,
-requiredFunctions = {
-"client" , "dtlsClient" , "dtlsServer" , "kernelOffloadSupported" ,
-"server" , "useBackend" ,
-} ,
-requiredValues = {
-"Backend" , "ClientOptions" , "DatagramSession" , "ServerOptions" , "Session" ,
-} ,
+requiredFunctions = { "client" , "dtlsClient" , "dtlsServer" , "kernelOffloadSupported" , "server" , "useBackend" , } ,
+requiredValues = { "Backend" , "ClientOptions" , "DatagramSession" , "ServerOptions" , "Session" , } ,
 suiteModule = seam . suiteModuleName ,
 modules = { [ "nupp.io.tls" ] = "" , } ,
 } )
@@ -208318,11 +208294,7 @@ bool nuppGpuBufferRead(NuppGpuContext *, NuppGpuBuffer *, void *, size_t);
 
 -- `native.C` is late-bound, so restore the ownership contracts that the literal
 -- cdef carries for the checker but a table lookup cannot preserve.
-local dispatchNative = C.nuppGpuBindingDispatch as function(
-    any,
-    borrows uniforms: const uint8[?],
-    integer
-): boolean
+local dispatchNative = C.nuppGpuBindingDispatch as function(any, borrows uniforms: const uint8[?], integer): boolean
 
 --- One resident device allocation. Its storage is not CPU-addressable; upload
 --- and download explicitly cross that boundary.
@@ -208361,21 +208333,11 @@ record gpu.Binding
     --- dispatched thread; a cursor-proved span passes false and may be any
     --- length, because its bound check runs inside the shader.
     --- @internal
-    setRead: function<T>(
-        borrows self: Binding,
-        slot: integer,
-        borrows buffer: gpu.Buffer<T>,
-        matchCount: boolean
-    ): nil
+    setRead: function<T>(borrows self: Binding, slot: integer, borrows buffer: gpu.Buffer<T>, matchCount: boolean): nil
 
     --- Attaches a resident buffer to one writable slot.
     --- @internal
-    setWrite: function<T>(
-        borrows self: Binding,
-        slot: integer,
-        borrows buffer: gpu.Buffer<T>,
-        matchCount: boolean
-    ): nil
+    setWrite: function<T>(borrows self: Binding, slot: integer, borrows buffer: gpu.Buffer<T>, matchCount: boolean): nil
 
     --- Enqueues the binding with a compiler-laid-out uniform block.
     --- @internal
@@ -208423,11 +208385,7 @@ record gpu.Context is gpu.ContextToken
     --- dispatch length, which the compiler takes from the kernel's primary
     --- span; the generated binding fills every slot before dispatching.
     --- @internal
-    bindKernel: function(
-        borrows self: Context,
-        borrows kernel: gpu.Kernel,
-        count: integer
-    ): gpu.Binding borrows (self)
+    bindKernel: function(borrows self: Context, borrows kernel: gpu.Kernel, count: integer): gpu.Binding borrows (self)
 
     --- Copies a complete shared span into a resident buffer and enqueues its
     --- transfer. It does not wait.
@@ -208569,12 +208527,7 @@ function gpu.Context.bindKernel(
         error("nupp: " .. ffi.string(C.nuppNativeError()), 2)
     end
 
-    return new gpu.Binding(
-        _anchor = self,
-        _handle = handle,
-        _uniformBytes = kernel._uniformBytes,
-        count = count
-    )
+    return new gpu.Binding(_anchor = self, _handle = handle, _uniformBytes = kernel._uniformBytes, count = count)
 end
 
 function gpu.Binding.setRead<T>(
@@ -231769,13 +231722,8 @@ local runtimeBackend = require("nupp.runtime.backend")
 local seam = {moduleName = "nupp.runtime.seam.tls", suiteModuleName = "nupp.runtime.seam.tlssuite",}
 local CONTRACT = common.contract("host.tls", {
     globalName = "__nuppTls",
-    requiredFunctions = {
-        "client", "dtlsClient", "dtlsServer", "kernelOffloadSupported",
-        "server", "useBackend",
-    },
-    requiredValues = {
-        "Backend", "ClientOptions", "DatagramSession", "ServerOptions", "Session",
-    },
+    requiredFunctions = {"client", "dtlsClient", "dtlsServer", "kernelOffloadSupported", "server", "useBackend",},
+    requiredValues = {"Backend", "ClientOptions", "DatagramSession", "ServerOptions", "Session",},
     suiteModule = seam.suiteModuleName,
     modules = {["nupp.io.tls"] = "",},
 })
@@ -235680,13 +235628,56 @@ local testJson = require("testjson")
 local embedded = rawget(_G, "__NUPP_TEST_EMBEDDED") == true
 local workerHost = rawget(_G, "__NUPP_TEST_WORKER_HOST") == true
 
+-- `tmpnam` draws from a sequence that starts again in every process, so two
+-- shards running at once are handed the same name, make the same directory, and
+-- one writes the sample the other is about to compile. What is reported then
+-- belongs to neither of them: a parse error against source the test that failed
+-- never wrote.
+--
+-- Impossible while the whole suite ran in one process, which is what kept it
+-- hidden until the shards arrived. Salted with the shard the parent named and
+-- counted within the process, so no two names can meet.
+--
+-- Every platform, not just Windows, which is where this started. A suite that
+-- builds a library into its temporary directory, loads it, and is still holding
+-- it when another shard is handed the same name and clears it out does not get
+-- a confusing diagnostic: it gets the library deleted from under a live mapping
+-- and a segmentation fault with nothing on the stack. That is what the Linux
+-- workers were dying of, four at a time, in whichever suite they happened to be
+-- in. macOS never showed it because its `tmpnam` template is per-process
+-- already.
+-- The name it answers is created here, because that is what it replaces:
+-- LuaJIT's `os.tmpname` reserves the name by making the file, and a caller that
+-- opens it for writing is reopening something that exists and is already its
+-- own. Handing back a name for a file nobody had made left the capture path
+-- creating it through `open` with a mode that never had to work before, and the
+-- output could then not be read back by name. Callers that want a directory
+-- remove it first, as they did before.
+local rawTmpname = os.tmpname
+local shardSalt = (os.getenv("NUPP_CACHE_DIR") or ""):match("shard%-(%d+)") or "0"
+local handedOut = 0
+os.tmpname = function()
+   handedOut = handedOut + 1
+   local reserved = rawTmpname()
+   local named = ("%s-%s-%d"):format((reserved:gsub("\\", "/")), shardSalt, handedOut)
+   local file = io.open(named, "wb")
+   if file then
+      file:close()
+   end
+   -- The reservation itself is not the name handed out, so it would otherwise
+   -- stay in the temporary directory for the length of the run, one per call.
+   os.remove(reserved)
+
+   return named
+end
+
 -- The suites predate Windows support and deliberately exercise shell-facing
 -- CLI behaviour with POSIX commands. On Windows the VM's `system` and `popen`
 -- otherwise hand those commands to cmd.exe even though the runner itself was
 -- launched by Git Bash. Keep one shell dialect for the tests, and keep native
 -- paths for the Windows programs those commands start.
 if package.config:sub(1, 1) == "\\" then
-   local rawExecute, rawPopen, rawTmpname = os.execute, io.popen, os.tmpname
+   local rawExecute, rawPopen = os.execute, io.popen
    -- Rejected empty as well as absent: an undefined workflow variable reaches a
    -- step as the empty string, which is true in Lua, so a bare `assert` let it
    -- through and every shelled-out command became `""` instead.
@@ -235696,25 +235687,20 @@ if package.config:sub(1, 1) == "\\" then
    local nativeMarker = "__NUPP_WINDOWS_COMMAND__"
    _G.__NUPP_TEST_CMD_MARKER = nativeMarker
    _G.__NUPP_TEST_BASH = bash
-   local cwdPipe = assert(rawPopen("cd"))
-   local cwd = assert(cwdPipe:read("*l")):gsub("\\", "/")
-   cwdPipe:close()
+   -- Asked for when a test wants it, not while this file loads. `io.popen` is
+   -- refused in a shared worker lane, and a `pwd` nothing has asked for yet is
+   -- no reason to be refused: reading it eagerly failed every Nupp worker on
+   -- Windows the moment the suite got far enough to start one, and took every
+   -- suite in those lanes down as unrun with it.
+   local cwdValue
+   local function currentDirectory()
+      if not cwdValue then
+         local pipe = assert(rawPopen("cd"))
+         cwdValue = assert(pipe:read("*l")):gsub("\\", "/")
+         pipe:close()
+      end
 
-   -- `tmpnam` draws from a sequence that starts again in every process, so two
-   -- shards running at once are handed the same name, make the same directory,
-   -- and one writes the sample the other is about to compile. What is reported
-   -- then belongs to neither of them: a parse error against source the test that
-   -- failed never wrote.
-   --
-   -- Impossible while the whole suite ran in one process, which is what kept it
-   -- hidden until the shards arrived. Salted with the shard the parent named and
-   -- counted within the process, so no two names can meet.
-   local shardSalt = (os.getenv("NUPP_CACHE_DIR") or ""):match("shard%-(%d+)") or "0"
-   local handedOut = 0
-   os.tmpname = function()
-      handedOut = handedOut + 1
-
-      return ("%s-%s-%d"):format((rawTmpname():gsub("\\", "/")), shardSalt, handedOut)
+      return cwdValue
    end
 
    local function script(command)
@@ -235769,13 +235755,13 @@ if package.config:sub(1, 1) == "\\" then
             read = function()
                if not unread then return nil end
                unread = false
-               return cwd
+               return currentDirectory()
             end,
             lines = function()
                return function()
                   if not unread then return nil end
                   unread = false
-                  return cwd
+                  return currentDirectory()
                end
             end,
             close = function() return true end,

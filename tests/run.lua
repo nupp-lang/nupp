@@ -130,9 +130,21 @@ if package.config:sub(1, 1) == "\\" then
    local nativeMarker = "__NUPP_WINDOWS_COMMAND__"
    _G.__NUPP_TEST_CMD_MARKER = nativeMarker
    _G.__NUPP_TEST_BASH = bash
-   local cwdPipe = assert(rawPopen("cd"))
-   local cwd = assert(cwdPipe:read("*l")):gsub("\\", "/")
-   cwdPipe:close()
+   -- Asked for when a test wants it, not while this file loads. `io.popen` is
+   -- refused in a shared worker lane, and a `pwd` nothing has asked for yet is
+   -- no reason to be refused: reading it eagerly failed every Nupp worker on
+   -- Windows the moment the suite got far enough to start one, and took every
+   -- suite in those lanes down as unrun with it.
+   local cwdValue
+   local function currentDirectory()
+      if not cwdValue then
+         local pipe = assert(rawPopen("cd"))
+         cwdValue = assert(pipe:read("*l")):gsub("\\", "/")
+         pipe:close()
+      end
+
+      return cwdValue
+   end
 
    local function script(command)
       command = command:gsub("(%a):/", function(drive)
@@ -186,13 +198,13 @@ if package.config:sub(1, 1) == "\\" then
             read = function()
                if not unread then return nil end
                unread = false
-               return cwd
+               return currentDirectory()
             end,
             lines = function()
                return function()
                   if not unread then return nil end
                   unread = false
-                  return cwd
+                  return currentDirectory()
                end
             end,
             close = function() return true end,

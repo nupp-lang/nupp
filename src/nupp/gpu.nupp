@@ -65,11 +65,7 @@ bool nuppGpuBufferRead(NuppGpuContext *, NuppGpuBuffer *, void *, size_t);
 
 -- `native.C` is late-bound, so restore the ownership contracts that the literal
 -- cdef carries for the checker but a table lookup cannot preserve.
-local dispatchNative = C.nuppGpuBindingDispatch as function(
-    any,
-    borrows uniforms: const uint8[?],
-    integer
-): boolean
+local dispatchNative = C.nuppGpuBindingDispatch as function(any, borrows uniforms: const uint8[?], integer): boolean
 
 --- One resident device allocation. Its storage is not CPU-addressable; upload
 --- and download explicitly cross that boundary.
@@ -108,21 +104,11 @@ record gpu.Binding
     --- dispatched thread; a cursor-proved span passes false and may be any
     --- length, because its bound check runs inside the shader.
     --- @internal
-    setRead: function<T>(
-        borrows self: Binding,
-        slot: integer,
-        borrows buffer: gpu.Buffer<T>,
-        matchCount: boolean
-    ): nil
+    setRead: function<T>(borrows self: Binding, slot: integer, borrows buffer: gpu.Buffer<T>, matchCount: boolean): nil
 
     --- Attaches a resident buffer to one writable slot.
     --- @internal
-    setWrite: function<T>(
-        borrows self: Binding,
-        slot: integer,
-        borrows buffer: gpu.Buffer<T>,
-        matchCount: boolean
-    ): nil
+    setWrite: function<T>(borrows self: Binding, slot: integer, borrows buffer: gpu.Buffer<T>, matchCount: boolean): nil
 
     --- Enqueues the binding with a compiler-laid-out uniform block.
     --- @internal
@@ -170,11 +156,7 @@ record gpu.Context is gpu.ContextToken
     --- dispatch length, which the compiler takes from the kernel's primary
     --- span; the generated binding fills every slot before dispatching.
     --- @internal
-    bindKernel: function(
-        borrows self: Context,
-        borrows kernel: gpu.Kernel,
-        count: integer
-    ): gpu.Binding borrows (self)
+    bindKernel: function(borrows self: Context, borrows kernel: gpu.Kernel, count: integer): gpu.Binding borrows (self)
 
     --- Copies a complete shared span into a resident buffer and enqueues its
     --- transfer. It does not wait.
@@ -316,12 +298,7 @@ function gpu.Context.bindKernel(
         error("nupp: " .. ffi.string(C.nuppNativeError()), 2)
     end
 
-    return new gpu.Binding(
-        _anchor = self,
-        _handle = handle,
-        _uniformBytes = kernel._uniformBytes,
-        count = count
-    )
+    return new gpu.Binding(_anchor = self, _handle = handle, _uniformBytes = kernel._uniformBytes, count = count)
 end
 
 function gpu.Binding.setRead<T>(

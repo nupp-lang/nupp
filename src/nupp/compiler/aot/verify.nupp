@@ -427,8 +427,9 @@ local function load(node: scalarIR.Load, values: {[string]: string}, scope: veri
     else
         holds(
             node.index == scope.index and (
-                scope.mapIndex == true and (scope.indexSpans as {[string]: boolean})[node.span] == true
-                or node.span == scope.boundSpan
+                scope.mapIndex == true and (
+                    scope.indexSpans as {[string]: boolean}
+                )[node.span] == true or node.span == scope.boundSpan
             ),
             "unbounded load index"
         )
@@ -455,8 +456,9 @@ local function elementRef(node: scalarIR.ElementRef, values: {[string]: string},
     ] == "u32" and scope.cursorBounds[
         node.cursor as string
     ] == node.span and node.cursorCName ~= nil or node.cursor == nil and node.index == scope.index and (
-        scope.mapIndex == true and (scope.indexSpans as {[string]: boolean})[node.span] == true
-        or node.span == scope.boundSpan
+        scope.mapIndex == true and (
+            scope.indexSpans as {[string]: boolean}
+        )[node.span] == true or node.span == scope.boundSpan
     )
     holds(node.mutable == (span.kind == "write_span") and bounded, "invalid struct element access")
 end
@@ -1635,8 +1637,9 @@ local function block(
                 or statement.cursor == nil
                 and statement.index == scope.index
                 and (
-                scope.mapIndex == true and (scope.indexSpans as {[string]: boolean})[statement.span] == true
-                or statement.span == scope.boundSpan
+                scope.mapIndex == true and (
+                    scope.indexSpans as {[string]: boolean}
+                )[statement.span] == true or statement.span == scope.boundSpan
             )
             holds(scope.writes[statement.span] == true and bounded, "invalid store root")
             scalarWalk(statement.value, values, scope)
@@ -2393,10 +2396,7 @@ local function bounds(program: scalarIR.Program, byName: {[string]: scalarIR.Par
             -- rule: the body walk accepts the loop index only against
             -- `indexSpans`, so an unguarded span is reachable through proved
             -- cursors alone.
-            holds(
-                guarded[param.name] == true or program.executionTarget == "gpu",
-                "unguarded IR span"
-            )
+            holds(guarded[param.name] == true or program.executionTarget == "gpu", "unguarded IR span")
         end
     end
 end

@@ -115,6 +115,7 @@ function gpuemit.program(program: scalarIR.Program): gpuemit.Artifact
             exactCounts[value.span as string] == true,
             "a dispatch-indexed GPU span must be the loop bound or guarded equal to it: " .. tostring(value.span)
         )
+
         return "[dispatch_index]"
     end
 
@@ -147,8 +148,9 @@ function gpuemit.program(program: scalarIR.Program): gpuemit.Artifact
             -- in an integer register than in binary64, where every 32-bit
             -- quotient is computed exactly and then rounded.
             assert(
-                not ((op == "div" or op == "mod")
-                    and (value.left.op == "int_to_f64" or value.right.op == "int_to_f64")),
+                not (
+                    (op == "div" or op == "mod") and (value.left.op == "int_to_f64" or value.right.op == "int_to_f64")
+                ),
                 "GPU subset does not emit binary64 division of integers"
             )
             local token = FIXED[op] or BINARY[op]
@@ -218,8 +220,9 @@ function gpuemit.program(program: scalarIR.Program): gpuemit.Artifact
             elseif op == "store" then
                 line(
                     depth,
-                    identifier(statement.span) .. provenSpanIndex(statement) .. " = "
-                        .. expression(statement.value) .. ";"
+                    identifier(
+                        statement.span
+                    ) .. provenSpanIndex(statement) .. " = " .. expression(statement.value) .. ";"
                 )
             elseif op == "while" then
                 line(depth, "while (" .. expression(statement.condition) .. ") {")
@@ -281,10 +284,7 @@ function gpuemit.program(program: scalarIR.Program): gpuemit.Artifact
     end
     for _, param in ipairs(uniforms) do
         for _, span in ipairs(spans) do
-            assert(
-                param.name ~= span.name .. "_count",
-                "GPU uniform name collides with a span count: " .. param.name
-            )
+            assert(param.name ~= span.name .. "_count", "GPU uniform name collides with a span count: " .. param.name)
         end
     end
     local uniformBytes = 4 * (1 + #spans + #uniforms)

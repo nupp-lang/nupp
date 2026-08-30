@@ -151,22 +151,21 @@ function gpubinding.replacement(program: scalarIR.Program, artifact: gpuemit.Art
         append(lines, "    " .. param .. (position < #bindParams and "," or ""))
     end
     append(lines, "): " .. bindingType .. " borrows (self)")
-    append(
-        lines,
-        "    local raw = self._context:bindKernel(self._kernel, " .. artifact.countSpan .. ".count)"
-    )
+    append(lines, "    local raw = self._context:bindKernel(self._kernel, " .. artifact.countSpan .. ".count)")
     for slot, param in ipairs(artifact.readonly) do
         append(
             lines,
-            "    raw:setRead(" .. tostring(slot - 1) .. ", " .. param.name .. ", "
-                .. tostring(artifact.exactCounts[param.name] == true) .. ")"
+            "    raw:setRead(" .. tostring(
+                slot - 1
+            ) .. ", " .. param.name .. ", " .. tostring(artifact.exactCounts[param.name] == true) .. ")"
         )
     end
     for slot, param in ipairs(artifact.writable) do
         append(
             lines,
-            "    raw:setWrite(" .. tostring(slot - 1) .. ", " .. param.name .. ", "
-                .. tostring(artifact.exactCounts[param.name] == true) .. ")"
+            "    raw:setWrite(" .. tostring(
+                slot - 1
+            ) .. ", " .. param.name .. ", " .. tostring(artifact.exactCounts[param.name] == true) .. ")"
         )
     end
     append(lines, "    return new " .. bindingType .. "(_context = self._context, _binding = raw)")
