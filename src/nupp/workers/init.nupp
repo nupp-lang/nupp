@@ -81,11 +81,25 @@ local type Native = {
 }
 local native = require("nupp.workers.native") as Native
 
+-- A host built without the workers feature still resolves the native module
+-- name -- to its compiled declaration, a record table carrying no functions --
+-- and a program reaching for workers there would die calling nil. Loading has
+-- to stay quiet, because carrying this module is not using it: `nupp.tasks`
+-- requires it for a type on every host. So the missing scheduler is named at
+-- the points that first ask the host for one.
+local hostProvidesWorkers = rawget(native as table, "workerParallelism") ~= nil
+
+local function missingScheduler(): integer
+    error("nupp: this host was built without the native worker scheduler", 2)
+
+    return 0
+end
+
 rawset(_G.nupp, "__workerCheckpoint", native.workerTaskCheckpoint)
 
 local workers = {}
 
-rawset(workers, "__parallelism", native.workerParallelism)
+rawset(workers, "__parallelism", hostProvidesWorkers and native.workerParallelism or missingScheduler)
 
 ----------------------------------------------------------------------------
 -- What crosses a lane
@@ -1287,6 +1301,9 @@ local function scheduler(): Scheduler
     if sharedScheduler ~= nil then
         return sharedScheduler
     end
+    if not hostProvidesWorkers then
+        error("nupp: this host was built without the native worker scheduler", 3)
+    end
     local workerInbox = native.current()
     if workerInbox ~= nil then
         error("nupp: a worker task cannot open another worker scope", 3)
@@ -1999,6 +2016,9 @@ end
 --- Runs the scheduler loop inside a native worker state. Compiler-owned bootstrap only.
 --- @raises when called outside the compiler-owned worker bootstrap
 function workers.__runScheduler(): nil
+    if not hostProvidesWorkers then
+        error("nupp: this host was built without the native worker scheduler", 2)
+    end
     local inHandle, outHandle = native.current()
     if inHandle == nil or outHandle == nil then
         error("nupp: worker scheduler started outside a worker state", 2)
