@@ -28,7 +28,7 @@ local scalarIR = {}
 ---
 --- Carried in the IR and checked when it is read back, so an IR written by an
 --- older compiler is refused rather than half-understood.
-const scalarIR.VERSION = 22
+const scalarIR.VERSION = 23
 
 --- The calling convention selected for one complete AOT entry.
 ---
@@ -464,6 +464,17 @@ record scalarIR.SpanCount
     source: scalarIR.Source?
 end
 
+--- The one-based index of the top-level map iteration.
+---
+--- CPU emission runs its physical loop zero-based and GPU emission receives a
+--- zero-based dispatch position. Keeping the authored value explicit in IR is
+--- what makes both backends add one at the same semantic boundary.
+record scalarIR.LoopIndex
+    op: 'loop_index'
+    type: 'f64'
+    source: scalarIR.Source?
+end
+
 --- One element of a span holding scalars.
 record scalarIR.Load
     op: 'load'
@@ -588,6 +599,8 @@ type scalarIR.FixedOp = 'f32_add'
     | 'u32_add'
     | 'u32_sub'
     | 'u32_mul'
+    | 'u32_div'
+    | 'u32_mod'
     | 'u32_and'
     | 'u32_or'
     | 'u32_xor'
@@ -775,6 +788,7 @@ type scalarIR.Expr = scalarIR.Constant
     | scalarIR.LuaScratchU8Set
     | scalarIR.Name
     | scalarIR.SpanCount
+    | scalarIR.LoopIndex
     | scalarIR.Load
     | scalarIR.ElementRef
     | scalarIR.FieldLoad
@@ -1362,6 +1376,25 @@ record scalarIR.Program
     fpContract: boolean?
 
     source: scalarIR.Source?
+end
+
+--- Whether the native ABI carries one count per span.
+---
+--- A block kernel always does. A map kernel may share its primary count only
+--- when guards relate every other span to it; cursor-only spans retain their
+--- independent counts so the generated body can check them.
+function scalarIR.independentCounts(program: scalarIR.Program): boolean
+    if program.body ~= nil then
+        return true
+    end
+    local spans = 0
+    for _, param in ipairs(program.params) do
+        if param.kind == "write_span" or param.kind == "read_span" then
+            spans = spans + 1
+        end
+    end
+
+    return #program.guards < spans - 1
 end
 
 export = scalarIR

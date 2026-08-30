@@ -38,6 +38,8 @@ PATHS["nupp.math.u32.toI32"] = "u32.toI32"
 PATHS["nupp.math.u32.popcount"] = "u32.popcount"
 PATHS["nupp.math.u32.trailingZeros"] = "u32.trailingZeros"
 PATHS["nupp.math.u32.leadingZeros"] = "u32.leadingZeros"
+PATHS["nupp.math.u32.div"] = "u32.div"
+PATHS["nupp.math.u32.mod"] = "u32.mod"
 for _, operation in ipairs({
     "narrow",
     "round",
@@ -95,6 +97,10 @@ function scalar.fold(identity: string, args: {number}): scalar.Folded?
     elseif operation == "mul" then
         local out = mul32(a, b)
         return family == "u32" and u32(out) or out
+    elseif operation == "div" and family == "u32" then
+        return b == 0 and 0 or math.floor(u32(a) / u32(b))
+    elseif operation == "mod" and family == "u32" then
+        return b == 0 and 0 or u32(a) % u32(b)
     elseif operation == "andBits" then
         local out = bit.band(a, b)
         return family == "u32" and u32(out) or out

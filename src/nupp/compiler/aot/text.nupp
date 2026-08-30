@@ -125,6 +125,8 @@ function text.expression(node: scalarIR.Expr | lane.Expr): string
         return "load:" .. node.type .. " " .. node.span .. "[" .. index .. "]"
     elseif op == "span_count" then
         return "count " .. node.span
+    elseif op == "loop_index" then
+        return "loop_index:f64"
     elseif op == "element_ref" then
         local index = node.cursor ~= nil and node.cursor .. "+1" or node.index
         return "element_ref:" .. node.layout .. " " .. node.span .. "[" .. index .. "]"

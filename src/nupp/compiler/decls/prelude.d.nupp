@@ -2368,6 +2368,13 @@ record nupp.U32MathLibrary
     add: nosuspend function(a: uint32, b: uint32): uint32
     sub: nosuspend function(a: uint32, b: uint32): uint32
     mul: nosuspend function(a: uint32, b: uint32): uint32
+
+    --- Unsigned quotient, or zero when the divisor is zero.
+    div: nosuspend function(a: uint32, b: uint32): uint32
+
+    --- Unsigned remainder, or zero when the divisor is zero.
+    mod: nosuspend function(a: uint32, b: uint32): uint32
+
     andBits: nosuspend function(a: uint32, b: uint32): uint32
     orBits: nosuspend function(a: uint32, b: uint32): uint32
     xorBits: nosuspend function(a: uint32, b: uint32): uint32

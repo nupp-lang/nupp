@@ -216,6 +216,8 @@ function rewrite.varying(node: scalarIR.Expr, state: rewrite.State): boolean
     local operation = node.op
     if operation == "element_ref" or operation == "load" then
         return (node as scalarIR.Load).index == state.index
+    elseif operation == "loop_index" then
+        return true
     elseif operation == "local" then
         local name = (node as scalarIR.Name).name
 
@@ -418,7 +420,9 @@ expression = function(node: scalarIR.Expr, state: rewrite.State): rewrite.Value
     local mask = shape.mask
     local operation = node.op
 
-    if operation == "local" then
+    if operation == "loop_index" then
+        state.reject("the authored map index has no lane-parallel form")
+    elseif operation == "local" then
         local name = node as scalarIR.Name
         local vector = shape.vectorFor[rewrite.asElement(node.type) or "bool"]
         if vector == nil then

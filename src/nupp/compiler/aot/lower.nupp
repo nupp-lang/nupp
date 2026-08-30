@@ -921,9 +921,9 @@ local function provenIndex(spanName: string, cursor: string?, node: cst.Node, ke
             kernel.context.reject(
                 lower.site(node),
                 (
-                    "a dispatch-indexed GPU span must be the loop bound or guarded equal to it; "
-                    .. "guard %s or reach it through a proved cursor"
-                ):format(spanName)
+                    "nothing proves %s is that long; a map-indexed span must be the loop bound or guarded equal to it; "
+                    .. "guard with assert(#%s == #%s) or reach it through a proved cursor"
+                ):format(spanName, tostring(kernel.boundSpan), spanName)
             )
         end
         return
@@ -2649,6 +2649,9 @@ function lower.expression(
         local name = lower.nameOf(node)
         local bound = name ~= nil and environment[name as string] or nil
         if bound == nil then
+            if activeIndex ~= nil and name == activeIndex and kernel.mapEntry then
+                return new scalarIR.LoopIndex(op = "loop_index", type = "f64", source = lower.site(node))
+            end
             -- A `const` bound to a string literal is a byte table the emitter
             -- can write out as static data. The checker already resolved it to
             -- a literal type carrying its value, so nothing has to be folded or
@@ -4585,8 +4588,9 @@ end
 
 --- The length agreements one guard proves.
 ---
---- Every span but the primary output has to be covered, because the loop indexes
---- them all with one counter and a shorter one would be read past its end.
+--- Every span addressed by the loop index has to be covered, because a shorter
+--- one would be read past its end. Spans reached only through proved cursors do
+--- not need an equality the algorithm may be unable to state.
 function lower.lengthGuards(
     stat: cst.Node,
     form: lower.GuardForm,
@@ -4639,10 +4643,10 @@ function lower.lengthGuards(
     local guards: {scalarIR.Guard} = {}
     for _, span in ipairs(signature.spans) do
         if span.name ~= primary.name then
-            -- A GPU entry may leave a span out of the guard when the body only
-            -- reaches it through proved cursors; the emitter checks that any
+            -- A map entry may leave a span out of the guard when the body only
+            -- reaches it through proved cursors; lowering checks that any
             -- loop-index access names a guarded span, so the omission cannot
-            -- widen what the kernel may touch.
+            -- widen what the kernel may touch on either execution target.
             if guarded[span.name] == nil and partial ~= true then
                 context.reject(lower.site(stat), "the length guard does not cover span " .. span.name)
             end
@@ -5116,20 +5120,17 @@ function lower.program(
     local mapShape = #resultTypes == 0 and #signature.writes > 0 and #signature.reads > 0 and (
         #statements == 2 or #statements == 3
     ) and lower.isGuardStatement(statements[1]) and statements[#statements].kind == "fornumStmt"
-    -- A GPU entry may relate spans of different lengths -- a matrix product
-    -- reads dimensions no equality guard can spell -- so its length guard is
+    -- A map may relate spans of different lengths -- a matrix product reads
+    -- dimensions no equality guard can spell -- so its length guard is
     -- optional. What replaces the proof is per-access: a span the body touches
-    -- at the loop index must still be the primary or guarded equal to it, and
-    -- the GPU emitter refuses anything else, while a cursor access carries its
-    -- dominating bound check into the shader.
-    if contract.target == "gpu"
-        and #resultTypes == 0
-        and #signature.writes > 0
-        and #signature.reads > 0
-        and #statements == 1
-        and statements[
+    -- at the loop index must still be the primary or guarded equal to it, while
+    -- a cursor access carries its dominating bound check into either backend.
+    local guardlessLoop = #statements == 1 and statements[
         1
-    ].kind == "fornumStmt" then
+    ].kind == "fornumStmt" and statements[1] as cst.FornumStmt or nil
+    if #resultTypes == 0 and #signature.writes > 0 and #signature.reads > 0 and guardlessLoop ~= nil and lower.dotCount(
+        (guardlessLoop as cst.FornumStmt).stop
+    ) == signature.writes[1].name then
         mapShape = true
     end
 
@@ -5251,7 +5252,7 @@ function lower.program(
             ),
             signature,
             context,
-            contract.target == "gpu"
+            true
         )
     end
 
@@ -5292,6 +5293,7 @@ function lower.program(
         index = index,
         indexCName = "i",
         mapEntry = true,
+        boundSpan = primary.name,
         indexSpans = (function(): {[string]: boolean}
             local provable: {[string]: boolean} = {[primary.name] = true}
             for _, guard in ipairs(guards) do

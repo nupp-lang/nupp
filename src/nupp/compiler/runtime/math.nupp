@@ -398,6 +398,18 @@ function u32.mul(a: number, c: number): number
     return ui32(mul32(ui32(a), ui32(c)))
 end
 
+--- Unsigned division, with zero defined as zero on every execution target.
+function u32.div(a: number, c: number): number
+    local divisor = ui32(c)
+    return divisor == 0 and 0 or math.floor(ui32(a) / divisor)
+end
+
+--- Unsigned remainder, with zero defined as zero on every execution target.
+function u32.mod(a: number, c: number): number
+    local divisor = ui32(c)
+    return divisor == 0 and 0 or ui32(a) % divisor
+end
+
 function u32.andBits(a: number, c: number): number
     return ui32(band(a, c))
 end

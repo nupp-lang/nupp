@@ -126,6 +126,8 @@ function gpuemit.program(program: scalarIR.Program): gpuemit.Artifact
             return identifier(value.cName or value.name)
         elseif op == "uniform" then
             return "uniforms." .. identifier(value.name)
+        elseif op == "loop_index" then
+            return "(dispatch_index + 1u)"
         elseif op == "load" then
             return identifier(value.span) .. provenSpanIndex(value)
         elseif op == "element_ref" then
@@ -143,6 +145,9 @@ function gpuemit.program(program: scalarIR.Program): gpuemit.Artifact
             return value.value
         elseif op == "bool" then
             return value.value and "true" or "false"
+        elseif op == "u32_div" or op == "u32_mod" then
+            local helper = op == "u32_div" and "nupp_u32_div" or "nupp_u32_mod"
+            return helper .. "(" .. expression(value.left) .. ", " .. expression(value.right) .. ")"
         elseif FIXED[op] ~= nil or BINARY[op] ~= nil then
             -- An integer that passed through `int_to_f64` divides differently
             -- in an integer register than in binary64, where every 32-bit
@@ -313,6 +318,9 @@ function gpuemit.program(program: scalarIR.Program): gpuemit.Artifact
         line(1, tostring(metalType(param.type)) .. " " .. identifier(param.name) .. ";")
     end
     line(0, "};")
+    line(0, "")
+    line(0, "inline uint nupp_u32_div(uint left, uint right) { return right == 0u ? 0u : left / right; }")
+    line(0, "inline uint nupp_u32_mod(uint left, uint right) { return right == 0u ? 0u : left % right; }")
     line(0, "")
     line(0, "kernel void " .. identifier(program.symbol) .. "_gpu(")
     local arguments: {string} = {"constant NuppUniforms& uniforms [[buffer(0)]]"}

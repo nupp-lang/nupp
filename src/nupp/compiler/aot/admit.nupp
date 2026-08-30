@@ -121,6 +121,8 @@ const admit.FIXED = (function(): {[string]: admit.Fixed}
         new admit.Fixed(identity = "u32.add", op = "u32_add", arity = 2, operand = "u32", result = "u32"),
         new admit.Fixed(identity = "u32.sub", op = "u32_sub", arity = 2, operand = "u32", result = "u32"),
         new admit.Fixed(identity = "u32.mul", op = "u32_mul", arity = 2, operand = "u32", result = "u32"),
+        new admit.Fixed(identity = "u32.div", op = "u32_div", arity = 2, operand = "u32", result = "u32"),
+        new admit.Fixed(identity = "u32.mod", op = "u32_mod", arity = 2, operand = "u32", result = "u32"),
         new admit.Fixed(identity = "u32.andBits", op = "u32_and", arity = 2, operand = "u32", result = "u32"),
         new admit.Fixed(identity = "u32.orBits", op = "u32_or", arity = 2, operand = "u32", result = "u32"),
         new admit.Fixed(identity = "u32.xorBits", op = "u32_xor", arity = 2, operand = "u32", result = "u32"),

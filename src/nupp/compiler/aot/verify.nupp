@@ -196,6 +196,8 @@ const verify.FIXED_BINARY = {
     ["u32_add"] = "u32",
     ["u32_sub"] = "u32",
     ["u32_mul"] = "u32",
+    ["u32_div"] = "u32",
+    ["u32_mod"] = "u32",
     ["u32_and"] = "u32",
     ["u32_or"] = "u32",
     ["u32_xor"] = "u32",
@@ -571,6 +573,8 @@ scalarWalk = function(node: scalarIR.Expr, values: {[string]: string}, scope: ve
     elseif op == "span_count" then
         local span = scope.spans[node.span]
         holds(span ~= nil and (span as scalarIR.Param).region ~= nil and node.type == "f64", "invalid span count")
+    elseif op == "loop_index" then
+        holds(scope.mapIndex == true and node.type == "f64", "loop index outside a map body")
     elseif op == "local" or op == "helper_param" then
         local named = node as scalarIR.Name
         holds(values[named.name] == node.type, "invalid local value")
@@ -2387,18 +2391,13 @@ local function bounds(program: scalarIR.Program, byName: {[string]: scalarIR.Par
     for _, guard in ipairs(program.guards) do
         holds(guard.op == "equal_count" and guard.left == primary_.name, "invalid IR guard")
         holds(byName[guard.right] ~= nil and (byName[guard.right] as scalarIR.Param).region ~= nil, "guarded non-span")
+        holds(guarded[guard.right] == nil, "duplicate IR guard")
         guarded[guard.right] = true
     end
-    for _, param in ipairs(program.params) do
-        if param.region ~= nil and param.name ~= primary_.name then
-            -- A GPU map kernel may relate spans no equality can spell, so a
-            -- span may go unguarded there. What keeps that sound is the access
-            -- rule: the body walk accepts the loop index only against
-            -- `indexSpans`, so an unguarded span is reachable through proved
-            -- cursors alone.
-            holds(guarded[param.name] == true or program.executionTarget == "gpu", "unguarded IR span")
-        end
-    end
+    -- A map kernel may relate spans no equality can spell, so a span may go
+    -- unguarded. What keeps that sound is the access rule: the body walk accepts
+    -- the loop index only against `indexSpans`, so an unguarded span is
+    -- reachable through proved cursors alone.
 end
 
 --- The helper bodies, each of which is one return list and nothing else.

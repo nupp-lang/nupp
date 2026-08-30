@@ -1,5 +1,5 @@
 -- Naive f32 GEMM through nupp.gpu's generated binding, validated element-exact
--- against the ordinary CPU body of the same source.
+-- against the generated CPU AOT kernel from the same source.
 local ffi = require("ffi")
 local span = require("nupp.mem.span")
 local generated = require("gemm")
@@ -8,9 +8,6 @@ local gpu = require("nupp.gpu")
 local here = assert(debug.getinfo(1, "S").source:match("^@(.*[/\\])"))
 local now = dofile(here .. "../simd-mandelbrot/clock.lua")
 
--- The CPU reference is the ordinary VM body -- the AOT CPU tier cannot yet
--- express this kernel -- so the default stays small enough that computing the
--- expected result is not the benchmark. Scale up with GEMM_M/GEMM_N/GEMM_K.
 local m = tonumber(os.getenv("GEMM_M") or 256)
 local n = tonumber(os.getenv("GEMM_N") or 256)
 local k = tonumber(os.getenv("GEMM_K") or 256)
@@ -33,39 +30,24 @@ local b = ffi.new("float[?]", k * n)
 for i = 0, m * k - 1 do a[i] = nextValue() end
 for i = 0, k * n - 1 do b[i] = nextValue() end
 
-local rowOf = ffi.new("uint32_t[?]", m * n)
-local colOf = ffi.new("uint32_t[?]", m * n)
-for row = 0, m - 1 do
-    for col = 0, n - 1 do
-        rowOf[row * n + col] = row
-        colOf[row * n + col] = col
-    end
-end
-
 local expected = ffi.new("float[?]", m * n)
 local spans = {
-    rowOf = span.fromCarray(rowOf, m * n),
-    colOf = span.fromCarray(colOf, m * n),
     a = span.fromCarray(a, m * k),
     b = span.fromCarray(b, k * n),
 }
 
 local cpuStarted = now()
-generated.cpu(span.writeCarray(expected, m * n), spans.rowOf, spans.colOf, spans.a, spans.b, n, k)
+generated.cpu(span.writeCarray(expected, m * n), spans.a, spans.b, n, k)
 local cpuElapsed = now() - cpuStarted
 
 local output = ffi.new("float[?]", m * n)
 local context = gpu.open()
 local cBuffer = context:buffer(ffi.typeof("float"), m * n)
-local rowBuffer = context:buffer(ffi.typeof("uint32_t"), m * n)
-local colBuffer = context:buffer(ffi.typeof("uint32_t"), m * n)
 local aBuffer = context:buffer(ffi.typeof("float"), m * k)
 local bBuffer = context:buffer(ffi.typeof("float"), k * n)
 local kernel = generated.gemm:compile(context)
-local invocation = kernel:bind(cBuffer, rowBuffer, colBuffer, aBuffer, bBuffer)
+local invocation = kernel:bind(cBuffer, aBuffer, bBuffer)
 
-context:upload(rowBuffer, spans.rowOf)
-context:upload(colBuffer, spans.colOf)
 context:upload(aBuffer, spans.a)
 context:upload(bBuffer, spans.b)
 context:synchronize()
@@ -94,7 +76,7 @@ for i = 0, m * n - 1 do
 end
 
 local flops = 2.0 * m * n * k
-io.write(("GEMM %dx%dx%d: all %d elements agree with the CPU body\n"):format(m, n, k, m * n))
+io.write(("GEMM %dx%dx%d: all %d elements agree with CPU AOT\n"):format(m, n, k, m * n))
 io.write(("%-16s %12.3f ms  %8.2f GFLOP/s\n"):format("Nupp CPU scalar", cpuElapsed * 1e3, flops / cpuElapsed / 1e9))
 io.write(("%-16s %12.3f ms  %8.2f GFLOP/s\n"):format("SDL GPU resident", gpuElapsed * 1e3, flops / gpuElapsed / 1e9))
 context:drop()

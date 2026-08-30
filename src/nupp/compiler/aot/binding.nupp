@@ -141,9 +141,9 @@ end
 
 --- The foreign declaration of the kernel itself.
 ---
---- Spans arrive as `voidptr` and their shared length as one trailing count,
---- which is what the generated C takes. The ownership annotations are carried
---- across so the unsafe call is still governed by them.
+--- Spans arrive as pointers and either a shared count or their independent
+--- counts, exactly as the generated C takes them. The ownership annotations
+--- are carried across so the unsafe call is still governed by them.
 function binding.foreign(program: scalarIR.Program, library: string, symbol: string?): {string}
     local params: {string} = {}
     for _, param in ipairs(program.params) do
@@ -155,7 +155,7 @@ function binding.foreign(program: scalarIR.Program, library: string, symbol: str
             params[#params + 1] = param.name .. ": " .. tostring(binding.ABI_TYPE[param.type] or "int32")
         end
     end
-    if program.body ~= nil then
+    if scalarIR.independentCounts(program) then
         for _, param in ipairs(program.params) do
             if param.kind == "write_span" or param.kind == "read_span" then
                 params[#params + 1] = "count_" .. param.name .. ": uint64"
@@ -278,9 +278,21 @@ function binding.wrapper(program: scalarIR.Program, nativeSymbol: string?): {str
         lines[#lines + 1] = line
     end
 
-    local taken, arguments = binding.spanArguments(program.params, program.body ~= nil)
+    local independentCounts = scalarIR.independentCounts(program)
+    local taken, arguments = binding.spanArguments(program.params, independentCounts)
     for _, line in ipairs(taken) do
         lines[#lines + 1] = line
+    end
+    if independentCounts then
+        for _, guard in ipairs(program.guards) do
+            lines[
+                #lines + 1
+            ] = "    if native_"
+                .. guard.left
+                .. "Count ~= native_"
+                .. guard.right
+                .. "Count then error(\"native spans have incompatible lengths\", 2) end"
+        end
     end
     lines[#lines + 1] = "    unsafe do"
     if #resultSourceTypes > 1 then

@@ -53,11 +53,13 @@ function M.surfaceHasFixedStaticResults()
    local source = [[
 local si: int32 = nupp.math.i32.mul(0x7fffffff, 2)
 local ui: uint32 = nupp.math.u32.add(0xffffffff, 1)
+local quotient: uint32 = nupp.math.u32.div(17, 5)
+local remainder: uint32 = nupp.math.u32.mod(17, 5)
 local shifted: uint32 = nupp.math.u32.shiftRightLogical(0x80000000, 31)
 local compared: boolean = nupp.math.u32.lessThan(0xffffffff, 0)
 local rounded: float = nupp.math.f32.fma(1.0, 2.0, 3.0)
 local floatBits: uint32 = nupp.math.f32.toBits(rounded)
-return si, ui, shifted, compared, rounded, floatBits
+return si, ui, quotient, remainder, shifted, compared, rounded, floatBits
 ]]
    local result = parser.parse(source, "fixed-width.nupp")
    assertEq(#result.errors, 0, "parse errors")
@@ -450,6 +452,14 @@ function M.wrapsAndNormalizesAsLuaNumbers()
    assertEq(m.u32.sub(0, 1), 4294967295)
    assertEq(type(m.i32.mul(3, 7)), "number", "i32 runtime representation")
    assertEq(type(m.u32.mul(3, 7)), "number", "u32 runtime representation")
+end
+
+function M.unsignedDivisionAndRemainderDefineZeroDivisors()
+   local m = library()
+   assertEq(m.u32.div(4294967295, 65536), 65535)
+   assertEq(m.u32.mod(4294967295, 65536), 65535)
+   assertEq(m.u32.div(17, 0), 0)
+   assertEq(m.u32.mod(17, 0), 0)
 end
 
 function M.multiplicationKeepsEveryLowProductBit()

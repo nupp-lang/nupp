@@ -191,6 +191,88 @@ return {gemm = gemm}
     assert(binding:find("setWrite(0, c, true)", 1, true), binding)
 end
 
+-- CPU maps use the same per-access proof as GPU maps: only spans addressed by
+-- the counted-loop index need an equality guard, while a differently sized span
+-- may be reached through a cursor dominated by its own count check.
+function M.cpuTargetTakesPartialGuardsAndProvedCursors()
+    local dir = project({
+        ["gather.nupp"] = [[
+local span = require("nupp.mem.span")
+
+@aot
+local function gather(
+    exclusive out: span.WriteSpan<float>,
+    borrows offsets: span.Span<uint32>,
+    borrows source: span.Span<float>
+): nil
+    if #out ~= #offsets then error("length mismatch", 2) end
+    for i = 1, #out do
+        local cursor = offsets[i]
+        local value: float = 0.0
+        if cursor < #source then
+            value = nupp.math.f32.narrow(source[cursor + 1])
+        end
+        out[i] = value
+    end
+end
+return {gather = gather}
+]],
+    })
+    local c, code = run(dir, "--emit c gather.nupp")
+    test.equal(code, 0, c)
+    assert(c:find("p_source[((size_t)v", 1, true), c)
+end
+
+function M.gpuTargetExposesItsLoopIndexAndUnsignedDivision()
+    local dir = project({
+        ["coordinates.nupp"] = [[
+local span = require("nupp.mem.span")
+
+@aot(target = "gpu")
+local function coordinates(
+    exclusive out: span.WriteSpan<uint32>,
+    borrows input: span.Span<uint32>,
+    columns: uint32
+): nil
+    assert(#out == #input, "length mismatch")
+    for i = 1, #out do
+        local offset = nupp.math.u32.sub(nupp.math.u32.wrap(i), 1)
+        local row = nupp.math.u32.div(offset, columns)
+        local column = nupp.math.u32.mod(offset, columns)
+        out[i] = nupp.math.u32.add(input[i], nupp.math.u32.add(row, column))
+    end
+end
+
+@aot
+local function coordinatesCpu(
+    exclusive out: span.WriteSpan<uint32>,
+    borrows input: span.Span<uint32>,
+    columns: uint32
+): nil
+    assert(#out == #input, "length mismatch")
+    for i = 1, #out do
+        local offset = nupp.math.u32.sub(nupp.math.u32.wrap(i), 1)
+        local row = nupp.math.u32.div(offset, columns)
+        local column = nupp.math.u32.mod(offset, columns)
+        out[i] = nupp.math.u32.add(input[i], nupp.math.u32.add(row, column))
+    end
+end
+return {coordinates = coordinates, coordinatesCpu = coordinatesCpu}
+]],
+    })
+    local shader, code = run(dir, "--emit msl coordinates.nupp")
+    test.equal(code, 0, shader)
+    assert(shader:find("uint((dispatch_index + 1u))", 1, true), shader)
+    assert(shader:find("nupp_u32_div(v", 1, true), shader)
+    assert(shader:find("nupp_u32_mod(v", 1, true), shader)
+    assert(shader:find(", uniforms.columns)", 1, true), shader)
+
+    local c, cCode = run(dir, "--emit c coordinates.nupp")
+    test.equal(cCode, 0, c)
+    assert(c:find("nupp_u32_div", 1, true), c)
+    assert(c:find("(i + 1u)", 1, true), c)
+end
+
 -- A guardless GPU map may only reach an unguarded span through proved cursors.
 -- A dispatch-indexed read of one has no proof anywhere -- no guard host-side,
 -- no dominating check in the shader -- so the entry is refused at the source.

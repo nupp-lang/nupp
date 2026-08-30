@@ -3871,6 +3871,8 @@ for _ , entry in ipairs ( { setmetatable({ identity =
 "u32.add" ,  op =  "u32_add" ,  arity =  2 ,  operand =  "u32" ,  result =  "u32" }, admit.Fixed) , setmetatable({ identity =
 "u32.sub" ,  op =  "u32_sub" ,  arity =  2 ,  operand =  "u32" ,  result =  "u32" }, admit.Fixed) , setmetatable({ identity =
 "u32.mul" ,  op =  "u32_mul" ,  arity =  2 ,  operand =  "u32" ,  result =  "u32" }, admit.Fixed) , setmetatable({ identity =
+"u32.div" ,  op =  "u32_div" ,  arity =  2 ,  operand =  "u32" ,  result =  "u32" }, admit.Fixed) , setmetatable({ identity =
+"u32.mod" ,  op =  "u32_mod" ,  arity =  2 ,  operand =  "u32" ,  result =  "u32" }, admit.Fixed) , setmetatable({ identity =
 "u32.andBits" ,  op =  "u32_and" ,  arity =  2 ,  operand =  "u32" ,  result =  "u32" }, admit.Fixed) , setmetatable({ identity =
 "u32.orBits" ,  op =  "u32_or" ,  arity =  2 ,  operand =  "u32" ,  result =  "u32" }, admit.Fixed) , setmetatable({ identity =
 "u32.xorBits" ,  op =  "u32_xor" ,  arity =  2 ,  operand =  "u32" ,  result =  "u32" }, admit.Fixed) , setmetatable({ identity =
@@ -4114,7 +4116,7 @@ else
 params [ # params + 1 ] = param . name .. ": " .. tostring ( binding . ABI_TYPE [ param . type ] or "int32" )
 end
 end
-if program . body ~= nil then
+if scalarIR . independentCounts ( program ) then
 for _ , param in ipairs ( program . params ) do
 if param . kind == "write_span" or param . kind == "read_span" then
 params [ # params + 1 ] = "count_" .. param . name .. ": uint64"
@@ -4237,9 +4239,21 @@ for _ , line in ipairs ( binding . range ( program . rangeGuard ) ) do
 lines [ # lines + 1 ] = line
 end
 
-local taken , arguments = binding . spanArguments ( program . params , program . body ~= nil )
+local independentCounts = scalarIR . independentCounts ( program )
+local taken , arguments = binding . spanArguments ( program . params , independentCounts )
 for _ , line in ipairs ( taken ) do
 lines [ # lines + 1 ] = line
+end
+if independentCounts then
+for _ , guard in ipairs ( program . guards ) do
+lines [
+# lines + 1
+] = "    if native_"
+.. guard . left
+.. "Count ~= native_"
+.. guard . right
+.. "Count then error(\"native spans have incompatible lengths\", 2) end"
+end
 end
 lines [ # lines + 1 ] = "    unsafe do"
 if # resultSourceTypes > 1 then
@@ -5583,6 +5597,7 @@ lua_string = true ,
 uniform = true ,
 helper_param = true ,
 span_count = true ,
+loop_index = true ,
 add = true ,
 sub = true ,
 mul = true ,
@@ -5617,6 +5632,8 @@ i32_mul = true ,
 u32_add = true ,
 u32_sub = true ,
 u32_mul = true ,
+u32_div = true ,
+u32_mod = true ,
 u32_and = true ,
 u32_or = true ,
 u32_xor = true ,
@@ -6336,6 +6353,8 @@ return "ks_lua_scratch_u8_get(L, &" .. tostring (
 ) .. ", " .. emit . scalar ( loaded . index ) .. ")"
 elseif operation == "local" or operation == "helper_param" then
 return ( node ) . cName or ""
+elseif operation == "loop_index" then
+return "((double)(i + 1u))"
 elseif operation == "load" then
 local loaded = node
 local index = loaded . cursorCName ~= nil and "((size_t)" .. tostring (
@@ -6690,6 +6709,12 @@ local binary = node
 return "((uint32_t)(" .. emit . scalar (
 binary . left
 ) .. " " .. ( operator ) .. " " .. emit . scalar ( binary . right ) .. "))"
+end
+
+if operation == "u32_div" or operation == "u32_mod" then
+local binary = node
+local helper = operation == "u32_div" and "nupp_u32_div" or "nupp_u32_mod"
+return helper .. "(" .. emit . scalar ( binary . left ) .. ", " .. emit . scalar ( binary . right ) .. ")"
 end
 
 if operation == "u32_shl" or operation == "u32_shr" then
@@ -9353,6 +9378,8 @@ local unused = "static inline __attribute__((unused)) "
 
 return {
 unused .. "uint32_t nupp_u32(double value) { return (uint32_t)value; }" ,
+unused .. "uint32_t nupp_u32_div(uint32_t left, uint32_t right) { return right == 0u ? 0u : left / right; }" ,
+unused .. "uint32_t nupp_u32_mod(uint32_t left, uint32_t right) { return right == 0u ? 0u : left % right; }" ,
 unused .. "uint32_t nupp_u32_i32(int32_t value) { return (uint32_t)value; }" ,
 unused .. "uint32_t nupp_u32_u32(uint32_t value) { return value; }" ,
 "#define nupp_u32(value) _Generic((value), int32_t: nupp_u32_i32, uint32_t: nupp_u32_u32, default: nupp_u32)(value)" ,
@@ -11858,7 +11885,8 @@ lines [ # lines + 1 ] = "}"
 lines [ # lines + 1 ] = ""
 else
 local touched = emit . pointerSpans ( program )
-local params = emit . parameters ( program . params , general , touched )
+local independentCounts = scalarIR . independentCounts ( program )
+local params = emit . parameters ( program . params , independentCounts , touched )
 local cResult = # resultTypes == 0 and "void" or resultStruct ~= nil and resultStruct or emit . cType (
 resultTypes [ 1 ]
 )
@@ -11874,6 +11902,9 @@ lines [ # lines + 1 ] = "KS_OPTNONE"
 end
 lines [ # lines + 1 ] = "__attribute__((noinline))"
 lines [ # lines + 1 ] = "KS_API " .. cResult .. " " .. symbol .. "(" .. params .. ") {"
+if not general and independentCounts then
+lines [ # lines + 1 ] = "    size_t count = count_" .. ( program . loop ) . count .. ";"
+end
 if program . fpContract == true then
 for _ , line in ipairs ( emit . contractPragma ( ) ) do
 lines [ # lines + 1 ] = line
@@ -12355,7 +12386,7 @@ unaryRule ( "convert.numeric-cast.constant" , "numeric_cast" , nil , "numeric" ,
 unaryRule ( "convert.int-to-f64.constant" , "int_to_f64" , "f64" , "numeric" , "int_to_f64" )
 unaryRule ( "convert.numeric-cast.same-width" , "numeric_cast" , nil , "any" , "same_width_cast" )
 
-for _ , op in ipairs ( { "u32_add" , "u32_sub" , "u32_mul" , "i32_add" , "i32_sub" , "i32_mul" } ) do
+for _ , op in ipairs ( { "u32_add" , "u32_sub" , "u32_mul" , "u32_div" , "u32_mod" , "i32_add" , "i32_sub" , "i32_mul" } ) do
 binaryRule ( "fixed." .. op .. ".constants" , op , op : sub ( 1 , 3 ) , "numeric" , "numeric" , "fixed_constants" )
 end
 for _ , op in ipairs ( { "u32_and" , "u32_or" , "u32_xor" , "u32_shl" , "u32_shr" } ) do
@@ -12490,6 +12521,8 @@ i32_mul = "i32.mul" ,
 u32_add = "u32.add" ,
 u32_sub = "u32.sub" ,
 u32_mul = "u32.mul" ,
+u32_div = "u32.div" ,
+u32_mod = "u32.mod" ,
 u32_and = "u32.andBits" ,
 u32_or = "u32.orBits" ,
 u32_xor = "u32.xorBits" ,
@@ -13105,6 +13138,8 @@ if op == "local" or op == "helper_param" then
 return identifier ( value . cName or value . name )
 elseif op == "uniform" then
 return "uniforms." .. identifier ( value . name )
+elseif op == "loop_index" then
+return "(dispatch_index + 1u)"
 elseif op == "load" then
 return identifier ( value . span ) .. provenSpanIndex ( value )
 elseif op == "element_ref" then
@@ -13122,6 +13157,9 @@ elseif op == "constant" or op == "constant_i32" then
 return value . value
 elseif op == "bool" then
 return value . value and "true" or "false"
+elseif op == "u32_div" or op == "u32_mod" then
+local helper = op == "u32_div" and "nupp_u32_div" or "nupp_u32_mod"
+return helper .. "(" .. expression ( value . left ) .. ", " .. expression ( value . right ) .. ")"
 elseif FIXED [ op ] ~= nil or BINARY [ op ] ~= nil then
 
 
@@ -13292,6 +13330,9 @@ for _ , param in ipairs ( uniforms ) do
 line ( 1 , tostring ( metalType ( param . type ) ) .. " " .. identifier ( param . name ) .. ";" )
 end
 line ( 0 , "};" )
+line ( 0 , "" )
+line ( 0 , "inline uint nupp_u32_div(uint left, uint right) { return right == 0u ? 0u : left / right; }" )
+line ( 0 , "inline uint nupp_u32_mod(uint left, uint right) { return right == 0u ? 0u : left % right; }" )
 line ( 0 , "" )
 line ( 0 , "kernel void " .. identifier ( program . symbol ) .. "_gpu(" )
 local arguments = { "constant NuppUniforms& uniforms [[buffer(0)]]" }
@@ -15832,9 +15873,9 @@ if provable ~= nil and ( provable ) [ spanName ] ~= true then
 kernel . context . reject (
 lower . site ( node ) ,
 (
-"a dispatch-indexed GPU span must be the loop bound or guarded equal to it; "
-.. "guard %s or reach it through a proved cursor"
-) : format ( spanName )
+"nothing proves %s is that long; a map-indexed span must be the loop bound or guarded equal to it; "
+.. "guard with assert(#%s == #%s) or reach it through a proved cursor"
+) : format ( spanName , tostring ( kernel . boundSpan ) , spanName )
 )
 end
 return
@@ -17560,6 +17601,9 @@ elseif kind == "name" then
 local name = lower . nameOf ( node )
 local bound = name ~= nil and environment [ name ] or nil
 if bound == nil then
+if activeIndex ~= nil and name == activeIndex and kernel . mapEntry then
+return setmetatable({ op =  "loop_index" ,  type =  "f64" ,  source =  lower . site ( node ) }, scalarIR.LoopIndex)
+end
 
 
 
@@ -19498,6 +19542,7 @@ end
 
 
 
+
 function lower . lengthGuards (
 stat ,
 form ,
@@ -20032,15 +20077,12 @@ local mapShape = # resultTypes == 0 and # signature . writes > 0 and # signature
 
 
 
-
-if contract . target == "gpu"
-and # resultTypes == 0
-and # signature . writes > 0
-and # signature . reads > 0
-and # statements == 1
-and statements [
+local guardlessLoop = # statements == 1 and statements [
 1
-] . kind == "fornumStmt" then
+] . kind == "fornumStmt" and statements [ 1 ] or nil
+if # resultTypes == 0 and # signature . writes > 0 and # signature . reads > 0 and guardlessLoop ~= nil and lower . dotCount (
+( guardlessLoop ) . stop
+) == signature . writes [ 1 ] . name then
 mapShape = true
 end
 
@@ -20162,7 +20204,7 @@ context
 ) ,
 signature ,
 context ,
-contract . target == "gpu"
+true
 )
 end
 
@@ -20202,7 +20244,8 @@ symbol ,  loopSource =
 lower . site ( loop ) ,  index =
 index ,  indexCName =
 "i" ,  mapEntry =
-true ,  indexSpans =
+true ,  boundSpan =
+primary . name ,  indexSpans =
 ( function ( ) 
 local provable = { [ primary . name ] = true }
 for _ , guard in ipairs ( guards ) do
@@ -21431,6 +21474,8 @@ end
 local operation = node . op
 if operation == "element_ref" or operation == "load" then
 return ( node ) . index == state . index
+elseif operation == "loop_index" then
+return true
 elseif operation == "local" then
 local name = ( node ) . name
 
@@ -21633,7 +21678,9 @@ local shape = state . shape
 local mask = shape . mask
 local operation = node . op
 
-if operation == "local" then
+if operation == "loop_index" then
+state . reject ( "the authored map index has no lane-parallel form" )
+elseif operation == "local" then
 local name = node
 local vector = shape . vectorFor [ rewrite . asElement ( node . type ) or "bool" ]
 if vector == nil then
@@ -23264,7 +23311,7 @@ local scalarIR = { }
 
 
 
-scalarIR . VERSION = 22
+scalarIR . VERSION = 23
 
 
 
@@ -23701,6 +23748,17 @@ scalarIR.SpanCount = {} scalarIR.SpanCount.__index = scalarIR.SpanCount
 
 
 
+
+
+
+
+scalarIR.LoopIndex = {} scalarIR.LoopIndex.__index = scalarIR.LoopIndex
+
+
+
+
+
+
 scalarIR.Load = {} scalarIR.Load.__index = scalarIR.Load
 
 
@@ -23836,6 +23894,8 @@ scalarIR.Math = {} scalarIR.Math.__index = scalarIR.Math
 
 
 
+
+
 scalarIR.Fixed = {} scalarIR.Fixed.__index = scalarIR.Fixed
 
 
@@ -23907,6 +23967,7 @@ scalarIR.HelperCall = {} scalarIR.HelperCall.__index = scalarIR.HelperCall
 
 
 scalarIR.Simd = {} scalarIR.Simd.__index = scalarIR.Simd
+
 
 
 
@@ -24600,6 +24661,25 @@ scalarIR.Program = {} scalarIR.Program.__index = scalarIR.Program
 
 
 
+
+
+
+
+
+function scalarIR . independentCounts ( program ) 
+if program . body ~= nil then
+return true
+end
+local spans = 0
+for _ , param in ipairs ( program . params ) do
+if param . kind == "write_span" or param . kind == "read_span" then
+spans = spans + 1
+end
+end
+
+return # program . guards < spans - 1
+end
+
 const __nuppExportValue= scalarIR ;__nuppExports=__nuppExportValue
  end);if not __nuppOk then package.loaded["nupp.compiler.aot.scalar"]=nil;error(__nuppWhy,0) end;package.loaded["nupp.compiler.aot.scalar"]=__nuppExports;return __nuppExports
 end
@@ -25102,6 +25182,8 @@ local index = node . cursor ~= nil and node . cursor .. "+1" or node . index
 return "load:" .. node . type .. " " .. node . span .. "[" .. index .. "]"
 elseif op == "span_count" then
 return "count " .. node . span
+elseif op == "loop_index" then
+return "loop_index:f64"
 elseif op == "element_ref" then
 local index = node . cursor ~= nil and node . cursor .. "+1" or node . index
 return "element_ref:" .. node . layout .. " " .. node . span .. "[" .. index .. "]"
@@ -25846,6 +25928,8 @@ verify . FIXED_BINARY = {
 [ "u32_add" ] = "u32" ,
 [ "u32_sub" ] = "u32" ,
 [ "u32_mul" ] = "u32" ,
+[ "u32_div" ] = "u32" ,
+[ "u32_mod" ] = "u32" ,
 [ "u32_and" ] = "u32" ,
 [ "u32_or" ] = "u32" ,
 [ "u32_xor" ] = "u32" ,
@@ -26221,6 +26305,8 @@ holds (
 elseif op == "span_count" then
 local span = scope . spans [ node . span ]
 holds ( span ~= nil and ( span ) . region ~= nil and node . type == "f64" , "invalid span count" )
+elseif op == "loop_index" then
+holds ( scope . mapIndex == true and node . type == "f64" , "loop index outside a map body" )
 elseif op == "local" or op == "helper_param" then
 local named = node
 holds ( values [ named . name ] == node . type , "invalid local value" )
@@ -28037,18 +28123,13 @@ local guarded = { }
 for _ , guard in ipairs ( program . guards ) do
 holds ( guard . op == "equal_count" and guard . left == primary_ . name , "invalid IR guard" )
 holds ( byName [ guard . right ] ~= nil and ( byName [ guard . right ] ) . region ~= nil , "guarded non-span" )
+holds ( guarded [ guard . right ] == nil , "duplicate IR guard" )
 guarded [ guard . right ] = true
 end
-for _ , param in ipairs ( program . params ) do
-if param . region ~= nil and param . name ~= primary_ . name then
 
 
 
 
-
-holds ( guarded [ param . name ] == true or program . executionTarget == "gpu" , "unguarded IR span" )
-end
-end
 end
 
 
@@ -28492,7 +28573,7 @@ end
 
 function visit . expressionChildren ( node , rewrite ) 
 local __nuppT7= node . op ;local __nuppT8;
-if  __nuppT7== "constant"  or  __nuppT7== "constant_i32"  or  __nuppT7== "constant_i64"  or  __nuppT7== "bool"  or  __nuppT7== "lua_nil"  or  __nuppT7== "lua_string"  or  __nuppT7== "local"  or  __nuppT7== "uniform"  or  __nuppT7== "helper_param"  or  __nuppT7== "span_count"  or  __nuppT7== "load"  or  __nuppT7== "element_ref"  then  __nuppT8= nil
+if  __nuppT7== "constant"  or  __nuppT7== "constant_i32"  or  __nuppT7== "constant_i64"  or  __nuppT7== "bool"  or  __nuppT7== "lua_nil"  or  __nuppT7== "lua_string"  or  __nuppT7== "local"  or  __nuppT7== "uniform"  or  __nuppT7== "helper_param"  or  __nuppT7== "span_count"  or  __nuppT7== "loop_index"  or  __nuppT7== "load"  or  __nuppT7== "element_ref"  then  __nuppT8= nil
 elseif  __nuppT7== "lua_concat"  then
 local value = node
 value . left = rewrite ( value . left )
@@ -28653,7 +28734,7 @@ value . left = rewrite ( value . left )
 value . right = rewrite ( value . right )
 __nuppT8= nil
 
-elseif  __nuppT7== "f32_add"  or  __nuppT7== "f32_sub"  or  __nuppT7== "f32_mul"  or  __nuppT7== "f32_div"  or  __nuppT7== "i32_add"  or  __nuppT7== "i32_sub"  or  __nuppT7== "i32_mul"  or  __nuppT7== "u32_add"  or  __nuppT7== "u32_sub"  or  __nuppT7== "u32_mul"  or  __nuppT7== "u32_and"  or  __nuppT7== "u32_or"  or  __nuppT7== "u32_xor"  or  __nuppT7== "u32_shl"  or  __nuppT7== "u32_shr"  or  __nuppT7== "i64_add"  or  __nuppT7== "i64_sub"  or  __nuppT7== "i64_mul"  or  __nuppT7== "u64_add"  or  __nuppT7== "u64_sub"  or  __nuppT7== "u64_mul"  then
+elseif  __nuppT7== "f32_add"  or  __nuppT7== "f32_sub"  or  __nuppT7== "f32_mul"  or  __nuppT7== "f32_div"  or  __nuppT7== "i32_add"  or  __nuppT7== "i32_sub"  or  __nuppT7== "i32_mul"  or  __nuppT7== "u32_add"  or  __nuppT7== "u32_sub"  or  __nuppT7== "u32_mul"  or  __nuppT7== "u32_div"  or  __nuppT7== "u32_mod"  or  __nuppT7== "u32_and"  or  __nuppT7== "u32_or"  or  __nuppT7== "u32_xor"  or  __nuppT7== "u32_shl"  or  __nuppT7== "u32_shr"  or  __nuppT7== "i64_add"  or  __nuppT7== "i64_sub"  or  __nuppT7== "i64_mul"  or  __nuppT7== "u64_add"  or  __nuppT7== "u64_sub"  or  __nuppT7== "u64_mul"  then
 local value = node
 value . left = rewrite ( value . left )
 value . right = rewrite ( value . right )
@@ -144449,6 +144530,18 @@ function u32 . mul ( a , c )
 return ui32 ( mul32 ( ui32 ( a ) , ui32 ( c ) ) )
 end
 
+
+function u32 . div ( a , c ) 
+local divisor = ui32 ( c )
+return divisor == 0 and 0 or math . floor ( ui32 ( a ) / divisor )
+end
+
+
+function u32 . mod ( a , c ) 
+local divisor = ui32 ( c )
+return divisor == 0 and 0 or ui32 ( a ) % divisor
+end
+
 function u32 . andBits ( a , c ) 
 return ui32 ( band ( a , c ) )
 end
@@ -146091,6 +146184,8 @@ PATHS [ "nupp.math.u32.toI32" ] = "u32.toI32"
 PATHS [ "nupp.math.u32.popcount" ] = "u32.popcount"
 PATHS [ "nupp.math.u32.trailingZeros" ] = "u32.trailingZeros"
 PATHS [ "nupp.math.u32.leadingZeros" ] = "u32.leadingZeros"
+PATHS [ "nupp.math.u32.div" ] = "u32.div"
+PATHS [ "nupp.math.u32.mod" ] = "u32.mod"
 for _ , operation in ipairs ( {
 "narrow" ,
 "round" ,
@@ -146148,6 +146243,10 @@ return family == "u32" and u32 ( out ) or out
 elseif operation == "mul" then
 local out = mul32 ( a , b )
 return family == "u32" and u32 ( out ) or out
+elseif operation == "div" and family == "u32" then
+return b == 0 and 0 or math . floor ( u32 ( a ) / u32 ( b ) )
+elseif operation == "mod" and family == "u32" then
+return b == 0 and 0 or u32 ( a ) % u32 ( b )
 elseif operation == "andBits" then
 local out = bit . band ( a , b )
 return family == "u32" and u32 ( out ) or out
@@ -197915,6 +198014,13 @@ record nupp.U32MathLibrary
     add: nosuspend function(a: uint32, b: uint32): uint32
     sub: nosuspend function(a: uint32, b: uint32): uint32
     mul: nosuspend function(a: uint32, b: uint32): uint32
+
+    --- Unsigned quotient, or zero when the divisor is zero.
+    div: nosuspend function(a: uint32, b: uint32): uint32
+
+    --- Unsigned remainder, or zero when the divisor is zero.
+    mod: nosuspend function(a: uint32, b: uint32): uint32
+
     andBits: nosuspend function(a: uint32, b: uint32): uint32
     orBits: nosuspend function(a: uint32, b: uint32): uint32
     xorBits: nosuspend function(a: uint32, b: uint32): uint32
@@ -198686,6 +198792,18 @@ end
 
 function u32.mul(a: number, c: number): number
     return ui32(mul32(ui32(a), ui32(c)))
+end
+
+--- Unsigned division, with zero defined as zero on every execution target.
+function u32.div(a: number, c: number): number
+    local divisor = ui32(c)
+    return divisor == 0 and 0 or math.floor(ui32(a) / divisor)
+end
+
+--- Unsigned remainder, with zero defined as zero on every execution target.
+function u32.mod(a: number, c: number): number
+    local divisor = ui32(c)
+    return divisor == 0 and 0 or ui32(a) % divisor
 end
 
 function u32.andBits(a: number, c: number): number

@@ -398,7 +398,7 @@ unaryRule("convert.numeric-cast.constant", "numeric_cast", nil, "numeric", "nume
 unaryRule("convert.int-to-f64.constant", "int_to_f64", "f64", "numeric", "int_to_f64")
 unaryRule("convert.numeric-cast.same-width", "numeric_cast", nil, "any", "same_width_cast")
 
-for _, op in ipairs({"u32_add", "u32_sub", "u32_mul", "i32_add", "i32_sub", "i32_mul"}) do
+for _, op in ipairs({"u32_add", "u32_sub", "u32_mul", "u32_div", "u32_mod", "i32_add", "i32_sub", "i32_mul"}) do
     binaryRule("fixed." .. op .. ".constants", op, op:sub(1, 3), "numeric", "numeric", "fixed_constants")
 end
 for _, op in ipairs({"u32_and", "u32_or", "u32_xor", "u32_shl", "u32_shr"}) do
@@ -533,6 +533,8 @@ local function fixedIdentity(op: string): string?
         u32_add = "u32.add",
         u32_sub = "u32.sub",
         u32_mul = "u32.mul",
+        u32_div = "u32.div",
+        u32_mod = "u32.mod",
         u32_and = "u32.andBits",
         u32_or = "u32.orBits",
         u32_xor = "u32.xorBits",

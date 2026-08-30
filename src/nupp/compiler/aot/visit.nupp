@@ -79,7 +79,7 @@ end
 --- identity callback; transformations return replacement children.
 function visit.expressionChildren(node: scalarIR.Expr, rewrite: visit.ScalarRewrite): nil
     return switch node.op do
-        case "constant", "constant_i32", "constant_i64", "bool", "lua_nil", "lua_string", "local", "uniform", "helper_param", "span_count", "load", "element_ref" -> nil
+        case "constant", "constant_i32", "constant_i64", "bool", "lua_nil", "lua_string", "local", "uniform", "helper_param", "span_count", "loop_index", "load", "element_ref" -> nil
         case "lua_concat" -> do
             local value = node as scalarIR.LuaConcat
             value.left = rewrite(value.left)
@@ -240,7 +240,7 @@ function visit.expressionChildren(node: scalarIR.Expr, rewrite: visit.ScalarRewr
             value.right = rewrite(value.right)
             yield nil
         end
-        case "f32_add", "f32_sub", "f32_mul", "f32_div", "i32_add", "i32_sub", "i32_mul", "u32_add", "u32_sub", "u32_mul", "u32_and", "u32_or", "u32_xor", "u32_shl", "u32_shr", "i64_add", "i64_sub", "i64_mul", "u64_add", "u64_sub", "u64_mul" -> do
+        case "f32_add", "f32_sub", "f32_mul", "f32_div", "i32_add", "i32_sub", "i32_mul", "u32_add", "u32_sub", "u32_mul", "u32_div", "u32_mod", "u32_and", "u32_or", "u32_xor", "u32_shl", "u32_shr", "i64_add", "i64_sub", "i64_mul", "u64_add", "u64_sub", "u64_mul" -> do
             local value = node as scalarIR.Fixed
             value.left = rewrite(value.left)
             value.right = rewrite(value.right)

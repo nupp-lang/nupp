@@ -441,6 +441,8 @@ function emit.scalar(node: scalarIR.Expr): string
         ) .. ", " .. emit.scalar(loaded.index) .. ")"
     elseif operation == "local" or operation == "helper_param" then
         return (node as scalarIR.Name).cName or ""
+    elseif operation == "loop_index" then
+        return "((double)(i + 1u))"
     elseif operation == "load" then
         local loaded = node as scalarIR.Load
         local index = loaded.cursorCName ~= nil and "((size_t)" .. tostring(
@@ -795,6 +797,12 @@ function emit.scalarCall(node: scalarIR.Expr): string
         return "((uint32_t)(" .. emit.scalar(
             binary.left
         ) .. " " .. (operator as string) .. " " .. emit.scalar(binary.right) .. "))"
+    end
+
+    if operation == "u32_div" or operation == "u32_mod" then
+        local binary = node as scalarIR.Fixed
+        local helper = operation == "u32_div" and "nupp_u32_div" or "nupp_u32_mod"
+        return helper .. "(" .. emit.scalar(binary.left) .. ", " .. emit.scalar(binary.right) .. ")"
     end
 
     if operation == "u32_shl" or operation == "u32_shr" then
@@ -3458,6 +3466,8 @@ local function scalarHelpers(): {string}
 
     return {
         unused .. "uint32_t nupp_u32(double value) { return (uint32_t)value; }",
+        unused .. "uint32_t nupp_u32_div(uint32_t left, uint32_t right) { return right == 0u ? 0u : left / right; }",
+        unused .. "uint32_t nupp_u32_mod(uint32_t left, uint32_t right) { return right == 0u ? 0u : left % right; }",
         unused .. "uint32_t nupp_u32_i32(int32_t value) { return (uint32_t)value; }",
         unused .. "uint32_t nupp_u32_u32(uint32_t value) { return value; }",
         "#define nupp_u32(value) _Generic((value), int32_t: nupp_u32_i32, uint32_t: nupp_u32_u32, default: nupp_u32)(value)",
@@ -5963,7 +5973,8 @@ function emit.program(programs: {scalarIR.Program}, tier: string?): string
             lines[#lines + 1] = ""
         else
             local touched = emit.pointerSpans(program)
-            local params = emit.parameters(program.params, general, touched)
+            local independentCounts = scalarIR.independentCounts(program)
+            local params = emit.parameters(program.params, independentCounts, touched)
             local cResult = #resultTypes == 0 and "void" or resultStruct ~= nil and resultStruct or emit.cType(
                 resultTypes[1]
             )
@@ -5979,6 +5990,9 @@ function emit.program(programs: {scalarIR.Program}, tier: string?): string
                 end
                 lines[#lines + 1] = "__attribute__((noinline))"
                 lines[#lines + 1] = "KS_API " .. cResult .. " " .. symbol .. "(" .. params .. ") {"
+                if not general and independentCounts then
+                    lines[#lines + 1] = "    size_t count = count_" .. (program.loop as scalarIR.Loop).count .. ";"
+                end
                 if program.fpContract == true then
                     for _, line in ipairs(emit.contractPragma()) do
                         lines[#lines + 1] = line

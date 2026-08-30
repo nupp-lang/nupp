@@ -21,15 +21,6 @@ A living list, not a design record. Items are removed when completed.
       pinned SPIRV-Cross build. On Metal, "precompiled" still means MSL source
       compiled at pipeline creation unless the Apple toolchain exception is
       taken; name whichever is chosen.
-- [ ] **Extend the partial-guard admission to the CPU AOT tier.** The GPU map
-      admits a guard covering only dispatch-indexed spans, with cursor-proved
-      spans free; the CPU map still demands full coverage, so a GEMM body
-      compiles for GPU and is refused for CPU. `bench/sdl-gpu-spike/typed/
-      gemm.nupp` is the reproduction.
-- [ ] **Make the kernel loop index a value.** `u32.wrap(i)` and arithmetic on
-      it are refused inside kernels, which is why the GEMM benchmark ships
-      precomputed row/column index spans. Integer division intrinsics
-      (`u32.div`, `u32.mod`) fall out of the same design pass.
 - [ ] **Propose structured workgroup phases.** Its own NEP: statically sized
       workgroup scratch, stages whose boundaries are the barriers, writes
       structurally disjoint by `shared[localIndex]`, CPU meaning = stages run
