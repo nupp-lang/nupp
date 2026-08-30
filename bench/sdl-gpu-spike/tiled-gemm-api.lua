@@ -1,7 +1,5 @@
--- Workgroup-phase design spike: a handwritten tiled Metal kernel is compared
--- element-exact with both the generated naive GPU kernel and CPU AOT body.
--- It deliberately reaches the private native ABI; production source remains
--- the generated binding, and NEP 26 decides how phases become checked syntax.
+-- Generated structured-workgroup GEMM compared element-exact with the
+-- generated naive GPU kernel and CPU AOT body.
 local ffi = require("ffi")
 local span = require("nupp.mem.span")
 local generated = require("gemm")
@@ -9,72 +7,9 @@ local gpu = require("nupp.gpu")
 
 local here = assert(debug.getinfo(1, "S").source:match("^@(.*[/\\])"))
 local now = dofile(here .. "../simd-mandelbrot/clock.lua")
-local library = assert(os.getenv("NUPP_GPU_LIBRARY"), "NUPP_GPU_LIBRARY is required")
-local C = ffi.load(library)
-
 local size = tonumber(os.getenv("TILED_GEMM_SIZE") or 512)
 assert(size % 16 == 0, "the phase spike takes a multiple-of-sixteen square")
 local m, n, k = size, size, size
-
-local source = [=[
-#include <metal_stdlib>
-using namespace metal;
-
-struct NuppUniforms {
-    uint count;
-    uint a_count;
-    uint b_count;
-    uint c_count;
-    uint a_offset;
-    uint b_offset;
-    uint c_offset;
-    uint columns;
-    uint inner;
-};
-
-inline float nupp_f32_fma(float a, float b, float c) {
-    float out = fma(a, b, c);
-    return isnan(out) ? as_type<float>(0x7fc00000u) : out;
-}
-
-kernel void tiled_gemm(
-    constant NuppUniforms& uniforms [[buffer(0)]],
-    device const float* a [[buffer(1)]],
-    device const float* b [[buffer(2)]],
-    device float* c [[buffer(3)]],
-    uint group [[threadgroup_position_in_grid]],
-    uint local [[thread_index_in_threadgroup]])
-{
-    threadgroup float aTile[256];
-    threadgroup float bTile[256];
-    uint laneRow = local / 16u;
-    uint laneColumn = local % 16u;
-    uint tilesPerRow = uniforms.columns / 16u;
-    uint tileRow = group / tilesPerRow;
-    uint tileColumn = group % tilesPerRow;
-    uint row = tileRow * 16u + laneRow;
-    uint column = tileColumn * 16u + laneColumn;
-    uint output = row * uniforms.columns + column;
-    float value = 0.0f;
-
-    for (uint base = 0u; base < uniforms.inner; base += 16u) {
-        uint aColumn = base + laneColumn;
-        uint bRow = base + laneRow;
-        uint ai = row * uniforms.inner + aColumn;
-        uint bi = bRow * uniforms.columns + column;
-        aTile[local] = aColumn < uniforms.inner && ai < uniforms.a_count ? a[uniforms.a_offset + ai] : 0.0f;
-        bTile[local] = bRow < uniforms.inner && bi < uniforms.b_count ? b[uniforms.b_offset + bi] : 0.0f;
-        threadgroup_barrier(mem_flags::mem_threadgroup);
-
-        for (uint inner = 0u; inner < 16u && base + inner < uniforms.inner; inner += 1u) {
-            value = nupp_f32_fma(aTile[laneRow * 16u + inner], bTile[inner * 16u + laneColumn], value);
-        }
-        threadgroup_barrier(mem_flags::mem_threadgroup);
-    }
-
-    if (output < uniforms.count && output < uniforms.c_count) c[uniforms.c_offset + output] = value;
-}
-]=]
 
 local cell = ffi.new("float[1]")
 local function f32(value)
@@ -108,29 +43,14 @@ context:upload(bBuffer, bSpan)
 context:synchronize()
 
 local naive = generated.gemm:compile(context):bind(naiveBuffer, aBuffer, bBuffer)
-
-local dummySpirv = "\3\2\35\7"
-local tiledKernel = C.nuppGpuKernelCreate(
-    context._handle,
-    dummySpirv, #dummySpirv,
-    source, #source,
-    "tiled_gemm", 10,
-    2, 1, 36, 256)
-assert(tiledKernel ~= nil, ffi.string(C.nuppNativeError()))
-local tiled = C.nuppGpuBindingCreate(context._handle, tiledKernel, m * n)
-assert(tiled ~= nil, ffi.string(C.nuppNativeError()))
-assert(C.nuppGpuBindingSetRead(tiled, 0, aBuffer._handle, 0, m * k, false))
-assert(C.nuppGpuBindingSetRead(tiled, 1, bBuffer._handle, 0, k * n, false))
-assert(C.nuppGpuBindingSetWrite(tiled, 0, tiledBuffer._handle, 0, m * n, true))
-local uniforms = ffi.new("uint32_t[9]")
-uniforms[7], uniforms[8] = n, k
+local tiled = generated.tiled:compile(context):bind(tiledBuffer, aBuffer, bBuffer)
 
 local function naiveDispatch()
     naive:dispatch(n, k)
     context:synchronize()
 end
 local function tiledDispatch()
-    assert(C.nuppGpuBindingDispatch(tiled, uniforms, ffi.sizeof(uniforms)), ffi.string(C.nuppNativeError()))
+    tiled:dispatch(n, k)
     context:synchronize()
 end
 

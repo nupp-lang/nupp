@@ -47,6 +47,16 @@ local gpuLibrary = os.getenv("NUPP_GPU_LIBRARY")
 local C = gpuLibrary and ffi.load(gpuLibrary) or native.C
 local gpu = {}
 
+--- The portable floor reserved for one generated workgroup. Backends may
+--- support more, but generated kernels deliberately do not depend on it.
+--- @export
+const gpu.PORTABLE_WORKGROUP_THREADS = 256
+
+--- The portable workgroup-scratch floor in bytes. Generated kernels are
+--- refused at compile time when their statically sized scratch exceeds it.
+--- @export
+const gpu.PORTABLE_SCRATCH_BYTES = 16384
+
 native.ffi.cdef[[
 typedef struct NuppGpuContext NuppGpuContext;
 typedef struct NuppGpuBuffer NuppGpuBuffer;
@@ -71,8 +81,13 @@ bool nuppGpuBufferRead(NuppGpuContext *, NuppGpuBuffer *, void *, size_t, size_t
 ]]
 
 -- `native.C` is late-bound, so restore the ownership contracts that the literal
--- cdef carries for the checker but a table lookup cannot preserve.
-local dispatchNative = C.nuppGpuBindingDispatch as function(any, borrows uniforms: const uint8[?], integer): boolean
+-- cdef carries for the checker but a table lookup cannot preserve. Resolve the
+-- symbol only when a real GPU dispatch happens: the ordinary workgroup/phase
+-- implementation remains usable in builds whose provider did not link SDL.
+local function dispatchNative(binding: any, borrows uniforms: const uint8[?], bytes: integer): boolean
+    local call = C.nuppGpuBindingDispatch as function(any, borrows uniforms: const uint8[?], integer): boolean
+    return call(binding, uniforms, bytes)
+end
 
 --- One typed resident device range. A root buffer owns an allocation; a
 --- subview shares it with a checked element offset. Storage is not
@@ -136,6 +151,37 @@ record gpu.Binding
     --- Enqueues the binding with a compiler-laid-out uniform block.
     --- @internal
     dispatchPacked: function(borrows self: Binding, uniforms: any, uniformBytes: integer): nil
+end
+
+--- Statically sized, zero-based storage shared by one CPU workgroup.
+---
+--- GPU AOT replaces this ordinary representation with workgroup address-space
+--- storage. Keeping its indexing zero-based makes the interpreted CPU body and
+--- the shader body use exactly the same authored indices.
+--- @export
+record gpu.Shared<T>
+    private _values: {T}
+    readonly count: integer
+
+    metamethod __len: function(borrows self: gpu.Shared<T>): integer
+    metamethod __index: function(borrows self: gpu.Shared<T>, index: integer): T
+    metamethod __newindex: function(exclusive self: gpu.Shared<T>, index: integer, value: T): nil
+end
+
+--- The ordered stages and scratch belonging to one workgroup.
+--- @export
+record gpu.Phases
+    private readonly _size: integer
+
+    --- Allocates fresh zero-based scratch for this workgroup.
+    scratch: function<T>(borrows self: gpu.Phases, initial: T, count: integer): gpu.Shared<T>
+
+    --- Runs one stage to completion in ascending local-index order.
+    run: function(borrows self: gpu.Phases, scoped stage: function(uint32): nil): nil
+
+    --- Reduces one power-of-two f32 workgroup in a fixed left-before-right
+    --- tree. The sum is left in element zero.
+    reduceSumF32: function(borrows self: gpu.Phases, exclusive values: gpu.Shared<float>): nil
 end
 
 sealed interface gpu.ContextToken
@@ -274,6 +320,76 @@ local function copied(values: {integer}): {integer}
     end
 
     return out
+end
+
+function gpu.Shared.get<T>(borrows self: gpu.Shared<T>, index: integer): T
+    if index < 0 or index >= self.count then
+        error("nupp: GPU shared-scratch index out of bounds", 2)
+    end
+    return self._values[index + 1]
+end
+
+function gpu.Shared.set<T>(exclusive self: gpu.Shared<T>, index: integer, value: T): nil
+    if index < 0 or index >= self.count then
+        error("nupp: GPU shared-scratch index out of bounds", 2)
+    end
+    self._values[index + 1] = value
+end
+
+function gpu.Phases.scratch<T>(borrows self: gpu.Phases, initial: T, count: integer): gpu.Shared<T>
+    if count < 1 then
+        error("nupp: GPU shared scratch must contain at least one element", 2)
+    end
+    local values: {T} = {}
+    for index = 1, count do
+        values[index] = initial
+    end
+
+    return new gpu.Shared(_values = values, count = count)
+end
+
+function gpu.Phases.run(borrows self: gpu.Phases, scoped stage: function(uint32): nil): nil
+    for index = 0, self._size - 1 do
+        stage(nupp.math.u32.wrap(index))
+    end
+end
+
+function gpu.Phases.reduceSumF32(borrows self: gpu.Phases, exclusive values: gpu.Shared<float>): nil
+    if values.count ~= self._size or self._size < 1 or self._size & (self._size - 1) ~= 0 then
+        error("nupp: fixed-tree reduction needs one power-of-two value per lane", 2)
+    end
+    local stride = self._size // 2
+    while stride > 0 do
+        local active = stride
+        self:run(function(localIndex: uint32)
+            local lane = localIndex as integer
+            if lane < active then
+                values[
+                    lane
+                ] = nupp.math.f32.add(nupp.math.f32.narrow(values[lane]), nupp.math.f32.narrow(values[lane + active]))
+            end
+        end)
+        stride = stride // 2
+    end
+end
+
+--- Executes uniformly ordered workgroup phases on the CPU.
+---
+--- A GPU AOT body recognizes this call and its immediate callbacks as
+--- structure: the controller does not escape, each `run` is a device barrier,
+--- and each stage invocation becomes one local lane.
+--- @export
+--- @raises when size is outside the portable workgroup limit
+function gpu.workgroups(groups: uint32, size: uint32, scoped controller: function(uint32, gpu.Phases): nil): nil
+    local groupCount = groups as integer
+    local groupSize = size as integer
+    if groupSize < 1 or groupSize > gpu.PORTABLE_WORKGROUP_THREADS then
+        error("nupp: GPU workgroup size exceeds the portable limit", 2)
+    end
+    local phases = new gpu.Phases(_size = groupSize)
+    for groupIndex = 0, groupCount - 1 do
+        controller(nupp.math.u32.wrap(groupIndex), phases)
+    end
 end
 
 function gpu.Context.drop(takes self: gpu.Context): nil
@@ -533,6 +649,8 @@ end
 gpu.Buffer = gpu.Buffer
 gpu.Kernel = gpu.Kernel
 gpu.Binding = gpu.Binding
+gpu.Shared = gpu.Shared
+gpu.Phases = gpu.Phases
 gpu.Context = gpu.Context
 gpu.ContextToken = gpu.ContextToken
 

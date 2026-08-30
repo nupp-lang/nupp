@@ -758,7 +758,11 @@ end
 local function removeUnusedHelpers(program: scalarIR.Program, helpers: {[string]: scalarIR.Helper}): nil
     local used: {[string]: boolean} = {}
     markHelperUses(
-        program.loop ~= nil and (program.loop as scalarIR.Loop).statements or program.body or {},
+        program.loop ~= nil and (
+            program.loop as scalarIR.Loop
+        ).statements or program.workgroup ~= nil and (
+            program.workgroup as scalarIR.Workgroup
+        ).statements or program.body or {},
         used,
         helpers
     )
@@ -809,6 +813,10 @@ function optimize.program(program: scalarIR.Program): optimize.Stats
             propagateBlock(loop.statements, {}, mutated, state)
             loop.statements = optimizeBlock(loop.statements, state)
             loop.statements = removeDead(loop.statements, state)
+        elseif program.workgroup ~= nil then
+            -- Phase boundaries are scheduling semantics, not ordinary control
+            -- statements. Preserve the verified controller until phase-aware
+            -- rewrites can prove they neither remove nor cross a barrier.
         else
             propagateBlock(program.body or {}, {}, mutated, state)
             program.body = optimizeBlock(program.body or {}, state)

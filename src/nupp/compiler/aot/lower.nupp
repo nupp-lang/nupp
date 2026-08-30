@@ -804,6 +804,17 @@ record lower.Kernel
     --- Uint32 locals known to equal one scratch buffer's initialized length.
     scratchLengthBounds: {[string]: string}
 
+    --- Present while lowering the compiler-recognized `gpu.workgroups`
+    --- controller. Scratch names are structural bindings rather than runtime
+    --- values; phase callbacks lower their local index to a dedicated IR value.
+    phasesName: string?
+
+    localIndexName: string?
+    shared: {[string]: scalarIR.Shared}?
+    sharedOrder: {scalarIR.Shared}?
+    inPhase: boolean?
+    workgroupSize: integer?
+
     usesSimd: boolean
 
     usesNumberToken: boolean
@@ -2686,7 +2697,12 @@ function lower.expression(
         -- A specialization binds its const carriers to IR values rather than
         -- to runtime parameters. Keep those values as values: turning one back
         -- into a Name below would discard the tuple before optimization sees it.
-        if bound.op == "constant" or bound.op == "constant_i32" or bound.op == "bool" then
+        if bound.op == "constant"
+            or bound.op == "constant_i32"
+            or bound.op == "bool"
+            or bound.op == "workgroup_index"
+            or bound.op == "local_index"
+        then
             return bound as scalarIR.Expr
         elseif bound.op == "lua_string" then
             markLua(kernel, lower.site(node))
@@ -2800,6 +2816,15 @@ function lower.expression(
     elseif kind == "unop" and (node as cst.Unop).op ~= nil then
         local operator = node as cst.Unop
         local counted = lower.dotCount(operator)
+        local shared = counted ~= nil and environment[counted as string] or nil
+        if shared ~= nil and shared.kind == "workgroup_shared" then
+            return new scalarIR.Constant(
+                op = "constant",
+                value = tostring(shared.count),
+                type = "f64",
+                source = lower.site(node)
+            )
+        end
         local spanParam = counted ~= nil and kernel.params[counted as string] or nil
         if spanParam ~= nil and spanParam.region ~= nil then
             return new scalarIR.SpanCount(
@@ -2832,6 +2857,82 @@ function lower.expression(
         local indexed = node as cst.BracketIndex
         local tableName = lower.nameOf(indexed.obj)
         local tableBinding = tableName ~= nil and environment[tableName as string] or nil
+        if tableBinding ~= nil and tableBinding.kind == "workgroup_shared" then
+            if kernel.inPhase ~= true then
+                context.reject(lower.site(node), "workgroup scratch is read only inside phases:run")
+            end
+            local index = lower.expression(indexed.expr as cst.Node, environment, activeIndex, kernel)
+            local function indexRange(value: scalarIR.Expr): (number?, number?)
+                local op = value.op
+                if op == "constant" or op == "constant_i32" then
+                    local constant = tonumber((value as any).value)
+                    if constant ~= nil and constant == math.floor(constant as number) and constant >= 0 then
+                        return constant, constant
+                    end
+                elseif op == "local_index" then
+                    return 0, (kernel.workgroupSize as integer) - 1
+                elseif op == "numeric_cast" or op == "int_to_f64" then
+                    return indexRange((value as scalarIR.Convert).value)
+                elseif op == "u32_add" or op == "u32_mul" then
+                    local pair = value as scalarIR.Fixed
+                    local leftMin, leftMax = indexRange(pair.left)
+                    local rightMin, rightMax = indexRange(pair.right)
+                    if leftMin ~= nil and leftMax ~= nil and rightMin ~= nil and rightMax ~= nil then
+                        local low = op == "u32_add" and (
+                            leftMin as number
+                        ) + (rightMin as number) or (leftMin as number) * (rightMin as number)
+                        local high = op == "u32_add" and (
+                            leftMax as number
+                        ) + (rightMax as number) or (leftMax as number) * (rightMax as number)
+                        if high <= 4294967295 then
+                            return low, high
+                        end
+                    end
+                elseif op == "u32_div" or op == "u32_mod" then
+                    local pair = value as scalarIR.Fixed
+                    local leftMin, leftMax = indexRange(pair.left)
+                    local rightMin, rightMax = indexRange(pair.right)
+                    if leftMin ~= nil
+                        and leftMax ~= nil
+                        and rightMin ~= nil
+                        and rightMin == rightMax
+                        and rightMin > 0
+                    then
+                        if op == "u32_div" then
+                            return math.floor(
+                                (leftMin as number) / (rightMin as number)
+                            ), math.floor((leftMax as number) / (rightMin as number))
+                        end
+                        return 0, math.min(leftMax as number, (rightMin as number) - 1)
+                    end
+                end
+
+                return nil, nil
+            end
+
+            local minimum, maximum = indexRange(index)
+            if minimum == nil or maximum == nil or minimum < 0 or maximum >= tableBinding.count then
+                context.reject(lower.site(indexed.expr), "shared scratch read is not statically proved in bounds")
+            end
+            if index.op == "constant" then
+                index = new scalarIR.IntConstant(
+                    op = "constant_i32",
+                    value = tostring(minimum),
+                    type = "u32",
+                    source = lower.site(indexed.expr)
+                )
+            end
+            return widenLoad(
+                new scalarIR.SharedLoad(
+                    op = "shared_load",
+                    shared = tableName as string,
+                    index = index,
+                    type = tableBinding.element,
+                    source = lower.site(node)
+                ),
+                lower.site(node)
+            )
+        end
         if tableBinding ~= nil and tableBinding.type == "lua_table" then
             local key = lower.expression(indexed.expr as cst.Node, environment, activeIndex, kernel)
             if key.type ~= "f64" and key.type ~= "i32" and key.type ~= "u32" then
@@ -3633,6 +3734,42 @@ local function localStmt(
     if #names == 0 or #exprs == 0 then
         context.reject(lower.site(stat), "native locals must be initialized")
     end
+    if kernel.phasesName ~= nil and #names == 1 and #exprs == 1 and exprs[1].kind == "methodCall" then
+        local call = exprs[1] as cst.MethodCall
+        local args = call.args ~= nil and ((call.args as cst.Args).exprs or {}) or {}
+        if lower.nameOf(
+            call.obj
+        ) == kernel.phasesName and call.name ~= nil and (call.name as lexer.Token).text == "scratch" then
+            if #args ~= 2 then
+                context.reject(lower.site(call), "phases:scratch takes an initial value and a static count")
+            end
+            local token = cst.firstToken(args[2])
+            local count = token ~= nil and tonumber((token as lexer.Token).text) or nil
+            if count == nil or count ~= math.floor(count as number) or count < 1 then
+                context.reject(lower.site(args[2]), "workgroup scratch count must be a positive integer literal")
+            end
+            local initial = lower.expression(args[1], environment, kernel.index, kernel)
+            if initial.type ~= "f32" and initial.type ~= "i32" and initial.type ~= "u32" then
+                context.reject(lower.site(args[1]), "workgroup scratch elements must be f32, int32, or uint32")
+            end
+            local shared = new scalarIR.Shared(
+                name = names[1].text,
+                element = initial.type,
+                count = count as integer,
+                initial = initial,
+                source = lower.site(stat)
+            )
+            local byName = kernel.shared as {[string]: scalarIR.Shared}
+            if byName[names[1].text] ~= nil then
+                context.reject(lower.site(stat), "workgroup scratch names may not be shadowed")
+            end
+            byName[names[1].text] = shared
+            local ordered = kernel.sharedOrder as {scalarIR.Shared}
+            ordered[#ordered + 1] = shared
+            environment[names[1].text] = {kind = "workgroup_shared", element = initial.type, count = count,}
+            return
+        end
+    end
     if #names == 1 and #exprs == 1 and kernel.stringAccumulators[names[1].text] then
         local initial = lower.expression(exprs[1], environment, kernel.index, kernel)
         if initial.type ~= "lua_string" then
@@ -3876,6 +4013,26 @@ local function assignStmt(
         local spanName = lower.nameOf(target.obj)
         local output = spanName ~= nil and kernel.params[spanName as string] or nil
         local tableBinding = spanName ~= nil and environment[spanName as string] or nil
+        if tableBinding ~= nil and tableBinding.kind == "workgroup_shared" then
+            if kernel.inPhase ~= true then
+                context.reject(lower.site(target), "workgroup scratch is written only inside phases:run")
+            end
+            local index = lower.expression(target.expr as cst.Node, environment, kernel.index, kernel)
+            if index.op ~= "local_index" then
+                context.reject(lower.site(target.expr), "shared scratch writes must use exactly localIndex")
+            end
+            local value = lower.expression(exprs[1], environment, kernel.index, kernel)
+            out[
+                #out + 1
+            ] = new scalarIR.SharedStore(
+                op = "shared_store",
+                shared = spanName as string,
+                index = index,
+                value = lower.convert(value, tableBinding.element, lower.site(stat), context),
+                source = lower.site(stat)
+            )
+            return
+        end
         if tableBinding ~= nil and tableBinding.type == "lua_table" then
             local key = lower.expression(target.expr as cst.Node, environment, kernel.index, kernel)
             if key.type ~= "f64" and key.type ~= "i32" and key.type ~= "u32" and key.type ~= "lua_string" then
@@ -4010,6 +4167,56 @@ local function forBound(bound: scalarIR.Expr, at: cst.Node?, kernel: lower.Kerne
     return bound
 end
 
+--- Finds a scratch array that one ordinary phase both writes and reads through
+--- another lane's index. That is a race without a compiler-owned collective
+--- shape. Reads from an earlier phase and same-lane read-modify-write remain
+--- valid.
+local function sharedPhaseCollision(statements: {scalarIR.Statement}): string?
+    local written: {[string]: boolean} = {}
+    local crossRead: {[string]: boolean} = {}
+    local inspectExpression: function(scalarIR.Expr): nil
+    inspectExpression = function(value: scalarIR.Expr): nil
+        if value.op == "shared_load" then
+            local load = value as scalarIR.SharedLoad
+            if load.index.op ~= "local_index" then
+                crossRead[load.shared] = true
+            end
+        end
+        visit.expressionChildren(value, function(child: scalarIR.Expr): scalarIR.Expr
+            inspectExpression(child)
+            return child
+        end)
+    end
+    local inspectBlock: function({scalarIR.Statement}): nil
+    inspectBlock = function(block: {scalarIR.Statement}): nil
+        for _, statement in ipairs(block) do
+            if statement.op == "shared_store" then
+                written[(statement as scalarIR.SharedStore).shared] = true
+            end
+            visit.statementExpressions(statement, function(value: scalarIR.Expr): scalarIR.Expr
+                inspectExpression(value)
+                return value
+            end)
+            if statement.op == "if" then
+                for _, clause in ipairs((statement as scalarIR.If).clauses) do
+                    inspectBlock(clause.body)
+                end
+                inspectBlock((statement as scalarIR.If).elseBody or {})
+            elseif statement.op == "while" or statement.op == "fornum" or statement.op == "block" then
+                inspectBlock((statement as any).body as {scalarIR.Statement})
+            end
+        end
+    end
+    inspectBlock(statements)
+    for name in pairs(written) do
+        if crossRead[name] == true then
+            return name
+        end
+    end
+
+    return nil
+end
+
 ----------------------------------------------------------------------------
 -- Lowering a block
 ----------------------------------------------------------------------------
@@ -4103,17 +4310,150 @@ function lower.block(statements: {cst.Node}, environment: {[string]: any}, kerne
             localStmt(stat as cst.LocalStmt, out, environment, kernel)
         elseif kind == "callStmt" then
             local statement = stat as cst.CallStmt
-            local effect = lower.expression(statement.expr as cst.Node, environment, kernel.index, kernel)
-            if effect.type ~= "lua_effect"
-                or tostring(effect.op):match("^lua_builder_") == nil
-                and effect.op ~= "lua_scratch_u32_set"
-                and effect.op ~= "lua_scratch_u8_set"
-                and effect.op ~= "lua_scratch_u8_set4"
-                and effect.op ~= "simd_store4_u8"
-                and effect.op ~= "lua_scratch_u8_reset" then
-                context.reject(lower.site(stat), "native element stores use output[index] = value")
+            local method = statement.expr ~= nil
+                and statement.expr.kind == "methodCall"
+                and statement.expr as cst.MethodCall
+                or nil
+            local phaseMethod = method ~= nil and kernel.phasesName ~= nil and lower.nameOf(
+                (method as cst.MethodCall).obj
+            ) == kernel.phasesName and (
+                method as cst.MethodCall
+            ).name ~= nil and ((method as cst.MethodCall).name as lexer.Token).text or nil
+            if method ~= nil and phaseMethod == "reduceSumF32" then
+                local args = (
+                    method as cst.MethodCall
+                ).args ~= nil and ((((method as cst.MethodCall).args as cst.Args).exprs or {})) or {}
+                local sharedName = #args == 1 and lower.nameOf(args[1]) or nil
+                local shared = sharedName ~= nil and environment[sharedName as string] or nil
+                local size = kernel.workgroupSize
+                if shared == nil or shared.kind ~= "workgroup_shared" or shared.element ~= "f32" then
+                    context.reject(lower.site(method), "phases:reduceSumF32 takes one f32 scratch array")
+                end
+                if size == nil or size < 1 or size & (size - 1) ~= 0 then
+                    context.reject(lower.site(method), "fixed-tree reduction needs a power-of-two workgroup size")
+                end
+                local stride = (size as integer) // 2
+                while stride > 0 do
+                    local lane = new scalarIR.WorkgroupIndex(
+                        op = "local_index",
+                        type = "u32",
+                        source = lower.site(method)
+                    )
+                    local offset = new scalarIR.IntConstant(
+                        op = "constant_i32",
+                        value = tostring(stride),
+                        type = "u32",
+                        source = lower.site(method)
+                    )
+                    local rightIndex = new scalarIR.Fixed(
+                        op = "u32_add",
+                        left = lane,
+                        right = offset,
+                        type = "u32",
+                        source = lower.site(method)
+                    )
+                    local left = new scalarIR.SharedLoad(
+                        op = "shared_load",
+                        shared = sharedName as string,
+                        index = lane,
+                        type = "f32",
+                        source = lower.site(method)
+                    )
+                    local right = new scalarIR.SharedLoad(
+                        op = "shared_load",
+                        shared = sharedName as string,
+                        index = rightIndex,
+                        type = "f32",
+                        source = lower.site(method)
+                    )
+                    local write = new scalarIR.SharedStore(
+                        op = "shared_store",
+                        shared = sharedName as string,
+                        index = lane,
+                        value = new scalarIR.Fixed(
+                            op = "f32_add",
+                            left = left,
+                            right = right,
+                            type = "f32",
+                            source = lower.site(method)
+                        ),
+                        source = lower.site(method)
+                    )
+                    out[
+                        #out + 1
+                    ] = new scalarIR.Phase(
+                        op = "phase",
+                        body = {
+                            new scalarIR.If(
+                                op = "if",
+                                clauses = {
+                                    new scalarIR.Clause(
+                                        condition = new scalarIR.Binary(
+                                            op = "lt",
+                                            left = lane,
+                                            right = offset,
+                                            type = "bool",
+                                            source = lower.site(method)
+                                        ),
+                                        body = {write},
+                                        source = lower.site(method)
+                                    ),
+                                },
+                                source = lower.site(method)
+                            ),
+                        },
+                        source = lower.site(stat)
+                    )
+                    stride = stride // 2
+                end
+            elseif method ~= nil and phaseMethod == "run" then
+                local args = (
+                    method as cst.MethodCall
+                ).args ~= nil and ((((method as cst.MethodCall).args as cst.Args).exprs or {})) or {}
+                if #args ~= 1 or args[1].kind ~= "funcExpr" then
+                    context.reject(lower.site(method), "phases:run takes one immediate function")
+                end
+                local callback = (args[1] as cst.FuncExpr).body as cst.Funcbody?
+                local params = callback ~= nil and (callback as cst.Funcbody).params or {}
+                if callback == nil or #params ~= 1 or (params[1] as cst.Param).name == nil then
+                    context.reject(lower.site(args[1]), "a phase callback takes exactly one localIndex parameter")
+                end
+                local localName = ((params[1] as cst.Param).name as lexer.Token).text
+                local inner = inherit(environment)
+                inner[
+                    localName
+                ] = new scalarIR.WorkgroupIndex(op = "local_index", type = "u32", source = lower.site(params[1]))
+                local previousPhase, previousLocal = kernel.inPhase, kernel.localIndexName
+                kernel.inPhase = true
+                kernel.localIndexName = localName
+                local callbackBlock = (callback as cst.Funcbody).body as cst.Block?
+                local lowered = lower.block(
+                    callbackBlock ~= nil and (callbackBlock as cst.Block).stats or {},
+                    inner,
+                    kernel
+                )
+                kernel.inPhase = previousPhase
+                kernel.localIndexName = previousLocal
+                if #lowered == 0 then
+                    context.reject(lower.site(args[1]), "a workgroup phase may not be empty")
+                end
+                if sharedPhaseCollision(lowered) ~= nil then
+                    context.reject(lower.site(args[1]), "a phase cannot read another lane from scratch it also writes")
+                end
+                out[#out + 1] = new scalarIR.Phase(op = "phase", body = lowered, source = lower.site(stat))
+            else
+                local effect = lower.expression(statement.expr as cst.Node, environment, kernel.index, kernel)
+                if effect.type ~= "lua_effect"
+                    or tostring(effect.op):match("^lua_builder_") == nil
+                    and effect.op ~= "lua_scratch_u32_set"
+                    and effect.op ~= "lua_scratch_u8_set"
+                    and effect.op ~= "lua_scratch_u8_set4"
+                    and effect.op ~= "simd_store4_u8"
+                    and effect.op ~= "lua_scratch_u8_reset" then
+                    context.reject(lower.site(stat), "native element stores use output[index] = value")
+                end
+                out[#out + 1] = effect as scalarIR.Statement
             end
-            out[#out + 1] = effect as scalarIR.Statement
         elseif kind == "assignStmt" then
             assignStmt(stat as cst.AssignStmt, out, environment, kernel)
         elseif kind == "ifStmt" then
@@ -5131,6 +5471,229 @@ function lower.program(
     end
 
     local statements = body.body ~= nil and (body.body as cst.Block).stats or {}
+    local workgroupCall: cst.Call? = nil
+    if contract.target == "gpu" and #statements >= 1 and statements[#statements].kind == "callStmt" then
+        local expression = (statements[#statements] as cst.CallStmt).expr
+        if expression ~= nil and expression.kind == "call" then
+            local candidate = expression as cst.Call
+            local path = lower.dottedName(candidate.obj)
+            local root = path ~= nil and (path as string):match("^([^.]+)%.workgroups$") or nil
+            if root ~= nil and declarations.modules[root as string] == "nupp.gpu" then
+                workgroupCall = candidate
+            end
+        end
+    end
+
+    if workgroupCall ~= nil then
+        for index = 1, #statements - 1 do
+            if statements[index].kind ~= "localStmt" then
+                context.reject(
+                    lower.site(statements[index]),
+                    "only initialized scalar locals may precede gpu.workgroups"
+                )
+            end
+        end
+        if #resultTypes ~= 0 or #signature.writes == 0 then
+            context.reject(lower.site(body), "a GPU workgroup entry returns nil and takes a writable span")
+        end
+        local args = (
+            workgroupCall as cst.Call
+        ).args ~= nil and ((((workgroupCall as cst.Call).args as cst.Args).exprs or {})) or {}
+        if #args ~= 3 or args[3].kind ~= "funcExpr" then
+            context.reject(
+                lower.site(workgroupCall),
+                "gpu.workgroups takes groups, a static size, and an immediate function"
+            )
+        end
+        local sizeToken = cst.firstToken(args[2])
+        local size = sizeToken ~= nil and tonumber((sizeToken as lexer.Token).text) or nil
+        if size == nil or size ~= math.floor(size as number) or size < 1 or size > 256 then
+            context.reject(lower.site(args[2]), "GPU workgroup size must be an integer literal from 1 through 256")
+        end
+        local controller = (args[3] as cst.FuncExpr).body as cst.Funcbody?
+        local controllerParams = controller ~= nil and (controller as cst.Funcbody).params or {}
+        if controller == nil or #controllerParams ~= 2 or (
+            controllerParams[1] as cst.Param
+        ).name == nil or (controllerParams[2] as cst.Param).name == nil then
+            context.reject(lower.site(args[3]), "a workgroup controller takes groupIndex and phases")
+        end
+        local groupName = ((controllerParams[1] as cst.Param).name as lexer.Token).text
+        local phasesName = ((controllerParams[2] as cst.Param).name as lexer.Token).text
+        local kernel = new lower.Kernel(
+            params = signature.byName,
+            layouts = layouts,
+            helperDecls = declarations.helpers,
+            entryDecls = declarations.entries,
+            helpers = {},
+            helperOrder = {},
+            constantNames = {},
+            scratchBounds = {},
+            constantOrder = {},
+            constantNumbers = declarations.constantNumbers,
+            helperState = {},
+            modules = declarations.modules,
+            intrinsicAliases = declarations.intrinsicAliases,
+            stringAccumulators = {},
+            symbol = symbol,
+            loopSource = lower.site(workgroupCall),
+            index = "",
+            indexCName = "",
+            mapEntry = false,
+            resultTypes = {},
+            cursorBounds = {},
+            lengthBounds = {},
+            scratchLengthBounds = {},
+            phasesName = phasesName,
+            workgroupSize = size as integer,
+            shared = {},
+            sharedOrder = {},
+            usesSimd = false,
+            usesNumberToken = false,
+            usesLua = false,
+            serial = 0,
+            context = context
+        )
+        local environment: {[string]: any} = {}
+        for position, param in ipairs(signature.params) do
+            if param.kind == "uniform" or param.kind == "scalar" then
+                if param.kind == "scalar" then
+                    (param as any).cName = tostring(position)
+                end
+                environment[param.name] = param
+            end
+        end
+        local prefix: {cst.Node} = {}
+        for index = 1, #statements - 1 do
+            prefix[index] = statements[index]
+        end
+        local prelude = lower.block(prefix, environment, kernel)
+        local groups = lower.expression(args[1], environment, nil, kernel)
+        if groups.op == "local" then
+            for index = #prelude, 1, -1 do
+                local statement = prelude[index]
+                if statement.op == "let" and statement.cName == (groups as scalarIR.Name).cName then
+                    groups = (statement as scalarIR.Let).value
+                    break
+                end
+            end
+        end
+        if groups.type ~= "u32" then
+            context.reject(lower.site(args[1]), "GPU workgroup count must be uint32")
+        end
+        local numerator = groups.op == "u32_div" and (groups as scalarIR.Fixed).left or nil
+        local divisor = groups.op == "u32_div" and (groups as scalarIR.Fixed).right or nil
+        while numerator ~= nil and (numerator.op == "numeric_cast" or numerator.op == "int_to_f64") do
+            numerator = (numerator as scalarIR.Convert).value
+        end
+        while divisor ~= nil and (divisor.op == "numeric_cast" or divisor.op == "int_to_f64") do
+            divisor = (divisor as scalarIR.Convert).value
+        end
+        local divisorValue = divisor ~= nil and (
+            divisor.op == "constant" or divisor.op == "constant_i32"
+        ) and tonumber((divisor as any).value) or nil
+        if numerator == nil or numerator.op ~= "span_count" or divisorValue ~= size then
+            context.reject(lower.site(args[1]), "GPU workgroup count must be u32.div(u32.wrap(#span), workgroupSize)")
+        end
+        local dispatchSpan = (numerator as scalarIR.SpanCount).span
+        local groupBinding = bind(groupName, "u32", nil, controllerParams[1], environment, kernel)
+        local groupValue = new scalarIR.WorkgroupIndex(
+            op = "workgroup_index",
+            type = "u32",
+            source = lower.site(controllerParams[1])
+        )
+        local controllerBlock = (controller as cst.Funcbody).body as cst.Block?
+        local controllerBody = lower.block(
+            controllerBlock ~= nil and (controllerBlock as cst.Block).stats or {},
+            environment,
+            kernel
+        )
+        local lowered: {
+            scalarIR.Statement
+        } = {
+            new scalarIR.Let(
+                op = "let",
+                name = groupName,
+                cName = groupBinding.cName,
+                type = "u32",
+                value = groupValue,
+                source = lower.site(controllerParams[1])
+            ),
+        }
+        for _, statement in ipairs(controllerBody) do
+            lowered[#lowered + 1] = statement
+        end
+        local phaseCount = 0
+        local function countPhases(block: {scalarIR.Statement}): nil
+            for _, statement in ipairs(block) do
+                if statement.op == "phase" then
+                    phaseCount = phaseCount + 1
+                elseif statement.op == "if" then
+                    for _, clause in ipairs((statement as scalarIR.If).clauses) do
+                        countPhases(clause.body)
+                    end
+                    countPhases((statement as scalarIR.If).elseBody or {})
+                elseif statement.op == "fornum" or statement.op == "while" or statement.op == "block" then
+                    countPhases((statement as any).body as {scalarIR.Statement})
+                end
+            end
+        end
+
+        countPhases(lowered)
+        if phaseCount == 0 then
+            context.reject(lower.site(args[3]), "a workgroup controller must run at least one phase")
+        end
+        local scratchBytes = 0
+        for _, shared in ipairs(kernel.sharedOrder as {scalarIR.Shared}) do
+            if shared.count ~= size then
+                context.reject(
+                    shared.source,
+                    "workgroup scratch count must equal the workgroup size in the initial portable subset"
+                )
+            end
+            scratchBytes = scratchBytes + shared.count * 4
+        end
+        if scratchBytes > 16384 then
+            context.reject(lower.site(args[3]), "workgroup scratch exceeds the portable 16384-byte limit")
+        end
+        if kernel.usesLua or kernel.usesSimd then
+            context.reject(lower.site(args[3]), "workgroup phases admit fixed-width scalar operations only")
+        end
+
+        return new scalarIR.Program(
+            version = scalarIR.VERSION,
+            name = name,
+            symbol = symbol,
+            entryMode = "kernel",
+            executionTarget = "gpu",
+            fpContract = contract.fpContract,
+            wantsLanes = false,
+            lanesRequired = false,
+            params = signature.params,
+            layouts = layouts.ordered,
+            regions = regions,
+            aliasFacts = aliasFacts,
+            guards = {},
+            helpers = kernel.helperOrder,
+            constants = kernel.constantOrder,
+            resultTypes = {},
+            resultSourceTypes = {},
+            usesSimd = false,
+            usesNumberToken = false,
+            workgroup = new scalarIR.Workgroup(
+                prelude = prelude,
+                groups = groups,
+                dispatchSpan = dispatchSpan,
+                size = size as integer,
+                groupIndex = groupName,
+                localIndex = "localIndex",
+                shared = kernel.sharedOrder as {scalarIR.Shared},
+                statements = lowered,
+                source = lower.site(workgroupCall)
+            ),
+            source = lower.site(fn)
+        )
+    end
+
     local mapShape = #resultTypes == 0 and #signature.writes > 0 and #signature.reads > 0 and (
         #statements == 2 or #statements == 3
     ) and lower.isGuardStatement(statements[1]) and statements[#statements].kind == "fornumStmt"

@@ -81,6 +81,12 @@ record verify.Scope
     entryMode: scalarIR.EntryMode
 
     builderMode: ('eager' | 'pull' | 'serde')?
+
+    workgroup: boolean?
+    inPhase: boolean?
+    shared: {[string]: scalarIR.Type}?
+    sharedCounts: {[string]: integer}?
+    localReadLimit: integer?
 end
 
 --- What the lane rules need beyond the scope.
@@ -527,7 +533,12 @@ local function binary(node: scalarIR.Binary, values: {[string]: string}, scope: 
                 cursorBounds = cursorBounds,
                 resultTypes = scope.resultTypes,
                 entryMode = scope.entryMode,
-                builderMode = scope.builderMode
+                builderMode = scope.builderMode,
+                workgroup = scope.workgroup,
+                inPhase = scope.inPhase,
+                shared = scope.shared,
+                sharedCounts = scope.sharedCounts,
+                localReadLimit = scope.localReadLimit
             )
         end
     end
@@ -570,6 +581,86 @@ scalarWalk = function(node: scalarIR.Expr, values: {[string]: string}, scope: ve
         holds(span ~= nil and (span as scalarIR.Param).region ~= nil and node.type == "f64", "invalid span count")
     elseif op == "loop_index" then
         holds(scope.mapIndex == true and node.type == "f64", "loop index outside a map body")
+    elseif op == "workgroup_index" or op == "local_index" then
+        holds(
+            scope.workgroup == true and node.type == "u32" and (op ~= "local_index" or scope.inPhase == true),
+            "workgroup coordinate outside its structural body"
+        )
+    elseif op == "shared_load" then
+        local load = node as scalarIR.SharedLoad
+        local shared = scope.shared or {}
+        local counts = scope.sharedCounts or {}
+        holds(
+            scope.workgroup == true and scope.inPhase == true and shared[load.shared] == load.type,
+            "invalid workgroup scratch read"
+        )
+        holds(load.index.type == "u32", "workgroup scratch index is not uint32")
+        local function indexRange(value: scalarIR.Expr): (number?, number?)
+            local operation = value.op
+            if operation == "constant" or operation == "constant_i32" then
+                local constant = tonumber((value as any).value)
+                if constant ~= nil and constant == math.floor(constant as number) and constant >= 0 then
+                    return constant, constant
+                end
+            elseif operation == "local_index" then
+                local count = counts[load.shared]
+                if count ~= nil then
+                    return 0, count - 1
+                end
+            elseif operation == "numeric_cast" or operation == "int_to_f64" then
+                return indexRange((value as scalarIR.Convert).value)
+            elseif operation == "u32_add" or operation == "u32_mul" then
+                local pair = value as scalarIR.Fixed
+                local leftMin, leftMax = indexRange(pair.left)
+                local rightMin, rightMax = indexRange(pair.right)
+                if leftMin ~= nil and leftMax ~= nil and rightMin ~= nil and rightMax ~= nil then
+                    local low = operation == "u32_add" and (
+                        leftMin as number
+                    ) + (rightMin as number) or (leftMin as number) * (rightMin as number)
+                    local high = operation == "u32_add" and (
+                        leftMax as number
+                    ) + (rightMax as number) or (leftMax as number) * (rightMax as number)
+                    if high <= 4294967295 then
+                        return low, high
+                    end
+                end
+            elseif operation == "u32_div" or operation == "u32_mod" then
+                local pair = value as scalarIR.Fixed
+                local leftMin, leftMax = indexRange(pair.left)
+                local rightMin, rightMax = indexRange(pair.right)
+                if leftMin ~= nil and leftMax ~= nil and rightMin ~= nil and rightMin == rightMax and rightMin > 0 then
+                    if operation == "u32_div" then
+                        return math.floor(
+                            (leftMin as number) / (rightMin as number)
+                        ), math.floor((leftMax as number) / (rightMin as number))
+                    end
+                    return 0, math.min(leftMax as number, (rightMin as number) - 1)
+                end
+            end
+
+            return nil, nil
+        end
+
+        local minimum, maximum = indexRange(load.index)
+        local constant = load.index.op == "constant_i32" and tonumber((load.index as scalarIR.IntConstant).value) or nil
+        local offset: number? = nil
+        if load.index.op == "u32_add" then
+            local added = load.index as scalarIR.Fixed
+            if added.left.op == "local_index" and added.right.op == "constant_i32" then
+                offset = tonumber((added.right as scalarIR.IntConstant).value)
+            end
+        end
+        holds(
+            load.index.op == "local_index" or constant ~= nil and constant >= 0 and constant < counts[
+                load.shared
+            ] or minimum ~= nil and maximum ~= nil and minimum >= 0 and maximum < counts[
+                load.shared
+            ] or offset ~= nil and scope.localReadLimit ~= nil and offset >= 0 and (
+                scope.localReadLimit as integer
+            ) + offset <= counts[load.shared],
+            "workgroup scratch read is not proved in bounds"
+        )
+        scalarWalk(load.index, values, scope)
     elseif op == "local" or op == "helper_param" then
         local named = node as scalarIR.Name
         holds(values[named.name] == node.type, "invalid local value")
@@ -1557,9 +1648,10 @@ local function block(
     statements: {scalarIR.Statement},
     inherited: {[string]: string},
     scope: verify.Scope,
-    stored: {[string]: boolean}
+    stored: {[string]: boolean},
+    sameScope: boolean?
 ): nil
-    local values = inherit(inherited)
+    local values = sameScope == true and inherited or inherit(inherited)
     for _, statement in ipairs(statements) do
         effects.statement(tostring(statement.op))
         if statement.op == "let" then
@@ -1624,6 +1716,129 @@ local function block(
             scalarWalk(statement.value, values, scope)
             holds(statement.value.type == (scope.spans[statement.span] as scalarIR.Param).type, "store type mismatch")
             stored[statement.span] = true
+        elseif statement.op == "shared_store" then
+            local write = statement as scalarIR.SharedStore
+            local shared = scope.shared or {}
+            holds(
+                scope.workgroup == true and scope.inPhase == true and shared[
+                    write.shared
+                ] == write.value.type and write.index.op == "local_index" and write.index.type == "u32",
+                "invalid structurally disjoint workgroup scratch write"
+            )
+            scalarWalk(write.index, values, scope)
+            scalarWalk(write.value, values, scope)
+        elseif statement.op == "phase" then
+            holds(scope.workgroup == true and scope.inPhase ~= true, "nested workgroup phase")
+            local phase = statement as scalarIR.Phase
+            local written: {[string]: boolean} = {}
+            local crossRead: {[string]: boolean} = {}
+            local inspectExpression: function(scalarIR.Expr): nil
+            inspectExpression = function(value: scalarIR.Expr): nil
+                if value.op == "shared_load" then
+                    local load = value as scalarIR.SharedLoad
+                    if load.index.op ~= "local_index" then
+                        crossRead[load.shared] = true
+                    end
+                end
+                visit.expressionChildren(value, function(child: scalarIR.Expr): scalarIR.Expr
+                    inspectExpression(child)
+                    return child
+                end)
+            end
+            local inspectBlock: function({scalarIR.Statement}): nil
+            inspectBlock = function(body: {scalarIR.Statement}): nil
+                for _, nested in ipairs(body) do
+                    if nested.op == "shared_store" then
+                        written[(nested as scalarIR.SharedStore).shared] = true
+                    end
+                    visit.statementExpressions(nested, function(value: scalarIR.Expr): scalarIR.Expr
+                        inspectExpression(value)
+                        return value
+                    end)
+                    if nested.op == "if" then
+                        for _, clause in ipairs((nested as scalarIR.If).clauses) do
+                            inspectBlock(clause.body)
+                        end
+                        inspectBlock((nested as scalarIR.If).elseBody or {})
+                    elseif nested.op == "while" or nested.op == "fornum" or nested.op == "block" then
+                        inspectBlock((nested as any).body as {scalarIR.Statement})
+                    end
+                end
+            end
+            inspectBlock(phase.body)
+
+            local function fixedTreeShared(): string?
+                if #phase.body ~= 1 or phase.body[1].op ~= "if" then
+                    return nil
+                end
+                local branch = phase.body[1] as scalarIR.If
+                if #branch.clauses ~= 1 or branch.elseBody ~= nil or #branch.clauses[1].body ~= 1 then
+                    return nil
+                end
+                local condition = branch.clauses[1].condition
+                local write = branch.clauses[1].body[1]
+                if condition.op ~= "lt" or write.op ~= "shared_store" then
+                    return nil
+                end
+                local compared = condition as scalarIR.Binary
+                local storedValue = write as scalarIR.SharedStore
+                if compared.left.op ~= "local_index"
+                    or compared.right.op ~= "constant_i32"
+                    or storedValue.index.op ~= "local_index"
+                    or storedValue.value.op ~= "f32_add"
+                then
+                    return nil
+                end
+                local stride = (compared.right as scalarIR.IntConstant).value
+                local sum = storedValue.value as scalarIR.Fixed
+                if sum.left.op ~= "shared_load" or sum.right.op ~= "shared_load" then
+                    return nil
+                end
+                local left = sum.left as scalarIR.SharedLoad
+                local right = sum.right as scalarIR.SharedLoad
+                if left.shared ~= storedValue.shared
+                    or right.shared ~= storedValue.shared
+                    or left.index.op ~= "local_index"
+                    or right.index.op ~= "u32_add"
+                then
+                    return nil
+                end
+                local added = right.index as scalarIR.Fixed
+                if added.left.op ~= "local_index" or added.right.op ~= "constant_i32" or (
+                    added.right as scalarIR.IntConstant
+                ).value ~= stride then
+                    return nil
+                end
+
+                return storedValue.shared
+            end
+
+            local collective = fixedTreeShared()
+            for name in pairs(written) do
+                holds(
+                    crossRead[name] ~= true or collective == name,
+                    "ordinary workgroup phase has a cross-lane scratch race"
+                )
+            end
+            local nestedScope = new verify.Scope(
+                spans = scope.spans,
+                layouts = scope.layouts,
+                helpers = scope.helpers,
+                writes = scope.writes,
+                index = scope.index,
+                boundSpan = scope.boundSpan,
+                mapIndex = scope.mapIndex,
+                indexSpans = scope.indexSpans,
+                cursorBounds = {},
+                resultTypes = scope.resultTypes,
+                entryMode = scope.entryMode,
+                builderMode = scope.builderMode,
+                workgroup = true,
+                inPhase = true,
+                shared = scope.shared,
+                sharedCounts = scope.sharedCounts
+            )
+            block(phase.body, values, nestedScope, stored)
         elseif statement.op == "lua_set_index" or statement.op == "lua_set_key" then
             local write = statement as scalarIR.LuaSet
             holds(scope.entryMode == "lua-builder", "Lua write outside a builder")
@@ -1917,7 +2132,22 @@ local function block(
                     cursorBounds = cursorBounds,
                     resultTypes = scope.resultTypes,
                     entryMode = scope.entryMode,
-                    builderMode = scope.builderMode
+                    builderMode = scope.builderMode,
+                    workgroup = scope.workgroup,
+                    inPhase = scope.inPhase,
+                    shared = scope.shared,
+                    sharedCounts = scope.sharedCounts,
+                    localReadLimit = (function(): integer?
+                        local condition = clause.condition
+                        if condition.op == "lt" then
+                            local comparison = condition as scalarIR.Binary
+                            if comparison.left.op == "local_index" and comparison.right.op == "constant_i32" then
+                                return tonumber((comparison.right as scalarIR.IntConstant).value) as integer?
+                            end
+                        end
+
+                        return scope.localReadLimit
+                    end)()
                 )
                 block(clause.body, values, nestedScope, stored)
                 for name in pairs(scope.cursorBounds) do
@@ -1952,7 +2182,12 @@ local function block(
                 cursorBounds = scope.cursorBounds,
                 resultTypes = scope.resultTypes,
                 entryMode = scope.entryMode,
-                builderMode = scope.builderMode
+                builderMode = scope.builderMode,
+                workgroup = scope.workgroup,
+                inPhase = scope.inPhase,
+                shared = scope.shared,
+                sharedCounts = scope.sharedCounts,
+                localReadLimit = scope.localReadLimit
             )
             if statement.boundSpan ~= nil then
                 holds(
@@ -2003,7 +2238,12 @@ local function block(
                 cursorBounds = cursorBounds,
                 resultTypes = scope.resultTypes,
                 entryMode = scope.entryMode,
-                builderMode = scope.builderMode
+                builderMode = scope.builderMode,
+                workgroup = scope.workgroup,
+                inPhase = scope.inPhase,
+                shared = scope.shared,
+                sharedCounts = scope.sharedCounts,
+                localReadLimit = scope.localReadLimit
             )
             block(statement.body, values, nestedScope, stored)
             local invalidated: {string} = {}
@@ -2630,7 +2870,48 @@ function verify.program(program: scalarIR.Program): scalarIR.Program
 
     local loop = program.loop
     local body = program.body
-    holds((loop ~= nil) ~= (body ~= nil), "an AOT program needs exactly one body form")
+    local workgroup = program.workgroup
+    local forms = (loop ~= nil and 1 or 0) + (body ~= nil and 1 or 0) + (workgroup ~= nil and 1 or 0)
+    holds(
+        forms == 1,
+        "an AOT program needs exactly one body form: " .. tostring(
+            loop ~= nil
+        ) .. "/" .. tostring(body ~= nil) .. "/" .. tostring(workgroup ~= nil)
+    )
+    local sharedTypes: {[string]: scalarIR.Type}? = nil
+    local sharedCounts: {[string]: integer}? = nil
+    if workgroup ~= nil then
+        local phased = workgroup as scalarIR.Workgroup
+        holds(
+            program.executionTarget == "gpu"
+            and program.entryMode == "kernel"
+            and phased.size >= 1
+            and phased.size <= 256
+            and phased.groups.type == "u32"
+            and byName[
+                phased.dispatchSpan
+            ] ~= nil,
+            "invalid GPU workgroup contract"
+        )
+        local scratchTypes: {[string]: scalarIR.Type} = {}
+        local scratchCounts: {[string]: integer} = {}
+        sharedTypes = scratchTypes
+        sharedCounts = scratchCounts
+        local scratchBytes = 0
+        for _, scratch in ipairs(phased.shared) do
+            local unique = scratchTypes[scratch.name] == nil
+            local physical = scratch.element == "f32" or scratch.element == "i32" or scratch.element == "u32"
+            local initialized = scratch.initial.type == scratch.element
+            holds(
+                unique and physical and initialized and scratch.count == phased.size,
+                "invalid workgroup scratch declaration"
+            )
+            scratchTypes[scratch.name] = scratch.element
+            scratchCounts[scratch.name] = scratch.count
+            scratchBytes = scratchBytes + scratch.count * 4
+        end
+        holds(scratchBytes <= 16384, "workgroup scratch exceeds the portable limit")
+    end
     local resultTypes = program.resultTypes or {}
     local sourceResults = program.resultSourceTypes or {}
     holds(#resultTypes == #sourceResults and #resultTypes <= 4, "invalid AOT entry results")
@@ -2648,7 +2929,7 @@ function verify.program(program: scalarIR.Program): scalarIR.Program
         )
     end
     if program.usesSimd == true then
-        holds(body ~= nil and loop == nil, "explicit SIMD requires a block kernel")
+        holds(body ~= nil and loop == nil and workgroup == nil, "explicit SIMD requires a block kernel")
         holds(program.simdWidth == nil or program.simdWidth == 16 or program.simdWidth == 32, "invalid SIMD width")
     else
         holds(program.simdWidth == nil, "a scalar program carries a SIMD width")
@@ -2675,7 +2956,11 @@ function verify.program(program: scalarIR.Program): scalarIR.Program
         cursorBounds = {},
         resultTypes = resultTypes,
         entryMode = program.entryMode,
-        builderMode = program.builderMode
+        builderMode = program.builderMode,
+        workgroup = workgroup ~= nil,
+        inPhase = false,
+        shared = sharedTypes,
+        sharedCounts = sharedCounts
     )
     helperBodies(program, scope)
 
@@ -2707,8 +2992,18 @@ function verify.program(program: scalarIR.Program): scalarIR.Program
     )
 
     local stored: {[string]: boolean} = {}
-    block(loop ~= nil and (loop as scalarIR.Loop).statements or body or {}, uniforms, scope, stored)
-    if loop ~= nil then
+    if workgroup ~= nil then
+        local phased = workgroup as scalarIR.Workgroup
+        block(phased.prelude, uniforms, scope, stored, true)
+        scalarWalk(phased.groups, uniforms, scope)
+        for _, scratch in ipairs(phased.shared) do
+            scalarWalk(scratch.initial, uniforms, scope)
+        end
+        block(phased.statements, uniforms, scope, stored, true)
+    else
+        block(loop ~= nil and (loop as scalarIR.Loop).statements or body or {}, uniforms, scope, stored)
+    end
+    if loop ~= nil or workgroup ~= nil then
         for output in pairs(writes) do
             if (byName[output] as scalarIR.Param).type:match("^struct:") == nil then
                 holds(stored[output] == true, "scalar IR output is never stored")

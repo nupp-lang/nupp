@@ -40,6 +40,8 @@ local STATEMENTS: {
     multi_let = true,
     assign = true,
     store = true,
+    shared_store = true,
+    phase = true,
     lua_set_index = true,
     lua_set_key = true,
     lua_string_buffer_append = true,
@@ -186,6 +188,10 @@ function loops.program(program: scalarIR.Program): {loops.Report}
             outcome,
             outcome == "refused" and "map loop wanted lanes but its body was not lowerable" or nil
         )
+    elseif program.workgroup ~= nil then
+        local workgroup = program.workgroup as scalarIR.Workgroup
+        structured(workgroup.prelude, reports)
+        structured(workgroup.statements, reports)
     else
         structured(program.body or {}, reports)
     end

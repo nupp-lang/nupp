@@ -122,20 +122,20 @@ through proved cursors and a loop-indexed access is refused at lowering with a
 source position. The CPU and GPU kernels consume the same verified scalar IR;
 the benchmark reports their current measurements after an element-exact check.
 
-`run-tiled-gemm.sh` is the implementation spike behind Draft NEP 26. It reaches
-the private native ABI to compare a handwritten 16x16 workgroup-phase MSL
-kernel with the generated naive kernel and the CPU AOT body; it is not a second
-public shader surface. Every 512x512 and 1024x1024 result agreed exactly. On the
-same Apple M5 Pro run, 512 cubed measured 0.780 ms tiled versus 0.819 ms naive,
-while 1024 cubed measured 4.581 ms tiled versus 4.416 ms naive. The phase model
-is feasible and exact, but tiling is not a portable speedup promise.
+`run-tiled-gemm.sh` exercises the implemented structured-workgroup surface from
+NEP 26. Both the 16x16 tiled kernel and the naive kernel are ordinary
+`@aot(target = "gpu")` functions with generated bindings; neither benchmark
+embeds shader source or reaches the private native ABI. Every result agrees
+exactly with the CPU AOT body. One Apple M5 Pro run at 512 cubed measured 0.467
+ms tiled versus 0.809 ms naive, or 575 versus 332 GFLOP/s. The phase model is
+feasible and exact, but tiling is not a portable speedup promise.
 
 `run-fixed-tree-reduction.sh` exercises the same proposal's reduction shape:
 two declared 256-lane trees reduce the polynomial exponential of 65,536
 values, one halving phase at a time. The CPU control executes the identical
-stage order. Both produced exactly `4317.14941`; Metal took 178.375 us, or
-367.41 million input values per second. There is no unordered or atomic
-variant.
+stage order through two generated public kernels. Both produced exactly
+`4317.14941`; one Metal run took 163.031 us, or 401.98 million input values per
+second. There is no unordered or atomic variant.
 
 `run-tiny-transformer.sh` is the retained resident-tensor integration. One
 `6x64` allocation supplies allocation-free Q, K, V, score, probability, and

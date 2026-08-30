@@ -463,11 +463,27 @@ The Wasm policies refuse GPU IR, and `aot = "off"` or `emit-c` retain the
 ordinary function value. `nupp aot --emit spirv FILE` writes the canonical
 binary module and `--emit msl` prints its Metal derivative.
 
-The current GPU subset is one complete-span map with fixed-width elements, any
-number of proved read and write spans, and up to 128 bytes of fixed-width scalar
-uniforms, written as a local function declaration. Uploads and downloads remain
-explicit, so several generated bindings can share resident buffers without an
-intermediate CPU copy.
+The GPU subset has two entry shapes. A complete-span map assigns one invocation
+to every element. A structured workgroup entry ends in
+`gpu.workgroups(groups, size, controller)`: `controller` allocates statically
+sized scratch with `phases:scratch` and divides execution into immediate
+`phases:run` callbacks. On CPU each callback runs for local indices zero through
+`size - 1` before the next callback begins; on GPU the boundary is a workgroup
+execution-and-memory barrier.
+
+Generated workgroups admit at most 256 lanes and 16 KiB of fixed-width scratch.
+Every scratch write is exactly `shared[localIndex]`, so writes are structurally
+disjoint. A later phase may read an index whose full uint32 range is statically
+proved inside the allocation; a phase may only read the scratch it also writes
+at its own local index. `phases:reduceSumF32(shared)` is the compiler-owned
+exception: it expands into a fixed, left-before-right power-of-two tree whose
+stage order is identical on CPU and GPU. There is no unordered or atomic
+reduction.
+
+Both shapes accept any number of proved read and write spans and up to 128 bytes
+of fixed-width scalar uniforms in a local function declaration. Uploads and
+downloads remain explicit, so several generated bindings can share resident
+buffers without an intermediate CPU copy.
 
 ## Contracts in type position
 

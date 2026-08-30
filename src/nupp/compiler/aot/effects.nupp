@@ -65,6 +65,8 @@ local PURE_OPS: {
     helper_param = true,
     span_count = true,
     loop_index = true,
+    workgroup_index = true,
+    local_index = true,
     add = true,
     sub = true,
     mul = true,
@@ -181,7 +183,9 @@ local PURE_OPS: {
     simd_mask64_clear_first = true,
 }
 
-local NATIVE_READ_OPS: {[string]: boolean} = {load = true, element_ref = true, field_load = true, simd_load_u8 = true,}
+local NATIVE_READ_OPS: {
+    [string]: boolean
+} = {load = true, element_ref = true, field_load = true, shared_load = true, simd_load_u8 = true,}
 
 local LUA_READ_OPS: {
     [string]: boolean
@@ -260,7 +264,7 @@ local LUA_MUTATE_OPS: {
     lua_scratch_u8_reset = true,
 }
 
-local NATIVE_WRITE_OPS: {[string]: boolean} = {store = true, assign = true,}
+local NATIVE_WRITE_OPS: {[string]: boolean} = {store = true, assign = true, shared_store = true,}
 
 local STATEMENT_LUA_MUTATE_OPS: {
     [string]: boolean
@@ -303,6 +307,7 @@ local CONTROL_OPS: {
     ["break"] = true,
     ["continue"] = true,
     ["return"] = true,
+    phase = true,
 }
 
 --- Classifies one expression opcode. Unknown means compiler bug, never pure.

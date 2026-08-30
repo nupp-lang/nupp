@@ -456,6 +456,146 @@ return {coordinates = coordinates, coordinatesCpu = coordinatesCpu}
     assert(c:find("(i + 1u)", 1, true), c)
 end
 
+local GPU_PHASE_DECLARATIONS = [[
+module nupp.gpu
+
+export record Shared<T>
+    readonly count: integer
+    metamethod __len: function(borrows self: Shared<T>): integer
+    metamethod __index: function(borrows self: Shared<T>, index: integer): T
+    metamethod __newindex: function(exclusive self: Shared<T>, index: integer, value: T): nil
+end
+
+export record Phases
+    scratch: function<T>(borrows self: Phases, initial: T, count: integer): Shared<T>
+    run: function(borrows self: Phases, scoped stage: function(uint32): nil): nil
+    reduceSumF32: function(borrows self: Phases, exclusive values: Shared<float>): nil
+end
+
+export const workgroups: function(
+    groups: uint32,
+    size: uint32,
+    scoped controller: function(uint32, Phases): nil
+)
+]]
+
+function M.gpuTargetEmitsStructuredWorkgroupPhasesAndFixedTreeReduction()
+    local dir = project({
+        ["nupp/gpu.d.nupp"] = GPU_PHASE_DECLARATIONS,
+        ["reduce.nupp"] = [[
+local gpu = require("nupp.gpu")
+local span = require("nupp.mem.span")
+
+@aot(target = "gpu")
+local function reduce(
+    exclusive output: span.WriteSpan<float>,
+    borrows input: span.Span<float>
+): nil
+    local zero = nupp.math.f32.narrow(0.0)
+    local groups = nupp.math.u32.div(nupp.math.u32.wrap(#input), nupp.math.u32.wrap(4))
+    gpu.workgroups(groups, 4, function(groupIndex: uint32, phases: gpu.Phases)
+        local values = phases:scratch(zero, 4)
+        phases:run(function(localIndex: uint32)
+            local cursor = nupp.math.u32.add(
+                nupp.math.u32.mul(groupIndex, nupp.math.u32.wrap(4)),
+                localIndex
+            )
+            if cursor < #input then
+                values[localIndex] = nupp.math.f32.narrow(input[cursor + 1])
+            else
+                values[localIndex] = nupp.math.f32.narrow(0.0)
+            end
+        end)
+        phases:reduceSumF32(values)
+        phases:run(function(localIndex: uint32)
+            if localIndex == nupp.math.u32.wrap(0) and groupIndex < #output then
+                output[groupIndex + 1] = values[0]
+            end
+        end)
+    end)
+end
+return {reduce = reduce}
+]],
+    })
+    local shader, shaderCode = run(dir, "--emit msl reduce.nupp")
+    test.equal(shaderCode, 0, shader)
+    assert(shader:find("threadgroup spvUnsafeArray<float, 4> values", 1, true), shader)
+    assert(shader:find("gl_WorkGroupID.x", 1, true), shader)
+    assert(shader:find("gl_LocalInvocationID.x + 2u", 1, true), shader)
+    local _, barriers = shader:gsub("threadgroup_barrier%(mem_flags::mem_threadgroup%)", "")
+    assert(barriers == 5, shader)
+
+    local spirv, spirvCode = run(dir, "--emit spirv reduce.nupp")
+    test.equal(spirvCode, 0, spirv)
+    test.equal(spirv:sub(1, 4), "\3\2#\7")
+
+    local binding, bindingCode = run(dir, "--emit binding reduce.nupp")
+    test.equal(bindingCode, 0, binding)
+    assert(binding:find("bindKernel(self._kernel, input.count)", 1, true), binding)
+    assert(binding:find("raw:setRead(0, input, false)", 1, true), binding)
+    assert(binding:find(", 4)", 1, true), binding)
+end
+
+function M.gpuTargetRefusesNonDisjointWorkgroupScratchWrites()
+    local dir = project({
+        ["nupp/gpu.d.nupp"] = GPU_PHASE_DECLARATIONS,
+        ["bad-phase.nupp"] = [[
+local gpu = require("nupp.gpu")
+local span = require("nupp.mem.span")
+
+@aot(target = "gpu")
+local function bad(exclusive output: span.WriteSpan<float>): nil
+    local groups = nupp.math.u32.div(nupp.math.u32.wrap(#output), nupp.math.u32.wrap(4))
+    gpu.workgroups(groups, 4, function(groupIndex: uint32, phases: gpu.Phases)
+        local values = phases:scratch(nupp.math.f32.narrow(0.0), 4)
+        phases:run(function(localIndex: uint32)
+            values[nupp.math.u32.add(localIndex, nupp.math.u32.wrap(1))] = nupp.math.f32.narrow(0.0)
+        end)
+    end)
+end
+
+return {bad = bad}
+]],
+    })
+    local shader, code = run(dir, "--emit msl bad-phase.nupp")
+    assert(code ~= 0, shader)
+    assert(shader:find("shared scratch writes must use exactly localIndex", 1, true), shader)
+end
+
+function M.gpuTargetRefusesSamePhaseCrossLaneScratchRace()
+    local dir = project({
+        ["nupp/gpu.d.nupp"] = GPU_PHASE_DECLARATIONS,
+        ["racy-phase.nupp"] = [[
+local gpu = require("nupp.gpu")
+local span = require("nupp.mem.span")
+
+@aot(target = "gpu")
+local function racy(exclusive output: span.WriteSpan<float>): nil
+    local groups = nupp.math.u32.div(nupp.math.u32.wrap(#output), nupp.math.u32.wrap(4))
+    gpu.workgroups(groups, 4, function(groupIndex: uint32, phases: gpu.Phases)
+        local values = phases:scratch(nupp.math.f32.narrow(0.0), 4)
+        phases:run(function(localIndex: uint32)
+            values[localIndex] = nupp.math.f32.narrow(1.0)
+        end)
+        phases:run(function(localIndex: uint32)
+            values[localIndex] = nupp.math.f32.narrow(values[nupp.math.u32.mod(
+                nupp.math.u32.add(localIndex, nupp.math.u32.wrap(1)), nupp.math.u32.wrap(4))])
+        end)
+        phases:run(function(localIndex: uint32)
+            if localIndex == nupp.math.u32.wrap(0) and groupIndex < #output then
+                output[groupIndex + 1] = values[0]
+            end
+        end)
+    end)
+end
+return {racy = racy}
+]],
+    })
+    local shader, code = run(dir, "--emit msl racy-phase.nupp")
+    assert(code ~= 0, shader)
+    assert(shader:find("cannot read another lane", 1, true), shader)
+end
+
 -- A guardless GPU map may only reach an unguarded span through proved cursors.
 -- A dispatch-indexed read of one has no proof anywhere -- no guard host-side,
 -- no dominating check in the shader -- so the entry is refused at the source.

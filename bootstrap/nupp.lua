@@ -5624,6 +5624,8 @@ uniform = true ,
 helper_param = true ,
 span_count = true ,
 loop_index = true ,
+workgroup_index = true ,
+local_index = true ,
 add = true ,
 sub = true ,
 mul = true ,
@@ -5740,7 +5742,9 @@ simd_mask64_first = true ,
 simd_mask64_clear_first = true ,
 }
 
-local NATIVE_READ_OPS = { load = true , element_ref = true , field_load = true , simd_load_u8 = true , }
+local NATIVE_READ_OPS
+
+= { load = true , element_ref = true , field_load = true , shared_load = true , simd_load_u8 = true , }
 
 local LUA_READ_OPS
 
@@ -5819,7 +5823,7 @@ simd_store4_u8 = true ,
 lua_scratch_u8_reset = true ,
 }
 
-local NATIVE_WRITE_OPS = { store = true , assign = true , }
+local NATIVE_WRITE_OPS = { store = true , assign = true , shared_store = true , }
 
 local STATEMENT_LUA_MUTATE_OPS
 
@@ -5862,6 +5866,7 @@ block = true ,
 [ "break" ] = true ,
 [ "continue" ] = true ,
 [ "return" ] = true ,
+phase = true ,
 }
 
 
@@ -13216,15 +13221,27 @@ end
 
 function gpuemit . program ( program ) 
 assert ( program . executionTarget == "gpu" , "GPU emission requires @aot(target = \"gpu\")" )
-assert ( program . entryMode == "kernel" and program . loop ~= nil , "GPU entry must be a map kernel" )
 local loop = program . loop
-assert ( loop . first == 1 and loop . last == loop . count , "GPU entry must dispatch one complete span" )
+local workgroup = program . workgroup
+assert (
+program . entryMode == "kernel" and ( ( loop ~= nil ) ~= ( workgroup ~= nil ) ) ,
+"GPU entry must be a map or phased workgroup kernel"
+)
+if loop ~= nil then
+assert (
+( loop ) . first == 1 and ( loop ) . last == ( loop ) . count ,
+"GPU entry must dispatch one complete span"
+)
+end
 
 
 
 
 
-local exactCounts = { [ loop . count ] = true }
+local exactCounts = { }
+if loop ~= nil then
+exactCounts [ ( loop ) . count ] = true
+end
 for _ , guard in ipairs ( program . guards ) do
 exactCounts [ guard . left ] = true
 exactCounts [ guard . right ] = true
@@ -13235,7 +13252,10 @@ if value . cursor ~= nil then
 index = identifier ( value . cursorCName )
 return "[uniforms." .. identifier ( value . span ) .. "_offset + " .. index .. "]"
 end
-assert ( value . index == loop . index , "only the dispatch index or a proved cursor may address a GPU span" )
+assert (
+loop ~= nil and value . index == ( loop ) . index ,
+"only the dispatch index or a proved cursor may address a GPU span"
+)
 assert (
 exactCounts [ value . span ] == true ,
 "a dispatch-indexed GPU span must be the loop bound or guarded equal to it: " .. tostring ( value . span )
@@ -13253,6 +13273,12 @@ elseif op == "uniform" then
 return "uniforms." .. identifier ( value . name )
 elseif op == "loop_index" then
 return "(dispatch_index + 1u)"
+elseif op == "workgroup_index" then
+return "group_index"
+elseif op == "local_index" then
+return "local_index"
+elseif op == "shared_load" then
+return identifier ( value . shared ) .. "[" .. expression ( value . index ) .. "]"
 elseif op == "load" then
 return identifier ( value . span ) .. provenSpanIndex ( value )
 elseif op == "element_ref" then
@@ -13367,6 +13393,16 @@ identifier (
 statement . span
 ) .. provenSpanIndex ( statement ) .. " = " .. expression ( statement . value ) .. ";"
 )
+elseif op == "shared_store" then
+line (
+depth ,
+identifier (
+statement . shared
+) .. "[" .. expression ( statement . index ) .. "] = " .. expression ( statement . value ) .. ";"
+)
+elseif op == "phase" then
+statements ( statement . body , depth )
+line ( depth , "threadgroup_barrier(mem_flags::mem_threadgroup);" )
 elseif op == "while" then
 line ( depth , "while (" .. expression ( statement . condition ) .. ") {" )
 statements ( statement . body , depth + 1 )
@@ -13567,16 +13603,36 @@ metalStorage ( param . type , param . sourceType )
 ) .. "* " .. identifier ( param . name ) .. " [[buffer(" .. tostring ( at ) .. ")]]"
 at = at + 1
 end
+if workgroup ~= nil then
+arguments [ # arguments + 1 ] = "uint group_index [[threadgroup_position_in_grid]]"
+arguments [ # arguments + 1 ] = "uint local_index [[thread_index_in_threadgroup]]"
+else
 arguments [ # arguments + 1 ] = "uint dispatch_index [[thread_position_in_grid]]"
+end
 for index , argument in ipairs ( arguments ) do
 line ( 1 , argument .. ( index < # arguments and "," or "" ) )
 end
 line ( 0 , ") {" )
+if workgroup ~= nil then
+statements ( ( workgroup ) . prelude , 1 )
+for _ , scratch in ipairs ( ( workgroup ) . shared ) do
+line (
+1 ,
+"threadgroup " .. tostring (
+metalType ( scratch . element )
+) .. " " .. identifier ( scratch . name ) .. "[" .. tostring ( scratch . count ) .. "];"
+)
+line ( 1 , identifier ( scratch . name ) .. "[local_index] = " .. expression ( scratch . initial ) .. ";" )
+end
+line ( 1 , "threadgroup_barrier(mem_flags::mem_threadgroup);" )
+statements ( ( workgroup ) . statements , 1 )
+else
 line ( 1 , "if (dispatch_index >= uniforms.count) return;" )
-statements ( loop . statements , 1 )
+statements ( ( loop ) . statements , 1 )
+end
 line ( 0 , "}" )
 
-local threads = 256
+local threads = workgroup ~= nil and ( workgroup ) . size or 256
 local spirv = spirvemit . program ( program , readonly , writable , uniforms , threads )
 
 return setmetatable({ source =
@@ -13588,7 +13644,9 @@ writable ,  uniforms =
 uniforms ,  uniformBytes =
 uniformBytes ,  threads =
 threads ,  countSpan =
-loop . count ,  exactCounts =
+workgroup ~= nil and (
+workgroup
+) . dispatchSpan or ( loop ) . count ,  exactCounts =
 exactCounts }, gpuemit.Artifact)
 
 end
@@ -15012,6 +15070,8 @@ let = true ,
 multi_let = true ,
 assign = true ,
 store = true ,
+shared_store = true ,
+phase = true ,
 lua_set_index = true ,
 lua_set_key = true ,
 lua_string_buffer_append = true ,
@@ -15158,6 +15218,10 @@ reports ,
 outcome ,
 outcome == "refused" and "map loop wanted lanes but its body was not lowerable" or nil
 )
+elseif program . workgroup ~= nil then
+local workgroup = program . workgroup
+structured ( workgroup . prelude , reports )
+structured ( workgroup . statements , reports )
 else
 structured ( program . body or { } , reports )
 end
@@ -15884,6 +15948,17 @@ lower.GuardForm = {} lower.GuardForm.__index = lower.GuardForm
 
 
 lower.Kernel = {} lower.Kernel.__index = lower.Kernel
+
+
+
+
+
+
+
+
+
+
+
 
 
 
@@ -17857,7 +17932,12 @@ end
 
 
 
-if bound . op == "constant" or bound . op == "constant_i32" or bound . op == "bool" then
+if bound . op == "constant"
+or bound . op == "constant_i32"
+or bound . op == "bool"
+or bound . op == "workgroup_index"
+or bound . op == "local_index"
+then
 return bound
 elseif bound . op == "lua_string" then
 markLua ( kernel , lower . site ( node ) )
@@ -17971,6 +18051,15 @@ lower . site ( node ) }, scalarIR.LuaNewTable)
 elseif kind == "unop" and ( node ) . op ~= nil then
 local operator = node
 local counted = lower . dotCount ( operator )
+local shared = counted ~= nil and environment [ counted ] or nil
+if shared ~= nil and shared . kind == "workgroup_shared" then
+return setmetatable({ op =
+"constant" ,  value =
+tostring ( shared . count ) ,  type =
+"f64" ,  source =
+lower . site ( node ) }, scalarIR.Constant)
+
+end
 local spanParam = counted ~= nil and kernel . params [ counted ] or nil
 if spanParam ~= nil and spanParam . region ~= nil then
 return setmetatable({ op =
@@ -18003,6 +18092,82 @@ elseif kind == "bracketIndex" then
 local indexed = node
 local tableName = lower . nameOf ( indexed . obj )
 local tableBinding = tableName ~= nil and environment [ tableName ] or nil
+if tableBinding ~= nil and tableBinding . kind == "workgroup_shared" then
+if kernel . inPhase ~= true then
+context . reject ( lower . site ( node ) , "workgroup scratch is read only inside phases:run" )
+end
+local index = lower . expression ( indexed . expr , environment , activeIndex , kernel )
+local function indexRange ( value ) 
+local op = value . op
+if op == "constant" or op == "constant_i32" then
+local constant = tonumber ( ( value ) . value )
+if constant ~= nil and constant == math . floor ( constant ) and constant >= 0 then
+return constant , constant
+end
+elseif op == "local_index" then
+return 0 , ( kernel . workgroupSize ) - 1
+elseif op == "numeric_cast" or op == "int_to_f64" then
+return indexRange ( ( value ) . value )
+elseif op == "u32_add" or op == "u32_mul" then
+local pair = value
+local leftMin , leftMax = indexRange ( pair . left )
+local rightMin , rightMax = indexRange ( pair . right )
+if leftMin ~= nil and leftMax ~= nil and rightMin ~= nil and rightMax ~= nil then
+local low = op == "u32_add" and (
+leftMin
+) + ( rightMin ) or ( leftMin ) * ( rightMin )
+local high = op == "u32_add" and (
+leftMax
+) + ( rightMax ) or ( leftMax ) * ( rightMax )
+if high <= 4294967295 then
+return low , high
+end
+end
+elseif op == "u32_div" or op == "u32_mod" then
+local pair = value
+local leftMin , leftMax = indexRange ( pair . left )
+local rightMin , rightMax = indexRange ( pair . right )
+if leftMin ~= nil
+and leftMax ~= nil
+and rightMin ~= nil
+and rightMin == rightMax
+and rightMin > 0
+then
+if op == "u32_div" then
+return math . floor (
+( leftMin ) / ( rightMin )
+) , math . floor ( ( leftMax ) / ( rightMin ) )
+end
+return 0 , math . min ( leftMax , ( rightMin ) - 1 )
+end
+end
+
+return nil , nil
+end
+
+local minimum , maximum = indexRange ( index )
+if minimum == nil or maximum == nil or minimum < 0 or maximum >= tableBinding . count then
+context . reject ( lower . site ( indexed . expr ) , "shared scratch read is not statically proved in bounds" )
+end
+if index . op == "constant" then
+index = setmetatable({ op =
+"constant_i32" ,  value =
+tostring ( minimum ) ,  type =
+"u32" ,  source =
+lower . site ( indexed . expr ) }, scalarIR.IntConstant)
+
+end
+return widenLoad ( setmetatable({ op =
+
+"shared_load" ,  shared =
+tableName ,  index =
+index ,  type =
+tableBinding . element ,  source =
+lower . site ( node ) }, scalarIR.SharedLoad)
+,
+lower . site ( node )
+)
+end
 if tableBinding ~= nil and tableBinding . type == "lua_table" then
 local key = lower . expression ( indexed . expr , environment , activeIndex , kernel )
 if key . type ~= "f64" and key . type ~= "i32" and key . type ~= "u32" then
@@ -18427,14 +18592,14 @@ end
 local leftValue = left
 local rightValue = right
 
-local __nuppT50= binary . op ;local __nuppT51;
-if  __nuppT50== "eq"  then  __nuppT51= leftValue == rightValue
-elseif  __nuppT50== "ne"  then  __nuppT51= leftValue ~= rightValue
-elseif  __nuppT50== "lt"  then  __nuppT51= leftValue < rightValue
-elseif  __nuppT50== "le"  then  __nuppT51= leftValue <= rightValue
-elseif  __nuppT50== "gt"  then  __nuppT51= leftValue > rightValue
-else  __nuppT51= leftValue >= rightValue
-end; return __nuppT51
+local __nuppT51= binary . op ;local __nuppT52;
+if  __nuppT51== "eq"  then  __nuppT52= leftValue == rightValue
+elseif  __nuppT51== "ne"  then  __nuppT52= leftValue ~= rightValue
+elseif  __nuppT51== "lt"  then  __nuppT52= leftValue < rightValue
+elseif  __nuppT51== "le"  then  __nuppT52= leftValue <= rightValue
+elseif  __nuppT51== "gt"  then  __nuppT52= leftValue > rightValue
+else  __nuppT52= leftValue >= rightValue
+end; return __nuppT52
 end
 
 
@@ -18804,6 +18969,42 @@ local exprs = stat . exprs or { }
 if # names == 0 or # exprs == 0 then
 context . reject ( lower . site ( stat ) , "native locals must be initialized" )
 end
+if kernel . phasesName ~= nil and # names == 1 and # exprs == 1 and exprs [ 1 ] . kind == "methodCall" then
+local call = exprs [ 1 ]
+local args = call . args ~= nil and ( ( call . args ) . exprs or { } ) or { }
+if lower . nameOf (
+call . obj
+) == kernel . phasesName and call . name ~= nil and ( call . name ) . text == "scratch" then
+if # args ~= 2 then
+context . reject ( lower . site ( call ) , "phases:scratch takes an initial value and a static count" )
+end
+local token = cst . firstToken ( args [ 2 ] )
+local count = token ~= nil and tonumber ( ( token ) . text ) or nil
+if count == nil or count ~= math . floor ( count ) or count < 1 then
+context . reject ( lower . site ( args [ 2 ] ) , "workgroup scratch count must be a positive integer literal" )
+end
+local initial = lower . expression ( args [ 1 ] , environment , kernel . index , kernel )
+if initial . type ~= "f32" and initial . type ~= "i32" and initial . type ~= "u32" then
+context . reject ( lower . site ( args [ 1 ] ) , "workgroup scratch elements must be f32, int32, or uint32" )
+end
+local shared = setmetatable({ name =
+names [ 1 ] . text ,  element =
+initial . type ,  count =
+count ,  initial =
+initial ,  source =
+lower . site ( stat ) }, scalarIR.Shared)
+
+local byName = kernel . shared
+if byName [ names [ 1 ] . text ] ~= nil then
+context . reject ( lower . site ( stat ) , "workgroup scratch names may not be shadowed" )
+end
+byName [ names [ 1 ] . text ] = shared
+local ordered = kernel . sharedOrder
+ordered [ # ordered + 1 ] = shared
+environment [ names [ 1 ] . text ] = { kind = "workgroup_shared" , element = initial . type , count = count , }
+return
+end
+end
 if # names == 1 and # exprs == 1 and kernel . stringAccumulators [ names [ 1 ] . text ] then
 local initial = lower . expression ( exprs [ 1 ] , environment , kernel . index , kernel )
 if initial . type ~= "lua_string" then
@@ -19047,6 +19248,26 @@ local target = targets [ 1 ]
 local spanName = lower . nameOf ( target . obj )
 local output = spanName ~= nil and kernel . params [ spanName ] or nil
 local tableBinding = spanName ~= nil and environment [ spanName ] or nil
+if tableBinding ~= nil and tableBinding . kind == "workgroup_shared" then
+if kernel . inPhase ~= true then
+context . reject ( lower . site ( target ) , "workgroup scratch is written only inside phases:run" )
+end
+local index = lower . expression ( target . expr , environment , kernel . index , kernel )
+if index . op ~= "local_index" then
+context . reject ( lower . site ( target . expr ) , "shared scratch writes must use exactly localIndex" )
+end
+local value = lower . expression ( exprs [ 1 ] , environment , kernel . index , kernel )
+out [
+# out + 1
+] = setmetatable({ op =
+"shared_store" ,  shared =
+spanName ,  index =
+index ,  value =
+lower . convert ( value , tableBinding . element , lower . site ( stat ) , context ) ,  source =
+lower . site ( stat ) }, scalarIR.SharedStore)
+
+return
+end
 if tableBinding ~= nil and tableBinding . type == "lua_table" then
 local key = lower . expression ( target . expr , environment , kernel . index , kernel )
 if key . type ~= "f64" and key . type ~= "i32" and key . type ~= "u32" and key . type ~= "lua_string" then
@@ -19185,6 +19406,56 @@ end
 
 
 
+local function sharedPhaseCollision ( statements ) 
+local written = { }
+local crossRead = { }
+local inspectExpression
+inspectExpression = function ( value ) 
+if value . op == "shared_load" then
+local load = value
+if load . index . op ~= "local_index" then
+crossRead [ load . shared ] = true
+end
+end
+visit . expressionChildren ( value , function ( child ) 
+inspectExpression ( child )
+return child
+end )
+end
+local inspectBlock
+inspectBlock = function ( block ) 
+for _ , statement in ipairs ( block ) do
+if statement . op == "shared_store" then
+written [ ( statement ) . shared ] = true
+end
+visit . statementExpressions ( statement , function ( value ) 
+inspectExpression ( value )
+return value
+end )
+if statement . op == "if" then
+for _ , clause in ipairs ( ( statement ) . clauses ) do
+inspectBlock ( clause . body )
+end
+inspectBlock ( ( statement ) . elseBody or { } )
+elseif statement . op == "while" or statement . op == "fornum" or statement . op == "block" then
+inspectBlock ( ( statement ) . body )
+end
+end
+end
+inspectBlock ( statements )
+for name in pairs ( written ) do
+if crossRead [ name ] == true then
+return name
+end
+end
+
+return nil
+end
+
+
+
+
+
 
 function lower . block ( statements , environment , kernel ) 
 local context = kernel . context
@@ -19274,6 +19545,138 @@ if kind == "localStmt" then
 localStmt ( stat , out , environment , kernel )
 elseif kind == "callStmt" then
 local statement = stat
+local method = statement . expr ~= nil
+and statement . expr . kind == "methodCall"
+and statement . expr
+or nil
+local phaseMethod = method ~= nil and kernel . phasesName ~= nil and lower . nameOf (
+( method ) . obj
+) == kernel . phasesName and (
+method
+) . name ~= nil and ( ( method ) . name ) . text or nil
+if method ~= nil and phaseMethod == "reduceSumF32" then
+local args = (
+method
+) . args ~= nil and ( ( ( ( method ) . args ) . exprs or { } ) ) or { }
+local sharedName = # args == 1 and lower . nameOf ( args [ 1 ] ) or nil
+local shared = sharedName ~= nil and environment [ sharedName ] or nil
+local size = kernel . workgroupSize
+if shared == nil or shared . kind ~= "workgroup_shared" or shared . element ~= "f32" then
+context . reject ( lower . site ( method ) , "phases:reduceSumF32 takes one f32 scratch array" )
+end
+if size == nil or size < 1 or size & ( size - 1 ) ~= 0 then
+context . reject ( lower . site ( method ) , "fixed-tree reduction needs a power-of-two workgroup size" )
+end
+local stride = math.floor(( ( size ) ) / ( 2 ))
+while stride > 0 do
+local lane = setmetatable({ op =
+"local_index" ,  type =
+"u32" ,  source =
+lower . site ( method ) }, scalarIR.WorkgroupIndex)
+
+local offset = setmetatable({ op =
+"constant_i32" ,  value =
+tostring ( stride ) ,  type =
+"u32" ,  source =
+lower . site ( method ) }, scalarIR.IntConstant)
+
+local rightIndex = setmetatable({ op =
+"u32_add" ,  left =
+lane ,  right =
+offset ,  type =
+"u32" ,  source =
+lower . site ( method ) }, scalarIR.Fixed)
+
+local left = setmetatable({ op =
+"shared_load" ,  shared =
+sharedName ,  index =
+lane ,  type =
+"f32" ,  source =
+lower . site ( method ) }, scalarIR.SharedLoad)
+
+local right = setmetatable({ op =
+"shared_load" ,  shared =
+sharedName ,  index =
+rightIndex ,  type =
+"f32" ,  source =
+lower . site ( method ) }, scalarIR.SharedLoad)
+
+local write = setmetatable({ op =
+"shared_store" ,  shared =
+sharedName ,  index =
+lane ,  value =  setmetatable({ op =
+
+"f32_add" ,  left =
+left ,  right =
+right ,  type =
+"f32" ,  source =
+lower . site ( method ) }, scalarIR.Fixed) ,  source =
+
+lower . site ( method ) }, scalarIR.SharedStore)
+
+out [
+# out + 1
+] = setmetatable({ op =
+"phase" ,  body =
+{ setmetatable({ op =
+
+"if" ,  clauses =
+{ setmetatable({ condition =  setmetatable({ op =
+
+
+"lt" ,  left =
+lane ,  right =
+offset ,  type =
+"bool" ,  source =
+lower . site ( method ) }, scalarIR.Binary) ,  body =
+
+{ write } ,  source =
+lower . site ( method ) }, scalarIR.Clause)
+,
+} ,  source =
+lower . site ( method ) }, scalarIR.If)
+,
+} ,  source =
+lower . site ( stat ) }, scalarIR.Phase)
+
+stride = math.floor(( stride ) / ( 2 ))
+end
+elseif method ~= nil and phaseMethod == "run" then
+local args = (
+method
+) . args ~= nil and ( ( ( ( method ) . args ) . exprs or { } ) ) or { }
+if # args ~= 1 or args [ 1 ] . kind ~= "funcExpr" then
+context . reject ( lower . site ( method ) , "phases:run takes one immediate function" )
+end
+local callback = ( args [ 1 ] ) . body
+local params = callback ~= nil and ( callback ) . params or { }
+if callback == nil or # params ~= 1 or ( params [ 1 ] ) . name == nil then
+context . reject ( lower . site ( args [ 1 ] ) , "a phase callback takes exactly one localIndex parameter" )
+end
+local localName = ( ( params [ 1 ] ) . name ) . text
+local inner = inherit ( environment )
+inner [
+localName
+] = setmetatable({ op =  "local_index" ,  type =  "u32" ,  source =  lower . site ( params [ 1 ] ) }, scalarIR.WorkgroupIndex)
+local previousPhase , previousLocal = kernel . inPhase , kernel . localIndexName
+kernel . inPhase = true
+kernel . localIndexName = localName
+local callbackBlock = ( callback ) . body
+local lowered = lower . block (
+callbackBlock ~= nil and ( callbackBlock ) . stats or { } ,
+inner ,
+kernel
+)
+kernel . inPhase = previousPhase
+kernel . localIndexName = previousLocal
+if # lowered == 0 then
+context . reject ( lower . site ( args [ 1 ] ) , "a workgroup phase may not be empty" )
+end
+if sharedPhaseCollision ( lowered ) ~= nil then
+context . reject ( lower . site ( args [ 1 ] ) , "a phase cannot read another lane from scratch it also writes" )
+end
+out [ # out + 1 ] = setmetatable({ op =  "phase" ,  body =  lowered ,  source =  lower . site ( stat ) }, scalarIR.Phase)
+else
 local effect = lower . expression ( statement . expr , environment , kernel . index , kernel )
 if effect . type ~= "lua_effect"
 or tostring ( effect . op ) : match ( "^lua_builder_" ) == nil
@@ -19285,6 +19688,7 @@ and effect . op ~= "lua_scratch_u8_reset" then
 context . reject ( lower . site ( stat ) , "native element stores use output[index] = value" )
 end
 out [ # out + 1 ] = effect
+end
 elseif kind == "assignStmt" then
 assignStmt ( stat , out , environment , kernel )
 elseif kind == "ifStmt" then
@@ -20302,6 +20706,229 @@ resultSourceTypes [ position ] = sourceType
 end
 
 local statements = body . body ~= nil and ( body . body ) . stats or { }
+local workgroupCall = nil
+if contract . target == "gpu" and # statements >= 1 and statements [ # statements ] . kind == "callStmt" then
+local expression = ( statements [ # statements ] ) . expr
+if expression ~= nil and expression . kind == "call" then
+local candidate = expression
+local path = lower . dottedName ( candidate . obj )
+local root = path ~= nil and ( path ) : match ( "^([^.]+)%.workgroups$" ) or nil
+if root ~= nil and declarations . modules [ root ] == "nupp.gpu" then
+workgroupCall = candidate
+end
+end
+end
+
+if workgroupCall ~= nil then
+for index = 1 , # statements - 1 do
+if statements [ index ] . kind ~= "localStmt" then
+context . reject (
+lower . site ( statements [ index ] ) ,
+"only initialized scalar locals may precede gpu.workgroups"
+)
+end
+end
+if # resultTypes ~= 0 or # signature . writes == 0 then
+context . reject ( lower . site ( body ) , "a GPU workgroup entry returns nil and takes a writable span" )
+end
+local args = (
+workgroupCall
+) . args ~= nil and ( ( ( ( workgroupCall ) . args ) . exprs or { } ) ) or { }
+if # args ~= 3 or args [ 3 ] . kind ~= "funcExpr" then
+context . reject (
+lower . site ( workgroupCall ) ,
+"gpu.workgroups takes groups, a static size, and an immediate function"
+)
+end
+local sizeToken = cst . firstToken ( args [ 2 ] )
+local size = sizeToken ~= nil and tonumber ( ( sizeToken ) . text ) or nil
+if size == nil or size ~= math . floor ( size ) or size < 1 or size > 256 then
+context . reject ( lower . site ( args [ 2 ] ) , "GPU workgroup size must be an integer literal from 1 through 256" )
+end
+local controller = ( args [ 3 ] ) . body
+local controllerParams = controller ~= nil and ( controller ) . params or { }
+if controller == nil or # controllerParams ~= 2 or (
+controllerParams [ 1 ]
+) . name == nil or ( controllerParams [ 2 ] ) . name == nil then
+context . reject ( lower . site ( args [ 3 ] ) , "a workgroup controller takes groupIndex and phases" )
+end
+local groupName = ( ( controllerParams [ 1 ] ) . name ) . text
+local phasesName = ( ( controllerParams [ 2 ] ) . name ) . text
+local kernel = setmetatable({ params =
+signature . byName ,  layouts =
+layouts ,  helperDecls =
+declarations . helpers ,  entryDecls =
+declarations . entries ,  helpers =
+{ } ,  helperOrder =
+{ } ,  constantNames =
+{ } ,  scratchBounds =
+{ } ,  constantOrder =
+{ } ,  constantNumbers =
+declarations . constantNumbers ,  helperState =
+{ } ,  modules =
+declarations . modules ,  intrinsicAliases =
+declarations . intrinsicAliases ,  stringAccumulators =
+{ } ,  symbol =
+symbol ,  loopSource =
+lower . site ( workgroupCall ) ,  index =
+"" ,  indexCName =
+"" ,  mapEntry =
+false ,  resultTypes =
+{ } ,  cursorBounds =
+{ } ,  lengthBounds =
+{ } ,  scratchLengthBounds =
+{ } ,  phasesName =
+phasesName ,  workgroupSize =
+size ,  shared =
+{ } ,  sharedOrder =
+{ } ,  usesSimd =
+false ,  usesNumberToken =
+false ,  usesLua =
+false ,  serial =
+0 ,  context =
+context }, lower.Kernel)
+
+local environment = { }
+for position , param in ipairs ( signature . params ) do
+if param . kind == "uniform" or param . kind == "scalar" then
+if param . kind == "scalar" then
+( param ) . cName = tostring ( position )
+end
+environment [ param . name ] = param
+end
+end
+local prefix = { }
+for index = 1 , # statements - 1 do
+prefix [ index ] = statements [ index ]
+end
+local prelude = lower . block ( prefix , environment , kernel )
+local groups = lower . expression ( args [ 1 ] , environment , nil , kernel )
+if groups . op == "local" then
+for index = # prelude , 1 , - 1 do
+local statement = prelude [ index ]
+if statement . op == "let" and statement . cName == ( groups ) . cName then
+groups = ( statement ) . value
+break
+end
+end
+end
+if groups . type ~= "u32" then
+context . reject ( lower . site ( args [ 1 ] ) , "GPU workgroup count must be uint32" )
+end
+local numerator = groups . op == "u32_div" and ( groups ) . left or nil
+local divisor = groups . op == "u32_div" and ( groups ) . right or nil
+while numerator ~= nil and ( numerator . op == "numeric_cast" or numerator . op == "int_to_f64" ) do
+numerator = ( numerator ) . value
+end
+while divisor ~= nil and ( divisor . op == "numeric_cast" or divisor . op == "int_to_f64" ) do
+divisor = ( divisor ) . value
+end
+local divisorValue = divisor ~= nil and (
+divisor . op == "constant" or divisor . op == "constant_i32"
+) and tonumber ( ( divisor ) . value ) or nil
+if numerator == nil or numerator . op ~= "span_count" or divisorValue ~= size then
+context . reject ( lower . site ( args [ 1 ] ) , "GPU workgroup count must be u32.div(u32.wrap(#span), workgroupSize)" )
+end
+local dispatchSpan = ( numerator ) . span
+local groupBinding = bind ( groupName , "u32" , nil , controllerParams [ 1 ] , environment , kernel )
+local groupValue = setmetatable({ op =
+"workgroup_index" ,  type =
+"u32" ,  source =
+lower . site ( controllerParams [ 1 ] ) }, scalarIR.WorkgroupIndex)
+
+local controllerBlock = ( controller ) . body
+local controllerBody = lower . block (
+controllerBlock ~= nil and ( controllerBlock ) . stats or { } ,
+environment ,
+kernel
+)
+local lowered
+
+= { setmetatable({ op =
+
+"let" ,  name =
+groupName ,  cName =
+groupBinding . cName ,  type =
+"u32" ,  value =
+groupValue ,  source =
+lower . site ( controllerParams [ 1 ] ) }, scalarIR.Let)
+,
+}
+for _ , statement in ipairs ( controllerBody ) do
+lowered [ # lowered + 1 ] = statement
+end
+local phaseCount = 0
+local function countPhases ( block ) 
+for _ , statement in ipairs ( block ) do
+if statement . op == "phase" then
+phaseCount = phaseCount + 1
+elseif statement . op == "if" then
+for _ , clause in ipairs ( ( statement ) . clauses ) do
+countPhases ( clause . body )
+end
+countPhases ( ( statement ) . elseBody or { } )
+elseif statement . op == "fornum" or statement . op == "while" or statement . op == "block" then
+countPhases ( ( statement ) . body )
+end
+end
+end
+
+countPhases ( lowered )
+if phaseCount == 0 then
+context . reject ( lower . site ( args [ 3 ] ) , "a workgroup controller must run at least one phase" )
+end
+local scratchBytes = 0
+for _ , shared in ipairs ( kernel . sharedOrder ) do
+if shared . count ~= size then
+context . reject (
+shared . source ,
+"workgroup scratch count must equal the workgroup size in the initial portable subset"
+)
+end
+scratchBytes = scratchBytes + shared . count * 4
+end
+if scratchBytes > 16384 then
+context . reject ( lower . site ( args [ 3 ] ) , "workgroup scratch exceeds the portable 16384-byte limit" )
+end
+if kernel . usesLua or kernel . usesSimd then
+context . reject ( lower . site ( args [ 3 ] ) , "workgroup phases admit fixed-width scalar operations only" )
+end
+
+return setmetatable({ version =
+scalarIR . VERSION ,  name =
+name ,  symbol =
+symbol ,  entryMode =
+"kernel" ,  executionTarget =
+"gpu" ,  fpContract =
+contract . fpContract ,  wantsLanes =
+false ,  lanesRequired =
+false ,  params =
+signature . params ,  layouts =
+layouts . ordered ,  regions =
+regions ,  aliasFacts =
+aliasFacts ,  guards =
+{ } ,  helpers =
+kernel . helperOrder ,  constants =
+kernel . constantOrder ,  resultTypes =
+{ } ,  resultSourceTypes =
+{ } ,  usesSimd =
+false ,  usesNumberToken =
+false ,  workgroup =  setmetatable({ prelude =
+
+prelude ,  groups =
+groups ,  dispatchSpan =
+dispatchSpan ,  size =
+size ,  groupIndex =
+groupName ,  localIndex =
+"localIndex" ,  shared =
+kernel . sharedOrder ,  statements =
+lowered ,  source =
+lower . site ( workgroupCall ) }, scalarIR.Workgroup) ,  source =
+
+lower . site ( fn ) }, scalarIR.Program)
+
+end
+
 local mapShape = # resultTypes == 0 and # signature . writes > 0 and # signature . reads > 0 and (
 # statements == 2 or # statements == 3
 ) and lower . isGuardStatement ( statements [ 1 ] ) and statements [ # statements ] . kind == "fornumStmt"
@@ -21300,7 +21927,11 @@ end
 local function removeUnusedHelpers ( program , helpers ) 
 local used = { }
 markHelperUses (
-program . loop ~= nil and ( program . loop ) . statements or program . body or { } ,
+program . loop ~= nil and (
+program . loop
+) . statements or program . workgroup ~= nil and (
+program . workgroup
+) . statements or program . body or { } ,
 used ,
 helpers
 )
@@ -21351,6 +21982,10 @@ local loop = program . loop
 propagateBlock ( loop . statements , { } , mutated , state )
 loop . statements = optimizeBlock ( loop . statements , state )
 loop . statements = removeDead ( loop . statements , state )
+elseif program . workgroup ~= nil then
+
+
+
 else
 propagateBlock ( program . body or { } , { } , mutated , state )
 program . body = optimizeBlock ( program . body or { } , state )
@@ -23404,7 +24039,7 @@ local scalarIR = { }
 
 
 
-scalarIR . VERSION = 24
+scalarIR . VERSION = 25
 
 
 
@@ -23852,6 +24487,22 @@ scalarIR.LoopIndex = {} scalarIR.LoopIndex.__index = scalarIR.LoopIndex
 
 
 
+scalarIR.WorkgroupIndex = {} scalarIR.WorkgroupIndex.__index = scalarIR.WorkgroupIndex
+
+
+
+
+
+
+scalarIR.SharedLoad = {} scalarIR.SharedLoad.__index = scalarIR.SharedLoad
+
+
+
+
+
+
+
+
 scalarIR.Load = {} scalarIR.Load.__index = scalarIR.Load
 
 
@@ -24065,6 +24716,8 @@ scalarIR.HelperCall = {} scalarIR.HelperCall.__index = scalarIR.HelperCall
 
 
 scalarIR.Simd = {} scalarIR.Simd.__index = scalarIR.Simd
+
+
 
 
 
@@ -24443,6 +25096,26 @@ scalarIR.Return = {} scalarIR.Return.__index = scalarIR.Return
 
 
 
+scalarIR.SharedStore = {} scalarIR.SharedStore.__index = scalarIR.SharedStore
+
+
+
+
+
+
+
+
+
+scalarIR.Phase = {} scalarIR.Phase.__index = scalarIR.Phase
+
+
+
+
+
+
+
+
+
 
 
 
@@ -24631,6 +25304,29 @@ scalarIR.Loop = {} scalarIR.Loop.__index = scalarIR.Loop
 
 
 
+scalarIR.Shared = {} scalarIR.Shared.__index = scalarIR.Shared
+
+
+
+
+
+
+
+
+
+scalarIR.Workgroup = {} scalarIR.Workgroup.__index = scalarIR.Workgroup
+
+
+
+
+
+
+
+
+
+
+
+
 scalarIR.LaneBody = {} scalarIR.LaneBody.__index = scalarIR.LaneBody
 
 
@@ -24764,8 +25460,10 @@ scalarIR.Program = {} scalarIR.Program.__index = scalarIR.Program
 
 
 
+
+
 function scalarIR . independentCounts ( program ) 
-if program . body ~= nil then
+if program . body ~= nil or program . workgroup ~= nil then
 return true
 end
 local spans = 0
@@ -24913,6 +25611,7 @@ TypeBool = 20 ,
 TypeInt = 21 ,
 TypeFloat = 22 ,
 TypeVector = 23 ,
+TypeArray = 28 ,
 TypeRuntimeArray = 29 ,
 TypeStruct = 30 ,
 TypePointer = 32 ,
@@ -24978,6 +25677,7 @@ ShiftLeftLogical = 196 ,
 BitwiseOr = 197 ,
 BitwiseXor = 198 ,
 BitwiseAnd = 199 ,
+ControlBarrier = 224 ,
 SelectionMerge = 247 ,
 LoopMerge = 246 ,
 Label = 248 ,
@@ -24987,7 +25687,7 @@ Return = 253 ,
 ReturnValue = 254 ,
 }
 
-const STORAGE = { Input = 1 , Uniform = 2 , Function = 7 , StorageBuffer = 12 }
+const STORAGE = { Input = 1 , Uniform = 2 , Workgroup = 4 , Function = 7 , StorageBuffer = 12 }
 const DECORATION = {
 Block = 2 ,
 ArrayStride = 6 ,
@@ -25373,6 +26073,37 @@ instruction ( declarations , OP . Variable , { globalPointer , globalId , STORAG
 name ( globalId , "global_invocation_id" )
 decorate ( globalId , DECORATION . BuiltIn , { 28 } )
 
+local workgroup = program . workgroup
+local groupId = nil
+local localId = nil
+local sharedVars = { }
+local sharedElements = { }
+if workgroup ~= nil then
+groupId = id ( )
+instruction ( declarations , OP . Variable , { globalPointer , groupId , STORAGE . Input } )
+name ( groupId , "workgroup_id" )
+decorate ( groupId , DECORATION . BuiltIn , { 26 } )
+localId = id ( )
+instruction ( declarations , OP . Variable , { globalPointer , localId , STORAGE . Input } )
+name ( localId , "local_invocation_id" )
+decorate ( localId , DECORATION . BuiltIn , { 27 } )
+for _ , scratch in ipairs ( ( workgroup ) . shared ) do
+local element = scalarType ( scratch . element )
+local arrayType = id ( )
+instruction ( declarations , OP . TypeArray , { arrayType , element , constant ( u32Type , scratch . count ) } )
+decorate ( arrayType , DECORATION . ArrayStride , { 4 } )
+local variable = id ( )
+instruction ( declarations , OP . Variable , {
+pointerType ( STORAGE . Workgroup , arrayType ) ,
+variable ,
+STORAGE . Workgroup
+} )
+name ( variable , scratch . name )
+sharedVars [ scratch . name ] = variable
+sharedElements [ scratch . name ] = element
+end
+end
+
 local fnVoid = functionType ( voidType , { } )
 local fnU32U32 = functionType ( u32Type , { u32Type , u32Type } )
 local fnF32F32 = functionType ( f32Type , { f32Type , f32Type } )
@@ -25585,6 +26316,10 @@ local main = id ( )
 local entryOperands = { 5 , main }
 push ( entryOperands , stringWords ( program . symbol .. "_gpu" ) )
 entryOperands [ # entryOperands + 1 ] = globalId
+if groupId ~= nil and localId ~= nil then
+entryOperands [ # entryOperands + 1 ] = groupId
+entryOperands [ # entryOperands + 1 ] = localId
+end
 instruction ( entry , OP . EntryPoint , entryOperands )
 instruction ( entry , OP . ExecutionMode , { main , 17 , threads , 1 , 1 } )
 name ( main , program . symbol .. "_gpu" )
@@ -25613,7 +26348,11 @@ pointer ,
 STORAGE . Function
 } )
 name ( pointer , statement . cName )
-elseif statement . op == "while" or statement . op == "block" then
+elseif statement . op == "while"
+or statement . op == "fornum"
+or statement . op == "block"
+or statement . op == "phase"
+then
 collect ( statement . body )
 elseif statement . op == "if" then
 for _ , clause in ipairs ( statement . clauses ) do
@@ -25625,12 +26364,30 @@ end
 end
 
 local loop = program . loop
-collect ( loop . statements )
+local scalarStatements = loop ~= nil and (
+loop
+) . statements or ( workgroup ) . statements
+if workgroup ~= nil then
+collect ( ( workgroup ) . prelude )
+end
+collect ( scalarStatements )
 
 local loadedGlobal = id ( )
 instruction ( functions , OP . Load , { vec3uType , loadedGlobal , globalId } )
 local dispatch = id ( )
 instruction ( functions , OP . CompositeExtract , { u32Type , dispatch , loadedGlobal , 0 } )
+local groupIndex = nil
+local localIndex = nil
+if workgroup ~= nil then
+local loadedGroup = id ( )
+instruction ( functions , OP . Load , { vec3uType , loadedGroup , groupId } )
+groupIndex = id ( )
+instruction ( functions , OP . CompositeExtract , { u32Type , groupIndex , loadedGroup , 0 } )
+local loadedLocal = id ( )
+instruction ( functions , OP . Load , { vec3uType , loadedLocal , localId } )
+localIndex = id ( )
+instruction ( functions , OP . CompositeExtract , { u32Type , localIndex , loadedLocal , 0 } )
+end
 
 local function uniform ( name_ , typeId ) 
 local member = constant ( u32Type , uniformIndex [ name_ ] )
@@ -25642,15 +26399,19 @@ instruction ( functions , OP . Load , { typeId , loaded , pointer } )
 return loaded
 end
 
+local entryMerge = nil
+if workgroup == nil then
 local count = uniform ( "count" , u32Type )
 local inRange = id ( )
 instruction ( functions , OP . ULessThan , { boolType , inRange , dispatch , count } )
-local bodyLabel , returnLabel , entryMerge = id ( ) , id ( ) , id ( )
+local bodyLabel , returnLabel = id ( ) , id ( )
+entryMerge = id ( )
 instruction ( functions , OP . SelectionMerge , { entryMerge , 0 } )
 instruction ( functions , OP . BranchConditional , { inRange , bodyLabel , returnLabel } )
 instruction ( functions , OP . Label , { returnLabel } )
 instruction ( functions , OP . Return , { } )
 instruction ( functions , OP . Label , { bodyLabel } )
+end
 
 local currentBreak = { }
 local currentContinue = { }
@@ -25696,6 +26457,23 @@ elseif op == "loop_index" then
 local result = id ( )
 instruction ( functions , OP . IAdd , { u32Type , result , dispatch , oneU } )
 return result , u32Type
+elseif op == "workgroup_index" then
+return groupIndex , u32Type
+elseif op == "local_index" then
+return localIndex , u32Type
+elseif op == "shared_load" then
+local indexId = expression ( value . index )
+local element = assert ( sharedElements [ value . shared ] )
+local pointer = id ( )
+instruction ( functions , OP . AccessChain , {
+pointerType ( STORAGE . Workgroup , element ) ,
+pointer ,
+assert ( sharedVars [ value . shared ] ) ,
+indexId
+} )
+local loaded = id ( )
+instruction ( functions , OP . Load , { element , loaded , pointer } )
+return loaded , element
 elseif op == "span_count" then
 return uniform ( value . span .. "_count" , u32Type ) , u32Type
 elseif op == "element_ref" then
@@ -25889,6 +26667,10 @@ end
 return result , resultType
 end
 
+local function workgroupBarrier ( ) 
+instruction ( functions , OP . ControlBarrier , { constant ( u32Type , 2 ) , constant ( u32Type , 2 ) , constant ( u32Type , 264 ) } )
+end
+
 local statements
 statements = function ( values ) 
 for _ , statement in ipairs ( values ) do
@@ -25953,6 +26735,23 @@ value
 value = narrowed
 end
 instruction ( functions , OP . Store , { pointer , value } )
+elseif op == "shared_store" then
+local indexId = expression ( statement . index )
+local element = assert ( sharedElements [ statement . shared ] )
+local pointer = id ( )
+instruction ( functions , OP . AccessChain , {
+pointerType ( STORAGE . Workgroup , element ) ,
+pointer ,
+assert ( sharedVars [ statement . shared ] ) ,
+indexId
+} )
+local value = expression ( statement . value )
+instruction ( functions , OP . Store , { pointer , value } )
+elseif op == "phase" then
+statements ( statement . body )
+if not terminated then
+workgroupBarrier ( )
+end
 elseif op == "if" then
 local merge = id ( )
 for index , clause in ipairs ( statement . clauses ) do
@@ -26012,11 +26811,29 @@ error ( "SPIR-V subset does not emit statement " .. tostring ( op ) , 0 )
 end
 end
 end
-statements ( loop . statements )
+if workgroup ~= nil then
+statements ( ( workgroup ) . prelude )
+for _ , scratch in ipairs ( ( workgroup ) . shared ) do
+local element = assert ( sharedElements [ scratch . name ] )
+local pointer = id ( )
+instruction ( functions , OP . AccessChain , {
+pointerType ( STORAGE . Workgroup , element ) ,
+pointer ,
+assert ( sharedVars [ scratch . name ] ) ,
+localIndex
+} )
+local initial = expression ( scratch . initial )
+instruction ( functions , OP . Store , { pointer , initial } )
+end
+workgroupBarrier ( )
+end
+statements ( scalarStatements )
+if workgroup == nil then
 if not terminated then
 instruction ( functions , OP . Branch , { entryMerge } )
 end
 instruction ( functions , OP . Label , { entryMerge } )
+end
 instruction ( functions , OP . Return , { } )
 instruction ( functions , OP . FunctionEnd , { } )
 
@@ -26547,6 +27364,11 @@ elseif op == "span_count" then
 return "count " .. node . span
 elseif op == "loop_index" then
 return "loop_index:f64"
+elseif op == "workgroup_index" or op == "local_index" then
+return op .. ":u32"
+elseif op == "shared_load" then
+local load = node
+return "shared_load:" .. load . type .. " " .. load . shared .. "[" .. text . expression ( load . index ) .. "]"
 elseif op == "element_ref" then
 local index = node . cursor ~= nil and node . cursor .. "+1" or node . index
 return "element_ref:" .. node . layout .. " " .. node . span .. "[" .. index .. "]"
@@ -26799,6 +27621,17 @@ local index = statement . cursor ~= nil and statement . cursor .. "+1" or statem
 lines [
 # lines + 1
 ] = prefix .. "store " .. statement . span .. "[" .. index .. "] = " .. text . expression ( statement . value )
+elseif op == "shared_store" then
+local store = statement
+lines [
+# lines + 1
+] = prefix .. "shared_store " .. store . shared .. "[" .. text . expression (
+store . index
+) .. "] = " .. text . expression ( store . value )
+elseif op == "phase" then
+lines [ # lines + 1 ] = prefix .. "phase"
+nested ( ( statement ) . body )
+lines [ # lines + 1 ] = prefix .. "barrier"
 elseif op == "lua_set_index" or op == "lua_set_key" then
 lines [
 # lines + 1
@@ -27031,6 +27864,7 @@ lines [ # lines + 1 ] = "lua_stack " .. tostring ( program . maxStack )
 end
 
 local loop = program . loop
+local workgroup = program . workgroup
 if loop ~= nil then
 local scalarLoop = loop
 lines [
@@ -27044,6 +27878,20 @@ tostring ( scalarLoop . last ) ,
 scalarLoop . count ,
 at ( scalarLoop . source )
 )
+elseif workgroup ~= nil then
+local phased = workgroup
+lines [
+# lines + 1
+] = (
+"workgroups count(%s) size(%d) dispatch(%s) %s"
+) : format ( text . expression ( phased . groups ) , phased . size , phased . dispatchSpan , at ( phased . source ) )
+for _ , scratch in ipairs ( phased . shared ) do
+lines [
+# lines + 1
+] = (
+"  shared %s:%s[%d] = %s %s"
+) : format ( scratch . name , scratch . element , scratch . count , text . expression ( scratch . initial ) , at ( scratch . source ) )
+end
 else
 lines [ # lines + 1 ] = "block"
 end
@@ -27061,7 +27909,15 @@ local lines = preamble ( program )
 local lanes = program . lanes
 local width = lanes ~= nil and ( lanes ) . lanes or 0
 local loop = program . loop
-local statements = loop ~= nil and ( loop ) . statements or program . body or { }
+local workgroup = program . workgroup
+local statements = loop ~= nil and (
+loop
+) . statements or workgroup ~= nil and ( workgroup ) . statements or program . body or { }
+if workgroup ~= nil then
+for _ , line in ipairs ( text . block ( ( workgroup ) . prelude , 1 , width ) ) do
+lines [ # lines + 1 ] = line
+end
+end
 for _ , line in ipairs ( text . block ( statements , 1 , width ) ) do
 lines [ # lines + 1 ] = line
 end
@@ -27141,6 +27997,12 @@ local verify = { }
 
 
 verify.Scope = {} verify.Scope.__index = verify.Scope
+
+
+
+
+
+
 
 
 
@@ -27622,7 +28484,12 @@ scope . indexSpans ,  cursorBounds =
 cursorBounds ,  resultTypes =
 scope . resultTypes ,  entryMode =
 scope . entryMode ,  builderMode =
-scope . builderMode }, verify.Scope)
+scope . builderMode ,  workgroup =
+scope . workgroup ,  inPhase =
+scope . inPhase ,  shared =
+scope . shared ,  sharedCounts =
+scope . sharedCounts ,  localReadLimit =
+scope . localReadLimit }, verify.Scope)
 
 end
 end
@@ -27665,6 +28532,86 @@ local span = scope . spans [ node . span ]
 holds ( span ~= nil and ( span ) . region ~= nil and node . type == "f64" , "invalid span count" )
 elseif op == "loop_index" then
 holds ( scope . mapIndex == true and node . type == "f64" , "loop index outside a map body" )
+elseif op == "workgroup_index" or op == "local_index" then
+holds (
+scope . workgroup == true and node . type == "u32" and ( op ~= "local_index" or scope . inPhase == true ) ,
+"workgroup coordinate outside its structural body"
+)
+elseif op == "shared_load" then
+local load = node
+local shared = scope . shared or { }
+local counts = scope . sharedCounts or { }
+holds (
+scope . workgroup == true and scope . inPhase == true and shared [ load . shared ] == load . type ,
+"invalid workgroup scratch read"
+)
+holds ( load . index . type == "u32" , "workgroup scratch index is not uint32" )
+local function indexRange ( value ) 
+local operation = value . op
+if operation == "constant" or operation == "constant_i32" then
+local constant = tonumber ( ( value ) . value )
+if constant ~= nil and constant == math . floor ( constant ) and constant >= 0 then
+return constant , constant
+end
+elseif operation == "local_index" then
+local count = counts [ load . shared ]
+if count ~= nil then
+return 0 , count - 1
+end
+elseif operation == "numeric_cast" or operation == "int_to_f64" then
+return indexRange ( ( value ) . value )
+elseif operation == "u32_add" or operation == "u32_mul" then
+local pair = value
+local leftMin , leftMax = indexRange ( pair . left )
+local rightMin , rightMax = indexRange ( pair . right )
+if leftMin ~= nil and leftMax ~= nil and rightMin ~= nil and rightMax ~= nil then
+local low = operation == "u32_add" and (
+leftMin
+) + ( rightMin ) or ( leftMin ) * ( rightMin )
+local high = operation == "u32_add" and (
+leftMax
+) + ( rightMax ) or ( leftMax ) * ( rightMax )
+if high <= 4294967295 then
+return low , high
+end
+end
+elseif operation == "u32_div" or operation == "u32_mod" then
+local pair = value
+local leftMin , leftMax = indexRange ( pair . left )
+local rightMin , rightMax = indexRange ( pair . right )
+if leftMin ~= nil and leftMax ~= nil and rightMin ~= nil and rightMin == rightMax and rightMin > 0 then
+if operation == "u32_div" then
+return math . floor (
+( leftMin ) / ( rightMin )
+) , math . floor ( ( leftMax ) / ( rightMin ) )
+end
+return 0 , math . min ( leftMax , ( rightMin ) - 1 )
+end
+end
+
+return nil , nil
+end
+
+local minimum , maximum = indexRange ( load . index )
+local constant = load . index . op == "constant_i32" and tonumber ( ( load . index ) . value ) or nil
+local offset = nil
+if load . index . op == "u32_add" then
+local added = load . index
+if added . left . op == "local_index" and added . right . op == "constant_i32" then
+offset = tonumber ( ( added . right ) . value )
+end
+end
+holds (
+load . index . op == "local_index" or constant ~= nil and constant >= 0 and constant < counts [
+load . shared
+] or minimum ~= nil and maximum ~= nil and minimum >= 0 and maximum < counts [
+load . shared
+] or offset ~= nil and scope . localReadLimit ~= nil and offset >= 0 and (
+scope . localReadLimit
+) + offset <= counts [ load . shared ] ,
+"workgroup scratch read is not proved in bounds"
+)
+scalarWalk ( load . index , values , scope )
 elseif op == "local" or op == "helper_param" then
 local named = node
 holds ( values [ named . name ] == node . type , "invalid local value" )
@@ -28652,9 +29599,10 @@ local function block (
 statements ,
 inherited ,
 scope ,
-stored
+stored ,
+sameScope
 ) 
-local values = inherit ( inherited )
+local values = sameScope == true and inherited or inherit ( inherited )
 for _ , statement in ipairs ( statements ) do
 effects . statement ( tostring ( statement . op ) )
 if statement . op == "let" then
@@ -28719,6 +29667,129 @@ holds ( scope . writes [ statement . span ] == true and bounded , "invalid store
 scalarWalk ( statement . value , values , scope )
 holds ( statement . value . type == ( scope . spans [ statement . span ] ) . type , "store type mismatch" )
 stored [ statement . span ] = true
+elseif statement . op == "shared_store" then
+local write = statement
+local shared = scope . shared or { }
+holds (
+scope . workgroup == true and scope . inPhase == true and shared [
+write . shared
+] == write . value . type and write . index . op == "local_index" and write . index . type == "u32" ,
+"invalid structurally disjoint workgroup scratch write"
+)
+scalarWalk ( write . index , values , scope )
+scalarWalk ( write . value , values , scope )
+elseif statement . op == "phase" then
+holds ( scope . workgroup == true and scope . inPhase ~= true , "nested workgroup phase" )
+local phase = statement
+local written = { }
+local crossRead = { }
+local inspectExpression
+inspectExpression = function ( value ) 
+if value . op == "shared_load" then
+local load = value
+if load . index . op ~= "local_index" then
+crossRead [ load . shared ] = true
+end
+end
+visit . expressionChildren ( value , function ( child ) 
+inspectExpression ( child )
+return child
+end )
+end
+local inspectBlock
+inspectBlock = function ( body ) 
+for _ , nested in ipairs ( body ) do
+if nested . op == "shared_store" then
+written [ ( nested ) . shared ] = true
+end
+visit . statementExpressions ( nested , function ( value ) 
+inspectExpression ( value )
+return value
+end )
+if nested . op == "if" then
+for _ , clause in ipairs ( ( nested ) . clauses ) do
+inspectBlock ( clause . body )
+end
+inspectBlock ( ( nested ) . elseBody or { } )
+elseif nested . op == "while" or nested . op == "fornum" or nested . op == "block" then
+inspectBlock ( ( nested ) . body )
+end
+end
+end
+inspectBlock ( phase . body )
+
+local function fixedTreeShared ( ) 
+if # phase . body ~= 1 or phase . body [ 1 ] . op ~= "if" then
+return nil
+end
+local branch = phase . body [ 1 ]
+if # branch . clauses ~= 1 or branch . elseBody ~= nil or # branch . clauses [ 1 ] . body ~= 1 then
+return nil
+end
+local condition = branch . clauses [ 1 ] . condition
+local write = branch . clauses [ 1 ] . body [ 1 ]
+if condition . op ~= "lt" or write . op ~= "shared_store" then
+return nil
+end
+local compared = condition
+local storedValue = write
+if compared . left . op ~= "local_index"
+or compared . right . op ~= "constant_i32"
+or storedValue . index . op ~= "local_index"
+or storedValue . value . op ~= "f32_add"
+then
+return nil
+end
+local stride = ( compared . right ) . value
+local sum = storedValue . value
+if sum . left . op ~= "shared_load" or sum . right . op ~= "shared_load" then
+return nil
+end
+local left = sum . left
+local right = sum . right
+if left . shared ~= storedValue . shared
+or right . shared ~= storedValue . shared
+or left . index . op ~= "local_index"
+or right . index . op ~= "u32_add"
+then
+return nil
+end
+local added = right . index
+if added . left . op ~= "local_index" or added . right . op ~= "constant_i32" or (
+added . right
+) . value ~= stride then
+return nil
+end
+
+return storedValue . shared
+end
+
+local collective = fixedTreeShared ( )
+for name in pairs ( written ) do
+holds (
+crossRead [ name ] ~= true or collective == name ,
+"ordinary workgroup phase has a cross-lane scratch race"
+)
+end
+local nestedScope = setmetatable({ spans =
+scope . spans ,  layouts =
+scope . layouts ,  helpers =
+scope . helpers ,  writes =
+scope . writes ,  index =
+scope . index ,  boundSpan =
+scope . boundSpan ,  mapIndex =
+scope . mapIndex ,  indexSpans =
+scope . indexSpans ,  cursorBounds =
+{ } ,  resultTypes =
+scope . resultTypes ,  entryMode =
+scope . entryMode ,  builderMode =
+scope . builderMode ,  workgroup =
+true ,  inPhase =
+true ,  shared =
+scope . shared ,  sharedCounts =
+scope . sharedCounts }, verify.Scope)
+
+block ( phase . body , values , nestedScope , stored )
 elseif statement . op == "lua_set_index" or statement . op == "lua_set_key" then
 local write = statement
 holds ( scope . entryMode == "lua-builder" , "Lua write outside a builder" )
@@ -29012,7 +30083,22 @@ scope . indexSpans ,  cursorBounds =
 cursorBounds ,  resultTypes =
 scope . resultTypes ,  entryMode =
 scope . entryMode ,  builderMode =
-scope . builderMode }, verify.Scope)
+scope . builderMode ,  workgroup =
+scope . workgroup ,  inPhase =
+scope . inPhase ,  shared =
+scope . shared ,  sharedCounts =
+scope . sharedCounts ,  localReadLimit =
+( function ( ) 
+local condition = clause . condition
+if condition . op == "lt" then
+local comparison = condition
+if comparison . left . op == "local_index" and comparison . right . op == "constant_i32" then
+return tonumber ( ( comparison . right ) . value )
+end
+end
+
+return scope . localReadLimit
+end ) ( ) }, verify.Scope)
 
 block ( clause . body , values , nestedScope , stored )
 for name in pairs ( scope . cursorBounds ) do
@@ -29047,7 +30133,12 @@ false ,  cursorBounds =
 scope . cursorBounds ,  resultTypes =
 scope . resultTypes ,  entryMode =
 scope . entryMode ,  builderMode =
-scope . builderMode }, verify.Scope)
+scope . builderMode ,  workgroup =
+scope . workgroup ,  inPhase =
+scope . inPhase ,  shared =
+scope . shared ,  sharedCounts =
+scope . sharedCounts ,  localReadLimit =
+scope . localReadLimit }, verify.Scope)
 
 if statement . boundSpan ~= nil then
 holds (
@@ -29098,7 +30189,12 @@ scope . indexSpans ,  cursorBounds =
 cursorBounds ,  resultTypes =
 scope . resultTypes ,  entryMode =
 scope . entryMode ,  builderMode =
-scope . builderMode }, verify.Scope)
+scope . builderMode ,  workgroup =
+scope . workgroup ,  inPhase =
+scope . inPhase ,  shared =
+scope . shared ,  sharedCounts =
+scope . sharedCounts ,  localReadLimit =
+scope . localReadLimit }, verify.Scope)
 
 block ( statement . body , values , nestedScope , stored )
 local invalidated = { }
@@ -29725,7 +30821,48 @@ end
 
 local loop = program . loop
 local body = program . body
-holds ( ( loop ~= nil ) ~= ( body ~= nil ) , "an AOT program needs exactly one body form" )
+local workgroup = program . workgroup
+local forms = ( loop ~= nil and 1 or 0 ) + ( body ~= nil and 1 or 0 ) + ( workgroup ~= nil and 1 or 0 )
+holds (
+forms == 1 ,
+"an AOT program needs exactly one body form: " .. tostring (
+loop ~= nil
+) .. "/" .. tostring ( body ~= nil ) .. "/" .. tostring ( workgroup ~= nil )
+)
+local sharedTypes = nil
+local sharedCounts = nil
+if workgroup ~= nil then
+local phased = workgroup
+holds (
+program . executionTarget == "gpu"
+and program . entryMode == "kernel"
+and phased . size >= 1
+and phased . size <= 256
+and phased . groups . type == "u32"
+and byName [
+phased . dispatchSpan
+] ~= nil ,
+"invalid GPU workgroup contract"
+)
+local scratchTypes = { }
+local scratchCounts = { }
+sharedTypes = scratchTypes
+sharedCounts = scratchCounts
+local scratchBytes = 0
+for _ , scratch in ipairs ( phased . shared ) do
+local unique = scratchTypes [ scratch . name ] == nil
+local physical = scratch . element == "f32" or scratch . element == "i32" or scratch . element == "u32"
+local initialized = scratch . initial . type == scratch . element
+holds (
+unique and physical and initialized and scratch . count == phased . size ,
+"invalid workgroup scratch declaration"
+)
+scratchTypes [ scratch . name ] = scratch . element
+scratchCounts [ scratch . name ] = scratch . count
+scratchBytes = scratchBytes + scratch . count * 4
+end
+holds ( scratchBytes <= 16384 , "workgroup scratch exceeds the portable limit" )
+end
 local resultTypes = program . resultTypes or { }
 local sourceResults = program . resultSourceTypes or { }
 holds ( # resultTypes == # sourceResults and # resultTypes <= 4 , "invalid AOT entry results" )
@@ -29743,7 +30880,7 @@ or resultType == "lua_value"
 )
 end
 if program . usesSimd == true then
-holds ( body ~= nil and loop == nil , "explicit SIMD requires a block kernel" )
+holds ( body ~= nil and loop == nil and workgroup == nil , "explicit SIMD requires a block kernel" )
 holds ( program . simdWidth == nil or program . simdWidth == 16 or program . simdWidth == 32 , "invalid SIMD width" )
 else
 holds ( program . simdWidth == nil , "a scalar program carries a SIMD width" )
@@ -29770,7 +30907,11 @@ indexSpans ,  cursorBounds =
 { } ,  resultTypes =
 resultTypes ,  entryMode =
 program . entryMode ,  builderMode =
-program . builderMode }, verify.Scope)
+program . builderMode ,  workgroup =
+workgroup ~= nil ,  inPhase =
+false ,  shared =
+sharedTypes ,  sharedCounts =
+sharedCounts }, verify.Scope)
 
 helperBodies ( program , scope )
 
@@ -29802,8 +30943,18 @@ program . reusableScratch == visit . reusableScratch ( program ) ,
 )
 
 local stored = { }
+if workgroup ~= nil then
+local phased = workgroup
+block ( phased . prelude , uniforms , scope , stored , true )
+scalarWalk ( phased . groups , uniforms , scope )
+for _ , scratch in ipairs ( phased . shared ) do
+scalarWalk ( scratch . initial , uniforms , scope )
+end
+block ( phased . statements , uniforms , scope , stored , true )
+else
 block ( loop ~= nil and ( loop ) . statements or body or { } , uniforms , scope , stored )
-if loop ~= nil then
+end
+if loop ~= nil or workgroup ~= nil then
 for output in pairs ( writes ) do
 if ( byName [ output ] ) . type : match ( "^struct:" ) == nil then
 holds ( stored [ output ] == true , "scalar IR output is never stored" )
@@ -29911,7 +31062,12 @@ end
 
 function visit . expressionChildren ( node , rewrite ) 
 local __nuppT7= node . op ;local __nuppT8;
-if  __nuppT7== "constant"  or  __nuppT7== "constant_i32"  or  __nuppT7== "constant_i64"  or  __nuppT7== "bool"  or  __nuppT7== "lua_nil"  or  __nuppT7== "lua_string"  or  __nuppT7== "local"  or  __nuppT7== "uniform"  or  __nuppT7== "helper_param"  or  __nuppT7== "span_count"  or  __nuppT7== "loop_index"  or  __nuppT7== "load"  or  __nuppT7== "element_ref"  then  __nuppT8= nil
+if  __nuppT7== "constant"  or  __nuppT7== "constant_i32"  or  __nuppT7== "constant_i64"  or  __nuppT7== "bool"  or  __nuppT7== "lua_nil"  or  __nuppT7== "lua_string"  or  __nuppT7== "local"  or  __nuppT7== "uniform"  or  __nuppT7== "helper_param"  or  __nuppT7== "span_count"  or  __nuppT7== "loop_index"  or  __nuppT7== "workgroup_index"  or  __nuppT7== "local_index"  or  __nuppT7== "load"  or  __nuppT7== "element_ref"  then  __nuppT8= nil
+elseif  __nuppT7== "shared_load"  then
+local value = node
+value . index = rewrite ( value . index )
+__nuppT8= nil
+
 elseif  __nuppT7== "lua_concat"  then
 local value = node
 value . left = rewrite ( value . left )
@@ -30157,6 +31313,12 @@ local value = node
 value . value = rewrite ( value . value )
 __nuppT15= nil
 
+elseif  __nuppT14== "shared_store"  then
+local value = node
+value . index = rewrite ( value . index )
+value . value = rewrite ( value . value )
+__nuppT15= nil
+
 elseif  __nuppT14== "lua_set_index"  or  __nuppT14== "lua_set_key"  then
 local value = node
 value . table = rewrite ( value . table )
@@ -30201,7 +31363,7 @@ value . from = rewrite ( value . from )
 value . to = rewrite ( value . to )
 __nuppT15= nil
 
-elseif  __nuppT14== "block"  or  __nuppT14== "break"  or  __nuppT14== "continue"  then  __nuppT15= nil
+elseif  __nuppT14== "phase"  or  __nuppT14== "block"  or  __nuppT14== "break"  or  __nuppT14== "continue"  then  __nuppT15= nil
 elseif  __nuppT14== "return"  then  __nuppT15= rewriteExpressions ( ( node ) . values , rewrite )
 
 
@@ -30229,7 +31391,7 @@ end
 if value . elseBody ~= nil then
 scalarBlock ( value . elseBody , visitor )
 end
-elseif node . op == "while" or node . op == "fornum" or node . op == "block" then
+elseif node . op == "while" or node . op == "fornum" or node . op == "block" or node . op == "phase" then
 scalarBlock ( ( node ) . body , visitor )
 end
 end
@@ -30320,6 +31482,15 @@ scalarBlock ( ( program . loop ) . statements , visitor )
 end
 if program . body ~= nil then
 scalarBlock ( program . body , visitor )
+end
+if program . workgroup ~= nil then
+local workgroup = program . workgroup
+scalarBlock ( workgroup . prelude , visitor )
+scalarExpression ( workgroup . groups , visitor )
+for _ , shared in ipairs ( workgroup . shared ) do
+scalarExpression ( shared . initial , visitor )
+end
+scalarBlock ( workgroup . statements , visitor )
 end
 for _ , helper in ipairs ( program . helpers or { } ) do
 scalarExpressions ( helper . values , visitor )
@@ -49280,13 +50451,8 @@ loops = loops + 1
 end
 end
 ( node ) . aotMapLoop = loops == 1
-local function walk ( current ) 
-if current == nil or cst . isToken ( current ) then
-return
-end
-local kind = ( current ) . kind
-if kind == "call" then
-local callee = ( current ) . obj
+local function exactCall ( current ) 
+local callee = current . obj
 local exact = callee ~= nil and ( callee ) . exactCallExport or nil
 if exact == nil and callee ~= nil and callee . kind == "dotIndex" then
 local indexed = callee
@@ -49303,6 +50469,20 @@ local token = ( callee ) . token
 local definition = token ~= nil and ( token ) . definition or nil
 exact = definition ~= nil and definition . exactCallExport or nil
 end
+
+return exact
+end
+
+local walk
+walk = function ( current , inWorkgroup ) 
+if current == nil or cst . isToken ( current ) then
+return
+end
+local kind = ( current ) . kind
+if kind == "call" then
+local call = current
+local callee = call . obj
+local exact = exactCall ( call )
 local selected = c . env . config and c . env . config . _target or nil
 if selected ~= nil
 and selected . aot == "off"
@@ -49317,6 +50497,32 @@ callee or current ,
 .. "select aot=emit-c or aot=require"
 )
 end
+if exact ~= nil and exact . identity == "nupp.gpu.workgroups" then
+walk ( callee , false )
+local args = call . args ~= nil and ( ( call . args ) . exprs or { } ) or { }
+walk ( args [ 1 ] , false )
+walk ( args [ 2 ] , false )
+local callback = args [ 3 ]
+if callback ~= nil and callback . kind == "funcExpr" then
+walk ( ( callback ) . body , true )
+else
+walk ( callback , false )
+end
+return
+end
+elseif kind == "methodCall" and inWorkgroup == true then
+local call = current
+if call . name ~= nil and call . name . text == "run" then
+walk ( call . obj , true )
+local args = call . args ~= nil and ( ( call . args ) . exprs or { } ) or { }
+local callback = args [ 1 ]
+if callback ~= nil and callback . kind == "funcExpr" then
+walk ( ( callback ) . body , true )
+else
+walk ( callback , true )
+end
+return
+end
 end
 if kind and DECLINED [ kind ] then
 decline ( current , kind )
@@ -49324,11 +50530,11 @@ decline ( current , kind )
 return
 end
 for _ , child in ipairs ( current ) do
-walk ( child )
+walk ( child , inWorkgroup )
 end
 end
 
-walk ( node )
+walk ( node , false )
 end
 
 return ops
@@ -164440,7 +165646,7 @@ const __nuppExportValue= derive ;__nuppExports=__nuppExportValue
  end);if not __nuppOk then package.loaded["nupp.derive"]=nil;error(__nuppWhy,0) end;package.loaded["nupp.derive"]=__nuppExports;return __nuppExports
 end
 package.preload["nupp.gpu"] = function(...)
-_G.assert(_G.loadstring("local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppMath=rawget(__nupp,\"math\")or{};rawset(__nupp,\"math\",__nuppMath) local function __nuppCloseFile(handle)if io.type(handle)==\"closed file\"then return end;local ok,reason=handle:close();if not ok then error(reason or \"the file could not be closed\",0)end end local __nuppManagedBrand=_G.__nuppManagedBrand if not __nuppManagedBrand then __nuppManagedBrand={};_G.__nuppManagedBrand=__nuppManagedBrand end local __nuppManagedCells=_G.__nuppManagedCells if not __nuppManagedCells then __nuppManagedCells=setmetatable({},{__mode=\"k\"});_G.__nuppManagedCells=__nuppManagedCells end local __nuppManagedOwner={};__nuppManagedOwner.__index=__nuppManagedOwner;local __nuppManagedAlias={};__nuppManagedAlias.__index=__nuppManagedAlias local function __nuppManagedError(code,message)return{code=code,message=message}end local function __nuppManagedProblem(cell) if type(cell)~=\"table\"or cell._brand~=__nuppManagedBrand then return __nuppManagedError(\"NUPP2614\",\"value is not a managed alias\")end if cell._state==\"taken\"then return __nuppManagedError(\"NUPP2614\",\"managed ownership was already taken\")end if cell._state==\"closed\"or cell._state==\"closing\"then return __nuppManagedError(\"NUPP2614\",\"managed resource is closed\")end return nil end local function __nuppManagedClose(cell,checked) local problem=__nuppManagedProblem(cell);if problem then if checked then return problem end;return nil end if cell._borrows~=0 or cell._exclusive then local busy=__nuppManagedError(\"NUPP2620\",\"managed resource has an active borrow\");if checked then return busy end;error(busy.message,0)end cell._state=\"closing\";local value,cleanup=cell._value,cell._cleanup;cell._value=nil;cell._cleanup=nil local ok,reason=pcall(cleanup,value);cell._state=\"closed\";if not ok then error(reason,0)end;return nil end function __nuppManagedOwner:alias()return setmetatable({_cell=self,_brand=__nuppManagedBrand},__nuppManagedAlias)end function __nuppManagedOwner:close()return __nuppManagedClose(self,false)end local function __nuppAliasCell(self) if type(self)~=\"table\"or self._brand~=__nuppManagedBrand or getmetatable(self)~=__nuppManagedAlias then return nil,__nuppManagedError(\"NUPP2614\",\"value is not a managed alias\")end local cell=self._cell;local problem=__nuppManagedProblem(cell);if problem then return nil,problem end;return cell,nil end function __nuppManagedAlias:with(callback) local cell,problem=__nuppAliasCell(self);if not cell then return nil,problem end if cell._exclusive then return nil,__nuppManagedError(\"NUPP2620\",\"managed resource is exclusively borrowed\")end cell._borrows=cell._borrows+1;cell._state=\"shared-borrowed(\"..cell._borrows..\")\" local ok,result=pcall(callback,cell._value);cell._borrows=cell._borrows-1;cell._state=cell._borrows>0 and(\"shared-borrowed(\"..cell._borrows..\")\")or\"live\" if not ok then error(result,0)end;return result,nil end function __nuppManagedAlias:withExclusive(callback) local cell,problem=__nuppAliasCell(self);if not cell then return nil,problem end if cell._exclusive or cell._borrows~=0 then return nil,__nuppManagedError(\"NUPP2620\",\"managed resource is already borrowed\")end cell._exclusive=true;cell._state=\"exclusive-borrowed\";local ok,result=pcall(callback,cell._value);cell._exclusive=false;cell._state=\"live\" if not ok then error(result,0)end;return result,nil end function __nuppManagedAlias:take() local cell,problem=__nuppAliasCell(self);if not cell then return nil,problem end if cell._exclusive or cell._borrows~=0 then return nil,__nuppManagedError(\"NUPP2620\",\"managed resource has an active borrow\")end cell._state=\"taken\";local value=cell._value;cell._value=nil;cell._cleanup=nil;return value,nil end function __nuppManagedAlias:close() local cell,problem=__nuppAliasCell(self);if not cell then return problem end;return __nuppManagedClose(cell,true)end function __nuppManagedAlias:_downcast(policy) local cell,problem=__nuppAliasCell(self);if not cell then return nil,problem end if cell._policy~=policy then return nil,__nuppManagedError(\"NUPP2613\",\"managed alias has the wrong type or cleanup policy\")end return self,nil end function __nupp.__manage(value,cleanup,policy) local cell=setmetatable({_brand=__nuppManagedBrand,_value=value,_cleanup=cleanup,_policy=policy,_state=\"live\",_borrows=0,_exclusive=false},__nuppManagedOwner);__nuppManagedCells[cell]=true;return cell end function __nupp.__recoverAlias(value) if type(value)~=\"table\"or value._brand~=__nuppManagedBrand or getmetatable(value)~=__nuppManagedAlias then return nil,__nuppManagedError(\"NUPP2614\",\"value is not a managed alias\")end local cell,problem=__nuppAliasCell(value);if not cell then return nil,problem end;return value,nil end _G.__nuppManagedPolicyCount=function(policy)local count=0;for cell in pairs(__nuppManagedCells)do if cell._policy==policy and(cell._state==\"live\"or cell._state:match(\"borrowed\"))then count=count+1 end end;return count end local __nuppManagedGroup={};__nuppManagedGroup.__index=__nuppManagedGroup function __nuppManagedGroup:flush()end function __nuppManagedGroup:adopt(cell) if self._closed then error(\"managed group is closed\",2)end local handle=cell:alias();self._entries[#self._entries+1]=handle return handle end function __nuppManagedGroup:remove(handle) if self._closed then error(\"managed group is closed\",2)end for index=#self._entries,1,-1 do if self._entries[index]==handle then table.remove(self._entries,index);local value,problem=handle:take();if problem then error(problem.message,2)end;return value end end error(\"managed alias is not registered in this group\",2) end local function __nuppManagedCloseEntry(entry)local problem=entry:close();if problem and problem.code~=\"NUPP2614\"then error(problem.message,0)end end function __nuppManagedGroup:close() if self._closed then return end;self._closed=true;local first,suppressed=nil,0 for index=#self._entries,1,-1 do local ok,reason=pcall(__nuppManagedCloseEntry,self._entries[index]);if not ok then if first==nil then first=reason else suppressed=suppressed+1 end end end self._entries={};if first~=nil then if suppressed>0 then error(tostring(first)..\" (suppressed \"..tostring(suppressed)..\" cleanup failure(s))\",0)end;error(first,0)end end function __nupp.managedGroup()return setmetatable({_entries={},_closed=false},__nuppManagedGroup)end;\n","@nupp-prelude"))();const __nuppFfi = require("ffi"); local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppMath=rawget(__nupp,"math")or{};rawset(__nupp,"math",__nuppMath) local function __nuppCloseFile(handle)if io.type(handle)=="closed file"then return end;local ok,reason=handle:close();if not ok then error(reason or "the file could not be closed",0)end end local __nuppManagedBrand=_G.__nuppManagedBrand if not __nuppManagedBrand then __nuppManagedBrand={};_G.__nuppManagedBrand=__nuppManagedBrand end local __nuppManagedCells=_G.__nuppManagedCells if not __nuppManagedCells then __nuppManagedCells=setmetatable({},{__mode="k"});_G.__nuppManagedCells=__nuppManagedCells end local __nuppManagedOwner={};__nuppManagedOwner.__index=__nuppManagedOwner;local __nuppManagedAlias={};__nuppManagedAlias.__index=__nuppManagedAlias local function __nuppManagedError(code,message)return{code=code,message=message}end local function __nuppManagedProblem(cell) if type(cell)~="table"or cell._brand~=__nuppManagedBrand then return __nuppManagedError("NUPP2614","value is not a managed alias")end if cell._state=="taken"then return __nuppManagedError("NUPP2614","managed ownership was already taken")end if cell._state=="closed"or cell._state=="closing"then return __nuppManagedError("NUPP2614","managed resource is closed")end return nil end local function __nuppManagedClose(cell,checked) local problem=__nuppManagedProblem(cell);if problem then if checked then return problem end;return nil end if cell._borrows~=0 or cell._exclusive then local busy=__nuppManagedError("NUPP2620","managed resource has an active borrow");if checked then return busy end;error(busy.message,0)end cell._state="closing";local value,cleanup=cell._value,cell._cleanup;cell._value=nil;cell._cleanup=nil local ok,reason=pcall(cleanup,value);cell._state="closed";if not ok then error(reason,0)end;return nil end function __nuppManagedOwner:alias()return setmetatable({_cell=self,_brand=__nuppManagedBrand},__nuppManagedAlias)end function __nuppManagedOwner:close()return __nuppManagedClose(self,false)end local function __nuppAliasCell(self) if type(self)~="table"or self._brand~=__nuppManagedBrand or getmetatable(self)~=__nuppManagedAlias then return nil,__nuppManagedError("NUPP2614","value is not a managed alias")end local cell=self._cell;local problem=__nuppManagedProblem(cell);if problem then return nil,problem end;return cell,nil end function __nuppManagedAlias:with(callback) local cell,problem=__nuppAliasCell(self);if not cell then return nil,problem end if cell._exclusive then return nil,__nuppManagedError("NUPP2620","managed resource is exclusively borrowed")end cell._borrows=cell._borrows+1;cell._state="shared-borrowed("..cell._borrows..")" local ok,result=pcall(callback,cell._value);cell._borrows=cell._borrows-1;cell._state=cell._borrows>0 and("shared-borrowed("..cell._borrows..")")or"live" if not ok then error(result,0)end;return result,nil end function __nuppManagedAlias:withExclusive(callback) local cell,problem=__nuppAliasCell(self);if not cell then return nil,problem end if cell._exclusive or cell._borrows~=0 then return nil,__nuppManagedError("NUPP2620","managed resource is already borrowed")end cell._exclusive=true;cell._state="exclusive-borrowed";local ok,result=pcall(callback,cell._value);cell._exclusive=false;cell._state="live" if not ok then error(result,0)end;return result,nil end function __nuppManagedAlias:take() local cell,problem=__nuppAliasCell(self);if not cell then return nil,problem end if cell._exclusive or cell._borrows~=0 then return nil,__nuppManagedError("NUPP2620","managed resource has an active borrow")end cell._state="taken";local value=cell._value;cell._value=nil;cell._cleanup=nil;return value,nil end function __nuppManagedAlias:close() local cell,problem=__nuppAliasCell(self);if not cell then return problem end;return __nuppManagedClose(cell,true)end function __nuppManagedAlias:_downcast(policy) local cell,problem=__nuppAliasCell(self);if not cell then return nil,problem end if cell._policy~=policy then return nil,__nuppManagedError("NUPP2613","managed alias has the wrong type or cleanup policy")end return self,nil end function __nupp.__manage(value,cleanup,policy) local cell=setmetatable({_brand=__nuppManagedBrand,_value=value,_cleanup=cleanup,_policy=policy,_state="live",_borrows=0,_exclusive=false},__nuppManagedOwner);__nuppManagedCells[cell]=true;return cell end function __nupp.__recoverAlias(value) if type(value)~="table"or value._brand~=__nuppManagedBrand or getmetatable(value)~=__nuppManagedAlias then return nil,__nuppManagedError("NUPP2614","value is not a managed alias")end local cell,problem=__nuppAliasCell(value);if not cell then return nil,problem end;return value,nil end _G.__nuppManagedPolicyCount=function(policy)local count=0;for cell in pairs(__nuppManagedCells)do if cell._policy==policy and(cell._state=="live"or cell._state:match("borrowed"))then count=count+1 end end;return count end local __nuppManagedGroup={};__nuppManagedGroup.__index=__nuppManagedGroup function __nuppManagedGroup:flush()end function __nuppManagedGroup:adopt(cell) if self._closed then error("managed group is closed",2)end local handle=cell:alias();self._entries[#self._entries+1]=handle return handle end function __nuppManagedGroup:remove(handle) if self._closed then error("managed group is closed",2)end for index=#self._entries,1,-1 do if self._entries[index]==handle then table.remove(self._entries,index);local value,problem=handle:take();if problem then error(problem.message,2)end;return value end end error("managed alias is not registered in this group",2) end local function __nuppManagedCloseEntry(entry)local problem=entry:close();if problem and problem.code~="NUPP2614"then error(problem.message,0)end end function __nuppManagedGroup:close() if self._closed then return end;self._closed=true;local first,suppressed=nil,0 for index=#self._entries,1,-1 do local ok,reason=pcall(__nuppManagedCloseEntry,self._entries[index]);if not ok then if first==nil then first=reason else suppressed=suppressed+1 end end end self._entries={};if first~=nil then if suppressed>0 then error(tostring(first).." (suppressed "..tostring(suppressed).." cleanup failure(s))",0)end;error(first,0)end end function __nupp.managedGroup()return setmetatable({_entries={},_closed=false},__nuppManagedGroup)end;local __nuppCleanups=_G.__nuppCleanupRegistry;if __nuppCleanups==nil then __nuppCleanups={};_G.__nuppCleanupRegistry=__nuppCleanups end;local __nuppExports;local __nuppOk,__nuppWhy=pcall(function()
+_G.assert(_G.loadstring("local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppMath=rawget(__nupp,\"math\")or{};rawset(__nupp,\"math\",__nuppMath) local function __nuppCloseFile(handle)if io.type(handle)==\"closed file\"then return end;local ok,reason=handle:close();if not ok then error(reason or \"the file could not be closed\",0)end end local __nuppManagedBrand=_G.__nuppManagedBrand if not __nuppManagedBrand then __nuppManagedBrand={};_G.__nuppManagedBrand=__nuppManagedBrand end local __nuppManagedCells=_G.__nuppManagedCells if not __nuppManagedCells then __nuppManagedCells=setmetatable({},{__mode=\"k\"});_G.__nuppManagedCells=__nuppManagedCells end local __nuppManagedOwner={};__nuppManagedOwner.__index=__nuppManagedOwner;local __nuppManagedAlias={};__nuppManagedAlias.__index=__nuppManagedAlias local function __nuppManagedError(code,message)return{code=code,message=message}end local function __nuppManagedProblem(cell) if type(cell)~=\"table\"or cell._brand~=__nuppManagedBrand then return __nuppManagedError(\"NUPP2614\",\"value is not a managed alias\")end if cell._state==\"taken\"then return __nuppManagedError(\"NUPP2614\",\"managed ownership was already taken\")end if cell._state==\"closed\"or cell._state==\"closing\"then return __nuppManagedError(\"NUPP2614\",\"managed resource is closed\")end return nil end local function __nuppManagedClose(cell,checked) local problem=__nuppManagedProblem(cell);if problem then if checked then return problem end;return nil end if cell._borrows~=0 or cell._exclusive then local busy=__nuppManagedError(\"NUPP2620\",\"managed resource has an active borrow\");if checked then return busy end;error(busy.message,0)end cell._state=\"closing\";local value,cleanup=cell._value,cell._cleanup;cell._value=nil;cell._cleanup=nil local ok,reason=pcall(cleanup,value);cell._state=\"closed\";if not ok then error(reason,0)end;return nil end function __nuppManagedOwner:alias()return setmetatable({_cell=self,_brand=__nuppManagedBrand},__nuppManagedAlias)end function __nuppManagedOwner:close()return __nuppManagedClose(self,false)end local function __nuppAliasCell(self) if type(self)~=\"table\"or self._brand~=__nuppManagedBrand or getmetatable(self)~=__nuppManagedAlias then return nil,__nuppManagedError(\"NUPP2614\",\"value is not a managed alias\")end local cell=self._cell;local problem=__nuppManagedProblem(cell);if problem then return nil,problem end;return cell,nil end function __nuppManagedAlias:with(callback) local cell,problem=__nuppAliasCell(self);if not cell then return nil,problem end if cell._exclusive then return nil,__nuppManagedError(\"NUPP2620\",\"managed resource is exclusively borrowed\")end cell._borrows=cell._borrows+1;cell._state=\"shared-borrowed(\"..cell._borrows..\")\" local ok,result=pcall(callback,cell._value);cell._borrows=cell._borrows-1;cell._state=cell._borrows>0 and(\"shared-borrowed(\"..cell._borrows..\")\")or\"live\" if not ok then error(result,0)end;return result,nil end function __nuppManagedAlias:withExclusive(callback) local cell,problem=__nuppAliasCell(self);if not cell then return nil,problem end if cell._exclusive or cell._borrows~=0 then return nil,__nuppManagedError(\"NUPP2620\",\"managed resource is already borrowed\")end cell._exclusive=true;cell._state=\"exclusive-borrowed\";local ok,result=pcall(callback,cell._value);cell._exclusive=false;cell._state=\"live\" if not ok then error(result,0)end;return result,nil end function __nuppManagedAlias:take() local cell,problem=__nuppAliasCell(self);if not cell then return nil,problem end if cell._exclusive or cell._borrows~=0 then return nil,__nuppManagedError(\"NUPP2620\",\"managed resource has an active borrow\")end cell._state=\"taken\";local value=cell._value;cell._value=nil;cell._cleanup=nil;return value,nil end function __nuppManagedAlias:close() local cell,problem=__nuppAliasCell(self);if not cell then return problem end;return __nuppManagedClose(cell,true)end function __nuppManagedAlias:_downcast(policy) local cell,problem=__nuppAliasCell(self);if not cell then return nil,problem end if cell._policy~=policy then return nil,__nuppManagedError(\"NUPP2613\",\"managed alias has the wrong type or cleanup policy\")end return self,nil end function __nupp.__manage(value,cleanup,policy) local cell=setmetatable({_brand=__nuppManagedBrand,_value=value,_cleanup=cleanup,_policy=policy,_state=\"live\",_borrows=0,_exclusive=false},__nuppManagedOwner);__nuppManagedCells[cell]=true;return cell end function __nupp.__recoverAlias(value) if type(value)~=\"table\"or value._brand~=__nuppManagedBrand or getmetatable(value)~=__nuppManagedAlias then return nil,__nuppManagedError(\"NUPP2614\",\"value is not a managed alias\")end local cell,problem=__nuppAliasCell(value);if not cell then return nil,problem end;return value,nil end _G.__nuppManagedPolicyCount=function(policy)local count=0;for cell in pairs(__nuppManagedCells)do if cell._policy==policy and(cell._state==\"live\"or cell._state:match(\"borrowed\"))then count=count+1 end end;return count end local __nuppManagedGroup={};__nuppManagedGroup.__index=__nuppManagedGroup function __nuppManagedGroup:flush()end function __nuppManagedGroup:adopt(cell) if self._closed then error(\"managed group is closed\",2)end local handle=cell:alias();self._entries[#self._entries+1]=handle return handle end function __nuppManagedGroup:remove(handle) if self._closed then error(\"managed group is closed\",2)end for index=#self._entries,1,-1 do if self._entries[index]==handle then table.remove(self._entries,index);local value,problem=handle:take();if problem then error(problem.message,2)end;return value end end error(\"managed alias is not registered in this group\",2) end local function __nuppManagedCloseEntry(entry)local problem=entry:close();if problem and problem.code~=\"NUPP2614\"then error(problem.message,0)end end function __nuppManagedGroup:close() if self._closed then return end;self._closed=true;local first,suppressed=nil,0 for index=#self._entries,1,-1 do local ok,reason=pcall(__nuppManagedCloseEntry,self._entries[index]);if not ok then if first==nil then first=reason else suppressed=suppressed+1 end end end self._entries={};if first~=nil then if suppressed>0 then error(tostring(first)..\" (suppressed \"..tostring(suppressed)..\" cleanup failure(s))\",0)end;error(first,0)end end function __nupp.managedGroup()return setmetatable({_entries={},_closed=false},__nuppManagedGroup)end;\n","@nupp-prelude"))();const __nuppFfi = require("ffi"); local __nuppBitTobit=bit.tobit;local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppMath=rawget(__nupp,"math")or{};rawset(__nupp,"math",__nuppMath) local function __nuppCloseFile(handle)if io.type(handle)=="closed file"then return end;local ok,reason=handle:close();if not ok then error(reason or "the file could not be closed",0)end end local __nuppManagedBrand=_G.__nuppManagedBrand if not __nuppManagedBrand then __nuppManagedBrand={};_G.__nuppManagedBrand=__nuppManagedBrand end local __nuppManagedCells=_G.__nuppManagedCells if not __nuppManagedCells then __nuppManagedCells=setmetatable({},{__mode="k"});_G.__nuppManagedCells=__nuppManagedCells end local __nuppManagedOwner={};__nuppManagedOwner.__index=__nuppManagedOwner;local __nuppManagedAlias={};__nuppManagedAlias.__index=__nuppManagedAlias local function __nuppManagedError(code,message)return{code=code,message=message}end local function __nuppManagedProblem(cell) if type(cell)~="table"or cell._brand~=__nuppManagedBrand then return __nuppManagedError("NUPP2614","value is not a managed alias")end if cell._state=="taken"then return __nuppManagedError("NUPP2614","managed ownership was already taken")end if cell._state=="closed"or cell._state=="closing"then return __nuppManagedError("NUPP2614","managed resource is closed")end return nil end local function __nuppManagedClose(cell,checked) local problem=__nuppManagedProblem(cell);if problem then if checked then return problem end;return nil end if cell._borrows~=0 or cell._exclusive then local busy=__nuppManagedError("NUPP2620","managed resource has an active borrow");if checked then return busy end;error(busy.message,0)end cell._state="closing";local value,cleanup=cell._value,cell._cleanup;cell._value=nil;cell._cleanup=nil local ok,reason=pcall(cleanup,value);cell._state="closed";if not ok then error(reason,0)end;return nil end function __nuppManagedOwner:alias()return setmetatable({_cell=self,_brand=__nuppManagedBrand},__nuppManagedAlias)end function __nuppManagedOwner:close()return __nuppManagedClose(self,false)end local function __nuppAliasCell(self) if type(self)~="table"or self._brand~=__nuppManagedBrand or getmetatable(self)~=__nuppManagedAlias then return nil,__nuppManagedError("NUPP2614","value is not a managed alias")end local cell=self._cell;local problem=__nuppManagedProblem(cell);if problem then return nil,problem end;return cell,nil end function __nuppManagedAlias:with(callback) local cell,problem=__nuppAliasCell(self);if not cell then return nil,problem end if cell._exclusive then return nil,__nuppManagedError("NUPP2620","managed resource is exclusively borrowed")end cell._borrows=cell._borrows+1;cell._state="shared-borrowed("..cell._borrows..")" local ok,result=pcall(callback,cell._value);cell._borrows=cell._borrows-1;cell._state=cell._borrows>0 and("shared-borrowed("..cell._borrows..")")or"live" if not ok then error(result,0)end;return result,nil end function __nuppManagedAlias:withExclusive(callback) local cell,problem=__nuppAliasCell(self);if not cell then return nil,problem end if cell._exclusive or cell._borrows~=0 then return nil,__nuppManagedError("NUPP2620","managed resource is already borrowed")end cell._exclusive=true;cell._state="exclusive-borrowed";local ok,result=pcall(callback,cell._value);cell._exclusive=false;cell._state="live" if not ok then error(result,0)end;return result,nil end function __nuppManagedAlias:take() local cell,problem=__nuppAliasCell(self);if not cell then return nil,problem end if cell._exclusive or cell._borrows~=0 then return nil,__nuppManagedError("NUPP2620","managed resource has an active borrow")end cell._state="taken";local value=cell._value;cell._value=nil;cell._cleanup=nil;return value,nil end function __nuppManagedAlias:close() local cell,problem=__nuppAliasCell(self);if not cell then return problem end;return __nuppManagedClose(cell,true)end function __nuppManagedAlias:_downcast(policy) local cell,problem=__nuppAliasCell(self);if not cell then return nil,problem end if cell._policy~=policy then return nil,__nuppManagedError("NUPP2613","managed alias has the wrong type or cleanup policy")end return self,nil end function __nupp.__manage(value,cleanup,policy) local cell=setmetatable({_brand=__nuppManagedBrand,_value=value,_cleanup=cleanup,_policy=policy,_state="live",_borrows=0,_exclusive=false},__nuppManagedOwner);__nuppManagedCells[cell]=true;return cell end function __nupp.__recoverAlias(value) if type(value)~="table"or value._brand~=__nuppManagedBrand or getmetatable(value)~=__nuppManagedAlias then return nil,__nuppManagedError("NUPP2614","value is not a managed alias")end local cell,problem=__nuppAliasCell(value);if not cell then return nil,problem end;return value,nil end _G.__nuppManagedPolicyCount=function(policy)local count=0;for cell in pairs(__nuppManagedCells)do if cell._policy==policy and(cell._state=="live"or cell._state:match("borrowed"))then count=count+1 end end;return count end local __nuppManagedGroup={};__nuppManagedGroup.__index=__nuppManagedGroup function __nuppManagedGroup:flush()end function __nuppManagedGroup:adopt(cell) if self._closed then error("managed group is closed",2)end local handle=cell:alias();self._entries[#self._entries+1]=handle return handle end function __nuppManagedGroup:remove(handle) if self._closed then error("managed group is closed",2)end for index=#self._entries,1,-1 do if self._entries[index]==handle then table.remove(self._entries,index);local value,problem=handle:take();if problem then error(problem.message,2)end;return value end end error("managed alias is not registered in this group",2) end local function __nuppManagedCloseEntry(entry)local problem=entry:close();if problem and problem.code~="NUPP2614"then error(problem.message,0)end end function __nuppManagedGroup:close() if self._closed then return end;self._closed=true;local first,suppressed=nil,0 for index=#self._entries,1,-1 do local ok,reason=pcall(__nuppManagedCloseEntry,self._entries[index]);if not ok then if first==nil then first=reason else suppressed=suppressed+1 end end end self._entries={};if first~=nil then if suppressed>0 then error(tostring(first).." (suppressed "..tostring(suppressed).." cleanup failure(s))",0)end;error(first,0)end end function __nupp.managedGroup()return setmetatable({_entries={},_closed=false},__nuppManagedGroup)end local function __nuppLazy(target,name,loader)local meta=getmetatable(target)or{};local loaders=meta.__nuppLoaders;if not loaders then loaders={};local prior=meta.__index;meta.__nuppLoaders=loaders;meta.__index=function(t,k)local load=loaders[k];if load then local value=load(k);loaders[k]=nil;if value==nil then value=rawget(t,k)else rawset(t,k,value)end;return value end;if type(prior)=="function"then return prior(t,k)elseif prior then return prior[k]end end;setmetatable(target,meta)end;if name~=nil and rawget(target,name)==nil and loaders[name]==nil then loaders[name]=loader end end require("nupp.compiler.runtime.math").install(rawget(__nupp,"math"));local __nuppCleanups=_G.__nuppCleanupRegistry;if __nuppCleanups==nil then __nuppCleanups={};_G.__nuppCleanupRegistry=__nuppCleanups end;local __nuppExports;local __nuppOk,__nuppWhy=pcall(function()
 
 
 
@@ -164489,6 +165695,16 @@ local gpuLibrary = os . getenv ( "NUPP_GPU_LIBRARY" )
 local C = gpuLibrary and ffi . load ( gpuLibrary ) or native . C
 local gpu = { }
 
+
+
+
+gpu . PORTABLE_WORKGROUP_THREADS = 256
+
+
+
+
+gpu . PORTABLE_SCRATCH_BYTES = 16384
+
 native . ffi . cdef [[
 typedef struct NuppGpuContext NuppGpuContext;
 typedef struct NuppGpuBuffer NuppGpuBuffer;
@@ -164514,7 +165730,12 @@ bool nuppGpuBufferRead(NuppGpuContext *, NuppGpuBuffer *, void *, size_t, size_t
 
 
 
-local dispatchNative = C . nuppGpuBindingDispatch
+
+
+local function dispatchNative ( binding , uniforms , bytes ) 
+local call = C . nuppGpuBindingDispatch
+return call ( binding , uniforms , bytes )
+end
 
 
 
@@ -164567,6 +165788,37 @@ gpu.Binding = {} gpu.Binding.__index = gpu.Binding
 
 
 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+gpu.Shared = {} gpu.Shared.__index = gpu.Shared
+
+
+
+
+
+
+
+
+
+
+gpu.Phases = {} gpu.Phases.__index = gpu.Phases
 
 
 
@@ -164716,6 +165968,76 @@ out [ index ] = value
 end
 
 return out
+end
+
+function gpu . Shared . get ( self , index ) 
+if index < 0 or index >= self . count then
+error ( "nupp: GPU shared-scratch index out of bounds" , 2 )
+end
+return self . _values [ index + 1 ]
+end
+
+function gpu . Shared . set ( self , index , value ) 
+if index < 0 or index >= self . count then
+error ( "nupp: GPU shared-scratch index out of bounds" , 2 )
+end
+self . _values [ index + 1 ] = value
+end
+
+function gpu . Phases . scratch ( self , initial , count ) 
+if count < 1 then
+error ( "nupp: GPU shared scratch must contain at least one element" , 2 )
+end
+local values = { }
+for index = 1 , count do
+values [ index ] = initial
+end
+
+return setmetatable({ _values =  values ,  count =  count }, gpu.Shared)
+end
+
+function gpu . Phases . run ( self , stage ) 
+for index = 0 , self . _size - 1 do
+stage ( (__nuppBitTobit( index )%4294967296) )
+end
+end
+
+function gpu . Phases . reduceSumF32 ( self , values ) 
+if values . count ~= self . _size or self . _size < 1 or self . _size & ( self . _size - 1 ) ~= 0 then
+error ( "nupp: fixed-tree reduction needs one power-of-two value per lane" , 2 )
+end
+local stride = math.floor(( self . _size ) / ( 2 ))
+while stride > 0 do
+local active = stride
+self : run ( function ( localIndex ) 
+local lane = localIndex
+if lane < active then
+values [
+lane
+] = nupp . math . f32 . add ( nupp . math . f32 . narrow ( values [ lane ] ) , nupp . math . f32 . narrow ( values [ lane + active ] ) )
+end
+end )
+stride = math.floor(( stride ) / ( 2 ))
+end
+end
+
+
+
+
+
+
+
+
+function gpu . workgroups ( groups , size , controller ) 
+local groupCount = groups
+local groupSize = size
+if groupSize < 1 or groupSize > gpu . PORTABLE_WORKGROUP_THREADS then
+error ( "nupp: GPU workgroup size exceeds the portable limit" , 2 )
+end
+local phases = setmetatable({ _size =  groupSize }, gpu.Phases)
+for groupIndex = 0 , groupCount - 1 do
+controller ( (__nuppBitTobit( groupIndex )%4294967296) , phases )
+end
 end
 
 function gpu . Context . drop ( self ) 
@@ -164975,6 +166297,8 @@ end
 gpu . Buffer = gpu . Buffer
 gpu . Kernel = gpu . Kernel
 gpu . Binding = gpu . Binding
+gpu . Shared = gpu . Shared
+gpu . Phases = gpu . Phases
 gpu . Context = gpu . Context
 gpu . ContextToken = gpu . ContextToken
 
@@ -211413,6 +212737,16 @@ local gpuLibrary = os.getenv("NUPP_GPU_LIBRARY")
 local C = gpuLibrary and ffi.load(gpuLibrary) or native.C
 local gpu = {}
 
+--- The portable floor reserved for one generated workgroup. Backends may
+--- support more, but generated kernels deliberately do not depend on it.
+--- @export
+const gpu.PORTABLE_WORKGROUP_THREADS = 256
+
+--- The portable workgroup-scratch floor in bytes. Generated kernels are
+--- refused at compile time when their statically sized scratch exceeds it.
+--- @export
+const gpu.PORTABLE_SCRATCH_BYTES = 16384
+
 native.ffi.cdef[[
 typedef struct NuppGpuContext NuppGpuContext;
 typedef struct NuppGpuBuffer NuppGpuBuffer;
@@ -211437,8 +212771,13 @@ bool nuppGpuBufferRead(NuppGpuContext *, NuppGpuBuffer *, void *, size_t, size_t
 ]]
 
 -- `native.C` is late-bound, so restore the ownership contracts that the literal
--- cdef carries for the checker but a table lookup cannot preserve.
-local dispatchNative = C.nuppGpuBindingDispatch as function(any, borrows uniforms: const uint8[?], integer): boolean
+-- cdef carries for the checker but a table lookup cannot preserve. Resolve the
+-- symbol only when a real GPU dispatch happens: the ordinary workgroup/phase
+-- implementation remains usable in builds whose provider did not link SDL.
+local function dispatchNative(binding: any, borrows uniforms: const uint8[?], bytes: integer): boolean
+    local call = C.nuppGpuBindingDispatch as function(any, borrows uniforms: const uint8[?], integer): boolean
+    return call(binding, uniforms, bytes)
+end
 
 --- One typed resident device range. A root buffer owns an allocation; a
 --- subview shares it with a checked element offset. Storage is not
@@ -211502,6 +212841,37 @@ record gpu.Binding
     --- Enqueues the binding with a compiler-laid-out uniform block.
     --- @internal
     dispatchPacked: function(borrows self: Binding, uniforms: any, uniformBytes: integer): nil
+end
+
+--- Statically sized, zero-based storage shared by one CPU workgroup.
+---
+--- GPU AOT replaces this ordinary representation with workgroup address-space
+--- storage. Keeping its indexing zero-based makes the interpreted CPU body and
+--- the shader body use exactly the same authored indices.
+--- @export
+record gpu.Shared<T>
+    private _values: {T}
+    readonly count: integer
+
+    metamethod __len: function(borrows self: gpu.Shared<T>): integer
+    metamethod __index: function(borrows self: gpu.Shared<T>, index: integer): T
+    metamethod __newindex: function(exclusive self: gpu.Shared<T>, index: integer, value: T): nil
+end
+
+--- The ordered stages and scratch belonging to one workgroup.
+--- @export
+record gpu.Phases
+    private readonly _size: integer
+
+    --- Allocates fresh zero-based scratch for this workgroup.
+    scratch: function<T>(borrows self: gpu.Phases, initial: T, count: integer): gpu.Shared<T>
+
+    --- Runs one stage to completion in ascending local-index order.
+    run: function(borrows self: gpu.Phases, scoped stage: function(uint32): nil): nil
+
+    --- Reduces one power-of-two f32 workgroup in a fixed left-before-right
+    --- tree. The sum is left in element zero.
+    reduceSumF32: function(borrows self: gpu.Phases, exclusive values: gpu.Shared<float>): nil
 end
 
 sealed interface gpu.ContextToken
@@ -211640,6 +213010,76 @@ local function copied(values: {integer}): {integer}
     end
 
     return out
+end
+
+function gpu.Shared.get<T>(borrows self: gpu.Shared<T>, index: integer): T
+    if index < 0 or index >= self.count then
+        error("nupp: GPU shared-scratch index out of bounds", 2)
+    end
+    return self._values[index + 1]
+end
+
+function gpu.Shared.set<T>(exclusive self: gpu.Shared<T>, index: integer, value: T): nil
+    if index < 0 or index >= self.count then
+        error("nupp: GPU shared-scratch index out of bounds", 2)
+    end
+    self._values[index + 1] = value
+end
+
+function gpu.Phases.scratch<T>(borrows self: gpu.Phases, initial: T, count: integer): gpu.Shared<T>
+    if count < 1 then
+        error("nupp: GPU shared scratch must contain at least one element", 2)
+    end
+    local values: {T} = {}
+    for index = 1, count do
+        values[index] = initial
+    end
+
+    return new gpu.Shared(_values = values, count = count)
+end
+
+function gpu.Phases.run(borrows self: gpu.Phases, scoped stage: function(uint32): nil): nil
+    for index = 0, self._size - 1 do
+        stage(nupp.math.u32.wrap(index))
+    end
+end
+
+function gpu.Phases.reduceSumF32(borrows self: gpu.Phases, exclusive values: gpu.Shared<float>): nil
+    if values.count ~= self._size or self._size < 1 or self._size & (self._size - 1) ~= 0 then
+        error("nupp: fixed-tree reduction needs one power-of-two value per lane", 2)
+    end
+    local stride = self._size // 2
+    while stride > 0 do
+        local active = stride
+        self:run(function(localIndex: uint32)
+            local lane = localIndex as integer
+            if lane < active then
+                values[
+                    lane
+                ] = nupp.math.f32.add(nupp.math.f32.narrow(values[lane]), nupp.math.f32.narrow(values[lane + active]))
+            end
+        end)
+        stride = stride // 2
+    end
+end
+
+--- Executes uniformly ordered workgroup phases on the CPU.
+---
+--- A GPU AOT body recognizes this call and its immediate callbacks as
+--- structure: the controller does not escape, each `run` is a device barrier,
+--- and each stage invocation becomes one local lane.
+--- @export
+--- @raises when size is outside the portable workgroup limit
+function gpu.workgroups(groups: uint32, size: uint32, scoped controller: function(uint32, gpu.Phases): nil): nil
+    local groupCount = groups as integer
+    local groupSize = size as integer
+    if groupSize < 1 or groupSize > gpu.PORTABLE_WORKGROUP_THREADS then
+        error("nupp: GPU workgroup size exceeds the portable limit", 2)
+    end
+    local phases = new gpu.Phases(_size = groupSize)
+    for groupIndex = 0, groupCount - 1 do
+        controller(nupp.math.u32.wrap(groupIndex), phases)
+    end
 end
 
 function gpu.Context.drop(takes self: gpu.Context): nil
@@ -211899,6 +213339,8 @@ end
 gpu.Buffer = gpu.Buffer
 gpu.Kernel = gpu.Kernel
 gpu.Binding = gpu.Binding
+gpu.Shared = gpu.Shared
+gpu.Phases = gpu.Phases
 gpu.Context = gpu.Context
 gpu.ContextToken = gpu.ContextToken
 

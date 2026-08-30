@@ -1,0 +1,37 @@
+local gpu = require("nupp.gpu")
+
+local M = {}
+
+function M.workgroupPhasesHaveDeterministicCpuMeaning(): nil
+    local results: {float} = {}
+    gpu.workgroups(nupp.math.u32.wrap(2), nupp.math.u32.wrap(4), function(groupIndex: uint32, phases: gpu.Phases)
+        local values = phases:scratch(nupp.math.f32.narrow(0.0), 4)
+        phases:run(function(localIndex: uint32)
+            local base = nupp.math.u32.mul(groupIndex, nupp.math.u32.wrap(4))
+            local value = nupp.math.u32.add(nupp.math.u32.add(base, localIndex), nupp.math.u32.wrap(1))
+            values[localIndex as integer] = nupp.math.f32.narrow(value as number)
+        end)
+        phases:reduceSumF32(values)
+        phases:run(function(localIndex: uint32)
+            if localIndex == nupp.math.u32.wrap(0) then
+                results[(groupIndex as integer) + 1] = nupp.math.f32.narrow(values[0])
+            end
+        end)
+    end)
+
+    assert(#results == 2)
+    assert(results[1] == 10.0)
+    assert(results[2] == 26.0)
+end
+
+function M.sharedScratchChecksZeroBasedBounds(): nil
+    gpu.workgroups(nupp.math.u32.wrap(1), nupp.math.u32.wrap(1), function(groupIndex: uint32, phases: gpu.Phases)
+        local values = phases:scratch(groupIndex, 1)
+        phases:run(function(localIndex: uint32)
+            values[localIndex as integer] = nupp.math.u32.wrap(7)
+            assert(values[0] == 7)
+        end)
+    end)
+end
+
+return M

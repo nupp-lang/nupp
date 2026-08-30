@@ -122,29 +122,38 @@ function aot.install(c: state.Checker): aot.Ops
             end
         end
         (node as any).aotMapLoop = loops == 1
-        local function walk(current: any): nil
+        local function exactCall(current: cst.Call): any?
+            local callee = current.obj
+            local exact = callee ~= nil and (callee as any).exactCallExport or nil
+            if exact == nil and callee ~= nil and callee.kind == "dotIndex" then
+                local indexed = callee as cst.DotIndex
+                local base = indexed.obj
+                local token = base ~= nil and base.kind == "name" and (base as cst.NameExpr).token or nil
+                local definition = token ~= nil and (token as any).definition or nil
+                local moduleName = definition ~= nil and definition.requiredModule or nil
+                if moduleName ~= nil and indexed.name ~= nil then
+                    exact = {identity = moduleName .. "." .. indexed.name.text,}
+                end
+            end
+            if exact == nil and callee ~= nil and callee.kind == "name" then
+                local token = (callee as cst.NameExpr).token
+                local definition = token ~= nil and (token as any).definition or nil
+                exact = definition ~= nil and definition.exactCallExport or nil
+            end
+
+            return exact
+        end
+
+        local walk: function(any, boolean?): nil
+        walk = function(current: any, inWorkgroup: boolean?): nil
             if current == nil or cst.isToken(current) then
                 return
             end
             local kind = (current as Node).kind
             if kind == "call" then
-                local callee = (current as cst.Call).obj
-                local exact = callee ~= nil and (callee as any).exactCallExport or nil
-                if exact == nil and callee ~= nil and callee.kind == "dotIndex" then
-                    local indexed = callee as cst.DotIndex
-                    local base = indexed.obj
-                    local token = base ~= nil and base.kind == "name" and (base as cst.NameExpr).token or nil
-                    local definition = token ~= nil and (token as any).definition or nil
-                    local moduleName = definition ~= nil and definition.requiredModule or nil
-                    if moduleName ~= nil and indexed.name ~= nil then
-                        exact = {identity = moduleName .. "." .. indexed.name.text,}
-                    end
-                end
-                if exact == nil and callee ~= nil and callee.kind == "name" then
-                    local token = (callee as cst.NameExpr).token
-                    local definition = token ~= nil and (token as any).definition or nil
-                    exact = definition ~= nil and definition.exactCallExport or nil
-                end
+                local call = current as cst.Call
+                local callee = call.obj
+                local exact = exactCall(call)
                 local selected = c.env.config and c.env.config._target or nil
                 if selected ~= nil
                     and selected.aot == "off"
@@ -159,6 +168,32 @@ function aot.install(c: state.Checker): aot.Ops
                         .. "select aot=emit-c or aot=require"
                     )
                 end
+                if exact ~= nil and exact.identity == "nupp.gpu.workgroups" then
+                    walk(callee, false)
+                    local args = call.args ~= nil and ((call.args as cst.Args).exprs or {}) or {}
+                    walk(args[1], false)
+                    walk(args[2], false)
+                    local callback = args[3]
+                    if callback ~= nil and callback.kind == "funcExpr" then
+                        walk((callback as cst.FuncExpr).body, true)
+                    else
+                        walk(callback, false)
+                    end
+                    return
+                end
+            elseif kind == "methodCall" and inWorkgroup == true then
+                local call = current as cst.MethodCall
+                if call.name ~= nil and call.name.text == "run" then
+                    walk(call.obj, true)
+                    local args = call.args ~= nil and ((call.args as cst.Args).exprs or {}) or {}
+                    local callback = args[1]
+                    if callback ~= nil and callback.kind == "funcExpr" then
+                        walk((callback as cst.FuncExpr).body, true)
+                    else
+                        walk(callback, true)
+                    end
+                    return
+                end
             end
             if kind and DECLINED[kind] then
                 decline(current as Node, kind)
@@ -166,11 +201,11 @@ function aot.install(c: state.Checker): aot.Ops
                 return
             end
             for _, child in ipairs(current as {any}) do
-                walk(child)
+                walk(child, inWorkgroup)
             end
         end
 
-        walk(node)
+        walk(node, false)
     end
 
     return ops

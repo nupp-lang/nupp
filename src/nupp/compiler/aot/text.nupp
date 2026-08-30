@@ -130,6 +130,11 @@ function text.expression(node: scalarIR.Expr | lane.Expr): string
         return "count " .. node.span
     elseif op == "loop_index" then
         return "loop_index:f64"
+    elseif op == "workgroup_index" or op == "local_index" then
+        return op .. ":u32"
+    elseif op == "shared_load" then
+        local load = node as scalarIR.SharedLoad
+        return "shared_load:" .. load.type .. " " .. load.shared .. "[" .. text.expression(load.index) .. "]"
     elseif op == "element_ref" then
         local index = node.cursor ~= nil and node.cursor .. "+1" or node.index
         return "element_ref:" .. node.layout .. " " .. node.span .. "[" .. index .. "]"
@@ -382,6 +387,17 @@ function text.block(statements: {any}, depth: integer, lanes: integer): {string}
             lines[
                 #lines + 1
             ] = prefix .. "store " .. statement.span .. "[" .. index .. "] = " .. text.expression(statement.value)
+        elseif op == "shared_store" then
+            local store = statement as scalarIR.SharedStore
+            lines[
+                #lines + 1
+            ] = prefix .. "shared_store " .. store.shared .. "[" .. text.expression(
+                store.index
+            ) .. "] = " .. text.expression(store.value)
+        elseif op == "phase" then
+            lines[#lines + 1] = prefix .. "phase"
+            nested((statement as scalarIR.Phase).body)
+            lines[#lines + 1] = prefix .. "barrier"
         elseif op == "lua_set_index" or op == "lua_set_key" then
             lines[
                 #lines + 1
@@ -614,6 +630,7 @@ local function preamble(program: scalarIR.Program): {string}
     end
 
     local loop = program.loop
+    local workgroup = program.workgroup
     if loop ~= nil then
         local scalarLoop = loop as scalarIR.Loop
         lines[
@@ -627,6 +644,20 @@ local function preamble(program: scalarIR.Program): {string}
             scalarLoop.count,
             at(scalarLoop.source)
         )
+    elseif workgroup ~= nil then
+        local phased = workgroup as scalarIR.Workgroup
+        lines[
+            #lines + 1
+        ] = (
+            "workgroups count(%s) size(%d) dispatch(%s) %s"
+        ):format(text.expression(phased.groups), phased.size, phased.dispatchSpan, at(phased.source))
+        for _, scratch in ipairs(phased.shared) do
+            lines[
+                #lines + 1
+            ] = (
+                "  shared %s:%s[%d] = %s %s"
+            ):format(scratch.name, scratch.element, scratch.count, text.expression(scratch.initial), at(scratch.source))
+        end
     else
         lines[#lines + 1] = "block"
     end
@@ -644,7 +675,15 @@ function text.program(program: scalarIR.Program): string
     local lanes = program.lanes
     local width = lanes ~= nil and (lanes as scalarIR.LaneBody).lanes or 0
     local loop = program.loop
-    local statements = loop ~= nil and (loop as scalarIR.Loop).statements or program.body or {}
+    local workgroup = program.workgroup
+    local statements = loop ~= nil and (
+        loop as scalarIR.Loop
+    ).statements or workgroup ~= nil and (workgroup as scalarIR.Workgroup).statements or program.body or {}
+    if workgroup ~= nil then
+        for _, line in ipairs(text.block((workgroup as scalarIR.Workgroup).prelude, 1, width)) do
+            lines[#lines + 1] = line
+        end
+    end
     for _, line in ipairs(text.block(statements, 1, width)) do
         lines[#lines + 1] = line
     end

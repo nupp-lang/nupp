@@ -33,6 +33,7 @@ const OP = {
     TypeInt = 21,
     TypeFloat = 22,
     TypeVector = 23,
+    TypeArray = 28,
     TypeRuntimeArray = 29,
     TypeStruct = 30,
     TypePointer = 32,
@@ -98,6 +99,7 @@ const OP = {
     BitwiseOr = 197,
     BitwiseXor = 198,
     BitwiseAnd = 199,
+    ControlBarrier = 224,
     SelectionMerge = 247,
     LoopMerge = 246,
     Label = 248,
@@ -107,7 +109,7 @@ const OP = {
     ReturnValue = 254,
 }
 
-const STORAGE = {Input = 1, Uniform = 2, Function = 7, StorageBuffer = 12}
+const STORAGE = {Input = 1, Uniform = 2, Workgroup = 4, Function = 7, StorageBuffer = 12}
 const DECORATION = {
     Block = 2,
     ArrayStride = 6,
@@ -493,6 +495,37 @@ function spirv.program(
     name(globalId, "global_invocation_id")
     decorate(globalId, DECORATION.BuiltIn, {28})
 
+    local workgroup = program.workgroup
+    local groupId: integer? = nil
+    local localId: integer? = nil
+    local sharedVars: {[string]: integer} = {}
+    local sharedElements: {[string]: integer} = {}
+    if workgroup ~= nil then
+        groupId = id()
+        instruction(declarations, OP.Variable, {globalPointer, groupId as integer, STORAGE.Input})
+        name(groupId as integer, "workgroup_id")
+        decorate(groupId as integer, DECORATION.BuiltIn, {26})
+        localId = id()
+        instruction(declarations, OP.Variable, {globalPointer, localId as integer, STORAGE.Input})
+        name(localId as integer, "local_invocation_id")
+        decorate(localId as integer, DECORATION.BuiltIn, {27})
+        for _, scratch in ipairs((workgroup as scalarIR.Workgroup).shared) do
+            local element = scalarType(scratch.element)
+            local arrayType = id()
+            instruction(declarations, OP.TypeArray, {arrayType, element, constant(u32Type, scratch.count)})
+            decorate(arrayType, DECORATION.ArrayStride, {4})
+            local variable = id()
+            instruction(declarations, OP.Variable, {
+                pointerType(STORAGE.Workgroup, arrayType),
+                variable,
+                STORAGE.Workgroup
+            })
+            name(variable, scratch.name)
+            sharedVars[scratch.name] = variable
+            sharedElements[scratch.name] = element
+        end
+    end
+
     local fnVoid = functionType(voidType, {})
     local fnU32U32 = functionType(u32Type, {u32Type, u32Type})
     local fnF32F32 = functionType(f32Type, {f32Type, f32Type})
@@ -705,6 +738,10 @@ function spirv.program(
     local entryOperands = {5, main}
     push(entryOperands, stringWords(program.symbol .. "_gpu"))
     entryOperands[#entryOperands + 1] = globalId
+    if groupId ~= nil and localId ~= nil then
+        entryOperands[#entryOperands + 1] = groupId as integer
+        entryOperands[#entryOperands + 1] = localId as integer
+    end
     instruction(entry, OP.EntryPoint, entryOperands)
     instruction(entry, OP.ExecutionMode, {main, 17, threads, 1, 1})
     name(main, program.symbol .. "_gpu")
@@ -733,7 +770,11 @@ function spirv.program(
                     STORAGE.Function
                 })
                 name(pointer, statement.cName)
-            elseif statement.op == "while" or statement.op == "block" then
+            elseif statement.op == "while"
+                or statement.op == "fornum"
+                or statement.op == "block"
+                or statement.op == "phase"
+            then
                 collect(statement.body)
             elseif statement.op == "if" then
                 for _, clause in ipairs(statement.clauses) do
@@ -744,13 +785,31 @@ function spirv.program(
         end
     end
 
-    local loop = program.loop as scalarIR.Loop
-    collect(loop.statements)
+    local loop = program.loop
+    local scalarStatements = loop ~= nil and (
+        loop as scalarIR.Loop
+    ).statements or (workgroup as scalarIR.Workgroup).statements
+    if workgroup ~= nil then
+        collect((workgroup as scalarIR.Workgroup).prelude)
+    end
+    collect(scalarStatements)
 
     local loadedGlobal = id()
     instruction(functions, OP.Load, {vec3uType, loadedGlobal, globalId})
     local dispatch = id()
     instruction(functions, OP.CompositeExtract, {u32Type, dispatch, loadedGlobal, 0})
+    local groupIndex: integer? = nil
+    local localIndex: integer? = nil
+    if workgroup ~= nil then
+        local loadedGroup = id()
+        instruction(functions, OP.Load, {vec3uType, loadedGroup, groupId as integer})
+        groupIndex = id()
+        instruction(functions, OP.CompositeExtract, {u32Type, groupIndex as integer, loadedGroup, 0})
+        local loadedLocal = id()
+        instruction(functions, OP.Load, {vec3uType, loadedLocal, localId as integer})
+        localIndex = id()
+        instruction(functions, OP.CompositeExtract, {u32Type, localIndex as integer, loadedLocal, 0})
+    end
 
     local function uniform(name_: string, typeId: integer): integer
         local member = constant(u32Type, uniformIndex[name_] as integer)
@@ -762,15 +821,19 @@ function spirv.program(
         return loaded
     end
 
-    local count = uniform("count", u32Type)
-    local inRange = id()
-    instruction(functions, OP.ULessThan, {boolType, inRange, dispatch, count})
-    local bodyLabel, returnLabel, entryMerge = id(), id(), id()
-    instruction(functions, OP.SelectionMerge, {entryMerge, 0})
-    instruction(functions, OP.BranchConditional, {inRange, bodyLabel, returnLabel})
-    instruction(functions, OP.Label, {returnLabel})
-    instruction(functions, OP.Return, {})
-    instruction(functions, OP.Label, {bodyLabel})
+    local entryMerge: integer? = nil
+    if workgroup == nil then
+        local count = uniform("count", u32Type)
+        local inRange = id()
+        instruction(functions, OP.ULessThan, {boolType, inRange, dispatch, count})
+        local bodyLabel, returnLabel = id(), id()
+        entryMerge = id()
+        instruction(functions, OP.SelectionMerge, {entryMerge as integer, 0})
+        instruction(functions, OP.BranchConditional, {inRange, bodyLabel, returnLabel})
+        instruction(functions, OP.Label, {returnLabel})
+        instruction(functions, OP.Return, {})
+        instruction(functions, OP.Label, {bodyLabel})
+    end
 
     local currentBreak: {integer} = {}
     local currentContinue: {integer} = {}
@@ -816,6 +879,23 @@ function spirv.program(
             local result = id()
             instruction(functions, OP.IAdd, {u32Type, result, dispatch, oneU})
             return result, u32Type
+        elseif op == "workgroup_index" then
+            return groupIndex as integer, u32Type
+        elseif op == "local_index" then
+            return localIndex as integer, u32Type
+        elseif op == "shared_load" then
+            local indexId = expression(value.index)
+            local element = assert(sharedElements[value.shared])
+            local pointer = id()
+            instruction(functions, OP.AccessChain, {
+                pointerType(STORAGE.Workgroup, element),
+                pointer,
+                assert(sharedVars[value.shared]),
+                indexId
+            })
+            local loaded = id()
+            instruction(functions, OP.Load, {element, loaded, pointer})
+            return loaded, element
         elseif op == "span_count" then
             return uniform(value.span .. "_count", u32Type), u32Type
         elseif op == "element_ref" then
@@ -1009,6 +1089,10 @@ function spirv.program(
         return result, resultType
     end
 
+    local function workgroupBarrier(): nil
+        instruction(functions, OP.ControlBarrier, {constant(u32Type, 2), constant(u32Type, 2), constant(u32Type, 264)})
+    end
+
     local statements: function({any}): nil
     statements = function(values: {any}): nil
         for _, statement in ipairs(values) do
@@ -1073,6 +1157,23 @@ function spirv.program(
                     value = narrowed
                 end
                 instruction(functions, OP.Store, {pointer, value})
+            elseif op == "shared_store" then
+                local indexId = expression(statement.index)
+                local element = assert(sharedElements[statement.shared])
+                local pointer = id()
+                instruction(functions, OP.AccessChain, {
+                    pointerType(STORAGE.Workgroup, element),
+                    pointer,
+                    assert(sharedVars[statement.shared]),
+                    indexId
+                })
+                local value = expression(statement.value)
+                instruction(functions, OP.Store, {pointer, value})
+            elseif op == "phase" then
+                statements(statement.body)
+                if not terminated then
+                    workgroupBarrier()
+                end
             elseif op == "if" then
                 local merge = id()
                 for index, clause in ipairs(statement.clauses) do
@@ -1132,11 +1233,29 @@ function spirv.program(
             end
         end
     end
-    statements(loop.statements)
-    if not terminated then
-        instruction(functions, OP.Branch, {entryMerge})
+    if workgroup ~= nil then
+        statements((workgroup as scalarIR.Workgroup).prelude)
+        for _, scratch in ipairs((workgroup as scalarIR.Workgroup).shared) do
+            local element = assert(sharedElements[scratch.name])
+            local pointer = id()
+            instruction(functions, OP.AccessChain, {
+                pointerType(STORAGE.Workgroup, element),
+                pointer,
+                assert(sharedVars[scratch.name]),
+                localIndex as integer
+            })
+            local initial = expression(scratch.initial)
+            instruction(functions, OP.Store, {pointer, initial})
+        end
+        workgroupBarrier()
     end
-    instruction(functions, OP.Label, {entryMerge})
+    statements(scalarStatements)
+    if workgroup == nil then
+        if not terminated then
+            instruction(functions, OP.Branch, {entryMerge as integer})
+        end
+        instruction(functions, OP.Label, {entryMerge as integer})
+    end
     instruction(functions, OP.Return, {})
     instruction(functions, OP.FunctionEnd, {})
 

@@ -79,7 +79,12 @@ end
 --- identity callback; transformations return replacement children.
 function visit.expressionChildren(node: scalarIR.Expr, rewrite: visit.ScalarRewrite): nil
     return switch node.op do
-        case "constant", "constant_i32", "constant_i64", "bool", "lua_nil", "lua_string", "local", "uniform", "helper_param", "span_count", "loop_index", "load", "element_ref" -> nil
+        case "constant", "constant_i32", "constant_i64", "bool", "lua_nil", "lua_string", "local", "uniform", "helper_param", "span_count", "loop_index", "workgroup_index", "local_index", "load", "element_ref" -> nil
+        case "shared_load" -> do
+            local value = node as scalarIR.SharedLoad
+            value.index = rewrite(value.index)
+            yield nil
+        end
         case "lua_concat" -> do
             local value = node as scalarIR.LuaConcat
             value.left = rewrite(value.left)
@@ -325,6 +330,12 @@ function visit.statementExpressions(node: scalarIR.Statement, rewrite: visit.Sca
             value.value = rewrite(value.value)
             yield nil
         end
+        case "shared_store" -> do
+            local value = node as scalarIR.SharedStore
+            value.index = rewrite(value.index)
+            value.value = rewrite(value.value)
+            yield nil
+        end
         case "lua_set_index", "lua_set_key" -> do
             local value = node as scalarIR.LuaSet
             value.table = rewrite(value.table)
@@ -369,7 +380,7 @@ function visit.statementExpressions(node: scalarIR.Statement, rewrite: visit.Sca
             value.to = rewrite(value.to)
             yield nil
         end
-        case "block", "break", "continue" -> nil
+        case "phase", "block", "break", "continue" -> nil
         case "return" -> rewriteExpressions((node as scalarIR.Return).values, rewrite)
             --- A statement the switch does not name is walked as an expression
             --- rather than skipped. Skipping is how `simd_store4_u8` came to have
@@ -397,7 +408,7 @@ scalarStatement = function(node: scalarIR.Statement, visitor: visit.Visitor): ni
         if value.elseBody ~= nil then
             scalarBlock(value.elseBody as {scalarIR.Statement}, visitor)
         end
-    elseif node.op == "while" or node.op == "fornum" or node.op == "block" then
+    elseif node.op == "while" or node.op == "fornum" or node.op == "block" or node.op == "phase" then
         scalarBlock((node as any).body as {scalarIR.Statement}, visitor)
     end
 end
@@ -488,6 +499,15 @@ function visit.program(program: scalarIR.Program, visitor: visit.Visitor): nil
     end
     if program.body ~= nil then
         scalarBlock(program.body as {scalarIR.Statement}, visitor)
+    end
+    if program.workgroup ~= nil then
+        local workgroup = program.workgroup as scalarIR.Workgroup
+        scalarBlock(workgroup.prelude, visitor)
+        scalarExpression(workgroup.groups, visitor)
+        for _, shared in ipairs(workgroup.shared) do
+            scalarExpression(shared.initial, visitor)
+        end
+        scalarBlock(workgroup.statements, visitor)
     end
     for _, helper in ipairs(program.helpers or {}) do
         scalarExpressions(helper.values, visitor)

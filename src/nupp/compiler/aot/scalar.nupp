@@ -28,7 +28,7 @@ local scalarIR = {}
 ---
 --- Carried in the IR and checked when it is read back, so an IR written by an
 --- older compiler is refused rather than half-understood.
-const scalarIR.VERSION = 24
+const scalarIR.VERSION = 25
 
 --- The calling convention selected for one complete AOT entry.
 ---
@@ -475,6 +475,22 @@ record scalarIR.LoopIndex
     source: scalarIR.Source?
 end
 
+--- The zero-based workgroup and local-lane coordinates of a phased GPU entry.
+record scalarIR.WorkgroupIndex
+    op: 'workgroup_index' | 'local_index'
+    type: 'u32'
+    source: scalarIR.Source?
+end
+
+--- One value read from statically sized workgroup scratch.
+record scalarIR.SharedLoad
+    op: 'shared_load'
+    shared: string
+    index: scalarIR.Expr
+    type: scalarIR.Type
+    source: scalarIR.Source?
+end
+
 --- One element of a span holding scalars.
 record scalarIR.Load
     op: 'load'
@@ -794,6 +810,8 @@ type scalarIR.Expr = scalarIR.Constant
     | scalarIR.Name
     | scalarIR.SpanCount
     | scalarIR.LoopIndex
+    | scalarIR.WorkgroupIndex
+    | scalarIR.SharedLoad
     | scalarIR.Load
     | scalarIR.ElementRef
     | scalarIR.FieldLoad
@@ -1065,6 +1083,24 @@ record scalarIR.Return
     source: scalarIR.Source?
 end
 
+--- One structurally disjoint write to workgroup scratch. Admission requires
+--- `index` to be the stage's exact `local_index` expression.
+record scalarIR.SharedStore
+    op: 'shared_store'
+    shared: string
+    index: scalarIR.Expr
+    value: scalarIR.Expr
+    source: scalarIR.Source?
+end
+
+--- One stage in a workgroup controller. Each backend completes the body for
+--- every local lane before any lane enters the following statement.
+record scalarIR.Phase
+    op: 'phase'
+    body: {scalarIR.Statement}
+    source: scalarIR.Source?
+end
+
 --- Every scalar statement.
 ---
 --- `Simd` is here because one SIMD operation writes rather than produces:
@@ -1080,6 +1116,8 @@ type scalarIR.Statement = scalarIR.Simd
     | scalarIR.LuaBuild
     | scalarIR.LuaScratchU32Set
     | scalarIR.LuaScratchU8Set
+    | scalarIR.SharedStore
+    | scalarIR.Phase
     | scalarIR.If
     | scalarIR.While
     | scalarIR.Fornum
@@ -1254,6 +1292,29 @@ record scalarIR.Loop
     source: scalarIR.Source?
 end
 
+--- One statically allocated workgroup scratch array.
+record scalarIR.Shared
+    name: string
+    element: scalarIR.Type
+    count: integer
+    initial: scalarIR.Expr
+    source: scalarIR.Source?
+end
+
+--- A uniformly structured workgroup controller. Its statements include
+--- `phase` nodes; loops and branches around them are uniform by verification.
+record scalarIR.Workgroup
+    prelude: {scalarIR.Statement}
+    groups: scalarIR.Expr
+    dispatchSpan: string
+    size: integer
+    groupIndex: string
+    localIndex: string
+    shared: {scalarIR.Shared}
+    statements: {scalarIR.Statement}
+    source: scalarIR.Source?
+end
+
 --- The lane-parallel rewrite of the loop body, when one was made and kept.
 record scalarIR.LaneBody
     lanes: integer
@@ -1332,6 +1393,8 @@ record scalarIR.Program
     --- lane transform and private ABI while block kernels grow independently.
     loop: scalarIR.Loop?
 
+    workgroup: scalarIR.Workgroup?
+
     body: {scalarIR.Statement}?
 
     --- Top-level scalar results. Empty is the existing `nil` ABI; several use
@@ -1389,7 +1452,7 @@ end
 --- when guards relate every other span to it; cursor-only spans retain their
 --- independent counts so the generated body can check them.
 function scalarIR.independentCounts(program: scalarIR.Program): boolean
-    if program.body ~= nil then
+    if program.body ~= nil or program.workgroup ~= nil then
         return true
     end
     local spans = 0

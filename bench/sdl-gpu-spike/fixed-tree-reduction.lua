@@ -1,97 +1,15 @@
--- Fixed-tree reduction spike: one declared 256-lane tree is executed in the
--- same stage order by the ordinary CPU control and a handwritten Metal kernel.
--- This reaches the private native ABI only while NEP 26's phase syntax is Draft.
+-- Fixed-tree reduction benchmark: one declared 256-lane tree is generated for
+-- the GPU and executed in the same stage order by the ordinary CPU control.
 local ffi = require("ffi")
 local span = require("nupp.mem.span")
 local gpu = require("nupp.gpu")
+local generated = require("reduction")
 
 local here = assert(debug.getinfo(1, "S").source:match("^@(.*[/\\])"))
 local now = dofile(here .. "../simd-mandelbrot/clock.lua")
-local library = assert(os.getenv("NUPP_GPU_LIBRARY"), "NUPP_GPU_LIBRARY is required")
-local C = ffi.load(library)
-
 local workgroupSize = 256
 local count = tonumber(os.getenv("REDUCTION_COUNT") or 65536)
 assert(count == workgroupSize * workgroupSize, "the two-level spike takes exactly 65536 values")
-
-local source = [=[
-#include <metal_stdlib>
-using namespace metal;
-#pragma clang fp contract(off)
-
-struct NuppUniforms {
-    uint count;
-    uint input_count;
-    uint output_count;
-    uint input_offset;
-    uint output_offset;
-    uint active_count;
-};
-
-inline float nupp_f32_nan() { return as_type<float>(0x7fc00000u); }
-inline float nupp_f32_fma(float a, float b, float c) {
-    float out = fma(a, b, c);
-    return isnan(out) ? nupp_f32_nan() : out;
-}
-inline float nupp_f32_exp(float value) {
-    float x = max(-104.0f, min(value, 88.0f));
-    float y = x * 0.0078125f;
-    float out = 0.0000000020876757f;
-    out = nupp_f32_fma(out, y, 0.000000025052108f);
-    out = nupp_f32_fma(out, y, 0.00000027557319f);
-    out = nupp_f32_fma(out, y, 0.0000027557319f);
-    out = nupp_f32_fma(out, y, 0.000024801587f);
-    out = nupp_f32_fma(out, y, 0.0001984127f);
-    out = nupp_f32_fma(out, y, 0.0013888889f);
-    out = nupp_f32_fma(out, y, 0.0083333333f);
-    out = nupp_f32_fma(out, y, 0.041666667f);
-    out = nupp_f32_fma(out, y, 0.16666667f);
-    out = nupp_f32_fma(out, y, 0.5f);
-    out = nupp_f32_fma(out, y, 1.0f);
-    out = nupp_f32_fma(out, y, 1.0f);
-    out *= out; out *= out; out *= out; out *= out;
-    out *= out; out *= out; out *= out;
-    return out;
-}
-
-kernel void fixed_tree_exp_sum(
-    constant NuppUniforms& uniforms [[buffer(0)]],
-    device const float* input [[buffer(1)]],
-    device float* output [[buffer(2)]],
-    uint group [[threadgroup_position_in_grid]],
-    uint local [[thread_index_in_threadgroup]])
-{
-    threadgroup float scratch[256];
-    uint index = group * 256u + local;
-    scratch[local] = index < uniforms.active_count
-        ? nupp_f32_exp(input[uniforms.input_offset + index])
-        : 0.0f;
-    threadgroup_barrier(mem_flags::mem_threadgroup);
-    for (uint stride = 128u; stride != 0u; stride >>= 1u) {
-        if (local < stride) scratch[local] = scratch[local] + scratch[local + stride];
-        threadgroup_barrier(mem_flags::mem_threadgroup);
-    }
-    if (local == 0u && group < uniforms.output_count) output[uniforms.output_offset + group] = scratch[0];
-}
-
-kernel void fixed_tree_sum(
-    constant NuppUniforms& uniforms [[buffer(0)]],
-    device const float* input [[buffer(1)]],
-    device float* output [[buffer(2)]],
-    uint group [[threadgroup_position_in_grid]],
-    uint local [[thread_index_in_threadgroup]])
-{
-    threadgroup float scratch[256];
-    uint index = group * 256u + local;
-    scratch[local] = index < uniforms.active_count ? input[uniforms.input_offset + index] : 0.0f;
-    threadgroup_barrier(mem_flags::mem_threadgroup);
-    for (uint stride = 128u; stride != 0u; stride >>= 1u) {
-        if (local < stride) scratch[local] = scratch[local] + scratch[local + stride];
-        threadgroup_barrier(mem_flags::mem_threadgroup);
-    }
-    if (local == 0u && group < uniforms.output_count) output[uniforms.output_offset + group] = scratch[0];
-}
-]=]
 
 local cell = ffi.new("float[1]")
 local function narrow(value)
@@ -156,41 +74,17 @@ local expected = tree(expectedPartials, workgroupSize)[0]
 
 local context = gpu.open()
 local input = context:buffer(ffi.typeof("float"), count)
-local partials = context:buffer(ffi.typeof("float"), count)
-local result = context:buffer(ffi.typeof("float"), workgroupSize)
+local partials = context:buffer(ffi.typeof("float"), workgroupSize)
+local result = context:buffer(ffi.typeof("float"), 1)
 context:upload(input, span.fromCarray(values, count))
 context:synchronize()
 
-local dummySpirv = "\3\2\35\7"
-local function makeKernel(entrypoint)
-    local kernel = C.nuppGpuKernelCreate(
-        context._handle,
-        dummySpirv, #dummySpirv,
-        source, #source,
-        entrypoint, #entrypoint,
-        1, 1, 24, workgroupSize)
-    assert(kernel ~= nil, ffi.string(C.nuppNativeError()))
-    return kernel
-end
-
-local firstKernel = makeKernel("fixed_tree_exp_sum")
-local secondKernel = makeKernel("fixed_tree_sum")
-local first = C.nuppGpuBindingCreate(context._handle, firstKernel, count)
-local second = C.nuppGpuBindingCreate(context._handle, secondKernel, workgroupSize)
-assert(first ~= nil and second ~= nil, ffi.string(C.nuppNativeError()))
-assert(C.nuppGpuBindingSetRead(first, 0, input._handle, 0, count, false))
-assert(C.nuppGpuBindingSetWrite(first, 0, partials._handle, 0, count, true))
-assert(C.nuppGpuBindingSetRead(second, 0, partials._handle, 0, count, false))
-assert(C.nuppGpuBindingSetWrite(second, 0, result._handle, 0, workgroupSize, true))
-
-local firstUniforms = ffi.new("uint32_t[6]")
-firstUniforms[5] = count
-local secondUniforms = ffi.new("uint32_t[6]")
-secondUniforms[5] = workgroupSize
+local first = generated.exp:compile(context):bind(partials, input)
+local second = generated.sum:compile(context):bind(result, partials)
 
 local function dispatch()
-    assert(C.nuppGpuBindingDispatch(first, firstUniforms, ffi.sizeof(firstUniforms)), ffi.string(C.nuppNativeError()))
-    assert(C.nuppGpuBindingDispatch(second, secondUniforms, ffi.sizeof(secondUniforms)), ffi.string(C.nuppNativeError()))
+    first:dispatch()
+    second:dispatch()
     context:synchronize()
 end
 
@@ -202,10 +96,10 @@ repeat
 until now() - started >= 1.0
 local elapsed = (now() - started) / passes
 
-local output = ffi.new("float[?]", workgroupSize)
+local output = ffi.new("float[1]")
 context:enqueueDownload(result)
 context:synchronize()
-context:readDownloaded(result, span.writeCarray(output, workgroupSize))
+context:readDownloaded(result, span.writeCarray(output, 1))
 assert(output[0] == expected, ("reduction mismatch: got %.9g, want %.9g"):format(output[0], expected))
 
 io.write(("Fixed 256-lane exp-sum tree: GPU and CPU agree at %.9g\n"):format(expected))

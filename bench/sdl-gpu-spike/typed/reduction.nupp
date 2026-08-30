@@ -1,0 +1,51 @@
+module reduction
+
+local gpu = require("nupp.gpu")
+local span = require("nupp.mem.span")
+
+@aot(target = "gpu")
+local function expSum(exclusive output: span.WriteSpan<float>, borrows input: span.Span<float>): nil
+    local groups = nupp.math.u32.div(nupp.math.u32.wrap(#input), nupp.math.u32.wrap(256))
+    gpu.workgroups(groups, 256, function(groupIndex: uint32, phases: gpu.Phases)
+        local values = phases:scratch(nupp.math.f32.narrow(0.0), 256)
+        phases:run(function(localIndex: uint32)
+            local cursor = nupp.math.u32.add(nupp.math.u32.mul(groupIndex, nupp.math.u32.wrap(256)), localIndex)
+            if cursor < #input then
+                values[localIndex] = nupp.math.f32.exp(nupp.math.f32.narrow(input[cursor + 1]))
+            else
+                values[localIndex] = nupp.math.f32.narrow(0.0)
+            end
+        end)
+        phases:reduceSumF32(values)
+        phases:run(function(localIndex: uint32)
+            if localIndex == nupp.math.u32.wrap(0) and groupIndex < #output then
+                output[groupIndex + 1] = values[0]
+            end
+        end)
+    end)
+end
+
+@aot(target = "gpu")
+local function sum(exclusive output: span.WriteSpan<float>, borrows input: span.Span<float>): nil
+    local groups = nupp.math.u32.div(nupp.math.u32.wrap(#input), nupp.math.u32.wrap(256))
+    gpu.workgroups(groups, 256, function(groupIndex: uint32, phases: gpu.Phases)
+        local values = phases:scratch(nupp.math.f32.narrow(0.0), 256)
+        phases:run(function(localIndex: uint32)
+            local cursor = nupp.math.u32.add(nupp.math.u32.mul(groupIndex, nupp.math.u32.wrap(256)), localIndex)
+            if cursor < #input then
+                values[localIndex] = nupp.math.f32.narrow(input[cursor + 1])
+            else
+                values[localIndex] = nupp.math.f32.narrow(0.0)
+            end
+        end)
+        phases:reduceSumF32(values)
+        phases:run(function(localIndex: uint32)
+            if localIndex == nupp.math.u32.wrap(0) and groupIndex < #output then
+                output[groupIndex + 1] = values[0]
+            end
+        end)
+    end)
+end
+
+export const exp = expSum
+export const sum = sum

@@ -110,15 +110,27 @@ end
 --- @raises when verified IR is outside the GPU map-kernel subset
 function gpuemit.program(program: scalarIR.Program): gpuemit.Artifact
     assert(program.executionTarget == "gpu", "GPU emission requires @aot(target = \"gpu\")")
-    assert(program.entryMode == "kernel" and program.loop ~= nil, "GPU entry must be a map kernel")
-    local loop = program.loop as scalarIR.Loop
-    assert(loop.first == 1 and loop.last == loop.count, "GPU entry must dispatch one complete span")
+    local loop = program.loop
+    local workgroup = program.workgroup
+    assert(
+        program.entryMode == "kernel" and ((loop ~= nil) ~= (workgroup ~= nil)),
+        "GPU entry must be a map or phased workgroup kernel"
+    )
+    if loop ~= nil then
+        assert(
+            (loop as scalarIR.Loop).first == 1 and (loop as scalarIR.Loop).last == (loop as scalarIR.Loop).count,
+            "GPU entry must dispatch one complete span"
+        )
+    end
 
     -- A span addressed by the dispatch index needs its length equal to the
     -- dispatch length: the loop bound proves the primary, and a length guard
     -- proves the rest host-side. A proved cursor carries its own dominating
     -- bound check into the shader, so its span may be any length.
-    local exactCounts: {[string]: boolean} = {[loop.count] = true}
+    local exactCounts: {[string]: boolean} = {}
+    if loop ~= nil then
+        exactCounts[(loop as scalarIR.Loop).count] = true
+    end
     for _, guard in ipairs(program.guards) do
         exactCounts[guard.left] = true
         exactCounts[guard.right] = true
@@ -129,7 +141,10 @@ function gpuemit.program(program: scalarIR.Program): gpuemit.Artifact
             index = identifier(value.cursorCName)
             return "[uniforms." .. identifier(value.span) .. "_offset + " .. index .. "]"
         end
-        assert(value.index == loop.index, "only the dispatch index or a proved cursor may address a GPU span")
+        assert(
+            loop ~= nil and value.index == (loop as scalarIR.Loop).index,
+            "only the dispatch index or a proved cursor may address a GPU span"
+        )
         assert(
             exactCounts[value.span as string] == true,
             "a dispatch-indexed GPU span must be the loop bound or guarded equal to it: " .. tostring(value.span)
@@ -147,6 +162,12 @@ function gpuemit.program(program: scalarIR.Program): gpuemit.Artifact
             return "uniforms." .. identifier(value.name)
         elseif op == "loop_index" then
             return "(dispatch_index + 1u)"
+        elseif op == "workgroup_index" then
+            return "group_index"
+        elseif op == "local_index" then
+            return "local_index"
+        elseif op == "shared_load" then
+            return identifier(value.shared) .. "[" .. expression(value.index) .. "]"
         elseif op == "load" then
             return identifier(value.span) .. provenSpanIndex(value)
         elseif op == "element_ref" then
@@ -261,6 +282,16 @@ function gpuemit.program(program: scalarIR.Program): gpuemit.Artifact
                         statement.span
                     ) .. provenSpanIndex(statement) .. " = " .. expression(statement.value) .. ";"
                 )
+            elseif op == "shared_store" then
+                line(
+                    depth,
+                    identifier(
+                        statement.shared
+                    ) .. "[" .. expression(statement.index) .. "] = " .. expression(statement.value) .. ";"
+                )
+            elseif op == "phase" then
+                statements(statement.body, depth)
+                line(depth, "threadgroup_barrier(mem_flags::mem_threadgroup);")
             elseif op == "while" then
                 line(depth, "while (" .. expression(statement.condition) .. ") {")
                 statements(statement.body, depth + 1)
@@ -461,16 +492,36 @@ function gpuemit.program(program: scalarIR.Program): gpuemit.Artifact
         ) .. "* " .. identifier(param.name) .. " [[buffer(" .. tostring(at) .. ")]]"
         at = at + 1
     end
-    arguments[#arguments + 1] = "uint dispatch_index [[thread_position_in_grid]]"
+    if workgroup ~= nil then
+        arguments[#arguments + 1] = "uint group_index [[threadgroup_position_in_grid]]"
+        arguments[#arguments + 1] = "uint local_index [[thread_index_in_threadgroup]]"
+    else
+        arguments[#arguments + 1] = "uint dispatch_index [[thread_position_in_grid]]"
+    end
     for index, argument in ipairs(arguments) do
         line(1, argument .. (index < #arguments and "," or ""))
     end
     line(0, ") {")
-    line(1, "if (dispatch_index >= uniforms.count) return;")
-    statements(loop.statements, 1)
+    if workgroup ~= nil then
+        statements((workgroup as scalarIR.Workgroup).prelude, 1)
+        for _, scratch in ipairs((workgroup as scalarIR.Workgroup).shared) do
+            line(
+                1,
+                "threadgroup " .. tostring(
+                    metalType(scratch.element)
+                ) .. " " .. identifier(scratch.name) .. "[" .. tostring(scratch.count) .. "];"
+            )
+            line(1, identifier(scratch.name) .. "[local_index] = " .. expression(scratch.initial) .. ";")
+        end
+        line(1, "threadgroup_barrier(mem_flags::mem_threadgroup);")
+        statements((workgroup as scalarIR.Workgroup).statements, 1)
+    else
+        line(1, "if (dispatch_index >= uniforms.count) return;")
+        statements((loop as scalarIR.Loop).statements, 1)
+    end
     line(0, "}")
 
-    local threads: integer = 256
+    local threads: integer = workgroup ~= nil and (workgroup as scalarIR.Workgroup).size or 256
     local spirv = spirvemit.program(program, readonly, writable, uniforms, threads)
 
     return new gpuemit.Artifact(
@@ -482,7 +533,9 @@ function gpuemit.program(program: scalarIR.Program): gpuemit.Artifact
         uniforms = uniforms,
         uniformBytes = uniformBytes,
         threads = threads,
-        countSpan = loop.count,
+        countSpan = workgroup ~= nil and (
+            workgroup as scalarIR.Workgroup
+        ).dispatchSpan or (loop as scalarIR.Loop).count,
         exactCounts = exactCounts
     )
 end
