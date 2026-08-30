@@ -3,10 +3,7 @@ module nupp.runtime.seam.time
 local common = require("nupp.runtime.seam.module")
 local runtimeBackend = require("nupp.runtime.backend")
 local seam = {moduleName = "nupp.runtime.seam.time", suiteModuleName = "nupp.runtime.seam.timesuite",}
-local CONTRACT = common.contract("host.time", {
-    globalName = "__nuppTime",
-    suiteModule = seam.suiteModuleName,
-})
+local CONTRACT = common.contract("host.time", {globalName = "__nuppTime", suiteModule = seam.suiteModuleName,})
 
 function seam.validate(value: any): string?
     return common.validate(CONTRACT, value)

@@ -37990,7 +37990,12 @@ end
 end
 
 if hasBackends then
-for _ , name in ipairs ( { "nupp.runtime.backend" , "nupp.runtime.seam.registry" , "nupp.runtime.seam.module" , } ) do
+for _ , name in ipairs ( {
+"nupp.runtime.backend" ,
+"nupp.runtime.seam.registry" ,
+"nupp.runtime.seam.contracts" ,
+"nupp.runtime.seam.module" ,
+} ) do
 linkedModules [ name ] = true
 stageBundled ( name )
 end
@@ -99965,6 +99970,7 @@ local BUNDLED_SOURCE = {
 [ "nupp.runtime.provider.browsertime" ] = "/nupp/runtime/provider/browsertime.g.nupp" ,
 [ "nupp.runtime.provider.browseruri" ] = "/nupp/runtime/provider/browseruri.g.nupp" ,
 [ "nupp.runtime.seam.registry" ] = "/nupp/runtime/seam/registry.nupp" ,
+[ "nupp.runtime.seam.contracts" ] = "/nupp/runtime/seam/contracts.nupp" ,
 [ "nupp.runtime.seam.module" ] = "/nupp/runtime/seam/module.nupp" ,
 [ "nupp.runtime.seam.json" ] = "/nupp/runtime/seam/json.nupp" ,
 [ "nupp.runtime.seam.jsonsuite" ] = "/nupp/runtime/seam/jsonsuite.nupp" ,
@@ -157952,28 +157958,7 @@ local pullDecoder = require ( "nupp.data.jsondecode" )
 local serdeDecoder = require ( "nupp.data.jsondecoder.serde" )
 local newBuffer = require ( "string.buffer" ) . new
 local bit = require ( "bit" )
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
+local contracts = require ( "nupp.runtime.seam.contracts" )
 
 local json = { }
 local ARRAY_MARKER , OBJECT_MARKER , ARRAY_SHAPE = { } , { } , { }
@@ -158790,11 +158775,52 @@ end
 return writer
 end
 
-const __nuppExportValue= json ;__nuppExports=__nuppExportValue
+
+
+
+
+local checked = {
+arrayOf = json . arrayOf ,
+
+
+
+
+
+
+asArray = json . asArray ,
+asObject = json . asObject ,
+isArray = json . isArray ,
+decode = json . decode ,
+encode = json . encode ,
+serialize = json . serialize ,
+encoded = json . encoded ,
+encodedString = json . encodedString ,
+pull = json . pull ,
+verified = json . verified ,
+verifiedString = json . verifiedString ,
+writer = json . writer ,
+NULL = json . NULL ,
+EMPTY_ARRAY = json . EMPTY_ARRAY ,
+EMPTY_OBJECT = json . EMPTY_OBJECT ,
+compileSerde = json . compileSerde ,
+decodeSerde = json . decodeSerde ,
+decodeSerdeBuffer = json . decodeSerdeBuffer ,
+}
+
+const __nuppExportValue= checked ;__nuppExports=__nuppExportValue
  end);if not __nuppOk then package.loaded["nupp.data.json.aot"]=nil;error(__nuppWhy,0) end;package.loaded["nupp.data.json.aot"]=__nuppExports;return __nuppExports
 end
 package.preload["nupp.data.json.provider"] = function(...)
 _G.assert(_G.loadstring("local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppMath=rawget(__nupp,\"math\")or{};rawset(__nupp,\"math\",__nuppMath) local function __nuppCloseFile(handle)if io.type(handle)==\"closed file\"then return end;local ok,reason=handle:close();if not ok then error(reason or \"the file could not be closed\",0)end end local __nuppManagedBrand=_G.__nuppManagedBrand if not __nuppManagedBrand then __nuppManagedBrand={};_G.__nuppManagedBrand=__nuppManagedBrand end local __nuppManagedCells=_G.__nuppManagedCells if not __nuppManagedCells then __nuppManagedCells=setmetatable({},{__mode=\"k\"});_G.__nuppManagedCells=__nuppManagedCells end local __nuppManagedOwner={};__nuppManagedOwner.__index=__nuppManagedOwner;local __nuppManagedAlias={};__nuppManagedAlias.__index=__nuppManagedAlias local function __nuppManagedError(code,message)return{code=code,message=message}end local function __nuppManagedProblem(cell) if type(cell)~=\"table\"or cell._brand~=__nuppManagedBrand then return __nuppManagedError(\"NUPP2614\",\"value is not a managed alias\")end if cell._state==\"taken\"then return __nuppManagedError(\"NUPP2614\",\"managed ownership was already taken\")end if cell._state==\"closed\"or cell._state==\"closing\"then return __nuppManagedError(\"NUPP2614\",\"managed resource is closed\")end return nil end local function __nuppManagedClose(cell,checked) local problem=__nuppManagedProblem(cell);if problem then if checked then return problem end;return nil end if cell._borrows~=0 or cell._exclusive then local busy=__nuppManagedError(\"NUPP2620\",\"managed resource has an active borrow\");if checked then return busy end;error(busy.message,0)end cell._state=\"closing\";local value,cleanup=cell._value,cell._cleanup;cell._value=nil;cell._cleanup=nil local ok,reason=pcall(cleanup,value);cell._state=\"closed\";if not ok then error(reason,0)end;return nil end function __nuppManagedOwner:alias()return setmetatable({_cell=self,_brand=__nuppManagedBrand},__nuppManagedAlias)end function __nuppManagedOwner:close()return __nuppManagedClose(self,false)end local function __nuppAliasCell(self) if type(self)~=\"table\"or self._brand~=__nuppManagedBrand or getmetatable(self)~=__nuppManagedAlias then return nil,__nuppManagedError(\"NUPP2614\",\"value is not a managed alias\")end local cell=self._cell;local problem=__nuppManagedProblem(cell);if problem then return nil,problem end;return cell,nil end function __nuppManagedAlias:with(callback) local cell,problem=__nuppAliasCell(self);if not cell then return nil,problem end if cell._exclusive then return nil,__nuppManagedError(\"NUPP2620\",\"managed resource is exclusively borrowed\")end cell._borrows=cell._borrows+1;cell._state=\"shared-borrowed(\"..cell._borrows..\")\" local ok,result=pcall(callback,cell._value);cell._borrows=cell._borrows-1;cell._state=cell._borrows>0 and(\"shared-borrowed(\"..cell._borrows..\")\")or\"live\" if not ok then error(result,0)end;return result,nil end function __nuppManagedAlias:withExclusive(callback) local cell,problem=__nuppAliasCell(self);if not cell then return nil,problem end if cell._exclusive or cell._borrows~=0 then return nil,__nuppManagedError(\"NUPP2620\",\"managed resource is already borrowed\")end cell._exclusive=true;cell._state=\"exclusive-borrowed\";local ok,result=pcall(callback,cell._value);cell._exclusive=false;cell._state=\"live\" if not ok then error(result,0)end;return result,nil end function __nuppManagedAlias:take() local cell,problem=__nuppAliasCell(self);if not cell then return nil,problem end if cell._exclusive or cell._borrows~=0 then return nil,__nuppManagedError(\"NUPP2620\",\"managed resource has an active borrow\")end cell._state=\"taken\";local value=cell._value;cell._value=nil;cell._cleanup=nil;return value,nil end function __nuppManagedAlias:close() local cell,problem=__nuppAliasCell(self);if not cell then return problem end;return __nuppManagedClose(cell,true)end function __nuppManagedAlias:_downcast(policy) local cell,problem=__nuppAliasCell(self);if not cell then return nil,problem end if cell._policy~=policy then return nil,__nuppManagedError(\"NUPP2613\",\"managed alias has the wrong type or cleanup policy\")end return self,nil end function __nupp.__manage(value,cleanup,policy) local cell=setmetatable({_brand=__nuppManagedBrand,_value=value,_cleanup=cleanup,_policy=policy,_state=\"live\",_borrows=0,_exclusive=false},__nuppManagedOwner);__nuppManagedCells[cell]=true;return cell end function __nupp.__recoverAlias(value) if type(value)~=\"table\"or value._brand~=__nuppManagedBrand or getmetatable(value)~=__nuppManagedAlias then return nil,__nuppManagedError(\"NUPP2614\",\"value is not a managed alias\")end local cell,problem=__nuppAliasCell(value);if not cell then return nil,problem end;return value,nil end _G.__nuppManagedPolicyCount=function(policy)local count=0;for cell in pairs(__nuppManagedCells)do if cell._policy==policy and(cell._state==\"live\"or cell._state:match(\"borrowed\"))then count=count+1 end end;return count end local __nuppManagedGroup={};__nuppManagedGroup.__index=__nuppManagedGroup function __nuppManagedGroup:flush()end function __nuppManagedGroup:adopt(cell) if self._closed then error(\"managed group is closed\",2)end local handle=cell:alias();self._entries[#self._entries+1]=handle return handle end function __nuppManagedGroup:remove(handle) if self._closed then error(\"managed group is closed\",2)end for index=#self._entries,1,-1 do if self._entries[index]==handle then table.remove(self._entries,index);local value,problem=handle:take();if problem then error(problem.message,2)end;return value end end error(\"managed alias is not registered in this group\",2) end local function __nuppManagedCloseEntry(entry)local problem=entry:close();if problem and problem.code~=\"NUPP2614\"then error(problem.message,0)end end function __nuppManagedGroup:close() if self._closed then return end;self._closed=true;local first,suppressed=nil,0 for index=#self._entries,1,-1 do local ok,reason=pcall(__nuppManagedCloseEntry,self._entries[index]);if not ok then if first==nil then first=reason else suppressed=suppressed+1 end end end self._entries={};if first~=nil then if suppressed>0 then error(tostring(first)..\" (suppressed \"..tostring(suppressed)..\" cleanup failure(s))\",0)end;error(first,0)end end function __nupp.managedGroup()return setmetatable({_entries={},_closed=false},__nuppManagedGroup)end;\n","@nupp-prelude"))();local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppMath=rawget(__nupp,"math")or{};rawset(__nupp,"math",__nuppMath) local function __nuppCloseFile(handle)if io.type(handle)=="closed file"then return end;local ok,reason=handle:close();if not ok then error(reason or "the file could not be closed",0)end end local __nuppManagedBrand=_G.__nuppManagedBrand if not __nuppManagedBrand then __nuppManagedBrand={};_G.__nuppManagedBrand=__nuppManagedBrand end local __nuppManagedCells=_G.__nuppManagedCells if not __nuppManagedCells then __nuppManagedCells=setmetatable({},{__mode="k"});_G.__nuppManagedCells=__nuppManagedCells end local __nuppManagedOwner={};__nuppManagedOwner.__index=__nuppManagedOwner;local __nuppManagedAlias={};__nuppManagedAlias.__index=__nuppManagedAlias local function __nuppManagedError(code,message)return{code=code,message=message}end local function __nuppManagedProblem(cell) if type(cell)~="table"or cell._brand~=__nuppManagedBrand then return __nuppManagedError("NUPP2614","value is not a managed alias")end if cell._state=="taken"then return __nuppManagedError("NUPP2614","managed ownership was already taken")end if cell._state=="closed"or cell._state=="closing"then return __nuppManagedError("NUPP2614","managed resource is closed")end return nil end local function __nuppManagedClose(cell,checked) local problem=__nuppManagedProblem(cell);if problem then if checked then return problem end;return nil end if cell._borrows~=0 or cell._exclusive then local busy=__nuppManagedError("NUPP2620","managed resource has an active borrow");if checked then return busy end;error(busy.message,0)end cell._state="closing";local value,cleanup=cell._value,cell._cleanup;cell._value=nil;cell._cleanup=nil local ok,reason=pcall(cleanup,value);cell._state="closed";if not ok then error(reason,0)end;return nil end function __nuppManagedOwner:alias()return setmetatable({_cell=self,_brand=__nuppManagedBrand},__nuppManagedAlias)end function __nuppManagedOwner:close()return __nuppManagedClose(self,false)end local function __nuppAliasCell(self) if type(self)~="table"or self._brand~=__nuppManagedBrand or getmetatable(self)~=__nuppManagedAlias then return nil,__nuppManagedError("NUPP2614","value is not a managed alias")end local cell=self._cell;local problem=__nuppManagedProblem(cell);if problem then return nil,problem end;return cell,nil end function __nuppManagedAlias:with(callback) local cell,problem=__nuppAliasCell(self);if not cell then return nil,problem end if cell._exclusive then return nil,__nuppManagedError("NUPP2620","managed resource is exclusively borrowed")end cell._borrows=cell._borrows+1;cell._state="shared-borrowed("..cell._borrows..")" local ok,result=pcall(callback,cell._value);cell._borrows=cell._borrows-1;cell._state=cell._borrows>0 and("shared-borrowed("..cell._borrows..")")or"live" if not ok then error(result,0)end;return result,nil end function __nuppManagedAlias:withExclusive(callback) local cell,problem=__nuppAliasCell(self);if not cell then return nil,problem end if cell._exclusive or cell._borrows~=0 then return nil,__nuppManagedError("NUPP2620","managed resource is already borrowed")end cell._exclusive=true;cell._state="exclusive-borrowed";local ok,result=pcall(callback,cell._value);cell._exclusive=false;cell._state="live" if not ok then error(result,0)end;return result,nil end function __nuppManagedAlias:take() local cell,problem=__nuppAliasCell(self);if not cell then return nil,problem end if cell._exclusive or cell._borrows~=0 then return nil,__nuppManagedError("NUPP2620","managed resource has an active borrow")end cell._state="taken";local value=cell._value;cell._value=nil;cell._cleanup=nil;return value,nil end function __nuppManagedAlias:close() local cell,problem=__nuppAliasCell(self);if not cell then return problem end;return __nuppManagedClose(cell,true)end function __nuppManagedAlias:_downcast(policy) local cell,problem=__nuppAliasCell(self);if not cell then return nil,problem end if cell._policy~=policy then return nil,__nuppManagedError("NUPP2613","managed alias has the wrong type or cleanup policy")end return self,nil end function __nupp.__manage(value,cleanup,policy) local cell=setmetatable({_brand=__nuppManagedBrand,_value=value,_cleanup=cleanup,_policy=policy,_state="live",_borrows=0,_exclusive=false},__nuppManagedOwner);__nuppManagedCells[cell]=true;return cell end function __nupp.__recoverAlias(value) if type(value)~="table"or value._brand~=__nuppManagedBrand or getmetatable(value)~=__nuppManagedAlias then return nil,__nuppManagedError("NUPP2614","value is not a managed alias")end local cell,problem=__nuppAliasCell(value);if not cell then return nil,problem end;return value,nil end _G.__nuppManagedPolicyCount=function(policy)local count=0;for cell in pairs(__nuppManagedCells)do if cell._policy==policy and(cell._state=="live"or cell._state:match("borrowed"))then count=count+1 end end;return count end local __nuppManagedGroup={};__nuppManagedGroup.__index=__nuppManagedGroup function __nuppManagedGroup:flush()end function __nuppManagedGroup:adopt(cell) if self._closed then error("managed group is closed",2)end local handle=cell:alias();self._entries[#self._entries+1]=handle return handle end function __nuppManagedGroup:remove(handle) if self._closed then error("managed group is closed",2)end for index=#self._entries,1,-1 do if self._entries[index]==handle then table.remove(self._entries,index);local value,problem=handle:take();if problem then error(problem.message,2)end;return value end end error("managed alias is not registered in this group",2) end local function __nuppManagedCloseEntry(entry)local problem=entry:close();if problem and problem.code~="NUPP2614"then error(problem.message,0)end end function __nuppManagedGroup:close() if self._closed then return end;self._closed=true;local first,suppressed=nil,0 for index=#self._entries,1,-1 do local ok,reason=pcall(__nuppManagedCloseEntry,self._entries[index]);if not ok then if first==nil then first=reason else suppressed=suppressed+1 end end end self._entries={};if first~=nil then if suppressed>0 then error(tostring(first).." (suppressed "..tostring(suppressed).." cleanup failure(s))",0)end;error(first,0)end end function __nupp.managedGroup()return setmetatable({_entries={},_closed=false},__nuppManagedGroup)end;
+
+
+
+
+
+
+
+
+
 
 
 
@@ -183328,6 +183354,7 @@ _G.assert(_G.loadstring("local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppM
 
 
 local base64 = require ( "nupp.data.base64" )
+local contracts = require ( "nupp.runtime.seam.contracts" )
 local response = require ( "nupp.runtime.browser.response" )
 local crypto = { }
 
@@ -183422,6 +183449,14 @@ bytes [ 9 ] = bytes [ 9 ] % 64 + 128
 
 return canonical ( bytes )
 end
+
+
+
+
+
+const ANSWERS_UUID = { uuid4 = crypto . uuid4 , uuid7 = crypto . uuid7 , }
+
+const ANSWERS_HMAC = { digest = crypto . digest , hex = crypto . hex , }
 
 const __nuppExportValue= crypto ;__nuppExports=__nuppExportValue
  end);if not __nuppOk then package.loaded["nupp.runtime.provider.browsercrypto"]=nil;error(__nuppWhy,0) end;package.loaded["nupp.runtime.provider.browsercrypto"]=__nuppExports;return __nuppExports
@@ -183741,6 +183776,7 @@ _G.assert(_G.loadstring("local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppM
 
 
 
+local contracts = require ( "nupp.runtime.seam.contracts" )
 local provider = { }
 
 function provider . separator ( ) 
@@ -183755,7 +183791,15 @@ function provider . canonicalize ( _path )
 return nil , "the browser has no host filesystem to canonicalize"
 end
 
-const __nuppExportValue= provider ;__nuppExports=__nuppExportValue
+
+
+local checked = {
+separator = provider . separator ,
+currentDirectory = provider . currentDirectory ,
+canonicalize = provider . canonicalize ,
+}
+
+const __nuppExportValue= checked ;__nuppExports=__nuppExportValue
  end);if not __nuppOk then package.loaded["nupp.runtime.provider.browserpath"]=nil;error(__nuppWhy,0) end;package.loaded["nupp.runtime.provider.browserpath"]=__nuppExports;return __nuppExports
 end
 package.preload["nupp.runtime.provider.browserstorage"] = function(...)
@@ -183766,6 +183810,7 @@ _G.assert(_G.loadstring("local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppM
 
 
 local response = require ( "nupp.runtime.browser.response" )
+local contracts = require ( "nupp.runtime.seam.contracts" )
 local storage = { }
 
 local function key ( value ) 
@@ -183795,7 +183840,16 @@ function storage . clear ( )
 response . await ( "storage" , { operation = "clear" , } )
 end
 
-const __nuppExportValue= storage ;__nuppExports=__nuppExportValue
+
+
+local checked = {
+get = storage . get ,
+set = storage . set ,
+remove = storage . remove ,
+clear = storage . clear ,
+}
+
+const __nuppExportValue= checked ;__nuppExports=__nuppExportValue
  end);if not __nuppOk then package.loaded["nupp.runtime.provider.browserstorage"]=nil;error(__nuppWhy,0) end;package.loaded["nupp.runtime.provider.browserstorage"]=__nuppExports;return __nuppExports
 end
 package.preload["nupp.runtime.provider.browsersuspension"] = function(...)
@@ -184364,6 +184418,7 @@ _G.assert(_G.loadstring("local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppM
 
 
 local response = require ( "nupp.runtime.browser.response" )
+local contracts = require ( "nupp.runtime.seam.contracts" )
 local time = { }
 
 local function duration ( value , label ) 
@@ -184397,7 +184452,16 @@ end
 time . sleep ( remaining )
 end
 
-const __nuppExportValue= time ;__nuppExports=__nuppExportValue
+
+
+local checked = {
+now = time . now ,
+wallTime = time . wallTime ,
+sleep = time . sleep ,
+sleepUntil = time . sleepUntil ,
+}
+
+const __nuppExportValue= checked ;__nuppExports=__nuppExportValue
  end);if not __nuppOk then package.loaded["nupp.runtime.provider.browsertime"]=nil;error(__nuppWhy,0) end;package.loaded["nupp.runtime.provider.browsertime"]=__nuppExports;return __nuppExports
 end
 package.preload["nupp.runtime.provider.browseruri"] = function(...)
@@ -185648,6 +185712,7 @@ local newDecoder = require (
 "nupp.runtime.vendor.lunajson.decoder"
 )
 local newEncoder = require ( "nupp.runtime.vendor.lunajson.encoder" )
+local contracts = require ( "nupp.runtime.seam.contracts" )
 local core = { decode = newDecoder ( ) , encode = newEncoder ( ) , }
 local json = { }
 
@@ -186070,7 +186135,36 @@ end
 return writer
 end
 
-const __nuppExportValue= json ;__nuppExports=__nuppExportValue
+
+
+
+
+local checked = {
+arrayOf = json . arrayOf ,
+
+
+
+
+
+
+asArray = json . asArray ,
+asObject = json . asObject ,
+isArray = json . isArray ,
+decode = json . decode ,
+encode = json . encode ,
+serialize = json . serialize ,
+encoded = json . encoded ,
+encodedString = json . encodedString ,
+pull = json . pull ,
+verified = json . verified ,
+verifiedString = json . verifiedString ,
+writer = json . writer ,
+NULL = json . NULL ,
+EMPTY_ARRAY = json . EMPTY_ARRAY ,
+EMPTY_OBJECT = json . EMPTY_OBJECT ,
+}
+
+const __nuppExportValue= checked ;__nuppExports=__nuppExportValue
  end);if not __nuppOk then package.loaded["nupp.runtime.provider.lunajson"]=nil;error(__nuppWhy,0) end;package.loaded["nupp.runtime.provider.lunajson"]=__nuppExports;return __nuppExports
 end
 package.preload["nupp.runtime.provider.scalarbitops"] = function(...)
@@ -187224,12 +187318,7 @@ _G.assert(_G.loadstring("local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppM
 local common = require ( "nupp.runtime.seam.module" )
 local runtimeBackend = require ( "nupp.runtime.backend" )
 local seam = { moduleName = "nupp.runtime.seam.base64" , suiteModuleName = "nupp.runtime.seam.base64suite" , }
-local CONTRACT = common . contract ( "data.base64" , {
-globalName = "__nuppBase64" ,
-requiredFunctions = { "encode" , "decode" } ,
-requiredValues = { } ,
-suiteModule = seam . suiteModuleName ,
-} )
+local CONTRACT = common . contract ( "data.base64" , { globalName = "__nuppBase64" , suiteModule = seam . suiteModuleName , } )
 
 function seam . validate ( value ) 
 return common . validate ( CONTRACT , value )
@@ -187540,8 +187629,6 @@ suiteModuleName = "nupp.runtime.seam.browserstoragesuite" ,
 }
 local CONTRACT = common . contract ( "host.browser_storage" , {
 globalName = "__nuppBrowserStorage" ,
-requiredFunctions = { "clear" , "get" , "remove" , "set" } ,
-requiredValues = { } ,
 suiteModule = seam . suiteModuleName ,
 } )
 
@@ -187573,6 +187660,220 @@ end
 
 const __nuppExportValue= suite ;__nuppExports=__nuppExportValue
  end);if not __nuppOk then package.loaded["nupp.runtime.seam.browserstoragesuite"]=nil;error(__nuppWhy,0) end;package.loaded["nupp.runtime.seam.browserstoragesuite"]=__nuppExports;return __nuppExports
+end
+package.preload["nupp.runtime.seam.contracts"] = function(...)
+_G.assert(_G.loadstring("local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppMath=rawget(__nupp,\"math\")or{};rawset(__nupp,\"math\",__nuppMath) local function __nuppCloseFile(handle)if io.type(handle)==\"closed file\"then return end;local ok,reason=handle:close();if not ok then error(reason or \"the file could not be closed\",0)end end local __nuppManagedBrand=_G.__nuppManagedBrand if not __nuppManagedBrand then __nuppManagedBrand={};_G.__nuppManagedBrand=__nuppManagedBrand end local __nuppManagedCells=_G.__nuppManagedCells if not __nuppManagedCells then __nuppManagedCells=setmetatable({},{__mode=\"k\"});_G.__nuppManagedCells=__nuppManagedCells end local __nuppManagedOwner={};__nuppManagedOwner.__index=__nuppManagedOwner;local __nuppManagedAlias={};__nuppManagedAlias.__index=__nuppManagedAlias local function __nuppManagedError(code,message)return{code=code,message=message}end local function __nuppManagedProblem(cell) if type(cell)~=\"table\"or cell._brand~=__nuppManagedBrand then return __nuppManagedError(\"NUPP2614\",\"value is not a managed alias\")end if cell._state==\"taken\"then return __nuppManagedError(\"NUPP2614\",\"managed ownership was already taken\")end if cell._state==\"closed\"or cell._state==\"closing\"then return __nuppManagedError(\"NUPP2614\",\"managed resource is closed\")end return nil end local function __nuppManagedClose(cell,checked) local problem=__nuppManagedProblem(cell);if problem then if checked then return problem end;return nil end if cell._borrows~=0 or cell._exclusive then local busy=__nuppManagedError(\"NUPP2620\",\"managed resource has an active borrow\");if checked then return busy end;error(busy.message,0)end cell._state=\"closing\";local value,cleanup=cell._value,cell._cleanup;cell._value=nil;cell._cleanup=nil local ok,reason=pcall(cleanup,value);cell._state=\"closed\";if not ok then error(reason,0)end;return nil end function __nuppManagedOwner:alias()return setmetatable({_cell=self,_brand=__nuppManagedBrand},__nuppManagedAlias)end function __nuppManagedOwner:close()return __nuppManagedClose(self,false)end local function __nuppAliasCell(self) if type(self)~=\"table\"or self._brand~=__nuppManagedBrand or getmetatable(self)~=__nuppManagedAlias then return nil,__nuppManagedError(\"NUPP2614\",\"value is not a managed alias\")end local cell=self._cell;local problem=__nuppManagedProblem(cell);if problem then return nil,problem end;return cell,nil end function __nuppManagedAlias:with(callback) local cell,problem=__nuppAliasCell(self);if not cell then return nil,problem end if cell._exclusive then return nil,__nuppManagedError(\"NUPP2620\",\"managed resource is exclusively borrowed\")end cell._borrows=cell._borrows+1;cell._state=\"shared-borrowed(\"..cell._borrows..\")\" local ok,result=pcall(callback,cell._value);cell._borrows=cell._borrows-1;cell._state=cell._borrows>0 and(\"shared-borrowed(\"..cell._borrows..\")\")or\"live\" if not ok then error(result,0)end;return result,nil end function __nuppManagedAlias:withExclusive(callback) local cell,problem=__nuppAliasCell(self);if not cell then return nil,problem end if cell._exclusive or cell._borrows~=0 then return nil,__nuppManagedError(\"NUPP2620\",\"managed resource is already borrowed\")end cell._exclusive=true;cell._state=\"exclusive-borrowed\";local ok,result=pcall(callback,cell._value);cell._exclusive=false;cell._state=\"live\" if not ok then error(result,0)end;return result,nil end function __nuppManagedAlias:take() local cell,problem=__nuppAliasCell(self);if not cell then return nil,problem end if cell._exclusive or cell._borrows~=0 then return nil,__nuppManagedError(\"NUPP2620\",\"managed resource has an active borrow\")end cell._state=\"taken\";local value=cell._value;cell._value=nil;cell._cleanup=nil;return value,nil end function __nuppManagedAlias:close() local cell,problem=__nuppAliasCell(self);if not cell then return problem end;return __nuppManagedClose(cell,true)end function __nuppManagedAlias:_downcast(policy) local cell,problem=__nuppAliasCell(self);if not cell then return nil,problem end if cell._policy~=policy then return nil,__nuppManagedError(\"NUPP2613\",\"managed alias has the wrong type or cleanup policy\")end return self,nil end function __nupp.__manage(value,cleanup,policy) local cell=setmetatable({_brand=__nuppManagedBrand,_value=value,_cleanup=cleanup,_policy=policy,_state=\"live\",_borrows=0,_exclusive=false},__nuppManagedOwner);__nuppManagedCells[cell]=true;return cell end function __nupp.__recoverAlias(value) if type(value)~=\"table\"or value._brand~=__nuppManagedBrand or getmetatable(value)~=__nuppManagedAlias then return nil,__nuppManagedError(\"NUPP2614\",\"value is not a managed alias\")end local cell,problem=__nuppAliasCell(value);if not cell then return nil,problem end;return value,nil end _G.__nuppManagedPolicyCount=function(policy)local count=0;for cell in pairs(__nuppManagedCells)do if cell._policy==policy and(cell._state==\"live\"or cell._state:match(\"borrowed\"))then count=count+1 end end;return count end local __nuppManagedGroup={};__nuppManagedGroup.__index=__nuppManagedGroup function __nuppManagedGroup:flush()end function __nuppManagedGroup:adopt(cell) if self._closed then error(\"managed group is closed\",2)end local handle=cell:alias();self._entries[#self._entries+1]=handle return handle end function __nuppManagedGroup:remove(handle) if self._closed then error(\"managed group is closed\",2)end for index=#self._entries,1,-1 do if self._entries[index]==handle then table.remove(self._entries,index);local value,problem=handle:take();if problem then error(problem.message,2)end;return value end end error(\"managed alias is not registered in this group\",2) end local function __nuppManagedCloseEntry(entry)local problem=entry:close();if problem and problem.code~=\"NUPP2614\"then error(problem.message,0)end end function __nuppManagedGroup:close() if self._closed then return end;self._closed=true;local first,suppressed=nil,0 for index=#self._entries,1,-1 do local ok,reason=pcall(__nuppManagedCloseEntry,self._entries[index]);if not ok then if first==nil then first=reason else suppressed=suppressed+1 end end end self._entries={};if first~=nil then if suppressed>0 then error(tostring(first)..\" (suppressed \"..tostring(suppressed)..\" cleanup failure(s))\",0)end;error(first,0)end end function __nupp.managedGroup()return setmetatable({_entries={},_closed=false},__nuppManagedGroup)end;\n","@nupp-prelude"))();local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppMath=rawget(__nupp,"math")or{};rawset(__nupp,"math",__nuppMath) local function __nuppCloseFile(handle)if io.type(handle)=="closed file"then return end;local ok,reason=handle:close();if not ok then error(reason or "the file could not be closed",0)end end local __nuppManagedBrand=_G.__nuppManagedBrand if not __nuppManagedBrand then __nuppManagedBrand={};_G.__nuppManagedBrand=__nuppManagedBrand end local __nuppManagedCells=_G.__nuppManagedCells if not __nuppManagedCells then __nuppManagedCells=setmetatable({},{__mode="k"});_G.__nuppManagedCells=__nuppManagedCells end local __nuppManagedOwner={};__nuppManagedOwner.__index=__nuppManagedOwner;local __nuppManagedAlias={};__nuppManagedAlias.__index=__nuppManagedAlias local function __nuppManagedError(code,message)return{code=code,message=message}end local function __nuppManagedProblem(cell) if type(cell)~="table"or cell._brand~=__nuppManagedBrand then return __nuppManagedError("NUPP2614","value is not a managed alias")end if cell._state=="taken"then return __nuppManagedError("NUPP2614","managed ownership was already taken")end if cell._state=="closed"or cell._state=="closing"then return __nuppManagedError("NUPP2614","managed resource is closed")end return nil end local function __nuppManagedClose(cell,checked) local problem=__nuppManagedProblem(cell);if problem then if checked then return problem end;return nil end if cell._borrows~=0 or cell._exclusive then local busy=__nuppManagedError("NUPP2620","managed resource has an active borrow");if checked then return busy end;error(busy.message,0)end cell._state="closing";local value,cleanup=cell._value,cell._cleanup;cell._value=nil;cell._cleanup=nil local ok,reason=pcall(cleanup,value);cell._state="closed";if not ok then error(reason,0)end;return nil end function __nuppManagedOwner:alias()return setmetatable({_cell=self,_brand=__nuppManagedBrand},__nuppManagedAlias)end function __nuppManagedOwner:close()return __nuppManagedClose(self,false)end local function __nuppAliasCell(self) if type(self)~="table"or self._brand~=__nuppManagedBrand or getmetatable(self)~=__nuppManagedAlias then return nil,__nuppManagedError("NUPP2614","value is not a managed alias")end local cell=self._cell;local problem=__nuppManagedProblem(cell);if problem then return nil,problem end;return cell,nil end function __nuppManagedAlias:with(callback) local cell,problem=__nuppAliasCell(self);if not cell then return nil,problem end if cell._exclusive then return nil,__nuppManagedError("NUPP2620","managed resource is exclusively borrowed")end cell._borrows=cell._borrows+1;cell._state="shared-borrowed("..cell._borrows..")" local ok,result=pcall(callback,cell._value);cell._borrows=cell._borrows-1;cell._state=cell._borrows>0 and("shared-borrowed("..cell._borrows..")")or"live" if not ok then error(result,0)end;return result,nil end function __nuppManagedAlias:withExclusive(callback) local cell,problem=__nuppAliasCell(self);if not cell then return nil,problem end if cell._exclusive or cell._borrows~=0 then return nil,__nuppManagedError("NUPP2620","managed resource is already borrowed")end cell._exclusive=true;cell._state="exclusive-borrowed";local ok,result=pcall(callback,cell._value);cell._exclusive=false;cell._state="live" if not ok then error(result,0)end;return result,nil end function __nuppManagedAlias:take() local cell,problem=__nuppAliasCell(self);if not cell then return nil,problem end if cell._exclusive or cell._borrows~=0 then return nil,__nuppManagedError("NUPP2620","managed resource has an active borrow")end cell._state="taken";local value=cell._value;cell._value=nil;cell._cleanup=nil;return value,nil end function __nuppManagedAlias:close() local cell,problem=__nuppAliasCell(self);if not cell then return problem end;return __nuppManagedClose(cell,true)end function __nuppManagedAlias:_downcast(policy) local cell,problem=__nuppAliasCell(self);if not cell then return nil,problem end if cell._policy~=policy then return nil,__nuppManagedError("NUPP2613","managed alias has the wrong type or cleanup policy")end return self,nil end function __nupp.__manage(value,cleanup,policy) local cell=setmetatable({_brand=__nuppManagedBrand,_value=value,_cleanup=cleanup,_policy=policy,_state="live",_borrows=0,_exclusive=false},__nuppManagedOwner);__nuppManagedCells[cell]=true;return cell end function __nupp.__recoverAlias(value) if type(value)~="table"or value._brand~=__nuppManagedBrand or getmetatable(value)~=__nuppManagedAlias then return nil,__nuppManagedError("NUPP2614","value is not a managed alias")end local cell,problem=__nuppAliasCell(value);if not cell then return nil,problem end;return value,nil end _G.__nuppManagedPolicyCount=function(policy)local count=0;for cell in pairs(__nuppManagedCells)do if cell._policy==policy and(cell._state=="live"or cell._state:match("borrowed"))then count=count+1 end end;return count end local __nuppManagedGroup={};__nuppManagedGroup.__index=__nuppManagedGroup function __nuppManagedGroup:flush()end function __nuppManagedGroup:adopt(cell) if self._closed then error("managed group is closed",2)end local handle=cell:alias();self._entries[#self._entries+1]=handle return handle end function __nuppManagedGroup:remove(handle) if self._closed then error("managed group is closed",2)end for index=#self._entries,1,-1 do if self._entries[index]==handle then table.remove(self._entries,index);local value,problem=handle:take();if problem then error(problem.message,2)end;return value end end error("managed alias is not registered in this group",2) end local function __nuppManagedCloseEntry(entry)local problem=entry:close();if problem and problem.code~="NUPP2614"then error(problem.message,0)end end function __nuppManagedGroup:close() if self._closed then return end;self._closed=true;local first,suppressed=nil,0 for index=#self._entries,1,-1 do local ok,reason=pcall(__nuppManagedCloseEntry,self._entries[index]);if not ok then if first==nil then first=reason else suppressed=suppressed+1 end end end self._entries={};if first~=nil then if suppressed>0 then error(tostring(first).." (suppressed "..tostring(suppressed).." cleanup failure(s))",0)end;error(first,0)end end function __nupp.managedGroup()return setmetatable({_entries={},_closed=false},__nuppManagedGroup)end;local __nuppExports;local __nuppOk,__nuppWhy=pcall(function()
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+local contracts = { }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+contracts . members = {
+[ "data.json" ] = {functions = {"arrayOf", "asArray", "asObject", "isArray", "decode", "encode", "serialize", "encoded", "encodedString", "pull", "verified", "verifiedString", "writer"}, valueTypes = {EMPTY_ARRAY = "table", EMPTY_OBJECT = "table"}, values = {"NULL", "EMPTY_ARRAY", "EMPTY_OBJECT"}}
+
+,
+[ "data.uuid" ] = {functions = {"uuid4", "uuid7"}, valueTypes = {}, values = {}}
+
+,
+[ "crypto.hmac_sha256" ] = {functions = {"digest", "hex"}, valueTypes = {}, values = {}}
+
+,
+[ "data.base64" ] = {functions = {"encode", "decode"}, valueTypes = {}, values = {}}
+
+,
+[ "host.time" ] = {functions = {"now", "wallTime", "sleep", "sleepUntil"}, valueTypes = {}, values = {}}
+
+,
+[ "host.path" ] = {functions = {"separator", "currentDirectory", "canonicalize"}, valueTypes = {}, values = {}}
+
+,
+[ "host.browser_storage" ] = {functions = {"get", "set", "remove", "clear"}, valueTypes = {}, values = {}}
+
+,
+}
+
+
+
+
+
+
+
+function contracts . validate ( name , value ) 
+const required = contracts . members [ name ]
+if required == nil then
+return "no declared contract named " .. name
+end
+if type ( value ) ~= "table" then
+return "module returned " .. type ( value ) .. ", expected table"
+end
+for _ , member in ipairs ( required . functions ) do
+if type ( value [ member ] ) ~= "function" then
+return "member " .. member .. " is " .. type ( value [ member ] ) .. ", expected function"
+end
+end
+for _ , member in ipairs ( required . values ) do
+if value [ member ] == nil then
+return "member " .. member .. " is absent"
+end
+const expected = required . valueTypes [ member ]
+if expected ~= nil and type ( value [ member ] ) ~= expected then
+return "member " .. member .. " is " .. type ( value [ member ] ) .. ", expected " .. expected
+end
+end
+
+return nil
+end
+
+const __nuppExportValue= contracts ;__nuppExports=__nuppExportValue
+ end);if not __nuppOk then package.loaded["nupp.runtime.seam.contracts"]=nil;error(__nuppWhy,0) end;package.loaded["nupp.runtime.seam.contracts"]=__nuppExports;return __nuppExports
 end
 package.preload["nupp.runtime.seam.files"] = function(...)
 _G.assert(_G.loadstring("local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppMath=rawget(__nupp,\"math\")or{};rawset(__nupp,\"math\",__nuppMath) local function __nuppCloseFile(handle)if io.type(handle)==\"closed file\"then return end;local ok,reason=handle:close();if not ok then error(reason or \"the file could not be closed\",0)end end local __nuppManagedBrand=_G.__nuppManagedBrand if not __nuppManagedBrand then __nuppManagedBrand={};_G.__nuppManagedBrand=__nuppManagedBrand end local __nuppManagedCells=_G.__nuppManagedCells if not __nuppManagedCells then __nuppManagedCells=setmetatable({},{__mode=\"k\"});_G.__nuppManagedCells=__nuppManagedCells end local __nuppManagedOwner={};__nuppManagedOwner.__index=__nuppManagedOwner;local __nuppManagedAlias={};__nuppManagedAlias.__index=__nuppManagedAlias local function __nuppManagedError(code,message)return{code=code,message=message}end local function __nuppManagedProblem(cell) if type(cell)~=\"table\"or cell._brand~=__nuppManagedBrand then return __nuppManagedError(\"NUPP2614\",\"value is not a managed alias\")end if cell._state==\"taken\"then return __nuppManagedError(\"NUPP2614\",\"managed ownership was already taken\")end if cell._state==\"closed\"or cell._state==\"closing\"then return __nuppManagedError(\"NUPP2614\",\"managed resource is closed\")end return nil end local function __nuppManagedClose(cell,checked) local problem=__nuppManagedProblem(cell);if problem then if checked then return problem end;return nil end if cell._borrows~=0 or cell._exclusive then local busy=__nuppManagedError(\"NUPP2620\",\"managed resource has an active borrow\");if checked then return busy end;error(busy.message,0)end cell._state=\"closing\";local value,cleanup=cell._value,cell._cleanup;cell._value=nil;cell._cleanup=nil local ok,reason=pcall(cleanup,value);cell._state=\"closed\";if not ok then error(reason,0)end;return nil end function __nuppManagedOwner:alias()return setmetatable({_cell=self,_brand=__nuppManagedBrand},__nuppManagedAlias)end function __nuppManagedOwner:close()return __nuppManagedClose(self,false)end local function __nuppAliasCell(self) if type(self)~=\"table\"or self._brand~=__nuppManagedBrand or getmetatable(self)~=__nuppManagedAlias then return nil,__nuppManagedError(\"NUPP2614\",\"value is not a managed alias\")end local cell=self._cell;local problem=__nuppManagedProblem(cell);if problem then return nil,problem end;return cell,nil end function __nuppManagedAlias:with(callback) local cell,problem=__nuppAliasCell(self);if not cell then return nil,problem end if cell._exclusive then return nil,__nuppManagedError(\"NUPP2620\",\"managed resource is exclusively borrowed\")end cell._borrows=cell._borrows+1;cell._state=\"shared-borrowed(\"..cell._borrows..\")\" local ok,result=pcall(callback,cell._value);cell._borrows=cell._borrows-1;cell._state=cell._borrows>0 and(\"shared-borrowed(\"..cell._borrows..\")\")or\"live\" if not ok then error(result,0)end;return result,nil end function __nuppManagedAlias:withExclusive(callback) local cell,problem=__nuppAliasCell(self);if not cell then return nil,problem end if cell._exclusive or cell._borrows~=0 then return nil,__nuppManagedError(\"NUPP2620\",\"managed resource is already borrowed\")end cell._exclusive=true;cell._state=\"exclusive-borrowed\";local ok,result=pcall(callback,cell._value);cell._exclusive=false;cell._state=\"live\" if not ok then error(result,0)end;return result,nil end function __nuppManagedAlias:take() local cell,problem=__nuppAliasCell(self);if not cell then return nil,problem end if cell._exclusive or cell._borrows~=0 then return nil,__nuppManagedError(\"NUPP2620\",\"managed resource has an active borrow\")end cell._state=\"taken\";local value=cell._value;cell._value=nil;cell._cleanup=nil;return value,nil end function __nuppManagedAlias:close() local cell,problem=__nuppAliasCell(self);if not cell then return problem end;return __nuppManagedClose(cell,true)end function __nuppManagedAlias:_downcast(policy) local cell,problem=__nuppAliasCell(self);if not cell then return nil,problem end if cell._policy~=policy then return nil,__nuppManagedError(\"NUPP2613\",\"managed alias has the wrong type or cleanup policy\")end return self,nil end function __nupp.__manage(value,cleanup,policy) local cell=setmetatable({_brand=__nuppManagedBrand,_value=value,_cleanup=cleanup,_policy=policy,_state=\"live\",_borrows=0,_exclusive=false},__nuppManagedOwner);__nuppManagedCells[cell]=true;return cell end function __nupp.__recoverAlias(value) if type(value)~=\"table\"or value._brand~=__nuppManagedBrand or getmetatable(value)~=__nuppManagedAlias then return nil,__nuppManagedError(\"NUPP2614\",\"value is not a managed alias\")end local cell,problem=__nuppAliasCell(value);if not cell then return nil,problem end;return value,nil end _G.__nuppManagedPolicyCount=function(policy)local count=0;for cell in pairs(__nuppManagedCells)do if cell._policy==policy and(cell._state==\"live\"or cell._state:match(\"borrowed\"))then count=count+1 end end;return count end local __nuppManagedGroup={};__nuppManagedGroup.__index=__nuppManagedGroup function __nuppManagedGroup:flush()end function __nuppManagedGroup:adopt(cell) if self._closed then error(\"managed group is closed\",2)end local handle=cell:alias();self._entries[#self._entries+1]=handle return handle end function __nuppManagedGroup:remove(handle) if self._closed then error(\"managed group is closed\",2)end for index=#self._entries,1,-1 do if self._entries[index]==handle then table.remove(self._entries,index);local value,problem=handle:take();if problem then error(problem.message,2)end;return value end end error(\"managed alias is not registered in this group\",2) end local function __nuppManagedCloseEntry(entry)local problem=entry:close();if problem and problem.code~=\"NUPP2614\"then error(problem.message,0)end end function __nuppManagedGroup:close() if self._closed then return end;self._closed=true;local first,suppressed=nil,0 for index=#self._entries,1,-1 do local ok,reason=pcall(__nuppManagedCloseEntry,self._entries[index]);if not ok then if first==nil then first=reason else suppressed=suppressed+1 end end end self._entries={};if first~=nil then if suppressed>0 then error(tostring(first)..\" (suppressed \"..tostring(suppressed)..\" cleanup failure(s))\",0)end;error(first,0)end end function __nupp.managedGroup()return setmetatable({_entries={},_closed=false},__nuppManagedGroup)end;\n","@nupp-prelude"))();local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppMath=rawget(__nupp,"math")or{};rawset(__nupp,"math",__nuppMath) local function __nuppCloseFile(handle)if io.type(handle)=="closed file"then return end;local ok,reason=handle:close();if not ok then error(reason or "the file could not be closed",0)end end local __nuppManagedBrand=_G.__nuppManagedBrand if not __nuppManagedBrand then __nuppManagedBrand={};_G.__nuppManagedBrand=__nuppManagedBrand end local __nuppManagedCells=_G.__nuppManagedCells if not __nuppManagedCells then __nuppManagedCells=setmetatable({},{__mode="k"});_G.__nuppManagedCells=__nuppManagedCells end local __nuppManagedOwner={};__nuppManagedOwner.__index=__nuppManagedOwner;local __nuppManagedAlias={};__nuppManagedAlias.__index=__nuppManagedAlias local function __nuppManagedError(code,message)return{code=code,message=message}end local function __nuppManagedProblem(cell) if type(cell)~="table"or cell._brand~=__nuppManagedBrand then return __nuppManagedError("NUPP2614","value is not a managed alias")end if cell._state=="taken"then return __nuppManagedError("NUPP2614","managed ownership was already taken")end if cell._state=="closed"or cell._state=="closing"then return __nuppManagedError("NUPP2614","managed resource is closed")end return nil end local function __nuppManagedClose(cell,checked) local problem=__nuppManagedProblem(cell);if problem then if checked then return problem end;return nil end if cell._borrows~=0 or cell._exclusive then local busy=__nuppManagedError("NUPP2620","managed resource has an active borrow");if checked then return busy end;error(busy.message,0)end cell._state="closing";local value,cleanup=cell._value,cell._cleanup;cell._value=nil;cell._cleanup=nil local ok,reason=pcall(cleanup,value);cell._state="closed";if not ok then error(reason,0)end;return nil end function __nuppManagedOwner:alias()return setmetatable({_cell=self,_brand=__nuppManagedBrand},__nuppManagedAlias)end function __nuppManagedOwner:close()return __nuppManagedClose(self,false)end local function __nuppAliasCell(self) if type(self)~="table"or self._brand~=__nuppManagedBrand or getmetatable(self)~=__nuppManagedAlias then return nil,__nuppManagedError("NUPP2614","value is not a managed alias")end local cell=self._cell;local problem=__nuppManagedProblem(cell);if problem then return nil,problem end;return cell,nil end function __nuppManagedAlias:with(callback) local cell,problem=__nuppAliasCell(self);if not cell then return nil,problem end if cell._exclusive then return nil,__nuppManagedError("NUPP2620","managed resource is exclusively borrowed")end cell._borrows=cell._borrows+1;cell._state="shared-borrowed("..cell._borrows..")" local ok,result=pcall(callback,cell._value);cell._borrows=cell._borrows-1;cell._state=cell._borrows>0 and("shared-borrowed("..cell._borrows..")")or"live" if not ok then error(result,0)end;return result,nil end function __nuppManagedAlias:withExclusive(callback) local cell,problem=__nuppAliasCell(self);if not cell then return nil,problem end if cell._exclusive or cell._borrows~=0 then return nil,__nuppManagedError("NUPP2620","managed resource is already borrowed")end cell._exclusive=true;cell._state="exclusive-borrowed";local ok,result=pcall(callback,cell._value);cell._exclusive=false;cell._state="live" if not ok then error(result,0)end;return result,nil end function __nuppManagedAlias:take() local cell,problem=__nuppAliasCell(self);if not cell then return nil,problem end if cell._exclusive or cell._borrows~=0 then return nil,__nuppManagedError("NUPP2620","managed resource has an active borrow")end cell._state="taken";local value=cell._value;cell._value=nil;cell._cleanup=nil;return value,nil end function __nuppManagedAlias:close() local cell,problem=__nuppAliasCell(self);if not cell then return problem end;return __nuppManagedClose(cell,true)end function __nuppManagedAlias:_downcast(policy) local cell,problem=__nuppAliasCell(self);if not cell then return nil,problem end if cell._policy~=policy then return nil,__nuppManagedError("NUPP2613","managed alias has the wrong type or cleanup policy")end return self,nil end function __nupp.__manage(value,cleanup,policy) local cell=setmetatable({_brand=__nuppManagedBrand,_value=value,_cleanup=cleanup,_policy=policy,_state="live",_borrows=0,_exclusive=false},__nuppManagedOwner);__nuppManagedCells[cell]=true;return cell end function __nupp.__recoverAlias(value) if type(value)~="table"or value._brand~=__nuppManagedBrand or getmetatable(value)~=__nuppManagedAlias then return nil,__nuppManagedError("NUPP2614","value is not a managed alias")end local cell,problem=__nuppAliasCell(value);if not cell then return nil,problem end;return value,nil end _G.__nuppManagedPolicyCount=function(policy)local count=0;for cell in pairs(__nuppManagedCells)do if cell._policy==policy and(cell._state=="live"or cell._state:match("borrowed"))then count=count+1 end end;return count end local __nuppManagedGroup={};__nuppManagedGroup.__index=__nuppManagedGroup function __nuppManagedGroup:flush()end function __nuppManagedGroup:adopt(cell) if self._closed then error("managed group is closed",2)end local handle=cell:alias();self._entries[#self._entries+1]=handle return handle end function __nuppManagedGroup:remove(handle) if self._closed then error("managed group is closed",2)end for index=#self._entries,1,-1 do if self._entries[index]==handle then table.remove(self._entries,index);local value,problem=handle:take();if problem then error(problem.message,2)end;return value end end error("managed alias is not registered in this group",2) end local function __nuppManagedCloseEntry(entry)local problem=entry:close();if problem and problem.code~="NUPP2614"then error(problem.message,0)end end function __nuppManagedGroup:close() if self._closed then return end;self._closed=true;local first,suppressed=nil,0 for index=#self._entries,1,-1 do local ok,reason=pcall(__nuppManagedCloseEntry,self._entries[index]);if not ok then if first==nil then first=reason else suppressed=suppressed+1 end end end self._entries={};if first~=nil then if suppressed>0 then error(tostring(first).." (suppressed "..tostring(suppressed).." cleanup failure(s))",0)end;error(first,0)end end function __nupp.managedGroup()return setmetatable({_entries={},_closed=false},__nuppManagedGroup)end;local __nuppExports;local __nuppOk,__nuppWhy=pcall(function()
@@ -187712,8 +188013,6 @@ local runtimeBackend = require ( "nupp.runtime.backend" )
 local seam = { moduleName = "nupp.runtime.seam.hmacsha256" , suiteModuleName = "nupp.runtime.seam.hmacsha256suite" , }
 local CONTRACT = common . contract ( "crypto.hmac_sha256" , {
 globalName = "__nuppHmacSha256" ,
-requiredFunctions = { "digest" , "hex" } ,
-requiredValues = { } ,
 suiteModule = seam . suiteModuleName ,
 } )
 
@@ -187995,6 +188294,7 @@ _G.assert(_G.loadstring("local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppM
 
 
 local runtimeBackend = require ( "nupp.runtime.backend" )
+local contracts = require ( "nupp.runtime.seam.contracts" )
 local jsonSeam = { }
 
 jsonSeam . moduleName = "nupp.runtime.seam.json"
@@ -188010,42 +188310,13 @@ const DYNAMIC_REQUIRES = "@requires-dynamically nupp.runtime.provider.*"
 
 jsonSeam . suiteModuleName = "nupp.runtime.seam.jsonsuite"
 
-local REQUIRED_FUNCTIONS = {
-"arrayOf" ,
-"asArray" ,
-"asObject" ,
-"isArray" ,
-"decode" ,
-"encode" ,
-"encoded" ,
-"encodedString" ,
-"pull" ,
-"serialize" ,
-"verified" ,
-"verifiedString" ,
-"writer" ,
-}
+
+
+
 
 
 function jsonSeam . validate ( value ) 
-if type ( value ) ~= "table" then
-return "module returned " .. type ( value ) .. ", expected table"
-end
-for _ , name in ipairs ( REQUIRED_FUNCTIONS ) do
-if type ( value [ name ] ) ~= "function" then
-return "member " .. name .. " is " .. type ( value [ name ] ) .. ", expected function"
-end
-end
-for _ , name in ipairs ( { "EMPTY_ARRAY" , "EMPTY_OBJECT" } ) do
-if type ( value [ name ] ) ~= "table" then
-return "member " .. name .. " is " .. type ( value [ name ] ) .. ", expected table"
-end
-end
-if value . NULL == nil then
-return "member NULL is absent"
-end
-
-return nil
+return contracts . validate ( "data.json" , value )
 end
 
 local function failure ( moduleName , problem ) 
@@ -188242,7 +188513,17 @@ _G.assert(_G.loadstring("local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppM
 
 
 local runtimeBackend = require ( "nupp.runtime.backend" )
+
+
+
+local contracts = require ( "nupp.runtime.seam.contracts" )
 local moduleSeam = { }
+
+
+
+
+
+
 
 
 
@@ -188267,6 +188548,12 @@ error ( "nupp: seam " .. name .. " declares " .. field .. " outside the runtime 
 end
 shape [ field ] = identity [ field ]
 end
+local declared = contracts . members [ name ]
+if declared ~= nil then
+shape . requiredFunctions = declared . functions
+shape . requiredValues = declared . values
+shape . valueTypes = declared . valueTypes
+end
 shape . name = identity . name
 shape . version = identity . version
 shape . binding = identity . binding
@@ -188286,6 +188573,10 @@ end
 for _ , name in ipairs ( contract . requiredValues ) do
 if value [ name ] == nil then
 return "member " .. name .. " is absent"
+end
+const expected = ( contract . valueTypes or { } ) [ name ]
+if expected ~= nil and type ( value [ name ] ) ~= expected then
+return "member " .. name .. " is " .. type ( value [ name ] ) .. ", expected " .. expected
 end
 end
 
@@ -188541,8 +188832,6 @@ local runtimeBackend = require ( "nupp.runtime.backend" )
 local seam = { moduleName = "nupp.runtime.seam.path" , suiteModuleName = "nupp.runtime.seam.pathsuite" , }
 local CONTRACT = common . contract ( "host.path" , {
 globalName = "__nuppPathEnvironment" ,
-requiredFunctions = { "canonicalize" , "currentDirectory" , "separator" } ,
-requiredValues = { } ,
 suiteModule = seam . suiteModuleName ,
 } )
 
@@ -189409,12 +189698,7 @@ _G.assert(_G.loadstring("local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppM
 local common = require ( "nupp.runtime.seam.module" )
 local runtimeBackend = require ( "nupp.runtime.backend" )
 local seam = { moduleName = "nupp.runtime.seam.time" , suiteModuleName = "nupp.runtime.seam.timesuite" , }
-local CONTRACT = common . contract ( "host.time" , {
-globalName = "__nuppTime" ,
-requiredFunctions = { "now" , "sleep" , "sleepUntil" , "wallTime" } ,
-requiredValues = { } ,
-suiteModule = seam . suiteModuleName ,
-} )
+local CONTRACT = common . contract ( "host.time" , { globalName = "__nuppTime" , suiteModule = seam . suiteModuleName , } )
 
 function seam . validate ( value ) 
 return common . validate ( CONTRACT , value )
@@ -189617,12 +189901,7 @@ _G.assert(_G.loadstring("local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppM
 local common = require ( "nupp.runtime.seam.module" )
 local runtimeBackend = require ( "nupp.runtime.backend" )
 local seam = { moduleName = "nupp.runtime.seam.uuid" , suiteModuleName = "nupp.runtime.seam.uuidsuite" , }
-local CONTRACT = common . contract ( "data.uuid" , {
-globalName = "__nuppUuid" ,
-requiredFunctions = { "uuid4" , "uuid7" } ,
-requiredValues = { } ,
-suiteModule = seam . suiteModuleName ,
-} )
+local CONTRACT = common . contract ( "data.uuid" , { globalName = "__nuppUuid" , suiteModule = seam . suiteModuleName , } )
 function seam . validate ( value ) 
 return common . validate ( CONTRACT , value )
 end
@@ -204604,30 +204883,9 @@ local pullDecoder = require("nupp.data.jsondecode")
 local serdeDecoder = require("nupp.data.jsondecoder.serde")
 local newBuffer = require("string.buffer").new
 local bit = require("bit")
+local contracts = require("nupp.runtime.seam.contracts")
 
-local interface JsonProvider
-    decode: function(text: string, nullValue: any?): any
-    pull: function(text: string, shape: any, nullValue: any?): any
-    compileSerde: function(plan: any, unknownMembers: string): any
-    decodeSerde: function(schema: any, text: string): (any?, string?)
-    decodeSerdeBuffer: function(schema: any, exclusive input: string.buffer.Buffer): (any?, string?)
-    arrayOf: function(shape: any?): table
-    asArray: function<T is table>(takes value: T): T preserves value
-    asObject: function<T is table>(takes value: T): T preserves value
-    isArray: function(value: any): boolean
-    encode: function(value: any, nullValue: any?): string
-    serialize: function(value: any, nullValue: any?): string
-    encoded: function(value: any, nullValue: any?): any
-    encodedString: function(value: string): any
-    verified: function(text: string): any
-    verifiedString: function(text: string): any
-    writer: function(exclusive out: string.buffer.Buffer, nullValue: any?): any
-    NULL: any
-    EMPTY_ARRAY: table
-    EMPTY_OBJECT: table
-end
-
-local json: any = {}
+local json = {}
 local ARRAY_MARKER, OBJECT_MARKER, ARRAY_SHAPE = {}, {}, {}
 local SERDE_ALIASES, SERDE_WILDCARD, SERDE_REJECT, SERDE_METATABLE, SERDE_ORDER, SERDE_KEYS = {}, {}, {}, {}, {}, {}
 local SERDE_REQUIRED, SERDE_DEFAULTS, SERDE_NULLABLE = {}, {}, {}
@@ -205442,11 +205700,52 @@ function json.writer(out: any, nullValue: any?): any
     return writer
 end
 
-export = json as JsonProvider
+-- Stated rather than assumed, the same way the pure-Lua provider states it.
+-- The serde members are this provider's addition; the contract declares them
+-- optional, which is what lets the pure-Lua provider omit them and what makes
+-- each caller's nil test the checker's business rather than a convention.
+local checked: contracts.JsonProvider = {
+    arrayOf = json.arrayOf,
+    -- `asArray` and `asObject` are asserted where every other member is checked.
+    -- The contract owns what it marks, because `nupp.data.json.asArray` promises
+    -- its caller the same table back. No provider can state that and still read
+    -- the table: `pairs` takes neither an owner nor a borrow, so a body that
+    -- validates keys cannot also carry the owning signature. Both providers
+    -- therefore mark through `any`, and the cast is where that ends.
+    asArray = json.asArray as contracts.MarkContainer,
+    asObject = json.asObject as contracts.MarkContainer,
+    isArray = json.isArray,
+    decode = json.decode,
+    encode = json.encode,
+    serialize = json.serialize,
+    encoded = json.encoded,
+    encodedString = json.encodedString,
+    pull = json.pull,
+    verified = json.verified,
+    verifiedString = json.verifiedString,
+    writer = json.writer,
+    NULL = json.NULL,
+    EMPTY_ARRAY = json.EMPTY_ARRAY,
+    EMPTY_OBJECT = json.EMPTY_OBJECT,
+    compileSerde = json.compileSerde,
+    decodeSerde = json.decodeSerde,
+    decodeSerdeBuffer = json.decodeSerdeBuffer,
+}
+
+export = checked
 ]],
 ["/nupp/data/json/provider.nupp"] = [[
 -- The internal binding for `nupp.data.json`. A selected runtime backend
 -- preloads this name; otherwise production uses Nupp's SIMD AOT codec.
+--
+-- The shape below restates [](nupp.runtime.seam.contracts.JsonProvider), which
+-- is what the `data.json` seam checks a provider against and what both
+-- providers project themselves onto. Restated rather than named: this module is
+-- part of the surface a consumer resolves `nupp.data.json` through, and a
+-- declaration there naming an interface from another module does not survive
+-- bundling -- the module resolves to `unknown`, `native.json` stops being
+-- recorded, and a selected backend never reaches the generated program. The
+-- two are held together by `dataJsonBindingAnswersItsContract`.
 local interface JsonProvider
     decode: function(text: string, nullValue: any?): any
     pull: function(text: string, shape: any, nullValue: any?): any
@@ -229463,6 +229762,7 @@ module nupp.runtime.provider.browsercrypto
 -- Worker performs the primitive; formatting and the Nupp contracts stay here.
 
 local base64 = require("nupp.data.base64")
+local contracts = require("nupp.runtime.seam.contracts")
 local response = require("nupp.runtime.browser.response")
 local crypto = {}
 
@@ -229557,6 +229857,14 @@ function crypto.uuid7(): string
 
     return canonical(bytes)
 end
+
+-- Stated rather than assumed. This module answers four seams, so it projects
+-- onto each declared contract in turn instead of exporting one of them: the
+-- export has to keep every member, and a projection keeps only the contract's.
+@allow("unused-binding")
+const ANSWERS_UUID: contracts.UuidProvider = {uuid4 = crypto.uuid4, uuid7 = crypto.uuid7,}
+@allow("unused-binding")
+const ANSWERS_HMAC: contracts.HmacSha256Provider = {digest = crypto.digest, hex = crypto.hex,}
 
 export = crypto
 ]],
@@ -229874,6 +230182,7 @@ module nupp.runtime.provider.browserpath
 -- Browsers have POSIX-shaped resource paths but no process directory or host
 -- filesystem whose links can be resolved. Keeping those failures behind the
 -- environmental provider leaves every lexical path operation available.
+local contracts = require("nupp.runtime.seam.contracts")
 local provider = {}
 
 function provider.separator(): string
@@ -229888,7 +230197,15 @@ function provider.canonicalize(_path: string): (string?, string?)
     return nil, "the browser has no host filesystem to canonicalize"
 end
 
-export = provider
+-- Stated rather than assumed: the projection is what reports a member whose
+-- signature drifted from the contract the seam installs this module behind.
+local checked: contracts.PathProvider = {
+    separator = provider.separator,
+    currentDirectory = provider.currentDirectory,
+    canonicalize = provider.canonicalize,
+}
+
+export = checked
 ]],
 ["/nupp/runtime/provider/browserstorage.g.nupp"] = [[
 module nupp.runtime.provider.browserstorage
@@ -229898,6 +230215,7 @@ module nupp.runtime.provider.browserstorage
 -- checked, backend-independent call surface.
 
 local response = require("nupp.runtime.browser.response")
+local contracts = require("nupp.runtime.seam.contracts")
 local storage = {}
 
 local function key(value: string): string
@@ -229927,7 +230245,16 @@ function storage.clear(): nil
     response.await("storage", {operation = "clear",})
 end
 
-export = storage
+-- Stated rather than assumed: the projection is what reports a member whose
+-- signature drifted from the contract the seam installs this module behind.
+local checked: contracts.BrowserStorageProvider = {
+    get = storage.get,
+    set = storage.set,
+    remove = storage.remove,
+    clear = storage.clear,
+}
+
+export = checked
 ]],
 ["/nupp/runtime/provider/browsersuspension.g.nupp"] = [[
 module nupp.runtime.provider.browsersuspension
@@ -230494,6 +230821,7 @@ module nupp.runtime.provider.browsertime
 -- suspension boundary once; no clock probe occurs in ordinary compute code.
 
 local response = require("nupp.runtime.browser.response")
+local contracts = require("nupp.runtime.seam.contracts")
 local time = {}
 
 local function duration(value: number, label: string): number
@@ -230527,7 +230855,16 @@ function time.sleepUntil(deadline: number): nil
     time.sleep(remaining)
 end
 
-export = time
+-- Stated rather than assumed: the projection is what reports a member whose
+-- signature drifted from the contract the seam installs this module behind.
+local checked: contracts.TimeProvider = {
+    now = time.now,
+    wallTime = time.wallTime,
+    sleep = time.sleep,
+    sleepUntil = time.sleepUntil,
+}
+
+export = checked
 ]],
 ["/nupp/runtime/provider/browseruri.g.nupp"] = [[
 module nupp.runtime.provider.browseruri
@@ -231775,6 +232112,7 @@ local newDecoder = require(
     "nupp.runtime.vendor.lunajson.decoder"
 ) as function(): function(string, integer?, any?, boolean?): any
 local newEncoder = require("nupp.runtime.vendor.lunajson.encoder") as function(): function(any, any?): string
+local contracts = require("nupp.runtime.seam.contracts")
 local core = {decode = newDecoder(), encode = newEncoder(),}
 local json = {}
 
@@ -232197,7 +232535,36 @@ function json.writer(out: any, nullValue: any?): any
     return writer
 end
 
-export = json
+-- Stated rather than assumed. The projection is what reports a member whose
+-- signature drifted from the contract `nupp.data.json` is written against;
+-- without it a provider satisfying the seam's name check installed cleanly and
+-- answered a different signature than the declaration promised.
+local checked: contracts.JsonProvider = {
+    arrayOf = json.arrayOf,
+    -- `asArray` and `asObject` are asserted where every other member is checked.
+    -- The contract owns what it marks, because `nupp.data.json.asArray` promises
+    -- its caller the same table back. No provider can state that and still read
+    -- the table: `pairs` takes neither an owner nor a borrow, so a body that
+    -- validates keys cannot also carry the owning signature. Both providers
+    -- therefore mark through `any`, and the cast is where that ends.
+    asArray = json.asArray as contracts.MarkContainer,
+    asObject = json.asObject as contracts.MarkContainer,
+    isArray = json.isArray,
+    decode = json.decode,
+    encode = json.encode,
+    serialize = json.serialize,
+    encoded = json.encoded,
+    encodedString = json.encodedString,
+    pull = json.pull,
+    verified = json.verified,
+    verifiedString = json.verifiedString,
+    writer = json.writer,
+    NULL = json.NULL,
+    EMPTY_ARRAY = json.EMPTY_ARRAY,
+    EMPTY_OBJECT = json.EMPTY_OBJECT,
+}
+
+export = checked
 ]=],
 ["/nupp/runtime/provider/scalarbitops.nupp"] = [[
 module nupp.runtime.provider.scalarbitops
@@ -233344,12 +233711,7 @@ module nupp.runtime.seam.base64
 local common = require("nupp.runtime.seam.module")
 local runtimeBackend = require("nupp.runtime.backend")
 local seam = {moduleName = "nupp.runtime.seam.base64", suiteModuleName = "nupp.runtime.seam.base64suite",}
-local CONTRACT = common.contract("data.base64", {
-    globalName = "__nuppBase64",
-    requiredFunctions = {"encode", "decode"},
-    requiredValues = {},
-    suiteModule = seam.suiteModuleName,
-})
+local CONTRACT = common.contract("data.base64", {globalName = "__nuppBase64", suiteModule = seam.suiteModuleName,})
 
 function seam.validate(value: any): string?
     return common.validate(CONTRACT, value)
@@ -233652,8 +234014,6 @@ local seam = {
 }
 local CONTRACT = common.contract("host.browser_storage", {
     globalName = "__nuppBrowserStorage",
-    requiredFunctions = {"clear", "get", "remove", "set"},
-    requiredValues = {},
     suiteModule = seam.suiteModuleName,
 })
 
@@ -233684,6 +234044,219 @@ end
 
 export = suite
 ]],
+["/nupp/runtime/seam/contracts.nupp"] = [=[
+@!internal
+
+module nupp.runtime.seam.contracts
+
+--[[
+The declared shape of each substitutable runtime contract, and the member names
+derived from it.
+
+A seam used to carry its required members twice: once as the interface a
+consumer was written against, and once as a list of strings `validate` walked at
+install time. The two drifted silently, because nothing compared them -- a
+provider satisfying the string list installed cleanly while answering a
+different signature than the declaration promised.
+
+The interface here is the single statement. `members` reads it with
+`nupp.reflect` at compile time and hands the seam the same names it used to
+spell out, so a member added to a contract reaches the runtime check without
+being written down again. A provider states conformance by projecting itself
+onto the interface, which is where a mismatched signature is now reported.
+]]
+
+local contracts = {}
+
+--- Splits one reflected contract into the members `validate` looks for.
+---
+--- Functions and values are checked differently at install: a function must be
+--- callable, where a value only has to be there. A value whose declared type
+--- names a Lua type is checked for that too, so a contract promising a table
+--- says so once rather than in each seam that wanted the stricter test.
+---
+--- An optional member is required of nobody. It reads as a union with a `nil`
+--- arm, which is also what tells a caller to reach it through a nil test.
+local comptime function memberNames(info: nupp.reflect.Info): any
+    local functions, values, valueTypes = {}, {}, {}
+    for _, field in ipairs(info.fields) do
+        const declared = field.type
+        if declared ~= nil then
+            const node = info.types[declared]
+            local optional = false
+            const arms = node.members
+            if node.kind == "union" and arms ~= nil then
+                for _, arm in ipairs(arms) do
+                    if info.types[arm].kind == "nil" then
+                        optional = true
+                    end
+                end
+            end
+            -- An optional member is named in neither list, because it is
+            -- required of nobody.
+            if not optional then
+                if node.kind == "func" then
+                    functions[#functions + 1] = field.name
+                else
+                    values[#values + 1] = field.name
+                    if node.kind == "table" or node.kind == "string" or node.kind == "boolean" then
+                        valueTypes[field.name] = node.kind
+                    end
+                end
+            end
+        end
+    end
+
+    return {functions = functions, values = values, valueTypes = valueTypes,}
+end
+
+--- What a provider does to a table it is asked to mark: takes it, marks it, and
+--- hands back the same one, so the caller's type survives the round trip.
+export type MarkContainer = function<T is table>(takes value: T): T preserves value
+
+--- `data.json`, the codec `nupp.data.json` is written against.
+---
+--- The marking members own what they mark. `nupp.data.json.asArray` hands its
+--- caller's table straight to the provider and promises to hand the same one
+--- back, so a provider answering `(value: any): any` breaks that promise one
+--- call further in -- which is what the checker says when this is written the
+--- weaker way.
+---
+--- The serde members are absent from a provider that has no schema-specialized
+--- decoder, which is why they are optional here and why every caller reaches
+--- them through a nil test.
+export interface JsonProvider
+    arrayOf: function(shape: any?): any
+    asArray: MarkContainer
+    asObject: MarkContainer
+    isArray: function(value: any): boolean
+    decode: function(text: string, nullValue: any?): any
+    encode: function(value: any, nullValue: any?): string
+    serialize: function(value: any, nullValue: any?): string
+    encoded: function(value: any, nullValue: any?): any
+    encodedString: function(value: string): any
+    pull: function(text: string, shape: any, nullValue: any?): any
+    verified: function(text: string): any
+    verifiedString: function(text: string): any
+    writer: function(exclusive out: string.buffer.Buffer, nullValue: any?): any
+    NULL: any
+    EMPTY_ARRAY: table
+    EMPTY_OBJECT: table
+    compileSerde: (function(plan: any, unknownMembers: string): any)?
+    decodeSerde: (function(schema: any, text: string): (any?, string?))?
+    decodeSerdeBuffer: (function(schema: any, exclusive input: string.buffer.Buffer): (any?, string?))?
+end
+
+--- `data.uuid`, the identifiers `nupp.data.uuid4` and `uuid7` are projected from.
+export interface UuidProvider
+    uuid4: function(): string
+    uuid7: function(): string
+end
+
+--- `crypto.hmac_sha256`, which `nupp.data.hmac` is written against.
+export interface HmacSha256Provider
+    digest: function(key: string, message: string): string
+    hex: function(key: string, message: string): string
+end
+
+--- `data.base64`, the faster codec a backend may have.
+---
+--- The seam is optional: `nupp.data.base64` answers when no backend installs
+--- one, so a provider here replaces a working implementation rather than
+--- supplying a missing one.
+export interface Base64Provider
+    encode: function(value: string): string
+    decode: function(text: string): string
+end
+
+--- `host.time`, which answers `nupp.time`.
+export interface TimeProvider
+    now: function(): number
+    wallTime: function(): number
+    sleep: function(milliseconds: number): nil
+    sleepUntil: function(deadline: number): nil
+end
+
+--- `host.path`, the environment `nupp.io.path` resolves against.
+---
+--- Each answer is a value-or-reason pair, because a host that cannot say what
+--- its current directory is has a reason rather than a path.
+export interface PathProvider
+    separator: function(): string
+    currentDirectory: function(): (string?, string?)
+    canonicalize: function(path: string): (string?, string?)
+end
+
+--- `host.browser_storage`, the key-value store behind `nupp.browser.storage`.
+export interface BrowserStorageProvider
+    get: function(name: string): string?
+    set: function(name: string, value: string): nil
+    remove: function(name: string): nil
+    clear: function(): nil
+end
+
+--- The members each contract requires, by the name the registry knows it as.
+---
+--- A contract absent here keeps the list its seam spells out. Adding one is
+--- declaring the interface above and naming it in this table.
+contracts.members = {
+    ["data.json"] = comptime do
+        return memberNames(nupp.reflect(JsonProvider))
+    end,
+    ["data.uuid"] = comptime do
+        return memberNames(nupp.reflect(UuidProvider))
+    end,
+    ["crypto.hmac_sha256"] = comptime do
+        return memberNames(nupp.reflect(HmacSha256Provider))
+    end,
+    ["data.base64"] = comptime do
+        return memberNames(nupp.reflect(Base64Provider))
+    end,
+    ["host.time"] = comptime do
+        return memberNames(nupp.reflect(TimeProvider))
+    end,
+    ["host.path"] = comptime do
+        return memberNames(nupp.reflect(PathProvider))
+    end,
+    ["host.browser_storage"] = comptime do
+        return memberNames(nupp.reflect(BrowserStorageProvider))
+    end,
+}
+
+--- Answers why one loaded value cannot satisfy a contract's runtime shape.
+---
+--- This repeats at run time what the provider's own conformance projection
+--- already settled at compile time, for the provider nobody compiled against
+--- the contract: a rock, a host-supplied table, a module reached through a
+--- name the build never saw.
+function contracts.validate(name: string, value: any): string?
+    const required = contracts.members[name]
+    if required == nil then
+        return "no declared contract named " .. name
+    end
+    if type(value) ~= "table" then
+        return "module returned " .. type(value) .. ", expected table"
+    end
+    for _, member in ipairs(required.functions) do
+        if type(value[member]) ~= "function" then
+            return "member " .. member .. " is " .. type(value[member]) .. ", expected function"
+        end
+    end
+    for _, member in ipairs(required.values) do
+        if value[member] == nil then
+            return "member " .. member .. " is absent"
+        end
+        const expected = required.valueTypes[member]
+        if expected ~= nil and type(value[member]) ~= expected then
+            return "member " .. member .. " is " .. type(value[member]) .. ", expected " .. expected
+        end
+    end
+
+    return nil
+end
+
+export = contracts
+]=],
 ["/nupp/runtime/seam/files.nupp"] = [[
 module nupp.runtime.seam.files
 
@@ -233818,8 +234391,6 @@ local runtimeBackend = require("nupp.runtime.backend")
 local seam = {moduleName = "nupp.runtime.seam.hmacsha256", suiteModuleName = "nupp.runtime.seam.hmacsha256suite",}
 local CONTRACT = common.contract("crypto.hmac_sha256", {
     globalName = "__nuppHmacSha256",
-    requiredFunctions = {"digest", "hex"},
-    requiredValues = {},
     suiteModule = seam.suiteModuleName,
 })
 
@@ -234093,6 +234664,7 @@ explicitly; loading or building a program never executes that behavioral suite.
 ]]
 
 local runtimeBackend = require("nupp.runtime.backend")
+local contracts = require("nupp.runtime.seam.contracts")
 local jsonSeam = {}
 
 jsonSeam.moduleName = "nupp.runtime.seam.json"
@@ -234108,42 +234680,13 @@ const DYNAMIC_REQUIRES = "@requires-dynamically nupp.runtime.provider.*"
 
 jsonSeam.suiteModuleName = "nupp.runtime.seam.jsonsuite"
 
-local REQUIRED_FUNCTIONS = {
-    "arrayOf",
-    "asArray",
-    "asObject",
-    "isArray",
-    "decode",
-    "encode",
-    "encoded",
-    "encodedString",
-    "pull",
-    "serialize",
-    "verified",
-    "verifiedString",
-    "writer",
-}
-
 --- Answers why one loaded value cannot satisfy the shallow runtime contract.
+---
+--- The members come from [](nupp.runtime.seam.contracts.JsonProvider), which is
+--- also what `nupp.data.json` is written against, so a member added to the
+--- declaration is looked for here without being listed again.
 function jsonSeam.validate(value: any): string?
-    if type(value) ~= "table" then
-        return "module returned " .. type(value) .. ", expected table"
-    end
-    for _, name in ipairs(REQUIRED_FUNCTIONS) do
-        if type(value[name]) ~= "function" then
-            return "member " .. name .. " is " .. type(value[name]) .. ", expected function"
-        end
-    end
-    for _, name in ipairs({"EMPTY_ARRAY", "EMPTY_OBJECT"}) do
-        if type(value[name]) ~= "table" then
-            return "member " .. name .. " is " .. type(value[name]) .. ", expected table"
-        end
-    end
-    if value.NULL == nil then
-        return "member NULL is absent"
-    end
-
-    return nil
+    return contracts.validate("data.json", value)
 end
 
 local function failure(moduleName: string, problem: string): any
@@ -234338,6 +234881,10 @@ module nupp.runtime.seam.module
 --[[Shared mechanics for exact third-party runtime-module seams.]]
 
 local runtimeBackend = require("nupp.runtime.backend")
+-- Required here rather than where it is read: a require inside a body is not a
+-- require the module graph follows, so a build staging the seam sources would
+-- carry this module without the contracts it reads.
+local contracts = require("nupp.runtime.seam.contracts")
 local moduleSeam = {}
 
 export interface Contract
@@ -234347,6 +234894,7 @@ export interface Contract
     readonly globalName: string
     readonly requiredFunctions: {string}
     readonly requiredValues: {string}
+    readonly valueTypes: {[string]: string}?
     readonly suiteModule: string
     readonly modules: {[string]: string}?
     readonly implementationModules: {[string]: boolean}?
@@ -234355,6 +234903,11 @@ end
 
 --- Combines runtime shape with the compiler/runtime's single seam identity record.
 --- @raises when the shape duplicates substitution metadata owned by the registry
+---
+--- A contract declared in `nupp.runtime.seam.contracts` supplies its own member
+--- names, read off the interface at compile time. A seam whose contract is not
+--- declared there yet keeps the list it spells out, so the two coexist while
+--- the remaining contracts are written down.
 function moduleSeam.contract(name: string, shape: any): Contract
     local identity = require("nupp.runtime.seam.registry").get(name)
     for _, field in ipairs({"modules", "implementationModules", "exports"}) do
@@ -234362,6 +234915,12 @@ function moduleSeam.contract(name: string, shape: any): Contract
             error("nupp: seam " .. name .. " declares " .. field .. " outside the runtime seam registry", 2)
         end
         shape[field] = identity[field]
+    end
+    local declared = contracts.members[name]
+    if declared ~= nil then
+        shape.requiredFunctions = declared.functions
+        shape.requiredValues = declared.values
+        shape.valueTypes = declared.valueTypes
     end
     shape.name = identity.name
     shape.version = identity.version
@@ -234382,6 +234941,10 @@ function moduleSeam.validate(contract: Contract, value: any): string?
     for _, name in ipairs(contract.requiredValues) do
         if value[name] == nil then
             return "member " .. name .. " is absent"
+        end
+        const expected = (contract.valueTypes or {})[name]
+        if expected ~= nil and type(value[name]) ~= expected then
+            return "member " .. name .. " is " .. type(value[name]) .. ", expected " .. expected
         end
     end
 
@@ -234634,8 +235197,6 @@ local runtimeBackend = require("nupp.runtime.backend")
 local seam = {moduleName = "nupp.runtime.seam.path", suiteModuleName = "nupp.runtime.seam.pathsuite",}
 local CONTRACT = common.contract("host.path", {
     globalName = "__nuppPathEnvironment",
-    requiredFunctions = {"canonicalize", "currentDirectory", "separator"},
-    requiredValues = {},
     suiteModule = seam.suiteModuleName,
 })
 
@@ -235485,12 +236046,7 @@ module nupp.runtime.seam.time
 local common = require("nupp.runtime.seam.module")
 local runtimeBackend = require("nupp.runtime.backend")
 local seam = {moduleName = "nupp.runtime.seam.time", suiteModuleName = "nupp.runtime.seam.timesuite",}
-local CONTRACT = common.contract("host.time", {
-    globalName = "__nuppTime",
-    requiredFunctions = {"now", "sleep", "sleepUntil", "wallTime"},
-    requiredValues = {},
-    suiteModule = seam.suiteModuleName,
-})
+local CONTRACT = common.contract("host.time", {globalName = "__nuppTime", suiteModule = seam.suiteModuleName,})
 
 function seam.validate(value: any): string?
     return common.validate(CONTRACT, value)
@@ -235685,12 +236241,7 @@ module nupp.runtime.seam.uuid
 local common = require("nupp.runtime.seam.module")
 local runtimeBackend = require("nupp.runtime.backend")
 local seam = {moduleName = "nupp.runtime.seam.uuid", suiteModuleName = "nupp.runtime.seam.uuidsuite",}
-local CONTRACT = common.contract("data.uuid", {
-    globalName = "__nuppUuid",
-    requiredFunctions = {"uuid4", "uuid7"},
-    requiredValues = {},
-    suiteModule = seam.suiteModuleName,
-})
+local CONTRACT = common.contract("data.uuid", {globalName = "__nuppUuid", suiteModule = seam.suiteModuleName,})
 function seam.validate(value: any): string?
     return common.validate(CONTRACT, value)
 end
