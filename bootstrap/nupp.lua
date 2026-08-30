@@ -827,6 +827,10 @@ local analysis = { }
 
 
 
+
+
+
+
 local LISTS = { "reads" , "writes" , "shapes" , "metatables" , "escapes" , "calls" }
 local FLAGS = { "allocates" , "yields" , "raises" , "external" }
 
@@ -925,6 +929,10 @@ local function same ( a , b )
 local left , right = copy ( a ) , copy ( b )
 return not join ( left , right ) and not join ( right , left )
 end
+
+
+
+
 
 local function unwrap ( stat ) 
 while stat and stat . kind == "pragmaStmt" do
@@ -1113,6 +1121,10 @@ walk ( root )
 
 return functions , byDefinition
 end
+
+
+
+
 
 local PURE_BUILTINS = {
 type = true ,
@@ -1483,6 +1495,10 @@ cleanupEffects ( info . body and info . body . body )
 return out
 end
 
+
+
+
+
 local function contractContains ( contract , inferred ) 
 local declared = fromContract ( contract )
 if inferred . top then
@@ -1618,6 +1634,10 @@ walk ( body )
 
 return find
 end
+
+
+
+
 
 
 
@@ -1910,6 +1930,10 @@ end
 
 return facts
 end
+
+
+
+
 
 
 
@@ -5800,6 +5824,10 @@ local reusableScratchName = nil
 local builderEager = false
 
 
+
+
+
+
 local function physicalSymbol ( symbol , tier ) 
 return tier ~= nil and target . symbol ( symbol , tier ) or symbol
 end
@@ -5971,6 +5999,10 @@ end
 
 return value
 end
+
+
+
+
 
 local luaSite
 
@@ -6746,6 +6778,10 @@ local laneTemporary = 0
 local luaTemporary = 0
 
 
+
+
+
+
 function emit . begin ( ) 
 laneTemporary = 0
 luaTemporary = 0
@@ -6942,6 +6978,10 @@ end
 
 
 
+
+
+
+
 function emit . layout ( layout ) 
 local lines = { "typedef struct {" }
 for _ , field in ipairs ( layout . fields ) do
@@ -7124,6 +7164,10 @@ return spelling
 end
 
 
+
+
+
+
 function emit . includes ( ) 
 return {
 "/* Generated from verified test-only native C IR. */" ,
@@ -7272,6 +7316,10 @@ end
 
 
 emit . STACK_SCRATCH_WORDS = 1024
+
+
+
+
 
 
 
@@ -8920,6 +8968,10 @@ return lines
 end
 
 
+
+
+
+
 local function cBytes ( value ) 
 local bytes = { }
 for index = 1 , # value do
@@ -8968,6 +9020,10 @@ end
 
 return lines
 end
+
+
+
+
 
 
 
@@ -10320,6 +10376,10 @@ return lines
 end
 
 
+
+
+
+
 local function helperParams ( helper ) 
 local parts = { }
 for position , param in ipairs ( helper . params ) do
@@ -10390,6 +10450,10 @@ end
 
 return lines
 end
+
+
+
+
 
 
 emit.Body = {} emit.Body.__index = emit.Body
@@ -10997,6 +11061,10 @@ end
 
 
 
+
+
+
+
 local function localCType ( typeName , mutable ) 
 local layout = typeName : match ( "^ref:(.+)$" )
 if layout ~= nil then
@@ -11469,6 +11537,10 @@ end
 
 return lines
 end
+
+
+
+
 
 
 
@@ -14204,6 +14276,10 @@ lower.Context = {} lower.Context.__index = lower.Context
 
 
 
+
+
+
+
 function lower . sourceValueType ( spelling ) 
 if spelling == "boolean" then
 return "bool"
@@ -14543,6 +14619,10 @@ end
 
 
 
+
+
+
+
 lower.Layouts = {} lower.Layouts.__index = lower.Layouts
 
 
@@ -14754,6 +14834,10 @@ module == "wasm" and "nupp.wasm" or "nupp.mem.span" }, lower.Element)
 end
 
 
+
+
+
+
 function lower . nameOf ( node ) 
 if node == nil or node . kind ~= "name" then
 return nil
@@ -14825,6 +14909,10 @@ return nil
 end
 
 
+
+
+
+
 lower.Bound = {} lower.Bound.__index = lower.Bound
 
 
@@ -14848,6 +14936,10 @@ lower.GuardForm = {} lower.GuardForm.__index = lower.GuardForm
 
 
 lower.Kernel = {} lower.Kernel.__index = lower.Kernel
+
+
+
+
 
 
 
@@ -16607,6 +16699,10 @@ end
 
 
 
+
+
+
+
 function lower . constantWidth ( value ) 
 local raw = value
 
@@ -16692,6 +16788,10 @@ existing ,  type =
 source }, scalarIR.Name)
 
 end
+
+
+
+
 
 
 
@@ -17012,6 +17112,10 @@ end
 
 
 
+
+
+
+
 function lower . helperValueType ( spelling ) 
 if spelling == "boolean" then
 return "bool"
@@ -17207,6 +17311,10 @@ kernel . helperOrder [ # kernel . helperOrder + 1 ] = helper
 
 return helper
 end
+
+
+
+
 
 
 
@@ -18004,6 +18112,10 @@ return bound
 end
 
 
+
+
+
+
 function lower . block ( statements , environment , kernel ) 
 local context = kernel . context
 local out = { }
@@ -18265,6 +18377,10 @@ return out
 end
 
 
+
+
+
+
 function lower . dotCount ( node ) 
 if node == nil or node . kind ~= "unop" then
 return nil
@@ -18485,6 +18601,10 @@ end
 
 
 
+
+
+
+
 function lower . isGuardStatement ( stat ) 
 if stat == nil then
 return false
@@ -18699,6 +18819,10 @@ end
 
 return ( counted . var ) . text
 end
+
+
+
+
 
 
 lower.Application = {} lower.Application.__index = lower.Application
@@ -20236,6 +20360,10 @@ local rewrite = { }
 
 
 
+
+
+
+
 rewrite.State = {} rewrite.State.__index = rewrite.State
 
 
@@ -20363,6 +20491,10 @@ end
 
 
 
+
+
+
+
 rewrite . ARITHMETIC = { [ "add" ] = "add" , [ "sub" ] = "sub" , [ "mul" ] = "mul" , [ "div" ] = "div" , }
 
 rewrite . COMPARISON = { [ "lt" ] = "lt" , [ "le" ] = "le" , [ "gt" ] = "gt" , [ "ge" ] = "ge" , [ "eq" ] = "eq" , [ "ne" ] = "ne" , }
@@ -20399,6 +20531,10 @@ rewrite . CORRECTED = {
 [ "f32_max" ] = { helper = "nupp_f32_max" , arity = 2 } ,
 [ "f32_fma" ] = { helper = "nupp_f32_fma" , arity = 3 } ,
 }
+
+
+
+
 
 
 
@@ -20446,6 +20582,10 @@ end
 
 return false
 end
+
+
+
+
 
 
 
@@ -20740,6 +20880,10 @@ end
 
 
 
+
+
+
+
 function rewrite . fixedWidth (
 node ,
 verb ,
@@ -20957,6 +21101,10 @@ return expression ( node , state )
 end
 
 
+
+
+
+
 rewrite.Binding = {} rewrite.Binding.__index = rewrite.Binding
 
 
@@ -21097,6 +21245,10 @@ end
 
 return rewrite . maskAnd ( given , executing , source , state )
 end
+
+
+
+
 
 
 
@@ -21283,6 +21435,10 @@ end
 
 return false
 end
+
+
+
+
 
 
 
@@ -21592,6 +21748,10 @@ end
 end
 
 
+
+
+
+
 function rewrite . boolMask ( node , state ) 
 return setmetatable({ op =  "vbool_splat" ,  args =  { node } ,  type =  state . shape . mask ,  source =  node . source }, lane.BoolSplat)
 end
@@ -21700,6 +21860,10 @@ end
 
 return values
 end
+
+
+
+
 
 
 
@@ -21887,6 +22051,10 @@ end
 
 return nil
 end
+
+
+
+
 
 
 
@@ -22093,6 +22261,10 @@ state . rounded == true }, scalarIR.LaneBody)
 end
 
 
+
+
+
+
 rewrite.Attempt = {} rewrite.Attempt.__index = rewrite.Attempt
 
 
@@ -22243,7 +22415,15 @@ return prefix .. "_" .. name : gsub ( "[^%w_]" , "_" )
 end
 
 
+
+
+
+
 scalarIR.Source = {} scalarIR.Source.__index = scalarIR.Source
+
+
+
+
 
 
 
@@ -22309,6 +22489,10 @@ scalarIR.LuaNil = {} scalarIR.LuaNil.__index = scalarIR.LuaNil
 
 
 scalarIR.ConstantBytes = {} scalarIR.ConstantBytes.__index = scalarIR.ConstantBytes
+
+
+
+
 
 
 
@@ -22606,6 +22790,10 @@ scalarIR.LuaBuilderNumberToken = {} scalarIR.LuaBuilderNumberToken.__index = sca
 
 
 
+
+
+
+
 scalarIR.Name = {} scalarIR.Name.__index = scalarIR.Name
 
 
@@ -22670,6 +22858,10 @@ scalarIR.ElementRef = {} scalarIR.ElementRef.__index = scalarIR.ElementRef
 
 
 scalarIR.FieldLoad = {} scalarIR.FieldLoad.__index = scalarIR.FieldLoad
+
+
+
+
 
 
 
@@ -22804,6 +22996,10 @@ scalarIR.Corrected = {} scalarIR.Corrected.__index = scalarIR.Corrected
 
 
 
+
+
+
+
 scalarIR.Convert = {} scalarIR.Convert.__index = scalarIR.Convert
 
 
@@ -22828,6 +23024,14 @@ scalarIR.HelperCall = {} scalarIR.HelperCall.__index = scalarIR.HelperCall
 
 
 scalarIR.Simd = {} scalarIR.Simd.__index = scalarIR.Simd
+
+
+
+
+
+
+
+
 
 
 
@@ -23108,6 +23312,10 @@ scalarIR.LuaScratchU8Set = {} scalarIR.LuaScratchU8Set.__index = scalarIR.LuaScr
 
 
 
+
+
+
+
 scalarIR.Clause = {} scalarIR.Clause.__index = scalarIR.Clause
 
 
@@ -23186,6 +23394,10 @@ scalarIR.Continue = {} scalarIR.Continue.__index = scalarIR.Continue
 
 
 scalarIR.Return = {} scalarIR.Return.__index = scalarIR.Return
+
+
+
+
 
 
 
@@ -23378,6 +23590,10 @@ scalarIR.Loop = {} scalarIR.Loop.__index = scalarIR.Loop
 
 
 scalarIR.LaneBody = {} scalarIR.LaneBody.__index = scalarIR.LaneBody
+
+
+
+
 
 
 
@@ -24592,6 +24808,10 @@ local verify = { }
 
 
 
+
+
+
+
 verify.Scope = {} verify.Scope.__index = verify.Scope
 
 
@@ -24638,6 +24858,10 @@ verify.Context = {} verify.Context.__index = verify.Context
 
 
 
+
+
+
+
 local function refuse ( why ) 
 error ( why , 0 )
 end
@@ -24655,6 +24879,10 @@ end
 local function laneHolds ( condition , why ) 
 holds ( condition , "invalid lane IR: " .. why )
 end
+
+
+
+
 
 
 
@@ -24842,6 +25070,10 @@ verify . LANE_OPCODES = {
 local scalarWalk
 
 local laneWalk
+
+
+
+
 
 
 
@@ -25704,6 +25936,10 @@ end
 
 
 
+
+
+
+
 local function laneTypes ( shape ) 
 local admitted = { }
 admitted [ shape . mask ] = true
@@ -26001,6 +26237,10 @@ end
 function verify . laneExpression ( node , values , context ) 
 laneWalk ( node , values , context )
 end
+
+
+
+
 
 
 
@@ -26731,6 +26971,10 @@ refuse ( "unknown lane statement opcode " .. tostring ( statement . op ) )
 end
 end
 end
+
+
+
+
 
 
 local function layoutsByName ( program ) 
@@ -42130,12 +42374,20 @@ local checkMod = { }
 
 
 
+
+
+
+
 checkMod . lints = lints . all
 checkMod . lintCategories = lints . categories
 checkMod . lintLevels = lints . levels
 checkMod . lintOptIn = lints . optIn
 checkMod . lintLevel = lints . level
 checkMod . lintFor = lints . get
+
+
+
+
 
 
 
@@ -42232,6 +42484,10 @@ end
 
 
 
+
+
+
+
 function checkMod . strictByDefault ( filename ) 
 if not filename then
 return true
@@ -42292,6 +42548,10 @@ for _ , child in ipairs ( node ) do
 reportTypedLayer ( c , child )
 end
 end
+
+
+
+
 
 
 
@@ -42377,6 +42637,10 @@ end
 
 return true
 end
+
+
+
+
 
 
 
@@ -42563,6 +42827,10 @@ end
 
 c . moduleType = qualifyExport ( c . moduleType , c . moduleReturnValue )
 end
+
+
+
+
 
 
 
@@ -42851,6 +43119,10 @@ end
 
 
 
+
+
+
+
 function checkMod . check (
 result ,
 filename ,
@@ -43000,6 +43272,11 @@ c . comptimeFunctions [ name ] = helper
 end
 end
 end
+
+
+
+
+
 
 
 
@@ -43261,6 +43538,10 @@ declaredModuleNode ,
 )
 end
 end
+
+
+
+
 
 
 
@@ -43794,6 +44075,10 @@ end
 
 local EXPANDS = expr . EXPANDS
 
+
+
+
+
 local function affineType ( t ) 
 if not t then
 return false
@@ -43936,6 +44221,10 @@ local pathKey = facts . pathKey
 
 
 
+
+
+
+
 local function neverReturns ( call ) 
 if not call then
 return false
@@ -44071,6 +44360,10 @@ c . privateExport = privateexport . install ( c )
 
 
 declare . install ( c , reifiableField , fix , insertBefore , validateAnnotation )
+
+
+
+
 
 
 
@@ -44365,6 +44658,10 @@ wrapper ,
 )
 end
 
+
+
+
+
 local function checkStat ( stat ) 
 local handle = statHandlers [ stat . kind ]
 if handle then
@@ -44570,6 +44867,10 @@ end
 
 
 
+
+
+
+
 c . resolveModuleFunction = function ( name ) 
 if not c . moduleLocal then
 return nil
@@ -44671,6 +44972,10 @@ if not scopeManaged then
 c . popScope ( )
 end
 end
+
+
+
+
 
 
 
@@ -45756,6 +46061,10 @@ local ownershipKind , ownershipState = c . ownershipKind , c . ownershipState
 
 local handlers = { }
 
+
+
+
+
 handlers . localStmt = function ( stat ) 
 if stat . pattern then
 local source = stat . patternSource or stat
@@ -46396,6 +46705,10 @@ end
 end
 end
 
+
+
+
+
 handlers . assignStmt = function ( stat ) 
 local values = stat . exprs or { }
 local valueCount = # values
@@ -46682,6 +46995,10 @@ end
 end
 end
 
+
+
+
+
 handlers . compoundAssign = function ( stat ) 
 local assignTarget , value , opTok = stat . target , stat . value , stat . op
 if not assignTarget or not value or not opTok then
@@ -46773,6 +47090,10 @@ c . diag ( "NUPP2001" , stat , ( "cannot assign compound result: %s" ) : format 
 end
 end
 end
+
+
+
+
 
 handlers . callStmt = function ( stat ) 
 local called = stat . expr
@@ -46878,6 +47199,10 @@ local specializeSelf = generics . specializeSelf
 local specializeReceiver = generics . specializeReceiver
 
 local callexpr = { }
+
+
+
+
 
 
 
@@ -47022,6 +47347,11 @@ return nil
 end
 
 local owner = subject
+
+
+
+
+
 local function expand ( t ) 
 if not t then
 return nil
@@ -47089,6 +47419,10 @@ local handlers = { }
 
 local lpegEmpty = T . array ( T . never )
 local lpegUnknown = T . array ( T . any )
+
+
+
+
 
 local function lpegPatternOrigin ( callee ) 
 if not callee or callee . kind ~= "dotIndex" or not callee . obj then
@@ -47164,6 +47498,10 @@ end
 
 return nil
 end
+
+
+
+
 
 local function literalToken ( token ) 
 if not token then
@@ -47264,6 +47602,10 @@ end
 return "__nuppPegReplace" .. ( name == "replaceAll" and "All" or "" ) .. suffix
 end
 
+
+
+
+
 local function withoutNil ( t ) 
 if t . tag ~= "union" then
 return t
@@ -47333,6 +47675,10 @@ end
 
 return key , resolved
 end
+
+
+
+
 
 handlers . call = function ( node ) 
 
@@ -48511,6 +48857,10 @@ return first
 end
 handlers . safeCall = handlers . call
 
+
+
+
+
 handlers . methodCall = function ( node ) 
 local receiver , member = node . obj , node . name
 if not receiver or not member then
@@ -49026,6 +49376,10 @@ local rawType = T . unwrapOwnership
 
 
 
+
+
+
+
 local function substType ( t , map , erased , control ) 
 local found = generics . evaluate ( generics . materialize ( t , map ) , nil , control )
 if erased then
@@ -49292,8 +49646,16 @@ end
 
 
 
+
+
+
+
 function calls . install ( c ) 
 local ops = { }
+
+
+
+
 
 local function callDetails ( node ) 
 local callee = node and node . obj
@@ -49365,6 +49727,10 @@ end
 
 return { { title = "build it from arguments" , edits = edits } }
 end
+
+
+
+
 
 c . fieldType = function ( t , name ) 
 t = rawType ( t )
@@ -49631,6 +49997,8 @@ end
 
 
 
+
+
 local function boundHelp ( wanted , actual ) 
 if wanted . tag ~= "func" or actual . tag ~= "func" then
 return nil
@@ -49641,9 +50009,6 @@ end
 
 return "pass a function a module exports, with the values it would have captured as arguments"
 end
-
-
-
 
 
 
@@ -49666,6 +50031,10 @@ end
 end
 end
 end
+
+
+
+
 
 
 
@@ -49785,6 +50154,10 @@ end
 
 return rets [ 1 ] or T . nil_
 end
+
+
+
+
 
 
 function ops . inferCall ( node , calleeT , argsNode , knownAts ) 
@@ -52228,6 +52601,10 @@ local RANGE_NESTED_FUNCTION
 
 
 
+
+
+
+
 local function literalEquality ( stat ) 
 if stat . elseClause or # ( stat . clauses or { } ) ~= 1 then
 return nil , nil
@@ -52305,6 +52682,11 @@ function control . install ( c )
 
 
 
+
+
+
+
+
 local function returnFits ( got , expected , expr ) 
 if ( c . comptimeFunctionDepth or 0 ) > 0 and got == T . type_ and expected . tag == "typeHandle" then
 return true , nil , false
@@ -52319,6 +52701,11 @@ local alwaysExits = c . alwaysExits
 local analyzeCond , applyFacts = c . analyzeCond , c . applyFacts
 local borrowRoot , moveExpression = c . borrowRoot , c . moveExpression
 local ownershipKind , ownershipState = c . ownershipKind , c . ownershipState
+
+
+
+
+
 
 
 
@@ -52432,6 +52819,10 @@ end
 end
 
 local handlers = { }
+
+
+
+
 
 handlers . switchYieldStmt = function ( stat ) 
 local collector = c . switchYieldStack [ # c . switchYieldStack ]
@@ -52808,6 +53199,10 @@ end
 end
 end
 
+
+
+
+
 handlers . ifStmt = function ( stat ) 
 local adjacent = c . nextStat
 local first = literalEquality ( stat )
@@ -52991,6 +53386,10 @@ applyFacts ( joined )
 end
 end
 
+
+
+
+
 handlers . whileStmt = function ( stat ) 
 local cond = stat . cond
 if cond then
@@ -53032,6 +53431,10 @@ c . pushScope ( ) ;
 c . checkBlock ( stat . body , true ) ;
 c . popScope ( )
 end
+
+
+
+
 
 handlers . handleStmt = function ( stat ) 
 
@@ -53440,6 +53843,10 @@ local dropSelf = generics . dropSelf
 
 
 
+
+
+
+
 local function defaultValue ( node ) 
 if not node then
 return nil , false
@@ -53561,6 +53968,10 @@ validateAnnotation
 
 
 
+
+
+
+
 local function containedByValue ( t , target ) 
 local seen = { }
 local function reaches ( current ) 
@@ -53589,6 +54000,10 @@ end
 
 return reaches ( t )
 end
+
+
+
+
 
 
 
@@ -53694,6 +54109,10 @@ notes = {
 }
 )
 end
+
+
+
+
 
 
 
@@ -53890,6 +54309,10 @@ end
 end
 end
 end
+
+
+
+
 
 
 
@@ -54159,6 +54582,10 @@ end
 end
 
 
+
+
+
+
 local function inheritedDefault ( n , member ) 
 for _ , super in ipairs ( n . supertypes or { } ) do
 if super . defaultEntries and super . defaultEntries [ member ] then
@@ -54266,6 +54693,10 @@ return a . member < b . member
 end )
 stat . inheritedDefaultNames = taken
 end
+
+
+
+
 
 
 
@@ -54461,6 +54892,10 @@ n . constructorEntries [ index ] = { signature = ft , result = constructorResult
 e . constructorIndex = index
 e . ownerNominal = n
 end
+
+
+
+
 
 c . declaredNominal = function ( stat , kind ) 
 local t , projectEntry = nil , nil
@@ -55739,6 +56174,10 @@ derive.Ops = {} derive.Ops.__index = derive.Ops
 
 
 
+
+
+
+
 local function fieldNodes ( stat ) 
 local out = { }
 for _ , entry in ipairs ( stat . entries or { } ) do
@@ -55843,6 +56282,10 @@ local maxOutputBytes = configuredLimits . outputBytes or recipeCodec . MAX_OUTPU
 local providerMemo = { }
 local addDefinition
 local removeProviderFix
+
+
+
+
 
 local function expressionPath ( expr ) 
 if not expr then
@@ -55962,6 +56405,10 @@ n . deriveClaimsComplete = true
 publish ( )
 end
 
+
+
+
+
 local function probe ( at ) 
 if aborted then
 return false
@@ -56056,6 +56503,10 @@ descriptor . module
 
 return exports and exports . valueDefs and exports . valueDefs [ descriptor . member ] or nil
 end
+
+
+
+
 
 local function evaluateProvider ( item , provider , plan , nodes ) 
 local n , contract = item . nominal , provider . contract
@@ -56738,6 +57189,10 @@ plan . inputs [ # plan . inputs + 1 ] = { identity = input . identity , fingerpr
 end
 end
 
+
+
+
+
 local function origin ( item , provider ) 
 return item . origins [ provider ] or item . stat . name
 end
@@ -56838,6 +57293,10 @@ end
 
 return true
 end
+
+
+
+
 
 local function clearGeneratedMembers ( n ) 
 for name , generated in pairs ( n . derivedByname or { } ) do
@@ -57896,6 +58355,10 @@ function expr . install ( c )
 
 local expectedShortfns = { }
 
+
+
+
+
 local function captureProblem ( captured ) 
 local pending = { captured }
 local seen = { }
@@ -58036,6 +58499,10 @@ end
 
 return names
 end
+
+
+
+
 
 c . numericOperand = function ( t , node , op ) 
 if t == T . any or isA ( t , T . number ) then
@@ -58236,6 +58703,10 @@ handlers [ kind ] = handle
 end
 end
 
+
+
+
+
 local function staticCaseShape ( node ) 
 if not node then
 return false
@@ -58420,6 +58891,10 @@ end
 return c . alwaysExits ( block )
 end
 
+
+
+
+
 local function inferSwitch ( node ) 
 local selector = node . selector
 local selectorT = selector and c . infer ( selector ) or T . any
@@ -58597,6 +59072,10 @@ end
 
 return result
 end
+
+
+
+
 
 
 
@@ -59261,6 +59740,10 @@ end
 
 return T . any
 end
+
+
+
+
 
 
 
@@ -60541,6 +61024,10 @@ function functions . install ( c )
 local ownershipState , pointerShaped = c . ownershipState , c . pointerShaped
 local expectedFuncbodies = { }
 
+
+
+
+
 local function inferredParameterModes ( body ) 
 local modes , byname , declared = { } , { } , { }
 for j , p in ipairs ( body . params or { } ) do
@@ -60717,6 +61204,10 @@ walk ( body . body , false )
 
 return modes , declared
 end
+
+
+
+
 
 
 
@@ -60956,6 +61447,10 @@ end
 return candidates
 end
 
+
+
+
+
 local function takenCaptures ( body ) 
 if body . takenCaptures then
 return body . takenCaptures
@@ -61070,6 +61565,10 @@ pack . types [ 1 ] = inner
 end
 end
 end
+
+
+
+
 
 
 
@@ -61622,6 +62121,10 @@ end
 
 
 
+
+
+
+
 c . signatureOf = function ( body , selfType ) 
 local params , modes , paramNames = { } , { } , { }
 local inferredModes , declaredModes = inferredParameterModes ( body or { } )
@@ -61765,6 +62268,10 @@ end
 c . inferredParameterModes = inferredParameterModes
 
 local handlers = { }
+
+
+
+
 
 local function checkLocalFuncStmt ( stat ) 
 local nameTok , body = stat . name , stat . body
@@ -62039,6 +62546,10 @@ local index = { }
 
 
 
+
+
+
+
 local INTRINSIC_NAMESPACE = { [ "nupp.derive" ] = true , [ "nupp.types" ] = true , [ "nupp.reflect" ] = true , }
 
 
@@ -62086,6 +62597,10 @@ end
 
 function index . install ( c ) 
 local handlers = { }
+
+
+
+
 
 local function dottedPath ( node ) 
 local parts = { }
@@ -62704,6 +63219,11 @@ end
 
 
 
+
+
+
+
+
 handlers . dotIndex = function ( node ) 
 local out = fieldOf ( node )
 if node . kind ~= "dotIndex" or node . writeContext or out . tag ~= "func" then
@@ -62719,6 +63239,10 @@ return T . withSendable ( out )
 end
 
 handlers . safeIndex = fieldOf
+
+
+
+
 
 handlers . bracketIndex = function ( node ) 
 local kind = node . kind
@@ -65211,10 +65735,18 @@ local rawType = T . unwrapOwnership
 
 
 
+
+
+
+
 function ownership . install ( c ) 
 local own = { }
 local pendingGenericCleanupBounds = { }
 local emptyCapabilityFacts = setmetatable({ }, T.CapabilityFacts)
+
+
+
+
 
 function own . capabilityFacts ( entry , result , create ) 
 entry = own . ownershipState ( entry )
@@ -65307,6 +65839,10 @@ end
 
 return resource
 end
+
+
+
+
 
 local function addRegistration ( node , cleanup , after ) 
 if not node or cleanup . kind ~= "function" then
@@ -65631,6 +66167,11 @@ end
 
 
 
+
+
+
+
+
 function own . ownershipEntry ( expr ) 
 while expr and ( expr . kind == "paren" or expr . kind == "castExpr" ) do
 expr = expr . expr
@@ -65803,6 +66344,10 @@ local owner = own . provenanceOwner ( expr )
 return owner , owner and "" or nil
 end
 
+
+
+
+
 function own . provenanceOwner ( expr ) 
 
 
@@ -65962,6 +66507,10 @@ facts . exclusive = nil
 facts . regionRoot = nil
 facts . regionPath = nil
 end
+
+
+
+
 
 function own . moveExpression ( expr , t , reason , expectedKind , allowPartial ) 
 expectedKind = expectedKind or "affine"
@@ -66828,6 +67377,10 @@ local instantiateNominal = generics . instantiate
 
 
 
+
+
+
+
 local function setIndexer (
 c ,
 indexer ,
@@ -66904,6 +67457,10 @@ local requiredAs , requireBindsName = edits . requiredAs , edits . requireBindsN
 local requireEdit = edits . requireEdit
 local pointerShaped = c . pointerShaped
 local functionConstCleanups = { }
+
+
+
+
 
 local function recoverForeign ( node , message ) 
 if not node . foreignAnnotation then
@@ -67014,6 +67571,10 @@ end
 
 return names
 end
+
+
+
+
 
 local function constArgument ( arg , parameter , at ) 
 if not arg then
@@ -67152,6 +67713,10 @@ c . validateTypeBounds ( alias . typeParams , alias . typeBounds , map , node )
 
 return map
 end
+
+
+
+
 
 
 
@@ -67298,6 +67863,10 @@ end
 
 
 
+
+
+
+
 c . associatedDefinitions = function ( head , name ) 
 local associated = require ( "nupp.compiler.associated" )
 local found = associated . lookup ( head , name )
@@ -67355,6 +67924,10 @@ help = "only a declaration, or a binder bounded by one, states associated types"
 end
 c . diag ( "NUPP2134" , at , message , nil , { help = help } )
 end
+
+
+
+
 
 
 
@@ -68499,6 +69072,10 @@ end
 
 return T . any
 end
+
+
+
+
 
 c . resolvePack = function ( node ) 
 if not node then
@@ -74520,6 +75097,10 @@ local spec = require ( "nupp.compiler.cli.spec" )
 
 
 
+
+
+
+
 local function jsonArray ( items ) 
 return json . asArray ( items )
 end
@@ -74652,6 +75233,10 @@ end
 
 return { line = line , column = offset - start + 1 , offset = offset }
 end
+
+
+
+
 
 local optionsMod = require ( "nupp.compiler.cli.options" )
 
@@ -74894,6 +75479,10 @@ byte line and column numbers, matching compiler diagnostics. Rename previews by
 default and changes files only with --write.]] ,
 }
 
+
+
+
+
 local function usageError ( message ) 
 return command : usageError ( message )
 end
@@ -75063,6 +75652,10 @@ end )
 return edits
 end
 
+
+
+
+
 local function jsonOutput ( value ) 
 io . write ( json . encode ( value ) .. "\n" )
 end
@@ -75116,6 +75709,10 @@ end
 
 return path , source , position
 end
+
+
+
+
 
 local function runInspect ( client , opts ) 
 local path , _ , position , err = target ( client , opts , 3 )
@@ -75579,6 +76176,10 @@ end
 
 return true
 end
+
+
+
+
 
 local OPERATIONS = {
 inspect = runInspect ,
@@ -78541,12 +79142,20 @@ local isToken = cst . isToken
 
 
 
+
+
+
+
 local MAX_EXACT_INTEGER = 9007199254740991
 
 local MAX_STEPS = 100000
 local MAX_CALL_DEPTH = 128
 local MAX_RESULT_BYTES = 512 * 1024
 local MAX_RESULT_ITEMS = 10000
+
+
+
+
 
 local function canonicalNode ( node ) 
 local tokens = node and node or { }
@@ -78655,6 +79264,10 @@ signature = signature ,
 definition = definition ,
 }
 end
+
+
+
+
 
 
 
@@ -78817,6 +79430,10 @@ end
 
 return value
 end
+
+
+
+
 
 
 
@@ -79061,6 +79678,10 @@ end
 
 
 
+
+
+
+
 local BREAK = { }
 local RETURN = { }
 
@@ -79133,6 +79754,10 @@ local evalExpr , execBlock , evalMulti
 local function pack ( ... ) 
 return { n = select ( "#" , ... ) , ... }
 end
+
+
+
+
 
 local function callValues ( state , node , callee , args ) 
 local helper = state . comptimeFunctions [ callee ]
@@ -79730,6 +80355,10 @@ return values
 end
 
 
+
+
+
+
 local function assign ( state , target , value ) 
 if isToken ( target ) then
 return
@@ -80001,6 +80630,10 @@ end
 
 
 
+
+
+
+
 local function typeOf ( value ) 
 local kind = type ( value )
 if value == nil then
@@ -80045,6 +80678,10 @@ end
 
 return T . table_
 end
+
+
+
+
 
 
 
@@ -83080,6 +83717,14 @@ local cst = { }
 
 
 
+
+
+
+
+
+
+
+
 cst.Chunk = {} cst.Chunk.__index = cst.Chunk
 
 
@@ -83634,6 +84279,10 @@ cst.PragmaStmt = {} cst.PragmaStmt.__index = cst.PragmaStmt
 
 
 
+
+
+
+
 cst.AnnotationApply = {} cst.AnnotationApply.__index = cst.AnnotationApply
 
 
@@ -83655,6 +84304,10 @@ cst.AnnotationApply = {} cst.AnnotationApply.__index = cst.AnnotationApply
 
 
 cst.AnnotationArg = {} cst.AnnotationArg.__index = cst.AnnotationArg
+
+
+
+
 
 
 
@@ -83973,6 +84626,10 @@ cst.CdefStruct = {} cst.CdefStruct.__index = cst.CdefStruct
 
 
 
+
+
+
+
 cst.Generics = {} cst.Generics.__index = cst.Generics
 
 
@@ -84081,6 +84738,10 @@ cst.Funcbody = {} cst.Funcbody.__index = cst.Funcbody
 
 
 cst.CaptureClause = {} cst.CaptureClause.__index = cst.CaptureClause
+
+
+
+
 
 
 
@@ -84686,6 +85347,10 @@ cst.Ternary = {} cst.Ternary.__index = cst.Ternary
 
 
 
+
+
+
+
 cst.Tconst = {} cst.Tconst.__index = cst.Tconst
 
 
@@ -85066,6 +85731,14 @@ cst.Tborrows = {} cst.Tborrows.__index = cst.Tborrows
 
 
 cst.Tpreserves = {} cst.Tpreserves.__index = cst.Tpreserves
+
+
+
+
+
+
+
+
 
 
 
@@ -85958,6 +86631,14 @@ local doc = { }
 
 
 
+
+
+
+
+
+
+
+
 function doc . extract (
 source ,
 path ,
@@ -86071,6 +86752,10 @@ end )
 
 return json . encode ( { schemaVersion = 2 , modules = model } ) .. "\n"
 end
+
+
+
+
 
 local function sourceFiles ( root , config , settings , requested ) 
 local paths , seen = { } , { }
@@ -86261,6 +86946,10 @@ end
 
 
 
+
+
+
+
 local stripFrontMatter = frontmatterMod . strip
 
 local function embedFiles ( root , markdown ) 
@@ -86351,6 +87040,10 @@ end
 rewriteMembers ( item . members )
 end
 end
+
+
+
+
 
 
 
@@ -86579,6 +87272,10 @@ end
 return pages
 end
 
+
+
+
+
 local function redirectHtml ( target ) 
 return '<!doctype html><meta charset="utf-8"><meta http-equiv="refresh" content="0; url=' .. htmlEscape (
 target
@@ -86667,6 +87364,10 @@ items [ # items + 1 ] = { path = heading . path , name = heading . name }
 end
 end
 end
+
+
+
+
 
 local function renderSite ( root , outDir , modules , title , settings ) 
 configureScintillua ( root , settings )
@@ -86956,6 +87657,10 @@ end
 return true
 end
 
+
+
+
+
 local function report ( errors ) 
 for _ , err in ipairs ( errors ) do
 io . stderr : write (
@@ -87120,6 +87825,10 @@ end
 
 return code , output , format
 end
+
+
+
+
 
 
 
@@ -88568,7 +89277,15 @@ local extract = { }
 
 
 
+
+
+
+
 extract.Member = {} extract.Member.__index = extract.Member
+
+
+
+
 
 
 
@@ -88932,6 +89649,10 @@ end
 
 
 
+
+
+
+
 local function annotationTokens ( child , parts ) 
 if cst . isToken ( child ) then
 parts [ # parts + 1 ] = child . text
@@ -88980,6 +89701,10 @@ end
 
 return # names > 0 and names or nil
 end
+
+
+
+
 
 
 
@@ -89163,6 +89888,10 @@ end
 
 return details
 end
+
+
+
+
 
 
 
@@ -89548,6 +90277,10 @@ end
 
 
 
+
+
+
+
 local function returnedNames ( root ) 
 local names = { }
 local function record ( value ) 
@@ -89732,6 +90465,10 @@ end
 
 
 
+
+
+
+
 local function memberNamed ( item , name ) 
 for _ , member in ipairs ( item . members ) do
 if member . name == name then
@@ -89789,6 +90526,10 @@ end
 
 return kept
 end
+
+
+
+
 
 local function moduleName ( path , root , includes ) 
 path , root = normalize ( path ) , normalize ( root )
@@ -94206,6 +94947,14 @@ local envMod = { }
 
 
 
+
+
+
+
+
+
+
+
 local modulePatterns = {
 "/%s.d.nupp" ,
 "/%s.nupp" ,
@@ -94341,6 +95090,10 @@ local hidden = ( "/" .. relative ) : find ( "/%." ) ~= nil
 
 return generated or hidden
 end
+
+
+
+
 
 local function outDirFor ( env ) 
 local rootDir = env . rootDir or "."
@@ -94535,6 +95288,10 @@ end
 
 
 
+
+
+
+
 function envMod . projectHeader ( env , path , parsed ) 
 path = normalizePath ( path )
 
@@ -94719,6 +95476,10 @@ end
 
 
 
+
+
+
+
 function envMod . headerStore ( env ) 
 if env . headerStoreOpened then
 return env . headerStore
@@ -94859,6 +95620,10 @@ end
 
 
 
+
+
+
+
 function envMod . ensureProjectIndex ( env ) 
 
 
@@ -94938,6 +95703,10 @@ end
 
 return nil
 end
+
+
+
+
 
 local function findModulePath ( env , name , patterns ) 
 if env . memoryOnly then
@@ -95073,6 +95842,10 @@ end
 function envMod . findRuntimeModulePath ( env , name ) 
 return findModulePath ( env , name , runtimeModulePatterns )
 end
+
+
+
+
 
 local function seededExports ( env , path ) 
 local exports = { types = { } , typeDefs = { } , values = { } , valueDefs = { } , comptimeFunctions = { } }
@@ -95240,6 +96013,10 @@ end
 
 return false
 end
+
+
+
+
 
 
 
@@ -95454,6 +96231,10 @@ local exports = env . resolveModuleExports ( env , moduleName )
 
 return exports and exports . types [ typeName ] or entry . type , exports and exports . typeDefs [ typeName ] or entry . definition
 end
+
+
+
+
 
 
 
@@ -101195,6 +101976,10 @@ ttypecall = true ,
 local DECL_KINDS = { recordDecl = true , typeAlias = true , }
 
 
+
+
+
+
 local CP
 
 
@@ -101353,6 +102138,10 @@ end
 
 return table . concat ( out )
 end
+
+
+
+
 
 
 
@@ -101538,6 +102327,14 @@ end
 
 
 
+
+
+
+
+
+
+
+
 function gen . generate (
 result ,
 filename ,
@@ -101646,6 +102443,11 @@ local diags = { }
 
 
 
+
+
+
+
+
 local emittedFeatureEffects = { }
 local function needRuntimeEffect ( effect , moduleName ) 
 if effect ~= nil then
@@ -101677,6 +102479,10 @@ usedNames [ name ] = true
 
 return name
 end
+
+
+
+
 
 local needsMetatypeOnce = false
 local metatypeOnceName
@@ -101876,6 +102682,10 @@ policies = { } ,
 libraries = hot . libraries or { } ,
 } or nil
 
+
+
+
+
 local function reservedName ( preferred ) 
 if not usedNames [ preferred ] then
 usedNames [ preferred ] = true
@@ -101918,6 +102728,10 @@ return ""
 end
 return ( cst . textOf ( node ) : gsub ( "%s+" , "" ) )
 end
+
+
+
+
 
 local function hotSignature ( body , implicitSelf ) 
 local parts = { implicitSelf and "method(" or "function(" }
@@ -102180,6 +102994,10 @@ end
 
 planHotRoot ( )
 
+
+
+
+
 local helpers = { byBody = { } , order = { } }
 
 
@@ -102293,6 +103111,10 @@ clearTabName = clearTabName or reservedName ( "__nuppClear" )
 return clearTabName
 end
 
+
+
+
+
 local function cleanupRegistry ( ) 
 needsCleanupRegistry = true
 cleanupRegistryName = cleanupRegistryName or reservedName ( "__nuppCleanups" )
@@ -102369,6 +103191,10 @@ end
 
 return nil
 end
+
+
+
+
 
 local function diag ( tok , code , msg , help ) 
 diags [
@@ -102604,6 +103430,10 @@ end
 
 return nil
 end
+
+
+
+
 
 local function soaFieldTarget ( target ) 
 if not target or target . kind ~= "dotIndex" then
@@ -102893,6 +103723,10 @@ return t ~= nil and ( t . tag == "int64" or t . tag == "uint64" )
 end ,
 } ,
 }
+
+
+
+
 
 local function dottedPathParts ( node ) 
 if not node or cst . isToken ( node ) then
@@ -103233,6 +104067,10 @@ emit ( statement )
 pluck . restore ( plan , prior )
 end
 
+
+
+
+
 local function coverageRuntime ( ) 
 
 
@@ -103272,6 +104110,10 @@ end
 
 return COVERAGE_STATEMENTS [ node . kind ] == true
 end
+
+
+
+
 
 local function hotEmitImplementation ( planned ) 
 local body = planned . node . body
@@ -103368,6 +104210,11 @@ pluck . hotDispatch = { byNode = hotState . byNode , emit = hotEmitFunction }
 end
 
 local emitAutomaticBlock
+
+
+
+
+
 local function emitChildren ( n ) 
 if n . kind == "suspensionInstallExpr" then
 e ( suspensionModule ( ) .. ".install(" , sourceLine ( n ) )
@@ -103503,6 +104350,10 @@ emitDepth . switchValueTemps = setmetatable ( { } , { __mode = "k" } )
 emitDepth . switchResult = nil
 emitDepth . switchStatementActive = nil
 emitDepth . diag = diag
+
+
+
+
 
 local function switchContains ( node ) 
 if not node or cst . isToken ( node ) then
@@ -103868,6 +104719,10 @@ if not first then
 e ( "end;" , node . endTok and node . endTok . line or nil )
 end
 end
+
+
+
+
 
 local function preserveAssignmentTarget ( target ) 
 if not target then
@@ -104552,6 +105407,10 @@ end
 e ( ")" )
 end
 
+
+
+
+
 local function emitPackedReturn ( ctx , x ) 
 local actives , seen = { } , { }
 for _ , expr in ipairs ( x . exprs or { } ) do
@@ -104582,6 +105441,10 @@ end
 e ( ( "; return \"return\",%s end" ) : format ( packed ) )
 end
 end
+
+
+
+
 
 emit = function ( x ) 
 if cst . isToken ( x ) then
@@ -109469,6 +110332,10 @@ local generics = { }
 
 
 
+
+
+
+
 local PRESERVE = "preserve"
 
 local MATERIALIZE = "materialize"
@@ -109948,6 +110815,10 @@ end
 
 
 
+
+
+
+
 function generics . normalize ( t ) 
 local found = generics . evaluate ( t )
 
@@ -109999,6 +110870,10 @@ end
 function generics . materialize ( t , map ) 
 return substWith ( t , map , MATERIALIZE )
 end
+
+
+
+
 
 local MAX_MAPPED_FIELDS = 256
 local MAX_REDUCTION_VISITS = 4096
@@ -110767,6 +111642,10 @@ end
 
 
 
+
+
+
+
 function generics . evaluatePack ( pack , control ) 
 local budget = newBudget ( control )
 local reduced , err = normalizeReductionPack ( pack , { } , budget )
@@ -110797,6 +111676,10 @@ local rebound = substWith ( t , map or { } , PRESERVE )
 
 return normalize ( rebound , memo or { } , newBudget ( control ) )
 end
+
+
+
+
 
 
 function generics . rebindPack ( pack , map ) 
@@ -110920,6 +111803,10 @@ t . explicitPreserves ,
 t . sendable
 )
 end
+
+
+
+
 
 
 
@@ -111260,6 +112147,10 @@ end
 
 
 
+
+
+
+
 function generics . unify ( param , arg , map ) 
 param , arg = T . unwrapOwnership ( param ) , T . unwrapOwnership ( arg )
 if not T . hasTypevar ( param ) then
@@ -111447,6 +112338,10 @@ generics . unify ( param . inner , arg , map )
 end
 end
 end
+
+
+
+
 
 
 
@@ -112175,6 +113070,10 @@ Session . __index = Session
 
 
 
+
+
+
+
 hotSession.Prepared = {} hotSession.Prepared.__index = hotSession.Prepared
 
 
@@ -112242,6 +113141,10 @@ hotSession.InitialBuild = {} hotSession.InitialBuild.__index = hotSession.Initia
 
 
 hotSession.Session = {} hotSession.Session.__index = hotSession.Session
+
+
+
+
 
 
 
@@ -112392,6 +113295,10 @@ end
 
 
 
+
+
+
+
 local function cdefFingerprint ( parsed ) 
 local parts = { }
 local function wrapsCdef ( node ) 
@@ -112533,6 +113440,10 @@ end
 end
 end
 end
+
+
+
+
 
 local function cDeclarationChange ( old , current ) 
 local oldDeclarations = old . cDeclarations or { }
@@ -112703,6 +113614,10 @@ end
 return subject .. " changed (" .. required .. ")"
 end
 
+
+
+
+
 function hotSession . new ( root , opts ) 
 
 
@@ -112777,6 +113692,10 @@ local function addInput ( snapshot , input , module )
 local identity = input . identity .. "\0consumer=" .. module .. "\0" .. tostring ( input . consumer or "" )
 snapshot . inputs [ identity ] = input
 end
+
+
+
+
 
 function Session : diskChanged ( path , changeType ) 
 self . inc . diskChanged ( path , changeType )
@@ -113010,6 +113929,10 @@ end )
 return out
 end
 
+
+
+
+
 function Session : prepare ( paths ) 
 self . observedInputs = { }
 local patches , candidate = { } , { }
@@ -113227,6 +114150,10 @@ local cdecl = require ( "nupp.compiler.cdecl" )
 local process = require ( "nupp.compiler.build.process" )
 local hash = require ( "nupp.compiler.build.hash" )
 
+
+
+
+
 local function readFile ( path ) 
 local f = io . open ( path , "rb" )
 if not f then
@@ -113291,6 +114218,10 @@ end
 
 return table . concat ( keep , "\n" )
 end
+
+
+
+
 
 
 local function normalize ( text ) 
@@ -113404,6 +114335,10 @@ end
 
 return defs
 end
+
+
+
+
 
 local INTEGER_TYPE = {
 [ 8 ] = { "int8" , "uint8" } ,
@@ -113530,6 +114465,10 @@ return out
 end
 
 
+
+
+
+
 local function headerMacroNames ( rawHeader ) 
 local names = { }
 for name , after in rawHeader : gmatch ( "#%s*define%s+([%a_][%w_]*)([^\n]?)" ) do
@@ -113583,6 +114522,10 @@ end
 
 return nil
 end
+
+
+
+
 
 
 
@@ -113675,6 +114618,10 @@ end
 local function ownedPointer ( rendered ) 
 return rendered : sub ( - 1 ) == "?" and rendered : sub ( 1 , - 2 ) or rendered
 end
+
+
+
+
 
 
 
@@ -114235,6 +115182,10 @@ local hostServices = require ( "nupp.compiler.hostservices" )
 
 
 
+
+
+
+
 incremental.Inc = {} incremental.Inc.__index = incremental.Inc
 
 
@@ -114348,6 +115299,10 @@ local q = query . new ( )
 local inc = setmetatable({ env =  env ,  q =  q }, incremental.Inc)
 local activeModules = { }
 
+
+
+
+
 local function interfaceType ( exports ) 
 local fields = { }
 for name , t in pairs ( exports and exports . values or { } ) do
@@ -114450,6 +115405,11 @@ end
 
 return parser . parse ( text , path )
 end )
+
+
+
+
+
 
 
 
@@ -114599,6 +115559,11 @@ return self : get ( "projectIndex" , "root" ) . annotationsByName [ name ]
 end ,
 sameEntryLists
 )
+
+
+
+
+
 
 
 
@@ -114864,6 +115829,10 @@ and left . backendFingerprint == right . backendFingerprint
 end
 )
 
+
+
+
+
 local function sameTypeMap ( left , right ) 
 left , right = left or { } , right or { }
 for name , value in pairs ( left ) do
@@ -114985,6 +115954,11 @@ return actualIdentity .. ( present and "\0present" or "\0absent" )
 end )
 
 
+
+
+
+
+
 function inc . openDocument ( path , text ) 
 local wasOpen = openPaths [ path ]
 if envMod . moduleNameForPath ( env , path ) then
@@ -115097,6 +116071,10 @@ projectAnnotations = true ,
 moduleCallGuarantees = true ,
 moduleCallGuarantee = true ,
 }
+
+
+
+
 
 local function projectFingerprint ( name , key ) 
 local value = q : get ( name , key )
@@ -115361,6 +116339,10 @@ local lexer = { }
 local triviaarena = require ( "nupp.compiler.triviaarena" )
 
 
+
+
+
+
 const TRIVIA_WHITESPACE = 1
 const TRIVIA_COMMENT = 2
 const TRIVIA_HASHBANG = 3
@@ -115391,6 +116373,10 @@ end
 
 
 lexer . EMPTY_TRIVIA = lexer . arena ( "" )
+
+
+
+
 
 
 
@@ -115667,6 +116653,10 @@ lexer . CUSTOMARY = CUSTOMARY
 
 local byte , sub , find = string . byte , string . sub , string . find
 
+
+
+
+
 local function isDigit ( c ) 
 return c and c >= 48 and c <= 57
 end
@@ -115712,6 +116702,10 @@ end
 
 return s + # close , true
 end
+
+
+
+
 
 function lexer . lex ( source , filename ) 
 local tokens = { }
@@ -116093,6 +117087,10 @@ end
 return tokens , errors
 end
 
+
+
+
+
 local function triviaIndex ( tok , index ) 
 return tok . triviaFirst + index - 1
 end
@@ -116137,6 +117135,10 @@ line = line ,
 col = col
 }
 end
+
+
+
+
 
 
 function lexer . textOf ( tokens ) 
@@ -116535,7 +117537,15 @@ local uriToPath = text . uriToPath
 
 
 
+
+
+
+
 local json = wire . json
+
+
+
+
 
 
 
@@ -116574,6 +117584,10 @@ end
 
 
 local resolvedDeps = { }
+
+
+
+
 
 
 
@@ -116819,6 +117833,10 @@ local arrived = host . documentVersion ( answering . uri )
 return arrived ~= nil and arrived > answering . version
 end
 
+
+
+
+
 local function respond ( id , result ) 
 if host and host . isCancelled ( id ) then
 host . clearCancelled ( id )
@@ -116897,6 +117915,10 @@ end
 
 return paths
 end
+
+
+
+
 
 
 
@@ -118020,6 +119042,10 @@ end
 
 
 
+
+
+
+
 local function subject ( msg ) 
 local textDocument = type ( msg . params ) == "table" and msg . params . textDocument or nil
 local uri = type ( textDocument ) == "table" and textDocument . uri or nil
@@ -118073,6 +119099,10 @@ return running
 end ,
 }
 end
+
+
+
+
 
 
 
@@ -122696,6 +123726,10 @@ local pegRe = require ( "nupp.compiler.materialize.pegre" )
 
 
 
+
+
+
+
 const peg = {} peg.__index = peg
 
 
@@ -122770,6 +123804,10 @@ end
 
 return nil
 end
+
+
+
+
 
 function peg . installEvaluator ( state , env , newOpaque , provenance ) 
 local library = { }
@@ -123164,6 +124202,10 @@ end
 
 return nil , failure ( "NUPP2417" , "operator " .. op .. " is unavailable for PEG patterns" )
 end
+
+
+
+
 
 local function sameSignature ( a , b ) 
 if # a ~= # b then
@@ -123603,6 +124645,10 @@ summary = (
 } , nil
 end
 
+
+
+
+
 function peg . finalize ( state , value ) 
 local entry = state . opaque [ value ]
 if not entry or entry . provider ~= "peg" or entry . family ~= "Blueprint" then
@@ -123747,6 +124793,10 @@ end
 
 return { nodes = nodes , root = root , result = result , slots = slots , backend = backend , general = general , } , nil
 end
+
+
+
+
 
 local function descriptorType ( descriptor , actionReturns ) 
 if descriptor == "integer" then
@@ -123955,6 +125005,10 @@ end
 
 return finish ( packOfResult ( validated . result , returns ) , nil )
 end
+
+
+
+
 
 local function singleResult ( result , descriptor ) 
 return result ~= "any" and # result == 1 and result [ 1 ] == descriptor
@@ -124468,6 +125522,10 @@ actions = validated . slots ,
 captureful = hasCaptures ( validated . root , { } ) ,
 }
 end
+
+
+
+
 
 local function dataIR ( value ) 
 if type ( value ) ~= "table" then
@@ -125745,6 +126803,10 @@ local stable = require ( "nupp.compiler.stable" )
 
 
 
+
+
+
+
 const typeprovider = {} typeprovider.__index = typeprovider
 
 
@@ -125844,6 +126906,10 @@ local token = { }
 state . intrinsics [ token ] = implementation
 library [ name ] = token
 end
+
+
+
+
 
 function typeprovider . installEvaluator ( state , env , opaque , provenance ) 
 state . typeHandles = { }
@@ -126494,6 +127560,10 @@ end
 
 
 
+
+
+
+
 function typeprovider . importFunctionConst ( state , key ) 
 local opaque = state . typeOpaque
 if not opaque or type ( key ) ~= "string" then
@@ -126853,6 +127923,10 @@ end
 return root , nil
 end
 
+
+
+
+
 function typeprovider . opaqueKind ( state , value ) 
 local found = entry ( state , value )
 if not found then
@@ -126875,6 +127949,10 @@ end
 
 return not equal , nil
 end
+
+
+
+
 
 local function finalizeGraph ( state , root ) 
 local indices , nodes , origins , references = { } , { } , { } , { }
@@ -128581,6 +129659,10 @@ local firstToken = cst . firstToken
 
 
 
+
+
+
+
 optimize . passes = {
 [ "OPT-1" ] = { name = "presize" , level = 1 , summary = "size a table built field by field when it is created" , } ,
 [
@@ -128621,6 +129703,10 @@ level = 1 ,
 summary = "emit bounded private bodies for closed scalar const applications" ,
 } ,
 }
+
+
+
+
 
 
 
@@ -128901,6 +129987,10 @@ end
 
 
 
+
+
+
+
 local NESTED_FUNCTION = { localFuncStmt = true , funcStmt = true , inlineMethod = true , funcExpr = true , shortfn = true , }
 
 
@@ -129010,6 +130100,10 @@ end
 
 walk ( body )
 end
+
+
+
+
 
 
 
@@ -129178,6 +130272,10 @@ end
 
 
 
+
+
+
+
 local function concatBufferWalk ( result , remarks ) 
 local facts = require ( "nupp.compiler.analysis" ) . queries ( result . analysis )
 if not facts then
@@ -129198,6 +130296,10 @@ for _ , body in ipairs ( result . analysis . bodies or { } ) do
 numericIpairsBody ( body , facts , remarks )
 end
 end
+
+
+
+
 
 
 
@@ -129834,6 +130936,10 @@ constantFoldWalk ( child )
 end
 end
 
+
+
+
+
 local function hasJumpScope ( block ) 
 for _ , stat in ipairs ( block . stats or { } ) do
 if stat . kind == "gotoStmt" or stat . kind == "labelStmt" then
@@ -129948,6 +131054,10 @@ end
 end
 visit ( root )
 end
+
+
+
+
 
 
 
@@ -130648,6 +131758,10 @@ end
 
 
 
+
+
+
+
 local function fieldNameTokens ( node , found ) 
 if not node or isToken ( node ) then
 return found
@@ -131097,6 +132211,10 @@ end
 
 
 
+
+
+
+
 local function constMonomorphizeWalk ( result , remarks , selection , selectedFilename ) 
 
 
@@ -131167,6 +132285,10 @@ end
 
 return emittedBodies
 end
+
+
+
+
 
 
 
@@ -131417,6 +132539,10 @@ local loopDepth = 0
 local switchArmDepth = 0
 
 
+
+
+
+
 local function cur ( ) 
 return tokens [ i ]
 end
@@ -131473,6 +132599,10 @@ end
 
 return ( "%q" ) : format ( tok . text )
 end
+
+
+
+
 
 local function errAt ( tok , msg , code , help , fixes ) 
 if msg : find ( "expected" , 1 , true ) and not msg : find ( "found" , 1 , true ) then
@@ -131566,6 +132696,10 @@ end
 
 return expect ( ">" , what )
 end
+
+
+
+
 
 
 
@@ -131763,6 +132897,10 @@ and (
 after . kind == "=" or after . kind == ":"
 )
 end
+
+
+
+
 
 
 
@@ -132492,6 +133630,10 @@ return n
 end
 
 
+
+
+
+
 local function parseExplist ( n ) 
 local exprs = { }
 exprs [ 1 ] = add ( n , parseExp ( ) )
@@ -132700,6 +133842,10 @@ end
 
 return n
 end
+
+
+
+
 
 
 local function parsePrimaryexp ( ) 
@@ -133469,6 +134615,10 @@ end
 
 
 
+
+
+
+
 local parseTypedecl
 
 
@@ -133538,6 +134688,10 @@ end
 
 
 
+
+
+
+
 local function parseAnnotationApplication ( n ) 
 add ( n , expect ( "@" ) )
 n . name = add ( n , expectName ( "after '@'" ) )
@@ -133566,6 +134720,10 @@ n . close = add ( n , expect ( ")" , "to close annotation arguments" ) )
 
 return n
 end
+
+
+
+
 
 
 
@@ -133903,6 +135061,10 @@ parseRecordBody ( n )
 
 return n
 end
+
+
+
+
 
 
 parseStatement = function ( ) 
@@ -134480,6 +135642,10 @@ add ( n , e )
 
 return n
 end
+
+
+
+
 
 
 parseBlock = function ( ) 
@@ -139605,6 +140771,10 @@ local relations = { }
 
 
 
+
+
+
+
 local function admitsNil ( t ) 
 if t == T . nil_ or t == T . any or t == T . unknown then
 return true
@@ -139780,6 +140950,10 @@ local cache = setmetatable ( { } , { __mode = "k" } )
 
 
 
+
+
+
+
 local generation = 0
 local cachedAt = 0
 
@@ -139791,6 +140965,10 @@ local isA
 local assuming = setmetatable ( { } , { __mode = "k" } )
 local assumptionDepth = 0
 local usedAssumption = false
+
+
+
+
 
 
 
@@ -139866,6 +141044,10 @@ end
 
 return true , nil
 end
+
+
+
+
 
 
 local function fail ( a , b ) 
@@ -140069,6 +141251,10 @@ end
 
 
 
+
+
+
+
 local function intersectionSurface ( t ) 
 local surface = members . view ( t )
 local fields = { }
@@ -140180,6 +141366,10 @@ end
 
 return T . shape ( fields )
 end
+
+
+
+
 
 
 
@@ -140962,6 +142152,10 @@ return ok , why
 end
 
 relations . isA = isA
+
+
+
+
 
 
 
@@ -144667,6 +145861,10 @@ local readFile , writeFile , exists = fs . readFile , fs . writeFile , fs . exis
 local template = { }
 
 
+
+
+
+
 const BUILTIN_PREFIX = "/templates"
 
 
@@ -144751,6 +145949,10 @@ template.File = {} template.File.__index = template.File
 
 
 template.Plan = {} template.Plan.__index = template.Plan
+
+
+
+
 
 
 
@@ -144908,6 +146110,10 @@ end
 
 return where .. ( source . rev and ( " at " .. source . rev ) or "" )
 end
+
+
+
+
 
 
 
@@ -145149,6 +146355,10 @@ end
 
 
 
+
+
+
+
 local function substitute ( text , values , where ) 
 local failure = nil
 
@@ -145256,6 +146466,10 @@ end
 
 return values
 end
+
+
+
+
 
 
 
@@ -145440,6 +146654,10 @@ steps ,  dropped =
 dropped }, template.Plan)
 
 end
+
+
+
+
 
 
 
@@ -156276,6 +157494,11 @@ local extensions = require ( "nupp.compiler.runtime.extensions" )
 
 
 
+
+
+
+
+
 local nextMetadataSlot = 0
 
 
@@ -156442,6 +157665,10 @@ end
 return makeSchema ( "map" , nil , nil , { key = key , value = value } )
 end ;__nuppExports["map"]=map
 
+
+
+
+
 local function builderMutable ( self ) 
 if self . state == nil then
 self . state = { kind = nil , name = nil , members = { } , metadata = { } , frozen = false }
@@ -156583,6 +157810,10 @@ end ;__nuppExports["SchemaBuilder"]=SchemaBuilder
 local bindingStates = setmetatable ( { } , { __mode = "k" } )
 local defaultSchemaBindings = setmetatable ( { } , { __mode = "k" } )
 local validateValue
+
+
+
+
 
 const BindingImpl = {} BindingImpl.__index = BindingImpl
 
@@ -156806,6 +158037,10 @@ error ( "nupp: " .. path .. " must be a structure" , 3 )
 end
 end
 
+
+
+
+
 local function schemaForSpec ( spec ) 
 local kind = spec . kind
 if kind == "nil" then
@@ -156960,6 +158195,10 @@ end
 of=function ( type ) 
 return bindingOf ( type )
 end ;__nuppExports["of"]=of
+
+
+
+
 
 
 
@@ -157277,6 +158516,10 @@ end
 
 return ( entry . debugPrepared ) : format ( value )
 end ;__nuppExports["debugEntry"]=debugEntry
+
+
+
+
 
 
 
@@ -158450,6 +159693,10 @@ _G.assert(_G.loadstring("local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppM
 
 
 
+
+
+
+
 local valuebuilder = { }
 
 const NODE_SIZE = 40
@@ -158576,6 +159823,10 @@ parts [ # parts + 1 ] = bytes : sub ( start )
 
 return table . concat ( parts )
 end
+
+
+
+
 
 
 
@@ -158772,6 +160023,10 @@ end
 
 
 
+
+
+
+
 function valuebuilder . new ( nullValue ) 
 return { nullValue = nullValue , stack = { } , result = nil , hasResult = false }
 end
@@ -158851,6 +160106,10 @@ serdeMarkers
 ) 
 error ( "newSerde exists only inside an @aot function" , 2 )
 end
+
+
+
+
 
 
 
@@ -158962,6 +160221,10 @@ end
 
 
 
+
+
+
+
 function valuebuilder . length ( bytes ) 
 return (__nuppBitTobit( # bytes )%4294967296)
 end
@@ -159016,6 +160279,10 @@ end
 
 return (__nuppBitTobit( readU32 ( bytes , offset ) )%4294967296)
 end
+
+
+
+
 
 local function zeroed ( capacity ) 
 local values = { }
@@ -159254,6 +160521,10 @@ end
 
 
 
+
+
+
+
 function valuebuilder . newFixedByteScratch ( capacity ) 
 
 
@@ -159447,6 +160718,10 @@ end
 function valuebuilder . depth ( builder ) 
 return (__nuppBitTobit( # builder . stack )%4294967296)
 end
+
+
+
+
 
 
 
@@ -159672,6 +160947,10 @@ _G.assert(_G.loadstring("local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppM
 
 local derive = { }
 
+
+
+
+
 derive.JSONContract = {}
 
 
@@ -159713,6 +160992,10 @@ local reflect = nil
 
 local bufferModule = nil
 local serdeRuntime = nil
+
+
+
+
 
 local function newBuffer ( ) 
 if bufferModule == nil then
@@ -159979,6 +161262,10 @@ local jsonCodecFor
 
 local nativeJsonPlanForEntry
 
+
+
+
+
 local function nativeJsonPlanForSpec ( spec ) 
 local kind = spec and spec . kind
 if kind == "optional" then
@@ -160027,6 +161314,10 @@ end
 
 return plan
 end
+
+
+
+
 
 local function decodeObject ( value , entry , path ) 
 if type ( value ) ~= "table" then
@@ -160198,6 +161489,10 @@ end
 
 
 
+
+
+
+
 local function register ( key , mt , schema ) 
 local entry = { key = key , mt = mt , schema = schema }
 
@@ -160281,6 +161576,10 @@ return codec
 end
 
 local decodeProjectedValue
+
+
+
+
 
 local function decodeProjectedObject ( value , entry , path ) 
 if type ( value ) ~= "table" then
@@ -160376,6 +161675,10 @@ end
 
 return decodeValue ( value , spec , entry , path )
 end
+
+
+
+
 
 
 
@@ -161611,6 +162914,10 @@ _G.assert(_G.loadstring("local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppM
 
 
 
+
+
+
+
 local ffi = require ( "ffi" )
 local span = require ( "nupp.mem.span" )
 
@@ -161668,6 +162975,10 @@ end
 
 return from , taking
 end
+
+
+
+
 
 
 
@@ -161776,6 +163087,10 @@ local newWriterOver
 local fill
 local taken
 local put
+
+
+
+
 
 
 
@@ -162135,6 +163450,10 @@ end
 function BufferWriter:close() 
 self : drop ( )
 end
+
+
+
+
 
 
 
@@ -162618,6 +163937,10 @@ end
 
 
 
+
+
+
+
 const Scalars = {} Scalars.__index = Scalars Scalars.atEnd = ScalarReader.atEnd Scalars.close = ScalarReader.close Scalars.readBytes = ScalarReader.readBytes Scalars.readFloat32 = ScalarReader.readFloat32 Scalars.readFloat64 = ScalarReader.readFloat64 Scalars.readInt16 = ScalarReader.readInt16 Scalars.readInt32 = ScalarReader.readInt32 Scalars.readInt64 = ScalarReader.readInt64 Scalars.readInt8 = ScalarReader.readInt8 Scalars.readUint16 = ScalarReader.readUint16 Scalars.readUint32 = ScalarReader.readUint32 Scalars.readUint64 = ScalarReader.readUint64 Scalars.readUint8 = ScalarReader.readUint8 Scalars.remaining = ScalarReader.remaining Scalars.skip = ScalarReader.skip
 
 
@@ -162837,6 +164160,10 @@ const ScalarSink = {} ScalarSink.__index = ScalarSink ScalarSink.buffer = Scalar
 
 
 
+
+
+
+
 function Snapshot . drop ( self ) 
 local state = self
 state . _closed = true
@@ -162899,6 +164226,10 @@ elseif ownsBuffer and buffer then
 buffer : drop ( )
 end
 end
+
+
+
+
 
 
 reserve = function ( self , minimum ) 
@@ -163007,6 +164338,10 @@ end
 
 return self
 end
+
+
+
+
 
 local function queueLike ( value ) 
 local kind = type ( value )
@@ -163622,6 +164957,10 @@ _G.assert(_G.loadstring("local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppM
 
 
 
+
+
+
+
 const native = require ( "nupp.runtime.native" )
 const suspension = require ( "nupp.suspension" )
 const paths = require ( "nupp.io.path" )
@@ -163732,6 +165071,10 @@ local SOURCE , PRIORITY = "nupp-files" , 20
 
 
 
+
+
+
+
 const Info = {} Info.__index = Info ;__nuppExports["Info"]=Info
 
 
@@ -163760,6 +165103,10 @@ const Entry = {} Entry.__index = Entry ;__nuppExports["Entry"]=Entry
 
 
 const TemporaryOptions = {} TemporaryOptions.__index = TemporaryOptions ;__nuppExports["TemporaryOptions"]=TemporaryOptions
+
+
+
+
 
 
 
@@ -163850,6 +165197,10 @@ end
 
 return native . bytes ( handle ) , nil
 end
+
+
+
+
 
 
 
@@ -163991,6 +165342,10 @@ local handle = file . _handle
 file . _handle = nil
 C . nuppFileClose ( handle )
 end
+
+
+
+
 
 
 
@@ -164198,6 +165553,10 @@ end ;__nuppExports["FileWriter"]=FileWriter
 
 
 
+
+
+
+
 const TemporaryPath = {} TemporaryPath.__index = TemporaryPath
 
 
@@ -164258,6 +165617,10 @@ state . _closed = true
 
 return C . nuppFilesRemove ( state . _text , # state . _text , state . _directory )
 end ;__nuppExports["TemporaryPath"]=TemporaryPath
+
+
+
+
 
 
 
@@ -164367,6 +165730,10 @@ local waits = { }
 
 
 
+
+
+
+
 local function harvest ( ) 
 local moved = 0
 local index = # waits
@@ -164472,6 +165839,10 @@ return out , nil
 end
 
 
+
+
+
+
 local function optional ( options , field , level ) 
 local value = options ~= nil and ( options ) [ field ] or nil
 if value == nil then
@@ -164504,6 +165875,10 @@ return ( value ) : getString ( )
 end
 error ( "nupp: io.files " .. what .. " must be bytes or a byte view" , level )
 end
+
+
+
+
 
 
 
@@ -164839,6 +166214,10 @@ end ;__nuppExports["pendingTransfers"]=pendingTransfers
 
 
 
+
+
+
+
 open=function ( path , mode ) __nuppCleanups["nupp.io.files#destroyOwner"]=destroyOwner; 
 local text = named ( path , "path" , 2 )
 local selected = MODES [ mode or "r" ]
@@ -165136,6 +166515,10 @@ local http = { }
 
 
 
+
+
+
+
 const native = require ( "nupp.runtime.native" )
 
 
@@ -165250,6 +166633,10 @@ const READY_SLOTS = 256
 
 
 
+
+
+
+
 local function slice ( value , pointer , length ) 
 local out = native . ffi . new ( "NuppHttpSlice" )
 if pointer ~= nil then
@@ -165335,6 +166722,10 @@ end
 end
 end
 end
+
+
+
+
 
 
 
@@ -165512,6 +166903,10 @@ self . _handle = nil
 native . ffi . gc ( handle , nil )
 C . nuppHttpTransferDestroy ( handle )
 end
+
+
+
+
 
 
 
@@ -165702,6 +167097,10 @@ end
 
 
 
+
+
+
+
 http.Options = {} http.Options.__index = http.Options
 
 
@@ -165846,6 +167245,10 @@ local UPLOAD_PAGE = 64 * 1024
 local COALESCE_BELOW = 8 * 1024
 local COPY_TURN = 16 * 1024 * 1024
 
+
+
+
+
 local function whole ( value , what , minimum , maximum ) 
 if type (
 value
@@ -165978,6 +167381,10 @@ proxyCredentials = given . proxyCredentials ,
 }
 end
 
+
+
+
+
 local function appendWaiter ( client , transfer , which , cancelNative ) 
 suspension . suspend ( "HTTP " .. which , function ( resume , context ) 
 local active = true
@@ -166081,6 +167488,10 @@ end
 end
 )
 end
+
+
+
+
 
 
 
@@ -166324,6 +167735,10 @@ end
 
 
 
+
+
+
+
 http.Response = {} http.Response.__index = http.Response
 
 
@@ -166496,6 +167911,10 @@ nil ,  _closed =
 false }, http.Response)
 
 end
+
+
+
+
 
 
 
@@ -166913,6 +168332,10 @@ end
 
 
 
+
+
+
+
 function http . reader ( reader , length , contentType ) 
 if length ~= nil then
 whole ( length , "reader body length" , 0 )
@@ -167071,6 +168494,10 @@ local net = { }
 
 
 
+
+
+
+
 net.Message = {} net.Message.__index = net.Message
 
 
@@ -167092,7 +168519,15 @@ net.Message = {} net.Message.__index = net.Message
 
 
 
+
+
+
+
 net.Backend = {} net.Backend.__index = net.Backend
+
+
+
+
 
 
 
@@ -167356,6 +168791,10 @@ end
 
 return true
 end
+
+
+
+
 
 
 
@@ -167832,6 +169271,10 @@ end
 
 
 
+
+
+
+
 net.Listener = {} net.Listener.__index = net.Listener
 
 
@@ -168096,6 +169539,10 @@ end
 
 
 
+
+
+
+
 function net . bind ( options ) 
 const chosen = platform ( )
 const bound = checkedPort ( options . port , "net.bind port" , 2 )
@@ -168215,6 +169662,10 @@ end
 
 
 
+
+
+
+
 function net . streamHandle ( source ) 
 return source . _handle
 end
@@ -168257,6 +169708,10 @@ end
 function net . useBackend ( chosen ) 
 backend = chosen
 end
+
+
+
+
 
 
 
@@ -169882,6 +171337,10 @@ local process = { }
 
 
 
+
+
+
+
 process.Exit = {} process.Exit.__index = process.Exit
 
 
@@ -169928,6 +171387,10 @@ end
 
 
 process.Interest = {} process.Interest.__index = process.Interest
+
+
+
+
 
 
 
@@ -170052,6 +171515,10 @@ process.Backend = {} process.Backend.__index = process.Backend
 
 
 local READ_LIMIT = 65536
+
+
+
+
 
 
 local function positive ( value , what , level ) 
@@ -170528,6 +171995,10 @@ end
 
 local newReader
 local newWriter
+
+
+
+
 
 
 process.Process = {} process.Process.__index = process.Process
@@ -171026,6 +172497,10 @@ return true
 end
 
 
+
+
+
+
 function process . Process . drop ( self ) 
 self : close ( )
 if self . stdin ~= nil then
@@ -171276,6 +172751,10 @@ end
 
 
 
+
+
+
+
 function process . useBackend ( backend ) 
 defaultBackend = backend
 end
@@ -171331,6 +172810,10 @@ options
 ) __nuppCleanups["nupp.io.process#process.Process.destroy"]=process.Process.destroy; 
 return process.Process.__nuppCtor2 ( backend , options )
 end
+
+
+
+
 
 
 
@@ -188690,6 +190173,10 @@ _G.assert(_G.loadstring("local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppM
 
 
 
+
+
+
+
 local buffer = require ( "string.buffer" )
 local suspension = require ( "nupp.suspension" )
 local suspensionRuntime = suspension
@@ -188736,6 +190223,14 @@ rawset ( _G . nupp , "__workerCheckpoint" , native . workerTaskCheckpoint )
 local workers = { }
 
 rawset ( workers , "__parallelism" , native . workerParallelism )
+
+
+
+
+
+
+
+
 
 
 
@@ -189017,6 +190512,10 @@ rawset ( workers , "__sendable" , describeSendable )
 
 
 
+
+
+
+
 const Channel = {} Channel.__index = Channel
 
 
@@ -189097,6 +190596,10 @@ local ChannelMT = { __index = Channel }
 local TaskMT = { __index = TaskImpl }
 local ScopeMT = { __index = workers . Scope }
 
+
+
+
+
 local function channel ( handle , owned ) 
 return setmetatable ( { handle = handle , owned = owned , destroyed = false } , ChannelMT )
 end
@@ -189138,6 +190641,10 @@ heapArrayFromParts = rawget ( heapModule , "__heapArrayFromParts" )
 heapArrayFree = rawget ( heapModule , "__heapArrayFree" )
 end
 end
+
+
+
+
 
 local function unsendable ( value , path , depth , state ) 
 local kind = type ( value )
@@ -189274,6 +190781,10 @@ local noRecords = { }
 
 
 
+
+
+
+
 local function channelCodec ( target ) 
 local codec = target . codec
 if codec ~= nil then
@@ -189366,6 +190877,10 @@ end
 
 local regionParts = nil
 local regionFromParts = nil
+
+
+
+
 
 local function regionHooks ( ) 
 if regionParts == nil then
@@ -189621,6 +191136,10 @@ end
 
 local replySchemaIds = setmetatable ( { } , { __mode = "k" } )
 
+
+
+
+
 local function encodeFrame ( frame ) 
 local header
 if frame . kind == "task" then
@@ -189859,6 +191378,10 @@ end
 
 return frame
 end
+
+
+
+
 
 local function destroy ( value ) 
 if value . destroyed or not value . owned then
@@ -190105,6 +191628,10 @@ end
 
 local scannedAddresses = setmetatable ( { } , { __mode = "k" } )
 
+
+
+
+
 local function callableAddress ( fn ) 
 local described = sendableDescriptors [ fn ]
 if described ~= nil then
@@ -190319,6 +191846,10 @@ spawnSurface = spawnImpl
 workers . Scope . spawn = spawnSurface
 end
 
+
+
+
+
 function TaskImpl : isDone ( ) 
 if self . _state ~= "queued" then
 return true
@@ -190415,6 +191946,10 @@ task . _lane . replies [ task . _id ] = nil
 return task . _state == "failed" and "nupp: worker task failed: " .. ( task . _error or "unknown failure" ) or nil
 end
 
+
+
+
+
 local function closeBlocking ( self ) 
 if self . _closed then
 return
@@ -190484,6 +192019,10 @@ return openScope ( nil , nil )
 end
 
 rawset ( workers , "__scope" , openScope )
+
+
+
+
 
 local function workerReply ( outbox , id , ok , answer , preparedOutput ) 
 if not ok then
@@ -191699,6 +193238,10 @@ the library they type is here. `nupp.Debug` comes with them: `format` names it, 
 it has to be declared before anything that reads a format string.
 ]]
 
+----------------------------------------------------------------------------
+-- The globals a chunk starts with
+----------------------------------------------------------------------------
+
 --- Writes every argument to standard output, converted with `tostring`, separated by
 --- tabs and followed by a newline.
 ---
@@ -191965,6 +193508,10 @@ local _VERSION: string
 
 -- Formatting APIs derive their trailing parameter pack from a literal first
 -- argument. A broad string deliberately retains the ordinary variadic fallback.
+
+----------------------------------------------------------------------------
+-- The comptime helpers the library needs
+----------------------------------------------------------------------------
 
 --- @local
 local comptime function __NuppFormatArguments(Format: type, Debug: type): typepack
@@ -192246,6 +193793,10 @@ local comptime function __NuppGsubResults(Pattern: type): typepack
     return nupp.types.pack({nupp.types.string, nupp.types.integer})
 end
 
+----------------------------------------------------------------------------
+-- string
+----------------------------------------------------------------------------
+
 --- String manipulation and pattern matching. Every function here is also reachable as a
 --- method on a string value, so `s:upper()` means `string.upper(s)`.
 local string: {
@@ -192382,6 +193933,10 @@ local string: {
     upper: nosuspend function(s: string): string
 }
 
+----------------------------------------------------------------------------
+-- table
+----------------------------------------------------------------------------
+
 --- Table manipulation. These functions work on the array part of a table: the integer
 --- keys 1 through `#t`.
 const table: {
@@ -192454,6 +194009,10 @@ const table: {
     --- @return a new table holding the same keys, values and metatable
     readonly clone: nosuspend function<T is table>(t: T): T
 }
+
+----------------------------------------------------------------------------
+-- math
+----------------------------------------------------------------------------
 
 --- Mathematical functions and constants, operating on the doubles that plain Lua
 --- numbers are.
@@ -192639,6 +194198,10 @@ local math: {
     huge: number
 }
 
+----------------------------------------------------------------------------
+-- os
+----------------------------------------------------------------------------
+
 --- Operating-system facilities: clocks and calendars, the environment, processes and
 --- file names.
 local os: {
@@ -192713,6 +194276,11 @@ local os: {
 }
 
 --- Lua's module-loader configuration.
+
+----------------------------------------------------------------------------
+-- package
+----------------------------------------------------------------------------
+
 local package: {
     --- Platform path separators and template markers.
     config: string,
@@ -192738,6 +194306,10 @@ local package: {
     loaders: {function(string): any},
     searchers: {function(string): any}?
 }
+
+----------------------------------------------------------------------------
+-- Layouts and file handles
+----------------------------------------------------------------------------
 
 --- One field of a reified `struct`, as it is actually laid out in C memory.
 ---
@@ -192805,6 +194377,11 @@ end
 local __nuppCloseFile: nosuspend function(takes handle: LuaFile): nil
 
 --- File input and output.
+
+----------------------------------------------------------------------------
+-- io
+----------------------------------------------------------------------------
+
 local io: {
     --- Opens the file at `path`. Modes are "r", "w" and "a", with "+" added for update
     --- and a trailing "b" for binary.
@@ -192887,6 +194464,11 @@ local io: {
 
 --- Cooperative multitasking. A callback with typed start, yield, resume, and return
 --- packs produces a protocol-bearing thread; bare `thread` erases that protocol.
+
+----------------------------------------------------------------------------
+-- coroutine
+----------------------------------------------------------------------------
+
 local coroutine: {
     --- Creates a coroutine with `f` as its body. The body does not start running until
     --- the first `resume`.
@@ -192952,6 +194534,11 @@ local coroutine: {
 --- LuaJIT's BitOp library, which is also the semantics behind the `&`, `|`, `~`, `<<`,
 --- `>>` and `~>>` operators: arguments are normalized to 32-bit integers and results
 --- come back signed.
+
+----------------------------------------------------------------------------
+-- bit
+----------------------------------------------------------------------------
+
 local bit: {
     --- Normalizes `x` into the signed 32-bit integer range, wrapping around.
     ---
@@ -193034,6 +194621,11 @@ local bit: {
 }
 
 --- Control and introspection for the JIT compiler itself.
+
+----------------------------------------------------------------------------
+-- jit
+----------------------------------------------------------------------------
+
 local jit: {
     --- The LuaJIT version string, such as "LuaJIT 2.1.0".
     version: string,
@@ -193119,6 +194711,11 @@ local jit: {
 
 --- The debug interface: stack inspection, hooks, locals and upvalues. Using it costs
 --- performance and voids assumptions the compiler would rather make.
+
+----------------------------------------------------------------------------
+-- debug
+----------------------------------------------------------------------------
+
 local debug: {
     --- Describes a function, or the activation record at a stack level.
     ---
@@ -193249,6 +194846,10 @@ below may name Lua types such as `LuaFile`.
 This file is parsed and checked by `nupp` itself, as is its Lua counterpart.
 ]]
 
+----------------------------------------------------------------------------
+-- Resources and aliases
+----------------------------------------------------------------------------
+
 --- A resource with a deterministic, consuming close operation.
 ---
 --- Declaring `is nupp.Closeable` makes construction and bare type annotations carry the
@@ -193303,6 +194904,10 @@ record nupp.Alias<T>
     close: nosuspend function(self: nupp.Alias<T>): nupp.AliasError?
     downcast: function<U>(self: nupp.Alias<T>): ((alias(U), nil) | (nil, nupp.AliasError))
 end
+
+----------------------------------------------------------------------------
+-- The compiler-provided namespace
+----------------------------------------------------------------------------
 
 --- Compiler-provided facilities. The namespace is always present; native members are
 --- linked automatically when source reaches them.
@@ -193590,6 +195195,10 @@ local nupp: {
     __materializationTest: nupp.__MaterializationTestAPI
 }
 
+----------------------------------------------------------------------------
+-- Type-level computations
+----------------------------------------------------------------------------
+
 -- Public checked computations under the compiler-owned nupp.types namespace use this
 -- implementation naming convention. Type-position resolution maps the public member
 -- to the checked prelude body, while the declaration above remains the API callers
@@ -193670,6 +195279,10 @@ local comptime function __NuppTypesFormatArguments(Format: type): typepack
     return nupp.types.pack(arguments)
 end
 
+----------------------------------------------------------------------------
+-- Hot reload
+----------------------------------------------------------------------------
+
 --- What one poll did, discriminated by `kind`.
 ---
 --- The four answers are `"prepared"`, when a patch was staged and committed and
@@ -193715,6 +195328,10 @@ record nupp.HotReload
     poll: function(): nupp.HotReloadPoll
 end
 
+----------------------------------------------------------------------------
+-- Materialization
+----------------------------------------------------------------------------
+
 --- A compile-time-only graph handle used by the compiler's materialization tests.
 --- @internal
 record nupp.__MaterializationBlueprint
@@ -193748,6 +195365,10 @@ record nupp.__MaterializationTestAPI
     node: function(value: integer): nupp.__MaterializationBlueprint
     factory: function(): nupp.__MaterializationFactoryBlueprint
 end
+
+----------------------------------------------------------------------------
+-- The derive namespace
+----------------------------------------------------------------------------
 
 --- Generates checked members on a declaration while that declaration is checked.
 ---
@@ -194182,6 +195803,10 @@ record nupp.derive
     --- @return whether `subject` claims `interface`
     claims: function(subject: any, interface: any): boolean
 end
+
+----------------------------------------------------------------------------
+-- The peg namespace
+----------------------------------------------------------------------------
 
 --- `nupp.peg` compiles textual parsing-expression grammars into reusable typed
 --- matchers. The same grammar language works inside
@@ -195020,6 +196645,10 @@ record nupp.peg
     compile: function(source: string, options: CompileOptions?): Peg<...any>
 end
 
+----------------------------------------------------------------------------
+-- The reflect namespace
+----------------------------------------------------------------------------
+
 --- Semantic type reflection and reflection-driven field codecs.
 ---
 --- Call the namespace with a concrete type inside `comptime` to obtain an immutable,
@@ -195373,6 +197002,10 @@ record nupp.reflect
     fieldCodec: comptime function(info: Info): FieldCodecBlueprint
 end
 
+----------------------------------------------------------------------------
+-- Annotations
+----------------------------------------------------------------------------
+
 --- Internal typed schema for the compiler-owned @deprecated annotation.
 --- @internal
 interface nupp.__DeprecatedAnnotation
@@ -195382,6 +197015,10 @@ interface nupp.__DeprecatedAnnotation
     --- The API spelling callers should migrate to.
     replacement: string?
 end
+
+----------------------------------------------------------------------------
+-- Math libraries
+----------------------------------------------------------------------------
 
 --- Two-dimensional vector operations on number pairs.
 --- @internal
@@ -202252,6 +203889,11 @@ local value = binding:bind{id = 41, name = "Ada"}
 ]==]
 
 local extensions = require("nupp.compiler.runtime.extensions")
+
+----------------------------------------------------------------------------
+-- The logical vocabulary
+----------------------------------------------------------------------------
+
 -- Debug and future non-JSON schema consumers must not load the JSON runtime.
 export type Kind = "unit"
     | "null"
@@ -202448,6 +204090,10 @@ export function map(key: Schema, value: Schema): Schema
     return makeSchema("map", nil, nil, {key = key, value = value})
 end
 
+----------------------------------------------------------------------------
+-- Building a schema
+----------------------------------------------------------------------------
+
 local function builderMutable(self: any): any
     if self.state == nil then
         self.state = {kind = nil, name = nil, members = {}, metadata = {}, frozen = false}
@@ -202589,6 +204235,10 @@ end
 local bindingStates: any = setmetatable({}, {__mode = "k"})
 local defaultSchemaBindings: any = setmetatable({}, {__mode = "k"})
 local validateValue: function(value: any, schema: Schema, path: string): nil
+
+----------------------------------------------------------------------------
+-- Bindings
+----------------------------------------------------------------------------
 
 local record BindingImpl<T> is Binding<T>
     private readonly token: any
@@ -202812,6 +204462,10 @@ validateValue = function(value: any, schema: Schema, path: string): nil
     end
 end
 
+----------------------------------------------------------------------------
+-- Deriving a binding from a type
+----------------------------------------------------------------------------
+
 local function schemaForSpec(spec: any): Schema
     local kind = spec.kind
     if kind == "nil" then
@@ -202973,6 +204627,10 @@ export sealed interface PreparedDebug<T>
     format: function(self, value: T): string
     write: function(self, value: T, exclusive out: string.buffer.Buffer): nil
 end
+
+----------------------------------------------------------------------------
+-- Debug rendering
+----------------------------------------------------------------------------
 
 local type DebugWrite = function(value: any, exclusive out: string.buffer.Buffer, state: any): nil
 local type DebugPlan = {write: DebugWrite}
@@ -203283,6 +204941,10 @@ export function debugEntry(value: any, entry: any): string
 
     return (entry.debugPrepared as PreparedDebug<any>):format(value)
 end
+
+----------------------------------------------------------------------------
+-- JSON
+----------------------------------------------------------------------------
 
 --- Immutable JSON wire-policy identity.
 --- @export
@@ -204454,6 +206116,10 @@ Neither can be returned, reassigned, stored in a table, or passed to an ordinary
 call; only the operations in this module admit them.
 ]]
 
+----------------------------------------------------------------------------
+-- Reading the encoded tree
+----------------------------------------------------------------------------
+
 local valuebuilder = {}
 
 const NODE_SIZE: integer = 40
@@ -204580,6 +206246,10 @@ local function decodeString(borrows source: any, first: integer, length: integer
 
     return table.concat(parts)
 end
+
+----------------------------------------------------------------------------
+-- Materializing a tree
+----------------------------------------------------------------------------
 
 --- Materializes a pointer-free preorder tree into ordinary Lua values.
 ---
@@ -204741,6 +206411,10 @@ function valuebuilder.materializeTree(
     return materialize(root, 1)
 end
 
+----------------------------------------------------------------------------
+-- Starting a builder
+----------------------------------------------------------------------------
+
 --- Starts a direct stream of values.
 ---
 --- This is the streaming shape. Open a container with
@@ -204856,6 +206530,10 @@ function valuebuilder.newSerde(
     error("newSerde exists only inside an @aot function", 2)
 end
 
+----------------------------------------------------------------------------
+-- Escapes and numbers
+----------------------------------------------------------------------------
+
 --- Publishes one escaped source slice using backslash positions retained by
 --- the structural scan. Internal to AOT JSON stage two.
 --- @raises outside an AOT-compiled function
@@ -204958,6 +206636,10 @@ local function put(builder: any, value: any): nil
     end
 end
 
+----------------------------------------------------------------------------
+-- Rooted strings
+----------------------------------------------------------------------------
+
 --- Returns the rooted string's byte length without making a substring.
 ---
 --- This, [](nupp.data.valuebuilder.byte), and [](nupp.data.valuebuilder.word) are the
@@ -205020,6 +206702,10 @@ function valuebuilder.word(bytes: string, index: uint32): uint32
 
     return nupp.math.u32.wrap(readU32(bytes, offset as integer))
 end
+
+----------------------------------------------------------------------------
+-- Word scratch buffers
+----------------------------------------------------------------------------
 
 local function zeroed(capacity: uint32): {integer}
     local values: {integer} = {}
@@ -205233,6 +206919,10 @@ function valuebuilder.appendStringEscapeBits(
 ): uint32
     error("appendStringEscapeBits exists only inside an @aot function", 2)
 end
+
+----------------------------------------------------------------------------
+-- Byte scratch buffers
+----------------------------------------------------------------------------
 
 --- Allocates a fixed byte work buffer, every byte of it readable at once.
 ---
@@ -205451,6 +207141,10 @@ end
 function valuebuilder.depth(builder: any): uint32
     return nupp.math.u32.wrap(#builder.stack)
 end
+
+----------------------------------------------------------------------------
+-- Publishing values
+----------------------------------------------------------------------------
 
 --- Returns the current container's tag: 5 for an array and 6 for an object, the
 --- same numbering [](nupp.data.valuebuilder.materializeTree) uses.
@@ -205675,6 +207369,10 @@ against.
 
 local derive = {}
 
+----------------------------------------------------------------------------
+-- What a derived type carries
+----------------------------------------------------------------------------
+
 interface derive.JSONContract is nupp.data.json.JSONEncodable
 end
 
@@ -205716,6 +207414,10 @@ local reflect: any = nil
 -- receives its buffer, so that path neither allocates one nor loads the constructor.
 local bufferModule: any = nil
 local serdeRuntime: any = nil
+
+----------------------------------------------------------------------------
+-- Writing JSON
+----------------------------------------------------------------------------
 
 local function newBuffer(): string.buffer.Buffer
     if bufferModule == nil then
@@ -205982,6 +207684,10 @@ local jsonCodecFor: function(entry: any): any
 
 local nativeJsonPlanForEntry: function(entry: any): any
 
+----------------------------------------------------------------------------
+-- Native plans
+----------------------------------------------------------------------------
+
 local function nativeJsonPlanForSpec(spec: any): any
     local kind: any = spec and spec.kind
     if kind == "optional" then
@@ -206030,6 +207736,10 @@ nativeJsonPlanForEntry = function(entry: any): any
 
     return plan
 end
+
+----------------------------------------------------------------------------
+-- Reading JSON
+----------------------------------------------------------------------------
 
 local function decodeObject(value: any, entry: any, path: string): (boolean, any, string?)
     if type(value) ~= "table" then
@@ -206197,6 +207907,10 @@ decodeValue = function(value: any, spec: any, entry: any, path: string): (boolea
     return false, nil, path .. ": unsupported JSON value"
 end
 
+----------------------------------------------------------------------------
+-- Registering a type
+----------------------------------------------------------------------------
+
 --- Records a derived type and answers its registry entry.
 ---
 --- The key is stamped onto the metatable as well as used to file the entry, so a value
@@ -206284,6 +207998,10 @@ jsonCodecFor = function(entry: any): any
 end
 
 local decodeProjectedValue: function(value: any, spec: any, entry: any, path: string): (boolean, any, string?)
+
+----------------------------------------------------------------------------
+-- Projections
+----------------------------------------------------------------------------
 
 local function decodeProjectedObject(value: any, entry: any, path: string): (boolean, any, string?)
     if type(value) ~= "table" then
@@ -206379,6 +208097,10 @@ decodeProjectedValue = function(value: any, spec: any, entry: any, path: string)
 
     return decodeValue(value, spec, entry, path)
 end
+
+----------------------------------------------------------------------------
+-- The derived surface
+----------------------------------------------------------------------------
 
 -- Reached through reflection rather than called directly, so that one memoized codec
 -- answers every route to it: the derived members here, `nupp.data.json`'s type-directed
@@ -207293,6 +209015,10 @@ Scheduling a transfer costs more than those cost to run.
 :::
 ]]
 
+----------------------------------------------------------------------------
+-- The native binding
+----------------------------------------------------------------------------
+
 const native = require("nupp.runtime.native")
 const suspension = require("nupp.suspension")
 const paths = require("nupp.io.path")
@@ -207378,6 +209104,10 @@ local PENDING, READY = 0, 1
 -- them; nothing here is latency-critical.
 local SOURCE, PRIORITY = "nupp-files", 20
 
+----------------------------------------------------------------------------
+-- What the filesystem answers with
+----------------------------------------------------------------------------
+
 --- What a resolved path refers to. A `symlink` answer only ever comes from
 --- `isSymlink`, since every other operation follows the link first.
 --- @export
@@ -207440,6 +209170,10 @@ export record TemporaryOptions
     --- Text after the generated part, such as an extension.
     suffix: string?
 end
+
+----------------------------------------------------------------------------
+-- Owners and argument checks
+----------------------------------------------------------------------------
 
 -- A terminal has to be a declared function wherever a contract names it, and these
 -- records hand each other out: an open file answers a reader and a writer. Written one
@@ -207521,6 +209255,10 @@ local function answer(handle: any): (string?, string?)
 
     return native.bytes(handle), nil
 end
+
+----------------------------------------------------------------------------
+-- Open files
+----------------------------------------------------------------------------
 
 --- An open file, and the obligation to close it.
 --- @export
@@ -207662,6 +209400,10 @@ local function closeFile(file: File): nil
     file._handle = nil
     C.nuppFileClose(handle)
 end
+
+----------------------------------------------------------------------------
+-- Readers and writers
+----------------------------------------------------------------------------
 
 --- A forward-only reader over an open file.
 --- @export
@@ -207863,6 +209605,10 @@ export record FileWriter is io.Writer
     end
 end
 
+----------------------------------------------------------------------------
+-- Temporary paths
+----------------------------------------------------------------------------
+
 --- A created temporary path, and the obligation to settle it.
 ---
 --- Closing removes it. `persist` moves it somewhere permanent instead and discharges
@@ -207932,6 +209678,10 @@ export record TemporaryPath
 
     metamethod __tostring: function(self): string
 end
+
+----------------------------------------------------------------------------
+-- Dropping
+----------------------------------------------------------------------------
 
 function TemporaryPath.drop(takes self: TemporaryPath): nil
     local state = unsafe release self
@@ -208035,6 +209785,10 @@ end
 -- lane that runs them is bounded, so a program that submits more than it waits for is
 -- something a caller can ask about.
 local waits: {any} = {}
+
+----------------------------------------------------------------------------
+-- Driving the request loop
+----------------------------------------------------------------------------
 
 -- Moves every settled request off the wait list and resumes whoever was waiting for
 -- it. Answers how many moved, which is what a readiness pump owes its driver.
@@ -208142,6 +209896,10 @@ local function fetched(handle: any): (string?, string?)
     return out, nil
 end
 
+----------------------------------------------------------------------------
+-- Naming a temporary
+----------------------------------------------------------------------------
+
 --- @raises when value is neither a string nor a field of that name
 local function optional(options: TemporaryOptions?, field: string, level: integer): string
     local value = options ~= nil and (options as any)[field] or nil
@@ -208175,6 +209933,10 @@ local function payload(value: any, what: string, level: integer): string
     end
     error("nupp: io.files " .. what .. " must be bytes or a byte view", level)
 end
+
+----------------------------------------------------------------------------
+-- Asking about a path
+----------------------------------------------------------------------------
 
 --- Describes one path, following symbolic links.
 ---
@@ -208492,6 +210254,10 @@ export function pendingTransfers(): integer
     return tonumber(C.nuppFsPending()) as integer
 end
 
+----------------------------------------------------------------------------
+-- Opening and reading
+----------------------------------------------------------------------------
+
 --- Opens a file and hands over the obligation to close it.
 ---
 --- #### Examples
@@ -208806,6 +210572,10 @@ The library is not opened by requiring this module: `nupp.runtime.native` opens 
 symbol read, and nothing here reads one until a client is created.
 ]]
 
+----------------------------------------------------------------------------
+-- The native binding
+----------------------------------------------------------------------------
+
 const native = require("nupp.runtime.native")
 
 -- `NuppUri` is not declared here: it is `nupp.io.uri`'s handle, that module declares
@@ -208915,6 +210685,10 @@ const UPLOAD_ACCEPTED = 1
 -- How many readiness events one poll collects.
 const READY_SLOTS = 256
 
+----------------------------------------------------------------------------
+-- Slices and dispatch
+----------------------------------------------------------------------------
+
 --- Fills the borrowed byte span the native transport reads its strings through.
 ---
 --- A pointer and a length are passed when the bytes are not a Lua string; otherwise
@@ -209005,6 +210779,10 @@ local function addWaiter(self: any, field: string, wake: function()): function()
         end
     end
 end
+
+----------------------------------------------------------------------------
+-- A transfer in flight
+----------------------------------------------------------------------------
 
 --- One request in flight.
 ---
@@ -209183,6 +210961,10 @@ local record Transfer is NativeTransfer
         C.nuppHttpTransferDestroy(handle)
     end
 end
+
+----------------------------------------------------------------------------
+-- The native client
+----------------------------------------------------------------------------
 
 --- One connection pool, and the transfers it is carrying.
 local record Client is NativeClient
@@ -209365,6 +211147,10 @@ local function newClient(options: any): (NativeClient?, string?)
     ), nil
 end
 
+----------------------------------------------------------------------------
+-- Requests
+----------------------------------------------------------------------------
+
 --- The protocol version a response arrived over.
 type http.Version = "1.0" | "1.1" | "2"
 
@@ -209516,6 +211302,10 @@ local UPLOAD_PAGE: integer = 64 * 1024
 local COALESCE_BELOW: integer = 8 * 1024
 local COPY_TURN: integer = 16 * 1024 * 1024
 
+----------------------------------------------------------------------------
+-- Options
+----------------------------------------------------------------------------
+
 local function whole(value: any, what: string, minimum: integer, maximum: integer?): integer
     if type(
         value
@@ -209648,6 +211438,10 @@ local function copiedOptions(options: http.Options?): any
     }
 end
 
+----------------------------------------------------------------------------
+-- Waiting
+----------------------------------------------------------------------------
+
 local function appendWaiter(client: BodyClient, transfer: NativeTransfer, which: string, cancelNative: boolean): nil
     suspension.suspend("HTTP " .. which, function(resume: function(boolean), context: suspension.Context): function()?
         local active = true
@@ -209751,6 +211545,10 @@ local function fairnessYield(): nil
         end
     )
 end
+
+----------------------------------------------------------------------------
+-- Response bodies
+----------------------------------------------------------------------------
 
 --- A response's bytes, as a `nupp.io.Reader`.
 ---
@@ -209980,6 +211778,10 @@ local function origin(uri: uri.URI): string
     return scheme .. "://" .. (uri:host() or ""):lower() .. ":" .. port
 end
 
+----------------------------------------------------------------------------
+-- Responses
+----------------------------------------------------------------------------
+
 --- One response, with its body still arriving.
 ---
 --- A status is an answer, so 4xx and 5xx come back here rather than as a reason.
@@ -210166,6 +211968,10 @@ local function makeResponse(
         _closed = false
     )
 end
+
+----------------------------------------------------------------------------
+-- The client
+----------------------------------------------------------------------------
 
 --- One connection pool, and every request in flight through it.
 ---
@@ -210564,6 +212370,10 @@ function http.Client.close(takes self: http.Client): nil
     end
 end
 
+----------------------------------------------------------------------------
+-- Request bodies
+----------------------------------------------------------------------------
+
 --- Builds a request body that streams from a reader.
 ---
 --- The bytes are sent as the reader produces them, so a large upload never has to
@@ -210879,6 +212689,10 @@ empty leaves an empty queue rather than a released one.
 :::
 ]]
 
+----------------------------------------------------------------------------
+-- Argument checks
+----------------------------------------------------------------------------
+
 local ffi = require("ffi")
 local span = require("nupp.mem.span")
 
@@ -210936,6 +212750,10 @@ local function range(length: integer, offset: any, count: any, what: string, lev
 
     return from, taking
 end
+
+----------------------------------------------------------------------------
+-- Owners
+----------------------------------------------------------------------------
 
 -- A terminal has to be a declared function wherever a contract names it, and these
 -- records hand each other out: a buffer answers a reader, and a snapshot answers
@@ -211074,6 +212892,10 @@ export sealed interface ByteView
     isReleased: function(self: ByteView): boolean
     close: function(takes self: ByteView): (boolean, string?)
 end
+
+----------------------------------------------------------------------------
+-- Views and buffers
+----------------------------------------------------------------------------
 
 local record Snapshot is ByteView
     private _bytes: string
@@ -211404,6 +213226,10 @@ local record BufferWriter is Writer
         self:drop()
     end
 end
+
+----------------------------------------------------------------------------
+-- Readers
+----------------------------------------------------------------------------
 
 --- The storage behind a reader over held bytes.
 local record StringReader is Reader
@@ -211885,6 +213711,10 @@ export interface ScalarReader
     end
 end
 
+----------------------------------------------------------------------------
+-- Scalars
+----------------------------------------------------------------------------
+
 --- The storage behind a scalar reader.
 local record Scalars is ScalarReader
     _pending: string
@@ -212105,6 +213935,10 @@ local record ScalarSink is ScalarWriter
     _closed: boolean
 end
 
+----------------------------------------------------------------------------
+-- Dropping
+----------------------------------------------------------------------------
+
 function Snapshot.drop(takes self: Snapshot): nil
     local state = unsafe release self
     state._closed = true
@@ -212167,6 +214001,10 @@ function ScalarSink.drop(takes self: ScalarSink): nil
         buffer:drop()
     end
 end
+
+----------------------------------------------------------------------------
+-- Shared implementations
+----------------------------------------------------------------------------
 
 -- Doubling, with a floor, so appending one byte at a time stays linear overall.
 reserve = function(borrows self: Buffer, minimum: integer): nil
@@ -212275,6 +214113,10 @@ put = function(self: ScalarWriter, bytes: string): ScalarWriter
 
     return self
 end
+
+----------------------------------------------------------------------------
+-- Opening
+----------------------------------------------------------------------------
 
 local function queueLike(value: any): boolean
     local kind = type(value)
@@ -212641,6 +214483,10 @@ end
 
 local net = {}
 
+----------------------------------------------------------------------------
+-- What a socket is described by
+----------------------------------------------------------------------------
+
 --- How a listener is opened.
 type net.ListenOptions = {
     --- The address to bind, as an IPv4 or IPv6 literal. A name is not resolved
@@ -212743,6 +214589,10 @@ record net.Message
     --- that is a security bug rather than a lost packet.
     truncated: boolean
 end
+
+----------------------------------------------------------------------------
+-- The backend seam
+----------------------------------------------------------------------------
 
 --- The smallest set of operations a platform has to answer for this module.
 ---
@@ -212858,6 +214708,10 @@ record net.Backend
     --- take whatever is ready now and return.
     run: function(self: net.Backend, timeoutMs: integer): nil
 end
+
+----------------------------------------------------------------------------
+-- Reading and writing
+----------------------------------------------------------------------------
 
 const DEFAULT_HIGH_WATER = 1048576
 const DEFAULT_CONNECT_MS = 30000
@@ -213013,6 +214867,10 @@ local function drain(chosen: net.Backend, handle: any): (boolean, string?)
 
     return true
 end
+
+----------------------------------------------------------------------------
+-- Streams
+----------------------------------------------------------------------------
 
 --- One connection.
 ---
@@ -213487,6 +215345,10 @@ function net.asWriter(borrows source: net.Stream): affine(net.DirectionView) bor
     )
 end
 
+----------------------------------------------------------------------------
+-- Listeners and datagrams
+----------------------------------------------------------------------------
+
 --- A listening socket.
 --- @export
 record net.Listener is nupp.Closeable
@@ -213747,6 +215609,10 @@ record net.Datagram is nupp.Closeable
     end
 end
 
+----------------------------------------------------------------------------
+-- Opening a socket
+----------------------------------------------------------------------------
+
 --- Opens a datagram socket.
 --- @param options where to bind
 --- @return the socket, which the caller owns and must close
@@ -213862,6 +215728,10 @@ function net.connect(options: net.ConnectOptions): (affine(net.Stream)?, string?
     )
 end
 
+----------------------------------------------------------------------------
+-- Driving the loop
+----------------------------------------------------------------------------
+
 --- The platform handle behind a connection.
 ---
 --- For a module that layers over a connection rather than uses one:
@@ -213914,6 +215784,10 @@ end
 function net.useBackend(chosen: net.Backend): nil
     backend = chosen
 end
+
+----------------------------------------------------------------------------
+-- The native backend
+----------------------------------------------------------------------------
 
 --- The platform, bound to the native provider.
 ---
@@ -215484,6 +217358,10 @@ local ffiString: function(borrows source: const uint8[?], count: integer): strin
 -- handed a leak.
 local process = {}
 
+----------------------------------------------------------------------------
+-- What a process is described by
+----------------------------------------------------------------------------
+
 --- Where a stream goes: a pipe this process reads or writes, the parent's own
 --- stream, or nothing at all.
 type process.StreamMode = "pipe" | "inherit" | "null"
@@ -215591,6 +217469,10 @@ record process.Interest
     --- Stream handles this wait wants to put bytes into.
     write: {any}
 end
+
+----------------------------------------------------------------------------
+-- The backend seam
+----------------------------------------------------------------------------
 
 --- The operations a platform must answer, in bytes and opaque handles and no
 --- policy.
@@ -215705,6 +217587,10 @@ end
 -- How many bytes one read asks for. Large enough that a busy pipe empties in a pass or
 -- two, small enough that a quiet one costs a small buffer rather than a large one.
 local READ_LIMIT: integer = 65536
+
+----------------------------------------------------------------------------
+-- Streams
+----------------------------------------------------------------------------
 
 --- @raises when value is not a positive integer
 local function positive(value: integer, what: string, level: integer): integer
@@ -216181,6 +218067,10 @@ end
 
 local newReader: function(owner: any, handle: any): process.Reader
 local newWriter: function(owner: any, handle: any): process.Writer
+
+----------------------------------------------------------------------------
+-- A running process
+----------------------------------------------------------------------------
 
 --- A running child.
 record process.Process
@@ -216679,6 +218569,10 @@ record process.Process
     end
 end
 
+----------------------------------------------------------------------------
+-- Pumping and waiting
+----------------------------------------------------------------------------
+
 function process.Process.drop(takes self: process.Process): nil
     self:close()
     if self.stdin ~= nil then
@@ -216925,6 +218819,10 @@ newWriter = function(owner: any, handle: any): process.Writer
     return new process.Writer(owner = owner, handle = handle, closed = false, gone = false, timeoutMs = 30000)
 end
 
+----------------------------------------------------------------------------
+-- Spawning
+----------------------------------------------------------------------------
+
 --- Installs the backend the public `Process` constructor uses.
 ---
 --- Called by a platform module, not by a caller: the point of the seam is that nothing
@@ -216998,6 +218896,10 @@ not name `Backend`. Naming it would have made the two require each other, and a
 resolved cycle answers `any` without reporting one. Written here it names `Backend`
 directly and is checked against it, which is what the cast was standing in for.
 ]]
+
+----------------------------------------------------------------------------
+-- The native backend
+----------------------------------------------------------------------------
 
 const native = require("nupp.runtime.native")
 
@@ -235606,6 +237508,10 @@ The first unobserved child failure is raised after all children have settled. A 
 blocks efficiently in an ordinary program and parks under a suspension handler.
 ]]
 
+----------------------------------------------------------------------------
+-- The host bindings
+----------------------------------------------------------------------------
+
 local type BufferValue = {
     encode: nosuspend function(any, any): any,
     decode: nosuspend function(any): any,
@@ -235664,6 +237570,10 @@ rawset(_G.nupp, "__workerCheckpoint", native.workerTaskCheckpoint)
 local workers = {}
 
 rawset(workers, "__parallelism", native.workerParallelism)
+
+----------------------------------------------------------------------------
+-- What crosses a lane
+----------------------------------------------------------------------------
 
 local type Packed = {
     values: {any},
@@ -235890,6 +237800,10 @@ end
 --- The typed handle for one submitted function.
 type workers.Task<F is Callable> = TaskType(F)
 
+----------------------------------------------------------------------------
+-- Sendable functions
+----------------------------------------------------------------------------
+
 local function pack(...: any): Packed
     return {values = {...}, count = select("#", ...)}
 end
@@ -235929,6 +237843,10 @@ end
 -- authored module surface while retaining them on the runtime table.
 rawset(workers, "__defineSendable", defineSendable)
 rawset(workers, "__sendable", describeSendable)
+
+----------------------------------------------------------------------------
+-- Handles
+----------------------------------------------------------------------------
 
 local type Frame = {
     kind: string,
@@ -236025,6 +237943,10 @@ local ChannelMT: metatable<Channel> = {__index = Channel}
 local TaskMT: metatable<TaskImpl> = {__index = TaskImpl}
 local ScopeMT: metatable<workers.Scope> = {__index = workers.Scope}
 
+----------------------------------------------------------------------------
+-- Channels
+----------------------------------------------------------------------------
+
 local function channel(handle: any, owned: boolean): Channel
     return setmetatable({handle = handle, owned = owned, destroyed = false}, ChannelMT) as Channel
 end
@@ -236066,6 +237988,10 @@ local function heapHooks(): nil
         heapArrayFree = rawget(heapModule as table, "__heapArrayFree")
     end
 end
+
+----------------------------------------------------------------------------
+-- What may be transferred
+----------------------------------------------------------------------------
 
 local function unsendable(value: any, path: string, depth: integer, state: TransferState): string?
     local kind = type(value)
@@ -236197,6 +238123,10 @@ end
 
 local noRecords: {string} = {}
 
+----------------------------------------------------------------------------
+-- Encoding a payload
+----------------------------------------------------------------------------
+
 -- One string.buffer codec per channel, whose metatable dictionary is the
 -- channel's ordered, append-only address registry. The sender registers an
 -- address once and invalidates its codec; the receiver compares the native
@@ -236294,6 +238224,10 @@ end
 -- never loads the module.
 local regionParts: any = nil
 local regionFromParts: any = nil
+
+----------------------------------------------------------------------------
+-- Attachments
+----------------------------------------------------------------------------
 
 local function regionHooks(): nil
     if regionParts == nil then
@@ -236549,6 +238483,10 @@ end
 -- with, so its schema ids are cached per state rather than per lane.
 local replySchemaIds: {[any]: any} = setmetatable({}, {__mode = "k"}) as {[any]: any}
 
+----------------------------------------------------------------------------
+-- Frames on the wire
+----------------------------------------------------------------------------
+
 local function encodeFrame(frame: Frame): string
     local header: any
     if frame.kind == "task" then
@@ -236787,6 +238725,10 @@ local function pop(source: Channel, timeoutMs: integer): Frame?
 
     return frame
 end
+
+----------------------------------------------------------------------------
+-- Lanes and the scheduler
+----------------------------------------------------------------------------
 
 local function destroy(value: Channel): nil
     if value.destroyed or not value.owned then
@@ -237033,6 +238975,10 @@ end
 -- not have loaded yet.
 local scannedAddresses: {[any]: {string}} = setmetatable({}, {__mode = "k"}) as {[any]: {string}}
 
+----------------------------------------------------------------------------
+-- Spawning
+----------------------------------------------------------------------------
+
 local function callableAddress(fn: any): (string?, string?)
     local described = sendableDescriptors[fn]
     if described ~= nil then
@@ -237247,6 +239193,10 @@ unsafe do
     workers.Scope.spawn = spawnSurface as any
 end
 
+----------------------------------------------------------------------------
+-- Tasks
+----------------------------------------------------------------------------
+
 function TaskImpl:isDone(): boolean
     if self._state ~= "queued" then
         return true
@@ -237343,6 +239293,10 @@ local function settleBlocking(task: any): string?
     return task._state == "failed" and "nupp: worker task failed: " .. (task._error or "unknown failure") or nil
 end
 
+----------------------------------------------------------------------------
+-- Scopes
+----------------------------------------------------------------------------
+
 local function closeBlocking(takes self: workers.Scope): nil
     if self._closed then
         return
@@ -237412,6 +239366,10 @@ function workers.scope(): affine(workers.Scope)
 end
 
 rawset(workers, "__scope", openScope)
+
+----------------------------------------------------------------------------
+-- The worker side
+----------------------------------------------------------------------------
 
 local function workerReply(outbox: Channel, id: integer, ok: boolean, answer: any, preparedOutput: any): nil
     if not ok then
