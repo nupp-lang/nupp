@@ -6096,8 +6096,12 @@ leftType == "f32" and INTEGER_FIXED [ rightType ] == true
 return "((double)" .. emit . scalar ( left ) .. " " .. operator .. " (double)" .. emit . scalar ( right ) .. ")"
 end
 
+
+
+
+
 if ( leftType == "i32" and rightType == "u32" ) or ( leftType == "u32" and rightType == "i32" ) then
-return "((int64_t)" .. emit . scalar ( left ) .. " " .. operator .. " (int64_t)" .. emit . scalar ( right ) .. ")"
+return "ks_" .. operation .. "_i32_u32(" .. emit . scalar ( left ) .. ", " .. emit . scalar ( right ) .. ")"
 end
 
 
@@ -7309,9 +7313,9 @@ return {
 "static KS_UNUSED KsMaskBits64 ks_mask64_or(KsMaskBits64 a, KsMaskBits64 b) { return ks_mask64(a.low | b.low, a.high | b.high); }" ,
 "static KS_UNUSED KsMaskBits64 ks_mask64_xor(KsMaskBits64 a, KsMaskBits64 b) { return ks_mask64(a.low ^ b.low, a.high ^ b.high); }" ,
 "static KS_UNUSED KsMaskBits64 ks_mask64_not(KsMaskBits64 a) { return ks_mask64(~a.low, ~a.high); }" ,
-"static KS_UNUSED KsMaskBits64 ks_mask64_shl(KsMaskBits64 a, uint32_t n) { if (n >= 64u) return ks_mask64(0u, 0u); if (n == 0u) return a; if (n >= 32u) return ks_mask64(0u, a.low << (n - 32u)); return ks_mask64(a.low << n, (a.high << n) | (a.low >> (32u - n))); }" ,
-"static KS_UNUSED KsMaskBits64 ks_mask64_shr(KsMaskBits64 a, uint32_t n) { if (n >= 64u) return ks_mask64(0u, 0u); if (n == 0u) return a; if (n >= 32u) return ks_mask64(a.high >> (n - 32u), 0u); return ks_mask64((a.low >> n) | (a.high << (32u - n)), a.high >> n); }" ,
-"static KS_UNUSED KsMaskBits64 ks_mask64_prefix_xor(KsMaskBits64 a, bool carry) { uint32_t lo = a.low, hi = a.high; lo ^= lo << 1; lo ^= lo << 2; lo ^= lo << 4; lo ^= lo << 8; lo ^= lo << 16; hi ^= hi << 1; hi ^= hi << 2; hi ^= hi << 4; hi ^= hi << 8; hi ^= hi << 16; if ((lo & UINT32_C(0x80000000)) != 0u) hi = ~hi; if (carry) { lo = ~lo; hi = ~hi; } return ks_mask64(lo, hi); }" ,
+"static KS_UNUSED KsMaskBits64 ks_mask64_shl(KsMaskBits64 a, uint32_t n) { if (n >= 64u) { return ks_mask64(0u, 0u); } if (n == 0u) { return a; } if (n >= 32u) { return ks_mask64(0u, a.low << (n - 32u)); } return ks_mask64(a.low << n, (a.high << n) | (a.low >> (32u - n))); }" ,
+"static KS_UNUSED KsMaskBits64 ks_mask64_shr(KsMaskBits64 a, uint32_t n) { if (n >= 64u) { return ks_mask64(0u, 0u); } if (n == 0u) { return a; } if (n >= 32u) { return ks_mask64(a.high >> (n - 32u), 0u); } return ks_mask64((a.low >> n) | (a.high << (32u - n)), a.high >> n); }" ,
+"static KS_UNUSED KsMaskBits64 ks_mask64_prefix_xor(KsMaskBits64 a, bool carry) { uint32_t lo = a.low, hi = a.high; lo ^= lo << 1; lo ^= lo << 2; lo ^= lo << 4; lo ^= lo << 8; lo ^= lo << 16; hi ^= hi << 1; hi ^= hi << 2; hi ^= hi << 4; hi ^= hi << 8; hi ^= hi << 16; if ((lo & UINT32_C(0x80000000)) != 0u) { hi = ~hi; } if (carry) { lo = ~lo; hi = ~hi; } return ks_mask64(lo, hi); }" ,
 "/* C's usual arithmetic conversions decide a mixed signed/unsigned" ,
 " * comparison in unsigned arithmetic. These compare by mathematical" ,
 " * value, which is what the source wrote and the folder answers. */" ,
@@ -7321,6 +7325,19 @@ return {
 "static KS_UNUSED bool ks_ge_i64_u64(int64_t l, uint64_t r) { return l >= 0 && (uint64_t)l >= r; }" ,
 "static KS_UNUSED bool ks_eq_i64_u64(int64_t l, uint64_t r) { return l >= 0 && (uint64_t)l == r; }" ,
 "static KS_UNUSED bool ks_ne_i64_u64(int64_t l, uint64_t r) { return l < 0 || (uint64_t)l != r; }" ,
+"/* The 32-bit pairing widens exactly into int64_t, so these are the bare" ,
+" * operator over the widened values and nothing more. They are functions" ,
+" * rather than that expression written at the site because a widened int32" ,
+" * cannot reach the upper half of uint32's range: against a constant up" ,
+" * there the comparison is provably constant, which is the right answer and" ,
+" * a -Wtype-limits error to write inline. Across a parameter the operands" ,
+" * are int64_t, which is the type the comparison is defined over. */" ,
+"static KS_UNUSED bool ks_lt_i32_u32(int64_t l, int64_t r) { return l < r; }" ,
+"static KS_UNUSED bool ks_le_i32_u32(int64_t l, int64_t r) { return l <= r; }" ,
+"static KS_UNUSED bool ks_gt_i32_u32(int64_t l, int64_t r) { return l > r; }" ,
+"static KS_UNUSED bool ks_ge_i32_u32(int64_t l, int64_t r) { return l >= r; }" ,
+"static KS_UNUSED bool ks_eq_i32_u32(int64_t l, int64_t r) { return l == r; }" ,
+"static KS_UNUSED bool ks_ne_i32_u32(int64_t l, int64_t r) { return l != r; }" ,
 "" ,
 }
 end
@@ -7451,12 +7468,12 @@ local lines = {
 "" ,
 "static const unsigned char ks_lua_empty_bytes[64] = {0};" ,
 "static KS_UNUSED const unsigned char *ks_lua_bytes(lua_State *L, int index, size_t *length) {" ,
-"    if (lua_type(L, index) == 4) return (const unsigned char *)luaL_checklstring(L, index, length);" ,
-"    if (lua_type(L, index) != 7 || !lua_getmetatable(L, index)) return (const unsigned char *)(uintptr_t)luaL_error(L, \"string or string.buffer.Buffer expected\");" ,
+"    if (lua_type(L, index) == 4) { return (const unsigned char *)luaL_checklstring(L, index, length); }" ,
+"    if (lua_type(L, index) != 7 || !lua_getmetatable(L, index)) { return (const unsigned char *)(uintptr_t)luaL_error(L, \"string or string.buffer.Buffer expected\"); }" ,
 "    lua_getfield(L, -1, \"__metatable\"); size_t tag_length = 0u; const char *tag = lua_tolstring(L, -1, &tag_length); int buffer = tag != NULL && tag_length == 6u && memcmp(tag, \"buffer\", 6u) == 0; lua_settop(L, lua_gettop(L) - 1);" ,
 "    if (!buffer) { lua_settop(L, lua_gettop(L) - 1); return (const unsigned char *)(uintptr_t)luaL_error(L, \"string or string.buffer.Buffer expected\"); }" ,
 "    lua_settop(L, lua_gettop(L) - 1); const unsigned char *storage = (const unsigned char *)lua_touserdata(L, index); uintptr_t write = 0u, end = 0u, begin = 0u, read4 = 0u, read5 = 0u; memcpy(&write, storage, sizeof(write)); memcpy(&end, storage + sizeof(uintptr_t), sizeof(end)); memcpy(&begin, storage + 2u * sizeof(uintptr_t), sizeof(begin)); memcpy(&read4, storage + 4u * sizeof(uintptr_t), sizeof(read4)); memcpy(&read5, storage + 5u * sizeof(uintptr_t), sizeof(read5));" ,
-"    int valid4 = begin <= read4 && read4 <= write && write <= end, valid5 = begin <= read5 && read5 <= write && write <= end; if (valid4 && valid5 && read4 != read5) return (const unsigned char *)(uintptr_t)luaL_error(L, \"string.buffer layout is ambiguous on this LuaJIT\"); uintptr_t read = valid5 ? read5 : valid4 ? read4 : 0u; if (!valid4 && !valid5) return (const unsigned char *)(uintptr_t)luaL_error(L, \"string.buffer layout is incompatible with this LuaJIT\"); *length = (size_t)(write - read); return read == 0u ? ks_lua_empty_bytes : (const unsigned char *)read;" ,
+"    int valid4 = begin <= read4 && read4 <= write && write <= end, valid5 = begin <= read5 && read5 <= write && write <= end; if (valid4 && valid5 && read4 != read5) { return (const unsigned char *)(uintptr_t)luaL_error(L, \"string.buffer layout is ambiguous on this LuaJIT\"); } uintptr_t read = valid5 ? read5 : valid4 ? read4 : 0u; if (!valid4 && !valid5) { return (const unsigned char *)(uintptr_t)luaL_error(L, \"string.buffer layout is incompatible with this LuaJIT\"); } *length = (size_t)(write - read); return read == 0u ? ks_lua_empty_bytes : (const unsigned char *)read;" ,
 "}" ,
 "" ,
 "static KS_UNUSED int ks_lua_count(lua_State *L, double value, const char *what) {" ,
@@ -8146,11 +8163,11 @@ local lines = {
 "static KS_UNUSED int ks_json_compute_float64(int32_t power, uint64_t magnitude, int negative, double *answer) {" ,
 "    if (magnitude == 0u) { *answer = negative ? -0.0 : 0.0; return 1; }" ,
 "    int64_t exponent = (((INT64_C(152170) + INT64_C(65536)) * (int64_t)power) >> 16u) + INT64_C(1087); int leading = __builtin_clzll(magnitude); magnitude <<= leading; uint32_t index = 2u * (uint32_t)(power + 342);" ,
-"    KsJsonU128 product = ks_json_full_multiplication(magnitude, ks_json_power_of_five_128[index]); if ((product.high & UINT64_C(0x1ff)) == UINT64_C(0x1ff)) { KsJsonU128 next = ks_json_full_multiplication(magnitude, ks_json_power_of_five_128[index + 1u]); product.low += next.high; if (next.high > product.low) product.high += 1u; }" ,
+"    KsJsonU128 product = ks_json_full_multiplication(magnitude, ks_json_power_of_five_128[index]); if ((product.high & UINT64_C(0x1ff)) == UINT64_C(0x1ff)) { KsJsonU128 next = ks_json_full_multiplication(magnitude, ks_json_power_of_five_128[index + 1u]); product.low += next.high; if (next.high > product.low) { product.high += 1u; } }" ,
 "    uint64_t lower = product.low, upper = product.high, upper_bit = upper >> 63u; uint64_t mantissa = upper >> (upper_bit + 9u); leading += (int)(1u ^ upper_bit); int64_t real_exponent = exponent - leading;" ,
 "    if (real_exponent <= 0) { if (-real_exponent + 1 >= 64) { *answer = negative ? -0.0 : 0.0; return 1; } mantissa >>= (uint32_t)(-real_exponent + 1); mantissa += mantissa & 1u; mantissa >>= 1u; real_exponent = mantissa < (UINT64_C(1) << 52u) ? 0 : 1; *answer = ks_json_to_double(mantissa, (uint64_t)real_exponent, negative); return 1; }" ,
-"    if (lower <= 1u && power >= -4 && power <= 23 && (mantissa & 3u) == 1u && (mantissa << (upper_bit + 9u)) == upper) mantissa &= ~UINT64_C(1); mantissa += mantissa & 1u; mantissa >>= 1u;" ,
-"    if (mantissa >= (UINT64_C(1) << 53u)) { mantissa = UINT64_C(1) << 52u; real_exponent += 1; } if (real_exponent > 2046) return 0; *answer = ks_json_to_double(mantissa, (uint64_t)real_exponent, negative); return 1;" ,
+"    if (lower <= 1u && power >= -4 && power <= 23 && (mantissa & 3u) == 1u && (mantissa << (upper_bit + 9u)) == upper) { mantissa &= ~UINT64_C(1); } mantissa += mantissa & 1u; mantissa >>= 1u;" ,
+"    if (mantissa >= (UINT64_C(1) << 53u)) { mantissa = UINT64_C(1) << 52u; real_exponent += 1; } if (real_exponent > 2046) { return 0; } *answer = ks_json_to_double(mantissa, (uint64_t)real_exponent, negative); return 1;" ,
 "}" ,
 "/* KS_JSON_WIDE_END */" ,
 "static KS_UNUSED double ks_lua_decimal64_value(lua_State *L, const unsigned char *source, size_t source_length, uint32_t start, uint32_t length, uint64_t magnitude, int32_t exponent, int negative, int exact) {" ,
@@ -8158,7 +8175,7 @@ local lines = {
 "        static const double powers[] = { 1.0, 1e1, 1e2, 1e3, 1e4, 1e5, 1e6, 1e7, 1e8, 1e9, 1e10, 1e11, 1e12, 1e13, 1e14, 1e15, 1e16, 1e17, 1e18, 1e19, 1e20, 1e21, 1e22 };" ,
 "        double value = (double)magnitude; value = exponent < 0 ? value / powers[-exponent] : value * powers[exponent]; return negative ? -value : value;" ,
 "    }" ,
-"    if (exact) { double value; if (exponent < -342) return negative ? -0.0 : 0.0; if (exponent <= 308 && ks_json_compute_float64(exponent, magnitude, negative, &value)) return value; }" ,
+"    if (exact) { double value; if (exponent < -342) { return negative ? -0.0 : 0.0; } if (exponent <= 308 && ks_json_compute_float64(exponent, magnitude, negative, &value)) { return value; } }" ,
 "    return ks_lua_number_slice(L, source, source_length, start, length, \"value stream decimal\");" ,
 "}" ,
 "typedef struct {" ,
@@ -8171,17 +8188,17 @@ local lines = {
 "    int null_index;" ,
 "} KsLuaTree;" ,
 "static int ks_tree_hex(unsigned char byte) {" ,
-"    if (byte >= '0' && byte <= '9') return (int)(byte - '0');" ,
-"    if (byte >= 'A' && byte <= 'F') return (int)(byte - 'A') + 10;" ,
-"    if (byte >= 'a' && byte <= 'f') return (int)(byte - 'a') + 10;" ,
+"    if (byte >= '0' && byte <= '9') { return (int)(byte - '0'); }" ,
+"    if (byte >= 'A' && byte <= 'F') { return (int)(byte - 'A') + 10; }" ,
+"    if (byte >= 'a' && byte <= 'f') { return (int)(byte - 'a') + 10; }" ,
 "    return -1;" ,
 "}" ,
 "static int ks_tree_hex4(const unsigned char *source, size_t length, size_t *at, uint32_t *value) {" ,
-"    if (*at > length || length - *at < 4u) return 0;" ,
+"    if (*at > length || length - *at < 4u) { return 0; }" ,
 "    uint32_t out = 0;" ,
 "    for (int i = 0; i < 4; ++i) {" ,
 "        int digit = ks_tree_hex(source[(*at)++]);" ,
-"        if (digit < 0) return 0;" ,
+"        if (digit < 0) { return 0; }" ,
 "        out = out * 16u + (uint32_t)digit;" ,
 "    }" ,
 "    *value = out;" ,
@@ -8199,33 +8216,33 @@ local lines = {
 "        return luaL_error(L, \"AOT value tree string range is out of bounds\");" ,
 "    const unsigned char *source = tree->source + start;" ,
 "    if (node->flags == 0u) { lua_pushlstring(L, (const char *)source, length); return 1; }" ,
-"    if (node->flags != 1u) return luaL_error(L, \"AOT value tree has an unknown string recipe\");" ,
+"    if (node->flags != 1u) { return luaL_error(L, \"AOT value tree has an unknown string recipe\"); }" ,
 "    int base = lua_gettop(L);" ,
 "    unsigned char *out = (unsigned char *)lua_newuserdata(L, length > 0u ? length : 1u);" ,
 "    size_t at = 0, written = 0;" ,
 "    while (at < length) {" ,
 "        unsigned char byte = source[at++];" ,
 "        if (byte != '\\\\') { out[written++] = byte; continue; }" ,
-"        if (at >= length) return luaL_error(L, \"AOT value tree has an incomplete escape\");" ,
+"        if (at >= length) { return luaL_error(L, \"AOT value tree has an incomplete escape\"); }" ,
 "        unsigned char escaped = source[at++];" ,
-"        if (escaped == '\"' || escaped == '\\\\' || escaped == '/') out[written++] = escaped;" ,
-"        else if (escaped == 'b') out[written++] = '\\b';" ,
-"        else if (escaped == 'f') out[written++] = '\\f';" ,
-"        else if (escaped == 'n') out[written++] = '\\n';" ,
-"        else if (escaped == 'r') out[written++] = '\\r';" ,
-"        else if (escaped == 't') out[written++] = '\\t';" ,
+"        if (escaped == '\"' || escaped == '\\\\' || escaped == '/') { out[written++] = escaped; }" ,
+"        else if (escaped == 'b') { out[written++] = '\\b'; }" ,
+"        else if (escaped == 'f') { out[written++] = '\\f'; }" ,
+"        else if (escaped == 'n') { out[written++] = '\\n'; }" ,
+"        else if (escaped == 'r') { out[written++] = '\\r'; }" ,
+"        else if (escaped == 't') { out[written++] = '\\t'; }" ,
 "        else if (escaped == 'u') {" ,
 "            uint32_t codepoint = 0;" ,
-"            if (!ks_tree_hex4(source, length, &at, &codepoint)) return luaL_error(L, \"AOT value tree has an invalid Unicode escape\");" ,
+"            if (!ks_tree_hex4(source, length, &at, &codepoint)) { return luaL_error(L, \"AOT value tree has an invalid Unicode escape\"); }" ,
 "            if (codepoint >= 0xd800u && codepoint <= 0xdbffu) {" ,
 "                uint32_t low = 0;" ,
-"                if (at > length || length - at < 2u || source[at] != '\\\\' || source[at + 1u] != 'u') return luaL_error(L, \"AOT value tree has an unmatched high surrogate\");" ,
+"                if (at > length || length - at < 2u || source[at] != '\\\\' || source[at + 1u] != 'u') { return luaL_error(L, \"AOT value tree has an unmatched high surrogate\"); }" ,
 "                at += 2u;" ,
-"                if (!ks_tree_hex4(source, length, &at, &low) || low < 0xdc00u || low > 0xdfffu) return luaL_error(L, \"AOT value tree has an invalid low surrogate\");" ,
+"                if (!ks_tree_hex4(source, length, &at, &low) || low < 0xdc00u || low > 0xdfffu) { return luaL_error(L, \"AOT value tree has an invalid low surrogate\"); }" ,
 "                codepoint = 0x10000u + (codepoint - 0xd800u) * 0x400u + low - 0xdc00u;" ,
-"            } else if (codepoint >= 0xdc00u && codepoint <= 0xdfffu) return luaL_error(L, \"AOT value tree has an unmatched low surrogate\");" ,
+"            } else if (codepoint >= 0xdc00u && codepoint <= 0xdfffu) { return luaL_error(L, \"AOT value tree has an unmatched low surrogate\"); }" ,
 "            written += ks_tree_utf8(out + written, codepoint);" ,
-"        } else return luaL_error(L, \"AOT value tree has an unknown escape\");" ,
+"        } else { return luaL_error(L, \"AOT value tree has an unknown escape\"); }" ,
 "    }" ,
 "    lua_pushlstring(L, (const char *)out, written);" ,
 "    lua_insert(L, base + 1);" ,
@@ -8233,7 +8250,7 @@ local lines = {
 "    return 1;" ,
 "}" ,
 "static int ks_tree_read_node(lua_State *L, const KsLuaTree *tree, uint32_t id, KsLuaTreeNode *node) {" ,
-"    if (id == 0u || (size_t)id > tree->node_count) return luaL_error(L, \"AOT value tree node id is out of bounds\");" ,
+"    if (id == 0u || (size_t)id > tree->node_count) { return luaL_error(L, \"AOT value tree node id is out of bounds\"); }" ,
 "    memcpy(node, tree->nodes + ((size_t)id - 1u) * sizeof(*node), sizeof(*node));" ,
 "    return 1;" ,
 "}" ,
@@ -8244,24 +8261,24 @@ local lines = {
 "    return id;" ,
 "}" ,
 "static int ks_tree_push_node(lua_State *L, const KsLuaTree *tree, uint32_t id, size_t depth) {" ,
-"    if (depth > tree->node_count || depth > 1024u) return luaL_error(L, \"AOT value tree nesting is excessive\");" ,
+"    if (depth > tree->node_count || depth > 1024u) { return luaL_error(L, \"AOT value tree nesting is excessive\"); }" ,
 "    KsLuaTreeNode node; ks_tree_read_node(L, tree, id, &node);" ,
 "    if (node.tag == 0u) { lua_pushvalue(L, tree->null_index); return 1; }" ,
 "    if (node.tag == 1u || node.tag == 2u) { lua_pushboolean(L, node.tag == 1u); return 1; }" ,
 "    if (node.tag == 3u) {" ,
-"        if (node.flags == 1u) lua_pushnumber(L, node.number);" ,
+"        if (node.flags == 1u) { lua_pushnumber(L, node.number); }" ,
 "        else {" ,
 "            double value = ks_lua_number_slice(L, tree->source, tree->source_length, node.start, node.length, \"value tree\");" ,
 "            lua_pushnumber(L, value);" ,
 "        }" ,
 "        return 1;" ,
 "    }" ,
-"    if (node.tag == 4u) return ks_tree_string(L, tree, &node);" ,
-"    if (node.tag != 5u && node.tag != 6u) return luaL_error(L, \"AOT value tree node tag is invalid\");" ,
-"    if ((size_t)node.link_start > tree->link_count || (size_t)node.link_count > tree->link_count - (size_t)node.link_start) return luaL_error(L, \"AOT value tree child range is out of bounds\");" ,
-"    if (node.tag == 6u && (node.link_count & 1u) != 0u) return luaL_error(L, \"AOT value tree object has an unmatched key\");" ,
-"    if (node.link_count > (uint32_t)INT_MAX) return luaL_error(L, \"AOT value tree container exceeds the C API capacity range\");" ,
-"    if (!lua_checkstack(L, 4)) return luaL_error(L, \"AOT builder Lua stack exhausted\");" ,
+"    if (node.tag == 4u) { return ks_tree_string(L, tree, &node); }" ,
+"    if (node.tag != 5u && node.tag != 6u) { return luaL_error(L, \"AOT value tree node tag is invalid\"); }" ,
+"    if ((size_t)node.link_start > tree->link_count || (size_t)node.link_count > tree->link_count - (size_t)node.link_start) { return luaL_error(L, \"AOT value tree child range is out of bounds\"); }" ,
+"    if (node.tag == 6u && (node.link_count & 1u) != 0u) { return luaL_error(L, \"AOT value tree object has an unmatched key\"); }" ,
+"    if (node.link_count > (uint32_t)INT_MAX) { return luaL_error(L, \"AOT value tree container exceeds the C API capacity range\"); }" ,
+"    if (!lua_checkstack(L, 4)) { return luaL_error(L, \"AOT builder Lua stack exhausted\"); }" ,
 "    lua_createtable(L, node.tag == 5u ? (int)node.link_count : 0, node.tag == 6u ? (int)(node.link_count / 2u) : 0);" ,
 "    int table_index = lua_gettop(L);" ,
 "    if (node.tag == 5u) {" ,
@@ -8273,7 +8290,7 @@ local lines = {
 "        for (uint32_t offset = 0; offset < node.link_count; offset += 2u) {" ,
 "            uint32_t key_id = ks_tree_link(L, tree, (size_t)node.link_start + offset);" ,
 "            KsLuaTreeNode key; ks_tree_read_node(L, tree, key_id, &key);" ,
-"            if (key.tag != 4u) return luaL_error(L, \"AOT value tree object key is not a string\");" ,
+"            if (key.tag != 4u) { return luaL_error(L, \"AOT value tree object key is not a string\"); }" ,
 "            ks_tree_string(L, tree, &key);" ,
 "            ks_tree_push_node(L, tree, ks_tree_link(L, tree, (size_t)node.link_start + offset + 1u), depth + 1u);" ,
 "            lua_rawset(L, table_index);" ,
@@ -8286,7 +8303,7 @@ local lines = {
 "    const char *nodes = luaL_checklstring(L, nodes_index, &node_bytes);" ,
 "    const char *links = luaL_checklstring(L, links_index, &link_bytes);" ,
 "    const char *source = luaL_checklstring(L, source_index, &source_length);" ,
-"    if (node_bytes % sizeof(KsLuaTreeNode) != 0u || link_bytes % sizeof(uint32_t) != 0u) return luaL_error(L, \"AOT value tree blob has an invalid size\");" ,
+"    if (node_bytes % sizeof(KsLuaTreeNode) != 0u || link_bytes % sizeof(uint32_t) != 0u) { return luaL_error(L, \"AOT value tree blob has an invalid size\"); }" ,
 "    int root = ks_lua_index(L, root_value, \"value tree root\");" ,
 "    KsLuaTree tree = {(const unsigned char *)nodes, (const unsigned char *)links, (const unsigned char *)source, node_bytes / sizeof(KsLuaTreeNode), link_bytes / sizeof(uint32_t), source_length, null_index};" ,
 "    return ks_tree_push_node(L, &tree, (uint32_t)root, 1u);" ,
@@ -8313,7 +8330,7 @@ local lines = {
 "static KS_UNUSED void ks_lua_substring(lua_State *L, const unsigned char *bytes, size_t length, double first_value, double last_value) {" ,
 "    if (floor(first_value) != first_value || floor(last_value) != last_value) { luaL_error(L, \"AOT string.sub bounds must be integers\"); return; }" ,
 "    double first = first_value < 0.0 ? (double)length + first_value + 1.0 : first_value; double last = last_value < 0.0 ? (double)length + last_value + 1.0 : last_value;" ,
-"    if (first < 1.0) first = 1.0; if (last > (double)length) last = (double)length; if (first > last || first > (double)length) { lua_pushlstring(L, \"\", 0u); return; }" ,
+"    if (first < 1.0) { first = 1.0; } if (last > (double)length) { last = (double)length; } if (first > last || first > (double)length) { lua_pushlstring(L, \"\", 0u); return; }" ,
 "    lua_pushlstring(L, (const char *)(bytes + (size_t)first - 1u), (size_t)(last - first + 1.0));" ,
 "}" ,
 "static KS_UNUSED double ks_lua_table_number(lua_State *L, int table_index, double key, const char *site) {" ,
@@ -8327,7 +8344,7 @@ local lines = {
 "    (void)L; luaL_addlstring(buffer, (const char *)bytes, length);" ,
 "}" ,
 "static KS_UNUSED void ks_lua_string_buffer_append_slice(lua_State *L, KsLuaStringBuffer *buffer, const unsigned char *bytes, size_t length, double first_value, double last_value) {" ,
-"    if (floor(first_value) != first_value || floor(last_value) != last_value) { luaL_error(L, \"AOT string.sub bounds must be integers\"); return; } double first = first_value < 0.0 ? (double)length + first_value + 1.0 : first_value; double last = last_value < 0.0 ? (double)length + last_value + 1.0 : last_value; if (first < 1.0) first = 1.0; if (last > (double)length) last = (double)length; if (first > last || first > (double)length) return; ks_lua_string_buffer_append(L, buffer, bytes + (size_t)first - 1u, (size_t)(last - first + 1.0));" ,
+"    if (floor(first_value) != first_value || floor(last_value) != last_value) { luaL_error(L, \"AOT string.sub bounds must be integers\"); return; } double first = first_value < 0.0 ? (double)length + first_value + 1.0 : first_value; double last = last_value < 0.0 ? (double)length + last_value + 1.0 : last_value; if (first < 1.0) { first = 1.0; } if (last > (double)length) { last = (double)length; } if (first > last || first > (double)length) { return; } ks_lua_string_buffer_append(L, buffer, bytes + (size_t)first - 1u, (size_t)(last - first + 1.0));" ,
 "}" ,
 "static KS_UNUSED void ks_lua_string_buffer_finish(lua_State *L, KsLuaStringBuffer *buffer) {" ,
 "    (void)L; luaL_pushresult(buffer);" ,
@@ -8433,11 +8450,11 @@ local lines = {
 "    uint64_t slash_bits = (uint64_t)slashes.low | ((uint64_t)slashes.high << 32u);" ,
 "    while (event_bits != 0u) {" ,
 "        uint32_t bit = (uint32_t)__builtin_ctzll(event_bits); uint64_t before = (UINT64_C(1) << bit) - UINT64_C(1);" ,
-"        if (in_string && (slash_bits & before) != 0u) string_escaped = 1; slash_bits &= ~before;" ,
-"        uint32_t word = base + bit; if ((quote_bits & (UINT64_C(1) << bit)) != 0u) { if (in_string && string_escaped) word |= UINT32_C(0x80000000); in_string = !in_string; string_escaped = 0; }" ,
+"        if (in_string && (slash_bits & before) != 0u) { string_escaped = 1; } slash_bits &= ~before;" ,
+"        uint32_t word = base + bit; if ((quote_bits & (UINT64_C(1) << bit)) != 0u) { if (in_string && string_escaped) { word |= UINT32_C(0x80000000); } in_string = !in_string; string_escaped = 0; }" ,
 "        scratch->words[index++] = word; event_bits &= event_bits - UINT64_C(1);" ,
 "    }" ,
-"    if (in_string && slash_bits != 0u) string_escaped = 1; scratch->length = index; return index | (string_escaped ? UINT32_C(0x80000000) : 0u);" ,
+"    if (in_string && slash_bits != 0u) { string_escaped = 1; } scratch->length = index; return index | (string_escaped ? UINT32_C(0x80000000) : 0u);" ,
 "}" ,
 "static KS_UNUSED uint32_t ks_lua_scratch_u32_append_string_shared_bits(lua_State *L, KsLuaScratchU32 *scratch, uint32_t index, uint32_t base, KsMaskBits64 events, KsMaskBits64 quotes, KsMaskBits64 slashes, int in_string, int string_escaped) { uint32_t needed = (uint32_t)(__builtin_popcount(events.low) + __builtin_popcount(events.high)); if (index != scratch->length || needed > scratch->capacity - scratch->escape_length - index) { luaL_error(L, \"AOT scratch string bit append is out of bounds\"); return index; } return ks_lua_scratch_u32_append_string_bits(L, scratch, index, base, events, quotes, slashes, in_string, string_escaped); }" ,
 "static KS_UNUSED uint32_t ks_lua_scratch_u32_append_string_escape_bits(lua_State *L, KsLuaScratchU32 *scratch, KsLuaScratchU32 *escapes, uint32_t index, uint32_t base, KsMaskBits64 events, KsMaskBits64 quotes, KsMaskBits64 slashes, int slash_carry, int slash_odd, int in_string, int string_escaped) {" ,
@@ -8447,15 +8464,15 @@ local lines = {
 "    uint64_t quote_bits = (uint64_t)quotes.low | ((uint64_t)quotes.high << 32u);" ,
 "    uint64_t slash_bits = (uint64_t)slashes.low | ((uint64_t)slashes.high << 32u);" ,
 "    uint64_t spanning = 0u; if (in_string) { uint32_t close = quote_bits == 0u ? 64u : (uint32_t)__builtin_ctzll(quote_bits); spanning |= close == 64u ? ~UINT64_C(0) : (UINT64_C(1) << close) - UINT64_C(1); } int ends_in_string = in_string ^ ((__builtin_popcountll(quote_bits) & 1) != 0); if (ends_in_string) { uint32_t open = quote_bits == 0u ? 0u : 63u - (uint32_t)__builtin_clzll(quote_bits); spanning |= quote_bits == 0u ? ~UINT64_C(0) : open == 63u ? 0u : ~((UINT64_C(1) << (open + 1u)) - UINT64_C(1)); }" ,
-"    uint64_t retained_slashes = 0u, remaining_slashes = slash_bits & spanning; while (remaining_slashes != 0u) { uint32_t run_start = (uint32_t)__builtin_ctzll(remaining_slashes), run_end = run_start; while (run_end < 64u && (slash_bits & (UINT64_C(1) << run_end)) != 0u) run_end += 1u; uint32_t first = run_start + ((run_start == 0u && slash_carry && slash_odd) ? 1u : 0u); for (uint32_t lane = first; lane < run_end; lane += 2u) retained_slashes |= UINT64_C(1) << lane; uint64_t run_mask = run_end == 64u ? (~UINT64_C(0) << run_start) : ((UINT64_C(1) << run_end) - (UINT64_C(1) << run_start)); remaining_slashes &= ~run_mask; } uint32_t escape_needed = (uint32_t)__builtin_popcountll(retained_slashes); if (escape_needed > escapes->capacity - escapes->length - escapes->escape_length) { luaL_error(L, \"AOT escape scratch append is out of bounds\"); return index; }" ,
+"    uint64_t retained_slashes = 0u, remaining_slashes = slash_bits & spanning; while (remaining_slashes != 0u) { uint32_t run_start = (uint32_t)__builtin_ctzll(remaining_slashes), run_end = run_start; while (run_end < 64u && (slash_bits & (UINT64_C(1) << run_end)) != 0u) { run_end += 1u; } uint32_t first = run_start + ((run_start == 0u && slash_carry && slash_odd) ? 1u : 0u); for (uint32_t lane = first; lane < run_end; lane += 2u) { retained_slashes |= UINT64_C(1) << lane; } uint64_t run_mask = run_end == 64u ? (~UINT64_C(0) << run_start) : ((UINT64_C(1) << run_end) - (UINT64_C(1) << run_start)); remaining_slashes &= ~run_mask; } uint32_t escape_needed = (uint32_t)__builtin_popcountll(retained_slashes); if (escape_needed > escapes->capacity - escapes->length - escapes->escape_length) { luaL_error(L, \"AOT escape scratch append is out of bounds\"); return index; }" ,
 "    while (retained_slashes != 0u) { uint32_t bit = (uint32_t)__builtin_ctzll(retained_slashes); escapes->words[escapes->capacity - 1u - escapes->escape_length++] = base + bit; retained_slashes &= retained_slashes - UINT64_C(1); }" ,
 "    while (event_bits != 0u) {" ,
 "        uint32_t bit = (uint32_t)__builtin_ctzll(event_bits); uint64_t before = (UINT64_C(1) << bit) - UINT64_C(1);" ,
-"        if (in_string && (slash_bits & before) != 0u) string_escaped = 1; slash_bits &= ~before;" ,
-"        uint32_t word = base + bit; if ((quote_bits & (UINT64_C(1) << bit)) != 0u) { if (in_string && string_escaped) word |= UINT32_C(0x80000000); in_string = !in_string; string_escaped = 0; }" ,
+"        if (in_string && (slash_bits & before) != 0u) { string_escaped = 1; } slash_bits &= ~before;" ,
+"        uint32_t word = base + bit; if ((quote_bits & (UINT64_C(1) << bit)) != 0u) { if (in_string && string_escaped) { word |= UINT32_C(0x80000000); } in_string = !in_string; string_escaped = 0; }" ,
 "        scratch->words[index++] = word; event_bits &= event_bits - UINT64_C(1);" ,
 "    }" ,
-"    if (in_string && slash_bits != 0u) string_escaped = 1; scratch->length = index;" ,
+"    if (in_string && slash_bits != 0u) { string_escaped = 1; } scratch->length = index;" ,
 "    return index | (string_escaped ? UINT32_C(0x80000000) : 0u);" ,
 "}" ,
 "static KS_UNUSED KsLuaScratchU8 ks_lua_scratch_u8(lua_State *L, uint32_t capacity) {" ,
@@ -8550,7 +8567,7 @@ local lines = {
 "    ks_store_u8x4(scratch->bytes + index, value);" ,
 "}" ,
 "static KS_UNUSED int ks_lua_scratch_u8_push(lua_State *L, KsLuaScratchU8 *scratch, uint32_t start, uint32_t length) {" ,
-"    if (start > scratch->length || length > scratch->length - start) return luaL_error(L, \"AOT byte scratch string range is out of bounds\");" ,
+"    if (start > scratch->length || length > scratch->length - start) { return luaL_error(L, \"AOT byte scratch string range is out of bounds\"); }" ,
 "    lua_pushlstring(L, (const char *)(scratch->bytes + start), (size_t)length);" ,
 "    if (scratch->cached && (size_t)scratch->capacity <= KS_SCRATCH_CACHE_MAX) {" ,
 "        lua_pushlstring(L, KS_SCRATCH_CACHE_KEY, sizeof(KS_SCRATCH_CACHE_KEY) - 1u);" ,
@@ -8572,7 +8589,7 @@ local lines = {
 "#define KS_LUA_BUILD_PENDING UINT32_MAX" ,
 "static KS_UNUSED KsLuaBuilder ks_lua_builder_new(lua_State *L, int null_index, int array_marker_index, int object_marker_index, uint32_t max_depth, uint32_t byte_capacity, int selection_shape_index, int array_shape_marker_index, int serde_markers_index) {" ,
 "    if (KS_COUNT_OVERFLOWS(max_depth, sizeof(KsLuaBuildFrame))) { luaL_error(L, \"AOT value stream depth capacity overflows\"); max_depth = 0u; }" ,
-"    if (selection_shape_index != 0 && lua_type(L, selection_shape_index) <= 0) selection_shape_index = 0;" ,
+"    if (selection_shape_index != 0 && lua_type(L, selection_shape_index) <= 0) { selection_shape_index = 0; }" ,
 "    uint32_t pending_mode = selection_shape_index == 0 ? KS_LUA_BUILD_ALL : KS_LUA_BUILD_OBJECT;" ,
 "    KsLuaBuilder builder; builder.null_index = null_index; builder.array_marker_index = array_marker_index; builder.object_marker_index = object_marker_index; builder.root_index = 0; builder.frame_root_index = lua_gettop(L); builder.byte_root_index = 0; builder.selection_shape_index = selection_shape_index; builder.array_shape_marker_index = array_shape_marker_index; builder.serde_markers_index = serde_markers_index; builder.pending_shape_index = selection_shape_index; builder.depth = 0u; builder.frame_capacity = max_depth; builder.pending_mode = pending_mode; builder.pending_shape_owned = 0; builder.pending_scalar = 0; builder.root_done = 0; builder.frames = NULL; builder.bytes = NULL; builder.byte_capacity = byte_capacity; builder.byte_allocated = 0u; builder.plan_count = 0u; builder.key_count = 0u; return builder;" ,
 "}" ,
@@ -8580,15 +8597,15 @@ local lines = {
 "    return builder->frames != NULL ? &builder->frames[index] : &builder->inline_frames[index];" ,
 "}" ,
 "static KS_UNUSED void ks_lua_builder_shift_indices(KsLuaBuilder *builder, int destination) {" ,
-"    if (builder->byte_root_index >= destination) builder->byte_root_index += 1;" ,
-"    if (builder->array_marker_index >= destination) builder->array_marker_index += 1; if (builder->object_marker_index >= destination) builder->object_marker_index += 1;" ,
-"    if (builder->selection_shape_index >= destination) builder->selection_shape_index += 1; if (builder->array_shape_marker_index >= destination) builder->array_shape_marker_index += 1; if (builder->serde_markers_index >= destination) builder->serde_markers_index += 1;" ,
-"    if (builder->pending_shape_index >= destination) builder->pending_shape_index += 1;" ,
-"    for (uint32_t at = 0u; at < builder->depth; ++at) { KsLuaBuildFrame *frame = ks_lua_builder_frame(builder, at); if (frame->table_index >= destination) frame->table_index += 1; if (frame->shape_index >= destination) frame->shape_index += 1; }" ,
-"    if (builder->root_index >= destination) builder->root_index += 1;" ,
+"    if (builder->byte_root_index >= destination) { builder->byte_root_index += 1; }" ,
+"    if (builder->array_marker_index >= destination) { builder->array_marker_index += 1; } if (builder->object_marker_index >= destination) { builder->object_marker_index += 1; }" ,
+"    if (builder->selection_shape_index >= destination) { builder->selection_shape_index += 1; } if (builder->array_shape_marker_index >= destination) { builder->array_shape_marker_index += 1; } if (builder->serde_markers_index >= destination) { builder->serde_markers_index += 1; }" ,
+"    if (builder->pending_shape_index >= destination) { builder->pending_shape_index += 1; }" ,
+"    for (uint32_t at = 0u; at < builder->depth; ++at) { KsLuaBuildFrame *frame = ks_lua_builder_frame(builder, at); if (frame->table_index >= destination) { frame->table_index += 1; } if (frame->shape_index >= destination) { frame->shape_index += 1; } }" ,
+"    if (builder->root_index >= destination) { builder->root_index += 1; }" ,
 "}" ,
 "static KS_UNUSED void ks_lua_builder_ensure_frames(lua_State *L, KsLuaBuilder *builder) {" ,
-"    if (builder->frames != NULL || builder->frame_capacity <= 16u) return;" ,
+"    if (builder->frames != NULL || builder->frame_capacity <= 16u) { return; }" ,
 "    size_t bytes = (size_t)builder->frame_capacity * sizeof(KsLuaBuildFrame);" ,
 "    builder->frames = (KsLuaBuildFrame *)lua_newuserdata(L, bytes); memcpy(builder->frames, builder->inline_frames, sizeof(builder->inline_frames));" ,
 "    int destination = builder->frame_root_index + 1; lua_insert(L, destination); builder->frame_root_index = destination;" ,
@@ -8596,7 +8613,7 @@ local lines = {
 "}" ,
 "static KS_UNUSED unsigned char *ks_lua_builder_bytes(lua_State *L, KsLuaBuilder *builder, uint32_t needed) {" ,
 "    if (needed > builder->byte_capacity) { luaL_error(L, \"AOT value stream string exceeds its authored capacity\"); return NULL; }" ,
-"    if (builder->bytes != NULL && needed <= builder->byte_allocated) return builder->bytes;" ,
+"    if (builder->bytes != NULL && needed <= builder->byte_allocated) { return builder->bytes; }" ,
 "    uint32_t capacity = builder->byte_allocated == 0u ? (builder->byte_capacity < 64u ? builder->byte_capacity : 64u) : builder->byte_allocated;" ,
 "    while (capacity < needed) { if (capacity > builder->byte_capacity / 2u) { capacity = builder->byte_capacity; break; } capacity *= 2u; }" ,
 "    unsigned char *bytes = (unsigned char *)lua_newuserdata(L, capacity == 0u ? 1u : (size_t)capacity);" ,
@@ -8607,80 +8624,80 @@ local lines = {
 "}" ,
 "static KS_UNUSED int ks_lua_builder_shape_marker(lua_State *L, KsLuaBuilder *builder, int shape_index, int marker);" ,
 "static inline __attribute__((always_inline, unused)) int ks_lua_builder_complete(lua_State *L, KsLuaBuilder *builder, int pushed, int eager) {" ,
-"    if (!eager && pushed && builder->pending_mode == KS_LUA_BUILD_OBJECT && builder->pending_shape_index != 0 && lua_type(L, builder->pending_shape_index) == 5) { int value = lua_gettop(L), matched = 0, literal = ks_lua_builder_shape_marker(L, builder, builder->pending_shape_index, 11); if (lua_type(L, literal) != 0) matched = lua_equal(L, value, literal); else { int choices = ks_lua_builder_shape_marker(L, builder, builder->pending_shape_index, 14); if (lua_type(L, choices) == 5) { size_t count = lua_objlen(L, choices); for (size_t at = 1u; at <= count && !matched; ++at) { lua_rawgeti(L, choices, (int)at); matched = lua_equal(L, value, -1); lua_settop(L, lua_gettop(L) - 1); } } } if (!matched) return luaL_error(L, \"nupp: value does not match literal schema or union\"); lua_settop(L, value); if (builder->pending_shape_owned) lua_remove(L, builder->pending_shape_index); builder->pending_shape_index = 0; builder->pending_shape_owned = 0; builder->pending_mode = KS_LUA_BUILD_PENDING; }" ,
+"    if (!eager && pushed && builder->pending_mode == KS_LUA_BUILD_OBJECT && builder->pending_shape_index != 0 && lua_type(L, builder->pending_shape_index) == 5) { int value = lua_gettop(L), matched = 0, literal = ks_lua_builder_shape_marker(L, builder, builder->pending_shape_index, 11); if (lua_type(L, literal) != 0) { matched = lua_equal(L, value, literal); } else { int choices = ks_lua_builder_shape_marker(L, builder, builder->pending_shape_index, 14); if (lua_type(L, choices) == 5) { size_t count = lua_objlen(L, choices); for (size_t at = 1u; at <= count && !matched; ++at) { lua_rawgeti(L, choices, (int)at); matched = lua_equal(L, value, -1); lua_settop(L, lua_gettop(L) - 1); } } } if (!matched) { return luaL_error(L, \"nupp: value does not match literal schema or union\"); } lua_settop(L, value); if (builder->pending_shape_owned) { lua_remove(L, builder->pending_shape_index); } builder->pending_shape_index = 0; builder->pending_shape_owned = 0; builder->pending_mode = KS_LUA_BUILD_PENDING; }" ,
 "    if (builder->depth == 0u) {" ,
-"        if (builder->root_done) return luaL_error(L, \"AOT value stream has more than one root\");" ,
-"        builder->root_done = 1; if (pushed) builder->root_index = lua_gettop(L); else { lua_pushnil(L); builder->root_index = lua_gettop(L); } return 1;" ,
+"        if (builder->root_done) { return luaL_error(L, \"AOT value stream has more than one root\"); }" ,
+"        builder->root_done = 1; if (pushed) { builder->root_index = lua_gettop(L); } else { lua_pushnil(L); builder->root_index = lua_gettop(L); } return 1;" ,
 "    }" ,
 "    KsLuaBuildFrame *frame = ks_lua_builder_frame(builder, builder->depth - 1u);" ,
 "    if (frame->kind == 5u) {" ,
-"        if (frame->count == UINT32_MAX) return luaL_error(L, \"AOT value stream array is too large\"); frame->count += 1u;" ,
-"        if (!pushed) return 1;" ,
-"        if (frame->table_index == 0 || (!eager && lua_gettop(L) != frame->table_index + 1)) return luaL_error(L, \"AOT value stream value is not above its array\");" ,
+"        if (frame->count == UINT32_MAX) { return luaL_error(L, \"AOT value stream array is too large\"); } frame->count += 1u;" ,
+"        if (!pushed) { return 1; }" ,
+"        if (frame->table_index == 0 || (!eager && lua_gettop(L) != frame->table_index + 1)) { return luaL_error(L, \"AOT value stream value is not above its array\"); }" ,
 "        if (lua_type(L, -1) == 0) { lua_settop(L, frame->table_index); return 1; }" ,
-"        if (frame->next > (uint32_t)INT_MAX) return luaL_error(L, \"AOT value stream array exceeds C API range\"); lua_rawseti(L, frame->table_index, (int)frame->next++); return 1;" ,
+"        if (frame->next > (uint32_t)INT_MAX) { return luaL_error(L, \"AOT value stream array exceeds C API range\"); } lua_rawseti(L, frame->table_index, (int)frame->next++); return 1;" ,
 "    }" ,
-"    if (frame->expects_key) return luaL_error(L, \"AOT value stream object needs a key\");" ,
-"    if (frame->count == UINT32_MAX) return luaL_error(L, \"AOT value stream object is too large\");" ,
-"    frame->count += 1u; frame->expects_key = 1; if (!pushed) return 1;" ,
-"    if (frame->table_index == 0 || (!eager && lua_gettop(L) != frame->table_index + 2)) return luaL_error(L, \"AOT value stream key and value are not above their object\");" ,
+"    if (frame->expects_key) { return luaL_error(L, \"AOT value stream object needs a key\"); }" ,
+"    if (frame->count == UINT32_MAX) { return luaL_error(L, \"AOT value stream object is too large\"); }" ,
+"    frame->count += 1u; frame->expects_key = 1; if (!pushed) { return 1; }" ,
+"    if (frame->table_index == 0 || (!eager && lua_gettop(L) != frame->table_index + 2)) { return luaL_error(L, \"AOT value stream key and value are not above their object\"); }" ,
 "    if (lua_type(L, -1) == 0) { lua_settop(L, frame->table_index); return 1; } lua_rawset(L, frame->table_index); return 1;" ,
 "}" ,
 "static inline __attribute__((always_inline, unused)) int ks_lua_builder_put(lua_State *L, KsLuaBuilder *builder, int eager) { return ks_lua_builder_complete(L, builder, 1, eager); }" ,
 "static KS_UNUSED int ks_lua_builder_prepare(lua_State *L, KsLuaBuilder *builder) {" ,
-"    if (builder->pending_mode != KS_LUA_BUILD_PENDING) return 1;" ,
-"    if (builder->depth == 0u) return luaL_error(L, \"AOT value stream has more than one root\");" ,
+"    if (builder->pending_mode != KS_LUA_BUILD_PENDING) { return 1; }" ,
+"    if (builder->depth == 0u) { return luaL_error(L, \"AOT value stream has more than one root\"); }" ,
 "    KsLuaBuildFrame *frame = ks_lua_builder_frame(builder, builder->depth - 1u);" ,
-"    if (frame->kind != 5u) return luaL_error(L, \"AOT value stream object needs a key\");" ,
-"    if (frame->mode == KS_LUA_BUILD_SKIP) builder->pending_mode = KS_LUA_BUILD_SKIP;" ,
-"    else if (frame->mode == KS_LUA_BUILD_ALL) builder->pending_mode = KS_LUA_BUILD_ALL;" ,
-"    else { if (frame->tuple) { if (frame->next > (uint32_t)INT_MAX) return luaL_error(L, \"AOT tuple index exceeds C API range\"); lua_rawgeti(L, frame->shape_index, (int)frame->next); if (lua_type(L, -1) == 0) return luaL_error(L, \"nupp: tuple has too many values\"); } else lua_pushvalue(L, frame->shape_index); builder->pending_shape_index = lua_gettop(L); builder->pending_shape_owned = 1; builder->pending_mode = KS_LUA_BUILD_OBJECT; }" ,
+"    if (frame->kind != 5u) { return luaL_error(L, \"AOT value stream object needs a key\"); }" ,
+"    if (frame->mode == KS_LUA_BUILD_SKIP) { builder->pending_mode = KS_LUA_BUILD_SKIP; }" ,
+"    else if (frame->mode == KS_LUA_BUILD_ALL) { builder->pending_mode = KS_LUA_BUILD_ALL; }" ,
+"    else { if (frame->tuple) { if (frame->next > (uint32_t)INT_MAX) { return luaL_error(L, \"AOT tuple index exceeds C API range\"); } lua_rawgeti(L, frame->shape_index, (int)frame->next); if (lua_type(L, -1) == 0) { return luaL_error(L, \"nupp: tuple has too many values\"); } } else { lua_pushvalue(L, frame->shape_index); } builder->pending_shape_index = lua_gettop(L); builder->pending_shape_owned = 1; builder->pending_mode = KS_LUA_BUILD_OBJECT; }" ,
 "    return 1;" ,
 "}" ,
 "static KS_UNUSED void ks_lua_builder_clear_pending(lua_State *L, KsLuaBuilder *builder) {" ,
-"    if (builder->pending_shape_owned) lua_remove(L, builder->pending_shape_index); builder->pending_shape_index = 0; builder->pending_shape_owned = 0; builder->pending_scalar = 0; builder->pending_mode = KS_LUA_BUILD_PENDING;" ,
+"    if (builder->pending_shape_owned) { lua_remove(L, builder->pending_shape_index); } builder->pending_shape_index = 0; builder->pending_shape_owned = 0; builder->pending_scalar = 0; builder->pending_mode = KS_LUA_BUILD_PENDING;" ,
 "}" ,
 "static KS_UNUSED int ks_lua_builder_shape_marker(lua_State *L, KsLuaBuilder *builder, int shape_index, int marker);" ,
 "static inline __attribute__((always_inline, unused)) int ks_lua_builder_scalar_wanted(lua_State *L, KsLuaBuilder *builder, int eager) {" ,
-"    if (eager) return 1;" ,
+"    if (eager) { return 1; }" ,
 "    ks_lua_builder_prepare(L, builder); uint32_t mode = builder->pending_mode;" ,
 "    if (mode == KS_LUA_BUILD_SKIP) { ks_lua_builder_clear_pending(L, builder); return 0; }" ,
 "    if (mode == KS_LUA_BUILD_ALL) { ks_lua_builder_clear_pending(L, builder); return 1; }" ,
-"    if (builder->pending_scalar != 0) return 1; int shape = builder->pending_shape_index; int type = lua_type(L, shape);" ,
+"    if (builder->pending_scalar != 0) { return 1; } int shape = builder->pending_shape_index; int type = lua_type(L, shape);" ,
 "    if (type == 1) { int wanted = lua_toboolean(L, shape); ks_lua_builder_clear_pending(L, builder); return wanted; }" ,
-"    if (type == 3 && builder->serde_markers_index != 0 && lua_type(L, builder->serde_markers_index) == 5) return 1;" ,
-"    if (type == 5) { int top = lua_gettop(L), scalar = ks_lua_builder_shape_marker(L, builder, shape, 10); int wanted = lua_type(L, scalar) == 3; lua_settop(L, top); if (!wanted) { int choices = ks_lua_builder_shape_marker(L, builder, shape, 14); wanted = lua_type(L, choices) == 5; lua_settop(L, top); } if (wanted) return 1; return luaL_error(L, \"pull container shape matched a scalar value\"); }" ,
+"    if (type == 3 && builder->serde_markers_index != 0 && lua_type(L, builder->serde_markers_index) == 5) { return 1; }" ,
+"    if (type == 5) { int top = lua_gettop(L), scalar = ks_lua_builder_shape_marker(L, builder, shape, 10); int wanted = lua_type(L, scalar) == 3; lua_settop(L, top); if (!wanted) { int choices = ks_lua_builder_shape_marker(L, builder, shape, 14); wanted = lua_type(L, choices) == 5; lua_settop(L, top); } if (wanted) { return 1; } return luaL_error(L, \"pull container shape matched a scalar value\"); }" ,
 "    return luaL_error(L, \"pull shape entries must be true, false, object shapes, or array shapes\");" ,
 "}" ,
 "static KS_UNUSED int ks_lua_builder_shape_marker(lua_State *L, KsLuaBuilder *builder, int shape_index, int marker) {" ,
 "    if (builder->serde_markers_index == 0 || lua_type(L, builder->serde_markers_index) != 5) { lua_pushnil(L); return lua_gettop(L); }" ,
-"    if (shape_index == 0 || lua_type(L, shape_index) != 5) return luaL_error(L, \"AOT value stream shape marker needs a table\");" ,
+"    if (shape_index == 0 || lua_type(L, shape_index) != 5) { return luaL_error(L, \"AOT value stream shape marker needs a table\"); }" ,
 "    lua_rawgeti(L, builder->serde_markers_index, marker); lua_rawget(L, shape_index); return lua_gettop(L);" ,
 "}" ,
 "static inline __attribute__((always_inline, unused)) int ks_lua_builder_scalar_validate(lua_State *L, KsLuaBuilder *builder, int eager, int actual, double value) {" ,
-"    if (eager) return 1;" ,
-"    if (builder->pending_mode != KS_LUA_BUILD_OBJECT || (builder->pending_shape_index == 0 && builder->pending_scalar == 0)) return 1;" ,
-"    int shape = builder->pending_shape_index; int expected = builder->pending_scalar, literal = 0; if (expected == 0) { if (lua_type(L, shape) == 5) { int top = lua_gettop(L), scalar = ks_lua_builder_shape_marker(L, builder, shape, 10); if (lua_type(L, scalar) == 3) expected = (int)lua_tonumber(L, scalar); else { lua_settop(L, top); int choices = ks_lua_builder_shape_marker(L, builder, shape, 14); if (lua_type(L, choices) != 5) return luaL_error(L, \"pull container shape matched a scalar value\"); } lua_settop(L, top); literal = 1; if (expected == 0) return 1; } else { if (lua_type(L, shape) != 3) return luaL_error(L, \"pull container shape matched a scalar value\"); expected = (int)lua_tonumber(L, shape); } } if (expected < 0) expected = -expected;" ,
-"    if (actual != expected && !(actual == 3 && expected >= 3)) return luaL_error(L, expected == 1 ? \"nupp: expected boolean\" : expected == 2 ? \"nupp: expected string\" : \"nupp: expected number\");" ,
+"    if (eager) { return 1; }" ,
+"    if (builder->pending_mode != KS_LUA_BUILD_OBJECT || (builder->pending_shape_index == 0 && builder->pending_scalar == 0)) { return 1; }" ,
+"    int shape = builder->pending_shape_index; int expected = builder->pending_scalar, literal = 0; if (expected == 0) { if (lua_type(L, shape) == 5) { int top = lua_gettop(L), scalar = ks_lua_builder_shape_marker(L, builder, shape, 10); if (lua_type(L, scalar) == 3) { expected = (int)lua_tonumber(L, scalar); } else { lua_settop(L, top); int choices = ks_lua_builder_shape_marker(L, builder, shape, 14); if (lua_type(L, choices) != 5) { return luaL_error(L, \"pull container shape matched a scalar value\"); } } lua_settop(L, top); literal = 1; if (expected == 0) { return 1; } } else { if (lua_type(L, shape) != 3) { return luaL_error(L, \"pull container shape matched a scalar value\"); } expected = (int)lua_tonumber(L, shape); } } if (expected < 0) { expected = -expected; }" ,
+"    if (actual != expected && !(actual == 3 && expected >= 3)) { return luaL_error(L, expected == 1 ? \"nupp: expected boolean\" : expected == 2 ? \"nupp: expected string\" : \"nupp: expected number\"); }" ,
 "    if (expected >= 3) {" ,
-"        if (!isfinite(value)) return luaL_error(L, \"nupp: expected finite number\");" ,
-"        if (expected >= 4 && floor(value) != value) return luaL_error(L, \"nupp: expected integer\");" ,
-"        if (expected >= 5 && expected <= 8 && value < 0.0) return luaL_error(L, \"nupp: expected unsigned integer\");" ,
-"        if ((expected == 6 && value > 255.0) || (expected == 7 && value > 65535.0) || (expected == 8 && value > 4294967295.0) || (expected == 9 && (value < -128.0 || value > 127.0)) || (expected == 10 && (value < -32768.0 || value > 32767.0)) || (expected == 11 && (value < -2147483648.0 || value > 2147483647.0))) return luaL_error(L, \"nupp: number is outside schema range\");" ,
+"        if (!isfinite(value)) { return luaL_error(L, \"nupp: expected finite number\"); }" ,
+"        if (expected >= 4 && floor(value) != value) { return luaL_error(L, \"nupp: expected integer\"); }" ,
+"        if (expected >= 5 && expected <= 8 && value < 0.0) { return luaL_error(L, \"nupp: expected unsigned integer\"); }" ,
+"        if ((expected == 6 && value > 255.0) || (expected == 7 && value > 65535.0) || (expected == 8 && value > 4294967295.0) || (expected == 9 && (value < -128.0 || value > 127.0)) || (expected == 10 && (value < -32768.0 || value > 32767.0)) || (expected == 11 && (value < -2147483648.0 || value > 2147483647.0))) { return luaL_error(L, \"nupp: number is outside schema range\"); }" ,
 "    }" ,
-"    if (!literal) ks_lua_builder_clear_pending(L, builder); return 1;" ,
+"    if (!literal) { ks_lua_builder_clear_pending(L, builder); } return 1;" ,
 "}" ,
 "static inline __attribute__((always_inline, unused)) int ks_lua_builder_null_wanted(lua_State *L, KsLuaBuilder *builder, int eager) {" ,
-"    if (eager) return 1;" ,
+"    if (eager) { return 1; }" ,
 "    ks_lua_builder_prepare(L, builder); uint32_t mode = builder->pending_mode;" ,
 "    if (mode == KS_LUA_BUILD_SKIP) { ks_lua_builder_clear_pending(L, builder); return 0; }" ,
 "    if (mode == KS_LUA_BUILD_ALL) { ks_lua_builder_clear_pending(L, builder); return 1; }" ,
-"    if (mode != KS_LUA_BUILD_OBJECT || (builder->pending_shape_index == 0 && builder->pending_scalar == 0)) return luaL_error(L, \"pull shape cannot accept null\");" ,
-"    if (builder->pending_scalar != 0) { int accepted = builder->pending_scalar < 0; if (!accepted) return luaL_error(L, \"nupp: null is not allowed\"); ks_lua_builder_clear_pending(L, builder); return 1; }" ,
+"    if (mode != KS_LUA_BUILD_OBJECT || (builder->pending_shape_index == 0 && builder->pending_scalar == 0)) { return luaL_error(L, \"pull shape cannot accept null\"); }" ,
+"    if (builder->pending_scalar != 0) { int accepted = builder->pending_scalar < 0; if (!accepted) { return luaL_error(L, \"nupp: null is not allowed\"); } ks_lua_builder_clear_pending(L, builder); return 1; }" ,
 "    int shape = builder->pending_shape_index; if (lua_type(L, shape) == 1) { int wanted = lua_toboolean(L, shape); ks_lua_builder_clear_pending(L, builder); return wanted; }" ,
-"    if (lua_type(L, shape) == 3 && builder->serde_markers_index != 0 && lua_type(L, builder->serde_markers_index) == 5) { int accepted = lua_tonumber(L, shape) < 0.0; if (!accepted) return luaL_error(L, \"nupp: null is not allowed\"); ks_lua_builder_clear_pending(L, builder); return 1; }" ,
-"    if (lua_type(L, shape) != 5) return luaL_error(L, \"pull shape cannot accept null\"); int top = lua_gettop(L); int nullable = ks_lua_builder_shape_marker(L, builder, shape, 9); int accepted = lua_toboolean(L, nullable); lua_settop(L, top);" ,
-"    if (!accepted) return luaL_error(L, \"nupp: null is not allowed\"); ks_lua_builder_clear_pending(L, builder); return 1;" ,
+"    if (lua_type(L, shape) == 3 && builder->serde_markers_index != 0 && lua_type(L, builder->serde_markers_index) == 5) { int accepted = lua_tonumber(L, shape) < 0.0; if (!accepted) { return luaL_error(L, \"nupp: null is not allowed\"); } ks_lua_builder_clear_pending(L, builder); return 1; }" ,
+"    if (lua_type(L, shape) != 5) { return luaL_error(L, \"pull shape cannot accept null\"); } int top = lua_gettop(L); int nullable = ks_lua_builder_shape_marker(L, builder, shape, 9); int accepted = lua_toboolean(L, nullable); lua_settop(L, top);" ,
+"    if (!accepted) { return luaL_error(L, \"nupp: null is not allowed\"); } ks_lua_builder_clear_pending(L, builder); return 1;" ,
 "}" ,
 "static KS_UNUSED uint32_t ks_lua_builder_key_hash(const unsigned char *bytes, size_t length) {" ,
 "    uint32_t hash = UINT32_C(2166136261); for (size_t at = 0u; at < length; ++at) { hash ^= (uint32_t)bytes[at]; hash *= UINT32_C(16777619); } return hash;" ,
@@ -8691,15 +8708,15 @@ local lines = {
 "}" ,
 "static KS_UNUSED uint32_t ks_lua_builder_blob_u32(const unsigned char *bytes) { uint32_t value = 0u; memcpy(&value, bytes, sizeof(value)); return value; }" ,
 "static KS_UNUSED int ks_lua_builder_plan_key(KsLuaBuilder *builder, KsLuaShapePlan *plan, uint32_t index, KsLuaShapeKey *key) {" ,
-"    if (index >= plan->count) return 0; if (plan->compiled == NULL) { *key = builder->keys[plan->first + index]; return 1; }" ,
+"    if (index >= plan->count) { return 0; } if (plan->compiled == NULL) { *key = builder->keys[plan->first + index]; return 1; }" ,
 "    const unsigned char *header = plan->compiled + 12u + (size_t)index * 24u; uint32_t offset = ks_lua_builder_blob_u32(header + 16u); key->length = (size_t)ks_lua_builder_blob_u32(header); key->hash = ks_lua_builder_blob_u32(header + 4u); memcpy(&key->packed, header + 8u, sizeof(key->packed)); key->scalar = (int32_t)ks_lua_builder_blob_u32(header + 20u);" ,
-"    size_t names = 12u + (size_t)plan->count * 24u; if (names > plan->compiled_length || (size_t)offset > plan->compiled_length - names || key->length > plan->compiled_length - names - (size_t)offset) return 0; key->bytes = (const char *)(plan->compiled + names + (size_t)offset); return 1;" ,
+"    size_t names = 12u + (size_t)plan->count * 24u; if (names > plan->compiled_length || (size_t)offset > plan->compiled_length - names || key->length > plan->compiled_length - names - (size_t)offset) { return 0; } key->bytes = (const char *)(plan->compiled + names + (size_t)offset); return 1;" ,
 "}" ,
 "static KS_UNUSED uint32_t ks_lua_builder_shape_plan(lua_State *L, KsLuaBuilder *builder, int shape_index) {" ,
 "    const void *identity = lua_topointer(L, shape_index);" ,
-"    for (uint32_t index = 0u; index < builder->plan_count; ++index) if (builder->plans[index].identity == identity) return index;" ,
-"    if (builder->plan_count >= 16u) return UINT32_MAX;" ,
-"    uint32_t first = builder->key_count; int top = lua_gettop(L); if (builder->serde_markers_index != 0) lua_rawgeti(L, shape_index, 0); else ks_lua_builder_shape_marker(L, builder, shape_index, 6); int compiled_index = lua_gettop(L); size_t compiled_length = 0u; const unsigned char *compiled = (const unsigned char *)lua_tolstring(L, compiled_index, &compiled_length);" ,
+"    for (uint32_t index = 0u; index < builder->plan_count; ++index) { if (builder->plans[index].identity == identity) return index; }" ,
+"    if (builder->plan_count >= 16u) { return UINT32_MAX; }" ,
+"    uint32_t first = builder->key_count; int top = lua_gettop(L); if (builder->serde_markers_index != 0) { lua_rawgeti(L, shape_index, 0); } else { ks_lua_builder_shape_marker(L, builder, shape_index, 6); } int compiled_index = lua_gettop(L); size_t compiled_length = 0u; const unsigned char *compiled = (const unsigned char *)lua_tolstring(L, compiled_index, &compiled_length);" ,
 "    if (compiled != NULL && compiled_length >= 12u) { uint32_t descriptor = ks_lua_builder_blob_u32(compiled), count = descriptor & UINT32_C(65535); size_t headers = 12u + (size_t)count * 24u; if (count <= 64u && headers <= compiled_length && builder->plan_count < 16u) { uint32_t plan = builder->plan_count++; builder->plans[plan].identity = identity; builder->plans[plan].compiled = compiled; builder->plans[plan].compiled_length = compiled_length; builder->plans[plan].first = first; builder->plans[plan].count = count; builder->plans[plan].required = (uint64_t)ks_lua_builder_blob_u32(compiled + 4u) | ((uint64_t)ks_lua_builder_blob_u32(compiled + 8u) << 32u); builder->plans[plan].aliases = (descriptor & UINT32_C(2147483648)) != 0u; builder->plans[plan].defaults = (descriptor & UINT32_C(1073741824)) != 0u; builder->plans[plan].factory = (descriptor & UINT32_C(536870912)) != 0u; lua_settop(L, top); return plan; } }" ,
 "    lua_settop(L, top); int order = ks_lua_builder_shape_marker(L, builder, shape_index, 5);" ,
 "    if (lua_type(L, order) == 5) {" ,
@@ -8719,54 +8736,54 @@ local lines = {
 "    uint32_t plan = builder->plan_count++; builder->plans[plan].identity = identity; builder->plans[plan].compiled = NULL; builder->plans[plan].compiled_length = 0u; builder->plans[plan].first = first; builder->plans[plan].count = builder->key_count - first; builder->plans[plan].required = 0u; int aliases = ks_lua_builder_shape_marker(L, builder, shape_index, 1); builder->plans[plan].aliases = lua_type(L, aliases) == 5; lua_settop(L, top); int defaults = ks_lua_builder_shape_marker(L, builder, shape_index, 8); builder->plans[plan].defaults = lua_type(L, defaults) == 5; lua_settop(L, top); int factory = ks_lua_builder_shape_marker(L, builder, shape_index, 12); builder->plans[plan].factory = lua_type(L, factory) == 6; lua_settop(L, top); return plan;" ,
 "}" ,
 "static inline __attribute__((always_inline, unused)) int ks_lua_builder_open(lua_State *L, KsLuaBuilder *builder, uint32_t kind, uint32_t capacity, int eager) {" ,
-"    if (!eager) ks_lua_builder_prepare(L, builder);" ,
-"    if (builder->depth >= builder->frame_capacity) return luaL_error(L, \"AOT value stream nesting exceeds its authored capacity\");" ,
-"    if (builder->depth == 16u && builder->frames == NULL) ks_lua_builder_ensure_frames(L, builder);" ,
-"    if (capacity > (uint32_t)INT_MAX) return luaL_error(L, \"AOT value stream capacity exceeds C API range\");" ,
-"    if (!lua_checkstack(L, 4)) return luaL_error(L, \"AOT builder Lua stack exhausted\");" ,
+"    if (!eager) { ks_lua_builder_prepare(L, builder); }" ,
+"    if (builder->depth >= builder->frame_capacity) { return luaL_error(L, \"AOT value stream nesting exceeds its authored capacity\"); }" ,
+"    if (builder->depth == 16u && builder->frames == NULL) { ks_lua_builder_ensure_frames(L, builder); }" ,
+"    if (capacity > (uint32_t)INT_MAX) { return luaL_error(L, \"AOT value stream capacity exceeds C API range\"); }" ,
+"    if (!lua_checkstack(L, 4)) { return luaL_error(L, \"AOT builder Lua stack exhausted\"); }" ,
 "    uint32_t mode = eager ? KS_LUA_BUILD_ALL : builder->pending_mode; int shape_index = 0;" ,
 "    if (!eager && mode == KS_LUA_BUILD_OBJECT) {" ,
-"        if (builder->pending_scalar != 0) return luaL_error(L, \"pull scalar shape %d matched a container value\", builder->pending_scalar);" ,
+"        if (builder->pending_scalar != 0) { return luaL_error(L, \"pull scalar shape %d matched a container value\", builder->pending_scalar); }" ,
 "        int shape = builder->pending_shape_index; int type = lua_type(L, shape);" ,
-"        if (type == 1) mode = lua_toboolean(L, shape) ? KS_LUA_BUILD_ALL : KS_LUA_BUILD_SKIP;" ,
-"        else if (type == 3) return luaL_error(L, \"pull scalar shape matched a container value\");" ,
-"        else if (type != 5) return luaL_error(L, \"pull shape entries must be true, false, object shapes, or array shapes\");" ,
+"        if (type == 1) { mode = lua_toboolean(L, shape) ? KS_LUA_BUILD_ALL : KS_LUA_BUILD_SKIP; }" ,
+"        else if (type == 3) { return luaL_error(L, \"pull scalar shape matched a container value\"); }" ,
+"        else if (type != 5) { return luaL_error(L, \"pull shape entries must be true, false, object shapes, or array shapes\"); }" ,
 "        else {" ,
 "            lua_pushvalue(L, builder->array_shape_marker_index); lua_rawget(L, shape); int item = lua_gettop(L);" ,
-"            if (kind == 5u) { if (lua_type(L, item) == 0) return luaL_error(L, \"pull object shape matched an array value\"); mode = KS_LUA_BUILD_ARRAY; shape_index = item; }" ,
-"            else { if (lua_type(L, item) != 0) return luaL_error(L, \"pull array shape matched an object value\"); lua_settop(L, item - 1); mode = KS_LUA_BUILD_OBJECT; shape_index = shape; }" ,
+"            if (kind == 5u) { if (lua_type(L, item) == 0) { return luaL_error(L, \"pull object shape matched an array value\"); } mode = KS_LUA_BUILD_ARRAY; shape_index = item; }" ,
+"            else { if (lua_type(L, item) != 0) { return luaL_error(L, \"pull array shape matched an object value\"); } lua_settop(L, item - 1); mode = KS_LUA_BUILD_OBJECT; shape_index = shape; }" ,
 "        }" ,
 "    }" ,
-"    if (!eager && (mode == KS_LUA_BUILD_ALL || mode == KS_LUA_BUILD_SKIP)) ks_lua_builder_clear_pending(L, builder);" ,
+"    if (!eager && (mode == KS_LUA_BUILD_ALL || mode == KS_LUA_BUILD_SKIP)) { ks_lua_builder_clear_pending(L, builder); }" ,
 "    else if (!eager) {" ,
 "        if (mode == KS_LUA_BUILD_OBJECT && !builder->pending_shape_owned) { lua_pushvalue(L, shape_index); shape_index = lua_gettop(L); }" ,
-"        if (mode == KS_LUA_BUILD_ARRAY && builder->pending_shape_owned) { int wrapper = builder->pending_shape_index; lua_remove(L, wrapper); if (shape_index > wrapper) shape_index -= 1; }" ,
+"        if (mode == KS_LUA_BUILD_ARRAY && builder->pending_shape_owned) { int wrapper = builder->pending_shape_index; lua_remove(L, wrapper); if (shape_index > wrapper) { shape_index -= 1; } }" ,
 "        builder->pending_shape_owned = 0; builder->pending_shape_index = 0; builder->pending_mode = KS_LUA_BUILD_PENDING;" ,
 "    }" ,
 "    uint32_t plan = !eager && mode == KS_LUA_BUILD_OBJECT ? ks_lua_builder_shape_plan(L, builder, shape_index) : UINT32_MAX;" ,
 "    uint32_t object_capacity = plan == UINT32_MAX ? capacity : builder->plans[plan].count;" ,
-"    if (mode != KS_LUA_BUILD_SKIP) lua_createtable(L, kind == 5u ? (int)capacity : 0, kind == 6u ? (int)object_capacity : 0);" ,
+"    if (mode != KS_LUA_BUILD_SKIP) { lua_createtable(L, kind == 5u ? (int)capacity : 0, kind == 6u ? (int)object_capacity : 0); }" ,
 "    KsLuaBuildFrame *frame = ks_lua_builder_frame(builder, builder->depth++);" ,
 "    frame->table_index = mode == KS_LUA_BUILD_SKIP ? 0 : lua_gettop(L); frame->shape_index = shape_index; frame->kind = kind; frame->next = 1u; frame->count = 0u; frame->mode = mode; frame->plan = plan; frame->expected = 0u; frame->seen = 0u; frame->expects_key = kind == 6u; frame->aliases = plan != UINT32_MAX && builder->plans[plan].aliases; frame->tuple = 0; if (kind == 5u && mode == KS_LUA_BUILD_ARRAY && lua_type(L, shape_index) == 5) { int top = lua_gettop(L), tuple = ks_lua_builder_shape_marker(L, builder, shape_index, 13); frame->tuple = lua_toboolean(L, tuple); lua_settop(L, top); } if (kind == 6u && mode == KS_LUA_BUILD_OBJECT && plan == UINT32_MAX) { int aliases = ks_lua_builder_shape_marker(L, builder, shape_index, 1); frame->aliases = lua_type(L, aliases) == 5; lua_settop(L, frame->table_index); }" ,
 "    return 1;" ,
 "}" ,
 "static inline __attribute__((always_inline, unused)) uint32_t ks_lua_builder_query(lua_State *L, KsLuaBuilder *builder, uint32_t query) {" ,
-"    if (query == 0u) return builder->depth;" ,
-"    if (builder->depth == 0u) { if (query == 3u) return 0u; luaL_error(L, \"AOT value stream has no current container\"); return 0u; }" ,
+"    if (query == 0u) { return builder->depth; }" ,
+"    if (builder->depth == 0u) { if (query == 3u) { return 0u; } luaL_error(L, \"AOT value stream has no current container\"); return 0u; }" ,
 "    KsLuaBuildFrame *frame = ks_lua_builder_frame(builder, builder->depth - 1u);" ,
-"    if (query == 1u) return frame->kind;" ,
+"    if (query == 1u) { return frame->kind; }" ,
 "    return query == 3u ? frame->kind | (frame->count > 0u ? 0x100u : 0u) : frame->count;" ,
 "}" ,
 "static inline __attribute__((always_inline, unused)) int ks_lua_builder_key(lua_State *L, KsLuaBuilder *builder) {" ,
-"    if (builder->depth == 0u) return luaL_error(L, \"AOT value stream key is outside an object\");" ,
+"    if (builder->depth == 0u) { return luaL_error(L, \"AOT value stream key is outside an object\"); }" ,
 "    KsLuaBuildFrame *frame = ks_lua_builder_frame(builder, builder->depth - 1u);" ,
-"    if (frame->kind != 6u || !frame->expects_key) return luaL_error(L, \"AOT value stream object is not expecting a key\"); frame->expects_key = 0;" ,
+"    if (frame->kind != 6u || !frame->expects_key) { return luaL_error(L, \"AOT value stream object is not expecting a key\"); } frame->expects_key = 0;" ,
 "    if (frame->mode == KS_LUA_BUILD_SKIP) { lua_settop(L, lua_gettop(L) - 1); builder->pending_mode = KS_LUA_BUILD_SKIP; return 1; }" ,
-"    if (lua_gettop(L) != frame->table_index + 1) return luaL_error(L, \"AOT value stream key is not above its object\");" ,
+"    if (lua_gettop(L) != frame->table_index + 1) { return luaL_error(L, \"AOT value stream key is not above its object\"); }" ,
 "    if (frame->mode == KS_LUA_BUILD_ALL) { builder->pending_mode = KS_LUA_BUILD_ALL; return 1; }" ,
 "    lua_pushvalue(L, -1); lua_rawget(L, frame->shape_index);" ,
 "    if (lua_type(L, -1) == 0 || (lua_type(L, -1) == 1 && !lua_toboolean(L, -1))) { lua_settop(L, frame->table_index); builder->pending_mode = KS_LUA_BUILD_SKIP; return 1; }" ,
-"    { int aliases = ks_lua_builder_shape_marker(L, builder, frame->shape_index, 1); if (lua_type(L, aliases) == 5) { lua_pushvalue(L, frame->table_index + 1); lua_rawget(L, aliases); lua_remove(L, aliases); if (lua_type(L, -1) == 0) lua_settop(L, lua_gettop(L) - 1); else { lua_insert(L, frame->table_index + 1); lua_remove(L, frame->table_index + 2); } } else lua_settop(L, aliases - 1); }" ,
+"    { int aliases = ks_lua_builder_shape_marker(L, builder, frame->shape_index, 1); if (lua_type(L, aliases) == 5) { lua_pushvalue(L, frame->table_index + 1); lua_rawget(L, aliases); lua_remove(L, aliases); if (lua_type(L, -1) == 0) { lua_settop(L, lua_gettop(L) - 1); } else { lua_insert(L, frame->table_index + 1); lua_remove(L, frame->table_index + 2); } } else { lua_settop(L, aliases - 1); } }" ,
 "    builder->pending_shape_index = lua_gettop(L); builder->pending_shape_owned = 1; builder->pending_mode = KS_LUA_BUILD_OBJECT; return 1;" ,
 "}" ,
 "static inline __attribute__((always_inline, unused)) uint32_t ks_lua_copy_find_slash16(const unsigned char *input, unsigned char *out) {" ,
@@ -8781,30 +8798,30 @@ local lines = {
 "    __m128i slash = _mm_set1_epi8('\\\\');" ,
 "    return (uint32_t)(uint16_t)_mm_movemask_epi8(_mm_cmpeq_epi8(bytes, slash));" ,
 "#else" ,
-"    uint32_t bits = 0u; memcpy(out, input, 16u); for (uint32_t at = 0u; at < 16u; ++at) if (input[at] == '\\\\') bits |= UINT32_C(1) << at; return bits;" ,
+"    uint32_t bits = 0u; memcpy(out, input, 16u); for (uint32_t at = 0u; at < 16u; ++at) { if (input[at] == '\\\\') { bits |= UINT32_C(1) << at; } } return bits;" ,
 "#endif" ,
 "}" ,
 "static inline __attribute__((always_inline, unused)) uint32_t ks_lua_copy_find_slash32(const unsigned char *input, unsigned char *out) {" ,
 "    return ks_lua_copy_find_slash16(input, out) | (ks_lua_copy_find_slash16(input + 16u, out + 16u) << 16u);" ,
 "}" ,
 "static KS_UNUSED int ks_lua_builder_validate_escaped_string(lua_State *L, const unsigned char *source, size_t source_length, uint32_t start, uint32_t length) {" ,
-"    size_t first = (size_t)start, count = (size_t)length; if (first > source_length || count > source_length - first) return luaL_error(L, \"AOT value stream string range is out of bounds\");" ,
+"    size_t first = (size_t)start, count = (size_t)length; if (first > source_length || count > source_length - first) { return luaL_error(L, \"AOT value stream string range is out of bounds\"); }" ,
 "    const unsigned char *input = source + first; size_t at = 0u;" ,
 "    while (at < count) {" ,
-"        const unsigned char *slash = (const unsigned char *)memchr(input + at, '\\\\', count - at); if (slash == NULL) break; at = (size_t)(slash - input) + 1u;" ,
-"        if (at >= count) return luaL_error(L, \"AOT value stream has an incomplete escape\"); unsigned char escaped = input[at++];" ,
-"        if (escaped == '\"' || escaped == '\\\\' || escaped == '/' || escaped == 'b' || escaped == 'f' || escaped == 'n' || escaped == 'r' || escaped == 't') continue;" ,
-"        if (escaped != 'u') return luaL_error(L, \"AOT value stream has an unknown escape\");" ,
-"        uint32_t codepoint = 0u; if (!ks_tree_hex4(input, count, &at, &codepoint)) return luaL_error(L, \"AOT value stream has an invalid Unicode escape\");" ,
-"        if (codepoint >= 0xd800u && codepoint <= 0xdbffu) { uint32_t low = 0u; if (at > count || count - at < 2u || input[at] != '\\\\' || input[at + 1u] != 'u') return luaL_error(L, \"AOT value stream has an unmatched high surrogate\"); at += 2u; if (!ks_tree_hex4(input, count, &at, &low) || low < 0xdc00u || low > 0xdfffu) return luaL_error(L, \"AOT value stream has an invalid low surrogate\"); }" ,
-"        else if (codepoint >= 0xdc00u && codepoint <= 0xdfffu) return luaL_error(L, \"AOT value stream has an unmatched low surrogate\");" ,
+"        const unsigned char *slash = (const unsigned char *)memchr(input + at, '\\\\', count - at); if (slash == NULL) { break; } at = (size_t)(slash - input) + 1u;" ,
+"        if (at >= count) { return luaL_error(L, \"AOT value stream has an incomplete escape\"); } unsigned char escaped = input[at++];" ,
+"        if (escaped == '\"' || escaped == '\\\\' || escaped == '/' || escaped == 'b' || escaped == 'f' || escaped == 'n' || escaped == 'r' || escaped == 't') { continue; }" ,
+"        if (escaped != 'u') { return luaL_error(L, \"AOT value stream has an unknown escape\"); }" ,
+"        uint32_t codepoint = 0u; if (!ks_tree_hex4(input, count, &at, &codepoint)) { return luaL_error(L, \"AOT value stream has an invalid Unicode escape\"); }" ,
+"        if (codepoint >= 0xd800u && codepoint <= 0xdbffu) { uint32_t low = 0u; if (at > count || count - at < 2u || input[at] != '\\\\' || input[at + 1u] != 'u') { return luaL_error(L, \"AOT value stream has an unmatched high surrogate\"); } at += 2u; if (!ks_tree_hex4(input, count, &at, &low) || low < 0xdc00u || low > 0xdfffu) { return luaL_error(L, \"AOT value stream has an invalid low surrogate\"); } }" ,
+"        else if (codepoint >= 0xdc00u && codepoint <= 0xdfffu) { return luaL_error(L, \"AOT value stream has an unmatched low surrogate\"); }" ,
 "    }" ,
 "    return 1;" ,
 "}" ,
 "static KS_UNUSED int ks_lua_builder_unescape(lua_State *L, KsLuaBuilder *builder, const unsigned char *source, size_t source_length, uint32_t start, uint32_t length, const unsigned char **decoded, size_t *decoded_length) {" ,
 "    size_t first = (size_t)start, count = (size_t)length;" ,
-"    if (first > source_length || count > source_length - first) return luaL_error(L, \"AOT value stream string range is out of bounds\");" ,
-"    if (count > (size_t)builder->byte_capacity) return luaL_error(L, \"AOT value stream string exceeds its authored capacity\");" ,
+"    if (first > source_length || count > source_length - first) { return luaL_error(L, \"AOT value stream string range is out of bounds\"); }" ,
+"    if (count > (size_t)builder->byte_capacity) { return luaL_error(L, \"AOT value stream string exceeds its authored capacity\"); }" ,
 "    const unsigned char *input = source + first; unsigned char *out = ks_lua_builder_bytes(L, builder, length); size_t at = 0u, written = 0u;" ,
 "        size_t window_start = 0u, window_end = 0u, window_written = 0u; uint32_t pending_slashes = 0u;" ,
 "        while (at < count) {" ,
@@ -8812,50 +8829,50 @@ local lines = {
 "            if (pending_slashes == 0u) {" ,
 "                size_t remaining = count - at, window = remaining >= 32u ? 32u : remaining >= 16u || (remaining >= 8u && (size_t)builder->byte_capacity - written >= 16u) ? 16u : remaining, logical = window > remaining ? remaining : window;" ,
 "                window_start = at; window_end = at + logical; window_written = written;" ,
-"                if (window == 32u) pending_slashes = ks_lua_copy_find_slash32(input + at, out + written);" ,
-"                else if (window == 16u) { pending_slashes = ks_lua_copy_find_slash16(input + at, out + written); if (logical < 16u) pending_slashes &= (UINT32_C(1) << logical) - 1u; }" ,
-"                else { memcpy(out + written, input + at, window); for (uint32_t lane = 0u; lane < (uint32_t)window; ++lane) if (input[at + lane] == '\\\\') pending_slashes |= UINT32_C(1) << lane; }" ,
+"                if (window == 32u) { pending_slashes = ks_lua_copy_find_slash32(input + at, out + written); }" ,
+"                else if (window == 16u) { pending_slashes = ks_lua_copy_find_slash16(input + at, out + written); if (logical < 16u) { pending_slashes &= (UINT32_C(1) << logical) - 1u; } }" ,
+"                else { memcpy(out + written, input + at, window); for (uint32_t lane = 0u; lane < (uint32_t)window; ++lane) { if (input[at + lane] == '\\\\') { pending_slashes |= UINT32_C(1) << lane; } } }" ,
 "                if (pending_slashes == 0u) { at = window_end; written += logical; continue; }" ,
 "            }" ,
 "            uint32_t slash_lane = (uint32_t)__builtin_ctz(pending_slashes); pending_slashes &= pending_slashes - 1u;" ,
-"            size_t slash_at = window_start + (size_t)slash_lane; if (slash_at < at) continue;" ,
-"            size_t literal = slash_at - at; if (literal != 0u && (at != window_start || written != window_written)) memcpy(out + written, input + at, literal);" ,
-"            written += literal; at = slash_at + 1u; if (at >= count) return luaL_error(L, \"AOT value stream has an incomplete escape\");" ,
+"            size_t slash_at = window_start + (size_t)slash_lane; if (slash_at < at) { continue; }" ,
+"            size_t literal = slash_at - at; if (literal != 0u && (at != window_start || written != window_written)) { memcpy(out + written, input + at, literal); }" ,
+"            written += literal; at = slash_at + 1u; if (at >= count) { return luaL_error(L, \"AOT value stream has an incomplete escape\"); }" ,
 "            unsigned char escaped_byte = input[at++];" ,
-"            if (escaped_byte == '\"' || escaped_byte == '\\\\' || escaped_byte == '/') out[written++] = escaped_byte;" ,
-"            else if (escaped_byte == 'b') out[written++] = '\\b'; else if (escaped_byte == 'f') out[written++] = '\\f';" ,
-"            else if (escaped_byte == 'n') out[written++] = '\\n'; else if (escaped_byte == 'r') out[written++] = '\\r'; else if (escaped_byte == 't') out[written++] = '\\t';" ,
+"            if (escaped_byte == '\"' || escaped_byte == '\\\\' || escaped_byte == '/') { out[written++] = escaped_byte; }" ,
+"            else if (escaped_byte == 'b') { out[written++] = '\\b'; } else if (escaped_byte == 'f') { out[written++] = '\\f'; }" ,
+"            else if (escaped_byte == 'n') { out[written++] = '\\n'; } else if (escaped_byte == 'r') { out[written++] = '\\r'; } else if (escaped_byte == 't') { out[written++] = '\\t'; }" ,
 "            else if (escaped_byte == 'u') {" ,
-"                uint32_t codepoint = 0u; if (!ks_tree_hex4(input, count, &at, &codepoint)) return luaL_error(L, \"AOT value stream has an invalid Unicode escape\");" ,
-"                if (codepoint >= 0xd800u && codepoint <= 0xdbffu) { uint32_t low = 0u; if (at > count || count - at < 2u || input[at] != '\\\\' || input[at + 1u] != 'u') return luaL_error(L, \"AOT value stream has an unmatched high surrogate\"); at += 2u; if (!ks_tree_hex4(input, count, &at, &low) || low < 0xdc00u || low > 0xdfffu) return luaL_error(L, \"AOT value stream has an invalid low surrogate\"); codepoint = 0x10000u + (codepoint - 0xd800u) * 0x400u + low - 0xdc00u; }" ,
-"                else if (codepoint >= 0xdc00u && codepoint <= 0xdfffu) return luaL_error(L, \"AOT value stream has an unmatched low surrogate\");" ,
+"                uint32_t codepoint = 0u; if (!ks_tree_hex4(input, count, &at, &codepoint)) { return luaL_error(L, \"AOT value stream has an invalid Unicode escape\"); }" ,
+"                if (codepoint >= 0xd800u && codepoint <= 0xdbffu) { uint32_t low = 0u; if (at > count || count - at < 2u || input[at] != '\\\\' || input[at + 1u] != 'u') { return luaL_error(L, \"AOT value stream has an unmatched high surrogate\"); } at += 2u; if (!ks_tree_hex4(input, count, &at, &low) || low < 0xdc00u || low > 0xdfffu) { return luaL_error(L, \"AOT value stream has an invalid low surrogate\"); } codepoint = 0x10000u + (codepoint - 0xd800u) * 0x400u + low - 0xdc00u; }" ,
+"                else if (codepoint >= 0xdc00u && codepoint <= 0xdfffu) { return luaL_error(L, \"AOT value stream has an unmatched low surrogate\"); }" ,
 "                written += ks_tree_utf8(out + written, codepoint);" ,
-"            } else return luaL_error(L, \"AOT value stream has an unknown escape\");" ,
+"            } else { return luaL_error(L, \"AOT value stream has an unknown escape\"); }" ,
 "        }" ,
 "    *decoded = out; *decoded_length = written;" ,
 "    return 1;" ,
 "}" ,
 "static KS_UNUSED int ks_lua_builder_unescape_indexed(lua_State *L, KsLuaBuilder *builder, const unsigned char *source, size_t source_length, uint32_t start, uint32_t length, KsLuaScratchU32 *escapes, uint32_t escape_index, uint32_t escape_count, const unsigned char **decoded, size_t *decoded_length) {" ,
-"    size_t first = (size_t)start, count = (size_t)length; if (first > source_length || count > source_length - first) return luaL_error(L, \"AOT value stream string range is out of bounds\");" ,
-"    if (escape_index > escapes->escape_length || escape_count > escapes->escape_length - escape_index) return luaL_error(L, \"AOT value stream escape range is out of bounds\"); if (count > (size_t)builder->byte_capacity) return luaL_error(L, \"AOT value stream string exceeds its authored capacity\");" ,
+"    size_t first = (size_t)start, count = (size_t)length; if (first > source_length || count > source_length - first) { return luaL_error(L, \"AOT value stream string range is out of bounds\"); }" ,
+"    if (escape_index > escapes->escape_length || escape_count > escapes->escape_length - escape_index) { return luaL_error(L, \"AOT value stream escape range is out of bounds\"); } if (count > (size_t)builder->byte_capacity) { return luaL_error(L, \"AOT value stream string exceeds its authored capacity\"); }" ,
 "    const unsigned char *input = source + first; unsigned char *out = ks_lua_builder_bytes(L, builder, length); size_t at = 0u, written = 0u;" ,
 "    for (uint32_t item = 0u; item < escape_count; ++item) {" ,
-"        uint32_t absolute = escapes->words[escapes->capacity - 1u - escape_index - item]; if ((size_t)absolute < first + at || (size_t)absolute >= first + count) return luaL_error(L, \"AOT value stream escape position is invalid\"); size_t slash_at = (size_t)absolute - first;" ,
-"        size_t literal = slash_at - at; if (literal != 0u) memcpy(out + written, input + at, literal); written += literal; at = slash_at + 1u; if (at >= count) return luaL_error(L, \"AOT value stream has an incomplete escape\"); unsigned char escaped_byte = input[at++];" ,
-"        if (escaped_byte == '\"' || escaped_byte == '\\\\' || escaped_byte == '/') out[written++] = escaped_byte;" ,
-"        else if (escaped_byte == 'b') out[written++] = '\\b'; else if (escaped_byte == 'f') out[written++] = '\\f'; else if (escaped_byte == 'n') out[written++] = '\\n'; else if (escaped_byte == 'r') out[written++] = '\\r'; else if (escaped_byte == 't') out[written++] = '\\t';" ,
+"        uint32_t absolute = escapes->words[escapes->capacity - 1u - escape_index - item]; if ((size_t)absolute < first + at || (size_t)absolute >= first + count) { return luaL_error(L, \"AOT value stream escape position is invalid\"); } size_t slash_at = (size_t)absolute - first;" ,
+"        size_t literal = slash_at - at; if (literal != 0u) { memcpy(out + written, input + at, literal); } written += literal; at = slash_at + 1u; if (at >= count) { return luaL_error(L, \"AOT value stream has an incomplete escape\"); } unsigned char escaped_byte = input[at++];" ,
+"        if (escaped_byte == '\"' || escaped_byte == '\\\\' || escaped_byte == '/') { out[written++] = escaped_byte; }" ,
+"        else if (escaped_byte == 'b') { out[written++] = '\\b'; } else if (escaped_byte == 'f') { out[written++] = '\\f'; } else if (escaped_byte == 'n') { out[written++] = '\\n'; } else if (escaped_byte == 'r') { out[written++] = '\\r'; } else if (escaped_byte == 't') { out[written++] = '\\t'; }" ,
 "        else if (escaped_byte == 'u') {" ,
-"            uint32_t codepoint = 0u; if (!ks_tree_hex4(input, count, &at, &codepoint)) return luaL_error(L, \"AOT value stream has an invalid Unicode escape\");" ,
-"            if (codepoint >= 0xd800u && codepoint <= 0xdbffu) { uint32_t low = 0u; if (at > count || count - at < 2u || input[at] != '\\\\' || input[at + 1u] != 'u') return luaL_error(L, \"AOT value stream has an unmatched high surrogate\"); if (item + 1u >= escape_count || escapes->words[escapes->capacity - 1u - escape_index - item - 1u] != start + (uint32_t)at) return luaL_error(L, \"AOT value stream surrogate escape metadata is invalid\"); item += 1u; at += 2u; if (!ks_tree_hex4(input, count, &at, &low) || low < 0xdc00u || low > 0xdfffu) return luaL_error(L, \"AOT value stream has an invalid low surrogate\"); codepoint = 0x10000u + (codepoint - 0xd800u) * 0x400u + low - 0xdc00u; }" ,
-"            else if (codepoint >= 0xdc00u && codepoint <= 0xdfffu) return luaL_error(L, \"AOT value stream has an unmatched low surrogate\"); written += ks_tree_utf8(out + written, codepoint);" ,
-"        } else return luaL_error(L, \"AOT value stream has an unknown escape\");" ,
+"            uint32_t codepoint = 0u; if (!ks_tree_hex4(input, count, &at, &codepoint)) { return luaL_error(L, \"AOT value stream has an invalid Unicode escape\"); }" ,
+"            if (codepoint >= 0xd800u && codepoint <= 0xdbffu) { uint32_t low = 0u; if (at > count || count - at < 2u || input[at] != '\\\\' || input[at + 1u] != 'u') { return luaL_error(L, \"AOT value stream has an unmatched high surrogate\"); } if (item + 1u >= escape_count || escapes->words[escapes->capacity - 1u - escape_index - item - 1u] != start + (uint32_t)at) { return luaL_error(L, \"AOT value stream surrogate escape metadata is invalid\"); } item += 1u; at += 2u; if (!ks_tree_hex4(input, count, &at, &low) || low < 0xdc00u || low > 0xdfffu) { return luaL_error(L, \"AOT value stream has an invalid low surrogate\"); } codepoint = 0x10000u + (codepoint - 0xd800u) * 0x400u + low - 0xdc00u; }" ,
+"            else if (codepoint >= 0xdc00u && codepoint <= 0xdfffu) { return luaL_error(L, \"AOT value stream has an unmatched low surrogate\"); } written += ks_tree_utf8(out + written, codepoint);" ,
+"        } else { return luaL_error(L, \"AOT value stream has an unknown escape\"); }" ,
 "    }" ,
 "    if (at < count) { memcpy(out + written, input + at, count - at); written += count - at; } *decoded = out; *decoded_length = written; return 1;" ,
 "}" ,
 "static KS_UNUSED int ks_lua_builder_escaped_string(lua_State *L, KsLuaBuilder *builder, const unsigned char *source, size_t source_length, uint32_t start, uint32_t length, int publish) {" ,
 "    const unsigned char *decoded = NULL; size_t decoded_length = 0u;" ,
 "    ks_lua_builder_unescape(L, builder, source, source_length, start, length, &decoded, &decoded_length);" ,
-"    if (publish) lua_pushlstring(L, (const char *)decoded, decoded_length); return 1;" ,
+"    if (publish) { lua_pushlstring(L, (const char *)decoded, decoded_length); } return 1;" ,
 "}" ,
 "static KS_UNUSED KsLuaBuilder ks_lua_eager_builder_new(lua_State *L, int null_index, int array_marker_index, int object_marker_index, uint32_t max_depth, uint32_t byte_capacity) {" ,
 "    return ks_lua_builder_new(L, null_index, array_marker_index, object_marker_index, max_depth, byte_capacity, 0, 0, 0);" ,
@@ -8863,8 +8880,8 @@ local lines = {
 "static KS_UNUSED int ks_lua_builder_select_key(lua_State *L, KsLuaBuilder *builder, const unsigned char *source, size_t source_length, uint32_t start, uint32_t length, int escaped, KsLuaScratchU32 *escape_positions, uint32_t escape_index, uint32_t escape_count);" ,
 "static inline __attribute__((always_inline, unused)) int ks_lua_builder_string(lua_State *L, KsLuaBuilder *builder, const unsigned char *source, size_t source_length, uint32_t start, uint32_t length, int escaped, int key, int eager);" ,
 "static inline __attribute__((always_inline, unused)) int ks_lua_builder_string_escapes(lua_State *L, KsLuaBuilder *builder, const unsigned char *source, size_t source_length, uint32_t start, uint32_t length, KsLuaScratchU32 *escapes, uint32_t escape_index, uint32_t escape_count, int key, int eager) {" ,
-"    if (length < 64u) return ks_lua_builder_string(L, builder, source, source_length, start, length, 1, key, eager);" ,
-"    if (key) return ks_lua_builder_select_key(L, builder, source, source_length, start, length, 1, escapes, escape_index, escape_count);" ,
+"    if (length < 64u) { return ks_lua_builder_string(L, builder, source, source_length, start, length, 1, key, eager); }" ,
+"    if (key) { return ks_lua_builder_select_key(L, builder, source, source_length, start, length, 1, escapes, escape_index, escape_count); }" ,
 "    int wanted = ks_lua_builder_scalar_wanted(L, builder, eager); if (wanted) { ks_lua_builder_scalar_validate(L, builder, eager, 2, 0.0); const unsigned char *decoded = NULL; size_t decoded_length = 0u; ks_lua_builder_unescape_indexed(L, builder, source, source_length, start, length, escapes, escape_index, escape_count, &decoded, &decoded_length); lua_pushlstring(L, (const char *)decoded, decoded_length); } else { const unsigned char *ignored = NULL; size_t ignored_length = 0u; ks_lua_builder_unescape_indexed(L, builder, source, source_length, start, length, escapes, escape_index, escape_count, &ignored, &ignored_length); } return ks_lua_builder_complete(L, builder, wanted, eager);" ,
 "}" ,
 "static KS_UNUSED int ks_lua_builder_select_entry(lua_State *L, KsLuaBuilder *builder, KsLuaBuildFrame *frame, const unsigned char *key, size_t key_length) {" ,
@@ -8873,41 +8890,41 @@ local lines = {
 "    builder->pending_shape_index = lua_gettop(L); builder->pending_shape_owned = 1; builder->pending_mode = KS_LUA_BUILD_OBJECT; return 1;" ,
 "}" ,
 "static KS_UNUSED int ks_lua_builder_select_known(lua_State *L, KsLuaBuilder *builder, KsLuaBuildFrame *frame, const unsigned char *key, size_t key_length) {" ,
-"    lua_pushlstring(L, (const char *)key, key_length); if (!frame->aliases) lua_pushvalue(L, -1); lua_rawget(L, frame->shape_index); return ks_lua_builder_select_entry(L, builder, frame, key, key_length);" ,
+"    lua_pushlstring(L, (const char *)key, key_length); if (!frame->aliases) { lua_pushvalue(L, -1); } lua_rawget(L, frame->shape_index); return ks_lua_builder_select_entry(L, builder, frame, key, key_length);" ,
 "}" ,
 "static KS_UNUSED int ks_lua_builder_select_planned(lua_State *L, KsLuaBuilder *builder, KsLuaBuildFrame *frame, uint32_t index, const KsLuaShapeKey *key) {" ,
 "    frame->seen |= UINT64_C(1) << index;" ,
-"    if (frame->aliases) { lua_rawgeti(L, frame->shape_index, -((int)index + 1)); if (lua_type(L, -1) == 0) { lua_settop(L, lua_gettop(L) - 1); lua_pushlstring(L, key->bytes, key->length); } } else lua_pushlstring(L, key->bytes, key->length); if (key->scalar != 0) { builder->pending_shape_index = 0; builder->pending_shape_owned = 0; builder->pending_scalar = key->scalar; builder->pending_mode = KS_LUA_BUILD_OBJECT; return 1; } lua_rawgeti(L, frame->shape_index, (int)index + 1);" ,
+"    if (frame->aliases) { lua_rawgeti(L, frame->shape_index, -((int)index + 1)); if (lua_type(L, -1) == 0) { lua_settop(L, lua_gettop(L) - 1); lua_pushlstring(L, key->bytes, key->length); } } else { lua_pushlstring(L, key->bytes, key->length); } if (key->scalar != 0) { builder->pending_shape_index = 0; builder->pending_shape_owned = 0; builder->pending_scalar = key->scalar; builder->pending_mode = KS_LUA_BUILD_OBJECT; return 1; } lua_rawgeti(L, frame->shape_index, (int)index + 1);" ,
 "    if (lua_type(L, -1) == 0) { lua_settop(L, frame->table_index); return ks_lua_builder_select_known(L, builder, frame, (const unsigned char *)key->bytes, key->length); } builder->pending_shape_index = lua_gettop(L); builder->pending_shape_owned = 1; builder->pending_mode = KS_LUA_BUILD_OBJECT; return 1;" ,
 "}" ,
 "static inline __attribute__((always_inline, unused)) int ks_lua_builder_shape_key_matches(const KsLuaShapeKey *shape_key, const unsigned char *key, size_t key_length, uint64_t packed, uint32_t hash, int escaped) {" ,
-"    if (shape_key->length != key_length) return 0; if (!escaped && key_length <= 7u) return shape_key->packed == packed; if (key_length > 7u && shape_key->hash != hash) return 0; return memcmp(shape_key->bytes, key, key_length) == 0;" ,
+"    if (shape_key->length != key_length) { return 0; } if (!escaped && key_length <= 7u) { return shape_key->packed == packed; } if (key_length > 7u && shape_key->hash != hash) { return 0; } return memcmp(shape_key->bytes, key, key_length) == 0;" ,
 "}" ,
 "static KS_UNUSED int ks_lua_builder_select_key(lua_State *L, KsLuaBuilder *builder, const unsigned char *source, size_t source_length, uint32_t start, uint32_t length, int escaped, KsLuaScratchU32 *escape_positions, uint32_t escape_index, uint32_t escape_count) {" ,
 "    size_t first = (size_t)start, key_length = (size_t)length;" ,
-"    if (first > source_length || key_length > source_length - first) return luaL_error(L, \"AOT value stream string range is out of bounds\");" ,
-"    if (builder->depth == 0u) return luaL_error(L, \"AOT value stream key is outside an object\");" ,
+"    if (first > source_length || key_length > source_length - first) { return luaL_error(L, \"AOT value stream string range is out of bounds\"); }" ,
+"    if (builder->depth == 0u) { return luaL_error(L, \"AOT value stream key is outside an object\"); }" ,
 "    KsLuaBuildFrame *frame = ks_lua_builder_frame(builder, builder->depth - 1u);" ,
-"    if (frame->kind != 6u || !frame->expects_key) return luaL_error(L, \"AOT value stream object is not expecting a key\"); frame->expects_key = 0;" ,
-"    if (frame->mode == KS_LUA_BUILD_SKIP) { if (escaped) ks_lua_builder_validate_escaped_string(L, source, source_length, start, length); builder->pending_mode = KS_LUA_BUILD_SKIP; return 1; }" ,
+"    if (frame->kind != 6u || !frame->expects_key) { return luaL_error(L, \"AOT value stream object is not expecting a key\"); } frame->expects_key = 0;" ,
+"    if (frame->mode == KS_LUA_BUILD_SKIP) { if (escaped) { ks_lua_builder_validate_escaped_string(L, source, source_length, start, length); } builder->pending_mode = KS_LUA_BUILD_SKIP; return 1; }" ,
 "    if (frame->mode == KS_LUA_BUILD_ALL) {" ,
-"        if (escaped) ks_lua_builder_escaped_string(L, builder, source, source_length, start, length, 1); else lua_pushlstring(L, (const char *)(source + first), key_length);" ,
+"        if (escaped) { ks_lua_builder_escaped_string(L, builder, source, source_length, start, length, 1); } else { lua_pushlstring(L, (const char *)(source + first), key_length); }" ,
 "        builder->pending_mode = KS_LUA_BUILD_ALL; return 1;" ,
 "    }" ,
 "    const unsigned char *key = source + first;" ,
 "    if (escaped) {" ,
-"        if (escape_positions != NULL) ks_lua_builder_unescape_indexed(L, builder, source, source_length, start, length, escape_positions, escape_index, escape_count, &key, &key_length); else ks_lua_builder_unescape(L, builder, source, source_length, start, length, &key, &key_length);" ,
+"        if (escape_positions != NULL) { ks_lua_builder_unescape_indexed(L, builder, source, source_length, start, length, escape_positions, escape_index, escape_count, &key, &key_length); } else { ks_lua_builder_unescape(L, builder, source, source_length, start, length, &key, &key_length); }" ,
 "        frame = ks_lua_builder_frame(builder, builder->depth - 1u);" ,
 "    }" ,
 "    int table_index = frame->table_index;" ,
 "    if (frame->plan != UINT32_MAX) {" ,
 "        KsLuaShapePlan *plan = &builder->plans[frame->plan];" ,
-"        uint64_t packed = 0u; uint32_t hash = key_length > 7u ? ks_lua_builder_key_hash(key, key_length) : 0u; if (!escaped && key_length <= 7u && first + key_length < source_length) memcpy(&packed, key, key_length + 1u);" ,
+"        uint64_t packed = 0u; uint32_t hash = key_length > 7u ? ks_lua_builder_key_hash(key, key_length) : 0u; if (!escaped && key_length <= 7u && first + key_length < source_length) { memcpy(&packed, key, key_length + 1u); }" ,
 "        uint32_t expected = frame->expected < plan->count ? frame->expected : 0u;" ,
-"        if (plan->count != 0u) { KsLuaShapeKey shape_key; if (!ks_lua_builder_plan_key(builder, plan, expected, &shape_key)) return luaL_error(L, \"AOT serde key plan is malformed\"); if (ks_lua_builder_shape_key_matches(&shape_key, key, key_length, packed, hash, escaped)) { frame->expected = expected + 1u; return ks_lua_builder_select_planned(L, builder, frame, expected, &shape_key); } }" ,
+"        if (plan->count != 0u) { KsLuaShapeKey shape_key; if (!ks_lua_builder_plan_key(builder, plan, expected, &shape_key)) { return luaL_error(L, \"AOT serde key plan is malformed\"); } if (ks_lua_builder_shape_key_matches(&shape_key, key, key_length, packed, hash, escaped)) { frame->expected = expected + 1u; return ks_lua_builder_select_planned(L, builder, frame, expected, &shape_key); } }" ,
 "        for (uint32_t index = 0u; index < plan->count; ++index) {" ,
-"            if (index == expected) continue;" ,
-"            KsLuaShapeKey shape_key; if (!ks_lua_builder_plan_key(builder, plan, index, &shape_key)) return luaL_error(L, \"AOT serde key plan is malformed\");" ,
+"            if (index == expected) { continue; }" ,
+"            KsLuaShapeKey shape_key; if (!ks_lua_builder_plan_key(builder, plan, index, &shape_key)) { return luaL_error(L, \"AOT serde key plan is malformed\"); }" ,
 "            if (ks_lua_builder_shape_key_matches(&shape_key, key, key_length, packed, hash, escaped)) {" ,
 "                frame->expected = index + 1u; return ks_lua_builder_select_planned(L, builder, frame, index, &shape_key);" ,
 "            }" ,
@@ -8933,20 +8950,20 @@ local lines = {
 "}" ,
 "static inline __attribute__((always_inline, unused)) int ks_lua_builder_string(lua_State *L, KsLuaBuilder *builder, const unsigned char *source, size_t source_length, uint32_t start, uint32_t length, int escaped, int key, int eager) {" ,
 "    size_t first = (size_t)start, count = (size_t)length;" ,
-"    if (first > source_length || count > source_length - first) return luaL_error(L, \"AOT value stream string range is out of bounds\");" ,
+"    if (first > source_length || count > source_length - first) { return luaL_error(L, \"AOT value stream string range is out of bounds\"); }" ,
 "    if (key) {" ,
 "        return ks_lua_builder_select_key(L, builder, source, source_length, start, length, escaped, NULL, 0u, 0u);" ,
 "    }" ,
 "    int wanted = ks_lua_builder_scalar_wanted(L, builder, eager);" ,
-"    if (wanted) ks_lua_builder_scalar_validate(L, builder, eager, 2, 0.0); if (escaped && wanted) ks_lua_builder_escaped_string(L, builder, source, source_length, start, length, 1); else if (escaped) ks_lua_builder_validate_escaped_string(L, source, source_length, start, length); else if (wanted) lua_pushlstring(L, (const char *)(source + first), count);" ,
+"    if (wanted) { ks_lua_builder_scalar_validate(L, builder, eager, 2, 0.0); } if (escaped && wanted) { ks_lua_builder_escaped_string(L, builder, source, source_length, start, length, 1); } else if (escaped) { ks_lua_builder_validate_escaped_string(L, source, source_length, start, length); } else if (wanted) { lua_pushlstring(L, (const char *)(source + first), count); }" ,
 "    return ks_lua_builder_complete(L, builder, wanted, eager);" ,
 "}" ,
 "static inline __attribute__((always_inline, unused)) int ks_lua_builder_number_slice(lua_State *L, KsLuaBuilder *builder, const unsigned char *source, size_t source_length, uint32_t start, uint32_t length, int eager) {" ,
-"    int wanted = ks_lua_builder_scalar_wanted(L, builder, eager); if (!wanted) return ks_lua_builder_complete(L, builder, 0, eager);" ,
+"    int wanted = ks_lua_builder_scalar_wanted(L, builder, eager); if (!wanted) { return ks_lua_builder_complete(L, builder, 0, eager); }" ,
 "    double value = ks_lua_number_slice(L, source, source_length, start, length, \"value stream\"); ks_lua_builder_scalar_validate(L, builder, eager, 3, value); lua_pushnumber(L, value); return ks_lua_builder_complete(L, builder, 1, eager);" ,
 "}" ,
 "static inline __attribute__((always_inline, unused)) int ks_lua_builder_integer_slice(lua_State *L, KsLuaBuilder *builder, const unsigned char *source, size_t source_length, uint32_t start, uint32_t length, int eager) {" ,
-"    int wanted = ks_lua_builder_scalar_wanted(L, builder, eager); if (!wanted) return ks_lua_builder_complete(L, builder, 0, eager);" ,
+"    int wanted = ks_lua_builder_scalar_wanted(L, builder, eager); if (!wanted) { return ks_lua_builder_complete(L, builder, 0, eager); }" ,
 "    double value = ks_lua_integer_slice(L, source, source_length, start, length); ks_lua_builder_scalar_validate(L, builder, eager, 3, value); lua_pushnumber(L, value); return ks_lua_builder_complete(L, builder, 1, eager);" ,
 "}" ,
 "static inline __attribute__((always_inline, unused)) int ks_lua_builder_number(lua_State *L, KsLuaBuilder *builder, double value, int eager) {" ,
@@ -8955,64 +8972,64 @@ local lines = {
 "static inline __attribute__((always_inline, unused)) int ks_lua_builder_integer64(lua_State *L, KsLuaBuilder *builder, uint64_t magnitude, int negative, int eager) { int wanted = ks_lua_builder_scalar_wanted(L, builder, eager); if (wanted) { double unsigned_value = (double)magnitude; double value = negative ? -unsigned_value : unsigned_value; ks_lua_builder_scalar_validate(L, builder, eager, 3, value); lua_pushnumber(L, value); } return ks_lua_builder_complete(L, builder, wanted, eager); }" ,
 "static inline __attribute__((always_inline, unused)) int ks_lua_builder_decimal64(lua_State *L, KsLuaBuilder *builder, const unsigned char *source, size_t source_length, uint32_t start, uint32_t length, uint64_t magnitude, int32_t exponent, int negative, int exact, int eager) { int wanted = ks_lua_builder_scalar_wanted(L, builder, eager); if (wanted) { double value = ks_lua_decimal64_value(L, source, source_length, start, length, magnitude, exponent, negative, exact); ks_lua_builder_scalar_validate(L, builder, eager, 3, value); lua_pushnumber(L, value); } return ks_lua_builder_complete(L, builder, wanted, eager); }" ,
 "static inline __attribute__((always_inline, unused)) int ks_json_eight_digits(const unsigned char *source, uint32_t *value) {" ,
-"    uint64_t word; memcpy(&word, source, sizeof(word)); if (((word & UINT64_C(0xf0f0f0f0f0f0f0f0)) | (((word + UINT64_C(0x0606060606060606)) & UINT64_C(0xf0f0f0f0f0f0f0f0)) >> 4u)) != UINT64_C(0x3333333333333333)) return 0;" ,
+"    uint64_t word; memcpy(&word, source, sizeof(word)); if (((word & UINT64_C(0xf0f0f0f0f0f0f0f0)) | (((word + UINT64_C(0x0606060606060606)) & UINT64_C(0xf0f0f0f0f0f0f0f0)) >> 4u)) != UINT64_C(0x3333333333333333)) { return 0; }" ,
 "    word = (word & UINT64_C(0x0f0f0f0f0f0f0f0f)) * UINT64_C(2561) >> 8u; word = (word & UINT64_C(0x00ff00ff00ff00ff)) * UINT64_C(6553601) >> 16u; *value = (uint32_t)((word & UINT64_C(0x0000ffff0000ffff)) * UINT64_C(42949672960001) >> 32u); return 1;" ,
 "}" ,
 "static KS_UNUSED uint32_t ks_lua_builder_number_token(lua_State *L, KsLuaBuilder *builder, const unsigned char *source, size_t source_length, uint32_t start, uint32_t limit, int eager) {" ,
 "    uint32_t at = start, magnitude_digits = 0u, fraction_digits = 0u; uint64_t magnitude = 0u; int negative = 0, exact = 1, integer_token = 1; int64_t explicit_exponent = 0;" ,
-"    if ((size_t)limit > source_length || limit >= UINT32_C(2147483648) || start >= limit) return start + 1u; if (source[at] == '-') { negative = 1; at += 1u; if (at >= limit) return at + 1u; }" ,
-"    if (source[at] == '0') { magnitude_digits = 1u; at += 1u; if (at < limit && (unsigned)(source[at] - '0') <= 9u) return at + 1u; }" ,
+"    if ((size_t)limit > source_length || limit >= UINT32_C(2147483648) || start >= limit) { return start + 1u; } if (source[at] == '-') { negative = 1; at += 1u; if (at >= limit) { return at + 1u; } }" ,
+"    if (source[at] == '0') { magnitude_digits = 1u; at += 1u; if (at < limit && (unsigned)(source[at] - '0') <= 9u) { return at + 1u; } }" ,
 "    else if ((unsigned)(source[at] - '1') <= 8u) {" ,
-"        while (limit - at >= 8u && (unsigned)(source[at + 7u] - '0') <= 9u) { uint32_t eight; if (!ks_json_eight_digits(source + at, &eight)) break; if (exact && magnitude_digits <= 11u) magnitude = magnitude * UINT64_C(100000000) + (uint64_t)eight; else exact = 0; magnitude_digits += 8u; at += 8u; }" ,
-"        while (at < limit && (unsigned)(source[at] - '0') <= 9u) { if (exact && magnitude_digits < 19u) magnitude = magnitude * 10u + (uint64_t)(source[at] - '0'); else exact = 0; magnitude_digits += 1u; at += 1u; }" ,
-"    } else return at + 1u;" ,
+"        while (limit - at >= 8u && (unsigned)(source[at + 7u] - '0') <= 9u) { uint32_t eight; if (!ks_json_eight_digits(source + at, &eight)) { break; } if (exact && magnitude_digits <= 11u) { magnitude = magnitude * UINT64_C(100000000) + (uint64_t)eight; } else { exact = 0; } magnitude_digits += 8u; at += 8u; }" ,
+"        while (at < limit && (unsigned)(source[at] - '0') <= 9u) { if (exact && magnitude_digits < 19u) { magnitude = magnitude * 10u + (uint64_t)(source[at] - '0'); } else { exact = 0; } magnitude_digits += 1u; at += 1u; }" ,
+"    } else { return at + 1u; }" ,
 "    if (at < limit && source[at] == '.') {" ,
 "        integer_token = 0; at += 1u; uint32_t fraction_start = at;" ,
-"        while (limit - at >= 8u && (unsigned)(source[at + 7u] - '0') <= 9u) { uint32_t eight; if (!ks_json_eight_digits(source + at, &eight)) break; if (exact && magnitude_digits <= 11u) magnitude = magnitude * UINT64_C(100000000) + (uint64_t)eight; else exact = 0; magnitude_digits += 8u; fraction_digits += 8u; at += 8u; }" ,
-"        while (at < limit && (unsigned)(source[at] - '0') <= 9u) { if (exact && magnitude_digits < 19u) magnitude = magnitude * 10u + (uint64_t)(source[at] - '0'); else exact = 0; magnitude_digits += 1u; fraction_digits += 1u; at += 1u; }" ,
-"        if (at == fraction_start) return at + 1u;" ,
+"        while (limit - at >= 8u && (unsigned)(source[at + 7u] - '0') <= 9u) { uint32_t eight; if (!ks_json_eight_digits(source + at, &eight)) { break; } if (exact && magnitude_digits <= 11u) { magnitude = magnitude * UINT64_C(100000000) + (uint64_t)eight; } else { exact = 0; } magnitude_digits += 8u; fraction_digits += 8u; at += 8u; }" ,
+"        while (at < limit && (unsigned)(source[at] - '0') <= 9u) { if (exact && magnitude_digits < 19u) { magnitude = magnitude * 10u + (uint64_t)(source[at] - '0'); } else { exact = 0; } magnitude_digits += 1u; fraction_digits += 1u; at += 1u; }" ,
+"        if (at == fraction_start) { return at + 1u; }" ,
 "    }" ,
 "    if (at < limit && (source[at] == 'e' || source[at] == 'E')) {" ,
 "        integer_token = 0; at += 1u; int exponent_negative = 0; if (at < limit && (source[at] == '+' || source[at] == '-')) { exponent_negative = source[at] == '-'; at += 1u; } uint32_t exponent_start = at;" ,
-"        while (at < limit && (unsigned)(source[at] - '0') <= 9u) { if (explicit_exponent < INT64_C(1000000)) explicit_exponent = explicit_exponent * 10 + (int64_t)(source[at] - '0'); at += 1u; }" ,
-"        if (at == exponent_start) return at + 1u; if (exponent_negative) explicit_exponent = -explicit_exponent;" ,
+"        while (at < limit && (unsigned)(source[at] - '0') <= 9u) { if (explicit_exponent < INT64_C(1000000)) { explicit_exponent = explicit_exponent * 10 + (int64_t)(source[at] - '0'); } at += 1u; }" ,
+"        if (at == exponent_start) { return at + 1u; } if (exponent_negative) { explicit_exponent = -explicit_exponent; }" ,
 "    }" ,
-"    int wanted = ks_lua_builder_scalar_wanted(L, builder, eager); if (wanted) { uint32_t length = at - start; double value; if (integer_token && exact) { value = (double)magnitude; if (negative) value = -value; } else if (integer_token) value = ks_lua_number_slice(L, source, source_length, start, length, \"value stream integer\"); else { int64_t decimal_exponent = explicit_exponent - (int64_t)fraction_digits; int exponent_fits = decimal_exponent >= INT32_MIN && decimal_exponent <= INT32_MAX; value = ks_lua_decimal64_value(L, source, source_length, start, length, magnitude, exponent_fits ? (int32_t)decimal_exponent : 0, negative, exact && exponent_fits); } ks_lua_builder_scalar_validate(L, builder, eager, 3, value); lua_pushnumber(L, value); }" ,
+"    int wanted = ks_lua_builder_scalar_wanted(L, builder, eager); if (wanted) { uint32_t length = at - start; double value; if (integer_token && exact) { value = (double)magnitude; if (negative) { value = -value; } } else if (integer_token) { value = ks_lua_number_slice(L, source, source_length, start, length, \"value stream integer\"); } else { int64_t decimal_exponent = explicit_exponent - (int64_t)fraction_digits; int exponent_fits = decimal_exponent >= INT32_MIN && decimal_exponent <= INT32_MAX; value = ks_lua_decimal64_value(L, source, source_length, start, length, magnitude, exponent_fits ? (int32_t)decimal_exponent : 0, negative, exact && exponent_fits); } ks_lua_builder_scalar_validate(L, builder, eager, 3, value); lua_pushnumber(L, value); }" ,
 "    ks_lua_builder_complete(L, builder, wanted, eager); return UINT32_C(2147483648) | at;" ,
 "}" ,
 "static inline __attribute__((always_inline, unused)) int ks_lua_builder_pushed_scalar(lua_State *L, KsLuaBuilder *builder, int eager) {" ,
-"    int wanted = ks_lua_builder_scalar_wanted(L, builder, eager); if (wanted) { int actual = lua_type(L, -1); double value = actual == 3 ? lua_tonumber(L, -1) : 0.0; ks_lua_builder_scalar_validate(L, builder, eager, actual, value); } else lua_settop(L, lua_gettop(L) - 1); return ks_lua_builder_complete(L, builder, wanted, eager);" ,
+"    int wanted = ks_lua_builder_scalar_wanted(L, builder, eager); if (wanted) { int actual = lua_type(L, -1); double value = actual == 3 ? lua_tonumber(L, -1) : 0.0; ks_lua_builder_scalar_validate(L, builder, eager, actual, value); } else { lua_settop(L, lua_gettop(L) - 1); } return ks_lua_builder_complete(L, builder, wanted, eager);" ,
 "}" ,
 "static inline __attribute__((always_inline, unused)) int ks_lua_builder_boolean(lua_State *L, KsLuaBuilder *builder, int value, int eager) {" ,
 "    int wanted = ks_lua_builder_scalar_wanted(L, builder, eager); if (wanted) { ks_lua_builder_scalar_validate(L, builder, eager, 1, 0.0); lua_pushboolean(L, value); } return ks_lua_builder_complete(L, builder, wanted, eager);" ,
 "}" ,
 "static inline __attribute__((always_inline, unused)) int ks_lua_builder_null(lua_State *L, KsLuaBuilder *builder, int eager) {" ,
-"    int wanted = ks_lua_builder_null_wanted(L, builder, eager); if (wanted) lua_pushvalue(L, builder->null_index); return ks_lua_builder_complete(L, builder, wanted, eager);" ,
+"    int wanted = ks_lua_builder_null_wanted(L, builder, eager); if (wanted) { lua_pushvalue(L, builder->null_index); } return ks_lua_builder_complete(L, builder, wanted, eager);" ,
 "}" ,
 "static KS_UNUSED int ks_lua_builder_finish_object(lua_State *L, KsLuaBuilder *builder, KsLuaBuildFrame *frame) {" ,
 "    int table_index = frame->table_index; int required = ks_lua_builder_shape_marker(L, builder, frame->shape_index, 7);" ,
-"    if (lua_type(L, required) == 5) { size_t count = lua_objlen(L, required); for (size_t at = 1u; at <= count; ++at) { lua_rawgeti(L, required, (int)at); lua_pushvalue(L, -1); lua_rawget(L, table_index); if (lua_type(L, -1) == 0) return luaL_error(L, \"nupp: missing required member %s\", lua_tolstring(L, -2, NULL)); lua_settop(L, lua_gettop(L) - 2); } }" ,
-"    lua_settop(L, table_index); if (frame->plan != UINT32_MAX && builder->plans[frame->plan].compiled != NULL) lua_rawgeti(L, frame->shape_index, -66); else ks_lua_builder_shape_marker(L, builder, frame->shape_index, 8); int defaults = lua_gettop(L);" ,
-"    if (lua_type(L, defaults) == 5) { lua_pushnil(L); while (lua_next(L, defaults) != 0) { lua_pushvalue(L, -2); lua_rawget(L, table_index); if (lua_type(L, -1) == 0) { lua_settop(L, lua_gettop(L) - 1); lua_pushvalue(L, -2); lua_pushvalue(L, -2); lua_rawset(L, table_index); } else lua_settop(L, lua_gettop(L) - 1); lua_settop(L, lua_gettop(L) - 1); } }" ,
+"    if (lua_type(L, required) == 5) { size_t count = lua_objlen(L, required); for (size_t at = 1u; at <= count; ++at) { lua_rawgeti(L, required, (int)at); lua_pushvalue(L, -1); lua_rawget(L, table_index); if (lua_type(L, -1) == 0) { return luaL_error(L, \"nupp: missing required member %s\", lua_tolstring(L, -2, NULL)); } lua_settop(L, lua_gettop(L) - 2); } }" ,
+"    lua_settop(L, table_index); if (frame->plan != UINT32_MAX && builder->plans[frame->plan].compiled != NULL) { lua_rawgeti(L, frame->shape_index, -66); } else { ks_lua_builder_shape_marker(L, builder, frame->shape_index, 8); } int defaults = lua_gettop(L);" ,
+"    if (lua_type(L, defaults) == 5) { lua_pushnil(L); while (lua_next(L, defaults) != 0) { lua_pushvalue(L, -2); lua_rawget(L, table_index); if (lua_type(L, -1) == 0) { lua_settop(L, lua_gettop(L) - 1); lua_pushvalue(L, -2); lua_pushvalue(L, -2); lua_rawset(L, table_index); } else { lua_settop(L, lua_gettop(L) - 1); } lua_settop(L, lua_gettop(L) - 1); } }" ,
 "    lua_settop(L, table_index); return 1;" ,
 "}" ,
 "static KS_UNUSED int ks_lua_builder_finalize_object(lua_State *L, KsLuaBuilder *builder, KsLuaBuildFrame *frame) {" ,
-"    int table_index = frame->table_index; if (frame->plan != UINT32_MAX && builder->plans[frame->plan].compiled != NULL) lua_rawgeti(L, frame->shape_index, -67); else ks_lua_builder_shape_marker(L, builder, frame->shape_index, 12); int factory = lua_gettop(L); if (lua_type(L, factory) == 0) { lua_settop(L, table_index); return 0; } if (lua_type(L, factory) != 6) return luaL_error(L, \"nupp: serde factory is not callable\"); lua_pushvalue(L, table_index); lua_call(L, 1, 1); lua_remove(L, table_index); return 1;" ,
+"    int table_index = frame->table_index; if (frame->plan != UINT32_MAX && builder->plans[frame->plan].compiled != NULL) { lua_rawgeti(L, frame->shape_index, -67); } else { ks_lua_builder_shape_marker(L, builder, frame->shape_index, 12); } int factory = lua_gettop(L); if (lua_type(L, factory) == 0) { lua_settop(L, table_index); return 0; } if (lua_type(L, factory) != 6) { return luaL_error(L, \"nupp: serde factory is not callable\"); } lua_pushvalue(L, table_index); lua_call(L, 1, 1); lua_remove(L, table_index); return 1;" ,
 "}" ,
 "static inline __attribute__((always_inline, unused)) int ks_lua_builder_close(lua_State *L, KsLuaBuilder *builder, int eager) {" ,
-"    if (builder->depth == 0u) return luaL_error(L, \"AOT value stream close has no container\");" ,
+"    if (builder->depth == 0u) { return luaL_error(L, \"AOT value stream close has no container\"); }" ,
 "    KsLuaBuildFrame *frame = ks_lua_builder_frame(builder, builder->depth - 1u);" ,
-"    if (frame->kind == 6u && !frame->expects_key) return luaL_error(L, \"AOT value stream object has an unmatched key\");" ,
+"    if (frame->kind == 6u && !frame->expects_key) { return luaL_error(L, \"AOT value stream object has an unmatched key\"); }" ,
 "    if (eager) { int marker_index = frame->kind == 5u ? builder->array_marker_index : builder->object_marker_index; if (marker_index != 0) { lua_pushvalue(L, marker_index); lua_setmetatable(L, frame->table_index); } builder->depth -= 1u; return ks_lua_builder_complete(L, builder, 1, 1); }" ,
 "    int pushed = frame->mode != KS_LUA_BUILD_SKIP;" ,
-"    if (pushed && !eager && lua_gettop(L) != frame->table_index) return luaL_error(L, \"AOT value stream container is not on top\");" ,
-"    if (pushed) { int marker_index = frame->kind == 5u ? builder->array_marker_index : builder->object_marker_index; if (frame->kind == 5u && frame->mode == KS_LUA_BUILD_ARRAY && frame->tuple && frame->count != (uint32_t)lua_objlen(L, frame->shape_index)) return luaL_error(L, \"nupp: tuple length does not match\"); if (frame->kind == 6u && frame->mode == KS_LUA_BUILD_OBJECT) { if (frame->plan != UINT32_MAX) { KsLuaShapePlan *plan = &builder->plans[frame->plan]; uint64_t missing = plan->required & ~frame->seen; if (missing != 0u) { KsLuaShapeKey key; uint32_t index = (uint32_t)__builtin_ctzll(missing); if (!ks_lua_builder_plan_key(builder, plan, index, &key)) return luaL_error(L, \"AOT serde key plan is malformed\"); lua_pushlstring(L, key.bytes, key.length); return luaL_error(L, \"nupp: missing required member %s\", lua_tolstring(L, -1, NULL)); } if (plan->defaults) ks_lua_builder_finish_object(L, builder, frame); if (plan->factory && ks_lua_builder_finalize_object(L, builder, frame)) marker_index = 0; } else { ks_lua_builder_finish_object(L, builder, frame); if (ks_lua_builder_finalize_object(L, builder, frame)) marker_index = 0; } if (marker_index != 0) { if (frame->plan != UINT32_MAX && builder->plans[frame->plan].compiled != NULL) lua_rawgeti(L, frame->shape_index, -65); else ks_lua_builder_shape_marker(L, builder, frame->shape_index, 4); int serde_mt = lua_gettop(L); if (lua_type(L, serde_mt) != 0) { lua_setmetatable(L, frame->table_index); marker_index = 0; } else lua_settop(L, serde_mt - 1); } } if (marker_index != 0) { lua_pushvalue(L, marker_index); lua_setmetatable(L, frame->table_index); } }" ,
-"    int shape_index = frame->shape_index; builder->depth -= 1u; if (shape_index != 0) lua_remove(L, shape_index); return ks_lua_builder_complete(L, builder, pushed, eager);" ,
+"    if (pushed && !eager && lua_gettop(L) != frame->table_index) { return luaL_error(L, \"AOT value stream container is not on top\"); }" ,
+"    if (pushed) { int marker_index = frame->kind == 5u ? builder->array_marker_index : builder->object_marker_index; if (frame->kind == 5u && frame->mode == KS_LUA_BUILD_ARRAY && frame->tuple && frame->count != (uint32_t)lua_objlen(L, frame->shape_index)) { return luaL_error(L, \"nupp: tuple length does not match\"); } if (frame->kind == 6u && frame->mode == KS_LUA_BUILD_OBJECT) { if (frame->plan != UINT32_MAX) { KsLuaShapePlan *plan = &builder->plans[frame->plan]; uint64_t missing = plan->required & ~frame->seen; if (missing != 0u) { KsLuaShapeKey key; uint32_t index = (uint32_t)__builtin_ctzll(missing); if (!ks_lua_builder_plan_key(builder, plan, index, &key)) { return luaL_error(L, \"AOT serde key plan is malformed\"); } lua_pushlstring(L, key.bytes, key.length); return luaL_error(L, \"nupp: missing required member %s\", lua_tolstring(L, -1, NULL)); } if (plan->defaults) { ks_lua_builder_finish_object(L, builder, frame); } if (plan->factory && ks_lua_builder_finalize_object(L, builder, frame)) { marker_index = 0; } } else { ks_lua_builder_finish_object(L, builder, frame); if (ks_lua_builder_finalize_object(L, builder, frame)) { marker_index = 0; } } if (marker_index != 0) { if (frame->plan != UINT32_MAX && builder->plans[frame->plan].compiled != NULL) { lua_rawgeti(L, frame->shape_index, -65); } else { ks_lua_builder_shape_marker(L, builder, frame->shape_index, 4); } int serde_mt = lua_gettop(L); if (lua_type(L, serde_mt) != 0) { lua_setmetatable(L, frame->table_index); marker_index = 0; } else { lua_settop(L, serde_mt - 1); } } } if (marker_index != 0) { lua_pushvalue(L, marker_index); lua_setmetatable(L, frame->table_index); } }" ,
+"    int shape_index = frame->shape_index; builder->depth -= 1u; if (shape_index != 0) { lua_remove(L, shape_index); } return ks_lua_builder_complete(L, builder, pushed, eager);" ,
 "}" ,
 "static KS_UNUSED int ks_lua_builder_finish(lua_State *L, KsLuaBuilder *builder) {" ,
-"    if (builder->depth != 0u) return luaL_error(L, \"AOT value stream has an unclosed container\");" ,
-"    if (!builder->root_done || builder->root_index == 0) return luaL_error(L, \"AOT value stream has no root\");" ,
-"    if (builder->root_index != lua_gettop(L)) return luaL_error(L, \"AOT value stream root is not on top\");" ,
+"    if (builder->depth != 0u) { return luaL_error(L, \"AOT value stream has an unclosed container\"); }" ,
+"    if (!builder->root_done || builder->root_index == 0) { return luaL_error(L, \"AOT value stream has no root\"); }" ,
+"    if (builder->root_index != lua_gettop(L)) { return luaL_error(L, \"AOT value stream root is not on top\"); }" ,
 "    return 1;" ,
 "}" ,
 "" ,
@@ -9319,9 +9336,9 @@ unused .. "uint32_t nupp_wrap_u32(double value) {" ,
 unused .. "int32_t nupp_wrap_i32(double value) { return (int32_t)nupp_wrap_u32(value); }" ,
 "" ,
 unused .. "int32_t nupp_arshift(uint32_t value, uint32_t shift) {" ,
-"    if (shift == 0u) return (int32_t)value;" ,
+"    if (shift == 0u) { return (int32_t)value; }" ,
 "    uint32_t shifted = value >> shift;" ,
-"    if ((value & UINT32_C(0x80000000)) != 0u) shifted |= ~(UINT32_MAX >> shift);" ,
+"    if ((value & UINT32_C(0x80000000)) != 0u) { shifted |= ~(UINT32_MAX >> shift); }" ,
 "    return (int32_t)shifted;" ,
 "}" ,
 "" ,
@@ -9341,19 +9358,19 @@ unused .. "uint32_t nupp_f32_bits(float value) {" ,
 " * than a literal keeps this independent of how the compiler folds a" ,
 " * signed zero. */" ,
 unused .. "float nupp_f32_min(float left, float right) {" ,
-"    if (left != left || right != right) return nupp_f32_nan();" ,
+"    if (left != left || right != right) { return nupp_f32_nan(); }" ,
 "    if (left == right) {" ,
 "        /* -0 is the smaller zero, so answer it when either side is one. */" ,
-"        if (left != 0.0f) return left;" ,
+"        if (left != 0.0f) { return left; }" ,
 "        return (nupp_f32_bits(left) & UINT32_C(0x80000000)) != 0u ? left : right;" ,
 "    }" ,
 "    return left < right ? left : right;" ,
 "}" ,
 unused .. "float nupp_f32_max(float left, float right) {" ,
-"    if (left != left || right != right) return nupp_f32_nan();" ,
+"    if (left != left || right != right) { return nupp_f32_nan(); }" ,
 "    if (left == right) {" ,
 "        /* And +0 the larger, so a pair answers -0 only when both are. */" ,
-"        if (left != 0.0f) return left;" ,
+"        if (left != 0.0f) { return left; }" ,
 "        return (nupp_f32_bits(left) & UINT32_C(0x80000000)) == 0u ? left : right;" ,
 "    }" ,
 "    return left > right ? left : right;" ,
@@ -9515,11 +9532,11 @@ width
 width
 ) .. " ks_padded_string_" .. suffix .. "(const uint8_t *source, size_t count) {" ,
 "    KsPaddedStringU8x" .. tostring ( width ) .. " out; memset(&out, 0, sizeof(out));" ,
-"    if (count > (size_t)UINT32_MAX) return out;" ,
+"    if (count > (size_t)UINT32_MAX) { return out; }" ,
 "    out.source = source; out.source_length = count; out.length = (uint32_t)count;" ,
 "    out.tail_length = (uint32_t)(count % " .. tostring ( width ) .. "u);" ,
 "    out.full_length = (uint32_t)(count - out.tail_length);" ,
-"    if (out.tail_length != 0u) memcpy(&out.tail, source + out.full_length, out.tail_length);" ,
+"    if (out.tail_length != 0u) { memcpy(&out.tail, source + out.full_length, out.tail_length); }" ,
 "    return out;" ,
 "}" ,
 "static inline __attribute__((unused)) "
@@ -9531,7 +9548,7 @@ width
 width
 ) .. " *view, uint32_t offset) {" ,
 "    " .. vector .. " out = (" .. vector .. "){ " .. table . concat ( zeros , ", " ) .. " };" ,
-"    if (offset >= view->full_length || offset % " .. tostring ( width ) .. "u != 0u) return out;" ,
+"    if (offset >= view->full_length || offset % " .. tostring ( width ) .. "u != 0u) { return out; }" ,
 "    memcpy(&out, view->source + offset, " .. tostring ( width ) .. "u); return out;" ,
 "}" ,
 "static inline __attribute__((unused)) "
@@ -9579,7 +9596,7 @@ width
 .. suffix
 .. "(const uint8_t *source, size_t count, uint32_t offset, uint32_t lane) {" ,
 "    " .. vector .. " out = (" .. vector .. "){ " .. table . concat ( zeros , ", " ) .. " };" ,
-"    if (lane > 2u) return out;" ,
+"    if (lane > 2u) { return out; }" ,
 "#if defined(__aarch64__)" ,
 "    if ((size_t)offset + " .. tostring ( width * 3 ) .. "u <= count) {" ,
 width == 16
@@ -9592,7 +9609,7 @@ or "        uint8x16x3_t lo = vld3q_u8(source + offset); uint8x16x3_t hi = vld3q
 "#endif" ,
 "    for (uint32_t i = 0; i < " .. tostring ( width ) .. "u; ++i) {" ,
 "        size_t at = (size_t)offset + (size_t)i * 3u + (size_t)lane;" ,
-"        if (at < count) ((uint8_t *)&out)[i] = source[at];" ,
+"        if (at < count) { ((uint8_t *)&out)[i] = source[at]; }" ,
 "    }" ,
 "    return out;" ,
 "}" ,
@@ -9682,15 +9699,15 @@ width
 .. vector
 .. " current, uint32_t offset) {" ,
 "    " .. vector .. " out = (" .. vector .. "){ " .. table . concat ( zeros , ", " ) .. " };" ,
-"    if (offset < 1u || offset > 3u) return out;" ,
+"    if (offset < 1u || offset > 3u) { return out; }" ,
 "#if defined(__aarch64__)" ,
 width == 16
 and "    uint8x16_t a, b, r; memcpy(&a, &previous, 16u); memcpy(&b, &current, 16u); if (offset == 1u) r = vextq_u8(a, b, 15); else if (offset == 2u) r = vextq_u8(a, b, 14); else r = vextq_u8(a, b, 13); memcpy(&out, &r, 16u);"
 or "    uint8x16_t p1, c0, c1, r0, r1; memcpy(&p1, ((const uint8_t *)&previous) + 16u, 16u); memcpy(&c0, &current, 16u); memcpy(&c1, ((const uint8_t *)&current) + 16u, 16u); if (offset == 1u) { r0 = vextq_u8(p1, c0, 15); r1 = vextq_u8(c0, c1, 15); } else if (offset == 2u) { r0 = vextq_u8(p1, c0, 14); r1 = vextq_u8(c0, c1, 14); } else { r0 = vextq_u8(p1, c0, 13); r1 = vextq_u8(c0, c1, 13); } memcpy(&out, &r0, 16u); memcpy(((uint8_t *)&out) + 16u, &r1, 16u);" ,
 "#elif defined(__AVX2__) && " .. tostring ( width ) .. " == 32" ,
-"    __m256i a, b, bridge, r; memcpy(&a, &previous, 32u); memcpy(&b, &current, 32u); bridge = _mm256_permute2x128_si256(a, b, 0x21); if (offset == 1u) r = _mm256_alignr_epi8(b, bridge, 15); else if (offset == 2u) r = _mm256_alignr_epi8(b, bridge, 14); else r = _mm256_alignr_epi8(b, bridge, 13); memcpy(&out, &r, 32u);" ,
+"    __m256i a, b, bridge, r; memcpy(&a, &previous, 32u); memcpy(&b, &current, 32u); bridge = _mm256_permute2x128_si256(a, b, 0x21); if (offset == 1u) { r = _mm256_alignr_epi8(b, bridge, 15); } else if (offset == 2u) { r = _mm256_alignr_epi8(b, bridge, 14); } else { r = _mm256_alignr_epi8(b, bridge, 13); } memcpy(&out, &r, 32u);" ,
 "#elif defined(__SSSE3__) && " .. tostring ( width ) .. " == 16" ,
-"    __m128i a, b, r; memcpy(&a, &previous, 16u); memcpy(&b, &current, 16u); if (offset == 1u) r = _mm_alignr_epi8(b, a, 15); else if (offset == 2u) r = _mm_alignr_epi8(b, a, 14); else r = _mm_alignr_epi8(b, a, 13); memcpy(&out, &r, 16u);" ,
+"    __m128i a, b, r; memcpy(&a, &previous, 16u); memcpy(&b, &current, 16u); if (offset == 1u) { r = _mm_alignr_epi8(b, a, 15); } else if (offset == 2u) { r = _mm_alignr_epi8(b, a, 14); } else { r = _mm_alignr_epi8(b, a, 13); } memcpy(&out, &r, 16u);" ,
 "#else" ,
 "    memcpy(&out, ((const uint8_t *)&previous) + " .. tostring (
 width
@@ -9738,11 +9755,15 @@ width
 ) .. " ks_block64_load_" .. suffix .. "(const KsPaddedStringU8x" .. tostring (
 width
 ) .. " *view, uint32_t offset) {" ,
-"    KsBlockU8x64x" .. tostring ( width ) .. " out = {{0}};" ,
+
+
+
+
+"    KsBlockU8x64x" .. tostring ( width ) .. " out = {{{0}}};" ,
 "    if ((size_t)offset > view->source_length || view->source_length - (size_t)offset < 64u || offset % "
 .. tostring (
 width
-) .. "u != 0u) return out;" ,
+) .. "u != 0u) { return out; }" ,
 "    memcpy(&out, view->source + offset, 64u); return out;" ,
 "}" ,
 "static inline __attribute__((unused)) KsBlockU8x64x" .. tostring (
@@ -9751,7 +9772,7 @@ width
 "    KsBlockU8x64x" .. tostring ( width ) .. " out; " .. vector .. " mask = ks_splat_" .. suffix .. "(value);" ,
 "    for (uint32_t i = 0u; i < " .. tostring (
 64 / width
-) .. "u; ++i) out.part[i] = block.part[i] & mask; return out;" ,
+) .. "u; ++i) { out.part[i] = block.part[i] & mask; } return out;" ,
 "}" ,
 "static inline __attribute__((unused)) KsBlockU8x64x" .. tostring (
 width
@@ -9761,7 +9782,7 @@ width
 "    KsBlockU8x64x" .. tostring ( width ) .. " out;" ,
 "    for (uint32_t i = 0u; i < " .. tostring (
 64 / width
-) .. "u; ++i) out.part[i] = left.part[i] & right.part[i]; return out;" ,
+) .. "u; ++i) { out.part[i] = left.part[i] & right.part[i]; } return out;" ,
 "}" ,
 "static inline __attribute__((unused)) KsBlockU8x64x" .. tostring (
 width
@@ -9769,7 +9790,7 @@ width
 "    KsBlockU8x64x" .. tostring ( width ) .. " out;" ,
 "    for (uint32_t i = 0u; i < " .. tostring (
 64 / width
-) .. "u; ++i) out.part[i] = ks_shr_" .. suffix .. "(block.part[i], count); return out;" ,
+) .. "u; ++i) { out.part[i] = ks_shr_" .. suffix .. "(block.part[i], count); } return out;" ,
 "}" ,
 "static inline __attribute__((unused)) KsBlockU8x64x" .. tostring (
 width
@@ -9779,7 +9800,7 @@ width
 "    KsBlockU8x64x" .. tostring ( width ) .. " out;" ,
 "    for (uint32_t i = 0u; i < " .. tostring (
 64 / width
-) .. "u; ++i) out.part[i] = ks_lookup16_" .. suffix .. "(block.part[i], table); return out;" ,
+) .. "u; ++i) { out.part[i] = ks_lookup16_" .. suffix .. "(block.part[i], table); } return out;" ,
 "}" ,
 "static inline __attribute__((unused)) KsMaskBits64 ks_block64_any_bits_"
 .. suffix
@@ -9804,9 +9825,9 @@ width
 .. "(~((block.part[i] & mask) == zero)); if (i * "
 .. tostring (
 width
-) .. "u < 32u) out.low |= bits << (i * " .. tostring (
+) .. "u < 32u) { out.low |= bits << (i * " .. tostring (
 width
-) .. "u); else out.high |= bits << (i * " .. tostring ( width ) .. "u - 32u); } return out;" ,
+) .. "u); } else { out.high |= bits << (i * " .. tostring ( width ) .. "u - 32u); } } return out;" ,
 "}" ,
 "static inline __attribute__((unused)) "
 .. vector
@@ -9868,9 +9889,9 @@ width
 .. "(~(((must & continuation) ^ special) == zero));" ,
 "        if (i * " .. tostring (
 width
-) .. "u < 32u) out.low |= bits << (i * " .. tostring (
+) .. "u < 32u) { out.low |= bits << (i * " .. tostring (
 width
-) .. "u); else out.high |= bits << (i * " .. tostring ( width ) .. "u - 32u); previous = current;" ,
+) .. "u); } else { out.high |= bits << (i * " .. tostring ( width ) .. "u - 32u); } previous = current;" ,
 "    } return out;" ,
 "}" ,
 "static inline __attribute__((unused)) KsMaskBits64 ks_block64_eq_" .. suffix .. "(KsBlockU8x64x" .. tostring (
@@ -9887,9 +9908,9 @@ width
 .. "(value)); if (i * "
 .. tostring (
 width
-) .. "u < 32u) out.low |= bits << (i * " .. tostring (
+) .. "u < 32u) { out.low |= bits << (i * " .. tostring (
 width
-) .. "u); else out.high |= bits << (i * " .. tostring ( width ) .. "u - 32u); } return out;" ,
+) .. "u); } else { out.high |= bits << (i * " .. tostring ( width ) .. "u - 32u); } } return out;" ,
 "}" ,
 "static inline __attribute__((unused)) KsMaskBits64 ks_block64_eq_any6_"
 .. suffix
@@ -9920,9 +9941,9 @@ width
 .. "(v5))); if (i * "
 .. tostring (
 width
-) .. "u < 32u) out.low |= bits << (i * " .. tostring (
+) .. "u < 32u) { out.low |= bits << (i * " .. tostring (
 width
-) .. "u); else out.high |= bits << (i * " .. tostring ( width ) .. "u - 32u); } return out;" ,
+) .. "u); } else { out.high |= bits << (i * " .. tostring ( width ) .. "u - 32u); } } return out;" ,
 "}" ,
 "static inline __attribute__((unused)) KsMaskBits64 ks_block64_range_"
 .. suffix
@@ -9943,9 +9964,9 @@ width
 .. "(high))); if (i * "
 .. tostring (
 width
-) .. "u < 32u) out.low |= bits << (i * " .. tostring (
+) .. "u < 32u) { out.low |= bits << (i * " .. tostring (
 width
-) .. "u); else out.high |= bits << (i * " .. tostring ( width ) .. "u - 32u); } return out;" ,
+) .. "u); } else { out.high |= bits << (i * " .. tostring ( width ) .. "u - 32u); } } return out;" ,
 "}" ,
 "static inline __attribute__((unused)) KsMaskBits64 ks_block64_outside_range_"
 .. suffix
@@ -9966,9 +9987,9 @@ width
 .. "(high))); if (i * "
 .. tostring (
 width
-) .. "u < 32u) out.low |= bits << (i * " .. tostring (
+) .. "u < 32u) { out.low |= bits << (i * " .. tostring (
 width
-) .. "u); else out.high |= bits << (i * " .. tostring ( width ) .. "u - 32u); } return out;" ,
+) .. "u); } else { out.high |= bits << (i * " .. tostring ( width ) .. "u - 32u); } } return out;" ,
 "}" ,
 "static inline __attribute__((unused)) uint32_t ks_any_" .. suffix .. "(" .. vector .. " mask) {" ,
 "#if defined(__aarch64__)" ,
@@ -10053,11 +10074,11 @@ lines [
 .. " out; for (uint32_t i = 0; i < "
 .. tostring (
 width
-) .. "u; ++i) out.lane[i] = 0u; if (lane > 2u) return out; for (uint32_t i = 0; i < " .. tostring (
+) .. "u; ++i) out.lane[i] = 0u; if (lane > 2u) { return out; } for (uint32_t i = 0; i < " .. tostring (
 width
 )
 .. "u; ++i) { size_t at = (size_t)offset + (size_t)i * 3u + (size_t)lane;"
-.. " if (at < count) out.lane[i] = source[at]; } return out; }"
+.. " if (at < count) { out.lane[i] = source[at]; } } return out; }"
 lines [
 # lines + 1
 ] = "static inline __attribute__((unused)) ks_scalar_"
@@ -10128,7 +10149,7 @@ lines [
 width
 ) .. " ks_scalar_block64_and_byte_" .. suffix .. "(KsScalarBlockU8x64x" .. tostring (
 width
-) .. " block, uint8_t value) { for (uint32_t i = 0u; i < 64u; ++i) block.bytes[i] &= value; return block; }"
+) .. " block, uint8_t value) { for (uint32_t i = 0u; i < 64u; ++i) { block.bytes[i] &= value; } return block; }"
 lines [
 # lines + 1
 ] = "static inline __attribute__((unused)) KsScalarBlockU8x64x" .. tostring (
@@ -10137,7 +10158,7 @@ width
 width
 ) .. " left, KsScalarBlockU8x64x" .. tostring (
 width
-) .. " right) { for (uint32_t i = 0u; i < 64u; ++i) left.bytes[i] &= right.bytes[i]; return left; }"
+) .. " right) { for (uint32_t i = 0u; i < 64u; ++i) { left.bytes[i] &= right.bytes[i]; } return left; }"
 lines [
 # lines + 1
 ] = "static inline __attribute__((unused)) KsScalarBlockU8x64x" .. tostring (
@@ -10145,7 +10166,7 @@ width
 ) .. " ks_scalar_block64_shr_" .. suffix .. "(KsScalarBlockU8x64x" .. tostring (
 width
 )
-.. " block, uint32_t count) { for (uint32_t i = 0u; i < 64u; ++i) block.bytes[i] = count < 8u ? (uint8_t)(block.bytes[i] >> count) : 0u; return block; }"
+.. " block, uint32_t count) { for (uint32_t i = 0u; i < 64u; ++i) { block.bytes[i] = count < 8u ? (uint8_t)(block.bytes[i] >> count) : 0u; } return block; }"
 lines [
 # lines + 1
 ] = "static inline __attribute__((unused)) KsScalarBlockU8x64x" .. tostring (
@@ -10193,7 +10214,7 @@ width
 ) .. "u - 2u + i], p3 = i >= 3u ? block.bytes[i - 3u] : previous.lane[" .. tostring (
 width
 )
-.. "u - 3u + i]; uint8_t special = byte1_high.lane[p1 >> 4u] & byte1_low.lane[p1 & 15u] & byte2_high.lane[block.bytes[i] >> 4u], required = (p2 >= 224u || p3 >= 240u) ? 128u : 0u; if (required != special) { if (i < 32u) out.low |= UINT32_C(1) << i; else out.high |= UINT32_C(1) << (i - 32u); } } return out; }"
+.. "u - 3u + i]; uint8_t special = byte1_high.lane[p1 >> 4u] & byte1_low.lane[p1 & 15u] & byte2_high.lane[block.bytes[i] >> 4u], required = (p2 >= 224u || p3 >= 240u) ? 128u : 0u; if (required != special) { if (i < 32u) { out.low |= UINT32_C(1) << i; } else { out.high |= UINT32_C(1) << (i - 32u); } } } return out; }"
 lines [
 # lines + 1
 ] = "static inline __attribute__((unused)) KsMaskBits64 ks_scalar_block64_eq_any6_"
@@ -10247,7 +10268,7 @@ lines [
 .. suffix
 .. " current, uint32_t offset) { ks_scalar_"
 .. suffix
-.. " out = {{0}}; if (offset < 1u || offset > 3u) return out; memcpy(out.lane, previous.lane + "
+.. " out = {{0}}; if (offset < 1u || offset > 3u) { return out; } memcpy(out.lane, previous.lane + "
 .. tostring (
 width
 ) .. "u - offset, offset); memcpy(out.lane + offset, current.lane, " .. tostring (
@@ -10264,7 +10285,7 @@ lines [ # lines + 1 ] = "    ks_scalar_" .. suffix .. " out;"
 lines [ # lines + 1 ] = "    if (active > " .. tostring ( width ) .. "u) active = " .. tostring ( width ) .. "u;"
 lines [
 # lines + 1
-] = "    for (uint32_t i = 0; i < " .. tostring ( width ) .. "u; ++i) out.lane[i] = i < active ? UINT8_MAX : 0u;"
+] = "    for (uint32_t i = 0; i < " .. tostring ( width ) .. "u; ++i) { out.lane[i] = i < active ? UINT8_MAX : 0u; }"
 lines [ # lines + 1 ] = "    return out;"
 lines [ # lines + 1 ] = "}"
 for _ , operation in ipairs ( { "and" , "or" , "xor" } ) do
@@ -10284,7 +10305,7 @@ lines [
 .. " b) {"
 lines [
 # lines + 1
-] = "    for (uint32_t i = 0; i < " .. tostring ( width ) .. "u; ++i) a.lane[i] " .. verb .. "= b.lane[i];"
+] = "    for (uint32_t i = 0; i < " .. tostring ( width ) .. "u; ++i) { a.lane[i] " .. verb .. "= b.lane[i]; }"
 lines [ # lines + 1 ] = "    return a;"
 lines [ # lines + 1 ] = "}"
 end
@@ -10297,7 +10318,7 @@ lines [
 .. "(ks_scalar_"
 .. suffix
 .. " a) {"
-lines [ # lines + 1 ] = "    for (uint32_t i = 0; i < " .. tostring ( width ) .. "u; ++i) a.lane[i] = (uint8_t)~a.lane[i];"
+lines [ # lines + 1 ] = "    for (uint32_t i = 0; i < " .. tostring ( width ) .. "u; ++i) { a.lane[i] = (uint8_t)~a.lane[i]; }"
 lines [ # lines + 1 ] = "    return a;"
 lines [ # lines + 1 ] = "}"
 for _ , comparison in ipairs ( { "eq" , "range" } ) do
@@ -10354,7 +10375,7 @@ lines [
 lines [ # lines + 1 ] = "    uint32_t bits = 0u;"
 lines [
 # lines + 1
-] = "    for (uint32_t i = 0; i < " .. tostring ( width ) .. "u; ++i) bits |= (uint32_t)(mask.lane[i] != 0u) << i;"
+] = "    for (uint32_t i = 0; i < " .. tostring ( width ) .. "u; ++i) { bits |= (uint32_t)(mask.lane[i] != 0u) << i; }"
 lines [ # lines + 1 ] = "    return bits;"
 lines [ # lines + 1 ] = "}"
 lines [
@@ -33361,7 +33382,7 @@ const __nuppExportValue= deps ;__nuppExports=__nuppExportValue
  end);if not __nuppOk then package.loaded["nupp.compiler.build.deps"]=nil;error(__nuppWhy,0) end;package.loaded["nupp.compiler.build.deps"]=__nuppExports;return __nuppExports
 end
 package.preload["nupp.compiler.build.hash"] = function(...)
-_G.assert(_G.loadstring("local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppMath=rawget(__nupp,\"math\")or{};rawset(__nupp,\"math\",__nuppMath) local function __nuppCloseFile(handle)if io.type(handle)==\"closed file\"then return end;local ok,reason=handle:close();if not ok then error(reason or \"the file could not be closed\",0)end end local __nuppManagedBrand=_G.__nuppManagedBrand if not __nuppManagedBrand then __nuppManagedBrand={};_G.__nuppManagedBrand=__nuppManagedBrand end local __nuppManagedCells=_G.__nuppManagedCells if not __nuppManagedCells then __nuppManagedCells=setmetatable({},{__mode=\"k\"});_G.__nuppManagedCells=__nuppManagedCells end local __nuppManagedOwner={};__nuppManagedOwner.__index=__nuppManagedOwner;local __nuppManagedAlias={};__nuppManagedAlias.__index=__nuppManagedAlias local function __nuppManagedError(code,message)return{code=code,message=message}end local function __nuppManagedProblem(cell) if type(cell)~=\"table\"or cell._brand~=__nuppManagedBrand then return __nuppManagedError(\"NUPP2614\",\"value is not a managed alias\")end if cell._state==\"taken\"then return __nuppManagedError(\"NUPP2614\",\"managed ownership was already taken\")end if cell._state==\"closed\"or cell._state==\"closing\"then return __nuppManagedError(\"NUPP2614\",\"managed resource is closed\")end return nil end local function __nuppManagedClose(cell,checked) local problem=__nuppManagedProblem(cell);if problem then if checked then return problem end;return nil end if cell._borrows~=0 or cell._exclusive then local busy=__nuppManagedError(\"NUPP2620\",\"managed resource has an active borrow\");if checked then return busy end;error(busy.message,0)end cell._state=\"closing\";local value,cleanup=cell._value,cell._cleanup;cell._value=nil;cell._cleanup=nil local ok,reason=pcall(cleanup,value);cell._state=\"closed\";if not ok then error(reason,0)end;return nil end function __nuppManagedOwner:alias()return setmetatable({_cell=self,_brand=__nuppManagedBrand},__nuppManagedAlias)end function __nuppManagedOwner:close()return __nuppManagedClose(self,false)end local function __nuppAliasCell(self) if type(self)~=\"table\"or self._brand~=__nuppManagedBrand or getmetatable(self)~=__nuppManagedAlias then return nil,__nuppManagedError(\"NUPP2614\",\"value is not a managed alias\")end local cell=self._cell;local problem=__nuppManagedProblem(cell);if problem then return nil,problem end;return cell,nil end function __nuppManagedAlias:with(callback) local cell,problem=__nuppAliasCell(self);if not cell then return nil,problem end if cell._exclusive then return nil,__nuppManagedError(\"NUPP2620\",\"managed resource is exclusively borrowed\")end cell._borrows=cell._borrows+1;cell._state=\"shared-borrowed(\"..cell._borrows..\")\" local ok,result=pcall(callback,cell._value);cell._borrows=cell._borrows-1;cell._state=cell._borrows>0 and(\"shared-borrowed(\"..cell._borrows..\")\")or\"live\" if not ok then error(result,0)end;return result,nil end function __nuppManagedAlias:withExclusive(callback) local cell,problem=__nuppAliasCell(self);if not cell then return nil,problem end if cell._exclusive or cell._borrows~=0 then return nil,__nuppManagedError(\"NUPP2620\",\"managed resource is already borrowed\")end cell._exclusive=true;cell._state=\"exclusive-borrowed\";local ok,result=pcall(callback,cell._value);cell._exclusive=false;cell._state=\"live\" if not ok then error(result,0)end;return result,nil end function __nuppManagedAlias:take() local cell,problem=__nuppAliasCell(self);if not cell then return nil,problem end if cell._exclusive or cell._borrows~=0 then return nil,__nuppManagedError(\"NUPP2620\",\"managed resource has an active borrow\")end cell._state=\"taken\";local value=cell._value;cell._value=nil;cell._cleanup=nil;return value,nil end function __nuppManagedAlias:close() local cell,problem=__nuppAliasCell(self);if not cell then return problem end;return __nuppManagedClose(cell,true)end function __nuppManagedAlias:_downcast(policy) local cell,problem=__nuppAliasCell(self);if not cell then return nil,problem end if cell._policy~=policy then return nil,__nuppManagedError(\"NUPP2613\",\"managed alias has the wrong type or cleanup policy\")end return self,nil end function __nupp.__manage(value,cleanup,policy) local cell=setmetatable({_brand=__nuppManagedBrand,_value=value,_cleanup=cleanup,_policy=policy,_state=\"live\",_borrows=0,_exclusive=false},__nuppManagedOwner);__nuppManagedCells[cell]=true;return cell end function __nupp.__recoverAlias(value) if type(value)~=\"table\"or value._brand~=__nuppManagedBrand or getmetatable(value)~=__nuppManagedAlias then return nil,__nuppManagedError(\"NUPP2614\",\"value is not a managed alias\")end local cell,problem=__nuppAliasCell(value);if not cell then return nil,problem end;return value,nil end _G.__nuppManagedPolicyCount=function(policy)local count=0;for cell in pairs(__nuppManagedCells)do if cell._policy==policy and(cell._state==\"live\"or cell._state:match(\"borrowed\"))then count=count+1 end end;return count end local __nuppManagedGroup={};__nuppManagedGroup.__index=__nuppManagedGroup function __nuppManagedGroup:flush()end function __nuppManagedGroup:adopt(cell) if self._closed then error(\"managed group is closed\",2)end local handle=cell:alias();self._entries[#self._entries+1]=handle return handle end function __nuppManagedGroup:remove(handle) if self._closed then error(\"managed group is closed\",2)end for index=#self._entries,1,-1 do if self._entries[index]==handle then table.remove(self._entries,index);local value,problem=handle:take();if problem then error(problem.message,2)end;return value end end error(\"managed alias is not registered in this group\",2) end local function __nuppManagedCloseEntry(entry)local problem=entry:close();if problem and problem.code~=\"NUPP2614\"then error(problem.message,0)end end function __nuppManagedGroup:close() if self._closed then return end;self._closed=true;local first,suppressed=nil,0 for index=#self._entries,1,-1 do local ok,reason=pcall(__nuppManagedCloseEntry,self._entries[index]);if not ok then if first==nil then first=reason else suppressed=suppressed+1 end end end self._entries={};if first~=nil then if suppressed>0 then error(tostring(first)..\" (suppressed \"..tostring(suppressed)..\" cleanup failure(s))\",0)end;error(first,0)end end function __nupp.managedGroup()return setmetatable({_entries={},_closed=false},__nuppManagedGroup)end;\n","@nupp-prelude"))();const __nuppFfi = require("ffi"); local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppMath=rawget(__nupp,"math")or{};rawset(__nupp,"math",__nuppMath) local function __nuppCloseFile(handle)if io.type(handle)=="closed file"then return end;local ok,reason=handle:close();if not ok then error(reason or "the file could not be closed",0)end end local __nuppManagedBrand=_G.__nuppManagedBrand if not __nuppManagedBrand then __nuppManagedBrand={};_G.__nuppManagedBrand=__nuppManagedBrand end local __nuppManagedCells=_G.__nuppManagedCells if not __nuppManagedCells then __nuppManagedCells=setmetatable({},{__mode="k"});_G.__nuppManagedCells=__nuppManagedCells end local __nuppManagedOwner={};__nuppManagedOwner.__index=__nuppManagedOwner;local __nuppManagedAlias={};__nuppManagedAlias.__index=__nuppManagedAlias local function __nuppManagedError(code,message)return{code=code,message=message}end local function __nuppManagedProblem(cell) if type(cell)~="table"or cell._brand~=__nuppManagedBrand then return __nuppManagedError("NUPP2614","value is not a managed alias")end if cell._state=="taken"then return __nuppManagedError("NUPP2614","managed ownership was already taken")end if cell._state=="closed"or cell._state=="closing"then return __nuppManagedError("NUPP2614","managed resource is closed")end return nil end local function __nuppManagedClose(cell,checked) local problem=__nuppManagedProblem(cell);if problem then if checked then return problem end;return nil end if cell._borrows~=0 or cell._exclusive then local busy=__nuppManagedError("NUPP2620","managed resource has an active borrow");if checked then return busy end;error(busy.message,0)end cell._state="closing";local value,cleanup=cell._value,cell._cleanup;cell._value=nil;cell._cleanup=nil local ok,reason=pcall(cleanup,value);cell._state="closed";if not ok then error(reason,0)end;return nil end function __nuppManagedOwner:alias()return setmetatable({_cell=self,_brand=__nuppManagedBrand},__nuppManagedAlias)end function __nuppManagedOwner:close()return __nuppManagedClose(self,false)end local function __nuppAliasCell(self) if type(self)~="table"or self._brand~=__nuppManagedBrand or getmetatable(self)~=__nuppManagedAlias then return nil,__nuppManagedError("NUPP2614","value is not a managed alias")end local cell=self._cell;local problem=__nuppManagedProblem(cell);if problem then return nil,problem end;return cell,nil end function __nuppManagedAlias:with(callback) local cell,problem=__nuppAliasCell(self);if not cell then return nil,problem end if cell._exclusive then return nil,__nuppManagedError("NUPP2620","managed resource is exclusively borrowed")end cell._borrows=cell._borrows+1;cell._state="shared-borrowed("..cell._borrows..")" local ok,result=pcall(callback,cell._value);cell._borrows=cell._borrows-1;cell._state=cell._borrows>0 and("shared-borrowed("..cell._borrows..")")or"live" if not ok then error(result,0)end;return result,nil end function __nuppManagedAlias:withExclusive(callback) local cell,problem=__nuppAliasCell(self);if not cell then return nil,problem end if cell._exclusive or cell._borrows~=0 then return nil,__nuppManagedError("NUPP2620","managed resource is already borrowed")end cell._exclusive=true;cell._state="exclusive-borrowed";local ok,result=pcall(callback,cell._value);cell._exclusive=false;cell._state="live" if not ok then error(result,0)end;return result,nil end function __nuppManagedAlias:take() local cell,problem=__nuppAliasCell(self);if not cell then return nil,problem end if cell._exclusive or cell._borrows~=0 then return nil,__nuppManagedError("NUPP2620","managed resource has an active borrow")end cell._state="taken";local value=cell._value;cell._value=nil;cell._cleanup=nil;return value,nil end function __nuppManagedAlias:close() local cell,problem=__nuppAliasCell(self);if not cell then return problem end;return __nuppManagedClose(cell,true)end function __nuppManagedAlias:_downcast(policy) local cell,problem=__nuppAliasCell(self);if not cell then return nil,problem end if cell._policy~=policy then return nil,__nuppManagedError("NUPP2613","managed alias has the wrong type or cleanup policy")end return self,nil end function __nupp.__manage(value,cleanup,policy) local cell=setmetatable({_brand=__nuppManagedBrand,_value=value,_cleanup=cleanup,_policy=policy,_state="live",_borrows=0,_exclusive=false},__nuppManagedOwner);__nuppManagedCells[cell]=true;return cell end function __nupp.__recoverAlias(value) if type(value)~="table"or value._brand~=__nuppManagedBrand or getmetatable(value)~=__nuppManagedAlias then return nil,__nuppManagedError("NUPP2614","value is not a managed alias")end local cell,problem=__nuppAliasCell(value);if not cell then return nil,problem end;return value,nil end _G.__nuppManagedPolicyCount=function(policy)local count=0;for cell in pairs(__nuppManagedCells)do if cell._policy==policy and(cell._state=="live"or cell._state:match("borrowed"))then count=count+1 end end;return count end local __nuppManagedGroup={};__nuppManagedGroup.__index=__nuppManagedGroup function __nuppManagedGroup:flush()end function __nuppManagedGroup:adopt(cell) if self._closed then error("managed group is closed",2)end local handle=cell:alias();self._entries[#self._entries+1]=handle return handle end function __nuppManagedGroup:remove(handle) if self._closed then error("managed group is closed",2)end for index=#self._entries,1,-1 do if self._entries[index]==handle then table.remove(self._entries,index);local value,problem=handle:take();if problem then error(problem.message,2)end;return value end end error("managed alias is not registered in this group",2) end local function __nuppManagedCloseEntry(entry)local problem=entry:close();if problem and problem.code~="NUPP2614"then error(problem.message,0)end end function __nuppManagedGroup:close() if self._closed then return end;self._closed=true;local first,suppressed=nil,0 for index=#self._entries,1,-1 do local ok,reason=pcall(__nuppManagedCloseEntry,self._entries[index]);if not ok then if first==nil then first=reason else suppressed=suppressed+1 end end end self._entries={};if first~=nil then if suppressed>0 then error(tostring(first).." (suppressed "..tostring(suppressed).." cleanup failure(s))",0)end;error(first,0)end end function __nupp.managedGroup()return setmetatable({_entries={},_closed=false},__nuppManagedGroup)end;local __nuppExports;local __nuppOk,__nuppWhy=pcall(function()
+_G.assert(_G.loadstring("local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppMath=rawget(__nupp,\"math\")or{};rawset(__nupp,\"math\",__nuppMath) local function __nuppCloseFile(handle)if io.type(handle)==\"closed file\"then return end;local ok,reason=handle:close();if not ok then error(reason or \"the file could not be closed\",0)end end local __nuppManagedBrand=_G.__nuppManagedBrand if not __nuppManagedBrand then __nuppManagedBrand={};_G.__nuppManagedBrand=__nuppManagedBrand end local __nuppManagedCells=_G.__nuppManagedCells if not __nuppManagedCells then __nuppManagedCells=setmetatable({},{__mode=\"k\"});_G.__nuppManagedCells=__nuppManagedCells end local __nuppManagedOwner={};__nuppManagedOwner.__index=__nuppManagedOwner;local __nuppManagedAlias={};__nuppManagedAlias.__index=__nuppManagedAlias local function __nuppManagedError(code,message)return{code=code,message=message}end local function __nuppManagedProblem(cell) if type(cell)~=\"table\"or cell._brand~=__nuppManagedBrand then return __nuppManagedError(\"NUPP2614\",\"value is not a managed alias\")end if cell._state==\"taken\"then return __nuppManagedError(\"NUPP2614\",\"managed ownership was already taken\")end if cell._state==\"closed\"or cell._state==\"closing\"then return __nuppManagedError(\"NUPP2614\",\"managed resource is closed\")end return nil end local function __nuppManagedClose(cell,checked) local problem=__nuppManagedProblem(cell);if problem then if checked then return problem end;return nil end if cell._borrows~=0 or cell._exclusive then local busy=__nuppManagedError(\"NUPP2620\",\"managed resource has an active borrow\");if checked then return busy end;error(busy.message,0)end cell._state=\"closing\";local value,cleanup=cell._value,cell._cleanup;cell._value=nil;cell._cleanup=nil local ok,reason=pcall(cleanup,value);cell._state=\"closed\";if not ok then error(reason,0)end;return nil end function __nuppManagedOwner:alias()return setmetatable({_cell=self,_brand=__nuppManagedBrand},__nuppManagedAlias)end function __nuppManagedOwner:close()return __nuppManagedClose(self,false)end local function __nuppAliasCell(self) if type(self)~=\"table\"or self._brand~=__nuppManagedBrand or getmetatable(self)~=__nuppManagedAlias then return nil,__nuppManagedError(\"NUPP2614\",\"value is not a managed alias\")end local cell=self._cell;local problem=__nuppManagedProblem(cell);if problem then return nil,problem end;return cell,nil end function __nuppManagedAlias:with(callback) local cell,problem=__nuppAliasCell(self);if not cell then return nil,problem end if cell._exclusive then return nil,__nuppManagedError(\"NUPP2620\",\"managed resource is exclusively borrowed\")end cell._borrows=cell._borrows+1;cell._state=\"shared-borrowed(\"..cell._borrows..\")\" local ok,result=pcall(callback,cell._value);cell._borrows=cell._borrows-1;cell._state=cell._borrows>0 and(\"shared-borrowed(\"..cell._borrows..\")\")or\"live\" if not ok then error(result,0)end;return result,nil end function __nuppManagedAlias:withExclusive(callback) local cell,problem=__nuppAliasCell(self);if not cell then return nil,problem end if cell._exclusive or cell._borrows~=0 then return nil,__nuppManagedError(\"NUPP2620\",\"managed resource is already borrowed\")end cell._exclusive=true;cell._state=\"exclusive-borrowed\";local ok,result=pcall(callback,cell._value);cell._exclusive=false;cell._state=\"live\" if not ok then error(result,0)end;return result,nil end function __nuppManagedAlias:take() local cell,problem=__nuppAliasCell(self);if not cell then return nil,problem end if cell._exclusive or cell._borrows~=0 then return nil,__nuppManagedError(\"NUPP2620\",\"managed resource has an active borrow\")end cell._state=\"taken\";local value=cell._value;cell._value=nil;cell._cleanup=nil;return value,nil end function __nuppManagedAlias:close() local cell,problem=__nuppAliasCell(self);if not cell then return problem end;return __nuppManagedClose(cell,true)end function __nuppManagedAlias:_downcast(policy) local cell,problem=__nuppAliasCell(self);if not cell then return nil,problem end if cell._policy~=policy then return nil,__nuppManagedError(\"NUPP2613\",\"managed alias has the wrong type or cleanup policy\")end return self,nil end function __nupp.__manage(value,cleanup,policy) local cell=setmetatable({_brand=__nuppManagedBrand,_value=value,_cleanup=cleanup,_policy=policy,_state=\"live\",_borrows=0,_exclusive=false},__nuppManagedOwner);__nuppManagedCells[cell]=true;return cell end function __nupp.__recoverAlias(value) if type(value)~=\"table\"or value._brand~=__nuppManagedBrand or getmetatable(value)~=__nuppManagedAlias then return nil,__nuppManagedError(\"NUPP2614\",\"value is not a managed alias\")end local cell,problem=__nuppAliasCell(value);if not cell then return nil,problem end;return value,nil end _G.__nuppManagedPolicyCount=function(policy)local count=0;for cell in pairs(__nuppManagedCells)do if cell._policy==policy and(cell._state==\"live\"or cell._state:match(\"borrowed\"))then count=count+1 end end;return count end local __nuppManagedGroup={};__nuppManagedGroup.__index=__nuppManagedGroup function __nuppManagedGroup:flush()end function __nuppManagedGroup:adopt(cell) if self._closed then error(\"managed group is closed\",2)end local handle=cell:alias();self._entries[#self._entries+1]=handle return handle end function __nuppManagedGroup:remove(handle) if self._closed then error(\"managed group is closed\",2)end for index=#self._entries,1,-1 do if self._entries[index]==handle then table.remove(self._entries,index);local value,problem=handle:take();if problem then error(problem.message,2)end;return value end end error(\"managed alias is not registered in this group\",2) end local function __nuppManagedCloseEntry(entry)local problem=entry:close();if problem and problem.code~=\"NUPP2614\"then error(problem.message,0)end end function __nuppManagedGroup:close() if self._closed then return end;self._closed=true;local first,suppressed=nil,0 for index=#self._entries,1,-1 do local ok,reason=pcall(__nuppManagedCloseEntry,self._entries[index]);if not ok then if first==nil then first=reason else suppressed=suppressed+1 end end end self._entries={};if first~=nil then if suppressed>0 then error(tostring(first)..\" (suppressed \"..tostring(suppressed)..\" cleanup failure(s))\",0)end;error(first,0)end end function __nupp.managedGroup()return setmetatable({_entries={},_closed=false},__nuppManagedGroup)end;\n","@nupp-prelude"))();local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppMath=rawget(__nupp,"math")or{};rawset(__nupp,"math",__nuppMath) local function __nuppCloseFile(handle)if io.type(handle)=="closed file"then return end;local ok,reason=handle:close();if not ok then error(reason or "the file could not be closed",0)end end local __nuppManagedBrand=_G.__nuppManagedBrand if not __nuppManagedBrand then __nuppManagedBrand={};_G.__nuppManagedBrand=__nuppManagedBrand end local __nuppManagedCells=_G.__nuppManagedCells if not __nuppManagedCells then __nuppManagedCells=setmetatable({},{__mode="k"});_G.__nuppManagedCells=__nuppManagedCells end local __nuppManagedOwner={};__nuppManagedOwner.__index=__nuppManagedOwner;local __nuppManagedAlias={};__nuppManagedAlias.__index=__nuppManagedAlias local function __nuppManagedError(code,message)return{code=code,message=message}end local function __nuppManagedProblem(cell) if type(cell)~="table"or cell._brand~=__nuppManagedBrand then return __nuppManagedError("NUPP2614","value is not a managed alias")end if cell._state=="taken"then return __nuppManagedError("NUPP2614","managed ownership was already taken")end if cell._state=="closed"or cell._state=="closing"then return __nuppManagedError("NUPP2614","managed resource is closed")end return nil end local function __nuppManagedClose(cell,checked) local problem=__nuppManagedProblem(cell);if problem then if checked then return problem end;return nil end if cell._borrows~=0 or cell._exclusive then local busy=__nuppManagedError("NUPP2620","managed resource has an active borrow");if checked then return busy end;error(busy.message,0)end cell._state="closing";local value,cleanup=cell._value,cell._cleanup;cell._value=nil;cell._cleanup=nil local ok,reason=pcall(cleanup,value);cell._state="closed";if not ok then error(reason,0)end;return nil end function __nuppManagedOwner:alias()return setmetatable({_cell=self,_brand=__nuppManagedBrand},__nuppManagedAlias)end function __nuppManagedOwner:close()return __nuppManagedClose(self,false)end local function __nuppAliasCell(self) if type(self)~="table"or self._brand~=__nuppManagedBrand or getmetatable(self)~=__nuppManagedAlias then return nil,__nuppManagedError("NUPP2614","value is not a managed alias")end local cell=self._cell;local problem=__nuppManagedProblem(cell);if problem then return nil,problem end;return cell,nil end function __nuppManagedAlias:with(callback) local cell,problem=__nuppAliasCell(self);if not cell then return nil,problem end if cell._exclusive then return nil,__nuppManagedError("NUPP2620","managed resource is exclusively borrowed")end cell._borrows=cell._borrows+1;cell._state="shared-borrowed("..cell._borrows..")" local ok,result=pcall(callback,cell._value);cell._borrows=cell._borrows-1;cell._state=cell._borrows>0 and("shared-borrowed("..cell._borrows..")")or"live" if not ok then error(result,0)end;return result,nil end function __nuppManagedAlias:withExclusive(callback) local cell,problem=__nuppAliasCell(self);if not cell then return nil,problem end if cell._exclusive or cell._borrows~=0 then return nil,__nuppManagedError("NUPP2620","managed resource is already borrowed")end cell._exclusive=true;cell._state="exclusive-borrowed";local ok,result=pcall(callback,cell._value);cell._exclusive=false;cell._state="live" if not ok then error(result,0)end;return result,nil end function __nuppManagedAlias:take() local cell,problem=__nuppAliasCell(self);if not cell then return nil,problem end if cell._exclusive or cell._borrows~=0 then return nil,__nuppManagedError("NUPP2620","managed resource has an active borrow")end cell._state="taken";local value=cell._value;cell._value=nil;cell._cleanup=nil;return value,nil end function __nuppManagedAlias:close() local cell,problem=__nuppAliasCell(self);if not cell then return problem end;return __nuppManagedClose(cell,true)end function __nuppManagedAlias:_downcast(policy) local cell,problem=__nuppAliasCell(self);if not cell then return nil,problem end if cell._policy~=policy then return nil,__nuppManagedError("NUPP2613","managed alias has the wrong type or cleanup policy")end return self,nil end function __nupp.__manage(value,cleanup,policy) local cell=setmetatable({_brand=__nuppManagedBrand,_value=value,_cleanup=cleanup,_policy=policy,_state="live",_borrows=0,_exclusive=false},__nuppManagedOwner);__nuppManagedCells[cell]=true;return cell end function __nupp.__recoverAlias(value) if type(value)~="table"or value._brand~=__nuppManagedBrand or getmetatable(value)~=__nuppManagedAlias then return nil,__nuppManagedError("NUPP2614","value is not a managed alias")end local cell,problem=__nuppAliasCell(value);if not cell then return nil,problem end;return value,nil end _G.__nuppManagedPolicyCount=function(policy)local count=0;for cell in pairs(__nuppManagedCells)do if cell._policy==policy and(cell._state=="live"or cell._state:match("borrowed"))then count=count+1 end end;return count end local __nuppManagedGroup={};__nuppManagedGroup.__index=__nuppManagedGroup function __nuppManagedGroup:flush()end function __nuppManagedGroup:adopt(cell) if self._closed then error("managed group is closed",2)end local handle=cell:alias();self._entries[#self._entries+1]=handle return handle end function __nuppManagedGroup:remove(handle) if self._closed then error("managed group is closed",2)end for index=#self._entries,1,-1 do if self._entries[index]==handle then table.remove(self._entries,index);local value,problem=handle:take();if problem then error(problem.message,2)end;return value end end error("managed alias is not registered in this group",2) end local function __nuppManagedCloseEntry(entry)local problem=entry:close();if problem and problem.code~="NUPP2614"then error(problem.message,0)end end function __nuppManagedGroup:close() if self._closed then return end;self._closed=true;local first,suppressed=nil,0 for index=#self._entries,1,-1 do local ok,reason=pcall(__nuppManagedCloseEntry,self._entries[index]);if not ok then if first==nil then first=reason else suppressed=suppressed+1 end end end self._entries={};if first~=nil then if suppressed>0 then error(tostring(first).." (suppressed "..tostring(suppressed).." cleanup failure(s))",0)end;error(first,0)end end function __nupp.managedGroup()return setmetatable({_entries={},_closed=false},__nuppManagedGroup)end;local __nuppExports;local __nuppOk,__nuppWhy=pcall(function()
 
 
 
@@ -33396,144 +33417,248 @@ _G.assert(_G.loadstring("local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppM
 
 
 
-local hash = { }
+
+
+
+
+
+
 
 local digest = require ( "nupp.data.digest" )
+local bitops = require ( "nupp.compiler.bitops" )
 
-
-
-
-local band , bxor , rshift = bit . band , bit . bxor , bit . rshift
-local rol = bit . rol
+local hash = { }
 
 function hash . sha256 ( input ) 
 return digest . sha256 ( input )
 end
 
-local P1 = 0x9E3779B185EBCA87ULL
-local P2 = 0xC2B2AE3D27D4EB4FULL
-local P3 = 0x165667B19E3779F9ULL
-local P4 = 0x85EBCA77C2B2AE63ULL
-local P5 = 0x27D4EB2F165667C5ULL
-
-local function round ( acc , input ) 
-acc = acc + input * P2
-acc = rol ( acc , 31 )
-return acc * P1
+local function u32 ( value ) 
+return value % 4294967296
 end
 
-local function mergeRound ( acc , value ) 
-value = round ( 0ULL , value )
-acc = bxor ( acc , value )
-return acc * P1 + P4
-end
+const P1_HI = 0x9E3779B1
+const P1_LO = 0x85EBCA87
+const P2_HI = 0xC2B2AE3D
+const P2_LO = 0x27D4EB4F
+const P3_HI = 0x165667B1
+const P3_LO = 0x9E3779F9
+const P4_HI = 0x85EBCA77
+const P4_LO = 0xC2B2AE63
+const P5_HI = 0x27D4EB2F
+const P5_LO = 0x165667C5
 
 
 
-local function wordAt ( words , index ) 
-do
-return words [ index ]
-end
+
+
+
+local function add64 ( aHi , aLo , bHi , bLo ) 
+local lo = aLo + bLo
+local carry = 0
+if lo >= 4294967296 then
+carry = 1
+lo = lo - 4294967296
 end
 
-local function halfAt ( halves , index ) 
-do
-return halves [ index ]
-end
+return u32 ( aHi + bHi + carry ) , lo
 end
 
-local function byteAt ( bytes , index ) 
-do
-return bytes [ index ]
-end
+local function xor64 ( aHi , aLo , bHi , bLo ) 
+return u32 ( bitops . bxor ( aHi , bHi ) ) , u32 ( bitops . bxor ( aLo , bLo ) )
 end
 
 
 
 
+local function rotl64 ( hi , lo , count ) 
+if count == 0 then
+return hi , lo
+elseif count == 32 then
+return lo , hi
+elseif count < 32 then
+return u32 ( bitops . bor ( bitops . lshift ( hi , count ) , bitops . rshift ( lo , 32 - count ) ) ) ,
+u32 ( bitops . bor ( bitops . lshift ( lo , count ) , bitops . rshift ( hi , 32 - count ) ) )
+else
+local rest = count - 32
+return u32 ( bitops . bor ( bitops . lshift ( lo , rest ) , bitops . rshift ( hi , 32 - rest ) ) ) ,
+u32 ( bitops . bor ( bitops . lshift ( hi , rest ) , bitops . rshift ( lo , 32 - rest ) ) )
+end
+end
 
 
 
-local function xxh64 ( input , seed ) 
+
+local function rshift64 ( hi , lo , count ) 
+if count == 0 then
+return hi , lo
+elseif count == 32 then
+return 0 , hi
+elseif count < 32 then
+return u32 ( bitops . rshift ( hi , count ) ) ,
+u32 ( bitops . bor ( bitops . rshift ( lo , count ) , bitops . lshift ( hi , 32 - count ) ) )
+else
+return 0 , u32 ( bitops . rshift ( hi , count - 32 ) )
+end
+end
+
+
+
+
+
+
+
+local function mul64 ( aHi , aLo , bHi , bLo ) 
+local a0 , a1 = bitops . band ( aLo , 0xFFFF ) , bitops . band ( bitops . rshift ( aLo , 16 ) , 0xFFFF )
+local a2 , a3 = bitops . band ( aHi , 0xFFFF ) , bitops . band ( bitops . rshift ( aHi , 16 ) , 0xFFFF )
+local b0 , b1 = bitops . band ( bLo , 0xFFFF ) , bitops . band ( bitops . rshift ( bLo , 16 ) , 0xFFFF )
+local b2 , b3 = bitops . band ( bHi , 0xFFFF ) , bitops . band ( bitops . rshift ( bHi , 16 ) , 0xFFFF )
+
+local c0 = a0 * b0
+local c1 = math . floor ( c0 / 65536 )
+c0 = c0 % 65536
+c1 = c1 + a1 * b0
+local c2 = math . floor ( c1 / 65536 )
+c1 = c1 % 65536
+c1 = c1 + a0 * b1
+c2 = c2 + math . floor ( c1 / 65536 )
+c1 = c1 % 65536
+c2 = c2 + a2 * b0
+local c3 = math . floor ( c2 / 65536 )
+c2 = c2 % 65536
+c2 = c2 + a1 * b1
+c3 = c3 + math . floor ( c2 / 65536 )
+c2 = c2 % 65536
+c2 = c2 + a0 * b2
+c3 = c3 + math . floor ( c2 / 65536 )
+c2 = c2 % 65536
+c3 = ( c3 + a3 * b0 + a2 * b1 + a1 * b2 + a0 * b3 ) % 65536
+
+return c3 * 65536 + c2 , c1 * 65536 + c0
+end
+
+local function round ( accHi , accLo , inHi , inLo ) 
+local mulHi , mulLo = mul64 ( inHi , inLo , P2_HI , P2_LO )
+local sumHi , sumLo = add64 ( accHi , accLo , mulHi , mulLo )
+local rotHi , rotLo = rotl64 ( sumHi , sumLo , 31 )
+
+return mul64 ( rotHi , rotLo , P1_HI , P1_LO )
+end
+
+local function mergeRound ( accHi , accLo , valHi , valLo ) 
+local roundedHi , roundedLo = round ( 0 , 0 , valHi , valLo )
+local xoredHi , xoredLo = xor64 ( accHi , accLo , roundedHi , roundedLo )
+local mulHi , mulLo = mul64 ( xoredHi , xoredLo , P1_HI , P1_LO )
+
+return add64 ( mulHi , mulLo , P4_HI , P4_LO )
+end
+
+
+
+
+
+local function wordAt ( input , offset ) 
+local b1 , b2 , b3 , b4 , b5 , b6 , b7 , b8 = input : byte ( offset + 1 , offset + 8 )
+
+return u32 ( bitops . bor ( b5 , bitops . lshift ( b6 , 8 ) , bitops . lshift ( b7 , 16 ) , bitops . lshift ( b8 , 24 ) ) ) ,
+u32 ( bitops . bor ( b1 , bitops . lshift ( b2 , 8 ) , bitops . lshift ( b3 , 16 ) , bitops . lshift ( b4 , 24 ) ) )
+end
+
+local function halfAt ( input , offset ) 
+local b1 , b2 , b3 , b4 = input : byte ( offset + 1 , offset + 4 )
+
+return u32 ( bitops . bor ( b1 , bitops . lshift ( b2 , 8 ) , bitops . lshift ( b3 , 16 ) , bitops . lshift ( b4 , 24 ) ) )
+end
+
+
+
+
+
+local function xxh64 ( input , seedHi , seedLo ) 
 local size = # input
-local words = __nuppFfi.cast("const uint64_t *" , input )
-local h
-
-
-
 local at = 0
+local hHi , hLo = 0 , 0
+
 if size >= 32 then
-local v1 , v2 = seed + P1 + P2 , seed + P2
-local v3 , v4 = seed + 0ULL , seed - P1
+local sp1Hi , sp1Lo = add64 ( seedHi , seedLo , P1_HI , P1_LO )
+local v1Hi , v1Lo = add64 ( sp1Hi , sp1Lo , P2_HI , P2_LO )
+local v2Hi , v2Lo = add64 ( seedHi , seedLo , P2_HI , P2_LO )
+local v3Hi , v3Lo = seedHi , seedLo
+local negP1Hi , negP1Lo = add64 ( u32 ( bitops . bnot ( P1_HI ) ) , u32 ( bitops . bnot ( P1_LO ) ) , 0 , 1 )
+local v4Hi , v4Lo = add64 ( seedHi , seedLo , negP1Hi , negP1Lo )
+
 local stripes = ( math.floor(( size ) / ( 32 )) ) * 4
 local w = 0
 repeat
-v1 = round ( v1 , wordAt ( words , w ) )
-v2 = round ( v2 , wordAt ( words , w + 1 ) )
-v3 = round ( v3 , wordAt ( words , w + 2 ) )
-v4 = round ( v4 , wordAt ( words , w + 3 ) )
+v1Hi , v1Lo = round ( v1Hi , v1Lo , wordAt ( input , w * 8 ) )
+v2Hi , v2Lo = round ( v2Hi , v2Lo , wordAt ( input , ( w + 1 ) * 8 ) )
+v3Hi , v3Lo = round ( v3Hi , v3Lo , wordAt ( input , ( w + 2 ) * 8 ) )
+v4Hi , v4Lo = round ( v4Hi , v4Lo , wordAt ( input , ( w + 3 ) * 8 ) )
 w = w + 4
 until w >= stripes
 at = w * 8
-h = rol ( v1 , 1 ) + rol ( v2 , 7 ) + rol ( v3 , 12 ) + rol ( v4 , 18 )
-h = mergeRound ( h , v1 )
-h = mergeRound ( h , v2 )
-h = mergeRound ( h , v3 )
-h = mergeRound ( h , v4 )
+
+hHi , hLo = rotl64 ( v1Hi , v1Lo , 1 )
+hHi , hLo = add64 ( hHi , hLo , rotl64 ( v2Hi , v2Lo , 7 ) )
+hHi , hLo = add64 ( hHi , hLo , rotl64 ( v3Hi , v3Lo , 12 ) )
+hHi , hLo = add64 ( hHi , hLo , rotl64 ( v4Hi , v4Lo , 18 ) )
+hHi , hLo = mergeRound ( hHi , hLo , v1Hi , v1Lo )
+hHi , hLo = mergeRound ( hHi , hLo , v2Hi , v2Lo )
+hHi , hLo = mergeRound ( hHi , hLo , v3Hi , v3Lo )
+hHi , hLo = mergeRound ( hHi , hLo , v4Hi , v4Lo )
 else
-h = seed + P5
+hHi , hLo = add64 ( seedHi , seedLo , P5_HI , P5_LO )
 end
-h = h + size
+hHi , hLo = add64 ( hHi , hLo , 0 , size )
+
 while size - at >= 8 do
-h = bxor ( h , round ( 0ULL , wordAt ( words , math.floor(( at ) / ( 8 )) ) ) )
-h = rol ( h , 27 ) * P1 + P4
+hHi , hLo = xor64 ( hHi , hLo , round ( 0 , 0 , wordAt ( input , at ) ) )
+hHi , hLo = rotl64 ( hHi , hLo , 27 )
+hHi , hLo = mul64 ( hHi , hLo , P1_HI , P1_LO )
+hHi , hLo = add64 ( hHi , hLo , P4_HI , P4_LO )
 at = at + 8
 end
+
 if size - at >= 4 then
-local halves = __nuppFfi.cast("const uint32_t *" , input )
-h = bxor ( h , __nuppFfi.cast("uint64_t" , halfAt ( halves , math.floor(( at ) / ( 4 )) ) ) * P1 )
-h = rol ( h , 23 ) * P2 + P3
+hHi , hLo = xor64 ( hHi , hLo , mul64 ( 0 , halfAt ( input , at ) , P1_HI , P1_LO ) )
+hHi , hLo = rotl64 ( hHi , hLo , 23 )
+hHi , hLo = mul64 ( hHi , hLo , P2_HI , P2_LO )
+hHi , hLo = add64 ( hHi , hLo , P3_HI , P3_LO )
 at = at + 4
 end
-if at < size then
-local bytes = __nuppFfi.cast("const uint8_t *" , input )
+
 while at < size do
-h = bxor ( h , __nuppFfi.cast("uint64_t" , byteAt ( bytes , at ) ) * P5 )
-h = rol ( h , 11 ) * P1
+hHi , hLo = xor64 ( hHi , hLo , mul64 ( 0 , assert ( input : byte ( at + 1 ) ) , P5_HI , P5_LO ) )
+hHi , hLo = rotl64 ( hHi , hLo , 11 )
+hHi , hLo = mul64 ( hHi , hLo , P1_HI , P1_LO )
 at = at + 1
 end
+
+hHi , hLo = xor64 ( hHi , hLo , rshift64 ( hHi , hLo , 33 ) )
+hHi , hLo = mul64 ( hHi , hLo , P2_HI , P2_LO )
+hHi , hLo = xor64 ( hHi , hLo , rshift64 ( hHi , hLo , 29 ) )
+hHi , hLo = mul64 ( hHi , hLo , P3_HI , P3_LO )
+
+return xor64 ( hHi , hLo , rshift64 ( hHi , hLo , 32 ) )
 end
-h = bxor ( h , rshift ( h , 33 ) )
-h = h * P2
-h = bxor ( h , rshift ( h , 29 ) )
-h = h * P3
-
-return __nuppFfi.cast("uint64_t" , bxor ( h , rshift ( h , 32 ) ) )
-end
 
 
-
-
-
-local function hex64 ( value ) 
-local high = tonumber ( band ( rshift ( value , 32 ) , 0xFFFFFFFFULL ) )
-local low = tonumber ( band ( value , 0xFFFFFFFFULL ) )
-return ( "%08x%08x" ) : format ( high , low )
+local function hex64 ( hi , lo ) 
+return ( "%08x%08x" ) : format ( hi , lo )
 end
 
 
 
 
-
-local SEED_A = 0ULL
-local SEED_B = 0x9E3779B97F4A7C15ULL
+const SEED_A_HI , SEED_A_LO = 0 , 0
+const SEED_B_HI , SEED_B_LO = 0x9E3779B9 , 0x7F4A7C15
 
 
 
 
 
 function hash . digest ( input ) 
-return hex64 ( xxh64 ( input , SEED_A ) ) .. hex64 ( xxh64 ( input , SEED_B ) )
+return hex64 ( xxh64 ( input , SEED_A_HI , SEED_A_LO ) ) .. hex64 ( xxh64 ( input , SEED_B_HI , SEED_B_LO ) )
 end
 
 
@@ -33541,12 +33666,6 @@ end
 
 
 hash . DIGEST = "xxh64x2"
-
-
-
-const ENDIAN_PROBE = "\1\0\0\0\0\0\0\0"
-
-
 
 
 
@@ -33564,24 +33683,18 @@ const ENDIAN_PROBE = "\1\0\0\0\0\0\0\0"
 
 
 function hash . trailerDigest ( payload ) 
+local hi , lo = xxh64 ( payload , 0 , 0 )
 
-
-
-
-
-
-
-local probe = __nuppFfi.cast("const uint64_t *" , ENDIAN_PROBE )
-assert ( wordAt ( probe , 0 ) == 1ULL , "the trailer digest is defined little-endian" )
-
-local value = xxh64 ( payload , 0ULL )
-local bytes = { }
-for index = 1 , 8 do
-bytes [ index ] = string . char ( tonumber ( band ( value , 0xFFULL ) ) )
-value = rshift ( value , 8 )
-end
-
-return table . concat ( bytes )
+return string . char (
+bitops . band ( lo , 0xFF ) ,
+bitops . band ( bitops . rshift ( lo , 8 ) , 0xFF ) ,
+bitops . band ( bitops . rshift ( lo , 16 ) , 0xFF ) ,
+bitops . band ( bitops . rshift ( lo , 24 ) , 0xFF ) ,
+bitops . band ( hi , 0xFF ) ,
+bitops . band ( bitops . rshift ( hi , 8 ) , 0xFF ) ,
+bitops . band ( bitops . rshift ( hi , 16 ) , 0xFF ) ,
+bitops . band ( bitops . rshift ( hi , 24 ) , 0xFF )
+)
 end
 
 hash . xxh64 = xxh64
@@ -105209,8 +105322,11 @@ end
 
 
 
-pluck . const = { emission = nil , }
-pluck . const . integer = function ( node ) 
+
+
+
+pluck . constSpecialize = { emission = nil , }
+pluck . constSpecialize . integer = function ( node ) 
 if node == nil or cst . isToken ( node ) then
 return nil
 end
@@ -105219,15 +105335,15 @@ local value = tonumber ( ( node . token . text : gsub ( "_" , "" ) ) )
 if value ~= nil and value == math . floor ( value ) then
 return value
 end
-elseif node . kind == "name" and node . token ~= nil and pluck . const . emission ~= nil then
-local emission = pluck . const . emission
+elseif node . kind == "name" and node . token ~= nil and pluck . constSpecialize . emission ~= nil then
+local emission = pluck . constSpecialize . emission
 local written = emission . substitutions [ node . token . definition ]
 local value = written ~= nil and tonumber ( written ) or nil
 if value ~= nil and value == math . floor ( value ) then
 return value
 end
 elseif node . kind == "castExpr" then
-return pluck . const . integer ( node . expr )
+return pluck . constSpecialize . integer ( node . expr )
 elseif node . folded ~= nil then
 local value = tonumber ( node . folded )
 if value ~= nil and value == math . floor ( value ) then
@@ -105238,7 +105354,7 @@ end
 return nil
 end
 
-pluck . const . unrollableBody = function ( node ) 
+pluck . constSpecialize . unrollableBody = function ( node ) 
 local admitted = true
 local function walkConst ( child ) 
 if not admitted or child == nil or cst . isToken ( child ) then
@@ -105265,11 +105381,11 @@ walkConst ( node )
 return admitted
 end
 
-pluck . const . emitSpecialization = function ( declaration , specialization ) 
-local prior = pluck . const . emission
-pluck . const . emission = { substitutions = { } , specialization = specialization , }
+pluck . constSpecialize . emitSpecialization = function ( declaration , specialization ) 
+local prior = pluck . constSpecialize . emission
+pluck . constSpecialize . emission = { substitutions = { } , specialization = specialization , }
 for definition , value in pairs ( specialization . substitutions ) do
-pluck . const . emission . substitutions [ definition ] = value
+pluck . constSpecialize . emission . substitutions [ definition ] = value
 end
 local body = declaration . body
 e ( ";local function " .. specialization . name .. "(" , sourceLine ( declaration ) )
@@ -105298,10 +105414,10 @@ end
 emitDepth . endActivation ( )
 emitDepth . fn = emitDepth . fn - 1
 e ( "end" )
-pluck . const . emission = prior
+pluck . constSpecialize . emission = prior
 end
 
-pluck . const . emitRegistrations = function ( declaration ) 
+pluck . constSpecialize . emitRegistrations = function ( declaration ) 
 local specializations = declaration . constSpecializationAliases or declaration . constSpecializations or { }
 if # specializations == 0 or declaration . name == nil then
 return
@@ -107092,8 +107208,8 @@ pluck . needRuntimeEffect ( effect )
 end
 return
 end
-if pluck . const . emission ~= nil and kind == "name" and x . token ~= nil then
-local emission = pluck . const . emission
+if pluck . constSpecialize . emission ~= nil and kind == "name" and x . token ~= nil then
+local emission = pluck . constSpecialize . emission
 local replacement = emission . substitutions [ x . token . definition ]
 if replacement ~= nil then
 e ( replacement , sourceLine ( x ) )
@@ -107424,17 +107540,17 @@ emit ( x . value )
 end
 return
 end
-if pluck . const . emission ~= nil and kind == "fornumStmt" and x . var ~= nil and x . body ~= nil then
-local first = pluck . const . integer ( x . start )
-local last = pluck . const . integer ( x . stop )
-local step = x . step ~= nil and pluck . const . integer ( x . step ) or 1
-if first ~= nil and last ~= nil and step ~= nil and step ~= 0 and pluck . const . unrollableBody ( x . body ) then
+if pluck . constSpecialize . emission ~= nil and kind == "fornumStmt" and x . var ~= nil and x . body ~= nil then
+local first = pluck . constSpecialize . integer ( x . start )
+local last = pluck . constSpecialize . integer ( x . stop )
+local step = x . step ~= nil and pluck . constSpecialize . integer ( x . step ) or 1
+if first ~= nil and last ~= nil and step ~= nil and step ~= 0 and pluck . constSpecialize . unrollableBody ( x . body ) then
 local count = step > 0 and first <= last and math . floor (
 ( last - first ) / step
 ) + 1 or step < 0 and first >= last and math . floor ( ( first - last ) / - step ) + 1 or 0
 if count <= 8 then
 local definition = x . var . definition
-local emission = pluck . const . emission
+local emission = pluck . constSpecialize . emission
 local prior = definition ~= nil and emission . substitutions [ definition ] or nil
 e ( "do" , sourceLine ( x ) )
 local value = first
@@ -109916,9 +110032,9 @@ if x . body then
 emit ( x . body )
 end
 for _ , specialization in ipairs ( x . constSpecializations or { } ) do
-pluck . const . emitSpecialization ( x , specialization )
+pluck . constSpecialize . emitSpecialization ( x , specialization )
 end
-pluck . const . emitRegistrations ( x )
+pluck . constSpecialize . emitRegistrations ( x )
 
 elseif kind == "localFuncStmt" then
 if x . comptimeFunction or x . comptimeTok then
@@ -109932,9 +110048,9 @@ else
 emitChildren ( x )
 end
 for _ , specialization in ipairs ( x . constSpecializations or { } ) do
-pluck . const . emitSpecialization ( x , specialization )
+pluck . constSpecialize . emitSpecialization ( x , specialization )
 end
-pluck . const . emitRegistrations ( x )
+pluck . constSpecialize . emitRegistrations ( x )
 for _ , registration in ipairs ( x . name and x . name . cleanupRegistrations or { } ) do
 local cleanup = registration . cleanup
 e ( ( ";%s[%q]=%s" ) : format ( cleanupRegistry ( ) , cleanup . key , cleanup . name ) , sourceLine ( x ) )
