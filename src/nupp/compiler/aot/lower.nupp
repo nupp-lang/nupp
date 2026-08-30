@@ -15,6 +15,7 @@ narrowing that is not in the IR is a narrowing that did not happen.
 ]]
 
 local admit = require("nupp.compiler.aot.admit")
+local fold = require("nupp.compiler.aot.fold")
 local lexer = require("nupp.compiler.lexer")
 local cst = require("nupp.compiler.cst")
 local scalarIR = require("nupp.compiler.aot.scalar")
@@ -3134,9 +3135,95 @@ local function bind(
     return binding
 end
 
+--- The scratch whose initialized length an expression preserves.
+local function scratchLengthSource(value: scalarIR.Expr, kernel: lower.Kernel): string?
+    if value.op == "lua_scratch_u32_length" or value.op == "lua_scratch_u32_escape_length" then
+        return ((value as scalarIR.LuaScratchU32Length).scratch as scalarIR.Name).name
+    elseif value.op == "lua_scratch_u32_append_bits"
+        or value.op == "lua_scratch_u32_append_bits_eager"
+        or value.op == "lua_scratch_u32_append_string_bits"
+    then
+        return ((value as any).scratch as scalarIR.Name).name
+    elseif value.op == "local" then
+        return kernel.scratchLengthBounds[(value as scalarIR.Name).name]
+    elseif value.op == "u32_and" then
+        local pair = value as scalarIR.Fixed
+        local function mask(other: scalarIR.Expr): boolean
+            return other.op == "constant_i32" and tonumber((other as scalarIR.IntConstant).value) == 0x7fffffff
+        end
+
+        if mask(pair.right) then
+            return scratchLengthSource(pair.left, kernel)
+        elseif mask(pair.left) then
+            return scratchLengthSource(pair.right, kernel)
+        end
+    end
+
+    return nil
+end
+
+--- The statically known truth of a lowered condition, or nil when it can
+--- vary. A const-monomorphized carrier lowers as a constant, so a branch
+--- comparing one selects its arm here, before the untaken arms are lowered
+--- at all -- which is what lets one const-generic body hold per-variant
+--- constructs the other variants' specializations must never contain.
+local function staticTruth(value: scalarIR.Expr): boolean?
+    if value.op == "bool" then
+        return (value as scalarIR.Bool).value
+    end
+    if value.op ~= "eq" and value.op ~= "ne" and value.op ~= "lt" and value.op ~= "le" and value.op ~= "gt" and value.op ~= "ge" then
+        return nil
+    end
+    local binary = value as scalarIR.Binary
+    local left = fold.exactInteger(binary.left)
+    local right = fold.exactInteger(binary.right)
+    if left == nil or right == nil then
+        return nil
+    end
+    local leftValue = left as number
+    local rightValue = right as number
+
+    return switch binary.op do
+        case "eq" -> leftValue == rightValue
+        case "ne" -> leftValue ~= rightValue
+        case "lt" -> leftValue < rightValue
+        case "le" -> leftValue <= rightValue
+        case "gt" -> leftValue > rightValue
+        else -> leftValue >= rightValue
+    end
+end
+
+--- The static integer a switch case names, or nil when the case is not one.
+local function switchCaseNumber(caseValue: cst.Node): number?
+    local exact = caseValue.switchStaticValue
+    if exact and exact.tag == "literal" and type(exact.constant) == "number" then
+        return exact.constant
+    end
+    local value = caseValue
+    while value.kind == "paren" and value.expr do
+        value = value.expr
+    end
+    if value.kind == "number" and value.token then
+        return tonumber((value.token.text:gsub("_", "")))
+    elseif value.kind == "unop"
+        and value.op
+        and value.op.kind == "-"
+        and value.operand
+        and value.operand.kind == "number"
+        and value.operand.token
+    then
+        local parsed = tonumber((value.operand.token.text:gsub("_", "")))
+        return parsed and -parsed or nil
+    end
+
+    return nil
+end
+
 --- Lowers the AOT subset of a switch initializer. Native switches admit numeric
 --- integer-valued static cases and expression arms; strings, type patterns, block
---- arms, and early arm returns stay explicit subset boundaries.
+--- arms, and early arm returns stay explicit subset boundaries. A selector that
+--- is itself a constant -- a const carrier under monomorphization -- selects its
+--- arm statically, and only that arm is lowered.
 local function switchLocal(
     stat: cst.LocalStmt,
     node: cst.SwitchExpr,
@@ -3157,6 +3244,83 @@ local function switchLocal(
     if selector.type ~= "f64" and selector.type ~= "i32" and selector.type ~= "u32" then
         context.reject(lower.site(node.selector), "a native switch selector must be numeric")
     end
+
+    local staticSelector = fold.exactInteger(selector)
+    if staticSelector ~= nil then
+        -- The selector is a constant -- a monomorphized const carrier -- so
+        -- the arm is decided here and the untaken arms are never lowered.
+        local chosen: cst.Node? = nil
+        for _, arm in ipairs(node.cases or {}) do
+            if arm.patternKind ~= "static" then
+                context.reject(lower.site(arm), "native switches do not admit type cases")
+            elseif arm.body ~= nil or arm.expr == nil then
+                context.reject(lower.site(arm), "native switches require expression arms")
+            end
+            for _, caseValue in ipairs(arm.values or {}) do
+                local constant = switchCaseNumber(caseValue)
+                if constant == nil or constant ~= math.floor(constant as number) then
+                    context.reject(lower.site(caseValue), "native switch cases must be integer-valued numbers")
+                end
+                if chosen == nil and constant == staticSelector then
+                    chosen = arm.expr
+                end
+            end
+        end
+        local otherwiseArm = node.elseCase
+        if otherwiseArm and (otherwiseArm.body ~= nil or otherwiseArm.expr == nil) then
+            context.reject(lower.site(otherwiseArm), "native switches require expression arms")
+        end
+        if chosen == nil and otherwiseArm ~= nil then
+            chosen = otherwiseArm.expr
+        end
+        if chosen == nil then
+            context.reject(lower.site(node), "a constant switch selector matches no arm")
+        end
+        local chosenValue = lower.expression(chosen as cst.Node, environment, kernel.index, kernel)
+        local annotation = stat.types ~= nil and (stat.types as {cst.Node})[1] or nil
+        local resultType = annotatedValueType(annotation, context) or chosenValue.type
+        if resultType == nil or resultType == "multi" or resultType:match("^ref:") then
+            context.reject(lower.site(stat), "native switch results must be scalar")
+        end
+        resultType = resultType as scalarIR.Type
+        local resultBinding = bind(names[1].text, resultType, false, stat, environment, kernel)
+        local converted = lower.convert(chosenValue, resultType, lower.site(node), context)
+        -- The same binding bookkeeping an ordinary local initializer keeps:
+        -- events on a builder read its mode from the binding, and length and
+        -- scratch accesses read their bounds from it.
+        if converted.op == "lua_string_length" then
+            local bytes = (converted as scalarIR.LuaBytes).bytes as scalarIR.Name
+            resultBinding.lengthOf = bytes.name
+            kernel.lengthBounds[names[1].text] = bytes.name
+        end
+        local scratchLength = scratchLengthSource(converted, kernel)
+        if scratchLength ~= nil then
+            kernel.scratchLengthBounds[names[1].text] = scratchLength as string
+        else
+            kernel.scratchLengthBounds[names[1].text] = nil
+        end
+        kernel.scratchBounds[names[1].text] = nil
+        if converted.op == "lua_scratch_u32" and (converted as scalarIR.LuaScratchU32).fixed ~= nil then
+            kernel.scratchBounds[names[1].text] = (converted as scalarIR.LuaScratchU32).fixed as integer
+        elseif converted.op == "lua_scratch_u8" and (converted as scalarIR.LuaScratchU8).fixed ~= nil then
+            kernel.scratchBounds[names[1].text] = (converted as scalarIR.LuaScratchU8).fixed as integer
+        end
+        if converted.op == "lua_builder" then
+            resultBinding.builderMode = (converted as scalarIR.LuaBuilder).mode
+        end
+        out[
+            #out + 1
+        ] = new scalarIR.Let(
+            op = "let",
+            name = names[1].text,
+            cName = resultBinding.cName,
+            value = converted,
+            type = resultType,
+            source = lower.site(stat)
+        )
+        return
+    end
+
     local selectorName = "__nupp_switch_selector_" .. tostring(kernel.serial + 1)
     local selectorBinding = bind(selectorName, selector.type, false, node, environment, kernel)
     out[
@@ -3232,31 +3396,6 @@ local function switchLocal(
         cName = resultBinding.cName,
         type = resultType
     )
-    local function staticNumber(caseValue: cst.Node): number?
-        local exact = caseValue.switchStaticValue
-        if exact and exact.tag == "literal" and type(exact.constant) == "number" then
-            return exact.constant
-        end
-        local value = caseValue
-        while value.kind == "paren" and value.expr do
-            value = value.expr
-        end
-        if value.kind == "number" and value.token then
-            return tonumber((value.token.text:gsub("_", "")))
-        elseif value.kind == "unop"
-            and value.op
-            and value.op.kind == "-"
-            and value.operand
-            and value.operand.kind == "number"
-            and value.operand.token
-        then
-            local parsed = tonumber((value.operand.token.text:gsub("_", "")))
-            return parsed and -parsed or nil
-        end
-
-        return nil
-    end
-
     local clauses: {scalarIR.Clause} = {}
     local nativePlan = switchplan.native(selector.type)
     local nativeArms: {scalarIR.SwitchArm} = {}
@@ -3264,7 +3403,7 @@ local function switchLocal(
         local condition: scalarIR.Expr? = nil
         local nativeLabels: {scalarIR.SwitchLabel} = {}
         for _, caseValue in ipairs(lowered.case.values or {}) do
-            local constant = staticNumber(caseValue)
+            local constant = switchCaseNumber(caseValue)
             if constant == nil then
                 context.reject(lower.site(caseValue), "native switch cases must be integer-valued numbers")
             end
@@ -3350,34 +3489,6 @@ local function switchLocal(
     environment[selectorName] = nil
 end
 
---- One `local` declaration, which may bind several names from one call.
---- The scratch whose initialized length an expression preserves.
-local function scratchLengthSource(value: scalarIR.Expr, kernel: lower.Kernel): string?
-    if value.op == "lua_scratch_u32_length" or value.op == "lua_scratch_u32_escape_length" then
-        return ((value as scalarIR.LuaScratchU32Length).scratch as scalarIR.Name).name
-    elseif value.op == "lua_scratch_u32_append_bits"
-        or value.op == "lua_scratch_u32_append_bits_eager"
-        or value.op == "lua_scratch_u32_append_string_bits"
-    then
-        return ((value as any).scratch as scalarIR.Name).name
-    elseif value.op == "local" then
-        return kernel.scratchLengthBounds[(value as scalarIR.Name).name]
-    elseif value.op == "u32_and" then
-        local pair = value as scalarIR.Fixed
-        local function mask(other: scalarIR.Expr): boolean
-            return other.op == "constant_i32" and tonumber((other as scalarIR.IntConstant).value) == 0x7fffffff
-        end
-
-        if mask(pair.right) then
-            return scratchLengthSource(pair.left, kernel)
-        elseif mask(pair.left) then
-            return scratchLengthSource(pair.right, kernel)
-        end
-    end
-
-    return nil
-end
-
 --- Flattens `name = name .. ...` into the appended string expressions.
 local function stringAppendPieces(node: cst.Node?, name: string): {cst.Node}?
     if node == nil then
@@ -3458,6 +3569,7 @@ function lower.stringAccumulators(statements: {cst.Node}): {[string]: boolean}
     return found
 end
 
+--- One `local` declaration, which may bind several names from one call.
 local function localStmt(
     stat: cst.LocalStmt,
     out: {scalarIR.Statement},
@@ -3996,35 +4108,70 @@ function lower.block(statements: {cst.Node}, environment: {[string]: any}, kerne
         elseif kind == "ifStmt" then
             local branch = stat as cst.IfStmt
             local clauses: {scalarIR.Clause} = {}
+            -- A condition that is statically false -- a monomorphized const
+            -- carrier comparison -- drops its clause without lowering the
+            -- body; a statically true one absorbs everything after it.
+            local decided = false
             for _, arm in ipairs(branch.clauses or {}) do
-                local condition = lower.expression(arm.cond as cst.Node, environment, kernel.index, kernel)
-                if condition.type ~= "bool" then
-                    context.reject(lower.site(arm.cond), "native branch conditions must be boolean")
+                if not decided then
+                    local condition = lower.expression(arm.cond as cst.Node, environment, kernel.index, kernel)
+                    if condition.type ~= "bool" then
+                        context.reject(lower.site(arm.cond), "native branch conditions must be boolean")
+                    end
+                    local known = staticTruth(condition)
+                    if known ~= false then
+                        local cursor, spanName = cursorBound(arm.cond)
+                        local cursorBounds: {[string]: string}? = nil
+                        if cursor ~= nil and spanName ~= nil then
+                            cursorBounds = {[cursor as string] = spanName as string}
+                        end
+                        clauses[
+                            #clauses + 1
+                        ] = new scalarIR.Clause(
+                            condition = condition,
+                            body = nestedWithCursor(arm.body, cursor, spanName),
+                            cursorBounds = cursorBounds,
+                            source = lower.site(arm)
+                        )
+                        if known == true then
+                            decided = true
+                        end
+                    end
                 end
-                local cursor, spanName = cursorBound(arm.cond)
-                local cursorBounds: {[string]: string}? = nil
-                if cursor ~= nil and spanName ~= nil then
-                    cursorBounds = {[cursor as string] = spanName as string}
-                end
-                clauses[
-                    #clauses + 1
-                ] = new scalarIR.Clause(
-                    condition = condition,
-                    body = nestedWithCursor(arm.body, cursor, spanName),
-                    cursorBounds = cursorBounds,
-                    source = lower.site(arm)
-                )
             end
 
             local elseClause = branch.elseClause
-            out[
-                #out + 1
-            ] = new scalarIR.If(
-                op = "if",
-                clauses = clauses,
-                elseBody = elseClause ~= nil and nested((elseClause as cst.ElseClause).body) or nil,
-                source = lower.site(stat)
-            )
+            local elseBody = not decided and elseClause ~= nil and nested(
+                (elseClause as cst.ElseClause).body
+            ) or nil
+            if #clauses == 0 and elseBody ~= nil then
+                -- Every condition was statically false: the else is the
+                -- whole statement, kept as one always-taken clause so block
+                -- scoping and emission stay on the ordinary path.
+                clauses[
+                    1
+                ] = new scalarIR.Clause(
+                    condition = new scalarIR.Bool(
+                        op = "bool",
+                        value = true,
+                        type = "bool",
+                        source = lower.site(stat)
+                    ),
+                    body = elseBody,
+                    source = lower.site(stat)
+                )
+                elseBody = nil
+            end
+            if #clauses > 0 then
+                out[
+                    #out + 1
+                ] = new scalarIR.If(
+                    op = "if",
+                    clauses = clauses,
+                    elseBody = elseBody,
+                    source = lower.site(stat)
+                )
+            end
         elseif kind == "fornumStmt" then
             -- A bounded nested loop with an integer induction variable. The
             -- outer row loop already counts in an integer; a `while` over a

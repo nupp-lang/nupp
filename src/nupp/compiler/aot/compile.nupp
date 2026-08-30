@@ -524,7 +524,10 @@ function compile.constSpecializations(
             local familySpecializations: {lower.Specialization} = {}
             local familyDispatchPrograms: {scalarIR.Program} = {}
             for _, specialization in ipairs(candidate ~= nil and candidate.specializations or {}) do
-                local program = verify.program(lower.program(found, application, true, context, specialization))
+                -- Verified below, after lua-builder registrars are named:
+                -- a builder-mode specialization needs the same shared
+                -- registrar rewrite compile.artifacts applies.
+                local program = lower.program(found, application, true, context, specialization)
                 programs[#programs + 1] = program
                 familyPrograms[#familyPrograms + 1] = program
             end
@@ -552,6 +555,24 @@ function compile.constSpecializations(
         end
         if #programs == 0 then
             context.reject(nil, "no closed const-generic AOT applications were found")
+        end
+
+        local builderSymbols: {string} = {}
+        for _, program in ipairs(programs) do
+            if program.entryMode == "lua-builder" then
+                builderSymbols[#builderSymbols + 1] = program.symbol
+            end
+        end
+        if #builderSymbols > 0 then
+            local registrar = "ks_register_" .. hash.digest(table.concat(builderSymbols, "\0")):sub(1, 16)
+            for _, program in ipairs(programs) do
+                if program.entryMode == "lua-builder" then
+                    program.registrar = registrar
+                end
+            end
+        end
+        for _, program in ipairs(programs) do
+            verify.program(program)
         end
 
         local optimizations: {aotOptimize.Stats} = {}

@@ -841,6 +841,78 @@ function M.constGenericEmitCOmitsTheCarrierAndUnrollsTheBody()
       "the specialized arithmetic reached emitted C")
 end
 
+function M.constGenericSelectsValueStreamModePerVariant()
+   local dir = constProject("emit-c")
+   local source = assert(io.open(dir .. "/src/constkernel.nupp", "wb"))
+   source:write(table.concat({
+      "module constkernel",
+      'local _valueBuilder = require("nupp.data.valuebuilder")',
+      "@aot(lanes = false)",
+      "local function build<const Variant: integer>(",
+      "    source: string,",
+      "    nullValue: any,",
+      "    variant: Variant,",
+      "    arrayMarker: any?,",
+      "    objectMarker: any?,",
+      "    shape: any?,",
+      "    arrayShapeMarker: any?,",
+      "    serdeMarkers: any?",
+      "): any",
+      "    local count = _valueBuilder.length(source)",
+      "    local depth: uint32 = 16",
+      "    local values = switch variant as integer do",
+      "        case 0 -> _valueBuilder.newPull(",
+      "            nullValue,",
+      "            depth,",
+      "            count,",
+      "            arrayMarker,",
+      "            objectMarker,",
+      "            shape,",
+      "            arrayShapeMarker,",
+      "            serdeMarkers",
+      "        )",
+      "        else -> _valueBuilder.newSized(nullValue, depth, count, arrayMarker, objectMarker)",
+      "    end",
+      "    if variant as integer == 0 then",
+      "        _valueBuilder.null(values)",
+      "    else",
+      "        _valueBuilder.boolean(values, true)",
+      "    end",
+      "    return _valueBuilder.finish(values)",
+      "end",
+      "local function buildPull(source: string, nullValue: any): any",
+      "    return build(source, nullValue, 0, nil, nil, nil, nil, nil)",
+      "end",
+      "local function buildEager(source: string, nullValue: any): any",
+      "    return build(source, nullValue, 2, nil, nil, nil, nil, nil)",
+      "end",
+      "export = {build = build, buildPull = buildPull, buildEager = buildEager}",
+   }, "\n"))
+   source:close()
+
+   local out, code = build(dir)
+   test.equal(code, 0,
+      "one const-generic body may name a different value stream mode per "
+      .. "variant, because the untaken arms are pruned before lowering "
+      .. "classifies the entry: " .. tostring(out))
+   local c = assert(read(tieredC(dir, firstHostTier(), "constkernel")))
+   local bodies = {}
+   for suffix in c:gmatch("static int ks___nupp_const_build_([0-9a-f]+)_lua") do
+      bodies[#bodies + 1] = suffix
+   end
+   test.equal(#bodies, 2, "each demanded variant compiles its own body")
+   for _, suffix in ipairs(bodies) do
+      local marker = "static int ks___nupp_const_build_" .. suffix .. "_lua"
+      local from = assert(c:find(marker, 1, true))
+      local to = c:find("\nstatic ", from, true) or #c
+      local body = c:sub(from, to)
+      local nulls = body:find("ks_lua_builder_null", 1, true) ~= nil
+      local booleans = body:find("ks_lua_builder_boolean", 1, true) ~= nil
+      assert(nulls ~= booleans,
+         "a specialization keeps only its own variant's branch, not both")
+   end
+end
+
 function M.constGenericAotCapCountsCoalescedBodiesNotKeys()
    local dir = constProject("emit-c")
    local source = assert(io.open(dir .. "/src/constkernel.nupp", "wb"))

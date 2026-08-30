@@ -5175,7 +5175,10 @@ local familyPrograms = { }
 local familySpecializations = { }
 local familyDispatchPrograms = { }
 for _ , specialization in ipairs ( candidate ~= nil and candidate . specializations or { } ) do
-local program = verify . program ( lower . program ( found , application , true , context , specialization ) )
+
+
+
+local program = lower . program ( found , application , true , context , specialization )
 programs [ # programs + 1 ] = program
 familyPrograms [ # familyPrograms + 1 ] = program
 end
@@ -5203,6 +5206,24 @@ end
 end
 if # programs == 0 then
 context . reject ( nil , "no closed const-generic AOT applications were found" )
+end
+
+local builderSymbols = { }
+for _ , program in ipairs ( programs ) do
+if program . entryMode == "lua-builder" then
+builderSymbols [ # builderSymbols + 1 ] = program . symbol
+end
+end
+if # builderSymbols > 0 then
+local registrar = "ks_register_" .. hash . digest ( table . concat ( builderSymbols , "\0" ) ) : sub ( 1 , 16 )
+for _ , program in ipairs ( programs ) do
+if program . entryMode == "lua-builder" then
+program . registrar = registrar
+end
+end
+end
+for _ , program in ipairs ( programs ) do
+verify . program ( program )
 end
 
 local optimizations = { }
@@ -14239,6 +14260,7 @@ _G.assert(_G.loadstring("local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppM
 
 
 local admit = require ( "nupp.compiler.aot.admit" )
+local fold = require ( "nupp.compiler.aot.fold" )
 local lexer = require ( "nupp.compiler.lexer" )
 local cst = require ( "nupp.compiler.cst" )
 local scalarIR = require ( "nupp.compiler.aot.scalar" )
@@ -17359,6 +17381,92 @@ return binding
 end
 
 
+local function scratchLengthSource ( value , kernel ) 
+if value . op == "lua_scratch_u32_length" or value . op == "lua_scratch_u32_escape_length" then
+return ( ( value ) . scratch ) . name
+elseif value . op == "lua_scratch_u32_append_bits"
+or value . op == "lua_scratch_u32_append_bits_eager"
+or value . op == "lua_scratch_u32_append_string_bits"
+then
+return ( ( value ) . scratch ) . name
+elseif value . op == "local" then
+return kernel . scratchLengthBounds [ ( value ) . name ]
+elseif value . op == "u32_and" then
+local pair = value
+local function mask ( other ) 
+return other . op == "constant_i32" and tonumber ( ( other ) . value ) == 0x7fffffff
+end
+
+if mask ( pair . right ) then
+return scratchLengthSource ( pair . left , kernel )
+elseif mask ( pair . left ) then
+return scratchLengthSource ( pair . right , kernel )
+end
+end
+
+return nil
+end
+
+
+
+
+
+
+local function staticTruth ( value ) 
+if value . op == "bool" then
+return ( value ) . value
+end
+if value . op ~= "eq" and value . op ~= "ne" and value . op ~= "lt" and value . op ~= "le" and value . op ~= "gt" and value . op ~= "ge" then
+return nil
+end
+local binary = value
+local left = fold . exactInteger ( binary . left )
+local right = fold . exactInteger ( binary . right )
+if left == nil or right == nil then
+return nil
+end
+local leftValue = left
+local rightValue = right
+
+local __nuppT48= binary . op ;local __nuppT49;
+if  __nuppT48== "eq"  then  __nuppT49= leftValue == rightValue
+elseif  __nuppT48== "ne"  then  __nuppT49= leftValue ~= rightValue
+elseif  __nuppT48== "lt"  then  __nuppT49= leftValue < rightValue
+elseif  __nuppT48== "le"  then  __nuppT49= leftValue <= rightValue
+elseif  __nuppT48== "gt"  then  __nuppT49= leftValue > rightValue
+else  __nuppT49= leftValue >= rightValue
+end; return __nuppT49
+end
+
+
+local function switchCaseNumber ( caseValue ) 
+local exact = caseValue . switchStaticValue
+if exact and exact . tag == "literal" and type ( exact . constant ) == "number" then
+return exact . constant
+end
+local value = caseValue
+while value . kind == "paren" and value . expr do
+value = value . expr
+end
+if value . kind == "number" and value . token then
+return tonumber ( ( value . token . text : gsub ( "_" , "" ) ) )
+elseif value . kind == "unop"
+and value . op
+and value . op . kind == "-"
+and value . operand
+and value . operand . kind == "number"
+and value . operand . token
+then
+local parsed = tonumber ( ( value . operand . token . text : gsub ( "_" , "" ) ) )
+return parsed and - parsed or nil
+end
+
+return nil
+end
+
+
+
+
 
 
 local function switchLocal (
@@ -17381,6 +17489,83 @@ local selector = lower . expression ( node . selector , environment , kernel . i
 if selector . type ~= "f64" and selector . type ~= "i32" and selector . type ~= "u32" then
 context . reject ( lower . site ( node . selector ) , "a native switch selector must be numeric" )
 end
+
+local staticSelector = fold . exactInteger ( selector )
+if staticSelector ~= nil then
+
+
+local chosen = nil
+for _ , arm in ipairs ( node . cases or { } ) do
+if arm . patternKind ~= "static" then
+context . reject ( lower . site ( arm ) , "native switches do not admit type cases" )
+elseif arm . body ~= nil or arm . expr == nil then
+context . reject ( lower . site ( arm ) , "native switches require expression arms" )
+end
+for _ , caseValue in ipairs ( arm . values or { } ) do
+local constant = switchCaseNumber ( caseValue )
+if constant == nil or constant ~= math . floor ( constant ) then
+context . reject ( lower . site ( caseValue ) , "native switch cases must be integer-valued numbers" )
+end
+if chosen == nil and constant == staticSelector then
+chosen = arm . expr
+end
+end
+end
+local otherwiseArm = node . elseCase
+if otherwiseArm and ( otherwiseArm . body ~= nil or otherwiseArm . expr == nil ) then
+context . reject ( lower . site ( otherwiseArm ) , "native switches require expression arms" )
+end
+if chosen == nil and otherwiseArm ~= nil then
+chosen = otherwiseArm . expr
+end
+if chosen == nil then
+context . reject ( lower . site ( node ) , "a constant switch selector matches no arm" )
+end
+local chosenValue = lower . expression ( chosen , environment , kernel . index , kernel )
+local annotation = stat . types ~= nil and ( stat . types ) [ 1 ] or nil
+local resultType = annotatedValueType ( annotation , context ) or chosenValue . type
+if resultType == nil or resultType == "multi" or resultType : match ( "^ref:" ) then
+context . reject ( lower . site ( stat ) , "native switch results must be scalar" )
+end
+resultType = resultType
+local resultBinding = bind ( names [ 1 ] . text , resultType , false , stat , environment , kernel )
+local converted = lower . convert ( chosenValue , resultType , lower . site ( node ) , context )
+
+
+
+if converted . op == "lua_string_length" then
+local bytes = ( converted ) . bytes
+resultBinding . lengthOf = bytes . name
+kernel . lengthBounds [ names [ 1 ] . text ] = bytes . name
+end
+local scratchLength = scratchLengthSource ( converted , kernel )
+if scratchLength ~= nil then
+kernel . scratchLengthBounds [ names [ 1 ] . text ] = scratchLength
+else
+kernel . scratchLengthBounds [ names [ 1 ] . text ] = nil
+end
+kernel . scratchBounds [ names [ 1 ] . text ] = nil
+if converted . op == "lua_scratch_u32" and ( converted ) . fixed ~= nil then
+kernel . scratchBounds [ names [ 1 ] . text ] = ( converted ) . fixed
+elseif converted . op == "lua_scratch_u8" and ( converted ) . fixed ~= nil then
+kernel . scratchBounds [ names [ 1 ] . text ] = ( converted ) . fixed
+end
+if converted . op == "lua_builder" then
+resultBinding . builderMode = ( converted ) . mode
+end
+out [
+# out + 1
+] = setmetatable({ op =
+"let" ,  name =
+names [ 1 ] . text ,  cName =
+resultBinding . cName ,  value =
+converted ,  type =
+resultType ,  source =
+lower . site ( stat ) }, scalarIR.Let)
+
+return
+end
+
 local selectorName = "__nupp_switch_selector_" .. tostring ( kernel . serial + 1 )
 local selectorBinding = bind ( selectorName , selector . type , false , node , environment , kernel )
 out [
@@ -17456,31 +17641,6 @@ resultBinding . name ,  cName =
 resultBinding . cName ,  type =
 resultType }, scalarIR.Target)
 
-local function staticNumber ( caseValue ) 
-local exact = caseValue . switchStaticValue
-if exact and exact . tag == "literal" and type ( exact . constant ) == "number" then
-return exact . constant
-end
-local value = caseValue
-while value . kind == "paren" and value . expr do
-value = value . expr
-end
-if value . kind == "number" and value . token then
-return tonumber ( ( value . token . text : gsub ( "_" , "" ) ) )
-elseif value . kind == "unop"
-and value . op
-and value . op . kind == "-"
-and value . operand
-and value . operand . kind == "number"
-and value . operand . token
-then
-local parsed = tonumber ( ( value . operand . token . text : gsub ( "_" , "" ) ) )
-return parsed and - parsed or nil
-end
-
-return nil
-end
-
 local clauses = { }
 local nativePlan = switchplan . native ( selector . type )
 local nativeArms = { }
@@ -17488,7 +17648,7 @@ for _ , lowered in ipairs ( arms ) do
 local condition = nil
 local nativeLabels = { }
 for _ , caseValue in ipairs ( lowered . case . values or { } ) do
-local constant = staticNumber ( caseValue )
+local constant = switchCaseNumber ( caseValue )
 if constant == nil then
 context . reject ( lower . site ( caseValue ) , "native switch cases must be integer-valued numbers" )
 end
@@ -17575,34 +17735,6 @@ environment [ selectorName ] = nil
 end
 
 
-
-local function scratchLengthSource ( value , kernel ) 
-if value . op == "lua_scratch_u32_length" or value . op == "lua_scratch_u32_escape_length" then
-return ( ( value ) . scratch ) . name
-elseif value . op == "lua_scratch_u32_append_bits"
-or value . op == "lua_scratch_u32_append_bits_eager"
-or value . op == "lua_scratch_u32_append_string_bits"
-then
-return ( ( value ) . scratch ) . name
-elseif value . op == "local" then
-return kernel . scratchLengthBounds [ ( value ) . name ]
-elseif value . op == "u32_and" then
-local pair = value
-local function mask ( other ) 
-return other . op == "constant_i32" and tonumber ( ( other ) . value ) == 0x7fffffff
-end
-
-if mask ( pair . right ) then
-return scratchLengthSource ( pair . left , kernel )
-elseif mask ( pair . left ) then
-return scratchLengthSource ( pair . right , kernel )
-end
-end
-
-return nil
-end
-
-
 local function stringAppendPieces ( node , name ) 
 if node == nil then
 return nil
@@ -17681,6 +17813,7 @@ end
 
 return found
 end
+
 
 local function localStmt (
 stat ,
@@ -18220,11 +18353,18 @@ assignStmt ( stat , out , environment , kernel )
 elseif kind == "ifStmt" then
 local branch = stat
 local clauses = { }
+
+
+
+local decided = false
 for _ , arm in ipairs ( branch . clauses or { } ) do
+if not decided then
 local condition = lower . expression ( arm . cond , environment , kernel . index , kernel )
 if condition . type ~= "bool" then
 context . reject ( lower . site ( arm . cond ) , "native branch conditions must be boolean" )
 end
+local known = staticTruth ( condition )
+if known ~= false then
 local cursor , spanName = cursorBound ( arm . cond )
 local cursorBounds = nil
 if cursor ~= nil and spanName ~= nil then
@@ -18238,17 +18378,45 @@ nestedWithCursor ( arm . body , cursor , spanName ) ,  cursorBounds =
 cursorBounds ,  source =
 lower . site ( arm ) }, scalarIR.Clause)
 
+if known == true then
+decided = true
+end
+end
+end
 end
 
 local elseClause = branch . elseClause
+local elseBody = not decided and elseClause ~= nil and nested (
+( elseClause ) . body
+) or nil
+if # clauses == 0 and elseBody ~= nil then
+
+
+
+clauses [
+1
+] = setmetatable({ condition =  setmetatable({ op =
+
+"bool" ,  value =
+true ,  type =
+"bool" ,  source =
+lower . site ( stat ) }, scalarIR.Bool) ,  body =
+
+elseBody ,  source =
+lower . site ( stat ) }, scalarIR.Clause)
+
+elseBody = nil
+end
+if # clauses > 0 then
 out [
 # out + 1
 ] = setmetatable({ op =
 "if" ,  clauses =
 clauses ,  elseBody =
-elseClause ~= nil and nested ( ( elseClause ) . body ) or nil ,  source =
+elseBody ,  source =
 lower . site ( stat ) }, scalarIR.If)
 
+end
 elseif kind == "fornumStmt" then
 
 
@@ -96636,6 +96804,7 @@ local BUNDLED_SOURCE = {
 [ "nupp.data.json.provider" ] = "/nupp/data/json/provider.nupp" ,
 [ "nupp.data.json.aot" ] = "/nupp/data/json/aot.nupp" ,
 [ "nupp.data.jsondecode" ] = "/nupp/data/jsondecode.nupp" ,
+[ "nupp.data.jsondecoder.fused" ] = "/nupp/data/jsondecoder/fused.nupp" ,
 [ "nupp.data.jsondecoder.eager" ] = "/nupp/data/jsondecoder/eager.nupp" ,
 [ "nupp.data.jsondecoder.serde" ] = "/nupp/data/jsondecoder/serde.nupp" ,
 [ "nupp.data.serde" ] = "/nupp/data/serde.nupp" ,
@@ -155265,11 +155434,9 @@ return require ( "nupp.data.json.aot" )
 
 end
 package.preload["nupp.data.jsondecode"] = function(...)
-_G.assert(_G.loadstring("local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppMath=rawget(__nupp,\"math\")or{};rawset(__nupp,\"math\",__nuppMath) local function __nuppCloseFile(handle)if io.type(handle)==\"closed file\"then return end;local ok,reason=handle:close();if not ok then error(reason or \"the file could not be closed\",0)end end local __nuppManagedBrand=_G.__nuppManagedBrand if not __nuppManagedBrand then __nuppManagedBrand={};_G.__nuppManagedBrand=__nuppManagedBrand end local __nuppManagedCells=_G.__nuppManagedCells if not __nuppManagedCells then __nuppManagedCells=setmetatable({},{__mode=\"k\"});_G.__nuppManagedCells=__nuppManagedCells end local __nuppManagedOwner={};__nuppManagedOwner.__index=__nuppManagedOwner;local __nuppManagedAlias={};__nuppManagedAlias.__index=__nuppManagedAlias local function __nuppManagedError(code,message)return{code=code,message=message}end local function __nuppManagedProblem(cell) if type(cell)~=\"table\"or cell._brand~=__nuppManagedBrand then return __nuppManagedError(\"NUPP2614\",\"value is not a managed alias\")end if cell._state==\"taken\"then return __nuppManagedError(\"NUPP2614\",\"managed ownership was already taken\")end if cell._state==\"closed\"or cell._state==\"closing\"then return __nuppManagedError(\"NUPP2614\",\"managed resource is closed\")end return nil end local function __nuppManagedClose(cell,checked) local problem=__nuppManagedProblem(cell);if problem then if checked then return problem end;return nil end if cell._borrows~=0 or cell._exclusive then local busy=__nuppManagedError(\"NUPP2620\",\"managed resource has an active borrow\");if checked then return busy end;error(busy.message,0)end cell._state=\"closing\";local value,cleanup=cell._value,cell._cleanup;cell._value=nil;cell._cleanup=nil local ok,reason=pcall(cleanup,value);cell._state=\"closed\";if not ok then error(reason,0)end;return nil end function __nuppManagedOwner:alias()return setmetatable({_cell=self,_brand=__nuppManagedBrand},__nuppManagedAlias)end function __nuppManagedOwner:close()return __nuppManagedClose(self,false)end local function __nuppAliasCell(self) if type(self)~=\"table\"or self._brand~=__nuppManagedBrand or getmetatable(self)~=__nuppManagedAlias then return nil,__nuppManagedError(\"NUPP2614\",\"value is not a managed alias\")end local cell=self._cell;local problem=__nuppManagedProblem(cell);if problem then return nil,problem end;return cell,nil end function __nuppManagedAlias:with(callback) local cell,problem=__nuppAliasCell(self);if not cell then return nil,problem end if cell._exclusive then return nil,__nuppManagedError(\"NUPP2620\",\"managed resource is exclusively borrowed\")end cell._borrows=cell._borrows+1;cell._state=\"shared-borrowed(\"..cell._borrows..\")\" local ok,result=pcall(callback,cell._value);cell._borrows=cell._borrows-1;cell._state=cell._borrows>0 and(\"shared-borrowed(\"..cell._borrows..\")\")or\"live\" if not ok then error(result,0)end;return result,nil end function __nuppManagedAlias:withExclusive(callback) local cell,problem=__nuppAliasCell(self);if not cell then return nil,problem end if cell._exclusive or cell._borrows~=0 then return nil,__nuppManagedError(\"NUPP2620\",\"managed resource is already borrowed\")end cell._exclusive=true;cell._state=\"exclusive-borrowed\";local ok,result=pcall(callback,cell._value);cell._exclusive=false;cell._state=\"live\" if not ok then error(result,0)end;return result,nil end function __nuppManagedAlias:take() local cell,problem=__nuppAliasCell(self);if not cell then return nil,problem end if cell._exclusive or cell._borrows~=0 then return nil,__nuppManagedError(\"NUPP2620\",\"managed resource has an active borrow\")end cell._state=\"taken\";local value=cell._value;cell._value=nil;cell._cleanup=nil;return value,nil end function __nuppManagedAlias:close() local cell,problem=__nuppAliasCell(self);if not cell then return problem end;return __nuppManagedClose(cell,true)end function __nuppManagedAlias:_downcast(policy) local cell,problem=__nuppAliasCell(self);if not cell then return nil,problem end if cell._policy~=policy then return nil,__nuppManagedError(\"NUPP2613\",\"managed alias has the wrong type or cleanup policy\")end return self,nil end function __nupp.__manage(value,cleanup,policy) local cell=setmetatable({_brand=__nuppManagedBrand,_value=value,_cleanup=cleanup,_policy=policy,_state=\"live\",_borrows=0,_exclusive=false},__nuppManagedOwner);__nuppManagedCells[cell]=true;return cell end function __nupp.__recoverAlias(value) if type(value)~=\"table\"or value._brand~=__nuppManagedBrand or getmetatable(value)~=__nuppManagedAlias then return nil,__nuppManagedError(\"NUPP2614\",\"value is not a managed alias\")end local cell,problem=__nuppAliasCell(value);if not cell then return nil,problem end;return value,nil end _G.__nuppManagedPolicyCount=function(policy)local count=0;for cell in pairs(__nuppManagedCells)do if cell._policy==policy and(cell._state==\"live\"or cell._state:match(\"borrowed\"))then count=count+1 end end;return count end local __nuppManagedGroup={};__nuppManagedGroup.__index=__nuppManagedGroup function __nuppManagedGroup:flush()end function __nuppManagedGroup:adopt(cell) if self._closed then error(\"managed group is closed\",2)end local handle=cell:alias();self._entries[#self._entries+1]=handle return handle end function __nuppManagedGroup:remove(handle) if self._closed then error(\"managed group is closed\",2)end for index=#self._entries,1,-1 do if self._entries[index]==handle then table.remove(self._entries,index);local value,problem=handle:take();if problem then error(problem.message,2)end;return value end end error(\"managed alias is not registered in this group\",2) end local function __nuppManagedCloseEntry(entry)local problem=entry:close();if problem and problem.code~=\"NUPP2614\"then error(problem.message,0)end end function __nuppManagedGroup:close() if self._closed then return end;self._closed=true;local first,suppressed=nil,0 for index=#self._entries,1,-1 do local ok,reason=pcall(__nuppManagedCloseEntry,self._entries[index]);if not ok then if first==nil then first=reason else suppressed=suppressed+1 end end end self._entries={};if first~=nil then if suppressed>0 then error(tostring(first)..\" (suppressed \"..tostring(suppressed)..\" cleanup failure(s))\",0)end;error(first,0)end end function __nupp.managedGroup()return setmetatable({_entries={},_closed=false},__nuppManagedGroup)end;\n","@nupp-prelude"))();local __nuppBitBand=bit.band;local __nuppBitBnot=bit.bnot;local __nuppBitBor=bit.bor;local __nuppBitBxor=bit.bxor;local __nuppBitLshift=bit.lshift;local __nuppBitRshift=bit.rshift;local __nuppBitTobit=bit.tobit;local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppMath=rawget(__nupp,"math")or{};rawset(__nupp,"math",__nuppMath) local function __nuppCloseFile(handle)if io.type(handle)=="closed file"then return end;local ok,reason=handle:close();if not ok then error(reason or "the file could not be closed",0)end end local __nuppManagedBrand=_G.__nuppManagedBrand if not __nuppManagedBrand then __nuppManagedBrand={};_G.__nuppManagedBrand=__nuppManagedBrand end local __nuppManagedCells=_G.__nuppManagedCells if not __nuppManagedCells then __nuppManagedCells=setmetatable({},{__mode="k"});_G.__nuppManagedCells=__nuppManagedCells end local __nuppManagedOwner={};__nuppManagedOwner.__index=__nuppManagedOwner;local __nuppManagedAlias={};__nuppManagedAlias.__index=__nuppManagedAlias local function __nuppManagedError(code,message)return{code=code,message=message}end local function __nuppManagedProblem(cell) if type(cell)~="table"or cell._brand~=__nuppManagedBrand then return __nuppManagedError("NUPP2614","value is not a managed alias")end if cell._state=="taken"then return __nuppManagedError("NUPP2614","managed ownership was already taken")end if cell._state=="closed"or cell._state=="closing"then return __nuppManagedError("NUPP2614","managed resource is closed")end return nil end local function __nuppManagedClose(cell,checked) local problem=__nuppManagedProblem(cell);if problem then if checked then return problem end;return nil end if cell._borrows~=0 or cell._exclusive then local busy=__nuppManagedError("NUPP2620","managed resource has an active borrow");if checked then return busy end;error(busy.message,0)end cell._state="closing";local value,cleanup=cell._value,cell._cleanup;cell._value=nil;cell._cleanup=nil local ok,reason=pcall(cleanup,value);cell._state="closed";if not ok then error(reason,0)end;return nil end function __nuppManagedOwner:alias()return setmetatable({_cell=self,_brand=__nuppManagedBrand},__nuppManagedAlias)end function __nuppManagedOwner:close()return __nuppManagedClose(self,false)end local function __nuppAliasCell(self) if type(self)~="table"or self._brand~=__nuppManagedBrand or getmetatable(self)~=__nuppManagedAlias then return nil,__nuppManagedError("NUPP2614","value is not a managed alias")end local cell=self._cell;local problem=__nuppManagedProblem(cell);if problem then return nil,problem end;return cell,nil end function __nuppManagedAlias:with(callback) local cell,problem=__nuppAliasCell(self);if not cell then return nil,problem end if cell._exclusive then return nil,__nuppManagedError("NUPP2620","managed resource is exclusively borrowed")end cell._borrows=cell._borrows+1;cell._state="shared-borrowed("..cell._borrows..")" local ok,result=pcall(callback,cell._value);cell._borrows=cell._borrows-1;cell._state=cell._borrows>0 and("shared-borrowed("..cell._borrows..")")or"live" if not ok then error(result,0)end;return result,nil end function __nuppManagedAlias:withExclusive(callback) local cell,problem=__nuppAliasCell(self);if not cell then return nil,problem end if cell._exclusive or cell._borrows~=0 then return nil,__nuppManagedError("NUPP2620","managed resource is already borrowed")end cell._exclusive=true;cell._state="exclusive-borrowed";local ok,result=pcall(callback,cell._value);cell._exclusive=false;cell._state="live" if not ok then error(result,0)end;return result,nil end function __nuppManagedAlias:take() local cell,problem=__nuppAliasCell(self);if not cell then return nil,problem end if cell._exclusive or cell._borrows~=0 then return nil,__nuppManagedError("NUPP2620","managed resource has an active borrow")end cell._state="taken";local value=cell._value;cell._value=nil;cell._cleanup=nil;return value,nil end function __nuppManagedAlias:close() local cell,problem=__nuppAliasCell(self);if not cell then return problem end;return __nuppManagedClose(cell,true)end function __nuppManagedAlias:_downcast(policy) local cell,problem=__nuppAliasCell(self);if not cell then return nil,problem end if cell._policy~=policy then return nil,__nuppManagedError("NUPP2613","managed alias has the wrong type or cleanup policy")end return self,nil end function __nupp.__manage(value,cleanup,policy) local cell=setmetatable({_brand=__nuppManagedBrand,_value=value,_cleanup=cleanup,_policy=policy,_state="live",_borrows=0,_exclusive=false},__nuppManagedOwner);__nuppManagedCells[cell]=true;return cell end function __nupp.__recoverAlias(value) if type(value)~="table"or value._brand~=__nuppManagedBrand or getmetatable(value)~=__nuppManagedAlias then return nil,__nuppManagedError("NUPP2614","value is not a managed alias")end local cell,problem=__nuppAliasCell(value);if not cell then return nil,problem end;return value,nil end _G.__nuppManagedPolicyCount=function(policy)local count=0;for cell in pairs(__nuppManagedCells)do if cell._policy==policy and(cell._state=="live"or cell._state:match("borrowed"))then count=count+1 end end;return count end local __nuppManagedGroup={};__nuppManagedGroup.__index=__nuppManagedGroup function __nuppManagedGroup:flush()end function __nuppManagedGroup:adopt(cell) if self._closed then error("managed group is closed",2)end local handle=cell:alias();self._entries[#self._entries+1]=handle return handle end function __nuppManagedGroup:remove(handle) if self._closed then error("managed group is closed",2)end for index=#self._entries,1,-1 do if self._entries[index]==handle then table.remove(self._entries,index);local value,problem=handle:take();if problem then error(problem.message,2)end;return value end end error("managed alias is not registered in this group",2) end local function __nuppManagedCloseEntry(entry)local problem=entry:close();if problem and problem.code~="NUPP2614"then error(problem.message,0)end end function __nuppManagedGroup:close() if self._closed then return end;self._closed=true;local first,suppressed=nil,0 for index=#self._entries,1,-1 do local ok,reason=pcall(__nuppManagedCloseEntry,self._entries[index]);if not ok then if first==nil then first=reason else suppressed=suppressed+1 end end end self._entries={};if first~=nil then if suppressed>0 then error(tostring(first).." (suppressed "..tostring(suppressed).." cleanup failure(s))",0)end;error(first,0)end end function __nupp.managedGroup()return setmetatable({_entries={},_closed=false},__nuppManagedGroup)end local function __nuppLazy(target,name,loader)local meta=getmetatable(target)or{};local loaders=meta.__nuppLoaders;if not loaders then loaders={};local prior=meta.__index;meta.__nuppLoaders=loaders;meta.__index=function(t,k)local load=loaders[k];if load then local value=load(k);loaders[k]=nil;if value==nil then value=rawget(t,k)else rawset(t,k,value)end;return value end;if type(prior)=="function"then return prior(t,k)elseif prior then return prior[k]end end;setmetatable(target,meta)end;if name~=nil and rawget(target,name)==nil and loaders[name]==nil then loaders[name]=loader end end require("nupp.compiler.runtime.math").install(rawget(__nupp,"math"));const __nuppSwitchMap1={102,97,108,115};local __nuppExports;local __nuppOk,__nuppWhy=pcall(function()
+_G.assert(_G.loadstring("local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppMath=rawget(__nupp,\"math\")or{};rawset(__nupp,\"math\",__nuppMath) local function __nuppCloseFile(handle)if io.type(handle)==\"closed file\"then return end;local ok,reason=handle:close();if not ok then error(reason or \"the file could not be closed\",0)end end local __nuppManagedBrand=_G.__nuppManagedBrand if not __nuppManagedBrand then __nuppManagedBrand={};_G.__nuppManagedBrand=__nuppManagedBrand end local __nuppManagedCells=_G.__nuppManagedCells if not __nuppManagedCells then __nuppManagedCells=setmetatable({},{__mode=\"k\"});_G.__nuppManagedCells=__nuppManagedCells end local __nuppManagedOwner={};__nuppManagedOwner.__index=__nuppManagedOwner;local __nuppManagedAlias={};__nuppManagedAlias.__index=__nuppManagedAlias local function __nuppManagedError(code,message)return{code=code,message=message}end local function __nuppManagedProblem(cell) if type(cell)~=\"table\"or cell._brand~=__nuppManagedBrand then return __nuppManagedError(\"NUPP2614\",\"value is not a managed alias\")end if cell._state==\"taken\"then return __nuppManagedError(\"NUPP2614\",\"managed ownership was already taken\")end if cell._state==\"closed\"or cell._state==\"closing\"then return __nuppManagedError(\"NUPP2614\",\"managed resource is closed\")end return nil end local function __nuppManagedClose(cell,checked) local problem=__nuppManagedProblem(cell);if problem then if checked then return problem end;return nil end if cell._borrows~=0 or cell._exclusive then local busy=__nuppManagedError(\"NUPP2620\",\"managed resource has an active borrow\");if checked then return busy end;error(busy.message,0)end cell._state=\"closing\";local value,cleanup=cell._value,cell._cleanup;cell._value=nil;cell._cleanup=nil local ok,reason=pcall(cleanup,value);cell._state=\"closed\";if not ok then error(reason,0)end;return nil end function __nuppManagedOwner:alias()return setmetatable({_cell=self,_brand=__nuppManagedBrand},__nuppManagedAlias)end function __nuppManagedOwner:close()return __nuppManagedClose(self,false)end local function __nuppAliasCell(self) if type(self)~=\"table\"or self._brand~=__nuppManagedBrand or getmetatable(self)~=__nuppManagedAlias then return nil,__nuppManagedError(\"NUPP2614\",\"value is not a managed alias\")end local cell=self._cell;local problem=__nuppManagedProblem(cell);if problem then return nil,problem end;return cell,nil end function __nuppManagedAlias:with(callback) local cell,problem=__nuppAliasCell(self);if not cell then return nil,problem end if cell._exclusive then return nil,__nuppManagedError(\"NUPP2620\",\"managed resource is exclusively borrowed\")end cell._borrows=cell._borrows+1;cell._state=\"shared-borrowed(\"..cell._borrows..\")\" local ok,result=pcall(callback,cell._value);cell._borrows=cell._borrows-1;cell._state=cell._borrows>0 and(\"shared-borrowed(\"..cell._borrows..\")\")or\"live\" if not ok then error(result,0)end;return result,nil end function __nuppManagedAlias:withExclusive(callback) local cell,problem=__nuppAliasCell(self);if not cell then return nil,problem end if cell._exclusive or cell._borrows~=0 then return nil,__nuppManagedError(\"NUPP2620\",\"managed resource is already borrowed\")end cell._exclusive=true;cell._state=\"exclusive-borrowed\";local ok,result=pcall(callback,cell._value);cell._exclusive=false;cell._state=\"live\" if not ok then error(result,0)end;return result,nil end function __nuppManagedAlias:take() local cell,problem=__nuppAliasCell(self);if not cell then return nil,problem end if cell._exclusive or cell._borrows~=0 then return nil,__nuppManagedError(\"NUPP2620\",\"managed resource has an active borrow\")end cell._state=\"taken\";local value=cell._value;cell._value=nil;cell._cleanup=nil;return value,nil end function __nuppManagedAlias:close() local cell,problem=__nuppAliasCell(self);if not cell then return problem end;return __nuppManagedClose(cell,true)end function __nuppManagedAlias:_downcast(policy) local cell,problem=__nuppAliasCell(self);if not cell then return nil,problem end if cell._policy~=policy then return nil,__nuppManagedError(\"NUPP2613\",\"managed alias has the wrong type or cleanup policy\")end return self,nil end function __nupp.__manage(value,cleanup,policy) local cell=setmetatable({_brand=__nuppManagedBrand,_value=value,_cleanup=cleanup,_policy=policy,_state=\"live\",_borrows=0,_exclusive=false},__nuppManagedOwner);__nuppManagedCells[cell]=true;return cell end function __nupp.__recoverAlias(value) if type(value)~=\"table\"or value._brand~=__nuppManagedBrand or getmetatable(value)~=__nuppManagedAlias then return nil,__nuppManagedError(\"NUPP2614\",\"value is not a managed alias\")end local cell,problem=__nuppAliasCell(value);if not cell then return nil,problem end;return value,nil end _G.__nuppManagedPolicyCount=function(policy)local count=0;for cell in pairs(__nuppManagedCells)do if cell._policy==policy and(cell._state==\"live\"or cell._state:match(\"borrowed\"))then count=count+1 end end;return count end local __nuppManagedGroup={};__nuppManagedGroup.__index=__nuppManagedGroup function __nuppManagedGroup:flush()end function __nuppManagedGroup:adopt(cell) if self._closed then error(\"managed group is closed\",2)end local handle=cell:alias();self._entries[#self._entries+1]=handle return handle end function __nuppManagedGroup:remove(handle) if self._closed then error(\"managed group is closed\",2)end for index=#self._entries,1,-1 do if self._entries[index]==handle then table.remove(self._entries,index);local value,problem=handle:take();if problem then error(problem.message,2)end;return value end end error(\"managed alias is not registered in this group\",2) end local function __nuppManagedCloseEntry(entry)local problem=entry:close();if problem and problem.code~=\"NUPP2614\"then error(problem.message,0)end end function __nuppManagedGroup:close() if self._closed then return end;self._closed=true;local first,suppressed=nil,0 for index=#self._entries,1,-1 do local ok,reason=pcall(__nuppManagedCloseEntry,self._entries[index]);if not ok then if first==nil then first=reason else suppressed=suppressed+1 end end end self._entries={};if first~=nil then if suppressed>0 then error(tostring(first)..\" (suppressed \"..tostring(suppressed)..\" cleanup failure(s))\",0)end;error(first,0)end end function __nupp.managedGroup()return setmetatable({_entries={},_closed=false},__nuppManagedGroup)end;\n","@nupp-prelude"))();local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppMath=rawget(__nupp,"math")or{};rawset(__nupp,"math",__nuppMath) local function __nuppCloseFile(handle)if io.type(handle)=="closed file"then return end;local ok,reason=handle:close();if not ok then error(reason or "the file could not be closed",0)end end local __nuppManagedBrand=_G.__nuppManagedBrand if not __nuppManagedBrand then __nuppManagedBrand={};_G.__nuppManagedBrand=__nuppManagedBrand end local __nuppManagedCells=_G.__nuppManagedCells if not __nuppManagedCells then __nuppManagedCells=setmetatable({},{__mode="k"});_G.__nuppManagedCells=__nuppManagedCells end local __nuppManagedOwner={};__nuppManagedOwner.__index=__nuppManagedOwner;local __nuppManagedAlias={};__nuppManagedAlias.__index=__nuppManagedAlias local function __nuppManagedError(code,message)return{code=code,message=message}end local function __nuppManagedProblem(cell) if type(cell)~="table"or cell._brand~=__nuppManagedBrand then return __nuppManagedError("NUPP2614","value is not a managed alias")end if cell._state=="taken"then return __nuppManagedError("NUPP2614","managed ownership was already taken")end if cell._state=="closed"or cell._state=="closing"then return __nuppManagedError("NUPP2614","managed resource is closed")end return nil end local function __nuppManagedClose(cell,checked) local problem=__nuppManagedProblem(cell);if problem then if checked then return problem end;return nil end if cell._borrows~=0 or cell._exclusive then local busy=__nuppManagedError("NUPP2620","managed resource has an active borrow");if checked then return busy end;error(busy.message,0)end cell._state="closing";local value,cleanup=cell._value,cell._cleanup;cell._value=nil;cell._cleanup=nil local ok,reason=pcall(cleanup,value);cell._state="closed";if not ok then error(reason,0)end;return nil end function __nuppManagedOwner:alias()return setmetatable({_cell=self,_brand=__nuppManagedBrand},__nuppManagedAlias)end function __nuppManagedOwner:close()return __nuppManagedClose(self,false)end local function __nuppAliasCell(self) if type(self)~="table"or self._brand~=__nuppManagedBrand or getmetatable(self)~=__nuppManagedAlias then return nil,__nuppManagedError("NUPP2614","value is not a managed alias")end local cell=self._cell;local problem=__nuppManagedProblem(cell);if problem then return nil,problem end;return cell,nil end function __nuppManagedAlias:with(callback) local cell,problem=__nuppAliasCell(self);if not cell then return nil,problem end if cell._exclusive then return nil,__nuppManagedError("NUPP2620","managed resource is exclusively borrowed")end cell._borrows=cell._borrows+1;cell._state="shared-borrowed("..cell._borrows..")" local ok,result=pcall(callback,cell._value);cell._borrows=cell._borrows-1;cell._state=cell._borrows>0 and("shared-borrowed("..cell._borrows..")")or"live" if not ok then error(result,0)end;return result,nil end function __nuppManagedAlias:withExclusive(callback) local cell,problem=__nuppAliasCell(self);if not cell then return nil,problem end if cell._exclusive or cell._borrows~=0 then return nil,__nuppManagedError("NUPP2620","managed resource is already borrowed")end cell._exclusive=true;cell._state="exclusive-borrowed";local ok,result=pcall(callback,cell._value);cell._exclusive=false;cell._state="live" if not ok then error(result,0)end;return result,nil end function __nuppManagedAlias:take() local cell,problem=__nuppAliasCell(self);if not cell then return nil,problem end if cell._exclusive or cell._borrows~=0 then return nil,__nuppManagedError("NUPP2620","managed resource has an active borrow")end cell._state="taken";local value=cell._value;cell._value=nil;cell._cleanup=nil;return value,nil end function __nuppManagedAlias:close() local cell,problem=__nuppAliasCell(self);if not cell then return problem end;return __nuppManagedClose(cell,true)end function __nuppManagedAlias:_downcast(policy) local cell,problem=__nuppAliasCell(self);if not cell then return nil,problem end if cell._policy~=policy then return nil,__nuppManagedError("NUPP2613","managed alias has the wrong type or cleanup policy")end return self,nil end function __nupp.__manage(value,cleanup,policy) local cell=setmetatable({_brand=__nuppManagedBrand,_value=value,_cleanup=cleanup,_policy=policy,_state="live",_borrows=0,_exclusive=false},__nuppManagedOwner);__nuppManagedCells[cell]=true;return cell end function __nupp.__recoverAlias(value) if type(value)~="table"or value._brand~=__nuppManagedBrand or getmetatable(value)~=__nuppManagedAlias then return nil,__nuppManagedError("NUPP2614","value is not a managed alias")end local cell,problem=__nuppAliasCell(value);if not cell then return nil,problem end;return value,nil end _G.__nuppManagedPolicyCount=function(policy)local count=0;for cell in pairs(__nuppManagedCells)do if cell._policy==policy and(cell._state=="live"or cell._state:match("borrowed"))then count=count+1 end end;return count end local __nuppManagedGroup={};__nuppManagedGroup.__index=__nuppManagedGroup function __nuppManagedGroup:flush()end function __nuppManagedGroup:adopt(cell) if self._closed then error("managed group is closed",2)end local handle=cell:alias();self._entries[#self._entries+1]=handle return handle end function __nuppManagedGroup:remove(handle) if self._closed then error("managed group is closed",2)end for index=#self._entries,1,-1 do if self._entries[index]==handle then table.remove(self._entries,index);local value,problem=handle:take();if problem then error(problem.message,2)end;return value end end error("managed alias is not registered in this group",2) end local function __nuppManagedCloseEntry(entry)local problem=entry:close();if problem and problem.code~="NUPP2614"then error(problem.message,0)end end function __nuppManagedGroup:close() if self._closed then return end;self._closed=true;local first,suppressed=nil,0 for index=#self._entries,1,-1 do local ok,reason=pcall(__nuppManagedCloseEntry,self._entries[index]);if not ok then if first==nil then first=reason else suppressed=suppressed+1 end end end self._entries={};if first~=nil then if suppressed>0 then error(tostring(first).." (suppressed "..tostring(suppressed).." cleanup failure(s))",0)end;error(first,0)end end function __nupp.managedGroup()return setmetatable({_entries={},_closed=false},__nuppManagedGroup)end;local __nuppExports;local __nuppOk,__nuppWhy=pcall(function()
 
-local _valueBuilder = require ( "nupp.data.valuebuilder" )
-local _simd = require ( "nupp.simd" )
-local _preferredU8 = _simd . preferredU8
+local _fused = require ( "nupp.data.jsondecoder.fused" )
 
 local fused = { }
 
@@ -155285,723 +155452,8 @@ fused . TAPE = 5
 
 
 
-local function decode (
-source ,
-nullValue ,
-arrayMarker ,
-objectMarker ,
-shape ,
-arrayShapeMarker ,
-serdeMarkers
-) 
-local sourceCount = _valueBuilder . length ( source )
-if sourceCount > 0x7FFFFFFF then
-return nullValue , 5 , 1
-end
 
-local tape = _valueBuilder . newWordScratch ( sourceCount )
-local species = _preferredU8 ( )
-local lanes = (__nuppBitTobit( species . lanes )%4294967296)
-local input = _simd . paddedStringU8 ( source )
-local zeroBytes = species : splat ( 0 )
-local nibbleMask = species : splat ( 15 )
-local continuationFlag = species : splat ( 128 )
-local byte1HighTable = _simd . tableU8x16 ( 2 , 2 , 2 , 2 , 2 , 2 , 2 , 2 , 128 , 128 , 128 , 128 , 33 , 1 , 21 , 73 )
-local byte1LowTable = _simd . tableU8x16 (
-231 ,
-163 ,
-131 ,
-131 ,
-139 ,
-203 ,
-203 ,
-203 ,
-203 ,
-203 ,
-203 ,
-203 ,
-203 ,
-219 ,
-203 ,
-203
-)
-local byte2HighTable = _simd . tableU8x16 ( 1 , 1 , 1 , 1 , 1 , 1 , 1 , 1 , 230 , 174 , 186 , 186 , 1 , 1 , 1 , 1 )
-
-
-
-
-local syntaxLowTable = _simd . tableU8x16 ( 16 , 0 , 0 , 0 , 0 , 0 , 0 , 0 , 0 , 8 , 12 , 1 , 2 , 9 , 0 , 0 )
-local syntaxHighTable = _simd . tableU8x16 ( 8 , 0 , 18 , 4 , 0 , 1 , 0 , 1 , 0 , 0 , 0 , 3 , 2 , 1 , 0 , 0 )
-local evenWord = (__nuppBitTobit( 0x55555555 )%4294967296)
-local evenMask = _simd . maskBits64 ( evenWord , evenWord )
-local oddWord = (__nuppBitTobit( 0xAAAAAAAA )%4294967296)
-local oddMask = _simd . maskBits64 ( oddWord , oddWord )
-local scanCursor = 0
-local tapeCount = 0
-local scanInString = false
-local scanStringEscaped = false
-local slashOdd = false
-local slashCarry = false
-local previousBytes = zeroBytes
-local previousNonAscii = false
-
-while scanCursor < sourceCount do
-local fastBlock = false
-if sourceCount >= 64 and scanCursor <= (__nuppBitTobit((
-sourceCount )-(
-64 ))%4294967296)
-and (__nuppBitBand( scanCursor , 63 )%4294967296) == 0 and not slashCarry then
-local block = input : loadBlock64 ( scanCursor )
-local slashMask = block : equal ( 92 )
-local outsideAscii = block : outsideRange ( 32 , 127 )
-local wideBlock = not slashMask : orBits ( outsideAscii ) : any ( )
-local currentNonAscii = false
-if not wideBlock and not block : inRange ( 0 , 31 ) : any ( ) then
-wideBlock = true
-currentNonAscii = outsideAscii : any ( )
-end
-
-
-if wideBlock and slashMask : any ( ) and (__nuppBitBand( slashMask : highBits ( ) , 0x80000000 )%4294967296) ~= 0 then
-wideBlock = false
-end
-if wideBlock then
-local lowClasses = block : andByte ( 15 ) : lookup16 ( syntaxLowTable )
-local highClasses = block : shiftRight ( 4 ) : lookup16 ( syntaxHighTable )
-local classes = lowClasses : andBits ( highClasses )
-local syntaxBits = classes : anyBitsSet ( 0x07 )
-
-
-
-local hasSlashes = slashMask : any ( )
-local quoteBits = block : equal ( 34 )
-if hasSlashes then
-local starts = slashMask : andBits ( slashMask : shiftLeft ( 1 ) : notBits ( ) )
-local notSlashes = slashMask : notBits ( )
-local evenEnds = slashMask : add ( starts : andBits ( evenMask ) ) : andBits ( notSlashes )
-local oddEnds = slashMask : add ( starts : andBits ( oddMask ) ) : andBits ( notSlashes )
-local escapedBits = evenEnds : andBits ( oddMask ) : orBits ( oddEnds : andBits ( evenMask ) )
-quoteBits = quoteBits : andBits ( escapedBits : notBits ( ) )
-end
-local stringBits = quoteBits : prefixXor ( scanInString )
-local outsideBits = stringBits : notBits ( )
-local outsideSlashes = slashMask : andBits ( outsideBits )
-if outsideSlashes : any ( ) then
-return nullValue , 4 , (__nuppBitTobit(( (__nuppBitTobit(( scanCursor )+( outsideSlashes : firstSet ( ) ))%4294967296) )+( 1 ))%4294967296)
-end
-if currentNonAscii or previousNonAscii then
-local badUtf8 = block : utf8Errors ( previousBytes , byte1HighTable , byte1LowTable , byte2HighTable )
-if badUtf8 : any ( ) then
-return nullValue , 2 , (__nuppBitTobit(( (__nuppBitTobit(( scanCursor )+( badUtf8 : firstSet ( ) ))%4294967296) )+( 1 ))%4294967296)
-end
-end
-local events = quoteBits : orBits ( syntaxBits : andBits ( outsideBits ) )
-if not hasSlashes and not scanStringEscaped then
-if (__nuppBitBand( quoteBits : count ( ) , 1 )%4294967296) ~= 0 then
-scanInString = not scanInString
-end
-tapeCount = _valueBuilder . appendSetBits ( tape , tapeCount , scanCursor , events )
-else
-
-
-local blockSpansString = scanInString or (__nuppBitBand( quoteBits : count ( ) , 1 )%4294967296) ~= 0
-local appended = 0
-if blockSpansString and hasSlashes then
-appended = _valueBuilder . appendStringEscapeBits (
-tape ,
-tape ,
-tapeCount ,
-scanCursor ,
-events ,
-quoteBits ,
-slashMask ,
-false ,
-false ,
-scanInString ,
-scanStringEscaped
-)
-else
-appended = _valueBuilder . appendStringBitsShared (
-tape ,
-tapeCount ,
-scanCursor ,
-events ,
-quoteBits ,
-slashMask ,
-scanInString ,
-scanStringEscaped
-)
-end
-scanStringEscaped = (__nuppBitBand( appended , 0x80000000 )%4294967296) ~= 0
-tapeCount = (__nuppBitBand( appended , 0x7FFFFFFF )%4294967296)
-if (__nuppBitBand( quoteBits : count ( ) , 1 )%4294967296) ~= 0 then
-scanInString = not scanInString
-end
-end
-previousBytes = block : lastVector ( )
-previousNonAscii = currentNonAscii
-scanCursor = (__nuppBitTobit(( scanCursor )+( 64 ))%4294967296)
-fastBlock = true
-end
-end
-if not fastBlock then
-local bytes = input : loadTail ( )
-local active = input . tailLength
-if scanCursor < input . fullLength then
-bytes = input : loadFull ( scanCursor )
-active = lanes
-end
-local tail = species : tail ( active )
-local activeBits = tail : bits ( )
-local quoteBits = bytes : equal ( 34 ) : andBits ( tail ) : bits ( )
-local slashBits = bytes : equal ( 92 ) : andBits ( tail ) : bits ( )
-
-
-
-
-local escapedBits = 0
-local remainingRuns = slashBits
-local incomingSlashCarry = slashCarry
-local incomingSlashOdd = slashOdd
-slashCarry = false
-if incomingSlashCarry and (__nuppBitBand( slashBits , 1 )%4294967296) == 0 then
-if slashOdd then
-escapedBits = 1
-end
-slashOdd = false
-incomingSlashCarry = false
-end
-if remainingRuns ~= 0 then
-local slashLastBit = (__nuppBitLshift( 1 ,__nuppBitBand( (__nuppBitTobit(( active )-( 1 ))%4294967296) ,31))%4294967296)
-local joinsPriorRun = incomingSlashCarry and (__nuppBitBand( slashBits , 1 )%4294967296) ~= 0
-local reachesNextBlock = (__nuppBitBand( slashBits , slashLastBit )%4294967296) ~= 0
-if not joinsPriorRun and not reachesNextBlock then
-local starts = (__nuppBitBand(
-remainingRuns ,
-(__nuppBitBnot( (__nuppBitLshift( remainingRuns ,__nuppBitBand( 1 ,31))%4294967296) )%4294967296) )%4294967296)
-
-local evenEnds = (__nuppBitBand(
-(__nuppBitTobit(( remainingRuns )+( (__nuppBitBand( starts , 0x55555555 )%4294967296) ))%4294967296) ,
-(__nuppBitBnot( remainingRuns )%4294967296) )%4294967296)
-
-local oddEnds = (__nuppBitBand(
-(__nuppBitTobit(( remainingRuns )+( (__nuppBitBand( starts , 0xAAAAAAAA )%4294967296) ))%4294967296) ,
-(__nuppBitBnot( remainingRuns )%4294967296) )%4294967296)
-
-escapedBits = (__nuppBitBor(
-escapedBits ,
-(__nuppBitBor(
-(__nuppBitBand( evenEnds , 0xAAAAAAAA )%4294967296) ,
-(__nuppBitBand( oddEnds , 0x55555555 )%4294967296) )%4294967296) )%4294967296)
-
-
-remainingRuns = 0
-end
-end
-while remainingRuns ~= 0 do
-local runStart = nupp . math . u32 . trailingZeros ( remainingRuns )
-local first = (__nuppBitLshift( 1 ,__nuppBitBand( runStart ,31))%4294967296)
-local after = (__nuppBitBand(
-(__nuppBitTobit(( remainingRuns )+( first ))%4294967296) ,
-(__nuppBitBnot( remainingRuns )%4294967296) )%4294967296)
-
-local runEnd = active
-if after ~= 0 then
-runEnd = nupp . math . u32 . trailingZeros ( after )
-end
-local odd = (__nuppBitBand( (__nuppBitTobit(( runEnd )-( runStart ))%4294967296) , 1 )%4294967296) ~= 0
-if runStart == 0 and incomingSlashCarry then
-odd = odd ~= slashOdd
-end
-if runEnd == active then
-slashCarry = true
-slashOdd = odd
-elseif odd then
-escapedBits = (__nuppBitBor( escapedBits , after )%4294967296)
-end
-remainingRuns = (__nuppBitBand( remainingRuns , (__nuppBitTobit(( remainingRuns )+( first ))%4294967296) )%4294967296)
-end
-
-local unescapedQuotes = (__nuppBitBand( quoteBits , (__nuppBitBnot( escapedBits )%4294967296) )%4294967296)
-local stringBits = unescapedQuotes
-stringBits = (__nuppBitBxor( stringBits , (__nuppBitLshift( stringBits ,__nuppBitBand( 1 ,31))%4294967296) )%4294967296)
-stringBits = (__nuppBitBxor( stringBits , (__nuppBitLshift( stringBits ,__nuppBitBand( 2 ,31))%4294967296) )%4294967296)
-stringBits = (__nuppBitBxor( stringBits , (__nuppBitLshift( stringBits ,__nuppBitBand( 4 ,31))%4294967296) )%4294967296)
-stringBits = (__nuppBitBxor( stringBits , (__nuppBitLshift( stringBits ,__nuppBitBand( 8 ,31))%4294967296) )%4294967296)
-if lanes == 32 then
-stringBits = (__nuppBitBxor( stringBits , (__nuppBitLshift( stringBits ,__nuppBitBand( 16 ,31))%4294967296) )%4294967296)
-end
-stringBits = (__nuppBitBand( stringBits , activeBits )%4294967296)
-if scanInString then
-stringBits = (__nuppBitBxor( stringBits , activeBits )%4294967296)
-end
-
-local objectOpenMask = bytes : equal ( 123 )
-local syntaxBits = objectOpenMask : orBits ( bytes : equal ( 125 ) )
-: orBits ( bytes : equal ( 91 ) )
-: orBits ( bytes : equal ( 93 ) )
-: orBits ( bytes : equal ( 58 ) )
-: orBits ( bytes : equal ( 44 ) )
-: andBits ( tail )
-: bits ( )
-local outsideBits = (__nuppBitBand( activeBits , (__nuppBitBnot( stringBits )%4294967296) )%4294967296)
-local whitespaceBits = bytes : equal ( 9 ) : orBits ( bytes : equal ( 10 ) ) : orBits ( bytes : equal ( 13 ) ) : bits ( )
-local controlBits = bytes : inRange ( 0 , 31 ) : andBits ( tail ) : bits ( )
-local badControls = (__nuppBitBand(
-controlBits ,
-(__nuppBitBor( stringBits , (__nuppBitBnot( whitespaceBits )%4294967296) )%4294967296) )%4294967296)
-
-if badControls ~= 0 then
-return nullValue , 3 , (__nuppBitTobit((
-(__nuppBitTobit(( scanCursor )+( nupp . math . u32 . trailingZeros ( badControls ) ))%4294967296) )+(
-1 ))%4294967296)
-
-end
-local outsideSlashes = (__nuppBitBand( slashBits , outsideBits )%4294967296)
-if outsideSlashes ~= 0 then
-return nullValue , 4 , (__nuppBitTobit((
-(__nuppBitTobit(( scanCursor )+( nupp . math . u32 . trailingZeros ( outsideSlashes ) ))%4294967296) )+(
-1 ))%4294967296)
-
-end
-
-
-
-
-
-local currentNonAscii = bytes : inRange ( 128 , 255 ) : andBits ( tail ) : any ( )
-if currentNonAscii or previousNonAscii then
-local previous1 = _simd . alignBytes ( previousBytes , bytes , 1 )
-local previous2 = _simd . alignBytes ( previousBytes , bytes , 2 )
-local previous3 = _simd . alignBytes ( previousBytes , bytes , 3 )
-local byte1High = previous1 : shiftRight ( 4 ) : lookup16 ( byte1HighTable )
-local byte1Low = previous1 : andBits ( nibbleMask ) : lookup16 ( byte1LowTable )
-local byte2High = bytes : shiftRight ( 4 ) : lookup16 ( byte2HighTable )
-local specialCases = byte1High : andBits ( byte1Low ) : andBits ( byte2High )
-local mustContinue = previous2 : inRange ( 224 , 255 ) : orBits ( previous3 : inRange ( 240 , 255 ) )
-local required = mustContinue : select ( continuationFlag , zeroBytes )
-local badUtf8 = required : xorBits ( specialCases ) : equal ( 0 ) : notBits ( ) : bits ( )
-if badUtf8 ~= 0 then
-local badLane = nupp . math . u32 . trailingZeros ( badUtf8 )
-if badLane >= active then
-return nullValue , 2 , (__nuppBitTobit(( sourceCount )+( 1 ))%4294967296)
-end
-return nullValue , 2 , (__nuppBitTobit(( (__nuppBitTobit(( scanCursor )+( badLane ))%4294967296) )+( 1 ))%4294967296)
-end
-end
-
-
-
-local events = (__nuppBitBor( unescapedQuotes , (__nuppBitBand( syntaxBits , outsideBits )%4294967296) )%4294967296)
-
-if not scanInString and unescapedQuotes == 0 and slashBits == 0 and not scanStringEscaped then
-tapeCount = _valueBuilder . appendSetBits (
-tape ,
-tapeCount ,
-scanCursor ,
-_simd . maskBits64 ( events , (__nuppBitTobit( 0 )%4294967296) )
-)
-else
-local blockSpansString = scanInString or (__nuppBitBand(
-nupp . math . u32 . popcount ( unescapedQuotes ) ,
-1 )%4294967296)
-~= 0
-local appended = 0
-if blockSpansString and slashBits ~= 0 then
-appended = _valueBuilder . appendStringEscapeBits (
-tape ,
-tape ,
-tapeCount ,
-scanCursor ,
-_simd . maskBits64 ( events , (__nuppBitTobit( 0 )%4294967296) ) ,
-_simd . maskBits64 ( unescapedQuotes , (__nuppBitTobit( 0 )%4294967296) ) ,
-_simd . maskBits64 ( slashBits , (__nuppBitTobit( 0 )%4294967296) ) ,
-incomingSlashCarry ,
-incomingSlashOdd ,
-scanInString ,
-scanStringEscaped
-)
-else
-appended = _valueBuilder . appendStringBitsShared (
-tape ,
-tapeCount ,
-scanCursor ,
-_simd . maskBits64 ( events , (__nuppBitTobit( 0 )%4294967296) ) ,
-_simd . maskBits64 ( unescapedQuotes , (__nuppBitTobit( 0 )%4294967296) ) ,
-_simd . maskBits64 ( slashBits , (__nuppBitTobit( 0 )%4294967296) ) ,
-scanInString ,
-scanStringEscaped
-)
-end
-scanStringEscaped = (__nuppBitBand( appended , 0x80000000 )%4294967296) ~= 0
-tapeCount = (__nuppBitBand( appended , 0x7FFFFFFF )%4294967296)
-if (__nuppBitBand( nupp . math . u32 . popcount ( unescapedQuotes ) , 1 )%4294967296) ~= 0 then
-scanInString = not scanInString
-end
-end
-previousBytes = bytes
-previousNonAscii = currentNonAscii
-scanCursor = (__nuppBitTobit(( scanCursor )+( lanes ))%4294967296)
-end
-end
-
-
-
-if input . tailLength == 0 and previousNonAscii then
-local previous1 = _simd . alignBytes ( previousBytes , zeroBytes , 1 )
-local previous2 = _simd . alignBytes ( previousBytes , zeroBytes , 2 )
-local previous3 = _simd . alignBytes ( previousBytes , zeroBytes , 3 )
-local byte1High = previous1 : shiftRight ( 4 ) : lookup16 ( byte1HighTable )
-local byte1Low = previous1 : andBits ( nibbleMask ) : lookup16 ( byte1LowTable )
-local byte2High = zeroBytes : shiftRight ( 4 ) : lookup16 ( byte2HighTable )
-local specialCases = byte1High : andBits ( byte1Low ) : andBits ( byte2High )
-local mustContinue = previous2 : inRange ( 224 , 255 ) : orBits ( previous3 : inRange ( 240 , 255 ) )
-local required = mustContinue : select ( continuationFlag , zeroBytes )
-if required : xorBits ( specialCases ) : equal ( 0 ) : notBits ( ) : any ( ) then
-return nullValue , 2 , (__nuppBitTobit(( sourceCount )+( 1 ))%4294967296)
-end
-end
-
-local escapeCount = _valueBuilder . scratchEscapeLength ( tape )
-
-local builderDepth = 1024
-if sourceCount <= 32 then
-builderDepth = 16
-end
-local values = _valueBuilder . newPull (
-nullValue ,
-builderDepth ,
-sourceCount ,
-arrayMarker ,
-objectMarker ,
-shape ,
-arrayShapeMarker ,
-serdeMarkers
-)
-local cursor = 0
-tapeCount = _valueBuilder . scratchLength ( tape )
-local tapeCursor = 0
-local escapeCursor = 0
-local needValue = true
-local done = false
-
-
-
-
-
-local pending = 0
-while not done do
-local skipping = true
-pending = 0
-while skipping and cursor < sourceCount do
-pending = _valueBuilder . byteAt ( source , cursor )
-if pending == 32 or pending == 9 or pending == 10 or pending == 13 then
-cursor = (__nuppBitTobit(( cursor )+( 1 ))%4294967296)
-else
-skipping = false
-end
-end
-
-if needValue then
-if cursor >= sourceCount then
-return nullValue , 1 , (__nuppBitTobit(( cursor )+( 1 ))%4294967296)
-end
-
-local tag = 0
-local start = cursor
-local length = 0
-local flags = 0
-local containerCapacity = 0
-local tokenEscapeStart = escapeCursor
-local tokenEscapeCount = 0
-local byte = pending
-
-if byte == 34 then
-tag = 4
-if tapeCursor < tapeCount then
-local opening = _valueBuilder . scratchWord ( tape , tapeCursor )
-if opening ~= cursor then
-return nullValue , 5 , (__nuppBitTobit(( cursor )+( 1 ))%4294967296)
-end
-tapeCursor = (__nuppBitTobit(( tapeCursor )+( 1 ))%4294967296)
-else
-return nullValue , 5 , (__nuppBitTobit(( cursor )+( 1 ))%4294967296)
-end
-if tapeCursor < tapeCount then
-local closingWord = _valueBuilder . scratchWord ( tape , tapeCursor )
-local closing = (__nuppBitBand( closingWord , 0x7FFFFFFF )%4294967296)
-if (__nuppBitBand( closingWord , 0x80000000 )%4294967296) ~= 0 then
-flags = 1
-end
-start = (__nuppBitTobit(( cursor )+( 1 ))%4294967296)
-length = (__nuppBitTobit(( closing )-( start ))%4294967296)
-if flags == 1 then
-while escapeCursor < escapeCount and _valueBuilder . scratchEscapeWord (
-tape ,
-escapeCursor
-) < closing do
-escapeCursor = (__nuppBitTobit(( escapeCursor )+( 1 ))%4294967296)
-end
-tokenEscapeCount = (__nuppBitTobit(( escapeCursor )-( tokenEscapeStart ))%4294967296)
-end
-
-
-
-cursor = (__nuppBitTobit(( closing )+( 1 ))%4294967296)
-tapeCursor = (__nuppBitTobit(( tapeCursor )+( 1 ))%4294967296)
-else
-return nullValue , 1 , (__nuppBitTobit(( cursor )+( 1 ))%4294967296)
-end
-elseif byte == 91 or byte == 123 then
-if byte == 91 then
-tag = 5
-else
-tag = 6
-end
-cursor = (__nuppBitTobit(( cursor )+( 1 ))%4294967296)
-if tapeCursor < tapeCount then
-if byte == 123 then
-
-
-containerCapacity = 4
-elseif _valueBuilder . depth ( values ) == 0 then
-
-
-
-
-containerCapacity = (__nuppBitRshift( sourceCount ,__nuppBitBand( 5 ,31))%4294967296)
-if containerCapacity > 262144 then
-containerCapacity = 262144
-end
-else
-containerCapacity = 4
-end
-tapeCursor = (__nuppBitTobit(( tapeCursor )+( 1 ))%4294967296)
-else
-return nullValue , 5 , cursor
-end
-elseif byte == 116 then
-tag = 1
-local matched = 0
-while matched < 4 do
-local at = (__nuppBitTobit(( cursor )+( matched ))%4294967296)
-if at < sourceCount then
-local actual = _valueBuilder . byteAt ( source , at )
-local __nuppT2= matched ;local __nuppT3;
-if  __nuppT2== 0  then  __nuppT3= 116
-elseif  __nuppT2== 1  then  __nuppT3= 114
-elseif  __nuppT2== 2  then  __nuppT3= 117
-else  __nuppT3= 101
-end; local expected = __nuppT3
-if actual ~= expected then
-return nullValue , 1 , (__nuppBitTobit(( at )+( 1 ))%4294967296)
-end
-else
-return nullValue , 1 , (__nuppBitTobit(( at )+( 1 ))%4294967296)
-end
-matched = (__nuppBitTobit(( matched )+( 1 ))%4294967296)
-end
-length = 4
-cursor = (__nuppBitTobit(( cursor )+( 4 ))%4294967296)
-elseif byte == 102 then
-tag = 2
-local matched = 0
-while matched < 5 do
-local at = (__nuppBitTobit(( cursor )+( matched ))%4294967296)
-if at < sourceCount then
-local actual = _valueBuilder . byteAt ( source , at )
-local __nuppT4= matched ;local __nuppT5; __nuppT5=__nuppSwitchMap1[__nuppT4+1]; if __nuppT5==nil then __nuppT5=101 end; local expected = __nuppT5
-
-
-
-
-
-
-if actual ~= expected then
-return nullValue , 1 , (__nuppBitTobit(( at )+( 1 ))%4294967296)
-end
-else
-return nullValue , 1 , (__nuppBitTobit(( at )+( 1 ))%4294967296)
-end
-matched = (__nuppBitTobit(( matched )+( 1 ))%4294967296)
-end
-length = 5
-cursor = (__nuppBitTobit(( cursor )+( 5 ))%4294967296)
-elseif byte == 110 then
-tag = 0
-local matched = 0
-while matched < 4 do
-local at = (__nuppBitTobit(( cursor )+( matched ))%4294967296)
-if at < sourceCount then
-local actual = _valueBuilder . byteAt ( source , at )
-local __nuppT6= matched ;local __nuppT7;
-if  __nuppT6== 0  then  __nuppT7= 110
-elseif  __nuppT6== 1  then  __nuppT7= 117
-else  __nuppT7= 108
-end; local expected = __nuppT7
-if actual ~= expected then
-return nullValue , 1 , (__nuppBitTobit(( at )+( 1 ))%4294967296)
-end
-else
-return nullValue , 1 , (__nuppBitTobit(( at )+( 1 ))%4294967296)
-end
-matched = (__nuppBitTobit(( matched )+( 1 ))%4294967296)
-end
-length = 4
-cursor = (__nuppBitTobit(( cursor )+( 4 ))%4294967296)
-elseif byte == 45 or byte >= 48 and byte <= 57 then
-tag = 3
-local parsed = _valueBuilder . numberToken ( values , source , cursor , sourceCount )
-if parsed < 2147483648 then
-return nullValue , 1 , parsed
-end
-cursor = (__nuppBitTobit(( parsed )-( 2147483648 ))%4294967296)
-length = (__nuppBitTobit(( cursor )-( start ))%4294967296)
-else
-return nullValue , 1 , (__nuppBitTobit(( cursor )+( 1 ))%4294967296)
-end
-
-if tag == 0 then
-_valueBuilder . null ( values )
-elseif tag == 1 then
-_valueBuilder . boolean ( values , true )
-elseif tag == 2 then
-_valueBuilder . boolean ( values , false )
-elseif tag == 4 then
-if flags == 1 and length >= 64 then
-_valueBuilder . stringEscapes ( values , source , start , length , tape , tokenEscapeStart , tokenEscapeCount )
-else
-_valueBuilder . string ( values , source , start , length , flags == 1 )
-end
-elseif tag == 5 then
-_valueBuilder . openArray ( values , containerCapacity )
-elseif tag == 6 then
-_valueBuilder . openObject ( values , containerCapacity )
-end
-needValue = false
-elseif _valueBuilder . depth ( values ) == 0 then
-if cursor < sourceCount then
-return nullValue , 1 , (__nuppBitTobit(( cursor )+( 1 ))%4294967296)
-end
-done = true
-else
-if cursor >= sourceCount then
-return nullValue , 1 , (__nuppBitTobit(( cursor )+( 1 ))%4294967296)
-end
-local builderState = _valueBuilder . state ( values )
-local byte = pending
-local kind = (__nuppBitBand( builderState , 0xFF )%4294967296)
-local hasValue = (__nuppBitBand( builderState , 0x100 )%4294967296) ~= 0
-local closing = kind == 5 and byte == 93 or kind == 6 and byte == 125
-if closing then
-if tapeCursor >= tapeCount or _valueBuilder . scratchWord ( tape , tapeCursor ) ~= cursor then
-return nullValue , 5 , (__nuppBitTobit(( cursor )+( 1 ))%4294967296)
-end
-tapeCursor = (__nuppBitTobit(( tapeCursor )+( 1 ))%4294967296)
-cursor = (__nuppBitTobit(( cursor )+( 1 ))%4294967296)
-_valueBuilder . close ( values )
-elseif kind == 5 then
-if not hasValue then
-needValue = true
-elseif byte == 44 then
-cursor = (__nuppBitTobit(( cursor )+( 1 ))%4294967296)
-if tapeCursor >= tapeCount then
-return nullValue , 5 , cursor
-end
-tapeCursor = (__nuppBitTobit(( tapeCursor )+( 1 ))%4294967296)
-needValue = true
-else
-return nullValue , 1 , (__nuppBitTobit(( cursor )+( 1 ))%4294967296)
-end
-else
-if hasValue then
-if byte ~= 44 then
-return nullValue , 1 , (__nuppBitTobit(( cursor )+( 1 ))%4294967296)
-end
-cursor = (__nuppBitTobit(( cursor )+( 1 ))%4294967296)
-if tapeCursor >= tapeCount then
-return nullValue , 5 , cursor
-end
-tapeCursor = (__nuppBitTobit(( tapeCursor )+( 1 ))%4294967296)
-local keySkipping = true
-while keySkipping and cursor < sourceCount do
-local keyByte = _valueBuilder . byteAt ( source , cursor )
-if keyByte == 32 or keyByte == 9 or keyByte == 10 or keyByte == 13 then
-cursor = (__nuppBitTobit(( cursor )+( 1 ))%4294967296)
-else
-keySkipping = false
-end
-end
-end
-if cursor >= sourceCount or _valueBuilder . byte ( source , cursor ) ~= 34 then
-return nullValue , 1 , (__nuppBitTobit(( cursor )+( 1 ))%4294967296)
-end
-local opening = cursor
-if tapeCursor >= tapeCount or _valueBuilder . scratchWord ( tape , tapeCursor ) ~= opening then
-return nullValue , 5 , (__nuppBitTobit(( cursor )+( 1 ))%4294967296)
-end
-tapeCursor = (__nuppBitTobit(( tapeCursor )+( 1 ))%4294967296)
-if tapeCursor >= tapeCount then
-return nullValue , 1 , (__nuppBitTobit(( cursor )+( 1 ))%4294967296)
-end
-local closingWord = _valueBuilder . scratchWord ( tape , tapeCursor )
-local closingQuote = (__nuppBitBand( closingWord , 0x7FFFFFFF )%4294967296)
-local escaped = (__nuppBitBand( closingWord , 0x80000000 )%4294967296) ~= 0
-tapeCursor = (__nuppBitTobit(( tapeCursor )+( 1 ))%4294967296)
-local keyStart = (__nuppBitTobit(( opening )+( 1 ))%4294967296)
-local keyLength = (__nuppBitTobit(( closingQuote )-( keyStart ))%4294967296)
-local keyEscapeStart = escapeCursor
-if escaped then
-
-
-
-while escapeCursor < escapeCount and _valueBuilder . scratchEscapeWord (
-tape ,
-escapeCursor
-) < closingQuote do
-escapeCursor = (__nuppBitTobit(( escapeCursor )+( 1 ))%4294967296)
-end
-end
-if escaped and keyLength >= 64 then
-_valueBuilder . keyEscapes (
-values ,
-source ,
-keyStart ,
-keyLength ,
-tape ,
-keyEscapeStart ,
-(__nuppBitTobit(( escapeCursor )-( keyEscapeStart ))%4294967296)
-)
-else
-_valueBuilder . key ( values , source , keyStart , keyLength , escaped )
-end
-cursor = (__nuppBitTobit(( closingQuote )+( 1 ))%4294967296)
-local colonSkipping = true
-while colonSkipping and cursor < sourceCount do
-local colonByte = _valueBuilder . byteAt ( source , cursor )
-if colonByte == 32 or colonByte == 9 or colonByte == 10 or colonByte == 13 then
-cursor = (__nuppBitTobit(( cursor )+( 1 ))%4294967296)
-else
-colonSkipping = false
-end
-end
-if cursor >= sourceCount or _valueBuilder . byte ( source , cursor ) ~= 58 then
-return nullValue , 1 , (__nuppBitTobit(( cursor )+( 1 ))%4294967296)
-end
-if tapeCursor >= tapeCount or _valueBuilder . scratchWord ( tape , tapeCursor ) ~= cursor then
-return nullValue , 5 , (__nuppBitTobit(( cursor )+( 1 ))%4294967296)
-end
-cursor = (__nuppBitTobit(( cursor )+( 1 ))%4294967296)
-tapeCursor = (__nuppBitTobit(( tapeCursor )+( 1 ))%4294967296)
-needValue = true
-end
-end
-end
-
-return _valueBuilder . finish ( values ) , 0 , 0
-end
-
-fused . decode = decode
+fused . decode = _fused . decodePull
 
 
 
@@ -156015,11 +155467,9 @@ const __nuppExportValue= fused ;__nuppExports=__nuppExportValue
  end);if not __nuppOk then package.loaded["nupp.data.jsondecode"]=nil;error(__nuppWhy,0) end;package.loaded["nupp.data.jsondecode"]=__nuppExports;return __nuppExports
 end
 package.preload["nupp.data.jsondecoder.eager"] = function(...)
-_G.assert(_G.loadstring("local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppMath=rawget(__nupp,\"math\")or{};rawset(__nupp,\"math\",__nuppMath) local function __nuppCloseFile(handle)if io.type(handle)==\"closed file\"then return end;local ok,reason=handle:close();if not ok then error(reason or \"the file could not be closed\",0)end end local __nuppManagedBrand=_G.__nuppManagedBrand if not __nuppManagedBrand then __nuppManagedBrand={};_G.__nuppManagedBrand=__nuppManagedBrand end local __nuppManagedCells=_G.__nuppManagedCells if not __nuppManagedCells then __nuppManagedCells=setmetatable({},{__mode=\"k\"});_G.__nuppManagedCells=__nuppManagedCells end local __nuppManagedOwner={};__nuppManagedOwner.__index=__nuppManagedOwner;local __nuppManagedAlias={};__nuppManagedAlias.__index=__nuppManagedAlias local function __nuppManagedError(code,message)return{code=code,message=message}end local function __nuppManagedProblem(cell) if type(cell)~=\"table\"or cell._brand~=__nuppManagedBrand then return __nuppManagedError(\"NUPP2614\",\"value is not a managed alias\")end if cell._state==\"taken\"then return __nuppManagedError(\"NUPP2614\",\"managed ownership was already taken\")end if cell._state==\"closed\"or cell._state==\"closing\"then return __nuppManagedError(\"NUPP2614\",\"managed resource is closed\")end return nil end local function __nuppManagedClose(cell,checked) local problem=__nuppManagedProblem(cell);if problem then if checked then return problem end;return nil end if cell._borrows~=0 or cell._exclusive then local busy=__nuppManagedError(\"NUPP2620\",\"managed resource has an active borrow\");if checked then return busy end;error(busy.message,0)end cell._state=\"closing\";local value,cleanup=cell._value,cell._cleanup;cell._value=nil;cell._cleanup=nil local ok,reason=pcall(cleanup,value);cell._state=\"closed\";if not ok then error(reason,0)end;return nil end function __nuppManagedOwner:alias()return setmetatable({_cell=self,_brand=__nuppManagedBrand},__nuppManagedAlias)end function __nuppManagedOwner:close()return __nuppManagedClose(self,false)end local function __nuppAliasCell(self) if type(self)~=\"table\"or self._brand~=__nuppManagedBrand or getmetatable(self)~=__nuppManagedAlias then return nil,__nuppManagedError(\"NUPP2614\",\"value is not a managed alias\")end local cell=self._cell;local problem=__nuppManagedProblem(cell);if problem then return nil,problem end;return cell,nil end function __nuppManagedAlias:with(callback) local cell,problem=__nuppAliasCell(self);if not cell then return nil,problem end if cell._exclusive then return nil,__nuppManagedError(\"NUPP2620\",\"managed resource is exclusively borrowed\")end cell._borrows=cell._borrows+1;cell._state=\"shared-borrowed(\"..cell._borrows..\")\" local ok,result=pcall(callback,cell._value);cell._borrows=cell._borrows-1;cell._state=cell._borrows>0 and(\"shared-borrowed(\"..cell._borrows..\")\")or\"live\" if not ok then error(result,0)end;return result,nil end function __nuppManagedAlias:withExclusive(callback) local cell,problem=__nuppAliasCell(self);if not cell then return nil,problem end if cell._exclusive or cell._borrows~=0 then return nil,__nuppManagedError(\"NUPP2620\",\"managed resource is already borrowed\")end cell._exclusive=true;cell._state=\"exclusive-borrowed\";local ok,result=pcall(callback,cell._value);cell._exclusive=false;cell._state=\"live\" if not ok then error(result,0)end;return result,nil end function __nuppManagedAlias:take() local cell,problem=__nuppAliasCell(self);if not cell then return nil,problem end if cell._exclusive or cell._borrows~=0 then return nil,__nuppManagedError(\"NUPP2620\",\"managed resource has an active borrow\")end cell._state=\"taken\";local value=cell._value;cell._value=nil;cell._cleanup=nil;return value,nil end function __nuppManagedAlias:close() local cell,problem=__nuppAliasCell(self);if not cell then return problem end;return __nuppManagedClose(cell,true)end function __nuppManagedAlias:_downcast(policy) local cell,problem=__nuppAliasCell(self);if not cell then return nil,problem end if cell._policy~=policy then return nil,__nuppManagedError(\"NUPP2613\",\"managed alias has the wrong type or cleanup policy\")end return self,nil end function __nupp.__manage(value,cleanup,policy) local cell=setmetatable({_brand=__nuppManagedBrand,_value=value,_cleanup=cleanup,_policy=policy,_state=\"live\",_borrows=0,_exclusive=false},__nuppManagedOwner);__nuppManagedCells[cell]=true;return cell end function __nupp.__recoverAlias(value) if type(value)~=\"table\"or value._brand~=__nuppManagedBrand or getmetatable(value)~=__nuppManagedAlias then return nil,__nuppManagedError(\"NUPP2614\",\"value is not a managed alias\")end local cell,problem=__nuppAliasCell(value);if not cell then return nil,problem end;return value,nil end _G.__nuppManagedPolicyCount=function(policy)local count=0;for cell in pairs(__nuppManagedCells)do if cell._policy==policy and(cell._state==\"live\"or cell._state:match(\"borrowed\"))then count=count+1 end end;return count end local __nuppManagedGroup={};__nuppManagedGroup.__index=__nuppManagedGroup function __nuppManagedGroup:flush()end function __nuppManagedGroup:adopt(cell) if self._closed then error(\"managed group is closed\",2)end local handle=cell:alias();self._entries[#self._entries+1]=handle return handle end function __nuppManagedGroup:remove(handle) if self._closed then error(\"managed group is closed\",2)end for index=#self._entries,1,-1 do if self._entries[index]==handle then table.remove(self._entries,index);local value,problem=handle:take();if problem then error(problem.message,2)end;return value end end error(\"managed alias is not registered in this group\",2) end local function __nuppManagedCloseEntry(entry)local problem=entry:close();if problem and problem.code~=\"NUPP2614\"then error(problem.message,0)end end function __nuppManagedGroup:close() if self._closed then return end;self._closed=true;local first,suppressed=nil,0 for index=#self._entries,1,-1 do local ok,reason=pcall(__nuppManagedCloseEntry,self._entries[index]);if not ok then if first==nil then first=reason else suppressed=suppressed+1 end end end self._entries={};if first~=nil then if suppressed>0 then error(tostring(first)..\" (suppressed \"..tostring(suppressed)..\" cleanup failure(s))\",0)end;error(first,0)end end function __nupp.managedGroup()return setmetatable({_entries={},_closed=false},__nuppManagedGroup)end;\n","@nupp-prelude"))();local __nuppBitBand=bit.band;local __nuppBitBnot=bit.bnot;local __nuppBitBor=bit.bor;local __nuppBitBxor=bit.bxor;local __nuppBitLshift=bit.lshift;local __nuppBitRshift=bit.rshift;local __nuppBitTobit=bit.tobit;local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppMath=rawget(__nupp,"math")or{};rawset(__nupp,"math",__nuppMath) local function __nuppCloseFile(handle)if io.type(handle)=="closed file"then return end;local ok,reason=handle:close();if not ok then error(reason or "the file could not be closed",0)end end local __nuppManagedBrand=_G.__nuppManagedBrand if not __nuppManagedBrand then __nuppManagedBrand={};_G.__nuppManagedBrand=__nuppManagedBrand end local __nuppManagedCells=_G.__nuppManagedCells if not __nuppManagedCells then __nuppManagedCells=setmetatable({},{__mode="k"});_G.__nuppManagedCells=__nuppManagedCells end local __nuppManagedOwner={};__nuppManagedOwner.__index=__nuppManagedOwner;local __nuppManagedAlias={};__nuppManagedAlias.__index=__nuppManagedAlias local function __nuppManagedError(code,message)return{code=code,message=message}end local function __nuppManagedProblem(cell) if type(cell)~="table"or cell._brand~=__nuppManagedBrand then return __nuppManagedError("NUPP2614","value is not a managed alias")end if cell._state=="taken"then return __nuppManagedError("NUPP2614","managed ownership was already taken")end if cell._state=="closed"or cell._state=="closing"then return __nuppManagedError("NUPP2614","managed resource is closed")end return nil end local function __nuppManagedClose(cell,checked) local problem=__nuppManagedProblem(cell);if problem then if checked then return problem end;return nil end if cell._borrows~=0 or cell._exclusive then local busy=__nuppManagedError("NUPP2620","managed resource has an active borrow");if checked then return busy end;error(busy.message,0)end cell._state="closing";local value,cleanup=cell._value,cell._cleanup;cell._value=nil;cell._cleanup=nil local ok,reason=pcall(cleanup,value);cell._state="closed";if not ok then error(reason,0)end;return nil end function __nuppManagedOwner:alias()return setmetatable({_cell=self,_brand=__nuppManagedBrand},__nuppManagedAlias)end function __nuppManagedOwner:close()return __nuppManagedClose(self,false)end local function __nuppAliasCell(self) if type(self)~="table"or self._brand~=__nuppManagedBrand or getmetatable(self)~=__nuppManagedAlias then return nil,__nuppManagedError("NUPP2614","value is not a managed alias")end local cell=self._cell;local problem=__nuppManagedProblem(cell);if problem then return nil,problem end;return cell,nil end function __nuppManagedAlias:with(callback) local cell,problem=__nuppAliasCell(self);if not cell then return nil,problem end if cell._exclusive then return nil,__nuppManagedError("NUPP2620","managed resource is exclusively borrowed")end cell._borrows=cell._borrows+1;cell._state="shared-borrowed("..cell._borrows..")" local ok,result=pcall(callback,cell._value);cell._borrows=cell._borrows-1;cell._state=cell._borrows>0 and("shared-borrowed("..cell._borrows..")")or"live" if not ok then error(result,0)end;return result,nil end function __nuppManagedAlias:withExclusive(callback) local cell,problem=__nuppAliasCell(self);if not cell then return nil,problem end if cell._exclusive or cell._borrows~=0 then return nil,__nuppManagedError("NUPP2620","managed resource is already borrowed")end cell._exclusive=true;cell._state="exclusive-borrowed";local ok,result=pcall(callback,cell._value);cell._exclusive=false;cell._state="live" if not ok then error(result,0)end;return result,nil end function __nuppManagedAlias:take() local cell,problem=__nuppAliasCell(self);if not cell then return nil,problem end if cell._exclusive or cell._borrows~=0 then return nil,__nuppManagedError("NUPP2620","managed resource has an active borrow")end cell._state="taken";local value=cell._value;cell._value=nil;cell._cleanup=nil;return value,nil end function __nuppManagedAlias:close() local cell,problem=__nuppAliasCell(self);if not cell then return problem end;return __nuppManagedClose(cell,true)end function __nuppManagedAlias:_downcast(policy) local cell,problem=__nuppAliasCell(self);if not cell then return nil,problem end if cell._policy~=policy then return nil,__nuppManagedError("NUPP2613","managed alias has the wrong type or cleanup policy")end return self,nil end function __nupp.__manage(value,cleanup,policy) local cell=setmetatable({_brand=__nuppManagedBrand,_value=value,_cleanup=cleanup,_policy=policy,_state="live",_borrows=0,_exclusive=false},__nuppManagedOwner);__nuppManagedCells[cell]=true;return cell end function __nupp.__recoverAlias(value) if type(value)~="table"or value._brand~=__nuppManagedBrand or getmetatable(value)~=__nuppManagedAlias then return nil,__nuppManagedError("NUPP2614","value is not a managed alias")end local cell,problem=__nuppAliasCell(value);if not cell then return nil,problem end;return value,nil end _G.__nuppManagedPolicyCount=function(policy)local count=0;for cell in pairs(__nuppManagedCells)do if cell._policy==policy and(cell._state=="live"or cell._state:match("borrowed"))then count=count+1 end end;return count end local __nuppManagedGroup={};__nuppManagedGroup.__index=__nuppManagedGroup function __nuppManagedGroup:flush()end function __nuppManagedGroup:adopt(cell) if self._closed then error("managed group is closed",2)end local handle=cell:alias();self._entries[#self._entries+1]=handle return handle end function __nuppManagedGroup:remove(handle) if self._closed then error("managed group is closed",2)end for index=#self._entries,1,-1 do if self._entries[index]==handle then table.remove(self._entries,index);local value,problem=handle:take();if problem then error(problem.message,2)end;return value end end error("managed alias is not registered in this group",2) end local function __nuppManagedCloseEntry(entry)local problem=entry:close();if problem and problem.code~="NUPP2614"then error(problem.message,0)end end function __nuppManagedGroup:close() if self._closed then return end;self._closed=true;local first,suppressed=nil,0 for index=#self._entries,1,-1 do local ok,reason=pcall(__nuppManagedCloseEntry,self._entries[index]);if not ok then if first==nil then first=reason else suppressed=suppressed+1 end end end self._entries={};if first~=nil then if suppressed>0 then error(tostring(first).." (suppressed "..tostring(suppressed).." cleanup failure(s))",0)end;error(first,0)end end function __nupp.managedGroup()return setmetatable({_entries={},_closed=false},__nuppManagedGroup)end local function __nuppLazy(target,name,loader)local meta=getmetatable(target)or{};local loaders=meta.__nuppLoaders;if not loaders then loaders={};local prior=meta.__index;meta.__nuppLoaders=loaders;meta.__index=function(t,k)local load=loaders[k];if load then local value=load(k);loaders[k]=nil;if value==nil then value=rawget(t,k)else rawset(t,k,value)end;return value end;if type(prior)=="function"then return prior(t,k)elseif prior then return prior[k]end end;setmetatable(target,meta)end;if name~=nil and rawget(target,name)==nil and loaders[name]==nil then loaders[name]=loader end end require("nupp.compiler.runtime.math").install(rawget(__nupp,"math"));const __nuppSwitchMap1={102,97,108,115};local __nuppExports;local __nuppOk,__nuppWhy=pcall(function()
+_G.assert(_G.loadstring("local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppMath=rawget(__nupp,\"math\")or{};rawset(__nupp,\"math\",__nuppMath) local function __nuppCloseFile(handle)if io.type(handle)==\"closed file\"then return end;local ok,reason=handle:close();if not ok then error(reason or \"the file could not be closed\",0)end end local __nuppManagedBrand=_G.__nuppManagedBrand if not __nuppManagedBrand then __nuppManagedBrand={};_G.__nuppManagedBrand=__nuppManagedBrand end local __nuppManagedCells=_G.__nuppManagedCells if not __nuppManagedCells then __nuppManagedCells=setmetatable({},{__mode=\"k\"});_G.__nuppManagedCells=__nuppManagedCells end local __nuppManagedOwner={};__nuppManagedOwner.__index=__nuppManagedOwner;local __nuppManagedAlias={};__nuppManagedAlias.__index=__nuppManagedAlias local function __nuppManagedError(code,message)return{code=code,message=message}end local function __nuppManagedProblem(cell) if type(cell)~=\"table\"or cell._brand~=__nuppManagedBrand then return __nuppManagedError(\"NUPP2614\",\"value is not a managed alias\")end if cell._state==\"taken\"then return __nuppManagedError(\"NUPP2614\",\"managed ownership was already taken\")end if cell._state==\"closed\"or cell._state==\"closing\"then return __nuppManagedError(\"NUPP2614\",\"managed resource is closed\")end return nil end local function __nuppManagedClose(cell,checked) local problem=__nuppManagedProblem(cell);if problem then if checked then return problem end;return nil end if cell._borrows~=0 or cell._exclusive then local busy=__nuppManagedError(\"NUPP2620\",\"managed resource has an active borrow\");if checked then return busy end;error(busy.message,0)end cell._state=\"closing\";local value,cleanup=cell._value,cell._cleanup;cell._value=nil;cell._cleanup=nil local ok,reason=pcall(cleanup,value);cell._state=\"closed\";if not ok then error(reason,0)end;return nil end function __nuppManagedOwner:alias()return setmetatable({_cell=self,_brand=__nuppManagedBrand},__nuppManagedAlias)end function __nuppManagedOwner:close()return __nuppManagedClose(self,false)end local function __nuppAliasCell(self) if type(self)~=\"table\"or self._brand~=__nuppManagedBrand or getmetatable(self)~=__nuppManagedAlias then return nil,__nuppManagedError(\"NUPP2614\",\"value is not a managed alias\")end local cell=self._cell;local problem=__nuppManagedProblem(cell);if problem then return nil,problem end;return cell,nil end function __nuppManagedAlias:with(callback) local cell,problem=__nuppAliasCell(self);if not cell then return nil,problem end if cell._exclusive then return nil,__nuppManagedError(\"NUPP2620\",\"managed resource is exclusively borrowed\")end cell._borrows=cell._borrows+1;cell._state=\"shared-borrowed(\"..cell._borrows..\")\" local ok,result=pcall(callback,cell._value);cell._borrows=cell._borrows-1;cell._state=cell._borrows>0 and(\"shared-borrowed(\"..cell._borrows..\")\")or\"live\" if not ok then error(result,0)end;return result,nil end function __nuppManagedAlias:withExclusive(callback) local cell,problem=__nuppAliasCell(self);if not cell then return nil,problem end if cell._exclusive or cell._borrows~=0 then return nil,__nuppManagedError(\"NUPP2620\",\"managed resource is already borrowed\")end cell._exclusive=true;cell._state=\"exclusive-borrowed\";local ok,result=pcall(callback,cell._value);cell._exclusive=false;cell._state=\"live\" if not ok then error(result,0)end;return result,nil end function __nuppManagedAlias:take() local cell,problem=__nuppAliasCell(self);if not cell then return nil,problem end if cell._exclusive or cell._borrows~=0 then return nil,__nuppManagedError(\"NUPP2620\",\"managed resource has an active borrow\")end cell._state=\"taken\";local value=cell._value;cell._value=nil;cell._cleanup=nil;return value,nil end function __nuppManagedAlias:close() local cell,problem=__nuppAliasCell(self);if not cell then return problem end;return __nuppManagedClose(cell,true)end function __nuppManagedAlias:_downcast(policy) local cell,problem=__nuppAliasCell(self);if not cell then return nil,problem end if cell._policy~=policy then return nil,__nuppManagedError(\"NUPP2613\",\"managed alias has the wrong type or cleanup policy\")end return self,nil end function __nupp.__manage(value,cleanup,policy) local cell=setmetatable({_brand=__nuppManagedBrand,_value=value,_cleanup=cleanup,_policy=policy,_state=\"live\",_borrows=0,_exclusive=false},__nuppManagedOwner);__nuppManagedCells[cell]=true;return cell end function __nupp.__recoverAlias(value) if type(value)~=\"table\"or value._brand~=__nuppManagedBrand or getmetatable(value)~=__nuppManagedAlias then return nil,__nuppManagedError(\"NUPP2614\",\"value is not a managed alias\")end local cell,problem=__nuppAliasCell(value);if not cell then return nil,problem end;return value,nil end _G.__nuppManagedPolicyCount=function(policy)local count=0;for cell in pairs(__nuppManagedCells)do if cell._policy==policy and(cell._state==\"live\"or cell._state:match(\"borrowed\"))then count=count+1 end end;return count end local __nuppManagedGroup={};__nuppManagedGroup.__index=__nuppManagedGroup function __nuppManagedGroup:flush()end function __nuppManagedGroup:adopt(cell) if self._closed then error(\"managed group is closed\",2)end local handle=cell:alias();self._entries[#self._entries+1]=handle return handle end function __nuppManagedGroup:remove(handle) if self._closed then error(\"managed group is closed\",2)end for index=#self._entries,1,-1 do if self._entries[index]==handle then table.remove(self._entries,index);local value,problem=handle:take();if problem then error(problem.message,2)end;return value end end error(\"managed alias is not registered in this group\",2) end local function __nuppManagedCloseEntry(entry)local problem=entry:close();if problem and problem.code~=\"NUPP2614\"then error(problem.message,0)end end function __nuppManagedGroup:close() if self._closed then return end;self._closed=true;local first,suppressed=nil,0 for index=#self._entries,1,-1 do local ok,reason=pcall(__nuppManagedCloseEntry,self._entries[index]);if not ok then if first==nil then first=reason else suppressed=suppressed+1 end end end self._entries={};if first~=nil then if suppressed>0 then error(tostring(first)..\" (suppressed \"..tostring(suppressed)..\" cleanup failure(s))\",0)end;error(first,0)end end function __nupp.managedGroup()return setmetatable({_entries={},_closed=false},__nuppManagedGroup)end;\n","@nupp-prelude"))();local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppMath=rawget(__nupp,"math")or{};rawset(__nupp,"math",__nuppMath) local function __nuppCloseFile(handle)if io.type(handle)=="closed file"then return end;local ok,reason=handle:close();if not ok then error(reason or "the file could not be closed",0)end end local __nuppManagedBrand=_G.__nuppManagedBrand if not __nuppManagedBrand then __nuppManagedBrand={};_G.__nuppManagedBrand=__nuppManagedBrand end local __nuppManagedCells=_G.__nuppManagedCells if not __nuppManagedCells then __nuppManagedCells=setmetatable({},{__mode="k"});_G.__nuppManagedCells=__nuppManagedCells end local __nuppManagedOwner={};__nuppManagedOwner.__index=__nuppManagedOwner;local __nuppManagedAlias={};__nuppManagedAlias.__index=__nuppManagedAlias local function __nuppManagedError(code,message)return{code=code,message=message}end local function __nuppManagedProblem(cell) if type(cell)~="table"or cell._brand~=__nuppManagedBrand then return __nuppManagedError("NUPP2614","value is not a managed alias")end if cell._state=="taken"then return __nuppManagedError("NUPP2614","managed ownership was already taken")end if cell._state=="closed"or cell._state=="closing"then return __nuppManagedError("NUPP2614","managed resource is closed")end return nil end local function __nuppManagedClose(cell,checked) local problem=__nuppManagedProblem(cell);if problem then if checked then return problem end;return nil end if cell._borrows~=0 or cell._exclusive then local busy=__nuppManagedError("NUPP2620","managed resource has an active borrow");if checked then return busy end;error(busy.message,0)end cell._state="closing";local value,cleanup=cell._value,cell._cleanup;cell._value=nil;cell._cleanup=nil local ok,reason=pcall(cleanup,value);cell._state="closed";if not ok then error(reason,0)end;return nil end function __nuppManagedOwner:alias()return setmetatable({_cell=self,_brand=__nuppManagedBrand},__nuppManagedAlias)end function __nuppManagedOwner:close()return __nuppManagedClose(self,false)end local function __nuppAliasCell(self) if type(self)~="table"or self._brand~=__nuppManagedBrand or getmetatable(self)~=__nuppManagedAlias then return nil,__nuppManagedError("NUPP2614","value is not a managed alias")end local cell=self._cell;local problem=__nuppManagedProblem(cell);if problem then return nil,problem end;return cell,nil end function __nuppManagedAlias:with(callback) local cell,problem=__nuppAliasCell(self);if not cell then return nil,problem end if cell._exclusive then return nil,__nuppManagedError("NUPP2620","managed resource is exclusively borrowed")end cell._borrows=cell._borrows+1;cell._state="shared-borrowed("..cell._borrows..")" local ok,result=pcall(callback,cell._value);cell._borrows=cell._borrows-1;cell._state=cell._borrows>0 and("shared-borrowed("..cell._borrows..")")or"live" if not ok then error(result,0)end;return result,nil end function __nuppManagedAlias:withExclusive(callback) local cell,problem=__nuppAliasCell(self);if not cell then return nil,problem end if cell._exclusive or cell._borrows~=0 then return nil,__nuppManagedError("NUPP2620","managed resource is already borrowed")end cell._exclusive=true;cell._state="exclusive-borrowed";local ok,result=pcall(callback,cell._value);cell._exclusive=false;cell._state="live" if not ok then error(result,0)end;return result,nil end function __nuppManagedAlias:take() local cell,problem=__nuppAliasCell(self);if not cell then return nil,problem end if cell._exclusive or cell._borrows~=0 then return nil,__nuppManagedError("NUPP2620","managed resource has an active borrow")end cell._state="taken";local value=cell._value;cell._value=nil;cell._cleanup=nil;return value,nil end function __nuppManagedAlias:close() local cell,problem=__nuppAliasCell(self);if not cell then return problem end;return __nuppManagedClose(cell,true)end function __nuppManagedAlias:_downcast(policy) local cell,problem=__nuppAliasCell(self);if not cell then return nil,problem end if cell._policy~=policy then return nil,__nuppManagedError("NUPP2613","managed alias has the wrong type or cleanup policy")end return self,nil end function __nupp.__manage(value,cleanup,policy) local cell=setmetatable({_brand=__nuppManagedBrand,_value=value,_cleanup=cleanup,_policy=policy,_state="live",_borrows=0,_exclusive=false},__nuppManagedOwner);__nuppManagedCells[cell]=true;return cell end function __nupp.__recoverAlias(value) if type(value)~="table"or value._brand~=__nuppManagedBrand or getmetatable(value)~=__nuppManagedAlias then return nil,__nuppManagedError("NUPP2614","value is not a managed alias")end local cell,problem=__nuppAliasCell(value);if not cell then return nil,problem end;return value,nil end _G.__nuppManagedPolicyCount=function(policy)local count=0;for cell in pairs(__nuppManagedCells)do if cell._policy==policy and(cell._state=="live"or cell._state:match("borrowed"))then count=count+1 end end;return count end local __nuppManagedGroup={};__nuppManagedGroup.__index=__nuppManagedGroup function __nuppManagedGroup:flush()end function __nuppManagedGroup:adopt(cell) if self._closed then error("managed group is closed",2)end local handle=cell:alias();self._entries[#self._entries+1]=handle return handle end function __nuppManagedGroup:remove(handle) if self._closed then error("managed group is closed",2)end for index=#self._entries,1,-1 do if self._entries[index]==handle then table.remove(self._entries,index);local value,problem=handle:take();if problem then error(problem.message,2)end;return value end end error("managed alias is not registered in this group",2) end local function __nuppManagedCloseEntry(entry)local problem=entry:close();if problem and problem.code~="NUPP2614"then error(problem.message,0)end end function __nuppManagedGroup:close() if self._closed then return end;self._closed=true;local first,suppressed=nil,0 for index=#self._entries,1,-1 do local ok,reason=pcall(__nuppManagedCloseEntry,self._entries[index]);if not ok then if first==nil then first=reason else suppressed=suppressed+1 end end end self._entries={};if first~=nil then if suppressed>0 then error(tostring(first).." (suppressed "..tostring(suppressed).." cleanup failure(s))",0)end;error(first,0)end end function __nupp.managedGroup()return setmetatable({_entries={},_closed=false},__nuppManagedGroup)end;local __nuppExports;local __nuppOk,__nuppWhy=pcall(function()
 
-local _valueBuilder = require ( "nupp.data.valuebuilder" )
-local _simd = require ( "nupp.simd" )
-local _preferredU8 = _simd . preferredU8
+local _fused = require ( "nupp.data.jsondecoder.fused" )
 
 local fused = { }
 
@@ -156035,632 +155485,9 @@ fused . TAPE = 5
 
 
 
-local function decodeEager (
-source ,
-nullValue ,
-arrayMarker ,
-objectMarker ,
-shape ,
-arrayShapeMarker ,
-serdeMarkers
-) 
-local sourceCount = _valueBuilder . length ( source )
-if sourceCount > 0x7FFFFFFF then
-return nullValue , 5 , 1
-end
 
-local tape = _valueBuilder . newWordScratch ( sourceCount )
-local species = _preferredU8 ( )
-local lanes = (__nuppBitTobit( species . lanes )%4294967296)
-local input = _simd . paddedStringU8 ( source )
-local zeroBytes = species : splat ( 0 )
-local nibbleMask = species : splat ( 15 )
-local continuationFlag = species : splat ( 128 )
-local byte1HighTable = _simd . tableU8x16 ( 2 , 2 , 2 , 2 , 2 , 2 , 2 , 2 , 128 , 128 , 128 , 128 , 33 , 1 , 21 , 73 )
-local byte1LowTable = _simd . tableU8x16 (
-231 ,
-163 ,
-131 ,
-131 ,
-139 ,
-203 ,
-203 ,
-203 ,
-203 ,
-203 ,
-203 ,
-203 ,
-203 ,
-219 ,
-203 ,
-203
-)
-local byte2HighTable = _simd . tableU8x16 ( 1 , 1 , 1 , 1 , 1 , 1 , 1 , 1 , 230 , 174 , 186 , 186 , 1 , 1 , 1 , 1 )
 
-
-
-
-local syntaxLowTable = _simd . tableU8x16 ( 16 , 0 , 0 , 0 , 0 , 0 , 0 , 0 , 0 , 8 , 12 , 1 , 2 , 9 , 0 , 0 )
-local syntaxHighTable = _simd . tableU8x16 ( 8 , 0 , 18 , 4 , 0 , 1 , 0 , 1 , 0 , 0 , 0 , 3 , 2 , 1 , 0 , 0 )
-local evenWord = (__nuppBitTobit( 0x55555555 )%4294967296)
-local evenMask = _simd . maskBits64 ( evenWord , evenWord )
-local oddWord = (__nuppBitTobit( 0xAAAAAAAA )%4294967296)
-local oddMask = _simd . maskBits64 ( oddWord , oddWord )
-local scanCursor = 0
-local tapeCount = 0
-local scanInString = false
-local scanStringEscaped = false
-local slashOdd = false
-local slashCarry = false
-local previousBytes = zeroBytes
-local previousNonAscii = false
-
-while scanCursor < sourceCount do
-local fastBlock = false
-if sourceCount >= 64 and scanCursor <= (__nuppBitTobit((
-sourceCount )-(
-64 ))%4294967296)
-and (__nuppBitBand( scanCursor , 63 )%4294967296) == 0 and not slashCarry then
-local block = input : loadBlock64 ( scanCursor )
-local slashMask = block : equal ( 92 )
-local outsideAscii = block : outsideRange ( 32 , 127 )
-local wideBlock = not slashMask : orBits ( outsideAscii ) : any ( )
-local currentNonAscii = false
-if not wideBlock and not block : inRange ( 0 , 31 ) : any ( ) then
-wideBlock = true
-currentNonAscii = outsideAscii : any ( )
-end
-
-
-if wideBlock and slashMask : any ( ) and (__nuppBitBand( slashMask : highBits ( ) , 0x80000000 )%4294967296) ~= 0 then
-wideBlock = false
-end
-if wideBlock then
-local lowClasses = block : andByte ( 15 ) : lookup16 ( syntaxLowTable )
-local highClasses = block : shiftRight ( 4 ) : lookup16 ( syntaxHighTable )
-local classes = lowClasses : andBits ( highClasses )
-local syntaxBits = classes : anyBitsSet ( 0x07 )
-
-
-
-local hasSlashes = slashMask : any ( )
-local quoteBits = block : equal ( 34 )
-if hasSlashes then
-local starts = slashMask : andBits ( slashMask : shiftLeft ( 1 ) : notBits ( ) )
-local notSlashes = slashMask : notBits ( )
-local evenEnds = slashMask : add ( starts : andBits ( evenMask ) ) : andBits ( notSlashes )
-local oddEnds = slashMask : add ( starts : andBits ( oddMask ) ) : andBits ( notSlashes )
-local escapedBits = evenEnds : andBits ( oddMask ) : orBits ( oddEnds : andBits ( evenMask ) )
-quoteBits = quoteBits : andBits ( escapedBits : notBits ( ) )
-end
-local stringBits = quoteBits : prefixXor ( scanInString )
-local outsideBits = stringBits : notBits ( )
-local outsideSlashes = slashMask : andBits ( outsideBits )
-if outsideSlashes : any ( ) then
-return nullValue , 4 , (__nuppBitTobit(( (__nuppBitTobit(( scanCursor )+( outsideSlashes : firstSet ( ) ))%4294967296) )+( 1 ))%4294967296)
-end
-if currentNonAscii or previousNonAscii then
-local badUtf8 = block : utf8Errors ( previousBytes , byte1HighTable , byte1LowTable , byte2HighTable )
-if badUtf8 : any ( ) then
-return nullValue , 2 , (__nuppBitTobit(( (__nuppBitTobit(( scanCursor )+( badUtf8 : firstSet ( ) ))%4294967296) )+( 1 ))%4294967296)
-end
-end
-local events = quoteBits : orBits ( syntaxBits : andBits ( outsideBits ) )
-if not hasSlashes and not scanStringEscaped then
-if (__nuppBitBand( quoteBits : count ( ) , 1 )%4294967296) ~= 0 then
-scanInString = not scanInString
-end
-tapeCount = _valueBuilder . appendSetBitsEager ( tape , tapeCount , scanCursor , events )
-else
-
-
-local appended = _valueBuilder . appendStringBits (
-tape ,
-tapeCount ,
-scanCursor ,
-events ,
-quoteBits ,
-slashMask ,
-scanInString ,
-scanStringEscaped
-)
-scanStringEscaped = (__nuppBitBand( appended , 0x80000000 )%4294967296) ~= 0
-tapeCount = (__nuppBitBand( appended , 0x7FFFFFFF )%4294967296)
-if (__nuppBitBand( quoteBits : count ( ) , 1 )%4294967296) ~= 0 then
-scanInString = not scanInString
-end
-end
-previousBytes = block : lastVector ( )
-previousNonAscii = currentNonAscii
-scanCursor = (__nuppBitTobit(( scanCursor )+( 64 ))%4294967296)
-fastBlock = true
-end
-end
-if not fastBlock then
-local bytes = input : loadTail ( )
-local active = input . tailLength
-if scanCursor < input . fullLength then
-bytes = input : loadFull ( scanCursor )
-active = lanes
-end
-local tail = species : tail ( active )
-local activeBits = tail : bits ( )
-local quoteBits = bytes : equal ( 34 ) : andBits ( tail ) : bits ( )
-local slashBits = bytes : equal ( 92 ) : andBits ( tail ) : bits ( )
-
-
-
-
-local escapedBits = 0
-local remainingRuns = slashBits
-local incomingSlashCarry = slashCarry
-slashCarry = false
-if incomingSlashCarry and (__nuppBitBand( slashBits , 1 )%4294967296) == 0 then
-if slashOdd then
-escapedBits = 1
-end
-slashOdd = false
-incomingSlashCarry = false
-end
-if remainingRuns ~= 0 then
-local slashLastBit = (__nuppBitLshift( 1 ,__nuppBitBand( (__nuppBitTobit(( active )-( 1 ))%4294967296) ,31))%4294967296)
-local joinsPriorRun = incomingSlashCarry and (__nuppBitBand( slashBits , 1 )%4294967296) ~= 0
-local reachesNextBlock = (__nuppBitBand( slashBits , slashLastBit )%4294967296) ~= 0
-if not joinsPriorRun and not reachesNextBlock then
-local starts = (__nuppBitBand(
-remainingRuns ,
-(__nuppBitBnot( (__nuppBitLshift( remainingRuns ,__nuppBitBand( 1 ,31))%4294967296) )%4294967296) )%4294967296)
-
-local evenEnds = (__nuppBitBand(
-(__nuppBitTobit(( remainingRuns )+( (__nuppBitBand( starts , 0x55555555 )%4294967296) ))%4294967296) ,
-(__nuppBitBnot( remainingRuns )%4294967296) )%4294967296)
-
-local oddEnds = (__nuppBitBand(
-(__nuppBitTobit(( remainingRuns )+( (__nuppBitBand( starts , 0xAAAAAAAA )%4294967296) ))%4294967296) ,
-(__nuppBitBnot( remainingRuns )%4294967296) )%4294967296)
-
-escapedBits = (__nuppBitBor(
-escapedBits ,
-(__nuppBitBor(
-(__nuppBitBand( evenEnds , 0xAAAAAAAA )%4294967296) ,
-(__nuppBitBand( oddEnds , 0x55555555 )%4294967296) )%4294967296) )%4294967296)
-
-
-remainingRuns = 0
-end
-end
-while remainingRuns ~= 0 do
-local runStart = nupp . math . u32 . trailingZeros ( remainingRuns )
-local first = (__nuppBitLshift( 1 ,__nuppBitBand( runStart ,31))%4294967296)
-local after = (__nuppBitBand(
-(__nuppBitTobit(( remainingRuns )+( first ))%4294967296) ,
-(__nuppBitBnot( remainingRuns )%4294967296) )%4294967296)
-
-local runEnd = active
-if after ~= 0 then
-runEnd = nupp . math . u32 . trailingZeros ( after )
-end
-local odd = (__nuppBitBand( (__nuppBitTobit(( runEnd )-( runStart ))%4294967296) , 1 )%4294967296) ~= 0
-if runStart == 0 and incomingSlashCarry then
-odd = odd ~= slashOdd
-end
-if runEnd == active then
-slashCarry = true
-slashOdd = odd
-elseif odd then
-escapedBits = (__nuppBitBor( escapedBits , after )%4294967296)
-end
-remainingRuns = (__nuppBitBand( remainingRuns , (__nuppBitTobit(( remainingRuns )+( first ))%4294967296) )%4294967296)
-end
-
-local unescapedQuotes = (__nuppBitBand( quoteBits , (__nuppBitBnot( escapedBits )%4294967296) )%4294967296)
-local stringBits = unescapedQuotes
-stringBits = (__nuppBitBxor( stringBits , (__nuppBitLshift( stringBits ,__nuppBitBand( 1 ,31))%4294967296) )%4294967296)
-stringBits = (__nuppBitBxor( stringBits , (__nuppBitLshift( stringBits ,__nuppBitBand( 2 ,31))%4294967296) )%4294967296)
-stringBits = (__nuppBitBxor( stringBits , (__nuppBitLshift( stringBits ,__nuppBitBand( 4 ,31))%4294967296) )%4294967296)
-stringBits = (__nuppBitBxor( stringBits , (__nuppBitLshift( stringBits ,__nuppBitBand( 8 ,31))%4294967296) )%4294967296)
-if lanes == 32 then
-stringBits = (__nuppBitBxor( stringBits , (__nuppBitLshift( stringBits ,__nuppBitBand( 16 ,31))%4294967296) )%4294967296)
-end
-stringBits = (__nuppBitBand( stringBits , activeBits )%4294967296)
-if scanInString then
-stringBits = (__nuppBitBxor( stringBits , activeBits )%4294967296)
-end
-
-local objectOpenMask = bytes : equal ( 123 )
-local syntaxBits = objectOpenMask : orBits ( bytes : equal ( 125 ) )
-: orBits ( bytes : equal ( 91 ) )
-: orBits ( bytes : equal ( 93 ) )
-: orBits ( bytes : equal ( 58 ) )
-: orBits ( bytes : equal ( 44 ) )
-: andBits ( tail )
-: bits ( )
-local outsideBits = (__nuppBitBand( activeBits , (__nuppBitBnot( stringBits )%4294967296) )%4294967296)
-local whitespaceBits = bytes : equal ( 9 ) : orBits ( bytes : equal ( 10 ) ) : orBits ( bytes : equal ( 13 ) ) : bits ( )
-local controlBits = bytes : inRange ( 0 , 31 ) : andBits ( tail ) : bits ( )
-local badControls = (__nuppBitBand(
-controlBits ,
-(__nuppBitBor( stringBits , (__nuppBitBnot( whitespaceBits )%4294967296) )%4294967296) )%4294967296)
-
-if badControls ~= 0 then
-return nullValue , 3 , (__nuppBitTobit((
-(__nuppBitTobit(( scanCursor )+( nupp . math . u32 . trailingZeros ( badControls ) ))%4294967296) )+(
-1 ))%4294967296)
-
-end
-local outsideSlashes = (__nuppBitBand( slashBits , outsideBits )%4294967296)
-if outsideSlashes ~= 0 then
-return nullValue , 4 , (__nuppBitTobit((
-(__nuppBitTobit(( scanCursor )+( nupp . math . u32 . trailingZeros ( outsideSlashes ) ))%4294967296) )+(
-1 ))%4294967296)
-
-end
-
-
-
-
-
-local currentNonAscii = bytes : inRange ( 128 , 255 ) : andBits ( tail ) : any ( )
-if currentNonAscii or previousNonAscii then
-local previous1 = _simd . alignBytes ( previousBytes , bytes , 1 )
-local previous2 = _simd . alignBytes ( previousBytes , bytes , 2 )
-local previous3 = _simd . alignBytes ( previousBytes , bytes , 3 )
-local byte1High = previous1 : shiftRight ( 4 ) : lookup16 ( byte1HighTable )
-local byte1Low = previous1 : andBits ( nibbleMask ) : lookup16 ( byte1LowTable )
-local byte2High = bytes : shiftRight ( 4 ) : lookup16 ( byte2HighTable )
-local specialCases = byte1High : andBits ( byte1Low ) : andBits ( byte2High )
-local mustContinue = previous2 : inRange ( 224 , 255 ) : orBits ( previous3 : inRange ( 240 , 255 ) )
-local required = mustContinue : select ( continuationFlag , zeroBytes )
-local badUtf8 = required : xorBits ( specialCases ) : equal ( 0 ) : notBits ( ) : bits ( )
-if badUtf8 ~= 0 then
-local badLane = nupp . math . u32 . trailingZeros ( badUtf8 )
-if badLane >= active then
-return nullValue , 2 , (__nuppBitTobit(( sourceCount )+( 1 ))%4294967296)
-end
-return nullValue , 2 , (__nuppBitTobit(( (__nuppBitTobit(( scanCursor )+( badLane ))%4294967296) )+( 1 ))%4294967296)
-end
-end
-
-
-
-local events = (__nuppBitBor( unescapedQuotes , (__nuppBitBand( syntaxBits , outsideBits )%4294967296) )%4294967296)
-
-if not scanInString and unescapedQuotes == 0 and slashBits == 0 and not scanStringEscaped then
-tapeCount = _valueBuilder . appendSetBitsEager (
-tape ,
-tapeCount ,
-scanCursor ,
-_simd . maskBits64 ( events , (__nuppBitTobit( 0 )%4294967296) )
-)
-else
-local appended = _valueBuilder . appendStringBits (
-tape ,
-tapeCount ,
-scanCursor ,
-_simd . maskBits64 ( events , (__nuppBitTobit( 0 )%4294967296) ) ,
-_simd . maskBits64 ( unescapedQuotes , (__nuppBitTobit( 0 )%4294967296) ) ,
-_simd . maskBits64 ( slashBits , (__nuppBitTobit( 0 )%4294967296) ) ,
-scanInString ,
-scanStringEscaped
-)
-scanStringEscaped = (__nuppBitBand( appended , 0x80000000 )%4294967296) ~= 0
-tapeCount = (__nuppBitBand( appended , 0x7FFFFFFF )%4294967296)
-if (__nuppBitBand( nupp . math . u32 . popcount ( unescapedQuotes ) , 1 )%4294967296) ~= 0 then
-scanInString = not scanInString
-end
-end
-previousBytes = bytes
-previousNonAscii = currentNonAscii
-scanCursor = (__nuppBitTobit(( scanCursor )+( lanes ))%4294967296)
-end
-end
-
-
-
-if input . tailLength == 0 and previousNonAscii then
-local previous1 = _simd . alignBytes ( previousBytes , zeroBytes , 1 )
-local previous2 = _simd . alignBytes ( previousBytes , zeroBytes , 2 )
-local previous3 = _simd . alignBytes ( previousBytes , zeroBytes , 3 )
-local byte1High = previous1 : shiftRight ( 4 ) : lookup16 ( byte1HighTable )
-local byte1Low = previous1 : andBits ( nibbleMask ) : lookup16 ( byte1LowTable )
-local byte2High = zeroBytes : shiftRight ( 4 ) : lookup16 ( byte2HighTable )
-local specialCases = byte1High : andBits ( byte1Low ) : andBits ( byte2High )
-local mustContinue = previous2 : inRange ( 224 , 255 ) : orBits ( previous3 : inRange ( 240 , 255 ) )
-local required = mustContinue : select ( continuationFlag , zeroBytes )
-if required : xorBits ( specialCases ) : equal ( 0 ) : notBits ( ) : any ( ) then
-return nullValue , 2 , (__nuppBitTobit(( sourceCount )+( 1 ))%4294967296)
-end
-end
-
-local builderDepth = 1024
-if sourceCount <= 32 then
-builderDepth = 16
-end
-local values = _valueBuilder . newSized ( nullValue , builderDepth , sourceCount , arrayMarker , objectMarker )
-local cursor = 0
-tapeCount = _valueBuilder . scratchLength ( tape )
-local tapeCursor = 0
-local needValue = true
-local done = false
-
-
-
-
-
-local pending = 0
-while not done do
-local skipping = true
-pending = 0
-while skipping and cursor < sourceCount do
-pending = _valueBuilder . byteAt ( source , cursor )
-if pending == 32 or pending == 9 or pending == 10 or pending == 13 then
-cursor = (__nuppBitTobit(( cursor )+( 1 ))%4294967296)
-else
-skipping = false
-end
-end
-
-if needValue then
-if cursor >= sourceCount then
-return nullValue , 1 , (__nuppBitTobit(( cursor )+( 1 ))%4294967296)
-end
-
-local tag = 0
-local start = cursor
-local length = 0
-local flags = 0
-local containerCapacity = 0
-local byte = pending
-
-if byte == 34 then
-tag = 4
-if tapeCursor < tapeCount then
-local opening = _valueBuilder . scratchWord ( tape , tapeCursor )
-if opening ~= cursor then
-return nullValue , 5 , (__nuppBitTobit(( cursor )+( 1 ))%4294967296)
-end
-tapeCursor = (__nuppBitTobit(( tapeCursor )+( 1 ))%4294967296)
-else
-return nullValue , 5 , (__nuppBitTobit(( cursor )+( 1 ))%4294967296)
-end
-if tapeCursor < tapeCount then
-local closingWord = _valueBuilder . scratchWord ( tape , tapeCursor )
-local closing = (__nuppBitBand( closingWord , 0x7FFFFFFF )%4294967296)
-if (__nuppBitBand( closingWord , 0x80000000 )%4294967296) ~= 0 then
-flags = 1
-end
-start = (__nuppBitTobit(( cursor )+( 1 ))%4294967296)
-length = (__nuppBitTobit(( closing )-( start ))%4294967296)
-
-
-
-cursor = (__nuppBitTobit(( closing )+( 1 ))%4294967296)
-tapeCursor = (__nuppBitTobit(( tapeCursor )+( 1 ))%4294967296)
-else
-return nullValue , 1 , (__nuppBitTobit(( cursor )+( 1 ))%4294967296)
-end
-elseif byte == 91 or byte == 123 then
-if byte == 91 then
-tag = 5
-else
-tag = 6
-end
-cursor = (__nuppBitTobit(( cursor )+( 1 ))%4294967296)
-if tapeCursor < tapeCount then
-if byte == 123 then
-
-
-containerCapacity = 4
-elseif _valueBuilder . depth ( values ) == 0 then
-
-
-
-
-containerCapacity = (__nuppBitRshift( sourceCount ,__nuppBitBand( 5 ,31))%4294967296)
-if containerCapacity > 262144 then
-containerCapacity = 262144
-end
-else
-containerCapacity = 4
-end
-tapeCursor = (__nuppBitTobit(( tapeCursor )+( 1 ))%4294967296)
-else
-return nullValue , 5 , cursor
-end
-elseif byte == 116 then
-tag = 1
-local matched = 0
-while matched < 4 do
-local at = (__nuppBitTobit(( cursor )+( matched ))%4294967296)
-if at < sourceCount then
-local actual = _valueBuilder . byteAt ( source , at )
-local __nuppT2= matched ;local __nuppT3;
-if  __nuppT2== 0  then  __nuppT3= 116
-elseif  __nuppT2== 1  then  __nuppT3= 114
-elseif  __nuppT2== 2  then  __nuppT3= 117
-else  __nuppT3= 101
-end; local expected = __nuppT3
-if actual ~= expected then
-return nullValue , 1 , (__nuppBitTobit(( at )+( 1 ))%4294967296)
-end
-else
-return nullValue , 1 , (__nuppBitTobit(( at )+( 1 ))%4294967296)
-end
-matched = (__nuppBitTobit(( matched )+( 1 ))%4294967296)
-end
-length = 4
-cursor = (__nuppBitTobit(( cursor )+( 4 ))%4294967296)
-elseif byte == 102 then
-tag = 2
-local matched = 0
-while matched < 5 do
-local at = (__nuppBitTobit(( cursor )+( matched ))%4294967296)
-if at < sourceCount then
-local actual = _valueBuilder . byteAt ( source , at )
-local __nuppT4= matched ;local __nuppT5; __nuppT5=__nuppSwitchMap1[__nuppT4+1]; if __nuppT5==nil then __nuppT5=101 end; local expected = __nuppT5
-
-
-
-
-
-
-if actual ~= expected then
-return nullValue , 1 , (__nuppBitTobit(( at )+( 1 ))%4294967296)
-end
-else
-return nullValue , 1 , (__nuppBitTobit(( at )+( 1 ))%4294967296)
-end
-matched = (__nuppBitTobit(( matched )+( 1 ))%4294967296)
-end
-length = 5
-cursor = (__nuppBitTobit(( cursor )+( 5 ))%4294967296)
-elseif byte == 110 then
-tag = 0
-local matched = 0
-while matched < 4 do
-local at = (__nuppBitTobit(( cursor )+( matched ))%4294967296)
-if at < sourceCount then
-local actual = _valueBuilder . byteAt ( source , at )
-local __nuppT6= matched ;local __nuppT7;
-if  __nuppT6== 0  then  __nuppT7= 110
-elseif  __nuppT6== 1  then  __nuppT7= 117
-else  __nuppT7= 108
-end; local expected = __nuppT7
-if actual ~= expected then
-return nullValue , 1 , (__nuppBitTobit(( at )+( 1 ))%4294967296)
-end
-else
-return nullValue , 1 , (__nuppBitTobit(( at )+( 1 ))%4294967296)
-end
-matched = (__nuppBitTobit(( matched )+( 1 ))%4294967296)
-end
-length = 4
-cursor = (__nuppBitTobit(( cursor )+( 4 ))%4294967296)
-elseif byte == 45 or byte >= 48 and byte <= 57 then
-tag = 3
-local parsed = _valueBuilder . numberToken ( values , source , cursor , sourceCount )
-if parsed < 2147483648 then
-return nullValue , 1 , parsed
-end
-cursor = (__nuppBitTobit(( parsed )-( 2147483648 ))%4294967296)
-length = (__nuppBitTobit(( cursor )-( start ))%4294967296)
-else
-return nullValue , 1 , (__nuppBitTobit(( cursor )+( 1 ))%4294967296)
-end
-
-if tag == 0 then
-_valueBuilder . null ( values )
-elseif tag == 1 then
-_valueBuilder . boolean ( values , true )
-elseif tag == 2 then
-_valueBuilder . boolean ( values , false )
-elseif tag == 4 then
-_valueBuilder . string ( values , source , start , length , flags == 1 )
-elseif tag == 5 then
-_valueBuilder . openArray ( values , containerCapacity )
-elseif tag == 6 then
-_valueBuilder . openObject ( values , containerCapacity )
-end
-needValue = false
-elseif _valueBuilder . depth ( values ) == 0 then
-if cursor < sourceCount then
-return nullValue , 1 , (__nuppBitTobit(( cursor )+( 1 ))%4294967296)
-end
-done = true
-else
-if cursor >= sourceCount then
-return nullValue , 1 , (__nuppBitTobit(( cursor )+( 1 ))%4294967296)
-end
-local builderState = _valueBuilder . state ( values )
-local byte = pending
-local kind = (__nuppBitBand( builderState , 0xFF )%4294967296)
-local hasValue = (__nuppBitBand( builderState , 0x100 )%4294967296) ~= 0
-local closing = kind == 5 and byte == 93 or kind == 6 and byte == 125
-if closing then
-if tapeCursor >= tapeCount or _valueBuilder . scratchWord ( tape , tapeCursor ) ~= cursor then
-return nullValue , 5 , (__nuppBitTobit(( cursor )+( 1 ))%4294967296)
-end
-tapeCursor = (__nuppBitTobit(( tapeCursor )+( 1 ))%4294967296)
-cursor = (__nuppBitTobit(( cursor )+( 1 ))%4294967296)
-_valueBuilder . close ( values )
-elseif kind == 5 then
-if not hasValue then
-needValue = true
-elseif byte == 44 then
-cursor = (__nuppBitTobit(( cursor )+( 1 ))%4294967296)
-if tapeCursor >= tapeCount then
-return nullValue , 5 , cursor
-end
-tapeCursor = (__nuppBitTobit(( tapeCursor )+( 1 ))%4294967296)
-needValue = true
-else
-return nullValue , 1 , (__nuppBitTobit(( cursor )+( 1 ))%4294967296)
-end
-else
-if hasValue then
-if byte ~= 44 then
-return nullValue , 1 , (__nuppBitTobit(( cursor )+( 1 ))%4294967296)
-end
-cursor = (__nuppBitTobit(( cursor )+( 1 ))%4294967296)
-if tapeCursor >= tapeCount then
-return nullValue , 5 , cursor
-end
-tapeCursor = (__nuppBitTobit(( tapeCursor )+( 1 ))%4294967296)
-local keySkipping = true
-while keySkipping and cursor < sourceCount do
-local keyByte = _valueBuilder . byteAt ( source , cursor )
-if keyByte == 32 or keyByte == 9 or keyByte == 10 or keyByte == 13 then
-cursor = (__nuppBitTobit(( cursor )+( 1 ))%4294967296)
-else
-keySkipping = false
-end
-end
-end
-if cursor >= sourceCount or _valueBuilder . byte ( source , cursor ) ~= 34 then
-return nullValue , 1 , (__nuppBitTobit(( cursor )+( 1 ))%4294967296)
-end
-local opening = cursor
-if tapeCursor >= tapeCount or _valueBuilder . scratchWord ( tape , tapeCursor ) ~= opening then
-return nullValue , 5 , (__nuppBitTobit(( cursor )+( 1 ))%4294967296)
-end
-tapeCursor = (__nuppBitTobit(( tapeCursor )+( 1 ))%4294967296)
-if tapeCursor >= tapeCount then
-return nullValue , 1 , (__nuppBitTobit(( cursor )+( 1 ))%4294967296)
-end
-local closingWord = _valueBuilder . scratchWord ( tape , tapeCursor )
-local closingQuote = (__nuppBitBand( closingWord , 0x7FFFFFFF )%4294967296)
-local escaped = (__nuppBitBand( closingWord , 0x80000000 )%4294967296) ~= 0
-tapeCursor = (__nuppBitTobit(( tapeCursor )+( 1 ))%4294967296)
-local keyStart = (__nuppBitTobit(( opening )+( 1 ))%4294967296)
-local keyLength = (__nuppBitTobit(( closingQuote )-( keyStart ))%4294967296)
-_valueBuilder . key ( values , source , keyStart , keyLength , escaped )
-cursor = (__nuppBitTobit(( closingQuote )+( 1 ))%4294967296)
-local colonSkipping = true
-while colonSkipping and cursor < sourceCount do
-local colonByte = _valueBuilder . byteAt ( source , cursor )
-if colonByte == 32 or colonByte == 9 or colonByte == 10 or colonByte == 13 then
-cursor = (__nuppBitTobit(( cursor )+( 1 ))%4294967296)
-else
-colonSkipping = false
-end
-end
-if cursor >= sourceCount or _valueBuilder . byte ( source , cursor ) ~= 58 then
-return nullValue , 1 , (__nuppBitTobit(( cursor )+( 1 ))%4294967296)
-end
-if tapeCursor >= tapeCount or _valueBuilder . scratchWord ( tape , tapeCursor ) ~= cursor then
-return nullValue , 5 , (__nuppBitTobit(( cursor )+( 1 ))%4294967296)
-end
-cursor = (__nuppBitTobit(( cursor )+( 1 ))%4294967296)
-tapeCursor = (__nuppBitTobit(( tapeCursor )+( 1 ))%4294967296)
-needValue = true
-end
-end
-end
-
-return _valueBuilder . finish ( values ) , 0 , 0
-end
-
-fused . decode = decodeEager
+fused . decode = _fused . decodeEager
 
 
 
@@ -156673,8 +155500,19 @@ fused . decode = decodeEager
 const __nuppExportValue= fused ;__nuppExports=__nuppExportValue
  end);if not __nuppOk then package.loaded["nupp.data.jsondecoder.eager"]=nil;error(__nuppWhy,0) end;package.loaded["nupp.data.jsondecoder.eager"]=__nuppExports;return __nuppExports
 end
-package.preload["nupp.data.jsondecoder.serde"] = function(...)
+package.preload["nupp.data.jsondecoder.fused"] = function(...)
 _G.assert(_G.loadstring("local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppMath=rawget(__nupp,\"math\")or{};rawset(__nupp,\"math\",__nuppMath) local function __nuppCloseFile(handle)if io.type(handle)==\"closed file\"then return end;local ok,reason=handle:close();if not ok then error(reason or \"the file could not be closed\",0)end end local __nuppManagedBrand=_G.__nuppManagedBrand if not __nuppManagedBrand then __nuppManagedBrand={};_G.__nuppManagedBrand=__nuppManagedBrand end local __nuppManagedCells=_G.__nuppManagedCells if not __nuppManagedCells then __nuppManagedCells=setmetatable({},{__mode=\"k\"});_G.__nuppManagedCells=__nuppManagedCells end local __nuppManagedOwner={};__nuppManagedOwner.__index=__nuppManagedOwner;local __nuppManagedAlias={};__nuppManagedAlias.__index=__nuppManagedAlias local function __nuppManagedError(code,message)return{code=code,message=message}end local function __nuppManagedProblem(cell) if type(cell)~=\"table\"or cell._brand~=__nuppManagedBrand then return __nuppManagedError(\"NUPP2614\",\"value is not a managed alias\")end if cell._state==\"taken\"then return __nuppManagedError(\"NUPP2614\",\"managed ownership was already taken\")end if cell._state==\"closed\"or cell._state==\"closing\"then return __nuppManagedError(\"NUPP2614\",\"managed resource is closed\")end return nil end local function __nuppManagedClose(cell,checked) local problem=__nuppManagedProblem(cell);if problem then if checked then return problem end;return nil end if cell._borrows~=0 or cell._exclusive then local busy=__nuppManagedError(\"NUPP2620\",\"managed resource has an active borrow\");if checked then return busy end;error(busy.message,0)end cell._state=\"closing\";local value,cleanup=cell._value,cell._cleanup;cell._value=nil;cell._cleanup=nil local ok,reason=pcall(cleanup,value);cell._state=\"closed\";if not ok then error(reason,0)end;return nil end function __nuppManagedOwner:alias()return setmetatable({_cell=self,_brand=__nuppManagedBrand},__nuppManagedAlias)end function __nuppManagedOwner:close()return __nuppManagedClose(self,false)end local function __nuppAliasCell(self) if type(self)~=\"table\"or self._brand~=__nuppManagedBrand or getmetatable(self)~=__nuppManagedAlias then return nil,__nuppManagedError(\"NUPP2614\",\"value is not a managed alias\")end local cell=self._cell;local problem=__nuppManagedProblem(cell);if problem then return nil,problem end;return cell,nil end function __nuppManagedAlias:with(callback) local cell,problem=__nuppAliasCell(self);if not cell then return nil,problem end if cell._exclusive then return nil,__nuppManagedError(\"NUPP2620\",\"managed resource is exclusively borrowed\")end cell._borrows=cell._borrows+1;cell._state=\"shared-borrowed(\"..cell._borrows..\")\" local ok,result=pcall(callback,cell._value);cell._borrows=cell._borrows-1;cell._state=cell._borrows>0 and(\"shared-borrowed(\"..cell._borrows..\")\")or\"live\" if not ok then error(result,0)end;return result,nil end function __nuppManagedAlias:withExclusive(callback) local cell,problem=__nuppAliasCell(self);if not cell then return nil,problem end if cell._exclusive or cell._borrows~=0 then return nil,__nuppManagedError(\"NUPP2620\",\"managed resource is already borrowed\")end cell._exclusive=true;cell._state=\"exclusive-borrowed\";local ok,result=pcall(callback,cell._value);cell._exclusive=false;cell._state=\"live\" if not ok then error(result,0)end;return result,nil end function __nuppManagedAlias:take() local cell,problem=__nuppAliasCell(self);if not cell then return nil,problem end if cell._exclusive or cell._borrows~=0 then return nil,__nuppManagedError(\"NUPP2620\",\"managed resource has an active borrow\")end cell._state=\"taken\";local value=cell._value;cell._value=nil;cell._cleanup=nil;return value,nil end function __nuppManagedAlias:close() local cell,problem=__nuppAliasCell(self);if not cell then return problem end;return __nuppManagedClose(cell,true)end function __nuppManagedAlias:_downcast(policy) local cell,problem=__nuppAliasCell(self);if not cell then return nil,problem end if cell._policy~=policy then return nil,__nuppManagedError(\"NUPP2613\",\"managed alias has the wrong type or cleanup policy\")end return self,nil end function __nupp.__manage(value,cleanup,policy) local cell=setmetatable({_brand=__nuppManagedBrand,_value=value,_cleanup=cleanup,_policy=policy,_state=\"live\",_borrows=0,_exclusive=false},__nuppManagedOwner);__nuppManagedCells[cell]=true;return cell end function __nupp.__recoverAlias(value) if type(value)~=\"table\"or value._brand~=__nuppManagedBrand or getmetatable(value)~=__nuppManagedAlias then return nil,__nuppManagedError(\"NUPP2614\",\"value is not a managed alias\")end local cell,problem=__nuppAliasCell(value);if not cell then return nil,problem end;return value,nil end _G.__nuppManagedPolicyCount=function(policy)local count=0;for cell in pairs(__nuppManagedCells)do if cell._policy==policy and(cell._state==\"live\"or cell._state:match(\"borrowed\"))then count=count+1 end end;return count end local __nuppManagedGroup={};__nuppManagedGroup.__index=__nuppManagedGroup function __nuppManagedGroup:flush()end function __nuppManagedGroup:adopt(cell) if self._closed then error(\"managed group is closed\",2)end local handle=cell:alias();self._entries[#self._entries+1]=handle return handle end function __nuppManagedGroup:remove(handle) if self._closed then error(\"managed group is closed\",2)end for index=#self._entries,1,-1 do if self._entries[index]==handle then table.remove(self._entries,index);local value,problem=handle:take();if problem then error(problem.message,2)end;return value end end error(\"managed alias is not registered in this group\",2) end local function __nuppManagedCloseEntry(entry)local problem=entry:close();if problem and problem.code~=\"NUPP2614\"then error(problem.message,0)end end function __nuppManagedGroup:close() if self._closed then return end;self._closed=true;local first,suppressed=nil,0 for index=#self._entries,1,-1 do local ok,reason=pcall(__nuppManagedCloseEntry,self._entries[index]);if not ok then if first==nil then first=reason else suppressed=suppressed+1 end end end self._entries={};if first~=nil then if suppressed>0 then error(tostring(first)..\" (suppressed \"..tostring(suppressed)..\" cleanup failure(s))\",0)end;error(first,0)end end function __nupp.managedGroup()return setmetatable({_entries={},_closed=false},__nuppManagedGroup)end;\n","@nupp-prelude"))();local __nuppBitBand=bit.band;local __nuppBitBnot=bit.bnot;local __nuppBitBor=bit.bor;local __nuppBitBxor=bit.bxor;local __nuppBitLshift=bit.lshift;local __nuppBitRshift=bit.rshift;local __nuppBitTobit=bit.tobit;local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppMath=rawget(__nupp,"math")or{};rawset(__nupp,"math",__nuppMath) local function __nuppCloseFile(handle)if io.type(handle)=="closed file"then return end;local ok,reason=handle:close();if not ok then error(reason or "the file could not be closed",0)end end local __nuppManagedBrand=_G.__nuppManagedBrand if not __nuppManagedBrand then __nuppManagedBrand={};_G.__nuppManagedBrand=__nuppManagedBrand end local __nuppManagedCells=_G.__nuppManagedCells if not __nuppManagedCells then __nuppManagedCells=setmetatable({},{__mode="k"});_G.__nuppManagedCells=__nuppManagedCells end local __nuppManagedOwner={};__nuppManagedOwner.__index=__nuppManagedOwner;local __nuppManagedAlias={};__nuppManagedAlias.__index=__nuppManagedAlias local function __nuppManagedError(code,message)return{code=code,message=message}end local function __nuppManagedProblem(cell) if type(cell)~="table"or cell._brand~=__nuppManagedBrand then return __nuppManagedError("NUPP2614","value is not a managed alias")end if cell._state=="taken"then return __nuppManagedError("NUPP2614","managed ownership was already taken")end if cell._state=="closed"or cell._state=="closing"then return __nuppManagedError("NUPP2614","managed resource is closed")end return nil end local function __nuppManagedClose(cell,checked) local problem=__nuppManagedProblem(cell);if problem then if checked then return problem end;return nil end if cell._borrows~=0 or cell._exclusive then local busy=__nuppManagedError("NUPP2620","managed resource has an active borrow");if checked then return busy end;error(busy.message,0)end cell._state="closing";local value,cleanup=cell._value,cell._cleanup;cell._value=nil;cell._cleanup=nil local ok,reason=pcall(cleanup,value);cell._state="closed";if not ok then error(reason,0)end;return nil end function __nuppManagedOwner:alias()return setmetatable({_cell=self,_brand=__nuppManagedBrand},__nuppManagedAlias)end function __nuppManagedOwner:close()return __nuppManagedClose(self,false)end local function __nuppAliasCell(self) if type(self)~="table"or self._brand~=__nuppManagedBrand or getmetatable(self)~=__nuppManagedAlias then return nil,__nuppManagedError("NUPP2614","value is not a managed alias")end local cell=self._cell;local problem=__nuppManagedProblem(cell);if problem then return nil,problem end;return cell,nil end function __nuppManagedAlias:with(callback) local cell,problem=__nuppAliasCell(self);if not cell then return nil,problem end if cell._exclusive then return nil,__nuppManagedError("NUPP2620","managed resource is exclusively borrowed")end cell._borrows=cell._borrows+1;cell._state="shared-borrowed("..cell._borrows..")" local ok,result=pcall(callback,cell._value);cell._borrows=cell._borrows-1;cell._state=cell._borrows>0 and("shared-borrowed("..cell._borrows..")")or"live" if not ok then error(result,0)end;return result,nil end function __nuppManagedAlias:withExclusive(callback) local cell,problem=__nuppAliasCell(self);if not cell then return nil,problem end if cell._exclusive or cell._borrows~=0 then return nil,__nuppManagedError("NUPP2620","managed resource is already borrowed")end cell._exclusive=true;cell._state="exclusive-borrowed";local ok,result=pcall(callback,cell._value);cell._exclusive=false;cell._state="live" if not ok then error(result,0)end;return result,nil end function __nuppManagedAlias:take() local cell,problem=__nuppAliasCell(self);if not cell then return nil,problem end if cell._exclusive or cell._borrows~=0 then return nil,__nuppManagedError("NUPP2620","managed resource has an active borrow")end cell._state="taken";local value=cell._value;cell._value=nil;cell._cleanup=nil;return value,nil end function __nuppManagedAlias:close() local cell,problem=__nuppAliasCell(self);if not cell then return problem end;return __nuppManagedClose(cell,true)end function __nuppManagedAlias:_downcast(policy) local cell,problem=__nuppAliasCell(self);if not cell then return nil,problem end if cell._policy~=policy then return nil,__nuppManagedError("NUPP2613","managed alias has the wrong type or cleanup policy")end return self,nil end function __nupp.__manage(value,cleanup,policy) local cell=setmetatable({_brand=__nuppManagedBrand,_value=value,_cleanup=cleanup,_policy=policy,_state="live",_borrows=0,_exclusive=false},__nuppManagedOwner);__nuppManagedCells[cell]=true;return cell end function __nupp.__recoverAlias(value) if type(value)~="table"or value._brand~=__nuppManagedBrand or getmetatable(value)~=__nuppManagedAlias then return nil,__nuppManagedError("NUPP2614","value is not a managed alias")end local cell,problem=__nuppAliasCell(value);if not cell then return nil,problem end;return value,nil end _G.__nuppManagedPolicyCount=function(policy)local count=0;for cell in pairs(__nuppManagedCells)do if cell._policy==policy and(cell._state=="live"or cell._state:match("borrowed"))then count=count+1 end end;return count end local __nuppManagedGroup={};__nuppManagedGroup.__index=__nuppManagedGroup function __nuppManagedGroup:flush()end function __nuppManagedGroup:adopt(cell) if self._closed then error("managed group is closed",2)end local handle=cell:alias();self._entries[#self._entries+1]=handle return handle end function __nuppManagedGroup:remove(handle) if self._closed then error("managed group is closed",2)end for index=#self._entries,1,-1 do if self._entries[index]==handle then table.remove(self._entries,index);local value,problem=handle:take();if problem then error(problem.message,2)end;return value end end error("managed alias is not registered in this group",2) end local function __nuppManagedCloseEntry(entry)local problem=entry:close();if problem and problem.code~="NUPP2614"then error(problem.message,0)end end function __nuppManagedGroup:close() if self._closed then return end;self._closed=true;local first,suppressed=nil,0 for index=#self._entries,1,-1 do local ok,reason=pcall(__nuppManagedCloseEntry,self._entries[index]);if not ok then if first==nil then first=reason else suppressed=suppressed+1 end end end self._entries={};if first~=nil then if suppressed>0 then error(tostring(first).." (suppressed "..tostring(suppressed).." cleanup failure(s))",0)end;error(first,0)end end function __nupp.managedGroup()return setmetatable({_entries={},_closed=false},__nuppManagedGroup)end local function __nuppLazy(target,name,loader)local meta=getmetatable(target)or{};local loaders=meta.__nuppLoaders;if not loaders then loaders={};local prior=meta.__index;meta.__nuppLoaders=loaders;meta.__index=function(t,k)local load=loaders[k];if load then local value=load(k);loaders[k]=nil;if value==nil then value=rawget(t,k)else rawset(t,k,value)end;return value end;if type(prior)=="function"then return prior(t,k)elseif prior then return prior[k]end end;setmetatable(target,meta)end;if name~=nil and rawget(target,name)==nil and loaders[name]==nil then loaders[name]=loader end end require("nupp.compiler.runtime.math").install(rawget(__nupp,"math"));const __nuppSwitchMap1={102,97,108,115};local __nuppExports;local __nuppOk,__nuppWhy=pcall(function()
+
+
+
+
+
+
+
+
+
+
+
 
 local _valueBuilder = require ( "nupp.data.valuebuilder" )
 local _simd = require ( "nupp.simd" )
@@ -156683,20 +155521,23 @@ local _preferredU8 = _simd . preferredU8
 
 local fused = { }
 
-fused . OK = 0
-fused . SYNTAX = 1
-fused . INVALID_UTF8 = 2
-fused . INVALID_CONTROL = 3
-fused . INVALID_BACKSLASH = 4
-fused . TAPE = 5
 
 
 
 
 
 
-local function decodeSerde (
+
+
+
+
+
+
+
+
+local function decodeFused (
 source ,
+variant ,
 nullValue ,
 arrayMarker ,
 objectMarker ,
@@ -156712,6 +155553,8 @@ end
 local tape = _valueBuilder . newWordScratch ( sourceCount )
 local species = _preferredU8 ( )
 local lanes = (__nuppBitTobit( species . lanes )%4294967296)
+
+
 local input = _simd . paddedBytesU8 ( source )
 local zeroBytes = species : splat ( 0 )
 local nibbleMask = species : splat ( 15 )
@@ -156810,13 +155653,30 @@ if not hasSlashes and not scanStringEscaped then
 if (__nuppBitBand( quoteBits : count ( ) , 1 )%4294967296) ~= 0 then
 scanInString = not scanInString
 end
-tapeCount = _valueBuilder . appendSetBits ( tape , tapeCount , scanCursor , events )
+if variant == 2 then
+tapeCount = _valueBuilder . appendSetBitsEager ( tape , tapeCount , scanCursor , events )
 else
+tapeCount = _valueBuilder . appendSetBits ( tape , tapeCount , scanCursor , events )
+end
+else
+
+
 
 
 local blockSpansString = scanInString or (__nuppBitBand( quoteBits : count ( ) , 1 )%4294967296) ~= 0
 local appended = 0
-if blockSpansString and hasSlashes then
+if variant == 2 then
+appended = _valueBuilder . appendStringBits (
+tape ,
+tapeCount ,
+scanCursor ,
+events ,
+quoteBits ,
+slashMask ,
+scanInString ,
+scanStringEscaped
+)
+elseif blockSpansString and hasSlashes then
 appended = _valueBuilder . appendStringEscapeBits (
 tape ,
 tape ,
@@ -157005,19 +155865,39 @@ end
 local events = (__nuppBitBor( unescapedQuotes , (__nuppBitBand( syntaxBits , outsideBits )%4294967296) )%4294967296)
 
 if not scanInString and unescapedQuotes == 0 and slashBits == 0 and not scanStringEscaped then
-tapeCount = _valueBuilder . appendSetBits (
+if variant == 2 then
+tapeCount = _valueBuilder . appendSetBitsEager (
 tape ,
 tapeCount ,
 scanCursor ,
 _simd . maskBits64 ( events , (__nuppBitTobit( 0 )%4294967296) )
 )
 else
+tapeCount = _valueBuilder . appendSetBits (
+tape ,
+tapeCount ,
+scanCursor ,
+_simd . maskBits64 ( events , (__nuppBitTobit( 0 )%4294967296) )
+)
+end
+else
 local blockSpansString = scanInString or (__nuppBitBand(
 nupp . math . u32 . popcount ( unescapedQuotes ) ,
 1 )%4294967296)
 ~= 0
 local appended = 0
-if blockSpansString and slashBits ~= 0 then
+if variant == 2 then
+appended = _valueBuilder . appendStringBits (
+tape ,
+tapeCount ,
+scanCursor ,
+_simd . maskBits64 ( events , (__nuppBitTobit( 0 )%4294967296) ) ,
+_simd . maskBits64 ( unescapedQuotes , (__nuppBitTobit( 0 )%4294967296) ) ,
+_simd . maskBits64 ( slashBits , (__nuppBitTobit( 0 )%4294967296) ) ,
+scanInString ,
+scanStringEscaped
+)
+elseif blockSpansString and slashBits ~= 0 then
 appended = _valueBuilder . appendStringEscapeBits (
 tape ,
 tape ,
@@ -157078,9 +155958,8 @@ local builderDepth = 1024
 if sourceCount <= 32 then
 builderDepth = 16
 end
-
-
-local values = _valueBuilder . newSerde (
+local __nuppT2= variant ;local __nuppT3;
+if  __nuppT2== 0  then  __nuppT3= _valueBuilder . newPull (
 nullValue ,
 builderDepth ,
 sourceCount ,
@@ -157090,6 +155969,18 @@ shape ,
 arrayShapeMarker ,
 serdeMarkers
 )
+elseif  __nuppT2== 1  then  __nuppT3= _valueBuilder . newSerde (
+nullValue ,
+builderDepth ,
+sourceCount ,
+arrayMarker ,
+objectMarker ,
+shape ,
+arrayShapeMarker ,
+serdeMarkers
+)
+else  __nuppT3= _valueBuilder . newSized ( nullValue , builderDepth , sourceCount , arrayMarker , objectMarker )
+end; local values = __nuppT3
 local cursor = 0
 tapeCount = _valueBuilder . scratchLength ( tape )
 local tapeCursor = 0
@@ -157199,12 +156090,12 @@ while matched < 4 do
 local at = (__nuppBitTobit(( cursor )+( matched ))%4294967296)
 if at < sourceCount then
 local actual = _valueBuilder . byteAt ( source , at )
-local __nuppT2= matched ;local __nuppT3;
-if  __nuppT2== 0  then  __nuppT3= 116
-elseif  __nuppT2== 1  then  __nuppT3= 114
-elseif  __nuppT2== 2  then  __nuppT3= 117
-else  __nuppT3= 101
-end; local expected = __nuppT3
+local __nuppT4= matched ;local __nuppT5;
+if  __nuppT4== 0  then  __nuppT5= 116
+elseif  __nuppT4== 1  then  __nuppT5= 114
+elseif  __nuppT4== 2  then  __nuppT5= 117
+else  __nuppT5= 101
+end; local expected = __nuppT5
 if actual ~= expected then
 return nullValue , 1 , (__nuppBitTobit(( at )+( 1 ))%4294967296)
 end
@@ -157222,7 +156113,7 @@ while matched < 5 do
 local at = (__nuppBitTobit(( cursor )+( matched ))%4294967296)
 if at < sourceCount then
 local actual = _valueBuilder . byteAt ( source , at )
-local __nuppT4= matched ;local __nuppT5; __nuppT5=__nuppSwitchMap1[__nuppT4+1]; if __nuppT5==nil then __nuppT5=101 end; local expected = __nuppT5
+local __nuppT6= matched ;local __nuppT7; __nuppT7=__nuppSwitchMap1[__nuppT6+1]; if __nuppT7==nil then __nuppT7=101 end; local expected = __nuppT7
 
 
 
@@ -157246,11 +156137,11 @@ while matched < 4 do
 local at = (__nuppBitTobit(( cursor )+( matched ))%4294967296)
 if at < sourceCount then
 local actual = _valueBuilder . byteAt ( source , at )
-local __nuppT6= matched ;local __nuppT7;
-if  __nuppT6== 0  then  __nuppT7= 110
-elseif  __nuppT6== 1  then  __nuppT7= 117
-else  __nuppT7= 108
-end; local expected = __nuppT7
+local __nuppT8= matched ;local __nuppT9;
+if  __nuppT8== 0  then  __nuppT9= 110
+elseif  __nuppT8== 1  then  __nuppT9= 117
+else  __nuppT9= 108
+end; local expected = __nuppT9
 if actual ~= expected then
 return nullValue , 1 , (__nuppBitTobit(( at )+( 1 ))%4294967296)
 end
@@ -157280,7 +156171,10 @@ _valueBuilder . boolean ( values , true )
 elseif tag == 2 then
 _valueBuilder . boolean ( values , false )
 elseif tag == 4 then
-if flags == 1 and length >= 64 then
+if variant == 2 then
+
+_valueBuilder . string ( values , source , start , length , flags == 1 )
+elseif flags == 1 and length >= 64 then
 _valueBuilder . stringEscapes ( values , source , start , length , tape , tokenEscapeStart , tokenEscapeCount )
 else
 _valueBuilder . string ( values , source , start , length , flags == 1 )
@@ -157362,6 +156256,9 @@ local escaped = (__nuppBitBand( closingWord , 0x80000000 )%4294967296) ~= 0
 tapeCursor = (__nuppBitTobit(( tapeCursor )+( 1 ))%4294967296)
 local keyStart = (__nuppBitTobit(( opening )+( 1 ))%4294967296)
 local keyLength = (__nuppBitTobit(( closingQuote )-( keyStart ))%4294967296)
+if variant == 2 then
+_valueBuilder . key ( values , source , keyStart , keyLength , escaped )
+else
 local keyEscapeStart = escapeCursor
 if escaped then
 
@@ -157386,6 +156283,7 @@ keyEscapeStart ,
 )
 else
 _valueBuilder . key ( values , source , keyStart , keyLength , escaped )
+end
 end
 cursor = (__nuppBitTobit(( closingQuote )+( 1 ))%4294967296)
 local colonSkipping = true
@@ -157413,7 +156311,74 @@ end
 return _valueBuilder . finish ( values ) , 0 , 0
 end
 
-fused . decode = decodeSerde
+
+function fused . decodePull (
+source ,
+nullValue ,
+arrayMarker ,
+objectMarker ,
+shape ,
+arrayShapeMarker ,
+serdeMarkers
+) 
+return decodeFused ( source , 0 , nullValue , arrayMarker , objectMarker , shape , arrayShapeMarker , serdeMarkers )
+end
+
+
+
+
+function fused . decodeSerde (
+source ,
+nullValue ,
+arrayMarker ,
+objectMarker ,
+shape ,
+arrayShapeMarker ,
+serdeMarkers
+) 
+return decodeFused ( source , 1 , nullValue , arrayMarker , objectMarker , shape , arrayShapeMarker , serdeMarkers )
+end
+
+
+function fused . decodeEager (
+source ,
+nullValue ,
+arrayMarker ,
+objectMarker ,
+shape ,
+arrayShapeMarker ,
+serdeMarkers
+) 
+return decodeFused ( source , 2 , nullValue , arrayMarker , objectMarker , shape , arrayShapeMarker , serdeMarkers )
+end
+
+const __nuppExportValue= fused ;__nuppExports=__nuppExportValue
+ end);if not __nuppOk then package.loaded["nupp.data.jsondecoder.fused"]=nil;error(__nuppWhy,0) end;package.loaded["nupp.data.jsondecoder.fused"]=__nuppExports;return __nuppExports
+end
+package.preload["nupp.data.jsondecoder.serde"] = function(...)
+_G.assert(_G.loadstring("local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppMath=rawget(__nupp,\"math\")or{};rawset(__nupp,\"math\",__nuppMath) local function __nuppCloseFile(handle)if io.type(handle)==\"closed file\"then return end;local ok,reason=handle:close();if not ok then error(reason or \"the file could not be closed\",0)end end local __nuppManagedBrand=_G.__nuppManagedBrand if not __nuppManagedBrand then __nuppManagedBrand={};_G.__nuppManagedBrand=__nuppManagedBrand end local __nuppManagedCells=_G.__nuppManagedCells if not __nuppManagedCells then __nuppManagedCells=setmetatable({},{__mode=\"k\"});_G.__nuppManagedCells=__nuppManagedCells end local __nuppManagedOwner={};__nuppManagedOwner.__index=__nuppManagedOwner;local __nuppManagedAlias={};__nuppManagedAlias.__index=__nuppManagedAlias local function __nuppManagedError(code,message)return{code=code,message=message}end local function __nuppManagedProblem(cell) if type(cell)~=\"table\"or cell._brand~=__nuppManagedBrand then return __nuppManagedError(\"NUPP2614\",\"value is not a managed alias\")end if cell._state==\"taken\"then return __nuppManagedError(\"NUPP2614\",\"managed ownership was already taken\")end if cell._state==\"closed\"or cell._state==\"closing\"then return __nuppManagedError(\"NUPP2614\",\"managed resource is closed\")end return nil end local function __nuppManagedClose(cell,checked) local problem=__nuppManagedProblem(cell);if problem then if checked then return problem end;return nil end if cell._borrows~=0 or cell._exclusive then local busy=__nuppManagedError(\"NUPP2620\",\"managed resource has an active borrow\");if checked then return busy end;error(busy.message,0)end cell._state=\"closing\";local value,cleanup=cell._value,cell._cleanup;cell._value=nil;cell._cleanup=nil local ok,reason=pcall(cleanup,value);cell._state=\"closed\";if not ok then error(reason,0)end;return nil end function __nuppManagedOwner:alias()return setmetatable({_cell=self,_brand=__nuppManagedBrand},__nuppManagedAlias)end function __nuppManagedOwner:close()return __nuppManagedClose(self,false)end local function __nuppAliasCell(self) if type(self)~=\"table\"or self._brand~=__nuppManagedBrand or getmetatable(self)~=__nuppManagedAlias then return nil,__nuppManagedError(\"NUPP2614\",\"value is not a managed alias\")end local cell=self._cell;local problem=__nuppManagedProblem(cell);if problem then return nil,problem end;return cell,nil end function __nuppManagedAlias:with(callback) local cell,problem=__nuppAliasCell(self);if not cell then return nil,problem end if cell._exclusive then return nil,__nuppManagedError(\"NUPP2620\",\"managed resource is exclusively borrowed\")end cell._borrows=cell._borrows+1;cell._state=\"shared-borrowed(\"..cell._borrows..\")\" local ok,result=pcall(callback,cell._value);cell._borrows=cell._borrows-1;cell._state=cell._borrows>0 and(\"shared-borrowed(\"..cell._borrows..\")\")or\"live\" if not ok then error(result,0)end;return result,nil end function __nuppManagedAlias:withExclusive(callback) local cell,problem=__nuppAliasCell(self);if not cell then return nil,problem end if cell._exclusive or cell._borrows~=0 then return nil,__nuppManagedError(\"NUPP2620\",\"managed resource is already borrowed\")end cell._exclusive=true;cell._state=\"exclusive-borrowed\";local ok,result=pcall(callback,cell._value);cell._exclusive=false;cell._state=\"live\" if not ok then error(result,0)end;return result,nil end function __nuppManagedAlias:take() local cell,problem=__nuppAliasCell(self);if not cell then return nil,problem end if cell._exclusive or cell._borrows~=0 then return nil,__nuppManagedError(\"NUPP2620\",\"managed resource has an active borrow\")end cell._state=\"taken\";local value=cell._value;cell._value=nil;cell._cleanup=nil;return value,nil end function __nuppManagedAlias:close() local cell,problem=__nuppAliasCell(self);if not cell then return problem end;return __nuppManagedClose(cell,true)end function __nuppManagedAlias:_downcast(policy) local cell,problem=__nuppAliasCell(self);if not cell then return nil,problem end if cell._policy~=policy then return nil,__nuppManagedError(\"NUPP2613\",\"managed alias has the wrong type or cleanup policy\")end return self,nil end function __nupp.__manage(value,cleanup,policy) local cell=setmetatable({_brand=__nuppManagedBrand,_value=value,_cleanup=cleanup,_policy=policy,_state=\"live\",_borrows=0,_exclusive=false},__nuppManagedOwner);__nuppManagedCells[cell]=true;return cell end function __nupp.__recoverAlias(value) if type(value)~=\"table\"or value._brand~=__nuppManagedBrand or getmetatable(value)~=__nuppManagedAlias then return nil,__nuppManagedError(\"NUPP2614\",\"value is not a managed alias\")end local cell,problem=__nuppAliasCell(value);if not cell then return nil,problem end;return value,nil end _G.__nuppManagedPolicyCount=function(policy)local count=0;for cell in pairs(__nuppManagedCells)do if cell._policy==policy and(cell._state==\"live\"or cell._state:match(\"borrowed\"))then count=count+1 end end;return count end local __nuppManagedGroup={};__nuppManagedGroup.__index=__nuppManagedGroup function __nuppManagedGroup:flush()end function __nuppManagedGroup:adopt(cell) if self._closed then error(\"managed group is closed\",2)end local handle=cell:alias();self._entries[#self._entries+1]=handle return handle end function __nuppManagedGroup:remove(handle) if self._closed then error(\"managed group is closed\",2)end for index=#self._entries,1,-1 do if self._entries[index]==handle then table.remove(self._entries,index);local value,problem=handle:take();if problem then error(problem.message,2)end;return value end end error(\"managed alias is not registered in this group\",2) end local function __nuppManagedCloseEntry(entry)local problem=entry:close();if problem and problem.code~=\"NUPP2614\"then error(problem.message,0)end end function __nuppManagedGroup:close() if self._closed then return end;self._closed=true;local first,suppressed=nil,0 for index=#self._entries,1,-1 do local ok,reason=pcall(__nuppManagedCloseEntry,self._entries[index]);if not ok then if first==nil then first=reason else suppressed=suppressed+1 end end end self._entries={};if first~=nil then if suppressed>0 then error(tostring(first)..\" (suppressed \"..tostring(suppressed)..\" cleanup failure(s))\",0)end;error(first,0)end end function __nupp.managedGroup()return setmetatable({_entries={},_closed=false},__nuppManagedGroup)end;\n","@nupp-prelude"))();local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppMath=rawget(__nupp,"math")or{};rawset(__nupp,"math",__nuppMath) local function __nuppCloseFile(handle)if io.type(handle)=="closed file"then return end;local ok,reason=handle:close();if not ok then error(reason or "the file could not be closed",0)end end local __nuppManagedBrand=_G.__nuppManagedBrand if not __nuppManagedBrand then __nuppManagedBrand={};_G.__nuppManagedBrand=__nuppManagedBrand end local __nuppManagedCells=_G.__nuppManagedCells if not __nuppManagedCells then __nuppManagedCells=setmetatable({},{__mode="k"});_G.__nuppManagedCells=__nuppManagedCells end local __nuppManagedOwner={};__nuppManagedOwner.__index=__nuppManagedOwner;local __nuppManagedAlias={};__nuppManagedAlias.__index=__nuppManagedAlias local function __nuppManagedError(code,message)return{code=code,message=message}end local function __nuppManagedProblem(cell) if type(cell)~="table"or cell._brand~=__nuppManagedBrand then return __nuppManagedError("NUPP2614","value is not a managed alias")end if cell._state=="taken"then return __nuppManagedError("NUPP2614","managed ownership was already taken")end if cell._state=="closed"or cell._state=="closing"then return __nuppManagedError("NUPP2614","managed resource is closed")end return nil end local function __nuppManagedClose(cell,checked) local problem=__nuppManagedProblem(cell);if problem then if checked then return problem end;return nil end if cell._borrows~=0 or cell._exclusive then local busy=__nuppManagedError("NUPP2620","managed resource has an active borrow");if checked then return busy end;error(busy.message,0)end cell._state="closing";local value,cleanup=cell._value,cell._cleanup;cell._value=nil;cell._cleanup=nil local ok,reason=pcall(cleanup,value);cell._state="closed";if not ok then error(reason,0)end;return nil end function __nuppManagedOwner:alias()return setmetatable({_cell=self,_brand=__nuppManagedBrand},__nuppManagedAlias)end function __nuppManagedOwner:close()return __nuppManagedClose(self,false)end local function __nuppAliasCell(self) if type(self)~="table"or self._brand~=__nuppManagedBrand or getmetatable(self)~=__nuppManagedAlias then return nil,__nuppManagedError("NUPP2614","value is not a managed alias")end local cell=self._cell;local problem=__nuppManagedProblem(cell);if problem then return nil,problem end;return cell,nil end function __nuppManagedAlias:with(callback) local cell,problem=__nuppAliasCell(self);if not cell then return nil,problem end if cell._exclusive then return nil,__nuppManagedError("NUPP2620","managed resource is exclusively borrowed")end cell._borrows=cell._borrows+1;cell._state="shared-borrowed("..cell._borrows..")" local ok,result=pcall(callback,cell._value);cell._borrows=cell._borrows-1;cell._state=cell._borrows>0 and("shared-borrowed("..cell._borrows..")")or"live" if not ok then error(result,0)end;return result,nil end function __nuppManagedAlias:withExclusive(callback) local cell,problem=__nuppAliasCell(self);if not cell then return nil,problem end if cell._exclusive or cell._borrows~=0 then return nil,__nuppManagedError("NUPP2620","managed resource is already borrowed")end cell._exclusive=true;cell._state="exclusive-borrowed";local ok,result=pcall(callback,cell._value);cell._exclusive=false;cell._state="live" if not ok then error(result,0)end;return result,nil end function __nuppManagedAlias:take() local cell,problem=__nuppAliasCell(self);if not cell then return nil,problem end if cell._exclusive or cell._borrows~=0 then return nil,__nuppManagedError("NUPP2620","managed resource has an active borrow")end cell._state="taken";local value=cell._value;cell._value=nil;cell._cleanup=nil;return value,nil end function __nuppManagedAlias:close() local cell,problem=__nuppAliasCell(self);if not cell then return problem end;return __nuppManagedClose(cell,true)end function __nuppManagedAlias:_downcast(policy) local cell,problem=__nuppAliasCell(self);if not cell then return nil,problem end if cell._policy~=policy then return nil,__nuppManagedError("NUPP2613","managed alias has the wrong type or cleanup policy")end return self,nil end function __nupp.__manage(value,cleanup,policy) local cell=setmetatable({_brand=__nuppManagedBrand,_value=value,_cleanup=cleanup,_policy=policy,_state="live",_borrows=0,_exclusive=false},__nuppManagedOwner);__nuppManagedCells[cell]=true;return cell end function __nupp.__recoverAlias(value) if type(value)~="table"or value._brand~=__nuppManagedBrand or getmetatable(value)~=__nuppManagedAlias then return nil,__nuppManagedError("NUPP2614","value is not a managed alias")end local cell,problem=__nuppAliasCell(value);if not cell then return nil,problem end;return value,nil end _G.__nuppManagedPolicyCount=function(policy)local count=0;for cell in pairs(__nuppManagedCells)do if cell._policy==policy and(cell._state=="live"or cell._state:match("borrowed"))then count=count+1 end end;return count end local __nuppManagedGroup={};__nuppManagedGroup.__index=__nuppManagedGroup function __nuppManagedGroup:flush()end function __nuppManagedGroup:adopt(cell) if self._closed then error("managed group is closed",2)end local handle=cell:alias();self._entries[#self._entries+1]=handle return handle end function __nuppManagedGroup:remove(handle) if self._closed then error("managed group is closed",2)end for index=#self._entries,1,-1 do if self._entries[index]==handle then table.remove(self._entries,index);local value,problem=handle:take();if problem then error(problem.message,2)end;return value end end error("managed alias is not registered in this group",2) end local function __nuppManagedCloseEntry(entry)local problem=entry:close();if problem and problem.code~="NUPP2614"then error(problem.message,0)end end function __nuppManagedGroup:close() if self._closed then return end;self._closed=true;local first,suppressed=nil,0 for index=#self._entries,1,-1 do local ok,reason=pcall(__nuppManagedCloseEntry,self._entries[index]);if not ok then if first==nil then first=reason else suppressed=suppressed+1 end end end self._entries={};if first~=nil then if suppressed>0 then error(tostring(first).." (suppressed "..tostring(suppressed).." cleanup failure(s))",0)end;error(first,0)end end function __nupp.managedGroup()return setmetatable({_entries={},_closed=false},__nuppManagedGroup)end;local __nuppExports;local __nuppOk,__nuppWhy=pcall(function()
+
+local _fused = require ( "nupp.data.jsondecoder.fused" )
+
+
+local fused = { }
+
+fused . OK = 0
+fused . SYNTAX = 1
+fused . INVALID_UTF8 = 2
+fused . INVALID_CONTROL = 3
+fused . INVALID_BACKSLASH = 4
+fused . TAPE = 5
+
+
+
+
+
+
+
+
+
+fused . decode = _fused . decodeSerde
 
 
 
@@ -201695,9 +200660,7 @@ return require("nupp.data.json.aot") as JsonProvider
 ["/nupp/data/jsondecode.nupp"] = [[
 module nupp.data.jsondecode
 
-local _valueBuilder = require("nupp.data.valuebuilder")
-local _simd = require("nupp.simd")
-local _preferredU8 = _simd.preferredU8
+local _fused = require("nupp.data.jsondecoder.fused")
 
 local fused = {}
 
@@ -201710,726 +200673,11 @@ const fused.TAPE = 5
 
 --- Parses a structurally indexed document directly into ordinary Lua values.
 ---
+--- The body lives in `nupp.data.jsondecoder.fused`, monomorphized over the
+--- pull builder.
 --- @raises when the native builder cannot be loaded, value allocation fails,
 --- or the builder rejects a malformed escaped string
-@aot(lanes = false)
-local function decode(
-    source: string,
-    nullValue: any,
-    arrayMarker: any?,
-    objectMarker: any?,
-    shape: any?,
-    arrayShapeMarker: any?,
-    serdeMarkers: any?
-): (any, uint32, uint32)
-    local sourceCount = _valueBuilder.length(source)
-    if sourceCount > 0x7FFFFFFF then
-        return nullValue, 5, 1
-    end
-
-    local tape = _valueBuilder.newWordScratch(sourceCount)
-    local species = _preferredU8()
-    local lanes: uint32 = nupp.math.u32.wrap(species.lanes)
-    local input = _simd.paddedStringU8(source)
-    local zeroBytes = species:splat(0)
-    local nibbleMask = species:splat(15)
-    local continuationFlag = species:splat(128)
-    local byte1HighTable = _simd.tableU8x16(2, 2, 2, 2, 2, 2, 2, 2, 128, 128, 128, 128, 33, 1, 21, 73)
-    local byte1LowTable = _simd.tableU8x16(
-        231,
-        163,
-        131,
-        131,
-        139,
-        203,
-        203,
-        203,
-        203,
-        203,
-        203,
-        203,
-        203,
-        219,
-        203,
-        203
-    )
-    local byte2HighTable = _simd.tableU8x16(1, 1, 1, 1, 1, 1, 1, 1, 230, 174, 186, 186, 1, 1, 1, 1)
-    -- Two nibble lookups classify JSON operators and whitespace across a
-    -- complete cache line. The values are bit classes: 0x07 is operator and
-    -- 0x18 is whitespace. Keeping the classified bytes as one BlockU8x64 lets
-    -- both masks reuse the same eight native table lookups.
-    local syntaxLowTable = _simd.tableU8x16(16, 0, 0, 0, 0, 0, 0, 0, 0, 8, 12, 1, 2, 9, 0, 0)
-    local syntaxHighTable = _simd.tableU8x16(8, 0, 18, 4, 0, 1, 0, 1, 0, 0, 0, 3, 2, 1, 0, 0)
-    local evenWord = nupp.math.u32.wrap(0x55555555)
-    local evenMask = _simd.maskBits64(evenWord, evenWord)
-    local oddWord = nupp.math.u32.wrap(0xAAAAAAAA)
-    local oddMask = _simd.maskBits64(oddWord, oddWord)
-    local scanCursor: uint32 = 0
-    local tapeCount: uint32 = 0
-    local scanInString = false
-    local scanStringEscaped = false
-    local slashOdd = false
-    local slashCarry = false
-    local previousBytes = zeroBytes
-    local previousNonAscii = false
-
-    while scanCursor < sourceCount do
-        local fastBlock = false
-        if sourceCount >= 64 and scanCursor <= nupp.math.u32.sub(
-            sourceCount,
-            64
-        ) and nupp.math.u32.andBits(scanCursor, 63) == 0 and not slashCarry then
-            local block = input:loadBlock64(scanCursor)
-            local slashMask = block:equal(92)
-            local outsideAscii = block:outsideRange(32, 127)
-            local wideBlock = not slashMask:orBits(outsideAscii):any()
-            local currentNonAscii = false
-            if not wideBlock and not block:inRange(0, 31):any() then
-                wideBlock = true
-                currentNonAscii = outsideAscii:any()
-            end
-            -- A run reaching bit 63 needs parity from the following preferred
-            -- vector. Keep that rare boundary case in the scalar carry path.
-            if wideBlock and slashMask:any() and nupp.math.u32.andBits(slashMask:highBits(), 0x80000000) ~= 0 then
-                wideBlock = false
-            end
-            if wideBlock then
-                local lowClasses = block:andByte(15):lookup16(syntaxLowTable)
-                local highClasses = block:shiftRight(4):lookup16(syntaxHighTable)
-                local classes = lowClasses:andBits(highClasses)
-                local syntaxBits = classes:anyBitsSet(0x07)
-                -- The first zero after each backslash run is escaped exactly
-                -- when the run length is odd. Two additions select the answer
-                -- for even- and odd-aligned starts without walking the runs.
-                local hasSlashes = slashMask:any()
-                local quoteBits = block:equal(34)
-                if hasSlashes then
-                    local starts = slashMask:andBits(slashMask:shiftLeft(1):notBits())
-                    local notSlashes = slashMask:notBits()
-                    local evenEnds = slashMask:add(starts:andBits(evenMask)):andBits(notSlashes)
-                    local oddEnds = slashMask:add(starts:andBits(oddMask)):andBits(notSlashes)
-                    local escapedBits = evenEnds:andBits(oddMask):orBits(oddEnds:andBits(evenMask))
-                    quoteBits = quoteBits:andBits(escapedBits:notBits())
-                end
-                local stringBits = quoteBits:prefixXor(scanInString)
-                local outsideBits = stringBits:notBits()
-                local outsideSlashes = slashMask:andBits(outsideBits)
-                if outsideSlashes:any() then
-                    return nullValue, 4, nupp.math.u32.add(nupp.math.u32.add(scanCursor, outsideSlashes:firstSet()), 1)
-                end
-                if currentNonAscii or previousNonAscii then
-                    local badUtf8 = block:utf8Errors(previousBytes, byte1HighTable, byte1LowTable, byte2HighTable)
-                    if badUtf8:any() then
-                        return nullValue, 2, nupp.math.u32.add(nupp.math.u32.add(scanCursor, badUtf8:firstSet()), 1)
-                    end
-                end
-                local events = quoteBits:orBits(syntaxBits:andBits(outsideBits))
-                if not hasSlashes and not scanStringEscaped then
-                    if nupp.math.u32.andBits(quoteBits:count(), 1) ~= 0 then
-                        scanInString = not scanInString
-                    end
-                    tapeCount = _valueBuilder.appendSetBits(tape, tapeCount, scanCursor, events)
-                else
-                    -- Only the closing quote is tagged. Dense escapes therefore
-                    -- do not enlarge the structural tape.
-                    local blockSpansString = scanInString or nupp.math.u32.andBits(quoteBits:count(), 1) ~= 0
-                    local appended: uint32 = 0
-                    if blockSpansString and hasSlashes then
-                        appended = _valueBuilder.appendStringEscapeBits(
-                            tape,
-                            tape,
-                            tapeCount,
-                            scanCursor,
-                            events,
-                            quoteBits,
-                            slashMask,
-                            false,
-                            false,
-                            scanInString,
-                            scanStringEscaped
-                        )
-                    else
-                        appended = _valueBuilder.appendStringBitsShared(
-                            tape,
-                            tapeCount,
-                            scanCursor,
-                            events,
-                            quoteBits,
-                            slashMask,
-                            scanInString,
-                            scanStringEscaped
-                        )
-                    end
-                    scanStringEscaped = nupp.math.u32.andBits(appended, 0x80000000) ~= 0
-                    tapeCount = nupp.math.u32.andBits(appended, 0x7FFFFFFF)
-                    if nupp.math.u32.andBits(quoteBits:count(), 1) ~= 0 then
-                        scanInString = not scanInString
-                    end
-                end
-                previousBytes = block:lastVector()
-                previousNonAscii = currentNonAscii
-                scanCursor = nupp.math.u32.add(scanCursor, 64)
-                fastBlock = true
-            end
-        end
-        if not fastBlock then
-            local bytes = input:loadTail()
-            local active: uint32 = input.tailLength
-            if scanCursor < input.fullLength then
-                bytes = input:loadFull(scanCursor)
-                active = lanes
-            end
-            local tail = species:tail(active)
-            local activeBits = tail:bits()
-            local quoteBits = bytes:equal(34):andBits(tail):bits()
-            local slashBits = bytes:equal(92):andBits(tail):bits()
-
-            -- Addition propagates each run start to the first non-backslash bit.
-            -- Selecting the opposite bit parity leaves exactly the bytes escaped
-            -- by odd runs. Boundary-spanning runs retain the small scalar fallback.
-            local escapedBits: uint32 = 0
-            local remainingRuns = slashBits
-            local incomingSlashCarry = slashCarry
-            local incomingSlashOdd = slashOdd
-            slashCarry = false
-            if incomingSlashCarry and nupp.math.u32.andBits(slashBits, 1) == 0 then
-                if slashOdd then
-                    escapedBits = 1
-                end
-                slashOdd = false
-                incomingSlashCarry = false
-            end
-            if remainingRuns ~= 0 then
-                local slashLastBit = nupp.math.u32.shiftLeft(1, nupp.math.u32.sub(active, 1))
-                local joinsPriorRun = incomingSlashCarry and nupp.math.u32.andBits(slashBits, 1) ~= 0
-                local reachesNextBlock = nupp.math.u32.andBits(slashBits, slashLastBit) ~= 0
-                if not joinsPriorRun and not reachesNextBlock then
-                    local starts = nupp.math.u32.andBits(
-                        remainingRuns,
-                        nupp.math.u32.notBits(nupp.math.u32.shiftLeft(remainingRuns, 1))
-                    )
-                    local evenEnds = nupp.math.u32.andBits(
-                        nupp.math.u32.add(remainingRuns, nupp.math.u32.andBits(starts, 0x55555555)),
-                        nupp.math.u32.notBits(remainingRuns)
-                    )
-                    local oddEnds = nupp.math.u32.andBits(
-                        nupp.math.u32.add(remainingRuns, nupp.math.u32.andBits(starts, 0xAAAAAAAA)),
-                        nupp.math.u32.notBits(remainingRuns)
-                    )
-                    escapedBits = nupp.math.u32.orBits(
-                        escapedBits,
-                        nupp.math.u32.orBits(
-                            nupp.math.u32.andBits(evenEnds, 0xAAAAAAAA),
-                            nupp.math.u32.andBits(oddEnds, 0x55555555)
-                        )
-                    )
-                    remainingRuns = 0
-                end
-            end
-            while remainingRuns ~= 0 do
-                local runStart = nupp.math.u32.trailingZeros(remainingRuns)
-                local first = nupp.math.u32.shiftLeft(1, runStart)
-                local after = nupp.math.u32.andBits(
-                    nupp.math.u32.add(remainingRuns, first),
-                    nupp.math.u32.notBits(remainingRuns)
-                )
-                local runEnd = active
-                if after ~= 0 then
-                    runEnd = nupp.math.u32.trailingZeros(after)
-                end
-                local odd = nupp.math.u32.andBits(nupp.math.u32.sub(runEnd, runStart), 1) ~= 0
-                if runStart == 0 and incomingSlashCarry then
-                    odd = odd ~= slashOdd
-                end
-                if runEnd == active then
-                    slashCarry = true
-                    slashOdd = odd
-                elseif odd then
-                    escapedBits = nupp.math.u32.orBits(escapedBits, after)
-                end
-                remainingRuns = nupp.math.u32.andBits(remainingRuns, nupp.math.u32.add(remainingRuns, first))
-            end
-
-            local unescapedQuotes = nupp.math.u32.andBits(quoteBits, nupp.math.u32.notBits(escapedBits))
-            local stringBits = unescapedQuotes
-            stringBits = nupp.math.u32.xorBits(stringBits, nupp.math.u32.shiftLeft(stringBits, 1))
-            stringBits = nupp.math.u32.xorBits(stringBits, nupp.math.u32.shiftLeft(stringBits, 2))
-            stringBits = nupp.math.u32.xorBits(stringBits, nupp.math.u32.shiftLeft(stringBits, 4))
-            stringBits = nupp.math.u32.xorBits(stringBits, nupp.math.u32.shiftLeft(stringBits, 8))
-            if lanes == 32 then
-                stringBits = nupp.math.u32.xorBits(stringBits, nupp.math.u32.shiftLeft(stringBits, 16))
-            end
-            stringBits = nupp.math.u32.andBits(stringBits, activeBits)
-            if scanInString then
-                stringBits = nupp.math.u32.xorBits(stringBits, activeBits)
-            end
-
-            local objectOpenMask = bytes:equal(123)
-            local syntaxBits = objectOpenMask:orBits(bytes:equal(125))
-                :orBits(bytes:equal(91))
-                :orBits(bytes:equal(93))
-                :orBits(bytes:equal(58))
-                :orBits(bytes:equal(44))
-                :andBits(tail)
-                :bits()
-            local outsideBits = nupp.math.u32.andBits(activeBits, nupp.math.u32.notBits(stringBits))
-            local whitespaceBits = bytes:equal(9):orBits(bytes:equal(10)):orBits(bytes:equal(13)):bits()
-            local controlBits = bytes:inRange(0, 31):andBits(tail):bits()
-            local badControls = nupp.math.u32.andBits(
-                controlBits,
-                nupp.math.u32.orBits(stringBits, nupp.math.u32.notBits(whitespaceBits))
-            )
-            if badControls ~= 0 then
-                return nullValue, 3, nupp.math.u32.add(
-                    nupp.math.u32.add(scanCursor, nupp.math.u32.trailingZeros(badControls)),
-                    1
-                )
-            end
-            local outsideSlashes = nupp.math.u32.andBits(slashBits, outsideBits)
-            if outsideSlashes ~= 0 then
-                return nullValue, 4, nupp.math.u32.add(
-                    nupp.math.u32.add(scanCursor, nupp.math.u32.trailingZeros(outsideSlashes)),
-                    1
-                )
-            end
-
-            -- simdjson's lookup4 validator. Three nibble tables classify every
-            -- adjacent byte pair; the continuation marker cancels the only legal
-            -- continuation-continuation cases using the two- and three-byte
-            -- lookback vectors.
-            local currentNonAscii = bytes:inRange(128, 255):andBits(tail):any()
-            if currentNonAscii or previousNonAscii then
-                local previous1 = _simd.alignBytes(previousBytes, bytes, 1)
-                local previous2 = _simd.alignBytes(previousBytes, bytes, 2)
-                local previous3 = _simd.alignBytes(previousBytes, bytes, 3)
-                local byte1High = previous1:shiftRight(4):lookup16(byte1HighTable)
-                local byte1Low = previous1:andBits(nibbleMask):lookup16(byte1LowTable)
-                local byte2High = bytes:shiftRight(4):lookup16(byte2HighTable)
-                local specialCases = byte1High:andBits(byte1Low):andBits(byte2High)
-                local mustContinue = previous2:inRange(224, 255):orBits(previous3:inRange(240, 255))
-                local required = mustContinue:select(continuationFlag, zeroBytes)
-                local badUtf8 = required:xorBits(specialCases):equal(0):notBits():bits()
-                if badUtf8 ~= 0 then
-                    local badLane = nupp.math.u32.trailingZeros(badUtf8)
-                    if badLane >= active then
-                        return nullValue, 2, nupp.math.u32.add(sourceCount, 1)
-                    end
-                    return nullValue, 2, nupp.math.u32.add(nupp.math.u32.add(scanCursor, badLane), 1)
-                end
-            end
-
-            -- A closing quote carries one escape bit. Backslashes themselves
-            -- never join the tape.
-            local events = nupp.math.u32.orBits(unescapedQuotes, nupp.math.u32.andBits(syntaxBits, outsideBits))
-
-            if not scanInString and unescapedQuotes == 0 and slashBits == 0 and not scanStringEscaped then
-                tapeCount = _valueBuilder.appendSetBits(
-                    tape,
-                    tapeCount,
-                    scanCursor,
-                    _simd.maskBits64(events, nupp.math.u32.wrap(0))
-                )
-            else
-                local blockSpansString = scanInString or nupp.math.u32.andBits(
-                    nupp.math.u32.popcount(unescapedQuotes),
-                    1
-                ) ~= 0
-                local appended: uint32 = 0
-                if blockSpansString and slashBits ~= 0 then
-                    appended = _valueBuilder.appendStringEscapeBits(
-                        tape,
-                        tape,
-                        tapeCount,
-                        scanCursor,
-                        _simd.maskBits64(events, nupp.math.u32.wrap(0)),
-                        _simd.maskBits64(unescapedQuotes, nupp.math.u32.wrap(0)),
-                        _simd.maskBits64(slashBits, nupp.math.u32.wrap(0)),
-                        incomingSlashCarry,
-                        incomingSlashOdd,
-                        scanInString,
-                        scanStringEscaped
-                    )
-                else
-                    appended = _valueBuilder.appendStringBitsShared(
-                        tape,
-                        tapeCount,
-                        scanCursor,
-                        _simd.maskBits64(events, nupp.math.u32.wrap(0)),
-                        _simd.maskBits64(unescapedQuotes, nupp.math.u32.wrap(0)),
-                        _simd.maskBits64(slashBits, nupp.math.u32.wrap(0)),
-                        scanInString,
-                        scanStringEscaped
-                    )
-                end
-                scanStringEscaped = nupp.math.u32.andBits(appended, 0x80000000) ~= 0
-                tapeCount = nupp.math.u32.andBits(appended, 0x7FFFFFFF)
-                if nupp.math.u32.andBits(nupp.math.u32.popcount(unescapedQuotes), 1) ~= 0 then
-                    scanInString = not scanInString
-                end
-            end
-            previousBytes = bytes
-            previousNonAscii = currentNonAscii
-            scanCursor = nupp.math.u32.add(scanCursor, lanes)
-        end
-    end
-
-    -- An exact-width input has no padded tail block to expose an incomplete
-    -- final sequence, so check the previous three bytes against one zero block.
-    if input.tailLength == 0 and previousNonAscii then
-        local previous1 = _simd.alignBytes(previousBytes, zeroBytes, 1)
-        local previous2 = _simd.alignBytes(previousBytes, zeroBytes, 2)
-        local previous3 = _simd.alignBytes(previousBytes, zeroBytes, 3)
-        local byte1High = previous1:shiftRight(4):lookup16(byte1HighTable)
-        local byte1Low = previous1:andBits(nibbleMask):lookup16(byte1LowTable)
-        local byte2High = zeroBytes:shiftRight(4):lookup16(byte2HighTable)
-        local specialCases = byte1High:andBits(byte1Low):andBits(byte2High)
-        local mustContinue = previous2:inRange(224, 255):orBits(previous3:inRange(240, 255))
-        local required = mustContinue:select(continuationFlag, zeroBytes)
-        if required:xorBits(specialCases):equal(0):notBits():any() then
-            return nullValue, 2, nupp.math.u32.add(sourceCount, 1)
-        end
-    end
-
-    local escapeCount = _valueBuilder.scratchEscapeLength(tape)
-
-    local builderDepth: uint32 = 1024
-    if sourceCount <= 32 then
-        builderDepth = 16
-    end
-    local values = _valueBuilder.newPull(
-        nullValue,
-        builderDepth,
-        sourceCount,
-        arrayMarker,
-        objectMarker,
-        shape,
-        arrayShapeMarker,
-        serdeMarkers
-    )
-    local cursor: uint32 = 0
-    tapeCount = _valueBuilder.scratchLength(tape)
-    local tapeCursor: uint32 = 0
-    local escapeCursor: uint32 = 0
-    local needValue = true
-    local done = false
-
-    -- The byte that ended the whitespace run is the byte the next step
-    -- classifies, at the same cursor. Reading it once and carrying it out
-    -- saves a bounds-checked load per token, on a loop that runs once per
-    -- token in the document.
-    local pending: uint32 = 0
-    while not done do
-        local skipping = true
-        pending = 0
-        while skipping and cursor < sourceCount do
-            pending = _valueBuilder.byteAt(source, cursor)
-            if pending == 32 or pending == 9 or pending == 10 or pending == 13 then
-                cursor = nupp.math.u32.add(cursor, 1)
-            else
-                skipping = false
-            end
-        end
-
-        if needValue then
-            if cursor >= sourceCount then
-                return nullValue, 1, nupp.math.u32.add(cursor, 1)
-            end
-
-            local tag: uint32 = 0
-            local start: uint32 = cursor
-            local length: uint32 = 0
-            local flags: uint32 = 0
-            local containerCapacity: uint32 = 0
-            local tokenEscapeStart: uint32 = escapeCursor
-            local tokenEscapeCount: uint32 = 0
-            local byte: uint32 = pending
-
-            if byte == 34 then
-                tag = 4
-                if tapeCursor < tapeCount then
-                    local opening = _valueBuilder.scratchWord(tape, tapeCursor)
-                    if opening ~= cursor then
-                        return nullValue, 5, nupp.math.u32.add(cursor, 1)
-                    end
-                    tapeCursor = nupp.math.u32.add(tapeCursor, 1)
-                else
-                    return nullValue, 5, nupp.math.u32.add(cursor, 1)
-                end
-                if tapeCursor < tapeCount then
-                    local closingWord = _valueBuilder.scratchWord(tape, tapeCursor)
-                    local closing = nupp.math.u32.andBits(closingWord, 0x7FFFFFFF)
-                    if nupp.math.u32.andBits(closingWord, 0x80000000) ~= 0 then
-                        flags = 1
-                    end
-                    start = nupp.math.u32.add(cursor, 1)
-                    length = nupp.math.u32.sub(closing, start)
-                    if flags == 1 then
-                        while escapeCursor < escapeCount and _valueBuilder.scratchEscapeWord(
-                            tape,
-                            escapeCursor
-                        ) < closing do
-                            escapeCursor = nupp.math.u32.add(escapeCursor, 1)
-                        end
-                        tokenEscapeCount = nupp.math.u32.sub(escapeCursor, tokenEscapeStart)
-                    end
-                    -- The builder validates escapes while transforming them.
-                    -- Walking this slice here as well would validate every
-                    -- escaped value twice before publishing the same string.
-                    cursor = nupp.math.u32.add(closing, 1)
-                    tapeCursor = nupp.math.u32.add(tapeCursor, 1)
-                else
-                    return nullValue, 1, nupp.math.u32.add(cursor, 1)
-                end
-            elseif byte == 91 or byte == 123 then
-                if byte == 91 then
-                    tag = 5
-                else
-                    tag = 6
-                end
-                cursor = nupp.math.u32.add(cursor, 1)
-                if tapeCursor < tapeCount then
-                    if byte == 123 then
-                        -- Four fields covers the record-heavy common case and
-                        -- bounds an inaccurate hint to a few hash slots.
-                        containerCapacity = 4
-                    elseif _valueBuilder.depth(values) == 0 then
-                        -- Top-level arrays scale with the document instead of
-                        -- repeatedly growing from zero. Cap the estimate at
-                        -- 2 MiB of 64-bit slots so one huge element cannot turn
-                        -- a construction hint into unbounded retained memory.
-                        containerCapacity = nupp.math.u32.shiftRightLogical(sourceCount, 5)
-                        if containerCapacity > 262144 then
-                            containerCapacity = 262144
-                        end
-                    else
-                        containerCapacity = 4
-                    end
-                    tapeCursor = nupp.math.u32.add(tapeCursor, 1)
-                else
-                    return nullValue, 5, cursor
-                end
-            elseif byte == 116 then
-                tag = 1
-                local matched: uint32 = 0
-                while matched < 4 do
-                    local at: uint32 = nupp.math.u32.add(cursor, matched)
-                    if at < sourceCount then
-                        local actual = _valueBuilder.byteAt(source, at)
-                        local expected: uint32 = switch matched do
-                            case 0 -> 116
-                            case 1 -> 114
-                            case 2 -> 117
-                            else -> 101
-                        end
-                        if actual ~= expected then
-                            return nullValue, 1, nupp.math.u32.add(at, 1)
-                        end
-                    else
-                        return nullValue, 1, nupp.math.u32.add(at, 1)
-                    end
-                    matched = nupp.math.u32.add(matched, 1)
-                end
-                length = 4
-                cursor = nupp.math.u32.add(cursor, 4)
-            elseif byte == 102 then
-                tag = 2
-                local matched: uint32 = 0
-                while matched < 5 do
-                    local at: uint32 = nupp.math.u32.add(cursor, matched)
-                    if at < sourceCount then
-                        local actual = _valueBuilder.byteAt(source, at)
-                        local expected: uint32 = switch matched do
-                            case 0 -> 102
-                            case 1 -> 97
-                            case 2 -> 108
-                            case 3 -> 115
-                            else -> 101
-                        end
-                        if actual ~= expected then
-                            return nullValue, 1, nupp.math.u32.add(at, 1)
-                        end
-                    else
-                        return nullValue, 1, nupp.math.u32.add(at, 1)
-                    end
-                    matched = nupp.math.u32.add(matched, 1)
-                end
-                length = 5
-                cursor = nupp.math.u32.add(cursor, 5)
-            elseif byte == 110 then
-                tag = 0
-                local matched: uint32 = 0
-                while matched < 4 do
-                    local at: uint32 = nupp.math.u32.add(cursor, matched)
-                    if at < sourceCount then
-                        local actual = _valueBuilder.byteAt(source, at)
-                        local expected: uint32 = switch matched do
-                            case 0 -> 110
-                            case 1 -> 117
-                            else -> 108
-                        end
-                        if actual ~= expected then
-                            return nullValue, 1, nupp.math.u32.add(at, 1)
-                        end
-                    else
-                        return nullValue, 1, nupp.math.u32.add(at, 1)
-                    end
-                    matched = nupp.math.u32.add(matched, 1)
-                end
-                length = 4
-                cursor = nupp.math.u32.add(cursor, 4)
-            elseif byte == 45 or byte >= 48 and byte <= 57 then
-                tag = 3
-                local parsed = _valueBuilder.numberToken(values, source, cursor, sourceCount)
-                if parsed < 2147483648 then
-                    return nullValue, 1, parsed
-                end
-                cursor = nupp.math.u32.sub(parsed, 2147483648)
-                length = nupp.math.u32.sub(cursor, start)
-            else
-                return nullValue, 1, nupp.math.u32.add(cursor, 1)
-            end
-
-            if tag == 0 then
-                _valueBuilder.null(values)
-            elseif tag == 1 then
-                _valueBuilder.boolean(values, true)
-            elseif tag == 2 then
-                _valueBuilder.boolean(values, false)
-            elseif tag == 4 then
-                if flags == 1 and length >= 64 then
-                    _valueBuilder.stringEscapes(values, source, start, length, tape, tokenEscapeStart, tokenEscapeCount)
-                else
-                    _valueBuilder.string(values, source, start, length, flags == 1)
-                end
-            elseif tag == 5 then
-                _valueBuilder.openArray(values, containerCapacity)
-            elseif tag == 6 then
-                _valueBuilder.openObject(values, containerCapacity)
-            end
-            needValue = false
-        elseif _valueBuilder.depth(values) == 0 then
-            if cursor < sourceCount then
-                return nullValue, 1, nupp.math.u32.add(cursor, 1)
-            end
-            done = true
-        else
-            if cursor >= sourceCount then
-                return nullValue, 1, nupp.math.u32.add(cursor, 1)
-            end
-            local builderState = _valueBuilder.state(values)
-            local byte = pending
-            local kind = nupp.math.u32.andBits(builderState, 0xFF)
-            local hasValue = nupp.math.u32.andBits(builderState, 0x100) ~= 0
-            local closing = kind == 5 and byte == 93 or kind == 6 and byte == 125
-            if closing then
-                if tapeCursor >= tapeCount or _valueBuilder.scratchWord(tape, tapeCursor) ~= cursor then
-                    return nullValue, 5, nupp.math.u32.add(cursor, 1)
-                end
-                tapeCursor = nupp.math.u32.add(tapeCursor, 1)
-                cursor = nupp.math.u32.add(cursor, 1)
-                _valueBuilder.close(values)
-            elseif kind == 5 then
-                if not hasValue then
-                    needValue = true
-                elseif byte == 44 then
-                    cursor = nupp.math.u32.add(cursor, 1)
-                    if tapeCursor >= tapeCount then
-                        return nullValue, 5, cursor
-                    end
-                    tapeCursor = nupp.math.u32.add(tapeCursor, 1)
-                    needValue = true
-                else
-                    return nullValue, 1, nupp.math.u32.add(cursor, 1)
-                end
-            else
-                if hasValue then
-                    if byte ~= 44 then
-                        return nullValue, 1, nupp.math.u32.add(cursor, 1)
-                    end
-                    cursor = nupp.math.u32.add(cursor, 1)
-                    if tapeCursor >= tapeCount then
-                        return nullValue, 5, cursor
-                    end
-                    tapeCursor = nupp.math.u32.add(tapeCursor, 1)
-                    local keySkipping = true
-                    while keySkipping and cursor < sourceCount do
-                        local keyByte = _valueBuilder.byteAt(source, cursor)
-                        if keyByte == 32 or keyByte == 9 or keyByte == 10 or keyByte == 13 then
-                            cursor = nupp.math.u32.add(cursor, 1)
-                        else
-                            keySkipping = false
-                        end
-                    end
-                end
-                if cursor >= sourceCount or _valueBuilder.byte(source, cursor) ~= 34 then
-                    return nullValue, 1, nupp.math.u32.add(cursor, 1)
-                end
-                local opening = cursor
-                if tapeCursor >= tapeCount or _valueBuilder.scratchWord(tape, tapeCursor) ~= opening then
-                    return nullValue, 5, nupp.math.u32.add(cursor, 1)
-                end
-                tapeCursor = nupp.math.u32.add(tapeCursor, 1)
-                if tapeCursor >= tapeCount then
-                    return nullValue, 1, nupp.math.u32.add(cursor, 1)
-                end
-                local closingWord = _valueBuilder.scratchWord(tape, tapeCursor)
-                local closingQuote = nupp.math.u32.andBits(closingWord, 0x7FFFFFFF)
-                local escaped = nupp.math.u32.andBits(closingWord, 0x80000000) ~= 0
-                tapeCursor = nupp.math.u32.add(tapeCursor, 1)
-                local keyStart = nupp.math.u32.add(opening, 1)
-                local keyLength = nupp.math.u32.sub(closingQuote, keyStart)
-                local keyEscapeStart: uint32 = escapeCursor
-                if escaped then
-                    -- Consume the key's escape words even when the key itself
-                    -- is published without them, or they poison the escape
-                    -- range of the next long escaped token.
-                    while escapeCursor < escapeCount and _valueBuilder.scratchEscapeWord(
-                        tape,
-                        escapeCursor
-                    ) < closingQuote do
-                        escapeCursor = nupp.math.u32.add(escapeCursor, 1)
-                    end
-                end
-                if escaped and keyLength >= 64 then
-                    _valueBuilder.keyEscapes(
-                        values,
-                        source,
-                        keyStart,
-                        keyLength,
-                        tape,
-                        keyEscapeStart,
-                        nupp.math.u32.sub(escapeCursor, keyEscapeStart)
-                    )
-                else
-                    _valueBuilder.key(values, source, keyStart, keyLength, escaped)
-                end
-                cursor = nupp.math.u32.add(closingQuote, 1)
-                local colonSkipping = true
-                while colonSkipping and cursor < sourceCount do
-                    local colonByte = _valueBuilder.byteAt(source, cursor)
-                    if colonByte == 32 or colonByte == 9 or colonByte == 10 or colonByte == 13 then
-                        cursor = nupp.math.u32.add(cursor, 1)
-                    else
-                        colonSkipping = false
-                    end
-                end
-                if cursor >= sourceCount or _valueBuilder.byte(source, cursor) ~= 58 then
-                    return nullValue, 1, nupp.math.u32.add(cursor, 1)
-                end
-                if tapeCursor >= tapeCount or _valueBuilder.scratchWord(tape, tapeCursor) ~= cursor then
-                    return nullValue, 5, nupp.math.u32.add(cursor, 1)
-                end
-                cursor = nupp.math.u32.add(cursor, 1)
-                tapeCursor = nupp.math.u32.add(tapeCursor, 1)
-                needValue = true
-            end
-        end
-    end
-
-    return _valueBuilder.finish(values), 0, 0
-end
-
-fused.decode = decode as function(
+fused.decode = _fused.decodePull as function(
     string,
     unknown,
     unknown?,
@@ -202444,9 +200692,7 @@ export = fused
 ["/nupp/data/jsondecoder/eager.nupp"] = [[
 module nupp.data.jsondecoder.eager
 
-local _valueBuilder = require("nupp.data.valuebuilder")
-local _simd = require("nupp.simd")
-local _preferredU8 = _simd.preferredU8
+local _fused = require("nupp.data.jsondecoder.fused")
 
 local fused = {}
 
@@ -202459,635 +200705,12 @@ const fused.TAPE = 5
 
 --- Parses a structurally indexed document directly into ordinary Lua values.
 ---
+--- The body lives in `nupp.data.jsondecoder.fused`, monomorphized over the
+--- eager builder, which materializes the whole document and validates
+--- escapes as it does.
 --- @raises when the native builder cannot be loaded, value allocation fails,
 --- or the builder rejects a malformed escaped string
-@aot(lanes = false)
-local function decodeEager(
-    source: string,
-    nullValue: any,
-    arrayMarker: any?,
-    objectMarker: any?,
-    shape: any?,
-    arrayShapeMarker: any?,
-    serdeMarkers: any?
-): (any, uint32, uint32)
-    local sourceCount = _valueBuilder.length(source)
-    if sourceCount > 0x7FFFFFFF then
-        return nullValue, 5, 1
-    end
-
-    local tape = _valueBuilder.newWordScratch(sourceCount)
-    local species = _preferredU8()
-    local lanes: uint32 = nupp.math.u32.wrap(species.lanes)
-    local input = _simd.paddedStringU8(source)
-    local zeroBytes = species:splat(0)
-    local nibbleMask = species:splat(15)
-    local continuationFlag = species:splat(128)
-    local byte1HighTable = _simd.tableU8x16(2, 2, 2, 2, 2, 2, 2, 2, 128, 128, 128, 128, 33, 1, 21, 73)
-    local byte1LowTable = _simd.tableU8x16(
-        231,
-        163,
-        131,
-        131,
-        139,
-        203,
-        203,
-        203,
-        203,
-        203,
-        203,
-        203,
-        203,
-        219,
-        203,
-        203
-    )
-    local byte2HighTable = _simd.tableU8x16(1, 1, 1, 1, 1, 1, 1, 1, 230, 174, 186, 186, 1, 1, 1, 1)
-    -- Two nibble lookups classify JSON operators and whitespace across a
-    -- complete cache line. The values are bit classes: 0x07 is operator and
-    -- 0x18 is whitespace. Keeping the classified bytes as one BlockU8x64 lets
-    -- both masks reuse the same eight native table lookups.
-    local syntaxLowTable = _simd.tableU8x16(16, 0, 0, 0, 0, 0, 0, 0, 0, 8, 12, 1, 2, 9, 0, 0)
-    local syntaxHighTable = _simd.tableU8x16(8, 0, 18, 4, 0, 1, 0, 1, 0, 0, 0, 3, 2, 1, 0, 0)
-    local evenWord = nupp.math.u32.wrap(0x55555555)
-    local evenMask = _simd.maskBits64(evenWord, evenWord)
-    local oddWord = nupp.math.u32.wrap(0xAAAAAAAA)
-    local oddMask = _simd.maskBits64(oddWord, oddWord)
-    local scanCursor: uint32 = 0
-    local tapeCount: uint32 = 0
-    local scanInString = false
-    local scanStringEscaped = false
-    local slashOdd = false
-    local slashCarry = false
-    local previousBytes = zeroBytes
-    local previousNonAscii = false
-
-    while scanCursor < sourceCount do
-        local fastBlock = false
-        if sourceCount >= 64 and scanCursor <= nupp.math.u32.sub(
-            sourceCount,
-            64
-        ) and nupp.math.u32.andBits(scanCursor, 63) == 0 and not slashCarry then
-            local block = input:loadBlock64(scanCursor)
-            local slashMask = block:equal(92)
-            local outsideAscii = block:outsideRange(32, 127)
-            local wideBlock = not slashMask:orBits(outsideAscii):any()
-            local currentNonAscii = false
-            if not wideBlock and not block:inRange(0, 31):any() then
-                wideBlock = true
-                currentNonAscii = outsideAscii:any()
-            end
-            -- A run reaching bit 63 needs parity from the following preferred
-            -- vector. Keep that rare boundary case in the scalar carry path.
-            if wideBlock and slashMask:any() and nupp.math.u32.andBits(slashMask:highBits(), 0x80000000) ~= 0 then
-                wideBlock = false
-            end
-            if wideBlock then
-                local lowClasses = block:andByte(15):lookup16(syntaxLowTable)
-                local highClasses = block:shiftRight(4):lookup16(syntaxHighTable)
-                local classes = lowClasses:andBits(highClasses)
-                local syntaxBits = classes:anyBitsSet(0x07)
-                -- The first zero after each backslash run is escaped exactly
-                -- when the run length is odd. Two additions select the answer
-                -- for even- and odd-aligned starts without walking the runs.
-                local hasSlashes = slashMask:any()
-                local quoteBits = block:equal(34)
-                if hasSlashes then
-                    local starts = slashMask:andBits(slashMask:shiftLeft(1):notBits())
-                    local notSlashes = slashMask:notBits()
-                    local evenEnds = slashMask:add(starts:andBits(evenMask)):andBits(notSlashes)
-                    local oddEnds = slashMask:add(starts:andBits(oddMask)):andBits(notSlashes)
-                    local escapedBits = evenEnds:andBits(oddMask):orBits(oddEnds:andBits(evenMask))
-                    quoteBits = quoteBits:andBits(escapedBits:notBits())
-                end
-                local stringBits = quoteBits:prefixXor(scanInString)
-                local outsideBits = stringBits:notBits()
-                local outsideSlashes = slashMask:andBits(outsideBits)
-                if outsideSlashes:any() then
-                    return nullValue, 4, nupp.math.u32.add(nupp.math.u32.add(scanCursor, outsideSlashes:firstSet()), 1)
-                end
-                if currentNonAscii or previousNonAscii then
-                    local badUtf8 = block:utf8Errors(previousBytes, byte1HighTable, byte1LowTable, byte2HighTable)
-                    if badUtf8:any() then
-                        return nullValue, 2, nupp.math.u32.add(nupp.math.u32.add(scanCursor, badUtf8:firstSet()), 1)
-                    end
-                end
-                local events = quoteBits:orBits(syntaxBits:andBits(outsideBits))
-                if not hasSlashes and not scanStringEscaped then
-                    if nupp.math.u32.andBits(quoteBits:count(), 1) ~= 0 then
-                        scanInString = not scanInString
-                    end
-                    tapeCount = _valueBuilder.appendSetBitsEager(tape, tapeCount, scanCursor, events)
-                else
-                    -- Only the closing quote is tagged. Dense escapes therefore
-                    -- do not enlarge the structural tape.
-                    local appended = _valueBuilder.appendStringBits(
-                        tape,
-                        tapeCount,
-                        scanCursor,
-                        events,
-                        quoteBits,
-                        slashMask,
-                        scanInString,
-                        scanStringEscaped
-                    )
-                    scanStringEscaped = nupp.math.u32.andBits(appended, 0x80000000) ~= 0
-                    tapeCount = nupp.math.u32.andBits(appended, 0x7FFFFFFF)
-                    if nupp.math.u32.andBits(quoteBits:count(), 1) ~= 0 then
-                        scanInString = not scanInString
-                    end
-                end
-                previousBytes = block:lastVector()
-                previousNonAscii = currentNonAscii
-                scanCursor = nupp.math.u32.add(scanCursor, 64)
-                fastBlock = true
-            end
-        end
-        if not fastBlock then
-            local bytes = input:loadTail()
-            local active: uint32 = input.tailLength
-            if scanCursor < input.fullLength then
-                bytes = input:loadFull(scanCursor)
-                active = lanes
-            end
-            local tail = species:tail(active)
-            local activeBits = tail:bits()
-            local quoteBits = bytes:equal(34):andBits(tail):bits()
-            local slashBits = bytes:equal(92):andBits(tail):bits()
-
-            -- Addition propagates each run start to the first non-backslash bit.
-            -- Selecting the opposite bit parity leaves exactly the bytes escaped
-            -- by odd runs. Boundary-spanning runs retain the small scalar fallback.
-            local escapedBits: uint32 = 0
-            local remainingRuns = slashBits
-            local incomingSlashCarry = slashCarry
-            slashCarry = false
-            if incomingSlashCarry and nupp.math.u32.andBits(slashBits, 1) == 0 then
-                if slashOdd then
-                    escapedBits = 1
-                end
-                slashOdd = false
-                incomingSlashCarry = false
-            end
-            if remainingRuns ~= 0 then
-                local slashLastBit = nupp.math.u32.shiftLeft(1, nupp.math.u32.sub(active, 1))
-                local joinsPriorRun = incomingSlashCarry and nupp.math.u32.andBits(slashBits, 1) ~= 0
-                local reachesNextBlock = nupp.math.u32.andBits(slashBits, slashLastBit) ~= 0
-                if not joinsPriorRun and not reachesNextBlock then
-                    local starts = nupp.math.u32.andBits(
-                        remainingRuns,
-                        nupp.math.u32.notBits(nupp.math.u32.shiftLeft(remainingRuns, 1))
-                    )
-                    local evenEnds = nupp.math.u32.andBits(
-                        nupp.math.u32.add(remainingRuns, nupp.math.u32.andBits(starts, 0x55555555)),
-                        nupp.math.u32.notBits(remainingRuns)
-                    )
-                    local oddEnds = nupp.math.u32.andBits(
-                        nupp.math.u32.add(remainingRuns, nupp.math.u32.andBits(starts, 0xAAAAAAAA)),
-                        nupp.math.u32.notBits(remainingRuns)
-                    )
-                    escapedBits = nupp.math.u32.orBits(
-                        escapedBits,
-                        nupp.math.u32.orBits(
-                            nupp.math.u32.andBits(evenEnds, 0xAAAAAAAA),
-                            nupp.math.u32.andBits(oddEnds, 0x55555555)
-                        )
-                    )
-                    remainingRuns = 0
-                end
-            end
-            while remainingRuns ~= 0 do
-                local runStart = nupp.math.u32.trailingZeros(remainingRuns)
-                local first = nupp.math.u32.shiftLeft(1, runStart)
-                local after = nupp.math.u32.andBits(
-                    nupp.math.u32.add(remainingRuns, first),
-                    nupp.math.u32.notBits(remainingRuns)
-                )
-                local runEnd = active
-                if after ~= 0 then
-                    runEnd = nupp.math.u32.trailingZeros(after)
-                end
-                local odd = nupp.math.u32.andBits(nupp.math.u32.sub(runEnd, runStart), 1) ~= 0
-                if runStart == 0 and incomingSlashCarry then
-                    odd = odd ~= slashOdd
-                end
-                if runEnd == active then
-                    slashCarry = true
-                    slashOdd = odd
-                elseif odd then
-                    escapedBits = nupp.math.u32.orBits(escapedBits, after)
-                end
-                remainingRuns = nupp.math.u32.andBits(remainingRuns, nupp.math.u32.add(remainingRuns, first))
-            end
-
-            local unescapedQuotes = nupp.math.u32.andBits(quoteBits, nupp.math.u32.notBits(escapedBits))
-            local stringBits = unescapedQuotes
-            stringBits = nupp.math.u32.xorBits(stringBits, nupp.math.u32.shiftLeft(stringBits, 1))
-            stringBits = nupp.math.u32.xorBits(stringBits, nupp.math.u32.shiftLeft(stringBits, 2))
-            stringBits = nupp.math.u32.xorBits(stringBits, nupp.math.u32.shiftLeft(stringBits, 4))
-            stringBits = nupp.math.u32.xorBits(stringBits, nupp.math.u32.shiftLeft(stringBits, 8))
-            if lanes == 32 then
-                stringBits = nupp.math.u32.xorBits(stringBits, nupp.math.u32.shiftLeft(stringBits, 16))
-            end
-            stringBits = nupp.math.u32.andBits(stringBits, activeBits)
-            if scanInString then
-                stringBits = nupp.math.u32.xorBits(stringBits, activeBits)
-            end
-
-            local objectOpenMask = bytes:equal(123)
-            local syntaxBits = objectOpenMask:orBits(bytes:equal(125))
-                :orBits(bytes:equal(91))
-                :orBits(bytes:equal(93))
-                :orBits(bytes:equal(58))
-                :orBits(bytes:equal(44))
-                :andBits(tail)
-                :bits()
-            local outsideBits = nupp.math.u32.andBits(activeBits, nupp.math.u32.notBits(stringBits))
-            local whitespaceBits = bytes:equal(9):orBits(bytes:equal(10)):orBits(bytes:equal(13)):bits()
-            local controlBits = bytes:inRange(0, 31):andBits(tail):bits()
-            local badControls = nupp.math.u32.andBits(
-                controlBits,
-                nupp.math.u32.orBits(stringBits, nupp.math.u32.notBits(whitespaceBits))
-            )
-            if badControls ~= 0 then
-                return nullValue, 3, nupp.math.u32.add(
-                    nupp.math.u32.add(scanCursor, nupp.math.u32.trailingZeros(badControls)),
-                    1
-                )
-            end
-            local outsideSlashes = nupp.math.u32.andBits(slashBits, outsideBits)
-            if outsideSlashes ~= 0 then
-                return nullValue, 4, nupp.math.u32.add(
-                    nupp.math.u32.add(scanCursor, nupp.math.u32.trailingZeros(outsideSlashes)),
-                    1
-                )
-            end
-
-            -- simdjson's lookup4 validator. Three nibble tables classify every
-            -- adjacent byte pair; the continuation marker cancels the only legal
-            -- continuation-continuation cases using the two- and three-byte
-            -- lookback vectors.
-            local currentNonAscii = bytes:inRange(128, 255):andBits(tail):any()
-            if currentNonAscii or previousNonAscii then
-                local previous1 = _simd.alignBytes(previousBytes, bytes, 1)
-                local previous2 = _simd.alignBytes(previousBytes, bytes, 2)
-                local previous3 = _simd.alignBytes(previousBytes, bytes, 3)
-                local byte1High = previous1:shiftRight(4):lookup16(byte1HighTable)
-                local byte1Low = previous1:andBits(nibbleMask):lookup16(byte1LowTable)
-                local byte2High = bytes:shiftRight(4):lookup16(byte2HighTable)
-                local specialCases = byte1High:andBits(byte1Low):andBits(byte2High)
-                local mustContinue = previous2:inRange(224, 255):orBits(previous3:inRange(240, 255))
-                local required = mustContinue:select(continuationFlag, zeroBytes)
-                local badUtf8 = required:xorBits(specialCases):equal(0):notBits():bits()
-                if badUtf8 ~= 0 then
-                    local badLane = nupp.math.u32.trailingZeros(badUtf8)
-                    if badLane >= active then
-                        return nullValue, 2, nupp.math.u32.add(sourceCount, 1)
-                    end
-                    return nullValue, 2, nupp.math.u32.add(nupp.math.u32.add(scanCursor, badLane), 1)
-                end
-            end
-
-            -- A closing quote carries one escape bit. Backslashes themselves
-            -- never join the tape.
-            local events = nupp.math.u32.orBits(unescapedQuotes, nupp.math.u32.andBits(syntaxBits, outsideBits))
-
-            if not scanInString and unescapedQuotes == 0 and slashBits == 0 and not scanStringEscaped then
-                tapeCount = _valueBuilder.appendSetBitsEager(
-                    tape,
-                    tapeCount,
-                    scanCursor,
-                    _simd.maskBits64(events, nupp.math.u32.wrap(0))
-                )
-            else
-                local appended = _valueBuilder.appendStringBits(
-                    tape,
-                    tapeCount,
-                    scanCursor,
-                    _simd.maskBits64(events, nupp.math.u32.wrap(0)),
-                    _simd.maskBits64(unescapedQuotes, nupp.math.u32.wrap(0)),
-                    _simd.maskBits64(slashBits, nupp.math.u32.wrap(0)),
-                    scanInString,
-                    scanStringEscaped
-                )
-                scanStringEscaped = nupp.math.u32.andBits(appended, 0x80000000) ~= 0
-                tapeCount = nupp.math.u32.andBits(appended, 0x7FFFFFFF)
-                if nupp.math.u32.andBits(nupp.math.u32.popcount(unescapedQuotes), 1) ~= 0 then
-                    scanInString = not scanInString
-                end
-            end
-            previousBytes = bytes
-            previousNonAscii = currentNonAscii
-            scanCursor = nupp.math.u32.add(scanCursor, lanes)
-        end
-    end
-
-    -- An exact-width input has no padded tail block to expose an incomplete
-    -- final sequence, so check the previous three bytes against one zero block.
-    if input.tailLength == 0 and previousNonAscii then
-        local previous1 = _simd.alignBytes(previousBytes, zeroBytes, 1)
-        local previous2 = _simd.alignBytes(previousBytes, zeroBytes, 2)
-        local previous3 = _simd.alignBytes(previousBytes, zeroBytes, 3)
-        local byte1High = previous1:shiftRight(4):lookup16(byte1HighTable)
-        local byte1Low = previous1:andBits(nibbleMask):lookup16(byte1LowTable)
-        local byte2High = zeroBytes:shiftRight(4):lookup16(byte2HighTable)
-        local specialCases = byte1High:andBits(byte1Low):andBits(byte2High)
-        local mustContinue = previous2:inRange(224, 255):orBits(previous3:inRange(240, 255))
-        local required = mustContinue:select(continuationFlag, zeroBytes)
-        if required:xorBits(specialCases):equal(0):notBits():any() then
-            return nullValue, 2, nupp.math.u32.add(sourceCount, 1)
-        end
-    end
-
-    local builderDepth: uint32 = 1024
-    if sourceCount <= 32 then
-        builderDepth = 16
-    end
-    local values = _valueBuilder.newSized(nullValue, builderDepth, sourceCount, arrayMarker, objectMarker)
-    local cursor: uint32 = 0
-    tapeCount = _valueBuilder.scratchLength(tape)
-    local tapeCursor: uint32 = 0
-    local needValue = true
-    local done = false
-
-    -- The byte that ended the whitespace run is the byte the next step
-    -- classifies, at the same cursor. Reading it once and carrying it out
-    -- saves a bounds-checked load per token, on a loop that runs once per
-    -- token in the document.
-    local pending: uint32 = 0
-    while not done do
-        local skipping = true
-        pending = 0
-        while skipping and cursor < sourceCount do
-            pending = _valueBuilder.byteAt(source, cursor)
-            if pending == 32 or pending == 9 or pending == 10 or pending == 13 then
-                cursor = nupp.math.u32.add(cursor, 1)
-            else
-                skipping = false
-            end
-        end
-
-        if needValue then
-            if cursor >= sourceCount then
-                return nullValue, 1, nupp.math.u32.add(cursor, 1)
-            end
-
-            local tag: uint32 = 0
-            local start: uint32 = cursor
-            local length: uint32 = 0
-            local flags: uint32 = 0
-            local containerCapacity: uint32 = 0
-            local byte: uint32 = pending
-
-            if byte == 34 then
-                tag = 4
-                if tapeCursor < tapeCount then
-                    local opening = _valueBuilder.scratchWord(tape, tapeCursor)
-                    if opening ~= cursor then
-                        return nullValue, 5, nupp.math.u32.add(cursor, 1)
-                    end
-                    tapeCursor = nupp.math.u32.add(tapeCursor, 1)
-                else
-                    return nullValue, 5, nupp.math.u32.add(cursor, 1)
-                end
-                if tapeCursor < tapeCount then
-                    local closingWord = _valueBuilder.scratchWord(tape, tapeCursor)
-                    local closing = nupp.math.u32.andBits(closingWord, 0x7FFFFFFF)
-                    if nupp.math.u32.andBits(closingWord, 0x80000000) ~= 0 then
-                        flags = 1
-                    end
-                    start = nupp.math.u32.add(cursor, 1)
-                    length = nupp.math.u32.sub(closing, start)
-                    -- The builder validates escapes while transforming them.
-                    -- Walking this slice here as well would validate every
-                    -- escaped value twice before publishing the same string.
-                    cursor = nupp.math.u32.add(closing, 1)
-                    tapeCursor = nupp.math.u32.add(tapeCursor, 1)
-                else
-                    return nullValue, 1, nupp.math.u32.add(cursor, 1)
-                end
-            elseif byte == 91 or byte == 123 then
-                if byte == 91 then
-                    tag = 5
-                else
-                    tag = 6
-                end
-                cursor = nupp.math.u32.add(cursor, 1)
-                if tapeCursor < tapeCount then
-                    if byte == 123 then
-                        -- Four fields covers the record-heavy common case and
-                        -- bounds an inaccurate hint to a few hash slots.
-                        containerCapacity = 4
-                    elseif _valueBuilder.depth(values) == 0 then
-                        -- Top-level arrays scale with the document instead of
-                        -- repeatedly growing from zero. Cap the estimate at
-                        -- 2 MiB of 64-bit slots so one huge element cannot turn
-                        -- a construction hint into unbounded retained memory.
-                        containerCapacity = nupp.math.u32.shiftRightLogical(sourceCount, 5)
-                        if containerCapacity > 262144 then
-                            containerCapacity = 262144
-                        end
-                    else
-                        containerCapacity = 4
-                    end
-                    tapeCursor = nupp.math.u32.add(tapeCursor, 1)
-                else
-                    return nullValue, 5, cursor
-                end
-            elseif byte == 116 then
-                tag = 1
-                local matched: uint32 = 0
-                while matched < 4 do
-                    local at: uint32 = nupp.math.u32.add(cursor, matched)
-                    if at < sourceCount then
-                        local actual = _valueBuilder.byteAt(source, at)
-                        local expected: uint32 = switch matched do
-                            case 0 -> 116
-                            case 1 -> 114
-                            case 2 -> 117
-                            else -> 101
-                        end
-                        if actual ~= expected then
-                            return nullValue, 1, nupp.math.u32.add(at, 1)
-                        end
-                    else
-                        return nullValue, 1, nupp.math.u32.add(at, 1)
-                    end
-                    matched = nupp.math.u32.add(matched, 1)
-                end
-                length = 4
-                cursor = nupp.math.u32.add(cursor, 4)
-            elseif byte == 102 then
-                tag = 2
-                local matched: uint32 = 0
-                while matched < 5 do
-                    local at: uint32 = nupp.math.u32.add(cursor, matched)
-                    if at < sourceCount then
-                        local actual = _valueBuilder.byteAt(source, at)
-                        local expected: uint32 = switch matched do
-                            case 0 -> 102
-                            case 1 -> 97
-                            case 2 -> 108
-                            case 3 -> 115
-                            else -> 101
-                        end
-                        if actual ~= expected then
-                            return nullValue, 1, nupp.math.u32.add(at, 1)
-                        end
-                    else
-                        return nullValue, 1, nupp.math.u32.add(at, 1)
-                    end
-                    matched = nupp.math.u32.add(matched, 1)
-                end
-                length = 5
-                cursor = nupp.math.u32.add(cursor, 5)
-            elseif byte == 110 then
-                tag = 0
-                local matched: uint32 = 0
-                while matched < 4 do
-                    local at: uint32 = nupp.math.u32.add(cursor, matched)
-                    if at < sourceCount then
-                        local actual = _valueBuilder.byteAt(source, at)
-                        local expected: uint32 = switch matched do
-                            case 0 -> 110
-                            case 1 -> 117
-                            else -> 108
-                        end
-                        if actual ~= expected then
-                            return nullValue, 1, nupp.math.u32.add(at, 1)
-                        end
-                    else
-                        return nullValue, 1, nupp.math.u32.add(at, 1)
-                    end
-                    matched = nupp.math.u32.add(matched, 1)
-                end
-                length = 4
-                cursor = nupp.math.u32.add(cursor, 4)
-            elseif byte == 45 or byte >= 48 and byte <= 57 then
-                tag = 3
-                local parsed = _valueBuilder.numberToken(values, source, cursor, sourceCount)
-                if parsed < 2147483648 then
-                    return nullValue, 1, parsed
-                end
-                cursor = nupp.math.u32.sub(parsed, 2147483648)
-                length = nupp.math.u32.sub(cursor, start)
-            else
-                return nullValue, 1, nupp.math.u32.add(cursor, 1)
-            end
-
-            if tag == 0 then
-                _valueBuilder.null(values)
-            elseif tag == 1 then
-                _valueBuilder.boolean(values, true)
-            elseif tag == 2 then
-                _valueBuilder.boolean(values, false)
-            elseif tag == 4 then
-                _valueBuilder.string(values, source, start, length, flags == 1)
-            elseif tag == 5 then
-                _valueBuilder.openArray(values, containerCapacity)
-            elseif tag == 6 then
-                _valueBuilder.openObject(values, containerCapacity)
-            end
-            needValue = false
-        elseif _valueBuilder.depth(values) == 0 then
-            if cursor < sourceCount then
-                return nullValue, 1, nupp.math.u32.add(cursor, 1)
-            end
-            done = true
-        else
-            if cursor >= sourceCount then
-                return nullValue, 1, nupp.math.u32.add(cursor, 1)
-            end
-            local builderState = _valueBuilder.state(values)
-            local byte = pending
-            local kind = nupp.math.u32.andBits(builderState, 0xFF)
-            local hasValue = nupp.math.u32.andBits(builderState, 0x100) ~= 0
-            local closing = kind == 5 and byte == 93 or kind == 6 and byte == 125
-            if closing then
-                if tapeCursor >= tapeCount or _valueBuilder.scratchWord(tape, tapeCursor) ~= cursor then
-                    return nullValue, 5, nupp.math.u32.add(cursor, 1)
-                end
-                tapeCursor = nupp.math.u32.add(tapeCursor, 1)
-                cursor = nupp.math.u32.add(cursor, 1)
-                _valueBuilder.close(values)
-            elseif kind == 5 then
-                if not hasValue then
-                    needValue = true
-                elseif byte == 44 then
-                    cursor = nupp.math.u32.add(cursor, 1)
-                    if tapeCursor >= tapeCount then
-                        return nullValue, 5, cursor
-                    end
-                    tapeCursor = nupp.math.u32.add(tapeCursor, 1)
-                    needValue = true
-                else
-                    return nullValue, 1, nupp.math.u32.add(cursor, 1)
-                end
-            else
-                if hasValue then
-                    if byte ~= 44 then
-                        return nullValue, 1, nupp.math.u32.add(cursor, 1)
-                    end
-                    cursor = nupp.math.u32.add(cursor, 1)
-                    if tapeCursor >= tapeCount then
-                        return nullValue, 5, cursor
-                    end
-                    tapeCursor = nupp.math.u32.add(tapeCursor, 1)
-                    local keySkipping = true
-                    while keySkipping and cursor < sourceCount do
-                        local keyByte = _valueBuilder.byteAt(source, cursor)
-                        if keyByte == 32 or keyByte == 9 or keyByte == 10 or keyByte == 13 then
-                            cursor = nupp.math.u32.add(cursor, 1)
-                        else
-                            keySkipping = false
-                        end
-                    end
-                end
-                if cursor >= sourceCount or _valueBuilder.byte(source, cursor) ~= 34 then
-                    return nullValue, 1, nupp.math.u32.add(cursor, 1)
-                end
-                local opening = cursor
-                if tapeCursor >= tapeCount or _valueBuilder.scratchWord(tape, tapeCursor) ~= opening then
-                    return nullValue, 5, nupp.math.u32.add(cursor, 1)
-                end
-                tapeCursor = nupp.math.u32.add(tapeCursor, 1)
-                if tapeCursor >= tapeCount then
-                    return nullValue, 1, nupp.math.u32.add(cursor, 1)
-                end
-                local closingWord = _valueBuilder.scratchWord(tape, tapeCursor)
-                local closingQuote = nupp.math.u32.andBits(closingWord, 0x7FFFFFFF)
-                local escaped = nupp.math.u32.andBits(closingWord, 0x80000000) ~= 0
-                tapeCursor = nupp.math.u32.add(tapeCursor, 1)
-                local keyStart = nupp.math.u32.add(opening, 1)
-                local keyLength = nupp.math.u32.sub(closingQuote, keyStart)
-                _valueBuilder.key(values, source, keyStart, keyLength, escaped)
-                cursor = nupp.math.u32.add(closingQuote, 1)
-                local colonSkipping = true
-                while colonSkipping and cursor < sourceCount do
-                    local colonByte = _valueBuilder.byteAt(source, cursor)
-                    if colonByte == 32 or colonByte == 9 or colonByte == 10 or colonByte == 13 then
-                        cursor = nupp.math.u32.add(cursor, 1)
-                    else
-                        colonSkipping = false
-                    end
-                end
-                if cursor >= sourceCount or _valueBuilder.byte(source, cursor) ~= 58 then
-                    return nullValue, 1, nupp.math.u32.add(cursor, 1)
-                end
-                if tapeCursor >= tapeCount or _valueBuilder.scratchWord(tape, tapeCursor) ~= cursor then
-                    return nullValue, 5, nupp.math.u32.add(cursor, 1)
-                end
-                cursor = nupp.math.u32.add(cursor, 1)
-                tapeCursor = nupp.math.u32.add(tapeCursor, 1)
-                needValue = true
-            end
-        end
-    end
-
-    return _valueBuilder.finish(values), 0, 0
-end
-
-fused.decode = decodeEager as function(
+fused.decode = _fused.decodeEager as function(
     string,
     unknown,
     unknown?,
@@ -203099,8 +200722,19 @@ fused.decode = decodeEager as function(
 
 export = fused
 ]],
-["/nupp/data/jsondecoder/serde.nupp"] = [[
-module nupp.data.jsondecoder.serde
+["/nupp/data/jsondecoder/fused.nupp"] = [=[
+module nupp.data.jsondecoder.fused
+
+--[[
+The one fused JSON decoder, monomorphized per builder.
+
+The structural scan and the tape walk are identical across the pull, serde,
+and eager decoders; only the builder constructor, the tape append intrinsics,
+and the escape-tape machinery vary. `Variant` carries that choice as a const
+binder: each exported entry closes it with a literal, so ahead-of-time
+compilation emits one specialized native body per variant, with the untaken
+variants' constructs pruned before lowering classifies the entry.
+]]
 
 local _valueBuilder = require("nupp.data.valuebuilder")
 local _simd = require("nupp.simd")
@@ -203109,20 +200743,23 @@ local {type Buffer} = require("string.buffer")
 
 local fused = {}
 
-const fused.OK = 0
-const fused.SYNTAX = 1
-const fused.INVALID_UTF8 = 2
-const fused.INVALID_CONTROL = 3
-const fused.INVALID_BACKSLASH = 4
-const fused.TAPE = 5
+-- Variant 0 selects [](nupp.data.valuebuilder.newPull): every token
+-- observed, values allocated only where the pull shape selects them.
+-- Variant 1 selects [](nupp.data.valuebuilder.newSerde), the
+-- schema-specialized stream, whose entry also reads buffers. Variant 2
+-- selects [](nupp.data.valuebuilder.newSized), the eager builder that
+-- materializes the whole document and keeps no escape tape. Written as
+-- literals because switch case patterns and the AOT prune both want the
+-- number itself.
 
 --- Parses a structurally indexed document directly into ordinary Lua values.
 ---
 --- @raises when the native builder cannot be loaded, value allocation fails,
 --- or the builder rejects a malformed escaped string
 @aot(lanes = false)
-local function decodeSerde(
+local function decodeFused<const Variant: integer>(
     borrows source: string | Buffer,
+    variant: Variant,
     nullValue: any,
     arrayMarker: any?,
     objectMarker: any?,
@@ -203138,6 +200775,8 @@ local function decodeSerde(
     local tape = _valueBuilder.newWordScratch(sourceCount)
     local species = _preferredU8()
     local lanes: uint32 = nupp.math.u32.wrap(species.lanes)
+    -- paddedBytesU8 and paddedStringU8 lower to the same native input; the
+    -- bytes form is the one whose contract admits every variant's source.
     local input = _simd.paddedBytesU8(source)
     local zeroBytes = species:splat(0)
     local nibbleMask = species:splat(15)
@@ -203236,13 +200875,30 @@ local function decodeSerde(
                     if nupp.math.u32.andBits(quoteBits:count(), 1) ~= 0 then
                         scanInString = not scanInString
                     end
-                    tapeCount = _valueBuilder.appendSetBits(tape, tapeCount, scanCursor, events)
+                    if variant as integer == 2 then
+                        tapeCount = _valueBuilder.appendSetBitsEager(tape, tapeCount, scanCursor, events)
+                    else
+                        tapeCount = _valueBuilder.appendSetBits(tape, tapeCount, scanCursor, events)
+                    end
                 else
                     -- Only the closing quote is tagged. Dense escapes therefore
-                    -- do not enlarge the structural tape.
+                    -- do not enlarge the structural tape. The eager builder
+                    -- keeps no escape tape and revalidates escapes when it
+                    -- materializes, so its append carries no escape positions.
                     local blockSpansString = scanInString or nupp.math.u32.andBits(quoteBits:count(), 1) ~= 0
                     local appended: uint32 = 0
-                    if blockSpansString and hasSlashes then
+                    if variant as integer == 2 then
+                        appended = _valueBuilder.appendStringBits(
+                            tape,
+                            tapeCount,
+                            scanCursor,
+                            events,
+                            quoteBits,
+                            slashMask,
+                            scanInString,
+                            scanStringEscaped
+                        )
+                    elseif blockSpansString and hasSlashes then
                         appended = _valueBuilder.appendStringEscapeBits(
                             tape,
                             tape,
@@ -203431,19 +201087,39 @@ local function decodeSerde(
             local events = nupp.math.u32.orBits(unescapedQuotes, nupp.math.u32.andBits(syntaxBits, outsideBits))
 
             if not scanInString and unescapedQuotes == 0 and slashBits == 0 and not scanStringEscaped then
-                tapeCount = _valueBuilder.appendSetBits(
-                    tape,
-                    tapeCount,
-                    scanCursor,
-                    _simd.maskBits64(events, nupp.math.u32.wrap(0))
-                )
+                if variant as integer == 2 then
+                    tapeCount = _valueBuilder.appendSetBitsEager(
+                        tape,
+                        tapeCount,
+                        scanCursor,
+                        _simd.maskBits64(events, nupp.math.u32.wrap(0))
+                    )
+                else
+                    tapeCount = _valueBuilder.appendSetBits(
+                        tape,
+                        tapeCount,
+                        scanCursor,
+                        _simd.maskBits64(events, nupp.math.u32.wrap(0))
+                    )
+                end
             else
                 local blockSpansString = scanInString or nupp.math.u32.andBits(
                     nupp.math.u32.popcount(unescapedQuotes),
                     1
                 ) ~= 0
                 local appended: uint32 = 0
-                if blockSpansString and slashBits ~= 0 then
+                if variant as integer == 2 then
+                    appended = _valueBuilder.appendStringBits(
+                        tape,
+                        tapeCount,
+                        scanCursor,
+                        _simd.maskBits64(events, nupp.math.u32.wrap(0)),
+                        _simd.maskBits64(unescapedQuotes, nupp.math.u32.wrap(0)),
+                        _simd.maskBits64(slashBits, nupp.math.u32.wrap(0)),
+                        scanInString,
+                        scanStringEscaped
+                    )
+                elseif blockSpansString and slashBits ~= 0 then
                     appended = _valueBuilder.appendStringEscapeBits(
                         tape,
                         tape,
@@ -203504,18 +201180,29 @@ local function decodeSerde(
     if sourceCount <= 32 then
         builderDepth = 16
     end
-    -- The schema argument carries compiled field targets; the native builder
-    -- consumes those directly instead of resolving scalar shapes through Lua.
-    local values = _valueBuilder.newSerde(
-        nullValue,
-        builderDepth,
-        sourceCount,
-        arrayMarker,
-        objectMarker,
-        shape,
-        arrayShapeMarker,
-        serdeMarkers
-    )
+    local values = switch variant as integer do
+        case 0 -> _valueBuilder.newPull(
+            nullValue,
+            builderDepth,
+            sourceCount,
+            arrayMarker,
+            objectMarker,
+            shape,
+            arrayShapeMarker,
+            serdeMarkers
+        )
+        case 1 -> _valueBuilder.newSerde(
+            nullValue,
+            builderDepth,
+            sourceCount,
+            arrayMarker,
+            objectMarker,
+            shape,
+            arrayShapeMarker,
+            serdeMarkers
+        )
+        else -> _valueBuilder.newSized(nullValue, builderDepth, sourceCount, arrayMarker, objectMarker)
+    end
     local cursor: uint32 = 0
     tapeCount = _valueBuilder.scratchLength(tape)
     local tapeCursor: uint32 = 0
@@ -203706,7 +201393,10 @@ local function decodeSerde(
             elseif tag == 2 then
                 _valueBuilder.boolean(values, false)
             elseif tag == 4 then
-                if flags == 1 and length >= 64 then
+                if variant as integer == 2 then
+                    -- The eager builder unescapes while materializing.
+                    _valueBuilder.string(values, source, start, length, flags == 1)
+                elseif flags == 1 and length >= 64 then
                     _valueBuilder.stringEscapes(values, source, start, length, tape, tokenEscapeStart, tokenEscapeCount)
                 else
                     _valueBuilder.string(values, source, start, length, flags == 1)
@@ -203788,30 +201478,34 @@ local function decodeSerde(
                 tapeCursor = nupp.math.u32.add(tapeCursor, 1)
                 local keyStart = nupp.math.u32.add(opening, 1)
                 local keyLength = nupp.math.u32.sub(closingQuote, keyStart)
-                local keyEscapeStart: uint32 = escapeCursor
-                if escaped then
-                    -- Consume the key's escape words even when the key itself
-                    -- is published without them, or they poison the escape
-                    -- range of the next long escaped token.
-                    while escapeCursor < escapeCount and _valueBuilder.scratchEscapeWord(
-                        tape,
-                        escapeCursor
-                    ) < closingQuote do
-                        escapeCursor = nupp.math.u32.add(escapeCursor, 1)
-                    end
-                end
-                if escaped and keyLength >= 64 then
-                    _valueBuilder.keyEscapes(
-                        values,
-                        source,
-                        keyStart,
-                        keyLength,
-                        tape,
-                        keyEscapeStart,
-                        nupp.math.u32.sub(escapeCursor, keyEscapeStart)
-                    )
-                else
+                if variant as integer == 2 then
                     _valueBuilder.key(values, source, keyStart, keyLength, escaped)
+                else
+                    local keyEscapeStart: uint32 = escapeCursor
+                    if escaped then
+                        -- Consume the key's escape words even when the key
+                        -- itself is published without them, or they poison the
+                        -- escape range of the next long escaped token.
+                        while escapeCursor < escapeCount and _valueBuilder.scratchEscapeWord(
+                            tape,
+                            escapeCursor
+                        ) < closingQuote do
+                            escapeCursor = nupp.math.u32.add(escapeCursor, 1)
+                        end
+                    end
+                    if escaped and keyLength >= 64 then
+                        _valueBuilder.keyEscapes(
+                            values,
+                            source,
+                            keyStart,
+                            keyLength,
+                            tape,
+                            keyEscapeStart,
+                            nupp.math.u32.sub(escapeCursor, keyEscapeStart)
+                        )
+                    else
+                        _valueBuilder.key(values, source, keyStart, keyLength, escaped)
+                    end
                 end
                 cursor = nupp.math.u32.add(closingQuote, 1)
                 local colonSkipping = true
@@ -203839,7 +201533,73 @@ local function decodeSerde(
     return _valueBuilder.finish(values), 0, 0
 end
 
-fused.decode = decodeSerde as function(
+--- The pull entry `nupp.data.jsondecode` exports.
+function fused.decodePull(
+    source: string,
+    nullValue: unknown,
+    arrayMarker: unknown?,
+    objectMarker: unknown?,
+    shape: unknown?,
+    arrayShapeMarker: unknown?,
+    serdeMarkers: unknown?
+): (unknown, uint32, uint32)
+    return decodeFused(source, 0, nullValue, arrayMarker, objectMarker, shape, arrayShapeMarker, serdeMarkers)
+end
+
+--- The serde entry `nupp.data.jsondecoder.serde` exports. The schema argument
+--- carries compiled field targets; the native builder consumes those directly
+--- instead of resolving scalar shapes through Lua.
+function fused.decodeSerde(
+    borrows source: string | Buffer,
+    nullValue: unknown,
+    arrayMarker: unknown?,
+    objectMarker: unknown?,
+    shape: unknown?,
+    arrayShapeMarker: unknown?,
+    serdeMarkers: unknown?
+): (unknown, uint32, uint32)
+    return decodeFused(source, 1, nullValue, arrayMarker, objectMarker, shape, arrayShapeMarker, serdeMarkers)
+end
+
+--- The eager entry `nupp.data.jsondecoder.eager` exports.
+function fused.decodeEager(
+    source: string,
+    nullValue: unknown,
+    arrayMarker: unknown?,
+    objectMarker: unknown?,
+    shape: unknown?,
+    arrayShapeMarker: unknown?,
+    serdeMarkers: unknown?
+): (unknown, uint32, uint32)
+    return decodeFused(source, 2, nullValue, arrayMarker, objectMarker, shape, arrayShapeMarker, serdeMarkers)
+end
+
+export = fused
+]=],
+["/nupp/data/jsondecoder/serde.nupp"] = [[
+module nupp.data.jsondecoder.serde
+
+local _fused = require("nupp.data.jsondecoder.fused")
+local {type Buffer} = require("string.buffer")
+
+local fused = {}
+
+const fused.OK = 0
+const fused.SYNTAX = 1
+const fused.INVALID_UTF8 = 2
+const fused.INVALID_CONTROL = 3
+const fused.INVALID_BACKSLASH = 4
+const fused.TAPE = 5
+
+--- Parses a structurally indexed document directly into ordinary Lua values.
+---
+--- The body lives in `nupp.data.jsondecoder.fused`, monomorphized over the
+--- serde builder: the schema argument carries compiled field targets that the
+--- native builder consumes directly instead of resolving scalar shapes
+--- through Lua.
+--- @raises when the native builder cannot be loaded, value allocation fails,
+--- or the builder rejects a malformed escaped string
+fused.decode = _fused.decodeSerde as function(
     borrows source: string | Buffer,
     unknown,
     unknown?,

@@ -114,6 +114,10 @@ local RESOURCES = {
    {source = "src/nupp/data/json.nupp", output = "nupp/compiler/nupp/data/json.nupp"},
    {source = "src/nupp/data/jsondecode.nupp", output = "nupp/compiler/nupp/data/jsondecode.nupp"},
    {
+      source = "src/nupp/data/jsondecoder/fused.nupp",
+      output = "nupp/compiler/nupp/data/jsondecoder/fused.nupp",
+   },
+   {
       source = "src/nupp/data/jsondecoder/eager.nupp",
       output = "nupp/compiler/nupp/data/jsondecoder/eager.nupp",
    },
