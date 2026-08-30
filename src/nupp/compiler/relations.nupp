@@ -21,6 +21,10 @@ local relations = {}
 --- A type, as nupp.compiler.types builds them.
 local type Type = T.Type
 
+----------------------------------------------------------------------------
+-- Disjointness
+----------------------------------------------------------------------------
+
 --- True when nil is a member of `t`: an optional, `any`, `unknown`, or nil itself. A
 --- shape field of such a type need not be present at all. `never` admits nothing, nil
 --- included: there is no value of that type to leave out.
@@ -192,6 +196,10 @@ relations.disjoint = disjoint
 --- interned type that goes away takes its answers with it.
 local cache: {[Type]: {[Type]: boolean | string}} = setmetatable({}, {__mode = "k"})
 
+----------------------------------------------------------------------------
+-- The answer cache
+----------------------------------------------------------------------------
+
 -- Nominals are hoisted and then filled, so an answer computed while one was still
 -- being populated is an answer about a declaration that did not exist yet. Caching it
 -- on the identity pair made that verdict permanent: a record queried before its
@@ -210,6 +218,10 @@ local isA: function(a: Type, b: Type): (boolean, string?)
 local assuming: {[any]: {[any]: boolean}} = setmetatable({}, {__mode = "k"}) as {[any]: {[any]: boolean}}
 local assumptionDepth: integer = 0
 local usedAssumption: boolean = false
+
+----------------------------------------------------------------------------
+-- Contracts and associated answers
+----------------------------------------------------------------------------
 
 --- Whether a nominal explicitly takes a contract, directly or through another
 --- declared contract. Sealed interfaces use this instead of structural matching:
@@ -285,6 +297,10 @@ local function associatedAnswersFit(a: Type, b: Type): boolean, string?
 
     return true, nil
 end
+
+----------------------------------------------------------------------------
+-- Members
+----------------------------------------------------------------------------
 
 --- The plain form of a negative answer, when no detail helps.
 local function fail(a: Type, b: Type): boolean, string?
@@ -486,6 +502,10 @@ function relations.packIsA(have: T.Pack, want: T.Pack): boolean, string?
     return true
 end
 
+----------------------------------------------------------------------------
+-- Properties
+----------------------------------------------------------------------------
+
 local type PropertyType = T.Shape | T.Nominal
 
 local function intersectionSurface(t: T.Intersection): T.Shape
@@ -599,6 +619,10 @@ local function symbolicMappedView(t: Type): Type?
 
     return T.shape(fields)
 end
+
+----------------------------------------------------------------------------
+-- The subtype check
+----------------------------------------------------------------------------
 
 --- Decides `isA` for one pair, without consulting the cache.
 ---
@@ -1381,6 +1405,10 @@ isA = function(a: Type, b: Type): boolean, string?
 end
 
 relations.isA = isA
+
+----------------------------------------------------------------------------
+-- Invalidation and lookups
+----------------------------------------------------------------------------
 
 --- Discards what was decided about types that have since changed.
 ---

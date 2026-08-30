@@ -11,6 +11,10 @@ against.
 
 local derive = {}
 
+----------------------------------------------------------------------------
+-- What a derived type carries
+----------------------------------------------------------------------------
+
 interface derive.JSONContract is nupp.data.json.JSONEncodable
 end
 
@@ -52,6 +56,10 @@ local reflect: any = nil
 -- receives its buffer, so that path neither allocates one nor loads the constructor.
 local bufferModule: any = nil
 local serdeRuntime: any = nil
+
+----------------------------------------------------------------------------
+-- Writing JSON
+----------------------------------------------------------------------------
 
 local function newBuffer(): string.buffer.Buffer
     if bufferModule == nil then
@@ -318,6 +326,10 @@ local jsonCodecFor: function(entry: any): any
 
 local nativeJsonPlanForEntry: function(entry: any): any
 
+----------------------------------------------------------------------------
+-- Native plans
+----------------------------------------------------------------------------
+
 local function nativeJsonPlanForSpec(spec: any): any
     local kind: any = spec and spec.kind
     if kind == "optional" then
@@ -366,6 +378,10 @@ nativeJsonPlanForEntry = function(entry: any): any
 
     return plan
 end
+
+----------------------------------------------------------------------------
+-- Reading JSON
+----------------------------------------------------------------------------
 
 local function decodeObject(value: any, entry: any, path: string): (boolean, any, string?)
     if type(value) ~= "table" then
@@ -533,6 +549,10 @@ decodeValue = function(value: any, spec: any, entry: any, path: string): (boolea
     return false, nil, path .. ": unsupported JSON value"
 end
 
+----------------------------------------------------------------------------
+-- Registering a type
+----------------------------------------------------------------------------
+
 --- Records a derived type and answers its registry entry.
 ---
 --- The key is stamped onto the metatable as well as used to file the entry, so a value
@@ -620,6 +640,10 @@ jsonCodecFor = function(entry: any): any
 end
 
 local decodeProjectedValue: function(value: any, spec: any, entry: any, path: string): (boolean, any, string?)
+
+----------------------------------------------------------------------------
+-- Projections
+----------------------------------------------------------------------------
 
 local function decodeProjectedObject(value: any, entry: any, path: string): (boolean, any, string?)
     if type(value) ~= "table" then
@@ -715,6 +739,10 @@ decodeProjectedValue = function(value: any, spec: any, entry: any, path: string)
 
     return decodeValue(value, spec, entry, path)
 end
+
+----------------------------------------------------------------------------
+-- The derived surface
+----------------------------------------------------------------------------
 
 -- Reached through reflection rather than called directly, so that one memoized codec
 -- answers every route to it: the derived members here, `nupp.data.json`'s type-directed

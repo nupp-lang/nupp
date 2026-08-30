@@ -24,6 +24,10 @@ local scalarIR = require("nupp.compiler.aot.scalar")
 
 local rewrite = {}
 
+----------------------------------------------------------------------------
+-- What a rewrite carries
+----------------------------------------------------------------------------
+
 --- What rewriting one expression needs to know.
 ---
 --- Passed rather than closed over, because the same rewrite runs for each shape
@@ -147,6 +151,10 @@ function rewrite.comparisonElement(left: scalarIR.Expr, right: scalarIR.Expr): l
     return "f64"
 end
 
+----------------------------------------------------------------------------
+-- The opcode tables
+----------------------------------------------------------------------------
+
 --- A rewritten value: a vector where the expression varied with the loop index,
 --- and the scalar it already was where it did not.
 type rewrite.Value = lane.Expr | scalarIR.Expr
@@ -191,6 +199,10 @@ const rewrite.CORRECTED = {
     ["f32_max"] = {helper = "nupp_f32_max", arity = 2},
     ["f32_fma"] = {helper = "nupp_f32_fma", arity = 3},
 }
+
+----------------------------------------------------------------------------
+-- Deciding what varies
+----------------------------------------------------------------------------
 
 --- Whether an expression's value depends on which iteration this is.
 ---
@@ -238,6 +250,10 @@ function rewrite.varying(node: scalarIR.Expr, state: rewrite.State): boolean
 
     return false
 end
+
+----------------------------------------------------------------------------
+-- Values as vectors
+----------------------------------------------------------------------------
 
 --- Brings a uniform scalar to the element its gang carries it in.
 ---
@@ -515,6 +531,10 @@ expression = function(node: scalarIR.Expr, state: rewrite.State): rewrite.Value
     return rewrite.arithmetic(node, state)
 end
 
+----------------------------------------------------------------------------
+-- Widths and operators
+----------------------------------------------------------------------------
+
 --- The elementwise families: arithmetic, comparison, the explicitly fixed-width
 --- operations, the three corrected ones, bitwise work, and the closed math set.
 ---
@@ -748,6 +768,10 @@ function rewrite.expression(node: scalarIR.Expr, state: rewrite.State): rewrite.
     return expression(node, state)
 end
 
+----------------------------------------------------------------------------
+-- Masks
+----------------------------------------------------------------------------
+
 --- A lane-local binding: the name a mask takes in IR and in generated C.
 record rewrite.Binding
     kind: 'local'
@@ -889,6 +913,10 @@ function rewrite.activeMask(
 
     return rewrite.maskAnd(given, executing, source, state)
 end
+
+----------------------------------------------------------------------------
+-- Reads and speculation
+----------------------------------------------------------------------------
 
 --- Statement counterparts, and what a rewritten block is made of.
 type rewrite.Statement = any
@@ -1075,6 +1103,10 @@ function rewrite.containsContinue(statements: {any}): boolean
 
     return false
 end
+
+----------------------------------------------------------------------------
+-- Statements
+----------------------------------------------------------------------------
 
 --- Rewriting one block, and everything nested in it.
 ---
@@ -1383,6 +1415,10 @@ function rewrite.markVarying(statements: {any}, state: rewrite.State): nil
     end
 end
 
+----------------------------------------------------------------------------
+-- Expressions, once the shape is known
+----------------------------------------------------------------------------
+
 --- A uniform boolean, broadcast to every lane of the mask.
 function rewrite.boolMask(node: scalarIR.Expr, state: rewrite.State): lane.BoolSplat
     return new lane.BoolSplat(op = "vbool_splat", args = {node}, type = state.shape.mask, source = node.source)
@@ -1492,6 +1528,10 @@ function rewrite.inlineHelper(node: scalarIR.HelperCall, state: rewrite.State): 
 
     return values
 end
+
+----------------------------------------------------------------------------
+-- Lane statements
+----------------------------------------------------------------------------
 
 --- The lane form of one multiple binding.
 ---
@@ -1679,6 +1719,10 @@ local function markRetirementExit(statements: {any}): nil
 
     return nil
 end
+
+----------------------------------------------------------------------------
+-- Blocks and loops
+----------------------------------------------------------------------------
 
 --- Rewrites a block of statements to run several iterations at once.
 ---
@@ -1883,6 +1927,10 @@ function rewrite.loop(program: scalarIR.Program, shape: lane.Shape, reject: func
         rounded = state.rounded == true
     )
 end
+
+----------------------------------------------------------------------------
+-- Choosing a shape
+----------------------------------------------------------------------------
 
 --- What one attempt at a gang width came to.
 record rewrite.Attempt

@@ -15,6 +15,10 @@ local T = require("nupp.compiler.types")
 local generics = require("nupp.compiler.generics")
 local pegRe = require("nupp.compiler.materialize.pegre")
 
+----------------------------------------------------------------------------
+-- What a pattern is held as
+----------------------------------------------------------------------------
+
 type peg.Failure = {
     readonly code: string,
     readonly message: string,
@@ -95,6 +99,10 @@ local function definitionEntry(state, value)
 
     return nil
 end
+
+----------------------------------------------------------------------------
+-- Building a pattern
+----------------------------------------------------------------------------
 
 function peg.installEvaluator(state: any, env: any, newOpaque: any, provenance: any)
     local library = {}
@@ -489,6 +497,10 @@ function peg.operator(state: any, op: string, left: any, right: any, at: any): a
 
     return nil, failure("NUPP2417", "operator " .. op .. " is unavailable for PEG patterns")
 end
+
+----------------------------------------------------------------------------
+-- Analysing the graph
+----------------------------------------------------------------------------
 
 local function sameSignature(a, b)
     if #a ~= #b then
@@ -928,6 +940,10 @@ local function finalizeGraph(state, rootHandle, backend)
     }, nil
 end
 
+----------------------------------------------------------------------------
+-- Finishing a pattern
+----------------------------------------------------------------------------
+
 function peg.finalize(state: any, value: any): any, peg.Failure?
     local entry = state.opaque[value]
     if not entry or entry.provider ~= "peg" or entry.family ~= "Blueprint" then
@@ -1072,6 +1088,10 @@ local function validateEnvelope(envelope)
 
     return {nodes = nodes, root = root, result = result, slots = slots, backend = backend, general = general,}, nil
 end
+
+----------------------------------------------------------------------------
+-- The types a match produces
+----------------------------------------------------------------------------
 
 local function descriptorType(descriptor, actionReturns): T.Type?
     if descriptor == "integer" then
@@ -1280,6 +1300,10 @@ function peg.inferSourceResult(source: string, actions: T.Type?): T.Pack?, peg.F
 
     return finish(packOfResult(validated.result, returns), nil)
 end
+
+----------------------------------------------------------------------------
+-- Planning a search
+----------------------------------------------------------------------------
 
 local function singleResult(result, descriptor): boolean
     return result ~= "any" and #result == 1 and result[1] == descriptor
@@ -1793,6 +1817,10 @@ local function compilePlan(validated)
         captureful = hasCaptures(validated.root, {}),
     }
 end
+
+----------------------------------------------------------------------------
+-- Lowering
+----------------------------------------------------------------------------
 
 local function dataIR(value)
     if type(value) ~= "table" then
