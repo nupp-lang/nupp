@@ -25,6 +25,8 @@ local hash = require("nupp.compiler.build.hash")
 local cst = require("nupp.compiler.cst")
 local lexer = require("nupp.compiler.lexer")
 local emit = require("nupp.compiler.aot.emit")
+local gpuemit = require("nupp.compiler.aot.gpuemit")
+local gpuBinding = require("nupp.compiler.aot.gpubinding")
 local intensity = require("nupp.compiler.aot.intensity")
 local lower = require("nupp.compiler.aot.lower")
 local loopAnalysis = require("nupp.compiler.aot.loops")
@@ -83,6 +85,9 @@ record compile.Artifacts
 
     --- The Nupp module that stands in front of the compiled C.
     binding: string
+
+    --- Shader artifacts by logical program symbol. CPU programs have no entry.
+    gpu: {[string]: gpuemit.Artifact}
 
     --- Where each program's declaration was written, in the same order.
     sites: {compile.Site}
@@ -591,6 +596,7 @@ function compile.constSpecializations(
             irText = text.programs(programs),
             c = emit.program(programs, symbolTier),
             binding = "",
+            gpu = {},
             sites = {},
             constFamilies = families
         )
@@ -712,21 +718,6 @@ function compile.artifacts(
     if #diagnostics > 0 then
         return nil, diagnostics
     end
-    for position, program in ipairs(programs) do
-        if program.executionTarget == "gpu" then
-            local site = sites[position]
-            local line, column = sitePosition(source, site ~= nil and (site as compile.Site).from or 1)
-            return nil, {
-                new compile.Diagnostic(
-                    file = filename,
-                    line = line,
-                    column = column,
-                    message = "the native C backend does not consume @aot(target = \"gpu\")"
-                )
-            }
-        end
-    end
-
     local constArtifacts: compile.Artifacts? = nil
     if parsed ~= nil then
         local specialized, specializationDiagnostics = compile.constSpecializations(
@@ -753,21 +744,78 @@ function compile.artifacts(
 
     local optimizations: {aotOptimize.Stats} = {}
     local loopReports: {{loopAnalysis.Report}} = {}
+    local gpu: {[string]: gpuemit.Artifact} = {}
+    local cpuPrograms: {scalarIR.Program} = {}
+    local declaredModule = parsed ~= nil and cst.declaredModule((parsed as parser.ParseResult).root) ~= nil
     for position, program in ipairs(programs) do
         optimizations[position] = aotOptimize.program(program)
         -- Every optimized body is checked, whether or not lane lowering will
         -- later be requested or accepted. This also recomputes derived builder
         -- stack state cleared by the optimizer.
         verify.program(program)
-        compile.lanes(program, filename, selected)
+        if program.executionTarget == "gpu" then
+            if selected.triple:match("^wasm") then
+                local site = sites[position]
+                local line, column = sitePosition(source, site ~= nil and (site as compile.Site).from or 1)
+                return nil, {
+                    new compile.Diagnostic(
+                        file = filename,
+                        line = line,
+                        column = column,
+                        message = "the Wasm backend does not consume @aot(target = \"gpu\")"
+                    )
+                }
+            end
+            local ok, artifact = pcall(gpuemit.program, program)
+            if not ok then
+                local site = sites[position]
+                local line, column = sitePosition(source, site ~= nil and (site as compile.Site).from or 1)
+                return nil, {
+                    new compile.Diagnostic(
+                        file = filename,
+                        line = line,
+                        column = column,
+                        message = tostring(artifact):gsub("^.-:%d+: ", "")
+                    )
+                }
+            end
+            (artifact as gpuemit.Artifact).exportTypes = declaredModule
+            gpu[program.symbol] = artifact as gpuemit.Artifact
+        else
+            compile.lanes(program, filename, selected)
+            cpuPrograms[#cpuPrograms + 1] = program
+        end
         loopReports[position] = loopAnalysis.program(program)
     end
     if constArtifacts ~= nil then
         for position, program in ipairs((constArtifacts as compile.Artifacts).programs) do
+            if program.executionTarget == "gpu" then
+                return nil, {
+                    new compile.Diagnostic(
+                        file = filename,
+                        line = 1,
+                        column = 1,
+                        message = "const-specialized GPU kernels are not yet supported"
+                    )
+                }
+            end
             programs[#programs + 1] = program
+            cpuPrograms[#cpuPrograms + 1] = program
             optimizations[#optimizations + 1] = (constArtifacts as compile.Artifacts).optimizations[position]
             loopReports[#loopReports + 1] = (constArtifacts as compile.Artifacts).loops[position]
         end
+    end
+
+    local generatedGpuBindings: {string} = {}
+    for _, program in ipairs(programs) do
+        local artifact = gpu[program.symbol]
+        if artifact ~= nil then
+            generatedGpuBindings[#generatedGpuBindings + 1] = gpuBinding.replacement(program, artifact)
+        end
+    end
+    local generatedBinding = bindingRules.module(cpuPrograms, library)
+    if #cpuPrograms == 0 and #generatedGpuBindings > 0 then
+        generatedBinding = table.concat(generatedGpuBindings, "\n\n") .. "\n"
     end
 
     return new compile.Artifacts(
@@ -775,8 +823,9 @@ function compile.artifacts(
         optimizations = optimizations,
         loops = loopReports,
         irText = text.programs(programs),
-        c = emit.program(programs, symbolTier),
-        binding = bindingRules.module(programs, library),
+        c = emit.program(cpuPrograms, symbolTier),
+        binding = generatedBinding,
+        gpu = gpu,
         sites = sites,
         constFamilies = constArtifacts ~= nil and (constArtifacts as compile.Artifacts).constFamilies or nil
     ), diagnostics

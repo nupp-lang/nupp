@@ -138,6 +138,34 @@ local normalize, join = fs.normalize, fs.join
 local dirname, basename = fs.dirname, fs.basename
 local readFile, writeFile = fs.readFile, fs.writeFile
 local copyFile, listFiles = fs.copyFile, fs.listFiles
+
+local function mentionsGpuTarget(path: string): boolean
+    local source = fs.readFile(path)
+    return source ~= nil and (
+        source as string
+    ):find("@aot", 1, true) ~= nil and (source as string):match("target%s*=%s*[\"']gpu[\"']") ~= nil
+end
+
+--- A check does not enter the AOT phase that normally stages this runtime before
+--- checking. Look over the files it is about to check so CPU-only projects still
+--- neither stage nor inspect the GPU module.
+local function checkedTargetNeedsGpu(root: string, config: any, paths: {string}?): boolean
+    for _, path in ipairs(paths or {}) do
+        if mentionsGpuTarget(path) or mentionsGpuTarget(join(root, path)) then
+            return true
+        end
+    end
+    for _, directory in ipairs(config.include or {}) do
+        for _, path in ipairs(listFiles(join(root, directory))) do
+            if path:match("%.nupp$") ~= nil and mentionsGpuTarget(path) then
+                return true
+            end
+        end
+    end
+
+    return false
+end
+
 local stable, hashFile = cache.stable, cache.hashFile
 local loadState, saveState = cache.loadState, cache.saveState
 local toolFingerprint = cache.toolFingerprint
@@ -352,6 +380,9 @@ local function buildOne(root: string?, opts: project.BuildOptions?): integer
     -- check and was silently left uncompiled.
     for _, backendModule in ipairs(target.backends or {}) do
         session.stageBundled(backendModule)
+    end
+    if opts.checkOnly and target.aot == "require" and checkedTargetNeedsGpu(root, config, opts.paths) then
+        session.stageBundled("nupp.gpu")
     end
     local earlyBackend = backends.resolve(session.inc, target.backends)
     if earlyBackend ~= nil then

@@ -106,6 +106,7 @@ local RESOURCES = {
    {source = "src/nupp/profile/init.nupp", output = "nupp/compiler/nupp/profile/init.nupp"},
    {source = "src/nupp/mem/indexed.nupp", output = "nupp/compiler/nupp/mem/indexed.nupp"},
    {source = "src/nupp/mem/span.nupp", output = "nupp/compiler/nupp/mem/span.nupp"},
+   {source = "src/nupp/gpu.nupp", output = "nupp/compiler/nupp/gpu.nupp"},
    {source = "src/nupp/simd.nupp", output = "nupp/compiler/nupp/simd.nupp"},
    {source = "src/nupp/data/valuebuilder.nupp", output = "nupp/compiler/nupp/data/valuebuilder.nupp"},
    {source = "src/nupp/mem/heap.nupp", output = "nupp/compiler/nupp/mem/heap.nupp"},

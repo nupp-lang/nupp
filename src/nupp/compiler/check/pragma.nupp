@@ -14,8 +14,10 @@ through the chain to reach the declaration underneath.
 ]]
 
 local cst = require("nupp.compiler.cst")
+local generics = require("nupp.compiler.generics")
 local lints = require("nupp.compiler.lints")
 local state = require("nupp.compiler.check.state")
+local T = require("nupp.compiler.types")
 
 local pragma = {}
 
@@ -33,6 +35,148 @@ function pragma.install(c: state.Checker): state.StatHandlers
     local stringValue, nameText = marks.stringValue, marks.nameText
 
     local handlers = {}
+
+    local function nominalValue(value: T.Type?): T.Nominal?
+        if value ~= nil and (value.tag == "typeobject" or value.tag == "metatable") then
+            value = value.of
+        end
+        return value ~= nil and value.tag == "nominal" and value as T.Nominal or nil
+    end
+
+    local function spanElement(value: T.Type): T.Type?
+        if value.tag ~= "nominal" then
+            return nil
+        end
+        local nominal = value as T.Nominal
+        local origin = (nominal.origin or nominal) as T.Nominal
+        if origin.moduleName ~= "nupp.mem.span" then
+            return nil
+        end
+        if origin.name ~= "Span"
+            and origin.name ~= "WriteSpan"
+            and origin.name ~= "FixedSpan"
+            and origin.name ~= "FixedWriteSpan"
+        then
+            return nil
+        end
+
+        return nominal.typeArgs and nominal.typeArgs[1] or nil
+    end
+
+    -- The source checker sees the same typed object surface the linking overlay
+    -- will generate. The function body keeps its original signature on the CST,
+    -- which is what AOT lowering consumes; only the value bound to its name becomes
+    -- the kernel specification callers use.
+    local function bindGpuSpec(target: any, body: any): nil
+        local nameToken = target and target.name
+        local functionType = body and body.signatureType
+        if nameToken == nil or functionType == nil or functionType.tag ~= "func" then
+            return
+        end
+        local gpuModule = c.env and c.env.resolveModule and c.env.resolveModule(c.env, "nupp.gpu") or nil
+        local context = nominalValue(gpuModule and c.fieldType(gpuModule, "Context") or nil)
+        local buffer = nominalValue(gpuModule and c.fieldType(gpuModule, "Buffer") or nil)
+        if context == nil or buffer == nil or buffer.typeParams == nil or buffer.typeParams[1] == nil then
+            c.diag("NUPP2903", nameToken, "the GPU runtime types could not be resolved")
+            return
+        end
+
+        local suffix = nameToken.text .. "@" .. tostring(nameToken.offset or 0)
+        local spec = T.nominal("GpuSpec<" .. suffix .. ">", "record")
+        local kernel = T.nominal("GpuKernel<" .. suffix .. ">", "record")
+        local binding = T.nominal("GpuBinding<" .. suffix .. ">", "record")
+        local bindParams: {T.Type} = {kernel}
+        local bindModes: {string} = {"borrows"}
+        local bindNames: {string} = {"self"}
+        local uniformParams: {T.Type} = {binding}
+        local uniformModes: {string} = {"borrows"}
+        local uniformNames: {string} = {"self"}
+        for position, paramType in ipairs(functionType.params) do
+            local element = spanElement(paramType)
+            if element ~= nil then
+                local map: {[any]: any} = {[buffer.typeParams[1]] = element}
+                bindParams[#bindParams + 1] = generics.instantiate(buffer, map)
+                bindModes[#bindModes + 1] = "borrows"
+                bindNames[#bindNames + 1] = functionType.paramNames[position] or ""
+            else
+                uniformParams[#uniformParams + 1] = paramType
+                uniformModes[#uniformModes + 1] = "plain"
+                uniformNames[#uniformNames + 1] = functionType.paramNames[position] or ""
+            end
+        end
+        spec.byname.compile = T.func(
+            {spec, context},
+            {T.borrowed(kernel)},
+            false,
+            {"borrows", "borrows"},
+            nil,
+            nil,
+            nil,
+            2,
+            nil,
+            nil,
+            nil,
+            nil,
+            nil,
+            nil,
+            nil,
+            nil,
+            nil,
+            nil,
+            nil,
+            {"self", "context"}
+        )
+        kernel.byname.bind = T.func(
+            bindParams,
+            {T.borrowed(binding)},
+            false,
+            bindModes,
+            nil,
+            nil,
+            nil,
+            nil,
+            true,
+            nil,
+            nil,
+            nil,
+            nil,
+            nil,
+            nil,
+            nil,
+            nil,
+            nil,
+            nil,
+            bindNames
+        )
+        binding.byname.dispatch = T.func(
+            uniformParams,
+            {},
+            false,
+            uniformModes,
+            nil,
+            nil,
+            nil,
+            nil,
+            nil,
+            nil,
+            nil,
+            nil,
+            nil,
+            nil,
+            nil,
+            nil,
+            nil,
+            nil,
+            nil,
+            uniformNames
+        )
+        body.gpuSpecType = spec
+        c.bindVar(nameToken.text, spec)
+        if target.exported then
+            c.moduleFields[nameToken.text] = spec
+        end
+    end
+
     local RELAXATIONS = {
         ["function-identity"] = true,
         ["load-order"] = true,
@@ -237,6 +381,13 @@ function pragma.install(c: state.Checker): state.StatHandlers
                     -- A GPU map assigns one source iteration to one invocation;
                     -- CPU register gangs are a separate lowering and do not run.
                     targetBody.lanesDeclined = true
+                    if targetKind ~= "localFuncStmt" then
+                        c.diag(
+                            "NUPP2902",
+                            annotationName,
+                            "@aot(target = \"gpu\") currently requires a local function declaration"
+                        )
+                    end
                     if lanes ~= nil then
                         c.diag("NUPP2115", lanes, "@aot(target = \"gpu\") does not take a lanes override")
                     end
@@ -254,6 +405,14 @@ function pragma.install(c: state.Checker): state.StatHandlers
             -- Nupp is not an AOT problem.
             if valid and targetBody and targetBody.aotRequired then
                 c.aot.body(targetBody)
+                local selected = c.env.config and c.env.config._target or nil
+                if targetBody.aotTarget == "gpu"
+                    and targetKind == "localFuncStmt"
+                    and selected ~= nil
+                    and selected.aot == "require"
+                then
+                    bindGpuSpec(target, targetBody)
+                end
             end
             return
 

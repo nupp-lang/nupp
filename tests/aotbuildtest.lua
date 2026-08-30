@@ -5,7 +5,13 @@
 
 local test = require("assert")
 local aot = require("nupp.compiler.build.aot")
+local aotCompile = require("nupp.compiler.aot.compile")
 local aotEmitter = require("nupp.compiler.aot.emit")
+local compilerCheck = require("nupp.compiler.check")
+local diagnosticMod = require("nupp.compiler.diagnostics")
+local envMod = require("nupp.compiler.env")
+local parser = require("nupp.compiler.parser")
+local targets = require("nupp.compiler.aot.target")
 local wasmEmitter = require("nupp.compiler.aot.wasmemit")
 
 local HERE = assert(debug.getinfo(1, "S").source:match("^@(.*)[/\\]"))
@@ -785,6 +791,83 @@ end
 
 
 local M = {}
+
+function M.cpuOnlyAotDoesNotStageTheGpuRuntime()
+   local dir = freshBuiltFixture("require")
+   assert(
+      read(dir .. "/build/native/cache/backend-runtime-source/nupp/gpu.nupp") == nil,
+      "a CPU-only AOT target staged the SDL GPU runtime"
+   )
+end
+
+function M.gpuOverlayIsCheckedFromTheSameTypedShaderSchema()
+   local source = [[
+module gpuoverlay
+
+local span = require("nupp.mem.span")
+
+local struct Input value: float end
+local struct Output value: float end
+
+@aot(target = "gpu")
+local function convert(
+    exclusive output: span.WriteSpan<Output>,
+    borrows input: span.Span<Input>,
+    scale: float
+): nil
+    if #output ~= #input then error("length mismatch", 2) end
+    for i = 1, #output do
+        output[i].value = input[i].value * scale
+    end
+end
+
+export const kernel = convert
+]]
+   local environment = envMod.new(HERE .. "/..")
+   local tree = parser.parse(source, "gpuoverlay.nupp")
+   local checked = compilerCheck.check(tree, "gpuoverlay.nupp", environment)
+   for _, problem in ipairs(checked) do
+      assert(not diagnosticMod.isFatal(problem), problem.msg or problem.message)
+   end
+   local selected = assert(targets.select(nil, nil))
+   local artifacts, problems = aotCompile.artifacts(
+      source, "gpuoverlay.nupp", tree, "<object>", selected
+   )
+   assert(artifacts, problems[1] and aotCompile.renderDiagnostic(problems[1]))
+   local rewritten = aot.dispatch(
+      source,
+      artifacts.programs,
+      artifacts.sites,
+      artifacts.gpu,
+      nil,
+      nil,
+      artifacts.constFamilies
+   )
+   assert(rewritten:find("Buffer<Output>", 1, true), rewritten)
+   assert(rewritten:find("Buffer<Input>", 1, true), rewritten)
+   assert(rewritten:find("scale: float", 1, true), rewritten)
+   assert(rewritten:find('"ks_convert_gpu"', 1, true), rewritten)
+   assert(rewritten:find("export record GpuSpec", 1, true), rewritten)
+
+   local generatedTree = parser.parse(rewritten, "gpuoverlay.nupp")
+   assert(#generatedTree.errors == 0, generatedTree.errors[1] and generatedTree.errors[1].msg)
+   local generatedDiagnostics = compilerCheck.check(
+      generatedTree, "gpuoverlay.nupp", envMod.new(HERE .. "/..")
+   )
+   local generatedLines = {}
+   for line in (rewritten .. "\n"):gmatch("(.-)\n") do generatedLines[#generatedLines + 1] = line end
+   for _, problem in ipairs(generatedDiagnostics) do
+      assert(
+         not diagnosticMod.isFatal(problem),
+         ("%s:%s: %s\n%s"):format(
+            tostring(problem.line),
+            tostring(problem.col),
+            problem.msg or problem.message,
+            generatedLines[problem.line or 0] or ""
+         )
+      )
+   end
+end
 
 function M.theDefaultPolicyEmitsNothing()
    local dir = project(nil)

@@ -32,6 +32,7 @@ to.
 ]]
 
 local bindingRules = require("nupp.compiler.aot.binding")
+local gpuBinding = require("nupp.compiler.aot.gpubinding")
 local wasmBinding = require("nupp.compiler.aot.wasmbinding")
 local wasmEmitter = require("nupp.compiler.aot.wasmemit")
 local compile = require("nupp.compiler.aot.compile")
@@ -385,6 +386,14 @@ local function mentionsAot(text: string): boolean
     return text:find("@aot", 1, true) ~= nil
 end
 
+--- Whether source may need the compiler-carried GPU runtime while it is checked.
+--- Allowed to answer yes for a comment or string, like `mentionsAot`; a false
+--- positive stages one unused source file, while a false negative makes a real GPU
+--- declaration impossible to type.
+local function mentionsGpuTarget(text: string): boolean
+    return mentionsAot(text) and text:match("target%s*=%s*[\"']gpu[\"']") ~= nil
+end
+
 --- One source's checked tree, or nothing when there is no sound one to lower.
 ---
 --- The tree the checker produced rather than a fresh parse of the same bytes.
@@ -538,36 +547,45 @@ function aot.dispatch(
     source: string,
     programs: {scalarIR.Program},
     sites: {compile.Site},
-    library: string,
+    gpuArtifacts: {[string]: any},
+    library: string?,
     tiers: {string}?,
     constFamilies: {any}?
 ): string
     local rewritten = source
     local replacements: {any} = {}
     local detectorAt: integer? = nil
-    for _, site in ipairs(sites) do
-        detectorAt = detectorAt == nil and site.from or math.min(detectorAt as integer, site.from)
+    for position, site in ipairs(sites) do
+        if programs[position] ~= nil and programs[position].executionTarget ~= "gpu" then
+            detectorAt = detectorAt == nil and site.from or math.min(detectorAt as integer, site.from)
+        end
     end
     for _, family in ipairs(constFamilies or {}) do
         detectorAt = detectorAt == nil and family.site.from or math.min(detectorAt as integer, family.site.from)
     end
     for _, family in ipairs(constFamilies or {}) do
+        assert(library ~= nil, "const AOT family has no linked library")
         replacements[
             #replacements + 1
         ] = {
             site = family.site,
-            text = bindingRules.familyReplacement(family, library, tiers, family.site.from == detectorAt),
+            text = bindingRules.familyReplacement(family, library as string, tiers, family.site.from == detectorAt),
         }
     end
     for position = 1, #programs do
         local site = sites[position]
         if site ~= nil then
-            replacements[
-                #replacements + 1
-            ] = {
-                site = site,
-                text = bindingRules.replacement(programs[position], library, tiers, site.from == detectorAt),
-            }
+            local program = programs[position]
+            local replacement: string
+            if program.executionTarget == "gpu" then
+                local artifact = gpuArtifacts[program.symbol]
+                assert(artifact ~= nil, "GPU program has no emitted shader")
+                replacement = gpuBinding.replacement(program, artifact)
+            else
+                assert(library ~= nil, "CPU AOT program has no linked library")
+                replacement = bindingRules.replacement(program, library as string, tiers, site.from == detectorAt)
+            end
+            replacements[#replacements + 1] = {site = site, text = replacement,}
         end
     end
     table.sort(replacements, function(a, b): boolean
@@ -926,14 +944,15 @@ function aot.emitC(
     session: nupp.compiler.build.modules.Session,
     features: string?,
     triple: string?
-): ({aot.Emitted}?, string?, {[string]: compile.Artifacts}, {[string]: {any}}, any?)
+): ({aot.Emitted}?, string?, {[string]: compile.Artifacts}, {[string]: {any}}, any?, {string})
     local produced: {[string]: compile.Artifacts} = {}
+    local gpuSources: {string} = {}
     -- Kept for every source read here, and used only for the ones that end up
     -- rewritten, since only those are checked again as something else.
     local authoredUnused: {[string]: {any}} = {}
     local selected, targetErr = targets.buildTiers(triple, features)
     if selected == nil then
-        return nil, tostring(targetErr), produced, authoredUnused
+        return nil, tostring(targetErr), produced, authoredUnused, nil, gpuSources
     end
 
     local emitted: {aot.Emitted} = {}
@@ -949,28 +968,38 @@ function aot.emitC(
                 seen[source] = true
                 local text = fs.readFile(source)
                 if text ~= nil then
-                    local checkedSource, unusedHere = checkedTree(session, source)
-                    if checkedSource ~= nil then
-                        sources[#sources + 1] = source
-                        sourceText[source] = text as string
-                        sourceDirectory[source] = directory
-                        checkedBySource[source] = checkedSource as nupp.compiler.parser.ParseResult
-                        checkedModules[
-                            #checkedModules + 1
-                        ] = {
-                            filename = source,
-                            module = envMod.moduleNameForPath(session.inc.env, source),
-                            result = checkedSource,
-                        }
-                        if mentionsAot(text as string) then
-                            authoredUnused[source] = unusedHere
-                        end
-                    end
+                    sources[#sources + 1] = source
+                    sourceText[source] = text as string
+                    sourceDirectory[source] = directory
                 end
             end
         end
     end
     table.sort(sources)
+    local selectedPolicy = session.inc.env.config._target and session.inc.env.config._target.aot or nil
+    if selectedPolicy == "require" then
+        for _, source in ipairs(sources) do
+            if mentionsGpuTarget(sourceText[source] as string) then
+                session.stageBundled("nupp.gpu")
+                break
+            end
+        end
+    end
+    local checkedSources: {string} = {}
+    for _, source in ipairs(sources) do
+        local checkedSource, unusedHere = checkedTree(session, source)
+        if checkedSource ~= nil then
+            checkedSources[#checkedSources + 1] = source
+            checkedBySource[source] = checkedSource as nupp.compiler.parser.ParseResult
+            checkedModules[
+                #checkedModules + 1
+            ] = {filename = source, module = envMod.moduleNameForPath(session.inc.env, source), result = checkedSource,}
+            if mentionsAot(sourceText[source] as string) then
+                authoredUnused[source] = unusedHere
+            end
+        end
+    end
+    sources = checkedSources
     local constPlans = constspecialize.collectGraph(checkedModules)
     local acceptedConst, declinedConst = constspecialize.selectGraph(constPlans)
     local constSelection = {accepted = acceptedConst, declined = declinedConst, plans = constPlans,}
@@ -995,10 +1024,27 @@ function aot.emitC(
                     -- source, so only the first can discover that case.
                     local first = diagnostics[1]
                     if first ~= nil and first.message ~= "no @aot function was found" then
-                        return nil, compile.renderDiagnostic(first), produced, authoredUnused
+                        return nil, compile.renderDiagnostic(
+                            first
+                        ), produced, authoredUnused, constSelection, gpuSources
                     end
                     break
                 else
+                    local cpuFunctions: integer = 0
+                    for _, program in ipairs((artifacts as compile.Artifacts).programs) do
+                        if program.executionTarget ~= "gpu" then
+                            cpuFunctions = cpuFunctions + 1
+                        end
+                    end
+                    if tierPosition == 1 then
+                        produced[source] = artifacts as compile.Artifacts
+                        if next((artifacts as compile.Artifacts).gpu) ~= nil then
+                            gpuSources[#gpuSources + 1] = source
+                        end
+                    end
+                    if cpuFunctions == 0 then
+                        break
+                    end
                     -- Where the generated C goes, which has to be
                     -- under `outDir` for every source the project
                     -- reaches, including the ones it reaches by
@@ -1038,7 +1084,7 @@ function aot.emitC(
                     if not reused then
                         local ok, err = fs.writeFile(output, artifacts.c)
                         if not ok then
-                            return nil, tostring(err), produced, authoredUnused
+                            return nil, tostring(err), produced, authoredUnused, constSelection, gpuSources
                         end
                     end
                     emitted[
@@ -1048,15 +1094,10 @@ function aot.emitC(
                         tier = tierTarget.tier,
                         cacheKey = cacheKey,
                         output = output,
-                        functions = #artifacts.programs,
+                        functions = cpuFunctions,
                         key = key
                     )
                     produced[cacheKey] = artifacts as compile.Artifacts
-                    if tierPosition == 1 then
-                        -- Wrappers have one logical program and bind it
-                        -- to the physical entries every tier exported.
-                        produced[source] = artifacts as compile.Artifacts
-                    end
                 end
             end
         end
@@ -1078,7 +1119,7 @@ function aot.emitC(
         if previous[cacheKey] ~= key or fs.readFile(output) ~= detector then
             local ok, err = fs.writeFile(output, detector)
             if not ok then
-                return nil, tostring(err), produced, authoredUnused
+                return nil, tostring(err), produced, authoredUnused, constSelection, gpuSources
             end
         end
         emitted[
@@ -1094,7 +1135,7 @@ function aot.emitC(
         )
     end
 
-    return emitted, nil, produced, authoredUnused, constSelection
+    return emitted, nil, produced, authoredUnused, constSelection, gpuSources
 end
 
 --- What one build of the policy produced.
@@ -1203,7 +1244,7 @@ function aot.apply(
         triple = "wasm32-unknown-emscripten"
         features = features or "scalar"
     end
-    local emitted, emitErr, produced, authoredUnused, constSelection = aot.emitC(
+    local emitted, emitErr, produced, authoredUnused, constSelection, gpuSources = aot.emitC(
         root,
         outDir,
         roots,
@@ -1286,11 +1327,39 @@ function aot.apply(
             constSelection = constSelection
         ), nil
     end
-    if not aot.linksNative(policy) or #(emitted as {aot.Emitted}) == 0 then
+    if not aot.linksNative(policy) then
         return new aot.Result(
             emitted = emitted as {aot.Emitted},
             manifest = manifest,
             dispatch = {},
+            specializedBodies = specializedBodies,
+            constSelection = constSelection
+        ), nil
+    end
+    if #(emitted as {aot.Emitted}) == 0 then
+        local dispatch: {[string]: string} = {}
+        for _, sourcePath in ipairs(gpuSources) do
+            local artifacts = produced[sourcePath]
+            local source = fs.readFile(sourcePath)
+            if artifacts ~= nil and source ~= nil then
+                dispatch[
+                    sourcePath
+                ] = aot.dispatch(
+                    source as string,
+                    (artifacts as compile.Artifacts).programs,
+                    (artifacts as compile.Artifacts).sites,
+                    (artifacts as compile.Artifacts).gpu,
+                    nil,
+                    nil,
+                    (artifacts as compile.Artifacts).constFamilies
+                )
+            end
+        end
+        return new aot.Result(
+            emitted = emitted as {aot.Emitted},
+            manifest = manifest,
+            dispatch = dispatch,
+            authoredUnused = authoredUnused,
             specializedBodies = specializedBodies,
             constSelection = constSelection
         ), nil
@@ -1352,17 +1421,31 @@ function aot.apply(
         tierNames[#tierNames + 1] = tierTarget.tier
     end
     local dispatched: {[string]: boolean} = {}
+    local dispatchSources: {string} = {}
     for _, one in ipairs(emitted as {aot.Emitted}) do
-        local artifacts = produced[one.source]
-        local text = fs.readFile(one.source)
-        if not dispatched[one.source] and artifacts ~= nil and text ~= nil then
+        if not dispatched[one.source] then
             dispatched[one.source] = true
+            dispatchSources[#dispatchSources + 1] = one.source
+        end
+    end
+    for _, sourcePath in ipairs(gpuSources) do
+        if not dispatched[sourcePath] then
+            dispatched[sourcePath] = true
+            dispatchSources[#dispatchSources + 1] = sourcePath
+        end
+    end
+    table.sort(dispatchSources)
+    for _, sourcePath in ipairs(dispatchSources) do
+        local artifacts = produced[sourcePath]
+        local source = fs.readFile(sourcePath)
+        if artifacts ~= nil and source ~= nil then
             dispatch[
-                one.source
+                sourcePath
             ] = aot.dispatch(
-                text as string,
+                source as string,
                 (artifacts as compile.Artifacts).programs,
                 (artifacts as compile.Artifacts).sites,
+                (artifacts as compile.Artifacts).gpu,
                 reference,
                 tierNames,
                 (artifacts as compile.Artifacts).constFamilies

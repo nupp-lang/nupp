@@ -7,7 +7,7 @@ Two questions, and they are asked for different reasons.
 
 The first is what the backend actually did. An `@aot` body is compiled somewhere
 a reader cannot see, so `--emit ir` shows the verified IR, `--emit c` shows the
-generated C, `--emit asm` shows the instructions that C became, and
+generated C, `--emit msl` shows a GPU shader, `--emit asm` shows the instructions that C became, and
 `--emit binding` shows the module that stands in front of it. Reading the C is
 how you tell a mask stack from a branch, and how you check that the loop you
 thought was register-resident is.
@@ -52,8 +52,8 @@ local function aotOptions(): {any}
         name = "--emit",
         key = "emit",
         value = "ARTIFACT",
-        choices = {"ir", "c", "asm", "binding"},
-        help = "Print one artifact: ir, c, asm, or binding",
+        choices = {"ir", "c", "msl", "asm", "binding"},
+        help = "Print one artifact: ir, c, msl, asm, or binding",
     }
     list[
         #list + 1
@@ -102,7 +102,7 @@ local command = spec.command{
     name = "aot",
     summary = "Show what the @aot functions in a file compile to",
     usage = {
-        "nupp aot [--emit ir|c|asm|binding] [--check] [--function NAME] "
+        "nupp aot [--emit ir|c|msl|asm|binding] [--check] [--function NAME] "
         .. "[--target TRIPLE] [--features TIER] <file>",
     },
     intro = "Reports what the ahead-of-time backend produces for one file, without writing it. "
@@ -223,6 +223,7 @@ local command = spec.command{
             },
             ir = {type = "string"},
             c = {type = "string"},
+            msl = {type = "string"},
             binding = {type = "string"},
             asm = {
                 type = "object",
@@ -519,6 +520,21 @@ local function run(parsed: any): integer
     end
 
     local emit = parsed.values.emit
+    local mslParts: {string} = {}
+    for _, program in ipairs(artifacts.programs) do
+        local artifact = artifacts.gpu[program.symbol]
+        local selectedFunction = parsed.values["function"]
+        if artifact ~= nil and (
+            selectedFunction == nil or selectedFunction == program.name or selectedFunction == program.symbol
+        ) then
+            mslParts[#mslParts + 1] = artifact.source
+        end
+    end
+    local msl = table.concat(mslParts, "\n")
+    if emit == "msl" and #mslParts == 0 then
+        io.stderr:write("nupp: no GPU function matched --emit msl\n")
+        return 1
+    end
     local refused = false
     -- Compiled once, before either branch prints: producing it runs a C
     -- compiler, so it happens when it was asked for and never as a side effect
@@ -581,6 +597,7 @@ local function run(parsed: any): integer
                 functions = functions,
                 ir = (emit == nil or emit == "ir") and artifacts.irText or nil,
                 c = (emit == nil or emit == "c") and artifacts.c or nil,
+                msl = emit == "msl" and msl or nil,
                 binding = (emit == nil or emit == "binding") and artifacts.binding or nil,
                 asm = instructionReport,
             }) .. "\n"
@@ -589,6 +606,8 @@ local function run(parsed: any): integer
         io.write(artifacts.irText)
     elseif emit == "c" then
         io.write(artifacts.c)
+    elseif emit == "msl" then
+        io.write(msl)
     elseif emit == "asm" then
         io.write(
             (

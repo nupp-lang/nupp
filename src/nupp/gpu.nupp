@@ -10,21 +10,25 @@ is live. Uploads, dispatches, and downloads only enqueue commands;
 
 ```nupp
 local gpu = require("nupp.gpu")
-local heap = require("nupp.mem.heap")
+local kernels = require("kernels")
+local ffi = require("nupp.runtime.native").ffi
 
 local context = gpu.open()
 local input = context:buffer(ffi.typeof<float>(), 1024)
 local output = context:buffer(ffi.typeof<float>(), 1024)
+local scale = kernels.scale:compile(context):bind(output, input)
 context:upload(input, values:read())
-context:dispatch(kernel, input, output, uniforms, 1024)
+scale:dispatch(2.0)
 context:enqueueDownload(output)
 context:synchronize()
 context:readDownloaded(output, result:write())
 ```
 
-Ordinary spans remain the CPU boundary. A chain of GPU kernels keeps its
-intermediate buffers resident and pays upload/download only where the program
-asks for them.
+Here `kernels.scale` is generated from an `@aot(target = "gpu")` function by a
+target with `aot = "require"`. Shader source, entrypoint identity, binding order
+and uniform packing remain compiler details. Ordinary spans are the CPU
+boundary; a chain of kernels keeps its intermediate buffers resident and pays
+upload/download only where the program asks for them.
 ]]
 
 local native = require("nupp.runtime.native")
@@ -82,11 +86,31 @@ record gpu.Buffer<T>
 end
 
 --- One compiled compute entry owned by its context.
---- @export
+--- @internal
 record gpu.Kernel
     private readonly _anchor: any
     private readonly _handle: any
     private readonly _uniformBytes: integer
+end
+
+--- A compiler-generated kernel attached to its resident buffers. User source
+--- receives a more specific generated wrapper; this erased value is the shared
+--- runtime implementation underneath it.
+--- @internal
+record gpu.Binding
+    private readonly _anchor: any
+    private readonly _context: any
+    private readonly _kernel: any
+    private readonly _input: any
+    private readonly _output: any
+    private readonly _uniformBytes: integer
+
+    --- Number of elements dispatched by this binding.
+    readonly count: integer
+
+    --- Enqueues the binding with a compiler-laid-out uniform block.
+    --- @internal
+    dispatchPacked: function(borrows self: Binding, uniforms: any, uniformBytes: integer): nil
 end
 
 sealed interface gpu.ContextToken
@@ -114,29 +138,30 @@ record gpu.Context is gpu.ContextToken
     --- Allocates a typed resident device buffer.
     buffer: function<T>(borrows self: Context, element: ctype<T>, count: integer): gpu.Buffer<T> borrows (self)
 
-    --- Compiles one MSL compute entry. The current narrow AOT GPU subset emits
-    --- one read buffer, one write buffer, and one optional uniform block.
-    kernel: function(
+    --- Compiles metadata emitted beside an `@aot(target = "gpu")` body.
+    --- @internal
+    compileGenerated: function(
         borrows self: Context,
         source: string,
         entrypoint: string,
+        readonlyBuffers: integer,
+        writableBuffers: integer,
         uniformBytes: integer,
         threads: integer?
     ): gpu.Kernel borrows (self)
 
-    --- Copies a complete shared span into a resident buffer and enqueues its
-    --- transfer. It does not wait.
-    upload: function<T>(borrows self: Context, borrows buffer: gpu.Buffer<T>, borrows source: span.Span<T>): nil
-
-    --- Enqueues one generated map kernel without waiting.
-    dispatch: function<I, O>(
+    --- Attaches the current one-read/one-write generated kernel to buffers.
+    --- @internal
+    bindGenerated: function<I, O>(
         borrows self: Context,
         borrows kernel: gpu.Kernel,
         borrows input: gpu.Buffer<I>,
-        borrows output: gpu.Buffer<O>,
-        uniforms: string,
-        count: integer
-    ): nil
+        borrows output: gpu.Buffer<O>
+    ): gpu.Binding borrows (self)
+
+    --- Copies a complete shared span into a resident buffer and enqueues its
+    --- transfer. It does not wait.
+    upload: function<T>(borrows self: Context, borrows buffer: gpu.Buffer<T>, borrows source: span.Span<T>): nil
 
     --- Enqueues a complete resident-buffer download without waiting.
     enqueueDownload: function<T>(borrows self: Context, borrows buffer: gpu.Buffer<T>): nil
@@ -224,14 +249,19 @@ function gpu.Context.buffer<T>(
     return new gpu.Buffer(_anchor = self, _handle = handle, _width = width, count = count)
 end
 
-function gpu.Context.kernel(
+function gpu.Context.compileGenerated(
     borrows self: gpu.Context,
     source: string,
     entrypoint: string,
+    readonlyBuffers: integer,
+    writableBuffers: integer,
     uniformBytes: integer,
     threads: integer?
 ): gpu.Kernel borrows (self)
     local group = threads or 256
+    if readonlyBuffers ~= 1 or writableBuffers ~= 1 then
+        error("nupp: generated GPU kernels currently require one read and one write buffer", 2)
+    end
     if uniformBytes < 0 or uniformBytes > 128 then
         error("nupp: GPU uniform block must be from 0 through 128 bytes", 2)
     end
@@ -244,8 +274,8 @@ function gpu.Context.kernel(
         #source,
         entrypoint,
         #entrypoint,
-        1,
-        1,
+        readonlyBuffers,
+        writableBuffers,
         uniformBytes,
         group
     )
@@ -254,6 +284,45 @@ function gpu.Context.kernel(
     end
 
     return new gpu.Kernel(_anchor = self, _handle = handle, _uniformBytes = uniformBytes)
+end
+
+function gpu.Context.bindGenerated<I, O>(
+    borrows self: gpu.Context,
+    borrows kernel: gpu.Kernel,
+    borrows input: gpu.Buffer<I>,
+    borrows output: gpu.Buffer<O>
+): gpu.Binding borrows (self)
+    if input.count ~= output.count then
+        error("nupp: generated GPU buffer lengths do not agree", 2)
+    end
+    return new gpu.Binding(
+        _anchor = self,
+        _context = live(self),
+        _kernel = kernel._handle,
+        _input = input._handle,
+        _output = output._handle,
+        _uniformBytes = kernel._uniformBytes,
+        count = input.count
+    )
+end
+
+function gpu.Binding.dispatchPacked(borrows self: gpu.Binding, uniforms: any, uniformBytes: integer): nil
+    if uniformBytes ~= self._uniformBytes then
+        error("nupp: generated GPU uniform block has the wrong size", 2)
+    end
+    local uniformPointer = ffi.cast<const uint8[?]>(uniforms)
+    succeeded(
+        dispatchNative(
+            self._context,
+            self._kernel,
+            self._input,
+            self._output,
+            uniformPointer,
+            uniformBytes,
+            self.count
+        ),
+        2
+    )
 end
 
 function gpu.Context.upload<T>(
@@ -266,27 +335,6 @@ function gpu.Context.upload<T>(
     end
     local pointer, count = source:ref()
     succeeded(uploadTyped(live(self), buffer._handle, pointer, buffer._width * count), 2)
-end
-
-function gpu.Context.dispatch<I, O>(
-    borrows self: gpu.Context,
-    borrows kernel: gpu.Kernel,
-    borrows input: gpu.Buffer<I>,
-    borrows output: gpu.Buffer<O>,
-    uniforms: string,
-    count: integer
-): nil
-    if count < 0 or count > input.count or count > output.count then
-        error("nupp: GPU dispatch count is outside its buffers", 2)
-    end
-    if #uniforms ~= kernel._uniformBytes then
-        error("nupp: GPU dispatch uniform block has the wrong size", 2)
-    end
-    local uniformPointer = ffi.cast<const uint8[?]>(uniforms)
-    succeeded(
-        dispatchNative(live(self), kernel._handle, input._handle, output._handle, uniformPointer, #uniforms, count),
-        2
-    )
 end
 
 function gpu.Context.enqueueDownload<T>(borrows self: gpu.Context, borrows buffer: gpu.Buffer<T>): nil
@@ -333,6 +381,7 @@ end
 
 gpu.Buffer = gpu.Buffer
 gpu.Kernel = gpu.Kernel
+gpu.Binding = gpu.Binding
 gpu.Context = gpu.Context
 gpu.ContextToken = gpu.ContextToken
 

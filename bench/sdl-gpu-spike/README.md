@@ -1,11 +1,16 @@
 # SDL GPU and native-runtime spike
 
-This is implementation evidence, not a proposal or a supported backend.
+This is implementation and performance evidence for the SDL GPU backend.
 
-The GPU path starts with an ordinary checked `@aot` function in `heavy.nupp`.
-`generate-msl.lua` consumes the existing verified scalar IR and admits only a
-fixed-width map subset. `nupp.gpu` compiles that shader through SDL GPU and
-keeps its typed buffers resident until an explicit download.
+The GPU path starts with an ordinary checked `@aot` function in
+`typed/heavy.nupp`.
+The compiler consumes its verified scalar IR, emits MSL, and replaces the
+declaration under `aot = "require"` with a generated typed specification. The
+host compiles it with `kernel = heavy:compile(context)`, binds resident buffers
+with `invocation = kernel:bind(output, input)`, and dispatches only the scalar
+uniforms. Shader text, entrypoint names, buffer slots, and FFI uniform packing
+do not appear in user code. `nupp.gpu` keeps the typed buffers resident until an
+explicit download.
 
 On an Apple Silicon Mac with SDL 3.4.14's official framework, 1,048,576 results
 from the generated kernel agreed with the CPU. A separate transfer-inclusive
@@ -20,11 +25,12 @@ benchmark found this crossover:
 
 The timings include upload, command submission, a synchronous fence wait, and
 download. Creating the Metal device and compiling two source shaders took
-58.4 ms. Production artifacts should carry precompiled shaders and cache the
-device, pipelines, and buffers.
+58.4 ms. Applications should cache the device, generated kernel object, and
+buffers.
 
 `run-mandelbrot.sh` runs the existing `bench/simd-mandelbrot` harness and then
-the public-shaped `nupp.gpu` path instead of defining a friendlier GPU workload.
+the compiler-generated `nupp.gpu` path instead of defining a friendlier GPU
+workload.
 They use the same precomputed 1024x768 binary32 point array, 256-iteration
 limit, structs, checksum, full per-pixel comparison, warmups, one-second timing
 windows, and output format. The timed GPU call dispatches already-resident
@@ -35,10 +41,10 @@ One Apple Silicon run with SDL 3.4.14 measured:
 
 | implementation | ns/frame | MPix/s |
 | --- | ---: | ---: |
-| Nupp f32x8 | 3,905,448 | 201.37 |
-| Nupp f32x4 | 4,947,620 | 158.95 |
-| Nupp scalar | 12,798,847 | 61.45 |
-| SDL GPU resident API | 378,246 | 2,079.16 |
+| Nupp f32x8 | 4,070,520 | 193.20 |
+| Nupp f32x4 | 5,052,929 | 155.64 |
+| Nupp scalar | 12,970,808 | 60.63 |
+| SDL GPU generated binding | 387,508 | 2,029.46 |
 
 All 786,432 GPU records agreed exactly with Nupp's scalar body and produced
 checksum `46372998`. Metal enables contraction when it compiles source by

@@ -1,15 +1,15 @@
 -- Exercise nupp.gpu at the same point-array boundary as simd-mandelbrot.
 local ffi = require("ffi")
 local span = require("nupp.mem.span")
+local generated = require("mandelbrot")
+local gpu = require("nupp.gpu")
 
 local here = assert(debug.getinfo(1, "S").source:match("^@(.*[/\\])"))
-local gpu = assert(loadfile(here .. "build/mandelbrot/api/gpu.lua"))()
 local now = dofile(here .. "../simd-mandelbrot/clock.lua")
 
 ffi.cdef [[
 typedef struct { int32_t iterations; uint32_t escaped; } KsEscape;
 typedef struct { float re; float im; } KsPoint;
-typedef struct { uint32_t count; int32_t max_iterations; } KsUniforms;
 ]]
 
 local function read(path)
@@ -19,12 +19,10 @@ local function read(path)
     return value
 end
 
-local shaderPath = assert(arg[1], "usage: mandelbrot-api.lua SHADER.msl EXPECTED.bin")
-local expectedPath = assert(arg[2], "usage: mandelbrot-api.lua SHADER.msl EXPECTED.bin")
+local expectedPath = assert(arg[1], "usage: mandelbrot-api.lua EXPECTED.bin")
 local width = tonumber(os.getenv("MANDELBROT_WIDTH") or 1024)
 local height = tonumber(os.getenv("MANDELBROT_HEIGHT") or 768)
 local maxIterations = tonumber(os.getenv("MANDELBROT_ITERATIONS") or 256)
-local threads = tonumber(os.getenv("MANDELBROT_GPU_THREADS") or 256)
 local count = width * height
 
 local points = ffi.new("KsPoint[?]", count)
@@ -46,20 +44,17 @@ for y = 0, height - 1 do
 end
 
 local output = ffi.new("KsEscape[?]", count)
-local uniforms = ffi.new("KsUniforms[1]", {{count, maxIterations}})
 local context = gpu.open()
 local pointBuffer = context:buffer(ffi.typeof("KsPoint"), count)
 local escapeBuffer = context:buffer(ffi.typeof("KsEscape"), count)
-local kernel = context:kernel(
-    read(shaderPath), "ks_mandelbrot_gpu", ffi.sizeof("KsUniforms"), threads
-)
-local uniformBytes = ffi.string(uniforms, ffi.sizeof(uniforms))
+local kernel = generated.mandelbrot:compile(context)
+local invocation = kernel:bind(escapeBuffer, pointBuffer)
 
 context:upload(pointBuffer, span.fromCarray(points, count))
 context:synchronize()
 
 local function dispatch()
-    context:dispatch(kernel, pointBuffer, escapeBuffer, uniformBytes, count)
+    invocation:dispatch(maxIterations)
     context:synchronize()
 end
 

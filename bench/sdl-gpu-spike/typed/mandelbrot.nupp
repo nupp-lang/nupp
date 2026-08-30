@@ -1,21 +1,23 @@
+module mandelbrot
+
 -- The same binary32 point-batch as bench/simd-mandelbrot, expressed as a
 -- whole-span map because one GPU dispatch covers the complete input.
 local span = require("nupp.mem.span")
 
-local struct Point
+local struct PointValue
     re: float
     im: float
 end
 
-local struct Escape
+local struct EscapeValue
     iterations: int32
     escaped: uint32
 end
 
 @aot(target = "gpu")
-local function mandelbrot(
-    exclusive escapes: span.WriteSpan<Escape>,
-    borrows points: span.Span<Point>,
+local function generatedMandelbrot(
+    exclusive escapes: span.WriteSpan<EscapeValue>,
+    borrows points: span.Span<PointValue>,
     maxIterations: int32
 ): nil
     if #escapes ~= #points then
@@ -73,4 +75,6 @@ local function mandelbrot(
     end
 end
 
-return {mandelbrot = mandelbrot, Point = Point, Escape = Escape,}
+export type Point = PointValue
+export type Escape = EscapeValue
+export const mandelbrot = generatedMandelbrot

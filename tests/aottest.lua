@@ -17,6 +17,9 @@ local HERE = assert(debug.getinfo(1, "S").source:match("^@(.*)[/\\]"))
 -- One environment for the whole suite: every case checks against one built
 -- exactly this way, and building one means checking the prelude from source.
 local sharedEnv = envMod.new(HERE .. "/..")
+local gpuEnv = envMod.new(HERE .. "/..", {
+   config = {include = {"src"}, _target = {aot = "require"}},
+})
 
 local M = {}
 
@@ -42,6 +45,18 @@ end
 --- Asserts that `source` reports `want` and nothing else.
 local function reports(source, want, label)
    assertEq(codesOf(source), want, label)
+end
+
+local function reportsGpu(source, want, label)
+   local result = parser.parse(source, "test.nupp")
+   if #result.errors > 0 then
+      error("syntax: " .. (result.errors[1].message or result.errors[1].msg), 2)
+   end
+   local out = {}
+   for _, diagnostic in ipairs(check.check(result, "test.nupp", gpuEnv)) do
+      out[#out + 1] = diagnostic.code
+   end
+   assertEq(table.concat(out, " "), want, label)
 end
 
 function M.anAdmittedBodyReportsNothing()
@@ -232,6 +247,95 @@ local function wrong(value: number): number
 end
 return {wrong = wrong}
 ]], "NUPP2115", "the execution target is a closed vocabulary")
+end
+
+function M.gpuTargetBindsACompilerGeneratedTypedObject()
+   reportsGpu([[
+local span = require("nupp.mem.span")
+local gpu = require("nupp.gpu")
+local native = require("nupp.runtime.native")
+local ffi = native.ffi
+
+@aot(target = "gpu")
+local function scale(
+    exclusive output: span.WriteSpan<float>,
+    borrows input: span.Span<float>,
+    by: float
+): nil
+    if #output ~= #input then error("length mismatch", 2) end
+    for i = 1, #output do output[i] = input[i] * by end
+end
+
+local context = gpu.open()
+local input = context:buffer(ffi.typeof<float>(), 16)
+local output = context:buffer(ffi.typeof<float>(), 16)
+local kernel = scale:compile(context)
+local invocation = kernel:bind(output, input)
+invocation:dispatch(2.0)
+return true
+]], "", "the authored source sees the generated kernel and binding types")
+
+   reportsGpu([[
+local span = require("nupp.mem.span")
+local gpu = require("nupp.gpu")
+
+local struct Input value: float end
+local struct Output value: uint32 end
+
+@aot(target = "gpu")
+local function convert(
+    exclusive output: span.WriteSpan<Output>,
+    borrows input: span.Span<Input>
+): nil
+    if #output ~= #input then error("length mismatch", 2) end
+    for i = 1, #output do output[i].value = nupp.math.u32.wrap(input[i].value) end
+end
+
+local function wrong(
+    borrows context: gpu.Context,
+    borrows input: gpu.Buffer<Input>,
+    borrows output: gpu.Buffer<Output>
+): nil
+    local kernel = convert:compile(context)
+    local invocation = kernel:bind(input, output)
+    invocation:dispatch()
+end
+return wrong
+]], "NUPP2006", "the generated binding rejects buffers in the wrong positions")
+end
+
+function M.gpuTargetWithoutRequiredLinkingRemainsAnOrdinaryFunction()
+   reports([[
+local span = require("nupp.mem.span")
+
+@aot(target = "gpu")
+local function copy(
+    exclusive output: span.WriteSpan<float>,
+    borrows input: span.Span<float>
+): nil
+    if #output ~= #input then error("length mismatch", 2) end
+    for i = 1, #output do output[i] = input[i] end
+end
+
+local use: function(
+    exclusive output: span.WriteSpan<float>,
+    borrows input: span.Span<float>
+): nil = copy
+return use
+]], "", "a GPU body is unchanged unless aot=require installs its generated object")
+end
+
+function M.gpuTargetRequiresALocalFunctionDeclaration()
+   reports([[
+local m = {}
+
+@aot(target = "gpu")
+function m.copy(value: float): float
+    return value
+end
+
+return m
+]], "NUPP2902", "a generated GPU specification needs one local binding to replace")
 end
 
 function M.simdAcceptsOnlyTheRequiredSetting()

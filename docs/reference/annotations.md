@@ -452,9 +452,19 @@ the build policy, and what the backend does not do yet.
 
 `target = "gpu"` records a GPU execution family in the verified IR and maps one
 whole-span loop iteration to one GPU invocation. It therefore does not take a
-CPU `lanes` override. The native C and Wasm build policies refuse GPU IR; the
-experimental SDL GPU emitter and resident-buffer API live in
-`bench/sdl-gpu-spike` while that backend is being established.
+CPU `lanes` override. With the native `aot = "require"` policy, the compiler
+emits MSL and replaces the declaration with a typed kernel specification. Its
+`compile(context)` method owns the shader and entrypoint, `bind(...)` accepts
+resident `gpu.Buffer<T>` values in the span parameters' order and types, and
+`dispatch(...)` accepts the scalar parameters and packs their uniform block.
+The Wasm policies refuse GPU IR, and `aot = "off"` or `emit-c` retain the
+ordinary function value. `nupp aot --emit msl FILE` prints the generated shader.
+
+The current GPU subset is one complete-span map with one read span, one write
+span, fixed-width elements and up to 128 bytes of fixed-width scalar uniforms,
+written as a local function declaration. Uploads and downloads remain explicit,
+so several generated bindings can share resident buffers without an
+intermediate CPU copy.
 
 ## Contracts in type position
 

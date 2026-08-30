@@ -107,19 +107,41 @@ end
 return {escapes = escapes, Point = Point, Escape = Escape,}
 ]]
 
-function M.theNativeEmitterDoesNotSilentlyCompileAGpuTargetAsCpu()
+function M.gpuTargetEmitsShaderAndTypedHostBinding()
     local dir = project({
         ["gpu.nupp"] = [[
+local span = require("nupp.mem.span")
+
 @aot(target = "gpu")
-local function doubled(value: number): number
-    return value * 2
+local function doubled(
+    exclusive output: span.WriteSpan<float>,
+    borrows input: span.Span<float>,
+    scale: float
+): nil
+    if #output ~= #input then error("length mismatch", 2) end
+    for i = 1, #output do
+        output[i] = input[i] * scale
+    end
 end
 return {doubled = doubled}
 ]],
     })
-    local out, code = run(dir, "--emit c gpu.nupp")
-    assert(code ~= 0, out)
-    assert(out:find('native C backend does not consume @aot(target = "gpu")', 1, true), out)
+    local shader, shaderCode = run(dir, "--emit msl gpu.nupp")
+    test.equal(shaderCode, 0, shader)
+    assert(shader:find("kernel void ks_doubled_gpu", 1, true), shader)
+    assert(shader:find("float scale;", 1, true), shader)
+
+    local binding, bindingCode = run(dir, "--emit binding gpu.nupp")
+    test.equal(bindingCode, 0, binding)
+    assert(binding:find("Buffer<float>", 1, true), binding)
+    assert(binding:find("scale: float", 1, true), binding)
+    assert(binding:find("compileGenerated", 1, true), binding)
+    assert(binding:find("bindGenerated", 1, true), binding)
+    assert(binding:find("dispatchPacked", 1, true), binding)
+
+    local wasm, wasmCode = run(dir, "--emit msl --target wasm32-unknown-emscripten gpu.nupp")
+    assert(wasmCode ~= 0, wasm)
+    assert(wasm:find('Wasm backend does not consume @aot(target = "gpu")', 1, true), wasm)
 end
 
 -- A block kernel -- no guard prologue -- whose loop counts one span and reads another.

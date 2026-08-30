@@ -1,0 +1,172 @@
+module nupp.compiler.aot.gpubinding
+
+--[[
+Checked host objects for one compiler-emitted GPU shader.
+
+The public methods preserve the source signature as resident buffer and scalar
+types. Raw shader text, entrypoint names, binding order and uniform packing
+exist only in the generated implementation.
+]]
+
+local gpuemit = require("nupp.compiler.aot.gpuemit")
+local scalarIR = require("nupp.compiler.aot.scalar")
+
+local gpubinding = {}
+
+const SOURCE_TYPE: {
+    [string]: string
+} = {f64 = "number", f32 = "float", i32 = "int32", u32 = "uint32", bool = "boolean",}
+
+const C_TYPE: {[string]: string} = {f32 = "float", i32 = "int32_t", u32 = "uint32_t",}
+
+local function sourceType(param: scalarIR.Param): string
+    return param.sourceType or param.type:match("^struct:(.+)$") or tostring(SOURCE_TYPE[param.type])
+end
+
+local function typeName(prefix: string, program: scalarIR.Program): string
+    return scalarIR.cIdentifier(prefix, program.symbol)
+end
+
+local function append(lines: {string}, value: string): nil
+    lines[#lines + 1] = value
+end
+
+--- What stands in for one authored `@aot(target = "gpu")` declaration.
+function gpubinding.replacement(program: scalarIR.Program, artifact: gpuemit.Artifact): string
+    local runtime = scalarIR.cIdentifier("gpuRuntime", program.symbol)
+    local native = scalarIR.cIdentifier("gpuNative", program.symbol)
+    local uniformType = scalarIR.cIdentifier("gpuUniformType", program.symbol)
+    local specType = typeName("GpuSpec", program)
+    local kernelType = typeName("GpuKernel", program)
+    local bindingType = typeName("GpuBinding", program)
+    local lines: {string} = {}
+    local recordDeclaration = artifact.exportTypes and "export record " or "local record "
+
+    append(lines, "local " .. runtime .. " = require(\"nupp.gpu\")")
+    append(lines, "local " .. native .. " = require(\"nupp.runtime.native\")")
+    local fields: {string} = {"uint32_t count;"}
+    for _, param in ipairs(artifact.uniforms) do
+        fields[#fields + 1] = tostring(C_TYPE[param.type]) .. " " .. param.name:gsub("[^%w_]", "_") .. ";"
+    end
+    append(
+        lines,
+        "local " .. uniformType .. " = " .. native .. ".ffi.typeof(" .. string.format(
+            "%q",
+            "struct { " .. table.concat(fields, " ") .. " }"
+        ) .. ")"
+    )
+    append(lines, "")
+
+    append(lines, recordDeclaration .. specType)
+    append(lines, "    private readonly _marker: boolean")
+    append(
+        lines,
+        "    compile: function(borrows self: "
+        .. specType
+        .. ", borrows context: "
+        .. runtime
+        .. ".Context): "
+        .. kernelType
+        .. " borrows (context)"
+    )
+    append(lines, "end")
+    append(lines, "")
+
+    append(lines, recordDeclaration .. kernelType)
+    append(lines, "    private readonly _context: " .. runtime .. ".Context")
+    append(lines, "    private readonly _kernel: " .. runtime .. ".Kernel borrows (_context)")
+    local bindParams: {string} = {"borrows self: " .. kernelType}
+    for _, param in ipairs(program.params) do
+        if param.kind == "read_span" or param.kind == "write_span" then
+            bindParams[
+                #bindParams + 1
+            ] = "borrows " .. param.name .. ": " .. runtime .. ".Buffer<" .. sourceType(param) .. ">"
+        end
+    end
+    append(lines, "    bind: function(")
+    for position, param in ipairs(bindParams) do
+        append(lines, "        " .. param .. (position < #bindParams and "," or ""))
+    end
+    append(lines, "    ): " .. bindingType .. " borrows (self)")
+    append(lines, "end")
+    append(lines, "")
+
+    append(lines, recordDeclaration .. bindingType)
+    append(lines, "    private readonly _context: " .. runtime .. ".Context")
+    append(lines, "    private readonly _binding: " .. runtime .. ".Binding borrows (_context)")
+    local dispatchParams: {string} = {"borrows self: " .. bindingType}
+    for _, param in ipairs(artifact.uniforms) do
+        dispatchParams[#dispatchParams + 1] = param.name .. ": " .. sourceType(param)
+    end
+    append(lines, "    dispatch: function(")
+    for position, param in ipairs(dispatchParams) do
+        append(lines, "        " .. param .. (position < #dispatchParams and "," or ""))
+    end
+    append(lines, "    ): nil")
+    append(lines, "end")
+    append(lines, "")
+
+    append(
+        lines,
+        "function "
+        .. specType
+        .. ".compile(borrows self: "
+        .. specType
+        .. ", borrows context: "
+        .. runtime
+        .. ".Context): "
+        .. kernelType
+        .. " borrows (context)"
+    )
+    append(
+        lines,
+        "    local compiled = context:compileGenerated(" .. string.format(
+            "%q",
+            artifact.source
+        ) .. ", " .. string.format(
+            "%q",
+            artifact.entrypoint
+        ) .. ", " .. tostring(
+            #artifact.readonly
+        ) .. ", " .. tostring(
+            #artifact.writable
+        ) .. ", " .. tostring(artifact.uniformBytes) .. ", " .. tostring(artifact.threads) .. ")"
+    )
+    append(lines, "    return new " .. kernelType .. "(_context = context, _kernel = compiled)")
+    append(lines, "end")
+    append(lines, "")
+
+    append(lines, "function " .. kernelType .. ".bind(")
+    for position, param in ipairs(bindParams) do
+        append(lines, "    " .. param .. (position < #bindParams and "," or ""))
+    end
+    append(lines, "): " .. bindingType .. " borrows (self)")
+    append(
+        lines,
+        "    local raw = self._context:bindGenerated(self._kernel, " .. artifact.readonly[
+            1
+        ].name .. ", " .. artifact.writable[1].name .. ")"
+    )
+    append(lines, "    return new " .. bindingType .. "(_context = self._context, _binding = raw)")
+    append(lines, "end")
+    append(lines, "")
+
+    append(lines, "function " .. bindingType .. ".dispatch(")
+    for position, param in ipairs(dispatchParams) do
+        append(lines, "    " .. param .. (position < #dispatchParams and "," or ""))
+    end
+    append(lines, "): nil")
+    append(lines, "    local uniforms = " .. native .. ".ffi.new(" .. uniformType .. ")")
+    append(lines, "    uniforms.count = self._binding.count")
+    for _, param in ipairs(artifact.uniforms) do
+        append(lines, "    uniforms." .. param.name:gsub("[^%w_]", "_") .. " = " .. param.name)
+    end
+    append(lines, "    self._binding:dispatchPacked(uniforms, " .. tostring(artifact.uniformBytes) .. ")")
+    append(lines, "end")
+    append(lines, "")
+    append(lines, "local " .. program.name .. " = new " .. specType .. "(_marker = true)")
+
+    return table.concat(lines, "\n")
+end
+
+export = gpubinding
