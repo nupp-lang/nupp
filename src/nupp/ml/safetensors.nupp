@@ -1,0 +1,293 @@
+module nupp.ml.safetensors
+
+-- A strict, zero-copy SafeTensors reader. The eight-byte length and tensor
+-- offsets are decoded as bounded integers before any region is sliced.
+
+local json = require("nupp.data.json")
+local sharedbytes = require("nupp.mem.sharedbytes")
+local span = require("nupp.mem.span")
+local ffi = require("ffi")
+
+local safetensors = {}
+
+local MAX_HEADER_BYTES = 100000000
+local MAX_EXACT_INTEGER = 9007199254740991
+
+local WIDTHS: {
+    [string]: integer
+} = {
+    BOOL = 1,
+    U8 = 1,
+    I8 = 1,
+    F8_E4M3 = 1,
+    F8_E5M2 = 1,
+    U16 = 2,
+    I16 = 2,
+    F16 = 2,
+    BF16 = 2,
+    U32 = 4,
+    I32 = 4,
+    F32 = 4,
+    U64 = 8,
+    I64 = 8,
+    F64 = 8,
+}
+
+record safetensors.Tensor
+    readonly name: string
+    readonly dtype: string
+    readonly shape: {integer}
+    private readonly _bytes: sharedbytes.Region
+
+    bytes: function(borrows self: safetensors.Tensor): sharedbytes.Region
+    f32: function(borrows self: safetensors.Tensor): span.Span<float> borrows (self)
+    f64: function(borrows self: safetensors.Tensor): span.Span<number> borrows (self)
+    u16: function(borrows self: safetensors.Tensor): span.Span<uint16> borrows (self)
+    i16: function(borrows self: safetensors.Tensor): span.Span<int16> borrows (self)
+    i8: function(borrows self: safetensors.Tensor): span.Span<int8> borrows (self)
+    u8: function(borrows self: safetensors.Tensor): span.Span<uint8> borrows (self)
+    i32: function(borrows self: safetensors.Tensor): span.Span<int32> borrows (self)
+    u32: function(borrows self: safetensors.Tensor): span.Span<uint32> borrows (self)
+    i64: function(borrows self: safetensors.Tensor): span.Span<int64> borrows (self)
+    u64: function(borrows self: safetensors.Tensor): span.Span<uint64> borrows (self)
+end
+
+record safetensors.Archive
+    readonly metadata: {[string]: string}
+    private readonly _names: {string}
+    private readonly _tensors: {[string]: safetensors.Tensor}
+
+    names: function(borrows self: safetensors.Archive): {string}
+    tensor: function(borrows self: safetensors.Archive, string): safetensors.Tensor?
+    requireTensor: function(borrows self: safetensors.Archive, string): safetensors.Tensor
+end
+
+local TensorMT: metatable<safetensors.Tensor> = {__index = safetensors.Tensor}
+local ArchiveMT: metatable<safetensors.Archive> = {__index = safetensors.Archive}
+
+local function copiedIntegers(values: {integer}): {integer}
+    local out = {}
+    for index, value in ipairs(values) do
+        out[index] = value
+    end
+
+    return out
+end
+
+function safetensors.Tensor:bytes(): sharedbytes.Region
+    return self._bytes
+end
+
+local function expected<T>(borrows tensor: safetensors.Tensor, dtype: string, element: ctype<T>): span.Span<T>
+    if tensor.dtype ~= dtype then
+        error("nupp: tensor '" .. tensor.name .. "' is " .. tensor.dtype .. ", not " .. dtype, 3)
+    end
+    return tensor._bytes:viewAs(element)
+end
+
+function safetensors.Tensor:f32(): span.Span<float>
+    return expected(self, "F32", ffi.typeof<float>())
+end
+
+function safetensors.Tensor:f64(): span.Span<number>
+    return expected(self, "F64", ffi.typeof<number>())
+end
+
+function safetensors.Tensor:u16(): span.Span<uint16>
+    if self.dtype ~= "U16" and self.dtype ~= "F16" and self.dtype ~= "BF16" then
+        error("nupp: tensor '" .. self.name .. "' is not unsigned or 16-bit floating storage", 2)
+    end
+    return self._bytes:viewAs(ffi.typeof<uint16>())
+end
+
+function safetensors.Tensor:i16(): span.Span<int16>
+    return expected(self, "I16", ffi.typeof<int16>())
+end
+
+function safetensors.Tensor:i8(): span.Span<int8>
+    return expected(self, "I8", ffi.typeof<int8>())
+end
+
+function safetensors.Tensor:u8(): span.Span<uint8>
+    if self.dtype ~= "U8" and self.dtype ~= "BOOL" and self.dtype ~= "F8_E4M3" and self.dtype ~= "F8_E5M2" then
+        error("nupp: tensor '" .. self.name .. "' is not unsigned, boolean, or float8 storage", 2)
+    end
+    return self._bytes:viewAs(ffi.typeof<uint8>())
+end
+
+function safetensors.Tensor:i32(): span.Span<int32>
+    return expected(self, "I32", ffi.typeof<int32>())
+end
+
+function safetensors.Tensor:u32(): span.Span<uint32>
+    return expected(self, "U32", ffi.typeof<uint32>())
+end
+
+function safetensors.Tensor:i64(): span.Span<int64>
+    return expected(self, "I64", ffi.typeof<int64>())
+end
+
+function safetensors.Tensor:u64(): span.Span<uint64>
+    return expected(self, "U64", ffi.typeof<uint64>())
+end
+
+function safetensors.Archive:names(): {string}
+    local out = {}
+    for index, name in ipairs(self._names) do
+        out[index] = name
+    end
+
+    return out
+end
+
+function safetensors.Archive:tensor(name: string): safetensors.Tensor?
+    return self._tensors[name]
+end
+
+function safetensors.Archive:requireTensor(name: string): safetensors.Tensor
+    local tensor = self._tensors[name]
+    if tensor == nil then
+        error("nupp: SafeTensors archive has no tensor named '" .. name .. "'", 2)
+    end
+
+    return tensor as safetensors.Tensor
+end
+
+local function exactNonnegative(value: any, label: string): integer
+    if type(value) ~= "number" or value < 0 or value > MAX_EXACT_INTEGER or value ~= math.floor(value) then
+        error("nupp: SafeTensors " .. label .. " must be an exact nonnegative integer", 3)
+    end
+    return value as integer
+end
+
+local function headerLength(bytes: span.ByteSpan): integer
+    if #bytes < 8 then
+        error("nupp: SafeTensors file is shorter than its length prefix", 3)
+    end
+    local value: integer = 0
+    local place: integer = 1
+    for index = 1, 8 do
+        value = value + (bytes[index] as integer) * place
+        place = place * 256
+    end
+    if value > MAX_HEADER_BYTES or value > #bytes - 8 then
+        error("nupp: SafeTensors header length is outside the file", 3)
+    end
+
+    return value
+end
+
+local function shapeOf(value: any, name: string): ({integer}, integer)
+    if type(value) ~= "table" then
+        error("nupp: SafeTensors tensor '" .. name .. "' has no shape array", 3)
+    end
+    local shape = {}
+    local elements: integer = 1
+    for index, dimension in ipairs(value as {any}) do
+        local size = exactNonnegative(dimension, "shape dimension")
+        if size ~= 0 and elements > MAX_EXACT_INTEGER // size then
+            error("nupp: SafeTensors tensor '" .. name .. "' shape is too large", 3)
+        end
+        elements = elements * size
+        shape[index] = size
+    end
+
+    return shape, elements
+end
+
+local type Interval = {
+    first: integer,
+    last: integer,
+    name: string
+}
+
+--- Decodes one complete SafeTensors region without copying tensor payloads.
+--- @export
+--- @raises when the header, dtype, shape, offsets, or coverage is invalid
+function safetensors.decode(region: sharedbytes.Region): safetensors.Archive
+    local bytes = region:view()
+    local headerBytes = headerLength(bytes)
+    local dataFirst = 9 + headerBytes
+    local header = region:slice(9, 8 + headerBytes):text()
+    local decoded = json.decode(header)
+    if type(decoded) ~= "table" then
+        error("nupp: SafeTensors header must be a JSON object", 2)
+    end
+
+    local tensors: {[string]: safetensors.Tensor} = {}
+    local names = {}
+    local metadata: {[string]: string} = {}
+    local intervals: {Interval} = {}
+    for name, descriptor in pairs(decoded as {[string]: any}) do
+        if name == "__metadata__" then
+            if type(descriptor) ~= "table" then
+                error("nupp: SafeTensors metadata must be an object", 2)
+            end
+            for key, value in pairs(descriptor as {[string]: any}) do
+                if type(key) ~= "string" or type(value) ~= "string" then
+                    error("nupp: SafeTensors metadata keys and values must be strings", 2)
+                end
+                metadata[key] = value
+            end
+        else
+            if type(name) ~= "string" or name == "" or type(descriptor) ~= "table" then
+                error("nupp: SafeTensors tensor entries must be named objects", 2)
+            end
+            local item = descriptor as {[string]: any}
+            local dtype = item.dtype
+            local width = type(dtype) == "string" and WIDTHS[dtype] or nil
+            if width == nil then
+                error("nupp: SafeTensors tensor '" .. name .. "' has an unsupported dtype", 2)
+            end
+            local shape, elements = shapeOf(item.shape, name)
+            local offsets = item.data_offsets
+            if type(offsets) ~= "table" or #offsets ~= 2 then
+                error("nupp: SafeTensors tensor '" .. name .. "' needs two data offsets", 2)
+            end
+            local first = exactNonnegative(offsets[1], "data offset")
+            local last = exactNonnegative(offsets[2], "data offset")
+            if last < first or last > #bytes - dataFirst + 1 then
+                error("nupp: SafeTensors tensor '" .. name .. "' data offsets are outside the payload", 2)
+            end
+            if elements > MAX_EXACT_INTEGER // (width as integer) or last - first ~= elements * (width as integer) then
+                error("nupp: SafeTensors tensor '" .. name .. "' byte extent does not match its shape", 2)
+            end
+            local payload = region:slice(dataFirst + first, dataFirst + last - 1)
+            local tensor = setmetatable(
+                {name = name, dtype = dtype as string, shape = copiedIntegers(shape), _bytes = payload,},
+                TensorMT
+            ) as safetensors.Tensor
+            tensors[name] = tensor
+            names[#names + 1] = name
+            intervals[#intervals + 1] = {first = first, last = last, name = name}
+        end
+    end
+
+    table.sort(intervals, function(left: Interval, right: Interval): boolean
+        return left.first < right.first or left.first == right.first and left.name < right.name
+    end)
+    local covered = 0
+    for _, interval in ipairs(intervals) do
+        if interval.first ~= covered then
+            error("nupp: SafeTensors payload has overlapping tensors or unindexed bytes", 2)
+        end
+        covered = interval.last
+    end
+    if covered ~= #bytes - dataFirst + 1 then
+        error("nupp: SafeTensors payload has unindexed bytes", 2)
+    end
+    table.sort(names)
+
+    return setmetatable({_names = names, _tensors = tensors, metadata = metadata}, ArchiveMT) as safetensors.Archive
+end
+
+--- Reads and decodes one SafeTensors file without an intermediate payload copy.
+--- @export
+function safetensors.load(path: string): safetensors.Archive
+    return safetensors.decode(sharedbytes.readFile(path))
+end
+
+safetensors.Tensor = safetensors.Tensor
+safetensors.Archive = safetensors.Archive
+
+export = safetensors

@@ -1024,7 +1024,6 @@ function aot.emitC(
         end
     end
     table.sort(sources)
-    session.stageBundled("nupp.quant")
     local selectedPolicy = session.inc.env.config._target and session.inc.env.config._target.aot or nil
     if selectedPolicy == "require" then
         for _, source in ipairs(sources) do

@@ -195,6 +195,7 @@ projects the physical pointer and count arguments automatically.
 :::
 ]]
 
+local ffi = require("ffi")
 local span = {}
 
 --- The consuming operation shared by every writable span representation.
@@ -659,6 +660,25 @@ local function foreignByteSpan(anchor: any, pointer: any, offset: integer, count
 end
 
 rawset(span as table, "__foreignByteSpan", foreignByteSpan)
+
+-- Standard-library storage owners use this private constructor only after
+-- validating byte alignment and extent against the supplied physical type.
+local function foreignSpan<T>(
+    anchor: any,
+    pointer: any,
+    offset: integer,
+    count: integer,
+    element: ctype<T>
+): span.Span<T>
+    local pointerSpec = "const $ *"
+    local pointerType = ffi.typeof(pointerSpec, element)
+    unsafe do
+        local typed = ffi.cast(pointerType, pointer) as T[?]
+        return (new SpanImpl(anchor = anchor, pointer = typed as any, offset = offset, count = count)) as span.Span<T>
+    end
+end
+
+rawset(span as table, "__foreignSpan", foreignSpan)
 
 --- Creates a checked shared span over a C array and an explicit logical count.
 ---

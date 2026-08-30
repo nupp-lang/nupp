@@ -1,0 +1,51 @@
+local sharedbytes = require("nupp.mem.sharedbytes")
+local safetensors = require("nupp.ml.safetensors")
+local tokenizer = require("nupp.ml.tokenizer")
+
+local M = {}
+
+local function encoded(header: string, payload: string): sharedbytes.Region
+    while #header % 8 ~= 0 do
+        header = header .. " "
+    end
+    assert(#header < 256)
+    local prefix = string.char(#header, 0, 0, 0, 0, 0, 0, 0)
+
+    return sharedbytes.copy(prefix .. header .. payload)
+end
+
+function M.loadsCheckedZeroCopyTensorViews(): nil
+    local archive = safetensors.decode(
+        encoded(
+            [[{"weight":{"dtype":"F32","shape":[1],"data_offsets":[0,4]},"__metadata__":{"format":"test"}}]],
+            "\0\0\128\63"
+        )
+    )
+    local names = archive:names()
+    local weight = archive:requireTensor("weight")
+    local values = weight:f32()
+    assert(#names == 1 and names[1] == "weight")
+    assert(weight.shape[1] == 1 and archive.metadata.format == "test")
+    assert(#values == 1 and values[1] == 1.0)
+    assert(archive:tensor("missing") == nil)
+end
+
+function M.rejectsTensorExtentsThatDisagreeWithShape(): nil
+    local ok, problem = pcall(function(): nil
+        safetensors.decode(encoded([[{"weight":{"dtype":"F32","shape":[2],"data_offsets":[0,4]}}]], "\0\0\128\63"))
+    end)
+    assert(not ok and tostring(problem):find("byte extent", 1, true) ~= nil)
+end
+
+function M.tokenizesLongestFirstAndRoundTrips(): nil
+    local codec = tokenizer.new({["?"] = 0, ["a"] = 1, ["ab"] = 2, ["b"] = 3}, 0)
+    local tokens = codec:encode("abax")
+    assert(#tokens == 3 and tokens[1] == 2 and tokens[2] == 1 and tokens[3] == 0)
+    assert(codec:decode(tokens) == "aba?")
+
+    local fromJSON = tokenizer.fromJSON([[{"hello":4," ":2,"world":7}]])
+    local words = fromJSON:encode("hello world")
+    assert(#words == 3 and words[1] == 4 and words[2] == 2 and words[3] == 7)
+end
+
+return M

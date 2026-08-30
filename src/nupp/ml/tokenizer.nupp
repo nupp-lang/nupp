@@ -1,0 +1,118 @@
+module nupp.ml.tokenizer
+
+-- Deterministic byte-string vocabulary tokenization. Longest-token-first is a
+-- useful portable baseline for model vocabularies and has no Unicode locale or
+-- regular-expression dependency.
+
+local json = require("nupp.data.json")
+
+local tokenizer = {}
+
+record tokenizer.Tokenizer
+    private readonly _byText: {[string]: integer}
+    private readonly _byId: {[integer]: string}
+    private readonly _unknown: integer?
+    private readonly _maxBytes: integer
+
+    encode: function(borrows self: tokenizer.Tokenizer, string): {integer}
+    decode: function(borrows self: tokenizer.Tokenizer, {integer}): string
+end
+
+local TokenizerMT: metatable<tokenizer.Tokenizer> = {__index = tokenizer.Tokenizer}
+
+--- Builds a checked vocabulary. Token IDs must be unique nonnegative integers.
+--- @export
+--- @raises when a token or ID is invalid, duplicated, or inconsistent
+function tokenizer.new(vocabulary: {[string]: integer}, unknown: integer?): tokenizer.Tokenizer
+    local byText = {}
+    local byId = {}
+    local maxBytes = 0
+    for text, id in pairs(vocabulary) do
+        if type(text) ~= "string" or text == "" then
+            error("nupp: tokenizer vocabulary tokens must be nonempty strings", 2)
+        end
+        if type(id) ~= "number" or id < 0 or id ~= math.floor(id) then
+            error("nupp: tokenizer vocabulary IDs must be nonnegative integers", 2)
+        end
+        if byId[id] ~= nil then
+            error("nupp: tokenizer vocabulary IDs must be unique", 2)
+        end
+        byText[text] = id
+        byId[id] = text
+        if #text > maxBytes then
+            maxBytes = #text
+        end
+    end
+    if unknown ~= nil and byId[unknown] == nil then
+        error("nupp: tokenizer unknown ID is absent from its vocabulary", 2)
+    end
+
+    return setmetatable(
+        {_byText = byText, _byId = byId, _unknown = unknown, _maxBytes = maxBytes,},
+        TokenizerMT
+    ) as tokenizer.Tokenizer
+end
+
+--- Decodes a JSON object whose values are token IDs.
+--- @export
+--- @raises when the JSON is not a valid vocabulary
+function tokenizer.fromJSON(source: string, unknown: integer?): tokenizer.Tokenizer
+    local value = json.decode(source)
+    if type(value) ~= "table" then
+        error("nupp: tokenizer vocabulary JSON must be an object", 2)
+    end
+    local vocabulary: {[string]: integer} = {}
+    for text, id in pairs(value as {[string]: any}) do
+        if type(text) ~= "string" or type(id) ~= "number" then
+            error("nupp: tokenizer vocabulary JSON must map strings to integers", 2)
+        end
+        vocabulary[text] = id as integer
+    end
+
+    return tokenizer.new(vocabulary, unknown)
+end
+
+function tokenizer.Tokenizer:encode(source: string): {integer}
+    local out = {}
+    local first = 1
+    while first <= #source do
+        local available = math.min(self._maxBytes, #source - first + 1)
+        local found: integer? = nil
+        local consumed = available
+        while consumed > 0 do
+            found = self._byText[source:sub(first, first + consumed - 1)]
+            if found ~= nil then
+                break
+            end
+            consumed = consumed - 1
+        end
+        if found == nil then
+            found = self._unknown
+            consumed = 1
+        end
+        if found == nil then
+            error("nupp: tokenizer vocabulary cannot encode byte " .. tostring(first), 2)
+        end
+        out[#out + 1] = found as integer
+        first = first + consumed
+    end
+
+    return out
+end
+
+function tokenizer.Tokenizer:decode(tokens: {integer}): string
+    local parts = {}
+    for index, id in ipairs(tokens) do
+        local text = self._byId[id]
+        if text == nil then
+            error("nupp: tokenizer vocabulary has no token ID " .. tostring(id), 2)
+        end
+        parts[index] = text
+    end
+
+    return table.concat(parts)
+end
+
+tokenizer.Tokenizer = tokenizer.Tokenizer
+
+export = tokenizer

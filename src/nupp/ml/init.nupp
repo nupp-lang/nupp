@@ -1,0 +1,33 @@
+module nupp.ml
+
+local files = require("nupp.io.files")
+local safetensors = require("nupp.ml.safetensors")
+local tokenizer = require("nupp.ml.tokenizer")
+
+local ml = {}
+
+record ml.Model
+    readonly weights: safetensors.Archive
+    readonly tokenizer: tokenizer.Tokenizer
+end
+
+--- Loads a SafeTensors archive and JSON vocabulary as one inference bundle.
+--- @export
+--- @raises when either file cannot be read or decoded
+function ml.load(weightsPath: string, vocabularyPath: string, unknown: integer?): ml.Model
+    local vocabulary, problem = files.read(vocabularyPath)
+    if vocabulary == nil then
+        error("nupp: cannot read model vocabulary: " .. tostring(problem), 2)
+    end
+
+    return new ml.Model(
+        weights = safetensors.load(weightsPath),
+        tokenizer = tokenizer.fromJSON(vocabulary as string, unknown)
+    )
+end
+
+ml.Model = ml.Model
+ml.safetensors = safetensors
+ml.tokenizer = tokenizer
+
+export = ml

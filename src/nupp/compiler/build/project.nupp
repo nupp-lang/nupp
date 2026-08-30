@@ -392,7 +392,6 @@ local function buildOne(root: string?, opts: project.BuildOptions?): integer
     for _, backendModule in ipairs(target.backends or {}) do
         session.stageBundled(backendModule)
     end
-    session.stageBundled("nupp.quant")
     if opts.checkOnly and target.aot == "require" and checkedTargetNeedsGpu(root, config, opts.paths) then
         session.stageBundled("nupp.gpulayout")
         session.stageBundled("nupp.gpu")

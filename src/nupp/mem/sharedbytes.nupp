@@ -56,6 +56,10 @@ local foreignByteSpan = rawget(
     span as table,
     "__foreignByteSpan"
 ) as nosuspend function(any, any, integer, integer): span.ByteSpan
+local foreignSpan = rawget(
+    span as table,
+    "__foreignSpan"
+) as function<T>(any, any, integer, integer, ctype<T>): span.Span<T>
 
 local sharedbytes = {}
 
@@ -75,6 +79,9 @@ record sharedbytes.Region
 
     --- A read-only borrowed view over the selected bytes, whole by default.
     view: function(borrows self: sharedbytes.Region, integer?, integer?): span.ByteSpan borrows (self)
+
+    --- A checked zero-copy view of the complete region as physical elements.
+    viewAs: function<T>(borrows self: sharedbytes.Region, ctype<T>): span.Span<T> borrows (self)
 
     --- The region's bytes copied and interned as an ordinary string.
     text: nosuspend function(sharedbytes.Region): string
@@ -116,6 +123,21 @@ function sharedbytes.Region:view(first: integer?, last: integer?): span.ByteSpan
     end
 
     return foreignByteSpan(self, native.pointer(self._handle), self._first + from - 2, to - from + 1)
+end
+
+--- @raises when the region is not aligned or is not a whole number of elements
+function sharedbytes.Region:viewAs<T>(element: ctype<T>): span.Span<T>
+    local width = ffi.sizeof(element) as integer
+    local alignment = ffi.alignof(element) as integer
+    local byteOffset = self._first - 1
+    if width < 1 or self._length % width ~= 0 then
+        error("nupp: a typed region view must contain complete elements", 2)
+    end
+    if byteOffset % alignment ~= 0 or byteOffset % width ~= 0 then
+        error("nupp: a typed region view is not suitably aligned", 2)
+    end
+
+    return foreignSpan(self, native.pointer(self._handle), byteOffset // width, self._length // width, element)
 end
 
 --- @raises when the region's engine storage has been released
