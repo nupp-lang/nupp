@@ -13,6 +13,7 @@
 typedef struct NuppGpuContext NuppGpuContext;
 typedef struct NuppGpuBuffer NuppGpuBuffer;
 typedef struct NuppGpuKernel NuppGpuKernel;
+typedef struct NuppGpuBinding NuppGpuBinding;
 
 struct NuppGpuBuffer {
     NuppGpuContext *context;
@@ -36,11 +37,28 @@ struct NuppGpuKernel {
     NuppGpuKernel *next;
 };
 
+/* One kernel attached to its buffers. The uniform block layout is the
+ * compiler's: word zero is the dispatch count, the next words carry each
+ * bound span's element count in slot order (read-only spans first), and the
+ * authored scalar uniforms follow. Dispatch patches those leading words from
+ * what was bound, so the shader's bound checks compare against the counts the
+ * host validated. */
+struct NuppGpuBinding {
+    NuppGpuContext *context;
+    NuppGpuKernel *kernel;
+    NuppGpuBuffer *readable[NUPP_GPU_MAX_BINDINGS];
+    NuppGpuBuffer *writable[NUPP_GPU_MAX_BINDINGS];
+    uint32_t span_counts[2u * NUPP_GPU_MAX_BINDINGS];
+    uint32_t count;
+    NuppGpuBinding *next;
+};
+
 struct NuppGpuContext {
     SDL_GPUDevice *device;
     SDL_GPUCommandBuffer *commands;
     NuppGpuBuffer *buffers;
     NuppGpuKernel *kernels;
+    NuppGpuBinding *bindings;
     bool started_video;
 };
 
@@ -124,10 +142,15 @@ NUPP_EXPORT const char *nuppGpuContextDriver(const NuppGpuContext *context) {
 NUPP_EXPORT void nuppGpuContextDestroy(NuppGpuContext *context) {
     NuppGpuKernel *kernel;
     NuppGpuBuffer *buffer;
+    NuppGpuBinding *binding;
     if (context == NULL) {
         return;
     }
     cancel_commands(context);
+    while ((binding = context->bindings) != NULL) {
+        context->bindings = binding->next;
+        free(binding);
+    }
     while ((kernel = context->kernels) != NULL) {
         context->kernels = kernel->next;
         SDL_ReleaseGPUComputePipeline(context->device, kernel->pipeline);
@@ -306,57 +329,153 @@ NUPP_EXPORT bool nuppGpuBufferUpload(
     return true;
 }
 
-NUPP_EXPORT bool nuppGpuDispatchOne(
-    NuppGpuContext *context,
-    NuppGpuKernel *kernel,
-    NuppGpuBuffer *input,
-    NuppGpuBuffer *output,
-    const void *uniforms,
-    size_t uniform_size,
-    uint32_t count
+NUPP_EXPORT NuppGpuBinding *nuppGpuBindingCreate(
+    NuppGpuContext *context, NuppGpuKernel *kernel, uint32_t count
 ) {
+    NuppGpuBinding *binding;
+    if (context == NULL || context->device == NULL || kernel == NULL || kernel->context != context) {
+        nupp_fail("gpu: binding needs a kernel from its own open context");
+        return NULL;
+    }
+    binding = calloc(1, sizeof *binding);
+    if (binding == NULL) {
+        nupp_fail("gpu: out of memory");
+        return NULL;
+    }
+    binding->context = context;
+    binding->kernel = kernel;
+    binding->count = count;
+    binding->next = context->bindings;
+    context->bindings = binding;
+    return binding;
+}
+
+static bool binding_slot(
+    NuppGpuBinding *binding,
+    uint32_t slot,
+    uint32_t limit,
+    NuppGpuBuffer *buffer,
+    uint32_t element_count,
+    bool match_count
+) {
+    if (binding == NULL || binding->context == NULL || binding->context->device == NULL) {
+        nupp_fail("gpu: binding belongs to a closed context");
+        return false;
+    }
+    if (slot >= limit) {
+        nupp_fail("gpu: binding slot is outside the compiled kernel");
+        return false;
+    }
+    if (!owns_buffer(binding->context, buffer)) {
+        return false;
+    }
+    if (match_count && element_count != binding->count) {
+        nupp_fail("gpu: a dispatch-indexed buffer must hold one element per dispatched thread");
+        return false;
+    }
+    return true;
+}
+
+NUPP_EXPORT bool nuppGpuBindingSetRead(
+    NuppGpuBinding *binding,
+    uint32_t slot,
+    NuppGpuBuffer *buffer,
+    uint32_t element_count,
+    bool match_count
+) {
+    if (!binding_slot(binding, slot, binding == NULL ? 0 : binding->kernel->readonly_count,
+                      buffer, element_count, match_count)) {
+        return false;
+    }
+    binding->readable[slot] = buffer;
+    binding->span_counts[slot] = element_count;
+    return true;
+}
+
+NUPP_EXPORT bool nuppGpuBindingSetWrite(
+    NuppGpuBinding *binding,
+    uint32_t slot,
+    NuppGpuBuffer *buffer,
+    uint32_t element_count,
+    bool match_count
+) {
+    if (!binding_slot(binding, slot, binding == NULL ? 0 : binding->kernel->writable_count,
+                      buffer, element_count, match_count)) {
+        return false;
+    }
+    binding->writable[slot] = buffer;
+    binding->span_counts[binding->kernel->readonly_count + slot] = element_count;
+    return true;
+}
+
+NUPP_EXPORT bool nuppGpuBindingDispatch(
+    NuppGpuBinding *binding, const void *uniforms, size_t uniform_size
+) {
+    NuppGpuContext *context;
+    NuppGpuKernel *kernel;
     SDL_GPUCommandBuffer *command_buffer;
     SDL_GPUComputePass *compute;
-    SDL_GPUStorageBufferReadWriteBinding writable;
-    SDL_GPUBuffer *readable[1];
-    if (context == NULL || kernel == NULL || kernel->context != context) {
-        nupp_fail("gpu: kernel belongs to another or closed context");
+    SDL_GPUStorageBufferReadWriteBinding writable_bindings[NUPP_GPU_MAX_BINDINGS];
+    SDL_GPUBuffer *readable_storage[NUPP_GPU_MAX_BINDINGS];
+    uint8_t patched[NUPP_GPU_MAX_UNIFORMS];
+    uint32_t spans;
+    uint32_t at;
+    if (binding == NULL || binding->context == NULL || binding->context->device == NULL) {
+        nupp_fail("gpu: binding belongs to a closed context");
         return false;
     }
-    if (!owns_buffer(context, input) || !owns_buffer(context, output)) {
-        return false;
-    }
-    if (kernel->readonly_count != 1 || kernel->writable_count != 1) {
-        nupp_fail("gpu: this dispatch surface requires one input and one output buffer");
-        return false;
-    }
+    context = binding->context;
+    kernel = binding->kernel;
+    spans = kernel->readonly_count + kernel->writable_count;
     if (uniform_size != kernel->uniform_size
-        || (uniform_size != 0 && uniforms == NULL)) {
+        || uniform_size < sizeof(uint32_t) * (1u + spans)
+        || uniforms == NULL) {
         nupp_fail("gpu: dispatch uniforms do not match the compiled kernel");
         return false;
     }
-    if (count == 0) {
+    for (at = 0; at < kernel->readonly_count; at += 1) {
+        if (binding->readable[at] == NULL) {
+            nupp_fail("gpu: binding is missing a read buffer");
+            return false;
+        }
+    }
+    for (at = 0; at < kernel->writable_count; at += 1) {
+        if (binding->writable[at] == NULL) {
+            nupp_fail("gpu: binding is missing a write buffer");
+            return false;
+        }
+    }
+    if (binding->count == 0) {
         return true;
     }
     command_buffer = commands(context);
     if (command_buffer == NULL) {
         return false;
     }
-    if (uniform_size != 0) {
-        SDL_PushGPUComputeUniformData(command_buffer, 0, uniforms, (uint32_t)uniform_size);
+    memcpy(patched, uniforms, uniform_size);
+    memcpy(patched, &binding->count, sizeof binding->count);
+    memcpy(patched + sizeof(uint32_t), binding->span_counts, sizeof(uint32_t) * spans);
+    SDL_PushGPUComputeUniformData(command_buffer, 0, patched, (uint32_t)uniform_size);
+    for (at = 0; at < kernel->writable_count; at += 1) {
+        SDL_zero(writable_bindings[at]);
+        writable_bindings[at].buffer = binding->writable[at]->storage;
     }
-    SDL_zero(writable);
-    writable.buffer = output->storage;
-    compute = SDL_BeginGPUComputePass(command_buffer, NULL, 0, &writable, 1);
+    compute = SDL_BeginGPUComputePass(
+        command_buffer, NULL, 0, writable_bindings, kernel->writable_count);
     if (compute == NULL) {
         gpu_fail("begin compute pass");
         cancel_commands(context);
         return false;
     }
-    readable[0] = input->storage;
     SDL_BindGPUComputePipeline(compute, kernel->pipeline);
-    SDL_BindGPUComputeStorageBuffers(compute, 0, readable, 1);
-    SDL_DispatchGPUCompute(compute, (count + kernel->threads - 1) / kernel->threads, 1, 1);
+    if (kernel->readonly_count != 0) {
+        for (at = 0; at < kernel->readonly_count; at += 1) {
+            readable_storage[at] = binding->readable[at]->storage;
+        }
+        SDL_BindGPUComputeStorageBuffers(compute, 0, readable_storage, kernel->readonly_count);
+    }
+    SDL_DispatchGPUCompute(
+        compute, (binding->count + kernel->threads - 1) / kernel->threads, 1, 1);
     SDL_EndGPUComputePass(compute);
     return true;
 }

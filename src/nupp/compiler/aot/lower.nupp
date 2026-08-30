@@ -785,6 +785,11 @@ record lower.Kernel
     --- the two cannot be told apart by `boundSpan` being unset.
     mapEntry: boolean
 
+    --- Spans a map entry's loop index provably addresses: the loop's own bound
+    --- and every span the guard prologue holds to it. A GPU map's guard may be
+    --- partial, so an index access outside this set is refused at its line.
+    indexSpans: {[string]: boolean}?
+
     --- Results the top-level AOT entry promises. Helpers keep their own result
     --- list; this is only for `return` statements in a general block body.
     resultTypes: {scalarIR.Type}
@@ -904,8 +909,23 @@ end
 --- Says nothing about a cursor access, whose bound is the dominating
 --- `cursor < #span` check rather than the loop, or about a map entry, whose
 --- guard prologue relates every span to the index before the loop starts.
+--- A GPU map may leave that prologue partial, so there the index only proves
+--- the spans the guard actually names beside the loop's own bound.
 local function provenIndex(spanName: string, cursor: string?, node: cst.Node, kernel: lower.Kernel): nil
-    if cursor ~= nil or kernel.mapEntry then
+    if cursor ~= nil then
+        return
+    end
+    if kernel.mapEntry then
+        local provable = kernel.indexSpans
+        if provable ~= nil and (provable as {[string]: boolean})[spanName] ~= true then
+            kernel.context.reject(
+                lower.site(node),
+                (
+                    "a dispatch-indexed GPU span must be the loop bound or guarded equal to it; "
+                    .. "guard %s or reach it through a proved cursor"
+                ):format(spanName)
+            )
+        end
         return
     end
     local context = kernel.context
@@ -4571,7 +4591,8 @@ function lower.lengthGuards(
     stat: cst.Node,
     form: lower.GuardForm,
     signature: lower.Signature,
-    context: lower.Context
+    context: lower.Context,
+    partial: boolean?
 ): {scalarIR.Guard}
     local primary = signature.writes[1]
     local guarded: {[string]: scalarIR.Source} = {}
@@ -4618,17 +4639,23 @@ function lower.lengthGuards(
     local guards: {scalarIR.Guard} = {}
     for _, span in ipairs(signature.spans) do
         if span.name ~= primary.name then
-            if guarded[span.name] == nil then
+            -- A GPU entry may leave a span out of the guard when the body only
+            -- reaches it through proved cursors; the emitter checks that any
+            -- loop-index access names a guarded span, so the omission cannot
+            -- widen what the kernel may touch.
+            if guarded[span.name] == nil and partial ~= true then
                 context.reject(lower.site(stat), "the length guard does not cover span " .. span.name)
             end
-            guards[
-                #guards + 1
-            ] = new scalarIR.Guard(
-                op = "equal_count",
-                left = primary.name,
-                right = span.name,
-                source = guarded[span.name]
-            )
+            if guarded[span.name] ~= nil then
+                guards[
+                    #guards + 1
+                ] = new scalarIR.Guard(
+                    op = "equal_count",
+                    left = primary.name,
+                    right = span.name,
+                    source = guarded[span.name]
+                )
+            end
         end
     end
 
@@ -5089,6 +5116,17 @@ function lower.program(
     local mapShape = #resultTypes == 0 and #signature.writes > 0 and #signature.reads > 0 and (
         #statements == 2 or #statements == 3
     ) and lower.isGuardStatement(statements[1]) and statements[#statements].kind == "fornumStmt"
+    -- A GPU entry may relate spans of different lengths -- a matrix product
+    -- reads dimensions no equality guard can spell -- so its length guard is
+    -- optional. What replaces the proof is per-access: a span the body touches
+    -- at the loop index must still be the primary or guarded equal to it, and
+    -- the GPU emitter refuses anything else, while a cursor access carries its
+    -- dominating bound check into the shader.
+    if contract.target == "gpu" and #resultTypes == 0 and #signature.writes > 0 and #signature.reads > 0
+        and #statements == 1 and statements[1].kind == "fornumStmt"
+    then
+        mapShape = true
+    end
 
     if not mapShape then
         if contract.lanesRequired then
@@ -5196,17 +5234,21 @@ function lower.program(
 
     local primary = signature.writes[1]
 
-    local guards = lower.lengthGuards(
-        statements[1],
-        lower.guardClause(
+    local guards: {scalarIR.Guard} = {}
+    if #statements > 1 then
+        guards = lower.lengthGuards(
             statements[1],
-            "the first statement must be a single length-mismatch guard",
-            "a length guard must call error or assert directly",
-            context
-        ),
-        signature,
-        context
-    )
+            lower.guardClause(
+                statements[1],
+                "the first statement must be a single length-mismatch guard",
+                "a length guard must call error or assert directly",
+                context
+            ),
+            signature,
+            context,
+            contract.target == "gpu"
+        )
+    end
 
     local rangeGuard: scalarIR.RangeGuard? = nil
     if #statements == 3 then
@@ -5245,6 +5287,14 @@ function lower.program(
         index = index,
         indexCName = "i",
         mapEntry = true,
+        indexSpans = (function(): {[string]: boolean}
+            local provable: {[string]: boolean} = {[primary.name] = true}
+            for _, guard in ipairs(guards) do
+                provable[guard.right] = true
+            end
+
+            return provable
+        end)(),
         resultTypes = {},
         cursorBounds = {},
         lengthBounds = {},

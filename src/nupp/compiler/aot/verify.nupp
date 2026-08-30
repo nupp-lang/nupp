@@ -67,6 +67,12 @@ record verify.Scope
     boundSpan: string?
     mapIndex: boolean?
 
+    --- Spans a map loop's index provably addresses: the loop bound and every
+    --- span a length guard holds to its count. A GPU program may leave a span
+    --- out of its guard when the body only reaches it through proved cursors,
+    --- so an index access is only sound against this set.
+    indexSpans: {[string]: boolean}?
+
     --- Zero-based uint32 cursors authorized by dominating count checks.
     cursorBounds: {[string]: string}
 
@@ -420,7 +426,10 @@ local function load(node: scalarIR.Load, values: {[string]: string}, scope: veri
         )
     else
         holds(
-            node.index == scope.index and (scope.mapIndex == true or node.span == scope.boundSpan),
+            node.index == scope.index and (
+                scope.mapIndex == true and (scope.indexSpans as {[string]: boolean})[node.span] == true
+                or node.span == scope.boundSpan
+            ),
             "unbounded load index"
         )
     end
@@ -446,7 +455,8 @@ local function elementRef(node: scalarIR.ElementRef, values: {[string]: string},
     ] == "u32" and scope.cursorBounds[
         node.cursor as string
     ] == node.span and node.cursorCName ~= nil or node.cursor == nil and node.index == scope.index and (
-        scope.mapIndex == true or node.span == scope.boundSpan
+        scope.mapIndex == true and (scope.indexSpans as {[string]: boolean})[node.span] == true
+        or node.span == scope.boundSpan
     )
     holds(node.mutable == (span.kind == "write_span") and bounded, "invalid struct element access")
 end
@@ -514,6 +524,7 @@ local function binary(node: scalarIR.Binary, values: {[string]: string}, scope: 
                 index = scope.index,
                 boundSpan = scope.boundSpan,
                 mapIndex = scope.mapIndex,
+                indexSpans = scope.indexSpans,
                 cursorBounds = cursorBounds,
                 resultTypes = scope.resultTypes,
                 entryMode = scope.entryMode,
@@ -1624,7 +1635,8 @@ local function block(
                 or statement.cursor == nil
                 and statement.index == scope.index
                 and (
-                scope.mapIndex == true or statement.span == scope.boundSpan
+                scope.mapIndex == true and (scope.indexSpans as {[string]: boolean})[statement.span] == true
+                or statement.span == scope.boundSpan
             )
             holds(scope.writes[statement.span] == true and bounded, "invalid store root")
             scalarWalk(statement.value, values, scope)
@@ -1919,6 +1931,7 @@ local function block(
                     index = scope.index,
                     boundSpan = scope.boundSpan,
                     mapIndex = scope.mapIndex,
+                    indexSpans = scope.indexSpans,
                     cursorBounds = cursorBounds,
                     resultTypes = scope.resultTypes,
                     entryMode = scope.entryMode,
@@ -2004,6 +2017,7 @@ local function block(
                 index = scope.index,
                 boundSpan = scope.boundSpan,
                 mapIndex = scope.mapIndex,
+                indexSpans = scope.indexSpans,
                 cursorBounds = cursorBounds,
                 resultTypes = scope.resultTypes,
                 entryMode = scope.entryMode,
@@ -2374,7 +2388,15 @@ local function bounds(program: scalarIR.Program, byName: {[string]: scalarIR.Par
     end
     for _, param in ipairs(program.params) do
         if param.region ~= nil and param.name ~= primary_.name then
-            holds(guarded[param.name] == true, "unguarded IR span")
+            -- A GPU map kernel may relate spans no equality can spell, so a
+            -- span may go unguarded there. What keeps that sound is the access
+            -- rule: the body walk accepts the loop index only against
+            -- `indexSpans`, so an unguarded span is reachable through proved
+            -- cursors alone.
+            holds(
+                guarded[param.name] == true or program.executionTarget == "gpu",
+                "unguarded IR span"
+            )
         end
     end
 end
@@ -2658,6 +2680,15 @@ function verify.program(program: scalarIR.Program): scalarIR.Program
         holds(program.simdWidth == nil, "a scalar program carries a SIMD width")
     end
 
+    local indexSpans: {[string]: boolean}? = nil
+    if loop ~= nil then
+        local provable: {[string]: boolean} = {[(loop as scalarIR.Loop).count] = true}
+        for _, guard in ipairs(program.guards) do
+            provable[guard.left] = true
+            provable[guard.right] = true
+        end
+        indexSpans = provable
+    end
     local scope = new verify.Scope(
         spans = byName,
         layouts = layouts,
@@ -2666,6 +2697,7 @@ function verify.program(program: scalarIR.Program): scalarIR.Program
         index = loop ~= nil and (loop as scalarIR.Loop).index or nil,
         boundSpan = loop ~= nil and (loop as scalarIR.Loop).count or nil,
         mapIndex = loop ~= nil,
+        indexSpans = indexSpans,
         cursorBounds = {},
         resultTypes = resultTypes,
         entryMode = program.entryMode,

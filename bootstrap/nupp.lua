@@ -12827,7 +12827,17 @@ local recordDeclaration = artifact . exportTypes and "export record " or "local 
 
 append ( lines , "local " .. runtime .. " = require(\"nupp.gpu\")" )
 append ( lines , "local " .. native .. " = require(\"nupp.runtime.native\")" )
+
+
+
+
 local fields = { "uint32_t count;" }
+for _ , param in ipairs ( artifact . readonly ) do
+fields [ # fields + 1 ] = "uint32_t " .. param . name : gsub ( "[^%w_]" , "_" ) .. "_count;"
+end
+for _ , param in ipairs ( artifact . writable ) do
+fields [ # fields + 1 ] = "uint32_t " .. param . name : gsub ( "[^%w_]" , "_" ) .. "_count;"
+end
 for _ , param in ipairs ( artifact . uniforms ) do
 fields [ # fields + 1 ] = tostring ( C_TYPE [ param . type ] ) .. " " .. param . name : gsub ( "[^%w_]" , "_" ) .. ";"
 end
@@ -12926,10 +12936,22 @@ end
 append ( lines , "): " .. bindingType .. " borrows (self)" )
 append (
 lines ,
-"    local raw = self._context:bindGenerated(self._kernel, " .. artifact . readonly [
-1
-] . name .. ", " .. artifact . writable [ 1 ] . name .. ")"
+"    local raw = self._context:bindKernel(self._kernel, " .. artifact . countSpan .. ".count)"
 )
+for slot , param in ipairs ( artifact . readonly ) do
+append (
+lines ,
+"    raw:setRead(" .. tostring ( slot - 1 ) .. ", " .. param . name .. ", "
+.. tostring ( artifact . exactCounts [ param . name ] == true ) .. ")"
+)
+end
+for slot , param in ipairs ( artifact . writable ) do
+append (
+lines ,
+"    raw:setWrite(" .. tostring ( slot - 1 ) .. ", " .. param . name .. ", "
+.. tostring ( artifact . exactCounts [ param . name ] == true ) .. ")"
+)
+end
 append ( lines , "    return new " .. bindingType .. "(_context = self._context, _binding = raw)" )
 append ( lines , "end" )
 append ( lines , "" )
@@ -12971,6 +12993,15 @@ local scalarIR = require ( "nupp.compiler.aot.scalar" )
 local gpuemit = { }
 
 gpuemit.Artifact = {} gpuemit.Artifact.__index = gpuemit.Artifact
+
+
+
+
+
+
+
+
+
 
 
 
@@ -13046,6 +13077,27 @@ assert ( program . entryMode == "kernel" and program . loop ~= nil , "GPU entry 
 local loop = program . loop
 assert ( loop . first == 1 and loop . last == loop . count , "GPU entry must dispatch one complete span" )
 
+
+
+
+
+local exactCounts = { [ loop . count ] = true }
+for _ , guard in ipairs ( program . guards ) do
+exactCounts [ guard . left ] = true
+exactCounts [ guard . right ] = true
+end
+local function provenSpanIndex ( value ) 
+if value . cursor ~= nil then
+return "[" .. identifier ( value . cursorCName ) .. "]"
+end
+assert ( value . index == loop . index , "only the dispatch index or a proved cursor may address a GPU span" )
+assert (
+exactCounts [ value . span ] == true ,
+"a dispatch-indexed GPU span must be the loop bound or guarded equal to it: " .. tostring ( value . span )
+)
+return "[dispatch_index]"
+end
+
 local expression
 expression = function ( value ) 
 local op = value . op
@@ -13054,11 +13106,16 @@ return identifier ( value . cName or value . name )
 elseif op == "uniform" then
 return "uniforms." .. identifier ( value . name )
 elseif op == "load" then
-assert ( value . index == loop . index , "only the dispatch index may load a GPU span" )
-return identifier ( value . span ) .. "[dispatch_index]"
+return identifier ( value . span ) .. provenSpanIndex ( value )
 elseif op == "element_ref" then
-assert ( value . index == loop . index , "only the dispatch index may reference a GPU span" )
-return "&" .. identifier ( value . span ) .. "[dispatch_index]"
+return "&" .. identifier ( value . span ) .. provenSpanIndex ( value )
+elseif op == "span_count" then
+return "uniforms." .. identifier ( value . span ) .. "_count"
+elseif op == "int_to_f64" then
+
+
+
+return expression ( value . value )
 elseif op == "field_load" then
 return "(" .. expression ( value . object ) .. ")->" .. identifier ( value . field )
 elseif op == "constant" or op == "constant_i32" then
@@ -13066,6 +13123,14 @@ return value . value
 elseif op == "bool" then
 return value . value and "true" or "false"
 elseif FIXED [ op ] ~= nil or BINARY [ op ] ~= nil then
+
+
+
+assert (
+not ( ( op == "div" or op == "mod" )
+and ( value . left . op == "int_to_f64" or value . right . op == "int_to_f64" ) ) ,
+"GPU subset does not emit binary64 division of integers"
+)
 local token = FIXED [ op ] or BINARY [ op ]
 return "(" .. expression ( value . left ) .. " " .. tostring ( token ) .. " " .. expression ( value . right ) .. ")"
 elseif op == "neg" then
@@ -13131,8 +13196,11 @@ error ( "GPU subset does not emit assignment target " .. tostring ( assignment .
 end
 line ( depth , target .. " = " .. expression ( assignment . value ) .. ";" )
 elseif op == "store" then
-assert ( statement . index == loop . index , "only the dispatch index may store a GPU span" )
-line ( depth , identifier ( statement . span ) .. "[dispatch_index] = " .. expression ( statement . value ) .. ";" )
+line (
+depth ,
+identifier ( statement . span ) .. provenSpanIndex ( statement ) .. " = "
+.. expression ( statement . value ) .. ";"
+)
 elseif op == "while" then
 line ( depth , "while (" .. expression ( statement . condition ) .. ") {" )
 statements ( statement . body , depth + 1 )
@@ -13178,8 +13246,28 @@ else
 error ( "GPU subset does not admit scalar ABI parameters" , 0 )
 end
 end
-assert ( # readonly == 1 and # writable == 1 , "GPU kernels currently require one read and one write span" )
-local uniformBytes = 4 * ( 1 + # uniforms )
+assert ( # writable >= 1 , "GPU kernels require a writable span" )
+
+
+
+
+
+local spans = { }
+for _ , param in ipairs ( readonly ) do
+spans [ # spans + 1 ] = param
+end
+for _ , param in ipairs ( writable ) do
+spans [ # spans + 1 ] = param
+end
+for _ , param in ipairs ( uniforms ) do
+for _ , span in ipairs ( spans ) do
+assert (
+param . name ~= span . name .. "_count" ,
+"GPU uniform name collides with a span count: " .. param . name
+)
+end
+end
+local uniformBytes = 4 * ( 1 + # spans + # uniforms )
 assert ( uniformBytes <= 128 , "GPU uniform block exceeds 128 bytes" )
 
 line ( 0 , "#include <metal_stdlib>" )
@@ -13198,6 +13286,9 @@ line ( 0 , "" )
 end
 line ( 0 , "struct NuppUniforms {" )
 line ( 1 , "uint count;" )
+for _ , param in ipairs ( spans ) do
+line ( 1 , "uint " .. identifier ( param . name ) .. "_count;" )
+end
 for _ , param in ipairs ( uniforms ) do
 line ( 1 , tostring ( metalType ( param . type ) ) .. " " .. identifier ( param . name ) .. ";" )
 end
@@ -13238,7 +13329,9 @@ readonly ,  writable =
 writable ,  uniforms =
 uniforms ,  uniformBytes =
 uniformBytes ,  threads =
-256 }, gpuemit.Artifact)
+256 ,  countSpan =
+loop . count ,  exactCounts =
+exactCounts }, gpuemit.Artifact)
 
 end
 
@@ -15650,6 +15743,11 @@ lower.Kernel = {} lower.Kernel.__index = lower.Kernel
 
 
 
+
+
+
+
+
 local function markLua ( kernel , source ) 
 kernel . usesLua = true
 if kernel . luaSource == nil then
@@ -15723,8 +15821,23 @@ end
 
 
 
+
+
 local function provenIndex ( spanName , cursor , node , kernel ) 
-if cursor ~= nil or kernel . mapEntry then
+if cursor ~= nil then
+return
+end
+if kernel . mapEntry then
+local provable = kernel . indexSpans
+if provable ~= nil and ( provable ) [ spanName ] ~= true then
+kernel . context . reject (
+lower . site ( node ) ,
+(
+"a dispatch-indexed GPU span must be the loop bound or guarded equal to it; "
+.. "guard %s or reach it through a proved cursor"
+) : format ( spanName )
+)
+end
 return
 end
 local context = kernel . context
@@ -19390,7 +19503,8 @@ function lower . lengthGuards (
 stat ,
 form ,
 signature ,
-context
+context ,
+partial
 ) 
 local primary = signature . writes [ 1 ]
 local guarded = { }
@@ -19437,9 +19551,14 @@ collect ( form . cond )
 local guards = { }
 for _ , span in ipairs ( signature . spans ) do
 if span . name ~= primary . name then
-if guarded [ span . name ] == nil then
+
+
+
+
+if guarded [ span . name ] == nil and partial ~= true then
 context . reject ( lower . site ( stat ) , "the length guard does not cover span " .. span . name )
 end
+if guarded [ span . name ] ~= nil then
 guards [
 # guards + 1
 ] = setmetatable({ op =
@@ -19448,6 +19567,7 @@ primary . name ,  right =
 span . name ,  source =
 guarded [ span . name ] }, scalarIR.Guard)
 
+end
 end
 end
 
@@ -19909,6 +20029,17 @@ local mapShape = # resultTypes == 0 and # signature . writes > 0 and # signature
 # statements == 2 or # statements == 3
 ) and lower . isGuardStatement ( statements [ 1 ] ) and statements [ # statements ] . kind == "fornumStmt"
 
+
+
+
+
+
+if contract . target == "gpu" and # resultTypes == 0 and # signature . writes > 0 and # signature . reads > 0
+and # statements == 1 and statements [ 1 ] . kind == "fornumStmt"
+then
+mapShape = true
+end
+
 if not mapShape then
 if contract . lanesRequired then
 context . reject ( lower . site ( body ) , "required scalar-source lanes need the admitted map-loop shape" )
@@ -20015,7 +20146,9 @@ end
 
 local primary = signature . writes [ 1 ]
 
-local guards = lower . lengthGuards (
+local guards = { }
+if # statements > 1 then
+guards = lower . lengthGuards (
 statements [ 1 ] ,
 lower . guardClause (
 statements [ 1 ] ,
@@ -20024,8 +20157,10 @@ statements [ 1 ] ,
 context
 ) ,
 signature ,
-context
+context ,
+contract . target == "gpu"
 )
+end
 
 local rangeGuard = nil
 if # statements == 3 then
@@ -20063,7 +20198,15 @@ symbol ,  loopSource =
 lower . site ( loop ) ,  index =
 index ,  indexCName =
 "i" ,  mapEntry =
-true ,  resultTypes =
+true ,  indexSpans =
+( function ( ) 
+local provable = { [ primary . name ] = true }
+for _ , guard in ipairs ( guards ) do
+provable [ guard . right ] = true
+end
+
+return provable
+end ) ( ) ,  resultTypes =
 { } ,  cursorBounds =
 { } ,  lengthBounds =
 { } ,  scratchLengthBounds =
@@ -25581,6 +25724,12 @@ verify.Scope = {} verify.Scope.__index = verify.Scope
 
 
 
+
+
+
+
+
+
 verify.Context = {} verify.Context.__index = verify.Context
 
 
@@ -25923,7 +26072,10 @@ node . cursor
 )
 else
 holds (
-node . index == scope . index and ( scope . mapIndex == true or node . span == scope . boundSpan ) ,
+node . index == scope . index and (
+scope . mapIndex == true and ( scope . indexSpans ) [ node . span ] == true
+or node . span == scope . boundSpan
+) ,
 "unbounded load index"
 )
 end
@@ -25949,7 +26101,8 @@ node . cursor
 ] == "u32" and scope . cursorBounds [
 node . cursor
 ] == node . span and node . cursorCName ~= nil or node . cursor == nil and node . index == scope . index and (
-scope . mapIndex == true or node . span == scope . boundSpan
+scope . mapIndex == true and ( scope . indexSpans ) [ node . span ] == true
+or node . span == scope . boundSpan
 )
 holds ( node . mutable == ( span . kind == "write_span" ) and bounded , "invalid struct element access" )
 end
@@ -26016,7 +26169,8 @@ scope . helpers ,  writes =
 scope . writes ,  index =
 scope . index ,  boundSpan =
 scope . boundSpan ,  mapIndex =
-scope . mapIndex ,  cursorBounds =
+scope . mapIndex ,  indexSpans =
+scope . indexSpans ,  cursorBounds =
 cursorBounds ,  resultTypes =
 scope . resultTypes ,  entryMode =
 scope . entryMode ,  builderMode =
@@ -27127,7 +27281,8 @@ and statement . cursorCName ~= nil
 or statement . cursor == nil
 and statement . index == scope . index
 and (
-scope . mapIndex == true or statement . span == scope . boundSpan
+scope . mapIndex == true and ( scope . indexSpans ) [ statement . span ] == true
+or statement . span == scope . boundSpan
 )
 holds ( scope . writes [ statement . span ] == true and bounded , "invalid store root" )
 scalarWalk ( statement . value , values , scope )
@@ -27421,7 +27576,8 @@ scope . helpers ,  writes =
 scope . writes ,  index =
 scope . index ,  boundSpan =
 scope . boundSpan ,  mapIndex =
-scope . mapIndex ,  cursorBounds =
+scope . mapIndex ,  indexSpans =
+scope . indexSpans ,  cursorBounds =
 cursorBounds ,  resultTypes =
 scope . resultTypes ,  entryMode =
 scope . entryMode ,  builderMode =
@@ -27506,7 +27662,8 @@ scope . helpers ,  writes =
 scope . writes ,  index =
 scope . index ,  boundSpan =
 scope . boundSpan ,  mapIndex =
-scope . mapIndex ,  cursorBounds =
+scope . mapIndex ,  indexSpans =
+scope . indexSpans ,  cursorBounds =
 cursorBounds ,  resultTypes =
 scope . resultTypes ,  entryMode =
 scope . entryMode ,  builderMode =
@@ -27877,7 +28034,15 @@ guarded [ guard . right ] = true
 end
 for _ , param in ipairs ( program . params ) do
 if param . region ~= nil and param . name ~= primary_ . name then
-holds ( guarded [ param . name ] == true , "unguarded IR span" )
+
+
+
+
+
+holds (
+guarded [ param . name ] == true or program . executionTarget == "gpu" ,
+"unguarded IR span"
+)
 end
 end
 end
@@ -28161,6 +28326,15 @@ else
 holds ( program . simdWidth == nil , "a scalar program carries a SIMD width" )
 end
 
+local indexSpans = nil
+if loop ~= nil then
+local provable = { [ ( loop ) . count ] = true }
+for _ , guard in ipairs ( program . guards ) do
+provable [ guard . left ] = true
+provable [ guard . right ] = true
+end
+indexSpans = provable
+end
 local scope = setmetatable({ spans =
 byName ,  layouts =
 layouts ,  helpers =
@@ -28168,7 +28342,8 @@ helpers ,  writes =
 writes ,  index =
 loop ~= nil and ( loop ) . index or nil ,  boundSpan =
 loop ~= nil and ( loop ) . count or nil ,  mapIndex =
-loop ~= nil ,  cursorBounds =
+loop ~= nil ,  indexSpans =
+indexSpans ,  cursorBounds =
 { } ,  resultTypes =
 resultTypes ,  entryMode =
 program . entryMode ,  builderMode =
@@ -162302,6 +162477,7 @@ native . ffi . cdef [[
 typedef struct NuppGpuContext NuppGpuContext;
 typedef struct NuppGpuBuffer NuppGpuBuffer;
 typedef struct NuppGpuKernel NuppGpuKernel;
+typedef struct NuppGpuBinding NuppGpuBinding;
 NuppGpuContext *nuppGpuContextCreate(void);
 const char *nuppGpuContextDriver(const NuppGpuContext *);
 void nuppGpuContextDestroy(NuppGpuContext *);
@@ -162310,9 +162486,10 @@ NuppGpuKernel *nuppGpuKernelCreate(
     NuppGpuContext *, const uint8_t *, size_t, const uint8_t *, size_t,
     uint32_t, uint32_t, uint32_t, uint32_t);
 bool nuppGpuBufferUpload(NuppGpuContext *, NuppGpuBuffer *, const void *, size_t);
-bool nuppGpuDispatchOne(
-    NuppGpuContext *, NuppGpuKernel *, NuppGpuBuffer *, NuppGpuBuffer *,
-    const void *, size_t, uint32_t);
+NuppGpuBinding *nuppGpuBindingCreate(NuppGpuContext *, NuppGpuKernel *, uint32_t);
+bool nuppGpuBindingSetRead(NuppGpuBinding *, uint32_t, NuppGpuBuffer *, uint32_t, bool);
+bool nuppGpuBindingSetWrite(NuppGpuBinding *, uint32_t, NuppGpuBuffer *, uint32_t, bool);
+bool nuppGpuBindingDispatch(NuppGpuBinding *, const void *, size_t);
 bool nuppGpuBufferDownload(NuppGpuContext *, NuppGpuBuffer *);
 bool nuppGpuSynchronize(NuppGpuContext *);
 bool nuppGpuBufferRead(NuppGpuContext *, NuppGpuBuffer *, void *, size_t);
@@ -162320,11 +162497,7 @@ bool nuppGpuBufferRead(NuppGpuContext *, NuppGpuBuffer *, void *, size_t);
 
 
 
-local dispatchNative = C . nuppGpuDispatchOne
-
-
-
-
+local dispatchNative = C . nuppGpuBindingDispatch
 
 
 
@@ -162376,6 +162549,24 @@ gpu.Binding = {} gpu.Binding.__index = gpu.Binding
 
 
 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 function gpu . destroyContext ( context ) 
 context : drop ( )
 end ;__nuppCleanups["nupp.gpu#destroyContext"]=gpu.destroyContext
@@ -162383,6 +162574,7 @@ end ;__nuppCleanups["nupp.gpu#destroyContext"]=gpu.destroyContext
 
 
 gpu.Context = {} gpu.Context.__index = gpu.Context
+
 
 
 
@@ -162516,8 +162708,8 @@ uniformBytes ,
 threads
 ) 
 local group = threads or 256
-if readonlyBuffers ~= 1 or writableBuffers ~= 1 then
-error ( "nupp: generated GPU kernels currently require one read and one write buffer" , 2 )
+if readonlyBuffers < 0 or readonlyBuffers > 16 or writableBuffers < 1 or writableBuffers > 16 then
+error ( "nupp: generated GPU kernels take up to 16 read and 1 through 16 write buffers" , 2 )
 end
 if uniformBytes < 0 or uniformBytes > 128 then
 error ( "nupp: GPU uniform block must be from 0 through 128 bytes" , 2 )
@@ -162543,24 +162735,43 @@ end
 return setmetatable({ _anchor =  self ,  _handle =  handle ,  _uniformBytes =  uniformBytes }, gpu.Kernel)
 end
 
-function gpu . Context . bindGenerated (
+function gpu . Context . bindKernel (
 self ,
 kernel ,
-input ,
-output
+count
 ) 
-if input . count ~= output . count then
-error ( "nupp: generated GPU buffer lengths do not agree" , 2 )
+if count < 0 or count > 4294967295 then
+error ( "nupp: GPU dispatch count must be from 0 through 4294967295" , 2 )
 end
-return setmetatable({ _anchor =
-self ,  _context =
-live ( self ) ,  _kernel =
-kernel . _handle ,  _input =
-input . _handle ,  _output =
-output . _handle ,  _uniformBytes =
-kernel . _uniformBytes ,  count =
-input . count }, gpu.Binding)
+local handle = C . nuppGpuBindingCreate ( live ( self ) , kernel . _handle , count )
+if handle == nil then
+error ( "nupp: " .. ffi . string ( C . nuppNativeError ( ) ) , 2 )
+end
 
+return setmetatable({ _anchor =
+self ,  _handle =
+handle ,  _uniformBytes =
+kernel . _uniformBytes ,  count =
+count }, gpu.Binding)
+
+end
+
+function gpu . Binding . setRead (
+self ,
+slot ,
+buffer ,
+matchCount
+) 
+succeeded ( C . nuppGpuBindingSetRead ( self . _handle , slot , buffer . _handle , buffer . count , matchCount ) , 2 )
+end
+
+function gpu . Binding . setWrite (
+self ,
+slot ,
+buffer ,
+matchCount
+) 
+succeeded ( C . nuppGpuBindingSetWrite ( self . _handle , slot , buffer . _handle , buffer . count , matchCount ) , 2 )
 end
 
 function gpu . Binding . dispatchPacked ( self , uniforms , uniformBytes ) 
@@ -162568,18 +162779,7 @@ if uniformBytes ~= self . _uniformBytes then
 error ( "nupp: generated GPU uniform block has the wrong size" , 2 )
 end
 local uniformPointer = __nuppFfi.cast("const uint8_t *" , uniforms )
-succeeded (
-dispatchNative (
-self . _context ,
-self . _kernel ,
-self . _input ,
-self . _output ,
-uniformPointer ,
-uniformBytes ,
-self . count
-) ,
-2
-)
+succeeded ( dispatchNative ( self . _handle , uniformPointer , uniformBytes ) , 2 )
 end
 
 function gpu . Context . upload (
@@ -207611,6 +207811,7 @@ native.ffi.cdef[[
 typedef struct NuppGpuContext NuppGpuContext;
 typedef struct NuppGpuBuffer NuppGpuBuffer;
 typedef struct NuppGpuKernel NuppGpuKernel;
+typedef struct NuppGpuBinding NuppGpuBinding;
 NuppGpuContext *nuppGpuContextCreate(void);
 const char *nuppGpuContextDriver(const NuppGpuContext *);
 void nuppGpuContextDestroy(NuppGpuContext *);
@@ -207619,9 +207820,10 @@ NuppGpuKernel *nuppGpuKernelCreate(
     NuppGpuContext *, const uint8_t *, size_t, const uint8_t *, size_t,
     uint32_t, uint32_t, uint32_t, uint32_t);
 bool nuppGpuBufferUpload(NuppGpuContext *, NuppGpuBuffer *, const void *, size_t);
-bool nuppGpuDispatchOne(
-    NuppGpuContext *, NuppGpuKernel *, NuppGpuBuffer *, NuppGpuBuffer *,
-    const void *, size_t, uint32_t);
+NuppGpuBinding *nuppGpuBindingCreate(NuppGpuContext *, NuppGpuKernel *, uint32_t);
+bool nuppGpuBindingSetRead(NuppGpuBinding *, uint32_t, NuppGpuBuffer *, uint32_t, bool);
+bool nuppGpuBindingSetWrite(NuppGpuBinding *, uint32_t, NuppGpuBuffer *, uint32_t, bool);
+bool nuppGpuBindingDispatch(NuppGpuBinding *, const void *, size_t);
 bool nuppGpuBufferDownload(NuppGpuContext *, NuppGpuBuffer *);
 bool nuppGpuSynchronize(NuppGpuContext *);
 bool nuppGpuBufferRead(NuppGpuContext *, NuppGpuBuffer *, void *, size_t);
@@ -207629,13 +207831,9 @@ bool nuppGpuBufferRead(NuppGpuContext *, NuppGpuBuffer *, void *, size_t);
 
 -- `native.C` is late-bound, so restore the ownership contracts that the literal
 -- cdef carries for the checker but a table lookup cannot preserve.
-local dispatchNative = C.nuppGpuDispatchOne as function(
-    any,
-    any,
-    any,
+local dispatchNative = C.nuppGpuBindingDispatch as function(
     any,
     borrows uniforms: const uint8[?],
-    integer,
     integer
 ): boolean
 
@@ -207665,14 +207863,32 @@ end
 --- @internal
 record gpu.Binding
     private readonly _anchor: any
-    private readonly _context: any
-    private readonly _kernel: any
-    private readonly _input: any
-    private readonly _output: any
+    private readonly _handle: any
     private readonly _uniformBytes: integer
 
     --- Number of elements dispatched by this binding.
     readonly count: integer
+
+    --- Attaches a resident buffer to one read-only slot. A dispatch-indexed
+    --- span asks for `matchCount`, which holds the buffer to one element per
+    --- dispatched thread; a cursor-proved span passes false and may be any
+    --- length, because its bound check runs inside the shader.
+    --- @internal
+    setRead: function<T>(
+        borrows self: Binding,
+        slot: integer,
+        borrows buffer: gpu.Buffer<T>,
+        matchCount: boolean
+    ): nil
+
+    --- Attaches a resident buffer to one writable slot.
+    --- @internal
+    setWrite: function<T>(
+        borrows self: Binding,
+        slot: integer,
+        borrows buffer: gpu.Buffer<T>,
+        matchCount: boolean
+    ): nil
 
     --- Enqueues the binding with a compiler-laid-out uniform block.
     --- @internal
@@ -207716,13 +207932,14 @@ record gpu.Context is gpu.ContextToken
         threads: integer?
     ): gpu.Kernel borrows (self)
 
-    --- Attaches the current one-read/one-write generated kernel to buffers.
+    --- Starts attaching a generated kernel to resident buffers. `count` is the
+    --- dispatch length, which the compiler takes from the kernel's primary
+    --- span; the generated binding fills every slot before dispatching.
     --- @internal
-    bindGenerated: function<I, O>(
+    bindKernel: function(
         borrows self: Context,
         borrows kernel: gpu.Kernel,
-        borrows input: gpu.Buffer<I>,
-        borrows output: gpu.Buffer<O>
+        count: integer
     ): gpu.Binding borrows (self)
 
     --- Copies a complete shared span into a resident buffer and enqueues its
@@ -207825,8 +208042,8 @@ function gpu.Context.compileGenerated(
     threads: integer?
 ): gpu.Kernel borrows (self)
     local group = threads or 256
-    if readonlyBuffers ~= 1 or writableBuffers ~= 1 then
-        error("nupp: generated GPU kernels currently require one read and one write buffer", 2)
+    if readonlyBuffers < 0 or readonlyBuffers > 16 or writableBuffers < 1 or writableBuffers > 16 then
+        error("nupp: generated GPU kernels take up to 16 read and 1 through 16 write buffers", 2)
     end
     if uniformBytes < 0 or uniformBytes > 128 then
         error("nupp: GPU uniform block must be from 0 through 128 bytes", 2)
@@ -207852,24 +208069,43 @@ function gpu.Context.compileGenerated(
     return new gpu.Kernel(_anchor = self, _handle = handle, _uniformBytes = uniformBytes)
 end
 
-function gpu.Context.bindGenerated<I, O>(
+function gpu.Context.bindKernel(
     borrows self: gpu.Context,
     borrows kernel: gpu.Kernel,
-    borrows input: gpu.Buffer<I>,
-    borrows output: gpu.Buffer<O>
+    count: integer
 ): gpu.Binding borrows (self)
-    if input.count ~= output.count then
-        error("nupp: generated GPU buffer lengths do not agree", 2)
+    if count < 0 or count > 4294967295 then
+        error("nupp: GPU dispatch count must be from 0 through 4294967295", 2)
     end
+    local handle = C.nuppGpuBindingCreate(live(self), kernel._handle, count)
+    if handle == nil then
+        error("nupp: " .. ffi.string(C.nuppNativeError()), 2)
+    end
+
     return new gpu.Binding(
         _anchor = self,
-        _context = live(self),
-        _kernel = kernel._handle,
-        _input = input._handle,
-        _output = output._handle,
+        _handle = handle,
         _uniformBytes = kernel._uniformBytes,
-        count = input.count
+        count = count
     )
+end
+
+function gpu.Binding.setRead<T>(
+    borrows self: gpu.Binding,
+    slot: integer,
+    borrows buffer: gpu.Buffer<T>,
+    matchCount: boolean
+): nil
+    succeeded(C.nuppGpuBindingSetRead(self._handle, slot, buffer._handle, buffer.count, matchCount), 2)
+end
+
+function gpu.Binding.setWrite<T>(
+    borrows self: gpu.Binding,
+    slot: integer,
+    borrows buffer: gpu.Buffer<T>,
+    matchCount: boolean
+): nil
+    succeeded(C.nuppGpuBindingSetWrite(self._handle, slot, buffer._handle, buffer.count, matchCount), 2)
 end
 
 function gpu.Binding.dispatchPacked(borrows self: gpu.Binding, uniforms: any, uniformBytes: integer): nil
@@ -207877,18 +208113,7 @@ function gpu.Binding.dispatchPacked(borrows self: gpu.Binding, uniforms: any, un
         error("nupp: generated GPU uniform block has the wrong size", 2)
     end
     local uniformPointer = ffi.cast<const uint8[?]>(uniforms)
-    succeeded(
-        dispatchNative(
-            self._context,
-            self._kernel,
-            self._input,
-            self._output,
-            uniformPointer,
-            uniformBytes,
-            self.count
-        ),
-        2
-    )
+    succeeded(dispatchNative(self._handle, uniformPointer, uniformBytes), 2)
 end
 
 function gpu.Context.upload<T>(

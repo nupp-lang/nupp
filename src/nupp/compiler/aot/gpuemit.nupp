@@ -21,6 +21,15 @@ record gpuemit.Artifact
     uniformBytes: integer
     threads: integer
 
+    --- The span whose length bounds the dispatch.
+    countSpan: string
+
+    --- Spans the kernel addresses by the dispatch index or a length guard
+    --- promises equal, so the host binding must hold their buffers to the
+    --- dispatch length. A span reached only through proved cursors is absent:
+    --- its bound check travels inside the shader.
+    exactCounts: {[string]: boolean}
+
     --- Whether declaration replacements may publish their generated nominal
     --- surfaces from a declared module.
     exportTypes: boolean?
@@ -88,6 +97,27 @@ function gpuemit.program(program: scalarIR.Program): gpuemit.Artifact
     local loop = program.loop as scalarIR.Loop
     assert(loop.first == 1 and loop.last == loop.count, "GPU entry must dispatch one complete span")
 
+    -- A span addressed by the dispatch index needs its length equal to the
+    -- dispatch length: the loop bound proves the primary, and a length guard
+    -- proves the rest host-side. A proved cursor carries its own dominating
+    -- bound check into the shader, so its span may be any length.
+    local exactCounts: {[string]: boolean} = {[loop.count] = true}
+    for _, guard in ipairs(program.guards) do
+        exactCounts[guard.left] = true
+        exactCounts[guard.right] = true
+    end
+    local function provenSpanIndex(value: any): string
+        if value.cursor ~= nil then
+            return "[" .. identifier(value.cursorCName) .. "]"
+        end
+        assert(value.index == loop.index, "only the dispatch index or a proved cursor may address a GPU span")
+        assert(
+            exactCounts[value.span as string] == true,
+            "a dispatch-indexed GPU span must be the loop bound or guarded equal to it: " .. tostring(value.span)
+        )
+        return "[dispatch_index]"
+    end
+
     local expression: function(any): string
     expression = function(value: any): string
         local op = value.op
@@ -96,11 +126,16 @@ function gpuemit.program(program: scalarIR.Program): gpuemit.Artifact
         elseif op == "uniform" then
             return "uniforms." .. identifier(value.name)
         elseif op == "load" then
-            assert(value.index == loop.index, "only the dispatch index may load a GPU span")
-            return identifier(value.span) .. "[dispatch_index]"
+            return identifier(value.span) .. provenSpanIndex(value)
         elseif op == "element_ref" then
-            assert(value.index == loop.index, "only the dispatch index may reference a GPU span")
-            return "&" .. identifier(value.span) .. "[dispatch_index]"
+            return "&" .. identifier(value.span) .. provenSpanIndex(value)
+        elseif op == "span_count" then
+            return "uniforms." .. identifier(value.span) .. "_count"
+        elseif op == "int_to_f64" then
+            -- Comparisons and exact-integer narrows agree between an integer
+            -- register and the binary64 it widens to, so the value passes
+            -- through. Binary64 arithmetic that could round is refused below.
+            return expression(value.value)
         elseif op == "field_load" then
             return "(" .. expression(value.object) .. ")->" .. identifier(value.field)
         elseif op == "constant" or op == "constant_i32" then
@@ -108,6 +143,14 @@ function gpuemit.program(program: scalarIR.Program): gpuemit.Artifact
         elseif op == "bool" then
             return value.value and "true" or "false"
         elseif FIXED[op] ~= nil or BINARY[op] ~= nil then
+            -- An integer that passed through `int_to_f64` divides differently
+            -- in an integer register than in binary64, where every 32-bit
+            -- quotient is computed exactly and then rounded.
+            assert(
+                not ((op == "div" or op == "mod")
+                    and (value.left.op == "int_to_f64" or value.right.op == "int_to_f64")),
+                "GPU subset does not emit binary64 division of integers"
+            )
             local token = FIXED[op] or BINARY[op]
             return "(" .. expression(value.left) .. " " .. tostring(token) .. " " .. expression(value.right) .. ")"
         elseif op == "neg" then
@@ -173,8 +216,11 @@ function gpuemit.program(program: scalarIR.Program): gpuemit.Artifact
                 end
                 line(depth, target .. " = " .. expression(assignment.value) .. ";")
             elseif op == "store" then
-                assert(statement.index == loop.index, "only the dispatch index may store a GPU span")
-                line(depth, identifier(statement.span) .. "[dispatch_index] = " .. expression(statement.value) .. ";")
+                line(
+                    depth,
+                    identifier(statement.span) .. provenSpanIndex(statement) .. " = "
+                        .. expression(statement.value) .. ";"
+                )
             elseif op == "while" then
                 line(depth, "while (" .. expression(statement.condition) .. ") {")
                 statements(statement.body, depth + 1)
@@ -220,8 +266,28 @@ function gpuemit.program(program: scalarIR.Program): gpuemit.Artifact
             error("GPU subset does not admit scalar ABI parameters", 0)
         end
     end
-    assert(#readonly == 1 and #writable == 1, "GPU kernels currently require one read and one write span")
-    local uniformBytes = 4 * (1 + #uniforms)
+    assert(#writable >= 1, "GPU kernels require a writable span")
+
+    -- Every span's length rides in the uniform block, in binding order, so an
+    -- in-body `#span` bound check compares against the same count the host
+    -- validated. The dispatch bound comes first, then span counts, then the
+    -- authored scalars.
+    local spans: {scalarIR.Param} = {}
+    for _, param in ipairs(readonly) do
+        spans[#spans + 1] = param
+    end
+    for _, param in ipairs(writable) do
+        spans[#spans + 1] = param
+    end
+    for _, param in ipairs(uniforms) do
+        for _, span in ipairs(spans) do
+            assert(
+                param.name ~= span.name .. "_count",
+                "GPU uniform name collides with a span count: " .. param.name
+            )
+        end
+    end
+    local uniformBytes = 4 * (1 + #spans + #uniforms)
     assert(uniformBytes <= 128, "GPU uniform block exceeds 128 bytes")
 
     line(0, "#include <metal_stdlib>")
@@ -240,6 +306,9 @@ function gpuemit.program(program: scalarIR.Program): gpuemit.Artifact
     end
     line(0, "struct NuppUniforms {")
     line(1, "uint count;")
+    for _, param in ipairs(spans) do
+        line(1, "uint " .. identifier(param.name) .. "_count;")
+    end
     for _, param in ipairs(uniforms) do
         line(1, tostring(metalType(param.type)) .. " " .. identifier(param.name) .. ";")
     end
@@ -280,7 +349,9 @@ function gpuemit.program(program: scalarIR.Program): gpuemit.Artifact
         writable = writable,
         uniforms = uniforms,
         uniformBytes = uniformBytes,
-        threads = 256
+        threads = 256,
+        countSpan = loop.count,
+        exactCounts = exactCounts
     )
 end
 

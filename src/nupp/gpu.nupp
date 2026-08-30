@@ -45,6 +45,7 @@ native.ffi.cdef[[
 typedef struct NuppGpuContext NuppGpuContext;
 typedef struct NuppGpuBuffer NuppGpuBuffer;
 typedef struct NuppGpuKernel NuppGpuKernel;
+typedef struct NuppGpuBinding NuppGpuBinding;
 NuppGpuContext *nuppGpuContextCreate(void);
 const char *nuppGpuContextDriver(const NuppGpuContext *);
 void nuppGpuContextDestroy(NuppGpuContext *);
@@ -53,9 +54,10 @@ NuppGpuKernel *nuppGpuKernelCreate(
     NuppGpuContext *, const uint8_t *, size_t, const uint8_t *, size_t,
     uint32_t, uint32_t, uint32_t, uint32_t);
 bool nuppGpuBufferUpload(NuppGpuContext *, NuppGpuBuffer *, const void *, size_t);
-bool nuppGpuDispatchOne(
-    NuppGpuContext *, NuppGpuKernel *, NuppGpuBuffer *, NuppGpuBuffer *,
-    const void *, size_t, uint32_t);
+NuppGpuBinding *nuppGpuBindingCreate(NuppGpuContext *, NuppGpuKernel *, uint32_t);
+bool nuppGpuBindingSetRead(NuppGpuBinding *, uint32_t, NuppGpuBuffer *, uint32_t, bool);
+bool nuppGpuBindingSetWrite(NuppGpuBinding *, uint32_t, NuppGpuBuffer *, uint32_t, bool);
+bool nuppGpuBindingDispatch(NuppGpuBinding *, const void *, size_t);
 bool nuppGpuBufferDownload(NuppGpuContext *, NuppGpuBuffer *);
 bool nuppGpuSynchronize(NuppGpuContext *);
 bool nuppGpuBufferRead(NuppGpuContext *, NuppGpuBuffer *, void *, size_t);
@@ -63,13 +65,9 @@ bool nuppGpuBufferRead(NuppGpuContext *, NuppGpuBuffer *, void *, size_t);
 
 -- `native.C` is late-bound, so restore the ownership contracts that the literal
 -- cdef carries for the checker but a table lookup cannot preserve.
-local dispatchNative = C.nuppGpuDispatchOne as function(
-    any,
-    any,
-    any,
+local dispatchNative = C.nuppGpuBindingDispatch as function(
     any,
     borrows uniforms: const uint8[?],
-    integer,
     integer
 ): boolean
 
@@ -99,14 +97,32 @@ end
 --- @internal
 record gpu.Binding
     private readonly _anchor: any
-    private readonly _context: any
-    private readonly _kernel: any
-    private readonly _input: any
-    private readonly _output: any
+    private readonly _handle: any
     private readonly _uniformBytes: integer
 
     --- Number of elements dispatched by this binding.
     readonly count: integer
+
+    --- Attaches a resident buffer to one read-only slot. A dispatch-indexed
+    --- span asks for `matchCount`, which holds the buffer to one element per
+    --- dispatched thread; a cursor-proved span passes false and may be any
+    --- length, because its bound check runs inside the shader.
+    --- @internal
+    setRead: function<T>(
+        borrows self: Binding,
+        slot: integer,
+        borrows buffer: gpu.Buffer<T>,
+        matchCount: boolean
+    ): nil
+
+    --- Attaches a resident buffer to one writable slot.
+    --- @internal
+    setWrite: function<T>(
+        borrows self: Binding,
+        slot: integer,
+        borrows buffer: gpu.Buffer<T>,
+        matchCount: boolean
+    ): nil
 
     --- Enqueues the binding with a compiler-laid-out uniform block.
     --- @internal
@@ -150,13 +166,14 @@ record gpu.Context is gpu.ContextToken
         threads: integer?
     ): gpu.Kernel borrows (self)
 
-    --- Attaches the current one-read/one-write generated kernel to buffers.
+    --- Starts attaching a generated kernel to resident buffers. `count` is the
+    --- dispatch length, which the compiler takes from the kernel's primary
+    --- span; the generated binding fills every slot before dispatching.
     --- @internal
-    bindGenerated: function<I, O>(
+    bindKernel: function(
         borrows self: Context,
         borrows kernel: gpu.Kernel,
-        borrows input: gpu.Buffer<I>,
-        borrows output: gpu.Buffer<O>
+        count: integer
     ): gpu.Binding borrows (self)
 
     --- Copies a complete shared span into a resident buffer and enqueues its
@@ -259,8 +276,8 @@ function gpu.Context.compileGenerated(
     threads: integer?
 ): gpu.Kernel borrows (self)
     local group = threads or 256
-    if readonlyBuffers ~= 1 or writableBuffers ~= 1 then
-        error("nupp: generated GPU kernels currently require one read and one write buffer", 2)
+    if readonlyBuffers < 0 or readonlyBuffers > 16 or writableBuffers < 1 or writableBuffers > 16 then
+        error("nupp: generated GPU kernels take up to 16 read and 1 through 16 write buffers", 2)
     end
     if uniformBytes < 0 or uniformBytes > 128 then
         error("nupp: GPU uniform block must be from 0 through 128 bytes", 2)
@@ -286,24 +303,43 @@ function gpu.Context.compileGenerated(
     return new gpu.Kernel(_anchor = self, _handle = handle, _uniformBytes = uniformBytes)
 end
 
-function gpu.Context.bindGenerated<I, O>(
+function gpu.Context.bindKernel(
     borrows self: gpu.Context,
     borrows kernel: gpu.Kernel,
-    borrows input: gpu.Buffer<I>,
-    borrows output: gpu.Buffer<O>
+    count: integer
 ): gpu.Binding borrows (self)
-    if input.count ~= output.count then
-        error("nupp: generated GPU buffer lengths do not agree", 2)
+    if count < 0 or count > 4294967295 then
+        error("nupp: GPU dispatch count must be from 0 through 4294967295", 2)
     end
+    local handle = C.nuppGpuBindingCreate(live(self), kernel._handle, count)
+    if handle == nil then
+        error("nupp: " .. ffi.string(C.nuppNativeError()), 2)
+    end
+
     return new gpu.Binding(
         _anchor = self,
-        _context = live(self),
-        _kernel = kernel._handle,
-        _input = input._handle,
-        _output = output._handle,
+        _handle = handle,
         _uniformBytes = kernel._uniformBytes,
-        count = input.count
+        count = count
     )
+end
+
+function gpu.Binding.setRead<T>(
+    borrows self: gpu.Binding,
+    slot: integer,
+    borrows buffer: gpu.Buffer<T>,
+    matchCount: boolean
+): nil
+    succeeded(C.nuppGpuBindingSetRead(self._handle, slot, buffer._handle, buffer.count, matchCount), 2)
+end
+
+function gpu.Binding.setWrite<T>(
+    borrows self: gpu.Binding,
+    slot: integer,
+    borrows buffer: gpu.Buffer<T>,
+    matchCount: boolean
+): nil
+    succeeded(C.nuppGpuBindingSetWrite(self._handle, slot, buffer._handle, buffer.count, matchCount), 2)
 end
 
 function gpu.Binding.dispatchPacked(borrows self: gpu.Binding, uniforms: any, uniformBytes: integer): nil
@@ -311,18 +347,7 @@ function gpu.Binding.dispatchPacked(borrows self: gpu.Binding, uniforms: any, un
         error("nupp: generated GPU uniform block has the wrong size", 2)
     end
     local uniformPointer = ffi.cast<const uint8[?]>(uniforms)
-    succeeded(
-        dispatchNative(
-            self._context,
-            self._kernel,
-            self._input,
-            self._output,
-            uniformPointer,
-            uniformBytes,
-            self.count
-        ),
-        2
-    )
+    succeeded(dispatchNative(self._handle, uniformPointer, uniformBytes), 2)
 end
 
 function gpu.Context.upload<T>(

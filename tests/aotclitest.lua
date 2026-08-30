@@ -136,12 +136,84 @@ return {doubled = doubled}
     assert(binding:find("Buffer<float>", 1, true), binding)
     assert(binding:find("scale: float", 1, true), binding)
     assert(binding:find("compileGenerated", 1, true), binding)
-    assert(binding:find("bindGenerated", 1, true), binding)
+    assert(binding:find("bindKernel", 1, true), binding)
+    assert(binding:find("setRead(0, input, true)", 1, true), binding)
+    assert(binding:find("setWrite(0, output, true)", 1, true), binding)
     assert(binding:find("dispatchPacked", 1, true), binding)
 
     local wasm, wasmCode = run(dir, "--emit msl --target wasm32-unknown-emscripten gpu.nupp")
     assert(wasmCode ~= 0, wasm)
     assert(wasm:find('Wasm backend does not consume @aot(target = "gpu")', 1, true), wasm)
+end
+
+-- Spans a matrix product relates by dimension, not equality: the guard names
+-- only the index spans, every a/b access is a proved cursor, and the shader
+-- keeps each dominating bound check against the span counts in its uniforms.
+function M.gpuTargetTakesManyBuffersAndProvedCursors()
+    local dir = project({
+        ["gemm.nupp"] = [[
+local span = require("nupp.mem.span")
+
+@aot(target = "gpu")
+local function gemm(
+    exclusive c: span.WriteSpan<float>,
+    borrows rowOf: span.Span<uint32>,
+    borrows a: span.Span<float>,
+    columns: uint32
+): nil
+    if #c ~= #rowOf then error("length mismatch", 2) end
+    for i = 1, #c do
+        local row = rowOf[i]
+        local ai = nupp.math.u32.mul(row, columns)
+        local value: float = 0.0
+        if ai < #a then
+            value = nupp.math.f32.narrow(a[ai + 1])
+        end
+        c[i] = value
+    end
+end
+return {gemm = gemm}
+]],
+    })
+    local shader, shaderCode = run(dir, "--emit msl gemm.nupp")
+    test.equal(shaderCode, 0, shader)
+    assert(shader:find("device const uint* rowOf [[buffer(1)]]", 1, true), shader)
+    assert(shader:find("device const float* a [[buffer(2)]]", 1, true), shader)
+    assert(shader:find("device float* c [[buffer(3)]]", 1, true), shader)
+    assert(shader:find("uint a_count;", 1, true), shader)
+    assert(shader:find("< uniforms.a_count", 1, true), shader)
+    assert(shader:find("a[v2_ai]", 1, true), shader)
+
+    local binding, bindingCode = run(dir, "--emit binding gemm.nupp")
+    test.equal(bindingCode, 0, binding)
+    assert(binding:find("setRead(0, rowOf, true)", 1, true), binding)
+    assert(binding:find("setRead(1, a, false)", 1, true), binding)
+    assert(binding:find("setWrite(0, c, true)", 1, true), binding)
+end
+
+-- A guardless GPU map may only reach an unguarded span through proved cursors.
+-- A dispatch-indexed read of one has no proof anywhere -- no guard host-side,
+-- no dominating check in the shader -- so the entry is refused at the source.
+function M.gpuTargetRefusesDispatchIndexingAnUnguardedSpan()
+    local dir = project({
+        ["fill.nupp"] = [[
+local span = require("nupp.mem.span")
+
+@aot(target = "gpu")
+local function fill(
+    exclusive out: span.WriteSpan<float>,
+    borrows inp: span.Span<float>
+): nil
+    for i = 1, #out do
+        out[i] = inp[i]
+    end
+end
+return {fill = fill}
+]],
+    })
+    local shader, shaderCode = run(dir, "--emit msl fill.nupp")
+    assert(shaderCode ~= 0, shader)
+    assert(shader:find("guarded equal", 1, true), shader)
 end
 
 -- A block kernel -- no guard prologue -- whose loop counts one span and reads another.
