@@ -10,7 +10,6 @@ local CONTRACT = common.contract("io.bytes", {
     -- runtime shape is its functions alone.
     requiredValues = {},
     suiteModule = seam.suiteModuleName,
-    modules = {["nupp.io"] = "",},
 })
 
 function seam.validate(value: any): string?

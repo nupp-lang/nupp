@@ -186603,8 +186603,6 @@ return self
 end
 
 
-
-
 ;
 ( Buffer ) . __len = function ( self ) 
 local total = 0
@@ -186627,6 +186625,45 @@ end
 
 
 
+local proxyStates = setmetatable ( { } , { __mode = "k" } )
+local proxyFactory = nil
+local proxyPrototype = nil
+local lengthProbe = setmetatable ( { } , {
+__len = function ( ) 
+return 1
+end ,
+} )
+if # lengthProbe ~= 1 then
+local makeProxy = rawget ( _G , "newproxy" )
+assert ( type ( makeProxy ) == "function" , "table __len requires newproxy on this runtime" )
+proxyFactory = makeProxy
+proxyPrototype = makeProxy ( true )
+local proxyMetatable = assert ( getmetatable ( proxyPrototype ) )
+proxyMetatable . __index = proxyMetatable
+proxyMetatable . put = function ( self , ... ) 
+const state = assert ( proxyStates [ self ] )
+state : put ( ... )
+return self
+end
+proxyMetatable . tostring = function ( self ) 
+const state = assert ( proxyStates [ self ] )
+return state : tostring ( )
+end
+proxyMetatable . reset = function ( self ) 
+const state = assert ( proxyStates [ self ] )
+state : reset ( )
+return self
+end
+proxyMetatable . __len = function ( self ) 
+const state = assert ( proxyStates [ self ] )
+return ( Buffer ) . __len ( state )
+end
+proxyMetatable . __concat = ( Buffer ) . __concat
+proxyMetatable . __tostring = proxyMetatable . tostring
+end
+
+
+
 
 
 
@@ -186635,7 +186672,14 @@ end
 
 
 function buffer . new ( size , options ) 
-return setmetatable({ pieces =  { } ,  count =  0 }, Buffer)
+const state = setmetatable({ pieces =  { } ,  count =  0 }, Buffer)
+if proxyPrototype ~= nil then
+const proxy = proxyFactory ( proxyPrototype )
+proxyStates [ proxy ] = state
+return proxy
+end
+
+return state
 end
 
 const __nuppExportValue= buffer ;__nuppExports=__nuppExportValue
@@ -187454,7 +187498,6 @@ globalName = "__nuppBrowserCrypto" ,
 requiredFunctions = { "digest" , "hex" , "randomBytes" , "sha256" , "uuid4" , "uuid7" } ,
 requiredValues = { } ,
 suiteModule = seam . suiteModuleName ,
-modules = { [ "nupp.browser.crypto" ] = "" , } ,
 } )
 
 function seam . validate ( value ) 
@@ -187500,7 +187543,6 @@ globalName = "__nuppBrowserStorage" ,
 requiredFunctions = { "clear" , "get" , "remove" , "set" } ,
 requiredValues = { } ,
 suiteModule = seam . suiteModuleName ,
-modules = { [ "nupp.browser.storage" ] = "" , } ,
 } )
 
 function seam . validate ( value ) 
@@ -187569,7 +187611,6 @@ requiredFunctions = {
 } ,
 requiredValues = { "Entry" , "File" , "FileReader" , "FileWriter" , "Info" , "TemporaryOptions" , "TemporaryPath" } ,
 suiteModule = seam . suiteModuleName ,
-modules = { [ "nupp.io.files" ] = "" , } ,
 } )
 
 function seam . validate ( value ) 
@@ -187674,7 +187715,6 @@ globalName = "__nuppHmacSha256" ,
 requiredFunctions = { "digest" , "hex" } ,
 requiredValues = { } ,
 suiteModule = seam . suiteModuleName ,
-modules = { [ "nupp.data.hmac" ] = "" , } ,
 } )
 
 function seam . validate ( value ) 
@@ -187739,7 +187779,6 @@ globalName = "__nuppHttp" ,
 requiredFunctions = { "file" , "reader" } ,
 requiredValues = { "Body" , "Client" , "FileBody" , "Options" , "ReaderBody" , "Request" , "Response" } ,
 suiteModule = seam . suiteModuleName ,
-modules = { [ "nupp.io.http" ] = "" , } ,
 } )
 
 function seam . validate ( value ) 
@@ -187900,7 +187939,6 @@ requiredFunctions = { "newBuffer" , "newQueueReader" , "newScalarReader" , "newS
 
 requiredValues = { } ,
 suiteModule = seam . suiteModuleName ,
-modules = { [ "nupp.io" ] = "" , } ,
 } )
 
 function seam . validate ( value ) 
@@ -188220,14 +188258,18 @@ local moduleSeam = { }
 
 
 
+
 function moduleSeam . contract ( name , shape ) 
 local identity = require ( "nupp.runtime.seam.registry" ) . get ( name )
+for _ , field in ipairs ( { "modules" , "implementationModules" , "exports" } ) do
+if shape [ field ] ~= nil then
+error ( "nupp: seam " .. name .. " declares " .. field .. " outside the runtime seam registry" , 2 )
+end
+shape [ field ] = identity [ field ]
+end
 shape . name = identity . name
 shape . version = identity . version
 shape . binding = identity . binding
-shape . modules = identity . modules or shape . modules
-shape . implementationModules = identity . implementationModules or shape . implementationModules
-shape . exports = identity . exports or shape . exports
 
 return shape
 end
@@ -188448,7 +188490,6 @@ globalName = "__nuppNet" ,
 requiredFunctions = { "asReader" , "asWriter" , "bind" , "connect" , "listen" , "useBackend" } ,
 requiredValues = { "Backend" , "Datagram" , "DirectionView" , "Listener" , "Message" , "Stream" } ,
 suiteModule = seam . suiteModuleName ,
-modules = { [ "nupp.io.net" ] = "" , } ,
 } )
 
 function seam . validate ( value ) 
@@ -188503,7 +188544,6 @@ globalName = "__nuppPathEnvironment" ,
 requiredFunctions = { "canonicalize" , "currentDirectory" , "separator" } ,
 requiredValues = { } ,
 suiteModule = seam . suiteModuleName ,
-modules = { [ "nupp.io.path.provider" ] = "" , } ,
 } )
 
 function seam . validate ( value ) 
@@ -188604,7 +188644,6 @@ globalName = "__nuppProcess" ,
 requiredFunctions = { "asReader" , "asWriter" , "exited" , "spawnOn" , "useBackend" } ,
 requiredValues = { "Backend" , "Exit" , "Interest" , "Process" , "Reader" , "Result" , "Writer" } ,
 suiteModule = seam . suiteModuleName ,
-modules = { [ "nupp.io.process" ] = "" , } ,
 } )
 
 function seam . validate ( value ) 
@@ -188721,7 +188760,13 @@ binding = "runtime" ,
 factoryModule = "nupp.runtime.seam.hash" ,
 exports = { [ "nupp.data.crc32" ] = "crc32" , [ "nupp.data.fnv1a64" ] = "fnv1a64" , }
 } ,
-{ name = "data.utf8" , effect = "runtime.data_utf8" , binding = "runtime" , factoryModule = "nupp.runtime.seam.utf8" } ,
+{
+name = "data.utf8" ,
+effect = "runtime.data_utf8" ,
+binding = "runtime" ,
+factoryModule = "nupp.runtime.seam.utf8" ,
+implementationModules = { [ "nupp.data.utf8" ] = true }
+} ,
 
 
 
@@ -188753,7 +188798,13 @@ effects = { "native.lpeg" , "stdlib.lpeg.re" , "stdlib.peg" , "stdlib.peg.compil
 binding = "runtime" ,
 factoryModule = "nupp.runtime.seam.peg" ,
 } ,
-{ name = "io.bytes" , effect = "stdlib.io" , binding = "runtime" , factoryModule = "nupp.runtime.seam.iobytes" } ,
+{
+name = "io.bytes" ,
+effect = "stdlib.io" ,
+binding = "runtime" ,
+factoryModule = "nupp.runtime.seam.iobytes" ,
+modules = { [ "nupp.io" ] = "" }
+} ,
 {
 name = "host.path" ,
 effect = "native.path" ,
@@ -188768,7 +188819,13 @@ binding = "runtime" ,
 factoryModule = "nupp.runtime.seam.uri" ,
 modules = { [ "nupp.io.uri" ] = "" }
 } ,
-{ name = "host.files" , effect = "native.files" , binding = "runtime" , factoryModule = "nupp.runtime.seam.files" } ,
+{
+name = "host.files" ,
+effect = "native.files" ,
+binding = "runtime" ,
+factoryModule = "nupp.runtime.seam.files" ,
+modules = { [ "nupp.io.files" ] = "" }
+} ,
 {
 name = "host.time" ,
 effect = "native.time" ,
@@ -188797,13 +188854,26 @@ binding = "runtime" ,
 factoryModule = "nupp.runtime.seam.browserstorage" ,
 modules = { [ "nupp.browser.storage" ] = "" }
 } ,
-{ name = "host.net" , effect = "native.net" , binding = "runtime" , factoryModule = "nupp.runtime.seam.net" } ,
-{ name = "host.tls" , effect = "native.tls" , binding = "runtime" , factoryModule = "nupp.runtime.seam.tls" } ,
+{
+name = "host.net" ,
+effect = "native.net" ,
+binding = "runtime" ,
+factoryModule = "nupp.runtime.seam.net" ,
+modules = { [ "nupp.io.net" ] = "" }
+} ,
+{
+name = "host.tls" ,
+effect = "native.tls" ,
+binding = "runtime" ,
+factoryModule = "nupp.runtime.seam.tls" ,
+modules = { [ "nupp.io.tls" ] = "" }
+} ,
 {
 name = "host.process" ,
 effect = "native.process" ,
 binding = "runtime" ,
-factoryModule = "nupp.runtime.seam.process"
+factoryModule = "nupp.runtime.seam.process" ,
+modules = { [ "nupp.io.process" ] = "" }
 } ,
 {
 name = "host.workers" ,
@@ -188816,7 +188886,8 @@ modules = { [ "nupp.workers" ] = "" }
 name = "crypto.hmac_sha256" ,
 effect = "runtime.hmac_sha256" ,
 binding = "runtime" ,
-factoryModule = "nupp.runtime.seam.hmacsha256"
+factoryModule = "nupp.runtime.seam.hmacsha256" ,
+implementationModules = { [ "nupp.data.hmac" ] = true }
 } ,
 }
 
@@ -189093,7 +189164,6 @@ requiredFunctions = {
 } ,
 requiredValues = { "Context" , "Handler" , "Installed" , "Source" , "Waiting" } ,
 suiteModule = seam . suiteModuleName ,
-modules = { [ "nupp.suspension" ] = "" , } ,
 } )
 
 function seam . validate ( value ) 
@@ -189294,6 +189364,7 @@ function suite . test ( provider )
 local ok , problem = pcall ( function ( ) 
 local empty = provider . new ( )
 assert ( empty : tostring ( ) == "" , "a new buffer must render as the empty string" )
+assert ( # empty == 0 , "a new buffer must have zero length" )
 local one = provider . new ( )
 one : put ( "a" )
 assert ( one : tostring ( ) == "a" , "one append must render as itself" )
@@ -189304,6 +189375,9 @@ assert ( one : tostring ( ) == "a" , "one append must render as itself" )
 assert ( one : tostring ( ) == "a" , "rendering must leave the contents in place" )
 one : put ( "b" , "c" )
 assert ( one : tostring ( ) == "abc" , "appends must accumulate in order" )
+assert ( # one == 3 , "length must count every appended byte" )
+assert ( tostring ( one ) == "abc" , "the tostring metamethod must render the contents" )
+assert ( one .. "!" == "abc!" , "concatenation must render a buffer operand" )
 local many = provider . new ( )
 many : put ( 1 , "-" , 2.5 )
 assert ( many : tostring ( ) == "1-2.5" , "a number must append the way tostring writes it" )
@@ -189311,12 +189385,13 @@ local chained = provider . new ( )
 assert ( chained : put ( "x" ) == chained , "put must return the buffer so calls chain" )
 assert ( chained : reset ( ) == chained , "reset must return the buffer so calls chain" )
 assert ( chained : tostring ( ) == "" , "reset must empty the buffer" )
+assert ( # chained == 0 , "reset must restore zero length" )
 chained : put ( "y" )
 assert ( chained : tostring ( ) == "y" , "a reset buffer must be usable again" )
 local binary = provider . new ( )
 binary : put ( "a\0b" )
 assert ( binary : tostring ( ) == "a\0b" , "a buffer must carry a zero byte through" )
-assert ( # binary : tostring ( ) == 3 , "a zero byte must not shorten the contents" )
+assert ( # binary == 3 , "a zero byte must not shorten the buffer length" )
 end )
 if not ok then
 return false , tostring ( problem )
@@ -189339,7 +189414,6 @@ globalName = "__nuppTime" ,
 requiredFunctions = { "now" , "sleep" , "sleepUntil" , "wallTime" } ,
 requiredValues = { } ,
 suiteModule = seam . suiteModuleName ,
-modules = { [ "nupp.time" ] = "" , } ,
 } )
 
 function seam . validate ( value ) 
@@ -189385,7 +189459,6 @@ requiredFunctions = { "client" , "dtlsClient" , "dtlsServer" , "kernelOffloadSup
 
 requiredValues = { "Backend" , "DatagramSession" , "Session" , } ,
 suiteModule = seam . suiteModuleName ,
-modules = { [ "nupp.io.tls" ] = "" , } ,
 } )
 
 function seam . validate ( value ) 
@@ -189441,7 +189514,6 @@ globalName = "__nuppUri" ,
 requiredFunctions = { "isURI" , "newURI" , "validate" } ,
 requiredValues = { "Components" , "URI" } ,
 suiteModule = seam . suiteModuleName ,
-modules = { [ "nupp.io.uri" ] = "" , } ,
 } )
 
 function seam . validate ( value ) 
@@ -189499,7 +189571,6 @@ globalName = "__nuppUtf8" ,
 requiredFunctions = { "decodeAt" , "decodeBefore" , "encode" , "isValid" , "length" , "truncate" , "validPrefixLength" } ,
 requiredValues = { } ,
 suiteModule = seam . suiteModuleName ,
-modules = { [ "nupp.data.utf8" ] = "" } ,
 } )
 function seam . validate ( value ) 
 return common . validate ( CONTRACT , value )
@@ -189688,7 +189759,6 @@ globalName = "__nuppWorkers" ,
 requiredFunctions = { "scope" } ,
 requiredValues = { "Scope" } ,
 suiteModule = seam . suiteModuleName ,
-modules = { [ "nupp.workers" ] = "" , } ,
 } )
 
 function seam . validate ( value ) 
@@ -232657,8 +232727,6 @@ local record Buffer
     end
 end
 
-    -- A 5.1-era VM without 5.2 compatibility ignores __len on tables, so `#buf`
-    -- answers correctly only where the host honors it; the other two fire anywhere.
     ;
 (Buffer as {[string]: any}).__len = function(self: Buffer): integer
     local total = 0
@@ -232679,6 +232747,45 @@ end
     return self:tostring()
 end
 
+-- Lua 5.1-era VMs ignore __len on tables but honor it on userdata. Use one
+-- shared newproxy metatable there; newer runtimes keep the cheaper table form.
+local proxyStates: any = setmetatable({}, {__mode = "k"})
+local proxyFactory: any = nil
+local proxyPrototype: userdata? = nil
+local lengthProbe = setmetatable({}, {
+    __len = function(): integer
+        return 1
+    end,
+})
+if #lengthProbe ~= 1 then
+    local makeProxy: any = rawget(_G, "newproxy")
+    assert(type(makeProxy) == "function", "table __len requires newproxy on this runtime")
+    proxyFactory = makeProxy
+    proxyPrototype = makeProxy(true) as userdata
+    local proxyMetatable: any = assert(getmetatable(proxyPrototype))
+    proxyMetatable.__index = proxyMetatable
+    proxyMetatable.put = function(self: any, ...: any): any
+        const state: Buffer = assert(proxyStates[self])
+        state:put(...)
+        return self
+    end
+    proxyMetatable.tostring = function(self: any): string
+        const state: Buffer = assert(proxyStates[self])
+        return state:tostring()
+    end
+    proxyMetatable.reset = function(self: any): any
+        const state: Buffer = assert(proxyStates[self])
+        state:reset()
+        return self
+    end
+    proxyMetatable.__len = function(self: any): integer
+        const state: Buffer = assert(proxyStates[self])
+        return (Buffer as any).__len(state) as integer
+    end
+    proxyMetatable.__concat = (Buffer as any).__concat
+    proxyMetatable.__tostring = proxyMetatable.tostring
+end
+
 --- Creates a buffer.
 ---
 --- The arguments are LuaJIT's and are accepted so the two are called the same way.
@@ -232689,7 +232796,14 @@ end
 --- @param options ignored
 --- @return the new buffer
 function buffer.new(size: (integer | table)?, options: table?): Buffer
-    return new Buffer(pieces = {}, count = 0)
+    const state = new Buffer(pieces = {}, count = 0)
+    if proxyPrototype ~= nil then
+        const proxy = proxyFactory(proxyPrototype) as userdata
+        proxyStates[proxy] = state
+        return proxy as any
+    end
+
+    return state
 end
 
 export = buffer
@@ -233498,7 +233612,6 @@ local CONTRACT = common.contract("host.browser_crypto", {
     requiredFunctions = {"digest", "hex", "randomBytes", "sha256", "uuid4", "uuid7"},
     requiredValues = {},
     suiteModule = seam.suiteModuleName,
-    modules = {["nupp.browser.crypto"] = "",},
 })
 
 function seam.validate(value: any): string?
@@ -233542,7 +233655,6 @@ local CONTRACT = common.contract("host.browser_storage", {
     requiredFunctions = {"clear", "get", "remove", "set"},
     requiredValues = {},
     suiteModule = seam.suiteModuleName,
-    modules = {["nupp.browser.storage"] = "",},
 })
 
 function seam.validate(value: any): string?
@@ -233609,7 +233721,6 @@ local CONTRACT = common.contract("host.files", {
     },
     requiredValues = {"Entry", "File", "FileReader", "FileWriter", "Info", "TemporaryOptions", "TemporaryPath"},
     suiteModule = seam.suiteModuleName,
-    modules = {["nupp.io.files"] = "",},
 })
 
 function seam.validate(value: any): string?
@@ -233710,7 +233821,6 @@ local CONTRACT = common.contract("crypto.hmac_sha256", {
     requiredFunctions = {"digest", "hex"},
     requiredValues = {},
     suiteModule = seam.suiteModuleName,
-    modules = {["nupp.data.hmac"] = "",},
 })
 
 function seam.validate(value: any): string?
@@ -233773,7 +233883,6 @@ local CONTRACT = common.contract("host.http", {
     requiredFunctions = {"file", "reader"},
     requiredValues = {"Body", "Client", "FileBody", "Options", "ReaderBody", "Request", "Response"},
     suiteModule = seam.suiteModuleName,
-    modules = {["nupp.io.http"] = "",},
 })
 
 function seam.validate(value: any): string?
@@ -233930,7 +234039,6 @@ local CONTRACT = common.contract("io.bytes", {
     -- runtime shape is its functions alone.
     requiredValues = {},
     suiteModule = seam.suiteModuleName,
-    modules = {["nupp.io"] = "",},
 })
 
 function seam.validate(value: any): string?
@@ -234246,14 +234354,18 @@ export interface Contract
 end
 
 --- Combines runtime shape with the compiler/runtime's single seam identity record.
+--- @raises when the shape duplicates substitution metadata owned by the registry
 function moduleSeam.contract(name: string, shape: any): Contract
     local identity = require("nupp.runtime.seam.registry").get(name)
+    for _, field in ipairs({"modules", "implementationModules", "exports"}) do
+        if shape[field] ~= nil then
+            error("nupp: seam " .. name .. " declares " .. field .. " outside the runtime seam registry", 2)
+        end
+        shape[field] = identity[field]
+    end
     shape.name = identity.name
     shape.version = identity.version
     shape.binding = identity.binding
-    shape.modules = identity.modules or shape.modules
-    shape.implementationModules = identity.implementationModules or shape.implementationModules
-    shape.exports = identity.exports or shape.exports
 
     return shape as Contract
 end
@@ -234473,7 +234585,6 @@ local CONTRACT = common.contract("host.net", {
     requiredFunctions = {"asReader", "asWriter", "bind", "connect", "listen", "useBackend"},
     requiredValues = {"Backend", "Datagram", "DirectionView", "Listener", "Message", "Stream"},
     suiteModule = seam.suiteModuleName,
-    modules = {["nupp.io.net"] = "",},
 })
 
 function seam.validate(value: any): string?
@@ -234526,7 +234637,6 @@ local CONTRACT = common.contract("host.path", {
     requiredFunctions = {"canonicalize", "currentDirectory", "separator"},
     requiredValues = {},
     suiteModule = seam.suiteModuleName,
-    modules = {["nupp.io.path.provider"] = "",},
 })
 
 function seam.validate(value: any): string?
@@ -234623,7 +234733,6 @@ local CONTRACT = common.contract("host.process", {
     requiredFunctions = {"asReader", "asWriter", "exited", "spawnOn", "useBackend"},
     requiredValues = {"Backend", "Exit", "Interest", "Process", "Reader", "Result", "Writer"},
     suiteModule = seam.suiteModuleName,
-    modules = {["nupp.io.process"] = "",},
 })
 
 function seam.validate(value: any): string?
@@ -234738,7 +234847,13 @@ local CONTRACTS: {any} = {
         factoryModule = "nupp.runtime.seam.hash",
         exports = {["nupp.data.crc32"] = "crc32", ["nupp.data.fnv1a64"] = "fnv1a64",}
     },
-    {name = "data.utf8", effect = "runtime.data_utf8", binding = "runtime", factoryModule = "nupp.runtime.seam.utf8"},
+    {
+        name = "data.utf8",
+        effect = "runtime.data_utf8",
+        binding = "runtime",
+        factoryModule = "nupp.runtime.seam.utf8",
+        implementationModules = {["nupp.data.utf8"] = true}
+    },
     -- A faster base64 than the one `nupp.data.base64` compiles to, where a
     -- backend has one. The host's is measurably that in a browser, and a SIMD
     -- kernel is that natively; `nupp.data.base64` is what answers when neither
@@ -234770,7 +234885,13 @@ local CONTRACTS: {any} = {
         binding = "runtime",
         factoryModule = "nupp.runtime.seam.peg",
     },
-    {name = "io.bytes", effect = "stdlib.io", binding = "runtime", factoryModule = "nupp.runtime.seam.iobytes"},
+    {
+        name = "io.bytes",
+        effect = "stdlib.io",
+        binding = "runtime",
+        factoryModule = "nupp.runtime.seam.iobytes",
+        modules = {["nupp.io"] = ""}
+    },
     {
         name = "host.path",
         effect = "native.path",
@@ -234785,7 +234906,13 @@ local CONTRACTS: {any} = {
         factoryModule = "nupp.runtime.seam.uri",
         modules = {["nupp.io.uri"] = ""}
     },
-    {name = "host.files", effect = "native.files", binding = "runtime", factoryModule = "nupp.runtime.seam.files"},
+    {
+        name = "host.files",
+        effect = "native.files",
+        binding = "runtime",
+        factoryModule = "nupp.runtime.seam.files",
+        modules = {["nupp.io.files"] = ""}
+    },
     {
         name = "host.time",
         effect = "native.time",
@@ -234814,13 +234941,26 @@ local CONTRACTS: {any} = {
         factoryModule = "nupp.runtime.seam.browserstorage",
         modules = {["nupp.browser.storage"] = ""}
     },
-    {name = "host.net", effect = "native.net", binding = "runtime", factoryModule = "nupp.runtime.seam.net"},
-    {name = "host.tls", effect = "native.tls", binding = "runtime", factoryModule = "nupp.runtime.seam.tls"},
+    {
+        name = "host.net",
+        effect = "native.net",
+        binding = "runtime",
+        factoryModule = "nupp.runtime.seam.net",
+        modules = {["nupp.io.net"] = ""}
+    },
+    {
+        name = "host.tls",
+        effect = "native.tls",
+        binding = "runtime",
+        factoryModule = "nupp.runtime.seam.tls",
+        modules = {["nupp.io.tls"] = ""}
+    },
     {
         name = "host.process",
         effect = "native.process",
         binding = "runtime",
-        factoryModule = "nupp.runtime.seam.process"
+        factoryModule = "nupp.runtime.seam.process",
+        modules = {["nupp.io.process"] = ""}
     },
     {
         name = "host.workers",
@@ -234833,7 +234973,8 @@ local CONTRACTS: {any} = {
         name = "crypto.hmac_sha256",
         effect = "runtime.hmac_sha256",
         binding = "runtime",
-        factoryModule = "nupp.runtime.seam.hmacsha256"
+        factoryModule = "nupp.runtime.seam.hmacsha256",
+        implementationModules = {["nupp.data.hmac"] = true}
     },
 }
 
@@ -235103,7 +235244,6 @@ local CONTRACT = common.contract("suspension", {
     },
     requiredValues = {"Context", "Handler", "Installed", "Source", "Waiting"},
     suiteModule = seam.suiteModuleName,
-    modules = {["nupp.suspension"] = "",},
 })
 
 function seam.validate(value: any): string?
@@ -235301,6 +235441,7 @@ function suite.test(provider: any): (boolean, string?)
     local ok, problem = pcall(function()
         local empty = provider.new()
         assert(empty:tostring() == "", "a new buffer must render as the empty string")
+        assert(#empty == 0, "a new buffer must have zero length")
         local one = provider.new()
         one:put("a")
         assert(one:tostring() == "a", "one append must render as itself")
@@ -235311,6 +235452,9 @@ function suite.test(provider: any): (boolean, string?)
         assert(one:tostring() == "a", "rendering must leave the contents in place")
         one:put("b", "c")
         assert(one:tostring() == "abc", "appends must accumulate in order")
+        assert(#one == 3, "length must count every appended byte")
+        assert(tostring(one) == "abc", "the tostring metamethod must render the contents")
+        assert(one .. "!" == "abc!", "concatenation must render a buffer operand")
         local many = provider.new()
         many:put(1, "-", 2.5)
         assert(many:tostring() == "1-2.5", "a number must append the way tostring writes it")
@@ -235318,12 +235462,13 @@ function suite.test(provider: any): (boolean, string?)
         assert(chained:put("x") == chained, "put must return the buffer so calls chain")
         assert(chained:reset() == chained, "reset must return the buffer so calls chain")
         assert(chained:tostring() == "", "reset must empty the buffer")
+        assert(#chained == 0, "reset must restore zero length")
         chained:put("y")
         assert(chained:tostring() == "y", "a reset buffer must be usable again")
         local binary = provider.new()
         binary:put("a\0b")
         assert(binary:tostring() == "a\0b", "a buffer must carry a zero byte through")
-        assert(#binary:tostring() == 3, "a zero byte must not shorten the contents")
+        assert(#binary == 3, "a zero byte must not shorten the buffer length")
     end)
     if not ok then
         return false, tostring(problem)
@@ -235345,7 +235490,6 @@ local CONTRACT = common.contract("host.time", {
     requiredFunctions = {"now", "sleep", "sleepUntil", "wallTime"},
     requiredValues = {},
     suiteModule = seam.suiteModuleName,
-    modules = {["nupp.time"] = "",},
 })
 
 function seam.validate(value: any): string?
@@ -235389,7 +235533,6 @@ local CONTRACT = common.contract("host.tls", {
     -- records are runtime members a loaded module can answer for.
     requiredValues = {"Backend", "DatagramSession", "Session",},
     suiteModule = seam.suiteModuleName,
-    modules = {["nupp.io.tls"] = "",},
 })
 
 function seam.validate(value: any): string?
@@ -235443,7 +235586,6 @@ local CONTRACT = common.contract("io.uri", {
     requiredFunctions = {"isURI", "newURI", "validate"},
     requiredValues = {"Components", "URI"},
     suiteModule = seam.suiteModuleName,
-    modules = {["nupp.io.uri"] = "",},
 })
 
 function seam.validate(value: any): string?
@@ -235499,7 +235641,6 @@ local CONTRACT = common.contract("data.utf8", {
     requiredFunctions = {"decodeAt", "decodeBefore", "encode", "isValid", "length", "truncate", "validPrefixLength"},
     requiredValues = {},
     suiteModule = seam.suiteModuleName,
-    modules = {["nupp.data.utf8"] = ""},
 })
 function seam.validate(value: any): string?
     return common.validate(CONTRACT, value)
@@ -235682,7 +235823,6 @@ local CONTRACT = common.contract("host.workers", {
     requiredFunctions = {"scope"},
     requiredValues = {"Scope"},
     suiteModule = seam.suiteModuleName,
-    modules = {["nupp.workers"] = "",},
 })
 
 function seam.validate(value: any): string?

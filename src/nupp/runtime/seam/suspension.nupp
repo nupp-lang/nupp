@@ -24,7 +24,6 @@ local CONTRACT = common.contract("suspension", {
     },
     requiredValues = {"Context", "Handler", "Installed", "Source", "Waiting"},
     suiteModule = seam.suiteModuleName,
-    modules = {["nupp.suspension"] = "",},
 })
 
 function seam.validate(value: any): string?

@@ -7,7 +7,6 @@ local CONTRACT = common.contract("data.utf8", {
     requiredFunctions = {"decodeAt", "decodeBefore", "encode", "isValid", "length", "truncate", "validPrefixLength"},
     requiredValues = {},
     suiteModule = seam.suiteModuleName,
-    modules = {["nupp.data.utf8"] = ""},
 })
 function seam.validate(value: any): string?
     return common.validate(CONTRACT, value)

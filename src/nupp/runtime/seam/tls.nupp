@@ -10,7 +10,6 @@ local CONTRACT = common.contract("host.tls", {
     -- records are runtime members a loaded module can answer for.
     requiredValues = {"Backend", "DatagramSession", "Session",},
     suiteModule = seam.suiteModuleName,
-    modules = {["nupp.io.tls"] = "",},
 })
 
 function seam.validate(value: any): string?

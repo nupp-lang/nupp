@@ -73,8 +73,6 @@ local record Buffer
     end
 end
 
-    -- A 5.1-era VM without 5.2 compatibility ignores __len on tables, so `#buf`
-    -- answers correctly only where the host honors it; the other two fire anywhere.
     ;
 (Buffer as {[string]: any}).__len = function(self: Buffer): integer
     local total = 0
@@ -95,6 +93,45 @@ end
     return self:tostring()
 end
 
+-- Lua 5.1-era VMs ignore __len on tables but honor it on userdata. Use one
+-- shared newproxy metatable there; newer runtimes keep the cheaper table form.
+local proxyStates: any = setmetatable({}, {__mode = "k"})
+local proxyFactory: any = nil
+local proxyPrototype: userdata? = nil
+local lengthProbe = setmetatable({}, {
+    __len = function(): integer
+        return 1
+    end,
+})
+if #lengthProbe ~= 1 then
+    local makeProxy: any = rawget(_G, "newproxy")
+    assert(type(makeProxy) == "function", "table __len requires newproxy on this runtime")
+    proxyFactory = makeProxy
+    proxyPrototype = makeProxy(true) as userdata
+    local proxyMetatable: any = assert(getmetatable(proxyPrototype))
+    proxyMetatable.__index = proxyMetatable
+    proxyMetatable.put = function(self: any, ...: any): any
+        const state: Buffer = assert(proxyStates[self])
+        state:put(...)
+        return self
+    end
+    proxyMetatable.tostring = function(self: any): string
+        const state: Buffer = assert(proxyStates[self])
+        return state:tostring()
+    end
+    proxyMetatable.reset = function(self: any): any
+        const state: Buffer = assert(proxyStates[self])
+        state:reset()
+        return self
+    end
+    proxyMetatable.__len = function(self: any): integer
+        const state: Buffer = assert(proxyStates[self])
+        return (Buffer as any).__len(state) as integer
+    end
+    proxyMetatable.__concat = (Buffer as any).__concat
+    proxyMetatable.__tostring = proxyMetatable.tostring
+end
+
 --- Creates a buffer.
 ---
 --- The arguments are LuaJIT's and are accepted so the two are called the same way.
@@ -105,7 +142,14 @@ end
 --- @param options ignored
 --- @return the new buffer
 function buffer.new(size: (integer | table)?, options: table?): Buffer
-    return new Buffer(pieces = {}, count = 0)
+    const state = new Buffer(pieces = {}, count = 0)
+    if proxyPrototype ~= nil then
+        const proxy = proxyFactory(proxyPrototype) as userdata
+        proxyStates[proxy] = state
+        return proxy as any
+    end
+
+    return state
 end
 
 export = buffer

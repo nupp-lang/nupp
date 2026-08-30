@@ -21,14 +21,18 @@ export interface Contract
 end
 
 --- Combines runtime shape with the compiler/runtime's single seam identity record.
+--- @raises when the shape duplicates substitution metadata owned by the registry
 function moduleSeam.contract(name: string, shape: any): Contract
     local identity = require("nupp.runtime.seam.registry").get(name)
+    for _, field in ipairs({"modules", "implementationModules", "exports"}) do
+        if shape[field] ~= nil then
+            error("nupp: seam " .. name .. " declares " .. field .. " outside the runtime seam registry", 2)
+        end
+        shape[field] = identity[field]
+    end
     shape.name = identity.name
     shape.version = identity.version
     shape.binding = identity.binding
-    shape.modules = identity.modules or shape.modules
-    shape.implementationModules = identity.implementationModules or shape.implementationModules
-    shape.exports = identity.exports or shape.exports
 
     return shape as Contract
 end

@@ -8,7 +8,6 @@ local CONTRACT = common.contract("host.path", {
     requiredFunctions = {"canonicalize", "currentDirectory", "separator"},
     requiredValues = {},
     suiteModule = seam.suiteModuleName,
-    modules = {["nupp.io.path.provider"] = "",},
 })
 
 function seam.validate(value: any): string?

@@ -72,7 +72,13 @@ local CONTRACTS: {any} = {
         factoryModule = "nupp.runtime.seam.hash",
         exports = {["nupp.data.crc32"] = "crc32", ["nupp.data.fnv1a64"] = "fnv1a64",}
     },
-    {name = "data.utf8", effect = "runtime.data_utf8", binding = "runtime", factoryModule = "nupp.runtime.seam.utf8"},
+    {
+        name = "data.utf8",
+        effect = "runtime.data_utf8",
+        binding = "runtime",
+        factoryModule = "nupp.runtime.seam.utf8",
+        implementationModules = {["nupp.data.utf8"] = true}
+    },
     -- A faster base64 than the one `nupp.data.base64` compiles to, where a
     -- backend has one. The host's is measurably that in a browser, and a SIMD
     -- kernel is that natively; `nupp.data.base64` is what answers when neither
@@ -104,7 +110,13 @@ local CONTRACTS: {any} = {
         binding = "runtime",
         factoryModule = "nupp.runtime.seam.peg",
     },
-    {name = "io.bytes", effect = "stdlib.io", binding = "runtime", factoryModule = "nupp.runtime.seam.iobytes"},
+    {
+        name = "io.bytes",
+        effect = "stdlib.io",
+        binding = "runtime",
+        factoryModule = "nupp.runtime.seam.iobytes",
+        modules = {["nupp.io"] = ""}
+    },
     {
         name = "host.path",
         effect = "native.path",
@@ -119,7 +131,13 @@ local CONTRACTS: {any} = {
         factoryModule = "nupp.runtime.seam.uri",
         modules = {["nupp.io.uri"] = ""}
     },
-    {name = "host.files", effect = "native.files", binding = "runtime", factoryModule = "nupp.runtime.seam.files"},
+    {
+        name = "host.files",
+        effect = "native.files",
+        binding = "runtime",
+        factoryModule = "nupp.runtime.seam.files",
+        modules = {["nupp.io.files"] = ""}
+    },
     {
         name = "host.time",
         effect = "native.time",
@@ -148,13 +166,26 @@ local CONTRACTS: {any} = {
         factoryModule = "nupp.runtime.seam.browserstorage",
         modules = {["nupp.browser.storage"] = ""}
     },
-    {name = "host.net", effect = "native.net", binding = "runtime", factoryModule = "nupp.runtime.seam.net"},
-    {name = "host.tls", effect = "native.tls", binding = "runtime", factoryModule = "nupp.runtime.seam.tls"},
+    {
+        name = "host.net",
+        effect = "native.net",
+        binding = "runtime",
+        factoryModule = "nupp.runtime.seam.net",
+        modules = {["nupp.io.net"] = ""}
+    },
+    {
+        name = "host.tls",
+        effect = "native.tls",
+        binding = "runtime",
+        factoryModule = "nupp.runtime.seam.tls",
+        modules = {["nupp.io.tls"] = ""}
+    },
     {
         name = "host.process",
         effect = "native.process",
         binding = "runtime",
-        factoryModule = "nupp.runtime.seam.process"
+        factoryModule = "nupp.runtime.seam.process",
+        modules = {["nupp.io.process"] = ""}
     },
     {
         name = "host.workers",
@@ -167,7 +198,8 @@ local CONTRACTS: {any} = {
         name = "crypto.hmac_sha256",
         effect = "runtime.hmac_sha256",
         binding = "runtime",
-        factoryModule = "nupp.runtime.seam.hmacsha256"
+        factoryModule = "nupp.runtime.seam.hmacsha256",
+        implementationModules = {["nupp.data.hmac"] = true}
     },
 }
 

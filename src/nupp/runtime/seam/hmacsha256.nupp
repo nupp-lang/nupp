@@ -8,7 +8,6 @@ local CONTRACT = common.contract("crypto.hmac_sha256", {
     requiredFunctions = {"digest", "hex"},
     requiredValues = {},
     suiteModule = seam.suiteModuleName,
-    modules = {["nupp.data.hmac"] = "",},
 })
 
 function seam.validate(value: any): string?

@@ -11,7 +11,6 @@ local CONTRACT = common.contract("host.browser_storage", {
     requiredFunctions = {"clear", "get", "remove", "set"},
     requiredValues = {},
     suiteModule = seam.suiteModuleName,
-    modules = {["nupp.browser.storage"] = "",},
 })
 
 function seam.validate(value: any): string?

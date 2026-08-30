@@ -5,6 +5,8 @@ local native = require("nupp.compiler.native")
 local stdlib = require("nupp.compiler.stdlib")
 local backends = require("nupp.compiler.backends")
 local runtimeBackend = require("nupp.runtime.backend")
+local moduleSeam = require("nupp.runtime.seam.module")
+local seamRegistry = require("nupp.runtime.seam.registry")
 local jsonSeam = require("nupp.runtime.seam.json")
 local bitopsSeam = require("nupp.runtime.seam.bitops")
 local textBufferSeam = require("nupp.runtime.seam.textbuffer")
@@ -526,6 +528,41 @@ export = Backend.new("portable", {JSON.seam("portable_json")})
    check.check(shadowed, "shadowedbackend.nupp", sharedEnv)
    local spoofed = backends.inspect(shadowed.root, "shadowedbackend")
    assert(not spoofed, "a shadowed function named require is not static module metadata")
+end
+
+function M.seamRegistryOwnsEveryRuntimeModuleSubstitution()
+   local wholeModules = {
+      ["io.bytes"] = "nupp.io",
+      ["host.files"] = "nupp.io.files",
+      ["host.net"] = "nupp.io.net",
+      ["host.process"] = "nupp.io.process",
+      ["host.tls"] = "nupp.io.tls",
+   }
+   for seamName, moduleName in pairs(wholeModules) do
+      local contract = seamRegistry.get(seamName)
+      assertEq(contract.modules[moduleName], "",
+         seamName .. " replaces its whole public module in the registry")
+      assertEq(contract.implementationModules, nil,
+         seamName .. " does not preserve a different compiler-owned interface")
+   end
+
+   local implementations = {
+      ["data.utf8"] = "nupp.data.utf8",
+      ["crypto.hmac_sha256"] = "nupp.data.hmac",
+   }
+   for seamName, moduleName in pairs(implementations) do
+      local contract = seamRegistry.get(seamName)
+      assertEq(contract.implementationModules[moduleName], true,
+         seamName .. " implements its compiler-owned public interface")
+      assertEq(contract.modules, nil,
+         seamName .. " does not substitute the interface used for checking")
+   end
+
+   local accepted, problem = pcall(moduleSeam.contract, "data.utf8", {
+      modules = {["wrong.module"] = ""},
+   })
+   assert(not accepted and tostring(problem):find("outside the runtime seam registry", 1, true),
+      "a factory-local module mapping must fail loudly: " .. tostring(problem))
 end
 
 function M.runtimeJsonProviderIsOptInLazyAndChecked()

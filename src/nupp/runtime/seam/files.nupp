@@ -34,7 +34,6 @@ local CONTRACT = common.contract("host.files", {
     },
     requiredValues = {"Entry", "File", "FileReader", "FileWriter", "Info", "TemporaryOptions", "TemporaryPath"},
     suiteModule = seam.suiteModuleName,
-    modules = {["nupp.io.files"] = "",},
 })
 
 function seam.validate(value: any): string?
