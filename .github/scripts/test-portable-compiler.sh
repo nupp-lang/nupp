@@ -37,17 +37,10 @@ cd "$root"
 # the same answers. Generating and hydrating under it is the check.
 NUPP_PRELUDE_LUA="$source/src/lua" ./scripts/prelude-image
 ./bin/nupp build --target playgroundApplicationRuntime
-case "$(uname -s)" in
-    Darwin*) json_library="$root/build/lib/libjsonNative.dylib" ;;
-    MINGW*|MSYS*|CYGWIN*) json_library="$root/build/lib/jsonNative.dll" ;;
-    *) json_library="$root/build/lib/libjsonNative.so" ;;
-esac
-test -f "$json_library"
 "$luarocks" --lua-version=5.1 --tree="$root/.rocks" \
     --lua-dir="$luajit_root" install lunajson 1.2.3-1
 LUA_PATH="$root/build/?.lua;$root/.rocks/share/lua/5.1/?.lua;$root/.rocks/share/lua/5.1/?/init.lua;;" \
 LUA_CPATH="$lpeg_root/lib/?.so;$lpeg_root/lib/?.dll;$root/.rocks/lib/lua/5.1/?.so;;" \
-NUPP_JSON_LIBRARY="$json_library" \
     "$luajit" tests/portable-compiler/reference.lua > "$expected_json"
 "$source/src/luac" -p build/playground/nupp-compiler.lua
 # The bundle carries what the checker produced, so asking it for the image again
