@@ -371,6 +371,7 @@ local function drive(bodies: {function(): any}, limit: integer?, stopEarly: bool
     local values, errors, threads = {}, {}, {}
     local indexOf = setmetatable({}, {__mode = "k"})
     local runnable, abandoned = {}, {}
+    local entered: {[integer]: boolean} = {}
     local started: integer = 0
     local finished: integer = 0
     local first: integer? = nil
@@ -415,6 +416,7 @@ local function drive(bodies: {function(): any}, limit: integer?, stopEarly: bool
         local index = started
         local co = suspension.create(function(): any
             local installed = suspension.install(branchHandler)
+            entered[index] = true
             local value = bodies[index]()
             installed:release()
             return value
@@ -461,13 +463,28 @@ local function drive(bodies: {function(): any}, limit: integer?, stopEarly: bool
                         first = index
                     end
                     if stopEarly then
+                        -- Every branch still going is resumed once so its park can
+                        -- cancel and unwind. One that never started never does:
+                        -- resuming it would run its body after the race settled.
                         for other = 1, count do
                             local victim = threads[other]
                             if victim ~= nil then
                                 abandoned[other] = true
-                                coroutine.resume(victim)
+                                if entered[other] then
+                                    coroutine.resume(victim)
+                                else
+                                    local victimBody = bodies[other] as any
+                                    if type(victimBody) == "table" and victimBody.__nuppRelease then
+                                        victimBody.__nuppRelease()
+                                    end
+                                end
                                 threads[other] = nil
-                                finished = finished + 1
+                            end
+                        end
+                        for other = started + 1, count do
+                            local victimBody = bodies[other] as any
+                            if type(victimBody) == "table" and victimBody.__nuppRelease then
+                                victimBody.__nuppRelease()
                             end
                         end
                         finished = count

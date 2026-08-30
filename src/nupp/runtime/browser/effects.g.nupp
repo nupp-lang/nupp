@@ -16,6 +16,13 @@ function effects.request(kind: string, payload: any, resume: function(any): nil)
     nextId = nextId + 1
     payload.id = id
     payload.kind = kind
+    -- Refuse an unencodable payload here, where the offender is known. Failing at
+    -- park time would raise in whichever coroutine happened to carry the batch and
+    -- strand every other queued request's waiter.
+    local encodable, problem = pcall(json.encode, payload)
+    if not encodable then
+        error("nupp: browser effect " .. kind .. " has no JSON form: " .. tostring(problem), 0)
+    end
     queued[#queued + 1] = payload
     local active = true
     waiting[id] = function(response: any): nil
@@ -28,22 +35,32 @@ function effects.request(kind: string, payload: any, resume: function(any): nil)
     end
 
     return function(): nil
-        if active then
-            active = false
-            waiting[id] = nil
+        if not active then
+            return
+        end
+        active = false
+        waiting[id] = nil
+        -- The host executes whatever a park carries, so a request cancelled before
+        -- it shipped must leave the queue: a cancelled write must not still happen.
+        for index = #queued, 1, -1 do
+            if queued[index] == payload then
+                table.remove(queued, index)
+                break
+            end
         end
     end
 end
 
 function effects.park(operation: string): nil
-    local message: any
+    local encoded: string
     if #queued == 0 then
-        message = {kind = "poll", operation = operation,}
+        encoded = json.encode({kind = "poll", operation = operation,})
     else
-        message = {kind = "effects", requests = queued,}
+        -- Encode before clearing, so a failed encode leaves the queue intact
+        -- instead of stranding every dequeued request's waiter.
+        encoded = json.encode({kind = "effects", requests = queued,})
         queued = {}
     end
-    local encoded = json.encode(message)
     local responseText = coroutine.yield(encoded)
     local response = json.decode(responseText)
     if response.cancelled then

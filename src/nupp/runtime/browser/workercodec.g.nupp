@@ -115,11 +115,11 @@ function codec.validate(captures: Packed, arguments: Packed): TransferState
     local transfer: TransferState = {seen = {}, records = nil, addresses = nil}
     local rejectedCaptures = codec.unsendable(captures.values, "captures", 0, transfer)
     if rejectedCaptures ~= nil then
-        error("nupp: cannot copy task captures: " .. rejectedCaptures, 4)
+        error("nupp: cannot copy task captures: " .. rejectedCaptures, 3)
     end
     local rejected = codec.unsendable(arguments.values, "arguments", 0, transfer)
     if rejected ~= nil then
-        error("nupp: cannot copy task arguments: " .. rejected, 4)
+        error("nupp: cannot copy task arguments: " .. rejected, 3)
     end
 
     return transfer

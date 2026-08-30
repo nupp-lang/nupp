@@ -521,10 +521,12 @@ local function ensureAwait(task: any): nil
     task._awaiting = true
     poolRequest({operation = "await", task = task._id,}, function(item: any): nil
         task._answer = item
-        local resume = task._resume
-        if resume ~= nil then
+        local waiters = task._resume
+        if waiters ~= nil then
             task._resume = nil
-            resume(true)
+            for index = 1, #waiters do
+                waiters[index](true)
+            end
         end
     end)
 end
@@ -545,15 +547,31 @@ local function awaitSettlement(task: any): nil
     end
     ensureAwait(task)
     if task._answer == nil then
+        -- One reply may have several awaiters, so each parks in its own slot of a
+        -- waiter list; a single slot would strand every awaiter but the last.
         suspension.suspend("worker task", function(resume: function(any): nil): function()
-            task._resume = resume
+            local waiters = task._resume
+            if waiters == nil then
+                waiters = {}
+                task._resume = waiters
+            end
+            waiters[#waiters + 1] = resume
 
             return function(): nil
-                task._resume = nil
+                for index = #waiters, 1, -1 do
+                    if waiters[index] == resume then
+                        table.remove(waiters, index)
+                        break
+                    end
+                end
             end
         end)
     end
-    consume(task)
+    -- Whichever awaiter runs first consumes the reply; later ones find the task
+    -- already settled.
+    if not task:isDone() then
+        consume(task)
+    end
 end
 
 --- Waits for one task without parking the application.

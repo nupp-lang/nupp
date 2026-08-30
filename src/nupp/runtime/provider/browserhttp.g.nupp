@@ -7,6 +7,7 @@ module nupp.runtime.provider.browserhttp
 local effects = require("nupp.runtime.browser.effects")
 local base64 = require("nupp.data.base64")
 local suspension = require("nupp.suspension")
+local uri = require("nupp.io.uri")
 local http = {}
 
 record http.Options
@@ -233,18 +234,28 @@ record http.Client
         local descriptor: any = {
             url = url:toString(),
             method = request.method or "GET",
-            headers = headers,
             timeoutMs = request.timeoutMs or self._options.timeoutMs or 30000,
             maxBytes = request.maxBytes or self._options.maxBytes or 0,
         }
+        if #headers > 0 then
+            -- An empty Lua table encodes as a JSON object, which the host cannot
+            -- iterate as header pairs; no field means no headers.
+            descriptor.headers = headers
+        end
         if body ~= nil then
             descriptor.bodyBase64 = base64.encode(body)
         end
         self._pending = self._pending + 1
-        local answer = suspension.suspend("browser HTTP request", function(resume: function(any): nil): function()
+        local completed, suspended = pcall(suspension.suspend, "browser HTTP request", function(
+            resume: function(any): nil
+        ): function()
             return effects.request("http", descriptor, resume)
         end)
         self._pending = self._pending - 1
+        if not completed then
+            error(suspended, 0)
+        end
+        local answer = suspended as any
         if not answer.ok then
             return nil, answer.error or "browser HTTP request failed"
         end
@@ -257,11 +268,20 @@ record http.Client
             byName[name] = values
         end
         local responseBody = new http.Body(_bytes = base64.decode(value.bodyBase64 or ""), _at = 1, _closed = false)
+        -- The host follows redirects, so the URL it answers is the last hop
+        -- rather than the one the request named.
+        local finalUrl = request.url
+        if type(value.url) == "string" and value.url ~= "" then
+            local landed = uri.newURI(value.url)
+            if landed ~= nil then
+                finalUrl = landed
+            end
+        end
 
         return new http.Response(
             status = value.status,
             version = "1.1",
-            url = request.url,
+            url = finalUrl,
             body = responseBody,
             _headers = byName,
             _closed = false
