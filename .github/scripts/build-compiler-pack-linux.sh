@@ -8,6 +8,7 @@ ROOT=$(cd "$(dirname "$0")/../.." && pwd)
 output=${1:?output archive path required}
 work=${RUNNER_TEMP:?RUNNER_TEMP is required}/nupp-compiler-pack-linux
 archive="$work/$LLVM_LINUX_ARCHIVE"
+llvm_license="$work/LLVM-LICENSE.txt"
 extracted="$work/extracted"
 toolchain="$work/toolchain"
 stage="$work/stage"
@@ -18,6 +19,9 @@ mkdir -p "$extracted" "$toolchain/bin" "$toolchain/lib" "$stage"
 curl -fsSL "$LLVM_LINUX_URL" -o "$archive"
 test "$(wc -c < "$archive" | tr -d ' ')" = "$LLVM_LINUX_SIZE"
 printf '%s  %s\n' "$LLVM_LINUX_SHA256" "$archive" | sha256sum -c -
+curl -fsSL "$LLVM_LICENSE_URL" -o "$llvm_license"
+test "$(wc -c < "$llvm_license" | tr -d ' ')" = "$LLVM_LICENSE_SIZE"
+printf '%s  %s\n' "$LLVM_LICENSE_SHA256" "$llvm_license" | sha256sum -c -
 tar -xJf "$archive" -C "$extracted"
 llvm=$(find "$extracted" -mindepth 1 -maxdepth 1 -type d | head -n 1)
 test -n "$llvm"
@@ -92,14 +96,6 @@ ln -s llvm-ar "$toolchain/bin/ar"
 chmod +x "$build_cc" "$build_cxx"
 
 mkdir -p "$toolchain/notices"
-llvm_license=
-while IFS= read -r candidate; do
-  if grep -q 'The LLVM Project is under the Apache License' "$candidate"; then
-    llvm_license=$candidate
-    break
-  fi
-done < <(find "$llvm" -type f \( -iname LICENSE -o -iname LICENSE.TXT \) | sort)
-test -n "$llvm_license"
 cp "$llvm_license" "$toolchain/notices/LLVM-LICENSE.txt"
 cp /usr/share/doc/libc6/copyright "$toolchain/notices/glibc-copyright.txt"
 cp /usr/share/doc/linux-libc-dev/copyright "$toolchain/notices/linux-libc-dev-copyright.txt"
