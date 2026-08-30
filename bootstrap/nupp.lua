@@ -203251,13 +203251,13 @@ writeDocument = function(
         out:startObject()
         for index, member in ipairs(schema.members) do
             -- Dynamic bindings accept plain tables for nested structure members,
-        -- so only a value carrying a token reads through it.
-        local item: any
-        if access.kind == "dynamic" and value.token ~= nil then
-            item = value.token.values[member.index]
-        else
-            item = value[member.name]
-        end
+            -- so only a value carrying a token reads through it.
+            local item: any
+            if access.kind == "dynamic" and value.token ~= nil then
+                item = value.token.values[member.index]
+            else
+                item = value[member.name]
+            end
             if item ~= nil then
                 out:key(layout.fields[index].wire as string)
                 local childAccess = access.kind == "dynamic" and {kind = "dynamic", schema = member.target} or nil
