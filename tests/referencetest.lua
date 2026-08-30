@@ -10,6 +10,7 @@ local explain = require("nupp.compiler.explain")
 local lints = require("nupp.compiler.lints")
 local trace = require("nupp.profile.trace")
 local project = require("nupp.compiler.build.project")
+local json = require("testjson")
 
 local HERE = assert(debug.getinfo(1, "S").source:match("^@(.*)[/\\]"))
 if not HERE:match("^/") then
@@ -20,6 +21,17 @@ end
 local NUPP = HERE .. "/../bin/nupp"
 
 local M = {}
+
+local function runCommand(directory, arguments)
+   local output = os.tmpname()
+   local status = os.execute(("cd %q && %q reference %s > %q 2>&1")
+      :format(directory, NUPP, arguments, output))
+   local file = assert(io.open(output, "rb"))
+   local text = file:read("*a")
+   file:close()
+   os.remove(output)
+   return text, status == 0
+end
 
 local function assertEq(got, want, label)
    if got ~= want then
@@ -198,6 +210,50 @@ function M.referenceCommandListsAndSelectsChapters()
    performancePipe:close()
    assert(performance:find("# Nupp Performance reference", 1, true),
       "performance chapter is selectable")
+end
+
+function M.allJsonListsEverySectionItsMarkdownContains()
+   local pipe = assert(io.popen(('%q reference all --json'):format(NUPP)))
+   local payload = json.decode(pipe:read("*a"))
+   pipe:close()
+   local expected = 0
+   for _, chapter in ipairs(reference.chapters) do
+      expected = expected + #chapter.sections
+   end
+   assertEq(#payload.sections, expected,
+      "the flat section index agrees with the chapter index")
+   local byTitle = {}
+   for _, section in ipairs(payload.sections) do byTitle[section.title] = true end
+   for _, chapter in ipairs(reference.chapters) do
+      for _, section in ipairs(chapter.sections) do
+         assert(byTitle[section.title],
+            "JSON omitted the " .. section.title .. " section carried by its markdown")
+      end
+   end
+end
+
+function M.everyReferenceOutputBranchReportsWriteFailure()
+   if package.config:sub(1, 1) == "\\" then
+      require("assert").skip("POSIX directory permissions provide this failure seam")
+   end
+   local dir = os.tmpname()
+   os.remove(dir)
+   assert(os.execute("mkdir -p '" .. dir .. "/locked'") == 0)
+   assert(os.execute("chmod 555 '" .. dir .. "/locked'") == 0)
+   local commands = {
+      "--section types -o locked/section.md",
+      "--section types --json -o locked/section.json",
+      "all -o locked/all.md",
+      "all --json -o locked/all.json",
+   }
+   for _, command in ipairs(commands) do
+      local output, ok = runCommand(dir, command)
+      assert(not ok, command .. " must fail when its output cannot be staged")
+      assert(output:find("nupp:", 1, true),
+         command .. " reports the failed write: " .. output)
+   end
+   assert(os.execute("chmod 755 '" .. dir .. "/locked'") == 0)
+   os.execute("rm -rf '" .. dir .. "'")
 end
 
 

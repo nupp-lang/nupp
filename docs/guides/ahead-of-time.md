@@ -4,9 +4,10 @@ order: 630
 
 # Ahead-of-time compilation
 
-`@aot` compiles a whole function ahead of time rather than leaving it to LuaJIT.
-The compiler admits a small structural subset, lowers it to a verified IR, and
-emits private C:
+`@aot` compiles a top-level local function ahead of time rather than leaving it
+to LuaJIT. The local declaration gives the loader the binding it replaces with
+the compiled entry. The compiler admits a small structural subset, lowers it to
+a verified IR, and emits private C:
 
 ```nupp
 @aot

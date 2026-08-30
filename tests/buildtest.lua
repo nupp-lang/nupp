@@ -8,6 +8,7 @@ if not HERE:match("^/") then
    p:close()
 end
 local NUPP = HERE .. "/../bin/nupp"
+local json = require("testjson")
 
 local function assertEq(got, want, label)
    if got ~= want then
@@ -127,6 +128,33 @@ function M.explicitBuildCreatesItsOutputDirectory()
    assert(exists(dir .. "/nested/out/main.lua"),
       "explicit build writes beneath the requested directory")
    os.execute("rm -rf '" .. dir .. "'")
+end
+
+function M.explicitBuildPreservesModulePathsAndNormalizesDuplicates()
+   local dir = tempProject({
+      ["nupp.lua"] = 'return {include = {"."}}\n',
+      ["a/init.nupp"] = "return {name = 'a'}\n",
+      ["b/init.nupp"] = "return {name = 'b'}\n",
+      ["main.nupp"] = table.concat({
+         "local a = require('a.init')",
+         "local b = require('b.init')",
+         "return a.name .. b.name",
+         "",
+      }, "\n"),
+   })
+   local out = captureJson(("cd %q && %q build --json -o out ./main.nupp main.nupp")
+      :format(dir, NUPP))
+   local report = json.decode(out)
+   assert(report.ok, "the explicit dependency build succeeds: " .. out)
+   assert(#report.written == 3,
+      "the normalized entry and its two dependencies are each emitted once: " .. out)
+   assert(exists(dir .. "/out/main.lua"), "the normalized entry has one output")
+   assert(exists(dir .. "/out/a/init.lua") and exists(dir .. "/out/b/init.lua"),
+      "same-named dependencies retain their module directories")
+   local ran = capture(("cd %q && LUA_PATH='./out/?.lua;;' luajit -e %q")
+      :format(dir, "assert(require('main') == 'ab')"))
+   assertEq(ran, "", "the mirrored output tree is directly requireable")
+   os.execute("rm -rf " .. string.format("%q", dir))
 end
 
 function M.runLoadsModulesFromSource()

@@ -355,6 +355,19 @@ return m
 ]], "NUPP2902", "a generated GPU specification needs one local binding to replace")
 end
 
+function M.aotRequiresALocalFunctionDeclaration()
+   reports([[
+local m = {}
+
+@aot
+function m.copy(value: float): float
+    return value
+end
+
+return m
+]], "NUPP2902", "an AOT entry needs the local binding lowering replaces")
+end
+
 function M.simdAcceptsOnlyTheRequiredSetting()
    reports([[
 @aot(simd = false)

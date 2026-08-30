@@ -1596,8 +1596,9 @@ C must live in a function disabled with `jit.off`, or it reports `NUPP2707`.
 
 ### Ahead-of-time compilation
 
-`@aot` reserves a required whole-function ahead-of-time compilation contract. A
-target's `aot` policy says what a build does with it: `off`, the default, does
+`@aot` reserves a required whole-function ahead-of-time compilation contract on
+a top-level local function declaration. A target's `aot` policy says what a
+build does with it: `off`, the default, does
 nothing; `emit-c` writes the generated C beside the build; `require` compiles
 that C into the project's own shared library and fails the build when it cannot.
 Under `require` the function is replaced where it was written by a checked
@@ -1608,8 +1609,8 @@ finishes loading.
 A closure, interpolated string, vararg, `goto`, dynamic call, or unsafe
 operation inside one reports `NUPP2903` at the construct. Stacking it with
 `@jit` promises one body to two compilers and reports `NUPP2901`, and a
-constructor or an inline requirement is not a whole function to compile, so
-annotating one reports `NUPP2902`.
+constructor, qualified declaration or inline requirement is not a replaceable
+local function declaration, so annotating one reports `NUPP2902`.
 
 The compiler classifies an admitted function automatically. Numeric, struct and
 span code uses the pointer-free `kernel` ABI. A function that constructs or

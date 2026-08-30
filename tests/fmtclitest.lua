@@ -98,6 +98,25 @@ function M.writesTheProjectAndSaysWhatItChanged()
    os.execute("rm -rf '" .. dir .. "'")
 end
 
+function M.aFailedAtomicRewriteLeavesTheSourceWhole()
+   if package.config:sub(1, 1) == "\\" then
+      require("assert").skip("POSIX directory permissions provide this failure seam")
+   end
+   local dir = tempProject({
+      ["locked/messy.nupp"] = UNFORMATTED,
+   })
+   assert(os.execute("chmod 555 '" .. dir .. "/locked'") == 0)
+
+   local out, ok = run(dir, "fmt --write locked/messy.nupp")
+   assert(not ok, "a staging failure fails the command")
+   assert(out:find("nupp:", 1, true), "the write failure is reported: " .. out)
+   assert(readFile(dir .. "/locked/messy.nupp") == UNFORMATTED,
+      "the original source is neither truncated nor partially rewritten")
+
+   assert(os.execute("chmod 755 '" .. dir .. "/locked'") == 0)
+   os.execute("rm -rf '" .. dir .. "'")
+end
+
 -- A declaration file is source: somebody wrote it and somebody reads it. The
 -- module list drops them because nothing requires one; formatting does not.
 function M.formatsDeclarationFilesToo()

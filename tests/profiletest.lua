@@ -460,6 +460,9 @@ local function tempProject()
    local program = assert(io.open(dir .. "/work.nupp", "wb"))
    program:write(PROGRAM)
    program:close()
+   local failing = assert(io.open(dir .. "/fail.nupp", "wb"))
+   failing:write("error('program sentinel', 0)\n")
+   failing:close()
    return dir
 end
 
@@ -543,6 +546,24 @@ function M.cliJitAbortsWritesNormalizedJson()
       "the observed FNEW uses the static identity")
    assertEq(report.sites[1].class, "blocker", "the reason class is preserved")
    assertMatch(report.sites[1].rawReason, "FNEW", "the raw VM detail remains")
+   os.execute("rm -rf '" .. dir .. "'")
+end
+
+function M.jitAbortWriteFailureStillReportsTheProgramError()
+   if package.config:sub(1, 1) == "\\" then
+      require("assert").skip("POSIX directory permissions provide this failure seam")
+   end
+   local dir = tempProject()
+   assert(os.execute("mkdir -p '" .. dir .. "/locked'") == 0)
+   assert(os.execute("chmod 555 '" .. dir .. "/locked'") == 0)
+   local out, ok = run(dir,
+      "run --jit-aborts=locked/aborts.csv fail.nupp")
+   assert(not ok, "both the run and its report write fail")
+   assertMatch(out, "program sentinel",
+      "the program's own failure survives the report failure: " .. out)
+   assertMatch(out, "locked/aborts%.csv",
+      "the report write failure is also retained: " .. out)
+   assert(os.execute("chmod 755 '" .. dir .. "/locked'") == 0)
    os.execute("rm -rf '" .. dir .. "'")
 end
 

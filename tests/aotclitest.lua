@@ -165,6 +165,48 @@ return {doubled = doubled}
     local wasm, wasmCode = run(dir, "--emit msl --target wasm32-unknown-emscripten gpu.nupp")
     assert(wasmCode ~= 0, wasm)
     assert(wasm:find('Wasm backend does not consume @aot(target = "gpu")', 1, true), wasm)
+
+    local summary, summaryCode = run(dir, "--check gpu.nupp")
+    test.equal(summaryCode, 0, summary)
+    assert(summary:find(", gpu, one iteration per GPU invocation", 1, true),
+        "a compiled GPU artifact is reported with its lowered shape: " .. summary)
+    assert(not summary:find("refused", 1, true),
+        "a working GPU kernel is not treated as a refusal: " .. summary)
+end
+
+function M.loopFreeScalarExplainsWhyLanesDoNotApply()
+    local dir = project({
+        ["scalar.nupp"] = [[
+@aot
+local function doubled(value: number): number
+    return value * 2.0
+end
+return doubled
+]],
+    })
+    local summary, code = run(dir, "scalar.nupp")
+    test.equal(code, 0, summary)
+    assert(summary:find("no map loop to run in lanes", 1, true),
+        "the summary describes the body rather than inventing lanes=false: " .. summary)
+    assert(not summary:find("@aot(lanes = false)", 1, true), summary)
+end
+
+function M.qualifiedAotDeclarationIsRefusedWithoutATraceback()
+    local dir = project({
+        ["qualified.nupp"] = [[
+local api = {}
+@aot
+function api.doubled(value: number): number
+    return value * 2.0
+end
+return api
+]],
+    })
+    local output, code = run(dir, "qualified.nupp")
+    assert(code ~= 0, output)
+    assert(output:find("NUPP2902", 1, true)
+        and output:find("requires a local function declaration", 1, true), output)
+    assert(not output:find("stack traceback", 1, true), output)
 end
 
 function M.gpuTargetLoadsAndStoresBinary16Bits()

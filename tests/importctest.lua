@@ -4,6 +4,12 @@ local check = require("fragment")
 local envMod = require("nupp.compiler.env")
 
 local HERE = assert(debug.getinfo(1, "S").source:match("^@(.*)[/\\]"))
+if not HERE:match("^/") then
+   local pipe = assert(io.popen("pwd"))
+   HERE = pipe:read("*l") .. "/" .. HERE
+   pipe:close()
+end
+local NUPP = HERE .. "/../bin/nupp"
 
 local function assertContains(text, needle, label)
    if not text:find(needle, 1, true) then
@@ -20,6 +26,22 @@ local function assertEq(got, want, label)
 end
 
 local M = {}
+
+local function readFile(path)
+   local file = assert(io.open(path, "rb"))
+   local text = file:read("*a")
+   file:close()
+   return text
+end
+
+local function runCli(dir, arguments)
+   local output = os.tmpname()
+   local status = os.execute(("cd %q && %q import-c %s > %q 2>&1")
+      :format(dir, NUPP, arguments, output))
+   local text = readFile(output)
+   os.remove(output)
+   return text, status == 0
+end
 
 local generated -- shared across cases (import once)
 
@@ -292,6 +314,37 @@ function M.skippedDeclarationsAreCountedOnTheWayOut()
    local _, warnings = importc.import(HERE .. "/fixtures/partial.h")
    assert(#warnings == 1, "expected one warning, got " .. #warnings)
    assertContains(warnings[1], "1 of 4 declarations skipped")
+end
+
+function M.bridgeWriteFailureDoesNotRestyleEarlierWarningsAsErrors()
+   if package.config:sub(1, 1) == "\\" then
+      require("assert").skip("POSIX directory permissions provide this failure seam")
+   end
+   local dir = os.tmpname()
+   os.remove(dir)
+   assert(os.execute("mkdir -p '" .. dir .. "/locked'") == 0)
+   local manifest = assert(io.open(dir .. "/nupp.lua", "wb"))
+   manifest:write('return {include = {"."}}\n')
+   manifest:close()
+   local header = assert(io.open(dir .. "/mixed.h", "wb"))
+   header:write(readFile(HERE .. "/fixtures/partial.h"))
+   header:write([[
+static inline int nupp_inline_identity(int value) { return value; }
+]])
+   header:close()
+   assert(os.execute("chmod 555 '" .. dir .. "/locked'") == 0)
+
+   local output, ok = runCli(dir,
+      "-o mixed.nupp --bridge-out locked/bridge.c mixed.h")
+   assert(not ok, "an unwritable bridge destination fails the import")
+   local warning = "declarations skipped"
+   local _, count = output:gsub(warning, "")
+   assert(count == 1,
+      "the import warning is printed once rather than replayed as an error: " .. output)
+   assert(output:find("nupp: warning:", 1, true),
+      "the original warning keeps warning severity: " .. output)
+   assert(os.execute("chmod 755 '" .. dir .. "/locked'") == 0)
+   os.execute("rm -rf '" .. dir .. "'")
 end
 
 function M.typedefsAreDeclaredInTheOrderCCanReadThem()

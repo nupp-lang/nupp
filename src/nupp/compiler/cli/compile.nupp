@@ -56,6 +56,10 @@ record compile.Settings
     --- Coverage is a separate generated artifact. It is intentionally absent from
     --- ordinary settings so normal compilation does not even build a site manifest.
     coverage: boolean
+
+    --- A command-only literal emitted between generated preamble and authored code.
+    --- Absent from ordinary builds and machine bytecode reports.
+    bytecodeBoundary: string?
 end
 
 -- The level arrives as the digit the option captured. The grammar has already refused
@@ -74,7 +78,8 @@ function compile.settings(values: {[string]: any}, collected: {any}?): compile.S
         disabled = values.disabled or {},
         relaxed = values.relaxed or {},
         diagnostics = collected,
-        coverage = values.coverage == true or os.getenv("NUPP_COVERAGE") == "1"
+        coverage = values.coverage == true or os.getenv("NUPP_COVERAGE") == "1",
+        bytecodeBoundary = nil
     )
 end
 
@@ -158,7 +163,15 @@ function compile.module(path: string, env: table, settings: compile.Settings): s
         say(remarks)
     end
     local gen = require("nupp.compiler.gen")
-    local code, genDiags = gen.generate(result, path, settings.coverage and {path = path} or nil)
+    local code, genDiags = gen.generate(
+        result,
+        path,
+        settings.coverage and {path = path} or nil,
+        nil,
+        nil,
+        nil,
+        settings.bytecodeBoundary
+    )
     if #genDiags > 0 then
         say(genDiags)
         return nil, "code generation errors"

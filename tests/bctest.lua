@@ -105,6 +105,19 @@ function M.theRuntimePreambleIsFoldedUnlessAskedFor()
    assert(shown:find("rawset", 1, true), "--prologue shows the preamble:\n" .. shown)
 end
 
+function M.authoredCodeOnLineOneIsNotFoldedWithThePreamble()
+   local source = "local answer = tonumber('42')\nreturn answer\n"
+   local dir = project{["line-one.g.nupp"] = source}
+   local out, code = run(dir, "line-one.g.nupp")
+   test.equal(code, 0, out)
+   assert(out:find("1 | local answer = tonumber('42')", 1, true),
+      "the first authored line follows the explicit boundary:\n" .. out)
+   assert(out:find('GGET', 1, true) and out:find('"tonumber"', 1, true),
+      "the first line's own instructions remain visible:\n" .. out)
+   assert(not out:find("__nupp_bc_preamble_boundary", 1, true),
+      "the structural marker is not part of the listing")
+end
+
 -- What the annotations cost, answered by the instructions rather than by a benchmark:
 -- an indexed multiply-accumulate over a declared `{number}` is three instructions with
 -- no call, no check and no boxing among them.

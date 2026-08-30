@@ -107,6 +107,14 @@ function M.inspectDefinitionReferencesAndSymbols()
    assert(definition.definition.range.start.line == 4,
       "definition uses one-based lines")
 
+   local definitionSchema = json.decode(captureJson(dir,
+      "lsp definition --schema"))
+   assert(definitionSchema.properties.definitions,
+      "the definition operation advertises contributing declarations")
+   local inspectSchema = json.decode(captureJson(dir, "lsp inspect --schema"))
+   assert(not inspectSchema.definitions.symbol.properties.definitions,
+      "the definition-only property is not attached to inspected symbols")
+
    local references = json.decode(captureJson(dir,
       "lsp references --json --include-declaration main.nupp 2 20"))
    assert(#references.references == 2,
@@ -127,6 +135,35 @@ function M.inspectDefinitionReferencesAndSymbols()
    assert(#document.symbols == 1 and document.symbols[1].name == "lib.double",
       "document symbols expose the source outline")
 
+   os.execute("rm -rf '" .. dir .. "'")
+end
+
+function M.inspectCarriesTheAutomaticCleanupBoundary()
+   local dir = tempProject({
+      ["nupp.lua"] = 'return {include = {"."}}\n',
+      ["owner.nupp"] = table.concat({
+         "local record Handle",
+         "   name: string",
+         "end",
+         "local function close_handle(value: Handle)",
+         "end",
+         "local function open_handle(): affine(Handle, close_handle)",
+         "   return new Handle(name = 'a')",
+         "end",
+         "local function work()",
+         "   local handle = open_handle()",
+         "   print(handle.name)",
+         "end",
+         "",
+      }, "\n"),
+   })
+   local inspected = json.decode(captureJson(dir,
+      "lsp inspect --json owner.nupp 11 10"))
+   local cleanup = inspected.symbol.automaticCleanup
+   assert(cleanup and cleanup.status == "automatic" and cleanup.line == 11,
+      "inspect preserves the checker's cleanup boundary")
+   assert(cleanup.cleanups[1] == "close_handle",
+      "inspect names the cleanup that runs there")
    os.execute("rm -rf '" .. dir .. "'")
 end
 

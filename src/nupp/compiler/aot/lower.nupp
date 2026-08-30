@@ -4883,7 +4883,13 @@ function lower.scan(chunk: cst.Chunk, checked: boolean): lower.Declarations
                     end
                 end
                 if checked then
-                    local decorated = cursor as cst.LocalFuncStmt?
+                    -- The checker accepts only a local declaration. Keep that
+                    -- boundary explicit here as well: a partial producer or a tree
+                    -- built by a lowering harness must not turn a qualified function's
+                    -- absent local-name token into a nil table key below.
+                    local decorated = cursor ~= nil and cursor.kind == "localFuncStmt" and (
+                        cursor as cst.LocalFuncStmt
+                    ) or nil
                     isAot = decorated ~= nil and (
                         decorated as cst.LocalFuncStmt
                     ).body ~= nil and ((decorated as cst.LocalFuncStmt).body as cst.Funcbody).aotRequired == true
@@ -4892,7 +4898,9 @@ function lower.scan(chunk: cst.Chunk, checked: boolean): lower.Declarations
                     found.applications[
                         #found.applications + 1
                     ] = new lower.Application(chain = chain, tail = cursor, at = stat as cst.PragmaStmt)
-                    local named = cursor as cst.LocalFuncStmt?
+                    local named = cursor ~= nil and cursor.kind == "localFuncStmt" and (
+                        cursor as cst.LocalFuncStmt
+                    ) or nil
                     if named ~= nil and (named as cst.LocalFuncStmt).name ~= nil then
                         found.entries[((named as cst.LocalFuncStmt).name as lexer.Token).text] = named
                     end

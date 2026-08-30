@@ -192,17 +192,35 @@ function M.completionsAreRenderedFromTheRegisteredCommandGrammar()
    local bash = rendered.render("bash", commands)
    assert(bash:find("completions", 1, true), "completes the command itself")
    assert(bash:find("--strict", 1, true), "completes command options")
-   assert(bash:find("always never auto", 1, true),
+   assert(bash:find("text json", 1, true),
       "completes closed option values")
+   assert(not bash:find("--relax)", 1, true),
+      "attached-only choices are not offered as a following word")
+   assert(not bash:find("--color)", 1, true),
+      "optional choices are not offered as a following word")
    assert(bash:find("complete -F _nupp nupp", 1, true), "installs Bash completion")
 
    local zsh = rendered.render("zsh", commands)
    assert(zsh:find("#compdef nupp", 1, true), "installs Zsh completion")
+   assert(zsh:find("case $words[1] in", 1, true),
+      "dispatches on the command after _arguments narrows the words")
+   assert(zsh:find("if (( CURRENT == 2 )); then", 1, true),
+      "offers positional choices at the narrowed first argument")
    assert(zsh:find("check:Type-check source", 1, true),
       "uses the command schema's summary")
 
    local fish = rendered.render("fish", commands)
    assert(fish:find("complete -c nupp", 1, true), "installs Fish completion")
+   assert(fish:find("function __fish_nupp_needs_command", 1, true),
+      "has a guard dedicated to top-level command completion")
+   assert(fish:find("-n '__fish_nupp_needs_command' -a check", 1, true),
+      "offers command names before a command is present")
+   assert(fish:find("-l relax -a 'function-identity", 1, true)
+      and not fish:find("-l relax -r", 1, true),
+      "attached-only choices do not consume the following word")
+   assert(fish:find("-l color -a 'always never auto'", 1, true)
+      and not fish:find("-l color -r", 1, true),
+      "optional choices do not consume the following word")
    assert(fish:find("-l strict", 1, true), "includes long options")
 end
 
@@ -272,6 +290,25 @@ local function captureAt(directory, argv)
    return out, ok
 end
 
+local function captureJsonAt(directory, argv)
+   local pipe = assert(io.popen(("cd '%s' && NO_COLOR= CLICOLOR_FORCE= '%s' %s")
+      :format(directory, NUPP, argv)))
+   local out = pipe:read("*a")
+   local ok = pipe:close()
+   return out, ok
+end
+
+local function captureStatusAt(directory, argv)
+   local pipe = assert(io.popen((
+      "cd '%s' && NO_COLOR= CLICOLOR_FORCE= '%s' %s 2>&1; echo '__exit__:'$?"
+   ):format(directory, NUPP, argv)))
+   local out = pipe:read("*a")
+   pipe:close()
+   local code = assert(tonumber(out:match("__exit__:(%d+)%s*$")),
+      "no exit status in:\n" .. out)
+   return (out:gsub("__exit__:%d+%s*$", "")), code
+end
+
 function M.migrateChecksThenAtomicallyRenamesAnnotatedLua()
    local dir = os.tmpname()
    os.remove(dir)
@@ -303,6 +340,33 @@ function M.migrateChecksThenAtomicallyRenamesAnnotatedLua()
    os.execute("rm -rf '" .. dir .. "'")
 end
 
+function M.migrateDoesNotClaimFilesItNeverTouched()
+   local dir = os.tmpname()
+   os.remove(dir)
+   assert(os.execute("mkdir -p '" .. dir .. "'") == 0)
+   local annotated = "---@param value integer\n---@return integer\n"
+      .. "local function keep(value) return value end\nreturn keep\n"
+   for _, name in ipairs({"blocked.lua", "waiting.lua"}) do
+      local source = assert(io.open(dir .. "/" .. name, "wb"))
+      source:write(annotated)
+      source:close()
+   end
+   local occupied = assert(io.open(dir .. "/blocked.g.nupp", "wb"))
+   occupied:write("return false\n")
+   occupied:close()
+
+   local output, code = captureStatusAt(dir, "migrate blocked.lua waiting.lua")
+   assert(code ~= 0, "an occupied destination refuses the batch")
+   assert(output:find("blocked.g.nupp already exists", 1, true),
+      "the planning failure is reported: " .. output)
+   assert(not output:find("waiting.lua -> waiting.g.nupp", 1, true),
+      "an untouched later plan is not printed as a success: " .. output)
+   local untouched = io.open(dir .. "/waiting.lua", "rb")
+   assert(untouched, "the later source remains where it was")
+   untouched:close()
+   os.execute("rm -rf '" .. dir .. "'")
+end
+
 function M.exportCEmitsTheCanonicalTypedHeader()
    local dir = os.tmpname()
    os.remove(dir)
@@ -321,7 +385,7 @@ struct game.Position
    x: float
    y: float
 end
-cdef function integrate(exclusive position: game.Position*, dt: float)
+cdef function integrate(exclusive position: game.Position*?, dt: float)
 function game.run(): float
    local positions = carray(game.Position, 1)
    positions[0].x = 1
@@ -433,6 +497,78 @@ function M.binaryPrintsCompletionScripts()
       "the Fish script is available through the CLI")
 end
 
+function M.lintsUsesDefaultsOutsideAConfiguredProject()
+   local dir = os.tmpname()
+   os.remove(dir)
+   assert(os.execute("mkdir -p '" .. dir .. "'") == 0)
+   local output, ok = captureAt(dir, "lints")
+   assert(ok, "the default lint catalogue needs no nupp.lua: " .. output)
+   assert(output:find("unused-binding", 1, true),
+      "the default catalogue is printed: " .. output)
+   os.execute("rm -rf '" .. dir .. "'")
+end
+
+function M.initListRefusesAJsonSpellingItCannotProduce()
+   local output, code = captureStatusAt(HERE, "init --list --json")
+   assert(code ~= 0, "--list cannot satisfy the scaffold JSON schema")
+   assert(output:find("--list has no JSON output", 1, true),
+      "the unsupported combination is explicit: " .. output)
+   assert(output:sub(1, 1) ~= "{", "template text is not mislabeled JSON")
+end
+
+function M.backendRuntimePreservesMultilineSeamFailures()
+   local dir = os.tmpname()
+   os.remove(dir)
+   assert(os.execute("mkdir -p '" .. dir .. "'") == 0)
+   local manifest = assert(io.open(dir .. "/nupp.lua", "wb"))
+   manifest:write('return {include = {"."}}\n')
+   manifest:close()
+   local backend = assert(io.open(dir .. "/brokenbackend.g.nupp", "wb"))
+   backend:write([[
+module brokenbackend
+const Backend = require("nupp.runtime.backend")
+const JSON = require("nupp.runtime.seam.json")
+export = Backend.new("broken", {JSON.seam("brokenprovider"),})
+]])
+   backend:close()
+   local provider = assert(io.open(dir .. "/brokenprovider.g.nupp", "wb"))
+   provider:write([[
+module brokenprovider
+local provider: any = {NULL = {}, EMPTY_ARRAY = {}, EMPTY_OBJECT = {}}
+local function same(value: any): any return value end
+provider.arrayOf = same
+provider.asArray = same
+provider.asObject = same
+provider.isArray = same
+provider.decode = same
+provider.encoded = same
+provider.encodedString = same
+provider.pull = same
+provider.serialize = same
+provider.verified = same
+provider.verifiedString = same
+provider.writer = same
+function provider.encode(value: any): string
+   error("first seam line\nsecond seam line", 0)
+end
+export = provider
+]])
+   provider:close()
+   local runtimePipe = assert(io.popen(("'%s/../scripts/toolchain' luajit")
+      :format(HERE)))
+   local runtime = assert(runtimePipe:read("*l")) .. "/bin/luajit"
+   runtimePipe:close()
+
+   local output = captureJsonAt(dir,
+      ("backend test brokenbackend --runtime '%s' --json"):format(runtime))
+   local report = json.decode(output)
+   assert(not report.ok and #report.seams == 1,
+      "the deliberately broken seam is reported: " .. output)
+   assert(report.seams[1].problem:find("first seam line\nsecond seam line", 1, true),
+      "the line-based runtime report reconstructs the complete failure")
+   os.execute("rm -rf '" .. dir .. "'")
+end
+
 function M.ownershipAuditEnumeratesForeignContractsAndUnsafeSites()
    local dir = os.tmpname()
    os.remove(dir)
@@ -505,6 +641,56 @@ function M.ownershipAuditEnumeratesForeignContractsAndUnsafeSites()
    assert(schema.properties.foreign and schema.properties.unsafe
       and schema.properties.regions,
       "the machine report has a discoverable schema")
+   os.execute("rm -rf '" .. dir .. "'")
+end
+
+function M.ownershipAuditFindsInlineAssertionsAndAffineCResults()
+   local dir = os.tmpname()
+   os.remove(dir)
+   assert(os.execute("mkdir -p '" .. dir .. "'") == 0)
+   local source = assert(io.open(dir .. "/inline.g.nupp", "wb"))
+   source:write(table.concat({
+      "cdef function free(takes value: voidptr)",
+      "cdef function acquire(size: uint64): affine(voidptr, free)",
+      "local raw: voidptr",
+      "local owner = unsafe adopt raw as affine(voidptr, free)",
+      "local released = unsafe release owner",
+      "return released",
+      "",
+   }, "\n"))
+   source:close()
+
+   local report = json.decode(captureJson(("ownership-audit --json '%s/inline.g.nupp'")
+      :format(dir)))
+   assert(#report.foreign == 2 and report.foreign[2].name == "acquire",
+      "an affine C result is a trusted ownership contract")
+   assert(#report.foreign[2].results == 1
+      and report.foreign[2].results[1].type:find("affine(voidptr", 1, true),
+      "the affine result is described")
+   assert(#report.unsafe == 2
+      and report.unsafe[1].kind == "ownership assertion: adopt"
+      and report.unsafe[2].kind == "ownership assertion: release",
+      "inline ownership assertions are listed outside unsafe-do regions")
+   os.execute("rm -rf '" .. dir .. "'")
+end
+
+function M.ownershipAuditReportsFilesItCannotAnalyze()
+   local dir = os.tmpname()
+   os.remove(dir)
+   assert(os.execute("mkdir -p '" .. dir .. "'") == 0)
+   local broken = assert(io.open(dir .. "/broken.nupp", "wb"))
+   broken:write("local =\n")
+   broken:close()
+
+   local syntax, syntaxCode = captureStatusAt(dir, "ownership-audit broken.nupp")
+   assert(syntaxCode ~= 0, "unparseable input fails the audit")
+   assert(syntax:find("broken.nupp:1", 1, true),
+      "the parse failure names its source: " .. syntax)
+
+   local missing, missingCode = captureStatusAt(dir, "ownership-audit absent.nupp")
+   assert(missingCode ~= 0, "unreadable input fails the audit")
+   assert(missing:find("cannot read absent.nupp", 1, true),
+      "the read failure is reported: " .. missing)
    os.execute("rm -rf '" .. dir .. "'")
 end
 

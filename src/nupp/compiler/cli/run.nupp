@@ -369,7 +369,11 @@ local function run(parsed: any): integer
         )
     end
     if tracing then
-        local summary = tracing:stop(values.json and nil or abortsOut)
+        -- Stop collecting before any report serialization or filesystem work. Both
+        -- formats then use the checked atomic writer below, so a failed CSV write is
+        -- handled the same way as JSON rather than raising out of TraceSession:stop.
+        local summary = tracing:stop()
+        local content: string
         if values.json then
             local sites = {}
             for _, site in ipairs(summary.sites) do
@@ -397,17 +401,20 @@ local function run(parsed: any): integer
             -- `NaN` and `Infinity` are not JSON, so a document carrying one is one a
             -- strict reader rejects whole. Refusing to write it says which run produced
             -- the bad duration instead of leaving that to whatever reads the file.
-            local wrote, writeErr = require("nupp.compiler.fs").writeFile(abortsOut, report.encode(document) .. "\n")
-            if not wrote then
-                io.stderr:write("nupp: " .. tostring(writeErr) .. "\n")
-                -- The program's own failure still gets reported: losing the trace
-                -- report is no reason to also lose the error the run ended on.
-                if not ok then
-                    io.stderr:write("nupp: " .. tostring(runErr) .. "\n")
-                end
-
-                return 1
+            content = report.encode(document) .. "\n"
+        else
+            content = tostring(summary)
+        end
+        local wrote, writeErr = require("nupp.compiler.fs").writeFile(abortsOut, content)
+        if not wrote then
+            io.stderr:write("nupp: " .. tostring(writeErr) .. "\n")
+            -- The program's own failure still gets reported: losing the trace
+            -- report is no reason to also lose the error the run ended on.
+            if not ok then
+                io.stderr:write("nupp: " .. tostring(runErr) .. "\n")
             end
+
+            return 1
         end
         io.stderr:write(
             (

@@ -177,7 +177,7 @@ for _, seam in ipairs(selected.seams or {}) do
         found = true
         local ok, problem = seam:test()
         failed = failed or not ok
-        -- %q spells an embedded newline as a backslash and a literal newline, which
+        -- %%q spells an embedded newline as a backslash and a literal newline, which
         -- would split this row across two physical lines; the reader is line-based,
         -- so respell it as \n, which load() undoes.
         io.write(table.concat({seam.name, tostring(seam.version), seam.binding or "runtime",

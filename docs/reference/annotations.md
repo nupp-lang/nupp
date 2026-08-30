@@ -419,7 +419,8 @@ verdict, editor query, and runtime reason.
 
 ### `@aot`
 
-`@aot` reserves a required whole-function ahead-of-time compilation contract:
+`@aot` reserves a required whole-function ahead-of-time compilation contract
+on a top-level local function declaration:
 
 ```nupp
 @aot

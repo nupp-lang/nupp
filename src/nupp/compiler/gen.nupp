@@ -476,14 +476,17 @@ type gen.HotMetadata = {
 --- `coverage` is an internal build setting: absent on ordinary compiles, so the normal
 --- emission path remains byte-for-byte what it was before coverage existed. In coverage
 --- mode the third return is the source-site manifest. The fourth return is the exact
---- runtime-feature set observed while writing the generated body.
+--- runtime-feature set observed while writing the generated body. `bytecodeBoundary`
+--- is command-only instrumentation inserted after generated preamble and before the
+--- authored emission; ordinary generation never supplies one.
 function gen.generate(
     result: gen.Checked,
     filename: string?,
     coverage: (boolean | gen.CoverageRequest)?,
     hot: gen.HotRequest?,
     backendResolution: any?,
-    validatingHostDialect: string?
+    validatingHostDialect: string?,
+    bytecodeBoundary: string?
 ): string, {any}, gen.Coverage?, {[string]: boolean}, gen.HotMetadata?
     local out = {}
     local capabilityResolution = capabilities.resolve(result.dialect or "luajit", backendResolution)
@@ -7567,6 +7570,12 @@ function gen.generate(
     for _, activation in ipairs(emitDepth.activationPlaceholders) do
         local replacement = activation.used and ("local %s;"):format(activation.name) or ""
         code = code:gsub(activation.marker:gsub("([^%w])", "%%%1"), replacement, 1)
+    end
+    if bytecodeBoundary ~= nil then
+        -- A scoped dead local is one KSTR in LuaJIT bytecode. It cannot collide
+        -- with or remain live into authored code, and the bc command removes it
+        -- from the listing after using it as the exact preamble boundary.
+        code = ("do local __nuppBytecodeBoundary=%q end;"):format(bytecodeBoundary) .. code
     end
     if declaredModuleName then
         local migrationAssignment = cst.exportAssignment(result.root) ~= nil

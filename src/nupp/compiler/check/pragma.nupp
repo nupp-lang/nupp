@@ -361,6 +361,12 @@ function pragma.install(c: state.Checker): state.StatHandlers
                 -- value per call of its enclosing function, which is not something
                 -- one wrapper can stand in front of.
                 c.diag("NUPP2902", annotationName, "@aot cannot compile a function nested in another function")
+            elseif valid and targetBody and targetKind ~= "localFuncStmt" then
+                -- Lowering names and replaces one lexical binding. A qualified
+                -- declaration assigns through a table path instead, so accepting it
+                -- here would leave lowering with no entry name and no binding the
+                -- generated wrapper can replace.
+                c.diag("NUPP2902", annotationName, "@aot currently requires a local function declaration")
             elseif valid and targetBody then
                 if targetBody.jitRequired then
                     c.diag("NUPP2901", annotationName, "@aot and @jit name different compilers for one body")
