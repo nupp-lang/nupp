@@ -3157,19 +3157,32 @@ function gen.generate(
             end
         end
         local captured = {}
+        -- A colon-declared method binds its receiver without a source token, so a
+        -- `self` in its body resolves to no definition. It is still per-invocation
+        -- state: a body reading it must not be parked in the module-wide cache,
+        -- where the cached closure would answer every later call with the first
+        -- caller's receiver. One sentinel definition stands in for it, so the
+        -- region takes the activation cache, whose lifetime is exactly the
+        -- receiver's.
+        local implicitReceiver
         local function walk(node)
             if not node or cst.isToken(node) then
                 return
             end
-            if node.kind == "name" and node.token and node.token.definition then
+            if node.kind == "name" and node.token then
                 local definition = node.token.definition
-                local token = definition.token
-                if not localBindings[
-                    definition
-                ] and token and firstOffset and token.offset < firstOffset and token.line ~= 0 and not isChunkLocal(
-                    definition
-                ) then
-                    captured[definition] = true
+                if definition then
+                    local token = definition.token
+                    if not localBindings[
+                        definition
+                    ] and token and firstOffset and token.offset < firstOffset and token.line ~= 0 and not isChunkLocal(
+                        definition
+                    ) then
+                        captured[definition] = true
+                    end
+                elseif node.token.text == "self" then
+                    implicitReceiver = implicitReceiver or {name = "self", kind = "parameter"}
+                    captured[implicitReceiver] = true
                 end
             end
             for _, child in ipairs(node) do
@@ -3261,7 +3274,10 @@ function gen.generate(
     local function frameEligible(captures, nested): boolean
         for _, definition in ipairs(captures or {}) do
             local t = definition.type
-            if nested[
+            -- A capture with no source token -- the implicit receiver -- has no
+            -- name nodes carrying its definition, so its reads cannot be
+            -- redirected through a frame slot.
+            if not definition.token or nested[
                 definition
             ] or definition.virtualIndexedView or t and (
                 t.tag == "affine" or t.tag == "borrowed" or t.tag == "pinned" or t.tag == "func"

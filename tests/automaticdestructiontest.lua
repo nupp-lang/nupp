@@ -546,6 +546,36 @@ function M.recursiveInvocationsDoNotShareRegionUpvalues()
    assertEq(calls, "xxxx")
 end
 
+function M.aColonMethodRegionDoesNotCacheItsReceiverModuleWide()
+   -- A colon-declared method binds `self` without a source token, so a region
+   -- body reading it must reserve a per-invocation cache: parked module-wide,
+   -- the cached closure would answer every later call with the first caller's
+   -- receiver.
+   local chunk, code = compile(PRELUDE .. table.concat({
+      "",
+      "local record Client",
+      "   name: string",
+      "end",
+      "function Client:label(): string",
+      "   return self.name",
+      "end",
+      "function Client:tell(): string",
+      "   local value = open_resource('x')",
+      "   return self:label()",
+      "end",
+      "local first = new Client(name = 'first')",
+      "local second = new Client(name = 'second')",
+      "return first:tell(), second:tell(), calls",
+   }, "\n"))
+   local first, second, calls = chunk()
+   assertEq(first, "first")
+   assertEq(second, "second",
+      "a later receiver answers through its own self")
+   assertEq(calls, "xx")
+   assert(code:match("Client : tell %( %) local __nuppT%d+;"),
+      "a region reading the implicit receiver reserves an invocation cache")
+end
+
 function M.aLoopLocalWriteTravelsThroughARegionFrame()
    local chunk = compile(PRELUDE .. table.concat({
       "",

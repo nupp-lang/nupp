@@ -107957,12 +107957,21 @@ firstOffset = offset
 end
 end
 local captured = { }
+
+
+
+
+
+
+
+local implicitReceiver
 local function walk ( node ) 
 if not node or cst . isToken ( node ) then
 return
 end
-if node . kind == "name" and node . token and node . token . definition then
+if node . kind == "name" and node . token then
 local definition = node . token . definition
+if definition then
 local token = definition . token
 if not localBindings [
 definition
@@ -107970,6 +107979,10 @@ definition
 definition
 ) then
 captured [ definition ] = true
+end
+elseif node . token . text == "self" then
+implicitReceiver = implicitReceiver or { name = "self" , kind = "parameter" }
+captured [ implicitReceiver ] = true
 end
 end
 for _ , child in ipairs ( node ) do
@@ -108061,7 +108074,10 @@ end
 local function frameEligible ( captures , nested ) 
 for _ , definition in ipairs ( captures or { } ) do
 local t = definition . type
-if nested [
+
+
+
+if not definition . token or nested [
 definition
 ] or definition . virtualIndexedView or t and (
 t . tag == "affine" or t . tag == "borrowed" or t . tag == "pinned" or t . tag == "func"
@@ -170421,26 +170437,20 @@ end
 end
 end
 transfer : close ( )
+return "return",__nuppT52( self : send ( setmetatable({ url =
 
+target ,  method =
+nextMethod ,  headers =
+merged ,  body =
+nextBody ,  timeoutMs =
+given . timeoutMs ,  stallTimeoutMs =
+given . stallTimeoutMs ,  maxBytes =
+given . maxBytes ,  _redirected =
+true ,  _redirects =
+followed + 1 ,  _deadline =
+deadline }, http.Request)
 
-
-
-
-
-
-local redirected = {
-url = target ,
-method = nextMethod ,
-headers = merged ,
-body = nextBody ,
-timeoutMs = given . timeoutMs ,
-stallTimeoutMs = given . stallTimeoutMs ,
-maxBytes = given . maxBytes ,
-_redirected = true ,
-_redirects = followed + 1 ,
-_deadline = deadline ,
-}
-return "return",__nuppT52( self : send ( redirected ) )
+) )
 end
 end
 local bodyReady , bodyReason = transfer : takeBody ( )
@@ -214644,26 +214654,20 @@ function http.Client:send(borrows request: http.Request): (http.Response?, strin
                 end
             end
             transfer:close()
-            -- A plain descriptor rather than `new http.Request`. The hop owns
-            -- nothing a request's cleanup would close -- a reader body refuses
-            -- to follow, and a dropped body is nil -- and an owned request here
-            -- would put the recursive call inside a cleanup region whose
-            -- lowering caches its closure module-wide with the first caller's
-            -- `self`, sending every later client's redirect through the first
-            -- client.
-            local redirected: any = {
-                url = target,
-                method = nextMethod,
-                headers = merged,
-                body = nextBody,
-                timeoutMs = given.timeoutMs,
-                stallTimeoutMs = given.stallTimeoutMs,
-                maxBytes = given.maxBytes,
-                _redirected = true,
-                _redirects = followed + 1,
-                _deadline = deadline,
-            }
-            return self:send(redirected)
+            return self:send(
+                new http.Request(
+                    url = target,
+                    method = nextMethod,
+                    headers = merged,
+                    body = nextBody,
+                    timeoutMs = given.timeoutMs,
+                    stallTimeoutMs = given.stallTimeoutMs,
+                    maxBytes = given.maxBytes,
+                    _redirected = true,
+                    _redirects = followed + 1,
+                    _deadline = deadline
+                )
+            )
         end
     end
     local bodyReady, bodyReason = transfer:takeBody()
