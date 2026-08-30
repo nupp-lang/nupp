@@ -228,6 +228,18 @@ jobs:
           export NUPP_NATIVE_LIBRARY
           NUPP_NATIVE_LIBRARY=$(./scripts/toolchain \
             native files,net,tls,process,http,filesystem,uri,uuid)
+          # `tests/run` refuses to start on Windows without these, the same way
+          # the whole-suite step below names them. This step reaches the runner
+          # directly rather than through `nupp test`, so it has to name them
+          # too, or the Windows job ends here having run no test at all.
+          if [ "$RUNNER_OS" = Windows ]; then
+            bash_path=$(command -v bash)
+            sh_path=$(dirname "$bash_path")/sh.exe
+            test -f "$sh_path"
+            export NUPP_TEST_BASH NUPP_TEST_SH
+            NUPP_TEST_BASH=$(cygpath -w "$bash_path")
+            NUPP_TEST_SH=$(cygpath -w "$sh_path")
+          fi
           ./bin/nupp build --target testRunner
           ./tests/run --jobs=1 corpustest importctest
 
