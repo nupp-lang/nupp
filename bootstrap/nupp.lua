@@ -164387,6 +164387,10 @@ gpu.Context = {} gpu.Context.__index = gpu.Context
 
 
 
+
+
+
+
 local function live ( self ) 
 if self . _closed or self . _handle == nil then
 error ( "nupp: GPU context is closed" , 3 )
@@ -172362,6 +172366,7 @@ _G.assert(_G.loadstring("local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppM
 
 
 
+
 const environment = require ( "nupp.io.path.provider" )
 const pathtext = require ( "nupp.io.pathtext" )
 
@@ -172461,6 +172466,7 @@ end
 
 return raw ( pathtext . finish ( text , WINDOWS ) ) , nil
 end
+
 
 
 
@@ -172777,6 +172783,18 @@ end
 
 
 
+local function isVerbatim ( text , windows ) 
+if not windows or # text < 4 then
+return false
+end
+
+return byte ( text , 1 ) == BACKSLASH and byte ( text , 2 ) == BACKSLASH
+and byte ( text , 3 ) == 63 and byte ( text , 4 ) == BACKSLASH
+end
+
+
+
+
 
 
 
@@ -172844,8 +172862,10 @@ end
 
 
 
+
+
 function pathtext . finish ( value , windows ) 
-if not windows then
+if not windows or isVerbatim ( value , windows ) then
 return value
 end
 
@@ -173011,7 +173031,15 @@ end
 
 
 
+
+
+
+
 function pathtext . normalize ( text , windows ) 
+if isVerbatim ( text , windows ) then
+return text
+end
+
 return normalizeImpl ( text , windows )
 end
 
@@ -173109,9 +173137,11 @@ elseif # carried ~= 0 and not isSeparator ( byte ( carried , # carried ) , windo
 
 
 
+
+
 local currentPrefix = pathtext . prefixLength ( carried , windows )
 if currentPrefix ~= # carried or byte ( carried , # carried ) ~= COLON then
-head = carried .. "/"
+head = carried .. ( isVerbatim ( carried , windows ) and "\\" or "/" )
 end
 end
 
@@ -173210,7 +173240,11 @@ end
 
 
 
+
 function pathtext . clean ( text , windows ) 
+if isVerbatim ( text , windows ) then
+return text
+end
 local answer = ""
 local needsSeparator = false
 local at = 0
@@ -173240,7 +173274,15 @@ end
 
 
 
+
+
+
+
+
 function pathtext . relative ( target , base , windows ) 
+if isVerbatim ( target , windows ) or isVerbatim ( base , windows ) then
+return nil , "a verbatim path is carried rather than reasoned about"
+end
 local targetAbsolute = pathtext . isAbsolute ( target , windows )
 local baseAbsolute = pathtext . isAbsolute ( base , windows )
 if targetAbsolute ~= baseAbsolute then
@@ -173331,6 +173373,10 @@ targetPhase ,
 windows
 )
 end
+if # answer == 0 then
+
+answer = "."
+end
 
 return pathtext . finish ( answer , windows ) , nil
 end
@@ -173366,7 +173412,7 @@ return pathtext . finish ( head .. "." .. replacement , windows )
 end
 local head = hasName and text : sub ( 1 , beforeLast ( text , start , anchored , windows ) ) or text
 if # head ~= 0 and not isSeparator ( byte ( head , # head ) , windows ) then
-head = head .. "/"
+head = head .. ( isVerbatim ( head , windows ) and "\\" or "/" )
 end
 
 return pathtext . finish ( head .. replacement , windows )
@@ -218447,427 +218493,6 @@ backend = nativeBackend()
 
 export = net
 ]=],
-["/nupp/io/path.nupp"] = [=[
-module nupp.io.path
-
---[[
-`nupp.io.path` answers an immutable path value whose joining, normalizing and
-splitting follow the platform's own rules. Reach for it when a program builds a
-filesystem name or takes one apart, rather than when it reads the bytes behind
-one.
-
-```nupp:playground
-const path = require("nupp.io.path")
-
-local source = path.newPath("src", "app", "..", "main.nupp"):normalize()
-assert(source:toString() == "src" .. path.separator() .. "main.nupp")
-assert(source:fileName() == "main.nupp")
-```
-
-Every operation answers a new path, and two paths are equal when their native
-text is. `tostring(path)` and `path:toString()` return that same text.
-
-::: deepdive Paths live in a module of their own
-Every path spelling rule is Nupp, and a required AOT build compiles
-normalization while an AOT-off build retains its allocation-light scalar body.
-Only current-directory and canonical-path queries cross a three-function host
-provider, because those answers are environment state rather than path
-arithmetic. `nupp.io.uri` is separated from `nupp.io` for the same reason. See [Compiler-native
-features](docs/guides/build.md#compiler-native-features) for how a reached
-module selects the feature it needs.
-:::
-
-## Building a path
-
-`path.newPath(first, parts...)` joins its components using the current platform's
-rules. `join` appends more to a path already built, and both accept a string or
-another path. `Path` has no public constructor; creation goes through `newPath`,
-which interns recent paths in a bounded LRU cache.
-
-```nupp
-const path = require("nupp.io.path")
-
-local native = path.newPath("out"):join("lib", "native")
-assert(native:fileName() == "native")
-```
-
-`currentDirectory` and `separator` are functions on the module beside the
-record, because neither builds a path out of components:
-
-```nupp
-const path = require("nupp.io.path")
-
-local current, reason = path.currentDirectory()
-assert(current, reason)
-local log = current:join("var", "app.log"):withExtension("jsonl")
-assert(log:extension() == "jsonl")
-```
-
-## Normalizing and resolving
-
-`normalize` removes lexical `.` and `..` components without touching the
-filesystem, so it answers even for a path that does not exist:
-
-```nupp
-const path = require("nupp.io.path")
-
-assert(path.newPath("src", "app", "..", "main.nupp"):normalize():stem() == "main")
-```
-
-The operations that consult the process or filesystem can fail, as can a
-relative path whose base uses a different coordinate system. Each answers nil
-with a reason when it does.
-
-- `absolute()` resolves the path against the process's working directory.
-- `resolve(parts...)` makes it absolute, appends the parts, and normalizes.
-- `canonicalize()` asks the filesystem for the real path, following every
-  symbolic link, which requires the path to exist.
-- `relativeTo(base)` expresses the path against another one, when both share a
-  coordinate system.
-
-```nupp
-const path = require("nupp.io.path")
-
-local real, reason = path.newPath("src"):canonicalize()
-assert(real, reason)
-assert(real:isAbsolute())
-```
-
-## Path components
-
-`parent` answers another path or nil. `fileName`, `stem` and `extension` answer
-the final component, that component without its extension, and the extension
-without its dot:
-
-```nupp
-const path = require("nupp.io.path")
-
-local source = path.newPath("src", "main.nupp")
-assert(source:fileName() == "main.nupp")
-assert(source:stem() == "main")
-assert(source:extension() == "nupp")
-assert(assert(source:parent()):toString() == "src")
-```
-
-`withFileName` and `withExtension` replace one component. Each takes one path
-component and raises when handed text that is not one, so a separator smuggled
-into a file name is reported where it was written rather than carried into the
-path it would have produced:
-
-```nupp
-const path = require("nupp.io.path")
-
-local report = path.newPath("out", "report.tmp"):withExtension("json")
-assert(report:fileName() == "report.json")
-```
-
-`isAbsolute` and `isRelative` classify a path without accessing the filesystem.
-
-::: seealso
-- [](nupp.io.files) for reading, writing and listing what a path names
-- [](nupp.io.uri) for network and resource identity, which is URI text rather
-  than a filesystem name
-- [](nupp.io) for the byte buffers, readers and writers a file's contents move
-  through
-:::
-]]
-
-const environment = require("nupp.io.path.provider")
-const pathtext = require("nupp.io.pathtext")
-
--- Which set of rules this platform spells paths with, read once. The rules take
--- it as an argument rather than choosing at compile time, so a machine of either
--- kind can test both; here it is a constant, which is what lets LuaJIT fold the
--- branch away.
-local SEPARATOR = environment.separator()
-local WINDOWS = SEPARATOR == "\\"
-
--- Declared ahead of the record because its constructor and methods call them, and
--- defined below it because they name the record. The types are the contract either way.
-local textOf: function(value: string | Path): string
-local joined: function(first: string | Path, count: integer, ...: string | Path): string
-local raw: function(text: string): Path
-
-const PATH_CACHE_CAPACITY = 1024
-local pathCache: {[string]: any} = {}
-local pathCacheSize = 0
-local pathCacheNewest: any = nil
-local pathCacheOldest: any = nil
-
---- A filesystem path.
---- @export
-export record Path
-    --- The native UTF-8 path text.
-    private _text: string
-
-    --- Returns the native UTF-8 path text.
-    --- @param self this path
-    --- @return the path text
-    function toString(self): string
-        return self._text
-    end
-
-    --- Appends path components using the current platform's rules.
-    --- @param self this path
-    --- @param ... the components to append
-    --- @return the joined path
-    function join(self, ...: string | Path): Path
-        return raw(joined(self, select("#", ...), ...))
-    end
-
-    --- Removes lexical `.` and `..` components without accessing the filesystem.
-    --- @param self this path
-    --- @return the normalized path
-    function normalize(self): Path
-        return raw(pathtext.normalize(self._text, WINDOWS))
-    end
-
-    --- Resolves this path against the process's current working directory.
-    --- @param self this path
-    --- @return the absolute path, or nil on failure
-    --- @return a failure reason, when unsuccessful
-    function absolute(self): (Path?, string?)
-        if #self._text == 0 then
-            return nil, "cannot make an empty path absolute"
-        end
-        local text = self._text
-        if not pathtext.isAbsolute(text, WINDOWS) then
-            local current, reason = environment.currentDirectory()
-            if current == nil then
-                return nil, reason
-            end
-            text = pathtext.pushPart(current as string, text, WINDOWS)
-        end
-
-        return raw(pathtext.clean(text, WINDOWS)), nil
-    end
-
-    --- Makes this path absolute, appends components, and normalizes the result.
-    --- @param self this path
-    --- @param ... the components to append
-    --- @return the resolved path, or nil on failure
-    --- @return a failure reason, when unsuccessful
-    function resolve(self, ...: string | Path): (Path?, string?)
-        local absolute, reason = self:absolute()
-        if not absolute then
-            return nil, reason
-        end
-
-        return absolute:join(...):normalize(), nil
-    end
-
-    --- Resolves every symbolic link and `..`, which requires the path to exist.
-    ---
-    --- This reads the filesystem, where `normalize` works on the text alone, so
-    --- it fails on a path that is not there.
-    --- @param self this path
-    --- @return the canonical path, or nil on failure
-    --- @return a failure reason, when unsuccessful
-    function canonicalize(self): (Path?, string?)
-        local text, reason = environment.canonicalize(self._text)
-        if text == nil then
-            return nil, reason
-        end
-
-        return raw(pathtext.finish(text as string, WINDOWS)), nil
-    end
-
-    --- Expresses this path relative to another.
-    --- @param self this path
-    --- @param base the path to express this one against
-    --- @return the relative path, or nil when there is no relative form
-    --- @return a failure reason, when unsuccessful
-    function relativeTo(self, base: string | Path): (Path?, string?)
-        local text, reason = pathtext.relative(self._text, textOf(base), WINDOWS)
-        if text == nil then
-            return nil, reason
-        end
-
-        return raw(text as string), nil
-    end
-
-    --- The path without its final component.
-    --- @param self this path
-    --- @return the parent, or nil when there is none
-    function parent(self): Path?
-        local answer = pathtext.part(self._text, 0, WINDOWS)
-        if answer == nil then
-            return nil
-        end
-
-        return raw(answer as string)
-    end
-
-    --- The final component, extension included.
-    --- @param self this path
-    --- @return the file name, or nil when the path ends in a directory component
-    function fileName(self): string?
-        return pathtext.part(self._text, 1, WINDOWS)
-    end
-
-    --- The final component without its extension.
-    --- @param self this path
-    --- @return the stem, or nil when there is no file name
-    function stem(self): string?
-        return pathtext.part(self._text, 2, WINDOWS)
-    end
-
-    --- The final component's extension, without the dot.
-    --- @param self this path
-    --- @return the extension, or nil when there is none
-    function extension(self): string?
-        return pathtext.part(self._text, 3, WINDOWS)
-    end
-
-    --- The path with its final component replaced.
-    --- @param self this path
-    --- @param name the file name to use
-    --- @return the new path
-    function withFileName(self, name: string): Path
-        return raw(pathtext.with(self._text, name, false, WINDOWS))
-    end
-
-    --- The path with its extension replaced.
-    --- @param self this path
-    --- @param extension the extension to use, without the dot
-    --- @return the new path
-    function withExtension(self, extension: string): Path
-        return raw(pathtext.with(self._text, extension, true, WINDOWS))
-    end
-
-    --- Whether the path is anchored at a root.
-    --- @param self this path
-    --- @return whether the path is absolute
-    function isAbsolute(self): boolean
-        return pathtext.isAbsolute(self._text, WINDOWS)
-    end
-
-    --- Whether the path is interpreted against a working directory.
-    --- @param self this path
-    --- @return whether the path is relative
-    function isRelative(self): boolean
-        return not self:isAbsolute()
-    end
-
-    metamethod __tostring: function(self): string
-    metamethod __eq: function(self, any): boolean
-end
-
--- Wraps exact path text and interns it in a bounded LRU. `parent`, `withExtension`
--- and the rest answer exact text, so putting it back through `join` would be a
--- different operation. Holding only the most recent paths bounds retention while
--- repeated parsing and composition reuse the same immutable value.
-raw = function(text: string): Path
-    local found = pathCache[text]
-    if found ~= nil then
-        if found ~= pathCacheNewest then
-            local older, newer = found.older, found.newer
-            if older ~= nil then
-                older.newer = newer
-            else
-                pathCacheOldest = newer
-            end
-            if newer ~= nil then
-                newer.older = older
-            end
-            found.older = pathCacheNewest
-            found.newer = nil
-            pathCacheNewest.newer = found
-            pathCacheNewest = found
-        end
-
-        return found.value
-    end
-
-    local value = setmetatable({_text = text,} as any, Path as any) as Path
-    local entry = {value = value, older = pathCacheNewest, newer = nil}
-    if pathCacheNewest ~= nil then
-        pathCacheNewest.newer = entry
-    else
-        pathCacheOldest = entry
-    end
-    pathCacheNewest = entry
-    pathCache[text] = entry
-    pathCacheSize = pathCacheSize + 1
-    if pathCacheSize > PATH_CACHE_CAPACITY then
-        local evicted = pathCacheOldest
-        pathCacheOldest = evicted.newer
-        pathCacheOldest.older = nil
-        pathCache[evicted.value:toString()] = nil
-        pathCacheSize = pathCacheSize - 1
-    end
-
-    return value
-end
-
--- Joins one leading component with `count` more, using the platform's rules. Shared by
--- `newPath` and by `join`, which differ only in where the first component comes from.
-joined = function(first: string | Path, count: integer, ...: string | Path): string
-    local carried = textOf(first)
-    for index = 1, count do
-        carried = pathtext.pushPart(carried, textOf(select(index, ...) as string | Path), WINDOWS)
-    end
-
-    return pathtext.finish(carried, WINDOWS)
-end
-
---- The text of a path, or of a string left as it is.
-textOf = function(value: string | Path): string
-    if type(value) == "string" then
-        return value as string
-    end
-
-    return (value as Path)._text
-end
-
-    ;
-(Path as {[string]: any}).__tostring = function(self: Path): string
-    return self:toString()
-end
-
-    ;
-(Path as {[string]: any}).__eq = function(left: Path, right: Path): boolean
-    return left:toString() == right:toString()
-end
-
---- Builds a path by joining one or more components using the platform's rules.
----
---- Repeatedly building the same path reuses its immutable value from a bounded LRU.
----
---- #### Examples
----
---- ```nupp
---- const path = require("nupp.io.path")
---- local source = path.newPath("src", "main.nupp")
---- ```
---- @param first the first path component
---- @param ... the remaining path components
---- @return the joined path
---- @export
-export function newPath(first: string | Path, ...: string | Path): Path
-    return raw(joined(first, select("#", ...), ...))
-end
-
---- Reads the process's current working directory.
---- @return the current directory, or nil on failure
---- @return a failure reason, when unsuccessful
---- @export
-export function currentDirectory(): (Path?, string?)
-    local text, reason = environment.currentDirectory()
-    if text == nil then
-        return nil, reason
-    end
-
-    return raw(pathtext.finish(text as string, WINDOWS)), nil
-end
-
---- Returns the current platform's primary path separator.
---- @return the path separator
---- @export
-export function separator(): string
-    return SEPARATOR
-end
-]=],
 ["/nupp/io/path/provider.nupp"] = [=[
 @!internal
 
@@ -218982,6 +218607,18 @@ local function isDriveLetter(value: integer?): boolean
     return (value >= 65 and value <= 90) or (value >= 97 and value <= 122)
 end
 
+--- Whether the path is spelled in the verbatim form. The test is byte-exact:
+--- the system recognises `\\?\` and nothing else -- not `//?/`, and not `/` as
+--- a separator after it -- so a spelling this loses is a path this corrupts.
+local function isVerbatim(text: string, windows: boolean): boolean
+    if not windows or #text < 4 then
+        return false
+    end
+
+    return byte(text, 1) == BACKSLASH and byte(text, 2) == BACKSLASH
+        and byte(text, 3) == 63 and byte(text, 4) == BACKSLASH
+end
+
 --- How many leading bytes of `text` are its prefix: none on POSIX, and on
 --- Windows the drive, the share, or the verbatim marker.
 ---
@@ -219047,13 +218684,15 @@ end
 ---
 --- Windows writes a separator either way and answers with one, so what it wrote
 --- is rewritten here. POSIX does not, and must not: a backslash there is an
---- ordinary byte in an ordinary name.
+--- ordinary byte in an ordinary name. A verbatim path is Windows's own
+--- exception: the system reads `\\?\` and its backslashes literally, so the
+--- answer keeps every byte as it was written.
 ---
 --- @param value the text to answer with
 --- @param windows whether Windows rules apply
 --- @return the text, with separators as the answer spells them
 function pathtext.finish(value: string, windows: boolean): string
-    if not windows then
+    if not windows or isVerbatim(value, windows) then
         return value
     end
 
@@ -219216,10 +218855,18 @@ local function normalizeImpl(text: string, windows: boolean): string
 end
 
 --- Resolves what can be resolved without asking the filesystem.
+---
+--- A verbatim path is answered exactly as written: the system does not
+--- normalise one, so resolving a `..` or respelling a separator here would
+--- make this text name something the original did not.
 --- @param text the path
 --- @param windows whether Windows rules apply
 --- @return the normalized path
 function pathtext.normalize(text: string, windows: boolean): string
+    if isVerbatim(text, windows) then
+        return text
+    end
+
     return normalizeImpl(text, windows)
 end
 
@@ -219316,10 +218963,12 @@ function pathtext.pushPart(carried: string, part: string, windows: boolean): str
         -- A bare drive prefix names a coordinate system rather than a place, so a
         -- part joined onto one stays drive-relative: `C:` and `foo` make `C:foo`,
         -- not the absolute `C:/foo`. A share prefix names a place, and a separator
-        -- still belongs between it and what follows.
+        -- still belongs between it and what follows. A verbatim path gets the
+        -- one separator the system reads there, since `/` is an ordinary byte
+        -- after `\\?\`.
         local currentPrefix = pathtext.prefixLength(carried, windows)
         if currentPrefix ~= #carried or byte(carried, #carried) ~= COLON then
-            head = carried .. "/"
+            head = carried .. (isVerbatim(carried, windows) and "\\" or "/")
         end
     end
 
@@ -219414,11 +219063,15 @@ end
 ---
 --- This is the textual half of making a path absolute: duplicate separators
 --- and `.` disappear, while `..` remains because resolving it across a symbolic
---- link requires the filesystem.
+--- link requires the filesystem. A verbatim path is answered unchanged, for
+--- the same reason `normalize` leaves one alone.
 --- @param text the path
 --- @param windows whether Windows rules apply
 --- @return the cleaned path
 function pathtext.clean(text: string, windows: boolean): string
+    if isVerbatim(text, windows) then
+        return text
+    end
     local answer = ""
     local needsSeparator = false
     local at: integer = 0
@@ -219443,12 +219096,20 @@ function pathtext.clean(text: string, windows: boolean): string
 end
 
 --- Expresses `target` against `base` using their component views.
+---
+--- A target that is its base answers `.`: the path is where the base already
+--- is, and `.` is how a path spells that, where `""` names nothing a
+--- filesystem call accepts. A verbatim path is refused, because expressing
+--- one is exactly the reasoning about its components this module does not do.
 --- @param target the path to express
 --- @param base the path to express it against
 --- @param windows whether Windows rules apply
 --- @return the relative path, or nil when the coordinate systems differ
 --- @return a failure reason, when there is no relative form
 function pathtext.relative(target: string, base: string, windows: boolean): (string?, string?)
+    if isVerbatim(target, windows) or isVerbatim(base, windows) then
+        return nil, "a verbatim path is carried rather than reasoned about"
+    end
     local targetAbsolute = pathtext.isAbsolute(target, windows)
     local baseAbsolute = pathtext.isAbsolute(base, windows)
     if targetAbsolute ~= baseAbsolute then
@@ -219539,6 +219200,10 @@ function pathtext.relative(target: string, base: string, windows: boolean): (str
             windows
         )
     end
+    if #answer == 0 then
+        -- No steps up and none along: the target is its base.
+        answer = "."
+    end
 
     return pathtext.finish(answer, windows), nil
 end
@@ -219574,7 +219239,7 @@ function pathtext.with(text: string, replacement: string, extension: boolean, wi
     end
     local head = hasName and text:sub(1, beforeLast(text, start as integer, anchored, windows)) or text
     if #head ~= 0 and not isSeparator(byte(head, #head), windows) then
-        head = head .. "/"
+        head = head .. (isVerbatim(head, windows) and "\\" or "/")
     end
 
     return pathtext.finish(head .. replacement, windows)
