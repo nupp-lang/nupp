@@ -118,6 +118,14 @@ through proved cursors and a loop-indexed access is refused at lowering with a
 source position. The CPU and GPU kernels consume the same verified scalar IR;
 the benchmark reports their current measurements after an element-exact check.
 
+`run-tiled-gemm.sh` is the implementation spike behind Draft NEP 26. It reaches
+the private native ABI to compare a handwritten 16x16 workgroup-phase MSL
+kernel with the generated naive kernel and the CPU AOT body; it is not a second
+public shader surface. Every 512x512 and 1024x1024 result agreed exactly. On the
+same Apple M5 Pro run, 512 cubed measured 0.780 ms tiled versus 0.819 ms naive,
+while 1024 cubed measured 4.581 ms tiled versus 4.416 ms naive. The phase model
+is feasible and exact, but tiling is not a portable speedup promise.
+
 Run it on macOS with an SDL framework directory:
 
 ```sh

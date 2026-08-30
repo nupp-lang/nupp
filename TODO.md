@@ -12,11 +12,6 @@ A living list, not a design record. Items are removed when completed.
       has no API and the file location varies by distribution.
 ## GPU compute
 
-- [ ] **Propose structured workgroup phases.** Its own NEP: statically sized
-      workgroup scratch, stages whose boundaries are the barriers, writes
-      structurally disjoint by `shared[localIndex]`, CPU meaning = stages run
-      to completion in order. Validated by a tiled f32 GEMM against the naive
-      baseline in `bench/sdl-gpu-spike`.
 - [ ] **Define polynomial transcendentals before softmax.** No GPU or libm
       promises correctly rounded f32 `exp`, so softmax breaks bit-identity
       before tensor cores do. An IR-defined polynomial over mul/add/fma is the
