@@ -17990,7 +17990,13 @@ local function staticTruth ( value )
 if value . op == "bool" then
 return ( value ) . value
 end
-if value . op ~= "eq" and value . op ~= "ne" and value . op ~= "lt" and value . op ~= "le" and value . op ~= "gt" and value . op ~= "ge" then
+if value . op ~= "eq"
+and value . op ~= "ne"
+and value . op ~= "lt"
+and value . op ~= "le"
+and value . op ~= "gt"
+and value . op ~= "ge"
+then
 return nil
 end
 local binary = value
@@ -18960,9 +18966,7 @@ end
 end
 
 local elseClause = branch . elseClause
-local elseBody = not decided and elseClause ~= nil and nested (
-( elseClause ) . body
-) or nil
+local elseBody = not decided and elseClause ~= nil and nested ( ( elseClause ) . body ) or nil
 if # clauses == 0 and elseBody ~= nil then
 
 
@@ -18970,12 +18974,7 @@ if # clauses == 0 and elseBody ~= nil then
 clauses [
 1
 ] = setmetatable({ condition =  setmetatable({ op =
-
-"bool" ,  value =
-true ,  type =
-"bool" ,  source =
-lower . site ( stat ) }, scalarIR.Bool) ,  body =
-
+"bool" ,  value =  true ,  type =  "bool" ,  source =  lower . site ( stat ) }, scalarIR.Bool) ,  body =
 elseBody ,  source =
 lower . site ( stat ) }, scalarIR.Clause)
 
@@ -18984,12 +18983,7 @@ end
 if # clauses > 0 then
 out [
 # out + 1
-] = setmetatable({ op =
-"if" ,  clauses =
-clauses ,  elseBody =
-elseBody ,  source =
-lower . site ( stat ) }, scalarIR.If)
-
+] = setmetatable({ op =  "if" ,  clauses =  clauses ,  elseBody =  elseBody ,  source =  lower . site ( stat ) }, scalarIR.If)
 end
 elseif kind == "fornumStmt" then
 
