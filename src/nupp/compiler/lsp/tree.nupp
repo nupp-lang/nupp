@@ -128,9 +128,11 @@ local function documentationFrom(
         local kind = kindAt(index)
         if kind == "comment" then
             local text = textAt(index)
-            text = text:gsub("^%-%-%-?%s?", "")
+            -- Long-bracket delimiters first: stripping the leading `--` first would
+            -- leave `[[` behind, since the bracket pattern spells the `--` too.
             text = text:gsub("^%-%-%[=*%[", "")
             text = text:gsub("%]=*%]$", "")
+            text = text:gsub("^%-%-%-?%s?", "")
             lines[#lines + 1] = text
         elseif kind == "whitespace" and textAt(index):find("\n%s*\n") then
             lines = {}

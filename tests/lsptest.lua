@@ -3682,4 +3682,116 @@ function M.plansAnnotatedLuaWithoutClaimingTheLuaDocument()
       "unsaved Lua text was planned")
 end
 
+-- A long-bracket comment documents its declaration like a `---` run does, and
+-- its delimiters are markup rather than prose: `--[[` and `]]` spell the
+-- comment, so hover shows what is between them and neither bracket.
+function M.blockCommentDocsHoverWithoutTheirDelimiters()
+   local root = scratchRoot()
+   local uri = "file://" .. root .. "/block-docs.nupp"
+   local source = table.concat({
+      "--[[ Documented in a block. ]]",
+      "local function helper(): integer",
+      "   return 1",
+      "end",
+      "local value = helper()",
+      "return value",
+   }, "\n") .. "\n"
+   local out = runSession({
+      { jsonrpc = "2.0", id = 1, method = "initialize", params = {} },
+      { jsonrpc = "2.0", method = "textDocument/didOpen", params = {
+         textDocument = { uri = uri, languageId = "nupp", version = 1,
+            text = source } } },
+      { jsonrpc = "2.0", id = 10, method = "textDocument/hover",
+        params = { textDocument = { uri = uri },
+           position = { line = 4, character = 15 } } },
+      { jsonrpc = "2.0", id = 2, method = "shutdown" },
+      { jsonrpc = "2.0", method = "exit" },
+   }, root)
+   local hover = responseWithId(out, 10).result
+   assert(hover and hover.contents, "hover result missing")
+   assertContains(hover.contents.value, "Documented in a block.", "block docs")
+   assert(not hover.contents.value:find("[[", 1, true),
+      "block comment delimiters leak into hover: " .. hover.contents.value)
+end
+
+-- An editor considers a position at the right edge of a word to name it, and
+-- every other position request already answers there through the same token
+-- fallback; go-to-definition has to agree.
+function M.definitionResolvesAtTheNameRightEdge()
+   local root = scratchRoot()
+   local uri = "file://" .. root .. "/edge-definition.nupp"
+   local out = runSession({
+      { jsonrpc = "2.0", id = 1, method = "initialize", params = {} },
+      { jsonrpc = "2.0", method = "textDocument/didOpen", params = {
+         textDocument = { uri = uri, languageId = "nupp", version = 1,
+            text = "local abc = 1\nlocal xyz = abc\nreturn xyz\n" } } },
+      { jsonrpc = "2.0", id = 10, method = "textDocument/definition",
+        params = { textDocument = { uri = uri },
+           position = { line = 1, character = 15 } } },
+      { jsonrpc = "2.0", id = 2, method = "shutdown" },
+      { jsonrpc = "2.0", method = "exit" },
+   }, root)
+   local location = responseWithId(out, 10).result
+   assert(location and location.range, "definition at the name's right edge")
+   assert(location.range.start.line == 0
+      and location.range.start.character == 6,
+      "definition points at the declaration")
+end
+
+-- The vararg tail is one more parameter label in the signature, so a cursor
+-- past the fixed parameters highlights it rather than sticking on the last
+-- fixed one.
+function M.signatureHelpHighlightsTheVarargTail()
+   local root = scratchRoot()
+   local uri = "file://" .. root .. "/vararg-signature.nupp"
+   local source = table.concat({
+      "local function join(first: string, ...: string): string",
+      "   return first",
+      "end",
+      'local value = join("a", "b", "c")',
+      "return value",
+   }, "\n") .. "\n"
+   local out = runSession({
+      { jsonrpc = "2.0", id = 1, method = "initialize", params = {} },
+      { jsonrpc = "2.0", method = "textDocument/didOpen", params = {
+         textDocument = { uri = uri, languageId = "nupp", version = 1,
+            text = source } } },
+      { jsonrpc = "2.0", id = 10, method = "textDocument/signatureHelp",
+        params = { textDocument = { uri = uri },
+           position = { line = 3, character = 30 } } },
+      { jsonrpc = "2.0", id = 2, method = "shutdown" },
+      { jsonrpc = "2.0", method = "exit" },
+   }, root)
+   local signature = responseWithId(out, 10).result
+   assert(signature and signature.signatures[1], "signature help answered")
+   assert(#signature.signatures[1].parameters == 2,
+      "fixed parameter and vararg tail listed")
+   assert(signature.activeParameter == 1,
+      "vararg tail active, got " .. tostring(signature.activeParameter))
+end
+
+-- Full-document sync applies changes in order, so when one didChange carries
+-- several, the document is the last full text in the list.
+function M.aDidChangeBurstAppliesTheLastFullText()
+   local uri = "file:///tmp/burst.nupp"
+   local out = runSession({
+      { jsonrpc = "2.0", id = 1, method = "initialize", params = {} },
+      { jsonrpc = "2.0", method = "textDocument/didOpen", params = {
+         textDocument = { uri = uri, languageId = "nupp", version = 1,
+            text = "local a = 1\nreturn a\n" } } },
+      { jsonrpc = "2.0", method = "textDocument/didChange", params = {
+         textDocument = { uri = uri, version = 2 },
+         contentChanges = {
+            { text = "local a: number = 'oops'\nreturn a\n" },
+            { text = "local a: number = 2\nreturn a\n" },
+         } } },
+      { jsonrpc = "2.0", id = 2, method = "shutdown" },
+      { jsonrpc = "2.0", method = "exit" },
+   })
+   local published = diagnosticsFor(out, uri)
+   local last = published[#published]
+   assert(last and #last == 0,
+      "the last full text is the document, and it is clean")
+end
+
 return M

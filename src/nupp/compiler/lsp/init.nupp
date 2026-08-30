@@ -604,17 +604,25 @@ function lsp.newSession(rootDir: string?, emit: function(any), host: lsp.Host?):
     end
 
     handlers["textDocument/didChange"] = function(_, params)
-        local changes = params.contentChanges
-        if changes and changes[1] and changes[1].text then
+        -- Full-document sync was declared, so a change is the whole text and carries
+        -- no range. Changes apply in order, so with several the last one is the
+        -- document; one with a range is a fragment and must not replace the whole.
+        local full = nil
+        for _, change in ipairs(params.contentChanges or {}) do
+            if change.text and not change.range then
+                full = change
+            end
+        end
+        if full then
             local uri = params.textDocument.uri
             local doc = s.documents[uri] or {}
-            doc.text = changes[1].text
+            doc.text = full.text
             -- What the client calls this edit. Carried back on the diagnostics
             -- published for it, so an editor holding newer text knows to ignore them.
             doc.version = params.textDocument.version
             s.documents[uri] = doc
             eachGraph(function(inc)
-                inc.changeDocument(uriToPath(uri), changes[1].text)
+                inc.changeDocument(uriToPath(uri), full.text)
             end)
             refreshOpenDocuments(uri)
         end
@@ -632,38 +640,32 @@ function lsp.newSession(rootDir: string?, emit: function(any), host: lsp.Host?):
             respond(id, json.NULL);
             return
         end
-        for _, tok in ipairs(doc.result.tokens) do
-            if tok.kind ~= "eof" and offset >= tok.offset and offset < tok.offset + #tok.text then
-                local member = memberAt(doc, offset)
-                if member then
-                    respond(id, memberLocation(member))
-                    return
+        -- The same tolerance every other position handler has: a cursor sitting just
+        -- past the last character of a name still names it.
+        local tok = tokenAt(doc.result, offset)
+        if not tok then
+            respond(id, json.NULL)
+            return
+        end
+        local member = memberAt(doc, offset)
+        if member then
+            respond(id, memberLocation(member))
+            return
+        end
+        if tok.additionalDefinitions and #tok.additionalDefinitions > 1 then
+            local locations = wire.array({})
+            for _, definition in ipairs(tok.additionalDefinitions) do
+                local found = definitionLocation(definition)
+                if found ~= json.NULL then
+                    locations[#locations + 1] = found
                 end
-                if tok.additionalDefinitions and #tok.additionalDefinitions > 1 then
-                    local locations = wire.array({})
-                    for _, definition in ipairs(tok.additionalDefinitions) do
-                        local found = definitionLocation(definition)
-                        if found ~= json.NULL then
-                            locations[#locations + 1] = found
-                        end
-                    end
-                    if #locations > 0 then
-                        respond(id, locations)
-                        return
-                    end
-                end
-                local location = definitionLocation(tok.definition)
-                if location == json.NULL then
-                    local member = memberAt(doc, offset)
-                    if member then
-                        location = memberLocation(member)
-                    end
-                end
-                respond(id, location)
+            end
+            if #locations > 0 then
+                respond(id, locations)
                 return
             end
         end
-        respond(id, json.NULL)
+        respond(id, definitionLocation(tok.definition))
     end
 
     local function capabilityDetail(t): string?
@@ -1065,7 +1067,9 @@ function lsp.newSession(rootDir: string?, emit: function(any), host: lsp.Host?):
             end
         end
         local active = candidates[activeSignature + 1]
-        local parameterCount = active and #active.paramPack.head or 0
+        -- The tail is one more label in the list, so a cursor past the fixed
+        -- parameters highlights the vararg rather than sticking on the last one.
+        local parameterCount = active and (#active.paramPack.head + (active.paramPack.tail and 1 or 0)) or 0
         if parameterCount > 0 then
             activeParameter = math.min(activeParameter, parameterCount - 1)
         else
@@ -1741,17 +1745,25 @@ function lsp.run(rootDir: string?): integer
         local body = buffered:sub(bodyAt, bodyAt + length - 1)
         buffered = buffered:sub(bodyAt + length)
         local ok, message = pcall(json.decode, body, json.NULL)
+        -- A frame that does not decode is consumed and skipped: nil means the buffer
+        -- holds no complete frame, and a bad frame saying that would leave every
+        -- frame behind it waiting for input that may never come.
+        if not ok or type(message) ~= "table" then
+            return false
+        end
 
-        return ok and message or nil
+        return message
     end
 
     local function harvest(): nil
         while true do
             local message = takeMessage()
-            if not message then
+            if message == nil then
                 break
             end
-            if message.method == "$/cancelRequest" and message.params then
+            if message == false then
+                -- skip the undecodable frame and keep reading
+            elseif message.method == "$/cancelRequest" and message.params then
                 cancelled[message.params.id] = true
             else
                 local document = type(message.params) == "table" and message.params.textDocument or nil
