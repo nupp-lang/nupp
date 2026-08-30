@@ -109,7 +109,10 @@ end
 -- these vectors are how a rewrite gets caught.
 function M.xxh64KnownVectors()
    local function xxh(input, seed)
-      return hash.hex64(hash.xxh64(input, seed))
+      -- `xxh64` carries its seed as two `uint32` halves, high then low, the
+      -- same as everywhere else in this file; every seed below fits the low
+      -- half.
+      return hash.hex64(hash.xxh64(input, 0, seed))
    end
    assertEq(xxh("", 0), "ef46db3751d8e999")
    assertEq(xxh("a", 0), "d24ec4f1a98c6e5b")

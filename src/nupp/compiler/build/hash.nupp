@@ -8,9 +8,8 @@ questions.
 machine reads the answer -- it is compared against the digest the last build
 wrote, and then thrown away -- so the properties that matter are that equal
 inputs agree, that different inputs practically never do, and that computing it
-costs nothing. That is XXH64 under two seeds, 128 bits of it, reading eight
-bytes at a time as a C array. A whole compiler tree digests in under two
-milliseconds, where the SHA-256 below takes tens.
+costs nothing next to what it is guarding. That is XXH64 under two seeds, 128
+bits of it.
 
 `sha256` is for a digest that leaves this machine: the one `nupp.compiler.build.package`
 writes into a stamped binary's trailer, where it is part of the file format and
@@ -20,157 +19,262 @@ a platform ships, so it agrees everywhere -- and it is the same implementation a
 program that asks for `nupp.data.sha256` gets, rather than a second copy of the
 standard kept beside it.
 
-That is also faster than what it replaced, which was not true when it landed.
-The `bit`-library implementation ran at about 11 MB/s; the shared one runs at
-about 80 here, where the compiler builds itself with its AOT policy off, and at
-about 355 where a target compiles the entry. The difference is not the
-algorithm -- it is that the fixed-width members lower to inline BitOp now
-instead of calling out through the installed `nupp.math`, which is what let
-LuaJIT record the compression loop at all. `bench/sha256` measures all of it.
-
 Do not swap one for the other. A cache key that changes between releases costs
 one rebuild; a trailer digest that changes makes every binary already stamped
 unreadable.
+
+This module is itself reached from the portable compiler: `nupp.compiler.hotsession`,
+`nupp.compiler.incremental` and the rest of the checker call into it from inside
+a `lua51` session the same as from the CLI's own `luajit` one, so `int64` and
+`cinterop` are not this file's to spend -- both are `forbidden` under `lua51`
+with no backend that can seat them, per
+[NEP 13](../../../../docs/neps/0013-dialects-and-capability-backends.md). XXH64
+is defined over 64-bit words regardless, so every word here is carried as two
+`uint32` halves, high first, and combined by hand the way
+`nupp.compiler.hash` next door already carries SHA-256's 32-bit words: through
+`nupp.compiler.bitops`, whose `require("bit")` is the checked seam a portable
+target substitutes a scalar provider for, rather than the raw prelude identity
+ordinary source may not name. Reading the input goes through `string.byte`
+for the same reason `ffi.cast` cannot -- and unlike a pointer reinterpretation,
+a byte-by-byte little-endian assembly answers the same on a big-endian host,
+so this pays for portability without owing anything back to it.
 ]]
 
-local hash = {}
-
 local digest = require("nupp.data.digest")
+local bitops = require("nupp.compiler.bitops")
 
--- `bit` is the global LuaJIT registers at startup, the way `ffi` below is. Requiring it
--- into a local of the same name hands back that same table and shadows the declaration
--- that says what is in it, so the checker stops knowing.
-local band, bxor, rshift = bit.band, bit.bxor, bit.rshift
-local rol = bit.rol
+local hash = {}
 
 function hash.sha256(input: string): string
     return digest.sha256(input)
 end
 
-local P1 = 0x9E3779B185EBCA87ULL
-local P2 = 0xC2B2AE3D27D4EB4FULL
-local P3 = 0x165667B19E3779F9ULL
-local P4 = 0x85EBCA77C2B2AE63ULL
-local P5 = 0x27D4EB2F165667C5ULL
-
-local function round(acc, input)
-    acc = acc + input * P2
-    acc = rol(acc, 31)
-    return acc * P1
+local function u32(value: number): number
+    return value % 4294967296
 end
 
-local function mergeRound(acc, value)
-    value = round(0ULL, value)
-    acc = bxor(acc, value)
-    return acc * P1 + P4
+const P1_HI = 0x9E3779B1
+const P1_LO = 0x85EBCA87
+const P2_HI = 0xC2B2AE3D
+const P2_LO = 0x27D4EB4F
+const P3_HI = 0x165667B1
+const P3_LO = 0x9E3779F9
+const P4_HI = 0x85EBCA77
+const P4_LO = 0xC2B2AE63
+const P5_HI = 0x27D4EB2F
+const P5_LO = 0x165667C5
+
+-- The four 64-bit primitives XXH64 needs, each built from the 32-bit
+-- operations `nupp.compiler.bitops` already carries portably. A value is
+-- always two `uint32` halves, high then low, already reduced into
+-- `[0, 2^32)` -- every function here both expects and returns that.
+
+local function add64(aHi: number, aLo: number, bHi: number, bLo: number): (number, number)
+    local lo = aLo + bLo
+    local carry = 0
+    if lo >= 4294967296 then
+        carry = 1
+        lo = lo - 4294967296
+    end
+
+    return u32(aHi + bHi + carry), lo
 end
 
--- These three reads are the only unchecked memory operations in XXH64. Their callers
--- prove the byte offsets against `#input`; the cast views themselves carry no bound.
-local function wordAt(borrows words: const uint64[?], index: number): const uint64
-    unsafe do
-        return words[index]
+local function xor64(aHi: number, aLo: number, bHi: number, bLo: number): (number, number)
+    return u32(bitops.bxor(aHi, bHi)), u32(bitops.bxor(aLo, bLo))
+end
+
+--- Rotates a 64-bit value left by `count`, which XXH64 only ever calls with
+--- a constant in `[1, 31]`; the `32` and `>32` cases are carried for the
+--- function to mean what its name says rather than because a caller needs them.
+local function rotl64(hi: number, lo: number, count: number): (number, number)
+    if count == 0 then
+        return hi, lo
+    elseif count == 32 then
+        return lo, hi
+    elseif count < 32 then
+        return u32(bitops.bor(bitops.lshift(hi, count), bitops.rshift(lo, 32 - count))),
+            u32(bitops.bor(bitops.lshift(lo, count), bitops.rshift(hi, 32 - count)))
+    else
+        local rest = count - 32
+        return u32(bitops.bor(bitops.lshift(lo, rest), bitops.rshift(hi, 32 - rest))),
+            u32(bitops.bor(bitops.lshift(hi, rest), bitops.rshift(lo, 32 - rest)))
     end
 end
 
-local function halfAt(borrows halves: const uint32[?], index: number): const uint32
-    unsafe do
-        return halves[index]
+--- Shifts a 64-bit value right, logically, by `count`. XXH64's avalanche
+--- calls this with 29, 32 and 33, so unlike `rotl64` the `>= 32` cases carry
+--- their weight.
+local function rshift64(hi: number, lo: number, count: number): (number, number)
+    if count == 0 then
+        return hi, lo
+    elseif count == 32 then
+        return 0, hi
+    elseif count < 32 then
+        return u32(bitops.rshift(hi, count)),
+            u32(bitops.bor(bitops.rshift(lo, count), bitops.lshift(hi, 32 - count)))
+    else
+        return 0, u32(bitops.rshift(hi, count - 32))
     end
 end
 
-local function byteAt(borrows bytes: const uint8[?], index: number): const uint8
-    unsafe do
-        return bytes[index]
-    end
+--- The 64-bit product of `a` and `b`, mod 2^64.
+---
+--- Split into 16-bit limbs rather than the 32-bit halves everything else
+--- here uses: a limb product is at most `0xFFFE0001`, and a running column
+--- total stays several limbs wide before it is folded down, both of which a
+--- double carries exactly, where a 32-bit limb product would not.
+local function mul64(aHi: number, aLo: number, bHi: number, bLo: number): (number, number)
+    local a0, a1 = bitops.band(aLo, 0xFFFF), bitops.band(bitops.rshift(aLo, 16), 0xFFFF)
+    local a2, a3 = bitops.band(aHi, 0xFFFF), bitops.band(bitops.rshift(aHi, 16), 0xFFFF)
+    local b0, b1 = bitops.band(bLo, 0xFFFF), bitops.band(bitops.rshift(bLo, 16), 0xFFFF)
+    local b2, b3 = bitops.band(bHi, 0xFFFF), bitops.band(bitops.rshift(bHi, 16), 0xFFFF)
+
+    local c0 = a0 * b0
+    local c1 = math.floor(c0 / 65536)
+    c0 = c0 % 65536
+    c1 = c1 + a1 * b0
+    local c2 = math.floor(c1 / 65536)
+    c1 = c1 % 65536
+    c1 = c1 + a0 * b1
+    c2 = c2 + math.floor(c1 / 65536)
+    c1 = c1 % 65536
+    c2 = c2 + a2 * b0
+    local c3 = math.floor(c2 / 65536)
+    c2 = c2 % 65536
+    c2 = c2 + a1 * b1
+    c3 = c3 + math.floor(c2 / 65536)
+    c2 = c2 % 65536
+    c2 = c2 + a0 * b2
+    c3 = c3 + math.floor(c2 / 65536)
+    c2 = c2 % 65536
+    c3 = (c3 + a3 * b0 + a2 * b1 + a1 * b2 + a0 * b3) % 65536
+
+    return c3 * 65536 + c2, c1 * 65536 + c0
 end
 
---- XXH64 of `input` under `seed`, as a `uint64`.
+local function round(accHi: number, accLo: number, inHi: number, inLo: number): (number, number)
+    local mulHi, mulLo = mul64(inHi, inLo, P2_HI, P2_LO)
+    local sumHi, sumLo = add64(accHi, accLo, mulHi, mulLo)
+    local rotHi, rotLo = rotl64(sumHi, sumLo, 31)
+
+    return mul64(rotHi, rotLo, P1_HI, P1_LO)
+end
+
+local function mergeRound(accHi: number, accLo: number, valHi: number, valLo: number): (number, number)
+    local roundedHi, roundedLo = round(0, 0, valHi, valLo)
+    local xoredHi, xoredLo = xor64(accHi, accLo, roundedHi, roundedLo)
+    local mulHi, mulLo = mul64(xoredHi, xoredLo, P1_HI, P1_LO)
+
+    return add64(mulHi, mulLo, P4_HI, P4_LO)
+end
+
+-- The only two reads XXH64 performs against the input: eight bytes and four,
+-- both little-endian regardless of host, both bounds-proven by the caller
+-- against `#input` the way the FFI reads they replaced were.
+
+local function wordAt(input: string, offset: number): (number, number)
+    local b1, b2, b3, b4, b5, b6, b7, b8 = input:byte(offset + 1, offset + 8)
+
+    return u32(bitops.bor(b5, bitops.lshift(b6, 8), bitops.lshift(b7, 16), bitops.lshift(b8, 24))),
+        u32(bitops.bor(b1, bitops.lshift(b2, 8), bitops.lshift(b3, 16), bitops.lshift(b4, 24)))
+end
+
+local function halfAt(input: string, offset: number): number
+    local b1, b2, b3, b4 = input:byte(offset + 1, offset + 4)
+
+    return u32(bitops.bor(b1, bitops.lshift(b2, 8), bitops.lshift(b3, 16), bitops.lshift(b4, 24)))
+end
+
+--- XXH64 of `input` under `seed`, as two `uint32` halves, high then low.
 ---
 --- The published algorithm, so `tests/projecttest.lua` can hold its published answers
---- rather than whatever this happens to compute. It reads little-endian, which is what
---- every machine LuaJIT is built for reads; on a big-endian one the number would
---- differ, and for a key nobody ships that costs one rebuild and nothing else.
-local function xxh64(input: string, seed: uint64): uint64
+--- rather than whatever this happens to compute.
+local function xxh64(input: string, seedHi: number, seedLo: number): (number, number)
     local size = #input
-    local words = ffi.cast<const uint64[?]>(input)
-    local h
-    -- Positions are byte offsets, and the reads index the view whose element size
-    -- divides the offset. Everything up to the four-byte tail sits on an eight-byte
-    -- boundary, so no read here is unaligned.
     local at = 0
+    local hHi, hLo = 0, 0
+
     if size >= 32 then
-        local v1, v2 = seed + P1 + P2, seed + P2
-        local v3, v4 = seed + 0ULL, seed - P1
+        local sp1Hi, sp1Lo = add64(seedHi, seedLo, P1_HI, P1_LO)
+        local v1Hi, v1Lo = add64(sp1Hi, sp1Lo, P2_HI, P2_LO)
+        local v2Hi, v2Lo = add64(seedHi, seedLo, P2_HI, P2_LO)
+        local v3Hi, v3Lo = seedHi, seedLo
+        local negP1Hi, negP1Lo = add64(u32(bitops.bnot(P1_HI)), u32(bitops.bnot(P1_LO)), 0, 1)
+        local v4Hi, v4Lo = add64(seedHi, seedLo, negP1Hi, negP1Lo)
+
         local stripes = (size // 32) * 4
         local w = 0
         repeat
-            v1 = round(v1, wordAt(words, w))
-            v2 = round(v2, wordAt(words, w + 1))
-            v3 = round(v3, wordAt(words, w + 2))
-            v4 = round(v4, wordAt(words, w + 3))
+            v1Hi, v1Lo = round(v1Hi, v1Lo, wordAt(input, w * 8))
+            v2Hi, v2Lo = round(v2Hi, v2Lo, wordAt(input, (w + 1) * 8))
+            v3Hi, v3Lo = round(v3Hi, v3Lo, wordAt(input, (w + 2) * 8))
+            v4Hi, v4Lo = round(v4Hi, v4Lo, wordAt(input, (w + 3) * 8))
             w = w + 4
         until w >= stripes
         at = w * 8
-        h = rol(v1, 1) + rol(v2, 7) + rol(v3, 12) + rol(v4, 18)
-        h = mergeRound(h, v1)
-        h = mergeRound(h, v2)
-        h = mergeRound(h, v3)
-        h = mergeRound(h, v4)
+
+        hHi, hLo = rotl64(v1Hi, v1Lo, 1)
+        hHi, hLo = add64(hHi, hLo, rotl64(v2Hi, v2Lo, 7))
+        hHi, hLo = add64(hHi, hLo, rotl64(v3Hi, v3Lo, 12))
+        hHi, hLo = add64(hHi, hLo, rotl64(v4Hi, v4Lo, 18))
+        hHi, hLo = mergeRound(hHi, hLo, v1Hi, v1Lo)
+        hHi, hLo = mergeRound(hHi, hLo, v2Hi, v2Lo)
+        hHi, hLo = mergeRound(hHi, hLo, v3Hi, v3Lo)
+        hHi, hLo = mergeRound(hHi, hLo, v4Hi, v4Lo)
     else
-        h = seed + P5
+        hHi, hLo = add64(seedHi, seedLo, P5_HI, P5_LO)
     end
-    h = h + size
+    hHi, hLo = add64(hHi, hLo, 0, size)
+
     while size - at >= 8 do
-        h = bxor(h, round(0ULL, wordAt(words, at // 8)))
-        h = rol(h, 27) * P1 + P4
+        hHi, hLo = xor64(hHi, hLo, round(0, 0, wordAt(input, at)))
+        hHi, hLo = rotl64(hHi, hLo, 27)
+        hHi, hLo = mul64(hHi, hLo, P1_HI, P1_LO)
+        hHi, hLo = add64(hHi, hLo, P4_HI, P4_LO)
         at = at + 8
     end
+
     if size - at >= 4 then
-        local halves = ffi.cast<const uint32[?]>(input)
-        h = bxor(h, ffi.cast<uint64>(halfAt(halves, at // 4)) * P1)
-        h = rol(h, 23) * P2 + P3
+        hHi, hLo = xor64(hHi, hLo, mul64(0, halfAt(input, at), P1_HI, P1_LO))
+        hHi, hLo = rotl64(hHi, hLo, 23)
+        hHi, hLo = mul64(hHi, hLo, P2_HI, P2_LO)
+        hHi, hLo = add64(hHi, hLo, P3_HI, P3_LO)
         at = at + 4
     end
-    if at < size then
-        local bytes = ffi.cast<const uint8[?]>(input)
-        while at < size do
-            h = bxor(h, ffi.cast<uint64>(byteAt(bytes, at)) * P5)
-            h = rol(h, 11) * P1
-            at = at + 1
-        end
-    end
-    h = bxor(h, rshift(h, 33))
-    h = h * P2
-    h = bxor(h, rshift(h, 29))
-    h = h * P3
 
-    return ffi.cast<uint64>(bxor(h, rshift(h, 32)))
+    while at < size do
+        hHi, hLo = xor64(hHi, hLo, mul64(0, assert(input:byte(at + 1)), P5_HI, P5_LO))
+        hHi, hLo = rotl64(hHi, hLo, 11)
+        hHi, hLo = mul64(hHi, hLo, P1_HI, P1_LO)
+        at = at + 1
+    end
+
+    hHi, hLo = xor64(hHi, hLo, rshift64(hHi, hLo, 33))
+    hHi, hLo = mul64(hHi, hLo, P2_HI, P2_LO)
+    hHi, hLo = xor64(hHi, hLo, rshift64(hHi, hLo, 29))
+    hHi, hLo = mul64(hHi, hLo, P3_HI, P3_LO)
+
+    return xor64(hHi, hLo, rshift64(hHi, hLo, 32))
 end
 
---- Sixteen hex digits of a `uint64`, high half first.
----
---- Written as two 32-bit halves because `%x` takes a Lua number, and a whole word has
---- lost bits by the time `format` sees it as one.
-local function hex64(value: uint64): string
-    local high = tonumber(band(rshift(value, 32), 0xFFFFFFFFULL)) as number
-    local low = tonumber(band(value, 0xFFFFFFFFULL)) as number
-    return ("%08x%08x"):format(high, low)
+--- Sixteen hex digits of a 64-bit value given as two `uint32` halves.
+local function hex64(hi: number, lo: number): string
+    return ("%08x%08x"):format(hi, lo)
 end
 
 -- Two seeds, so the answer is 128 bits rather than 64. Two different files agreeing
 -- means the build keeps a stale artifact and says nothing about it, which is the one
--- failure a cache must not have; at 128 bits it will not happen, and the second pass
--- costs about a millisecond over a whole compiler.
-local SEED_A = 0ULL
-local SEED_B = 0x9E3779B97F4A7C15ULL
+-- failure a cache must not have; at 128 bits it will not happen.
+const SEED_A_HI, SEED_A_LO = 0, 0
+const SEED_B_HI, SEED_B_LO = 0x9E3779B9, 0x7F4A7C15
 
 --- A 128-bit content digest of `input`, as 32 hex digits.
 ---
 --- For cache keys. Read the note at the top of the file before reaching for it where
 --- the answer gets written down somewhere durable.
 function hash.digest(input: string): string
-    return hex64(xxh64(input, SEED_A)) .. hex64(xxh64(input, SEED_B))
+    return hex64(xxh64(input, SEED_A_HI, SEED_A_LO)) .. hex64(xxh64(input, SEED_B_HI, SEED_B_LO))
 end
 
 --- Which digest the cache keys were computed with.
@@ -178,10 +282,6 @@ end
 --- Recorded in the build state, so that changing the algorithm discards what the last
 --- version wrote instead of comparing hex against hex that meant something else.
 hash.DIGEST = "xxh64x2"
-
--- One as eight little-endian bytes. Rooted here rather than written at the use,
--- because a pointer into a string literal needs a name the literal outlives.
-const ENDIAN_PROBE = "\1\0\0\0\0\0\0\0"
 
 --- The eight bytes a stamped binary records in its trailer, little-endian.
 ---
@@ -198,27 +298,19 @@ const ENDIAN_PROBE = "\1\0\0\0\0\0\0\0"
 --- every invocation over the whole payload, which is why the difference between
 --- this and a cryptographic hash is the difference between a millisecond and a
 --- twentieth of a second on every run of every stamped program.
----
---- @raises on a big-endian host, where the number would not be XXH64's
 function hash.trailerDigest(payload: string): string
-    -- `xxh64` above reads the input as native-endian words, which is right for
-    -- a cache key nobody ships and wrong for a number written into a file
-    -- another machine reads. Every platform Nupp supports is little-endian, so
-    -- this asserts that rather than byte-swapping for a host that does not
-    -- exist -- and a port to one that does is told here rather than shipping
-    -- binaries nothing else can read. The probe is the same read `xxh64`
-    -- performs, over bytes whose answer names the order.
-    local probe = ffi.cast<const uint64[?]>(ENDIAN_PROBE)
-    assert(wordAt(probe, 0) == 1ULL, "the trailer digest is defined little-endian")
+    local hi, lo = xxh64(payload, 0, 0)
 
-    local value = xxh64(payload, 0ULL)
-    local bytes: {string} = {}
-    for index = 1, 8 do
-        bytes[index] = string.char(tonumber(band(value, 0xFFULL)) as integer)
-        value = rshift(value, 8)
-    end
-
-    return table.concat(bytes)
+    return string.char(
+        bitops.band(lo, 0xFF),
+        bitops.band(bitops.rshift(lo, 8), 0xFF),
+        bitops.band(bitops.rshift(lo, 16), 0xFF),
+        bitops.band(bitops.rshift(lo, 24), 0xFF),
+        bitops.band(hi, 0xFF),
+        bitops.band(bitops.rshift(hi, 8), 0xFF),
+        bitops.band(bitops.rshift(hi, 16), 0xFF),
+        bitops.band(bitops.rshift(hi, 24), 0xFF)
+    )
 end
 
 hash.xxh64 = xxh64
