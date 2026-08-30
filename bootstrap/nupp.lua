@@ -103667,10 +103667,15 @@ end
 
 
 local function computeIndents ( lines ) 
+local firstInnerByGroup = { }
 for idx , line in ipairs ( lines ) do
 for _ , item in ipairs ( line . items ) do
 if item . kind == "token" then
 item . token . lineIdx = idx
+local group = item . token . groupRef
+if group and not firstInnerByGroup [ group ] then
+firstInnerByGroup [ group ] = item . token
+end
 end
 end
 end
@@ -103678,20 +103683,7 @@ for _ , line in ipairs ( lines ) do
 for _ , item in ipairs ( line . items ) do
 if item . kind == "token" and item . token . opensGroup then
 local g = item . token . opensGroup
-local firstInner = nil
-
-
-for _ , other in ipairs ( lines ) do
-for _ , it2 in ipairs ( other . items ) do
-if it2 . kind == "token" and it2 . token . groupRef == g then
-firstInner = it2 . token
-break
-end
-end
-if firstInner then
-break
-end
-end
+local firstInner = firstInnerByGroup [ g ]
 g . broken = firstInner ~= nil and firstInner . lineIdx > item . token . lineIdx
 if g . broken and g . kind == "tshape" then
 g . close . forceBreak = true

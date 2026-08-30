@@ -57,7 +57,7 @@ done
 [ -n "$present" ] || exit 0
 
 # shellcheck disable=SC2086
-unformatted=$(./bin/nupp fmt --check $present 2>/dev/null || true)
+unformatted=$(./bin/nupp fmt --check $present || true)
 [ -n "$unformatted" ] || exit 0
 
 printf 'nupp: this push carries source the formatter would rewrite:\n\n' >&2
