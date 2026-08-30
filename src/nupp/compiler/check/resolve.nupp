@@ -41,6 +41,10 @@ local type Type = T.Type
 --- A node of the tree being checked.
 local type Node = cst.Node
 
+----------------------------------------------------------------------------
+-- Shapes
+----------------------------------------------------------------------------
+
 --- One indexer capability of a shape, set or reported as already taken.
 ---
 --- Declared here rather than beside the loop over a shape's fields, because a function
@@ -126,6 +130,10 @@ function resolve.install(c: state.Checker): nil
     local requireEdit = edits.requireEdit
     local pointerShaped = c.pointerShaped
     local functionConstCleanups: {[string]: T.Cleanup} = {}
+
+    ---------------------------------------------------------------------
+    -- Recovery and visibility
+    ---------------------------------------------------------------------
 
     local function recoverForeign(node: Node, message: string): boolean
         if not node.foreignAnnotation then
@@ -236,6 +244,10 @@ function resolve.install(c: state.Checker): nil
 
         return names
     end
+
+    ---------------------------------------------------------------------
+    -- Type arguments
+    ---------------------------------------------------------------------
 
     local function constArgument(arg, parameter, at)
         if not arg then
@@ -375,6 +387,10 @@ function resolve.install(c: state.Checker): nil
         return map
     end
 
+    ---------------------------------------------------------------------
+    -- Applying type arguments
+    ---------------------------------------------------------------------
+
     -- A generic application means the same thing however the name was reached, so every
     -- way of resolving a type name ends here rather than only the unqualified one.
     local function applyTypeArgs(t, node)
@@ -510,6 +526,10 @@ function resolve.install(c: state.Checker): nil
         return resolved and T.inherentOwner(resolved) or nil
     end
 
+    ---------------------------------------------------------------------
+    -- Projections
+    ---------------------------------------------------------------------
+
     --- Where a projection was decided: the answer that settled it, or the requirements
     --- that state it when nothing has.
     ---
@@ -577,6 +597,10 @@ function resolve.install(c: state.Checker): nil
         end
         c.diag("NUPP2134", at, message, nil, {help = help})
     end
+
+    ---------------------------------------------------------------------
+    -- Resolving a written type
+    ---------------------------------------------------------------------
 
     --- The type an annotation node names.
     ---
@@ -1721,6 +1745,10 @@ function resolve.install(c: state.Checker): nil
 
         return T.any
     end
+
+    ---------------------------------------------------------------------
+    -- Packs and pending aliases
+    ---------------------------------------------------------------------
 
     c.resolvePack = function(node)
         if not node then

@@ -50,6 +50,10 @@ local substType = generics.rebind
 local addSelf = generics.addSelf
 local dropSelf = generics.dropSelf
 
+----------------------------------------------------------------------------
+-- Reading a declaration's parts
+----------------------------------------------------------------------------
+
 --- Converts the closed field-default grammar to source-free data. Defaults cross
 --- module and comptime boundaries, so they cannot retain lexical source expressions.
 local function defaultValue(node: any): any, boolean
@@ -164,6 +168,10 @@ function declare.install(
     validateAnnotation: function(application: any, target: any, owner: any?): (any, boolean)
 ): nil
 
+    ---------------------------------------------------------------------
+    -- Containment by value
+    ---------------------------------------------------------------------
+
     --- Whether `t` reaches `target` by value, and through which declaration.
     ---
     --- Only by value. A pointer to a struct is one pointer wide whatever it points at,
@@ -201,6 +209,10 @@ function declare.install(
 
         return reaches(t)
     end
+
+    ---------------------------------------------------------------------
+    -- Structs
+    ---------------------------------------------------------------------
 
     -- The entries a struct body also accepts. Fields carry the reifiability question
     -- and are asked separately; these three are shapes a struct keeps unchanged, so
@@ -306,6 +318,10 @@ function declare.install(
             }
         )
     end
+
+    ---------------------------------------------------------------------
+    -- Refinements
+    ---------------------------------------------------------------------
 
     --- The one statement a long-form refinement body is allowed to be, or nil.
     ---
@@ -502,6 +518,10 @@ function declare.install(
             end
         end
     end
+
+    ---------------------------------------------------------------------
+    -- Associated types
+    ---------------------------------------------------------------------
 
     --- Predeclares the associated names a body writes, and refuses the ones that
     --- collide.
@@ -770,6 +790,10 @@ function declare.install(
         end
     end
 
+    ---------------------------------------------------------------------
+    -- Inherited defaults
+    ---------------------------------------------------------------------
+
     --- The interface a declaration inherits this exact default entry from, if any.
     local function inheritedDefault(n: any, member: string): string?
         for _, super in ipairs(n.supertypes or {}) do
@@ -878,6 +902,10 @@ function declare.install(
         end)
         stat.inheritedDefaultNames = taken
     end
+
+    ---------------------------------------------------------------------
+    -- Constructors
+    ---------------------------------------------------------------------
 
     --- Every field the body assigns through `self`, anywhere inside it.
     ---
@@ -1073,6 +1101,10 @@ function declare.install(
         e.constructorIndex = index
         e.ownerNominal = n
     end
+
+    ---------------------------------------------------------------------
+    -- Publishing a declaration
+    ---------------------------------------------------------------------
 
     c.declaredNominal = function(stat, kind)
         local t, projectEntry = nil, nil

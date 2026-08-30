@@ -42,6 +42,10 @@ local specializeReceiver = generics.specializeReceiver
 
 local callexpr: {install: function(state.Checker): state.ExprHandlers} = {}
 
+----------------------------------------------------------------------------
+-- Intrinsics
+----------------------------------------------------------------------------
+
 -- Which ownership intrinsic a callee is, once the names in it have been resolved.
 --
 -- A bare name is one only while nothing has bound it, so a local called `drop`
@@ -185,6 +189,11 @@ local function soaLayoutSpec(c: state.Checker, subject: Type, at: Node): any?
     end
 
     local owner = subject as T.Nominal
+
+    ---------------------------------------------------------------------
+    -- Rendering a type for a diagnostic
+    ---------------------------------------------------------------------
+
     local function expand(t: Type?): string?
         if not t then
             return nil
@@ -252,6 +261,10 @@ function callexpr.install(c: state.Checker): state.ExprHandlers
 
     local lpegEmpty = T.array(T.never)
     local lpegUnknown = T.array(T.any)
+
+    ---------------------------------------------------------------------
+    -- LPeg patterns
+    ---------------------------------------------------------------------
 
     local function lpegPatternOrigin(callee: Node?): T.Nominal?
         if not callee or callee.kind ~= "dotIndex" or not callee.obj then
@@ -327,6 +340,10 @@ function callexpr.install(c: state.Checker): state.ExprHandlers
 
         return nil
     end
+
+    ---------------------------------------------------------------------
+    -- Reading arguments
+    ---------------------------------------------------------------------
 
     local function literalToken(token: Token?): string?
         if not token then
@@ -427,6 +444,10 @@ function callexpr.install(c: state.Checker): state.ExprHandlers
         return "__nuppPegReplace" .. (name == "replaceAll" and "All" or "") .. suffix
     end
 
+    ---------------------------------------------------------------------
+    -- Managed generics
+    ---------------------------------------------------------------------
+
     local function withoutNil(t: Type): Type
         if t.tag ~= "union" then
             return t
@@ -496,6 +517,10 @@ function callexpr.install(c: state.Checker): state.ExprHandlers
 
         return key, resolved
     end
+
+    ---------------------------------------------------------------------
+    -- Calls
+    ---------------------------------------------------------------------
 
     handlers.call = function(node: cst.Call | cst.SafeCall): Type
         -- The intrinsic dispatch below asks the same three questions of every call,
@@ -1673,6 +1698,10 @@ function callexpr.install(c: state.Checker): state.ExprHandlers
         return first
     end
     handlers.safeCall = handlers.call
+
+    ---------------------------------------------------------------------
+    -- Method calls
+    ---------------------------------------------------------------------
 
     handlers.methodCall = function(node: cst.MethodCall): Type
         local receiver, member = node.obj, node.name
