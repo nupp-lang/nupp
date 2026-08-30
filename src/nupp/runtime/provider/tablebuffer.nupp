@@ -73,6 +73,28 @@ local record Buffer
     end
 end
 
+-- A 5.1-era VM without 5.2 compatibility ignores __len on tables, so `#buf`
+-- answers correctly only where the host honors it; the other two fire anywhere.
+    ;
+(Buffer as {[string]: any}).__len = function(self: Buffer): integer
+    local total = 0
+    for index = 1, self.count do
+        total = total + #self.pieces[index]
+    end
+
+    return total as integer
+end
+
+    ;
+(Buffer as {[string]: any}).__concat = function(left: any, right: any): string
+    return tostring(left) .. tostring(right)
+end
+
+    ;
+(Buffer as {[string]: any}).__tostring = function(self: Buffer): string
+    return self:tostring()
+end
+
 --- Creates a buffer.
 ---
 --- The arguments are LuaJIT's and are accepted so the two are called the same way.

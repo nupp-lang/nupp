@@ -110,6 +110,9 @@ local function newdecoder()
 
 			if c == 'e' or c == 'E' then
 				num, c = match(json, '^([^eE]*[eE][-+]?[0-9]+)([-+.A-Za-z]?)', pos)
+				if num == nil then
+					number_error()
+				end
 				num, c = assert(num), assert(c)
 				if c == '' then
 					pos = pos + #num
@@ -129,6 +132,9 @@ local function newdecoder()
 		if c ~= '' then
 			if c == 'e' or c == 'E' then
 				num, c = match(json, '^([^eE]*[eE][-+]?[0-9]+)([-+.A-Za-z]?)', pos)
+				if num == nil then
+					number_error()
+				end
 				num, c = assert(num), assert(c)
 			end
 			if c ~= '' then

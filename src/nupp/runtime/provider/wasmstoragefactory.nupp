@@ -56,7 +56,11 @@ function factory.new(memory: any): any
         end
 
         function physical:isa(value: any): boolean
-            return self.kind == "boolean" and type(value) == "boolean" or type(value) == "number"
+            if self.kind == "boolean" then
+                return type(value) == "boolean"
+            end
+
+            return type(value) == "number"
         end
 
         scalarCache[kind] = physical

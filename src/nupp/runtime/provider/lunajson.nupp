@@ -112,9 +112,11 @@ local function classify(value: any): string, integer
     return "object", count
 end
 
-local function container(value: any, visiting: {[any]: boolean}): any
-    if value == json.NULL then
-        return value
+local function container(value: any, nullValue: any?, visiting: {[any]: boolean}): any
+    -- A custom sentinel is normalized here because the copy below would lose the
+    -- identity the encoder's null check compares against.
+    if value == json.NULL or nullValue ~= nil and value == nullValue then
+        return json.NULL
     end
     if type(value) ~= "table" then
         return value
@@ -128,14 +130,14 @@ local function container(value: any, visiting: {[any]: boolean}): any
     if kind == "array" then
         out[0] = length
         for index = 1, length do
-            out[index] = container(value[index], visiting)
+            out[index] = container(value[index], nullValue, visiting)
         end
     else
         for key, child in pairs(value) do
             if type(key) ~= "string" then
                 error("JSON object keys must be strings", 0)
             end
-            out[key] = container(child, visiting)
+            out[key] = container(child, nullValue, visiting)
         end
     end
     visiting[value] = nil
@@ -143,8 +145,9 @@ local function container(value: any, visiting: {[any]: boolean}): any
     return out
 end
 
-local function mark(value: any): any
-    if type(value) ~= "table" or value == json.NULL then
+local function mark(value: any, nullValue: any?): any
+    -- A caller's null sentinel keeps whatever metatable it arrived with.
+    if type(value) ~= "table" or value == json.NULL or nullValue ~= nil and value == nullValue then
         return value
     end
     local length = value[0]
@@ -156,14 +159,14 @@ local function mark(value: any): any
             local child = value[index]
             value[index] = nil
             if child ~= nil then
-                value[into] = mark(child)
+                value[into] = mark(child, nullValue)
                 into = into + 1
             end
         end
     else
         setmetatable(value, OBJECT_MARKER)
         for key, child in pairs(value) do
-            value[key] = mark(child)
+            value[key] = mark(child, nullValue)
         end
     end
 
@@ -201,7 +204,7 @@ function json.arrayOf(shape: any?): any
 end
 
 function json.encode(value: any, nullValue: any?): string
-    return core.encode(container(value, {}), nullValue == nil and json.NULL or nullValue)
+    return core.encode(container(value, nullValue, {}), json.NULL)
 end
 
 json.serialize = json.encode
@@ -210,7 +213,7 @@ function json.decode(text: string, nullValue: any?): any
     if not validUtf8(text) then
         error("invalid UTF-8 in JSON", 0)
     end
-    return mark(core.decode(text, nil, nullValue, true))
+    return mark(core.decode(text, nil, nullValue, true), nullValue)
 end
 
 function json.isArray(value: any): boolean

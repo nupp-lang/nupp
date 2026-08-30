@@ -104,7 +104,11 @@ function provider.scalar(kind: string): any
     end
 
     function fixed:isa(value: any): boolean
-        return kind == "boolean" and type(value) == "boolean" or type(value) == "number"
+        if kind == "boolean" then
+            return type(value) == "boolean"
+        end
+
+        return type(value) == "number"
     end
 
     return fixed
@@ -187,12 +191,18 @@ function provider.array(element: any, count: integer): any
     local identity = {}
     local values = {
         __index = function(self, index)
-            assert(type(index) == "number" and index >= 0 and index < count, "fixed-array index out of bounds")
+            assert(
+                type(index) == "number" and index % 1 == 0 and index >= 0 and index < count,
+                "fixed-array index out of bounds"
+            )
 
             return rawget(self, identity)[index]
         end,
         __newindex = function(self, index, value)
-            assert(type(index) == "number" and index >= 0 and index < count, "fixed-array index out of bounds")
+            assert(
+                type(index) == "number" and index % 1 == 0 and index >= 0 and index < count,
+                "fixed-array index out of bounds"
+            )
             rawget(self, identity)[index] = element:copy(value)
         end,
     }
