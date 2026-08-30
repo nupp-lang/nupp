@@ -27,6 +27,10 @@ local cst = require("nupp.compiler.cst")
 
 local analysis = {}
 
+----------------------------------------------------------------------------
+-- What a summary is
+----------------------------------------------------------------------------
+
 --- One function's facts. Every entry `LISTS` names is a set of parameter-rooted paths,
 --- every entry `FLAGS` names is a boolean that widens to true and never back, and `top`
 --- is the top of the lattice: nothing is known, so nothing may be assumed.
@@ -133,6 +137,10 @@ local function same(a, b)
     local left, right = copy(a), copy(b)
     return not join(left, right) and not join(right, left)
 end
+
+----------------------------------------------------------------------------
+-- Reading the tree
+----------------------------------------------------------------------------
 
 local function unwrap(stat)
     while stat and stat.kind == "pragmaStmt" do
@@ -321,6 +329,10 @@ local function collectFunctions(root)
 
     return functions, byDefinition
 end
+
+----------------------------------------------------------------------------
+-- Inferring one function
+----------------------------------------------------------------------------
 
 local PURE_BUILTINS = {
     type = true,
@@ -691,6 +703,10 @@ local function inferFunction(info, byDefinition)
     return out
 end
 
+----------------------------------------------------------------------------
+-- Contracts and aliasing
+----------------------------------------------------------------------------
+
 local function contractContains(contract, inferred)
     local declared = fromContract(contract)
     if inferred.top then
@@ -826,6 +842,10 @@ local function aliasClasses(body, byDefinition)
 
     return find
 end
+
+----------------------------------------------------------------------------
+-- Queries
+----------------------------------------------------------------------------
 
 -- The questions asked of the summaries, in one place.
 --
@@ -1118,6 +1138,10 @@ function queries.body(body: any, byDefinition: any): any
 
     return facts
 end
+
+----------------------------------------------------------------------------
+-- Running the analysis
+----------------------------------------------------------------------------
 
 --- What one run worked out, and what a pass is handed to ask about.
 type analysis.Facts = {

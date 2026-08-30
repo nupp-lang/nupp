@@ -21,6 +21,10 @@ local normalize, join = filesMod.normalize, filesMod.join
 
 local extract = {}
 
+----------------------------------------------------------------------------
+-- What extraction produces
+----------------------------------------------------------------------------
+
 --- One argument: its name and type as the source spelled them, and what `@param` said.
 type extract.Param = {
     name: string,
@@ -121,6 +125,10 @@ type extract.Options = {
     includePrivate: boolean?,
     shapesAsModules: boolean?
 }
+
+----------------------------------------------------------------------------
+-- Text and visibility
+----------------------------------------------------------------------------
 
 local function firstToken(node)
     if not node then
@@ -407,6 +415,10 @@ local function structureSignature(node, includePrivate)
     return withoutHiddenTerminals(trim(table.concat(lines, "\n")))
 end
 
+----------------------------------------------------------------------------
+-- Annotations
+----------------------------------------------------------------------------
+
 -- Every token under one annotation argument, in order. A separate function rather than
 -- one written inside the loop over the arguments, because a function built inside a
 -- loop is one LuaJIT never compiles.
@@ -458,6 +470,10 @@ local function annotationsOf(entry): {string}?
 
     return #names > 0 and names or nil
 end
+
+----------------------------------------------------------------------------
+-- Signatures
+----------------------------------------------------------------------------
 
 -- A declaration's name as it was written, table and all. Readers reach a member as
 -- `cst.Node`, so that is what the signature has to show.
@@ -641,6 +657,10 @@ local function typeFunctionDetails(node, info)
 
     return details
 end
+
+----------------------------------------------------------------------------
+-- Fields and shapes
+----------------------------------------------------------------------------
 
 -- One field of a shape type or a record, read as the top-level item a synthesized
 -- namespace module holds it as. Shares its shape with `declarationItem`'s own field and
@@ -1022,6 +1042,10 @@ local function buildMembers(
     return members
 end
 
+----------------------------------------------------------------------------
+-- One declaration as an item
+----------------------------------------------------------------------------
+
 -- What a file publishes by name in a legacy returned table or a declared module's
 -- `export =` table. `function m.thing()` says where it lands in its own spelling and
 -- needs no such list; a `cdef` does not, so the table boundary is all that separates a
@@ -1201,6 +1225,10 @@ local function declaredTypePath(stat, moduleName: string): string?
     return moduleName .. "." .. stat.name.text
 end
 
+----------------------------------------------------------------------------
+-- Folding methods onto their type
+----------------------------------------------------------------------------
+
 -- A method is written twice over: the record declares `send: function(Worker, any)` and
 -- the implementation follows it as `function Worker:send(value)`, or with an explicit
 -- receiver as `function Worker.send(self, value)`. Both spell one method, and a
@@ -1267,6 +1295,10 @@ local function foldMethods(items: {extract.Item}, declaredTypes: {[string]: bool
 
     return kept
 end
+
+----------------------------------------------------------------------------
+-- Whole modules
+----------------------------------------------------------------------------
 
 local function moduleName(path: string, root: string, includes: {string}?): string
     path, root = normalize(path), normalize(root)
