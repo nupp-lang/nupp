@@ -783,12 +783,13 @@ See [fmt.md](../guides/fmt.md) for the rules the formatter applies and for the
 Build source files or a configured project target
 
 Usage:
-  nupp build [--strict] [--dialect DIALECT] [-O<n>] [--target NAME] [--platform NAME|all] [--out-dir DIR] [-q] [--format text|json]
+  nupp build [--strict] [--dialect DIALECT] [-O<n>] [--target NAME] [--platform NAME|all] [--standalone] [--out-dir DIR] [-q] [--format text|json]
   nupp build [--strict] [--dialect DIALECT] [-O<n>] [-o DIR] [-q] [--format text|json] <file...>
 
 Options:
   --target NAME      Build a named manifest target
   --platform NAME    Build one configured binary platform, or all
+  --standalone       Link native FFI and AOT code into the binary host
   --out-dir DIR      Override the manifest target's output directory
   -o DIR             Output directory for explicit source-file builds
   --strict           Treat strict checker rules as errors
