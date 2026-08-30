@@ -36,6 +36,10 @@ end
 
 local net = {}
 
+----------------------------------------------------------------------------
+-- What a socket is described by
+----------------------------------------------------------------------------
+
 --- How a listener is opened.
 type net.ListenOptions = {
     --- The address to bind, as an IPv4 or IPv6 literal. A name is not resolved
@@ -138,6 +142,10 @@ record net.Message
     --- that is a security bug rather than a lost packet.
     truncated: boolean
 end
+
+----------------------------------------------------------------------------
+-- The backend seam
+----------------------------------------------------------------------------
 
 --- The smallest set of operations a platform has to answer for this module.
 ---
@@ -253,6 +261,10 @@ record net.Backend
     --- take whatever is ready now and return.
     run: function(self: net.Backend, timeoutMs: integer): nil
 end
+
+----------------------------------------------------------------------------
+-- Reading and writing
+----------------------------------------------------------------------------
 
 const DEFAULT_HIGH_WATER = 1048576
 const DEFAULT_CONNECT_MS = 30000
@@ -408,6 +420,10 @@ local function drain(chosen: net.Backend, handle: any): (boolean, string?)
 
     return true
 end
+
+----------------------------------------------------------------------------
+-- Streams
+----------------------------------------------------------------------------
 
 --- One connection.
 ---
@@ -882,6 +898,10 @@ function net.asWriter(borrows source: net.Stream): affine(net.DirectionView) bor
     )
 end
 
+----------------------------------------------------------------------------
+-- Listeners and datagrams
+----------------------------------------------------------------------------
+
 --- A listening socket.
 --- @export
 record net.Listener is nupp.Closeable
@@ -1142,6 +1162,10 @@ record net.Datagram is nupp.Closeable
     end
 end
 
+----------------------------------------------------------------------------
+-- Opening a socket
+----------------------------------------------------------------------------
+
 --- Opens a datagram socket.
 --- @param options where to bind
 --- @return the socket, which the caller owns and must close
@@ -1257,6 +1281,10 @@ function net.connect(options: net.ConnectOptions): (affine(net.Stream)?, string?
     )
 end
 
+----------------------------------------------------------------------------
+-- Driving the loop
+----------------------------------------------------------------------------
+
 --- The platform handle behind a connection.
 ---
 --- For a module that layers over a connection rather than uses one:
@@ -1309,6 +1337,10 @@ end
 function net.useBackend(chosen: net.Backend): nil
     backend = chosen
 end
+
+----------------------------------------------------------------------------
+-- The native backend
+----------------------------------------------------------------------------
 
 --- The platform, bound to the native provider.
 ---

@@ -262,6 +262,10 @@ empty leaves an empty queue rather than a released one.
 :::
 ]]
 
+----------------------------------------------------------------------------
+-- Argument checks
+----------------------------------------------------------------------------
+
 local ffi = require("ffi")
 local span = require("nupp.mem.span")
 
@@ -319,6 +323,10 @@ local function range(length: integer, offset: any, count: any, what: string, lev
 
     return from, taking
 end
+
+----------------------------------------------------------------------------
+-- Owners
+----------------------------------------------------------------------------
 
 -- A terminal has to be a declared function wherever a contract names it, and these
 -- records hand each other out: a buffer answers a reader, and a snapshot answers
@@ -457,6 +465,10 @@ export sealed interface ByteView
     isReleased: function(self: ByteView): boolean
     close: function(takes self: ByteView): (boolean, string?)
 end
+
+----------------------------------------------------------------------------
+-- Views and buffers
+----------------------------------------------------------------------------
 
 local record Snapshot is ByteView
     private _bytes: string
@@ -787,6 +799,10 @@ local record BufferWriter is Writer
         self:drop()
     end
 end
+
+----------------------------------------------------------------------------
+-- Readers
+----------------------------------------------------------------------------
 
 --- The storage behind a reader over held bytes.
 local record StringReader is Reader
@@ -1268,6 +1284,10 @@ export interface ScalarReader
     end
 end
 
+----------------------------------------------------------------------------
+-- Scalars
+----------------------------------------------------------------------------
+
 --- The storage behind a scalar reader.
 local record Scalars is ScalarReader
     _pending: string
@@ -1488,6 +1508,10 @@ local record ScalarSink is ScalarWriter
     _closed: boolean
 end
 
+----------------------------------------------------------------------------
+-- Dropping
+----------------------------------------------------------------------------
+
 function Snapshot.drop(takes self: Snapshot): nil
     local state = unsafe release self
     state._closed = true
@@ -1550,6 +1574,10 @@ function ScalarSink.drop(takes self: ScalarSink): nil
         buffer:drop()
     end
 end
+
+----------------------------------------------------------------------------
+-- Shared implementations
+----------------------------------------------------------------------------
 
 -- Doubling, with a floor, so appending one byte at a time stays linear overall.
 reserve = function(borrows self: Buffer, minimum: integer): nil
@@ -1658,6 +1686,10 @@ put = function(self: ScalarWriter, bytes: string): ScalarWriter
 
     return self
 end
+
+----------------------------------------------------------------------------
+-- Opening
+----------------------------------------------------------------------------
 
 local function queueLike(value: any): boolean
     local kind = type(value)

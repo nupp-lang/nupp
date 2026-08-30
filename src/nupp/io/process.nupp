@@ -33,6 +33,10 @@ local ffiString: function(borrows source: const uint8[?], count: integer): strin
 -- handed a leak.
 local process = {}
 
+----------------------------------------------------------------------------
+-- What a process is described by
+----------------------------------------------------------------------------
+
 --- Where a stream goes: a pipe this process reads or writes, the parent's own
 --- stream, or nothing at all.
 type process.StreamMode = "pipe" | "inherit" | "null"
@@ -140,6 +144,10 @@ record process.Interest
     --- Stream handles this wait wants to put bytes into.
     write: {any}
 end
+
+----------------------------------------------------------------------------
+-- The backend seam
+----------------------------------------------------------------------------
 
 --- The operations a platform must answer, in bytes and opaque handles and no
 --- policy.
@@ -254,6 +262,10 @@ end
 -- How many bytes one read asks for. Large enough that a busy pipe empties in a pass or
 -- two, small enough that a quiet one costs a small buffer rather than a large one.
 local READ_LIMIT: integer = 65536
+
+----------------------------------------------------------------------------
+-- Streams
+----------------------------------------------------------------------------
 
 --- @raises when value is not a positive integer
 local function positive(value: integer, what: string, level: integer): integer
@@ -730,6 +742,10 @@ end
 
 local newReader: function(owner: any, handle: any): process.Reader
 local newWriter: function(owner: any, handle: any): process.Writer
+
+----------------------------------------------------------------------------
+-- A running process
+----------------------------------------------------------------------------
 
 --- A running child.
 record process.Process
@@ -1228,6 +1244,10 @@ record process.Process
     end
 end
 
+----------------------------------------------------------------------------
+-- Pumping and waiting
+----------------------------------------------------------------------------
+
 function process.Process.drop(takes self: process.Process): nil
     self:close()
     if self.stdin ~= nil then
@@ -1474,6 +1494,10 @@ newWriter = function(owner: any, handle: any): process.Writer
     return new process.Writer(owner = owner, handle = handle, closed = false, gone = false, timeoutMs = 30000)
 end
 
+----------------------------------------------------------------------------
+-- Spawning
+----------------------------------------------------------------------------
+
 --- Installs the backend the public `Process` constructor uses.
 ---
 --- Called by a platform module, not by a caller: the point of the seam is that nothing
@@ -1547,6 +1571,10 @@ not name `Backend`. Naming it would have made the two require each other, and a
 resolved cycle answers `any` without reporting one. Written here it names `Backend`
 directly and is checked against it, which is what the cast was standing in for.
 ]]
+
+----------------------------------------------------------------------------
+-- The native backend
+----------------------------------------------------------------------------
 
 const native = require("nupp.runtime.native")
 

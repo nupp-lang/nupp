@@ -146,6 +146,10 @@ The library is not opened by requiring this module: `nupp.runtime.native` opens 
 symbol read, and nothing here reads one until a client is created.
 ]]
 
+----------------------------------------------------------------------------
+-- The native binding
+----------------------------------------------------------------------------
+
 const native = require("nupp.runtime.native")
 
 -- `NuppUri` is not declared here: it is `nupp.io.uri`'s handle, that module declares
@@ -255,6 +259,10 @@ const UPLOAD_ACCEPTED = 1
 -- How many readiness events one poll collects.
 const READY_SLOTS = 256
 
+----------------------------------------------------------------------------
+-- Slices and dispatch
+----------------------------------------------------------------------------
+
 --- Fills the borrowed byte span the native transport reads its strings through.
 ---
 --- A pointer and a length are passed when the bytes are not a Lua string; otherwise
@@ -345,6 +353,10 @@ local function addWaiter(self: any, field: string, wake: function()): function()
         end
     end
 end
+
+----------------------------------------------------------------------------
+-- A transfer in flight
+----------------------------------------------------------------------------
 
 --- One request in flight.
 ---
@@ -523,6 +535,10 @@ local record Transfer is NativeTransfer
         C.nuppHttpTransferDestroy(handle)
     end
 end
+
+----------------------------------------------------------------------------
+-- The native client
+----------------------------------------------------------------------------
 
 --- One connection pool, and the transfers it is carrying.
 local record Client is NativeClient
@@ -705,6 +721,10 @@ local function newClient(options: any): (NativeClient?, string?)
     ), nil
 end
 
+----------------------------------------------------------------------------
+-- Requests
+----------------------------------------------------------------------------
+
 --- The protocol version a response arrived over.
 type http.Version = "1.0" | "1.1" | "2"
 
@@ -856,6 +876,10 @@ local UPLOAD_PAGE: integer = 64 * 1024
 local COALESCE_BELOW: integer = 8 * 1024
 local COPY_TURN: integer = 16 * 1024 * 1024
 
+----------------------------------------------------------------------------
+-- Options
+----------------------------------------------------------------------------
+
 local function whole(value: any, what: string, minimum: integer, maximum: integer?): integer
     if type(
         value
@@ -988,6 +1012,10 @@ local function copiedOptions(options: http.Options?): any
     }
 end
 
+----------------------------------------------------------------------------
+-- Waiting
+----------------------------------------------------------------------------
+
 local function appendWaiter(client: BodyClient, transfer: NativeTransfer, which: string, cancelNative: boolean): nil
     suspension.suspend("HTTP " .. which, function(resume: function(boolean), context: suspension.Context): function()?
         local active = true
@@ -1091,6 +1119,10 @@ local function fairnessYield(): nil
         end
     )
 end
+
+----------------------------------------------------------------------------
+-- Response bodies
+----------------------------------------------------------------------------
 
 --- A response's bytes, as a `nupp.io.Reader`.
 ---
@@ -1320,6 +1352,10 @@ local function origin(uri: uri.URI): string
     return scheme .. "://" .. (uri:host() or ""):lower() .. ":" .. port
 end
 
+----------------------------------------------------------------------------
+-- Responses
+----------------------------------------------------------------------------
+
 --- One response, with its body still arriving.
 ---
 --- A status is an answer, so 4xx and 5xx come back here rather than as a reason.
@@ -1506,6 +1542,10 @@ local function makeResponse(
         _closed = false
     )
 end
+
+----------------------------------------------------------------------------
+-- The client
+----------------------------------------------------------------------------
 
 --- One connection pool, and every request in flight through it.
 ---
@@ -1903,6 +1943,10 @@ function http.Client.close(takes self: http.Client): nil
         end
     end
 end
+
+----------------------------------------------------------------------------
+-- Request bodies
+----------------------------------------------------------------------------
 
 --- Builds a request body that streams from a reader.
 ---
