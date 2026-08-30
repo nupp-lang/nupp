@@ -59,7 +59,25 @@ local function open(): any
     return ffi.load(root .. "/.." .. library)
 end
 
-local library: any = nil
+--- Where the opened library is kept, which is not this module.
+---
+--- LuaJIT collects an `ffi.load` handle like anything else, and closing it
+--- closes the library. That is ordinarily harmless and here it is not: the
+--- provider links libuv, and spawning a process makes libuv install a `SIGCHLD`
+--- handler that lives in the library's own text. Unload it and the disposition
+--- survives, pointing at a mapping that is gone, so the next child to exit --
+--- inside `system()`, in whatever unrelated code called it -- delivers a signal
+--- to an address that no longer exists.
+---
+--- Nothing here unloads it deliberately. Dropping the module does: a suite that
+--- clears `package.loaded["nupp.runtime.native"]` to prove the load is lazy
+--- takes the last reference to the handle with it. That is what the Linux
+--- workers were dying of, four at a time, each in whichever suite ran the next
+--- `os.execute`.
+---
+--- So the handle is held by the interpreter rather than by this table, and one
+--- state opens the library once however many times this module is required.
+const LIBRARY_KEY = "__nuppNativeLibrary"
 
 --- The opened library, for a caller that has declared its symbols.
 ---
@@ -74,8 +92,10 @@ local library: any = nil
 --- @export
 native.C = setmetatable({}, {
     __index = function(self: any, symbol: string): any
+        local library: any = rawget(_G, LIBRARY_KEY)
         if library == nil then
             library = open()
+            rawset(_G, LIBRARY_KEY, library)
         end
         local found = library[symbol]
         rawset(self, symbol, found)
