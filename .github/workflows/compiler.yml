@@ -375,6 +375,31 @@ jobs:
         shell: bash
         run: ./bin/nupp test
 
+      # A worker killed by a signal says which suite it was in, and on Linux it
+      # is currently killed by SIGSEGV in a different suite in each of the four.
+      # The suite name says where it was, not what went wrong; the core the
+      # kernel already wrote says that. Only runs when the step above failed, so
+      # a green run neither pays for this nor prints it.
+      - name: Report a crashed worker
+        if: failure() && runner.os == 'Linux'
+        shell: bash
+        run: |
+          set -uo pipefail
+          echo "core_pattern: $(cat /proc/sys/kernel/core_pattern 2>/dev/null)"
+          echo "core limit:   $(ulimit -c)"
+          found=$(find . /var/lib/systemd/coredump /tmp -maxdepth 3 \
+            -name 'core*' -type f -newermt '-2 hours' 2>/dev/null | head -5)
+          if [ -z "$found" ]; then
+            echo "no core file was written where this could look"
+            exit 0
+          fi
+          command -v gdb >/dev/null 2>&1 || sudo apt-get install -y -q gdb >/dev/null
+          for core in $found; do
+            echo "=== $core ==="
+            gdb -batch -q -ex 'thread apply all bt 30' \
+              "$(./scripts/toolchain luajit)/bin/luajit" "$core" 2>&1 | head -80
+          done
+
       # These name the Git Bash the suite hands its POSIX commands to. They were
       # set by a provisioning script that no longer exists, and an undefined
       # `env` expands to the empty string rather than failing, so the suite spent
