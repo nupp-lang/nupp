@@ -6,7 +6,9 @@ local seam = {moduleName = "nupp.runtime.seam.iobytes", suiteModuleName = "nupp.
 local CONTRACT = common.contract("io.bytes", {
     globalName = "__nuppIoBytes",
     requiredFunctions = {"newBuffer", "newQueueReader", "newScalarReader", "newScalarWriter", "newStringReader"},
-    requiredValues = {"Buffer", "ByteQueue", "ByteView", "Reader", "ScalarReader", "ScalarWriter", "Writer"},
+    -- The byte surface's nominal names are all interfaces, which erase, so the
+    -- runtime shape is its functions alone.
+    requiredValues = {},
     suiteModule = seam.suiteModuleName,
     modules = {["nupp.io"] = "",},
 })

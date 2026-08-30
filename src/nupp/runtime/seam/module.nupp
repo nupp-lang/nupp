@@ -84,6 +84,33 @@ function moduleSeam.install(contract: Contract, moduleName: string): nil
     if rawget(_G, contract.globalName) ~= nil then
         error("nupp: " .. contract.name .. " runtime binding already exists", 0)
     end
+    -- Every remaining refusal happens before any state changes. A failure past the
+    -- first write would leave the selection and binding behind, and a retried
+    -- install would then return through the `prior` path as though it had worked.
+    for target in pairs(contract.modules or {}) do
+        if package.loaded[target] ~= nil then
+            error("nupp: " .. contract.name .. " provider was selected after " .. target .. " was already loaded", 0)
+        end
+    end
+    for target in pairs(contract.implementationModules or {}) do
+        if package.loaded[target] ~= nil then
+            error("nupp: " .. contract.name .. " provider was selected after " .. target .. " was already loaded", 0)
+        end
+    end
+    local priorProjections = rawget(_G, "__nuppRuntimeModules")
+    for path in pairs(contract.exports or {}) do
+        local target, member = path:match("^(.*)%.([^%.]+)$")
+        if not target or not member then
+            error("nupp: invalid projected runtime export " .. path, 0)
+        end
+        if package.loaded[target] ~= nil then
+            error("nupp: " .. contract.name .. " provider was selected after " .. target .. " was already loaded", 0)
+        end
+        local projection = priorProjections and priorProjections[target]
+        if projection ~= nil and projection.loaders[member] ~= nil then
+            error("nupp: more than one runtime provider supplies " .. path, 0)
+        end
+    end
     local binding = {}
     local loaded: any = nil
     local function provider(): any
@@ -117,9 +144,6 @@ function moduleSeam.install(contract: Contract, moduleName: string): nil
     })
     rawset(_G, contract.globalName, binding)
     for target, member in pairs(contract.modules or {}) do
-        if package.loaded[target] ~= nil then
-            error("nupp: " .. contract.name .. " provider was selected after " .. target .. " was already loaded", 0)
-        end
         package.preload[target] = function()
             local value = provider()
             if member ~= "" then
@@ -154,9 +178,6 @@ function moduleSeam.install(contract: Contract, moduleName: string): nil
     end
 
     for target in pairs(contract.implementationModules or {}) do
-        if package.loaded[target] ~= nil then
-            error("nupp: " .. contract.name .. " provider was selected after " .. target .. " was already loaded", 0)
-        end
         package.preload[target] = loadImplementation
     end
     local projected = rawget(_G, "__nuppRuntimeModules")
@@ -165,13 +186,9 @@ function moduleSeam.install(contract: Contract, moduleName: string): nil
         rawset(_G, "__nuppRuntimeModules", projected)
     end
     for path, providerMember in pairs(contract.exports or {}) do
-        local target, member = path:match("^(.*)%.([^%.]+)$")
-        if not target or not member then
-            error("nupp: invalid projected runtime export " .. path, 0)
-        end
-        if package.loaded[target] ~= nil then
-            error("nupp: " .. contract.name .. " provider was selected after " .. target .. " was already loaded", 0)
-        end
+        -- The refusal pass above already rejected an unparseable path.
+        local matchedTarget, matchedMember = path:match("^(.*)%.([^%.]+)$")
+        local target, member = matchedTarget as string, matchedMember as string
         local projection = projected[target]
         if projection == nil then
             projection = {loaders = {},}
@@ -184,9 +201,6 @@ function moduleSeam.install(contract: Contract, moduleName: string): nil
 
                 return value
             end
-        end
-        if projection.loaders[member] ~= nil then
-            error("nupp: more than one runtime provider supplies " .. path, 0)
         end
         projection.loaders[member] = function()
             return provider()[providerMember]

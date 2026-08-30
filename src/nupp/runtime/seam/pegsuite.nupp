@@ -3,7 +3,8 @@ module nupp.runtime.seam.pegsuite
 local suite = {}
 function suite.test(provider: any): (boolean, string?)
     local ok, problem = pcall(function()
-        local pattern = provider.compile("ab+")
+        -- LPeg re notation: a bare `ab+` is a rule reference, not literal bytes.
+        local pattern = provider.compile("'a' 'b'+")
         assert(provider.match(pattern, "abbb") ~= nil, "compiled patterns must match")
         assert(provider.match(pattern, "ac") == nil, "a failed match must return nil")
     end)
