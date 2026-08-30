@@ -45,14 +45,16 @@ local comptime function memberNames(info: nupp.reflect.Info): any
                     end
                 end
             end
-            if optional then
-                -- Required of nobody, so it is named in neither list.
-            elseif node.kind == "func" then
-                functions[#functions + 1] = field.name
-            else
-                values[#values + 1] = field.name
-                if node.kind == "table" or node.kind == "string" or node.kind == "boolean" then
-                    valueTypes[field.name] = node.kind
+            -- An optional member is named in neither list, because it is
+            -- required of nobody.
+            if not optional then
+                if node.kind == "func" then
+                    functions[#functions + 1] = field.name
+                else
+                    values[#values + 1] = field.name
+                    if node.kind == "table" or node.kind == "string" or node.kind == "boolean" then
+                        valueTypes[field.name] = node.kind
+                    end
                 end
             end
         end
