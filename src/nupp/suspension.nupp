@@ -1013,23 +1013,23 @@ local function consumeTurn(): nil
 end
 
 local function deferTurn(): nil
-    suspension.suspend(
-        "nupp coroutine turn budget",
-        function(resume: function(boolean), context: suspension.Context): function()
-            context:uses(turnDeferralSource())
-            turnWaiters[#turnWaiters + 1] = resume
+    suspension.suspend("nupp coroutine turn budget", function(
+        resume: function(boolean),
+        context: suspension.Context
+    ): function()
+        context:uses(turnDeferralSource())
+        turnWaiters[#turnWaiters + 1] = resume
 
-            return function(): nil
-                for index = #turnWaiters, 1, -1 do
-                    if turnWaiters[index] == resume then
-                        table.remove(turnWaiters, index)
+        return function(): nil
+            for index = #turnWaiters, 1, -1 do
+                if turnWaiters[index] == resume then
+                    table.remove(turnWaiters, index)
 
-                        break
-                    end
+                    break
                 end
             end
         end
-    )
+    end)
 end
 
 -- Task scopes use the same token without turning these scheduling details into

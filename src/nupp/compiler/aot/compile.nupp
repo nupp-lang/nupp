@@ -158,22 +158,20 @@ function compile.lower(
         return {}, diagnostics, {}
     end
 
-    local context = new lower.Context(
-        checked = parsed ~= nil,
-        constantNames = {},
-        constantValues = {},
-        reject = function(at: scalarIR.Source?, message: string): nil
-            diagnostics[
-                #diagnostics + 1
-            ] = new compile.Diagnostic(
-                file = filename,
-                line = at ~= nil and (at as scalarIR.Source).line or 1,
-                column = at ~= nil and (at as scalarIR.Source).column or 1,
-                message = message
-            )
-            error(REFUSED, 0)
-        end
-    )
+    local context = new lower.Context(checked = parsed ~= nil, constantNames = {}, constantValues = {}, reject = function(
+        at: scalarIR.Source?,
+        message: string
+    ): nil
+        diagnostics[
+            #diagnostics + 1
+        ] = new compile.Diagnostic(
+            file = filename,
+            line = at ~= nil and (at as scalarIR.Source).line or 1,
+            column = at ~= nil and (at as scalarIR.Source).column or 1,
+            message = message
+        )
+        error(REFUSED, 0)
+    end)
 
     -- The checker records `@aot` as a fact on the body; without it the
     -- annotation is read off the tree, which is what lets this run on a tree the

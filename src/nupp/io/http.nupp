@@ -1060,35 +1060,35 @@ local function appendWaiter(client: BodyClient, transfer: NativeTransfer, which:
 end
 
 local function waitAdmission(client: BodyClient): nil
-    suspension.suspend(
-        "HTTP request admission",
-        function(resume: function(boolean), context: suspension.Context): function()?
-            local active = true
-            client:_retainSource(context)
-            local forget: any
-            local function finish(): nil
-                if not active then
-                    return
-                end
-                active = false
-                if forget ~= nil then
-                    forget()
-                end
-                client:_releaseSource()
-                resume(true)
+    suspension.suspend("HTTP request admission", function(
+        resume: function(boolean),
+        context: suspension.Context
+    ): function()?
+        local active = true
+        client:_retainSource(context)
+        local forget: any
+        local function finish(): nil
+            if not active then
+                return
             end
+            active = false
+            if forget ~= nil then
+                forget()
+            end
+            client:_releaseSource()
+            resume(true)
+        end
 
-            forget = client._native:onAdmission(finish)
+        forget = client._native:onAdmission(finish)
 
-            return function(): nil
-                if active then
-                    active = false
-                    forget()
-                    client:_releaseSource()
-                end
+        return function(): nil
+            if active then
+                active = false
+                forget()
+                client:_releaseSource()
             end
         end
-    )
+    end)
 end
 
 local function waitHead(client: BodyClient, transfer: NativeTransfer, cancelNative: boolean): any
@@ -1104,25 +1104,25 @@ local function waitHead(client: BodyClient, transfer: NativeTransfer, cancelNati
 end
 
 local function fairnessYield(): nil
-    suspension.suspend(
-        "HTTP response copy fairness",
-        function(resume: function(boolean), context: suspension.Context): function()
-            local active = true
-            context:source("nupp-http-fairness", 20, function(): integer
-                if not active then
-                    return 0
-                end
-                active = false
-                resume(true)
-
-                return 1
-            end)
-
-            return function(): nil
-                active = false
+    suspension.suspend("HTTP response copy fairness", function(
+        resume: function(boolean),
+        context: suspension.Context
+    ): function()
+        local active = true
+        context:source("nupp-http-fairness", 20, function(): integer
+            if not active then
+                return 0
             end
+            active = false
+            resume(true)
+
+            return 1
+        end)
+
+        return function(): nil
+            active = false
         end
-    )
+    end)
 end
 
 ----------------------------------------------------------------------------

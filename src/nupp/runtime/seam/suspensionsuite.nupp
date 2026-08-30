@@ -105,6 +105,7 @@ function suite.test(provider: any): (boolean, string?)
                 local resume = nestedResume
                 nestedResume = nil
                 resume(42)
+
                 return 0
             end,
         })

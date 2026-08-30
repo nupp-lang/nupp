@@ -255,11 +255,15 @@ record uri.URI
     end
 
     function withEndpoint(self, endpoint: uri.URI): uri.URI
-        return assert(uri.newURI(
-            endpoint:scheme() .. "://" .. (endpoint:authority() or "") .. self._path .. (
-                self._query ~= nil and "?" .. self._query or ""
-            ) .. (self._fragment ~= nil and "#" .. self._fragment or "")
-        ))
+        return assert(
+            uri.newURI(
+                endpoint:scheme() .. "://" .. (
+                    endpoint:authority() or ""
+                ) .. self._path .. (
+                    self._query ~= nil and "?" .. self._query or ""
+                ) .. (self._fragment ~= nil and "#" .. self._fragment or "")
+            )
+        )
     end
 end
 

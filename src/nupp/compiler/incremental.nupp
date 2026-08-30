@@ -621,21 +621,16 @@ function incremental.new(rootDir: string, opts: table?): incremental.Inc
             {__index = env}
         )
         local external = envMod.isDependencyTypePath(env, path)
-        local diags, moduleType, exports = check.check(
-            result,
-            path,
-            qenv,
-            {
-                moduleName = envMod.moduleNameForPath(env, path),
-                -- A dependency owns the judgement of its declaration surface. A
-                -- consumer's `--strict` must not reinterpret that foreign contract.
-                strict = external and false or strict,
-                dialect = dialect,
-                backendResolution = self:get("backendResolution", "root"),
-                traceInspection = traceInspection,
-                initialExports = seeded,
-            }
-        )
+        local diags, moduleType, exports = check.check(result, path, qenv, {
+            moduleName = envMod.moduleNameForPath(env, path),
+            -- A dependency owns the judgement of its declaration surface. A
+            -- consumer's `--strict` must not reinterpret that foreign contract.
+            strict = external and false or strict,
+            dialect = dialect,
+            backendResolution = self:get("backendResolution", "root"),
+            traceInspection = traceInspection,
+            initialExports = seeded,
+        })
 
         activeModules[path] = nil
 

@@ -295,28 +295,22 @@ function declare.install(
         local fixes = keyword and {
             c.edits.fix("change `record` to `struct`", c.edits.replaceToken(keyword, "struct"))
         } or nil
-        c.diag(
-            "NUPP2509",
-            stat.name,
-            ("record %s declares only fields that reify"):format(n.name),
-            fixes,
-            {
-                help = "declaring it `struct` puts its instances in C memory, off the "
-                .. "collector's graph, at the cost of a fixed layout: no fields added "
-                .. "after construction",
-                notes = {
-                    -- The cost that actually bites, and the one a reader is least
-                    -- likely to predict: an instance stops being a table at runtime.
-                    -- `type` answers \"cdata\", `is` tests for cdata, `pairs` needs a
-                    -- `__pairs` on the metatype, and a serializer that walks tables
-                    -- refuses it outright -- `string.buffer.encode` raises \"cannot
-                    -- serialize 'cdata'\" with no hook to install.
-                    "an instance is cdata, not a table: `pairs` needs a `__pairs` "
-                    .. "metamethod, and a serializer that walks tables will refuse it "
-                    .. "unless it is converted first",
-                }
+        c.diag("NUPP2509", stat.name, ("record %s declares only fields that reify"):format(n.name), fixes, {
+            help = "declaring it `struct` puts its instances in C memory, off the "
+            .. "collector's graph, at the cost of a fixed layout: no fields added "
+            .. "after construction",
+            notes = {
+                -- The cost that actually bites, and the one a reader is least
+                -- likely to predict: an instance stops being a table at runtime.
+                -- `type` answers \"cdata\", `is` tests for cdata, `pairs` needs a
+                -- `__pairs` on the metatype, and a serializer that walks tables
+                -- refuses it outright -- `string.buffer.encode` raises \"cannot
+                -- serialize 'cdata'\" with no hook to install.
+                "an instance is cdata, not a table: `pairs` needs a `__pairs` "
+                .. "metamethod, and a serializer that walks tables will refuse it "
+                .. "unless it is converted first",
             }
-        )
+        })
     end
 
     ---------------------------------------------------------------------

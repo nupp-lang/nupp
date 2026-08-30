@@ -878,30 +878,27 @@ function lsp.newSession(rootDir: string?, emit: function(any), host: lsp.Host?):
             respond(id, json.NULL);
             return
         end
-        respond(
-            id,
-            {
-                name = def and def.name or tok.text,
-                kind = def and def.kind or "variable",
-                type = T.tostring(t),
-                capability = capabilityDetail(t),
-                associated = associatedState(t),
-                documentation = documentationFor(def),
-                definition = definitionLocation(def),
-                range = tokenRange(doc.text, tok),
-                automaticCleanup = def and def.automaticCleanup or nil,
-                deprecated = def and def.deprecated or nil,
-                generatedBy = def and def.generatedBy or nil,
-                generatedOwner = def and def.generatedOwner or nil,
-                generatedNamespace = def and def.generatedNamespace or nil,
-                generatedRecipeFingerprint = def and def.generatedRecipeFingerprint or nil,
-                soaColumn = tok.soaColumn,
-                -- Which project answered. With a folder per project, the same name can
-                -- be read under different configuration in two windows, and a caller
-                -- comparing two answers has to be able to see which is which.
-                root = s.currentRoot,
-            }
-        )
+        respond(id, {
+            name = def and def.name or tok.text,
+            kind = def and def.kind or "variable",
+            type = T.tostring(t),
+            capability = capabilityDetail(t),
+            associated = associatedState(t),
+            documentation = documentationFor(def),
+            definition = definitionLocation(def),
+            range = tokenRange(doc.text, tok),
+            automaticCleanup = def and def.automaticCleanup or nil,
+            deprecated = def and def.deprecated or nil,
+            generatedBy = def and def.generatedBy or nil,
+            generatedOwner = def and def.generatedOwner or nil,
+            generatedNamespace = def and def.generatedNamespace or nil,
+            generatedRecipeFingerprint = def and def.generatedRecipeFingerprint or nil,
+            soaColumn = tok.soaColumn,
+            -- Which project answered. With a folder per project, the same name can
+            -- be read under different configuration in two windows, and a caller
+            -- comparing two answers has to be able to see which is which.
+            root = s.currentRoot,
+        })
     end
 
     -- One-shot trace eligibility for the smallest checked function containing the
@@ -1345,17 +1342,13 @@ function lsp.newSession(rootDir: string?, emit: function(any), host: lsp.Host?):
     --- loses work.
     local function formattedText(uri, doc)
         local path = uriToPath(uri)
-        local formatted, errors = fmt.format(
-            doc.text,
-            path,
-            {
-                annotations = s.inc.env.annotations,
-                resolveAnnotation = function(name)
-                    return s.inc.env.resolveProjectAnnotation(s.inc.env, path, name)
-                end,
-                methodParens = envMod.fmtMethodParensDefault(s.inc.env),
-            }
-        )
+        local formatted, errors = fmt.format(doc.text, path, {
+            annotations = s.inc.env.annotations,
+            resolveAnnotation = function(name)
+                return s.inc.env.resolveProjectAnnotation(s.inc.env, path, name)
+            end,
+            methodParens = envMod.fmtMethodParensDefault(s.inc.env),
+        })
         if #errors > 0 or formatted == doc.text then
             return nil
         end

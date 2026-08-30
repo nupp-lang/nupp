@@ -425,6 +425,7 @@ local function drive(bodies: {function(): any}, limit: integer?, stopEarly: bool
             entered[index] = true
             local value = bodies[index]()
             installed:release()
+
             return value
         end)
         threads[index] = co

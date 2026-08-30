@@ -73,8 +73,8 @@ local record Buffer
     end
 end
 
--- A 5.1-era VM without 5.2 compatibility ignores __len on tables, so `#buf`
--- answers correctly only where the host honors it; the other two fire anywhere.
+    -- A 5.1-era VM without 5.2 compatibility ignores __len on tables, so `#buf`
+    -- answers correctly only where the host honors it; the other two fire anywhere.
     ;
 (Buffer as {[string]: any}).__len = function(self: Buffer): integer
     local total = 0
