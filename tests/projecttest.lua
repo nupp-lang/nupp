@@ -1307,6 +1307,16 @@ return json.encode({answer = 42})
    remove(dir)
 end
 
+function M.subprocessPreservesEmptyArguments()
+   local dir = tempProject({
+      ["argv.lua"] = [[io.write(#arg, "|", arg[1], "|", arg[2])]],
+   })
+   local status, output = process.capture({"luajit", dir .. "/argv.lua", "", "tail"})
+   remove(dir)
+   assertEq(status, 0, output)
+   assertEq(output, "2||tail", "an empty argv entry reaches the child process")
+end
+
 function M.sharedNativeFacilitiesBuildOneFeatureGatedProvider()
    local originalCapture, originalCopy = process.capture, fs.copyFile
    local originalCompilerRoot = compilerEnv.compilerRoot

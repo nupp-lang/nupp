@@ -40164,6 +40164,9 @@ end
 local function quote ( arg ) 
 arg = tostring ( arg )
 if windows then
+if arg == "" then
+return '""'
+end
 if not arg : find ( '[%s"]' ) then
 return arg
 end
