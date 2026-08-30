@@ -1809,6 +1809,18 @@ local function settleBlocking(task: any): string?
     return task._state == "failed" and "nupp: worker task failed: " .. (task._error or "unknown failure") or nil
 end
 
+--- Settles one child the way an explicit close may: under a suspension handler
+--- the wait parks, and without one it blocks on the native channel.
+local function settleParking(task: any): string?
+    task._observed = true
+    if not TaskImpl.isDone(task) then
+        waitFor(task._scheduler, task._lane, task._id)
+    end
+    task._lane.replies[task._id] = nil
+
+    return task._state == "failed" and "nupp: worker task failed: " .. (task._error or "unknown failure") or nil
+end
+
 ----------------------------------------------------------------------------
 -- Scopes
 ----------------------------------------------------------------------------
@@ -1844,13 +1856,11 @@ function workers.Scope:close(): nil
     local firstFailure: any = nil
     for _, task in ipairs(self._tasks) do
         local observed = task._observed == true
-        local ok, problem = pcall(function(): nil
-            task:await()
-        end)
+        local problem = settleParking(task)
         if not observed then
             releasePlantedMoved(task._values, 0)
         end
-        if not ok and not observed and firstFailure == nil then
+        if problem ~= nil and not observed and firstFailure == nil then
             firstFailure = problem
         end
     end
