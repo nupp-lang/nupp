@@ -12,7 +12,7 @@ local struct Escape
     escaped: uint32
 end
 
-@aot(lanes = false)
+@aot(target = "gpu")
 local function mandelbrot(
     exclusive escapes: span.WriteSpan<Escape>,
     borrows points: span.Span<Point>,

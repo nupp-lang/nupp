@@ -115,6 +115,13 @@ function compile.site(application: lower.Application): compile.Site
     return new compile.Site(from = from, to = to)
 end
 
+local function sitePosition(source: string, offset: integer): (integer, integer)
+    local before = source:sub(1, offset - 1)
+    local _, newlines = before:gsub("\n", "")
+    local lineStart = before:match(".*\n()") or 1
+    return newlines + 1, offset - lineStart + 1
+end
+
 --- Lowers one source to verified scalar IR.
 ---
 --- @param source the text, used when `parsed` is not supplied
@@ -683,6 +690,20 @@ function compile.artifacts(
     local programs, diagnostics, sites = compile.lower(source, filename, parsed)
     if #diagnostics > 0 then
         return nil, diagnostics
+    end
+    for position, program in ipairs(programs) do
+        if program.executionTarget == "gpu" then
+            local site = sites[position]
+            local line, column = sitePosition(source, site ~= nil and (site as compile.Site).from or 1)
+            return nil, {
+                new compile.Diagnostic(
+                    file = filename,
+                    line = line,
+                    column = column,
+                    message = "the native C backend does not consume @aot(target = \"gpu\")"
+                )
+            }
+        end
     end
 
     local constArtifacts: compile.Artifacts? = nil

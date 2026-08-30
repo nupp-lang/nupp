@@ -1644,6 +1644,11 @@ answer. An algorithm whose register is itself a data structure imports
 and have no boxed Lua representation, so using `preferredU8` with `aot = "off"`
 is a named checking error.
 
+`@aot(target = "gpu")` records a GPU execution family in the verified IR and
+maps one whole-span loop iteration to one GPU invocation. It does not take a CPU
+`lanes` override. The native C and Wasm build policies refuse GPU IR; the SDL
+GPU emitter consumes it separately while that backend is experimental.
+
 A pointer-free parser builds an ordinary Lua value through
 `nupp.data.valuebuilder`, either by materializing one bounds-checked node and
 link blob in a single C traversal or by driving its iterative stream. See

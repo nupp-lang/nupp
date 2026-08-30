@@ -1,6 +1,6 @@
 local span = require("nupp.mem.span")
 
-@aot(lanes = false)
+@aot(target = "gpu")
 local function heavy(
     exclusive output: span.WriteSpan<float>,
     borrows input: span.Span<float>,

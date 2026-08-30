@@ -201,6 +201,39 @@ return {wrong = wrong}
 ]], "NUPP2115", "lanes is not a lane count")
 end
 
+function M.gpuIsAnExecutionTargetRatherThanALaneWidth()
+   reports([[
+local span = require("nupp.mem.span")
+
+@aot(target = "gpu")
+local function map(
+    exclusive output: span.WriteSpan<float>,
+    borrows input: span.Span<float>
+): nil
+    for i = 1, #input do
+        output[i] = input[i]
+    end
+end
+return {map = map}
+]], "", "a GPU map is an admitted AOT body")
+
+   reports([[
+@aot(target = "gpu", lanes = true)
+local function wrong(value: number): number
+    return value
+end
+return {wrong = wrong}
+]], "NUPP2115", "GPU invocation mapping does not also select CPU lanes")
+
+   reports([[
+@aot(target = "accelerator")
+local function wrong(value: number): number
+    return value
+end
+return {wrong = wrong}
+]], "NUPP2115", "the execution target is a closed vocabulary")
+end
+
 function M.simdAcceptsOnlyTheRequiredSetting()
    reports([[
 @aot(simd = false)

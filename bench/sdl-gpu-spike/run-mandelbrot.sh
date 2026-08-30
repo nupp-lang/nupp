@@ -18,11 +18,10 @@ NUPP_NATIVE_LIBRARY="$ROOT/build/lib/libnupp_native_dev.dylib"
 export LUA_PATH LUA_CPATH NUPP_NATIVE_LIBRARY
 
 luajit "$BENCH/generate-msl.lua" "$BENCH/mandelbrot.nupp" "$BUILD/mandelbrot.msl"
-${NUPP_NATIVE_CC:-clang} -std=c11 -O3 -Wall -Wextra -Werror -fPIC -dynamiclib \
-    -F"$FRAMEWORK" "$BENCH/mandelbrot-gpu.c" -framework SDL3 \
-    -Wl,-rpath,"$FRAMEWORK" -o "$BUILD/libmandelbrot_gpu.dylib"
+./bin/nupp build -O1 -o "$BUILD/api" src/nupp/gpu.nupp
+NUPP_GPU_LIBRARY=$(NUPP_SDL_FRAMEWORK_ROOT="$FRAMEWORK" ./scripts/toolchain native gpu)
+export NUPP_GPU_LIBRARY
 
-MANDELBROT_GPU_LIBRARY="$ROOT/$BUILD/libmandelbrot_gpu.dylib"
-MANDELBROT_GPU_SHADER="$ROOT/$BUILD/mandelbrot.msl"
-export MANDELBROT_GPU_LIBRARY MANDELBROT_GPU_SHADER
-exec bench/simd-mandelbrot/run.sh
+MANDELBROT_RESULTS="$ROOT/$BUILD/expected.bin" bench/simd-mandelbrot/run.sh
+exec luajit "$BENCH/mandelbrot-api.lua" \
+    "$ROOT/$BUILD/mandelbrot.msl" "$ROOT/$BUILD/expected.bin"

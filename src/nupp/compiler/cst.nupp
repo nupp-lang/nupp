@@ -111,6 +111,10 @@ interface cst.Hints
     --- LuaJIT. Checking records it; the AOT subset pass consumes it.
     aotRequired: boolean?
 
+    --- The execution family requested by `@aot(target = ...)`. Absent is the
+    --- established CPU target; `gpu` is consumed by the GPU emitter.
+    aotTarget: string?
+
     --- `@aot(lanes = false)` declines lane lowering for a body that would
     --- otherwise be lowered lane-parallel, so the vectorisation check does not
     --- report a loop that is deliberately scalar.

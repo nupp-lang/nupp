@@ -143,6 +143,7 @@ function M.globbingMatchesRecursivelyAndSortsPaths()
    write(inRoot("glob/nested/child.nupp"), "child")
    write(inRoot("glob/nested/deep/leaf.nupp"), "leaf")
    write(inRoot("glob/nested/deep/ignored.lua"), "ignored")
+   assert(files.createSymlink(inRoot("glob"), inRoot("glob/nested/deep/cycle"), "directory"))
 
    local matches = assert(files.glob(inRoot("glob/**/*.nupp")))
    local separator = package.config:sub(1, 1)

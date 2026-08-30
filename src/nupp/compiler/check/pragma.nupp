@@ -227,8 +227,20 @@ function pragma.install(c: state.Checker): state.StatHandlers
                 -- lane-parallel; `lanes = true` takes it whatever the estimate
                 -- says. Neither says anything about whether the body compiles.
                 local values = (stat as any).annotationValues
+                local target = values and values.target
+                local requested = target and stringValue(target.expr) or nil
+                if requested ~= nil then
+                    targetBody.aotTarget = requested
+                end
                 local lanes = values and values.lanes
-                if lanes and lanes.expr and lanes.expr.kind == "falseExpr" then
+                if requested == "gpu" then
+                    -- A GPU map assigns one source iteration to one invocation;
+                    -- CPU register gangs are a separate lowering and do not run.
+                    targetBody.lanesDeclined = true
+                    if lanes ~= nil then
+                        c.diag("NUPP2115", lanes, "@aot(target = \"gpu\") does not take a lanes override")
+                    end
+                elseif lanes and lanes.expr and lanes.expr.kind == "falseExpr" then
                     targetBody.lanesDeclined = true
                 elseif lanes and lanes.expr and lanes.expr.kind == "trueExpr" then
                     targetBody.lanesRequired = true

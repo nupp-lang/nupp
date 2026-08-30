@@ -706,6 +706,7 @@ provider_sources() {
             net|native-net)    printf '%s' " c/net.c" ;;
             tls|native-tls)    printf '%s' " c/tls.c" ;;
             http)              printf '%s' " c/http.c" ;;
+            gpu)               printf '%s' " c/gpu.c" ;;
             uuid) ;;
             # Host-only features select no provider source of their own.
             json|lpeg|lua-utf8|workers) ;;
@@ -911,9 +912,9 @@ build_native_library() {
     sdlInclude=""
     sdlLibraries=""
     case " $providerSources " in
-        *" c/glob.c "*)
+        *" c/glob.c "*|*" c/gpu.c "*)
             [ -n "${NUPP_SDL_FRAMEWORK_ROOT:-}" ] \
-                || die "the SDL glob spike needs NUPP_SDL_FRAMEWORK_ROOT"
+                || die "the SDL filesystem and GPU features need NUPP_SDL_FRAMEWORK_ROOT"
             sdlInclude="-F$NUPP_SDL_FRAMEWORK_ROOT"
             sdlLibraries="-F$NUPP_SDL_FRAMEWORK_ROOT -framework SDL3"
             sdlLibraries="$sdlLibraries -Wl,-rpath,$NUPP_SDL_FRAMEWORK_ROOT"

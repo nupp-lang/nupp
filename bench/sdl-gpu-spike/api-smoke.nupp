@@ -1,0 +1,4 @@
+local gpu = require("nupp.gpu")
+
+local context = gpu.open()
+print("SDL GPU driver: " .. context:driver())

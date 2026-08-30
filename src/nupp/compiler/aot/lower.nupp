@@ -4709,6 +4709,9 @@ end
 
 --- What one `@aot` application asks the backend for.
 record lower.Contract
+    --- Which execution family consumes this program.
+    target: 'cpu' | 'gpu'
+
     --- Whether a multiply and an add may be fused into one rounding. Per
     --- function and carried in the IR, because it decides what the function
     --- answers rather than only how fast it gets there.
@@ -4734,6 +4737,7 @@ function lower.contract(
 ): lower.Contract
     local relaxed = body.relaxedGuarantees
     local contract = new lower.Contract(
+        target = body.aotTarget == "gpu" and "gpu" or "cpu",
         fpContract = relaxed ~= nil and relaxed["fp-contract"] == true,
         wantsLanes = body.lanesDeclined ~= true,
         lanesRequired = body.lanesRequired == true
@@ -4747,15 +4751,27 @@ function lower.contract(
         if written == "aot" then
             for _, argument in ipairs(link.annotationArgs or {}) do
                 local name = argument.name ~= nil and (argument.name as lexer.Token).text or nil
-                if name ~= "lanes" then
-                    context.reject(lower.site(link), "@aot takes lanes = true, lanes = false, or nothing")
+                if name ~= "lanes" and name ~= "target" then
+                    context.reject(
+                        lower.site(link),
+                        "@aot takes target = \"cpu\", target = \"gpu\", a lanes override, or nothing"
+                    )
                 end
 
                 local value = argument.expr
-                if value ~= nil and value.kind == "falseExpr" then
+                if name == "target" then
+                    local token = value ~= nil and cst.firstToken(value as cst.Node) or nil
+                    local requested = token ~= nil and (token as lexer.Token).text or ""
+                    if requested == "\"gpu\"" or requested == "'gpu'" then
+                        contract.target = "gpu"
+                        contract.wantsLanes = false
+                    elseif requested ~= "\"cpu\"" and requested ~= "'cpu'" then
+                        context.reject(lower.site(argument), "@aot target must be \"cpu\" or \"gpu\"")
+                    end
+                elseif value ~= nil and value.kind == "falseExpr" then
                     contract.wantsLanes = false
                 end
-                if value ~= nil and value.kind == "trueExpr" then
+                if name == "lanes" and value ~= nil and value.kind == "trueExpr" then
                     contract.lanesRequired = true
                 end
             end
@@ -4955,6 +4971,7 @@ function lower.program(
             name = name,
             symbol = symbol,
             entryMode = entryMode as any,
+            executionTarget = contract.target,
             builderMode = kernel.builderMode,
             runtimeAbi = kernel.usesLua and "lua-5.1" or nil,
             registrar = kernel.usesLua and symbol .. "_register" or nil,
@@ -5086,6 +5103,7 @@ function lower.program(
         name = name,
         symbol = symbol,
         entryMode = "kernel",
+        executionTarget = contract.target,
         fpContract = contract.fpContract,
         wantsLanes = contract.wantsLanes,
         lanesRequired = contract.lanesRequired,

@@ -518,6 +518,9 @@ local function preamble(program: scalarIR.Program): {string}
         string
     } = {"native-c-ir " .. tostring(scalarIR.VERSION), "function " .. program.name, "symbol " .. program.symbol,}
     lines[#lines + 1] = "entry " .. program.entryMode
+    if program.executionTarget == "gpu" then
+        lines[#lines + 1] = "target gpu"
+    end
     -- Printed so the reuse claim can be pinned in the IR, where it is proved,
     -- rather than by grepping the C it eventually shapes.
     if program.reusableScratch ~= nil then

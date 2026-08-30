@@ -46,6 +46,7 @@ if #refusals > 0 then
 end
 assert(#programs == 1, "the spike accepts exactly one @aot function")
 local program = programs[1]
+assert(program.executionTarget == "gpu", "GPU emission requires @aot(target = \"gpu\")")
 assert(program.entryMode == "kernel" and program.loop, "GPU entry must be a map kernel")
 assert(program.loop.first == 1 and program.loop.last == program.loop.count,
    "the spike currently dispatches a whole span")

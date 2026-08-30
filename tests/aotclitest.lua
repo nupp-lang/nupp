@@ -107,6 +107,21 @@ end
 return {escapes = escapes, Point = Point, Escape = Escape,}
 ]]
 
+function M.theNativeEmitterDoesNotSilentlyCompileAGpuTargetAsCpu()
+    local dir = project({
+        ["gpu.nupp"] = [[
+@aot(target = "gpu")
+local function doubled(value: number): number
+    return value * 2
+end
+return {doubled = doubled}
+]],
+    })
+    local out, code = run(dir, "--emit c gpu.nupp")
+    assert(code ~= 0, out)
+    assert(out:find('native C backend does not consume @aot(target = "gpu")', 1, true), out)
+end
+
 -- A block kernel -- no guard prologue -- whose loop counts one span and reads another.
 -- Nothing relates their lengths, and before this was refused here it reached the IR
 -- verifier and came back as a Lua traceback with no source position in it.

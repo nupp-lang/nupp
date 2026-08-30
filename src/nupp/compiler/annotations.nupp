@@ -398,6 +398,18 @@ function annotations.hydrateBuiltins(registry: annotations.Registry, typesApi: a
     -- that was `simd = true`, withdrawn because it turned a performance
     -- property into a build error.
     aot.members = {
+        target = member(
+            "target",
+            optional(
+                typesApi.union({
+                    typesApi.literal("cpu"),
+                    typesApi.literal("gpu")
+                })
+            ),
+            true,
+            "Selects the execution family: `\"cpu\"` (the default) or `\"gpu\"`.",
+            "guides/ahead-of-time"
+        ),
         lanes = member(
             "lanes",
             optional(typesApi.boolean),
@@ -406,7 +418,7 @@ function annotations.hydrateBuiltins(registry: annotations.Registry, typesApi: a
             "guides/ahead-of-time"
         ),
     }
-    aot.memberOrder = {"lanes"}
+    aot.memberOrder = {"target", "lanes"}
 
     local debug = registry:get("debug")
     local debugDocs = "reference/derives"

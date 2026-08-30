@@ -4,8 +4,8 @@ This is implementation evidence, not a proposal or a supported backend.
 
 The GPU path starts with an ordinary checked `@aot` function in `heavy.nupp`.
 `generate-msl.lua` consumes the existing verified scalar IR and admits only a
-fixed-width map subset. `gpu-generated.c` passes that shader to SDL GPU and
-checks the downloaded values against the same computation on the CPU.
+fixed-width map subset. `nupp.gpu` compiles that shader through SDL GPU and
+keeps its typed buffers resident until an explicit download.
 
 On an Apple Silicon Mac with SDL 3.4.14's official framework, 1,048,576 results
 from the generated kernel agreed with the CPU. A separate transfer-inclusive
@@ -23,28 +23,36 @@ download. Creating the Metal device and compiling two source shaders took
 58.4 ms. Production artifacts should carry precompiled shaders and cache the
 device, pipelines, and buffers.
 
-`run-mandelbrot.sh` adds SDL GPU to the existing `bench/simd-mandelbrot`
-harness instead of defining a friendlier GPU workload. It uses the same
-precomputed 1024x768 binary32 point array, 256-iteration limit, structs,
-checksum, full per-pixel scalar comparison, warmups, one-second timing windows,
-and output format. The timed GPU call includes the upload and download needed
-to implement that CPU-span ABI; device, pipeline, and buffer creation are
+`run-mandelbrot.sh` runs the existing `bench/simd-mandelbrot` harness and then
+the public-shaped `nupp.gpu` path instead of defining a friendlier GPU workload.
+They use the same precomputed 1024x768 binary32 point array, 256-iteration
+limit, structs, checksum, full per-pixel comparison, warmups, one-second timing
+windows, and output format. The timed GPU call dispatches already-resident
+buffers and synchronizes; allocation, compilation, upload, and download are
 outside it.
 
 One Apple Silicon run with SDL 3.4.14 measured:
 
 | implementation | ns/frame | MPix/s |
 | --- | ---: | ---: |
-| Nupp f32x8 | 3,827,664 | 205.46 |
-| Nupp f32x4 | 4,847,764 | 162.23 |
-| Nupp scalar | 12,611,499 | 62.36 |
-| SDL GPU end-to-end | 530,264 | 1,483.10 |
+| Nupp f32x8 | 3,905,448 | 201.37 |
+| Nupp f32x4 | 4,947,620 | 158.95 |
+| Nupp scalar | 12,798,847 | 61.45 |
+| SDL GPU resident API | 378,246 | 2,079.16 |
 
 All 786,432 GPU records agreed exactly with Nupp's scalar body and produced
 checksum `46372998`. Metal enables contraction when it compiles source by
 default, so the generated MSL explicitly disables contraction to preserve the
 rounding points in `nupp.math.f32`; without it the check caught a one-iteration
 difference at pixel 54,903.
+
+The API takes the useful shape from Mojo/MAX: a context owns typed device
+buffers and compiled kernels, commands enqueue without waiting, and
+`synchronize()` is explicit. Upload/download staging is allocated lazily, so a
+buffer used only between kernels is only device storage. Nupp additionally has
+buffers and kernels borrow the affine context, which makes destroying their
+device while they are live a checking error. It does not copy MAX's raw pointer
+surface, mandatory framework dependency, or heavyweight tensor abstractions.
 
 `mandelbrot-mojo.mojo` is a same-machine Mojo/MAX control. It uses the same
 1024x768 point array, binary32 rounding, structs, 256-iteration limit,
@@ -75,8 +83,10 @@ apparent large Mojo advantage comes from comparing Mojo's page-locked
 `HostBuffer` directly with Nupp's ordinary spans: SDL's end-to-end call copies
 those spans into and out of persistent transfer buffers. When Mojo is given
 ordinary pageable arrays instead, its direct copy path is over 3x slower than
-SDL's. The useful optimization for a future supported API is therefore a
-first-class resident or staged GPU buffer, not bypassing SDL.
+SDL's. The implemented optimization is therefore a first-class resident GPU
+buffer, not bypassing SDL. Ordinary spans remain explicit upload/download
+boundaries; intermediate buffers stay on the GPU across any number of
+dispatches.
 
 Run it on macOS with an SDL framework directory:
 
@@ -86,11 +96,11 @@ NUPP_SDL_FRAMEWORK_ROOT=/path/to/SDL3.framework/.. \
 ```
 
 `runtime/native/c/glob.c` is replaced in this branch by an SDL implementation.
-It retains `**`, drops bracket classes, and passes `filestest`. It is 218 lines
-instead of 464. One thousand `src/**/*.nupp` scans took 1.00 seconds versus
-1.23 seconds with libuv. SDL follows directory symlinks while recursively
-globbing; a cycle was followed until the OS path limit and produced 66 bogus
-matches, so this replacement is not ready to land as written.
+It retains `**`, drops bracket classes, and passes `filestest`. One thousand
+`src/**/*.nupp` scans took 1.00 seconds versus 1.23 seconds with libuv. SDL's
+recursive glob follows directory links, so the adapter filters any result whose
+wildcard-discovered prefix is a symlink; the suite includes a directory cycle
+and verifies it contributes no aliases.
 
 Direct hot-cache read measurements did not justify replacing the file lane:
 

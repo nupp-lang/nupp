@@ -49,6 +49,18 @@ local FEATURES: {[string]: native.Feature} = {
         modules = {"nupp.data.json"},
         exports = {"nupp.data.json"},
     },
+    [
+        "native.gpu"
+    ] = {
+        name = "gpu",
+        module = "nupp.gpu",
+        runtimeModule = "nupp.gpu",
+        provider = "nupp_native",
+        providerFeature = "gpu",
+        library = "nupp_native",
+        binary = true,
+        requires = {"runtime.native", "runtime.spanview"},
+    },
     -- The rock, for source that requires it by name. `nupp.data.utf8` is not
     -- that source any more, so this is reached only through bundled Lua --
     -- lunamark's entity table -- and no longer through the standard library.

@@ -13,6 +13,69 @@
 #include <stdlib.h>
 #include <string.h>
 
+#if defined(_WIN32)
+#include <windows.h>
+#else
+#include <sys/stat.h>
+#endif
+
+static bool path_is_link(const char *path) {
+#if defined(_WIN32)
+    DWORD attributes;
+    int count = MultiByteToWideChar(CP_UTF8, MB_ERR_INVALID_CHARS, path, -1, NULL, 0);
+    wchar_t *wide;
+    if (count <= 0) {
+        return false;
+    }
+    wide = malloc((size_t)count * sizeof *wide);
+    if (wide == NULL) {
+        return false;
+    }
+    if (MultiByteToWideChar(CP_UTF8, MB_ERR_INVALID_CHARS, path, -1, wide, count) <= 0) {
+        free(wide);
+        return false;
+    }
+    attributes = GetFileAttributesW(wide);
+    free(wide);
+    return attributes != INVALID_FILE_ATTRIBUTES
+        && (attributes & FILE_ATTRIBUTE_REPARSE_POINT) != 0;
+#else
+    struct stat info;
+    return lstat(path, &info) == 0 && S_ISLNK(info.st_mode);
+#endif
+}
+
+/* SDL_GlobDirectory follows directory links during a recursive walk. Reject a
+ * result as soon as one discovered path component is a link: this preserves a
+ * literal symlink prefix while preventing cycles and duplicate aliases below
+ * the wildcard root. */
+static bool has_linked_prefix(const char *base, const char *relative) {
+    size_t base_length = strlen(base);
+    size_t relative_length = strlen(relative);
+    char *joined = malloc(base_length + relative_length + 2);
+    char *component;
+    char *slash;
+    bool linked = false;
+    if (joined == NULL) {
+        return false;
+    }
+    memcpy(joined, base, base_length);
+    joined[base_length] = '/';
+    memcpy(joined + base_length + 1, relative, relative_length + 1);
+    component = joined + base_length + 1;
+    while ((slash = strchr(component, '/')) != NULL) {
+        *slash = 0;
+        if (path_is_link(joined)) {
+            linked = true;
+            break;
+        }
+        *slash = '/';
+        component = slash + 1;
+    }
+    free(joined);
+    return linked;
+}
+
 static bool matches_component(
     const char *pattern, size_t pattern_length, const char *name, size_t name_length
 ) {
@@ -182,7 +245,7 @@ NUPP_EXPORT NuppBytes *nuppFilesGlob(const uint8_t *data, size_t length) {
     if (recursive) {
         int kept = 0;
         for (at = 0; at < count; at++) {
-            if (matches_path(relative, matches[at])) {
+            if (!has_linked_prefix(base, matches[at]) && matches_path(relative, matches[at])) {
                 matches[kept++] = matches[at];
             }
         }

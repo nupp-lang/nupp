@@ -257,7 +257,7 @@ any of their names.
 | `@deprecated` | optional reason and replacement | declaration, field, c-declaration |
 | `@syntax` | one syntax name | local binding |
 | `@jit` | none | function |
-| `@aot` | `lanes = true` or `lanes = false` | function |
+| `@aot` | `target = "cpu"` or `target = "gpu"`; `lanes = true` or `lanes = false` | function |
 
 ### `@allow`
 
@@ -449,6 +449,12 @@ per byte it touches. `lanes = true` and `lanes = false` override that estimate,
 and neither requires the lowering to succeed. See
 [ahead-of-time.md](../guides/ahead-of-time.md#build-policy) for a full kernel,
 the build policy, and what the backend does not do yet.
+
+`target = "gpu"` records a GPU execution family in the verified IR and maps one
+whole-span loop iteration to one GPU invocation. It therefore does not take a
+CPU `lanes` override. The native C and Wasm build policies refuse GPU IR; the
+experimental SDL GPU emitter and resident-buffer API live in
+`bench/sdl-gpu-spike` while that backend is being established.
 
 ## Contracts in type position
 

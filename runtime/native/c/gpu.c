@@ -1,0 +1,456 @@
+/* SDL GPU command recording for Nupp's explicit resident-buffer API. */
+
+#include "nupp_native.h"
+
+#include <SDL3/SDL.h>
+
+#include <stdlib.h>
+#include <string.h>
+
+#define NUPP_GPU_MAX_BINDINGS 16u
+#define NUPP_GPU_MAX_UNIFORMS 128u
+
+typedef struct NuppGpuContext NuppGpuContext;
+typedef struct NuppGpuBuffer NuppGpuBuffer;
+typedef struct NuppGpuKernel NuppGpuKernel;
+
+struct NuppGpuBuffer {
+    NuppGpuContext *context;
+    SDL_GPUBuffer *storage;
+    SDL_GPUTransferBuffer *upload;
+    SDL_GPUTransferBuffer *download;
+    uint32_t size;
+    bool upload_queued;
+    bool download_queued;
+    bool download_ready;
+    NuppGpuBuffer *next;
+};
+
+struct NuppGpuKernel {
+    NuppGpuContext *context;
+    SDL_GPUComputePipeline *pipeline;
+    uint32_t readonly_count;
+    uint32_t writable_count;
+    uint32_t uniform_size;
+    uint32_t threads;
+    NuppGpuKernel *next;
+};
+
+struct NuppGpuContext {
+    SDL_GPUDevice *device;
+    SDL_GPUCommandBuffer *commands;
+    NuppGpuBuffer *buffers;
+    NuppGpuKernel *kernels;
+    bool started_video;
+};
+
+static bool gpu_fail(const char *operation) {
+    nupp_fail_format("gpu: %s: %s", operation, SDL_GetError());
+    return false;
+}
+
+static bool owns_buffer(NuppGpuContext *context, NuppGpuBuffer *buffer) {
+    if (context == NULL || buffer == NULL || buffer->context != context) {
+        nupp_fail("gpu: buffer belongs to another or closed context");
+        return false;
+    }
+    return true;
+}
+
+static void reset_queued(NuppGpuContext *context, bool completed) {
+    NuppGpuBuffer *buffer;
+    for (buffer = context->buffers; buffer != NULL; buffer = buffer->next) {
+        buffer->upload_queued = false;
+        if (buffer->download_queued) {
+            buffer->download_queued = false;
+            buffer->download_ready = completed;
+        }
+    }
+}
+
+static void cancel_commands(NuppGpuContext *context) {
+    if (context->commands != NULL) {
+        SDL_CancelGPUCommandBuffer(context->commands);
+        context->commands = NULL;
+    }
+    reset_queued(context, false);
+}
+
+static SDL_GPUCommandBuffer *commands(NuppGpuContext *context) {
+    if (context == NULL || context->device == NULL) {
+        nupp_fail("gpu: context is closed");
+        return NULL;
+    }
+    if (context->commands == NULL) {
+        context->commands = SDL_AcquireGPUCommandBuffer(context->device);
+        if (context->commands == NULL) {
+            gpu_fail("acquire command buffer");
+        }
+    }
+    return context->commands;
+}
+
+NUPP_EXPORT NuppGpuContext *nuppGpuContextCreate(void) {
+    NuppGpuContext *context = calloc(1, sizeof *context);
+    if (context == NULL) {
+        nupp_fail("gpu: out of memory");
+        return NULL;
+    }
+    context->started_video = SDL_WasInit(SDL_INIT_VIDEO) == 0;
+    if (!SDL_InitSubSystem(SDL_INIT_VIDEO)) {
+        gpu_fail("initialize SDL video");
+        free(context);
+        return NULL;
+    }
+    context->device = SDL_CreateGPUDevice(SDL_GPU_SHADERFORMAT_MSL, false, NULL);
+    if (context->device == NULL) {
+        gpu_fail("create device");
+        if (context->started_video) {
+            SDL_QuitSubSystem(SDL_INIT_VIDEO);
+        }
+        free(context);
+        return NULL;
+    }
+    return context;
+}
+
+NUPP_EXPORT const char *nuppGpuContextDriver(const NuppGpuContext *context) {
+    if (context == NULL || context->device == NULL) {
+        return "closed";
+    }
+    return SDL_GetGPUDeviceDriver(context->device);
+}
+
+NUPP_EXPORT void nuppGpuContextDestroy(NuppGpuContext *context) {
+    NuppGpuKernel *kernel;
+    NuppGpuBuffer *buffer;
+    if (context == NULL) {
+        return;
+    }
+    cancel_commands(context);
+    while ((kernel = context->kernels) != NULL) {
+        context->kernels = kernel->next;
+        SDL_ReleaseGPUComputePipeline(context->device, kernel->pipeline);
+        free(kernel);
+    }
+    while ((buffer = context->buffers) != NULL) {
+        context->buffers = buffer->next;
+        if (buffer->download != NULL) {
+            SDL_ReleaseGPUTransferBuffer(context->device, buffer->download);
+        }
+        if (buffer->upload != NULL) {
+            SDL_ReleaseGPUTransferBuffer(context->device, buffer->upload);
+        }
+        if (buffer->storage != NULL) {
+            SDL_ReleaseGPUBuffer(context->device, buffer->storage);
+        }
+        free(buffer);
+    }
+    if (context->device != NULL) {
+        SDL_DestroyGPUDevice(context->device);
+    }
+    if (context->started_video) {
+        SDL_QuitSubSystem(SDL_INIT_VIDEO);
+    }
+    free(context);
+}
+
+NUPP_EXPORT NuppGpuBuffer *nuppGpuBufferCreate(
+    NuppGpuContext *context, size_t size
+) {
+    NuppGpuBuffer *buffer;
+    SDL_GPUBufferCreateInfo storage_info;
+    if (context == NULL || context->device == NULL || size == 0 || size > UINT32_MAX) {
+        nupp_fail("gpu: buffer size must be from 1 through 4294967295 bytes");
+        return NULL;
+    }
+    buffer = calloc(1, sizeof *buffer);
+    if (buffer == NULL) {
+        nupp_fail("gpu: out of memory");
+        return NULL;
+    }
+    SDL_zero(storage_info);
+    storage_info.usage = SDL_GPU_BUFFERUSAGE_COMPUTE_STORAGE_READ
+        | SDL_GPU_BUFFERUSAGE_COMPUTE_STORAGE_WRITE;
+    storage_info.size = (uint32_t)size;
+    buffer->storage = SDL_CreateGPUBuffer(context->device, &storage_info);
+    if (buffer->storage == NULL) {
+        gpu_fail("create resident buffer");
+        free(buffer);
+        return NULL;
+    }
+    buffer->context = context;
+    buffer->size = (uint32_t)size;
+    buffer->next = context->buffers;
+    context->buffers = buffer;
+    return buffer;
+}
+
+NUPP_EXPORT NuppGpuKernel *nuppGpuKernelCreate(
+    NuppGpuContext *context,
+    const uint8_t *source,
+    size_t source_length,
+    const uint8_t *entrypoint_data,
+    size_t entrypoint_length,
+    uint32_t readonly_count,
+    uint32_t writable_count,
+    uint32_t uniform_size,
+    uint32_t threads
+) {
+    NuppGpuKernel *kernel;
+    NuppText entrypoint;
+    SDL_GPUComputePipelineCreateInfo info;
+    uint8_t *terminated;
+    if (context == NULL || context->device == NULL || source == NULL || source_length == 0) {
+        nupp_fail("gpu: kernel needs a context and shader source");
+        return NULL;
+    }
+    if (readonly_count > NUPP_GPU_MAX_BINDINGS
+        || writable_count > NUPP_GPU_MAX_BINDINGS
+        || uniform_size > NUPP_GPU_MAX_UNIFORMS
+        || threads == 0) {
+        nupp_fail("gpu: invalid kernel binding, uniform, or thread count");
+        return NULL;
+    }
+    if (!nupp_text(&entrypoint, entrypoint_data, entrypoint_length, "GPU entrypoint")) {
+        return NULL;
+    }
+    terminated = malloc(source_length + 1);
+    kernel = calloc(1, sizeof *kernel);
+    if (terminated == NULL || kernel == NULL) {
+        nupp_fail("gpu: out of memory");
+        free(terminated);
+        free(kernel);
+        nupp_text_free(&entrypoint);
+        return NULL;
+    }
+    memcpy(terminated, source, source_length);
+    terminated[source_length] = 0;
+    SDL_zero(info);
+    info.code_size = source_length + 1;
+    info.code = terminated;
+    info.entrypoint = entrypoint.value;
+    info.format = SDL_GPU_SHADERFORMAT_MSL;
+    info.num_readonly_storage_buffers = readonly_count;
+    info.num_readwrite_storage_buffers = writable_count;
+    info.num_uniform_buffers = uniform_size == 0 ? 0 : 1;
+    info.threadcount_x = threads;
+    info.threadcount_y = 1;
+    info.threadcount_z = 1;
+    kernel->pipeline = SDL_CreateGPUComputePipeline(context->device, &info);
+    free(terminated);
+    nupp_text_free(&entrypoint);
+    if (kernel->pipeline == NULL) {
+        gpu_fail("compile compute kernel");
+        free(kernel);
+        return NULL;
+    }
+    kernel->context = context;
+    kernel->readonly_count = readonly_count;
+    kernel->writable_count = writable_count;
+    kernel->uniform_size = uniform_size;
+    kernel->threads = threads;
+    kernel->next = context->kernels;
+    context->kernels = kernel;
+    return kernel;
+}
+
+NUPP_EXPORT bool nuppGpuBufferUpload(
+    NuppGpuContext *context, NuppGpuBuffer *buffer, const void *source, size_t size
+) {
+    SDL_GPUCommandBuffer *command_buffer;
+    SDL_GPUCopyPass *copy;
+    SDL_GPUTransferBufferLocation from;
+    SDL_GPUBufferRegion to;
+    SDL_GPUTransferBufferCreateInfo upload_info;
+    void *mapped;
+    if (!owns_buffer(context, buffer) || source == NULL || size != buffer->size) {
+        if (source == NULL || (buffer != NULL && size != buffer->size)) {
+            nupp_fail("gpu: upload must fill the complete resident buffer");
+        }
+        return false;
+    }
+    if (buffer->upload == NULL) {
+        SDL_zero(upload_info);
+        upload_info.usage = SDL_GPU_TRANSFERBUFFERUSAGE_UPLOAD;
+        upload_info.size = buffer->size;
+        buffer->upload = SDL_CreateGPUTransferBuffer(context->device, &upload_info);
+        if (buffer->upload == NULL) {
+            return gpu_fail("create upload buffer");
+        }
+    }
+    mapped = SDL_MapGPUTransferBuffer(context->device, buffer->upload, buffer->upload_queued);
+    if (mapped == NULL) {
+        return gpu_fail("map upload buffer");
+    }
+    memcpy(mapped, source, size);
+    SDL_UnmapGPUTransferBuffer(context->device, buffer->upload);
+    command_buffer = commands(context);
+    if (command_buffer == NULL) {
+        return false;
+    }
+    SDL_zero(from);
+    from.transfer_buffer = buffer->upload;
+    SDL_zero(to);
+    to.buffer = buffer->storage;
+    to.size = buffer->size;
+    copy = SDL_BeginGPUCopyPass(command_buffer);
+    if (copy == NULL) {
+        gpu_fail("begin upload pass");
+        cancel_commands(context);
+        return false;
+    }
+    SDL_UploadToGPUBuffer(copy, &from, &to, false);
+    SDL_EndGPUCopyPass(copy);
+    buffer->upload_queued = true;
+    return true;
+}
+
+NUPP_EXPORT bool nuppGpuDispatchOne(
+    NuppGpuContext *context,
+    NuppGpuKernel *kernel,
+    NuppGpuBuffer *input,
+    NuppGpuBuffer *output,
+    const void *uniforms,
+    size_t uniform_size,
+    uint32_t count
+) {
+    SDL_GPUCommandBuffer *command_buffer;
+    SDL_GPUComputePass *compute;
+    SDL_GPUStorageBufferReadWriteBinding writable;
+    SDL_GPUBuffer *readable[1];
+    if (context == NULL || kernel == NULL || kernel->context != context) {
+        nupp_fail("gpu: kernel belongs to another or closed context");
+        return false;
+    }
+    if (!owns_buffer(context, input) || !owns_buffer(context, output)) {
+        return false;
+    }
+    if (kernel->readonly_count != 1 || kernel->writable_count != 1) {
+        nupp_fail("gpu: this dispatch surface requires one input and one output buffer");
+        return false;
+    }
+    if (uniform_size != kernel->uniform_size
+        || (uniform_size != 0 && uniforms == NULL)) {
+        nupp_fail("gpu: dispatch uniforms do not match the compiled kernel");
+        return false;
+    }
+    if (count == 0) {
+        return true;
+    }
+    command_buffer = commands(context);
+    if (command_buffer == NULL) {
+        return false;
+    }
+    if (uniform_size != 0) {
+        SDL_PushGPUComputeUniformData(command_buffer, 0, uniforms, (uint32_t)uniform_size);
+    }
+    SDL_zero(writable);
+    writable.buffer = output->storage;
+    compute = SDL_BeginGPUComputePass(command_buffer, NULL, 0, &writable, 1);
+    if (compute == NULL) {
+        gpu_fail("begin compute pass");
+        cancel_commands(context);
+        return false;
+    }
+    readable[0] = input->storage;
+    SDL_BindGPUComputePipeline(compute, kernel->pipeline);
+    SDL_BindGPUComputeStorageBuffers(compute, 0, readable, 1);
+    SDL_DispatchGPUCompute(compute, (count + kernel->threads - 1) / kernel->threads, 1, 1);
+    SDL_EndGPUComputePass(compute);
+    return true;
+}
+
+NUPP_EXPORT bool nuppGpuBufferDownload(
+    NuppGpuContext *context, NuppGpuBuffer *buffer
+) {
+    SDL_GPUCommandBuffer *command_buffer;
+    SDL_GPUCopyPass *copy;
+    SDL_GPUBufferRegion from;
+    SDL_GPUTransferBufferLocation to;
+    SDL_GPUTransferBufferCreateInfo download_info;
+    if (!owns_buffer(context, buffer)) {
+        return false;
+    }
+    if (buffer->download_queued) {
+        nupp_fail("gpu: buffer already has a download queued");
+        return false;
+    }
+    if (buffer->download == NULL) {
+        SDL_zero(download_info);
+        download_info.usage = SDL_GPU_TRANSFERBUFFERUSAGE_DOWNLOAD;
+        download_info.size = buffer->size;
+        buffer->download = SDL_CreateGPUTransferBuffer(context->device, &download_info);
+        if (buffer->download == NULL) {
+            return gpu_fail("create download buffer");
+        }
+    }
+    command_buffer = commands(context);
+    if (command_buffer == NULL) {
+        return false;
+    }
+    SDL_zero(from);
+    from.buffer = buffer->storage;
+    from.size = buffer->size;
+    SDL_zero(to);
+    to.transfer_buffer = buffer->download;
+    copy = SDL_BeginGPUCopyPass(command_buffer);
+    if (copy == NULL) {
+        gpu_fail("begin download pass");
+        cancel_commands(context);
+        return false;
+    }
+    SDL_DownloadFromGPUBuffer(copy, &from, &to);
+    SDL_EndGPUCopyPass(copy);
+    buffer->download_queued = true;
+    buffer->download_ready = false;
+    return true;
+}
+
+NUPP_EXPORT bool nuppGpuSynchronize(NuppGpuContext *context) {
+    SDL_GPUFence *fence;
+    if (context == NULL || context->device == NULL) {
+        nupp_fail("gpu: context is closed");
+        return false;
+    }
+    if (context->commands == NULL) {
+        return true;
+    }
+    fence = SDL_SubmitGPUCommandBufferAndAcquireFence(context->commands);
+    context->commands = NULL;
+    if (fence == NULL) {
+        reset_queued(context, false);
+        return gpu_fail("submit commands");
+    }
+    if (!SDL_WaitForGPUFences(context->device, true, &fence, 1)) {
+        SDL_ReleaseGPUFence(context->device, fence);
+        reset_queued(context, false);
+        return gpu_fail("wait for commands");
+    }
+    SDL_ReleaseGPUFence(context->device, fence);
+    reset_queued(context, true);
+    return true;
+}
+
+NUPP_EXPORT bool nuppGpuBufferRead(
+    NuppGpuContext *context, NuppGpuBuffer *buffer, void *destination, size_t size
+) {
+    void *mapped;
+    if (!owns_buffer(context, buffer) || destination == NULL || size != buffer->size) {
+        if (destination == NULL || (buffer != NULL && size != buffer->size)) {
+            nupp_fail("gpu: read must consume the complete downloaded buffer");
+        }
+        return false;
+    }
+    if (!buffer->download_ready) {
+        nupp_fail("gpu: buffer has no synchronized download");
+        return false;
+    }
+    mapped = SDL_MapGPUTransferBuffer(context->device, buffer->download, false);
+    if (mapped == NULL) {
+        return gpu_fail("map download buffer");
+    }
+    memcpy(destination, mapped, size);
+    SDL_UnmapGPUTransferBuffer(context->device, buffer->download);
+    return true;
+}

@@ -1,0 +1,339 @@
+module nupp.gpu
+
+--[[
+Resident compute buffers over SDL GPU.
+
+The context owns every buffer and compiled kernel created from it. Buffers and
+kernels borrow that context, so checked code cannot close the device while one
+is live. Uploads, dispatches, and downloads only enqueue commands;
+`synchronize()` is the explicit CPU boundary.
+
+```nupp
+local gpu = require("nupp.gpu")
+local heap = require("nupp.mem.heap")
+
+local context = gpu.open()
+local input = context:buffer(ffi.typeof<float>(), 1024)
+local output = context:buffer(ffi.typeof<float>(), 1024)
+context:upload(input, values:read())
+context:dispatch(kernel, input, output, uniforms, 1024)
+context:enqueueDownload(output)
+context:synchronize()
+context:readDownloaded(output, result:write())
+```
+
+Ordinary spans remain the CPU boundary. A chain of GPU kernels keeps its
+intermediate buffers resident and pays upload/download only where the program
+asks for them.
+]]
+
+local native = require("nupp.runtime.native")
+local span = require("nupp.mem.span")
+local ffi = native.ffi
+-- Ad-hoc runs keep the compiler's broad development provider loaded. A GPU
+-- feature build can be named separately so it does not force SDL into that
+-- provider; packaged targets use their feature-matched `native.C` as usual.
+local gpuLibrary = os.getenv("NUPP_GPU_LIBRARY")
+local C = gpuLibrary and ffi.load(gpuLibrary) or native.C
+local gpu = {}
+
+native.ffi.cdef[[
+typedef struct NuppGpuContext NuppGpuContext;
+typedef struct NuppGpuBuffer NuppGpuBuffer;
+typedef struct NuppGpuKernel NuppGpuKernel;
+NuppGpuContext *nuppGpuContextCreate(void);
+const char *nuppGpuContextDriver(const NuppGpuContext *);
+void nuppGpuContextDestroy(NuppGpuContext *);
+NuppGpuBuffer *nuppGpuBufferCreate(NuppGpuContext *, size_t);
+NuppGpuKernel *nuppGpuKernelCreate(
+    NuppGpuContext *, const uint8_t *, size_t, const uint8_t *, size_t,
+    uint32_t, uint32_t, uint32_t, uint32_t);
+bool nuppGpuBufferUpload(NuppGpuContext *, NuppGpuBuffer *, const void *, size_t);
+bool nuppGpuDispatchOne(
+    NuppGpuContext *, NuppGpuKernel *, NuppGpuBuffer *, NuppGpuBuffer *,
+    const void *, size_t, uint32_t);
+bool nuppGpuBufferDownload(NuppGpuContext *, NuppGpuBuffer *);
+bool nuppGpuSynchronize(NuppGpuContext *);
+bool nuppGpuBufferRead(NuppGpuContext *, NuppGpuBuffer *, void *, size_t);
+]]
+
+-- `native.C` is late-bound, so restore the ownership contracts that the literal
+-- cdef carries for the checker but a table lookup cannot preserve.
+local dispatchNative = C.nuppGpuDispatchOne as function(
+    any,
+    any,
+    any,
+    any,
+    borrows uniforms: const uint8[?],
+    integer,
+    integer
+): boolean
+
+--- One resident device allocation. Its storage is not CPU-addressable; upload
+--- and download explicitly cross that boundary.
+--- @export
+record gpu.Buffer<T>
+    private readonly _anchor: any
+    private readonly _handle: any
+    private readonly _width: integer
+
+    --- Number of elements, kept with the allocation.
+    readonly count: integer
+end
+
+--- One compiled compute entry owned by its context.
+--- @export
+record gpu.Kernel
+    private readonly _anchor: any
+    private readonly _handle: any
+    private readonly _uniformBytes: integer
+end
+
+sealed interface gpu.ContextToken
+    drop: nosuspend function(takes self: ContextToken): nil
+end
+
+--- Releases a GPU context and everything it owns.
+--- @export
+function gpu.destroyContext<T is gpu.ContextToken>(takes context: T): nil
+    context:drop()
+end
+
+--- An SDL GPU device and its current asynchronous command stream.
+--- @export
+record gpu.Context is gpu.ContextToken
+    private _handle: any
+    private _closed: boolean
+
+    --- Releases the device, compiled kernels, and resident buffers.
+    drop: nosuspend function(takes self: Context): nil
+
+    --- SDL backend selected for this device.
+    driver: function(borrows self: Context): string
+
+    --- Allocates a typed resident device buffer.
+    buffer: function<T>(borrows self: Context, element: ctype<T>, count: integer): gpu.Buffer<T> borrows (self)
+
+    --- Compiles one MSL compute entry. The current narrow AOT GPU subset emits
+    --- one read buffer, one write buffer, and one optional uniform block.
+    kernel: function(
+        borrows self: Context,
+        source: string,
+        entrypoint: string,
+        uniformBytes: integer,
+        threads: integer?
+    ): gpu.Kernel borrows (self)
+
+    --- Copies a complete shared span into a resident buffer and enqueues its
+    --- transfer. It does not wait.
+    upload: function<T>(borrows self: Context, borrows buffer: gpu.Buffer<T>, borrows source: span.Span<T>): nil
+
+    --- Enqueues one generated map kernel without waiting.
+    dispatch: function<I, O>(
+        borrows self: Context,
+        borrows kernel: gpu.Kernel,
+        borrows input: gpu.Buffer<I>,
+        borrows output: gpu.Buffer<O>,
+        uniforms: string,
+        count: integer
+    ): nil
+
+    --- Enqueues a complete resident-buffer download without waiting.
+    enqueueDownload: function<T>(borrows self: Context, borrows buffer: gpu.Buffer<T>): nil
+
+    --- Submits the accumulated command stream and waits for it.
+    synchronize: function(borrows self: Context): nil
+
+    --- Copies a download completed by `synchronize()` into a complete writable
+    --- span. No GPU work or waiting happens here.
+    readDownloaded: function<T>(
+        borrows self: Context,
+        borrows buffer: gpu.Buffer<T>,
+        borrows destination: span.WriteSpan<T>
+    ): nil
+
+    --- Convenience CPU boundary: enqueue, synchronize, and copy out.
+    download: function<T>(
+        borrows self: Context,
+        borrows buffer: gpu.Buffer<T>,
+        borrows destination: span.WriteSpan<T>
+    ): nil
+end
+
+local function live(borrows self: gpu.Context): any
+    if self._closed or self._handle == nil then
+        error("nupp: GPU context is closed", 3)
+    end
+    return self._handle
+end
+
+local function succeeded(ok: boolean, level: integer): nil
+    if not ok then
+        error("nupp: " .. ffi.string(C.nuppNativeError()), level)
+    end
+end
+
+-- Keep the element type on the span crossing the native boundary. Casting the
+-- pointer to bytes would erase its borrow provenance; only the C declaration
+-- needs to forget the pointee type.
+local function uploadTyped<T>(context: any, buffer: any, borrows source: const T[?], bytes: integer): boolean
+    local call = C.nuppGpuBufferUpload as function(any, any, borrows source: const T[?], integer): boolean
+    return call(context, buffer, source, bytes)
+end
+
+local function readTyped<T>(context: any, buffer: any, borrows destination: T[?], bytes: integer): boolean
+    local call = C.nuppGpuBufferRead as function(any, any, borrows destination: T[?], integer): boolean
+    return call(context, buffer, destination, bytes)
+end
+
+function gpu.Context.drop(takes self: gpu.Context): nil
+    local state = unsafe release self
+    if state._closed then
+        return
+    end
+    state._closed = true
+    local handle = state._handle
+    state._handle = nil
+    nosuspend do
+        local destroy = C.nuppGpuContextDestroy as nosuspend function(any): nil
+        destroy(handle)
+    end
+end
+
+function gpu.Context.driver(borrows self: gpu.Context): string
+    return ffi.string(C.nuppGpuContextDriver(live(self)))
+end
+
+function gpu.Context.buffer<T>(
+    borrows self: gpu.Context,
+    element: ctype<T>,
+    count: integer
+): gpu.Buffer<T> borrows (self)
+    if count < 0 then
+        error("nupp: GPU buffer count cannot be negative", 2)
+    end
+    local width = ffi.sizeof(element) as integer
+    if width <= 0 or count == 0 or count > 4294967295 // width then
+        error("nupp: GPU buffer must contain 1 through 4294967295 bytes", 2)
+    end
+    local handle = C.nuppGpuBufferCreate(live(self), width * count)
+    if handle == nil then
+        error("nupp: " .. ffi.string(C.nuppNativeError()), 2)
+    end
+
+    return new gpu.Buffer(_anchor = self, _handle = handle, _width = width, count = count)
+end
+
+function gpu.Context.kernel(
+    borrows self: gpu.Context,
+    source: string,
+    entrypoint: string,
+    uniformBytes: integer,
+    threads: integer?
+): gpu.Kernel borrows (self)
+    local group = threads or 256
+    if uniformBytes < 0 or uniformBytes > 128 then
+        error("nupp: GPU uniform block must be from 0 through 128 bytes", 2)
+    end
+    if group < 1 or group > 1024 then
+        error("nupp: GPU thread group must be from 1 through 1024", 2)
+    end
+    local handle = C.nuppGpuKernelCreate(
+        live(self),
+        source,
+        #source,
+        entrypoint,
+        #entrypoint,
+        1,
+        1,
+        uniformBytes,
+        group
+    )
+    if handle == nil then
+        error("nupp: " .. ffi.string(C.nuppNativeError()), 2)
+    end
+
+    return new gpu.Kernel(_anchor = self, _handle = handle, _uniformBytes = uniformBytes)
+end
+
+function gpu.Context.upload<T>(
+    borrows self: gpu.Context,
+    borrows buffer: gpu.Buffer<T>,
+    borrows source: span.Span<T>
+): nil
+    if #source ~= buffer.count then
+        error("nupp: GPU upload span length does not match its buffer", 2)
+    end
+    local pointer, count = source:ref()
+    succeeded(uploadTyped(live(self), buffer._handle, pointer, buffer._width * count), 2)
+end
+
+function gpu.Context.dispatch<I, O>(
+    borrows self: gpu.Context,
+    borrows kernel: gpu.Kernel,
+    borrows input: gpu.Buffer<I>,
+    borrows output: gpu.Buffer<O>,
+    uniforms: string,
+    count: integer
+): nil
+    if count < 0 or count > input.count or count > output.count then
+        error("nupp: GPU dispatch count is outside its buffers", 2)
+    end
+    if #uniforms ~= kernel._uniformBytes then
+        error("nupp: GPU dispatch uniform block has the wrong size", 2)
+    end
+    local uniformPointer = ffi.cast<const uint8[?]>(uniforms)
+    succeeded(
+        dispatchNative(live(self), kernel._handle, input._handle, output._handle, uniformPointer, #uniforms, count),
+        2
+    )
+end
+
+function gpu.Context.enqueueDownload<T>(borrows self: gpu.Context, borrows buffer: gpu.Buffer<T>): nil
+    succeeded(C.nuppGpuBufferDownload(live(self), buffer._handle), 2)
+end
+
+function gpu.Context.synchronize(borrows self: gpu.Context): nil
+    succeeded(C.nuppGpuSynchronize(live(self)), 2)
+end
+
+function gpu.Context.readDownloaded<T>(
+    borrows self: gpu.Context,
+    borrows buffer: gpu.Buffer<T>,
+    borrows destination: span.WriteSpan<T>
+): nil
+    if #destination ~= buffer.count then
+        error("nupp: GPU download span length does not match its buffer", 2)
+    end
+    local pointer, count = destination:ref()
+    succeeded(readTyped(live(self), buffer._handle, pointer, buffer._width * count), 2)
+end
+
+function gpu.Context.download<T>(
+    borrows self: gpu.Context,
+    borrows buffer: gpu.Buffer<T>,
+    borrows destination: span.WriteSpan<T>
+): nil
+    self:enqueueDownload(buffer)
+    self:synchronize()
+    self:readDownloaded(buffer, destination)
+end
+
+--- Opens the preferred SDL GPU device.
+--- @export
+--- @raises when SDL has no compatible GPU backend
+function gpu.open(): affine(gpu.Context, gpu.destroyContext)
+    local handle = C.nuppGpuContextCreate()
+    if handle == nil then
+        error("nupp: " .. ffi.string(C.nuppNativeError()), 2)
+    end
+
+    return new gpu.Context(_handle = handle, _closed = false)
+end
+
+gpu.Buffer = gpu.Buffer
+gpu.Kernel = gpu.Kernel
+gpu.Context = gpu.Context
+gpu.ContextToken = gpu.ContextToken
+
+export = gpu

@@ -28,7 +28,7 @@ local scalarIR = {}
 ---
 --- Carried in the IR and checked when it is read back, so an IR written by an
 --- older compiler is refused rather than half-understood.
-const scalarIR.VERSION = 21
+const scalarIR.VERSION = 22
 
 --- The calling convention selected for one complete AOT entry.
 ---
@@ -1224,6 +1224,10 @@ record scalarIR.Program
     --- The private ABI. Omitted IR from version 5 and earlier is refused by the
     --- version check rather than being guessed here.
     entryMode: scalarIR.EntryMode
+
+    --- The execution family selected by the source annotation. CPU is the
+    --- established native C path; GPU programs are consumed by a shader emitter.
+    executionTarget: ('cpu' | 'gpu')?
 
     --- The single stream-builder contract proved for this entry. Unlike the
     --- VM ABI, this is a compile-time fact consumed by emission; it is absent
