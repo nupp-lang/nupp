@@ -122,41 +122,16 @@ function providers.installEvaluator(state: any, env: any)
     state.reflectionViews = {}
     state.intrinsics = {}
     installTest(state, env)
-    peg.installEvaluator(
-        state,
-        env,
-        function(provider, family, payload, at)
-            return opaque(state, provider, family, payload, at)
-        end,
-        provenance
-    )
-    fieldcodec.installEvaluator(
-        state,
-        env,
-        function(provider, family, payload, at)
-            return opaque(state, provider, family, payload, at)
-        end,
-        provenance
-    )
-    typeprovider.installEvaluator(
-        state,
-        env,
-        function(provider, family, payload, at)
-            return opaque(state, provider, family, payload, at)
-        end,
-        provenance
-    )
-    deriveprovider.installEvaluator(
-        state,
-        env,
-        function(provider, family, payload, at)
-            return opaque(state, provider, family, payload, at)
-        end,
-        provenance,
-        function(handle)
-            return state.opaque[handle]
-        end
-    )
+    local function newOpaque(provider, family, payload, at)
+        return opaque(state, provider, family, payload, at)
+    end
+
+    peg.installEvaluator(state, env, newOpaque, provenance)
+    fieldcodec.installEvaluator(state, env, newOpaque, provenance)
+    typeprovider.installEvaluator(state, env, newOpaque, provenance)
+    deriveprovider.installEvaluator(state, env, newOpaque, provenance, function(handle)
+        return state.opaque[handle]
+    end)
 end
 
 function providers.materializeDeriveInfo(state: any, input: any): any

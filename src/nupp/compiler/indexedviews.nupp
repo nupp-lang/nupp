@@ -74,6 +74,30 @@ end
 
 indexed.describe = describe
 
+--- The element type of a `nupp.mem.span` Span, FixedSpan, WriteSpan or
+--- FixedWriteSpan nominal, and nil for anything else. Strict where `describe`
+--- is permissive: no ownership unwrapping, no intersection walk, and only the
+--- span module's own families answer.
+function indexed.spanElement(t: Type): Type?
+    if t.tag ~= "nominal" then
+        return nil
+    end
+    local nominal = t as T.Nominal
+    local origin = (nominal.origin or nominal) as T.Nominal
+    if origin.moduleName ~= "nupp.mem.span" then
+        return nil
+    end
+    if origin.name ~= "Span"
+        and origin.name ~= "FixedSpan"
+        and origin.name ~= "WriteSpan"
+        and origin.name ~= "FixedWriteSpan"
+    then
+        return nil
+    end
+
+    return nominal.typeArgs and nominal.typeArgs[1] or nil
+end
+
 --- Describes one sealed standard module function which creates a root view.
 --- The call checker supplies the already-resolved export identity; spelling is
 --- deliberately insufficient.

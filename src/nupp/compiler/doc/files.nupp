@@ -43,9 +43,6 @@ function files.collect(into: {string}?): nil
     collector = into
 end
 
--- The parentheses matter: `gsub` also returns how many replacements it made, and a path
--- that arrives somewhere expecting varargs, as `loadfile(path)` does, would silently
--- pick that count up as a second argument.
 local function hiddenBelow(root, candidate)
     local relative = candidate
     if candidate:sub(1, #root + 1) == root .. "/" then

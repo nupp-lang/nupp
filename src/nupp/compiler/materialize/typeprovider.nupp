@@ -214,61 +214,38 @@ function typeprovider.installEvaluator(state, env, opaque, provenance)
         )
     end)
 
-    installIntrinsic(state, library, "union", function(at, args)
-        local members, why = memberArray(state, args[1], "Type", "nupp.types.union")
-        if not members then
-            return nil, why
-        end
-        local byKey = {}
-        for _, member in ipairs(members) do
-            byKey[keyOf(state, member)] = member
-        end
-        local keys = {}
-        for key in pairs(byKey) do
-            keys[#keys + 1] = key
-        end
-        table.sort(keys)
-        local canonical = {}
-        for index, key in ipairs(keys) do
-            canonical[index] = byKey[key]
-        end
+    local function setLike(name, kind, separator)
+        installIntrinsic(state, library, name, function(at, args)
+            local members, why = memberArray(state, args[1], "Type", "nupp.types." .. name)
+            if not members then
+                return nil, why
+            end
+            local byKey = {}
+            for _, member in ipairs(members) do
+                byKey[keyOf(state, member)] = member
+            end
+            local keys = {}
+            for key in pairs(byKey) do
+                keys[#keys + 1] = key
+            end
+            table.sort(keys)
+            local canonical = {}
+            for index, key in ipairs(keys) do
+                canonical[index] = byKey[key]
+            end
 
-        return make(
-            state,
-            opaque,
-            "Type",
-            {kind = "union", members = canonical, key = "union:" .. table.concat(keys, "|")},
-            provenance(at, "union")
-        )
-    end)
+            return make(
+                state,
+                opaque,
+                "Type",
+                {kind = kind, members = canonical, key = kind .. ":" .. table.concat(keys, separator)},
+                provenance(at, kind)
+            )
+        end)
+    end
 
-    installIntrinsic(state, library, "intersection", function(at, args)
-        local members, why = memberArray(state, args[1], "Type", "nupp.types.intersection")
-        if not members then
-            return nil, why
-        end
-        local byKey = {}
-        for _, member in ipairs(members) do
-            byKey[keyOf(state, member)] = member
-        end
-        local keys = {}
-        for key in pairs(byKey) do
-            keys[#keys + 1] = key
-        end
-        table.sort(keys)
-        local canonical = {}
-        for index, key in ipairs(keys) do
-            canonical[index] = byKey[key]
-        end
-
-        return make(
-            state,
-            opaque,
-            "Type",
-            {kind = "intersection", members = canonical, key = "intersection:" .. table.concat(keys, "&")},
-            provenance(at, "intersection")
-        )
-    end)
+    setLike("union", "union", "|")
+    setLike("intersection", "intersection", "&")
 
     installIntrinsic(state, library, "optional", function(at, args)
         local inner = entry(state, args[1], "Type")

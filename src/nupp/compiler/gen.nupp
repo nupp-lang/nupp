@@ -1827,6 +1827,19 @@ function gen.generate(
         quote = literal.quote,
         renderData = literal.renderData,
         hotLibraries = hot and hot.libraries or {},
+        -- The node's closing `end` token, searched from the back, so generated
+        -- code can close on the source's own line. Carried here for the same
+        -- upvalue reason as everything else on this table.
+        endToken = function(node)
+            for index = #node, 1, -1 do
+                local child = node[index]
+                if cst.isToken(child) and child.kind == "end" then
+                    return child
+                end
+            end
+
+            return nil
+        end,
         -- Why each lowering that still builds a function inside a loop cannot be
         -- declared once for the module instead. Every one is the same shape: the body
         -- writes a local belonging to its own site, and Lua gives no way to hand
@@ -2292,14 +2305,7 @@ function gen.generate(
         end
         endActivation()
         emitDepth.fn = emitDepth.fn - 1
-        local endToken
-        for index = #body, 1, -1 do
-            local child = body[index]
-            if cst.isToken(child) and child.kind == "end" then
-                endToken = child
-                break
-            end
-        end
+        local endToken = pluck.endToken(body)
         e("end", endToken and endToken.line or nil)
     end
 
@@ -3871,44 +3877,32 @@ function gen.generate(
                     end
                 elseif x.target.indexedDirectAccess then
                     if bitMethod then
-                        if emitDepth.view.info(x.target.obj) then
-                            emitDepth.view.spanSlot(x.target.obj, x.target.expr)
-                            e("=" .. pluck.bitops.name .. "." .. bitMethod .. "(")
-                            emitDepth.view.spanSlot(x.target.obj, x.target.expr)
-                        else
-                            emit(x.target.obj)
-                            e(".pointer[")
-                            emit(x.target.obj)
-                            e(".offset+")
-                            emit(x.target.expr)
-                            e("-1]=" .. pluck.bitops.name .. "." .. bitMethod .. "(")
-                            emit(x.target.obj)
-                            e(".pointer[")
-                            emit(x.target.obj)
-                            e(".offset+")
-                            emit(x.target.expr)
-                            e("-1]")
-                        end
+                        emit(x.target.obj)
+                        e(".pointer[")
+                        emit(x.target.obj)
+                        e(".offset+")
+                        emit(x.target.expr)
+                        e("-1]=" .. pluck.bitops.name .. "." .. bitMethod .. "(")
+                        emit(x.target.obj)
+                        e(".pointer[")
+                        emit(x.target.obj)
+                        e(".offset+")
+                        emit(x.target.expr)
+                        e("-1]")
                         e(",", x.op.line)
                     else
-                        if emitDepth.view.info(x.target.obj) then
-                            emitDepth.view.spanSlot(x.target.obj, x.target.expr)
-                            e("=")
-                            emitDepth.view.spanSlot(x.target.obj, x.target.expr)
-                        else
-                            emit(x.target.obj)
-                            e(".pointer[")
-                            emit(x.target.obj)
-                            e(".offset+")
-                            emit(x.target.expr)
-                            e("-1]=")
-                            emit(x.target.obj)
-                            e(".pointer[")
-                            emit(x.target.obj)
-                            e(".offset+")
-                            emit(x.target.expr)
-                            e("-1]")
-                        end
+                        emit(x.target.obj)
+                        e(".pointer[")
+                        emit(x.target.obj)
+                        e(".offset+")
+                        emit(x.target.expr)
+                        e("-1]=")
+                        emit(x.target.obj)
+                        e(".pointer[")
+                        emit(x.target.obj)
+                        e(".offset+")
+                        emit(x.target.expr)
+                        e("-1]")
                         e((" %s "):format(x.op.kind:sub(1, -2)), x.op.line)
                     end
                     emit(x.value)
@@ -4651,14 +4645,7 @@ function gen.generate(
             -- block holds the opening and closing lines so that everything after the
             -- loop keeps its own, and LuaJIT compiles it away to nothing.
             e("do", sourceLine(x))
-            local endTok
-            for i = #x, 1, -1 do
-                local child = x[i]
-                if cst.isToken(child) and child.kind == "end" then
-                    endTok = child
-                    break
-                end
-            end
+            local endTok = pluck.endToken(x)
             e("end", endTok and endTok.line or nil)
             return
         end
@@ -4670,14 +4657,7 @@ function gen.generate(
             if x.constantBranch then
                 emit(x.constantBranch)
             end
-            local endTok
-            for i = #x, 1, -1 do
-                local child = x[i]
-                if cst.isToken(child) and child.kind == "end" then
-                    endTok = child
-                    break
-                end
-            end
+            local endTok = pluck.endToken(x)
             e("end", endTok and endTok.line or nil)
             return
         end
@@ -6180,14 +6160,7 @@ function gen.generate(
             end
             emitDepth.endActivation()
             emitDepth.fn = emitDepth.fn - 1
-            local endTok
-            for j = #body, 1, -1 do
-                local child = body[j]
-                if cst.isToken(child) and child.kind == "end" then
-                    endTok = child
-                    break
-                end
-            end
+            local endTok = pluck.endToken(body)
             e("return self end", endTok and endTok.line or nil)
             return
 
@@ -6252,14 +6225,7 @@ function gen.generate(
             end
             emitDepth.endActivation()
             emitDepth.fn = emitDepth.fn - 1
-            local endTok
-            for j = #body, 1, -1 do
-                local child = body[j]
-                if cst.isToken(child) and child.kind == "end" then
-                    endTok = child
-                    break
-                end
-            end
+            local endTok = pluck.endToken(body)
             e("end", endTok and endTok.line or nil)
             for _, registration in ipairs(x.name and x.name.cleanupRegistrations or {}) do
                 local cleanup = registration.cleanup
@@ -6307,14 +6273,7 @@ function gen.generate(
             emitDepth.endActivation()
             emitDepth.fn = emitDepth.fn - 1
             -- close on the source's own `end` so the line count is unchanged
-            local endTok
-            for j = #x.body, 1, -1 do
-                local child = x.body[j]
-                if cst.isToken(child) and child.kind == "end" then
-                    endTok = child
-                    break
-                end
-            end
+            local endTok = pluck.endToken(x.body)
             e("end", endTok and endTok.line or nil)
             return
 
@@ -6985,14 +6944,7 @@ function gen.generate(
             if portableLoop.action then
                 e(("until true;if %s==\"break\" then break end;"):format(portableLoop.action))
             end
-            local endTok
-            for j = #x, 1, -1 do
-                local child = x[j]
-                if cst.isToken(child) and child.kind == "end" then
-                    endTok = child
-                    break
-                end
-            end
+            local endTok = pluck.endToken(x)
             e("end", endTok and endTok.line or nil)
             finishConcatBuffer(x, endTok and endTok.line or nil)
 

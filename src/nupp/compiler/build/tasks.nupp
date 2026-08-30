@@ -292,6 +292,5 @@ function tasks.encode(value: unknown): string
 end
 
 tasks.targetConfig = targetConfig
-tasks.configured = configuredTasks
 
 export = tasks

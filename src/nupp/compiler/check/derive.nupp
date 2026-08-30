@@ -1247,7 +1247,7 @@ function derive.install(c: state.Checker): derive.Ops
             return
         end
         clearGeneratedMembers(n)
-        local origins, order, providerSites, providerLabels = {}, {}, {}, {}
+        local origins, order, providerSites = {}, {}, {}
         local providers, providerIdentities = {}, {}
         for _, application in ipairs(applications) do
             for _, arg in ipairs(application.annotationArgs or {}) do
@@ -1299,7 +1299,6 @@ function derive.install(c: state.Checker): derive.Ops
             origins = origins,
             order = order,
             providerSites = providerSites,
-            providerLabels = providerLabels,
             providers = providers,
             startedAt = clock(),
         }
@@ -1523,10 +1522,7 @@ function derive.install(c: state.Checker): derive.Ops
                     generatedMembers = providerMembers,
                     canonicalBytes = item.canonicalBytes or 0,
                     renderedBytes = item.renderedBytes or 0,
-                    effects = provider == item.providerLabels.JSON and {
-                        "native.json",
-                        "stdlib.derives"
-                    } or {"stdlib.derives"},
+                    effects = {"stdlib.derives"},
                     cached = item.recipeCached and true or false,
                     durationMs = math.floor((clock() - item.startedAt) * 1000000 + 0.5) / 1000,
                     -- Closed recipes allocate exactly these maxima regardless of

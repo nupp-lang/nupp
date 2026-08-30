@@ -493,14 +493,13 @@ local function decorateFunction(
                 if optional then
                     name = name:sub(1, -2)
                 end
-                local node = parsedType(rest, functionNames, tag)
+                local node, translated = parsedType(rest, functionNames, tag)
                 if not node then
                     warnings[
                         #warnings + 1
                     ] = warning(tag, filename, "cannot read annotated Lua parameter type; using any")
                     node = anyType(tag)
                 elseif optional then
-                    local translated = select(2, parsedType(rest, functionNames, tag))
                     node = parsedType("(" .. (translated or "any") .. ")?", functionNames, tag) or anyType(tag)
                 end
                 params[name] = node

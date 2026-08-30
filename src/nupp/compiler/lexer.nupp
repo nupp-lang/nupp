@@ -56,10 +56,6 @@ function lexer.arena(source: string): lexer.TriviaArena
     return triviaarena.new(source)
 end
 
---- The block a token with no trivia of its own can point at, so that every token has
---- one and `cst.isToken` keeps its test.
-lexer.EMPTY_TRIVIA = lexer.arena("")
-
 --- A run of text that carries no meaning to the grammar but must survive the round
 --- trip: whitespace, a comment, the hashbang line, or a leading byte-order mark.
 ---
@@ -779,11 +775,6 @@ end
 
 local function triviaIndex(tok: lexer.Token, index: integer): integer
     return tok.triviaFirst + index - 1
-end
-
---- How many trivia precede `tok`.
-function lexer.triviaCount(tok: lexer.Token): integer
-    return tok.triviaCount
 end
 
 --- The kind of `tok`'s `index`-th trivia: "whitespace", "comment", "hashbang" or "bom".

@@ -723,9 +723,7 @@ end
 local function cargoSourceFiles(crateDir)
     local files = {}
     for _, path in ipairs(listFiles(crateDir)) do
-        if path:match(
-            "%.rs$"
-        ) or basename(path) == "Cargo.toml" or basename(path) == "Cargo.lock" or path:match("build%.rs$") then
+        if path:match("%.rs$") or basename(path) == "Cargo.toml" or basename(path) == "Cargo.lock" then
             files[#files + 1] = path
         end
     end

@@ -99,18 +99,10 @@ local function annotatedDeclaration(stat): any, boolean, any, boolean
     local annotationDefinition = false
     local deprecated = nil
     local exported = false
-    while stat and stat.kind == "pragmaStmt" do
-        if stat.name and stat.name.text == "annotation" then
-            annotationDefinition = true
-        elseif stat.name and stat.name.text == "deprecated" then
-            deprecated = syntacticDeprecation(stat)
-        end
-        stat = stat.stat
-    end
 
-    if stat and stat.kind == "exportStmt" then
-        exported = true
-        stat = stat.stat
+    --- Records `@annotation` and `@deprecated` while stepping to the annotated
+    --- statement.
+    local function recordPragmas()
         while stat and stat.kind == "pragmaStmt" do
             if stat.name and stat.name.text == "annotation" then
                 annotationDefinition = true
@@ -119,6 +111,13 @@ local function annotatedDeclaration(stat): any, boolean, any, boolean
             end
             stat = stat.stat
         end
+    end
+
+    recordPragmas()
+    if stat and stat.kind == "exportStmt" then
+        exported = true
+        stat = stat.stat
+        recordPragmas()
     end
 
     return stat, annotationDefinition, deprecated, exported

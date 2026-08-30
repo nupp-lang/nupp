@@ -793,11 +793,11 @@ function callexpr.install(c: state.Checker): state.ExprHandlers
                 local leftT = args[2] and c.infer(args[2]) or T.any
                 local rightT = args[3] and c.infer(args[3]) or T.any
                 local parent = args[1] and c.ownershipEntry(args[1]) or nil
-                local root, parentPath = args[1] and c.regionOf(args[1]) or nil, ""
-                if root then
-                    local _, foundPath = c.regionOf(args[1])
-                    parentPath = foundPath or ""
+                local root, parentPath
+                if args[1] then
+                    root, parentPath = c.regionOf(args[1])
                 end
+                parentPath = root and parentPath or ""
                 if #args ~= 3 or not parent then
                     c.diag("NUPP2602", node, "partition expects a named writable parent and two children")
                 end
@@ -833,11 +833,11 @@ function callexpr.install(c: state.Checker): state.ExprHandlers
                 end
                 local childT = args[2] and c.infer(args[2]) or T.any
                 local parent = args[1] and c.ownershipEntry(args[1]) or nil
-                local root, parentPath = args[1] and c.regionOf(args[1]) or nil, ""
-                if root then
-                    local _, foundPath = c.regionOf(args[1])
-                    parentPath = foundPath or ""
+                local root, parentPath
+                if args[1] then
+                    root, parentPath = c.regionOf(args[1])
                 end
+                parentPath = root and parentPath or ""
                 local firstT = args[3] and c.infer(args[3]) or nil
                 local lastT = args[4] and c.infer(args[4]) or nil
                 local first = firstT and firstT.tag == "literal" and type(

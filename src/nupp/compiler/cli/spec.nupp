@@ -599,7 +599,6 @@ function spec.Command:usageError(message: string?): integer
     return 2
 end
 
-spec.isOption = isOption
 spec.wrap = wrap
 
 export = spec

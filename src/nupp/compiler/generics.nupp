@@ -90,11 +90,6 @@ local function substCleanup(cleanup: T.Cleanup, map: Bindings, unmapped: string)
     return cleanup
 end
 
---- Rebuilds a const term with the binders `map` names replaced.
-function generics.materializeConst(term: T.ConstTerm, map: Bindings): T.ConstTerm
-    return substConst(term, map)
-end
-
 --- A pack with its binders replaced per `map`, unmapped ones per `unmapped`.
 local substPackWith: function(pack: T.Pack, map: Bindings, unmapped: string): T.Pack
 
@@ -1381,11 +1376,6 @@ end
 -- Packs
 ----------------------------------------------------------------------------
 
---- `generics.rebind` for a value sequence.
-function generics.rebindPack(pack: T.Pack, map: Bindings): T.Pack
-    return substPackWith(pack, map, PRESERVE)
-end
-
 --- `generics.materialize` for a value sequence.
 function generics.materializePack(pack: T.Pack, map: Bindings): T.Pack
     return substPackWith(pack, map, MATERIALIZE)
@@ -1583,8 +1573,7 @@ function generics.unifyPack(param: T.Pack, arg: T.Pack, map: Bindings): nil
             rest[#rest + 1] = arg.head[j]
             modes[#modes + 1] = arg.modes[j] or "plain"
         end
-        local actualTail = #param.head < #arg.head and arg.tail or arg.tail
-        local remaining = T.pack(rest, actualTail, modes)
+        local remaining = T.pack(rest, arg.tail, modes)
         local prior = map[tail.var]
         if prior then
             for j, value in ipairs(remaining.head) do

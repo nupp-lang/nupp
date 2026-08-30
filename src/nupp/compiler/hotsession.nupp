@@ -27,16 +27,6 @@ Session.__index = Session
 -- What a reload decides
 ----------------------------------------------------------------------------
 
---- Why a well-typed change still cannot reach the running process.
----
---- The kind names the boundary that refused it and the rest identifies what crossed
---- that boundary, so a host can say which declaration or capture is responsible rather
---- than only that something structural moved.
-type hotSession.Reason = {
-    kind: string,
-    [string]: any
-}
-
 --- A complete, loadable patch. Nothing in the running process has changed yet.
 record hotSession.Prepared
     kind: "prepared"

@@ -120,6 +120,8 @@ function fold.exactInteger(node: scalarIR.Expr): number?
     return exactIntegerText(tostring((node as any).value))
 end
 
+fold.integerConstant = integerConstant
+
 --- Whether a node is one of the four literal leaves.
 function fold.isLiteral(node: scalarIR.Expr): boolean
     return node.op == "bool" or node.op == "constant" or node.op == "constant_i32" or node.op == "constant_i64"

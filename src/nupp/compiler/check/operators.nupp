@@ -357,8 +357,6 @@ function operators.install(c: state.Checker): state.ExprHandlers
         return nil
     end
 
-    --- The type a numeric literal has, suffixes and radix included.
-
     --- `t` without nil, which is what a truthiness test leaves. Defined once here
     --- rather than each time a logical operator is inferred.
     c.minusNil = function(t)
@@ -453,8 +451,6 @@ function operators.install(c: state.Checker): state.ExprHandlers
         else -- not
             return T.boolean
         end
-
-        return T.any
     end
 
     handlers.binop = function(node: cst.Binop): Type

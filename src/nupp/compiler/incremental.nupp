@@ -156,11 +156,6 @@ record incremental.Inc
     --- Source paths that contributed to one keyed project-index answer.
     projectDependencyPaths: function(name: string, key: string): {string}
 
-    --- Exact exported call facts consulted while checking, kept out of function types.
-    observeCallGuarantee: function(module: string, member: string, identity: string, guarantee: string): boolean
-
-    resolveCallGuarantees: function(module: string, member: string): any
-
     --- Writes back what this run worked out that the next one can reuse.
     ---
     --- Nothing depends on it being called: skipping it costs the next command the work
@@ -197,7 +192,6 @@ type incremental.Observer = {
 function incremental.new(rootDir: string, opts: table?): incremental.Inc
     opts = opts or {}
     opts.compilerServices = opts.compilerServices or hostServices
-    opts = opts or {}
     local env = envMod.new(rootDir, opts)
     -- Left nil when nothing forced it, so each file's extension decides.
     local strict = opts.strict

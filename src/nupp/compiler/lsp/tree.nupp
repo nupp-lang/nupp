@@ -239,14 +239,6 @@ function tree.findDeclaration(tokens: {lexer.Token}, name: string, near: number)
     return best
 end
 
--- Line runs --------------------------------------------------------------------
---
--- Formatting answers with the lines that changed rather than the whole file. A client
--- applying a whole-document rewrite loses every cursor, fold and mark in it to replace
--- lines that came through untouched, and a range request has nothing to select from.
--- Lines are the right grain: the formatter never joins them, so a line either survived
--- as it was or did not.
-
 function tree.walkNodes(node: cst.Child?, visit: function(cst.Node): nil): nil
     if not node or cst.isToken(node) then
         return

@@ -111,9 +111,7 @@ function peg.installEvaluator(state: any, env: any, newOpaque: any, provenance: 
     -- object of its own and this builds one. A table rather than a closure, because
     -- Lua 5.3 answers an upvalue-free `function() end` with one shared closure however
     -- often it is evaluated, which would collapse every intrinsic here onto whichever
-    -- was registered last. That is also why the registration loops below cannot be
-    -- made recordable (`jit-loop-closure`): moving the callback out would leave this
-    -- behind. They run once, when the library is materialized.
+    -- was registered last.
     local function intrinsic(name, callback)
         local token = {}
         state.intrinsics[token] = function(at, args)
@@ -130,144 +128,6 @@ function peg.installEvaluator(state: any, env: any, newOpaque: any, provenance: 
             provenance(at, "nupp.peg." .. op)
         )
     end
-
-    local function patterns(args, at, minimum)
-        local out = {}
-        for index = 1, args.n do
-            if not patternEntry(state, args[index]) then
-                return nil, failure("NUPP2417", "PEG operation needs pattern arguments")
-            end
-            out[index] = args[index]
-        end
-        if #out < minimum then
-            return nil, failure("NUPP2417", ("PEG operation needs at least %d patterns"):format(minimum))
-        end
-
-        return out
-    end
-
-    intrinsic("literal", function(args, at)
-        if type(args[1]) ~= "string" then
-            return nil, failure("NUPP2417", "nupp.peg.literal needs a string")
-        end
-
-        return node("literal", nil, args[1], at)
-    end)
-    intrinsic("anyByte", function(_, at)
-        return node("any", nil, nil, at)
-    end)
-    intrinsic("eof", function(_, at)
-        return node("eof", nil, nil, at)
-    end)
-    intrinsic("set", function(args, at)
-        if type(args[1]) ~= "string" then
-            return nil, failure("NUPP2417", "nupp.peg.set needs a byte string")
-        end
-
-        return node("set", nil, sortedBytes(args[1]), at)
-    end)
-    intrinsic("range", function(args, at)
-        local bytes = {}
-        for index = 1, args.n do
-            local range = args[index]
-            if type(range) ~= "string" or #range ~= 2 then
-                return nil, failure("NUPP2417", "each PEG range is a two-byte string such as \"az\"")
-            end
-            local first, last = range:byte(1, 2)
-            if first > last then
-                return nil, failure("NUPP2417", "a PEG byte range must run from low to high")
-            end
-            for byte = first, last do
-                bytes[#bytes + 1] = string.char(byte)
-            end
-        end
-
-        return node("set", nil, sortedBytes(table.concat(bytes)), at)
-    end)
-    for name, op in pairs({sequence = "sequence", choice = "choice"}) do
-        intrinsic(name, function(args, at)
-            local children, why = patterns(args, at, 2)
-            if not children then
-                return nil, why
-            end
-
-            return node(op, children, nil, at)
-        end)
-    end
-    intrinsic("difference", function(args, at)
-        local children, why = patterns(args, at, 2)
-        if not children or #children ~= 2 then
-            return nil, why or failure("NUPP2417", "PEG difference needs exactly two patterns")
-        end
-
-        return node("difference", children, nil, at)
-    end)
-    for name, op in pairs({
-        zeroOrMore = "zeroOrMore",
-        oneOrMore = "oneOrMore",
-        optional = "optional",
-        andPredicate = "and",
-        notPredicate = "not",
-        capture = "capture",
-        group = "collect",
-        collect = "collect",
-    }) do
-        intrinsic(name, function(args, at)
-            if args.n ~= 1 or not patternEntry(state, args[1]) then
-                return nil, failure("NUPP2417", "nupp.peg." .. name .. " needs one pattern")
-            end
-
-            return node(op, {args[1]}, nil, at)
-        end)
-    end
-    intrinsic("action", function(args, at)
-        if args.n ~= 2 or not patternEntry(
-            state,
-            args[1]
-        ) or type(args[2]) ~= "string" or not args[2]:find("^[%a_][%w_]*$") then
-            return nil, failure("NUPP2417", "nupp.peg.action needs one pattern and an identifier-like action name")
-        end
-
-        return node("action", {args[1]}, args[2], at)
-    end)
-    intrinsic("position", function(_, at)
-        return node("position", nil, nil, at)
-    end)
-    intrinsic("reference", function(args, at)
-        if type(args[1]) ~= "string" or args[1] == "" then
-            return nil, failure("NUPP2417", "a PEG rule reference needs a non-empty name")
-        end
-
-        return node("reference", nil, args[1], at)
-    end)
-    intrinsic("define", function(args, at)
-        if type(args[1]) ~= "string" or args[1] == "" or not patternEntry(state, args[2]) then
-            return nil, failure("NUPP2417", "nupp.peg.define needs a name and a pattern")
-        end
-
-        return newOpaque("peg", "Definition", {name = args[1], pattern = args[2]}, provenance(at, "nupp.peg.define"))
-    end)
-    intrinsic("grammar", function(args, at)
-        if type(args[1]) ~= "string" or args[1] == "" then
-            return nil, failure("NUPP2417", "nupp.peg.grammar needs a start rule name")
-        end
-        local definitions = {}
-        for index = 2, args.n do
-            if not definitionEntry(state, args[index]) then
-                return nil, failure("NUPP2417", "a PEG grammar accepts only named definitions")
-            end
-            definitions[#definitions + 1] = args[index]
-        end
-
-        return node("grammar", definitions, args[1], at)
-    end)
-    intrinsic("compile", function(args, at)
-        if args.n ~= 1 or not patternEntry(state, args[1]) then
-            return nil, failure("NUPP2417", "nupp.peg.compile needs one static pattern")
-        end
-
-        return newOpaque("peg", "Blueprint", {pattern = args[1]}, provenance(at, "nupp.peg.compile"))
-    end)
 
     intrinsic("rePattern", function(args, at)
         if (args.n ~= 1 and args.n ~= 2) or type(args[1]) ~= "string" then
@@ -421,81 +281,16 @@ function peg.installEvaluator(state: any, env: any, newOpaque: any, provenance: 
     env.nupp.peg = {compile = library.rePattern}
 end
 
+--- Reports method use on a PEG handle. The only PEG values user code can hold
+--- are blueprints from `nupp.peg.compile`, and those have no comptime methods;
+--- providers dispatch here so the refusal names what happened.
 function peg.method(state: any, handle: any, name: string, args: any, at: any): any, peg.Failure?
-    local entry = patternEntry(state, handle)
-    if not entry then
-        return nil, failure("NUPP2417", "this PEG value has no pattern methods")
-    end
-    local library = state.env.nupp and state.env.nupp.peg
-    local token = library and library[name]
-    local intrinsic = token and state.intrinsics[token]
-    if not intrinsic then
-        return nil, failure("NUPP2417", "PEG pattern has no comptime method " .. name)
-    end
-    local forwarded = {n = args.n + 1, handle}
-    for index = 1, args.n do
-        forwarded[index + 1] = args[index]
-    end
-
-    return intrinsic(at, forwarded)
+    return nil, failure("NUPP2417", "this PEG value has no pattern methods")
 end
 
+--- Reports operator use on a PEG handle, for the same reason as `peg.method`.
 function peg.operator(state: any, op: string, left: any, right: any, at: any): any, peg.Failure?
-    local leftEntry = patternEntry(state, left)
-    if not leftEntry then
-        return nil, failure("NUPP2417", "the PEG operator's left operand is not a pattern")
-    end
-    local function make(kind, children, data)
-        local handle = {}
-        state.opaque[
-            handle
-        ] = {
-            provider = "peg",
-            family = "Pattern",
-            payload = {op = kind, children = children or {}, data = data},
-            provenance = {operation = "PEG operator " .. op, line = at and at.line or 1, column = at and at.col or 1},
-        }
-
-        return handle
-    end
-
-    if op == "+" or op == "*" then
-        if not patternEntry(state, right) then
-            return nil, failure("NUPP2417", "both PEG operator operands must be patterns")
-        end
-
-        return make(op == "+" and "choice" or "sequence", {left, right}), nil
-    elseif op == "^" then
-        if type(right) ~= "number" or right ~= math.floor(right) then
-            return nil, failure("NUPP2417", "PEG exponent must be an integer")
-        end
-        if right == 0 then
-            return make("zeroOrMore", {left}), nil
-        elseif right == 1 then
-            return make("oneOrMore", {left}), nil
-        elseif right == -1 then
-            return make("optional", {left}), nil
-        end
-        local children = {}
-        if right > 1 then
-            for index = 1, right do
-                children[index] = left
-            end
-            children[#children + 1] = make("zeroOrMore", {left})
-        else
-            for index = 1, -right do
-                children[index] = make("optional", {left})
-            end
-        end
-
-        return make("sequence", children), nil
-    elseif op == "unary-" then
-        return make("not", {left}), nil
-    elseif op == "unary#" then
-        return make("and", {left}), nil
-    end
-
-    return nil, failure("NUPP2417", "operator " .. op .. " is unavailable for PEG patterns")
+    return nil, failure("NUPP2417", "the PEG operator's left operand is not a pattern")
 end
 
 ----------------------------------------------------------------------------

@@ -94,32 +94,6 @@ local function containsLoopExit(value: any): boolean
     return false
 end
 
-local function sourceOf(node: any): scalarIR.Source?
-    return node.source as scalarIR.Source?
-end
-
-local function integerConstant(value: number, valueType: scalarIR.Type, node: any): scalarIR.Expr
-    if valueType == "i64" or valueType == "u64" then
-        return new scalarIR.Int64Constant(
-            op = "constant_i64",
-            value = ("%.0f"):format(value),
-            type = valueType,
-            source = sourceOf(node)
-        )
-    end
-
-    return new scalarIR.IntConstant(
-        op = "constant_i32",
-        value = ("%.0f"):format(value),
-        type = valueType,
-        source = sourceOf(node)
-    )
-end
-
-local function exactInteger(node: scalarIR.Expr): number?
-    return fold.exactInteger(node)
-end
-
 --- Body expressions: substitute from the block environment, fold, specialize.
 local BODY_REWRITE = new optimize.RewriteMode(propagation = true, specialization = true)
 
@@ -648,8 +622,8 @@ optimizeBlock = function(statements: {scalarIR.Statement}, state: optimize.State
             elseif statement.op == "fornum" then
                 local loop = statement as scalarIR.Fornum
                 loop.body = optimizeBlock(loop.body, state)
-                local first = exactInteger(loop.from)
-                local last = exactInteger(loop.to)
+                local first = fold.exactInteger(loop.from)
+                local last = fold.exactInteger(loop.to)
                 local trips = first ~= nil and last ~= nil and math.max(
                     (last as number) - (first as number) + 1,
                     0
@@ -658,7 +632,7 @@ optimizeBlock = function(statements: {scalarIR.Statement}, state: optimize.State
                     local expanded: {scalarIR.Statement} = {}
                     local growth = -specialize.nodes(loop)
                     for offset = 0, (trips as number) - 1 do
-                        local value = integerConstant((first as number) + offset, loop.binding.type, loop)
+                        local value = fold.integerConstant((first as number) + offset, loop.binding.type, loop)
                         local body = specialize.copy(loop.body, {}) as {scalarIR.Statement}
                         local iterationBody: {
                             scalarIR.Statement

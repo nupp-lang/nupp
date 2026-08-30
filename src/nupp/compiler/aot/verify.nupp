@@ -130,17 +130,6 @@ const verify.UINT32_MAX = 4294967295
 --- The types an arithmetic comparison may relate.
 const verify.NUMERIC = {["f64"] = true, ["f32"] = true, ["i32"] = true, ["u32"] = true, ["i64"] = true, ["u64"] = true}
 
---- The storage types a span field may have. Narrower widths load into one of
---- these rather than appearing here themselves.
-const verify.FIELD_STORAGE = {
-    ["f64"] = true,
-    ["f32"] = true,
-    ["i32"] = true,
-    ["u32"] = true,
-    ["i64"] = true,
-    ["u64"] = true
-}
-
 --- The value type established by each physical scalar storage type.
 ---
 --- Narrow integers are deliberately absent from the IR value vocabulary: a
@@ -1172,17 +1161,6 @@ scalarWalk = function(node: scalarIR.Expr, values: {[string]: string}, scope: ve
     end
 end
 
---- Checks one scalar expression, and everything under it.
----
---- @param node the expression
---- @param values locals in scope, by name, to their type
---- @param scope what the rules need from the rest of the program
---- @raises when the expression is not well formed
-function verify.expression(node: scalarIR.Expr, values: {[string]: string}, scope: verify.Scope): nil
-    effects.expression(tostring(node.op))
-    scalarWalk(node, values, scope)
-end
-
 function verify.expressionOpcodes(): {[string]: boolean}
     return effects.expressionOpcodes()
 end
@@ -1483,16 +1461,6 @@ laneWalk = function(node: lane.Expr, values: {[string]: string}, context: verify
     else
         refuse("invalid lane IR: an operation this vocabulary has no rule for")
     end
-end
-
---- Checks one lane expression, and everything under it.
----
---- @param node the expression
---- @param values lane locals in scope, by name, to their vector type
---- @param context the gang, and what the rules need from the rest of the program
---- @raises when the expression is not well formed lane IR
-function verify.laneExpression(node: lane.Expr, values: {[string]: string}, context: verify.Context): nil
-    laneWalk(node, values, context)
 end
 
 ----------------------------------------------------------------------------

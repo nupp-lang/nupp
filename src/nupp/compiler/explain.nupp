@@ -2177,19 +2177,6 @@ for _, entry in ipairs(ENTRIES) do
     byCode[entry.code] = entry
 end
 
--- The lint registry already knows each lint's name, category and one-line summary, so a
--- lint's entry is filled in from there rather than said twice.
-local function lintFor(code: string): any
-    local lints = require("nupp.compiler.lints")
-    for _, lint in ipairs(lints.all) do
-        if lint.code == code then
-            return lint
-        end
-    end
-
-    return nil
-end
-
 local function familyFor(code: string): any
     for _, family in ipairs(FAMILIES) do
         if code:sub(1, #family.prefix) == family.prefix then
@@ -2223,7 +2210,9 @@ function explain.lookup(code: string): explain.Entry?
     if not entry and not family then
         return nil
     end
-    local lint = lintFor(code)
+    -- The lint registry already knows each lint's name, category and one-line summary,
+    -- so a lint's entry is filled in from there rather than said twice.
+    local lint = require("nupp.compiler.lints").get(code)
     if entry then
         return new explain.Entry(
             code = code,

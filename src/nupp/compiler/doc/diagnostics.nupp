@@ -62,16 +62,6 @@ local function anchor(code: string): string
     return "#" .. code:lower()
 end
 
-local function lintFor(code: string): any
-    for _, candidate in ipairs(lintsMod.all) do
-        if candidate.code == code then
-            return candidate
-        end
-    end
-
-    return nil
-end
-
 local function fence(caption: string, source: string): string
     return "```nupp [" .. caption .. "]\n" .. source:gsub("%s+$", "") .. "\n```"
 end
@@ -103,7 +93,7 @@ local function section(
             .. "its family's, which is what the compiler knows about it."
         out[#out + 1] = ""
     end
-    local lint = lintFor(code)
+    local lint = lintsMod.get(code)
     if lint then
         out[
             #out + 1

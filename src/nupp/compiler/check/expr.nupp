@@ -231,40 +231,6 @@ function expr.install(c: state.Checker): nil
         return false
     end
 
-    -- Ordering follows LuaJIT's primitive families. The gradual checker also accepts
-    -- one optional numeric/string family: unannotated Lua routinely compares a tonumber
-    -- result after a lexical guard the facts engine cannot yet express. Unrelated union
-    -- members remain rejected.
-    local function orderingFamily(t)
-        if t == T.any then
-            return "any"
-        end
-        if isA(t, T.number) then
-            return "number"
-        end
-        if isA(t, T.string) then
-            return "string"
-        end
-        if t.tag == "union" then
-            local family = nil
-            for _, member in ipairs(t.members) do
-                if member ~= T.nil_ then
-                    local found = orderingFamily(member)
-                    if not found or found == "any" then
-                        return found
-                    end
-                    if family and family ~= found then
-                        return nil
-                    end
-                    family = found
-                end
-            end
-            return family
-        end
-
-        return nil
-    end
-
     --- The type a numeric literal has, suffixes and radix included.
     local function numberLiteralType(text: string): Type
         local lower = text:gsub("_", ""):lower()
@@ -289,8 +255,6 @@ function expr.install(c: state.Checker): nil
 
         return T.integer
     end
-
-    -- Infers the type of a field access on `t`; returns nil if unknowable.
 
     -- `comptime do ... end`: check the block, run it, and type what it produced.
     --

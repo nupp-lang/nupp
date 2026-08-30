@@ -381,56 +381,32 @@ function emit.scalar(node: scalarIR.Expr): string
         ) .. ", " .. emit.scalar(appended.base) .. ", " .. emit.scalar(appended.bits) .. ")"
     elseif operation == "lua_scratch_u32_append_string_bits" then
         local appended = node as scalarIR.LuaScratchU32AppendStringBits
-        local call = "ks_lua_scratch_u32_append_string_bits(L, &" .. tostring(
-            (appended.scratch as scalarIR.Name).cName
-        ) .. ", " .. emit.scalar(
+        -- One render: the three helpers share every argument except the escape
+        -- scratch and its two carries, so only the name and those extras vary.
+        local escaped = appended.escapeScratch ~= nil
+        local call = (
+            escaped
+            and "ks_lua_scratch_u32_append_string_escape_bits(L, &"
+            or appended.sharedEscapes
+            and "ks_lua_scratch_u32_append_string_shared_bits(L, &"
+            or "ks_lua_scratch_u32_append_string_bits(L, &"
+        ) .. tostring((appended.scratch as scalarIR.Name).cName)
+        if escaped then
+            call = call .. ", &" .. tostring((appended.escapeScratch as scalarIR.Name).cName)
+        end
+        call = call .. ", " .. emit.scalar(
             appended.index
         ) .. ", " .. emit.scalar(
             appended.base
         ) .. ", " .. emit.scalar(
             appended.events
-        ) .. ", " .. emit.scalar(
-            appended.quotes
-        ) .. ", " .. emit.scalar(
-            appended.slashes
-        ) .. ", " .. emit.scalar(appended.inString) .. ", " .. emit.scalar(appended.stringEscaped) .. ")"
-        if appended.sharedEscapes then
-            call = "ks_lua_scratch_u32_append_string_shared_bits(L, &" .. tostring(
-                (appended.scratch as scalarIR.Name).cName
-            ) .. ", " .. emit.scalar(
-                appended.index
-            ) .. ", " .. emit.scalar(
-                appended.base
-            ) .. ", " .. emit.scalar(
-                appended.events
-            ) .. ", " .. emit.scalar(
-                appended.quotes
-            ) .. ", " .. emit.scalar(
-                appended.slashes
-            ) .. ", " .. emit.scalar(appended.inString) .. ", " .. emit.scalar(appended.stringEscaped) .. ")"
-        end
-        if appended.escapeScratch ~= nil then
-            call = "ks_lua_scratch_u32_append_string_escape_bits(L, &" .. tostring(
-                (appended.scratch as scalarIR.Name).cName
-            ) .. ", &" .. tostring(
-                (appended.escapeScratch as scalarIR.Name).cName
-            ) .. ", " .. emit.scalar(
-                appended.index
-            ) .. ", " .. emit.scalar(
-                appended.base
-            ) .. ", " .. emit.scalar(
-                appended.events
-            ) .. ", " .. emit.scalar(
-                appended.quotes
-            ) .. ", " .. emit.scalar(
-                appended.slashes
-            ) .. ", " .. emit.scalar(
+        ) .. ", " .. emit.scalar(appended.quotes) .. ", " .. emit.scalar(appended.slashes)
+        if escaped then
+            call = call .. ", " .. emit.scalar(
                 appended.slashCarry as scalarIR.Expr
-            ) .. ", " .. emit.scalar(
-                appended.slashOdd as scalarIR.Expr
-            ) .. ", " .. emit.scalar(appended.inString) .. ", " .. emit.scalar(appended.stringEscaped) .. ")"
+            ) .. ", " .. emit.scalar(appended.slashOdd as scalarIR.Expr)
         end
-        return call
+        return call .. ", " .. emit.scalar(appended.inString) .. ", " .. emit.scalar(appended.stringEscaped) .. ")"
     elseif operation == "lua_scratch_u8_get" then
         local loaded = node as scalarIR.LuaScratchU8Get
         if loaded.fixedBound ~= nil then

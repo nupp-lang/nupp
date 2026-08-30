@@ -1130,6 +1130,24 @@ evalExpr = function(state, node)
     return answer
 end
 
+--- The dotted source path a type argument names, which keys the reflection and
+--- layout tables the checker prepared.
+local function typePath(value)
+    if not value then
+        return nil
+    elseif value.kind and value.kind:sub(1, 1) == "t" then
+        return cst.textOf(value):gsub("%s+", "")
+    elseif value.kind == "name" then
+        return value.token and value.token.text or nil
+    elseif value.kind == "dotIndex" then
+        local base = typePath(value.obj)
+        local field = value.name and value.name.text or nil
+        return base and field and (base .. "." .. field) or nil
+    end
+
+    return nil
+end
+
 --- The whole value sequence a call produces, which the single-value paths then
 --- truncate.
 evalMulti = function(state, node)
@@ -1154,22 +1172,6 @@ evalMulti = function(state, node)
     elseif kind == "call" and intrinsicQualified and comptimeIntrinsic == "reflect" then
         local args = node.args and node.args.exprs or {}
         local argument = args[1]
-        local function typePath(value)
-            if not value then
-                return nil
-            elseif value.kind and value.kind:sub(1, 1) == "t" then
-                return cst.textOf(value):gsub("%s+", "")
-            elseif value.kind == "name" then
-                return value.token and value.token.text or nil
-            elseif value.kind == "dotIndex" then
-                local base = typePath(value.obj)
-                local field = value.name and value.name.text or nil
-                return base and field and (base .. "." .. field) or nil
-            end
-
-            return nil
-        end
-
         local key = #args == 1 and typePath(argument) or nil
         local descriptor = key and state.reflections[key] or nil
         if not descriptor then
@@ -1179,22 +1181,6 @@ evalMulti = function(state, node)
     elseif kind == "call" and intrinsicQualified and comptimeIntrinsic then
         local name = comptimeIntrinsic
         local args = node.args and node.args.exprs or {}
-        local function typePath(value)
-            if not value then
-                return nil
-            elseif value.kind and value.kind:sub(1, 1) == "t" then
-                return cst.textOf(value):gsub("%s+", "")
-            elseif value.kind == "name" then
-                return value.token and value.token.text or nil
-            elseif value.kind == "dotIndex" then
-                local base = typePath(value.obj)
-                local field = value.name and value.name.text or nil
-                return base and field and (base .. "." .. field) or nil
-            end
-
-            return nil
-        end
-
         local key = typePath(args[1])
         -- The checker owns validation. A missing entry means it already diagnosed the
         -- call; use a harmless recovery value so the worker does not add a second,
@@ -1670,51 +1656,64 @@ function comptime.evaluateDirect(
     return quoted as string, typeOf(state.result), nil
 end
 
+--- Parses a sealed program's serialized helpers back into checked nodes and
+--- selects its entry helper. The caller supplies the chunk-name prefix and the
+--- wording its diagnostics use.
+local function unsealProgram(helper, chunkPrefix, code, loadMessage, entryMessage)
+    local parsedHelpers = {}
+    local function findLocalFunction(value)
+        if type(value) ~= "table" then
+            return nil
+        end
+        if value.kind == "localFuncStmt" then
+            return value
+        end
+        for _, child in ipairs(value) do
+            local found = findLocalFunction(child)
+            if found then
+                return found
+            end
+        end
+
+        return nil
+    end
+
+    for helperName, descriptor in pairs(helper.serializedHelpers or {}) do
+        local parsed = type(
+            descriptor
+        ) == "table" and type(
+            descriptor.source
+        ) == "string" and require("nupp.compiler.parser").parse(descriptor.source, chunkPrefix .. helperName) or nil
+        local node = parsed and #(parsed.errors or {}) == 0 and findLocalFunction(parsed.root) or nil
+        if not node or not node.name or node.name.text ~= helperName then
+            return nil, nil, {code = code, message = loadMessage .. helperName,} as comptime.Failure
+        end
+        parsedHelpers[helperName] = {node = node, line = descriptor.line, column = descriptor.column,}
+    end
+    local main = parsedHelpers[helper.main]
+    if not main then
+        return nil, nil, {code = code, message = entryMessage,} as comptime.Failure
+    end
+
+    return main.node, parsedHelpers, nil
+end
+
 --- Executes one already-checked private type function with closed arguments.
 --- Type and pack arguments enter through the versioned semantic graph and become
 --- opaque evaluator handles; no checker object is reachable from user code.
 function comptime.evaluateTypeFunctionDirect(helper: any, arguments: {any}, helpers: any): any, comptime.Failure?
     if helper and helper.sealedTypeFunction then
-        local parsedHelpers = {}
-        local function findLocalFunction(value)
-            if type(value) ~= "table" then
-                return nil
-            end
-            if value.kind == "localFuncStmt" then
-                return value
-            end
-            for _, child in ipairs(value) do
-                local found = findLocalFunction(child)
-                if found then
-                    return found
-                end
-            end
-
-            return nil
-        end
-
-        for helperName, descriptor in pairs(helper.serializedHelpers or {}) do
-            local parsed = type(
-                descriptor
-            ) == "table" and type(
-                descriptor.source
-            ) == "string" and require(
-                "nupp.compiler.parser"
-            ).parse(descriptor.source, "=comptime-helper-" .. helperName) or nil
-            local node = parsed and #(parsed.errors or {}) == 0 and findLocalFunction(parsed.root) or nil
-            if not node or not node.name or node.name.text ~= helperName then
-                return nil, {
-                    code = "NUPP2412",
-                    message = "cannot load sealed comptime helper " .. helperName,
-                } as comptime.Failure
-            end
-            parsedHelpers[helperName] = {node = node, line = descriptor.line, column = descriptor.column,}
-        end
-        local main = parsedHelpers[helper.main]
+        local main, parsedHelpers, failure = unsealProgram(
+            helper,
+            "=comptime-helper-",
+            "NUPP2412",
+            "cannot load sealed comptime helper ",
+            "sealed type function has no entry helper"
+        )
         if not main then
-            return nil, {code = "NUPP2412", message = "sealed type function has no entry helper",} as comptime.Failure
+            return nil, failure
         end
-        helper, helpers = main.node, parsedHelpers
+        helper, helpers = main, parsedHelpers
     end
     local node = helper and helper.body or helper
     local name = helper and helper.name and helper.name.text or ""
@@ -1824,50 +1823,17 @@ function comptime.evaluateDeriveProviderDirect(
     providerModule: string?
 ): any, comptime.Failure?
     if helper and helper.sealedTypeFunction then
-        local parsedHelpers = {}
-        local function findLocalFunction(value)
-            if type(value) ~= "table" then
-                return nil
-            end
-            if value.kind == "localFuncStmt" then
-                return value
-            end
-            for _, child in ipairs(value) do
-                local found = findLocalFunction(child)
-                if found then
-                    return found
-                end
-            end
-
-            return nil
-        end
-
-        for helperName, descriptor in pairs(helper.serializedHelpers or {}) do
-            local parsed = type(
-                descriptor
-            ) == "table" and type(
-                descriptor.source
-            ) == "string" and require(
-                "nupp.compiler.parser"
-            ).parse(descriptor.source, "=derive-provider-" .. helperName) or nil
-            local node = parsed and #(parsed.errors or {}) == 0 and findLocalFunction(parsed.root) or nil
-            if not node or not node.name or node.name.text ~= helperName then
-                return nil, (
-                    {
-                        code = "NUPP2810",
-                        message = "cannot load sealed derive provider " .. helperName,
-                    } as comptime.Failure
-                )
-            end
-            parsedHelpers[helperName] = {node = node, line = descriptor.line, column = descriptor.column}
-        end
-        local main = parsedHelpers[helper.main]
+        local main, parsedHelpers, failure = unsealProgram(
+            helper,
+            "=derive-provider-",
+            "NUPP2810",
+            "cannot load sealed derive provider ",
+            "sealed derive provider has no entry helper"
+        )
         if not main then
-            return nil, (
-                {code = "NUPP2810", message = "sealed derive provider has no entry helper",} as comptime.Failure
-            )
+            return nil, failure
         end
-        helper, helpers = main.node, parsedHelpers
+        helper, helpers = main, parsedHelpers
     end
     local node = helper and helper.body or helper
     local name = helper and helper.name and helper.name.text or ""

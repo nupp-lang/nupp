@@ -154,20 +154,16 @@ function report.diagnosticValues(diagnostics: {any}): {any}
     return values
 end
 
---- Writes `{"ok": ..., "diagnostics": [...]}`, which is what `check --json` promises
---- and what every other command that carries diagnostics embeds under the same key.
----
---- `ok` is there because an empty `diagnostics` alone cannot say whether the check
---- found nothing wrong or never got as far as looking: a manifest it could not use
---- ends the run before any file is read, and that answered with the same empty list a
---- clean project does. `nupp build --json` has always said `ok` for this reason.
-function report.json(diagnostics: {any}, ok: boolean): nil
-    report.write({ok = ok, diagnostics = report.diagnosticValues(diagnostics)})
-end
-
 --- Whether a diagnostic stops the work. Only an error does.
 function report.fatal(diagnostic: {readonly severity: string?}): boolean
     return REPORTED[diagnostic.severity] == nil
+end
+
+--- A diagnostic about a file rather than a place in it: a path that could not be read
+--- or written has no position, so the range fields are zero and the code is the one
+--- every command reports for a file the run never got inside.
+function report.fileDiagnostic(path: string, msg: string?, help: string): {[string]: any}
+    return {filename = path, line = 0, col = 0, offset = 0, length = 0, code = "NUPP0001", msg = msg, help = help}
 end
 
 -- The schema of what the writers above produce, kept beside them for the same reason
@@ -185,8 +181,6 @@ local RANGE = {type = "object", properties = {start = POSITION, ["end"] = POSITI
 
 --- A 1-based byte position, and a span of them. Shared so that everything which reports
 --- a source location reports it in the same shape.
-report.POSITION = POSITION
-
 report.RANGE = RANGE
 
 --- A range in a named file, which is what the semantic operations return.

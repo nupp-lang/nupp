@@ -831,9 +831,6 @@ function control.install(c: state.Checker): state.StatHandlers
         local cond = stat.cond
         if cond then
             local ownershipBefore = ownershipSnapshot()
-            for _, item in ipairs(ownershipBefore) do
-                item.retained = own.capabilityFacts(item.state, nil, false).retention ~= nil
-            end
             c.infer(cond)
             local facts = analyzeCond(cond)
             c.pushScope()
@@ -849,9 +846,6 @@ function control.install(c: state.Checker): state.StatHandlers
     handlers.repeatStmt = function(stat: cst.RepeatStmt)
         -- repeat scope extends over the until condition
         local ownershipBefore = ownershipSnapshot()
-        for _, item in ipairs(ownershipBefore) do
-            item.retained = own.capabilityFacts(item.state, nil, false).retention ~= nil
-        end
         c.pushScope()
         c.loops.push(stat.body)
         c.checkBlock(stat.body, true)
@@ -1033,9 +1027,6 @@ function control.install(c: state.Checker): state.StatHandlers
         c.numericOperand(st, from, "for")
         c.numericOperand(et, to, "for")
         local ownershipBefore = ownershipSnapshot()
-        for _, item in ipairs(ownershipBefore) do
-            item.retained = own.capabilityFacts(item.state, nil, false).retention ~= nil
-        end
         c.pushScope()
         c.scope.completionScope = stat.body
         c.bindVar(var.text, (isA(st, T.integer) and isA(et, T.integer)) and T.integer or T.number, false, var)
@@ -1151,9 +1142,6 @@ function control.install(c: state.Checker): state.StatHandlers
             stat.builtinIpairs = {operand = operand, type = operandType}
         end
         local ownershipBefore = ownershipSnapshot()
-        for _, item in ipairs(ownershipBefore) do
-            item.retained = own.capabilityFacts(item.state, nil, false).retention ~= nil
-        end
         c.pushScope()
         c.scope.completionScope = stat.body
         local iteratorRoots, seenRoots = {}, {}

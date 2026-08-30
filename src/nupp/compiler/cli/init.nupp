@@ -15,8 +15,8 @@ malformed argument list, and never has to remember to check for `--help`.
 
 A command's module is loaded when it is named. A command file holds its grammar
 and requires the compiler it needs inside its `run`, so listing every command in
-`nupp help` costs thirteen small files rather than the whole compiler, and
-running one loads only what that one needs.
+`nupp help` costs small files rather than the whole compiler, and running one
+loads only what that one needs.
 ]]
 
 local specMod = require("nupp.compiler.cli.spec")
@@ -302,11 +302,7 @@ local function runHelp(args: {string}): integer
         io.write(mainHelp())
         return 0
     end
-    if name == "-h" or name == "--help" then
-        io.write(HELP_COMMAND:help())
-        return 0
-    end
-    if name == "help" then
+    if name == "-h" or name == "--help" or name == "help" then
         io.write(HELP_COMMAND:help())
         return 0
     end

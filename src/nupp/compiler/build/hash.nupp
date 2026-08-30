@@ -279,12 +279,6 @@ function hash.digest(input: string): string
     return hex64(xxh64(input, SEED_A_HI, SEED_A_LO)) .. hex64(xxh64(input, SEED_B_HI, SEED_B_LO))
 end
 
---- Which digest the cache keys were computed with.
----
---- Recorded in the build state, so that changing the algorithm discards what the last
---- version wrote instead of comparing hex against hex that meant something else.
-hash.DIGEST = "xxh64x2"
-
 --- The eight bytes a stamped binary records in its trailer, little-endian.
 ---
 --- XXH64 of the payload under seed zero. This is the one number in this file

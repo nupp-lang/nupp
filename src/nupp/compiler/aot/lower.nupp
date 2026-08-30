@@ -947,6 +947,27 @@ local function provenIndex(spanName: string, cursor: string?, node: cst.Node, ke
     end
 end
 
+--- The cursor a `candidate + 1` index names, when a dominating check bounded
+--- that cursor against this span.
+---
+--- Shared by the load and the store for the same reason `provenIndex` is: two
+--- spellings of one proof drift apart.
+local function provedCursor(indexArg: cst.Node?, spanName: string?, kernel: lower.Kernel): string?
+    if indexArg == nil or indexArg.kind ~= "binop" then
+        return nil
+    end
+    local index = indexArg as cst.Binop
+    local written = index.op ~= nil and (index.op as lexer.Token).text or ""
+    local token = index.rhs ~= nil and index.rhs.kind == "number" and (index.rhs as cst.NumberLit).token or nil
+    local offset = token ~= nil and tonumber((token as lexer.Token).text) or nil
+    local candidate = lower.nameOf(index.lhs)
+    if written == "+" and offset == 1 and candidate ~= nil and kernel.cursorBounds[candidate as string] == spanName then
+        return candidate
+    end
+
+    return nil
+end
+
 --- One indexed span read.
 ---
 --- The index has to be the loop's own, exactly. Consecutive access is the whole
@@ -967,19 +988,7 @@ local function spanRead(
     end
     local indexArg = lower.unwrapped(node.expr)
     local direct = lower.nameOf(indexArg)
-    local cursor: string? = nil
-    if indexArg ~= nil and indexArg.kind == "binop" then
-        local index = indexArg as cst.Binop
-        local written = index.op ~= nil and (index.op as lexer.Token).text or ""
-        local token = index.rhs ~= nil and index.rhs.kind == "number" and (index.rhs as cst.NumberLit).token or nil
-        local offset = token ~= nil and tonumber((token as lexer.Token).text) or nil
-        local candidate = lower.nameOf(index.lhs)
-        if written == "+" and offset == 1 and candidate ~= nil and kernel.cursorBounds[
-            candidate as string
-        ] == spanName then
-            cursor = candidate
-        end
-    end
+    local cursor = provedCursor(indexArg, spanName, kernel)
     if not (activeIndex ~= nil and direct == activeIndex) and cursor == nil then
         context.reject(lower.site(node), "span loads need a counted-loop index or cursor + 1 under cursor < #span")
     end
@@ -3185,6 +3194,41 @@ local function scratchLengthSource(value: scalarIR.Expr, kernel: lower.Kernel): 
     return nil
 end
 
+--- The binding bookkeeping every local initializer keeps: events on a builder
+--- read its mode from the binding, and length and scratch accesses read their
+--- bounds from it.
+---
+--- A fixed buffer's width belongs to the name it was bound to, because that is
+--- what an access names. One map for words and bytes: a name holds one binding
+--- at a time, and an access carries the type that says which kind it is
+--- reading. Cleared before it is set, and on every binding rather than only on
+--- a buffer's: shadowing is refused, but two disjoint scopes may each bind one
+--- name, and a later appending buffer inheriting an earlier fixed one's width
+--- would be checked against a bound the buffer it names does not have -- which
+--- is a read past the end of it rather than a refusal.
+local function noteBinding(name: string, value: scalarIR.Expr, binding: scalarIR.Binding, kernel: lower.Kernel): nil
+    if value.op == "lua_string_length" then
+        local bytes = (value as scalarIR.LuaBytes).bytes as scalarIR.Name
+        binding.lengthOf = bytes.name
+        kernel.lengthBounds[name] = bytes.name
+    end
+    local scratchLength = scratchLengthSource(value, kernel)
+    if scratchLength ~= nil then
+        kernel.scratchLengthBounds[name] = scratchLength as string
+    else
+        kernel.scratchLengthBounds[name] = nil
+    end
+    kernel.scratchBounds[name] = nil
+    if value.op == "lua_scratch_u32" and (value as scalarIR.LuaScratchU32).fixed ~= nil then
+        kernel.scratchBounds[name] = (value as scalarIR.LuaScratchU32).fixed as integer
+    elseif value.op == "lua_scratch_u8" and (value as scalarIR.LuaScratchU8).fixed ~= nil then
+        kernel.scratchBounds[name] = (value as scalarIR.LuaScratchU8).fixed as integer
+    end
+    if value.op == "lua_builder" then
+        binding.builderMode = (value as scalarIR.LuaBuilder).mode
+    end
+end
+
 --- The statically known truth of a lowered condition, or nil when it can
 --- vary. A const-monomorphized carrier lowers as a constant, so a branch
 --- comparing one selects its arm here, before the untaken arms are lowered
@@ -3314,29 +3358,7 @@ local function switchLocal(
         resultType = resultType as scalarIR.Type
         local resultBinding = bind(names[1].text, resultType, false, stat, environment, kernel)
         local converted = lower.convert(chosenValue, resultType, lower.site(node), context)
-        -- The same binding bookkeeping an ordinary local initializer keeps:
-        -- events on a builder read its mode from the binding, and length and
-        -- scratch accesses read their bounds from it.
-        if converted.op == "lua_string_length" then
-            local bytes = (converted as scalarIR.LuaBytes).bytes as scalarIR.Name
-            resultBinding.lengthOf = bytes.name
-            kernel.lengthBounds[names[1].text] = bytes.name
-        end
-        local scratchLength = scratchLengthSource(converted, kernel)
-        if scratchLength ~= nil then
-            kernel.scratchLengthBounds[names[1].text] = scratchLength as string
-        else
-            kernel.scratchLengthBounds[names[1].text] = nil
-        end
-        kernel.scratchBounds[names[1].text] = nil
-        if converted.op == "lua_scratch_u32" and (converted as scalarIR.LuaScratchU32).fixed ~= nil then
-            kernel.scratchBounds[names[1].text] = (converted as scalarIR.LuaScratchU32).fixed as integer
-        elseif converted.op == "lua_scratch_u8" and (converted as scalarIR.LuaScratchU8).fixed ~= nil then
-            kernel.scratchBounds[names[1].text] = (converted as scalarIR.LuaScratchU8).fixed as integer
-        end
-        if converted.op == "lua_builder" then
-            resultBinding.builderMode = (converted as scalarIR.LuaBuilder).mode
-        end
+        noteBinding(names[1].text, converted, resultBinding, kernel)
         out[
             #out + 1
         ] = new scalarIR.Let(
@@ -3702,35 +3724,7 @@ local function localStmt(
             environment,
             kernel
         )
-        if value.op == "lua_string_length" then
-            local bytes = (value as scalarIR.LuaBytes).bytes as scalarIR.Name
-            binding.lengthOf = bytes.name
-            kernel.lengthBounds[token.text] = bytes.name
-        end
-        local scratchLength = scratchLengthSource(value, kernel)
-        if scratchLength ~= nil then
-            kernel.scratchLengthBounds[token.text] = scratchLength as string
-        else
-            kernel.scratchLengthBounds[token.text] = nil
-        end
-        -- A fixed buffer's width belongs to the name it was bound to, because
-        -- that is what an access names. One map for words and bytes: a name
-        -- holds one binding at a time, and an access carries the type that says
-        -- which kind it is reading. Cleared before it is set, and on every
-        -- binding rather than only on a buffer's: shadowing is refused, but two
-        -- disjoint scopes may each bind one name, and a later appending buffer
-        -- inheriting an earlier fixed one's width would be checked against a
-        -- bound the buffer it names does not have -- which is a read past the
-        -- end of it rather than a refusal.
-        kernel.scratchBounds[token.text] = nil
-        if value.op == "lua_scratch_u32" and (value as scalarIR.LuaScratchU32).fixed ~= nil then
-            kernel.scratchBounds[token.text] = (value as scalarIR.LuaScratchU32).fixed as integer
-        elseif value.op == "lua_scratch_u8" and (value as scalarIR.LuaScratchU8).fixed ~= nil then
-            kernel.scratchBounds[token.text] = (value as scalarIR.LuaScratchU8).fixed as integer
-        end
-        if value.op == "lua_builder" then
-            binding.builderMode = (value as scalarIR.LuaBuilder).mode
-        end
+        noteBinding(token.text, value, binding, kernel)
         out[
             #out + 1
         ] = new scalarIR.Let(
@@ -3922,19 +3916,7 @@ local function assignStmt(
         end
         local indexArg = lower.unwrapped(target.expr)
         local direct = lower.nameOf(indexArg)
-        local cursor: string? = nil
-        if indexArg ~= nil and indexArg.kind == "binop" then
-            local index = indexArg as cst.Binop
-            local written = index.op ~= nil and (index.op as lexer.Token).text or ""
-            local token = index.rhs ~= nil and index.rhs.kind == "number" and (index.rhs as cst.NumberLit).token or nil
-            local offset = token ~= nil and tonumber((token as lexer.Token).text) or nil
-            local candidate = lower.nameOf(index.lhs)
-            if written == "+" and offset == 1 and candidate ~= nil and kernel.cursorBounds[
-                candidate as string
-            ] == spanName then
-                cursor = candidate
-            end
-        end
+        local cursor = provedCursor(indexArg, spanName, kernel)
         if not (kernel.index ~= "" and direct == kernel.index) and cursor == nil then
             context.reject(
                 lower.site(target),
@@ -5050,6 +5032,30 @@ function lower.kernelBody(
     return declaration, body as cst.Funcbody
 end
 
+--- The lowering environment either entry shape starts from: the
+--- specialization's carriers, then the uniform and scalar parameters, each
+--- scalar carrying its positional C name.
+local function loweringEnvironment(signature: lower.Signature, specialization: lower.Specialization?): {[string]: any}
+    local environment: {[string]: any} = {}
+    if specialization ~= nil then
+        for carrier, value in pairs((specialization as lower.Specialization).values) do
+            environment[carrier] = value
+        end
+    end
+    for position, param in ipairs(signature.params) do
+        if param.kind == "uniform" or param.kind == "scalar" then
+            if param.kind == "scalar" then
+                (param as any).cName = tostring(position)
+            end
+            environment[
+                param.name
+            ] = specialization ~= nil and (specialization as lower.Specialization).values[param.name] or param
+        end
+    end
+
+    return environment
+end
+
 --- Lowers one whole `@aot` function to AOT IR.
 ---
 --- The IR is what everything downstream is written from -- the verifier, the C,
@@ -5189,22 +5195,7 @@ function lower.program(
             serial = 0,
             context = context
         )
-        local environment: {[string]: any} = {}
-        if specialization ~= nil then
-            for carrier, value in pairs((specialization as lower.Specialization).values) do
-                environment[carrier] = value
-            end
-        end
-        for position, param in ipairs(signature.params) do
-            if param.kind == "uniform" or param.kind == "scalar" then
-                if param.kind == "scalar" then
-                    (param as any).cName = tostring(position)
-                end
-                environment[
-                    param.name
-                ] = specialization ~= nil and (specialization as lower.Specialization).values[param.name] or param
-            end
-        end
+        local environment = loweringEnvironment(signature, specialization)
         local lowered = lower.block(statements, environment, kernel)
         if #lowered == 0 then
             context.reject(lower.site(body.body or body), "an AOT block body may not be empty")
@@ -5321,22 +5312,7 @@ function lower.program(
         context = context
     )
 
-    local environment: {[string]: any} = {}
-    if specialization ~= nil then
-        for carrier, value in pairs((specialization as lower.Specialization).values) do
-            environment[carrier] = value
-        end
-    end
-    for position, param in ipairs(signature.params) do
-        if param.kind == "uniform" or param.kind == "scalar" then
-            if param.kind == "scalar" then
-                (param as any).cName = tostring(position)
-            end
-            environment[
-                param.name
-            ] = specialization ~= nil and (specialization as lower.Specialization).values[param.name] or param
-        end
-    end
+    local environment = loweringEnvironment(signature, specialization)
 
     local counted = loop as cst.FornumStmt
     local body_ = lower.block(counted.body ~= nil and (counted.body as cst.Block).stats or {}, environment, kernel)

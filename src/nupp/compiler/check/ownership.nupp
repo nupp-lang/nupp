@@ -173,8 +173,6 @@ function ownership.install(c: state.Checker): ownership.Ops
         return entry
     end
 
-    --- The value type behind any ownership qualifier.
-
     --- Whether values of this type are pointers at run time.
     function own.pointerShaped(t: Type): boolean
         t = rawType(t)
@@ -537,10 +535,6 @@ function ownership.install(c: state.Checker): ownership.Ops
             end
         end
     end
-
-    -- One fix builder serves function statements and callable fields. What resolved
-    -- decides whether the rewrite is sound; the annotation's written arguments decide
-    -- its spelling, so a bare contract keeps following the type's unique default.
 
     ---------------------------------------------------------------------
     -- Regions and conflicts

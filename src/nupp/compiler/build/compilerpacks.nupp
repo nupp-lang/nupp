@@ -16,12 +16,6 @@ local layouts = require("nupp.compiler.targetlayout")
 
 local packs = {}
 
-type packs.Tool = {
-    path: string,
-    sha256: string,
-    size: integer
-}
-
 record packs.Pack
     host: string
     target: string

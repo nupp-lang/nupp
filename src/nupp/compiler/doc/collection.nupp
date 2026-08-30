@@ -17,6 +17,7 @@ changed everywhere it is shown.
 ]]
 
 local filesMod = require("nupp.compiler.doc.files")
+local frontmatterMod = require("nupp.compiler.doc.frontmatter")
 local urlsMod = require("nupp.compiler.doc.urls")
 
 local collection = {}
@@ -59,37 +60,6 @@ type collection.Settings = {
 -- The index is a document like any other, so its prose is written where prose is
 -- written. What it does not hold is the list, which is the part that goes stale.
 local INDEX = "index.md"
-
---- The `key: value` lines a document opens with, and the body below them. A document
---- with no frontmatter block answers an empty table and its whole text, because such a
---- document still reads correctly and only loses what the index would have shown.
-local function frontmatter(source: string): {[string]: string}, string
-    -- A Windows checkout hands markdown over with CRLF endings, and the block is
-    -- recognized by exact `---\n` lines, so normalize before looking for either
-    -- delimiter rather than losing every field to a stray carriage return.
-    source = source:gsub("\r\n?", "\n")
-    if source:sub(1, 4) ~= "---\n" then
-        return {}, source
-    end
-    local ending = source:find("\n---\n", 5, true)
-    if not ending then
-        return {}, source
-    end
-    local fields: {[string]: string} = {}
-    for line in source:sub(5, ending):gmatch("[^\n]+") do
-        local key, value = line:match("^([%w_-]+)%s*:%s*(.-)%s*$")
-        if key and value then
-            -- A value written with quotes is a value that had to be, because YAML would
-            -- have read the colon in `NEP 0: Index` as a second key. Nothing here reads
-            -- it as YAML, but the quotes are what an editor's highlighting expects, so
-            -- they are accepted and dropped rather than rendered.
-            local quoted = value:match('^"(.*)"$') or value:match("^'(.*)'$")
-            fields[key] = quoted or value
-        end
-    end
-
-    return fields, source:sub(ending + 5)
-end
 
 -- The heading and the line under it are generated rather than written, for the same
 -- reason the index is: a number lives in the file name, a status lives in frontmatter,
@@ -155,7 +125,7 @@ local function expandOne(base: string, settings: collection.Settings, file: stri
     if not route then
         return nil, "a document does not name a route: " .. relative
     end
-    local fields, body = frontmatter(source)
+    local fields, body = frontmatterMod.parse(source)
     local name = titleOf(fields, body, stem)
     local number = numberOf(stem)
     local prefix = settings.title and (settings.title:gsub("s$", "")) or nil
@@ -221,7 +191,7 @@ function collection.index(
     local indexFile = join(base, INDEX)
     local source = readFile(indexFile)
     if source then
-        local fields, body = frontmatter(source)
+        local fields, body = frontmatterMod.parse(source)
         preamble, title = body, titleOf(fields, body, title)
     end
     local numbered = false

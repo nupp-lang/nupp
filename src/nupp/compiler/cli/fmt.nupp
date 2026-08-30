@@ -186,32 +186,26 @@ local function run(parsed: any): integer
     local unformatted: {string} = {}
     for _, path in ipairs(paths) do
         local source, err = fs.readFile(path)
+        -- Looked up once above the chain: the key digests the whole file, so an arm
+        -- that asked for itself would hash the file again.
+        local verdict = source and settled and settled.get(verdictKey(path, source)) or nil
         if not source then
             if asJson then
                 failures[#failures + 1] = {
                     file = path,
                     diagnostics = reportMod.diagnosticValues({
-                        {
-                            filename = path,
-                            line = 0,
-                            col = 0,
-                            offset = 0,
-                            length = 0,
-                            code = "NUPP0001",
-                            msg = err,
-                            help = "check that the path exists and is readable"
-                        }
+                        reportMod.fileDiagnostic(path, err, "check that the path exists and is readable")
                     })
                 }
             else
                 io.stderr:write("nupp: " .. tostring(err) .. "\n")
             end
             failed = true
-        elseif settled and settled.get(verdictKey(path, source)) == "same" then
+        elseif verdict == "same" then
             -- Known to format to itself: nothing to report and nothing to rewrite.
             -- Parsing the file and laying it out is the whole cost of finding that out,
             -- which is why it is worth not doing twice.
-        elseif not textNeeded and settled and settled.get(verdictKey(path, source)) == "differs" then
+        elseif not textNeeded and verdict == "differs" then
             unformatted[#unformatted + 1] = path
         else
             currentPath = path
@@ -243,16 +237,11 @@ local function run(parsed: any): integer
                             failures[#failures + 1] = {
                                 file = path,
                                 diagnostics = reportMod.diagnosticValues({
-                                    {
-                                        filename = path,
-                                        line = 0,
-                                        col = 0,
-                                        offset = 0,
-                                        length = 0,
-                                        code = "NUPP0001",
-                                        msg = tostring(writeErr),
-                                        help = "check that the path is writable"
-                                    }
+                                    reportMod.fileDiagnostic(
+                                        path,
+                                        tostring(writeErr),
+                                        "check that the path is writable"
+                                    )
                                 })
                             }
                         else

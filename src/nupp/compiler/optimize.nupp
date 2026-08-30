@@ -1769,6 +1769,47 @@ local function declineRecursiveViewTransports(functions, ordered)
     end
 end
 
+--- Marks every reference to a planned transport function against its plan: a
+--- static call records the caller's callee edge, a self-call declines the plan
+--- as recursive, and any other use declines it as a dynamic call boundary.
+local function collectTransportReferences(root, functions)
+    local function references(node, parent, currentFunction)
+        if not node or isToken(node) then
+            return
+        end
+        local enclosing = currentFunction
+        if node.kind == "localFuncStmt" then
+            enclosing = node
+        end
+        if node.kind == "name" and node.token then
+            local plan = functions[node.token.definition]
+            if plan then
+                if parent and parent.kind == "call" and parent.obj == node then
+                    local callerDefinition = enclosing and enclosing.name and enclosing.name.definition or nil
+                    local caller = functions[callerDefinition]
+                    if caller then
+                        caller.callees[node.token.definition] = true
+                    end
+                    if enclosing == plan.node then
+                        plan.admitted = false
+                        plan.decline = "recursive-call"
+                    else
+                        plan.calls[#plan.calls + 1] = parent
+                    end
+                else
+                    plan.admitted = false
+                    plan.decline = "dynamic-call-boundary"
+                end
+            end
+        end
+        for _, child in ipairs(node) do
+            references(child, node, enclosing)
+        end
+    end
+
+    references(root, nil, nil)
+end
+
 -- Transports a sealed root through the narrowest useful internal ABI: a local,
 -- nonrecursive function whose terminal return is that root and whose function value
 -- is never observed. The checked source signature remains a view; generation returns
@@ -1812,41 +1853,7 @@ local function indexedViewReturnTransportWalk(result, remarks)
 
     collect(result.root)
 
-    local function references(node, parent, currentFunction)
-        if not node or isToken(node) then
-            return
-        end
-        local enclosing = currentFunction
-        if node.kind == "localFuncStmt" then
-            enclosing = node
-        end
-        if node.kind == "name" and node.token then
-            local plan = functions[node.token.definition]
-            if plan then
-                if parent and parent.kind == "call" and parent.obj == node then
-                    local callerDefinition = enclosing and enclosing.name and enclosing.name.definition or nil
-                    local caller = functions[callerDefinition]
-                    if caller then
-                        caller.callees[node.token.definition] = true
-                    end
-                    if enclosing == plan.node then
-                        plan.admitted = false
-                        plan.decline = "recursive-call"
-                    else
-                        plan.calls[#plan.calls + 1] = parent
-                    end
-                else
-                    plan.admitted = false
-                    plan.decline = "dynamic-call-boundary"
-                end
-            end
-        end
-        for _, child in ipairs(node) do
-            references(child, node, enclosing)
-        end
-    end
-
-    references(result.root, nil, nil)
+    collectTransportReferences(result.root, functions)
     declineRecursiveViewTransports(functions, ordered)
 
     for _, plan in ipairs(ordered) do
@@ -1931,41 +1938,7 @@ local function indexedViewParameterTransportPlan(result, remarks)
         return source and source.kind == "name" and source.token and rootProducer(source.token.definition, seen) or nil
     end
 
-    local function references(node, parent, currentFunction)
-        if not node or isToken(node) then
-            return
-        end
-        local enclosing = currentFunction
-        if node.kind == "localFuncStmt" then
-            enclosing = node
-        end
-        if node.kind == "name" and node.token then
-            local plan = functions[node.token.definition]
-            if plan then
-                if parent and parent.kind == "call" and parent.obj == node then
-                    local callerDefinition = enclosing and enclosing.name and enclosing.name.definition or nil
-                    local caller = functions[callerDefinition]
-                    if caller then
-                        caller.callees[node.token.definition] = true
-                    end
-                    if enclosing == plan.node then
-                        plan.admitted = false
-                        plan.decline = "recursive-call"
-                    else
-                        plan.calls[#plan.calls + 1] = parent
-                    end
-                else
-                    plan.admitted = false
-                    plan.decline = "dynamic-call-boundary"
-                end
-            end
-        end
-        for _, child in ipairs(node) do
-            references(child, node, enclosing)
-        end
-    end
-
-    references(result.root, nil, nil)
+    collectTransportReferences(result.root, functions)
     declineRecursiveViewTransports(functions, ordered)
 
     local planned = {}

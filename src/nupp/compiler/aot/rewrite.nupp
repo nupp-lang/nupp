@@ -317,102 +317,8 @@ function rewrite.splat(node: scalarIR.Expr, scalarType: lane.Element, state: rew
     )
 end
 
---- The element a span holds, when a name is bound to one of its elements.
----
---- Consecutive access is the whole licence for running several iterations at
---- once, so a reference at any other index is not one this pass can take.
-local function resolveRef(node: scalarIR.Expr, state: rewrite.State): any
-    if node == nil then
-        return nil
-    elseif node.op == "element_ref" then
-        return node
-    elseif node.op == "local" then
-        return state.refBindings[(node as scalarIR.Name).name]
-    end
-
-    return nil
-end
-
---- The three halves of one walk, declared before any is written.
-local expression: function(scalarIR.Expr, rewrite.State): rewrite.Value
-
-local numericVector: function(scalarIR.Expr, lane.Element, rewrite.State): lane.Expr
-local conditionMask: function(scalarIR.Expr, rewrite.State): lane.Expr
-local inlineHelper: function(scalarIR.HelperCall, rewrite.State): {rewrite.Value}
-
---- A vector of `want` lanes, whether the expression varied or has to broadcast.
-numericVector = function(node: scalarIR.Expr, want: lane.Element, state: rewrite.State): lane.Expr
-    local vector = state.shape.vectorFor[want]
-    if rewrite.varying(node, state) then
-        local value = expression(node, state)
-        if value.type ~= vector then
-            state.reject("a varying " .. tostring(node.type) .. " cannot enter " .. tostring(vector) .. " SIMD")
-        end
-
-        return value as lane.Expr
-    end
-
-    return rewrite.splat(node, want, state)
-end
-
---- A mask, whether the condition varied or has to broadcast.
-conditionMask = function(node: scalarIR.Expr, state: rewrite.State): lane.Expr
-    if rewrite.varying(node, state) then
-        local value = expression(node, state)
-        if value.type ~= state.shape.mask then
-            state.reject("a varying condition did not produce a mask")
-        end
-
-        return value as lane.Expr
-    end
-
-    return new lane.BoolSplat(op = "vbool_splat", args = {node}, type = state.shape.mask, source = node.source)
-end
-
---- Rewrites a helper call to the helper's own result expressions.
----
---- A helper is a parameter list and a list of results over those parameters, so
---- inlining one is substitution. The body is already verified scalar IR, so
---- nothing about what the helper means is decided again -- only that this call's
---- arguments are what its parameters are. Bindings are saved and restored around
---- the call, so a helper called twice cannot see the wrong ones.
-inlineHelper = function(node: scalarIR.HelperCall, state: rewrite.State): {rewrite.Value}
-    local helper = state.helpers[node.helper]
-    if helper ~= nil and helper.native == true then
-        -- A compiled entry takes one set of scalars and answers once. There is no
-        -- per-lane form of that, so the loop keeps its scalar shape rather than
-        -- being given a meaning the callee never agreed to.
-        state.reject("a lane-parallel body cannot call a compiled entry")
-    end
-    if helper == nil then
-        state.reject("a lane-parallel call has no visible helper")
-
-        return {}
-    end
-    if #node.args ~= #helper.params then
-        state.reject("a lane-parallel helper call has the wrong argument count")
-    end
-    local bound, saved = {}, {}
-    for position, parameter in ipairs(helper.params) do
-        bound[parameter.name] = numericVector(node.args[position], parameter.type, state)
-    end
-    for name, value in pairs(bound) do
-        saved[name] = state.helperBindings[name]
-        state.helperBindings[name] = value
-    end
-    local values: {rewrite.Value} = {}
-    for position, value in ipairs(helper.values) do
-        values[position] = expression(value, state)
-    end
-    for name in pairs(bound) do
-        state.helperBindings[name] = saved[name]
-    end
-
-    return values
-end
-
 --- Rewrites one expression, returning it unchanged where it is uniform.
-expression = function(node: scalarIR.Expr, state: rewrite.State): rewrite.Value
+local function expression(node: scalarIR.Expr, state: rewrite.State): rewrite.Value
     if not rewrite.varying(node, state) then
         return node
     end
@@ -456,10 +362,11 @@ expression = function(node: scalarIR.Expr, state: rewrite.State): rewrite.Value
         )
     elseif operation == "field_load" then
         local field = node as scalarIR.FieldLoad
-        local object = resolveRef(field.object, state)
+        local object = rewrite.resolveRef(field.object, state)
         if object == nil or object.index ~= state.index then
             state.reject("a lane-parallel field load reads consecutive elements only")
         end
+        local ref = object as scalarIR.ElementRef
         -- A field's storage decides the lane it loads into. The binary64 gang
         -- widens every one of them; the 32-bit gang loads float storage straight
         -- into binary32 lanes, which is the whole point of it.
@@ -471,8 +378,8 @@ expression = function(node: scalarIR.Expr, state: rewrite.State): rewrite.Value
 
         return new lane.FieldLoad(
             op = "vfield_load",
-            span = object.span,
-            layout = object.layout,
+            span = ref.span,
+            layout = ref.layout,
             field = field.field,
             lanes = shape.lanes,
             scalarType = element as lane.Element,
@@ -501,7 +408,7 @@ expression = function(node: scalarIR.Expr, state: rewrite.State): rewrite.Value
 
         return bound as lane.Expr
     elseif operation == "helper_call" then
-        local inlined = inlineHelper(node as scalarIR.HelperCall, state)
+        local inlined = rewrite.inlineHelper(node as scalarIR.HelperCall, state)
         if #inlined ~= 1 then
             state.reject("a multiple-result helper is not one value")
         end
@@ -517,7 +424,7 @@ expression = function(node: scalarIR.Expr, state: rewrite.State): rewrite.Value
         return new lane.ShortCircuit(
             op = "vshort",
             verb = operation == "and" and "and" or "or",
-            args = {conditionMask(binary.left, state), conditionMask(binary.right, state)},
+            args = {rewrite.conditionMask(binary.left, state), rewrite.conditionMask(binary.right, state)},
             effect = "pure_total",
             type = mask,
             source = node.source
@@ -581,7 +488,10 @@ function rewrite.fixedWidth(
         op = "vbinary",
         verb = verb,
         element = exact and element or "f64",
-        args = {numericVector(binary.left, element, state), numericVector(binary.right, element, state),},
+        args = {
+            rewrite.numericVector(binary.left, element, state),
+            rewrite.numericVector(binary.right, element, state),
+        },
         type = wide,
         source = node.source
     )
@@ -618,11 +528,11 @@ function rewrite.arithmetic(node: scalarIR.Expr, state: rewrite.State): rewrite.
         local args: {lane.Expr} = {}
         if corrected.arity == 3 then
             for position, argument in ipairs((node as scalarIR.Corrected).args or {}) do
-                args[position] = numericVector(argument, "f32", state)
+                args[position] = rewrite.numericVector(argument, "f32", state)
             end
         else
-            args[1] = numericVector(binary.left, "f32", state)
-            args[2] = numericVector(binary.right, "f32", state)
+            args[1] = rewrite.numericVector(binary.left, "f32", state)
+            args[2] = rewrite.numericVector(binary.right, "f32", state)
         end
 
         return new lane.Corrected(
@@ -643,7 +553,7 @@ function rewrite.arithmetic(node: scalarIR.Expr, state: rewrite.State): rewrite.
     if operation == "math" then
         local args: {lane.Expr} = {}
         for position, argument in ipairs((node as scalarIR.Math).args) do
-            args[position] = numericVector(argument, "f64", state)
+            args[position] = rewrite.numericVector(argument, "f64", state)
         end
 
         return new lane.Math(
@@ -660,7 +570,7 @@ function rewrite.arithmetic(node: scalarIR.Expr, state: rewrite.State): rewrite.
             op = "vunary",
             verb = "neg",
             element = element,
-            args = {numericVector((node as scalarIR.Unary).value, element, state)},
+            args = {rewrite.numericVector((node as scalarIR.Unary).value, element, state)},
             type = shape.vectorFor[element] as string,
             source = node.source
         )
@@ -669,7 +579,7 @@ function rewrite.arithmetic(node: scalarIR.Expr, state: rewrite.State): rewrite.
             op = "vunary",
             verb = "sqrt",
             element = "f32",
-            args = {numericVector((node as scalarIR.FixedUnary).value, "f32", state)},
+            args = {rewrite.numericVector((node as scalarIR.FixedUnary).value, "f32", state)},
             type = shape.vectorFor["f32"] as string,
             source = node.source
         )
@@ -685,7 +595,10 @@ function rewrite.arithmetic(node: scalarIR.Expr, state: rewrite.State): rewrite.
             op = "vbinary",
             verb = verb,
             element = element,
-            args = {numericVector(binary.left, element, state), numericVector(binary.right, element, state),},
+            args = {
+                rewrite.numericVector(binary.left, element, state),
+                rewrite.numericVector(binary.right, element, state),
+            },
             type = shape.vectorFor[element] as string,
             source = node.source
         )
@@ -701,7 +614,10 @@ function rewrite.arithmetic(node: scalarIR.Expr, state: rewrite.State): rewrite.
             op = "vbinary",
             verb = comparison,
             element = element,
-            args = {numericVector(binary.left, element, state), numericVector(binary.right, element, state),},
+            args = {
+                rewrite.numericVector(binary.left, element, state),
+                rewrite.numericVector(binary.right, element, state),
+            },
             type = rewrite.nativeMask(shape, element),
             source = node.source
         )
@@ -732,7 +648,7 @@ function rewrite.bitwise(
 
     local function asBits(operand: scalarIR.Expr): lane.Expr
         local want = operand.type == "f64" and "f64" or "i32"
-        local vector = numericVector(operand, want as lane.Element, state)
+        local vector = rewrite.numericVector(operand, want as lane.Element, state)
         if vector.type == bits then
             return vector
         end
@@ -1257,7 +1173,7 @@ function rewrite.branchMasks(
     local arms: {any} = {}
     local remaining = reaching
     for position, clause in ipairs(clauses) do
-        local condition = conditionMask(clause.condition, state)
+        local condition = rewrite.conditionMask(clause.condition, state)
         local entry = rewrite.maskAnd(remaining, condition, clause.source, state)
         local binding = rewrite.internalMask("if", clause.source, block, state)
         arms[position] = {binding = binding, entry = entry, clause = clause}
@@ -1434,7 +1350,7 @@ end
 --- A uniform value is broadcast. A varying one is rewritten and then checked
 --- against the width the caller asked for, because a gang that does not carry
 --- that element would otherwise silently produce a vector of the wrong one.
-function rewrite.numericVector(node: scalarIR.Expr, want: scalarIR.Type?, state: rewrite.State): rewrite.Value
+function rewrite.numericVector(node: scalarIR.Expr, want: scalarIR.Type?, state: rewrite.State): lane.Expr
     local scalarType = want or node.type
     local element = rewrite.asElement(scalarType) or "f64"
     if not rewrite.varying(node, state) then
@@ -1450,7 +1366,7 @@ function rewrite.numericVector(node: scalarIR.Expr, want: scalarIR.Type?, state:
         )
     end
 
-    return value
+    return value as lane.Expr
 end
 
 --- One condition, as the mask of lanes that satisfy it.

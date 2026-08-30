@@ -11,7 +11,7 @@ local command = spec.command{
         "nupp backend test <module> [--dialect luajit|luajit-compat|lua51] [--runtime LUA] [--seam NAME] [--json]"
     },
     universal = false,
-    options = {{name = "-h", names = {"-h", "--help"}, help = "Show this help"}},
+    options = {spec.helpOption},
     positionals = {},
     schema = {
         type = "object",
@@ -100,7 +100,7 @@ local function compileRuntimeTree(env: any, scratch: string, roots: {string}, se
                     return false, readProblem
                 end
                 local code = source
-                if not path:match("%.lua$") or path:match("%.nupp$") then
+                if not path:match("%.lua$") then
                     local parsed = parser.parse(source, path)
                     if #parsed.errors > 0 then
                         require("nupp.compiler.diagnostics").report(parsed.errors)

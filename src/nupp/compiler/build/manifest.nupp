@@ -894,6 +894,23 @@ local LINT_LEVELS = {off = true, note = true, warning = true, error = true}
 -- key of their own.
 local FMT_KEYS = {"methodParens"}
 
+-- test.build, tasks.<name>.build, and the selfHost targets all name a build target the
+-- same way: a non-empty string naming a target the build section declares.
+local function validateTargetReference(build, value, label)
+    local valid, err = validateString(value, label)
+    if not valid then
+        return nil, err
+    end
+    if not build or not build.targets then
+        return nil, label .. " requires build.targets"
+    end
+    if type(build.targets[value]) ~= "table" then
+        return nil, label .. " references unknown target " .. value
+    end
+
+    return true
+end
+
 local function validateManifest(config: manifest.Config): boolean?, string?
     local valid, err = validateArray(config.include, "include", "string")
     if not valid then
@@ -1248,15 +1265,9 @@ local function validateManifest(config: manifest.Config): boolean?, string?
             return nil, err
         end
         if config.test.build ~= nil then
-            valid, err = validateString(config.test.build, "test.build")
+            valid, err = validateTargetReference(build, config.test.build, "test.build")
             if not valid then
                 return nil, err
-            end
-            if not build.targets then
-                return nil, "test.build requires build.targets"
-            end
-            if type(build.targets[config.test.build]) ~= "table" then
-                return nil, "test.build references unknown target " .. config.test.build
             end
         end
         if config.test.env ~= nil then
@@ -1301,15 +1312,9 @@ local function validateManifest(config: manifest.Config): boolean?, string?
             -- by default, see nupp.compiler.build.project.runTask), and a manifest with
             -- no build section is still a manifest a task can be defined in.
             if task.build ~= nil then
-                valid, err = validateString(task.build, label .. ".build")
+                valid, err = validateTargetReference(build, task.build, label .. ".build")
                 if not valid then
                     return nil, err
-                end
-                if not build or not build.targets then
-                    return nil, label .. ".build requires build.targets"
-                end
-                if type(build.targets[task.build]) ~= "table" then
-                    return nil, label .. ".build references unknown target " .. task.build
                 end
             end
             if task.env ~= nil then
@@ -1336,27 +1341,15 @@ local function validateManifest(config: manifest.Config): boolean?, string?
             return nil, err
         end
         if config.selfHost.target ~= nil then
-            valid, err = validateString(config.selfHost.target, "selfHost.target")
+            valid, err = validateTargetReference(build, config.selfHost.target, "selfHost.target")
             if not valid then
                 return nil, err
-            end
-            if not build.targets then
-                return nil, "selfHost.target requires build.targets"
-            end
-            if type(build.targets[config.selfHost.target]) ~= "table" then
-                return nil, "selfHost.target references unknown target " .. config.selfHost.target
             end
         end
         if config.selfHost.bootstrapTarget ~= nil then
-            valid, err = validateString(config.selfHost.bootstrapTarget, "selfHost.bootstrapTarget")
+            valid, err = validateTargetReference(build, config.selfHost.bootstrapTarget, "selfHost.bootstrapTarget")
             if not valid then
                 return nil, err
-            end
-            if not build.targets then
-                return nil, "selfHost.bootstrapTarget requires build.targets"
-            end
-            if type(build.targets[config.selfHost.bootstrapTarget]) ~= "table" then
-                return nil, "selfHost.bootstrapTarget references unknown target " .. config.selfHost.bootstrapTarget
             end
         end
         if config.selfHost.bootstrap ~= nil then
@@ -1396,7 +1389,5 @@ function manifest.load(root: string?): manifest.Config?, string?
 
     return config
 end
-
-manifest.validate = validateManifest
 
 export = manifest

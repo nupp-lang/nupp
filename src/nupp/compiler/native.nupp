@@ -298,10 +298,6 @@ for effect, feature in pairs(FEATURES) do
     end
 end
 
-function native.forGlobal(path: string): string?
-    return byGlobal[path]
-end
-
 --- Marks the prelude's exact member types with their runtime effects. The identity
 --- follows aliases, so binding an ambient namespace to a local and reaching a member
 --- through it stays as precise as spelling the intrinsic path directly. A facility

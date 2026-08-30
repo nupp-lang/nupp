@@ -1928,12 +1928,6 @@ function checkMod.check(
         return out
     end
 
-    -- Removes members of union `t` that fit `rem`; a full wipe-out keeps `t`.
-
-    --- `t` with everything that fits `rem` removed. Subtracting one of boolean's two
-    --- values leaves the other; a type parameter is left alone, since while
-    --- unsubstituted it fits everything.
-
     -- What a condition proves, and where it holds, is its own concern; the walk applies
     -- what it is told. See nupp.compiler.check.narrow.
     local facts = narrow.install(c)
@@ -2978,8 +2972,8 @@ function checkMod.check(
     -- Both of these needed the whole file before they could answer, so they answer here
     -- and their diagnostics are put back in source order with everything else.
     c.unused.sweep()
-    c.discard.sweep(analysis.queries(facts))
-    c.nosuspend.sweep(analysis.queries(facts))
+    c.discard.sweep(effectQueries)
+    c.nosuspend.sweep(effectQueries)
     c.effectRegions.sweep(effectQueries)
     for _, literal in ipairs(result.sendableLiterals or {}) do
         for _, capture in ipairs(literal.sendableCaptures or {}) do

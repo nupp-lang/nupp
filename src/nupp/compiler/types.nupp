@@ -1842,6 +1842,21 @@ local function retentionId(retention: types.ForeignRetention): string
     return tostring(flowIdentity(retention.identity)) .. "@" .. (retention.component or "")
 end
 
+--- Insertion-sorts `list` into canonical id order. Top-level rather than nested in
+--- `types.capability`, and its id functions are top-level too, so this file's
+--- constructors stay closure-free.
+local function insertById<T>(list: {T}, idOf: function(value: T): string): nil
+    for j = 2, #list do
+        local value, k = list[j], j - 1
+        local id = idOf(value)
+        while k > 0 and id < idOf(list[k]) do
+            list[k + 1] = list[k]
+            k = k - 1
+        end
+        list[k + 1] = value
+    end
+end
+
 --- Exposes one canonical capability view over the existing erased wrapper encoding
 --- plus flow facts supplied by the checker. An empty loan set is ordinary access.
 function types.capability(t: types.Type, facts: types.CapabilityFacts?): types.Capability
@@ -1863,14 +1878,7 @@ function types.capability(t: types.Type, facts: types.CapabilityFacts?): types.C
             component = facts.component
         )
     end
-    for j = 2, #loans do
-        local value, k = loans[j], j - 1
-        while k > 0 and loanId(value) < loanId(loans[k]) do
-            loans[k + 1] = loans[k]
-            k = k - 1
-        end
-        loans[k + 1] = value
-    end
+    insertById(loans, loanId)
 
     local anchors: {types.PinnedAnchor} = {}
     for _, anchor in ipairs(facts.anchors or {}) do
@@ -1879,14 +1887,7 @@ function types.capability(t: types.Type, facts: types.CapabilityFacts?): types.C
     if t.tag == "pinned" and #anchors == 0 then
         anchors[1] = new types.PinnedAnchor(root = facts.anchor or t, component = facts.component)
     end
-    for j = 2, #anchors do
-        local value, k = anchors[j], j - 1
-        while k > 0 and anchorId(value) < anchorId(anchors[k]) do
-            anchors[k + 1] = anchors[k]
-            k = k - 1
-        end
-        anchors[k + 1] = value
-    end
+    insertById(anchors, anchorId)
 
     local retentions: {types.ForeignRetention} = {}
     for _, retention in ipairs(facts.retentions or {}) do
@@ -1897,14 +1898,7 @@ function types.capability(t: types.Type, facts: types.CapabilityFacts?): types.C
             #retentions + 1
         ] = new types.ForeignRetention(identity = facts.retention, component = facts.component)
     end
-    for j = 2, #retentions do
-        local value, k = retentions[j], j - 1
-        while k > 0 and retentionId(value) < retentionId(retentions[k]) do
-            retentions[k + 1] = retentions[k]
-            k = k - 1
-        end
-        retentions[k + 1] = value
-    end
+    insertById(retentions, retentionId)
 
     local loanIds, anchorIds, retentionIds = {}, {}, {}
     for j, loan in ipairs(loans) do
@@ -2544,10 +2538,6 @@ function types.packAt(pack: types.Pack, index: integer): types.Type?
     end
 
     return nil
-end
-
-function types.packMayExpand(pack: types.Pack): boolean
-    return pack.tail ~= nil or pack.alternatives ~= nil
 end
 
 function types.protocolThread(

@@ -1433,7 +1433,6 @@ function doc.loadConfig(root: string?): doc.Config?, string?
 end
 
 doc.theme = THEME
-doc.script = SCRIPT
 doc.highlight = highlightMod.nuppSource
 
 export = doc

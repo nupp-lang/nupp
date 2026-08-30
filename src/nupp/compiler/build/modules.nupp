@@ -1638,7 +1638,6 @@ local function buildModules(root: string, outDir: string, config: Config, target
 end
 
 modules.typeFingerprint = typeFingerprint
-modules.resourceRelative = resourceRelative
 modules.resourceOutput = resourceOutput
 modules.build = buildModules
 modules.session = openSession

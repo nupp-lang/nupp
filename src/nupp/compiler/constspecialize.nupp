@@ -353,27 +353,20 @@ function constspecialize.collectGraph(checked: {any}): {any}
     return plans
 end
 
---- Chooses a deterministic prefix of body classes and annotates only its calls.
---- Optional Lua emission declines the rest; required AOT emission diagnoses it.
-function constspecialize.select(plans: {any}, maximum: integer?): ({any}, {any})
-    maximum = maximum or constspecialize.maxBodiesPerModule
-    local all = {}
-    for _, plan in ipairs(plans) do
-        for _, specialization in ipairs(plan.specializations) do
-            all[#all + 1] = specialization
-        end
-    end
-    table.sort(all, byPriority)
-    local accepted, declined = {}, {}
+--- Selects one sorted body list against a class budget: a class already holding
+--- a representative coalesces onto it, a new class within the budget becomes its
+--- own physical body, and everything past the budget is declined.
+local function selectBodies(bodies: {any}, maximum: integer, accepted: {any}, declined: {any}): nil
+    table.sort(bodies, byPriority)
     local classes: {[string]: any} = {}
     local classCount = 0
-    for _, specialization in ipairs(all) do
+    for _, specialization in ipairs(bodies) do
         local representative = classes[specialization.bodyClass]
         if representative ~= nil then
             specialization.physical = representative
             specialization.selected = true
             accepted[#accepted + 1] = specialization
-        elseif classCount < (maximum as integer) then
+        elseif classCount < maximum then
             classCount = classCount + 1
             classes[specialization.bodyClass] = specialization
             specialization.physical = specialization
@@ -384,6 +377,20 @@ function constspecialize.select(plans: {any}, maximum: integer?): ({any}, {any})
             declined[#declined + 1] = specialization
         end
     end
+end
+
+--- Chooses a deterministic prefix of body classes and annotates only its calls.
+--- Optional Lua emission declines the rest; required AOT emission diagnoses it.
+function constspecialize.select(plans: {any}, maximum: integer?): ({any}, {any})
+    maximum = maximum or constspecialize.maxBodiesPerModule
+    local all = {}
+    for _, plan in ipairs(plans) do
+        for _, specialization in ipairs(plan.specializations) do
+            all[#all + 1] = specialization
+        end
+    end
+    local accepted, declined = {}, {}
+    selectBodies(all, maximum as integer, accepted, declined)
 
     return accepted, declined
 end
@@ -403,26 +410,7 @@ function constspecialize.selectGraph(plans: {any}, maximum: integer?): ({any}, {
     end
     local accepted, declined = {}, {}
     for _, bodies in pairs(modules) do
-        table.sort(bodies, byPriority)
-        local classes: {[string]: any} = {}
-        local classCount = 0
-        for _, specialization in ipairs(bodies) do
-            local representative = classes[specialization.bodyClass]
-            if representative ~= nil then
-                specialization.physical = representative
-                specialization.selected = true
-                accepted[#accepted + 1] = specialization
-            elseif classCount < (maximum as integer) then
-                classCount = classCount + 1
-                classes[specialization.bodyClass] = specialization
-                specialization.physical = specialization
-                specialization.selected = true
-                accepted[#accepted + 1] = specialization
-            else
-                specialization.selected = false
-                declined[#declined + 1] = specialization
-            end
-        end
+        selectBodies(bodies, maximum as integer, accepted, declined)
     end
     table.sort(accepted, byKey)
     table.sort(declined, byKey)

@@ -296,6 +296,4 @@ function release.stampPayload(
     return true
 end
 
-release.hostFeatures = HOST_FEATURES
-
 export = release

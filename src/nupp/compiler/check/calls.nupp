@@ -17,6 +17,7 @@ local members = require("nupp.compiler.members")
 local relations = require("nupp.compiler.relations")
 local generics = require("nupp.compiler.generics")
 local fixedWidth = require("nupp.compiler.fixedwidth")
+local indexedViews = require("nupp.compiler.indexedviews")
 local cst = require("nupp.compiler.cst")
 local state = require("nupp.compiler.check.state")
 
@@ -95,26 +96,6 @@ end
 
 --- A type, as nupp.compiler.types builds them.
 local type Type = T.Type
-
-local function spanElement(t: Type): Type?
-    if t.tag ~= "nominal" then
-        return nil
-    end
-    local owner = t as T.Nominal
-    local origin = (owner.origin or owner) as T.Nominal
-    if origin.moduleName ~= "nupp.mem.span" then
-        return nil
-    end
-    if origin.name ~= "Span"
-        and origin.name ~= "FixedSpan"
-        and origin.name ~= "WriteSpan"
-        and origin.name ~= "FixedWriteSpan"
-    then
-        return nil
-    end
-
-    return owner.typeArgs and owner.typeArgs[1] or nil
-end
 
 local function callableMembers(t: Type): {T.Func}?
     if t.tag ~= "intersection" then
@@ -471,7 +452,7 @@ function calls.install(c: state.Checker): calls.Ops
             ] then
                 ft = fixedWidth.loaded(ft)
             end
-            local element = owner and spanElement(owner) or nil
+            local element = owner and indexedViews.spanElement(owner) or nil
             if element and name == "get" then
                 ft = T.withFirstResult(ft, fixedWidth.loaded(element))
             end
@@ -647,11 +628,6 @@ function calls.install(c: state.Checker): calls.Ops
         return nil
     end
 
-    -- Method-call receivers are passed implicitly: adapt "function(self, ...)" by
-    -- dropping the first parameter.
-
-    --- A method's type as a plain function, receiver removed.
-
     ---------------------------------------------------------------------
     -- Generic instantiation
     ---------------------------------------------------------------------
@@ -669,8 +645,6 @@ function calls.install(c: state.Checker): calls.Ops
 
         return "pass a function a module exports, with the values it would have captured as arguments"
     end
-
-    -- Rebuilds `t` with typevars replaced per `map` (unresolved -> any).
 
     function ops.validateTypeBounds(params, bounds, map, node)
         for j, tv in ipairs(params or {}) do
@@ -1625,9 +1599,9 @@ function calls.install(c: state.Checker): calls.Ops
                 selected = choices[1]
                 advancedOverloadSelected = true
             else
-                selected = chooseFor(calleeT as T.Func)
+                local choice, _, why = chooseFor(calleeT as T.Func)
+                selected = choice
                 if not selected then
-                    local _, _, why = chooseFor(calleeT as T.Func)
                     local code = why and why:find("several", 1, true) and "NUPP2126" or "NUPP2125"
                     c.diag(code, node, why or "call arguments cannot be bound", nil, callDetails(node))
                     return T.any, nil, T.pack({}, {kind = "unknown", type = T.any})
@@ -2360,9 +2334,7 @@ function calls.install(c: state.Checker): calls.Ops
                     c.diag("NUPP2619", source, "a borrowed result needs a rooted argument to borrow from")
                 end
             end
-            if #owners == 1 then
-                c.own.capabilityFacts(node).roots = owners
-            elseif #owners > 1 then
+            if #owners > 0 then
                 c.own.capabilityFacts(node).roots = owners
             end
             local exclusiveResult = calleeT.borrowsParam and calleeT.paramModes[calleeT.borrowsParam] == "exclusive"

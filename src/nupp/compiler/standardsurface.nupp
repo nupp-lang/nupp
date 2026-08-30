@@ -113,15 +113,6 @@ function surface.all(): {[string]: any}
     return copy
 end
 
-function surface.facilities(): {[string]: any}
-    local copy = {}
-    for name, classification in pairs(FACILITIES) do
-        copy[name] = classification
-    end
-
-    return copy
-end
-
 --- Whether a target can reach a public standard module at all.
 ---
 --- The same question `requireModule` answers by reporting, asked without reporting,

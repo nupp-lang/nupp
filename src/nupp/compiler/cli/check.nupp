@@ -154,16 +154,7 @@ local function run(parsed: any): integer
             if asJson then
                 diagnostics[
                     #diagnostics + 1
-                ] = {
-                    filename = path,
-                    line = 0,
-                    col = 0,
-                    offset = 0,
-                    length = 0,
-                    code = "NUPP0001",
-                    msg = err,
-                    help = "check that the path exists and is readable"
-                }
+                ] = reportMod.fileDiagnostic(path, err, "check that the path exists and is readable")
             else
                 io.stderr:write("nupp: " .. tostring(err) .. "\n")
             end

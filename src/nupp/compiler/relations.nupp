@@ -556,6 +556,31 @@ local function propertiesFit(a: PropertyType, b: PropertyType): boolean, string?
     return true
 end
 
+--- Whether `a`'s indexers grant what `b`'s require, read and write answered
+--- separately so each caller keeps its own diagnostic. Keys compare contravariantly;
+--- the read indexer's value compares covariantly and the write indexer's
+--- contravariantly, like the members in `propertiesFit`.
+local function indexersFit(a: PropertyType, b: PropertyType): boolean, boolean
+    local readOk = not (
+        b.indexReadValue and (
+            not a.indexReadValue or not optionalIsA(
+                b.indexReadKey,
+                a.indexReadKey
+            ) or not optionalIsA(a.indexReadValue, b.indexReadValue)
+        )
+    )
+    local writeOk = not (
+        b.indexWriteValue and (
+            not a.indexWriteValue or not optionalIsA(
+                b.indexWriteKey,
+                a.indexWriteKey
+            ) or not optionalIsA(b.indexWriteValue, a.indexWriteValue)
+        )
+    )
+
+    return readOk, writeOk
+end
+
 local function sameCleanups(a: {T.Cleanup}?, b: {T.Cleanup}?): boolean
     local left: {T.Cleanup} = a or {}
     local right: {T.Cleanup} = b or {}
@@ -867,20 +892,8 @@ local function check(a: Type, b: Type): boolean, string?
             if not ok then
                 return false, why
             end
-            if b.indexReadValue and (
-                not a.indexReadValue or not optionalIsA(
-                    b.indexReadKey,
-                    a.indexReadKey
-                ) or not optionalIsA(a.indexReadValue, b.indexReadValue)
-            ) then
-                return fail(a, b)
-            end
-            if b.indexWriteValue and (
-                not a.indexWriteValue or not optionalIsA(
-                    b.indexWriteKey,
-                    a.indexWriteKey
-                ) or not optionalIsA(b.indexWriteValue, a.indexWriteValue)
-            ) then
+            local readOk, writeOk = indexersFit(a, b)
+            if not readOk or not writeOk then
                 return fail(a, b)
             end
             return true
@@ -982,21 +995,12 @@ local function check(a: Type, b: Type): boolean, string?
             if not ok then
                 return false, why
             end
-            if b.indexReadValue then
-                if not a.indexReadValue or not optionalIsA(
-                    b.indexReadKey,
-                    a.indexReadKey
-                ) or not optionalIsA(a.indexReadValue, b.indexReadValue) then
-                    return false, ("%s is not a %s (read indexer does not match)"):format(T.tostring(a), T.tostring(b))
-                end
+            local readOk, writeOk = indexersFit(a, b)
+            if not readOk then
+                return false, ("%s is not a %s (read indexer does not match)"):format(T.tostring(a), T.tostring(b))
             end
-            if b.indexWriteValue then
-                if not a.indexWriteValue or not optionalIsA(
-                    b.indexWriteKey,
-                    a.indexWriteKey
-                ) or not optionalIsA(b.indexWriteValue, a.indexWriteValue) then
-                    return false, ("%s is not a %s (write indexer does not match)"):format(T.tostring(a), T.tostring(b))
-                end
+            if not writeOk then
+                return false, ("%s is not a %s (write indexer does not match)"):format(T.tostring(a), T.tostring(b))
             end
             for name, want in pairs(b.metamethods or {}) do
                 local have = atag == "nominal" and a.metamethods and a.metamethods[name] or nil
@@ -1157,20 +1161,8 @@ local function check(a: Type, b: Type): boolean, string?
             if not ok then
                 return false, why
             end
-            if b.indexReadValue and (
-                not a.indexReadValue or not optionalIsA(
-                    b.indexReadKey,
-                    a.indexReadKey
-                ) or not optionalIsA(a.indexReadValue, b.indexReadValue)
-            ) then
-                return fail(a, b)
-            end
-            if b.indexWriteValue and (
-                not a.indexWriteValue or not optionalIsA(
-                    b.indexWriteKey,
-                    a.indexWriteKey
-                ) or not optionalIsA(b.indexWriteValue, a.indexWriteValue)
-            ) then
+            local readOk, writeOk = indexersFit(a, b)
+            if not readOk or not writeOk then
                 return fail(a, b)
             end
             return true

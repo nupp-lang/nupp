@@ -869,16 +869,10 @@ function spirv.program(
             return constant(typeId, numeric), typeId
         elseif op == "bool" then
             return value.value and trueId or falseId, boolType
-        elseif op == "int_to_f64" or op == "widen_f32_f64" then
+        elseif op == "int_to_f64" or op == "widen_f32_f64" or op == "narrow_f64_f32" then
+            -- Binary64 computes in binary32 lanes here, so both directions are
+            -- pass-throughs.
             return expression(value.value)
-        elseif op == "narrow_f64_f32" then
-            local input, inputType = expression(value.value)
-            if inputType == f32Type then
-                return input, f32Type
-            end
-            local converted = id()
-            instruction(functions, OP.FConvert, {f32Type, converted, input})
-            return converted, f32Type
         elseif op == "numeric_cast" then
             local input, inputType = expression(value.value)
             local outputType = valueType(value.type)

@@ -76,28 +76,28 @@ function capabilities.get(resolved: any, name: string): any
     return capability
 end
 
+--- The checker's capability resolution, computed once and remembered on its options.
+local function resolution(checker: any): any
+    local resolved = checker.opts._capabilityResolution
+    if resolved == nil then
+        resolved = capabilities.resolve(checker.opts.dialect, checker.opts.backendResolution)
+        checker.opts._capabilityResolution = resolved
+    end
+
+    return resolved
+end
+
 --- Whether a target has one compiler-owned capability, without reporting.
 ---
 --- For a caller deciding what to do next rather than only what to say. `require`
 --- answers the same question by reporting it.
 function capabilities.available(checker: any, name: string): boolean
-    local resolved = checker.opts._capabilityResolution
-    if resolved == nil then
-        resolved = capabilities.resolve(checker.opts.dialect, checker.opts.backendResolution)
-        checker.opts._capabilityResolution = resolved
-    end
-
-    return capabilities.get(resolved, name).kind ~= "missing"
+    return capabilities.get(resolution(checker), name).kind ~= "missing"
 end
 
 --- Reports a missing capability at the source construct that requires it.
 function capabilities.require(checker: any, name: string, at: any): boolean
-    local resolved = checker.opts._capabilityResolution
-    if resolved == nil then
-        resolved = capabilities.resolve(checker.opts.dialect, checker.opts.backendResolution)
-        checker.opts._capabilityResolution = resolved
-    end
-    local capability = capabilities.get(resolved, name)
+    local capability = capabilities.get(resolution(checker), name)
     if capability.kind ~= "missing" then
         return true
     end

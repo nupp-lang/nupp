@@ -617,8 +617,8 @@ local function parseOptions(operation, args)
     return opts
 end
 
-local function target(client, opts, expected)
-    if #opts.positional ~= expected then
+local function target(client, opts)
+    if #opts.positional ~= 3 then
         return nil, nil, nil, "expected FILE LINE COLUMN"
     end
     local path = resolvePath(opts.root, opts.positional[1])
@@ -647,7 +647,7 @@ end
 ----------------------------------------------------------------------------
 
 local function runInspect(client, opts)
-    local path, _, position, err = target(client, opts, 3)
+    local path, _, position, err = target(client, opts)
     if not path then
         return nil, err
     end
@@ -696,7 +696,7 @@ local function runInspect(client, opts)
 end
 
 local function runDefinition(client, opts)
-    local path, _, position, err = target(client, opts, 3)
+    local path, _, position, err = target(client, opts)
     if not path then
         return nil, err
     end
@@ -737,7 +737,7 @@ local function runDefinition(client, opts)
 end
 
 local function runReferences(client, opts)
-    local path, _, position, err = target(client, opts, 3)
+    local path, _, position, err = target(client, opts)
     if not path then
         return nil, err
     end
@@ -951,7 +951,7 @@ local function runRename(client, opts)
     end
     local newName = opts.positional[4]
     local targetOpts = {positional = {opts.positional[1], opts.positional[2], opts.positional[3]}, root = opts.root}
-    local path, source, position, err = target(client, targetOpts, 3)
+    local path, source, position, err = target(client, targetOpts)
     if not path then
         return nil, err
     end
@@ -1016,7 +1016,7 @@ local function runRename(client, opts)
 end
 
 local function runActions(client, opts)
-    local path, _, position, err = target(client, opts, 3)
+    local path, _, position, err = target(client, opts)
     if not path then
         return nil, err
     end
@@ -1058,7 +1058,7 @@ local function runActions(client, opts)
 end
 
 local function runTraceCheck(client, opts)
-    local path, _, position, err = target(client, opts, 3)
+    local path, _, position, err = target(client, opts)
     if not path then
         return nil, err
     end

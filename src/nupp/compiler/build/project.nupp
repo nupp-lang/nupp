@@ -465,7 +465,6 @@ local function buildOne(root: string?, opts: project.BuildOptions?): integer
         end
         if (produced as any).library ~= nil then
             newState.outputs[(produced as any).library] = true
-            newState.aotLibrary = (produced as any).libraryKey
             aotLibrary = (produced as any).library as string?
         end
         for _, output in ipairs((produced as any).wasmModules or {}) do
@@ -982,7 +981,7 @@ function project.test(root: string?, args: {string}?, opts: project.TestOptions?
     -- the project, and the test command is a fresh interpreter that has never heard of
     -- it. A trailing empty entry is where Lua substitutes its own path, so the tree is
     -- added to what a test can load rather than put in place of it.
-    local rocks = deps.rockPaths(root, config, (targetConfig(config, test.build)))
+    local rocks = deps.rockPaths(root, config, builtTarget)
     if rocks then
         -- Keep the caller's coverage protocol values while adding the project rock
         -- paths the fresh test process needs.
@@ -1281,25 +1280,6 @@ local function bootstrapText(root: string, config: manifest.Config): string?, st
     )
 
     return text, bundleErr
-end
-
-function project.updateBootstrap(root: string?): boolean?, string?
-    root = root or "."
-    local config, err = project.loadManifest(root)
-    if not config then
-        return nil, err
-    end
-    local bootstrapPath = join(root, config.selfHost and config.selfHost.bootstrap or "bootstrap/nupp.lua")
-    local text, bundleErr = bootstrapText(root, config)
-    if not text then
-        return nil, bundleErr
-    end
-    local ok, writeErr = writeFile(bootstrapPath, text)
-    if not ok then
-        return nil, writeErr
-    end
-
-    return true
 end
 
 --- Verifies that a stamped binary stamps out a binary identical to itself.

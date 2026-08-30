@@ -82,10 +82,9 @@ local function protocolValue(value: any, seen: {[any]: any}?): any
     end
     local copied = {}
     seen[value] = copied
-    local numberKeys, otherKeys, maximum = false, false, 0
+    local otherKeys, maximum = false, 0
     for key, item in pairs(value) do
         if type(key) == "number" and key >= 1 and key % 1 == 0 then
-            numberKeys = true
             maximum = math.max(maximum, key)
         else
             otherKeys = true
@@ -99,9 +98,6 @@ local function protocolValue(value: any, seen: {[any]: any}?): any
             end
         end
         return json.asArray(copied)
-    end
-    if numberKeys then
-        return copied
     end
 
     return copied
@@ -328,9 +324,8 @@ local function handleRequest(request): any
     if not node then
         return {ok = false, code = "NUPP2412", message = "worker request has no comptime block"}
     end
-    local helperRequest = {program = "value:" .. request.source, main = "", helpers = request.helpers or {}}
     local helpers = {}
-    for name, descriptor in pairs(helperRequest.helpers) do
+    for name, descriptor in pairs(request.helpers or {}) do
         local helperParse = type(
             descriptor
         ) == "table" and type(

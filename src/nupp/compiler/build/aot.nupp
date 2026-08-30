@@ -285,9 +285,6 @@ record aot.Emitted
     --- Where the C was written.
     output: string
 
-    --- How many `@aot` functions it holds.
-    functions: integer
-
     --- The key it was built under, which the next build compares against.
     key: string
 
@@ -458,11 +455,6 @@ local function checkedTree(
     return checked.result as nupp.compiler.parser.ParseResult, authored
 end
 
---- How this host spells a shared library, and what it takes to produce one.
----
---- The host's rather than the selected target's: `require` builds something
---- this build's own loader will open. Cross-compiling to a target whose objects
---- this machine cannot load is `emit-c`, which is what it is for.
 --- The Lua import library a Windows link needs, or nothing.
 ---
 --- An entry that drives the VM calls `lua_*`. POSIX leaves those undefined in a
@@ -519,6 +511,12 @@ function aot.luaImportLibrary(): string?
     return nil
 end
 
+--- How this host spells a shared library, and what it takes to produce one.
+---
+--- The host's rather than the selected target's: `require` builds something
+--- this build's own loader will open. Cross-compiling to a target whose objects
+--- this machine cannot load is `emit-c`, which is what it is for.
+---
 --- @return the flags a shared object is linked with
 --- @return the suffix its file takes
 --- @return a library to name after the objects, when the platform needs one
@@ -1144,7 +1142,6 @@ function aot.emitC(
                         tier = tierTarget.tier,
                         cacheKey = cacheKey,
                         output = output,
-                        functions = cpuFunctions,
                         key = key
                     )
                     produced[cacheKey] = artifacts as compile.Artifacts
@@ -1179,7 +1176,6 @@ function aot.emitC(
             tier = "baseline",
             cacheKey = cacheKey,
             output = output,
-            functions = 0,
             key = key,
             detector = true
         )
@@ -1416,12 +1412,7 @@ function aot.apply(
         ), nil
     end
 
-    local selectedTiers, targetErr = targets.buildTiers(triple, features)
-    if selectedTiers == nil then
-        return nil, tostring(targetErr)
-    end
-
-    local selected = (selectedTiers as {targets.Target})[1]
+    local selected = (selectedForManifest as {targets.Target})[1]
     local chain, chainErr = aot.toolchain(selected.triple)
     if chain == nil then
         return nil, tostring(chainErr)
@@ -1482,7 +1473,7 @@ function aot.apply(
     -- not there.
     local dispatch: {[string]: string} = {}
     local tierNames: {string} = {}
-    for _, tierTarget in ipairs(selectedTiers as {targets.Target}) do
+    for _, tierTarget in ipairs(selectedForManifest as {targets.Target}) do
         tierNames[#tierNames + 1] = tierTarget.tier
     end
     local dispatched: {[string]: boolean} = {}

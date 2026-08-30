@@ -207,11 +207,6 @@ function narrow.install(c: state.Checker): narrow.Ops
         return nil
     end
 
-    -- A union of literals, or what is left of one, as the set of values it can still
-    -- hold. This is what lets a chain of comparisons subtract members and say at the
-    -- end which were never handled.
-
-    --- The literal members of `t`, or nil when it is not a set of them.
     -- Assigning to a name, or to anything a copied discriminant came from, makes the
     -- copy say nothing about it any more.
     function facts.clearAliases(key)

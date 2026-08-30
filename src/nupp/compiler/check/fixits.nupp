@@ -338,16 +338,6 @@ function fixits.new(result: state.Parse, env: state.Env?): fixits.Edits
     return self
 end
 
---- How many single-character edits separate two short names, counting an adjacent
---- transposition as one. Exported because a misspelling is not only a source-code
---- problem: the manifest validator suggests keys with it too, and one threshold beats
---- two that drift.
----
---- @param left one name
---- @param right the other
---- @return the number of edits
-fixits.editDistance = editDistance
-
 --- The nearest of `candidates` to `name`, or nil when nothing is near enough or two are
 --- equally near. The threshold widens with the name, since a long word survives two
 --- typos and a short one is a different word by then.

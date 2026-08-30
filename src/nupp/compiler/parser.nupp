@@ -80,6 +80,24 @@ local UNOPS = {["not"] = true, ["#"] = true, ["-"] = true, ["~"] = true}
 
 local BLOCK_FOLLOW = {["eof"] = true, ["end"] = true, ["else"] = true, ["elseif"] = true, ["until"] = true,}
 
+local PARAM_MODES = {
+    ["takes"] = true,
+    ["borrows"] = true,
+    ["scoped"] = true,
+    ["exclusive"] = true,
+    ["retains"] = true,
+    ["releases"] = true,
+}
+
+local ASSIGN_TARGETS = {
+    ["name"] = true,
+    ["dotIndex"] = true,
+    ["bracketIndex"] = true,
+    ["safeIndex"] = true,
+    ["safeBracket"] = true,
+    ["errorExpr"] = true,
+}
+
 local EXPR_START = {
     ["number"] = true,
     ["string"] = true,
@@ -169,7 +187,7 @@ function parser.parse(source: string, filename: string?): parser.ParseResult
         return lexer.CUSTOMARY[tok.text] and tok.text or tok.kind
     end
 
-    --- Reports a syntax error at a token, and keeps going.
+    --- How the offending token reads in a message.
     local function found(tok: Token): string
         if tok.kind == "eof" then
             return "end of file"
@@ -185,6 +203,7 @@ function parser.parse(source: string, filename: string?): parser.ParseResult
     -- Reporting and recovering
     ---------------------------------------------------------------------
 
+    --- Reports a syntax error at a token, and keeps going.
     local function errAt(tok: Token, msg: string, code: string?, help: string?, fixes: any)
         if msg:find("expected", 1, true) and not msg:find("found", 1, true) then
             msg = msg .. "; found " .. found(tok)
@@ -575,6 +594,23 @@ function parser.parse(source: string, filename: string?): parser.ParseResult
             or k == "istringOpen"
     end
 
+    --- Whether a borrowing first result names a source outside the parameter list,
+    --- which is what makes it a capture clause rather than a result relation.
+    local function borrowsExternalSource(params: {cst.Param | cst.TfuncParam}, borrowed: cst.Tborrows): boolean
+        local parameterNames = {self = true}
+        for _, parameter in ipairs(params) do
+            if parameter.name then
+                parameterNames[parameter.name.text] = true
+            end
+        end
+        local external = false
+        for _, source in ipairs(borrowed.params or {}) do
+            external = external or not parameterNames[source.text]
+        end
+
+        return external
+    end
+
     --- One argument to a generic application or a type function. `C...` and `...T`
     --- are value sequences; everything else is one type, since `(A|B)` is a
     --- parenthesized union rather than a pack of one, and only the spelling that
@@ -881,14 +917,9 @@ function parser.parse(source: string, filename: string?): parser.ParseResult
                         p.constDomainTok = add(p, advance())
                         n.params[#n.params + 1] = add(n, p)
                     else
-                        if cur().kind == "name" and (
-                            cur().text == "takes"
-                            or cur().text == "borrows"
-                            or cur().text == "scoped"
-                            or cur().text == "exclusive"
-                            or cur().text == "retains"
-                            or cur().text == "releases"
-                        ) and tokens[i + 1] and tokens[i + 1].kind == "..." then
+                        if cur().kind == "name" and PARAM_MODES[
+                            cur().text
+                        ] and tokens[i + 1] and tokens[i + 1].kind == "..." then
                             p.modeTok = add(p, advance())
                         end
                         if cur().kind == "..." then
@@ -919,14 +950,9 @@ function parser.parse(source: string, filename: string?): parser.ParseResult
                             p.type, p.pack = add(p, pack), true
                             n.params[#n.params + 1] = add(n, p)
                             break
-                        elseif cur().kind == "name" and (
-                            cur().text == "takes"
-                            or cur().text == "borrows"
-                            or cur().text == "scoped"
-                            or cur().text == "exclusive"
-                            or cur().text == "retains"
-                            or cur().text == "releases"
-                        ) and tokens[
+                        elseif cur().kind == "name" and PARAM_MODES[
+                            cur().text
+                        ] and tokens[
                             i + 1
                         ] and tokens[i + 1].kind == "name" and tokens[i + 2] and tokens[i + 2].kind == ":" then
                             p.modeTok = add(p, advance())
@@ -968,17 +994,7 @@ function parser.parse(source: string, filename: string?): parser.ParseResult
                 local firstResult = returns[1]
                 if firstResult and firstResult.kind == "tborrows" then
                     local borrowed = firstResult as cst.Tborrows
-                    local parameterNames = {self = true}
-                    for _, parameter in ipairs(n.params) do
-                        if parameter.name then
-                            parameterNames[parameter.name.text] = true
-                        end
-                    end
-                    local external = false
-                    for _, source in ipairs(borrowed.params or {}) do
-                        external = external or not parameterNames[source.text]
-                    end
-                    if external then
+                    if borrowsExternalSource(n.params, borrowed) then
                         n.captureBorrows = borrowed
                         if borrowed.type then
                             returns[1] = borrowed.type
@@ -2062,14 +2078,9 @@ function parser.parse(source: string, filename: string?): parser.ParseResult
                     p.constDomainTok = add(p, advance())
                     n.params[#n.params + 1] = add(n, p)
                 else
-                    if cur().kind == "name" and (
-                        cur().text == "takes"
-                        or cur().text == "borrows"
-                        or cur().text == "scoped"
-                        or cur().text == "exclusive"
-                        or cur().text == "retains"
-                        or cur().text == "releases"
-                    ) and tokens[i + 1] and tokens[i + 1].kind == "..." then
+                    if cur().kind == "name" and PARAM_MODES[
+                        cur().text
+                    ] and tokens[i + 1] and tokens[i + 1].kind == "..." then
                         p.modeTok = add(p, advance())
                     end
                     if cur().kind == "..." then
@@ -2100,14 +2111,9 @@ function parser.parse(source: string, filename: string?): parser.ParseResult
                         end
                         break
                     end
-                    if cur().kind == "name" and (
-                        cur().text == "takes"
-                        or cur().text == "borrows"
-                        or cur().text == "scoped"
-                        or cur().text == "exclusive"
-                        or cur().text == "retains"
-                        or cur().text == "releases"
-                    ) and tokens[i + 1] and tokens[i + 1].kind == "name" then
+                    if cur().kind == "name" and PARAM_MODES[
+                        cur().text
+                    ] and tokens[i + 1] and tokens[i + 1].kind == "name" then
                         p.modeTok = add(p, advance())
                     end
                     p.name = add(p, expectName("as parameter"))
@@ -2141,17 +2147,7 @@ function parser.parse(source: string, filename: string?): parser.ParseResult
             local firstResult = returns[1]
             if firstResult and firstResult.kind == "tborrows" then
                 local borrowed = firstResult as cst.Tborrows
-                local parameterNames = {self = true}
-                for _, parameter in ipairs(n.params) do
-                    if parameter.name then
-                        parameterNames[parameter.name.text] = true
-                    end
-                end
-                local external = false
-                for _, source in ipairs(borrowed.params or {}) do
-                    external = external or not parameterNames[source.text]
-                end
-                if external then
+                if borrowsExternalSource(n.params, borrowed) then
                     n.captureBorrowsCandidate = borrowed
                 end
             end
@@ -2590,13 +2586,7 @@ function parser.parse(source: string, filename: string?): parser.ParseResult
                         break
                     end
                     if cur().kind == "name" and (
-                        cur().text == "takes"
-                        or cur().text == "borrows"
-                        or cur().text == "scoped"
-                        or cur().text == "exclusive"
-                        or cur().text == "retains"
-                        or cur().text == "releases"
-                        or cur().text == "out"
+                        PARAM_MODES[cur().text] or cur().text == "out"
                     ) and tokens[i + 1] and tokens[i + 1].kind == "name" then
                         p.modeTok = add(p, advance())
                     end
@@ -3174,15 +3164,7 @@ function parser.parse(source: string, filename: string?): parser.ParseResult
             n.target = add(n, e)
             n.op = add(n, advance())
             n.value = add(n, parseExp())
-            local tk = e.kind
-            if not (
-                tk == "name"
-                or tk == "dotIndex"
-                or tk == "bracketIndex"
-                or tk == "safeIndex"
-                or tk == "safeBracket"
-                or tk == "errorExpr"
-            ) then
+            if not ASSIGN_TARGETS[e.kind] then
                 errAt(cur(), "cannot assign to this expression")
             end
             return n
@@ -3197,15 +3179,7 @@ function parser.parse(source: string, filename: string?): parser.ParseResult
             add(n, expect("=", "in assignment"))
             n.exprs = parseExplist(n)
             for _, target in ipairs(n.targets) do
-                local tk = target.kind
-                if not (
-                    tk == "name"
-                    or tk == "dotIndex"
-                    or tk == "bracketIndex"
-                    or tk == "safeIndex"
-                    or tk == "safeBracket"
-                    or tk == "errorExpr"
-                ) then
+                if not ASSIGN_TARGETS[target.kind] then
                     errAt(cur(), "cannot assign to this expression")
                 end
             end

@@ -358,7 +358,7 @@ function declare.install(
         if body.kind == "shortfn" and body.expr then
             return body.expr
         end
-        local expression = returnedExpression(body.kind == "shortfn" and body.body or body.body)
+        local expression = returnedExpression(body.body)
         if not expression then
             return nil, "body"
         end

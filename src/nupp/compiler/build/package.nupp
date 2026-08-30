@@ -564,7 +564,6 @@ local function unsignedMachOStub(text: string): string?, string?
     return sizeMachOLinkedit(text)
 end
 
---- A hex digest's first `count` bytes, as bytes.
 --- A stub with `payload` appended and a trailer saying where it starts. A signed
 --- Mach-O is first made unsigned and its __LINKEDIT segment grows over the appended
 --- bytes, so Apple's native signer can put a new signature after the trailer.
@@ -755,8 +754,6 @@ local function stampFile(
     return true, nil, archive
 end
 
-package_.longString = longString
-package_.entryModule = entryModule
 package_.bundleText = bundleText
 package_.bundleOutput = bundleOutput
 package_.componentOutput = componentOutput
@@ -764,7 +761,6 @@ package_.binaryOutput = binaryOutput
 package_.stampFile = stampFile
 package_.payloadBytes = payloadBytes
 package_.payloadFlagBytecode = PAYLOAD_FLAG_BYTECODE
-package_.posixArchive = posixArchive
 package_.hostAbiVersion = hostAbiVersion
 
 export = package_

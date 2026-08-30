@@ -203,17 +203,6 @@ local function stripDirectives(text)
     return table.concat(out, "\n")
 end
 
-local function readFile(path)
-    local f = io.open(path, "rb")
-    if not f then
-        return nil
-    end
-    local text = f:read("*a")
-    f:close()
-
-    return text
-end
-
 -- Only meaningful when the preprocessor runs, but cheap to record always.
 local toolchainCache = {}
 local function toolchainTag(opts)
@@ -281,7 +270,7 @@ local function preprocessHeader(path, opts)
     local depPath = os.tmpname()
     local argv = compilerArgv(opts, "-E", "-MD", "-MF", depPath, "-MT", "nupp_header", "-xc", path)
     local code, expanded = process.capture(argv)
-    local depText = readFile(depPath)
+    local depText = fs.readFile(depPath)
     os.remove(depPath)
     if code ~= 0 then
         return nil, nil, expanded ~= "" and expanded or ("cannot preprocess " .. path)
@@ -307,7 +296,7 @@ local cache = {}
 local function provenance(path: string, opts: cheader.Options?): cheader.Provenance?, string?
     opts = opts or {} as cheader.Options
     path = fs.canonical(path)
-    local source = opts.read and opts.read(path) or readFile(path)
+    local source = opts.read and opts.read(path) or fs.readFile(path)
     if not source then
         return nil, "cannot read " .. path
     end

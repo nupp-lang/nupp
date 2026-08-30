@@ -15,6 +15,7 @@ through the chain to reach the declaration underneath.
 
 local cst = require("nupp.compiler.cst")
 local generics = require("nupp.compiler.generics")
+local indexedViews = require("nupp.compiler.indexedviews")
 local lints = require("nupp.compiler.lints")
 local state = require("nupp.compiler.check.state")
 local T = require("nupp.compiler.types")
@@ -41,26 +42,6 @@ function pragma.install(c: state.Checker): state.StatHandlers
             value = value.of
         end
         return value ~= nil and value.tag == "nominal" and value as T.Nominal or nil
-    end
-
-    local function spanElement(value: T.Type): T.Type?
-        if value.tag ~= "nominal" then
-            return nil
-        end
-        local nominal = value as T.Nominal
-        local origin = (nominal.origin or nominal) as T.Nominal
-        if origin.moduleName ~= "nupp.mem.span" then
-            return nil
-        end
-        if origin.name ~= "Span"
-            and origin.name ~= "WriteSpan"
-            and origin.name ~= "FixedSpan"
-            and origin.name ~= "FixedWriteSpan"
-        then
-            return nil
-        end
-
-        return nominal.typeArgs and nominal.typeArgs[1] or nil
     end
 
     -- The source checker sees the same typed object surface the linking overlay
@@ -92,7 +73,7 @@ function pragma.install(c: state.Checker): state.StatHandlers
         local uniformModes: {string} = {"borrows"}
         local uniformNames: {string} = {"self"}
         for position, paramType in ipairs(functionType.params) do
-            local element = spanElement(paramType)
+            local element = indexedViews.spanElement(paramType)
             if element ~= nil then
                 local map: {[any]: any} = {[buffer.typeParams[1]] = element}
                 bindParams[#bindParams + 1] = generics.instantiate(buffer, map)

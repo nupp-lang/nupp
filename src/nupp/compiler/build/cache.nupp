@@ -620,11 +620,9 @@ cache.jsonArray = jsonArray
 cache.stable = stable
 cache.hashFile = hashFile
 cache.hashFiles = hashFiles
-cache.moduleDir = moduleDir
 cache.toolFingerprint = toolFingerprint
 cache.loadState = loadState
 cache.saveState = saveState
 cache.emptyState = emptyState
-cache.STATE_VERSION = STATE_VERSION
 
 export = cache
