@@ -181914,6 +181914,13 @@ local id = nextId
 nextId = nextId + 1
 payload . id = id
 payload . kind = kind
+
+
+
+local encodable , problem = pcall ( json . encode , payload )
+if not encodable then
+error ( "nupp: browser effect " .. kind .. " has no JSON form: " .. tostring ( problem ) , 0 )
+end
 queued [ # queued + 1 ] = payload
 local active = true
 waiting [ id ] = function ( response ) 
@@ -181926,22 +181933,32 @@ resume ( response )
 end
 
 return function ( ) 
-if active then
+if not active then
+return
+end
 active = false
 waiting [ id ] = nil
+
+
+for index = # queued , 1 , - 1 do
+if queued [ index ] == payload then
+table . remove ( queued , index )
+break
+end
 end
 end
 end
 
 function effects . park ( operation ) 
-local message
+local encoded
 if # queued == 0 then
-message = { kind = "poll" , operation = operation , }
+encoded = json . encode ( { kind = "poll" , operation = operation , } )
 else
-message = { kind = "effects" , requests = queued , }
+
+
+encoded = json . encode ( { kind = "effects" , requests = queued , } )
 queued = { }
 end
-local encoded = json . encode ( message )
 local responseText = coroutine . yield ( encoded )
 local response = json . decode ( responseText )
 if response . cancelled then
@@ -182139,11 +182156,11 @@ function codec . validate ( captures , arguments )
 local transfer = { seen = { } , records = nil , addresses = nil }
 local rejectedCaptures = codec . unsendable ( captures . values , "captures" , 0 , transfer )
 if rejectedCaptures ~= nil then
-error ( "nupp: cannot copy task captures: " .. rejectedCaptures , 4 )
+error ( "nupp: cannot copy task captures: " .. rejectedCaptures , 3 )
 end
 local rejected = codec . unsendable ( arguments . values , "arguments" , 0 , transfer )
 if rejected ~= nil then
-error ( "nupp: cannot copy task arguments: " .. rejected , 4 )
+error ( "nupp: cannot copy task arguments: " .. rejected , 3 )
 end
 
 return transfer
@@ -182455,6 +182472,11 @@ local debugAny = debug
 
 
 
+
+
+
+
+
 local STATE_KEY = "__nuppHotReloadState"
 local API_KEY = "__nuppHotReload"
 
@@ -182679,7 +182701,7 @@ local key = module . name .. "\0" .. tostring ( index )
 if staging . byKey [ key ] then
 error ( "nupp hot reload: patch defines " .. id .. " twice" , 2 )
 end
-local candidate = { module = module , index = index , implementation = implementation }
+local candidate = { module = module , index = index , implementation = implementation , captures = captures }
 staging . byKey [ key ] = candidate
 staging . candidates [ # staging . candidates + 1 ] = candidate
 end
@@ -182755,6 +182777,7 @@ end
 
 for _ , candidate in ipairs ( prepared . candidates ) do
 candidate . module . slots [ candidate . index ] = candidate . implementation
+candidate . module . definitions [ candidate . index ] . captures = candidate . captures
 end
 for module , policies in pairs ( prepared . policies or { } ) do
 module . policies = policies
@@ -183039,7 +183062,7 @@ const __nuppExportValue= crypto ;__nuppExports=__nuppExportValue
  end);if not __nuppOk then package.loaded["nupp.runtime.provider.browsercrypto"]=nil;error(__nuppWhy,0) end;package.loaded["nupp.runtime.provider.browsercrypto"]=__nuppExports;return __nuppExports
 end
 package.preload["nupp.runtime.provider.browserhttp"] = function(...)
-_G.assert(_G.loadstring("local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppMath=rawget(__nupp,\"math\")or{};rawset(__nupp,\"math\",__nuppMath) local function __nuppCloseFile(handle)if io.type(handle)==\"closed file\"then return end;local ok,reason=handle:close();if not ok then error(reason or \"the file could not be closed\",0)end end local __nuppManagedBrand=_G.__nuppManagedBrand if not __nuppManagedBrand then __nuppManagedBrand={};_G.__nuppManagedBrand=__nuppManagedBrand end local __nuppManagedCells=_G.__nuppManagedCells if not __nuppManagedCells then __nuppManagedCells=setmetatable({},{__mode=\"k\"});_G.__nuppManagedCells=__nuppManagedCells end local __nuppManagedOwner={};__nuppManagedOwner.__index=__nuppManagedOwner;local __nuppManagedAlias={};__nuppManagedAlias.__index=__nuppManagedAlias local function __nuppManagedError(code,message)return{code=code,message=message}end local function __nuppManagedProblem(cell) if type(cell)~=\"table\"or cell._brand~=__nuppManagedBrand then return __nuppManagedError(\"NUPP2614\",\"value is not a managed alias\")end if cell._state==\"taken\"then return __nuppManagedError(\"NUPP2614\",\"managed ownership was already taken\")end if cell._state==\"closed\"or cell._state==\"closing\"then return __nuppManagedError(\"NUPP2614\",\"managed resource is closed\")end return nil end local function __nuppManagedClose(cell,checked) local problem=__nuppManagedProblem(cell);if problem then if checked then return problem end;return nil end if cell._borrows~=0 or cell._exclusive then local busy=__nuppManagedError(\"NUPP2620\",\"managed resource has an active borrow\");if checked then return busy end;error(busy.message,0)end cell._state=\"closing\";local value,cleanup=cell._value,cell._cleanup;cell._value=nil;cell._cleanup=nil local ok,reason=pcall(cleanup,value);cell._state=\"closed\";if not ok then error(reason,0)end;return nil end function __nuppManagedOwner:alias()return setmetatable({_cell=self,_brand=__nuppManagedBrand},__nuppManagedAlias)end function __nuppManagedOwner:close()return __nuppManagedClose(self,false)end local function __nuppAliasCell(self) if type(self)~=\"table\"or self._brand~=__nuppManagedBrand or getmetatable(self)~=__nuppManagedAlias then return nil,__nuppManagedError(\"NUPP2614\",\"value is not a managed alias\")end local cell=self._cell;local problem=__nuppManagedProblem(cell);if problem then return nil,problem end;return cell,nil end function __nuppManagedAlias:with(callback) local cell,problem=__nuppAliasCell(self);if not cell then return nil,problem end if cell._exclusive then return nil,__nuppManagedError(\"NUPP2620\",\"managed resource is exclusively borrowed\")end cell._borrows=cell._borrows+1;cell._state=\"shared-borrowed(\"..cell._borrows..\")\" local ok,result=pcall(callback,cell._value);cell._borrows=cell._borrows-1;cell._state=cell._borrows>0 and(\"shared-borrowed(\"..cell._borrows..\")\")or\"live\" if not ok then error(result,0)end;return result,nil end function __nuppManagedAlias:withExclusive(callback) local cell,problem=__nuppAliasCell(self);if not cell then return nil,problem end if cell._exclusive or cell._borrows~=0 then return nil,__nuppManagedError(\"NUPP2620\",\"managed resource is already borrowed\")end cell._exclusive=true;cell._state=\"exclusive-borrowed\";local ok,result=pcall(callback,cell._value);cell._exclusive=false;cell._state=\"live\" if not ok then error(result,0)end;return result,nil end function __nuppManagedAlias:take() local cell,problem=__nuppAliasCell(self);if not cell then return nil,problem end if cell._exclusive or cell._borrows~=0 then return nil,__nuppManagedError(\"NUPP2620\",\"managed resource has an active borrow\")end cell._state=\"taken\";local value=cell._value;cell._value=nil;cell._cleanup=nil;return value,nil end function __nuppManagedAlias:close() local cell,problem=__nuppAliasCell(self);if not cell then return problem end;return __nuppManagedClose(cell,true)end function __nuppManagedAlias:_downcast(policy) local cell,problem=__nuppAliasCell(self);if not cell then return nil,problem end if cell._policy~=policy then return nil,__nuppManagedError(\"NUPP2613\",\"managed alias has the wrong type or cleanup policy\")end return self,nil end function __nupp.__manage(value,cleanup,policy) local cell=setmetatable({_brand=__nuppManagedBrand,_value=value,_cleanup=cleanup,_policy=policy,_state=\"live\",_borrows=0,_exclusive=false},__nuppManagedOwner);__nuppManagedCells[cell]=true;return cell end function __nupp.__recoverAlias(value) if type(value)~=\"table\"or value._brand~=__nuppManagedBrand or getmetatable(value)~=__nuppManagedAlias then return nil,__nuppManagedError(\"NUPP2614\",\"value is not a managed alias\")end local cell,problem=__nuppAliasCell(value);if not cell then return nil,problem end;return value,nil end _G.__nuppManagedPolicyCount=function(policy)local count=0;for cell in pairs(__nuppManagedCells)do if cell._policy==policy and(cell._state==\"live\"or cell._state:match(\"borrowed\"))then count=count+1 end end;return count end local __nuppManagedGroup={};__nuppManagedGroup.__index=__nuppManagedGroup function __nuppManagedGroup:flush()end function __nuppManagedGroup:adopt(cell) if self._closed then error(\"managed group is closed\",2)end local handle=cell:alias();self._entries[#self._entries+1]=handle return handle end function __nuppManagedGroup:remove(handle) if self._closed then error(\"managed group is closed\",2)end for index=#self._entries,1,-1 do if self._entries[index]==handle then table.remove(self._entries,index);local value,problem=handle:take();if problem then error(problem.message,2)end;return value end end error(\"managed alias is not registered in this group\",2) end local function __nuppManagedCloseEntry(entry)local problem=entry:close();if problem and problem.code~=\"NUPP2614\"then error(problem.message,0)end end function __nuppManagedGroup:close() if self._closed then return end;self._closed=true;local first,suppressed=nil,0 for index=#self._entries,1,-1 do local ok,reason=pcall(__nuppManagedCloseEntry,self._entries[index]);if not ok then if first==nil then first=reason else suppressed=suppressed+1 end end end self._entries={};if first~=nil then if suppressed>0 then error(tostring(first)..\" (suppressed \"..tostring(suppressed)..\" cleanup failure(s))\",0)end;error(first,0)end end function __nupp.managedGroup()return setmetatable({_entries={},_closed=false},__nuppManagedGroup)end;\n","@nupp-prelude"))();local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppMath=rawget(__nupp,"math")or{};rawset(__nupp,"math",__nuppMath) local function __nuppCloseFile(handle)if io.type(handle)=="closed file"then return end;local ok,reason=handle:close();if not ok then error(reason or "the file could not be closed",0)end end local __nuppManagedBrand=_G.__nuppManagedBrand if not __nuppManagedBrand then __nuppManagedBrand={};_G.__nuppManagedBrand=__nuppManagedBrand end local __nuppManagedCells=_G.__nuppManagedCells if not __nuppManagedCells then __nuppManagedCells=setmetatable({},{__mode="k"});_G.__nuppManagedCells=__nuppManagedCells end local __nuppManagedOwner={};__nuppManagedOwner.__index=__nuppManagedOwner;local __nuppManagedAlias={};__nuppManagedAlias.__index=__nuppManagedAlias local function __nuppManagedError(code,message)return{code=code,message=message}end local function __nuppManagedProblem(cell) if type(cell)~="table"or cell._brand~=__nuppManagedBrand then return __nuppManagedError("NUPP2614","value is not a managed alias")end if cell._state=="taken"then return __nuppManagedError("NUPP2614","managed ownership was already taken")end if cell._state=="closed"or cell._state=="closing"then return __nuppManagedError("NUPP2614","managed resource is closed")end return nil end local function __nuppManagedClose(cell,checked) local problem=__nuppManagedProblem(cell);if problem then if checked then return problem end;return nil end if cell._borrows~=0 or cell._exclusive then local busy=__nuppManagedError("NUPP2620","managed resource has an active borrow");if checked then return busy end;error(busy.message,0)end cell._state="closing";local value,cleanup=cell._value,cell._cleanup;cell._value=nil;cell._cleanup=nil local ok,reason=pcall(cleanup,value);cell._state="closed";if not ok then error(reason,0)end;return nil end function __nuppManagedOwner:alias()return setmetatable({_cell=self,_brand=__nuppManagedBrand},__nuppManagedAlias)end function __nuppManagedOwner:close()return __nuppManagedClose(self,false)end local function __nuppAliasCell(self) if type(self)~="table"or self._brand~=__nuppManagedBrand or getmetatable(self)~=__nuppManagedAlias then return nil,__nuppManagedError("NUPP2614","value is not a managed alias")end local cell=self._cell;local problem=__nuppManagedProblem(cell);if problem then return nil,problem end;return cell,nil end function __nuppManagedAlias:with(callback) local cell,problem=__nuppAliasCell(self);if not cell then return nil,problem end if cell._exclusive then return nil,__nuppManagedError("NUPP2620","managed resource is exclusively borrowed")end cell._borrows=cell._borrows+1;cell._state="shared-borrowed("..cell._borrows..")" local ok,result=pcall(callback,cell._value);cell._borrows=cell._borrows-1;cell._state=cell._borrows>0 and("shared-borrowed("..cell._borrows..")")or"live" if not ok then error(result,0)end;return result,nil end function __nuppManagedAlias:withExclusive(callback) local cell,problem=__nuppAliasCell(self);if not cell then return nil,problem end if cell._exclusive or cell._borrows~=0 then return nil,__nuppManagedError("NUPP2620","managed resource is already borrowed")end cell._exclusive=true;cell._state="exclusive-borrowed";local ok,result=pcall(callback,cell._value);cell._exclusive=false;cell._state="live" if not ok then error(result,0)end;return result,nil end function __nuppManagedAlias:take() local cell,problem=__nuppAliasCell(self);if not cell then return nil,problem end if cell._exclusive or cell._borrows~=0 then return nil,__nuppManagedError("NUPP2620","managed resource has an active borrow")end cell._state="taken";local value=cell._value;cell._value=nil;cell._cleanup=nil;return value,nil end function __nuppManagedAlias:close() local cell,problem=__nuppAliasCell(self);if not cell then return problem end;return __nuppManagedClose(cell,true)end function __nuppManagedAlias:_downcast(policy) local cell,problem=__nuppAliasCell(self);if not cell then return nil,problem end if cell._policy~=policy then return nil,__nuppManagedError("NUPP2613","managed alias has the wrong type or cleanup policy")end return self,nil end function __nupp.__manage(value,cleanup,policy) local cell=setmetatable({_brand=__nuppManagedBrand,_value=value,_cleanup=cleanup,_policy=policy,_state="live",_borrows=0,_exclusive=false},__nuppManagedOwner);__nuppManagedCells[cell]=true;return cell end function __nupp.__recoverAlias(value) if type(value)~="table"or value._brand~=__nuppManagedBrand or getmetatable(value)~=__nuppManagedAlias then return nil,__nuppManagedError("NUPP2614","value is not a managed alias")end local cell,problem=__nuppAliasCell(value);if not cell then return nil,problem end;return value,nil end _G.__nuppManagedPolicyCount=function(policy)local count=0;for cell in pairs(__nuppManagedCells)do if cell._policy==policy and(cell._state=="live"or cell._state:match("borrowed"))then count=count+1 end end;return count end local __nuppManagedGroup={};__nuppManagedGroup.__index=__nuppManagedGroup function __nuppManagedGroup:flush()end function __nuppManagedGroup:adopt(cell) if self._closed then error("managed group is closed",2)end local handle=cell:alias();self._entries[#self._entries+1]=handle return handle end function __nuppManagedGroup:remove(handle) if self._closed then error("managed group is closed",2)end for index=#self._entries,1,-1 do if self._entries[index]==handle then table.remove(self._entries,index);local value,problem=handle:take();if problem then error(problem.message,2)end;return value end end error("managed alias is not registered in this group",2) end local function __nuppManagedCloseEntry(entry)local problem=entry:close();if problem and problem.code~="NUPP2614"then error(problem.message,0)end end function __nuppManagedGroup:close() if self._closed then return end;self._closed=true;local first,suppressed=nil,0 for index=#self._entries,1,-1 do local ok,reason=pcall(__nuppManagedCloseEntry,self._entries[index]);if not ok then if first==nil then first=reason else suppressed=suppressed+1 end end end self._entries={};if first~=nil then if suppressed>0 then error(tostring(first).." (suppressed "..tostring(suppressed).." cleanup failure(s))",0)end;error(first,0)end end function __nupp.managedGroup()return setmetatable({_entries={},_closed=false},__nuppManagedGroup)end;local __nuppExports;local __nuppOk,__nuppWhy=pcall(function()
+_G.assert(_G.loadstring("local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppMath=rawget(__nupp,\"math\")or{};rawset(__nupp,\"math\",__nuppMath) local function __nuppCloseFile(handle)if io.type(handle)==\"closed file\"then return end;local ok,reason=handle:close();if not ok then error(reason or \"the file could not be closed\",0)end end local __nuppManagedBrand=_G.__nuppManagedBrand if not __nuppManagedBrand then __nuppManagedBrand={};_G.__nuppManagedBrand=__nuppManagedBrand end local __nuppManagedCells=_G.__nuppManagedCells if not __nuppManagedCells then __nuppManagedCells=setmetatable({},{__mode=\"k\"});_G.__nuppManagedCells=__nuppManagedCells end local __nuppManagedOwner={};__nuppManagedOwner.__index=__nuppManagedOwner;local __nuppManagedAlias={};__nuppManagedAlias.__index=__nuppManagedAlias local function __nuppManagedError(code,message)return{code=code,message=message}end local function __nuppManagedProblem(cell) if type(cell)~=\"table\"or cell._brand~=__nuppManagedBrand then return __nuppManagedError(\"NUPP2614\",\"value is not a managed alias\")end if cell._state==\"taken\"then return __nuppManagedError(\"NUPP2614\",\"managed ownership was already taken\")end if cell._state==\"closed\"or cell._state==\"closing\"then return __nuppManagedError(\"NUPP2614\",\"managed resource is closed\")end return nil end local function __nuppManagedClose(cell,checked) local problem=__nuppManagedProblem(cell);if problem then if checked then return problem end;return nil end if cell._borrows~=0 or cell._exclusive then local busy=__nuppManagedError(\"NUPP2620\",\"managed resource has an active borrow\");if checked then return busy end;error(busy.message,0)end cell._state=\"closing\";local value,cleanup=cell._value,cell._cleanup;cell._value=nil;cell._cleanup=nil local ok,reason=pcall(cleanup,value);cell._state=\"closed\";if not ok then error(reason,0)end;return nil end function __nuppManagedOwner:alias()return setmetatable({_cell=self,_brand=__nuppManagedBrand},__nuppManagedAlias)end function __nuppManagedOwner:close()return __nuppManagedClose(self,false)end local function __nuppAliasCell(self) if type(self)~=\"table\"or self._brand~=__nuppManagedBrand or getmetatable(self)~=__nuppManagedAlias then return nil,__nuppManagedError(\"NUPP2614\",\"value is not a managed alias\")end local cell=self._cell;local problem=__nuppManagedProblem(cell);if problem then return nil,problem end;return cell,nil end function __nuppManagedAlias:with(callback) local cell,problem=__nuppAliasCell(self);if not cell then return nil,problem end if cell._exclusive then return nil,__nuppManagedError(\"NUPP2620\",\"managed resource is exclusively borrowed\")end cell._borrows=cell._borrows+1;cell._state=\"shared-borrowed(\"..cell._borrows..\")\" local ok,result=pcall(callback,cell._value);cell._borrows=cell._borrows-1;cell._state=cell._borrows>0 and(\"shared-borrowed(\"..cell._borrows..\")\")or\"live\" if not ok then error(result,0)end;return result,nil end function __nuppManagedAlias:withExclusive(callback) local cell,problem=__nuppAliasCell(self);if not cell then return nil,problem end if cell._exclusive or cell._borrows~=0 then return nil,__nuppManagedError(\"NUPP2620\",\"managed resource is already borrowed\")end cell._exclusive=true;cell._state=\"exclusive-borrowed\";local ok,result=pcall(callback,cell._value);cell._exclusive=false;cell._state=\"live\" if not ok then error(result,0)end;return result,nil end function __nuppManagedAlias:take() local cell,problem=__nuppAliasCell(self);if not cell then return nil,problem end if cell._exclusive or cell._borrows~=0 then return nil,__nuppManagedError(\"NUPP2620\",\"managed resource has an active borrow\")end cell._state=\"taken\";local value=cell._value;cell._value=nil;cell._cleanup=nil;return value,nil end function __nuppManagedAlias:close() local cell,problem=__nuppAliasCell(self);if not cell then return problem end;return __nuppManagedClose(cell,true)end function __nuppManagedAlias:_downcast(policy) local cell,problem=__nuppAliasCell(self);if not cell then return nil,problem end if cell._policy~=policy then return nil,__nuppManagedError(\"NUPP2613\",\"managed alias has the wrong type or cleanup policy\")end return self,nil end function __nupp.__manage(value,cleanup,policy) local cell=setmetatable({_brand=__nuppManagedBrand,_value=value,_cleanup=cleanup,_policy=policy,_state=\"live\",_borrows=0,_exclusive=false},__nuppManagedOwner);__nuppManagedCells[cell]=true;return cell end function __nupp.__recoverAlias(value) if type(value)~=\"table\"or value._brand~=__nuppManagedBrand or getmetatable(value)~=__nuppManagedAlias then return nil,__nuppManagedError(\"NUPP2614\",\"value is not a managed alias\")end local cell,problem=__nuppAliasCell(value);if not cell then return nil,problem end;return value,nil end _G.__nuppManagedPolicyCount=function(policy)local count=0;for cell in pairs(__nuppManagedCells)do if cell._policy==policy and(cell._state==\"live\"or cell._state:match(\"borrowed\"))then count=count+1 end end;return count end local __nuppManagedGroup={};__nuppManagedGroup.__index=__nuppManagedGroup function __nuppManagedGroup:flush()end function __nuppManagedGroup:adopt(cell) if self._closed then error(\"managed group is closed\",2)end local handle=cell:alias();self._entries[#self._entries+1]=handle return handle end function __nuppManagedGroup:remove(handle) if self._closed then error(\"managed group is closed\",2)end for index=#self._entries,1,-1 do if self._entries[index]==handle then table.remove(self._entries,index);local value,problem=handle:take();if problem then error(problem.message,2)end;return value end end error(\"managed alias is not registered in this group\",2) end local function __nuppManagedCloseEntry(entry)local problem=entry:close();if problem and problem.code~=\"NUPP2614\"then error(problem.message,0)end end function __nuppManagedGroup:close() if self._closed then return end;self._closed=true;local first,suppressed=nil,0 for index=#self._entries,1,-1 do local ok,reason=pcall(__nuppManagedCloseEntry,self._entries[index]);if not ok then if first==nil then first=reason else suppressed=suppressed+1 end end end self._entries={};if first~=nil then if suppressed>0 then error(tostring(first)..\" (suppressed \"..tostring(suppressed)..\" cleanup failure(s))\",0)end;error(first,0)end end function __nupp.managedGroup()return setmetatable({_entries={},_closed=false},__nuppManagedGroup)end;\n","@nupp-prelude"))();local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppMath=rawget(__nupp,"math")or{};rawset(__nupp,"math",__nuppMath) local function __nuppCloseFile(handle)if io.type(handle)=="closed file"then return end;local ok,reason=handle:close();if not ok then error(reason or "the file could not be closed",0)end end local __nuppManagedBrand=_G.__nuppManagedBrand if not __nuppManagedBrand then __nuppManagedBrand={};_G.__nuppManagedBrand=__nuppManagedBrand end local __nuppManagedCells=_G.__nuppManagedCells if not __nuppManagedCells then __nuppManagedCells=setmetatable({},{__mode="k"});_G.__nuppManagedCells=__nuppManagedCells end local __nuppManagedOwner={};__nuppManagedOwner.__index=__nuppManagedOwner;local __nuppManagedAlias={};__nuppManagedAlias.__index=__nuppManagedAlias local function __nuppManagedError(code,message)return{code=code,message=message}end local function __nuppManagedProblem(cell) if type(cell)~="table"or cell._brand~=__nuppManagedBrand then return __nuppManagedError("NUPP2614","value is not a managed alias")end if cell._state=="taken"then return __nuppManagedError("NUPP2614","managed ownership was already taken")end if cell._state=="closed"or cell._state=="closing"then return __nuppManagedError("NUPP2614","managed resource is closed")end return nil end local function __nuppManagedClose(cell,checked) local problem=__nuppManagedProblem(cell);if problem then if checked then return problem end;return nil end if cell._borrows~=0 or cell._exclusive then local busy=__nuppManagedError("NUPP2620","managed resource has an active borrow");if checked then return busy end;error(busy.message,0)end cell._state="closing";local value,cleanup=cell._value,cell._cleanup;cell._value=nil;cell._cleanup=nil local ok,reason=pcall(cleanup,value);cell._state="closed";if not ok then error(reason,0)end;return nil end function __nuppManagedOwner:alias()return setmetatable({_cell=self,_brand=__nuppManagedBrand},__nuppManagedAlias)end function __nuppManagedOwner:close()return __nuppManagedClose(self,false)end local function __nuppAliasCell(self) if type(self)~="table"or self._brand~=__nuppManagedBrand or getmetatable(self)~=__nuppManagedAlias then return nil,__nuppManagedError("NUPP2614","value is not a managed alias")end local cell=self._cell;local problem=__nuppManagedProblem(cell);if problem then return nil,problem end;return cell,nil end function __nuppManagedAlias:with(callback) local cell,problem=__nuppAliasCell(self);if not cell then return nil,problem end if cell._exclusive then return nil,__nuppManagedError("NUPP2620","managed resource is exclusively borrowed")end cell._borrows=cell._borrows+1;cell._state="shared-borrowed("..cell._borrows..")" local ok,result=pcall(callback,cell._value);cell._borrows=cell._borrows-1;cell._state=cell._borrows>0 and("shared-borrowed("..cell._borrows..")")or"live" if not ok then error(result,0)end;return result,nil end function __nuppManagedAlias:withExclusive(callback) local cell,problem=__nuppAliasCell(self);if not cell then return nil,problem end if cell._exclusive or cell._borrows~=0 then return nil,__nuppManagedError("NUPP2620","managed resource is already borrowed")end cell._exclusive=true;cell._state="exclusive-borrowed";local ok,result=pcall(callback,cell._value);cell._exclusive=false;cell._state="live" if not ok then error(result,0)end;return result,nil end function __nuppManagedAlias:take() local cell,problem=__nuppAliasCell(self);if not cell then return nil,problem end if cell._exclusive or cell._borrows~=0 then return nil,__nuppManagedError("NUPP2620","managed resource has an active borrow")end cell._state="taken";local value=cell._value;cell._value=nil;cell._cleanup=nil;return value,nil end function __nuppManagedAlias:close() local cell,problem=__nuppAliasCell(self);if not cell then return problem end;return __nuppManagedClose(cell,true)end function __nuppManagedAlias:_downcast(policy) local cell,problem=__nuppAliasCell(self);if not cell then return nil,problem end if cell._policy~=policy then return nil,__nuppManagedError("NUPP2613","managed alias has the wrong type or cleanup policy")end return self,nil end function __nupp.__manage(value,cleanup,policy) local cell=setmetatable({_brand=__nuppManagedBrand,_value=value,_cleanup=cleanup,_policy=policy,_state="live",_borrows=0,_exclusive=false},__nuppManagedOwner);__nuppManagedCells[cell]=true;return cell end function __nupp.__recoverAlias(value) if type(value)~="table"or value._brand~=__nuppManagedBrand or getmetatable(value)~=__nuppManagedAlias then return nil,__nuppManagedError("NUPP2614","value is not a managed alias")end local cell,problem=__nuppAliasCell(value);if not cell then return nil,problem end;return value,nil end _G.__nuppManagedPolicyCount=function(policy)local count=0;for cell in pairs(__nuppManagedCells)do if cell._policy==policy and(cell._state=="live"or cell._state:match("borrowed"))then count=count+1 end end;return count end local __nuppManagedGroup={};__nuppManagedGroup.__index=__nuppManagedGroup function __nuppManagedGroup:flush()end function __nuppManagedGroup:adopt(cell) if self._closed then error("managed group is closed",2)end local handle=cell:alias();self._entries[#self._entries+1]=handle return handle end function __nuppManagedGroup:remove(handle) if self._closed then error("managed group is closed",2)end for index=#self._entries,1,-1 do if self._entries[index]==handle then table.remove(self._entries,index);local value,problem=handle:take();if problem then error(problem.message,2)end;return value end end error("managed alias is not registered in this group",2) end local function __nuppManagedCloseEntry(entry)local problem=entry:close();if problem and problem.code~="NUPP2614"then error(problem.message,0)end end function __nuppManagedGroup:close() if self._closed then return end;self._closed=true;local first,suppressed=nil,0 for index=#self._entries,1,-1 do local ok,reason=pcall(__nuppManagedCloseEntry,self._entries[index]);if not ok then if first==nil then first=reason else suppressed=suppressed+1 end end end self._entries={};if first~=nil then if suppressed>0 then error(tostring(first).." (suppressed "..tostring(suppressed).." cleanup failure(s))",0)end;error(first,0)end end function __nupp.managedGroup()return setmetatable({_entries={},_closed=false},__nuppManagedGroup)end local function __nuppLazy(target,name,loader)local meta=getmetatable(target)or{};local loaders=meta.__nuppLoaders;if not loaders then loaders={};local prior=meta.__index;meta.__nuppLoaders=loaders;meta.__index=function(t,k)local load=loaders[k];if load then local value=load(k);loaders[k]=nil;if value==nil then value=rawget(t,k)else rawset(t,k,value)end;return value end;if type(prior)=="function"then return prior(t,k)elseif prior then return prior[k]end end;setmetatable(target,meta)end;if name~=nil and rawget(target,name)==nil and loaders[name]==nil then loaders[name]=loader end end;local __nuppExports;local __nuppOk,__nuppWhy=pcall(function()
 
 
 
@@ -183048,6 +183071,7 @@ _G.assert(_G.loadstring("local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppM
 local effects = require ( "nupp.runtime.browser.effects" )
 local base64 = require ( "nupp.data.base64" )
 local suspension = require ( "nupp.suspension" )
+local uri = require ( "nupp.io.uri" )
 local http = { }
 
 http.Options = {} http.Options.__index = http.Options
@@ -183274,18 +183298,28 @@ end
 local descriptor = {
 url = url : toString ( ) ,
 method = request . method or "GET" ,
-headers = headers ,
 timeoutMs = request . timeoutMs or self . _options . timeoutMs or 30000 ,
 maxBytes = request . maxBytes or self . _options . maxBytes or 0 ,
 }
+if # headers > 0 then
+
+
+descriptor . headers = headers
+end
 if body ~= nil then
 descriptor . bodyBase64 = base64 . encode ( body )
 end
 self . _pending = self . _pending + 1
-local answer = suspension . suspend ( "browser HTTP request" , function ( resume ) 
+local completed , suspended = pcall ( suspension . suspend , "browser HTTP request" , function (
+resume
+) 
 return effects . request ( "http" , descriptor , resume )
 end )
 self . _pending = self . _pending - 1
+if not completed then
+error ( suspended , 0 )
+end
+local answer = suspended
 if not answer . ok then
 return nil , answer . error or "browser HTTP request failed"
 end
@@ -183299,10 +183333,19 @@ byName [ name ] = values
 end
 local responseBody = setmetatable({ _bytes =  base64 . decode ( value . bodyBase64 or "" ) ,  _at =  1 ,  _closed =  false }, http.Body)
 
+
+local finalUrl = request . url
+if type ( value . url ) == "string" and value . url ~= "" then
+local landed = uri . newURI ( value . url )
+if landed ~= nil then
+finalUrl = landed
+end
+end
+
 return setmetatable({ status =
 value . status ,  version =
 "1.1" ,  url =
-request . url ,  body =
+finalUrl ,  body =
 responseBody ,  _headers =
 byName ,  _closed =
 false }, http.Response)
@@ -183764,6 +183807,7 @@ local count = # bodies
 local values , errors , threads = { } , { } , { }
 local indexOf = setmetatable ( { } , { __mode = "k" } )
 local runnable , abandoned = { } , { }
+local entered = { }
 local started = 0
 local finished = 0
 local first = nil
@@ -183808,6 +183852,7 @@ started = started + 1
 local index = started
 local co = suspension . create ( function ( ) local __nuppT37;
 do const  __nuppT56= suspension . install ( branchHandler ) ; __nuppT37=__nuppT37 or {} ; local __nuppT57=__nuppT37[1]; if not __nuppT57 then __nuppT57=function(installed) do
+entered [ index ] = true
 local value = bodies [ index ] ( )
 installed : release ( )
 return "return",__nuppT38( value ) end; return "normal" end; __nuppT37[1]=__nuppT57 end; const __nuppT51,__nuppT52,__nuppT53=__nuppT43(__nuppT57,__nuppT39,__nuppT56); const __nuppT50=1; const __nuppT54={}; local __nuppT55=0; if __nuppT50>=1 then  const __nuppT58,__nuppT59=__nuppT42(__nuppCleanup1,__nuppT56);  if not __nuppT58 then __nuppT55=__nuppT55+1; __nuppT54[__nuppT55]=__nuppT59 end; end; if not __nuppT51 then if __nuppT55>0 then __nuppT44(__nuppT40(__nuppT52,__nuppT54,1),0) else __nuppT44(__nuppT52,0) end end; if __nuppT55>0 then if __nuppT55>1 then __nuppT44(__nuppT40(__nuppT54[1],__nuppT54,2),0) else __nuppT44(__nuppT54[1],0) end end; if __nuppT52=="return" then  return __nuppT45(__nuppT53,1,__nuppT53.n)  end; end
@@ -183854,13 +183899,28 @@ if first == nil and value ~= ABANDONED then
 first = index
 end
 if stopEarly then
+
+
+
 for other = 1 , count do
 local victim = threads [ other ]
 if victim ~= nil then
 abandoned [ other ] = true
+if entered [ other ] then
 coroutine . resume ( victim )
+else
+local victimBody = bodies [ other ]
+if type ( victimBody ) == "table" and victimBody . __nuppRelease then
+victimBody . __nuppRelease ( )
+end
+end
 threads [ other ] = nil
-finished = finished + 1
+end
+end
+for other = started + 1 , count do
+local victimBody = bodies [ other ]
+if type ( victimBody ) == "table" and victimBody . __nuppRelease then
+victimBody . __nuppRelease ( )
 end
 end
 finished = count
@@ -183972,6 +184032,38 @@ _G.assert(_G.loadstring("local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppM
 
 
 local uri = { }
+
+
+
+local function removeDotSegments ( path ) 
+local input = path
+local output = { }
+while input ~= "" do
+if input : sub ( 1 , 3 ) == "../" then
+input = input : sub ( 4 )
+elseif input : sub ( 1 , 2 ) == "./" then
+input = input : sub ( 3 )
+elseif input : sub ( 1 , 3 ) == "/./" then
+input = "/" .. input : sub ( 4 )
+elseif input == "/." then
+input = "/"
+elseif input : sub ( 1 , 4 ) == "/../" then
+input = "/" .. input : sub ( 5 )
+output [ # output ] = nil
+elseif input == "/.." then
+input = "/"
+output [ # output ] = nil
+elseif input == "." or input == ".." then
+input = ""
+else
+local segment = input : match ( "^/?[^/]*" )
+output [ # output + 1 ] = segment
+input = input : sub ( # segment + 1 )
+end
+end
+
+return table . concat ( output )
+end
 
 uri.Components = {} uri.Components.__index = uri.Components
 
@@ -184143,8 +184235,10 @@ value }, uri.Components)
 end
 
 function uri.URI:concatPath(value) 
+
+
 local separator = "/"
-if self . _path == "" or self . _path : sub ( - 1 ) == "/" or value : sub ( 1 , 1 ) == "/" then
+if self . _path : sub ( - 1 ) == "/" or value : sub ( 1 , 1 ) == "/" then
 separator = ""
 end
 
@@ -184155,17 +184249,44 @@ function uri.URI:resolve(reference)
 if reference : match ( "^[A-Za-z][A-Za-z0-9+.-]*:" ) then
 return uri . newURI ( reference )
 end
-local prefix = self . _scheme .. "://" .. ( self . _authority or "" )
-if reference : sub ( 1 , 1 ) == "/" then
+local prefix = self . _scheme .. ":"
+if reference : sub ( 1 , 2 ) == "//" then
+
 return uri . newURI ( prefix .. reference )
 end
-local directory = self . _path : match ( "^(.*)/" ) or ""
+local suffix = ""
+local beforeFragment , fragment = reference : match ( "^(.-)(#.*)$" )
+if beforeFragment ~= nil then
+reference , suffix = beforeFragment , fragment
+end
+local beforeQuery , query = reference : match ( "^(.-)(%?.*)$" )
+if beforeQuery ~= nil then
+reference , suffix = beforeQuery , query .. suffix
+elseif reference == "" then
 
-return uri . newURI ( prefix .. directory .. "/" .. reference )
+suffix = ( self . _query ~= nil and "?" .. self . _query or "" ) .. suffix
+end
+local authority = self . _authority ~= nil and "//" .. self . _authority or ""
+local path
+if reference == "" then
+path = self . _path
+elseif reference : sub ( 1 , 1 ) == "/" then
+path = removeDotSegments ( reference )
+elseif self . _authority ~= nil and self . _path == "" then
+path = removeDotSegments ( "/" .. reference )
+else
+path = removeDotSegments ( ( self . _path : match ( "^(.*/)" ) or "" ) .. reference )
+end
+
+return uri . newURI ( prefix .. authority .. path .. suffix )
 end
 
 function uri.URI:withEndpoint(endpoint) 
-return assert ( uri . newURI ( endpoint : scheme ( ) .. "://" .. ( endpoint : authority ( ) or "" ) .. self . _path ) )
+return assert ( uri . newURI (
+endpoint : scheme ( ) .. "://" .. ( endpoint : authority ( ) or "" ) .. self . _path .. (
+self . _query ~= nil and "?" .. self . _query or ""
+) .. ( self . _fragment ~= nil and "#" .. self . _fragment or "" )
+) )
 end
 
 
@@ -184779,10 +184900,12 @@ end
 task . _awaiting = true
 poolRequest ( { operation = "await" , task = task . _id , } , function ( item ) 
 task . _answer = item
-local resume = task . _resume
-if resume ~= nil then
+local waiters = task . _resume
+if waiters ~= nil then
 task . _resume = nil
-resume ( true )
+for index = 1 , # waiters do
+waiters [ index ] ( true )
+end
 end
 end )
 end
@@ -184803,15 +184926,31 @@ return
 end
 ensureAwait ( task )
 if task . _answer == nil then
+
+
 suspension . suspend ( "worker task" , function ( resume ) 
-task . _resume = resume
+local waiters = task . _resume
+if waiters == nil then
+waiters = { }
+task . _resume = waiters
+end
+waiters [ # waiters + 1 ] = resume
 
 return function ( ) 
-task . _resume = nil
+for index = # waiters , 1 , - 1 do
+if waiters [ index ] == resume then
+table . remove ( waiters , index )
+break
+end
+end
 end
 end )
 end
+
+
+if not task : isDone ( ) then
 consume ( task )
+end
 end
 
 
@@ -185223,9 +185362,11 @@ end
 return "object" , count
 end
 
-local function container ( value , visiting ) 
-if value == json . NULL then
-return value
+local function container ( value , nullValue , visiting ) 
+
+
+if value == json . NULL or nullValue ~= nil and value == nullValue then
+return json . NULL
 end
 if type ( value ) ~= "table" then
 return value
@@ -185239,14 +185380,14 @@ local kind , length = classify ( value )
 if kind == "array" then
 out [ 0 ] = length
 for index = 1 , length do
-out [ index ] = container ( value [ index ] , visiting )
+out [ index ] = container ( value [ index ] , nullValue , visiting )
 end
 else
 for key , child in pairs ( value ) do
 if type ( key ) ~= "string" then
 error ( "JSON object keys must be strings" , 0 )
 end
-out [ key ] = container ( child , visiting )
+out [ key ] = container ( child , nullValue , visiting )
 end
 end
 visiting [ value ] = nil
@@ -185254,8 +185395,9 @@ visiting [ value ] = nil
 return out
 end
 
-local function mark ( value ) 
-if type ( value ) ~= "table" or value == json . NULL then
+local function mark ( value , nullValue ) 
+
+if type ( value ) ~= "table" or value == json . NULL or nullValue ~= nil and value == nullValue then
 return value
 end
 local length = value [ 0 ]
@@ -185267,14 +185409,14 @@ for index = 1 , length do
 local child = value [ index ]
 value [ index ] = nil
 if child ~= nil then
-value [ into ] = mark ( child )
+value [ into ] = mark ( child , nullValue )
 into = into + 1
 end
 end
 else
 setmetatable ( value , OBJECT_MARKER )
 for key , child in pairs ( value ) do
-value [ key ] = mark ( child )
+value [ key ] = mark ( child , nullValue )
 end
 end
 
@@ -185312,7 +185454,7 @@ return { [ ARRAY_SHAPE ] = shape == nil and true or shape , }
 end
 
 function json . encode ( value , nullValue ) 
-return core . encode ( container ( value , { } ) , nullValue == nil and json . NULL or nullValue )
+return core . encode ( container ( value , nullValue , { } ) , json . NULL )
 end
 
 json . serialize = json . encode
@@ -185321,7 +185463,7 @@ function json . decode ( text , nullValue )
 if not validUtf8 ( text ) then
 error ( "invalid UTF-8 in JSON" , 0 )
 end
-return mark ( core . decode ( text , nil , nullValue , true ) )
+return mark ( core . decode ( text , nil , nullValue , true ) , nullValue )
 end
 
 function json . isArray ( value ) 
@@ -186079,6 +186221,28 @@ end
 
 
 
+;
+( Buffer ) . __len = function ( self ) 
+local total = 0
+for index = 1 , self . count do
+total = total + # self . pieces [ index ]
+end
+
+return total
+end
+
+;
+( Buffer ) . __concat = function ( left , right ) 
+return tostring ( left ) .. tostring ( right )
+end
+
+;
+( Buffer ) . __tostring = function ( self ) 
+return self : tostring ( )
+end
+
+
+
 
 
 
@@ -186200,7 +186364,11 @@ return normalize and normalize ( value ) or value
 end
 
 function fixed : isa ( value ) 
-return kind == "boolean" and type ( value ) == "boolean" or type ( value ) == "number"
+if kind == "boolean" then
+return type ( value ) == "boolean"
+end
+
+return type ( value ) == "number"
 end
 
 return fixed
@@ -186283,12 +186451,18 @@ function provider . array ( element , count )
 local identity = { }
 local values = {
 __index = function ( self , index ) 
-assert ( type ( index ) == "number" and index >= 0 and index < count , "fixed-array index out of bounds" )
+assert (
+type ( index ) == "number" and index % 1 == 0 and index >= 0 and index < count ,
+"fixed-array index out of bounds"
+)
 
 return rawget ( self , identity ) [ index ]
 end ,
 __newindex = function ( self , index , value ) 
-assert ( type ( index ) == "number" and index >= 0 and index < count , "fixed-array index out of bounds" )
+assert (
+type ( index ) == "number" and index % 1 == 0 and index >= 0 and index < count ,
+"fixed-array index out of bounds"
+)
 rawget ( self , identity ) [ index ] = element : copy ( value )
 end ,
 }
@@ -186394,7 +186568,11 @@ return self : read ( pointer , 0 )
 end
 
 function physical : isa ( value ) 
-return self . kind == "boolean" and type ( value ) == "boolean" or type ( value ) == "number"
+if self . kind == "boolean" then
+return type ( value ) == "boolean"
+end
+
+return type ( value ) == "number"
 end
 
 scalarCache [ kind ] = physical
@@ -187334,7 +187512,9 @@ local seam = { moduleName = "nupp.runtime.seam.iobytes" , suiteModuleName = "nup
 local CONTRACT = common . contract ( "io.bytes" , {
 globalName = "__nuppIoBytes" ,
 requiredFunctions = { "newBuffer" , "newQueueReader" , "newScalarReader" , "newScalarWriter" , "newStringReader" } ,
-requiredValues = { "Buffer" , "ByteQueue" , "ByteView" , "Reader" , "ScalarReader" , "ScalarWriter" , "Writer" } ,
+
+
+requiredValues = { } ,
 suiteModule = seam . suiteModuleName ,
 modules = { [ "nupp.io" ] = "" , } ,
 } )
@@ -187719,6 +187899,33 @@ end
 if rawget ( _G , contract . globalName ) ~= nil then
 error ( "nupp: " .. contract . name .. " runtime binding already exists" , 0 )
 end
+
+
+
+for target in pairs ( contract . modules or { } ) do
+if package . loaded [ target ] ~= nil then
+error ( "nupp: " .. contract . name .. " provider was selected after " .. target .. " was already loaded" , 0 )
+end
+end
+for target in pairs ( contract . implementationModules or { } ) do
+if package . loaded [ target ] ~= nil then
+error ( "nupp: " .. contract . name .. " provider was selected after " .. target .. " was already loaded" , 0 )
+end
+end
+local priorProjections = rawget ( _G , "__nuppRuntimeModules" )
+for path in pairs ( contract . exports or { } ) do
+local target , member = path : match ( "^(.*)%.([^%.]+)$" )
+if not target or not member then
+error ( "nupp: invalid projected runtime export " .. path , 0 )
+end
+if package . loaded [ target ] ~= nil then
+error ( "nupp: " .. contract . name .. " provider was selected after " .. target .. " was already loaded" , 0 )
+end
+local projection = priorProjections and priorProjections [ target ]
+if projection ~= nil and projection . loaders [ member ] ~= nil then
+error ( "nupp: more than one runtime provider supplies " .. path , 0 )
+end
+end
 local binding = { }
 local loaded = nil
 local function provider ( ) 
@@ -187752,9 +187959,6 @@ end ,
 } )
 rawset ( _G , contract . globalName , binding )
 for target , member in pairs ( contract . modules or { } ) do
-if package . loaded [ target ] ~= nil then
-error ( "nupp: " .. contract . name .. " provider was selected after " .. target .. " was already loaded" , 0 )
-end
 package . preload [ target ] = function ( ) 
 local value = provider ( )
 if member ~= "" then
@@ -187789,9 +187993,6 @@ return provider ( )
 end
 
 for target in pairs ( contract . implementationModules or { } ) do
-if package . loaded [ target ] ~= nil then
-error ( "nupp: " .. contract . name .. " provider was selected after " .. target .. " was already loaded" , 0 )
-end
 package . preload [ target ] = loadImplementation
 end
 local projected = rawget ( _G , "__nuppRuntimeModules" )
@@ -187800,13 +188001,9 @@ projected = { }
 rawset ( _G , "__nuppRuntimeModules" , projected )
 end
 for path , providerMember in pairs ( contract . exports or { } ) do
-local target , member = path : match ( "^(.*)%.([^%.]+)$" )
-if not target or not member then
-error ( "nupp: invalid projected runtime export " .. path , 0 )
-end
-if package . loaded [ target ] ~= nil then
-error ( "nupp: " .. contract . name .. " provider was selected after " .. target .. " was already loaded" , 0 )
-end
+
+local matchedTarget , matchedMember = path : match ( "^(.*)%.([^%.]+)$" )
+local target , member = matchedTarget , matchedMember
 local projection = projected [ target ]
 if projection == nil then
 projection = { loaders = { } , }
@@ -187819,9 +188016,6 @@ end
 
 return value
 end
-end
-if projection . loaders [ member ] ~= nil then
-error ( "nupp: more than one runtime provider supplies " .. path , 0 )
 end
 projection . loaders [ member ] = function ( ) 
 return provider ( ) [ providerMember ]
@@ -188000,7 +188194,8 @@ _G.assert(_G.loadstring("local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppM
 local suite = { }
 function suite . test ( provider ) 
 local ok , problem = pcall ( function ( ) 
-local pattern = provider . compile ( "ab+" )
+
+local pattern = provider . compile ( "'a' 'b'+" )
 assert ( provider . match ( pattern , "abbb" ) ~= nil , "compiled patterns must match" )
 assert ( provider . match ( pattern , "ac" ) == nil , "a failed match must return nil" )
 end )
@@ -188767,7 +188962,9 @@ local seam = { moduleName = "nupp.runtime.seam.tls" , suiteModuleName = "nupp.ru
 local CONTRACT = common . contract ( "host.tls" , {
 globalName = "__nuppTls" ,
 requiredFunctions = { "client" , "dtlsClient" , "dtlsServer" , "kernelOffloadSupported" , "server" , "useBackend" , } ,
-requiredValues = { "Backend" , "ClientOptions" , "DatagramSession" , "ServerOptions" , "Session" , } ,
+
+
+requiredValues = { "Backend" , "DatagramSession" , "Session" , } ,
 suiteModule = seam . suiteModuleName ,
 modules = { [ "nupp.io.tls" ] = "" , } ,
 } )
@@ -189219,6 +189416,9 @@ end
 
 if c == 'e' or c == 'E' then
 num , c = match ( json , '^([^eE]*[eE][-+]?[0-9]+)([-+.A-Za-z]?)' , pos )
+if num == nil then
+number_error ( )
+end
 num , c = assert ( num ) , assert ( c )
 if c == '' then
 pos = pos + # num
@@ -189238,6 +189438,9 @@ end
 if c ~= '' then
 if c == 'e' or c == 'E' then
 num , c = match ( json , '^([^eE]*[eE][-+]?[0-9]+)([-+.A-Za-z]?)' , pos )
+if num == nil then
+number_error ( )
+end
 num , c = assert ( num ) , assert ( c )
 end
 if c ~= '' then
@@ -228199,6 +228402,13 @@ function effects.request(kind: string, payload: any, resume: function(any): nil)
     nextId = nextId + 1
     payload.id = id
     payload.kind = kind
+    -- Refuse an unencodable payload here, where the offender is known. Failing at
+    -- park time would raise in whichever coroutine happened to carry the batch and
+    -- strand every other queued request's waiter.
+    local encodable, problem = pcall(json.encode, payload)
+    if not encodable then
+        error("nupp: browser effect " .. kind .. " has no JSON form: " .. tostring(problem), 0)
+    end
     queued[#queued + 1] = payload
     local active = true
     waiting[id] = function(response: any): nil
@@ -228211,22 +228421,32 @@ function effects.request(kind: string, payload: any, resume: function(any): nil)
     end
 
     return function(): nil
-        if active then
-            active = false
-            waiting[id] = nil
+        if not active then
+            return
+        end
+        active = false
+        waiting[id] = nil
+        -- The host executes whatever a park carries, so a request cancelled before
+        -- it shipped must leave the queue: a cancelled write must not still happen.
+        for index = #queued, 1, -1 do
+            if queued[index] == payload then
+                table.remove(queued, index)
+                break
+            end
         end
     end
 end
 
 function effects.park(operation: string): nil
-    local message: any
+    local encoded: string
     if #queued == 0 then
-        message = {kind = "poll", operation = operation,}
+        encoded = json.encode({kind = "poll", operation = operation,})
     else
-        message = {kind = "effects", requests = queued,}
+        -- Encode before clearing, so a failed encode leaves the queue intact
+        -- instead of stranding every dequeued request's waiter.
+        encoded = json.encode({kind = "effects", requests = queued,})
         queued = {}
     end
-    local encoded = json.encode(message)
     local responseText = coroutine.yield(encoded)
     local response = json.decode(responseText)
     if response.cancelled then
@@ -228381,11 +228601,11 @@ function codec.validate(captures: Packed, arguments: Packed): TransferState
     local transfer: TransferState = {seen = {}, records = nil, addresses = nil}
     local rejectedCaptures = codec.unsendable(captures.values, "captures", 0, transfer)
     if rejectedCaptures ~= nil then
-        error("nupp: cannot copy task captures: " .. rejectedCaptures, 4)
+        error("nupp: cannot copy task captures: " .. rejectedCaptures, 3)
     end
     local rejected = codec.unsendable(arguments.values, "arguments", 0, transfer)
     if rejected ~= nil then
-        error("nupp: cannot copy task arguments: " .. rejected, 4)
+        error("nupp: cannot copy task arguments: " .. rejected, 3)
     end
 
     return transfer
@@ -228851,6 +229071,7 @@ module nupp.runtime.provider.browserhttp
 local effects = require("nupp.runtime.browser.effects")
 local base64 = require("nupp.data.base64")
 local suspension = require("nupp.suspension")
+local uri = require("nupp.io.uri")
 local http = {}
 
 record http.Options
@@ -229077,18 +229298,28 @@ record http.Client
         local descriptor: any = {
             url = url:toString(),
             method = request.method or "GET",
-            headers = headers,
             timeoutMs = request.timeoutMs or self._options.timeoutMs or 30000,
             maxBytes = request.maxBytes or self._options.maxBytes or 0,
         }
+        if #headers > 0 then
+            -- An empty Lua table encodes as a JSON object, which the host cannot
+            -- iterate as header pairs; no field means no headers.
+            descriptor.headers = headers
+        end
         if body ~= nil then
             descriptor.bodyBase64 = base64.encode(body)
         end
         self._pending = self._pending + 1
-        local answer = suspension.suspend("browser HTTP request", function(resume: function(any): nil): function()
+        local completed, suspended = pcall(suspension.suspend, "browser HTTP request", function(
+            resume: function(any): nil
+        ): function()
             return effects.request("http", descriptor, resume)
         end)
         self._pending = self._pending - 1
+        if not completed then
+            error(suspended, 0)
+        end
+        local answer = suspended as any
         if not answer.ok then
             return nil, answer.error or "browser HTTP request failed"
         end
@@ -229101,11 +229332,20 @@ record http.Client
             byName[name] = values
         end
         local responseBody = new http.Body(_bytes = base64.decode(value.bodyBase64 or ""), _at = 1, _closed = false)
+        -- The host follows redirects, so the URL it answers is the last hop
+        -- rather than the one the request named.
+        local finalUrl = request.url
+        if type(value.url) == "string" and value.url ~= "" then
+            local landed = uri.newURI(value.url)
+            if landed ~= nil then
+                finalUrl = landed
+            end
+        end
 
         return new http.Response(
             status = value.status,
             version = "1.1",
-            url = request.url,
+            url = finalUrl,
             body = responseBody,
             _headers = byName,
             _closed = false
@@ -229564,6 +229804,7 @@ local function drive(bodies: {function(): any}, limit: integer?, stopEarly: bool
     local values, errors, threads = {}, {}, {}
     local indexOf = setmetatable({}, {__mode = "k"})
     local runnable, abandoned = {}, {}
+    local entered: {[integer]: boolean} = {}
     local started: integer = 0
     local finished: integer = 0
     local first: integer? = nil
@@ -229608,6 +229849,7 @@ local function drive(bodies: {function(): any}, limit: integer?, stopEarly: bool
         local index = started
         local co = suspension.create(function(): any
             local installed = suspension.install(branchHandler)
+            entered[index] = true
             local value = bodies[index]()
             installed:release()
             return value
@@ -229654,13 +229896,28 @@ local function drive(bodies: {function(): any}, limit: integer?, stopEarly: bool
                         first = index
                     end
                     if stopEarly then
+                        -- Every branch still going is resumed once so its park can
+                        -- cancel and unwind. One that never started never does:
+                        -- resuming it would run its body after the race settled.
                         for other = 1, count do
                             local victim = threads[other]
                             if victim ~= nil then
                                 abandoned[other] = true
-                                coroutine.resume(victim)
+                                if entered[other] then
+                                    coroutine.resume(victim)
+                                else
+                                    local victimBody = bodies[other] as any
+                                    if type(victimBody) == "table" and victimBody.__nuppRelease then
+                                        victimBody.__nuppRelease()
+                                    end
+                                end
                                 threads[other] = nil
-                                finished = finished + 1
+                            end
+                        end
+                        for other = started + 1, count do
+                            local victimBody = bodies[other] as any
+                            if type(victimBody) == "table" and victimBody.__nuppRelease then
+                                victimBody.__nuppRelease()
                             end
                         end
                         finished = count
@@ -229770,6 +230027,38 @@ module nupp.runtime.provider.browseruri
 -- absolute-URI surface used to construct requests and inspect responses.
 
 local uri = {}
+
+-- RFC 3986 section 5.2.4, so a resolved reference answers the path a browser
+-- would navigate to rather than one still carrying "." and ".." segments.
+local function removeDotSegments(path: string): string
+    local input = path
+    local output: {string} = {}
+    while input ~= "" do
+        if input:sub(1, 3) == "../" then
+            input = input:sub(4)
+        elseif input:sub(1, 2) == "./" then
+            input = input:sub(3)
+        elseif input:sub(1, 3) == "/./" then
+            input = "/" .. input:sub(4)
+        elseif input == "/." then
+            input = "/"
+        elseif input:sub(1, 4) == "/../" then
+            input = "/" .. input:sub(5)
+            output[#output] = nil
+        elseif input == "/.." then
+            input = "/"
+            output[#output] = nil
+        elseif input == "." or input == ".." then
+            input = ""
+        else
+            local segment = input:match("^/?[^/]*") as string
+            output[#output + 1] = segment
+            input = input:sub(#segment + 1)
+        end
+    end
+
+    return table.concat(output)
+end
 
 record uri.Components
     scheme: string
@@ -229941,8 +230230,10 @@ record uri.URI
     end
 
     function concatPath(self, value: string): uri.URI
+        -- An empty path still needs the separator: without one the appended text
+        -- reparses as part of the authority.
         local separator = "/"
-        if self._path == "" or self._path:sub(-1) == "/" or value:sub(1, 1) == "/" then
+        if self._path:sub(-1) == "/" or value:sub(1, 1) == "/" then
             separator = ""
         end
 
@@ -229953,17 +230244,44 @@ record uri.URI
         if reference:match("^[A-Za-z][A-Za-z0-9+.-]*:") then
             return uri.newURI(reference)
         end
-        local prefix = self._scheme .. "://" .. (self._authority or "")
-        if reference:sub(1, 1) == "/" then
+        local prefix = self._scheme .. ":"
+        if reference:sub(1, 2) == "//" then
+            -- A network-path reference supplies its own authority.
             return uri.newURI(prefix .. reference)
         end
-        local directory = self._path:match("^(.*)/") or ""
+        local suffix = ""
+        local beforeFragment, fragment = reference:match("^(.-)(#.*)$")
+        if beforeFragment ~= nil then
+            reference, suffix = beforeFragment, fragment
+        end
+        local beforeQuery, query = reference:match("^(.-)(%?.*)$")
+        if beforeQuery ~= nil then
+            reference, suffix = beforeQuery, query .. suffix
+        elseif reference == "" then
+            -- A same-document reference keeps the base's query.
+            suffix = (self._query ~= nil and "?" .. self._query or "") .. suffix
+        end
+        local authority = self._authority ~= nil and "//" .. self._authority or ""
+        local path: string
+        if reference == "" then
+            path = self._path
+        elseif reference:sub(1, 1) == "/" then
+            path = removeDotSegments(reference)
+        elseif self._authority ~= nil and self._path == "" then
+            path = removeDotSegments("/" .. reference)
+        else
+            path = removeDotSegments((self._path:match("^(.*/)") or "") .. reference)
+        end
 
-        return uri.newURI(prefix .. directory .. "/" .. reference)
+        return uri.newURI(prefix .. authority .. path .. suffix)
     end
 
     function withEndpoint(self, endpoint: uri.URI): uri.URI
-        return assert(uri.newURI(endpoint:scheme() .. "://" .. (endpoint:authority() or "") .. self._path))
+        return assert(uri.newURI(
+            endpoint:scheme() .. "://" .. (endpoint:authority() or "") .. self._path .. (
+                self._query ~= nil and "?" .. self._query or ""
+            ) .. (self._fragment ~= nil and "#" .. self._fragment or "")
+        ))
     end
 end
 
@@ -230576,10 +230894,12 @@ local function ensureAwait(task: any): nil
     task._awaiting = true
     poolRequest({operation = "await", task = task._id,}, function(item: any): nil
         task._answer = item
-        local resume = task._resume
-        if resume ~= nil then
+        local waiters = task._resume
+        if waiters ~= nil then
             task._resume = nil
-            resume(true)
+            for index = 1, #waiters do
+                waiters[index](true)
+            end
         end
     end)
 end
@@ -230600,15 +230920,31 @@ local function awaitSettlement(task: any): nil
     end
     ensureAwait(task)
     if task._answer == nil then
+        -- One reply may have several awaiters, so each parks in its own slot of a
+        -- waiter list; a single slot would strand every awaiter but the last.
         suspension.suspend("worker task", function(resume: function(any): nil): function()
-            task._resume = resume
+            local waiters = task._resume
+            if waiters == nil then
+                waiters = {}
+                task._resume = waiters
+            end
+            waiters[#waiters + 1] = resume
 
             return function(): nil
-                task._resume = nil
+                for index = #waiters, 1, -1 do
+                    if waiters[index] == resume then
+                        table.remove(waiters, index)
+                        break
+                    end
+                end
             end
         end)
     end
-    consume(task)
+    -- Whichever awaiter runs first consumes the reply; later ones find the task
+    -- already settled.
+    if not task:isDone() then
+        consume(task)
+    end
 end
 
 --- Waits for one task without parking the application.
@@ -231019,9 +231355,11 @@ local function classify(value: any): string, integer
     return "object", count
 end
 
-local function container(value: any, visiting: {[any]: boolean}): any
-    if value == json.NULL then
-        return value
+local function container(value: any, nullValue: any?, visiting: {[any]: boolean}): any
+    -- A custom sentinel is normalized here because the copy below would lose the
+    -- identity the encoder's null check compares against.
+    if value == json.NULL or nullValue ~= nil and value == nullValue then
+        return json.NULL
     end
     if type(value) ~= "table" then
         return value
@@ -231035,14 +231373,14 @@ local function container(value: any, visiting: {[any]: boolean}): any
     if kind == "array" then
         out[0] = length
         for index = 1, length do
-            out[index] = container(value[index], visiting)
+            out[index] = container(value[index], nullValue, visiting)
         end
     else
         for key, child in pairs(value) do
             if type(key) ~= "string" then
                 error("JSON object keys must be strings", 0)
             end
-            out[key] = container(child, visiting)
+            out[key] = container(child, nullValue, visiting)
         end
     end
     visiting[value] = nil
@@ -231050,8 +231388,9 @@ local function container(value: any, visiting: {[any]: boolean}): any
     return out
 end
 
-local function mark(value: any): any
-    if type(value) ~= "table" or value == json.NULL then
+local function mark(value: any, nullValue: any?): any
+    -- A caller's null sentinel keeps whatever metatable it arrived with.
+    if type(value) ~= "table" or value == json.NULL or nullValue ~= nil and value == nullValue then
         return value
     end
     local length = value[0]
@@ -231063,14 +231402,14 @@ local function mark(value: any): any
             local child = value[index]
             value[index] = nil
             if child ~= nil then
-                value[into] = mark(child)
+                value[into] = mark(child, nullValue)
                 into = into + 1
             end
         end
     else
         setmetatable(value, OBJECT_MARKER)
         for key, child in pairs(value) do
-            value[key] = mark(child)
+            value[key] = mark(child, nullValue)
         end
     end
 
@@ -231108,7 +231447,7 @@ function json.arrayOf(shape: any?): any
 end
 
 function json.encode(value: any, nullValue: any?): string
-    return core.encode(container(value, {}), nullValue == nil and json.NULL or nullValue)
+    return core.encode(container(value, nullValue, {}), json.NULL)
 end
 
 json.serialize = json.encode
@@ -231117,7 +231456,7 @@ function json.decode(text: string, nullValue: any?): any
     if not validUtf8(text) then
         error("invalid UTF-8 in JSON", 0)
     end
-    return mark(core.decode(text, nil, nullValue, true))
+    return mark(core.decode(text, nil, nullValue, true), nullValue)
 end
 
 function json.isArray(value: any): boolean
@@ -231870,6 +232209,28 @@ local record Buffer
     end
 end
 
+-- A 5.1-era VM without 5.2 compatibility ignores __len on tables, so `#buf`
+-- answers correctly only where the host honors it; the other two fire anywhere.
+    ;
+(Buffer as {[string]: any}).__len = function(self: Buffer): integer
+    local total = 0
+    for index = 1, self.count do
+        total = total + #self.pieces[index]
+    end
+
+    return total as integer
+end
+
+    ;
+(Buffer as {[string]: any}).__concat = function(left: any, right: any): string
+    return tostring(left) .. tostring(right)
+end
+
+    ;
+(Buffer as {[string]: any}).__tostring = function(self: Buffer): string
+    return self:tostring()
+end
+
 --- Creates a buffer.
 ---
 --- The arguments are LuaJIT's and are accepted so the two are called the same way.
@@ -231992,7 +232353,11 @@ function provider.scalar(kind: string): any
     end
 
     function fixed:isa(value: any): boolean
-        return kind == "boolean" and type(value) == "boolean" or type(value) == "number"
+        if kind == "boolean" then
+            return type(value) == "boolean"
+        end
+
+        return type(value) == "number"
     end
 
     return fixed
@@ -232075,12 +232440,18 @@ function provider.array(element: any, count: integer): any
     local identity = {}
     local values = {
         __index = function(self, index)
-            assert(type(index) == "number" and index >= 0 and index < count, "fixed-array index out of bounds")
+            assert(
+                type(index) == "number" and index % 1 == 0 and index >= 0 and index < count,
+                "fixed-array index out of bounds"
+            )
 
             return rawget(self, identity)[index]
         end,
         __newindex = function(self, index, value)
-            assert(type(index) == "number" and index >= 0 and index < count, "fixed-array index out of bounds")
+            assert(
+                type(index) == "number" and index % 1 == 0 and index >= 0 and index < count,
+                "fixed-array index out of bounds"
+            )
             rawget(self, identity)[index] = element:copy(value)
         end,
     }
@@ -232184,7 +232555,11 @@ function factory.new(memory: any): any
         end
 
         function physical:isa(value: any): boolean
-            return self.kind == "boolean" and type(value) == "boolean" or type(value) == "number"
+            if self.kind == "boolean" then
+                return type(value) == "boolean"
+            end
+
+            return type(value) == "number"
         end
 
         scalarCache[kind] = physical
@@ -233103,7 +233478,9 @@ local seam = {moduleName = "nupp.runtime.seam.iobytes", suiteModuleName = "nupp.
 local CONTRACT = common.contract("io.bytes", {
     globalName = "__nuppIoBytes",
     requiredFunctions = {"newBuffer", "newQueueReader", "newScalarReader", "newScalarWriter", "newStringReader"},
-    requiredValues = {"Buffer", "ByteQueue", "ByteView", "Reader", "ScalarReader", "ScalarWriter", "Writer"},
+    -- The byte surface's nominal names are all interfaces, which erase, so the
+    -- runtime shape is its functions alone.
+    requiredValues = {},
     suiteModule = seam.suiteModuleName,
     modules = {["nupp.io"] = "",},
 })
@@ -233484,6 +233861,33 @@ function moduleSeam.install(contract: Contract, moduleName: string): nil
     if rawget(_G, contract.globalName) ~= nil then
         error("nupp: " .. contract.name .. " runtime binding already exists", 0)
     end
+    -- Every remaining refusal happens before any state changes. A failure past the
+    -- first write would leave the selection and binding behind, and a retried
+    -- install would then return through the `prior` path as though it had worked.
+    for target in pairs(contract.modules or {}) do
+        if package.loaded[target] ~= nil then
+            error("nupp: " .. contract.name .. " provider was selected after " .. target .. " was already loaded", 0)
+        end
+    end
+    for target in pairs(contract.implementationModules or {}) do
+        if package.loaded[target] ~= nil then
+            error("nupp: " .. contract.name .. " provider was selected after " .. target .. " was already loaded", 0)
+        end
+    end
+    local priorProjections = rawget(_G, "__nuppRuntimeModules")
+    for path in pairs(contract.exports or {}) do
+        local target, member = path:match("^(.*)%.([^%.]+)$")
+        if not target or not member then
+            error("nupp: invalid projected runtime export " .. path, 0)
+        end
+        if package.loaded[target] ~= nil then
+            error("nupp: " .. contract.name .. " provider was selected after " .. target .. " was already loaded", 0)
+        end
+        local projection = priorProjections and priorProjections[target]
+        if projection ~= nil and projection.loaders[member] ~= nil then
+            error("nupp: more than one runtime provider supplies " .. path, 0)
+        end
+    end
     local binding = {}
     local loaded: any = nil
     local function provider(): any
@@ -233517,9 +233921,6 @@ function moduleSeam.install(contract: Contract, moduleName: string): nil
     })
     rawset(_G, contract.globalName, binding)
     for target, member in pairs(contract.modules or {}) do
-        if package.loaded[target] ~= nil then
-            error("nupp: " .. contract.name .. " provider was selected after " .. target .. " was already loaded", 0)
-        end
         package.preload[target] = function()
             local value = provider()
             if member ~= "" then
@@ -233554,9 +233955,6 @@ function moduleSeam.install(contract: Contract, moduleName: string): nil
     end
 
     for target in pairs(contract.implementationModules or {}) do
-        if package.loaded[target] ~= nil then
-            error("nupp: " .. contract.name .. " provider was selected after " .. target .. " was already loaded", 0)
-        end
         package.preload[target] = loadImplementation
     end
     local projected = rawget(_G, "__nuppRuntimeModules")
@@ -233565,13 +233963,9 @@ function moduleSeam.install(contract: Contract, moduleName: string): nil
         rawset(_G, "__nuppRuntimeModules", projected)
     end
     for path, providerMember in pairs(contract.exports or {}) do
-        local target, member = path:match("^(.*)%.([^%.]+)$")
-        if not target or not member then
-            error("nupp: invalid projected runtime export " .. path, 0)
-        end
-        if package.loaded[target] ~= nil then
-            error("nupp: " .. contract.name .. " provider was selected after " .. target .. " was already loaded", 0)
-        end
+        -- The refusal pass above already rejected an unparseable path.
+        local matchedTarget, matchedMember = path:match("^(.*)%.([^%.]+)$")
+        local target, member = matchedTarget as string, matchedMember as string
         local projection = projected[target]
         if projection == nil then
             projection = {loaders = {},}
@@ -233584,9 +233978,6 @@ function moduleSeam.install(contract: Contract, moduleName: string): nil
 
                 return value
             end
-        end
-        if projection.loaders[member] ~= nil then
-            error("nupp: more than one runtime provider supplies " .. path, 0)
         end
         projection.loaders[member] = function()
             return provider()[providerMember]
@@ -233759,7 +234150,8 @@ module nupp.runtime.seam.pegsuite
 local suite = {}
 function suite.test(provider: any): (boolean, string?)
     local ok, problem = pcall(function()
-        local pattern = provider.compile("ab+")
+        -- LPeg re notation: a bare `ab+` is a rule reference, not literal bytes.
+        local pattern = provider.compile("'a' 'b'+")
         assert(provider.match(pattern, "abbb") ~= nil, "compiled patterns must match")
         assert(provider.match(pattern, "ac") == nil, "a failed match must return nil")
     end)
@@ -234510,7 +234902,9 @@ local seam = {moduleName = "nupp.runtime.seam.tls", suiteModuleName = "nupp.runt
 local CONTRACT = common.contract("host.tls", {
     globalName = "__nuppTls",
     requiredFunctions = {"client", "dtlsClient", "dtlsServer", "kernelOffloadSupported", "server", "useBackend",},
-    requiredValues = {"Backend", "ClientOptions", "DatagramSession", "ServerOptions", "Session",},
+    -- ClientOptions and ServerOptions are type aliases, which erase; only the
+    -- records are runtime members a loaded module can answer for.
+    requiredValues = {"Backend", "DatagramSession", "Session",},
     suiteModule = seam.suiteModuleName,
     modules = {["nupp.io.tls"] = "",},
 })
@@ -234950,6 +235344,9 @@ local function newdecoder()
 
 			if c == 'e' or c == 'E' then
 				num, c = match(json, '^([^eE]*[eE][-+]?[0-9]+)([-+.A-Za-z]?)', pos)
+				if num == nil then
+					number_error()
+				end
 				num, c = assert(num), assert(c)
 				if c == '' then
 					pos = pos + #num
@@ -234969,6 +235366,9 @@ local function newdecoder()
 		if c ~= '' then
 			if c == 'e' or c == 'E' then
 				num, c = match(json, '^([^eE]*[eE][-+]?[0-9]+)([-+.A-Za-z]?)', pos)
+				if num == nil then
+					number_error()
+				end
 				num, c = assert(num), assert(c)
 			end
 			if c ~= '' then
