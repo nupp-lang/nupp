@@ -143,6 +143,51 @@ return { a = a }
    end)
 end
 
+function M.declinesRequiresIssuedWhileCompiling()
+   withProject({
+      ["src/runtimemain.nupp"] = "return { ok = true }\n",
+      ["src/runtimelazy.lua"] = "return 'from-project'\n",
+   }, function(dir)
+      package.loaded.runtimemain = nil
+      package.loaded.runtimelazy = nil
+      local midCompile
+      local removeLoader = runtime.install(projectEnv(dir), function(path, env)
+         -- The compiler lazily requires pieces of itself while compiling. Such
+         -- a require must fall through to the chain behind this loader, even
+         -- when the project could resolve the name, or the loader re-enters
+         -- the very compile that is computing the module's exports.
+         local ok, result = pcall(require, "runtimelazy")
+         midCompile = ok and result or "declined"
+         return compile(path, env)
+      end)
+      local main = require("runtimemain")
+      removeLoader()
+      package.loaded.runtimemain = nil
+      package.loaded.runtimelazy = nil
+      assertEq(main.ok, true, "compiled module loads")
+      assertEq(midCompile, "declined",
+         "a require issued while compiling must not re-enter the loader")
+   end)
+end
+
+function M.cliRunLoadsStdlibFromALuaEntry()
+   withProject({
+      ["nupp.lua"] = "return { include = { 'src' } }\n",
+      ["main.lua"] = [[
+local time = require("nupp.time")
+print(type(time.now()))
+]],
+   }, function(dir)
+      local output = dir .. "/output.txt"
+      local errors = dir .. "/errors.txt"
+      local command = ("cd '%s' && '%s/bin/nupp' run main.lua "
+         .. "> '%s' 2> '%s'"):format(dir, ROOT, output, errors)
+      local status = os.execute(command)
+      assertEq(status, 0, "nupp run stdlib exit status: " .. readFile(errors))
+      assertEq(readFile(output), "number\n", "nupp run stdlib output")
+   end)
+end
+
 function M.cliRunLoadsRequiredLjppModules()
    withProject({
       ["nupp.lua"] = "return { include = { 'src' } }\n",

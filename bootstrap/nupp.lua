@@ -145465,7 +145465,17 @@ local function pack ( ... )
 return { n = select ( "#" , ... ) , ... }
 end
 
+
+
+
+
+
+local compiling = false
+
 local function loadLjppModule ( name ) 
+if compiling then
+return
+end
 local path = envMod . findRuntimeModulePath ( env , name )
 if not path then
 return ( "\n\tno nupp source for module '%s'" ) : format ( name )
@@ -145473,7 +145483,12 @@ end
 
 local chunk , loadErr
 if path : match ( "%.nupp$" ) then
-local code , compileErr = compile ( path , env )
+compiling = true
+local ok , code , compileErr = pcall ( compile , path , env )
+compiling = false
+if not ok then
+error ( code , 0 )
+end
 if not code then
 error (
 (
