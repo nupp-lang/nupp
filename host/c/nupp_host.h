@@ -29,11 +29,6 @@ struct nupp_error {
 
 typedef struct nupp_error NuppHostError;
 
-/* Fills `*out` when the caller asked for it, and answers the status either way,
- * so every failing path is one line. */
-int nupp_host_fail(
-    struct nupp_error **out, int status, int category, const char *format, ...);
-
 /* --- the runtime -------------------------------------------------------- */
 
 struct nupp_runtime;
@@ -108,7 +103,7 @@ typedef enum {
 NuppPayloadOutcome nupp_host_read_payload(
     const char *path, uint8_t **bytes, size_t *length, char **problem);
 
-/* The first eight bytes of a payload's SHA-256, as the trailer records it. */
+/* The eight digest bytes the trailer records beside a payload. */
 void nupp_host_digest_prefix(const uint8_t *bytes, size_t length, uint8_t out[8]);
 
 /* Where this executable is, which is the only file the payload can be in.

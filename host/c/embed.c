@@ -365,6 +365,7 @@ nupp_status nupp_export_find(
     }
     handle = calloc(1, sizeof *handle);
     if (handle == NULL) {
+        free(nupp_host_release_handle((NuppRuntime *)runtime, id));
         return refuse(error, NUPP_STATUS_RUNTIME, NUPP_ERROR_RUNTIME, "out of memory");
     }
     handle->runtime = nupp_host_runtime_id((NuppRuntime *)runtime);
@@ -413,6 +414,18 @@ nupp_status nupp_call(
             return refuse(error, NUPP_STATUS_RUNTIME, NUPP_ERROR_RUNTIME, "out of memory");
         }
         for (at = 0; at < argumentCount; at++) {
+            if (arguments[at].kind > NUPP_VALUE_HANDLE) {
+                free(passed);
+                return refuse(error, NUPP_STATUS_INVALID_ARGUMENT, NUPP_ERROR_RUNTIME,
+                    "a call was given a value of an unknown kind");
+            }
+            if ((arguments[at].kind == NUPP_VALUE_STRING
+                    || arguments[at].kind == NUPP_VALUE_BYTES)
+                && arguments[at].data == NULL && arguments[at].length != 0) {
+                free(passed);
+                return refuse(error, NUPP_STATUS_INVALID_ARGUMENT, NUPP_ERROR_RUNTIME,
+                    "a call was given a string length without its bytes");
+            }
             passed[at].kind = (NuppHostKind)arguments[at].kind;
             passed[at].boolean = arguments[at].boolean != 0;
             passed[at].number = arguments[at].number;
@@ -464,7 +477,25 @@ nupp_status nupp_call(
         if (answered[at].kind == NUPP_HOST_HANDLE) {
             nupp_handle *handle = calloc(1, sizeof *handle);
             if (handle == NULL) {
+                /* Undo the whole answer: results already written go back through
+                 * the ordinary release path, and the rest are still runtime-owned. */
+                size_t back;
+                for (back = 0; back < at; back++) {
+                    nupp_error *ignored = NULL;
+                    nupp_value_release(runtime, &results[back], &ignored);
+                    nupp_error_free(ignored);
+                }
+                for (back = at; back < answeredCount; back++) {
+                    free(answered[back].data);
+                    if (answered[back].kind == NUPP_HOST_HANDLE) {
+                        free(nupp_host_release_handle(
+                            (NuppRuntime *)runtime, answered[back].handle));
+                    }
+                }
                 free(answered);
+                if (resultCount != NULL) {
+                    *resultCount = 0;
+                }
                 return refuse(error, NUPP_STATUS_RUNTIME, NUPP_ERROR_RUNTIME, "out of memory");
             }
             handle->runtime = runtimeId;

@@ -67,7 +67,18 @@ struct nupp_runtime {
     bool frozen;
 };
 
+/* Worker threads create runtimes of their own, so the counter is guarded: two
+ * runtimes sharing an id would defeat the cross-runtime handle check. */
 static uint64_t nextRuntimeId = 1;
+static pthread_mutex_t runtimeIdGuard = PTHREAD_MUTEX_INITIALIZER;
+
+static uint64_t claim_runtime_id(void) {
+    uint64_t id;
+    pthread_mutex_lock(&runtimeIdGuard);
+    id = nextRuntimeId++;
+    pthread_mutex_unlock(&runtimeIdGuard);
+    return id;
+}
 
 static char *say(const char *format, ...) {
     char scratch[512];
@@ -201,7 +212,7 @@ static NuppRuntime *make(lua_State *state, bool owned) {
     runtime->state = state;
     runtime->owned = owned;
     runtime->owner = pthread_self();
-    runtime->id = nextRuntimeId++;
+    runtime->id = claim_runtime_id();
     runtime->nextComponent = 1;
     runtime->nextHandle = 1;
     return runtime;
@@ -560,6 +571,20 @@ char *nupp_host_find_export(
 
 /* --- calling ------------------------------------------------------------ */
 
+/* Takes back results marshalled before a later one failed: their copied bytes,
+ * their registry roots, and the array itself, so an error returns nothing the
+ * caller would have to guess at freeing. */
+static void discard_results(NuppRuntime *runtime, NuppHostValue *values, size_t count) {
+    size_t at;
+    for (at = 0; at < count; at++) {
+        free(values[at].data);
+        if (values[at].kind == NUPP_HOST_HANDLE && values[at].handle != 0) {
+            free(nupp_host_release_handle(runtime, values[at].handle));
+        }
+    }
+    free(values);
+}
+
 char *nupp_host_call(
     NuppRuntime *runtime, uint64_t callable,
     const NuppHostValue *arguments, size_t argumentCount,
@@ -639,6 +664,8 @@ char *nupp_host_call(
                 value->kind = NUPP_HOST_BYTES;
                 value->data = malloc(length + 1);
                 if (value->data == NULL) {
+                    discard_results(runtime, *results, (size_t)(index - base - 1));
+                    *results = NULL;
                     lua_settop(state, base);
                     return say("out of memory");
                 }
@@ -647,17 +674,23 @@ char *nupp_host_call(
                 value->length = length;
                 break;
             }
-            default:
+            default: {
                 /* Anything the host cannot copy stays in the runtime and is
                  * named by a handle, rooted until the caller releases it. */
+                int rooted;
                 lua_pushvalue(state, index);
+                rooted = luaL_ref(state, LUA_REGISTRYINDEX);
                 value->kind = NUPP_HOST_HANDLE;
-                value->handle = remember_handle(runtime, luaL_ref(state, LUA_REGISTRYINDEX));
+                value->handle = remember_handle(runtime, rooted);
                 if (value->handle == 0) {
+                    luaL_unref(state, LUA_REGISTRYINDEX, rooted);
+                    discard_results(runtime, *results, (size_t)(index - base - 1));
+                    *results = NULL;
                     lua_settop(state, base);
                     return say("out of memory");
                 }
                 break;
+            }
         }
     }
     *resultCount = (size_t)(top - base);

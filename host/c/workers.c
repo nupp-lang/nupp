@@ -1012,6 +1012,11 @@ static size_t buffer_attachments_read(lua_State *state,
                                          : first >= 1 && length >= 0);
         if (!valid) {
             size_t undo;
+            /* A moved allocation was handed over even when its entry is
+             * malformed, so an invalid range still frees it. */
+            if (kind == ATTACHMENT_MOVED && block != NULL) {
+                free(block);
+            }
             for (undo = 0; undo < position; undo++) {
                 if (out[undo].kind == ATTACHMENT_MOVED) {
                     free(out[undo].block);
