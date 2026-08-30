@@ -4,6 +4,7 @@ local hash = require("nupp.compiler.build.hash")
 local process = require("nupp.compiler.build.process")
 local store = require("nupp.compiler.build.store")
 local nativeStage = require("nupp.compiler.build.native")
+local buildPlatform = require("nupp.compiler.build.platform")
 local fs = require("nupp.compiler.fs")
 local compilerEnv = require("nupp.compiler.env")
 local json = require("testjson")
@@ -2298,6 +2299,28 @@ print(tiny.tiny_add(2, 3))
    assertEq(code, 0, text)
    assertEq(text:match("[^\r\n]+"), "5", "the executable resolves FFI from its own symbols")
    remove(dir)
+end
+
+function M.windowsStandaloneIntermediateHostHasAnExecutableSuffix()
+   local dir = tempProject({
+      ["nupp.lua"] = [[return {include = {"src"}, build = {kind = "binary",
+   stub = "nupp", standalone = true, outDir = "out", entries = {"main"}}}]],
+      ["src/main.nupp"] = "return 1\n",
+   })
+   local oldHostKey, oldLinkHost = buildPlatform.hostKey, nativeStage.linkHost
+   local linkedOutput
+   buildPlatform.hostKey = function() return "x86_64-pc-windows-msvc" end
+   nativeStage.linkHost = function(_, _, _, output)
+      linkedOutput = output
+      return nil, "stop after observing the intermediate host path"
+   end
+   local ok, status = pcall(project.build, dir)
+   buildPlatform.hostKey, nativeStage.linkHost = oldHostKey, oldLinkHost
+   remove(dir)
+   assert(ok, status)
+   assertEq(status, 1)
+   assert(linkedOutput and linkedOutput:match("standalone%-host%-binary%.exe$"),
+      "the Windows linker output has no executable suffix: " .. tostring(linkedOutput))
 end
 
 function M.standaloneBinaryLinksAotIntoItsOwnHost()

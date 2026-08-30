@@ -40877,6 +40877,7 @@ local tasks = require ( "nupp.compiler.build.tasks" )
 local deps = require ( "nupp.compiler.build.deps" )
 local modules = require ( "nupp.compiler.build.modules" )
 local packaging = require ( "nupp.compiler.build.package" )
+local buildPlatform = require ( "nupp.compiler.build.platform" )
 local storeMod = require ( "nupp.compiler.build.store" )
 local native = require ( "nupp.compiler.build.native" )
 local nativeFeatures = require ( "nupp.compiler.native" )
@@ -41535,7 +41536,9 @@ if aotLibrary ~= nil then
 addUnique ( archives , seenArchives , aotLibrary )
 end
 table . sort ( archives )
-local linkedHost = join ( root , join ( outDir , "cache/standalone-host-" .. name ) )
+local linkedPlatform = target . layoutTarget or buildPlatform . hostKey ( )
+local executableSuffix = linkedPlatform and buildPlatform . executableSuffix ( linkedPlatform ) or ""
+local linkedHost = join ( root , join ( outDir , "cache/standalone-host-" .. name .. executableSuffix ) )
 fs . mkdir ( dirname ( linkedHost ) )
 stubPath , hostErr = native . linkHost ( root , target , resolvedEffects , linkedHost , archives , flags )
 else
