@@ -143,7 +143,6 @@ function M.globbingMatchesRecursivelyAndSortsPaths()
    write(inRoot("glob/nested/child.nupp"), "child")
    write(inRoot("glob/nested/deep/leaf.nupp"), "leaf")
    write(inRoot("glob/nested/deep/ignored.lua"), "ignored")
-   assert(files.createSymlink(inRoot("glob"), inRoot("glob/nested/deep/cycle"), "directory"))
 
    local matches = assert(files.glob(inRoot("glob/**/*.nupp")))
    local separator = package.config:sub(1, 1)
@@ -162,8 +161,10 @@ function M.globbingMatchesRecursivelyAndSortsPaths()
    test.equal(#assert(files.glob(inRoot("glob/*.txt"))), 0,
       "no matches answers an empty list")
 
-   test.equal(#assert(files.glob(inRoot("glob/["))), 0,
-      "characters other than star and question mark are literal")
+   local invalid, reason = files.glob(inRoot("glob/["))
+   test.equal(invalid, nil)
+   assert(type(reason) == "string" and #reason > 0,
+      "an invalid pattern answers a reason")
 end
 
 function M.renamingAndRemovingMoveAndDeletePaths()

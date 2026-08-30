@@ -909,12 +909,17 @@ build_native_library() {
             curlDefine="-DCURL_STATICLIB"
         fi
     fi
+    # Only `gpu` reaches SDL, and only `gpu` may: it is the one feature that is
+    # about SDL, nothing selects it by default, and the flags below are a macOS
+    # framework, which is not a thing to ask of Linux or Windows. A core feature
+    # every build needs cannot be gated on it -- see `bench/sdl-gpu-spike`,
+    # which says outright that this is evidence rather than a supported backend.
     sdlInclude=""
     sdlLibraries=""
     case " $providerSources " in
-        *" c/glob.c "*|*" c/gpu.c "*)
+        *" c/gpu.c "*)
             [ -n "${NUPP_SDL_FRAMEWORK_ROOT:-}" ] \
-                || die "the SDL filesystem and GPU features need NUPP_SDL_FRAMEWORK_ROOT"
+                || die "the SDL GPU feature needs NUPP_SDL_FRAMEWORK_ROOT"
             sdlInclude="-F$NUPP_SDL_FRAMEWORK_ROOT"
             sdlLibraries="-F$NUPP_SDL_FRAMEWORK_ROOT -framework SDL3"
             sdlLibraries="$sdlLibraries -Wl,-rpath,$NUPP_SDL_FRAMEWORK_ROOT"

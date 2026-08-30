@@ -1,281 +1,464 @@
-/* Filesystem globbing through SDL.
+/* Filesystem globbing.
  *
- * SDL owns directory traversal and the ordinary `*`/`?` matcher. Nupp keeps
- * one extension that its own builds rely on: a `**` path component crosses
- * directory boundaries. For those patterns SDL enumerates the tree and this
- * file applies a small component matcher to the relative names it returns.
+ * A pattern is split on `/` into components and the tree is walked one component
+ * at a time, so `*` and `?` never cross a separator by accident: they are matched
+ * against one name, and a name has no separator in it. `**` is the exception and
+ * says so by being a whole component, which is also the only place it is
+ * allowed -- `a**b` reads as two wildcards with nothing between them, and
+ * refusing it is better than guessing which one was meant.
+ *
+ * Matches are sorted before they are answered, so one pattern gives one answer
+ * whatever order the platform walked the directories in.
  */
 
 #include "nupp_native.h"
 
-#include <SDL3/SDL.h>
+#include <uv.h>
 
 #include <stdlib.h>
 #include <string.h>
 
-#if defined(_WIN32)
-#include <windows.h>
-#else
-#include <sys/stat.h>
-#endif
+/* --- matching one name -------------------------------------------------- */
 
-static bool path_is_link(const char *path) {
-#if defined(_WIN32)
-    DWORD attributes;
-    int count = MultiByteToWideChar(CP_UTF8, MB_ERR_INVALID_CHARS, path, -1, NULL, 0);
-    wchar_t *wide;
-    if (count <= 0) {
-        return false;
+/* Advances past a bracket expression, answering where it ends or NULL when it
+ * never does. The first character may be `]`, which is then a literal, because
+ * an expression that started by closing itself would be empty. */
+static const char *class_end(const char *at, const char *stop) {
+    if (at == stop) {
+        return NULL;
     }
-    wide = malloc((size_t)count * sizeof *wide);
-    if (wide == NULL) {
-        return false;
+    if (*at == '!' || *at == '^') {
+        at++;
     }
-    if (MultiByteToWideChar(CP_UTF8, MB_ERR_INVALID_CHARS, path, -1, wide, count) <= 0) {
-        free(wide);
-        return false;
+    if (at != stop && *at == ']') {
+        at++;
     }
-    attributes = GetFileAttributesW(wide);
-    free(wide);
-    return attributes != INVALID_FILE_ATTRIBUTES
-        && (attributes & FILE_ATTRIBUTE_REPARSE_POINT) != 0;
-#else
-    struct stat info;
-    return lstat(path, &info) == 0 && S_ISLNK(info.st_mode);
-#endif
+    while (at != stop && *at != ']') {
+        at++;
+    }
+    return at != stop ? at : NULL;
 }
 
-/* SDL_GlobDirectory follows directory links during a recursive walk. Reject a
- * result as soon as one discovered path component is a link: this preserves a
- * literal symlink prefix while preventing cycles and duplicate aliases below
- * the wildcard root. */
-static bool has_linked_prefix(const char *base, const char *relative) {
-    size_t base_length = strlen(base);
-    size_t relative_length = strlen(relative);
-    char *joined = malloc(base_length + relative_length + 2);
-    char *component;
-    char *slash;
-    bool linked = false;
-    if (joined == NULL) {
-        return false;
+/* Whether one bracket expression accepts `candidate`. `at` points just past the
+ * `[` and `end` at the closing `]`. */
+static bool class_accepts(const char *at, const char *end, char candidate) {
+    bool negated = false;
+    bool found = false;
+    if (at != end && (*at == '!' || *at == '^')) {
+        negated = true;
+        at++;
     }
-    memcpy(joined, base, base_length);
-    joined[base_length] = '/';
-    memcpy(joined + base_length + 1, relative, relative_length + 1);
-    component = joined + base_length + 1;
-    while ((slash = strchr(component, '/')) != NULL) {
-        *slash = 0;
-        if (path_is_link(joined)) {
-            linked = true;
-            break;
+    while (at != end) {
+        char low = *at++;
+        if (at != end && at + 1 != end && *at == '-') {
+            char high = at[1];
+            at += 2;
+            if (candidate >= low && candidate <= high) {
+                found = true;
+            }
+            continue;
         }
-        *slash = '/';
-        component = slash + 1;
+        if (candidate == low) {
+            found = true;
+        }
     }
-    free(joined);
-    return linked;
+    return negated ? !found : found;
 }
 
-static bool matches_component(
-    const char *pattern, size_t pattern_length, const char *name, size_t name_length
-) {
-    size_t pattern_at = 0;
-    size_t name_at = 0;
-    size_t star_at = SIZE_MAX;
-    size_t star_name = 0;
+/* One pattern component against one directory entry name.
+ *
+ * The `*` case backtracks rather than recursing: a component is short, and a
+ * loop that remembers where the last star was matches in linear time where the
+ * obvious recursion is exponential on a name full of them.
+ */
+static bool matches_name(const char *pattern, size_t patternLength, const char *name) {
+    size_t patternAt = 0;
+    size_t nameAt = 0;
+    size_t nameLength = strlen(name);
+    size_t starAt = (size_t)-1;
+    size_t starName = 0;
 
-    while (name_at < name_length) {
-        if (pattern_at < pattern_length) {
-            char token = pattern[pattern_at];
+    while (nameAt < nameLength) {
+        if (patternAt < patternLength) {
+            char token = pattern[patternAt];
             if (token == '*') {
-                star_at = pattern_at++;
-                star_name = name_at;
+                starAt = patternAt++;
+                starName = nameAt;
                 continue;
             }
-            if (token == '?' || token == name[name_at]) {
-                pattern_at++;
-                name_at++;
+            if (token == '?') {
+                patternAt++;
+                nameAt++;
                 continue;
             }
-        }
-        if (star_at == SIZE_MAX) {
-            return false;
-        }
-        pattern_at = star_at + 1;
-        name_at = ++star_name;
-    }
-    while (pattern_at < pattern_length && pattern[pattern_at] == '*') {
-        pattern_at++;
-    }
-    return pattern_at == pattern_length;
-}
-
-static const char *separator(const char *text) {
-    return strchr(text, '/');
-}
-
-/* A whole `**` component consumes zero or more path components. Pattern and
- * path are relative names using SDL's `/` separator. */
-static bool matches_path(const char *pattern, const char *path) {
-    const char *pattern_slash = separator(pattern);
-    const char *path_slash = separator(path);
-    size_t pattern_length = pattern_slash != NULL
-        ? (size_t)(pattern_slash - pattern) : strlen(pattern);
-    size_t path_length = path_slash != NULL ? (size_t)(path_slash - path) : strlen(path);
-
-    if (pattern_length == 2 && pattern[0] == '*' && pattern[1] == '*') {
-        const char *rest = pattern_slash != NULL ? pattern_slash + 1 : NULL;
-        if (rest == NULL || matches_path(rest, path)) {
-            return true;
-        }
-        return path_slash != NULL && matches_path(pattern, path_slash + 1);
-    }
-    if (!matches_component(pattern, pattern_length, path, path_length)) {
-        return false;
-    }
-    if (pattern_slash == NULL || path_slash == NULL) {
-        return pattern_slash == NULL && path_slash == NULL;
-    }
-    return matches_path(pattern_slash + 1, path_slash + 1);
-}
-
-static bool check_pattern(const char *pattern, size_t length, bool *recursive) {
-    size_t component = 0;
-    size_t at;
-
-    *recursive = false;
-    if (length == 0) {
-        nupp_fail("the pattern names no path");
-        return false;
-    }
-    for (at = 0; at <= length; at++) {
-        if (at == length || pattern[at] == '/') {
-            size_t index;
-            size_t component_length = at - component;
-            for (index = component; index + 1 < at; index++) {
-                if (pattern[index] == '*' && pattern[index + 1] == '*') {
-                    if (component_length != 2) {
-                        nupp_fail("a recursive wildcard must be a whole path component");
+            if (token == '[') {
+                const char *end = class_end(pattern + patternAt + 1, pattern + patternLength);
+                if (end != NULL
+                    && class_accepts(pattern + patternAt + 1, end, name[nameAt])) {
+                    patternAt = (size_t)(end - pattern) + 1;
+                    nameAt++;
+                    continue;
+                }
+                if (end != NULL) {
+                    /* The class is well formed and rejected this character, so
+                     * the only way on is through an earlier star. */
+                    if (starAt == (size_t)-1) {
                         return false;
                     }
-                    *recursive = true;
-                    break;
+                    patternAt = starAt + 1;
+                    nameAt = ++starName;
+                    continue;
                 }
+            } else if (token == name[nameAt]) {
+                patternAt++;
+                nameAt++;
+                continue;
             }
-            component = at + 1;
+        }
+        if (starAt == (size_t)-1) {
+            return false;
+        }
+        patternAt = starAt + 1;
+        nameAt = ++starName;
+    }
+    while (patternAt < patternLength && pattern[patternAt] == '*') {
+        patternAt++;
+    }
+    return patternAt == patternLength;
+}
+
+static bool has_wildcard(const char *pattern, size_t length) {
+    size_t at;
+    for (at = 0; at < length; at++) {
+        if (pattern[at] == '*' || pattern[at] == '?' || pattern[at] == '[') {
+            return true;
         }
     }
-    return true;
+    return false;
 }
+
+/* --- the walk ----------------------------------------------------------- */
+
+typedef struct {
+    const char *pattern;
+    size_t *starts;
+    size_t *lengths;
+    size_t count;
+
+    char **matches;
+    size_t matchCount;
+    size_t matchCapacity;
+    bool failed;
+} Walk;
+
+static void collect(Walk *walk, const char *path, size_t length) {
+    char *copy;
+    if (walk->failed) {
+        return;
+    }
+    if (walk->matchCount == walk->matchCapacity) {
+        size_t next = walk->matchCapacity < 16 ? 16 : walk->matchCapacity * 2;
+        char **grown = realloc(walk->matches, next * sizeof *grown);
+        if (grown == NULL) {
+            walk->failed = true;
+            return;
+        }
+        walk->matches = grown;
+        walk->matchCapacity = next;
+    }
+    copy = malloc(length + 1);
+    if (copy == NULL) {
+        walk->failed = true;
+        return;
+    }
+    memcpy(copy, path, length);
+    copy[length] = '\0';
+    walk->matches[walk->matchCount++] = copy;
+}
+
+static void descend(Walk *walk, NuppBuffer *prefix, size_t component);
+
+/* Appends one name to the accumulated path, walks on, and takes it back off, so
+ * one buffer serves the whole traversal rather than one string per node. */
+static void with_child(
+    Walk *walk, NuppBuffer *prefix, const char *name, size_t nameLength, size_t component
+) {
+    size_t restore = prefix->length;
+    if (prefix->length != 0 && prefix->data[prefix->length - 1] != '/') {
+        nupp_buffer_push(prefix, '/');
+    }
+    nupp_buffer_append(prefix, name, nameLength);
+    if (prefix->failed) {
+        walk->failed = true;
+        return;
+    }
+    descend(walk, prefix, component);
+    prefix->length = restore;
+}
+
+/* Where a walk currently is, as a directory the platform will open. An empty
+ * prefix is the working directory, which the pattern did not name and the answer
+ * must not either. */
+static const char *opening(NuppBuffer *prefix) {
+    if (prefix->length == 0) {
+        return ".";
+    }
+    prefix->data[prefix->length] = 0;
+    return (const char *)prefix->data;
+}
+
+/* `**`: this directory, then every directory under it, each visited once. */
+static void recurse(Walk *walk, NuppBuffer *prefix, size_t component) {
+    uv_fs_t request;
+    uv_dirent_t entry;
+    descend(walk, prefix, component + 1);
+    if (walk->failed) {
+        return;
+    }
+    uv_fs_scandir(NULL, &request, opening(prefix), 0, NULL);
+    if (request.result < 0) {
+        /* A directory that cannot be listed is not a match and not a failure:
+         * the pattern asked what is under it, and the answer is nothing this
+         * process can see. */
+        uv_fs_req_cleanup(&request);
+        return;
+    }
+    while (uv_fs_scandir_next(&request, &entry) != UV_EOF) {
+        const char *name = entry.name;
+        if (entry.type != UV_DIRENT_DIR) {
+            continue;
+        }
+        {
+            size_t restore = prefix->length;
+            if (prefix->length != 0 && prefix->data[prefix->length - 1] != '/') {
+                nupp_buffer_push(prefix, '/');
+            }
+            nupp_buffer_append(prefix, name, strlen(name));
+            if (prefix->failed) {
+                walk->failed = true;
+                break;
+            }
+            recurse(walk, prefix, component);
+            prefix->length = restore;
+        }
+        if (walk->failed) {
+            break;
+        }
+    }
+    uv_fs_req_cleanup(&request);
+}
+
+static void descend(Walk *walk, NuppBuffer *prefix, size_t component) {
+    const char *text;
+    size_t length;
+
+    if (walk->failed) {
+        return;
+    }
+    if (component == walk->count) {
+        uv_fs_t request;
+        /* The path is a match only if it is there. `**` and a literal component
+         * both propose names without having looked. */
+        if (prefix->length != 0) {
+            uv_fs_lstat(NULL, &request, opening(prefix), NULL);
+            if (request.result >= 0) {
+                collect(walk, (const char *)prefix->data, prefix->length);
+            }
+            uv_fs_req_cleanup(&request);
+        }
+        return;
+    }
+
+    text = walk->pattern + walk->starts[component];
+    length = walk->lengths[component];
+
+    if (length == 2 && text[0] == '*' && text[1] == '*') {
+        recurse(walk, prefix, component);
+        return;
+    }
+    if (!has_wildcard(text, length)) {
+        with_child(walk, prefix, text, length, component + 1);
+        return;
+    }
+    {
+        uv_fs_t request;
+        uv_dirent_t entry;
+        uv_fs_scandir(NULL, &request, opening(prefix), 0, NULL);
+        if (request.result < 0) {
+            uv_fs_req_cleanup(&request);
+            return;
+        }
+        while (uv_fs_scandir_next(&request, &entry) != UV_EOF) {
+            if (!matches_name(text, length, entry.name)) {
+                continue;
+            }
+            with_child(walk, prefix, entry.name, strlen(entry.name), component + 1);
+            if (walk->failed) {
+                break;
+            }
+        }
+        uv_fs_req_cleanup(&request);
+    }
+}
+
+/* --- entry -------------------------------------------------------------- */
 
 static int compare_matches(const void *left, const void *right) {
     return strcmp(*(const char *const *)left, *(const char *const *)right);
 }
 
-static NuppBytes *empty_answer(void) {
-    return nupp_bytes_copy(NULL, 0);
+/* Splits the pattern and rejects the shapes that have no meaning, before a
+ * single directory is opened. A malformed pattern is a failed query rather than
+ * an empty answer: nothing matched is a fact about the tree, and this is a fact
+ * about the pattern. */
+static bool remember(Walk *walk, size_t *capacity, size_t start, size_t length) {
+    if (walk->count == *capacity) {
+        size_t next = *capacity * 2;
+        size_t *starts = realloc(walk->starts, next * sizeof *starts);
+        size_t *lengths;
+        if (starts == NULL) {
+            nupp_fail("out of memory");
+            return false;
+        }
+        walk->starts = starts;
+        lengths = realloc(walk->lengths, next * sizeof *lengths);
+        if (lengths == NULL) {
+            nupp_fail("out of memory");
+            return false;
+        }
+        walk->lengths = lengths;
+        *capacity = next;
+    }
+    walk->starts[walk->count] = start;
+    walk->lengths[walk->count] = length;
+    walk->count++;
+    return true;
+}
+
+/* Every bracket expression closes, and a recursive wildcard is the whole
+ * component. `a**b` reads as two wildcards with nothing between them, which is
+ * why it is refused rather than guessed at. */
+static bool check_component(const char *pattern, size_t start, size_t length) {
+    const char *at = pattern + start;
+    const char *stop = at + length;
+    while (at != stop) {
+        if (*at == '[') {
+            const char *end = class_end(at + 1, stop);
+            if (end == NULL) {
+                nupp_fail("the pattern has an unclosed [");
+                return false;
+            }
+            at = end + 1;
+            continue;
+        }
+        if (*at == '*' && at + 1 != stop && at[1] == '*' && length != 2) {
+            nupp_fail("a recursive wildcard must be a whole path component");
+            return false;
+        }
+        at++;
+    }
+    return true;
+}
+
+static bool split(Walk *walk, const char *pattern, size_t length) {
+    size_t capacity = 8;
+    size_t at = 0;
+    walk->pattern = pattern;
+    walk->count = 0;
+    walk->starts = malloc(capacity * sizeof *walk->starts);
+    walk->lengths = malloc(capacity * sizeof *walk->lengths);
+    if (walk->starts == NULL || walk->lengths == NULL) {
+        nupp_fail("out of memory");
+        return false;
+    }
+    /* A leading separator is the root, kept as an empty component because
+     * dropping it would move the walk to wherever the process happens to be. */
+    if (length != 0 && pattern[0] == '/') {
+        if (!remember(walk, &capacity, 0, 0)) {
+            return false;
+        }
+        at = 1;
+    }
+    while (at < length) {
+        size_t start = at;
+        while (at < length && pattern[at] != '/') {
+            at++;
+        }
+        /* A repeated or trailing separator describes the path without it. */
+        if (at != start) {
+            if (!check_component(pattern, start, at - start)
+                || !remember(walk, &capacity, start, at - start)) {
+                return false;
+            }
+        }
+        if (at != length) {
+            at++;
+        }
+    }
+    if (walk->count == 0) {
+        nupp_fail("the pattern names no path");
+        return false;
+    }
+    return true;
 }
 
 /* Expands a filesystem glob into a NUL-separated, sorted list of paths. */
 NUPP_EXPORT NuppBytes *nuppFilesGlob(const uint8_t *data, size_t length) {
-    NuppText text;
-    SDL_PathInfo info;
+    NuppText pattern;
+    Walk walk;
+    NuppBuffer prefix;
     NuppBuffer out;
-    char **matches = NULL;
-    char *base = NULL;
-    const char *relative;
-    const char *wildcard;
-    const char *slash;
-    size_t prefix_length;
-    int count = 0;
-    int at;
-    bool recursive;
     NuppBytes *answer = NULL;
+    size_t at;
 
-    if (!nupp_text(&text, data, length, "glob pattern")) {
-        return NULL;
-    }
-    if (!check_pattern(text.value, text.length, &recursive)) {
-        nupp_text_free(&text);
+    if (!nupp_text(&pattern, data, length, "glob pattern")) {
         return NULL;
     }
 
-    wildcard = strpbrk(text.value, "*?");
-    if (wildcard == NULL) {
-        answer = SDL_GetPathInfo(text.value, &info)
-            ? nupp_bytes_copy((const uint8_t *)text.value, text.length)
-            : empty_answer();
-        nupp_text_free(&text);
-        return answer;
+    memset(&walk, 0, sizeof walk);
+    if (!split(&walk, pattern.value, pattern.length)) {
+        free(walk.starts);
+        free(walk.lengths);
+        nupp_text_free(&pattern);
+        return NULL;
     }
 
-    slash = wildcard;
-    while (slash != text.value && slash[-1] != '/') {
-        slash--;
-    }
-    if (slash == text.value) {
-        base = SDL_strdup(".");
-        relative = text.value;
-        prefix_length = 0;
-    } else if (slash == text.value + 1 && text.value[0] == '/') {
-        base = SDL_strdup("/");
-        relative = slash;
-        prefix_length = 1;
+    nupp_buffer_init(&prefix);
+    /* A leading empty component is the root: the walk starts at `/` and the
+     * component itself contributes nothing more. */
+    if (walk.count > 0 && walk.lengths[0] == 0) {
+        nupp_buffer_push(&prefix, '/');
+        descend(&walk, &prefix, 1);
     } else {
-        prefix_length = (size_t)(slash - text.value - 1);
-        base = SDL_strndup(text.value, prefix_length);
-        relative = slash;
+        descend(&walk, &prefix, 0);
     }
-    if (base == NULL) {
-        nupp_fail("out of memory");
-        goto done;
-    }
+    nupp_buffer_free(&prefix);
 
-    /* A missing literal prefix is an empty match, as it was in the old walk. */
-    if (!SDL_GetPathInfo(base, &info) || info.type != SDL_PATHTYPE_DIRECTORY) {
-        answer = empty_answer();
-        goto done;
-    }
-    matches = SDL_GlobDirectory(base, recursive ? NULL : relative, 0, &count);
-    if (matches == NULL) {
-        nupp_fail_format("glob: %s", SDL_GetError());
-        goto done;
-    }
-
-    if (recursive) {
-        int kept = 0;
-        for (at = 0; at < count; at++) {
-            if (!has_linked_prefix(base, matches[at]) && matches_path(relative, matches[at])) {
-                matches[kept++] = matches[at];
+    if (!walk.failed) {
+        qsort(walk.matches, walk.matchCount, sizeof *walk.matches, compare_matches);
+        nupp_buffer_init(&out);
+        for (at = 0; at < walk.matchCount; at++) {
+            if (at != 0) {
+                nupp_buffer_push(&out, 0);
             }
+            nupp_buffer_append(&out, walk.matches[at], strlen(walk.matches[at]));
         }
-        count = kept;
-    }
-    qsort(matches, (size_t)count, sizeof *matches, compare_matches);
-
-    nupp_buffer_init(&out);
-    for (at = 0; at < count; at++) {
-        if (at != 0) {
-            nupp_buffer_push(&out, 0);
+        if (out.failed) {
+            nupp_buffer_free(&out);
+            nupp_fail("out of memory");
+        } else {
+            answer = nupp_buffer_finish(&out);
         }
-        if (prefix_length != 0) {
-            nupp_buffer_append(&out, text.value, prefix_length);
-            if (text.value[prefix_length - 1] != '/') {
-                nupp_buffer_push(&out, '/');
-            }
-        }
-        nupp_buffer_append(&out, matches[at], strlen(matches[at]));
-    }
-    if (out.failed) {
-        nupp_buffer_free(&out);
-        nupp_fail("out of memory");
     } else {
-        answer = nupp_buffer_finish(&out);
+        nupp_fail("out of memory");
     }
 
-done:
-    SDL_free(matches);
-    SDL_free(base);
-    nupp_text_free(&text);
+    for (at = 0; at < walk.matchCount; at++) {
+        free(walk.matches[at]);
+    }
+    free(walk.matches);
+    free(walk.starts);
+    free(walk.lengths);
+    nupp_text_free(&pattern);
     return answer;
 }
