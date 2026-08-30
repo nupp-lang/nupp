@@ -23,6 +23,10 @@ local hotSession = {}
 local Session = {}
 Session.__index = Session
 
+----------------------------------------------------------------------------
+-- What a reload decides
+----------------------------------------------------------------------------
+
 --- Why a well-typed change still cannot reach the running process.
 ---
 --- The kind names the boundary that refused it and the rest identifies what crossed
@@ -142,6 +146,10 @@ record hotSession.Session
     persist: function(self: hotSession.Session): nil
 end
 
+----------------------------------------------------------------------------
+-- Manifests
+----------------------------------------------------------------------------
+
 local function fatalIn(values)
     for _, value in ipairs(values or {}) do
         if diagnostics.isFatal(value) then
@@ -247,6 +255,10 @@ local function exportDeprecationsFingerprint(exports)
 
     return table.concat(items, "\0")
 end
+
+----------------------------------------------------------------------------
+-- Fingerprints
+----------------------------------------------------------------------------
 
 --- C declarations are runtime ABI, including layout, symbol spelling and library.
 --- Fingerprint their token stream rather than the whole file so an ordinary body edit
@@ -392,6 +404,10 @@ local function carryCMetadata(previous, candidate)
         end
     end
 end
+
+----------------------------------------------------------------------------
+-- What a change means for a consumer
+----------------------------------------------------------------------------
 
 local function cDeclarationChange(old, current)
     local oldDeclarations = old.cDeclarations or {}
@@ -562,6 +578,10 @@ local function dependencyChangeMessage(change, consumer, consumerPath)
     return subject .. " changed (" .. required .. ")"
 end
 
+----------------------------------------------------------------------------
+-- Opening a session
+----------------------------------------------------------------------------
+
 function hotSession.new(root: string?, opts: table?): hotSession.Session
     -- `Session` is a plain table of methods used as a metatable, so the claim that
     -- this is a session is made here, once, where the fields below fill it in.
@@ -636,6 +656,10 @@ local function addInput(snapshot, input, module)
     local identity = input.identity .. "\0consumer=" .. module .. "\0" .. tostring(input.consumer or "")
     snapshot.inputs[identity] = input
 end
+
+----------------------------------------------------------------------------
+-- Compiling one file
+----------------------------------------------------------------------------
 
 function Session:diskChanged(path, changeType)
     self.inc.diskChanged(path, changeType)
@@ -868,6 +892,10 @@ function Session:watchedInputs()
 
     return out
 end
+
+----------------------------------------------------------------------------
+-- Preparing a generation
+----------------------------------------------------------------------------
 
 function Session:prepare(paths)
     self.observedInputs = {}

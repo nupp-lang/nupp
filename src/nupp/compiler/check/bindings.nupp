@@ -46,6 +46,10 @@ function bindings.install(c: state.Checker): state.StatHandlers
 
     local handlers = {}
 
+    ---------------------------------------------------------------------
+    -- Local declarations
+    ---------------------------------------------------------------------
+
     handlers.localStmt = function(stat: cst.LocalStmt)
         if stat.pattern then
             local source = stat.patternSource or stat
@@ -686,6 +690,10 @@ function bindings.install(c: state.Checker): state.StatHandlers
         end
     end
 
+    ---------------------------------------------------------------------
+    -- Assignment
+    ---------------------------------------------------------------------
+
     handlers.assignStmt = function(stat: cst.AssignStmt)
         local values = stat.exprs or {}
         local valueCount = #values
@@ -972,6 +980,10 @@ function bindings.install(c: state.Checker): state.StatHandlers
         end
     end
 
+    ---------------------------------------------------------------------
+    -- Compound assignment
+    ---------------------------------------------------------------------
+
     handlers.compoundAssign = function(stat: cst.CompoundAssign)
         local assignTarget, value, opTok = stat.target, stat.value, stat.op
         if not assignTarget or not value or not opTok then
@@ -1063,6 +1075,10 @@ function bindings.install(c: state.Checker): state.StatHandlers
             end
         end
     end
+
+    ---------------------------------------------------------------------
+    -- Call statements
+    ---------------------------------------------------------------------
 
     handlers.callStmt = function(stat: cst.CallStmt)
         local called = stat.expr

@@ -24,6 +24,10 @@ local rawType = T.unwrapOwnership
 --- A type, as nupp.compiler.types builds them.
 local type Type = T.Type
 
+----------------------------------------------------------------------------
+-- What the checker asks about ownership
+----------------------------------------------------------------------------
+
 --- The affine bookkeeping, as the walk and the other passes call it. Half of these are
 --- promoted onto the run as well, because every statement family asks them; the rest
 --- are reached through `c.own` by the families that need provenance or cleanups.
@@ -113,6 +117,10 @@ function ownership.install(c: state.Checker): ownership.Ops
     local own = {}
     local pendingGenericCleanupBounds = {}
     local emptyCapabilityFacts = new T.CapabilityFacts()
+
+    ---------------------------------------------------------------------
+    -- Capabilities
+    ---------------------------------------------------------------------
 
     function own.capabilityFacts(entry, result, create)
         entry = own.ownershipState(entry)
@@ -205,6 +213,10 @@ function ownership.install(c: state.Checker): ownership.Ops
 
         return resource
     end
+
+    ---------------------------------------------------------------------
+    -- Cleanups
+    ---------------------------------------------------------------------
 
     local function addRegistration(node, cleanup, after)
         if not node or cleanup.kind ~= "function" then
@@ -529,6 +541,11 @@ function ownership.install(c: state.Checker): ownership.Ops
     -- One fix builder serves function statements and callable fields. What resolved
     -- decides whether the rewrite is sound; the annotation's written arguments decide
     -- its spelling, so a bare contract keeps following the type's unique default.
+
+    ---------------------------------------------------------------------
+    -- Regions and conflicts
+    ---------------------------------------------------------------------
+
     function own.ownershipEntry(expr)
         while expr and (expr.kind == "paren" or expr.kind == "castExpr") do
             expr = expr.expr
@@ -701,6 +718,10 @@ function ownership.install(c: state.Checker): ownership.Ops
         return owner, owner and "" or nil
     end
 
+    ---------------------------------------------------------------------
+    -- Provenance
+    ---------------------------------------------------------------------
+
     function own.provenanceOwner(expr)
         -- `new` wraps the construction it decides, and provenance is about where a
         -- value came from rather than how it was written, so it reads through the word
@@ -860,6 +881,10 @@ function ownership.install(c: state.Checker): ownership.Ops
         facts.regionRoot = nil
         facts.regionPath = nil
     end
+
+    ---------------------------------------------------------------------
+    -- Moving a value
+    ---------------------------------------------------------------------
 
     function own.moveExpression(expr, t, reason, expectedKind, allowPartial)
         expectedKind = expectedKind or "affine"

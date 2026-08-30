@@ -29,6 +29,10 @@ local backends = require("nupp.compiler.backends")
 local incremental = {}
 local hostServices = require("nupp.compiler.hostservices")
 
+----------------------------------------------------------------------------
+-- What the index holds
+----------------------------------------------------------------------------
+
 --- One exported declaration, as a project header records it. Headers are compared field
 --- by field to decide whether a reparse changed anything a dependent could see.
 type incremental.Decl = {
@@ -203,6 +207,10 @@ function incremental.new(rootDir: string, opts: table?): incremental.Inc
     local inc = new incremental.Inc(env = env, q = q)
     local activeModules = {}
 
+    ---------------------------------------------------------------------
+    -- Project files and checkpoints
+    ---------------------------------------------------------------------
+
     local function interfaceType(exports)
         local fields = {}
         for name, t in pairs(exports and exports.values or {}) do
@@ -308,6 +316,11 @@ function incremental.new(rootDir: string, opts: table?): incremental.Inc
 
     --- Whether two headers say the same thing, which is what decides that a reparse
     --- changed nothing a dependent could see.
+
+    ---------------------------------------------------------------------
+    -- Deciding what changed
+    ---------------------------------------------------------------------
+
     local function sameHeader(a: incremental.Header?, b: incremental.Header?): boolean
         if not a or not b then
             return false
@@ -457,6 +470,11 @@ function incremental.new(rootDir: string, opts: table?): incremental.Inc
 
     -- Environment lookup helpers call this function, including from inside a check
     -- query. q:get records the project-index dependency in that case.
+
+    ---------------------------------------------------------------------
+    -- Module resolution
+    ---------------------------------------------------------------------
+
     env.ensureProjectIndex = function()
         return q:get("projectIndex", "root")
     end
@@ -719,6 +737,10 @@ function incremental.new(rootDir: string, opts: table?): incremental.Inc
         end
     )
 
+    ---------------------------------------------------------------------
+    -- Comparing exports
+    ---------------------------------------------------------------------
+
     local function sameTypeMap(left, right)
         left, right = left or {}, right or {}
         for name, value in pairs(left) do
@@ -840,6 +862,11 @@ function incremental.new(rootDir: string, opts: table?): incremental.Inc
     end)
 
     -- Editor overlay management.
+
+    ---------------------------------------------------------------------
+    -- The document surface
+    ---------------------------------------------------------------------
+
     function inc.openDocument(path: string, text: string)
         local wasOpen = openPaths[path]
         if envMod.moduleNameForPath(env, path) then
@@ -952,6 +979,10 @@ function incremental.new(rootDir: string, opts: table?): incremental.Inc
         moduleCallGuarantees = true,
         moduleCallGuarantee = true,
     }
+
+    ---------------------------------------------------------------------
+    -- Dependency fingerprints
+    ---------------------------------------------------------------------
 
     local function projectFingerprint(name, key)
         local value = q:get(name, key)
