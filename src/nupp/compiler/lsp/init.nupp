@@ -57,6 +57,10 @@ local semanticTypes = semantic.semanticTypes
 local signatureAt = complete.signatureAt
 local uriToPath = text.uriToPath
 
+----------------------------------------------------------------------------
+-- What a session is
+----------------------------------------------------------------------------
+
 type lsp.Session = {
     dispatch: function(any),
     running: function(): boolean
@@ -93,6 +97,10 @@ type lsp.Host = {
 
 -- The codec and its array marker are configured once, on the wire.
 local json = wire.json
+
+----------------------------------------------------------------------------
+-- Opening a session
+----------------------------------------------------------------------------
 
 --- Creates one language-server session whose outgoing protocol messages are handed to
 --- `emit`. The stdio server and the command-line language operations share this session
@@ -131,6 +139,10 @@ function lsp.newSession(rootDir: string?, emit: function(any), host: lsp.Host?):
     -- graph rebuilt after an edit does not go back to the network, and a fetch that
     -- failed is reported once rather than retried on every keystroke.
     local resolvedDeps: {[string]: boolean} = {}
+
+    ---------------------------------------------------------------------
+    -- Projects and roots
+    ---------------------------------------------------------------------
 
     --- Resolves the pinned type-only dependencies of one project.
     ---
@@ -376,6 +388,10 @@ function lsp.newSession(rootDir: string?, emit: function(any), host: lsp.Host?):
         return arrived ~= nil and arrived > answering.version
     end
 
+    ---------------------------------------------------------------------
+    -- Responding
+    ---------------------------------------------------------------------
+
     local function respond(id, result)
         if host and host.isCancelled(id) then
             host.clearCancelled(id)
@@ -461,6 +477,10 @@ function lsp.newSession(rootDir: string?, emit: function(any), host: lsp.Host?):
     -- the file as it currently reads, and confirms the token is still where it was
     -- recorded instead of trusting an offset that may now point into the middle of
     -- something else.
+
+    ---------------------------------------------------------------------
+    -- Request handlers
+    ---------------------------------------------------------------------
 
     local handlers = {}
 
@@ -1573,6 +1593,10 @@ function lsp.newSession(rootDir: string?, emit: function(any), host: lsp.Host?):
         running = false
     end
 
+    ---------------------------------------------------------------------
+    -- Dispatch
+    ---------------------------------------------------------------------
+
     --- Which document a message is about, if any. Every request that names one names it
     --- the same way, so routing it to the folder that owns it and remembering the
     --- version it is being answered from are both decided here rather than in each of
@@ -1630,6 +1654,10 @@ function lsp.newSession(rootDir: string?, emit: function(any), host: lsp.Host?):
         end,
     }
 end
+
+----------------------------------------------------------------------------
+-- Running the server
+----------------------------------------------------------------------------
 
 --- Blocking input half of the stdio transport. The server starts this as a child so
 --- its own process can poll complete frames while a comptime worker is in flight.

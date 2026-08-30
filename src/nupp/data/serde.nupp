@@ -35,6 +35,11 @@ local value = binding:bind{id = 41, name = "Ada"}
 ]==]
 
 local extensions = require("nupp.compiler.runtime.extensions")
+
+----------------------------------------------------------------------------
+-- The logical vocabulary
+----------------------------------------------------------------------------
+
 -- Debug and future non-JSON schema consumers must not load the JSON runtime.
 export type Kind = "unit"
     | "null"
@@ -231,6 +236,10 @@ export function map(key: Schema, value: Schema): Schema
     return makeSchema("map", nil, nil, {key = key, value = value})
 end
 
+----------------------------------------------------------------------------
+-- Building a schema
+----------------------------------------------------------------------------
+
 local function builderMutable(self: any): any
     if self.state == nil then
         self.state = {kind = nil, name = nil, members = {}, metadata = {}, frozen = false}
@@ -372,6 +381,10 @@ end
 local bindingStates: any = setmetatable({}, {__mode = "k"})
 local defaultSchemaBindings: any = setmetatable({}, {__mode = "k"})
 local validateValue: function(value: any, schema: Schema, path: string): nil
+
+----------------------------------------------------------------------------
+-- Bindings
+----------------------------------------------------------------------------
 
 local record BindingImpl<T> is Binding<T>
     private readonly token: any
@@ -595,6 +608,10 @@ validateValue = function(value: any, schema: Schema, path: string): nil
     end
 end
 
+----------------------------------------------------------------------------
+-- Deriving a binding from a type
+----------------------------------------------------------------------------
+
 local function schemaForSpec(spec: any): Schema
     local kind = spec.kind
     if kind == "nil" then
@@ -756,6 +773,10 @@ export sealed interface PreparedDebug<T>
     format: function(self, value: T): string
     write: function(self, value: T, exclusive out: string.buffer.Buffer): nil
 end
+
+----------------------------------------------------------------------------
+-- Debug rendering
+----------------------------------------------------------------------------
 
 local type DebugWrite = function(value: any, exclusive out: string.buffer.Buffer, state: any): nil
 local type DebugPlan = {write: DebugWrite}
@@ -1066,6 +1087,10 @@ export function debugEntry(value: any, entry: any): string
 
     return (entry.debugPrepared as PreparedDebug<any>):format(value)
 end
+
+----------------------------------------------------------------------------
+-- JSON
+----------------------------------------------------------------------------
 
 --- Immutable JSON wire-policy identity.
 --- @export
