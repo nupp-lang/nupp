@@ -1254,8 +1254,10 @@ function spirv.deriveMsl(binary: string): string
     legalize("spvFMul", "fma(l, r, T(0))", "l * r")
     legalize("spvFAdd", "fma(T(1), l, r)", "l + r")
     legalize("spvFSub", "fma(T(-1), r, l)", "l - r")
-    assert(metal:find("[[clang::optnone]] T", 1, true) == nil,
-        "SPIRV-Cross emitted an unlegalized scalar optnone helper")
+    assert(
+        metal:find("[[clang::optnone]] T", 1, true) == nil,
+        "SPIRV-Cross emitted an unlegalized scalar optnone helper"
+    )
 
     return metal
 end

@@ -26285,8 +26285,10 @@ end
 legalize ( "spvFMul" , "fma(l, r, T(0))" , "l * r" )
 legalize ( "spvFAdd" , "fma(T(1), l, r)" , "l + r" )
 legalize ( "spvFSub" , "fma(T(-1), r, l)" , "l - r" )
-assert ( metal : find ( "[[clang::optnone]] T" , 1 , true ) == nil ,
-"SPIRV-Cross emitted an unlegalized scalar optnone helper" )
+assert (
+metal : find ( "[[clang::optnone]] T" , 1 , true ) == nil ,
+"SPIRV-Cross emitted an unlegalized scalar optnone helper"
+)
 
 return metal
 end
@@ -179214,6 +179216,9 @@ end
 
 
 
+
+
+
 const WriteSpanImpl = {} WriteSpanImpl.__index = WriteSpanImpl
 
 
@@ -179493,6 +179498,13 @@ const __nuppExportValue= soa ;__nuppExports=__nuppExportValue
 end
 package.preload["nupp.mem.span"] = function(...)
 _G.assert(_G.loadstring("local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppMath=rawget(__nupp,\"math\")or{};rawset(__nupp,\"math\",__nuppMath) local function __nuppCloseFile(handle)if io.type(handle)==\"closed file\"then return end;local ok,reason=handle:close();if not ok then error(reason or \"the file could not be closed\",0)end end local __nuppManagedBrand=_G.__nuppManagedBrand if not __nuppManagedBrand then __nuppManagedBrand={};_G.__nuppManagedBrand=__nuppManagedBrand end local __nuppManagedCells=_G.__nuppManagedCells if not __nuppManagedCells then __nuppManagedCells=setmetatable({},{__mode=\"k\"});_G.__nuppManagedCells=__nuppManagedCells end local __nuppManagedOwner={};__nuppManagedOwner.__index=__nuppManagedOwner;local __nuppManagedAlias={};__nuppManagedAlias.__index=__nuppManagedAlias local function __nuppManagedError(code,message)return{code=code,message=message}end local function __nuppManagedProblem(cell) if type(cell)~=\"table\"or cell._brand~=__nuppManagedBrand then return __nuppManagedError(\"NUPP2614\",\"value is not a managed alias\")end if cell._state==\"taken\"then return __nuppManagedError(\"NUPP2614\",\"managed ownership was already taken\")end if cell._state==\"closed\"or cell._state==\"closing\"then return __nuppManagedError(\"NUPP2614\",\"managed resource is closed\")end return nil end local function __nuppManagedClose(cell,checked) local problem=__nuppManagedProblem(cell);if problem then if checked then return problem end;return nil end if cell._borrows~=0 or cell._exclusive then local busy=__nuppManagedError(\"NUPP2620\",\"managed resource has an active borrow\");if checked then return busy end;error(busy.message,0)end cell._state=\"closing\";local value,cleanup=cell._value,cell._cleanup;cell._value=nil;cell._cleanup=nil local ok,reason=pcall(cleanup,value);cell._state=\"closed\";if not ok then error(reason,0)end;return nil end function __nuppManagedOwner:alias()return setmetatable({_cell=self,_brand=__nuppManagedBrand},__nuppManagedAlias)end function __nuppManagedOwner:close()return __nuppManagedClose(self,false)end local function __nuppAliasCell(self) if type(self)~=\"table\"or self._brand~=__nuppManagedBrand or getmetatable(self)~=__nuppManagedAlias then return nil,__nuppManagedError(\"NUPP2614\",\"value is not a managed alias\")end local cell=self._cell;local problem=__nuppManagedProblem(cell);if problem then return nil,problem end;return cell,nil end function __nuppManagedAlias:with(callback) local cell,problem=__nuppAliasCell(self);if not cell then return nil,problem end if cell._exclusive then return nil,__nuppManagedError(\"NUPP2620\",\"managed resource is exclusively borrowed\")end cell._borrows=cell._borrows+1;cell._state=\"shared-borrowed(\"..cell._borrows..\")\" local ok,result=pcall(callback,cell._value);cell._borrows=cell._borrows-1;cell._state=cell._borrows>0 and(\"shared-borrowed(\"..cell._borrows..\")\")or\"live\" if not ok then error(result,0)end;return result,nil end function __nuppManagedAlias:withExclusive(callback) local cell,problem=__nuppAliasCell(self);if not cell then return nil,problem end if cell._exclusive or cell._borrows~=0 then return nil,__nuppManagedError(\"NUPP2620\",\"managed resource is already borrowed\")end cell._exclusive=true;cell._state=\"exclusive-borrowed\";local ok,result=pcall(callback,cell._value);cell._exclusive=false;cell._state=\"live\" if not ok then error(result,0)end;return result,nil end function __nuppManagedAlias:take() local cell,problem=__nuppAliasCell(self);if not cell then return nil,problem end if cell._exclusive or cell._borrows~=0 then return nil,__nuppManagedError(\"NUPP2620\",\"managed resource has an active borrow\")end cell._state=\"taken\";local value=cell._value;cell._value=nil;cell._cleanup=nil;return value,nil end function __nuppManagedAlias:close() local cell,problem=__nuppAliasCell(self);if not cell then return problem end;return __nuppManagedClose(cell,true)end function __nuppManagedAlias:_downcast(policy) local cell,problem=__nuppAliasCell(self);if not cell then return nil,problem end if cell._policy~=policy then return nil,__nuppManagedError(\"NUPP2613\",\"managed alias has the wrong type or cleanup policy\")end return self,nil end function __nupp.__manage(value,cleanup,policy) local cell=setmetatable({_brand=__nuppManagedBrand,_value=value,_cleanup=cleanup,_policy=policy,_state=\"live\",_borrows=0,_exclusive=false},__nuppManagedOwner);__nuppManagedCells[cell]=true;return cell end function __nupp.__recoverAlias(value) if type(value)~=\"table\"or value._brand~=__nuppManagedBrand or getmetatable(value)~=__nuppManagedAlias then return nil,__nuppManagedError(\"NUPP2614\",\"value is not a managed alias\")end local cell,problem=__nuppAliasCell(value);if not cell then return nil,problem end;return value,nil end _G.__nuppManagedPolicyCount=function(policy)local count=0;for cell in pairs(__nuppManagedCells)do if cell._policy==policy and(cell._state==\"live\"or cell._state:match(\"borrowed\"))then count=count+1 end end;return count end local __nuppManagedGroup={};__nuppManagedGroup.__index=__nuppManagedGroup function __nuppManagedGroup:flush()end function __nuppManagedGroup:adopt(cell) if self._closed then error(\"managed group is closed\",2)end local handle=cell:alias();self._entries[#self._entries+1]=handle return handle end function __nuppManagedGroup:remove(handle) if self._closed then error(\"managed group is closed\",2)end for index=#self._entries,1,-1 do if self._entries[index]==handle then table.remove(self._entries,index);local value,problem=handle:take();if problem then error(problem.message,2)end;return value end end error(\"managed alias is not registered in this group\",2) end local function __nuppManagedCloseEntry(entry)local problem=entry:close();if problem and problem.code~=\"NUPP2614\"then error(problem.message,0)end end function __nuppManagedGroup:close() if self._closed then return end;self._closed=true;local first,suppressed=nil,0 for index=#self._entries,1,-1 do local ok,reason=pcall(__nuppManagedCloseEntry,self._entries[index]);if not ok then if first==nil then first=reason else suppressed=suppressed+1 end end end self._entries={};if first~=nil then if suppressed>0 then error(tostring(first)..\" (suppressed \"..tostring(suppressed)..\" cleanup failure(s))\",0)end;error(first,0)end end function __nupp.managedGroup()return setmetatable({_entries={},_closed=false},__nuppManagedGroup)end;\n","@nupp-prelude"))();const __nuppFfi = require("ffi"); local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppMath=rawget(__nupp,"math")or{};rawset(__nupp,"math",__nuppMath) local function __nuppCloseFile(handle)if io.type(handle)=="closed file"then return end;local ok,reason=handle:close();if not ok then error(reason or "the file could not be closed",0)end end local __nuppManagedBrand=_G.__nuppManagedBrand if not __nuppManagedBrand then __nuppManagedBrand={};_G.__nuppManagedBrand=__nuppManagedBrand end local __nuppManagedCells=_G.__nuppManagedCells if not __nuppManagedCells then __nuppManagedCells=setmetatable({},{__mode="k"});_G.__nuppManagedCells=__nuppManagedCells end local __nuppManagedOwner={};__nuppManagedOwner.__index=__nuppManagedOwner;local __nuppManagedAlias={};__nuppManagedAlias.__index=__nuppManagedAlias local function __nuppManagedError(code,message)return{code=code,message=message}end local function __nuppManagedProblem(cell) if type(cell)~="table"or cell._brand~=__nuppManagedBrand then return __nuppManagedError("NUPP2614","value is not a managed alias")end if cell._state=="taken"then return __nuppManagedError("NUPP2614","managed ownership was already taken")end if cell._state=="closed"or cell._state=="closing"then return __nuppManagedError("NUPP2614","managed resource is closed")end return nil end local function __nuppManagedClose(cell,checked) local problem=__nuppManagedProblem(cell);if problem then if checked then return problem end;return nil end if cell._borrows~=0 or cell._exclusive then local busy=__nuppManagedError("NUPP2620","managed resource has an active borrow");if checked then return busy end;error(busy.message,0)end cell._state="closing";local value,cleanup=cell._value,cell._cleanup;cell._value=nil;cell._cleanup=nil local ok,reason=pcall(cleanup,value);cell._state="closed";if not ok then error(reason,0)end;return nil end function __nuppManagedOwner:alias()return setmetatable({_cell=self,_brand=__nuppManagedBrand},__nuppManagedAlias)end function __nuppManagedOwner:close()return __nuppManagedClose(self,false)end local function __nuppAliasCell(self) if type(self)~="table"or self._brand~=__nuppManagedBrand or getmetatable(self)~=__nuppManagedAlias then return nil,__nuppManagedError("NUPP2614","value is not a managed alias")end local cell=self._cell;local problem=__nuppManagedProblem(cell);if problem then return nil,problem end;return cell,nil end function __nuppManagedAlias:with(callback) local cell,problem=__nuppAliasCell(self);if not cell then return nil,problem end if cell._exclusive then return nil,__nuppManagedError("NUPP2620","managed resource is exclusively borrowed")end cell._borrows=cell._borrows+1;cell._state="shared-borrowed("..cell._borrows..")" local ok,result=pcall(callback,cell._value);cell._borrows=cell._borrows-1;cell._state=cell._borrows>0 and("shared-borrowed("..cell._borrows..")")or"live" if not ok then error(result,0)end;return result,nil end function __nuppManagedAlias:withExclusive(callback) local cell,problem=__nuppAliasCell(self);if not cell then return nil,problem end if cell._exclusive or cell._borrows~=0 then return nil,__nuppManagedError("NUPP2620","managed resource is already borrowed")end cell._exclusive=true;cell._state="exclusive-borrowed";local ok,result=pcall(callback,cell._value);cell._exclusive=false;cell._state="live" if not ok then error(result,0)end;return result,nil end function __nuppManagedAlias:take() local cell,problem=__nuppAliasCell(self);if not cell then return nil,problem end if cell._exclusive or cell._borrows~=0 then return nil,__nuppManagedError("NUPP2620","managed resource has an active borrow")end cell._state="taken";local value=cell._value;cell._value=nil;cell._cleanup=nil;return value,nil end function __nuppManagedAlias:close() local cell,problem=__nuppAliasCell(self);if not cell then return problem end;return __nuppManagedClose(cell,true)end function __nuppManagedAlias:_downcast(policy) local cell,problem=__nuppAliasCell(self);if not cell then return nil,problem end if cell._policy~=policy then return nil,__nuppManagedError("NUPP2613","managed alias has the wrong type or cleanup policy")end return self,nil end function __nupp.__manage(value,cleanup,policy) local cell=setmetatable({_brand=__nuppManagedBrand,_value=value,_cleanup=cleanup,_policy=policy,_state="live",_borrows=0,_exclusive=false},__nuppManagedOwner);__nuppManagedCells[cell]=true;return cell end function __nupp.__recoverAlias(value) if type(value)~="table"or value._brand~=__nuppManagedBrand or getmetatable(value)~=__nuppManagedAlias then return nil,__nuppManagedError("NUPP2614","value is not a managed alias")end local cell,problem=__nuppAliasCell(value);if not cell then return nil,problem end;return value,nil end _G.__nuppManagedPolicyCount=function(policy)local count=0;for cell in pairs(__nuppManagedCells)do if cell._policy==policy and(cell._state=="live"or cell._state:match("borrowed"))then count=count+1 end end;return count end local __nuppManagedGroup={};__nuppManagedGroup.__index=__nuppManagedGroup function __nuppManagedGroup:flush()end function __nuppManagedGroup:adopt(cell) if self._closed then error("managed group is closed",2)end local handle=cell:alias();self._entries[#self._entries+1]=handle return handle end function __nuppManagedGroup:remove(handle) if self._closed then error("managed group is closed",2)end for index=#self._entries,1,-1 do if self._entries[index]==handle then table.remove(self._entries,index);local value,problem=handle:take();if problem then error(problem.message,2)end;return value end end error("managed alias is not registered in this group",2) end local function __nuppManagedCloseEntry(entry)local problem=entry:close();if problem and problem.code~="NUPP2614"then error(problem.message,0)end end function __nuppManagedGroup:close() if self._closed then return end;self._closed=true;local first,suppressed=nil,0 for index=#self._entries,1,-1 do local ok,reason=pcall(__nuppManagedCloseEntry,self._entries[index]);if not ok then if first==nil then first=reason else suppressed=suppressed+1 end end end self._entries={};if first~=nil then if suppressed>0 then error(tostring(first).." (suppressed "..tostring(suppressed).." cleanup failure(s))",0)end;error(first,0)end end function __nupp.managedGroup()return setmetatable({_entries={},_closed=false},__nuppManagedGroup)end;local __nuppCleanups=_G.__nuppCleanupRegistry;if __nuppCleanups==nil then __nuppCleanups={};_G.__nuppCleanupRegistry=__nuppCleanups end;local __nuppExports;local __nuppOk,__nuppWhy=pcall(function()
+
+
+
+
+
+
+
 
 
 
@@ -180130,6 +180142,7 @@ end
 
 
 
+
 function span . fromString ( source ) 
 local pointer = __nuppFfi.cast("const uint8_t *" , source )
 return ( setmetatable({ anchor =  source ,  pointer =  pointer ,  offset =  0 ,  count =  # source }, SpanImpl) )
@@ -180145,6 +180158,10 @@ return ( setmetatable({ anchor =  anchor ,  pointer =  typed ,  offset =  offset
 end
 
 rawset ( span , "__foreignByteSpan" , foreignByteSpan )
+
+
+
+
 
 
 
@@ -180186,6 +180203,10 @@ return ( setmetatable({ anchor =
 source ,  pointer =  source ,  offset =  0 ,  count =  count }, FixedSpanImpl)
 )
 end
+
+
+
+
 
 
 
@@ -193105,11 +193126,25 @@ local suspensionRuntime = suspension
 
 local native = require ( "nupp.workers.native" )
 
+
+
+
+
+
+
+local hostProvidesWorkers = rawget ( native , "workerParallelism" ) ~= nil
+
+local function missingScheduler ( ) 
+error ( "nupp: this host was built without the native worker scheduler" , 2 )
+
+return 0
+end
+
 rawset ( _G . nupp , "__workerCheckpoint" , native . workerTaskCheckpoint )
 
 local workers = { }
 
-rawset ( workers , "__parallelism" , native . workerParallelism )
+rawset ( workers , "__parallelism" , hostProvidesWorkers and native . workerParallelism or missingScheduler )
 
 
 
@@ -194311,6 +194346,9 @@ local function scheduler ( )
 if sharedScheduler ~= nil then
 return sharedScheduler
 end
+if not hostProvidesWorkers then
+error ( "nupp: this host was built without the native worker scheduler" , 3 )
+end
 local workerInbox = native . current ( )
 if workerInbox ~= nil then
 error ( "nupp: a worker task cannot open another worker scope" , 3 )
@@ -195023,6 +195061,9 @@ end
 
 
 function workers . __runScheduler ( ) 
+if not hostProvidesWorkers then
+error ( "nupp: this host was built without the native worker scheduler" , 2 )
+end
 local inHandle , outHandle = native . current ( )
 if inHandle == nil or outHandle == nil then
 error ( "nupp: worker scheduler started outside a worker state" , 2 )
@@ -225009,12 +225050,15 @@ sealed interface soa.WriteSpan<T>
     --- string or a missing field reports `NUPP2403`.
     ---
     --- ```nupp
-    --- with rows = particles:write(),
-    ---     xs: span.Writable<float> = rows:field("x"),
-    ---     ys: span.Writable<float> = rows:field("y")
     --- do
+    ---     local rows = particles:write()
+    ---     local xs: span.Writable<float> = rows:field("x")
+    ---     local ys: span.Writable<float> = rows:field("y")
     ---     xs[1] = 3.5
     ---     ys[1] = 4.5
+    ---     drop xs
+    ---     drop ys
+    ---     drop rows
     --- end
     --- ```
     field: function(exclusive self: WriteSpan<T>, name: string): any borrows (self)
@@ -225420,16 +225464,17 @@ local struct Point
 end
 
 local function clear(exclusive points: span.WriteSpan<Point>): nil
-    const indexes = indexed.range(1, #points, points)
+    const view = points
+    const indexes = indexed.range(1, #view, view)
     for index = indexes.first, indexes.last do
-        points[index] = new Point(0, 0)
+        view[index] = new Point(0, 0)
     end
 end
 
 local storage = carray(Point, 4)
-with points = span.writeCarray(storage, 4) do
-    clear(points)
-end
+const points = span.writeCarray(storage, 4)
+clear(points)
+drop points
 ```
 
 Whole-element and direct field assignments write through the checked indexed
@@ -225476,16 +225521,22 @@ local struct Value
 end
 
 local function dot(
-    left: span.Span<Value>,
-    right: span.Span<Value>
+    borrows left: span.Span<Value>,
+    borrows right: span.Span<Value>
 ): integer
-    const indexes = indexed.range(1, #left, left, right)
-    local total = 0
+    const first = left
+    const second = right
+    const indexes = indexed.range(1, #first, first, second)
+    local total: integer = 0
     for index = indexes.first, indexes.last do
-        total = total + left[index].n * right[index].n
+        total = total + first[index].n * second[index].n
     end
     return total
 end
+
+const storage = carray(Value, 4)
+const values = span.fromCarray(storage, 4)
+print(dot(values, values))
 ```
 
 At least one span is required. Empty ranges use the same `first, first - 1`
@@ -225516,8 +225567,8 @@ projects the physical pointer and count arguments automatically.
 ::: seealso
 - [ownership.md](docs/concepts/ownership.md) for what makes a writable span
   affine and when its access ends
-- [exact-affine-scopes.md](docs/concepts/exact-affine-scopes.md) for the `with`
-  block the writable examples use
+- [exact-affine-scopes.md](docs/concepts/exact-affine-scopes.md) for the scopes
+  that end a writable span, including the `with` block
 - [c-interop.md](docs/concepts/c-interop.md) for the boundary `ref` and
   `countedBy` sit on
 :::
@@ -225964,7 +226015,8 @@ type span.ByteWriteSpan = span.WriteSpan<uint8>
 --- Creates a byte span over a Lua string and keeps that string rooted.
 ---
 --- ```nupp
---- const bytes = span.fromString("hello")
+--- const text = "hello"
+--- const bytes = span.fromString(text)
 --- assert(#bytes == 5 and bytes[1] == 104)
 --- ```
 ---
@@ -225993,7 +226045,11 @@ rawset(span as table, "__foreignByteSpan", foreignByteSpan)
 --- module cannot check for itself. Everything after it is checked against it.
 ---
 --- ```nupp
---- const storage = carray(int32, 4)
+--- local struct Value
+---     n: int32
+--- end
+---
+--- const storage = carray(Value, 4)
 --- const values = span.fromCarray(storage, 4)
 --- assert(#values == 4)
 --- ```
@@ -226035,14 +226091,18 @@ end
 --- the token. Nothing else may read or write the array in between.
 ---
 --- ```nupp
---- const storage = carray(int32, 4)
+--- local struct Value
+---     n: int32
+--- end
+---
+--- const storage = carray(Value, 4)
 --- do
 ---     local writable = span.writeCarray(storage, 4)
----     writable[1] = 42 as int32
+---     writable[1] = new Value(42)
 ---     drop writable
 --- end
 --- const values = span.fromCarray(storage, 4)
---- assert(values[1] == 42)
+--- assert(values[1].n == 42)
 --- ```
 ---
 --- @param source the array the view writes, held exclusively for its lifetime
@@ -240284,11 +240344,25 @@ local type Native = {
 }
 local native = require("nupp.workers.native") as Native
 
+-- A host built without the workers feature still resolves the native module
+-- name -- to its compiled declaration, a record table carrying no functions --
+-- and a program reaching for workers there would die calling nil. Loading has
+-- to stay quiet, because carrying this module is not using it: `nupp.tasks`
+-- requires it for a type on every host. So the missing scheduler is named at
+-- the points that first ask the host for one.
+local hostProvidesWorkers = rawget(native as table, "workerParallelism") ~= nil
+
+local function missingScheduler(): integer
+    error("nupp: this host was built without the native worker scheduler", 2)
+
+    return 0
+end
+
 rawset(_G.nupp, "__workerCheckpoint", native.workerTaskCheckpoint)
 
 local workers = {}
 
-rawset(workers, "__parallelism", native.workerParallelism)
+rawset(workers, "__parallelism", hostProvidesWorkers and native.workerParallelism or missingScheduler)
 
 ----------------------------------------------------------------------------
 -- What crosses a lane
@@ -241490,6 +241564,9 @@ local function scheduler(): Scheduler
     if sharedScheduler ~= nil then
         return sharedScheduler
     end
+    if not hostProvidesWorkers then
+        error("nupp: this host was built without the native worker scheduler", 3)
+    end
     local workerInbox = native.current()
     if workerInbox ~= nil then
         error("nupp: a worker task cannot open another worker scope", 3)
@@ -242202,6 +242279,9 @@ end
 --- Runs the scheduler loop inside a native worker state. Compiler-owned bootstrap only.
 --- @raises when called outside the compiler-owned worker bootstrap
 function workers.__runScheduler(): nil
+    if not hostProvidesWorkers then
+        error("nupp: this host was built without the native worker scheduler", 2)
+    end
     local inHandle, outHandle = native.current()
     if inHandle == nil or outHandle == nil then
         error("nupp: worker scheduler started outside a worker state", 2)
