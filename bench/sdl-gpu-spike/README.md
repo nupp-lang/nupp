@@ -94,6 +94,31 @@ buffer, not bypassing SDL. Ordinary spans remain explicit upload/download
 boundaries; intermediate buffers stay on the GPU across any number of
 dispatches.
 
+`run-gemm.sh` exercises the multi-buffer generated binding with a naive
+row-major f32 GEMM: five buffers (output, two uint32 index spans, and the two
+matrices), scalar uniforms for the dimensions, and arbitrary matrix indexing
+through proved cursors. The kernel's guard covers only the spans it addresses
+by the dispatch index; every `a`/`b` access is a `span[cursor + 1]` under a
+dominating `cursor < #span` check that the shader keeps, comparing against
+per-span element counts the dispatch writes into the uniform block from the
+buffers actually bound. One Apple Silicon run measured, after validating every
+output element exactly against the ordinary CPU body of the same source:
+
+| size | boundary | time | throughput |
+| --- | --- | ---: | ---: |
+| 512x512x512 | GPU resident dispatch | 1.19 ms | 227 GFLOP/s |
+| 512x512x512 | ordinary VM body | 33.7 s | 0.01 GFLOP/s |
+
+The CPU number is the ordinary interpreted body, not a tuned control: the AOT
+CPU tier refuses this kernel today, because its map-loop guard grammar can
+only relate spans by length equality and GEMM's dimensions cannot be spelled
+that way. The GPU map admits a partial guard -- unguarded spans are reachable
+only through proved cursors, refused at lowering with a source position
+otherwise -- and extending the same admission to the CPU tier is the natural
+follow-up. The row/column index spans exist because the loop index is not yet
+a value inside a kernel body; deriving coordinates on the device needs that,
+or integer division, neither of which the subset has.
+
 Run it on macOS with an SDL framework directory:
 
 ```sh

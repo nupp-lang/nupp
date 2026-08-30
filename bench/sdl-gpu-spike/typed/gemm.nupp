@@ -1,0 +1,82 @@
+module gemm
+
+-- Naive GEMM over row-major binary32 matrices: c[m x n] = a[m x k] * b[k x n].
+-- Each dispatched thread owns one output element. Its row and column arrive as
+-- precomputed index spans held to the output's length, and every a/b access is
+-- a proved cursor whose bound check the shader keeps, so the a and b buffers
+-- may be any length the dimensions ask for.
+local span = require("nupp.mem.span")
+
+@aot(target = "gpu")
+local function gemmNaive(
+    exclusive c: span.WriteSpan<float>,
+    borrows rowOf: span.Span<uint32>,
+    borrows colOf: span.Span<uint32>,
+    borrows a: span.Span<float>,
+    borrows b: span.Span<float>,
+    columns: uint32,
+    inner: uint32
+): nil
+    if #c ~= #rowOf or #c ~= #colOf then
+        error("index spans must match the output", 2)
+    end
+    for i = 1, #c do
+        local row = rowOf[i]
+        local col = colOf[i]
+        local acc: float = 0.0
+        local j = nupp.math.u32.wrap(0)
+        while j < inner do
+            local ai = nupp.math.u32.add(nupp.math.u32.mul(row, inner), j)
+            local bi = nupp.math.u32.add(nupp.math.u32.mul(j, columns), col)
+            if ai < #a then
+                if bi < #b then
+                    acc = nupp.math.f32.add(
+                        acc,
+                        nupp.math.f32.mul(nupp.math.f32.narrow(a[ai + 1]), nupp.math.f32.narrow(b[bi + 1]))
+                    )
+                end
+            end
+            j = nupp.math.u32.add(j, 1)
+        end
+        c[i] = acc
+    end
+end
+
+-- The same body without the annotation: the CPU reference the GPU result must
+-- match element-exactly.
+local function gemmCpu(
+    exclusive c: span.WriteSpan<float>,
+    borrows rowOf: span.Span<uint32>,
+    borrows colOf: span.Span<uint32>,
+    borrows a: span.Span<float>,
+    borrows b: span.Span<float>,
+    columns: uint32,
+    inner: uint32
+): nil
+    if #c ~= #rowOf or #c ~= #colOf then
+        error("index spans must match the output", 2)
+    end
+    for i = 1, #c do
+        local row = rowOf[i]
+        local col = colOf[i]
+        local acc: float = 0.0
+        local j = nupp.math.u32.wrap(0)
+        while j < inner do
+            local ai = nupp.math.u32.add(nupp.math.u32.mul(row, inner), j)
+            local bi = nupp.math.u32.add(nupp.math.u32.mul(j, columns), col)
+            if ai < #a then
+                if bi < #b then
+                    acc = nupp.math.f32.add(
+                        acc,
+                        nupp.math.f32.mul(nupp.math.f32.narrow(a[ai + 1]), nupp.math.f32.narrow(b[bi + 1]))
+                    )
+                end
+            end
+            j = nupp.math.u32.add(j, 1)
+        end
+        c[i] = acc
+    end
+end
+
+export const gemm = gemmNaive
+export const cpu = gemmCpu
