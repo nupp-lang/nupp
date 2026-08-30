@@ -221,6 +221,10 @@ end
 --- @return how to cancel it, which is idempotent.
 --- @raises when too many timers are already pending
 function time.wakeAt(deadline: number, resume: function(boolean)): function(): nil
+    -- A deadline only fires when the shared source is polled, and `sleep` is not
+    -- the only way one gets here: a wake registered before anything has slept
+    -- would otherwise sit in a list nothing drives.
+    source()
     const entry = {deadline = deadline, resume = resume}
     insert(entry)
 
