@@ -492,7 +492,14 @@ NUPP_EXPORT size_t nuppNetPending(NuppNetStream *stream) {
 /* Gives kernel TLS an independent descriptor for the same connected socket and
  * takes libuv out of its data path. The duplicate intentionally keeps the open
  * file description alive only until the TLS session is released; ordinary
- * connection ownership and the public closed guard remain on `stream`. */
+ * connection ownership and the public closed guard remain on `stream`.
+ *
+ * A refusal hands the kernel nothing, so the TLS layer above treats it as the
+ * handoff not beginning and stays on user-space records. Buffered bytes are
+ * one such refusal: a peer that wrote application data on the heels of its
+ * Finished has ciphertext sitting in this process, and records the kernel
+ * never saw cannot be decrypted by it. Reads stopped here resume on demand,
+ * so a stream refused or abandoned after this call keeps working. */
 NUPP_EXPORT intptr_t nuppNetStreamTlsSocket(NuppNetStream *stream) {
 #if defined(__linux__)
     uv_os_fd_t descriptor;
@@ -531,8 +538,8 @@ NUPP_EXPORT intptr_t nuppNetStreamTlsSocket(NuppNetStream *stream) {
  * out the descriptor, because between the two the TLS layer still has to
  * attach the ULP and install both directions' keys, any of which can fail: a
  * stream marked before then would go on refusing ordinary reads and writes
- * over a handoff that never happened, wedging a connection its owner could
- * otherwise still use or close cleanly. */
+ * over a handoff that never happened -- one that fell back to user-space
+ * records still runs its whole session through them. */
 NUPP_EXPORT void nuppNetStreamTlsEngaged(NuppNetStream *stream) {
     if (stream != NULL) {
         stream->layered = true;

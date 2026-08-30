@@ -2,10 +2,16 @@
 
 ## Unreleased
 
-- `nupp.io.tls` can require Linux kernel TLS after a stream handshake. The
-  explicit `kernelOffload` option installs TLS 1.2 AES-GCM keys for both
-  `TLS_TX` and `TLS_RX`, and fails rather than silently returning to user-space
-  records when the kernel or negotiated cipher cannot take them.
+- `nupp.io.tls` can hand a stream session to Linux kernel TLS after its
+  handshake. The `kernelOffload` option restricts negotiation to TLS 1.2 and
+  installs the AES-GCM record keys for both `TLS_TX` and `TLS_RX`. A handoff
+  the platform cannot begin -- another operating system, the tls ULP absent,
+  ciphertext already buffered in user space, a cipher the kernel does not
+  take -- falls back to user-space records with the handshake succeeding, and
+  `isKernelOffloaded()` answers whether the kernel took over, which a caller
+  relying on `sendfile` semantics must check. A failure after a key direction
+  has reached the kernel still fails the handshake, because a partly installed
+  kernel record layer cannot soundly return to user space.
 
 - `nupp.io.tls` now carries DTLS over a datagram socket. Client sessions name
   their peer; server sessions challenge the first peer with mbedTLS's cookie

@@ -645,19 +645,39 @@ function M.aLearningSessionLeavesABoundPeersRecordsAlone()
    serverSock:close()
 end
 
-function M.kernelOffloadIsRequiredWhenItIsRequested()
-   if not tls.kernelOffloadSupported() then
-      local listener, clientSock, serverSock = sockets()
-      local session, why = tls.client(clientSock, {
-         verify = false, kernelOffload = true,
-      })
-      assertEq(session, nil, "a non-Linux host does not silently use user-space TLS")
-      assertTrue(why ~= nil, "and explains that kTLS is unavailable")
-      serverSock:close()
-      clientSock:close()
-      listener:close()
-      return
-   end
+function M.anOffloadRequestThatCannotEngageFallsBackToUserSpace()
+   -- The contract: kernelOffload asks, isKernelOffloaded answers. On a host
+   -- with no kernel TLS at all the request can never engage, so the handshake
+   -- must still succeed on user-space records and say that offload did not
+   -- happen -- a caller relying on sendfile semantics checks the answer.
+   if tls.kernelOffloadSupported() then return end
+
+   local listener, clientSock, serverSock = sockets()
+   local server = assert(tls.server(serverSock, {
+      certificate = CERT, privateKey = KEY, kernelOffload = true,
+   }))
+   local client = assert(tls.client(clientSock, {
+      hostname = "localhost", authority = CERT, kernelOffload = true,
+   }))
+   local clientDone, clientWhy, serverDone, serverWhy = shake(client, server)
+   assertTrue(clientDone, "the client falls back and finishes: " .. tostring(clientWhy))
+   assertTrue(serverDone, "the server falls back and finishes: " .. tostring(serverWhy))
+   assertEq(client:isKernelOffloaded(), false,
+      "the client reports that offload did not engage")
+   assertEq(server:isKernelOffloaded(), false,
+      "and so does the server")
+   assertTrue(client:write("in user space"), "the fallback session writes plaintext")
+   assertEq(assert(server:read(64)), "in user space", "and the peer decrypts it")
+
+   client:close()
+   server:close()
+   serverSock:close()
+   clientSock:close()
+   listener:close()
+end
+
+function M.kernelOffloadEngagesWhereThePlatformAllows()
+   if not tls.kernelOffloadSupported() then return end
 
    local listener, clientSock, serverSock = sockets()
    local server = assert(tls.server(serverSock, {

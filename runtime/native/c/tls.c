@@ -926,7 +926,38 @@ static bool tls_kernel_crypto(
     return false;
 }
 
-static bool tls_kernel_enable(NuppTls *session) {
+/* Abandons a handoff that has not touched the socket's record layer. The
+ * session continues on user-space records: nothing before this point has
+ * changed the mbedTLS session, and the descriptor closed here is a duplicate
+ * whose only purpose was the handoff that is not happening. Clearing the
+ * request is what keeps the next handshake poll from trying again. */
+static int tls_kernel_fallback(NuppTls *session) {
+    if (session->kernelFd >= 0) {
+        close(session->kernelFd);
+        session->kernelFd = -1;
+    }
+    session->kernelRequested = false;
+    return 0;
+}
+
+/* Tries to hand the finished handshake's record layer to the kernel. Answers 1
+ * when the kernel took both directions, 0 when it could not and the session
+ * falls back to user-space records, and -1 for a failure user space cannot
+ * recover from.
+ *
+ * The line between the last two is whether the kernel was handed any of the
+ * record layer. Up to and including a failed TCP_ULP attach it was not: an
+ * unusable cipher, an underivable key block, a refused or buffered-up
+ * descriptor, and a setsockopt that answered EEXIST, ENOENT or anything else
+ * all leave the socket carrying plain TCP, and nothing on those paths has
+ * touched the mbedTLS session, so its record layer simply continues. Once a
+ * key direction has been installed with TLS_RX or TLS_TX the shared open file
+ * description is partly kernel-managed and records may already be consumed
+ * there, so a failure from then on fails the handshake. A socket with the ULP
+ * attached but no keys yet is claimed to pass bytes through unchanged, but no
+ * pinned kernel source is vendored here to hold that claim against, so the
+ * boundary sits at the attach rather than after it. */
+static int tls_kernel_enable(NuppTls *session) {
     const mbedtls_ssl_ciphersuite_t *suite;
     const char *name;
     unsigned char seed[64];
@@ -946,8 +977,7 @@ static bool tls_kernel_enable(NuppTls *session) {
     if (!session->keyMaterialReady ||
         mbedtls_ssl_get_version_number(&session->ssl) !=
             MBEDTLS_SSL_VERSION_TLS1_2) {
-        nupp_fail("tls: kernel offload needs a TLS 1.2 master secret");
-        return false;
+        return tls_kernel_fallback(session);
     }
     suite = mbedtls_ssl_ciphersuite_from_id(
         mbedtls_ssl_get_ciphersuite_id_from_ssl(&session->ssl));
@@ -958,8 +988,7 @@ static bool tls_kernel_enable(NuppTls *session) {
         strstr(name, "-GCM-") == NULL ||
         (keyLength != TLS_CIPHER_AES_GCM_128_KEY_SIZE &&
          keyLength != TLS_CIPHER_AES_GCM_256_KEY_SIZE)) {
-        nupp_fail("tls: the negotiated cipher cannot be handed to Linux kTLS");
-        return false;
+        return tls_kernel_fallback(session);
     }
 
     memcpy(seed, session->serverRandom, sizeof session->serverRandom);
@@ -975,8 +1004,8 @@ static bool tls_kernel_enable(NuppTls *session) {
         keyBlock,
         keyLength * 2 + 8);
     if (failed != 0) {
-        tls_fail(failed, "the kernel record keys could not be derived");
-        return false;
+        mbedtls_platform_zeroize(keyBlock, sizeof keyBlock);
+        return tls_kernel_fallback(session);
     }
     clientKey = keyBlock;
     serverKey = keyBlock + keyLength;
@@ -987,17 +1016,22 @@ static bool tls_kernel_enable(NuppTls *session) {
     writeSalt = session->server ? serverSalt : clientSalt;
     readSalt = session->server ? clientSalt : serverSalt;
 
+    /* A refusal here -- the stream closed, ciphertext already buffered in
+     * this process by a peer that wrote early, no descriptor to duplicate --
+     * has handed the kernel nothing, so it falls back like the checks above. */
     descriptor = nuppNetStreamTlsSocket(session->stream);
     if (descriptor < 0) {
         mbedtls_platform_zeroize(keyBlock, sizeof keyBlock);
-        return false;
+        return tls_kernel_fallback(session);
     }
     session->kernelFd = (int)descriptor;
+    /* A failed attach installs nothing: ENOENT is the tls module absent,
+     * EEXIST a ULP already there, and every failure answer means this call
+     * changed nothing, so user-space records continue. */
     if (setsockopt(
             session->kernelFd, SOL_TCP, TCP_ULP, "tls", sizeof "tls") != 0) {
-        nupp_fail_format("tls: Linux kTLS could not attach: %s", strerror(errno));
         mbedtls_platform_zeroize(keyBlock, sizeof keyBlock);
-        return false;
+        return tls_kernel_fallback(session);
     }
     if (!tls_kernel_crypto(
             session,
@@ -1009,7 +1043,7 @@ static bool tls_kernel_enable(NuppTls *session) {
         nupp_fail_format("tls: Linux kTLS could not take receive records: %s",
             strerror(errno));
         mbedtls_platform_zeroize(keyBlock, sizeof keyBlock);
-        return false;
+        return -1;
     }
     if (!tls_kernel_crypto(
             session,
@@ -1021,7 +1055,7 @@ static bool tls_kernel_enable(NuppTls *session) {
         nupp_fail_format("tls: Linux kTLS could not take transmit records: %s",
             strerror(errno));
         mbedtls_platform_zeroize(keyBlock, sizeof keyBlock);
-        return false;
+        return -1;
     }
     mbedtls_platform_zeroize(keyBlock, sizeof keyBlock);
     if (uv_poll_init_socket(
@@ -1029,17 +1063,18 @@ static bool tls_kernel_enable(NuppTls *session) {
             &session->kernelPoll,
             session->kernelFd) != 0) {
         nupp_fail("tls: the kernel TLS socket could not join the reactor");
-        return false;
+        return -1;
     }
     session->kernelPoll.data = session;
     session->kernelPollReady = true;
     /* Marked only now, with the ULP attached, both directions' keys installed
      * and the reactor watching the descriptor. Marking earlier would leave the
-     * stream refusing its ordinary byte transport after a handoff that failed
-     * partway, which its owner could otherwise still use or close cleanly. */
+     * stream refusing its ordinary byte transport after a handoff that fell
+     * back or failed partway, which its owner could otherwise go on using or
+     * close cleanly. */
     nuppNetStreamTlsEngaged(session->stream);
     session->kernelOffloaded = true;
-    return true;
+    return 1;
 }
 
 static int tls_kernel_send(
@@ -1237,10 +1272,13 @@ NUPP_EXPORT NuppTls *nuppTlsWrap(
         return NULL;
     }
 #if !defined(__linux__)
-    if (kernelOffload) {
-        nupp_fail("tls: kernel TLS offload is available only on Linux");
-        return NULL;
-    }
+    /* No kernel here can take the record layer, so the request can never
+     * engage. The contract is that an offload the platform cannot make falls
+     * back to user-space records with `nuppTlsKernelOffloaded` answering
+     * false, and on these systems that answer is known before the handshake
+     * -- so the request is dropped now rather than pinning negotiation to
+     * TLS 1.2 for a handoff that cannot happen. */
+    kernelOffload = false;
 #endif
     session = calloc(1, sizeof *session);
     if (session == NULL) {
@@ -1485,21 +1523,21 @@ NUPP_EXPORT int32_t nuppTlsHandshake(NuppTls *session) {
         return -1;
     }
     if (session->handshakeComplete) {
+#if defined(__linux__)
         if (session->kernelRequested && !session->kernelOffloaded) {
             if (nuppNetPending(session->stream) != 0) {
                 return 0;
             }
-#if defined(__linux__)
-            if (!tls_kernel_enable(session)) {
+            /* A handoff the platform cannot begin clears the request and the
+             * session continues on user-space records; only one that failed
+             * after handing the kernel a key direction fails the handshake.
+             * `nuppTlsKernelOffloaded` is what says which way this went. */
+            if (tls_kernel_enable(session) < 0) {
                 session->failed = true;
                 return -1;
             }
-#else
-            session->failed = true;
-            nupp_fail("tls: kernel TLS offload is available only on Linux");
-            return -1;
-#endif
         }
+#endif
         session->handshaken = true;
         return 1;
     }

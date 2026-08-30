@@ -175431,6 +175431,12 @@ _G.assert(_G.loadstring("local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppM
 
 
 
+
+
+
+
+
+
 local net = require ( "nupp.io.net" )
 local suspension = require ( "nupp.suspension" )
 local span = require ( "nupp.mem.span" )
@@ -175438,6 +175444,10 @@ local ffi = require ( "ffi" )
 local ffiString = ffi . string
 
 local tls = { }
+
+
+
+
 
 
 
@@ -175740,6 +175750,10 @@ const resumed = self . _backend . resumed
 
 return resumed ~= nil and resumed ( self . _backend , self . _session ) or false
 end
+
+
+
+
 
 
 
@@ -176438,6 +176452,8 @@ false ,  _ended =
 false }, tls.DatagramSession)
 
 end
+
+
 
 
 
@@ -221598,11 +221614,17 @@ verified address. One datagram socket may hold several established sessions;
 records for their other peers stay queued.
 
 On Linux, a stream session opened with `kernelOffload = true` restricts the
-handshake to TLS 1.2 and requires the negotiated AES-GCM record keys to be
-installed as both `TLS_TX` and `TLS_RX`. The handshake fails when the kernel or
-negotiated cipher cannot support that handoff. This is explicit because a
-silent fallback would make a server believe `sendfile` was avoiding user-space
-encryption when it was not.
+handshake to TLS 1.2 and asks the kernel to take over record encryption once it
+finishes, installing the negotiated AES-GCM keys as both `TLS_TX` and `TLS_RX`.
+Offload engages when the platform allows it. A handoff that cannot begin -- the
+tls ULP absent, ciphertext already buffered in this process, a cipher the
+kernel does not take, or a system with no kernel TLS at all -- falls back to
+user-space records and the handshake still succeeds, so `isKernelOffloaded()`
+is the answer to whether the kernel actually took over, and a caller counting
+on `sendfile` avoiding a user-space encryption pass must check it rather than
+assume the request was honored. Only a handoff that fails after a key direction
+has reached the kernel fails the handshake, because a record layer partly
+installed there cannot soundly return to user space.
 
 The session does not own the connection. It borrows one, encrypts over it, and
 is closed first; the connection is closed by whoever owns it, which is what
@@ -221651,9 +221673,11 @@ type tls.ClientOptions = {
     --- preference and not a demand.
     protocols: {string}?,
 
-    --- Whether Linux must take over record encryption after the handshake.
-    --- This restricts negotiation to TLS 1.2; it is refused on other systems
-    --- and when the negotiated cipher is not AES-GCM.
+    --- Whether Linux should take over record encryption after the handshake.
+    --- Requesting it restricts negotiation to TLS 1.2 on Linux. A handoff the
+    --- platform cannot begin -- another system, a kernel without the tls ULP,
+    --- a cipher it does not take -- falls back to user-space records, and
+    --- `isKernelOffloaded()` says which happened.
     kernelOffload: boolean?
 }
 
@@ -221680,7 +221704,9 @@ type tls.ServerOptions = {
     --- them a commitment rather than a hint.
     protocols: {string}?,
 
-    --- Whether Linux must take over record encryption after the handshake.
+    --- Whether Linux should take over record encryption after the handshake,
+    --- exactly as on a client session: a handoff that cannot begin falls back
+    --- to user-space records, reported by `isKernelOffloaded()`.
     kernelOffload: boolean?
 }
 
@@ -221933,7 +221959,11 @@ record tls.Session is nupp.io.Reader, nupp.io.Writer
 
     --- Whether Linux owns both transmit and receive record processing.
     ---
-    --- False before the handshake and for ordinary user-space TLS sessions.
+    --- False before the handshake, for ordinary user-space TLS sessions, and
+    --- for a `kernelOffload` request that fell back. The option is a request
+    --- and this is the fact, so a caller relying on `sendfile` avoiding a
+    --- user-space encryption pass checks here rather than trusting the
+    --- request.
     function isKernelOffloaded(self): boolean
         if self._closed or not self._ready then
             return false
@@ -222631,8 +222661,10 @@ end
 
 --- Whether this native host can request Linux kernel TLS offload.
 ---
---- True identifies the platform, not a guarantee that the running kernel has
---- the TLS ULP enabled; a requested session reports that during its handshake.
+--- True identifies the platform, not a guarantee that the running kernel can
+--- take the handoff: a requested session that cannot engage falls back to
+--- user-space records, and `isKernelOffloaded()` on the established session
+--- answers what actually happened.
 --- @export
 function tls.kernelOffloadSupported(): boolean
     const chosen = backend
