@@ -117,6 +117,10 @@ local TYPE_KINDS = {
 -- ffi.typeof instead (M3).
 local DECL_KINDS = {recordDecl = true, typeAlias = true,}
 
+----------------------------------------------------------------------------
+-- C types
+----------------------------------------------------------------------------
+
 -- C type names for reifiable primitive fields.
 local CP -- assigned to C_PRIM below (cdefCType is defined first)
 
@@ -277,6 +281,10 @@ local function lowerPortableConst(code: string): string
     return table.concat(out)
 end
 
+----------------------------------------------------------------------------
+-- Literals
+----------------------------------------------------------------------------
+
 -- Where a constructor lands on a record's runtime table. It has to be reachable from a
 -- call in another module, and that table is the one thing about a record that already
 -- crosses; a registry keyed by name would be a link step the language does not have.
@@ -407,6 +415,10 @@ local function declPath(x)
     return table.concat(parts, ".")
 end
 
+----------------------------------------------------------------------------
+-- What generation is given
+----------------------------------------------------------------------------
+
 --- What `generate` lowers: a parse the checker has already been over. The side effects
 --- are the checker's rather than the parser's, which is why this is not
 --- `parser.ParseResult`, since a generator that took one would be claiming it runs
@@ -454,6 +466,10 @@ type gen.HotMetadata = {
     functions: {any},
     structure: string
 }
+
+----------------------------------------------------------------------------
+-- Generating a module
+----------------------------------------------------------------------------
 
 --- Lowers a checked parse to LuaJIT source, with the diagnostics lowering produced.
 ---
@@ -564,6 +580,11 @@ function gen.generate(
     local curLine = 1
     local atLineStart = true
     local diags = {}
+
+    ---------------------------------------------------------------------
+    -- Runtime features the output needs
+    ---------------------------------------------------------------------
+
     -- Runtime features follow generated code, not the checker's source-level
     -- inventory. `emit` may erase a comptime block, a folded branch, or another
     -- checked construct before any of its children reach the output. Recording a
@@ -600,6 +621,10 @@ function gen.generate(
 
         return name
     end
+
+    ---------------------------------------------------------------------
+    -- Struct tags
+    ---------------------------------------------------------------------
 
     local needsMetatypeOnce = false
     local metatypeOnceName
@@ -799,6 +824,10 @@ function gen.generate(
         libraries = hot.libraries or {},
     } or nil
 
+    ---------------------------------------------------------------------
+    -- Reserved names
+    ---------------------------------------------------------------------
+
     local function reservedName(preferred)
         if not usedNames[preferred] then
             usedNames[preferred] = true
@@ -841,6 +870,10 @@ function gen.generate(
         end
         return (cst.textOf(node):gsub("%s+", ""))
     end
+
+    ---------------------------------------------------------------------
+    -- Planning hot functions
+    ---------------------------------------------------------------------
 
     local function hotSignature(body, implicitSelf): string
         local parts: {string} = {implicitSelf and "method(" or "function("}
@@ -1103,6 +1136,10 @@ function gen.generate(
 
     planHotRoot()
 
+    ---------------------------------------------------------------------
+    -- Declaring helpers and constants
+    ---------------------------------------------------------------------
+
     local helpers = {byBody = {}, order = {}}
     -- Switch maps are closed compiler data, declared once on the generated prologue's
     -- one physical line. A bounded number receive direct locals. Later maps share one
@@ -1216,6 +1253,10 @@ function gen.generate(
         return clearTabName
     end
 
+    ---------------------------------------------------------------------
+    -- Cleanups
+    ---------------------------------------------------------------------
+
     local function cleanupRegistry()
         needsCleanupRegistry = true
         cleanupRegistryName = cleanupRegistryName or reservedName("__nuppCleanups")
@@ -1292,6 +1333,10 @@ function gen.generate(
 
         return nil
     end
+
+    ---------------------------------------------------------------------
+    -- Writing lines out
+    ---------------------------------------------------------------------
 
     local function diag(tok, code, msg, help)
         diags[
@@ -1527,6 +1572,10 @@ function gen.generate(
 
         return nil
     end
+
+    ---------------------------------------------------------------------
+    -- Indexed views
+    ---------------------------------------------------------------------
 
     local function soaFieldTarget(target)
         if not target or target.kind ~= "dotIndex" then
@@ -1816,6 +1865,10 @@ function gen.generate(
             end,
         },
     }
+
+    ---------------------------------------------------------------------
+    -- Plucking
+    ---------------------------------------------------------------------
 
     local function dottedPathParts(node): string?, {string}?
         if not node or cst.isToken(node) then
@@ -2156,6 +2209,10 @@ function gen.generate(
         pluck.restore(plan, prior)
     end
 
+    ---------------------------------------------------------------------
+    -- Coverage
+    ---------------------------------------------------------------------
+
     local function coverageRuntime()
         -- Named through `_G` at the call sites, though the prologue still declares
         -- a local to build it with. A local the sites referred to would be an
@@ -2195,6 +2252,10 @@ function gen.generate(
 
         return COVERAGE_STATEMENTS[node.kind] == true
     end
+
+    ---------------------------------------------------------------------
+    -- Emitting hot functions
+    ---------------------------------------------------------------------
 
     local function hotEmitImplementation(planned): nil
         local body = planned.node.body
@@ -2291,6 +2352,11 @@ function gen.generate(
     end
 
     local emitAutomaticBlock
+
+    ---------------------------------------------------------------------
+    -- Children
+    ---------------------------------------------------------------------
+
     local function emitChildren(n)
         if n.kind == "suspensionInstallExpr" then
             e(suspensionModule() .. ".install(", sourceLine(n))
@@ -2426,6 +2492,10 @@ function gen.generate(
     emitDepth.switchResult = nil
     emitDepth.switchStatementActive = nil
     emitDepth.diag = diag
+
+    ---------------------------------------------------------------------
+    -- Switches
+    ---------------------------------------------------------------------
 
     local function switchContains(node): boolean
         if not node or cst.isToken(node) then
@@ -2791,6 +2861,10 @@ function gen.generate(
             e("end;", node.endTok and node.endTok.line or nil)
         end
     end
+
+    ---------------------------------------------------------------------
+    -- Ownership and captures
+    ---------------------------------------------------------------------
 
     local function preserveAssignmentTarget(target)
         if not target then
@@ -3475,6 +3549,10 @@ function gen.generate(
         e(")")
     end
 
+    ---------------------------------------------------------------------
+    -- Packed returns
+    ---------------------------------------------------------------------
+
     local function emitPackedReturn(ctx, x)
         local actives, seen = {}, {}
         for _, expr in ipairs(x.exprs or {}) do
@@ -3505,6 +3583,10 @@ function gen.generate(
             e(("; return \"return\",%s end"):format(packed))
         end
     end
+
+    ---------------------------------------------------------------------
+    -- The emitter
+    ---------------------------------------------------------------------
 
     emit = function(x)
         if cst.isToken(x) then

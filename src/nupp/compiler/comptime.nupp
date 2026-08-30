@@ -43,6 +43,10 @@ end
 
 local isToken = cst.isToken
 
+----------------------------------------------------------------------------
+-- Limits
+----------------------------------------------------------------------------
+
 --- The exact-integer range, matching what `OPT-3` treats as exact for the same reason:
 --- a double holds these and reads them back unchanged.
 local MAX_EXACT_INTEGER = 9007199254740991
@@ -51,6 +55,10 @@ local MAX_STEPS = 100000
 local MAX_CALL_DEPTH = 128
 local MAX_RESULT_BYTES = 512 * 1024
 local MAX_RESULT_ITEMS = 10000
+
+----------------------------------------------------------------------------
+-- Type functions
+----------------------------------------------------------------------------
 
 local function canonicalNode(node): string
     local tokens = node and node as {any} or {}
@@ -159,6 +167,10 @@ function comptime.sealTypeFunction(helper: any, helpers: any, signature: any, de
         definition = definition,
     }
 end
+
+----------------------------------------------------------------------------
+-- Quoting a result
+----------------------------------------------------------------------------
 
 -- A raised evaluation failure. Errors travel as a table so a `pcall` boundary can tell
 -- one of ours from a genuine evaluator bug, which should not be reported as the user's
@@ -321,6 +333,10 @@ local function boundedString(value, what)
 
     return value
 end
+
+----------------------------------------------------------------------------
+-- The environment
+----------------------------------------------------------------------------
 
 -- The library surface, named function by function.
 --
@@ -562,6 +578,10 @@ local function buildEnvironment(state)
     return env, libraries
 end
 
+----------------------------------------------------------------------------
+-- Evaluation state
+----------------------------------------------------------------------------
+
 -- Control-flow signals. `break` and `return` unwind the walker rather than being
 -- threaded through every statement's result, which keeps the statement functions
 -- returning nothing and the reader from having to track a protocol.
@@ -637,6 +657,10 @@ local evalExpr, execBlock, evalMulti
 local function pack(...)
     return {n = select("#", ...), ...}
 end
+
+----------------------------------------------------------------------------
+-- Calls and expressions
+----------------------------------------------------------------------------
 
 local function callValues(state, node, callee, args)
     local helper = state.comptimeFunctions[callee]
@@ -1233,6 +1257,10 @@ evalMulti = function(state, node)
     return values
 end
 
+----------------------------------------------------------------------------
+-- Statements
+----------------------------------------------------------------------------
+
 --- Assigns to one already-declared target.
 local function assign(state, target, value)
     if isToken(target) then
@@ -1500,6 +1528,10 @@ execBlock = function(state, block)
     end
 end
 
+----------------------------------------------------------------------------
+-- Results and failures
+----------------------------------------------------------------------------
+
 --- The type a finished value has, built the way the checker builds a table literal's:
 --- a scalar is its own literal type, an array is `{union of its widened elements}`, and
 --- a table with names is a fresh shape. Typing the value rather than parsing its quoted
@@ -1557,6 +1589,10 @@ type comptime.Failure = {
     readonly message: string,
     readonly help: string?
 }
+
+----------------------------------------------------------------------------
+-- The entry points
+----------------------------------------------------------------------------
 
 --- Evaluates a `comptime do ... end` block.
 ---

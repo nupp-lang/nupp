@@ -26,6 +26,10 @@ local type Type = T.Type
 --- What a binder stands for, per instantiation.
 local type Bindings = {[any]: any}
 
+----------------------------------------------------------------------------
+-- Substitution
+----------------------------------------------------------------------------
+
 --- What becomes of a binder the map does not name. Preserving leaves it standing,
 --- which is what rebinding one binder among several needs; materializing fills it with
 --- `any`, which is what a call site does with a binder inference never reached.
@@ -487,6 +491,10 @@ reduceProjection = function(head: Type, name: string, memo: ReductionMemo, budge
     return reduced, err
 end
 
+----------------------------------------------------------------------------
+-- Normal forms
+----------------------------------------------------------------------------
+
 --- What normalizing produced.
 type generics.Normalized = {
     --- The reduced type. A projection nothing could reduce is still that projection,
@@ -562,6 +570,10 @@ end
 function generics.materialize(t: Type, map: Bindings): Type
     return substWith(t, map, MATERIALIZE)
 end
+
+----------------------------------------------------------------------------
+-- Reduction
+----------------------------------------------------------------------------
 
 local MAX_MAPPED_FIELDS = 256
 local MAX_REDUCTION_VISITS = 4096
@@ -1301,6 +1313,10 @@ normalize = function(t: Type, memo: ReductionMemo, budget: ReductionBudget): Typ
     return out, err
 end
 
+----------------------------------------------------------------------------
+-- Evaluating a type
+----------------------------------------------------------------------------
+
 --- Rebinds the supplied arguments and then normalizes every decidable neutral term.
 --- The memo belongs to one checker/project revision; callers must not share it through
 --- the process-global type arena.
@@ -1360,6 +1376,10 @@ function generics.reduce(
 
     return normalize(rebound, memo or {}, newBudget(control))
 end
+
+----------------------------------------------------------------------------
+-- Packs
+----------------------------------------------------------------------------
 
 --- `generics.rebind` for a value sequence.
 function generics.rebindPack(pack: T.Pack, map: Bindings): T.Pack
@@ -1483,6 +1503,10 @@ function generics.expandFunctionPacks(t: T.Func, control: generics.ReductionCont
         t.sendable
     ) as T.Func
 end
+
+----------------------------------------------------------------------------
+-- Instantiation
+----------------------------------------------------------------------------
 
 --- Instantiates a generic function as one monomorphic callable. This is used when a
 --- universally generic function value is assigned to a concrete function type; the
@@ -1816,6 +1840,10 @@ function generics.instantiate(n: T.Nominal, map: Bindings): T.Nominal
     return inst
 end
 
+----------------------------------------------------------------------------
+-- Unification
+----------------------------------------------------------------------------
+
 --- Structurally matches an argument type against a parameter type, accumulating what
 --- the binders must stand for. Repeat bindings union together, so a binder in two
 --- positions holds what both arguments were.
@@ -2010,6 +2038,10 @@ function generics.unify(param: Type, arg: Type, map: Bindings): nil
         end
     end
 end
+
+----------------------------------------------------------------------------
+-- Self and receivers
+----------------------------------------------------------------------------
 
 --- What `self` stood for last time, by binder, by what it stands for, by member type.
 ---
