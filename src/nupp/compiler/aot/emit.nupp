@@ -829,6 +829,8 @@ function emit.scalarCall(node: scalarIR.Expr): string
 
     if operation == "f32_sqrt" then
         return "sqrtf(" .. emit.scalar((node as scalarIR.FixedUnary).value) .. ")"
+    elseif operation == "f32_exp" then
+        return "nupp_f32_exp(" .. emit.scalar((node as scalarIR.FixedUnary).value) .. ")"
     elseif operation == "u32_not" then
         return "((uint32_t)(~" .. emit.scalar((node as scalarIR.FixedUnary).value) .. "))"
     elseif operation == "u32_popcount" then
@@ -3579,6 +3581,26 @@ local function scalarHelpers(): {string}
         unused .. "float nupp_f32_fma(float a, float b, float c) {",
         "    float out = fmaf(a, b, c);",
         "    return out == out ? out : nupp_f32_nan();",
+        "}",
+        unused .. "float nupp_f32_exp(float value) {",
+        "    float x = nupp_f32_max(-104.0f, nupp_f32_min(value, 88.0f));",
+        "    float y = x * 0.0078125f;",
+        "    float out = 0.0000000020876757f;",
+        "    out = nupp_f32_fma(out, y, 0.000000025052108f);",
+        "    out = nupp_f32_fma(out, y, 0.00000027557319f);",
+        "    out = nupp_f32_fma(out, y, 0.0000027557319f);",
+        "    out = nupp_f32_fma(out, y, 0.000024801587f);",
+        "    out = nupp_f32_fma(out, y, 0.0001984127f);",
+        "    out = nupp_f32_fma(out, y, 0.0013888889f);",
+        "    out = nupp_f32_fma(out, y, 0.0083333333f);",
+        "    out = nupp_f32_fma(out, y, 0.041666667f);",
+        "    out = nupp_f32_fma(out, y, 0.16666667f);",
+        "    out = nupp_f32_fma(out, y, 0.5f);",
+        "    out = nupp_f32_fma(out, y, 1.0f);",
+        "    out = nupp_f32_fma(out, y, 1.0f);",
+        "    out *= out; out *= out; out *= out; out *= out;",
+        "    out *= out; out *= out; out *= out;",
+        "    return out;",
         "}",
         "",
         unused .. "double nupp_min2(double left, double right) {",

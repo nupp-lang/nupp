@@ -12,10 +12,6 @@ A living list, not a design record. Items are removed when completed.
       has no API and the file location varies by distribution.
 ## GPU compute
 
-- [ ] **Define polynomial transcendentals before softmax.** No GPU or libm
-      promises correctly rounded f32 `exp`, so softmax breaks bit-identity
-      before tensor cores do. An IR-defined polynomial over mul/add/fma is the
-      same instruction sequence on both sides and stays exact by construction.
 - [ ] **Fixed-tree reductions over the declared workgroup size.** The CPU
       implementation performs the same tree, so both sides share one specified
       order. No unordered/fast reduction family: a backend-chosen order has no

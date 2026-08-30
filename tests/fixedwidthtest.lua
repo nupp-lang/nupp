@@ -58,10 +58,11 @@ local remainder: uint32 = nupp.math.u32.mod(17, 5)
 local shifted: uint32 = nupp.math.u32.shiftRightLogical(0x80000000, 31)
 local compared: boolean = nupp.math.u32.lessThan(0xffffffff, 0)
 local rounded: float = nupp.math.f32.fma(1.0, 2.0, 3.0)
+local exponential: float = nupp.math.f32.exp(-1.0)
 local floatBits: uint32 = nupp.math.f32.toBits(rounded)
 local halfBits: uint32 = nupp.math.f32.toF16Bits(rounded)
 local widened: float = nupp.math.f32.fromF16Bits(halfBits)
-return si, ui, quotient, remainder, shifted, compared, rounded, floatBits, halfBits, widened
+return si, ui, quotient, remainder, shifted, compared, rounded, exponential, floatBits, halfBits, widened
 ]]
    local result = parser.parse(source, "fixed-width.nupp")
    assertEq(#result.errors, 0, "parse errors")
@@ -499,6 +500,19 @@ function M.binary16StorageConversionsAreBitDefined()
    }
    for single, half in pairs(encode) do
       assertEq(f32.toF16Bits(f32.fromBits(single)), half, ("encode 0x%08x"):format(single))
+   end
+end
+
+function M.binary32ExponentialIsPolynomialAndBounded()
+   local f32 = library().f32
+   assertEq(f32.toBits(f32.exp(0.0)), 0x3f800000, "exp zero")
+   assertEq(f32.toBits(f32.exp(f32.fromBits(0x7fc12345))), 0x7fc00000, "exp NaN")
+   assertEq(f32.toBits(f32.exp(-math.huge)), 0x00000000, "negative saturation")
+   local samples = {-20.0, -10.0, -1.0, 1.0, 10.0, 80.0, 88.0}
+   for _, value in ipairs(samples) do
+      local got = f32.exp(value)
+      local relative = math.abs(got - math.exp(value)) / math.exp(value)
+      assert(relative < 0.00001, ("exp approximation at %g: %.9g"):format(value, relative))
    end
 end
 

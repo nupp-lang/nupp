@@ -113,6 +113,7 @@ local PURE_OPS: {
     i64_sub = true,
     i64_mul = true,
     f32_sqrt = true,
+    f32_exp = true,
     u32_not = true,
     u32_popcount = true,
     u32_ctz = true,

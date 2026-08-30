@@ -51,6 +51,7 @@ for _, operation in ipairs({
     "min",
     "max",
     "fma",
+    "exp",
     "fromBits",
     "toBits",
     "fromF16Bits",

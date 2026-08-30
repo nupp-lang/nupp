@@ -76,6 +76,7 @@ const intensity.ARITHMETIC = {
     ["f32_mul"] = true,
     ["f32_div"] = true,
     ["f32_sqrt"] = true,
+    ["f32_exp"] = true,
     ["f32_min"] = true,
     ["f32_max"] = true,
     ["f32_fma"] = true,

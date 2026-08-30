@@ -2406,6 +2406,10 @@ record nupp.F32MathLibrary
     min: nosuspend function(a: float, b: float): float
     max: nosuspend function(a: float, b: float): float
     fma: nosuspend function(a: float, b: float, c: float): float
+
+    --- A deterministic polynomial exponential, clamped to `[-104, 88]`.
+    --- The specified binary32 operation sequence is shared by CPU and GPU AOT.
+    exp: nosuspend function(value: float): float
     fromBits: nosuspend function(bits: uint32): float
     toBits: nosuspend function(value: float): uint32
 

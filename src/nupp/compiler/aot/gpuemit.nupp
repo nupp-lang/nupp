@@ -201,6 +201,8 @@ function gpuemit.program(program: scalarIR.Program): gpuemit.Artifact
             return (converted as string) .. "(" .. expression(value.value) .. ")"
         elseif op == "f32_sqrt" then
             return "sqrt(" .. expression(value.value) .. ")"
+        elseif op == "f32_exp" then
+            return "nupp_f32_exp(" .. expression(value.value) .. ")"
         end
         error("GPU subset does not emit expression " .. tostring(op), 0)
     end
@@ -349,6 +351,21 @@ function gpuemit.program(program: scalarIR.Program): gpuemit.Artifact
     line(0, "inline float nupp_f32_fma(float a, float b, float c) {")
     line(1, "float out = fma(a, b, c);")
     line(1, "return isnan(out) ? as_type<float>(0x7fc00000u) : out;")
+    line(0, "}")
+    line(0, "inline float nupp_f32_exp(float value) {")
+    line(1, "float x = max(-104.0f, min(value, 88.0f));")
+    line(1, "float y = x * 0.0078125f;")
+    line(1, "float out = 0.0000000020876757f;")
+    for _, coefficient in ipairs({
+        "0.000000025052108f", "0.00000027557319f", "0.0000027557319f",
+        "0.000024801587f", "0.0001984127f", "0.0013888889f",
+        "0.0083333333f", "0.041666667f", "0.16666667f", "0.5f", "1.0f", "1.0f",
+    }) do
+        line(1, "out = nupp_f32_fma(out, y, " .. coefficient .. ");")
+    end
+    line(1, "out *= out; out *= out; out *= out; out *= out;")
+    line(1, "out *= out; out *= out; out *= out;")
+    line(1, "return out;")
     line(0, "}")
     line(0, "inline float nupp_f16_to_f32(uint input) {")
     line(1, "uint bits = input & 0xffffu;")

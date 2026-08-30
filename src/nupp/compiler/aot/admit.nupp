@@ -110,6 +110,7 @@ const admit.FIXED = (function(): {[string]: admit.Fixed}
         new admit.Fixed(identity = "f32.min", op = "f32_min", arity = 2, operand = "f32", result = "f32"),
         new admit.Fixed(identity = "f32.max", op = "f32_max", arity = 2, operand = "f32", result = "f32"),
         new admit.Fixed(identity = "f32.fma", op = "f32_fma", arity = 3, operand = "f32", result = "f32"),
+        new admit.Fixed(identity = "f32.exp", op = "f32_exp", arity = 1, operand = "f32", result = "f32"),
         new admit.Fixed(identity = "f32.fromF16Bits", op = "f16_to_f32", arity = 1, operand = "u32", result = "f32"),
         new admit.Fixed(identity = "f32.toF16Bits", op = "f32_to_f16", arity = 1, operand = "f32", result = "u32"),
         new admit.Fixed(identity = "i32.wrap", op = "numeric_cast", arity = 1, operand = "f64", result = "i32"),

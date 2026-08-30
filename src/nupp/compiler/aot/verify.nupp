@@ -765,9 +765,10 @@ scalarWalk = function(node: scalarIR.Expr, values: {[string]: string}, scope: ve
         )
         scalarWalk(pair.left, values, scope)
         scalarWalk(pair.right, values, scope)
-    elseif op == "f32_sqrt" then
-        holds(node.type == "f32" and node.value.type == "f32", "invalid binary32 square root")
-        scalarWalk(node.value, values, scope)
+    elseif op == "f32_sqrt" or op == "f32_exp" then
+        local unary = node as scalarIR.FixedUnary
+        holds(node.type == "f32" and unary.value.type == "f32", "invalid binary32 unary operation")
+        scalarWalk(unary.value, values, scope)
     elseif op == "u32_not" or op == "u32_popcount" or op == "u32_ctz" or op == "u32_clz" then
         local counted = node as scalarIR.FixedUnary
         holds(node.type == "u32" and counted.value.type == "u32", "invalid uint32 bit count")

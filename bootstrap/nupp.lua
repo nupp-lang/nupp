@@ -3860,6 +3860,7 @@ for _ , entry in ipairs ( { setmetatable({ identity =
 "f32.min" ,  op =  "f32_min" ,  arity =  2 ,  operand =  "f32" ,  result =  "f32" }, admit.Fixed) , setmetatable({ identity =
 "f32.max" ,  op =  "f32_max" ,  arity =  2 ,  operand =  "f32" ,  result =  "f32" }, admit.Fixed) , setmetatable({ identity =
 "f32.fma" ,  op =  "f32_fma" ,  arity =  3 ,  operand =  "f32" ,  result =  "f32" }, admit.Fixed) , setmetatable({ identity =
+"f32.exp" ,  op =  "f32_exp" ,  arity =  1 ,  operand =  "f32" ,  result =  "f32" }, admit.Fixed) , setmetatable({ identity =
 "f32.fromF16Bits" ,  op =  "f16_to_f32" ,  arity =  1 ,  operand =  "u32" ,  result =  "f32" }, admit.Fixed) , setmetatable({ identity =
 "f32.toF16Bits" ,  op =  "f32_to_f16" ,  arity =  1 ,  operand =  "f32" ,  result =  "u32" }, admit.Fixed) , setmetatable({ identity =
 "i32.wrap" ,  op =  "numeric_cast" ,  arity =  1 ,  operand =  "f64" ,  result =  "i32" }, admit.Fixed) , setmetatable({ identity =
@@ -5648,6 +5649,7 @@ i64_add = true ,
 i64_sub = true ,
 i64_mul = true ,
 f32_sqrt = true ,
+f32_exp = true ,
 u32_not = true ,
 u32_popcount = true ,
 u32_ctz = true ,
@@ -6745,6 +6747,8 @@ end
 
 if operation == "f32_sqrt" then
 return "sqrtf(" .. emit . scalar ( ( node ) . value ) .. ")"
+elseif operation == "f32_exp" then
+return "nupp_f32_exp(" .. emit . scalar ( ( node ) . value ) .. ")"
 elseif operation == "u32_not" then
 return "((uint32_t)(~" .. emit . scalar ( ( node ) . value ) .. "))"
 elseif operation == "u32_popcount" then
@@ -9495,6 +9499,26 @@ unused .. "float nupp_f32_max(float left, float right) {" ,
 unused .. "float nupp_f32_fma(float a, float b, float c) {" ,
 "    float out = fmaf(a, b, c);" ,
 "    return out == out ? out : nupp_f32_nan();" ,
+"}" ,
+unused .. "float nupp_f32_exp(float value) {" ,
+"    float x = nupp_f32_max(-104.0f, nupp_f32_min(value, 88.0f));" ,
+"    float y = x * 0.0078125f;" ,
+"    float out = 0.0000000020876757f;" ,
+"    out = nupp_f32_fma(out, y, 0.000000025052108f);" ,
+"    out = nupp_f32_fma(out, y, 0.00000027557319f);" ,
+"    out = nupp_f32_fma(out, y, 0.0000027557319f);" ,
+"    out = nupp_f32_fma(out, y, 0.000024801587f);" ,
+"    out = nupp_f32_fma(out, y, 0.0001984127f);" ,
+"    out = nupp_f32_fma(out, y, 0.0013888889f);" ,
+"    out = nupp_f32_fma(out, y, 0.0083333333f);" ,
+"    out = nupp_f32_fma(out, y, 0.041666667f);" ,
+"    out = nupp_f32_fma(out, y, 0.16666667f);" ,
+"    out = nupp_f32_fma(out, y, 0.5f);" ,
+"    out = nupp_f32_fma(out, y, 1.0f);" ,
+"    out = nupp_f32_fma(out, y, 1.0f);" ,
+"    out *= out; out *= out; out *= out; out *= out;" ,
+"    out *= out; out *= out; out *= out;" ,
+"    return out;" ,
 "}" ,
 "" ,
 unused .. "double nupp_min2(double left, double right) {" ,
@@ -12801,6 +12825,7 @@ if node . op == "neg"
 or node . op == "not"
 or node . op == "bnot"
 or node . op == "f32_sqrt"
+or node . op == "f32_exp"
 or node . op == "u32_not"
 or node . op == "u32_popcount"
 or node . op == "u32_ctz"
@@ -13271,6 +13296,8 @@ assert ( converted ~= nil , "GPU cast needs a fixed-width result" )
 return ( converted ) .. "(" .. expression ( value . value ) .. ")"
 elseif op == "f32_sqrt" then
 return "sqrt(" .. expression ( value . value ) .. ")"
+elseif op == "f32_exp" then
+return "nupp_f32_exp(" .. expression ( value . value ) .. ")"
 end
 error ( "GPU subset does not emit expression " .. tostring ( op ) , 0 )
 end
@@ -13419,6 +13446,21 @@ line ( 0 , "inline uint nupp_u32_mod(uint left, uint right) { return right == 0u
 line ( 0 , "inline float nupp_f32_fma(float a, float b, float c) {" )
 line ( 1 , "float out = fma(a, b, c);" )
 line ( 1 , "return isnan(out) ? as_type<float>(0x7fc00000u) : out;" )
+line ( 0 , "}" )
+line ( 0 , "inline float nupp_f32_exp(float value) {" )
+line ( 1 , "float x = max(-104.0f, min(value, 88.0f));" )
+line ( 1 , "float y = x * 0.0078125f;" )
+line ( 1 , "float out = 0.0000000020876757f;" )
+for _ , coefficient in ipairs ( {
+"0.000000025052108f" , "0.00000027557319f" , "0.0000027557319f" ,
+"0.000024801587f" , "0.0001984127f" , "0.0013888889f" ,
+"0.0083333333f" , "0.041666667f" , "0.16666667f" , "0.5f" , "1.0f" , "1.0f" ,
+} ) do
+line ( 1 , "out = nupp_f32_fma(out, y, " .. coefficient .. ");" )
+end
+line ( 1 , "out *= out; out *= out; out *= out; out *= out;" )
+line ( 1 , "out *= out; out *= out; out *= out;" )
+line ( 1 , "return out;" )
 line ( 0 , "}" )
 line ( 0 , "inline float nupp_f16_to_f32(uint input) {" )
 line ( 1 , "uint bits = input & 0xffffu;" )
@@ -14086,6 +14128,7 @@ intensity . ARITHMETIC = {
 [ "f32_mul" ] = true ,
 [ "f32_div" ] = true ,
 [ "f32_sqrt" ] = true ,
+[ "f32_exp" ] = true ,
 [ "f32_min" ] = true ,
 [ "f32_max" ] = true ,
 [ "f32_fma" ] = true ,
@@ -16312,7 +16355,7 @@ end
 end
 
 if fixed . arity == 1 then
-if fixed . op == "f32_sqrt" or tostring ( fixed . op ) : match ( "^u32_" ) ~= nil then
+if fixed . op == "f32_sqrt" or fixed . op == "f32_exp" or tostring ( fixed . op ) : match ( "^u32_" ) ~= nil then
 return setmetatable({ op =
 fixed . op ,  value =
 args [ 1 ] ,  type =
@@ -25510,6 +25553,68 @@ instruction ( functions , OP . ExtInst , { f32Type , sqrtOut , ext , 31 , sqrtVa
 instruction ( functions , OP . ReturnValue , { sqrtOut } )
 instruction ( functions , OP . FunctionEnd , { } )
 
+
+
+
+local expFn = id ( )
+name ( expFn , "nupp_f32_exp" )
+instruction ( functions , OP . Function , { f32Type , expFn , 0 , fnF32 } )
+local expValue = id ( )
+instruction ( functions , OP . FunctionParameter , { f32Type , expValue } )
+local expLabel = id ( )
+instruction ( functions , OP . Label , { expLabel } )
+local expNan = id ( )
+instruction ( functions , OP . IsNan , { boolType , expNan , expValue } )
+local expCanonical = id ( )
+instruction ( functions , OP . Select , { f32Type , expCanonical , expNan , canonicalNan , expValue } )
+local low = constant ( f32Type , f32Bits ( - 104.0 ) )
+local high = constant ( f32Type , f32Bits ( 88.0 ) )
+local below = id ( )
+instruction ( functions , OP . FOrdLessThan , { boolType , below , expCanonical , low } )
+local clampedLow = id ( )
+instruction ( functions , OP . Select , { f32Type , clampedLow , below , low , expCanonical } )
+local above = id ( )
+instruction ( functions , OP . FOrdGreaterThan , { boolType , above , clampedLow , high } )
+local bounded = id ( )
+instruction ( functions , OP . Select , { f32Type , bounded , above , high , clampedLow } )
+local scaled = id ( )
+instruction ( functions , OP . FMul , { f32Type , scaled , bounded , constant ( f32Type , f32Bits ( 0.0078125 ) ) } )
+decorate ( scaled , DECORATION . NoContraction )
+local polynomial = constant ( f32Type , f32Bits ( 0.0000000020876757 ) )
+for _ , coefficient in ipairs ( {
+0.000000025052108 ,
+0.00000027557319 ,
+0.0000027557319 ,
+0.000024801587 ,
+0.0001984127 ,
+0.0013888889 ,
+0.0083333333 ,
+0.041666667 ,
+0.16666667 ,
+0.5 ,
+1.0 ,
+1.0 ,
+} ) do
+local nextValue = id ( )
+instruction ( functions , OP . FunctionCall , {
+f32Type ,
+nextValue ,
+fmaFn ,
+polynomial ,
+scaled ,
+constant ( f32Type , f32Bits ( coefficient ) ) ,
+} )
+polynomial = nextValue
+end
+for _ = 1 , 7 do
+local squared = id ( )
+instruction ( functions , OP . FMul , { f32Type , squared , polynomial , polynomial } )
+decorate ( squared , DECORATION . NoContraction )
+polynomial = squared
+end
+instruction ( functions , OP . ReturnValue , { polynomial } )
+instruction ( functions , OP . FunctionEnd , { } )
+
 local main = id ( )
 local entryOperands = { 5 , main }
 push ( entryOperands , stringWords ( program . symbol .. "_gpu" ) )
@@ -25713,10 +25818,16 @@ local c = expression ( value . args [ 3 ] )
 local result = id ( )
 instruction ( functions , OP . FunctionCall , { f32Type , result , fmaFn , a , b , c } )
 return result , f32Type
-elseif op == "f16_to_f32" or op == "f32_to_f16" or op == "f32_sqrt" then
+elseif op == "f16_to_f32" or op == "f32_to_f16" or op == "f32_sqrt" or op == "f32_exp" then
 local input = expression ( value . value )
 local resultType = op == "f32_to_f16" and u32Type or f32Type
-local helper = op == "f16_to_f32" and halfToFloatFn or op == "f32_to_f16" and floatToHalfFn or sqrtFn
+local helper = op == "f16_to_f32"
+and halfToFloatFn
+or op == "f32_to_f16"
+and floatToHalfFn
+or op == "f32_exp"
+and expFn
+or sqrtFn
 local result = id ( )
 instruction ( functions , OP . FunctionCall , { resultType , result , helper , input } )
 return result , resultType
@@ -26358,6 +26469,7 @@ text . ONE_OPERAND = {
 [ "not" ] = true ,
 [ "bnot" ] = true ,
 [ "f32_sqrt" ] = true ,
+[ "f32_exp" ] = true ,
 [ "u32_not" ] = true ,
 [ "u32_popcount" ] = true ,
 [ "u32_ctz" ] = true ,
@@ -27721,9 +27833,10 @@ node . type == element and pair . left . type == element and pair . right . type
 )
 scalarWalk ( pair . left , values , scope )
 scalarWalk ( pair . right , values , scope )
-elseif op == "f32_sqrt" then
-holds ( node . type == "f32" and node . value . type == "f32" , "invalid binary32 square root" )
-scalarWalk ( node . value , values , scope )
+elseif op == "f32_sqrt" or op == "f32_exp" then
+local unary = node
+holds ( node . type == "f32" and unary . value . type == "f32" , "invalid binary32 unary operation" )
+scalarWalk ( unary . value , values , scope )
 elseif op == "u32_not" or op == "u32_popcount" or op == "u32_ctz" or op == "u32_clz" then
 local counted = node
 holds ( node . type == "u32" and counted . value . type == "u32" , "invalid uint32 bit count" )
@@ -29975,7 +30088,7 @@ local value = node
 value . value = rewrite ( value . value )
 __nuppT8= nil
 
-elseif  __nuppT7== "f32_sqrt"  or  __nuppT7== "u32_not"  or  __nuppT7== "u32_popcount"  or  __nuppT7== "u32_ctz"  or  __nuppT7== "u32_clz"  then
+elseif  __nuppT7== "f32_sqrt"  or  __nuppT7== "f32_exp"  or  __nuppT7== "u32_not"  or  __nuppT7== "u32_popcount"  or  __nuppT7== "u32_ctz"  or  __nuppT7== "u32_clz"  then
 local value = node
 value . value = rewrite ( value . value )
 __nuppT8= nil
@@ -141483,7 +141596,10 @@ The integer namespaces wrap modulo 2^32; shift counts are masked by 31 and
 signedness is stated by the operation. The binary32 namespace rounds every
 input and result to nearest, ties to even. It preserves signed zero,
 subnormals, and infinities, canonicalizes every NaN, and makes `fma` one fused
-operation. `fromBits` and `toBits` expose the canonical bit contract.
+operation. `exp` clamps to `[-104, 88]`, evaluates one specified degree-12
+binary32 polynomial, and squares seven times; it never delegates to host or
+device transcendental libraries. `fromBits` and `toBits` expose the canonical
+bit contract.
 
 Calls use Lua numbers in canonical ranges rather than allocating scalar cdata.
 Aliasing a standard member preserves its intrinsic identity; shadowing the name
@@ -145969,6 +146085,35 @@ local carry = sum - product
 return rounddd ( sum , ( product - ( sum - carry ) ) + ( addend - carry ) )
 end
 
+
+
+
+
+
+
+function f32 . exp ( value ) 
+local x = f32 . max ( - 104.0 , f32 . min ( value , 88.0 ) )
+local y = f32 . mul ( x , 0.0078125 )
+local out = f32 . narrow ( 0.0000000020876757 )
+out = f32 . fma ( out , y , 0.000000025052108 )
+out = f32 . fma ( out , y , 0.00000027557319 )
+out = f32 . fma ( out , y , 0.0000027557319 )
+out = f32 . fma ( out , y , 0.000024801587 )
+out = f32 . fma ( out , y , 0.0001984127 )
+out = f32 . fma ( out , y , 0.0013888889 )
+out = f32 . fma ( out , y , 0.0083333333 )
+out = f32 . fma ( out , y , 0.041666667 )
+out = f32 . fma ( out , y , 0.16666667 )
+out = f32 . fma ( out , y , 0.5 )
+out = f32 . fma ( out , y , 1.0 )
+out = f32 . fma ( out , y , 1.0 )
+for _ = 1 , 7 do
+out = f32 . mul ( out , out )
+end
+
+return out
+end
+
 function f32 . fromBits ( bits ) 
 return putbits ( ui32 ( bits ) )
 end
@@ -147518,6 +147663,7 @@ for _ , operation in ipairs ( {
 "min" ,
 "max" ,
 "fma" ,
+"exp" ,
 "fromBits" ,
 "toBits" ,
 "fromF16Bits" ,
@@ -199379,6 +199525,10 @@ record nupp.F32MathLibrary
     min: nosuspend function(a: float, b: float): float
     max: nosuspend function(a: float, b: float): float
     fma: nosuspend function(a: float, b: float, c: float): float
+
+    --- A deterministic polynomial exponential, clamped to `[-104, 88]`.
+    --- The specified binary32 operation sequence is shared by CPU and GPU AOT.
+    exp: nosuspend function(value: float): float
     fromBits: nosuspend function(bits: uint32): float
     toBits: nosuspend function(value: float): uint32
 
@@ -200309,6 +200459,35 @@ function f32.fma(a: number, c: number, d: number): number
     local carry = sum - product
 
     return rounddd(sum, (product - (sum - carry)) + (addend - carry))
+end
+
+--- A deterministic binary32 exponential polynomial.
+---
+--- Clamp the useful finite range, approximate exp(x / 128) with a degree-12
+--- Taylor polynomial in Horner form, then square seven times. Every step names
+--- its binary32 rounding explicitly; AOT lowering expands this call to the
+--- same primitive IR rather than delegating to a host or shader math library.
+function f32.exp(value: number): number
+    local x = f32.max(-104.0, f32.min(value, 88.0))
+    local y = f32.mul(x, 0.0078125)
+    local out = f32.narrow(0.0000000020876757)
+    out = f32.fma(out, y, 0.000000025052108)
+    out = f32.fma(out, y, 0.00000027557319)
+    out = f32.fma(out, y, 0.0000027557319)
+    out = f32.fma(out, y, 0.000024801587)
+    out = f32.fma(out, y, 0.0001984127)
+    out = f32.fma(out, y, 0.0013888889)
+    out = f32.fma(out, y, 0.0083333333)
+    out = f32.fma(out, y, 0.041666667)
+    out = f32.fma(out, y, 0.16666667)
+    out = f32.fma(out, y, 0.5)
+    out = f32.fma(out, y, 1.0)
+    out = f32.fma(out, y, 1.0)
+    for _ = 1, 7 do
+        out = f32.mul(out, out)
+    end
+
+    return out
 end
 
 function f32.fromBits(bits: number): number

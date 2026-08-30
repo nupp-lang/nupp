@@ -1229,7 +1229,7 @@ local function fixedCall(
     end
 
     if fixed.arity == 1 then
-        if fixed.op == "f32_sqrt" or tostring(fixed.op):match("^u32_") ~= nil then
+        if fixed.op == "f32_sqrt" or fixed.op == "f32_exp" or tostring(fixed.op):match("^u32_") ~= nil then
             return new scalarIR.FixedUnary(
                 op = fixed.op as scalarIR.FixedUnaryOp,
                 value = args[1],

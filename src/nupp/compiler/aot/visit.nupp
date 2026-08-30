@@ -251,7 +251,7 @@ function visit.expressionChildren(node: scalarIR.Expr, rewrite: visit.ScalarRewr
             value.value = rewrite(value.value)
             yield nil
         end
-        case "f32_sqrt", "u32_not", "u32_popcount", "u32_ctz", "u32_clz" -> do
+        case "f32_sqrt", "f32_exp", "u32_not", "u32_popcount", "u32_ctz", "u32_clz" -> do
             local value = node as scalarIR.FixedUnary
             value.value = rewrite(value.value)
             yield nil

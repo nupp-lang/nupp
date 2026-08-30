@@ -582,6 +582,35 @@ function f32.fma(a: number, c: number, d: number): number
     return rounddd(sum, (product - (sum - carry)) + (addend - carry))
 end
 
+--- A deterministic binary32 exponential polynomial.
+---
+--- Clamp the useful finite range, approximate exp(x / 128) with a degree-12
+--- Taylor polynomial in Horner form, then square seven times. Every step names
+--- its binary32 rounding explicitly; AOT lowering expands this call to the
+--- same primitive IR rather than delegating to a host or shader math library.
+function f32.exp(value: number): number
+    local x = f32.max(-104.0, f32.min(value, 88.0))
+    local y = f32.mul(x, 0.0078125)
+    local out = f32.narrow(0.0000000020876757)
+    out = f32.fma(out, y, 0.000000025052108)
+    out = f32.fma(out, y, 0.00000027557319)
+    out = f32.fma(out, y, 0.0000027557319)
+    out = f32.fma(out, y, 0.000024801587)
+    out = f32.fma(out, y, 0.0001984127)
+    out = f32.fma(out, y, 0.0013888889)
+    out = f32.fma(out, y, 0.0083333333)
+    out = f32.fma(out, y, 0.041666667)
+    out = f32.fma(out, y, 0.16666667)
+    out = f32.fma(out, y, 0.5)
+    out = f32.fma(out, y, 1.0)
+    out = f32.fma(out, y, 1.0)
+    for _ = 1, 7 do
+        out = f32.mul(out, out)
+    end
+
+    return out
+end
+
 function f32.fromBits(bits: number): number
     return putbits(ui32(bits))
 end

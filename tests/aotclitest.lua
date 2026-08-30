@@ -202,6 +202,47 @@ return {roundTrip = roundTrip, roundTripCpu = roundTripCpu}
     assert(c:find("uint16_t *restrict p_packed", 1, true), c)
 end
 
+function M.gpuTargetUsesTheIrPolynomialExponential()
+    local dir = project({
+        ["exp.nupp"] = [[
+local span = require("nupp.mem.span")
+
+@aot(target = "gpu")
+local function exponential(
+    exclusive output: span.WriteSpan<float>,
+    borrows input: span.Span<float>
+): nil
+    assert(#output == #input, "length mismatch")
+    for i = 1, #output do
+        output[i] = nupp.math.f32.exp(nupp.math.f32.narrow(input[i]))
+    end
+end
+
+@aot
+local function exponentialCpu(
+    exclusive output: span.WriteSpan<float>,
+    borrows input: span.Span<float>
+): nil
+    assert(#output == #input, "length mismatch")
+    for i = 1, #output do
+        output[i] = nupp.math.f32.exp(nupp.math.f32.narrow(input[i]))
+    end
+end
+return {exponential = exponential, exponentialCpu = exponentialCpu}
+]],
+    })
+    local shader, shaderCode = run(dir, "--emit msl exp.nupp")
+    test.equal(shaderCode, 0, shader)
+    assert(shader:find("nupp_f32_exp", 1, true), shader)
+    assert(shader:find("0.0078125", 1, true), shader)
+    assert(not shader:find("spvUnsafeArray", 1, true), shader)
+
+    local c, cCode = run(dir, "--emit c exp.nupp")
+    test.equal(cCode, 0, c)
+    assert(c:find("nupp_f32_exp", 1, true), c)
+    assert(c:find("nupp_f32_fma(out, y", 1, true), c)
+end
+
 -- Spans a matrix product relates by dimension, not equality: the guard names
 -- only the index spans, every a/b access is a proved cursor, and the shader
 -- keeps each dominating bound check against the span counts in its uniforms.

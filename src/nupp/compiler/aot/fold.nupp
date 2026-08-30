@@ -760,6 +760,7 @@ local function removalSafe(node: scalarIR.Expr, replacement: scalarIR.Expr, cont
         or node.op == "not"
         or node.op == "bnot"
         or node.op == "f32_sqrt"
+        or node.op == "f32_exp"
         or node.op == "u32_not"
         or node.op == "u32_popcount"
         or node.op == "u32_ctz"

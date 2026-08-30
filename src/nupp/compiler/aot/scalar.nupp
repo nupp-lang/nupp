@@ -622,7 +622,7 @@ record scalarIR.Fixed
 end
 
 --- `nupp.math.f32.sqrt`, which takes one operand.
-type scalarIR.FixedUnaryOp = 'f32_sqrt' | 'u32_not' | 'u32_popcount' | 'u32_ctz' | 'u32_clz'
+type scalarIR.FixedUnaryOp = 'f32_sqrt' | 'f32_exp' | 'u32_not' | 'u32_popcount' | 'u32_ctz' | 'u32_clz'
 
 record scalarIR.FixedUnary
     op: scalarIR.FixedUnaryOp

@@ -1487,7 +1487,10 @@ The integer namespaces wrap modulo 2^32; shift counts are masked by 31 and
 signedness is stated by the operation. The binary32 namespace rounds every
 input and result to nearest, ties to even. It preserves signed zero,
 subnormals, and infinities, canonicalizes every NaN, and makes `fma` one fused
-operation. `fromBits` and `toBits` expose the canonical bit contract.
+operation. `exp` clamps to `[-104, 88]`, evaluates one specified degree-12
+binary32 polynomial, and squares seven times; it never delegates to host or
+device transcendental libraries. `fromBits` and `toBits` expose the canonical
+bit contract.
 
 Calls use Lua numbers in canonical ranges rather than allocating scalar cdata.
 Aliasing a standard member preserves its intrinsic identity; shadowing the name

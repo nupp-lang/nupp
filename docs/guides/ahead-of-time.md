@@ -1245,6 +1245,12 @@ canonical NaN where IEEE `minNum` returns the operand that is not NaN. Both are
 repaired by a select, so they are admitted with a correction rather than left
 out.
 
+`nupp.math.f32.exp` is instead defined by the scalar IR itself: clamp the input
+to `[-104, 88]`, evaluate a degree-12 Taylor polynomial for `exp(x / 128)` in
+Horner order with `fma`, then square seven times. The interpreter, native C,
+SPIR-V, and derived Metal shader execute that same binary32 sequence; none asks
+a platform math library to choose a result.
+
 A width changes only at a conversion the IR writes down. An operator never
 changes one, which is what keeps `float` a storage fact rather than an
 arithmetic type:

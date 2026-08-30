@@ -592,6 +592,68 @@ function spirv.program(
     instruction(functions, OP.ReturnValue, {sqrtOut})
     instruction(functions, OP.FunctionEnd, {})
 
+    -- The transcendental is an IR-owned binary32 operation sequence, not a
+    -- GLSL.std.450 exponential. Keep the Horner polynomial and seven squarings
+    -- here in exactly the order used by the interpreter and native C helper.
+    local expFn = id()
+    name(expFn, "nupp_f32_exp")
+    instruction(functions, OP.Function, {f32Type, expFn, 0, fnF32})
+    local expValue = id()
+    instruction(functions, OP.FunctionParameter, {f32Type, expValue})
+    local expLabel = id()
+    instruction(functions, OP.Label, {expLabel})
+    local expNan = id()
+    instruction(functions, OP.IsNan, {boolType, expNan, expValue})
+    local expCanonical = id()
+    instruction(functions, OP.Select, {f32Type, expCanonical, expNan, canonicalNan, expValue})
+    local low = constant(f32Type, f32Bits(-104.0))
+    local high = constant(f32Type, f32Bits(88.0))
+    local below = id()
+    instruction(functions, OP.FOrdLessThan, {boolType, below, expCanonical, low})
+    local clampedLow = id()
+    instruction(functions, OP.Select, {f32Type, clampedLow, below, low, expCanonical})
+    local above = id()
+    instruction(functions, OP.FOrdGreaterThan, {boolType, above, clampedLow, high})
+    local bounded = id()
+    instruction(functions, OP.Select, {f32Type, bounded, above, high, clampedLow})
+    local scaled = id()
+    instruction(functions, OP.FMul, {f32Type, scaled, bounded, constant(f32Type, f32Bits(0.0078125))})
+    decorate(scaled, DECORATION.NoContraction)
+    local polynomial = constant(f32Type, f32Bits(0.0000000020876757))
+    for _, coefficient in ipairs({
+        0.000000025052108,
+        0.00000027557319,
+        0.0000027557319,
+        0.000024801587,
+        0.0001984127,
+        0.0013888889,
+        0.0083333333,
+        0.041666667,
+        0.16666667,
+        0.5,
+        1.0,
+        1.0,
+    }) do
+        local nextValue = id()
+        instruction(functions, OP.FunctionCall, {
+            f32Type,
+            nextValue,
+            fmaFn,
+            polynomial,
+            scaled,
+            constant(f32Type, f32Bits(coefficient)),
+        })
+        polynomial = nextValue
+    end
+    for _ = 1, 7 do
+        local squared = id()
+        instruction(functions, OP.FMul, {f32Type, squared, polynomial, polynomial})
+        decorate(squared, DECORATION.NoContraction)
+        polynomial = squared
+    end
+    instruction(functions, OP.ReturnValue, {polynomial})
+    instruction(functions, OP.FunctionEnd, {})
+
     local main = id()
     local entryOperands = {5, main}
     push(entryOperands, stringWords(program.symbol .. "_gpu"))
@@ -795,10 +857,16 @@ function spirv.program(
             local result = id()
             instruction(functions, OP.FunctionCall, {f32Type, result, fmaFn, a, b, c})
             return result, f32Type
-        elseif op == "f16_to_f32" or op == "f32_to_f16" or op == "f32_sqrt" then
+        elseif op == "f16_to_f32" or op == "f32_to_f16" or op == "f32_sqrt" or op == "f32_exp" then
             local input = expression(value.value)
             local resultType = op == "f32_to_f16" and u32Type or f32Type
-            local helper = op == "f16_to_f32" and halfToFloatFn or op == "f32_to_f16" and floatToHalfFn or sqrtFn
+            local helper = op == "f16_to_f32"
+                and halfToFloatFn
+                or op == "f32_to_f16"
+                and floatToHalfFn
+                or op == "f32_exp"
+                and expFn
+                or sqrtFn
             local result = id()
             instruction(functions, OP.FunctionCall, {resultType, result, helper, input})
             return result, resultType
