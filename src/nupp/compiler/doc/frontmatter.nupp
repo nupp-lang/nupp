@@ -21,6 +21,10 @@ local frontmatter = {}
 --- because such a document still reads correctly and only loses what the fields would
 --- have configured.
 function frontmatter.parse(source: string): {[string]: string}, string
+    -- A Windows checkout hands markdown over with CRLF endings, and the block is
+    -- recognized by exact `---\n` lines, so normalize before looking for either
+    -- delimiter rather than losing every field to a stray carriage return.
+    source = source:gsub("\r\n?", "\n")
     if source:sub(1, 4) ~= "---\n" then
         return {}, source
     end

@@ -186,13 +186,11 @@ local function renderedCodeBlockHtml(block, links)
 end
 
 local function codeGroupHtml(blocks, links)
-    local labeled = {}
+    local captioned = false
     for _, block in ipairs(blocks) do
-        if block.caption then
-            labeled[#labeled + 1] = block
-        end
+        captioned = captioned or block.caption ~= nil
     end
-    if #labeled == 0 then
+    if not captioned then
         local out = {'<div class="nuppdoc-code-group" role="group">'}
         for _, block in ipairs(blocks) do
             out[#out + 1] = renderedCodeBlockHtml(block, links)
@@ -205,19 +203,23 @@ local function codeGroupHtml(blocks, links)
     local out = {'<div class="nuppdoc-code-group" role="radiogroup"' .. ' aria-label="Code examples">'}
     -- The tab inputs and labels live in their own row, separate from the
     -- panels: that's what lets the row scroll horizontally on overflow
-    -- (see .nuppdoc-code-tabs in nupp.css) instead of wrapping tabs onto a
+    -- (see .nuppdoc-code-tabs in the theme) instead of wrapping tabs onto a
     -- second line, which read as broken for long captions like file paths.
     out[#out + 1] = '<div class="nuppdoc-code-tabs">'
-    for index, block in ipairs(labeled) do
+    for index, block in ipairs(blocks) do
+        -- A fence that named no caption still gets a tab, titled by its
+        -- language, rather than silently vanishing from the group.
         local id = name .. "-" .. tostring(index)
         out[
             #out + 1
         ] = '<input class="nuppdoc-code-tab-input" type="radio"' .. ' name="' .. name .. '" id="' .. id .. '"' .. (
             index == 1 and " checked" or ""
-        ) .. '><label class="nuppdoc-code-tab" for="' .. id .. '">' .. htmlEscape(block.caption) .. "</label>"
+        ) .. '><label class="nuppdoc-code-tab" for="' .. id .. '">' .. htmlEscape(
+            block.caption or block.language
+        ) .. "</label>"
     end
     out[#out + 1] = "</div>"
-    for index, block in ipairs(labeled) do
+    for _, block in ipairs(blocks) do
         out[#out + 1] = '<figure class="nuppdoc-code-panel">' .. renderedCodeBlockHtml(block, links) .. "</figure>"
     end
     out[#out + 1] = "</div>"

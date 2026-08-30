@@ -298,11 +298,10 @@
   white-space: nowrap;
 }
 
-/* The base theme's `input:checked + label + panel` selector assumed the
- * panel was the input's next sibling; it's now a sibling of .nuppdoc-code-tabs
- * instead, one level up, so :has() re-pairs each panel with the input at
- * the same position within the tab row. Fifteen slots covers any code
- * group on the site today with headroom to spare. */
+/* The base theme pairs each panel with the input at the same position in the
+ * tab row the same way now; these rules are restated so this stylesheet stands
+ * on its own. Fifteen slots covers any code group on the site today with
+ * headroom to spare. */
 .nuppdoc-code-panel {
   display: none;
 }

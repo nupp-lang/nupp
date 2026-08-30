@@ -2754,6 +2754,65 @@ function M.fencedBlocksKeepTheirOptions()
    assert(laterOption:find("<span>9</span>", 1, true), laterOption)
 end
 
+-- A group where only some fences carry captions still shows every fence: the
+-- uncaptioned ones tab under their language rather than silently vanishing.
+function M.aCodeGroupKeepsItsUncaptionedFences()
+   local html = require("nupp.compiler.doc.html")
+   local group = html.markdownHtml(table.concat({
+      "::: code-group", "", "```lua [one]", "print(1)", "```", "",
+      "```sh", "echo hi", "```", "", ":::",
+   }, "\n"), {})
+   assert(group:find(">one</label>", 1, true), group)
+   assert(group:find(">sh</label>", 1, true), group)
+   assert(group:find("echo", 1, true), group)
+   local _, panels = group:gsub("nuppdoc%-code%-panel", "")
+   assert(panels == 2, "expected both fences to render: " .. group)
+end
+
+-- The tab inputs live in their own row, so the panel is no longer its input's
+-- next sibling; the theme has to pair each panel with the input at the same
+-- position, or a tabbed group renders its tabs above nothing at all.
+function M.themePairsCodeGroupPanelsWithTheirTabs()
+   local doc = require("nupp.compiler.doc")
+   assert(doc.theme:find(
+      ".nuppdoc-code-group:has(.nuppdoc-code-tabs>input:nth-of-type(1):checked)"
+      .. " .nuppdoc-code-panel:nth-of-type(1)", 1, true), "panels are not re-paired")
+   assert(not doc.theme:find(
+      ".nuppdoc-code-tab-input:checked+.nuppdoc-code-tab+.nuppdoc-code-panel",
+      1, true), "the stale adjacent-sibling pairing is still in the theme")
+end
+
+-- Markdown is the one tree .gitattributes leaves to the platform, so a Windows
+-- checkout hands every page over with CRLF endings. The block is recognized by
+-- exact `---` lines, and a stray carriage return must not cost a page its
+-- route, title, order, and redirects.
+function M.frontmatterSurvivesWindowsLineEndings()
+   local frontmatter = require("nupp.compiler.doc.frontmatter")
+   local fields, body = frontmatter.parse(
+      "---\r\ntitle: Guide\r\nredirects: old/guide\r\n---\r\n\r\nBody\r\n")
+   assert(fields.title == "Guide", tostring(fields.title))
+   assert(fields.redirects == "old/guide", tostring(fields.redirects))
+   assert(body == "Body\n", ("%q"):format(body))
+end
+
+-- The same endings must not cost a collection's document its title and status.
+function M.collectionFrontmatterSurvivesWindowsLineEndings()
+   local collection = require("nupp.compiler.doc.collection")
+   local dir = tempProject({
+      ["docs/neps/0001-example.md"] = "---\r\ntitle: Example\r\nstatus: Draft\r\n"
+         .. "---\r\n\r\n## Why\r\n",
+   })
+   local pages = assert(collection.expand(dir, {
+      directory = "docs/neps", path = "neps", title = "NEPs",
+   }))
+   local page = pages[2]
+   assert(page, "the collection published no document")
+   assert(page.name == "Example", page.name)
+   assert(page.status == "Draft", tostring(page.status))
+   assert(page.title == "NEP 1: Example", page.title)
+   os.execute("rm -rf '" .. dir .. "'")
+end
+
 -- A Nupp example is highlighted text until it asks for an editor, and a request to
 -- number an excerpt's lines outranks that ask.
 function M.nuppFencesBecomeInlinePlaygroundsOnRequest()
