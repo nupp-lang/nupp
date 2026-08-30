@@ -446,6 +446,37 @@ function M.communicateClosesStdinWhenTheChildEndsEarly()
    assertTrue(closedOnTheWayOut, "and communicate closed its stdin before returning")
 end
 
+function M.aGoneStdinIsLeftOutOfTheWriteInterest()
+   -- A broken pipe polls permanently ready, so a gone stdin left in the write set
+   -- would make every wait return instantly and the drain loop spin until the
+   -- outputs reach their end. Once the far end has gone there is nothing left to
+   -- wait for on that stream, and the interest must say so.
+   local backend = fakeBackend({
+      inputChunk = 1,
+      stopsReadingAfter = 1,
+      outDelay = 2,
+      out = {"data"},
+      err = {},
+      eofWhenExited = true,
+      code = 0,
+   })
+   local child
+   local waitedOnGoneStdin = false
+   local baseWait = backend.waitReady
+   backend.waitReady = function(self, interest, timeoutMs)
+      if child ~= nil and child.stdin ~= nil and child.stdin.gone and #interest.write > 0 then
+         waitedOnGoneStdin = true
+      end
+      return baseWait(self, interest, timeoutMs)
+   end
+   child = process.spawnOn(backend, {args = {"head"}})
+   local result = assert(child:communicate({input = "abc"}))
+   child:close()
+   assertEq(result.output, "data", "the outputs were still drained to the end")
+   assertTrue(not waitedOnGoneStdin,
+      "and no wait named a stdin whose far end had gone")
+end
+
 function M.aStepThatAnswersFailureIsNotMistakenForSuccess()
    -- There are two ways to fail in a teardown and `pcall` sees only one. A step that
    -- raises is caught; a step that answers `false` and a reason returns perfectly
@@ -1057,6 +1088,29 @@ function M.aDeadlineSignalsOnlyOnceWhileTerminationTakesTime()
    assertTrue(exit.timedOut, "the deadline fired")
    assertEq(backend.state.kills, 1,
       "and asked exactly once, however many polls dying took")
+end
+
+function M.waitsKeepBlockingWhileAKilledChildTakesItsTimeToDie()
+   -- Once the deadline has fired there is nothing left for it to bound: what
+   -- remains of it is negative forever, and a budget still clamped to it would
+   -- turn every wait into a non-blocking poll -- a busy loop until the killed
+   -- child's exit is finally observed.
+   local backend = fakeBackend({out = {}, err = {}, exitAfter = nil})
+   backend.state.killLag = 3
+   local zeroBudgets = 0
+   local baseWait = backend.waitReady
+   backend.waitReady = function(self, interest, timeoutMs)
+      if timeoutMs == 0 then
+         zeroBudgets = zeroBudgets + 1
+      end
+      return baseWait(self, interest, timeoutMs)
+   end
+   local child = process.spawnOn(backend, {args = {"stubborn"}, timeoutMs = 30})
+   local exit = child:wait()
+   child:close()
+   assertTrue(exit.timedOut, "the deadline fired")
+   assertEq(zeroBudgets, 0,
+      "and the waits for the dying child kept their full budget")
 end
 
 function M.closeWaitsForAKilledChildToFinish()

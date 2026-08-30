@@ -597,6 +597,57 @@ function M.aLineOfExactlyTheLimitIsAccepted()
    listener:close()
 end
 
+-- A reader answering a scripted run of chunks, then the end. A socket cannot
+-- promise where a stream splits into reads, and the cases below are about
+-- exactly that split, so the source is scripted rather than served.
+local function chunkedReader(chunks)
+   local at = 0
+   return {
+      read = function(_self, _count)
+         if at >= #chunks then
+            return ""
+         end
+         at = at + 1
+         return chunks[at]
+      end,
+      close = function(_self) end,
+   }
+end
+
+function M.aLimitLengthLineSplitBeforeItsLineFeedIsStillAccepted()
+   -- The same bytes `aLineOfExactlyTheLimitIsAccepted` sends, with the CRLF
+   -- terminator split across reads. A held trailing carriage return may be
+   -- half of a terminator, so it must not count against the limit before the
+   -- next chunk says which it was: a line's acceptance cannot depend on where
+   -- its bytes happened to fall.
+   local lines = io_.newLines(chunkedReader({"abcde\r", "\n"}), 5)
+   assertEq(assert(lines:read()), "abcde", "the line is accepted at a 5-byte limit")
+   assertEq(lines:read(), nil, "and then the stream ends")
+   lines:close()
+end
+
+function M.aTrailingCarriageReturnCountsAgainstTheLimitAtTheEnd()
+   -- At the end of the stream a carriage return with no line feed after it is
+   -- line content, so the byte of grace granted while more could still arrive
+   -- is taken back once nothing more can.
+   local lines = io_.newLines(chunkedReader({"abcde\r"}), 5)
+   local line, why = lines:read()
+   assertEq(line, nil, "a 6-byte unterminated tail is refused at a 5-byte limit")
+   assertTrue(why ~= nil and why:find("longer than the limit", 1, true) ~= nil,
+      "for being longer than the limit")
+   lines:close()
+end
+
+function M.aCarriageReturnWithinTheLimitIsContentAtTheEnd()
+   -- The bytes after the last terminator are a line, carriage return included:
+   -- with nothing following it, it terminated nothing.
+   local lines = io_.newLines(chunkedReader({"abcd\r"}), 5)
+   assertEq(assert(lines:read()), "abcd\r",
+      "an unterminated tail keeps its carriage return")
+   assertEq(lines:read(), nil, "and then the stream ends")
+   lines:close()
+end
+
 function M.aBorrowedWriterFlushesTheSameQueue()
    -- The view writes into the connection's queue, so it has to be able to wait
    -- on it: a writer that reported success while bytes were queued would let a

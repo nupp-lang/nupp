@@ -1864,7 +1864,12 @@ local record LineReader is Lines
             -- No terminator yet. A line that never ends is not a line, and
             -- growing until it does is how a peer takes the process down, so
             -- the bound is checked before asking for more rather than after.
-            if #self._held - self._at > self._limit then
+            -- A trailing carriage return gets one byte of grace, because it
+            -- may be half of a terminator split across chunks: without it a
+            -- line of exactly the allowed length would be refused or kept
+            -- depending on where the chunks happened to fall.
+            local grace = self._held:sub(-1) == "\r" and 1 or 0
+            if #self._held - self._at > self._limit + grace then
                 return nil, "a line was longer than the limit"
             end
             if self._ended then
@@ -1872,6 +1877,12 @@ local record LineReader is Lines
                     return nil
                 end
                 const rest = self._held:sub(self._at + 1)
+                -- At the end a trailing carriage return is line content, not
+                -- half a terminator, so the grace granted while more could
+                -- still arrive is taken back here.
+                if #rest > self._limit then
+                    return nil, "a line was longer than the limit"
+                end
                 self._held = ""
                 self._at = 0
 

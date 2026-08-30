@@ -996,7 +996,11 @@ record process.Process
                     read[#read + 1] = stderr.handle
                 end
                 local write: {any} = {}
-                if stdin ~= nil and not stdin.closed and sent < #pending then
+                -- Gone is excluded the way closed is: a broken pipe polls ready
+                -- forever, so putting it in the write set would make every wait
+                -- return immediately and the drain loop spin until the outputs
+                -- reach end of file.
+                if stdin ~= nil and not stdin.closed and not stdin.gone and sent < #pending then
                     write[#write + 1] = stdin.handle
                 end
 
@@ -1346,7 +1350,11 @@ local BLOCKING_WAIT_MS = 20
 -- would report the timeout late by however much it overslept.
 local function blockOnce(self: any, interest: process.Interest, stopAt: number?): nil
     local budget = BLOCKING_WAIT_MS
-    if self.deadline ~= nil then
+    -- Only until it fires. Once `timedOut` is set the deadline is in the past and
+    -- what remains of it is negative forever, so clamping to it would pin every
+    -- wait to zero and spin on non-blocking polls until the killed child's exit
+    -- is observed.
+    if self.deadline ~= nil and not self.timedOut then
         local remaining = self.deadline - self.backend:now()
         if remaining < budget then
             budget = remaining > 0 and remaining or 0
@@ -1762,6 +1770,18 @@ nativeBackend = function(): process.Backend
             if MODE[errorMode] == nil then
                 error("nupp: process has no stderr mode named " .. tostring(errorMode), 0)
             end
+            -- Built before the request exists. Concatenating a non-string
+            -- environment value and rendering the working directory can both
+            -- raise, and a raise between `SpawnBegin` and `SpawnRun` that does
+            -- not go through `configured` leaks the request.
+            local entries: {string} = {}
+            for key, value in pairs(options.env or {}) do
+                entries[#entries + 1] = key .. "=" .. value
+            end
+            local cwd: string? = nil
+            if options.cwd ~= nil then
+                cwd = type(options.cwd) == "string" and options.cwd as string or (options.cwd as any):toString()
+            end
             local request = C.nuppProcessSpawnBegin()
             if request == nil then
                 error(reason("nupp: could not begin process spawn"), 0)
@@ -1770,12 +1790,10 @@ nativeBackend = function(): process.Backend
                 configured(C.nuppProcessSpawnArg(request, argument, #argument), request, "argument")
             end
             configured(C.nuppProcessSpawnClearEnv(request, options.clearEnv == true), request, "environment mode")
-            for key, value in pairs(options.env or {}) do
-                local entry = key .. "=" .. value
+            for _, entry in ipairs(entries) do
                 configured(C.nuppProcessSpawnEnv(request, entry, #entry), request, "environment")
             end
-            if options.cwd ~= nil then
-                local cwd = type(options.cwd) == "string" and options.cwd as string or (options.cwd as any):toString()
+            if cwd ~= nil then
                 configured(C.nuppProcessSpawnCwd(request, cwd, #cwd), request, "working directory")
             end
             configured(C.nuppProcessSpawnStdio(request, 0, MODE[inputMode]), request, "stdin")
