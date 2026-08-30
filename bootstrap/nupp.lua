@@ -151139,6 +151139,8 @@ local triviaarena = { }
 
 
 
+
+
 local selected
 
 
@@ -151207,6 +151209,11 @@ return self . count
 end
 
 function FfiArena : record ( index ) 
+
+
+if index < 1 or index > self . count then
+error ( "nupp: trivia record " .. index .. " is outside 1.." .. self . count , 2 )
+end
 local at = ( index - 1 ) * STRIDE
 do
 return self . words [
@@ -151256,6 +151263,9 @@ return self . count
 end
 
 function TableArena : record ( index ) 
+if index < 1 or index > self . count then
+error ( "nupp: trivia record " .. index .. " is outside 1.." .. self . count , 2 )
+end
 local at = ( index - 1 ) * STRIDE
 
 return self . words [ at + 1 ] , self . words [ at + 2 ] , self . words [ at + 3 ] , self . words [ at + 4 ] , self . words [ at + 5 ]
