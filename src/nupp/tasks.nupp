@@ -922,7 +922,7 @@ tasks.run = run
 --- @raises the cancellation, where the deadline passed first
 local function runForImpl(milliseconds: number, body: any): ...any
     if milliseconds ~= milliseconds or milliseconds < 0 or milliseconds == math.huge then
-        error("nupp: a task deadline must be a finite non-negative number", 3)
+        error("nupp: a task deadline must be a finite non-negative number", 2)
     end
     local deadline = timeRuntime().now() + milliseconds
     -- The earlier of the two, always. A nested scope may bound itself more tightly
