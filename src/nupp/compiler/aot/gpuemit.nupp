@@ -238,6 +238,10 @@ function gpuemit.program(program: scalarIR.Program): gpuemit.Artifact
             return "nupp_f16_to_f32(" .. expression(value.value) .. ")"
         elseif op == "f32_to_f16" then
             return "nupp_f32_to_f16(" .. expression(value.value) .. ")"
+        elseif op == "bf16_to_f32" then
+            return "nupp_bf16_to_f32(" .. expression(value.value) .. ")"
+        elseif op == "f32_to_bf16" then
+            return "nupp_f32_to_bf16(" .. expression(value.value) .. ")"
         elseif op == "widen_f32_f64" then
             return expression(value.value)
         elseif op == "numeric_cast" then
@@ -247,7 +251,7 @@ function gpuemit.program(program: scalarIR.Program): gpuemit.Artifact
         elseif op == "f32_sqrt" then
             return "sqrt(" .. expression(value.value) .. ")"
         elseif op == "f32_exp" then
-            return "nupp_f32_exp(" .. expression(value.value) .. ")"
+            return (program.fpTranscendentals == true and "exp(" or "nupp_f32_exp(") .. expression(value.value) .. ")"
         end
         error("GPU subset does not emit expression " .. tostring(op), 0)
     end
@@ -380,7 +384,7 @@ function gpuemit.program(program: scalarIR.Program): gpuemit.Artifact
 
     line(0, "#include <metal_stdlib>")
     line(0, "using namespace metal;")
-    line(0, "#pragma clang fp contract(off)")
+    line(0, "#pragma clang fp contract(" .. (program.fpContract == true and "fast" or "off") .. ")")
     line(0, "")
     for _, layout in ipairs(program.layouts or {}) do
         line(0, "struct " .. identifier(layout.name) .. " {")
@@ -491,6 +495,17 @@ function gpuemit.program(program: scalarIR.Program): gpuemit.Artifact
     line(1, "uint halfway = 1u << (shift - 1u);")
     line(1, "return sign | (out + (remainder > halfway || (remainder == halfway && (out & 1u)) ? 1u : 0u));")
     line(0, "}")
+    line(0, "inline float nupp_bf16_to_f32(uint input) {")
+    line(1, "uint bits = (input & 0xffffu) << 16u;")
+    line(1, "if ((bits & 0x7fffffffu) > 0x7f800000u) bits = 0x7fc00000u;")
+    line(1, "return as_type<float>(bits);")
+    line(0, "}")
+    line(0, "inline uint nupp_f32_to_bf16(float value) {")
+    line(1, "uint bits = as_type<uint>(value);")
+    line(1, "if ((bits & 0x7fffffffu) > 0x7f800000u) return 0x7fc0u;")
+    line(1, "uint upper = bits >> 16u;")
+    line(1, "return (bits + 0x7fffu + (upper & 1u)) >> 16u;")
+    line(0, "}")
     line(0, "")
     line(0, "kernel void " .. identifier(program.symbol) .. "_gpu(")
     local arguments: {string} = {"constant NuppUniforms& uniforms [[buffer(0)]]"}
@@ -544,7 +559,7 @@ function gpuemit.program(program: scalarIR.Program): gpuemit.Artifact
     local spirv = spirvemit.program(program, readonly, writable, uniforms, threads)
 
     return new gpuemit.Artifact(
-        source = spirvemit.deriveMsl(spirv),
+        source = spirvemit.deriveMsl(spirv, program.fpContract),
         spirv = spirv,
         entrypoint = identifier(program.symbol) .. "_gpu",
         readonly = readonly,

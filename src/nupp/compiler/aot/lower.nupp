@@ -1032,6 +1032,7 @@ local function spanRead(
             cursor = cursor,
             cursorCName = cursorBinding ~= nil and cursorBinding.cName or nil,
             type = element.type,
+            sourceType = param.sourceType,
             source = lower.site(node)
         ),
         lower.site(node)
@@ -5408,6 +5409,9 @@ record lower.Contract
     --- answers rather than only how fast it gets there.
     fpContract: boolean
 
+    --- Whether fixed-width transcendentals may select a native implementation.
+    fpTranscendentals: boolean
+
     --- Whether lane lowering is attempted at all.
     wantsLanes: boolean
 
@@ -5430,6 +5434,7 @@ function lower.contract(
     local contract = new lower.Contract(
         target = body.aotTarget == "gpu" and "gpu" or "cpu",
         fpContract = relaxed ~= nil and relaxed["fp-contract"] == true,
+        fpTranscendentals = relaxed ~= nil and relaxed["fp-transcendentals"] == true,
         wantsLanes = body.lanesDeclined ~= true,
         lanesRequired = body.lanesRequired == true
     )
@@ -5475,6 +5480,8 @@ function lower.contract(
                 end
                 if text == "fp-contract" then
                     contract.fpContract = true
+                elseif text == "fp-transcendentals" then
+                    contract.fpTranscendentals = true
                 end
             end
         end
@@ -5803,6 +5810,7 @@ function lower.program(
             entryMode = "kernel",
             executionTarget = "gpu",
             fpContract = contract.fpContract,
+            fpTranscendentals = contract.fpTranscendentals,
             wantsLanes = false,
             lanesRequired = false,
             params = signature.params,
@@ -5912,6 +5920,7 @@ function lower.program(
             runtimeAbi = kernel.usesLua and "lua-5.1" or nil,
             registrar = kernel.usesLua and symbol .. "_register" or nil,
             fpContract = contract.fpContract,
+            fpTranscendentals = contract.fpTranscendentals,
             wantsLanes = false,
             lanesRequired = false,
             params = signature.params,
@@ -6039,6 +6048,7 @@ function lower.program(
         entryMode = "kernel",
         executionTarget = contract.target,
         fpContract = contract.fpContract,
+        fpTranscendentals = contract.fpTranscendentals,
         wantsLanes = contract.wantsLanes,
         lanesRequired = contract.lanesRequired,
         params = signature.params,

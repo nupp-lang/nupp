@@ -1,0 +1,39 @@
+module nupp.quant
+
+-- Portable quantized-inference scalar building blocks. Storage stays in the
+-- ordinary fixed-width span types; accumulation is explicit binary32 so CPU
+-- and GPU kernels share the same authored arithmetic.
+
+local quant = {}
+
+--- Converts one signed int8 value with an affine scale and zero point.
+--- @export
+function quant.dequantizeI8(value: int32, scale: float, zeroPoint: int32): float
+    local centered = nupp.math.i32.sub(value, zeroPoint)
+    return nupp.math.f32.mul(nupp.math.f32.narrow(centered as number), scale)
+end
+
+--- Decodes one signed two's-complement int4 nibble from the low four bits.
+--- @export
+function quant.signedI4(bits: uint32): int32
+    local nibble = nupp.math.u32.andBits(bits, nupp.math.u32.wrap(15))
+    local value = nupp.math.i32.fromU32(nibble)
+    if nibble >= nupp.math.u32.wrap(8) then
+        return nupp.math.i32.sub(value, nupp.math.i32.wrap(16))
+    end
+
+    return value
+end
+
+--- Extracts and dequantizes the low or high signed int4 in one byte.
+--- @export
+function quant.dequantizeI4(packed: uint32, high: boolean, scale: float, zeroPoint: int32): float
+    local bits = packed
+    if high then
+        bits = nupp.math.u32.shiftRightLogical(bits, 4)
+    end
+
+    return quant.dequantizeI8(quant.signedI4(bits), scale, zeroPoint)
+end
+
+export = quant

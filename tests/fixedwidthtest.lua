@@ -503,6 +503,37 @@ function M.binary16StorageConversionsAreBitDefined()
    end
 end
 
+function M.bfloat16StorageConversionsAreBitDefined()
+   local f32 = library().f32
+   local decode = {
+      [0x0000] = 0x00000000,
+      [0x8000] = 0x80000000,
+      [0x3f80] = 0x3f800000,
+      [0xbf80] = 0xbf800000,
+      [0x7f80] = 0x7f800000,
+      [0xff80] = 0xff800000,
+      [0x7fc1] = 0x7fc00000,
+   }
+   for short, single in pairs(decode) do
+      assertEq(f32.toBits(f32.fromBF16Bits(short)), single, ("decode 0x%04x"):format(short))
+   end
+
+   local encode = {
+      [0x00000000] = 0x0000,
+      [0x80000000] = 0x8000,
+      [0x3f800000] = 0x3f80,
+      [0x3f808000] = 0x3f80,
+      [0x3f818000] = 0x3f82,
+      [0x7f800000] = 0x7f80,
+      [0xff800000] = 0xff80,
+      [0x7fc12345] = 0x7fc0,
+      [0xffc12345] = 0x7fc0,
+   }
+   for single, short in pairs(encode) do
+      assertEq(f32.toBF16Bits(f32.fromBits(single)), short, ("encode 0x%08x"):format(single))
+   end
+end
+
 function M.binary32ExponentialIsPolynomialAndBounded()
    local f32 = library().f32
    assertEq(f32.toBits(f32.exp(0.0)), 0x3f800000, "exp zero")

@@ -29,6 +29,7 @@ local explicitScalar = false
 local independentSpanCounts = true
 local reusableScratchName: string? = nil
 local builderEager = false
+local fpTranscendentals = false
 
 ----------------------------------------------------------------------------
 -- Names, types and literals
@@ -427,7 +428,13 @@ function emit.scalar(node: scalarIR.Expr): string
         local index = loaded.cursorCName ~= nil and "((size_t)" .. tostring(
             loaded.cursorCName
         ) .. ")" or loaded.indexCName == "i" and "i" or "((size_t)(" .. tostring(loaded.indexCName) .. " - 1))"
-        return "p_" .. loaded.span .. "[" .. index .. "]"
+        local access = "p_" .. loaded.span .. "[" .. index .. "]"
+        if loaded.sourceType == "int8" or loaded.sourceType == "int16" then
+            return "((int32_t)" .. access .. ")"
+        elseif loaded.sourceType == "uint8" or loaded.sourceType == "uint16" then
+            return "((uint32_t)" .. access .. ")"
+        end
+        return access
     elseif operation == "element_ref" then
         local referenced = node as scalarIR.ElementRef
         local index = referenced.cursorCName ~= nil and "((size_t)" .. tostring(
@@ -683,6 +690,10 @@ function emit.scalar(node: scalarIR.Expr): string
         return "nupp_f16_to_f32(" .. emit.scalar((node as scalarIR.Convert).value) .. ")"
     elseif operation == "f32_to_f16" then
         return "nupp_f32_to_f16(" .. emit.scalar((node as scalarIR.Convert).value) .. ")"
+    elseif operation == "bf16_to_f32" then
+        return "nupp_bf16_to_f32(" .. emit.scalar((node as scalarIR.Convert).value) .. ")"
+    elseif operation == "f32_to_bf16" then
+        return "nupp_f32_to_bf16(" .. emit.scalar((node as scalarIR.Convert).value) .. ")"
     elseif operation == "widen_f32_f64" or operation == "int_to_f64" then
         return "((double)" .. emit.scalar((node as scalarIR.Convert).value) .. ")"
     elseif operation == "numeric_cast" then
@@ -809,7 +820,9 @@ function emit.scalarCall(node: scalarIR.Expr): string
     if operation == "f32_sqrt" then
         return "sqrtf(" .. emit.scalar((node as scalarIR.FixedUnary).value) .. ")"
     elseif operation == "f32_exp" then
-        return "nupp_f32_exp(" .. emit.scalar((node as scalarIR.FixedUnary).value) .. ")"
+        return (
+            fpTranscendentals and "expf(" or "nupp_f32_exp("
+        ) .. emit.scalar((node as scalarIR.FixedUnary).value) .. ")"
     elseif operation == "u32_not" then
         return "((uint32_t)(~" .. emit.scalar((node as scalarIR.FixedUnary).value) .. "))"
     elseif operation == "u32_popcount" then
@@ -990,6 +1003,7 @@ function emit.begin(): nil
     luaTemporary = 0
     explicitWidth = 0
     explicitScalar = false
+    fpTranscendentals = false
 end
 
 --- Expands a vector operation one lane at a time, each operand evaluated once.
@@ -3535,6 +3549,17 @@ local function scalarHelpers(): {string}
         "    uint32_t halfway = UINT32_C(1) << (shift - 1u);",
         "    return sign | (out + (remainder > halfway || (remainder == halfway && (out & 1u)) ? 1u : 0u));",
         "}",
+        unused .. "float nupp_bf16_to_f32(uint32_t input) {",
+        "    uint32_t bits = (input & UINT32_C(0xffff)) << 16u;",
+        "    if ((bits & UINT32_C(0x7fffffff)) > UINT32_C(0x7f800000)) bits = UINT32_C(0x7fc00000);",
+        "    float out; memcpy(&out, &bits, sizeof(out)); return out;",
+        "}",
+        unused .. "uint32_t nupp_f32_to_bf16(float value) {",
+        "    uint32_t bits = nupp_f32_bits(value);",
+        "    if ((bits & UINT32_C(0x7fffffff)) > UINT32_C(0x7f800000)) return UINT32_C(0x7fc0);",
+        "    uint32_t upper = bits >> 16u;",
+        "    return (bits + UINT32_C(0x7fff) + (upper & 1u)) >> 16u;",
+        "}",
         "/* `-0.0f == 0.0f`, so an equal pair is where the two zeros have to be",
         " * told apart by their sign bit. Returning one of the operands rather",
         " * than a literal keeps this independent of how the compiler folds a",
@@ -5942,6 +5967,7 @@ function emit.program(programs: {scalarIR.Program}, tier: string?): string
         explicitWidth = program.simdWidth or 0
         reusableScratchName = program.reusableScratch
         builderEager = program.builderMode == "eager"
+        fpTranscendentals = program.fpTranscendentals == true
         -- Byte tables the body reads that were known when it was compiled, at
         -- file scope so the compiler has their contents and their alignment. A
         -- read spells these exactly as it spells a rooted argument, which is

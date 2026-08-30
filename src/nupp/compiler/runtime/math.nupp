@@ -685,6 +685,33 @@ function f32.toF16Bits(value: number): number
     return sign + out
 end
 
+--- Decodes the low sixteen bits as IEEE bfloat16 and widens exactly.
+function f32.fromBF16Bits(value: number): number
+    local bits = (ui32(value) % 65536) * 65536
+    local magnitude = bits % 2147483648
+    if magnitude > PINF then
+        bits = CANON
+    end
+
+    return putbits(bits)
+end
+
+--- Rounds one binary32 to IEEE bfloat16 bits, ties to even.
+function f32.toBF16Bits(value: number): number
+    local bits = bits32(round32(value))
+    local magnitude = bits % 2147483648
+    if magnitude > PINF then
+        return 32704 -- 0x7fc0, the canonical quiet NaN.
+    end
+    local upper = math.floor(bits / 65536)
+    local lower = bits % 65536
+    if lower > 32768 or lower == 32768 and upper % 2 == 1 then
+        upper = (upper + 1) % 65536
+    end
+
+    return upper
+end
+
 --- Two-dimensional vectors, carried as a pair of numbers rather than a table.
 ---
 --- Every operation takes and answers loose components, so a vector never has to be

@@ -163,6 +163,17 @@ function M.relaxationsUseAClosedSetOfObservableGuarantees()
         "NUPP2112")
 end
 
+function M.numericRelaxationsRemainExplicitPerFunctionGrants()
+    local codes, result = checked(table.concat({
+        '@relax("fp-contract", "fp-transcendentals")',
+        "local function inference() end",
+    }, "\n"))
+    assertEq(codes, "")
+    local declaration = result.root.blocks[1].stats[1].stat
+    assertEq(declaration.relaxedGuarantees["fp-contract"], true)
+    assertEq(declaration.relaxedGuarantees["fp-transcendentals"], true)
+end
+
 function M.constMarksBodylessDeclarationBindings()
     local source = table.concat({
         "const service: function(): integer",

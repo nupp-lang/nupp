@@ -1,0 +1,27 @@
+module fastmath
+
+local span = require("nupp.mem.span")
+
+@aot(target = "gpu")
+local function exactExp(exclusive output: span.WriteSpan<float>, borrows input: span.Span<float>): nil
+    if #output ~= #input then
+        error("length mismatch", 2)
+    end
+    for i = 1, #output do
+        output[i] = nupp.math.f32.exp(nupp.math.f32.narrow(input[i]))
+    end
+end
+
+@relax("fp-transcendentals")
+@aot(target = "gpu")
+local function nativeExp(exclusive output: span.WriteSpan<float>, borrows input: span.Span<float>): nil
+    if #output ~= #input then
+        error("length mismatch", 2)
+    end
+    for i = 1, #output do
+        output[i] = nupp.math.f32.exp(nupp.math.f32.narrow(input[i]))
+    end
+end
+
+export const exact = exactExp
+export const native = nativeExp

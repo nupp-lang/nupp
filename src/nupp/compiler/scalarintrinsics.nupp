@@ -56,6 +56,8 @@ for _, operation in ipairs({
     "toBits",
     "fromF16Bits",
     "toF16Bits",
+    "fromBF16Bits",
+    "toBF16Bits",
 }) do
     PATHS["nupp.math.f32." .. operation] = "f32." .. operation
 end

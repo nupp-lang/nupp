@@ -476,7 +476,11 @@ function resolve.install(c: state.Checker): nil
             origin.moduleName == "nupp.mem.soa" and (
                 origin.name == "Array" or origin.name == "Span" or origin.name == "WriteSpan"
             )
-        ) or origin.moduleName == "nupp.mem.heap" and origin.name == "Array"
+        )
+            or origin.moduleName == "nupp.mem.heap"
+            and origin.name == "Array"
+            or origin.moduleName == "nupp.gpu"
+            and origin.name == "Buffer"
         if not storageGeneric then
             local typePosition = 1
             for position, kind in ipairs(t.paramKinds or {}) do

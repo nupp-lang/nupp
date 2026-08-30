@@ -209,6 +209,78 @@ return api
     assert(not output:find("stack traceback", 1, true), output)
 end
 
+function M.gpuTargetHonoursPerFunctionFpContraction()
+    local dir = project({
+        ["relaxed.nupp"] = [[
+local span = require("nupp.mem.span")
+
+@relax("fp-contract")
+@aot(target = "gpu")
+local function relaxed(
+    exclusive output: span.WriteSpan<float>,
+    borrows input: span.Span<float>,
+    scale: float,
+    bias: float
+): nil
+    assert(#output == #input, "length mismatch")
+    for i = 1, #output do
+        output[i] = nupp.math.f32.add(
+            nupp.math.f32.mul(nupp.math.f32.narrow(input[i]), scale),
+            bias
+        )
+    end
+end
+return {relaxed = relaxed}
+]],
+    })
+    local shader, code = run(dir, "--emit msl relaxed.nupp")
+    test.equal(code, 0, shader)
+    assert(shader:find("#pragma clang fp contract(fast)", 1, true), shader)
+    assert(shader:find(" * ", 1, true), shader)
+    assert(shader:find(" + ", 1, true), shader)
+    assert(not shader:find("spvFMul", 1, true), shader)
+    assert(not shader:find("spvFAdd", 1, true), shader)
+end
+
+function M.aotUsesNativeTranscendentalsOnlyWhenGranted()
+    local dir = project({
+        ["native-exp.nupp"] = [[
+local span = require("nupp.mem.span")
+
+@relax("fp-transcendentals")
+@aot(target = "gpu")
+local function nativeExp(
+    exclusive output: span.WriteSpan<float>,
+    borrows input: span.Span<float>
+): nil
+    assert(#output == #input, "length mismatch")
+    for i = 1, #output do
+        output[i] = nupp.math.f32.exp(nupp.math.f32.narrow(input[i]))
+    end
+end
+
+@relax("fp-transcendentals")
+@aot
+local function nativeExpCpu(value: float): float
+    return nupp.math.f32.exp(value)
+end
+
+return {nativeExp = nativeExp, nativeExpCpu = nativeExpCpu}
+]],
+    })
+    local shader, shaderCode = run(dir, "--emit msl native-exp.nupp")
+    test.equal(shaderCode, 0, shader)
+    assert(shader:find(" = exp(", 1, true), shader)
+
+    local c, cCode = run(dir, "--emit c native-exp.nupp")
+    test.equal(cCode, 0, c)
+    assert(c:find("expf(", 1, true), c)
+
+    local ir, irCode = run(dir, "--emit ir native-exp.nupp")
+    test.equal(irCode, 0, ir)
+    assert(ir:find("contract fp-transcendentals(native)", 1, true), ir)
+end
+
 function M.gpuTargetLoadsAndStoresBinary16Bits()
     local dir = project({
         ["half.nupp"] = [[
@@ -241,7 +313,40 @@ local function roundTripCpu(
         packed[i] = nupp.math.f32.toF16Bits(value)
     end
 end
-return {roundTrip = roundTrip, roundTripCpu = roundTripCpu}
+
+@aot(target = "gpu")
+local function roundTripBf16(
+    exclusive output: span.WriteSpan<float>,
+    exclusive packed: span.WriteSpan<uint16>,
+    borrows input: span.Span<uint16>
+): nil
+    assert(#output == #packed and #output == #input, "length mismatch")
+    for i = 1, #output do
+        local value = nupp.math.f32.fromBF16Bits(input[i])
+        output[i] = value
+        packed[i] = nupp.math.f32.toBF16Bits(value)
+    end
+end
+
+@aot
+local function roundTripBf16Cpu(
+    exclusive output: span.WriteSpan<float>,
+    exclusive packed: span.WriteSpan<uint16>,
+    borrows input: span.Span<uint16>
+): nil
+    assert(#output == #packed and #output == #input, "length mismatch")
+    for i = 1, #output do
+        local value = nupp.math.f32.fromBF16Bits(input[i])
+        output[i] = value
+        packed[i] = nupp.math.f32.toBF16Bits(value)
+    end
+end
+return {
+    roundTrip = roundTrip,
+    roundTripCpu = roundTripCpu,
+    roundTripBf16 = roundTripBf16,
+    roundTripBf16Cpu = roundTripBf16Cpu,
+}
 ]],
     })
     local shader, code = run(dir, "--emit msl half.nupp")
@@ -250,10 +355,14 @@ return {roundTrip = roundTrip, roundTripCpu = roundTripCpu}
     assert(shader:find("float nupp_f16_to_f32", 1, true), shader)
     assert(shader:find("uint nupp_f32_to_f16", 1, true), shader)
     assert(shader:find("ushort(nupp_f32_to_f16", 1, true), shader)
+    assert(shader:find("float nupp_bf16_to_f32", 1, true), shader)
+    assert(shader:find("uint nupp_f32_to_bf16", 1, true), shader)
+    assert(shader:find("ushort(nupp_f32_to_bf16", 1, true), shader)
 
     local c, cCode = run(dir, "--emit c half.nupp")
     test.equal(cCode, 0, c)
     assert(c:find("nupp_f16_to_f32", 1, true), c)
+    assert(c:find("nupp_bf16_to_f32", 1, true), c)
     assert(c:find("uint16_t *restrict p_packed", 1, true), c)
 end
 

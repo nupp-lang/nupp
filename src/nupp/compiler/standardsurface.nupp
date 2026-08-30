@@ -69,6 +69,7 @@ local MODULES = {
     ["nupp.profile"] = {kind = "unavailable", capability = "cinterop"},
     ["nupp.profile.trace"] = {kind = "unavailable", capability = "cinterop"},
     ["nupp.profile.zone"] = {kind = "unavailable", capability = "cinterop"},
+    ["nupp.quant"] = {kind = "common"},
     ["nupp.simd"] = selected("compile", "numeric.simd"),
     ["nupp.suspension"] = {kind = "common"},
     ["nupp.tasks"] = {kind = "common"},

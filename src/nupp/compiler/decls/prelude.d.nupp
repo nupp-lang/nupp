@@ -2419,6 +2419,12 @@ record nupp.F32MathLibrary
 
     --- Rounds binary32 to IEEE binary16 storage bits, ties to even.
     toF16Bits: nosuspend function(value: float): uint32
+
+    --- Widens the low sixteen IEEE bfloat16 storage bits to binary32.
+    fromBF16Bits: nosuspend function(bits: uint32): float
+
+    --- Rounds binary32 to IEEE bfloat16 storage bits, ties to even.
+    toBF16Bits: nosuspend function(value: float): uint32
 end
 
 --- @internal

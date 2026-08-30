@@ -1,0 +1,152 @@
+module quantgemv
+
+local span = require("nupp.mem.span")
+
+@aot(target = "gpu")
+local function q8(
+    exclusive output: span.WriteSpan<float>,
+    borrows weights: span.Span<int8>,
+    borrows input: span.Span<float>,
+    width: uint32,
+    scale: float,
+    zeroPoint: int32
+): nil
+    for i = 1, #output do
+        local row = nupp.math.u32.sub(nupp.math.u32.wrap(i), nupp.math.u32.wrap(1))
+        local column: uint32 = 0
+        local total: float = 0.0
+        while column < width do
+            local weightCursor = nupp.math.u32.add(nupp.math.u32.mul(row, width), column)
+            local inputCursor = column
+            if weightCursor < #weights then
+                local centered = nupp.math.i32.sub(weights[weightCursor + 1], zeroPoint)
+                local weight = nupp.math.f32.mul(nupp.math.f32.narrow(centered as number), scale)
+                if inputCursor < #input then
+                    total = nupp.math.f32.fma(weight, nupp.math.f32.narrow(input[inputCursor + 1]), total)
+                end
+            end
+            column = nupp.math.u32.add(column, nupp.math.u32.wrap(1))
+        end
+        output[i] = total
+    end
+end
+
+@aot
+local function q8Cpu(
+    exclusive output: span.WriteSpan<float>,
+    borrows weights: span.Span<int8>,
+    borrows input: span.Span<float>,
+    width: uint32,
+    scale: float,
+    zeroPoint: int32
+): nil
+    for i = 1, #output do
+        local row = nupp.math.u32.sub(nupp.math.u32.wrap(i), nupp.math.u32.wrap(1))
+        local column: uint32 = 0
+        local total: float = 0.0
+        while column < width do
+            local weightCursor = nupp.math.u32.add(nupp.math.u32.mul(row, width), column)
+            local inputCursor = column
+            if weightCursor < #weights then
+                local centered = nupp.math.i32.sub(weights[weightCursor + 1], zeroPoint)
+                local weight = nupp.math.f32.mul(nupp.math.f32.narrow(centered as number), scale)
+                if inputCursor < #input then
+                    total = nupp.math.f32.fma(weight, nupp.math.f32.narrow(input[inputCursor + 1]), total)
+                end
+            end
+            column = nupp.math.u32.add(column, nupp.math.u32.wrap(1))
+        end
+        output[i] = total
+    end
+end
+
+@aot(target = "gpu")
+local function q4(
+    exclusive output: span.WriteSpan<float>,
+    borrows weights: span.Span<uint8>,
+    borrows input: span.Span<float>,
+    width: uint32,
+    scale: float,
+    zeroPoint: int32
+): nil
+    for i = 1, #output do
+        local packedWidth = nupp.math.u32.div(width, nupp.math.u32.wrap(2))
+        local row = nupp.math.u32.sub(nupp.math.u32.wrap(i), nupp.math.u32.wrap(1))
+        local column: uint32 = 0
+        local total: float = 0.0
+        while column < width do
+            local weightCursor = nupp.math.u32.add(
+                nupp.math.u32.mul(row, packedWidth),
+                nupp.math.u32.div(column, nupp.math.u32.wrap(2))
+            )
+            local inputCursor = column
+            if weightCursor < #weights then
+                local high = nupp.math.u32.mod(column, nupp.math.u32.wrap(2)) == nupp.math.u32.wrap(1)
+                local bits = nupp.math.u32.wrap(weights[weightCursor + 1])
+                if high then
+                    bits = nupp.math.u32.shiftRightLogical(bits, 4)
+                end
+                local nibble = nupp.math.u32.andBits(bits, nupp.math.u32.wrap(15))
+                local signed = nupp.math.i32.fromU32(nibble)
+                if nibble >= nupp.math.u32.wrap(8) then
+                    signed = nupp.math.i32.sub(signed, nupp.math.i32.wrap(16))
+                end
+                local centered = nupp.math.i32.sub(signed, zeroPoint)
+                local weight = nupp.math.f32.mul(nupp.math.f32.narrow(centered as number), scale)
+                if inputCursor < #input then
+                    total = nupp.math.f32.fma(weight, nupp.math.f32.narrow(input[inputCursor + 1]), total)
+                end
+            end
+            column = nupp.math.u32.add(column, nupp.math.u32.wrap(1))
+        end
+        output[i] = total
+    end
+end
+
+@aot
+local function q4Cpu(
+    exclusive output: span.WriteSpan<float>,
+    borrows weights: span.Span<uint8>,
+    borrows input: span.Span<float>,
+    width: uint32,
+    scale: float,
+    zeroPoint: int32
+): nil
+    for i = 1, #output do
+        local packedWidth = nupp.math.u32.div(width, nupp.math.u32.wrap(2))
+        local row = nupp.math.u32.sub(nupp.math.u32.wrap(i), nupp.math.u32.wrap(1))
+        local column: uint32 = 0
+        local total: float = 0.0
+        while column < width do
+            local weightCursor = nupp.math.u32.add(
+                nupp.math.u32.mul(row, packedWidth),
+                nupp.math.u32.div(column, nupp.math.u32.wrap(2))
+            )
+            local inputCursor = column
+            if weightCursor < #weights then
+                local high = nupp.math.u32.mod(column, nupp.math.u32.wrap(2)) == nupp.math.u32.wrap(1)
+                local bits = nupp.math.u32.wrap(weights[weightCursor + 1])
+                if high then
+                    bits = nupp.math.u32.shiftRightLogical(bits, 4)
+                end
+                local nibble = nupp.math.u32.andBits(bits, nupp.math.u32.wrap(15))
+                local signed = nupp.math.i32.fromU32(nibble)
+                if nibble >= nupp.math.u32.wrap(8) then
+                    signed = nupp.math.i32.sub(signed, nupp.math.i32.wrap(16))
+                end
+                local centered = nupp.math.i32.sub(signed, zeroPoint)
+                local weight = nupp.math.f32.mul(nupp.math.f32.narrow(centered as number), scale)
+                if inputCursor < #input then
+                    total = nupp.math.f32.fma(weight, nupp.math.f32.narrow(input[inputCursor + 1]), total)
+                end
+            end
+            column = nupp.math.u32.add(column, nupp.math.u32.wrap(1))
+        end
+        output[i] = total
+    end
+end
+
+export const int8 = q8
+export const int8Cpu = q8Cpu
+export const int4 = q4
+export const int4Cpu = q4Cpu

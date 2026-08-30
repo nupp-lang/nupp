@@ -660,6 +660,53 @@ function spirv.program(
     instruction(functions, OP.ReturnValue, {packedLow})
     instruction(functions, OP.FunctionEnd, {})
 
+    local bf16ToFloatFn = id()
+    name(bf16ToFloatFn, "nupp_bf16_to_f32")
+    instruction(functions, OP.Function, {f32Type, bf16ToFloatFn, 0, fnF32FromU32})
+    local bf16Bits = id()
+    instruction(functions, OP.FunctionParameter, {u32Type, bf16Bits})
+    local bf16LoadLabel = id()
+    instruction(functions, OP.Label, {bf16LoadLabel})
+    local bf16Low = id()
+    instruction(functions, OP.BitwiseAnd, {u32Type, bf16Low, bf16Bits, lowMask})
+    local bf16Wide = id()
+    instruction(functions, OP.ShiftLeftLogical, {u32Type, bf16Wide, bf16Low, constant(u32Type, 16)})
+    local bf16Value = id()
+    instruction(functions, OP.Bitcast, {f32Type, bf16Value, bf16Wide})
+    local bf16Nan = id()
+    instruction(functions, OP.IsNan, {boolType, bf16Nan, bf16Value})
+    local bf16Out = id()
+    instruction(functions, OP.Select, {f32Type, bf16Out, bf16Nan, canonicalNan, bf16Value})
+    instruction(functions, OP.ReturnValue, {bf16Out})
+    instruction(functions, OP.FunctionEnd, {})
+
+    local floatToBf16Fn = id()
+    name(floatToBf16Fn, "nupp_f32_to_bf16")
+    instruction(functions, OP.Function, {u32Type, floatToBf16Fn, 0, fnF32})
+    local bf16Input = id()
+    instruction(functions, OP.FunctionParameter, {f32Type, bf16Input})
+    local bf16StoreLabel = id()
+    instruction(functions, OP.Label, {bf16StoreLabel})
+    local bf16InputNan = id()
+    instruction(functions, OP.IsNan, {boolType, bf16InputNan, bf16Input})
+    local bf16InputBits = id()
+    instruction(functions, OP.Bitcast, {u32Type, bf16InputBits, bf16Input})
+    local bf16Upper = id()
+    instruction(functions, OP.ShiftRightLogical, {u32Type, bf16Upper, bf16InputBits, constant(u32Type, 16)})
+    local bf16Lsb = id()
+    instruction(functions, OP.BitwiseAnd, {u32Type, bf16Lsb, bf16Upper, constant(u32Type, 1)})
+    local bf16Bias = id()
+    instruction(functions, OP.IAdd, {u32Type, bf16Bias, constant(u32Type, 32767), bf16Lsb})
+    local bf16Rounded = id()
+    instruction(functions, OP.IAdd, {u32Type, bf16Rounded, bf16InputBits, bf16Bias})
+    local bf16Stored = id()
+    instruction(functions, OP.ShiftRightLogical, {u32Type, bf16Stored, bf16Rounded, constant(u32Type, 16)})
+    local bf16Canonical = constant(u32Type, 32704)
+    local bf16Result = id()
+    instruction(functions, OP.Select, {u32Type, bf16Result, bf16InputNan, bf16Canonical, bf16Stored})
+    instruction(functions, OP.ReturnValue, {bf16Result})
+    instruction(functions, OP.FunctionEnd, {})
+
     local sqrtFn = id()
     name(sqrtFn, "nupp_f32_sqrt")
     instruction(functions, OP.Function, {f32Type, sqrtFn, 0, fnF32})
@@ -698,7 +745,9 @@ function spirv.program(
     instruction(functions, OP.Select, {f32Type, bounded, above, high, clampedLow})
     local scaled = id()
     instruction(functions, OP.FMul, {f32Type, scaled, bounded, constant(f32Type, f32Bits(0.0078125))})
-    decorate(scaled, DECORATION.NoContraction)
+    if program.fpContract ~= true then
+        decorate(scaled, DECORATION.NoContraction)
+    end
     local polynomial = constant(f32Type, f32Bits(0.0000000020876757))
     for _, coefficient in ipairs({
         0.000000025052108,
@@ -728,7 +777,9 @@ function spirv.program(
     for _ = 1, 7 do
         local squared = id()
         instruction(functions, OP.FMul, {f32Type, squared, polynomial, polynomial})
-        decorate(squared, DECORATION.NoContraction)
+        if program.fpContract ~= true then
+            decorate(squared, DECORATION.NoContraction)
+        end
         polynomial = squared
     end
     instruction(functions, OP.ReturnValue, {polynomial})
@@ -986,13 +1037,28 @@ function spirv.program(
             local result = id()
             instruction(functions, OP.FunctionCall, {f32Type, result, op == "f32_min" and minFn or maxFn, left, right,})
             return result, f32Type
-        elseif op == "f16_to_f32" or op == "f32_to_f16" or op == "f32_sqrt" or op == "f32_exp" then
+        elseif op == "f16_to_f32"
+            or op == "f32_to_f16"
+            or op == "bf16_to_f32"
+            or op == "f32_to_bf16"
+            or op == "f32_sqrt"
+            or op == "f32_exp"
+        then
             local input = expression(value.value)
-            local resultType = op == "f32_to_f16" and u32Type or f32Type
+            local resultType = (op == "f32_to_f16" or op == "f32_to_bf16") and u32Type or f32Type
+            if op == "f32_exp" and program.fpTranscendentals == true then
+                local result = id()
+                instruction(functions, OP.ExtInst, {f32Type, result, ext, 27, input})
+                return result, f32Type
+            end
             local helper = op == "f16_to_f32"
                 and halfToFloatFn
                 or op == "f32_to_f16"
                 and floatToHalfFn
+                or op == "bf16_to_f32"
+                and bf16ToFloatFn
+                or op == "f32_to_bf16"
+                and floatToBf16Fn
                 or op == "f32_exp"
                 and expFn
                 or sqrtFn
@@ -1082,7 +1148,7 @@ function spirv.program(
         assert(opcode ~= nil, "SPIR-V subset does not emit expression " .. tostring(op))
         local result = id()
         instruction(functions, opcode as integer, {resultType, result, left, right})
-        if opcode == OP.FAdd or opcode == OP.FSub or opcode == OP.FMul then
+        if program.fpContract ~= true and (opcode == OP.FAdd or opcode == OP.FSub or opcode == OP.FMul) then
             decorate(result, DECORATION.NoContraction)
         end
 
@@ -1276,7 +1342,7 @@ end
 
 --- Derives Metal source from canonical bytes with the compiler-owned pin.
 --- @raises when the translator cannot be provisioned or rejects the module
-function spirv.deriveMsl(binary: string): string
+function spirv.deriveMsl(binary: string, fpContract: boolean?): string
     local executable = os.getenv("NUPP_SPIRV_CROSS")
     if not executable then
         local root = envMod.compilerRoot()
@@ -1332,7 +1398,7 @@ function spirv.deriveMsl(binary: string): string
     -- closed instead of silently weakening the arithmetic contract.
     replaceOne(
         "using namespace metal;\n",
-        "using namespace metal;\n#pragma clang fp contract(off)\n",
+        "using namespace metal;\n#pragma clang fp contract(" .. (fpContract == true and "fast" or "off") .. ")\n",
         "Metal namespace header"
     )
 

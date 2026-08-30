@@ -312,6 +312,7 @@ local ffi = native.ffi
 
 local context = gpu.open()
 local tensor = context:tensor(ffi.typeof<float>(), {4, 8})
+local bytes: gpu.Buffer<int8>? = nil
 local row = tensor:subview({2, 0}, {1, 8})
 local tensorLayout: gpu.Layout = gpu.bufferLayout(tensor)
 local columns = gpu.view(tensor, gpu.transposeLayout(tensorLayout, {2, 1}))
@@ -319,7 +320,7 @@ local repeated = gpu.view(row, gpu.broadcastLayout(gpu.bufferLayout(row), {4, 8}
 local gapped = tensor:subview({0, 0}, {4, 4})
 local dimensions = row:dimensions()
 local strides = row:strides()
-assert(row.count == 8 and dimensions[1] == 1 and dimensions[2] == 8)
+assert(row.count == 8 and bytes == nil and dimensions[1] == 1 and dimensions[2] == 8)
 assert(strides[1] == 8 and strides[2] == 1)
 assert(gpu.bufferIsDense(row) and gpu.bufferIsInjective(row))
 assert(not gpu.bufferIsDense(columns) and gpu.bufferIsInjective(columns))

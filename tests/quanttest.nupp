@@ -1,0 +1,23 @@
+local quant = require("nupp.quant")
+
+local M = {}
+
+function M.dequantizesSignedInt8WithAnAffineZeroPoint(): nil
+    local value = quant.dequantizeI8(nupp.math.i32.wrap(-4), nupp.math.f32.narrow(0.5), nupp.math.i32.wrap(-2))
+    assert(value == -1.0)
+end
+
+function M.decodesBothSignedInt4Nibbles(): nil
+    assert(quant.signedI4(nupp.math.u32.wrap(0)) == 0)
+    assert(quant.signedI4(nupp.math.u32.wrap(7)) == 7)
+    assert(quant.signedI4(nupp.math.u32.wrap(8)) == -8)
+    assert(quant.signedI4(nupp.math.u32.wrap(15)) == -1)
+
+    local packed = nupp.math.u32.wrap(143) -- high -8, low -1
+    local scale = nupp.math.f32.narrow(0.25)
+    local zero = nupp.math.i32.wrap(0)
+    assert(quant.dequantizeI4(packed, false, scale, zero) == -0.25)
+    assert(quant.dequantizeI4(packed, true, scale, zero) == -2.0)
+end
+
+return M

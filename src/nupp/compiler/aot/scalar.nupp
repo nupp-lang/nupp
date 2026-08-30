@@ -28,7 +28,7 @@ local scalarIR = {}
 ---
 --- Carried in the IR and checked when it is read back, so an IR written by an
 --- older compiler is refused rather than half-understood.
-const scalarIR.VERSION = 25
+const scalarIR.VERSION = 26
 
 --- The calling convention selected for one complete AOT entry.
 ---
@@ -42,7 +42,7 @@ type scalarIR.EntryMode = 'kernel' | 'lua-builder'
 --- agree about every field of a program and disagree about whether an operator
 --- contracts, and an artifact built under one contract must not be reused under
 --- another. Bumped when the meaning changes, never when the spelling does.
-const scalarIR.NUMERIC_CONTRACT = 3
+const scalarIR.NUMERIC_CONTRACT = 4
 
 --- The C symbol one `@aot` function exports.
 ---
@@ -509,6 +509,7 @@ record scalarIR.Load
     cursorCName: string?
 
     type: scalarIR.Type
+    sourceType: string?
     source: scalarIR.Source?
 end
 
@@ -680,6 +681,8 @@ type scalarIR.ConvertOp = 'narrow_f64_f32'
     | 'numeric_cast'
     | 'f16_to_f32'
     | 'f32_to_f16'
+    | 'bf16_to_f32'
+    | 'f32_to_bf16'
 
 record scalarIR.Convert
     op: scalarIR.ConvertOp
@@ -1442,6 +1445,10 @@ record scalarIR.Program
     --- function answers rather than only how fast it gets there, which is why
     --- it travels with the IR rather than with the build.
     fpContract: boolean?
+
+    --- Whether explicit fixed-width transcendentals may use the target's
+    --- native implementation rather than the IR-owned operation sequence.
+    fpTranscendentals: boolean?
 
     source: scalarIR.Source?
 end

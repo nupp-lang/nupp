@@ -129,6 +129,8 @@ local PURE_OPS: {
     numeric_cast = true,
     f16_to_f32 = true,
     f32_to_f16 = true,
+    bf16_to_f32 = true,
+    f32_to_bf16 = true,
     helper_call = true,
     simd_species_u8 = true,
     simd_lanes = true,

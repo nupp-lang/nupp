@@ -75,6 +75,8 @@ const text.ONE_OPERAND = {
     ["numeric_cast"] = true,
     ["f16_to_f32"] = true,
     ["f32_to_f16"] = true,
+    ["bf16_to_f32"] = true,
+    ["f32_to_bf16"] = true,
     ["neg"] = true,
     ["not"] = true,
     ["bnot"] = true,
@@ -558,6 +560,9 @@ local function preamble(program: scalarIR.Program): {string}
     -- gets there.
     if program.fpContract == true then
         lines[#lines + 1] = "contract fp-contract(fused)"
+    end
+    if program.fpTranscendentals == true then
+        lines[#lines + 1] = "contract fp-transcendentals(native)"
     end
     if program.simdWidth ~= nil then
         lines[#lines + 1] = "simd species(uint8," .. tostring(program.simdWidth) .. ")"

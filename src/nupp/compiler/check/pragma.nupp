@@ -170,6 +170,9 @@ function pragma.install(c: state.Checker): state.StatHandlers
         -- `a * b + c` into one rounding, which is faster and gives a different
         -- result, so it is opt-in per function and never inferred.
         ["fp-contract"] = true,
+        -- Allows platform math implementations for explicit fixed-width
+        -- transcendentals instead of the IR-owned operation sequence.
+        ["fp-transcendentals"] = true,
     }
 
     local function effectContract(application)
@@ -452,7 +455,7 @@ function pragma.install(c: state.Checker): state.StatHandlers
                         "NUPP2112",
                         arg,
                         "@relax names function-identity, load-order, error-site, "
-                        .. "frames, gc-timing, table-order, or fp-contract"
+                        .. "frames, gc-timing, table-order, fp-contract, or fp-transcendentals"
                     )
                 else
                     relaxed[value] = true
