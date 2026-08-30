@@ -14,9 +14,11 @@ void ks_mandelbrot(KsEscape *escapes, const KsPoint *points,
     double first, double last, int32_t maxIterations, size_t count);
 void ks_mandelbrot_forced_scalar(KsEscape *escapes, const KsPoint *points,
     double first, double last, int32_t maxIterations, size_t count);
-bool ks_gpu_init(const char *shaderPath, size_t count);
+bool ks_gpu_init(const char *shaderPath, size_t count, uint32_t threads);
 bool ks_gpu_mandelbrot(KsEscape *escapes, const KsPoint *points,
     double first, double last, int32_t maxIterations, size_t count);
+bool ks_gpu_mandelbrot_staged(int32_t maxIterations, size_t count);
+bool ks_gpu_mandelbrot_resident(int32_t maxIterations, size_t count);
 const char *ks_gpu_error(void);
 void ks_gpu_shutdown(void);
 ]]
@@ -55,11 +57,24 @@ local x4 = ffi.new("KsEscape[?]", count)
 local scalar = ffi.new("KsEscape[?]", count)
 local gpuPath = os.getenv("MANDELBROT_GPU_LIBRARY")
 local gpuShader = os.getenv("MANDELBROT_GPU_SHADER")
+local gpuThreads = tonumber(os.getenv("MANDELBROT_GPU_THREADS") or 256)
 local gpu = gpuPath and ffi.load(gpuPath) or nil
 local gpuOutput = gpu and ffi.new("KsEscape[?]", count) or nil
 
 local function runGpu()
     if not gpu.ks_gpu_mandelbrot(gpuOutput, points, 1, count, maxIterations, count) then
+        error(ffi.string(gpu.ks_gpu_error()), 2)
+    end
+end
+
+local function runGpuResident()
+    if not gpu.ks_gpu_mandelbrot_resident(maxIterations, count) then
+        error(ffi.string(gpu.ks_gpu_error()), 2)
+    end
+end
+
+local function runGpuStaged()
+    if not gpu.ks_gpu_mandelbrot_staged(maxIterations, count) then
         error(ffi.string(gpu.ks_gpu_error()), 2)
     end
 end
@@ -73,7 +88,7 @@ run(equalWidth.ks_mandelbrot, x4)
 run(preferred.ks_mandelbrot_forced_scalar, scalar)
 if gpu then
     assert(gpuShader, "MANDELBROT_GPU_SHADER is required with MANDELBROT_GPU_LIBRARY")
-    assert(gpu.ks_gpu_init(gpuShader, count), ffi.string(gpu.ks_gpu_error()))
+    assert(gpu.ks_gpu_init(gpuShader, count, gpuThreads), ffi.string(gpu.ks_gpu_error()))
     runGpu()
 end
 
@@ -124,6 +139,7 @@ benchmark("Nupp f32x8", preferred.ks_mandelbrot, optimized)
 benchmark("Nupp f32x4", equalWidth.ks_mandelbrot, x4)
 benchmark("Nupp scalar", preferred.ks_mandelbrot_forced_scalar, scalar)
 if gpu then
+    io.write(("SDL GPU: %d threads/group\n"):format(gpuThreads))
     for _ = 1, 3 do
         runGpu()
     end
@@ -136,6 +152,32 @@ if gpu then
     local elapsed = (now() - started) / passes
     io.write(("%-14s %10.0f ns/frame  %8.2f MPix/s\n"):format(
         "SDL GPU e2e", elapsed * 1e9, count / elapsed / 1e6))
+
+    for _ = 1, 3 do
+        runGpuStaged()
+    end
+    started = now()
+    passes = 0
+    repeat
+        runGpuStaged()
+        passes = passes + 1
+    until now() - started >= 1.0
+    elapsed = (now() - started) / passes
+    io.write(("%-14s %10.0f ns/frame  %8.2f MPix/s\n"):format(
+        "SDL GPU staged", elapsed * 1e9, count / elapsed / 1e6))
+
+    for _ = 1, 3 do
+        runGpuResident()
+    end
+    started = now()
+    passes = 0
+    repeat
+        runGpuResident()
+        passes = passes + 1
+    until now() - started >= 1.0
+    elapsed = (now() - started) / passes
+    io.write(("%-14s %10.0f ns/frame  %8.2f MPix/s\n"):format(
+        "SDL GPU resident", elapsed * 1e9, count / elapsed / 1e6))
 end
 assert(optimized[count - 1].iterations == scalar[count - 1].iterations)
 if gpu then

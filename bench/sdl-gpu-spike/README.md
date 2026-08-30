@@ -46,6 +46,38 @@ default, so the generated MSL explicitly disables contraction to preserve the
 rounding points in `nupp.math.f32`; without it the check caught a one-iteration
 difference at pixel 54,903.
 
+`mandelbrot-mojo.mojo` is a same-machine Mojo/MAX control. It uses the same
+1024x768 point array, binary32 rounding, structs, 256-iteration limit,
+cardioid/bulb shortcut, checksum, warmups, one-second windows, and 256-thread
+groups. Run it with a Mojo installation that includes MAX:
+
+```sh
+MOJO=/path/to/mojo bench/sdl-gpu-spike/run-mojo-mandelbrot.sh
+```
+
+The `--fp-mode contract=off` in that runner is essential. Mojo defaults to
+cross-statement contraction and produced checksum `46337507`; disabling it
+produced Nupp's exact `46372998`. The benchmark refuses to time the mismatched
+default kernel.
+
+An interleaved SDL/Mojo run on the same Apple M5 Pro GPU power state measured:
+
+| boundary | SDL GPU | Mojo GPU | interpretation |
+| --- | ---: | ---: | --- |
+| resident device buffers | 0.370 ms | 0.358 ms | same kernel and boundary |
+| staged/pinned host buffers | 0.476 ms | 0.455 ms | transfer and wait, no pageable copies |
+| ordinary pageable arrays | 0.767 ms | 2.520 ms | same public CPU-array boundary |
+
+The absolute resident time moved together from roughly 0.25 ms to 0.36 ms
+across sustained runs, so small isolated timing differences are not useful.
+At equal boundaries the SDL and Mojo compute paths are within about 5%. The
+apparent large Mojo advantage comes from comparing Mojo's page-locked
+`HostBuffer` directly with Nupp's ordinary spans: SDL's end-to-end call copies
+those spans into and out of persistent transfer buffers. When Mojo is given
+ordinary pageable arrays instead, its direct copy path is over 3x slower than
+SDL's. The useful optimization for a future supported API is therefore a
+first-class resident or staged GPU buffer, not bypassing SDL.
+
 Run it on macOS with an SDL framework directory:
 
 ```sh

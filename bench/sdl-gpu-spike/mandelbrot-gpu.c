@@ -5,8 +5,6 @@
 #include <stdio.h>
 #include <string.h>
 
-#define THREADS 64u
-
 #if defined(_WIN32)
 #define EXPORT __declspec(dllexport)
 #else
@@ -35,6 +33,7 @@ static SDL_GPUBuffer *escapes_buffer;
 static SDL_GPUTransferBuffer *upload;
 static SDL_GPUTransferBuffer *download;
 static size_t capacity;
+static uint32_t thread_count;
 static bool started_video;
 static char error_text[512];
 
@@ -64,10 +63,11 @@ EXPORT void ks_gpu_shutdown(void) {
     upload = NULL;
     download = NULL;
     capacity = 0;
+    thread_count = 0;
     started_video = false;
 }
 
-EXPORT bool ks_gpu_init(const char *shader_path, size_t count) {
+EXPORT bool ks_gpu_init(const char *shader_path, size_t count, uint32_t threads) {
     SDL_GPUComputePipelineCreateInfo pipeline_info;
     SDL_GPUBufferCreateInfo points_info;
     SDL_GPUBufferCreateInfo escapes_info;
@@ -79,6 +79,10 @@ EXPORT bool ks_gpu_init(const char *shader_path, size_t count) {
     error_text[0] = '\0';
     if (device != NULL) {
         SDL_strlcpy(error_text, "GPU benchmark is already initialized", sizeof error_text);
+        return false;
+    }
+    if (count == 0 || count > UINT32_MAX / sizeof(Point) || threads == 0) {
+        SDL_strlcpy(error_text, "invalid GPU benchmark dimensions", sizeof error_text);
         return false;
     }
     started_video = SDL_WasInit(SDL_INIT_VIDEO) == 0;
@@ -105,7 +109,7 @@ EXPORT bool ks_gpu_init(const char *shader_path, size_t count) {
     pipeline_info.num_readonly_storage_buffers = 1;
     pipeline_info.num_readwrite_storage_buffers = 1;
     pipeline_info.num_uniform_buffers = 1;
-    pipeline_info.threadcount_x = THREADS;
+    pipeline_info.threadcount_x = threads;
     pipeline_info.threadcount_y = 1;
     pipeline_info.threadcount_z = 1;
     pipeline = SDL_CreateGPUComputePipeline(device, &pipeline_info);
@@ -138,7 +142,107 @@ EXPORT bool ks_gpu_init(const char *shader_path, size_t count) {
         return false;
     }
     capacity = count;
+    thread_count = threads;
     return true;
+}
+
+static bool record_compute(
+    SDL_GPUCommandBuffer *commands, int32_t max_iterations, size_t count
+) {
+    SDL_GPUComputePass *compute;
+    SDL_GPUStorageBufferReadWriteBinding writable;
+    SDL_GPUBuffer *readable[] = {points_buffer};
+    Uniforms uniforms = {(uint32_t)count, max_iterations};
+
+    SDL_PushGPUComputeUniformData(commands, 0, &uniforms, sizeof uniforms);
+    SDL_zero(writable);
+    writable.buffer = escapes_buffer;
+    compute = SDL_BeginGPUComputePass(commands, NULL, 0, &writable, 1);
+    if (compute == NULL) return fail("begin Mandelbrot compute pass");
+    SDL_BindGPUComputePipeline(compute, pipeline);
+    SDL_BindGPUComputeStorageBuffers(compute, 0, readable, 1);
+    SDL_DispatchGPUCompute(
+        compute, ((uint32_t)count + thread_count - 1) / thread_count, 1, 1
+    );
+    SDL_EndGPUComputePass(compute);
+    return true;
+}
+
+static bool submit_and_wait(SDL_GPUCommandBuffer *commands) {
+    SDL_GPUFence *fence = SDL_SubmitGPUCommandBufferAndAcquireFence(commands);
+    if (fence == NULL) return fail("submit Mandelbrot GPU dispatch");
+    if (!SDL_WaitForGPUFences(device, true, &fence, 1)) {
+        SDL_ReleaseGPUFence(device, fence);
+        return fail("wait for Mandelbrot GPU dispatch");
+    }
+    SDL_ReleaseGPUFence(device, fence);
+    return true;
+}
+
+EXPORT bool ks_gpu_mandelbrot_resident(int32_t max_iterations, size_t count) {
+    SDL_GPUCommandBuffer *commands;
+
+    if (device == NULL || count > capacity) {
+        SDL_strlcpy(error_text, "GPU benchmark is not initialized for this span", sizeof error_text);
+        return false;
+    }
+    commands = SDL_AcquireGPUCommandBuffer(device);
+    if (commands == NULL) return fail("acquire resident GPU command buffer");
+    if (!record_compute(commands, max_iterations, count)) {
+        SDL_CancelGPUCommandBuffer(commands);
+        return false;
+    }
+    return submit_and_wait(commands);
+}
+
+EXPORT bool ks_gpu_mandelbrot_staged(int32_t max_iterations, size_t count) {
+    SDL_GPUCommandBuffer *commands;
+    SDL_GPUCopyPass *copy;
+    SDL_GPUTransferBufferLocation transfer_location;
+    SDL_GPUBufferRegion buffer_region;
+    uint32_t point_bytes;
+    uint32_t escape_bytes;
+
+    if (device == NULL || count > capacity) {
+        SDL_strlcpy(error_text, "GPU benchmark is not initialized for this span", sizeof error_text);
+        return false;
+    }
+    point_bytes = (uint32_t)(count * sizeof(Point));
+    escape_bytes = (uint32_t)(count * sizeof(Escape));
+    commands = SDL_AcquireGPUCommandBuffer(device);
+    if (commands == NULL) return fail("acquire staged GPU command buffer");
+
+    SDL_zero(transfer_location);
+    transfer_location.transfer_buffer = upload;
+    SDL_zero(buffer_region);
+    buffer_region.buffer = points_buffer;
+    buffer_region.size = point_bytes;
+    copy = SDL_BeginGPUCopyPass(commands);
+    if (copy == NULL) {
+        SDL_CancelGPUCommandBuffer(commands);
+        return fail("begin staged point upload");
+    }
+    SDL_UploadToGPUBuffer(copy, &transfer_location, &buffer_region, false);
+    SDL_EndGPUCopyPass(copy);
+
+    if (!record_compute(commands, max_iterations, count)) {
+        SDL_CancelGPUCommandBuffer(commands);
+        return false;
+    }
+
+    SDL_zero(buffer_region);
+    buffer_region.buffer = escapes_buffer;
+    buffer_region.size = escape_bytes;
+    SDL_zero(transfer_location);
+    transfer_location.transfer_buffer = download;
+    copy = SDL_BeginGPUCopyPass(commands);
+    if (copy == NULL) {
+        SDL_CancelGPUCommandBuffer(commands);
+        return fail("begin staged escape download");
+    }
+    SDL_DownloadFromGPUBuffer(copy, &buffer_region, &transfer_location);
+    SDL_EndGPUCopyPass(copy);
+    return submit_and_wait(commands);
 }
 
 EXPORT bool ks_gpu_mandelbrot(
@@ -149,15 +253,6 @@ EXPORT bool ks_gpu_mandelbrot(
     int32_t max_iterations,
     size_t count
 ) {
-    SDL_GPUCommandBuffer *commands;
-    SDL_GPUCopyPass *copy;
-    SDL_GPUComputePass *compute;
-    SDL_GPUFence *fence;
-    SDL_GPUTransferBufferLocation transfer_location;
-    SDL_GPUBufferRegion buffer_region;
-    SDL_GPUStorageBufferReadWriteBinding writable;
-    SDL_GPUBuffer *readable[] = {points_buffer};
-    Uniforms uniforms;
     void *mapped;
     uint32_t point_bytes;
     uint32_t escape_bytes;
@@ -172,52 +267,11 @@ EXPORT bool ks_gpu_mandelbrot(
     if (mapped == NULL) return fail("map point upload");
     memcpy(mapped, points, point_bytes);
     SDL_UnmapGPUTransferBuffer(device, upload);
-
-    commands = SDL_AcquireGPUCommandBuffer(device);
-    if (commands == NULL) return fail("acquire GPU command buffer");
-    SDL_zero(transfer_location);
-    transfer_location.transfer_buffer = upload;
-    SDL_zero(buffer_region);
-    buffer_region.buffer = points_buffer;
-    buffer_region.size = point_bytes;
-    copy = SDL_BeginGPUCopyPass(commands);
-    if (copy == NULL) return fail("begin point upload");
-    SDL_UploadToGPUBuffer(copy, &transfer_location, &buffer_region, false);
-    SDL_EndGPUCopyPass(copy);
-
-    uniforms.count = (uint32_t)count;
-    uniforms.max_iterations = max_iterations;
-    SDL_PushGPUComputeUniformData(commands, 0, &uniforms, sizeof uniforms);
-    SDL_zero(writable);
-    writable.buffer = escapes_buffer;
-    compute = SDL_BeginGPUComputePass(commands, NULL, 0, &writable, 1);
-    if (compute == NULL) return fail("begin Mandelbrot compute pass");
-    SDL_BindGPUComputePipeline(compute, pipeline);
-    SDL_BindGPUComputeStorageBuffers(compute, 0, readable, 1);
-    SDL_DispatchGPUCompute(compute, ((uint32_t)count + THREADS - 1) / THREADS, 1, 1);
-    SDL_EndGPUComputePass(compute);
-
-    SDL_zero(buffer_region);
-    buffer_region.buffer = escapes_buffer;
-    buffer_region.size = escape_bytes;
-    SDL_zero(transfer_location);
-    transfer_location.transfer_buffer = download;
-    copy = SDL_BeginGPUCopyPass(commands);
-    if (copy == NULL) return fail("begin escape download");
-    SDL_DownloadFromGPUBuffer(copy, &buffer_region, &transfer_location);
-    SDL_EndGPUCopyPass(copy);
-    fence = SDL_SubmitGPUCommandBufferAndAcquireFence(commands);
-    if (fence == NULL || !SDL_WaitForGPUFences(device, true, &fence, 1)) {
-        return fail("wait for Mandelbrot GPU dispatch");
-    }
+    if (!ks_gpu_mandelbrot_staged(max_iterations, count)) return false;
 
     mapped = SDL_MapGPUTransferBuffer(device, download, false);
-    if (mapped == NULL) {
-        SDL_ReleaseGPUFence(device, fence);
-        return fail("map escape download");
-    }
+    if (mapped == NULL) return fail("map escape download");
     memcpy(escapes, mapped, escape_bytes);
     SDL_UnmapGPUTransferBuffer(device, download);
-    SDL_ReleaseGPUFence(device, fence);
     return true;
 }
