@@ -17,7 +17,7 @@
 /* Loads and runs one chunk, with `arg` set from what follows it. */
 static int execute(
     const uint8_t *chunk, size_t length, const char *name,
-    int count, const char *const *arguments
+    const char *executable, int count, const char *const *arguments
 ) {
     char *problem = NULL;
     NuppRuntime *runtime = nupp_host_runtime_new(true, &problem);
@@ -26,6 +26,8 @@ static int execute(
         free(problem);
         return 1;
     }
+    lua_pushstring(nupp_host_runtime_state(runtime), executable);
+    lua_setfield(nupp_host_runtime_state(runtime), LUA_GLOBALSINDEX, "__NUPP_EXECUTABLE");
     problem = nupp_host_set_arguments(runtime, count, arguments);
     if (problem == NULL) {
         problem = nupp_host_run(runtime, chunk, length, name);
@@ -41,7 +43,7 @@ static int execute(
 }
 
 /* No payload: run the Lua file named first, so a stub is useful on its own. */
-static int interpret(int argc, char **argv) {
+static int interpret(int argc, char **argv, const char *executable) {
     FILE *file;
     long size;
     uint8_t *chunk;
@@ -72,7 +74,9 @@ static int interpret(int argc, char **argv) {
     }
     fclose(file);
     snprintf(name, sizeof name, "@%s", argv[1]);
-    status = execute(chunk, (size_t)size, name, argc - 2, (const char *const *)argv + 2);
+    status = execute(
+        chunk, (size_t)size, name, executable, argc - 2,
+        (const char *const *)argv + 2);
     free(chunk);
     return status;
 }
@@ -105,14 +109,16 @@ int main(int argc, char **argv) {
 #endif
             snprintf(name, sizeof name, "@%s", executable);
             status = execute(
-                payload, length, name, argc - 1, (const char *const *)argv + 1);
+                payload, length, name, executable, argc - 1,
+                (const char *const *)argv + 1);
             free(payload);
             free(executable);
             return status;
 
         case NUPP_PAYLOAD_NONE:
+            status = interpret(argc, argv, executable);
             free(executable);
-            return interpret(argc, argv);
+            return status;
 
         default:
             fprintf(stderr, "nupp: %s\n", problem != NULL ? problem : "cannot read the payload");

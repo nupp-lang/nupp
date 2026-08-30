@@ -108,7 +108,11 @@ function packs.resolve(target: string?): (packs.Pack?, string?)
     end
     local directories = {}
     if not explicit then
-        local executable = tostring(arg and arg[0] or "")
+        -- A stamped host publishes the physical path it used to read its own
+        -- payload. `arg[0]` remains the source-launcher fallback, where there is
+        -- no native host and its spelling is controlled by `bin/nupp`.
+        local hosted = rawget(_G, "__NUPP_EXECUTABLE")
+        local executable = type(hosted) == "string" and hosted or tostring(arg and arg[0] or "")
         local bin = executable:match("^(.*)[/\\][^/\\]+$")
         if bin == nil then
             return nil, nil

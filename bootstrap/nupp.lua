@@ -34165,7 +34165,11 @@ return nil , "compiler pack selection needs modeled host and target triples"
 end
 local directories = { }
 if not explicit then
-local executable = tostring ( arg and arg [ 0 ] or "" )
+
+
+
+local hosted = rawget ( _G , "__NUPP_EXECUTABLE" )
+local executable = type ( hosted ) == "string" and hosted or tostring ( arg and arg [ 0 ] or "" )
 local bin = executable : match ( "^(.*)[/\\][^/\\]+$" )
 if bin == nil then
 return nil , nil

@@ -65,7 +65,7 @@ function M.resolvesAndAuthenticatesTargetIndexedTools()
    os.execute("rm -rf '" .. root .. "'")
 end
 
-function M.findsPackBesideAnUninstalledReleaseBinary()
+function M.findsPackBesideThePhysicalReleaseBinary()
    local host = assert(layouts.hostKey())
    local root = os.tmpname()
    os.remove(root)
@@ -82,13 +82,16 @@ function M.findsPackBesideAnUninstalledReleaseBinary()
       ar = ar,
    }))
    local getenv = os.getenv
+   local oldExecutable = rawget(_G, "__NUPP_EXECUTABLE")
    local oldArg = arg[0]
    os.getenv = function(name)
       if name == "NUPP_COMPILER_PACK_DIR" then return nil end
       return getenv(name)
    end
-   arg[0] = root .. "/nupp"
+   rawset(_G, "__NUPP_EXECUTABLE", root .. "/nupp")
+   arg[0] = root .. "/not-the-host/nupp"
    local ok, pack, err = pcall(packs.resolve, host)
+   rawset(_G, "__NUPP_EXECUTABLE", oldExecutable)
    arg[0] = oldArg
    os.getenv = getenv
    assert(ok, pack)
