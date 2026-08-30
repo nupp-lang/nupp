@@ -3860,6 +3860,8 @@ for _ , entry in ipairs ( { setmetatable({ identity =
 "f32.min" ,  op =  "f32_min" ,  arity =  2 ,  operand =  "f32" ,  result =  "f32" }, admit.Fixed) , setmetatable({ identity =
 "f32.max" ,  op =  "f32_max" ,  arity =  2 ,  operand =  "f32" ,  result =  "f32" }, admit.Fixed) , setmetatable({ identity =
 "f32.fma" ,  op =  "f32_fma" ,  arity =  3 ,  operand =  "f32" ,  result =  "f32" }, admit.Fixed) , setmetatable({ identity =
+"f32.fromF16Bits" ,  op =  "f16_to_f32" ,  arity =  1 ,  operand =  "u32" ,  result =  "f32" }, admit.Fixed) , setmetatable({ identity =
+"f32.toF16Bits" ,  op =  "f32_to_f16" ,  arity =  1 ,  operand =  "f32" ,  result =  "u32" }, admit.Fixed) , setmetatable({ identity =
 "i32.wrap" ,  op =  "numeric_cast" ,  arity =  1 ,  operand =  "f64" ,  result =  "i32" }, admit.Fixed) , setmetatable({ identity =
 "i32.add" ,  op =  "i32_add" ,  arity =  2 ,  operand =  "i32" ,  result =  "i32" }, admit.Fixed) , setmetatable({ identity =
 "i32.sub" ,  op =  "i32_sub" ,  arity =  2 ,  operand =  "i32" ,  result =  "i32" }, admit.Fixed) , setmetatable({ identity =
@@ -5657,6 +5659,8 @@ narrow_f64_f32 = true ,
 widen_f32_f64 = true ,
 int_to_f64 = true ,
 numeric_cast = true ,
+f16_to_f32 = true ,
+f32_to_f16 = true ,
 helper_call = true ,
 simd_species_u8 = true ,
 simd_lanes = true ,
@@ -6612,6 +6616,10 @@ elseif operation == "not" then
 return "(!(" .. emit . scalar ( ( node ) . value ) .. "))"
 elseif operation == "narrow_f64_f32" then
 return "(float)(" .. emit . scalar ( ( node ) . value ) .. ")"
+elseif operation == "f16_to_f32" then
+return "nupp_f16_to_f32(" .. emit . scalar ( ( node ) . value ) .. ")"
+elseif operation == "f32_to_f16" then
+return "nupp_f32_to_f16(" .. emit . scalar ( ( node ) . value ) .. ")"
 elseif operation == "widen_f32_f64" or operation == "int_to_f64" then
 return "((double)" .. emit . scalar ( ( node ) . value ) .. ")"
 elseif operation == "numeric_cast" then
@@ -9416,6 +9424,51 @@ unused .. "uint32_t nupp_f32_bits(float value) {" ,
 "    uint32_t bits;" ,
 "    memcpy(&bits, &value, 4);" ,
 "    return bits;" ,
+"}" ,
+unused .. "float nupp_f16_to_f32(uint32_t input) {" ,
+"    uint32_t bits = input & UINT32_C(0xffff);" ,
+"    uint32_t sign = (bits & UINT32_C(0x8000)) << 16u;" ,
+"    uint32_t exponent = (bits >> 10u) & UINT32_C(0x1f);" ,
+"    uint32_t mantissa = bits & UINT32_C(0x03ff);" ,
+"    uint32_t outBits;" ,
+"    if (exponent == UINT32_C(0x1f)) {" ,
+"        outBits = mantissa == 0u ? sign | UINT32_C(0x7f800000) : UINT32_C(0x7fc00000);" ,
+"    } else if (exponent == 0u) {" ,
+"        if (mantissa == 0u) { outBits = sign; }" ,
+"        else {" ,
+"            int32_t unbiased = -14;" ,
+"            while (mantissa < UINT32_C(0x0400)) { mantissa <<= 1u; unbiased -= 1; }" ,
+"            mantissa &= UINT32_C(0x03ff);" ,
+"            outBits = sign | ((uint32_t)(unbiased + 127) << 23u) | (mantissa << 13u);" ,
+"        }" ,
+"    } else {" ,
+"        outBits = sign | ((exponent + 112u) << 23u) | (mantissa << 13u);" ,
+"    }" ,
+"    float out; memcpy(&out, &outBits, 4); return out;" ,
+"}" ,
+unused .. "uint32_t nupp_f32_to_f16(float value) {" ,
+"    uint32_t bits = nupp_f32_bits(value);" ,
+"    uint32_t sign = (bits >> 16u) & UINT32_C(0x8000);" ,
+"    uint32_t magnitude = bits & UINT32_C(0x7fffffff);" ,
+"    if (magnitude >= UINT32_C(0x7f800000)) {" ,
+"        return magnitude == UINT32_C(0x7f800000) ? sign | UINT32_C(0x7c00) : UINT32_C(0x7e00);" ,
+"    }" ,
+"    if (magnitude >= UINT32_C(0x477ff000)) { return sign | UINT32_C(0x7c00); }" ,
+"    if (magnitude < UINT32_C(0x33000000)) { return sign; }" ,
+"    uint32_t exponent = magnitude >> 23u;" ,
+"    uint32_t mantissa = magnitude & UINT32_C(0x7fffff);" ,
+"    if (exponent >= 113u) {" ,
+"        uint32_t out = sign | ((exponent - 112u) << 10u) | (mantissa >> 13u);" ,
+"        uint32_t remainder = mantissa & UINT32_C(0x1fff);" ,
+"        return out + (remainder > UINT32_C(0x1000) || (remainder == UINT32_C(0x1000) && (out & 1u)) ? 1u : 0u);" ,
+"    }" ,
+"    uint32_t significant = mantissa | UINT32_C(0x800000);" ,
+"    uint32_t shift = 126u - exponent;" ,
+"    uint32_t out = significant >> shift;" ,
+"    uint32_t mask = (UINT32_C(1) << shift) - 1u;" ,
+"    uint32_t remainder = significant & mask;" ,
+"    uint32_t halfway = UINT32_C(1) << (shift - 1u);" ,
+"    return sign | (out + (remainder > halfway || (remainder == halfway && (out & 1u)) ? 1u : 0u));" ,
 "}" ,
 "/* `-0.0f == 0.0f`, so an equal pair is where the two zeros have to be" ,
 " * told apart by their sign bit. Returning one of the operands rather" ,
@@ -12756,6 +12809,8 @@ or node . op == "narrow_f64_f32"
 or node . op == "widen_f32_f64"
 or node . op == "int_to_f64"
 or node . op == "numeric_cast"
+or node . op == "f16_to_f32"
+or node . op == "f32_to_f16"
 then
 local operand = ( node ) . value
 return containsObject ( replacement , operand ) or fold . discardable ( operand , context )
@@ -13048,6 +13103,17 @@ gpuemit.Artifact = {} gpuemit.Artifact.__index = gpuemit.Artifact
 
 
 const METAL_TYPE = { f32 = "float" , i32 = "int" , u32 = "uint" , bool = "bool" , }
+const METAL_STORAGE
+
+= {
+float = "float" ,
+int8 = "char" ,
+int16 = "short" ,
+int32 = "int" ,
+uint8 = "uchar" ,
+uint16 = "ushort" ,
+uint32 = "uint" ,
+}
 
 const BINARY
 
@@ -13099,6 +13165,10 @@ end
 
 local function metalType ( value ) 
 return value : match ( "^struct:(.+)$" ) or METAL_TYPE [ value ]
+end
+
+local function metalStorage ( type_ , sourceType ) 
+return sourceType ~= nil and METAL_STORAGE [ sourceType ] or metalType ( type_ )
 end
 
 
@@ -13160,6 +13230,10 @@ return value . value and "true" or "false"
 elseif op == "u32_div" or op == "u32_mod" then
 local helper = op == "u32_div" and "nupp_u32_div" or "nupp_u32_mod"
 return helper .. "(" .. expression ( value . left ) .. ", " .. expression ( value . right ) .. ")"
+elseif op == "f32_fma" then
+return "nupp_f32_fma(" .. expression (
+value . args [ 1 ]
+) .. ", " .. expression ( value . args [ 2 ] ) .. ", " .. expression ( value . args [ 3 ] ) .. ")"
 elseif FIXED [ op ] ~= nil or BINARY [ op ] ~= nil then
 
 
@@ -13180,6 +13254,10 @@ elseif op == "bnot" or op == "u32_not" then
 return "(~" .. expression ( value . value ) .. ")"
 elseif op == "narrow_f64_f32" then
 return "float(" .. expression ( value . value ) .. ")"
+elseif op == "f16_to_f32" then
+return "nupp_f16_to_f32(" .. expression ( value . value ) .. ")"
+elseif op == "f32_to_f16" then
+return "nupp_f32_to_f16(" .. expression ( value . value ) .. ")"
 elseif op == "widen_f32_f64" then
 return expression ( value . value )
 elseif op == "numeric_cast" then
@@ -13273,10 +13351,10 @@ local writable = { }
 local uniforms = { }
 for _ , param in ipairs ( program . params ) do
 if param . kind == "read_span" then
-assert ( metalType ( param . type ) ~= nil , "GPU span must have fixed-width elements" )
+assert ( metalStorage ( param . type , param . sourceType ) ~= nil , "GPU span must have fixed-width elements" )
 readonly [ # readonly + 1 ] = param
 elseif param . kind == "write_span" then
-assert ( metalType ( param . type ) ~= nil , "GPU span must have fixed-width elements" )
+assert ( metalStorage ( param . type , param . sourceType ) ~= nil , "GPU span must have fixed-width elements" )
 writable [ # writable + 1 ] = param
 elseif param . kind == "uniform" then
 assert ( param . type ~= "bool" , "GPU boolean uniforms are not yet supported" )
@@ -13314,7 +13392,7 @@ line ( 0 , "" )
 for _ , layout in ipairs ( program . layouts or { } ) do
 line ( 0 , "struct " .. identifier ( layout . name ) .. " {" )
 for _ , field in ipairs ( layout . fields ) do
-local declared = metalType ( field . type )
+local declared = metalStorage ( field . type , field . sourceType )
 assert ( declared ~= nil , "GPU struct field must have fixed width" )
 line ( 1 , ( declared ) .. " " .. identifier ( field . name ) .. ";" )
 end
@@ -13333,6 +13411,50 @@ line ( 0 , "};" )
 line ( 0 , "" )
 line ( 0 , "inline uint nupp_u32_div(uint left, uint right) { return right == 0u ? 0u : left / right; }" )
 line ( 0 , "inline uint nupp_u32_mod(uint left, uint right) { return right == 0u ? 0u : left % right; }" )
+line ( 0 , "inline float nupp_f32_fma(float a, float b, float c) {" )
+line ( 1 , "float out = fma(a, b, c);" )
+line ( 1 , "return isnan(out) ? as_type<float>(0x7fc00000u) : out;" )
+line ( 0 , "}" )
+line ( 0 , "inline float nupp_f16_to_f32(uint input) {" )
+line ( 1 , "uint bits = input & 0xffffu;" )
+line ( 1 , "uint sign = (bits & 0x8000u) << 16u;" )
+line ( 1 , "uint exponent = (bits >> 10u) & 0x1fu;" )
+line ( 1 , "uint mantissa = bits & 0x03ffu;" )
+line ( 1 , "uint out;" )
+line ( 1 , "if (exponent == 0x1fu) out = mantissa == 0u ? sign | 0x7f800000u : 0x7fc00000u;" )
+line ( 1 , "else if (exponent == 0u) {" )
+line ( 2 , "if (mantissa == 0u) out = sign;" )
+line ( 2 , "else {" )
+line ( 3 , "int unbiased = -14;" )
+line ( 3 , "while (mantissa < 0x0400u) { mantissa <<= 1u; unbiased -= 1; }" )
+line ( 3 , "mantissa &= 0x03ffu;" )
+line ( 3 , "out = sign | (uint(unbiased + 127) << 23u) | (mantissa << 13u);" )
+line ( 2 , "}" )
+line ( 1 , "} else out = sign | ((exponent + 112u) << 23u) | (mantissa << 13u);" )
+line ( 1 , "return as_type<float>(out);" )
+line ( 0 , "}" )
+line ( 0 , "inline uint nupp_f32_to_f16(float value) {" )
+line ( 1 , "uint bits = as_type<uint>(value);" )
+line ( 1 , "uint sign = (bits >> 16u) & 0x8000u;" )
+line ( 1 , "uint magnitude = bits & 0x7fffffffu;" )
+line ( 1 , "if (magnitude >= 0x7f800000u) return magnitude == 0x7f800000u ? sign | 0x7c00u : 0x7e00u;" )
+line ( 1 , "if (magnitude >= 0x477ff000u) return sign | 0x7c00u;" )
+line ( 1 , "if (magnitude < 0x33000000u) return sign;" )
+line ( 1 , "uint exponent = magnitude >> 23u;" )
+line ( 1 , "uint mantissa = magnitude & 0x7fffffu;" )
+line ( 1 , "if (exponent >= 113u) {" )
+line ( 2 , "uint out = sign | ((exponent - 112u) << 10u) | (mantissa >> 13u);" )
+line ( 2 , "uint remainder = mantissa & 0x1fffu;" )
+line ( 2 , "return out + (remainder > 0x1000u || (remainder == 0x1000u && (out & 1u)) ? 1u : 0u);" )
+line ( 1 , "}" )
+line ( 1 , "uint significant = mantissa | 0x800000u;" )
+line ( 1 , "uint shift = 126u - exponent;" )
+line ( 1 , "uint out = significant >> shift;" )
+line ( 1 , "uint mask = (1u << shift) - 1u;" )
+line ( 1 , "uint remainder = significant & mask;" )
+line ( 1 , "uint halfway = 1u << (shift - 1u);" )
+line ( 1 , "return sign | (out + (remainder > halfway || (remainder == halfway && (out & 1u)) ? 1u : 0u));" )
+line ( 0 , "}" )
 line ( 0 , "" )
 line ( 0 , "kernel void " .. identifier ( program . symbol ) .. "_gpu(" )
 local arguments = { "constant NuppUniforms& uniforms [[buffer(0)]]" }
@@ -13341,7 +13463,7 @@ for _ , param in ipairs ( readonly ) do
 arguments [
 # arguments + 1
 ] = "device const " .. tostring (
-metalType ( param . type )
+metalStorage ( param . type , param . sourceType )
 ) .. "* " .. identifier ( param . name ) .. " [[buffer(" .. tostring ( at ) .. ")]]"
 at = at + 1
 end
@@ -13349,7 +13471,7 @@ for _ , param in ipairs ( writable ) do
 arguments [
 # arguments + 1
 ] = "device " .. tostring (
-metalType ( param . type )
+metalStorage ( param . type , param . sourceType )
 ) .. "* " .. identifier ( param . name ) .. " [[buffer(" .. tostring ( at ) .. ")]]"
 at = at + 1
 end
@@ -23311,7 +23433,7 @@ local scalarIR = { }
 
 
 
-scalarIR . VERSION = 23
+scalarIR . VERSION = 24
 
 
 
@@ -23918,6 +24040,11 @@ scalarIR.FixedUnary = {} scalarIR.FixedUnary.__index = scalarIR.FixedUnary
 
 
 scalarIR.Corrected = {} scalarIR.Corrected.__index = scalarIR.Corrected
+
+
+
+
+
 
 
 
@@ -25130,6 +25257,8 @@ text . ONE_OPERAND = {
 [ "narrow_f64_f32" ] = true ,
 [ "int_to_f64" ] = true ,
 [ "numeric_cast" ] = true ,
+[ "f16_to_f32" ] = true ,
+[ "f32_to_f16" ] = true ,
 [ "neg" ] = true ,
 [ "not" ] = true ,
 [ "bnot" ] = true ,
@@ -25950,6 +26079,8 @@ verify . CONVERSIONS = {
 [ "widen_f32_f64" ] = true ,
 [ "int_to_f64" ] = true ,
 [ "numeric_cast" ] = true ,
+[ "f16_to_f32" ] = true ,
+[ "f32_to_f16" ] = true ,
 }
 
 
@@ -26128,6 +26259,10 @@ holds (
 node . type == "f64" and ( from == "i32" or from == "u32" or from == "i64" or from == "u64" ) ,
 "invalid integer promotion"
 )
+elseif node . op == "f16_to_f32" then
+holds ( node . type == "f32" and from == "u32" , "invalid binary16 load conversion" )
+elseif node . op == "f32_to_f16" then
+holds ( node . type == "u32" and from == "f32" , "invalid binary16 store conversion" )
 else
 holds (
 (
@@ -28750,7 +28885,7 @@ local value = node
 value . value = rewrite ( value . value )
 __nuppT8= nil
 
-elseif  __nuppT7== "narrow_f64_f32"  or  __nuppT7== "widen_f32_f64"  or  __nuppT7== "int_to_f64"  or  __nuppT7== "numeric_cast"  then
+elseif  __nuppT7== "narrow_f64_f32"  or  __nuppT7== "widen_f32_f64"  or  __nuppT7== "int_to_f64"  or  __nuppT7== "numeric_cast"  or  __nuppT7== "f16_to_f32"  or  __nuppT7== "f32_to_f16"  then
 local value = node
 value . value = rewrite ( value . value )
 __nuppT8= nil
@@ -144723,6 +144858,72 @@ return bits32 ( round32 ( value ) )
 end
 
 
+function f32 . fromF16Bits ( value ) 
+local bits = ui32 ( value ) % 65536
+local sign = bits >= 32768 and 2147483648 or 0
+local magnitude = bits % 32768
+local exponent = math . floor ( magnitude / 1024 )
+local mantissa = magnitude % 1024
+if exponent == 31 then
+return putbits ( mantissa == 0 and sign + PINF or CANON )
+elseif exponent == 0 then
+if mantissa == 0 then
+return putbits ( sign )
+end
+local unbiased = - 14
+while mantissa < 1024 do
+mantissa = mantissa * 2
+unbiased = unbiased - 1
+end
+mantissa = mantissa - 1024
+
+return putbits ( sign + ( unbiased + 127 ) * 8388608 + mantissa * 8192 )
+end
+
+return putbits ( sign + ( exponent + 112 ) * 8388608 + mantissa * 8192 )
+end
+
+
+function f32 . toF16Bits ( value ) 
+local bits = bits32 ( round32 ( value ) )
+local sign = bits >= 2147483648 and 32768 or 0
+local magnitude = bits % 2147483648
+if magnitude >= PINF then
+return magnitude == PINF and sign + 31744 or 32256
+end
+if magnitude >= 1199566848 then
+return sign + 31744
+end
+if magnitude < 855638016 then
+return sign
+end
+
+local exponent = math . floor ( magnitude / 8388608 )
+local mantissa = magnitude % 8388608
+if exponent >= 113 then
+local out = sign + ( exponent - 112 ) * 1024 + math . floor ( mantissa / 8192 )
+local remainder = mantissa % 8192
+if remainder > 4096 or remainder == 4096 and out % 2 == 1 then
+out = out + 1
+end
+
+return out
+end
+
+local significant = mantissa + 8388608
+local shift = 126 - exponent
+local divisor = 2 ^ shift
+local out = math . floor ( significant / divisor )
+local remainder = significant % divisor
+local halfway = divisor / 2
+if remainder > halfway or remainder == halfway and out % 2 == 1 then
+out = out + 1
+end
+
+return sign + out
+end
+
+
 
 
 
@@ -146199,6 +146400,8 @@ for _ , operation in ipairs ( {
 "fma" ,
 "fromBits" ,
 "toBits" ,
+"fromF16Bits" ,
+"toF16Bits" ,
 } ) do
 PATHS [ "nupp.math.f32." .. operation ] = "f32." .. operation
 end
@@ -198054,6 +198257,12 @@ record nupp.F32MathLibrary
     fma: nosuspend function(a: float, b: float, c: float): float
     fromBits: nosuspend function(bits: uint32): float
     toBits: nosuspend function(value: float): uint32
+
+    --- Widens IEEE binary16 storage bits to binary32, canonicalizing NaN.
+    fromF16Bits: nosuspend function(bits: uint32): float
+
+    --- Rounds binary32 to IEEE binary16 storage bits, ties to even.
+    toF16Bits: nosuspend function(value: float): uint32
 end
 
 --- @internal
@@ -198984,6 +199193,72 @@ end
 
 function f32.toBits(value: number): number
     return bits32(round32(value))
+end
+
+--- Decodes the low sixteen bits as IEEE-754 binary16 and widens exactly.
+function f32.fromF16Bits(value: number): number
+    local bits = ui32(value) % 65536
+    local sign = bits >= 32768 and 2147483648 or 0
+    local magnitude = bits % 32768
+    local exponent = math.floor(magnitude / 1024)
+    local mantissa = magnitude % 1024
+    if exponent == 31 then
+        return putbits(mantissa == 0 and sign + PINF or CANON)
+    elseif exponent == 0 then
+        if mantissa == 0 then
+            return putbits(sign)
+        end
+        local unbiased = -14
+        while mantissa < 1024 do
+            mantissa = mantissa * 2
+            unbiased = unbiased - 1
+        end
+        mantissa = mantissa - 1024
+
+        return putbits(sign + (unbiased + 127) * 8388608 + mantissa * 8192)
+    end
+
+    return putbits(sign + (exponent + 112) * 8388608 + mantissa * 8192)
+end
+
+--- Rounds one binary32 to IEEE-754 binary16 bits, ties to even.
+function f32.toF16Bits(value: number): number
+    local bits = bits32(round32(value))
+    local sign = bits >= 2147483648 and 32768 or 0
+    local magnitude = bits % 2147483648
+    if magnitude >= PINF then
+        return magnitude == PINF and sign + 31744 or 32256
+    end
+    if magnitude >= 1199566848 then -- 0x477ff000, halfway from max finite to infinity.
+        return sign + 31744
+    end
+    if magnitude < 855638016 then -- 0x33000000, half of the least subnormal.
+        return sign
+    end
+
+    local exponent = math.floor(magnitude / 8388608)
+    local mantissa = magnitude % 8388608
+    if exponent >= 113 then
+        local out = sign + (exponent - 112) * 1024 + math.floor(mantissa / 8192)
+        local remainder = mantissa % 8192
+        if remainder > 4096 or remainder == 4096 and out % 2 == 1 then
+            out = out + 1
+        end
+
+        return out
+    end
+
+    local significant = mantissa + 8388608
+    local shift = 126 - exponent
+    local divisor = 2 ^ shift
+    local out = math.floor(significant / divisor)
+    local remainder = significant % divisor
+    local halfway = divisor / 2
+    if remainder > halfway or remainder == halfway and out % 2 == 1 then
+        out = out + 1
+    end
+
+    return sign + out
 end
 
 --- Two-dimensional vectors, carried as a pair of numbers rather than a table.

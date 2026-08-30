@@ -2408,6 +2408,12 @@ record nupp.F32MathLibrary
     fma: nosuspend function(a: float, b: float, c: float): float
     fromBits: nosuspend function(bits: uint32): float
     toBits: nosuspend function(value: float): uint32
+
+    --- Widens IEEE binary16 storage bits to binary32, canonicalizing NaN.
+    fromF16Bits: nosuspend function(bits: uint32): float
+
+    --- Rounds binary32 to IEEE binary16 storage bits, ties to even.
+    toF16Bits: nosuspend function(value: float): uint32
 end
 
 --- @internal

@@ -256,7 +256,7 @@ function visit.expressionChildren(node: scalarIR.Expr, rewrite: visit.ScalarRewr
             value.value = rewrite(value.value)
             yield nil
         end
-        case "narrow_f64_f32", "widen_f32_f64", "int_to_f64", "numeric_cast" -> do
+        case "narrow_f64_f32", "widen_f32_f64", "int_to_f64", "numeric_cast", "f16_to_f32", "f32_to_f16" -> do
             local value = node as scalarIR.Convert
             value.value = rewrite(value.value)
             yield nil

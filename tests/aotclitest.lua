@@ -120,7 +120,7 @@ local function doubled(
 ): nil
     if #output ~= #input then error("length mismatch", 2) end
     for i = 1, #output do
-        output[i] = input[i] * scale
+        output[i] = nupp.math.f32.fma(nupp.math.f32.narrow(input[i]), scale, 0.0)
     end
 end
 return {doubled = doubled}
@@ -130,6 +130,8 @@ return {doubled = doubled}
     test.equal(shaderCode, 0, shader)
     assert(shader:find("kernel void ks_doubled_gpu", 1, true), shader)
     assert(shader:find("float scale;", 1, true), shader)
+    assert(shader:find("float out = fma(a, b, c);", 1, true), shader)
+    assert(shader:find("nupp_f32_fma(float(input[dispatch_index]), uniforms.scale, float(0.0))", 1, true), shader)
 
     local binding, bindingCode = run(dir, "--emit binding gpu.nupp")
     test.equal(bindingCode, 0, binding)
@@ -144,6 +146,54 @@ return {doubled = doubled}
     local wasm, wasmCode = run(dir, "--emit msl --target wasm32-unknown-emscripten gpu.nupp")
     assert(wasmCode ~= 0, wasm)
     assert(wasm:find('Wasm backend does not consume @aot(target = "gpu")', 1, true), wasm)
+end
+
+function M.gpuTargetLoadsAndStoresBinary16Bits()
+    local dir = project({
+        ["half.nupp"] = [[
+local span = require("nupp.mem.span")
+
+@aot(target = "gpu")
+local function roundTrip(
+    exclusive output: span.WriteSpan<float>,
+    exclusive packed: span.WriteSpan<uint16>,
+    borrows input: span.Span<uint16>
+): nil
+    assert(#output == #packed and #output == #input, "length mismatch")
+    for i = 1, #output do
+        local value = nupp.math.f32.fromF16Bits(input[i])
+        output[i] = value
+        packed[i] = nupp.math.f32.toF16Bits(value)
+    end
+end
+
+@aot
+local function roundTripCpu(
+    exclusive output: span.WriteSpan<float>,
+    exclusive packed: span.WriteSpan<uint16>,
+    borrows input: span.Span<uint16>
+): nil
+    assert(#output == #packed and #output == #input, "length mismatch")
+    for i = 1, #output do
+        local value = nupp.math.f32.fromF16Bits(input[i])
+        output[i] = value
+        packed[i] = nupp.math.f32.toF16Bits(value)
+    end
+end
+return {roundTrip = roundTrip, roundTripCpu = roundTripCpu}
+]],
+    })
+    local shader, code = run(dir, "--emit msl half.nupp")
+    test.equal(code, 0, shader)
+    assert(shader:find("device const ushort* input", 1, true), shader)
+    assert(shader:find("device ushort* packed", 1, true), shader)
+    assert(shader:find("nupp_f16_to_f32(input[dispatch_index])", 1, true), shader)
+    assert(shader:find("packed[dispatch_index] = nupp_f32_to_f16", 1, true), shader)
+
+    local c, cCode = run(dir, "--emit c half.nupp")
+    test.equal(cCode, 0, c)
+    assert(c:find("nupp_f16_to_f32", 1, true), c)
+    assert(c:find("uint16_t *restrict p_packed", 1, true), c)
 end
 
 -- Spans a matrix product relates by dimension, not equality: the guard names

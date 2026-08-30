@@ -700,6 +700,10 @@ function emit.scalar(node: scalarIR.Expr): string
         return "(!(" .. emit.scalar((node as scalarIR.Unary).value) .. "))"
     elseif operation == "narrow_f64_f32" then
         return "(float)(" .. emit.scalar((node as scalarIR.Convert).value) .. ")"
+    elseif operation == "f16_to_f32" then
+        return "nupp_f16_to_f32(" .. emit.scalar((node as scalarIR.Convert).value) .. ")"
+    elseif operation == "f32_to_f16" then
+        return "nupp_f32_to_f16(" .. emit.scalar((node as scalarIR.Convert).value) .. ")"
     elseif operation == "widen_f32_f64" or operation == "int_to_f64" then
         return "((double)" .. emit.scalar((node as scalarIR.Convert).value) .. ")"
     elseif operation == "numeric_cast" then
@@ -3504,6 +3508,51 @@ local function scalarHelpers(): {string}
         "    uint32_t bits;",
         "    memcpy(&bits, &value, 4);",
         "    return bits;",
+        "}",
+        unused .. "float nupp_f16_to_f32(uint32_t input) {",
+        "    uint32_t bits = input & UINT32_C(0xffff);",
+        "    uint32_t sign = (bits & UINT32_C(0x8000)) << 16u;",
+        "    uint32_t exponent = (bits >> 10u) & UINT32_C(0x1f);",
+        "    uint32_t mantissa = bits & UINT32_C(0x03ff);",
+        "    uint32_t outBits;",
+        "    if (exponent == UINT32_C(0x1f)) {",
+        "        outBits = mantissa == 0u ? sign | UINT32_C(0x7f800000) : UINT32_C(0x7fc00000);",
+        "    } else if (exponent == 0u) {",
+        "        if (mantissa == 0u) { outBits = sign; }",
+        "        else {",
+        "            int32_t unbiased = -14;",
+        "            while (mantissa < UINT32_C(0x0400)) { mantissa <<= 1u; unbiased -= 1; }",
+        "            mantissa &= UINT32_C(0x03ff);",
+        "            outBits = sign | ((uint32_t)(unbiased + 127) << 23u) | (mantissa << 13u);",
+        "        }",
+        "    } else {",
+        "        outBits = sign | ((exponent + 112u) << 23u) | (mantissa << 13u);",
+        "    }",
+        "    float out; memcpy(&out, &outBits, 4); return out;",
+        "}",
+        unused .. "uint32_t nupp_f32_to_f16(float value) {",
+        "    uint32_t bits = nupp_f32_bits(value);",
+        "    uint32_t sign = (bits >> 16u) & UINT32_C(0x8000);",
+        "    uint32_t magnitude = bits & UINT32_C(0x7fffffff);",
+        "    if (magnitude >= UINT32_C(0x7f800000)) {",
+        "        return magnitude == UINT32_C(0x7f800000) ? sign | UINT32_C(0x7c00) : UINT32_C(0x7e00);",
+        "    }",
+        "    if (magnitude >= UINT32_C(0x477ff000)) { return sign | UINT32_C(0x7c00); }",
+        "    if (magnitude < UINT32_C(0x33000000)) { return sign; }",
+        "    uint32_t exponent = magnitude >> 23u;",
+        "    uint32_t mantissa = magnitude & UINT32_C(0x7fffff);",
+        "    if (exponent >= 113u) {",
+        "        uint32_t out = sign | ((exponent - 112u) << 10u) | (mantissa >> 13u);",
+        "        uint32_t remainder = mantissa & UINT32_C(0x1fff);",
+        "        return out + (remainder > UINT32_C(0x1000) || (remainder == UINT32_C(0x1000) && (out & 1u)) ? 1u : 0u);",
+        "    }",
+        "    uint32_t significant = mantissa | UINT32_C(0x800000);",
+        "    uint32_t shift = 126u - exponent;",
+        "    uint32_t out = significant >> shift;",
+        "    uint32_t mask = (UINT32_C(1) << shift) - 1u;",
+        "    uint32_t remainder = significant & mask;",
+        "    uint32_t halfway = UINT32_C(1) << (shift - 1u);",
+        "    return sign | (out + (remainder > halfway || (remainder == halfway && (out & 1u)) ? 1u : 0u));",
         "}",
         "/* `-0.0f == 0.0f`, so an equal pair is where the two zeros have to be",
         " * told apart by their sign bit. Returning one of the operands rather",

@@ -26,9 +26,6 @@ A living list, not a design record. Items are removed when completed.
       structurally disjoint by `shared[localIndex]`, CPU meaning = stages run
       to completion in order. Validated by a tiled f32 GEMM against the naive
       baseline in `bench/sdl-gpu-spike`.
-- [ ] **Map `f32.fma` and f16 storage into the GPU subset.** `f32_fma` exists
-      in the IR and is correctly rounded, so it is bit-identical for free; the
-      emitter does not map it yet. FP16 storage with f32 accumulation follows.
 - [ ] **Define polynomial transcendentals before softmax.** No GPU or libm
       promises correctly rounded f32 `exp`, so softmax breaks bit-identity
       before tensor cores do. An IR-defined polynomial over mul/add/fma is the

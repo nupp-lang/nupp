@@ -98,16 +98,18 @@ dispatches.
 row-major f32 GEMM: three buffers (output and the two matrices), scalar uniforms
 for the dimensions, and arbitrary matrix indexing through proved cursors. The
 kernel derives its row and column from its one-based loop index with `u32.div`
-and `u32.mod`; every `a`/`b` access is a `span[cursor + 1]` under a
+and `u32.mod` and accumulates with an explicit `f32.fma`; every `a`/`b` access
+is a `span[cursor + 1]` under a
 dominating `cursor < #span` check that the shader keeps, comparing against
 per-span element counts the dispatch writes into the uniform block from the
-buffers actually bound. One Apple Silicon run measured, after validating every
-output element exactly against the CPU AOT kernel from the same source:
+buffers actually bound. The CPU row below measures the current fused kernel;
+the GPU row is the preceding unfused baseline and needs refreshing on a host
+where SDL can open a device:
 
 | size | boundary | time | throughput |
 | --- | --- | ---: | ---: |
-| 512x512x512 | GPU resident dispatch | 1.19 ms | 227 GFLOP/s |
-| 512x512x512 | CPU AOT scalar | 84.6 ms | 3.17 GFLOP/s |
+| 512x512x512 | GPU resident dispatch, pre-fma | 1.19 ms | 227 GFLOP/s |
+| 512x512x512 | CPU AOT scalar fma | 227.3 ms | 1.18 GFLOP/s |
 
 Both AOT tiers admit the partial map guard: unguarded spans are reachable only
 through proved cursors and a loop-indexed access is refused at lowering with a

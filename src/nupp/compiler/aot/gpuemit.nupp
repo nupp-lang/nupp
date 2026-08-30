@@ -36,6 +36,17 @@ record gpuemit.Artifact
 end
 
 const METAL_TYPE: {[string]: string} = {f32 = "float", i32 = "int", u32 = "uint", bool = "bool",}
+const METAL_STORAGE: {
+    [string]: string
+} = {
+    float = "float",
+    int8 = "char",
+    int16 = "short",
+    int32 = "int",
+    uint8 = "uchar",
+    uint16 = "ushort",
+    uint32 = "uint",
+}
 
 const BINARY: {
     [string]: string
@@ -87,6 +98,10 @@ end
 
 local function metalType(value: string): string?
     return value:match("^struct:(.+)$") or METAL_TYPE[value]
+end
+
+local function metalStorage(type_: string, sourceType: string?): string?
+    return sourceType ~= nil and METAL_STORAGE[sourceType] or metalType(type_)
 end
 
 --- Emits one verified GPU program, or raises with the subset rule it violates.
@@ -148,6 +163,10 @@ function gpuemit.program(program: scalarIR.Program): gpuemit.Artifact
         elseif op == "u32_div" or op == "u32_mod" then
             local helper = op == "u32_div" and "nupp_u32_div" or "nupp_u32_mod"
             return helper .. "(" .. expression(value.left) .. ", " .. expression(value.right) .. ")"
+        elseif op == "f32_fma" then
+            return "nupp_f32_fma(" .. expression(
+                value.args[1]
+            ) .. ", " .. expression(value.args[2]) .. ", " .. expression(value.args[3]) .. ")"
         elseif FIXED[op] ~= nil or BINARY[op] ~= nil then
             -- An integer that passed through `int_to_f64` divides differently
             -- in an integer register than in binary64, where every 32-bit
@@ -168,6 +187,10 @@ function gpuemit.program(program: scalarIR.Program): gpuemit.Artifact
             return "(~" .. expression(value.value) .. ")"
         elseif op == "narrow_f64_f32" then
             return "float(" .. expression(value.value) .. ")"
+        elseif op == "f16_to_f32" then
+            return "nupp_f16_to_f32(" .. expression(value.value) .. ")"
+        elseif op == "f32_to_f16" then
+            return "nupp_f32_to_f16(" .. expression(value.value) .. ")"
         elseif op == "widen_f32_f64" then
             return expression(value.value)
         elseif op == "numeric_cast" then
@@ -261,10 +284,10 @@ function gpuemit.program(program: scalarIR.Program): gpuemit.Artifact
     local uniforms: {scalarIR.Param} = {}
     for _, param in ipairs(program.params) do
         if param.kind == "read_span" then
-            assert(metalType(param.type) ~= nil, "GPU span must have fixed-width elements")
+            assert(metalStorage(param.type, param.sourceType) ~= nil, "GPU span must have fixed-width elements")
             readonly[#readonly + 1] = param
         elseif param.kind == "write_span" then
-            assert(metalType(param.type) ~= nil, "GPU span must have fixed-width elements")
+            assert(metalStorage(param.type, param.sourceType) ~= nil, "GPU span must have fixed-width elements")
             writable[#writable + 1] = param
         elseif param.kind == "uniform" then
             assert(param.type ~= "bool", "GPU boolean uniforms are not yet supported")
@@ -302,7 +325,7 @@ function gpuemit.program(program: scalarIR.Program): gpuemit.Artifact
     for _, layout in ipairs(program.layouts or {}) do
         line(0, "struct " .. identifier(layout.name) .. " {")
         for _, field in ipairs(layout.fields) do
-            local declared = metalType(field.type)
+            local declared = metalStorage(field.type, field.sourceType)
             assert(declared ~= nil, "GPU struct field must have fixed width")
             line(1, (declared as string) .. " " .. identifier(field.name) .. ";")
         end
@@ -321,6 +344,50 @@ function gpuemit.program(program: scalarIR.Program): gpuemit.Artifact
     line(0, "")
     line(0, "inline uint nupp_u32_div(uint left, uint right) { return right == 0u ? 0u : left / right; }")
     line(0, "inline uint nupp_u32_mod(uint left, uint right) { return right == 0u ? 0u : left % right; }")
+    line(0, "inline float nupp_f32_fma(float a, float b, float c) {")
+    line(1, "float out = fma(a, b, c);")
+    line(1, "return isnan(out) ? as_type<float>(0x7fc00000u) : out;")
+    line(0, "}")
+    line(0, "inline float nupp_f16_to_f32(uint input) {")
+    line(1, "uint bits = input & 0xffffu;")
+    line(1, "uint sign = (bits & 0x8000u) << 16u;")
+    line(1, "uint exponent = (bits >> 10u) & 0x1fu;")
+    line(1, "uint mantissa = bits & 0x03ffu;")
+    line(1, "uint out;")
+    line(1, "if (exponent == 0x1fu) out = mantissa == 0u ? sign | 0x7f800000u : 0x7fc00000u;")
+    line(1, "else if (exponent == 0u) {")
+    line(2, "if (mantissa == 0u) out = sign;")
+    line(2, "else {")
+    line(3, "int unbiased = -14;")
+    line(3, "while (mantissa < 0x0400u) { mantissa <<= 1u; unbiased -= 1; }")
+    line(3, "mantissa &= 0x03ffu;")
+    line(3, "out = sign | (uint(unbiased + 127) << 23u) | (mantissa << 13u);")
+    line(2, "}")
+    line(1, "} else out = sign | ((exponent + 112u) << 23u) | (mantissa << 13u);")
+    line(1, "return as_type<float>(out);")
+    line(0, "}")
+    line(0, "inline uint nupp_f32_to_f16(float value) {")
+    line(1, "uint bits = as_type<uint>(value);")
+    line(1, "uint sign = (bits >> 16u) & 0x8000u;")
+    line(1, "uint magnitude = bits & 0x7fffffffu;")
+    line(1, "if (magnitude >= 0x7f800000u) return magnitude == 0x7f800000u ? sign | 0x7c00u : 0x7e00u;")
+    line(1, "if (magnitude >= 0x477ff000u) return sign | 0x7c00u;")
+    line(1, "if (magnitude < 0x33000000u) return sign;")
+    line(1, "uint exponent = magnitude >> 23u;")
+    line(1, "uint mantissa = magnitude & 0x7fffffu;")
+    line(1, "if (exponent >= 113u) {")
+    line(2, "uint out = sign | ((exponent - 112u) << 10u) | (mantissa >> 13u);")
+    line(2, "uint remainder = mantissa & 0x1fffu;")
+    line(2, "return out + (remainder > 0x1000u || (remainder == 0x1000u && (out & 1u)) ? 1u : 0u);")
+    line(1, "}")
+    line(1, "uint significant = mantissa | 0x800000u;")
+    line(1, "uint shift = 126u - exponent;")
+    line(1, "uint out = significant >> shift;")
+    line(1, "uint mask = (1u << shift) - 1u;")
+    line(1, "uint remainder = significant & mask;")
+    line(1, "uint halfway = 1u << (shift - 1u);")
+    line(1, "return sign | (out + (remainder > halfway || (remainder == halfway && (out & 1u)) ? 1u : 0u));")
+    line(0, "}")
     line(0, "")
     line(0, "kernel void " .. identifier(program.symbol) .. "_gpu(")
     local arguments: {string} = {"constant NuppUniforms& uniforms [[buffer(0)]]"}
@@ -329,7 +396,7 @@ function gpuemit.program(program: scalarIR.Program): gpuemit.Artifact
         arguments[
             #arguments + 1
         ] = "device const " .. tostring(
-            metalType(param.type)
+            metalStorage(param.type, param.sourceType)
         ) .. "* " .. identifier(param.name) .. " [[buffer(" .. tostring(at) .. ")]]"
         at = at + 1
     end
@@ -337,7 +404,7 @@ function gpuemit.program(program: scalarIR.Program): gpuemit.Artifact
         arguments[
             #arguments + 1
         ] = "device " .. tostring(
-            metalType(param.type)
+            metalStorage(param.type, param.sourceType)
         ) .. "* " .. identifier(param.name) .. " [[buffer(" .. tostring(at) .. ")]]"
         at = at + 1
     end

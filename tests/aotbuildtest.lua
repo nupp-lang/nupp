@@ -536,6 +536,49 @@ return {
    return dir
 end
 
+local HALF_KERNEL = [[
+module halfkernel
+
+local span = require("nupp.mem.span")
+
+@aot
+local function roundTrip(
+    exclusive output: span.WriteSpan<float>,
+    exclusive packed: span.WriteSpan<uint16>,
+    borrows input: span.Span<uint16>
+): nil
+    assert(#output == #packed and #output == #input, "length mismatch")
+    for i = 1, #output do
+        local value = nupp.math.f32.fromF16Bits(input[i])
+        output[i] = value
+        packed[i] = nupp.math.f32.toF16Bits(value)
+    end
+end
+
+export const run = roundTrip
+]]
+
+local function halfProject()
+   local dir = os.tmpname()
+   os.remove(dir)
+   assert(os.execute("mkdir -p '" .. dir .. "/src'") == 0)
+   local manifest = assert(io.open(dir .. "/nupp.lua", "wb"))
+   manifest:write([[
+return {
+   include = {"src"},
+   build = {targets = {native = {
+      kind = "modules", entries = {"halfkernel"}, outDir = "build/native",
+      aot = "require",
+   }}},
+}
+]])
+   manifest:close()
+   local source = assert(io.open(dir .. "/src/halfkernel.nupp", "wb"))
+   source:write(HALF_KERNEL)
+   source:close()
+   return dir
+end
+
 local function builderProject(policy)
    local dir = os.tmpname()
    os.remove(dir)
@@ -1672,6 +1715,41 @@ function M.aWrapIsModularOnBothRoutes()
          .. tostring(signed < 0 and signed + 4294967296 or signed)
    end
    assert(native:find(table.concat(expected, " "), 1, true), native)
+end
+
+function M.binary16StorageConversionsAgreeInCompiledCode()
+   if not hasToolchain() then return end
+
+   local dir = halfProject()
+   local out, code = build(dir)
+   test.equal(code, 0, out)
+   local script = [[
+      local ffi = require("ffi")
+      local spans = require("nupp.mem.span")
+      local half = require("halfkernel")
+      local values = {0x0000, 0x8000, 0x0001, 0x03ff, 0x0400, 0x3c00, 0xc000, 0x7c00, 0xfc00, 0x7e01}
+      local input = ffi.new("uint16_t[?]", #values)
+      local output = ffi.new("float[?]", #values)
+      local packed = ffi.new("uint16_t[?]", #values)
+      for index, value in ipairs(values) do input[index - 1] = value end
+      half.run(spans.writeCarray(output, #values), spans.writeCarray(packed, #values), spans.fromCarray(input, #values))
+      local holder = ffi.new("union { float f; uint32_t u; }[1]")
+      local seen = {}
+      for index = 0, #values - 1 do
+         holder[0].f = output[index]
+         seen[#seen + 1] = ("%08x/%04x"):format(tonumber(holder[0].u), tonumber(packed[index]))
+      end
+      print(table.concat(seen, " "))
+   ]]
+   local pipe = assert(io.popen(("cd %q && luajit -e %q 2>&1"):format(dir, searchPathPrelude() .. script)))
+   local answer = pipe:read("*a")
+   pipe:close()
+   assert(answer:find(
+      "00000000/0000 80000000/8000 33800000/0001 387fc000/03ff 38800000/0400 "
+         .. "3f800000/3c00 c0000000/c000 7f800000/7c00 ff800000/fc00 7fc00000/7e00",
+      1,
+      true
+   ), answer)
 end
 
 --- `unused-binding` answers for the file as written, not for the one the AOT

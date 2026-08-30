@@ -59,7 +59,9 @@ local shifted: uint32 = nupp.math.u32.shiftRightLogical(0x80000000, 31)
 local compared: boolean = nupp.math.u32.lessThan(0xffffffff, 0)
 local rounded: float = nupp.math.f32.fma(1.0, 2.0, 3.0)
 local floatBits: uint32 = nupp.math.f32.toBits(rounded)
-return si, ui, quotient, remainder, shifted, compared, rounded, floatBits
+local halfBits: uint32 = nupp.math.f32.toF16Bits(rounded)
+local widened: float = nupp.math.f32.fromF16Bits(halfBits)
+return si, ui, quotient, remainder, shifted, compared, rounded, floatBits, halfBits, widened
 ]]
    local result = parser.parse(source, "fixed-width.nupp")
    assertEq(#result.errors, 0, "parse errors")
@@ -460,6 +462,44 @@ function M.unsignedDivisionAndRemainderDefineZeroDivisors()
    assertEq(m.u32.mod(4294967295, 65536), 65535)
    assertEq(m.u32.div(17, 0), 0)
    assertEq(m.u32.mod(17, 0), 0)
+end
+
+function M.binary16StorageConversionsAreBitDefined()
+   local f32 = library().f32
+   local decode = {
+      [0x0000] = 0x00000000,
+      [0x8000] = 0x80000000,
+      [0x0001] = 0x33800000,
+      [0x03ff] = 0x387fc000,
+      [0x0400] = 0x38800000,
+      [0x3c00] = 0x3f800000,
+      [0xc000] = 0xc0000000,
+      [0x7c00] = 0x7f800000,
+      [0xfc00] = 0xff800000,
+      [0x7e01] = 0x7fc00000,
+   }
+   for half, single in pairs(decode) do
+      assertEq(f32.toBits(f32.fromF16Bits(half)), single, ("decode 0x%04x"):format(half))
+   end
+
+   local encode = {
+      [0x00000000] = 0x0000,
+      [0x80000000] = 0x8000,
+      [0x33000000] = 0x0000,
+      [0x33000001] = 0x0001,
+      [0x33800000] = 0x0001,
+      [0x38800000] = 0x0400,
+      [0x3f800000] = 0x3c00,
+      [0x477fe000] = 0x7bff,
+      [0x477ff000] = 0x7c00,
+      [0x7f800000] = 0x7c00,
+      [0xff800000] = 0xfc00,
+      [0x7fc12345] = 0x7e00,
+      [0xffc12345] = 0x7e00,
+   }
+   for single, half in pairs(encode) do
+      assertEq(f32.toF16Bits(f32.fromBits(single)), half, ("encode 0x%08x"):format(single))
+   end
 end
 
 function M.multiplicationKeepsEveryLowProductBit()

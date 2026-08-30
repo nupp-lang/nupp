@@ -590,6 +590,72 @@ function f32.toBits(value: number): number
     return bits32(round32(value))
 end
 
+--- Decodes the low sixteen bits as IEEE-754 binary16 and widens exactly.
+function f32.fromF16Bits(value: number): number
+    local bits = ui32(value) % 65536
+    local sign = bits >= 32768 and 2147483648 or 0
+    local magnitude = bits % 32768
+    local exponent = math.floor(magnitude / 1024)
+    local mantissa = magnitude % 1024
+    if exponent == 31 then
+        return putbits(mantissa == 0 and sign + PINF or CANON)
+    elseif exponent == 0 then
+        if mantissa == 0 then
+            return putbits(sign)
+        end
+        local unbiased = -14
+        while mantissa < 1024 do
+            mantissa = mantissa * 2
+            unbiased = unbiased - 1
+        end
+        mantissa = mantissa - 1024
+
+        return putbits(sign + (unbiased + 127) * 8388608 + mantissa * 8192)
+    end
+
+    return putbits(sign + (exponent + 112) * 8388608 + mantissa * 8192)
+end
+
+--- Rounds one binary32 to IEEE-754 binary16 bits, ties to even.
+function f32.toF16Bits(value: number): number
+    local bits = bits32(round32(value))
+    local sign = bits >= 2147483648 and 32768 or 0
+    local magnitude = bits % 2147483648
+    if magnitude >= PINF then
+        return magnitude == PINF and sign + 31744 or 32256
+    end
+    if magnitude >= 1199566848 then -- 0x477ff000, halfway from max finite to infinity.
+        return sign + 31744
+    end
+    if magnitude < 855638016 then -- 0x33000000, half of the least subnormal.
+        return sign
+    end
+
+    local exponent = math.floor(magnitude / 8388608)
+    local mantissa = magnitude % 8388608
+    if exponent >= 113 then
+        local out = sign + (exponent - 112) * 1024 + math.floor(mantissa / 8192)
+        local remainder = mantissa % 8192
+        if remainder > 4096 or remainder == 4096 and out % 2 == 1 then
+            out = out + 1
+        end
+
+        return out
+    end
+
+    local significant = mantissa + 8388608
+    local shift = 126 - exponent
+    local divisor = 2 ^ shift
+    local out = math.floor(significant / divisor)
+    local remainder = significant % divisor
+    local halfway = divisor / 2
+    if remainder > halfway or remainder == halfway and out % 2 == 1 then
+        out = out + 1
+    end
+
+    return sign + out
+end
+
 --- Two-dimensional vectors, carried as a pair of numbers rather than a table.
 ---
 --- Every operation takes and answers loose components, so a vector never has to be

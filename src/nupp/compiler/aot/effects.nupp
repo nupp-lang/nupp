@@ -124,6 +124,8 @@ local PURE_OPS: {
     widen_f32_f64 = true,
     int_to_f64 = true,
     numeric_cast = true,
+    f16_to_f32 = true,
+    f32_to_f16 = true,
     helper_call = true,
     simd_species_u8 = true,
     simd_lanes = true,

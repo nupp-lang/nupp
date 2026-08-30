@@ -26,10 +26,7 @@ local function gemmNaive(
             local bi = nupp.math.u32.add(nupp.math.u32.mul(j, columns), col)
             if ai < #a then
                 if bi < #b then
-                    acc = nupp.math.f32.add(
-                        acc,
-                        nupp.math.f32.mul(nupp.math.f32.narrow(a[ai + 1]), nupp.math.f32.narrow(b[bi + 1]))
-                    )
+                    acc = nupp.math.f32.fma(nupp.math.f32.narrow(a[ai + 1]), nupp.math.f32.narrow(b[bi + 1]), acc)
                 end
             end
             j = nupp.math.u32.add(j, 1)
@@ -59,10 +56,7 @@ local function gemmCpu(
             local bi = nupp.math.u32.add(nupp.math.u32.mul(j, columns), col)
             if ai < #a then
                 if bi < #b then
-                    acc = nupp.math.f32.add(
-                        acc,
-                        nupp.math.f32.mul(nupp.math.f32.narrow(a[ai + 1]), nupp.math.f32.narrow(b[bi + 1]))
-                    )
+                    acc = nupp.math.f32.fma(nupp.math.f32.narrow(a[ai + 1]), nupp.math.f32.narrow(b[bi + 1]), acc)
                 end
             end
             j = nupp.math.u32.add(j, 1)

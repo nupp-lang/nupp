@@ -218,6 +218,8 @@ const verify.CONVERSIONS = {
     ["widen_f32_f64"] = true,
     ["int_to_f64"] = true,
     ["numeric_cast"] = true,
+    ["f16_to_f32"] = true,
+    ["f32_to_f16"] = true,
 }
 
 --- Every binary64 operation, comparison, and bitwise operation.
@@ -396,6 +398,10 @@ local function convert(node: scalarIR.Convert, values: {[string]: string}, scope
             node.type == "f64" and (from == "i32" or from == "u32" or from == "i64" or from == "u64"),
             "invalid integer promotion"
         )
+    elseif node.op == "f16_to_f32" then
+        holds(node.type == "f32" and from == "u32", "invalid binary16 load conversion")
+    elseif node.op == "f32_to_f16" then
+        holds(node.type == "u32" and from == "f32", "invalid binary16 store conversion")
     else
         holds(
             (

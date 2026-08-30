@@ -768,6 +768,8 @@ local function removalSafe(node: scalarIR.Expr, replacement: scalarIR.Expr, cont
         or node.op == "widen_f32_f64"
         or node.op == "int_to_f64"
         or node.op == "numeric_cast"
+        or node.op == "f16_to_f32"
+        or node.op == "f32_to_f16"
     then
         local operand = (node as scalarIR.Unary).value
         return containsObject(replacement, operand) or fold.discardable(operand, context)

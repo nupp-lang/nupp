@@ -28,7 +28,7 @@ local scalarIR = {}
 ---
 --- Carried in the IR and checked when it is read back, so an IR written by an
 --- older compiler is refused rather than half-understood.
-const scalarIR.VERSION = 23
+const scalarIR.VERSION = 24
 
 --- The calling convention selected for one complete AOT entry.
 ---
@@ -658,7 +658,12 @@ end
 --- These are where a width changes, and the only places it does. An operator
 --- never changes one, which is what keeps `float` a storage fact rather than an
 --- arithmetic type.
-type scalarIR.ConvertOp = 'narrow_f64_f32' | 'widen_f32_f64' | 'int_to_f64' | 'numeric_cast'
+type scalarIR.ConvertOp = 'narrow_f64_f32'
+    | 'widen_f32_f64'
+    | 'int_to_f64'
+    | 'numeric_cast'
+    | 'f16_to_f32'
+    | 'f32_to_f16'
 
 record scalarIR.Convert
     op: scalarIR.ConvertOp
