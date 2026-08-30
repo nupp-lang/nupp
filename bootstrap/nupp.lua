@@ -181019,6 +181019,10 @@ sampling = false
 zone . release ( )
 
 local prefix = self . zoneFilter
+
+
+
+local subtree = ( prefix or "" ) .. "/"
 local root = self . root
 local kept = { }
 local samples = 0
@@ -181027,7 +181031,7 @@ local samples = 0
 
 local merged = { }
 for path , stacks in pairs ( self . aggregate ) do
-if not prefix or path : sub ( 1 , # prefix ) == prefix then
+if not prefix or path == prefix or path : sub ( 1 , # subtree ) == subtree then
 for _ , sample in pairs ( stacks ) do
 samples = samples + sample . count
 local stack = root and trimToRoot ( sample . stack , root ) or sample . stack
@@ -181495,13 +181499,18 @@ byRuntime [ format ] = record
 end
 end
 
+
+
+
+
 local function smallDigest ( value ) 
-local digest = 2166136261
+local digest = bit . tobit ( 2166136261 )
 for index = 1 , # value do
-digest = bit . tobit ( bit . bxor ( digest , value : byte ( index ) ) * 16777619 )
+local mixed = bit . bxor ( digest , value : byte ( index ) )
+digest = bit . tobit ( bit . lshift ( mixed , 24 ) + bit . lshift ( mixed , 8 ) + mixed * 0x93 )
 end
 
-return ( "%08x" ) : format ( bit . band ( digest , 0xffffffff ) )
+return bit . tohex ( digest )
 end
 
 
@@ -227935,6 +227944,10 @@ function profile.SampleSession:stop(filename: string?): profile.SampleReport
     zone.release()
 
     local prefix = self.zoneFilter
+    -- The filter names a subtree, so a match has to end at a path component:
+    -- "frame/render" keeps "frame/render/sprites" and not the sibling
+    -- "frame/renderer", which merely shares the characters.
+    local subtree = (prefix or "") .. "/"
     local root = self.root
     local kept: {profile.Sample} = {}
     local samples: integer = 0
@@ -227943,7 +227956,7 @@ function profile.SampleSession:stop(filename: string?): profile.SampleReport
     -- The key holds a NUL because a zone name and a frame can hold anything else.
     local merged: {[string]: profile.Sample} = {}
     for path, stacks in pairs(self.aggregate) do
-        if not prefix or path:sub(1, #prefix) == prefix then
+        if not prefix or path == prefix or path:sub(1, #subtree) == subtree then
             for _, sample in pairs(stacks) do
                 samples = samples + sample.count
                 local stack = root and trimToRoot(sample.stack, root) or sample.stack
@@ -228410,13 +228423,18 @@ for _, record in ipairs(records) do
     end
 end
 
+-- FNV-1a over 32 bits. The prime 16777619 is 2^24 + 2^8 + 0x93 and is multiplied in
+-- those pieces: each product fits a double's mantissa, where the direct multiply can
+-- exceed it and lose exactly the low bits `tobit` keeps. `tohex` because "%08x" widens
+-- a negative word to sixteen digits.
 local function smallDigest(value: string): string
-    local digest = 2166136261
+    local digest = bit.tobit(2166136261)
     for index = 1, #value do
-        digest = bit.tobit(bit.bxor(digest, value:byte(index)) * 16777619)
+        local mixed = bit.bxor(digest, value:byte(index))
+        digest = bit.tobit(bit.lshift(mixed, 24) + bit.lshift(mixed, 8) + mixed * 0x93)
     end
 
-    return ("%08x"):format(bit.band(digest, 0xffffffff))
+    return bit.tohex(digest)
 end
 
 --- Describes the recorder this process is running.

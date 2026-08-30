@@ -223,6 +223,19 @@ function M.sampleZoneFilterKeepsThatSubtreeAlone()
    end
 end
 
+-- The filter names a subtree, not a character prefix: a sibling zone that merely
+-- starts with the same text is outside it.
+function M.sampleZoneFilterEndsAtAPathComponent()
+   local session = profile.sample({intervalMs = 1, zone = "kept"})
+   zone.push("keptothers")
+   burn(sampleWindow(0.15))
+   zone.pop()
+   local report = session:stop()
+
+   assertEq(report.samples, 0, "a sibling sharing the prefix is not the subtree")
+   assertEq(report.text, "", "and nothing is reported for it")
+end
+
 function M.sampleZoneFilterThatMatchesNothingIsEmptyRatherThanEverything()
    local session = profile.sample({intervalMs = 1, zone = "absent"})
    burn(sampleWindow(0.1))
@@ -333,6 +346,17 @@ function M.unknownTracePayloadStaysVisibleWithoutInventedAdvice()
    assertEq(reason.id, "jit/runtime-unknown", "unknown stays unknown")
    assertEq(reason.repair, nil, "an unknown event has no guessed repair")
    assertMatch(raw, "2147483647", "the raw VM identity remains visible")
+end
+
+-- The digest is a fixed-width word however the hash lands: a negative 32-bit
+-- value must not widen the rendering.
+function M.traceProfileDigestIsEightHexCharacters()
+   local registry = require("nupp.profile.trace")
+   local described = registry.profile()
+   assertMatch(described.bytecodeSchema, "^%x%x%x%x%x%x%x%x$",
+      "the bytecode schema digest")
+   assertMatch(described.id, described.bytecodeSchema,
+      "and the profile id carries it")
 end
 
 function M.traceRecordsWhereTheCompilerGaveUp()

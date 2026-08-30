@@ -623,6 +623,10 @@ function profile.SampleSession:stop(filename: string?): profile.SampleReport
     zone.release()
 
     local prefix = self.zoneFilter
+    -- The filter names a subtree, so a match has to end at a path component:
+    -- "frame/render" keeps "frame/render/sprites" and not the sibling
+    -- "frame/renderer", which merely shares the characters.
+    local subtree = (prefix or "") .. "/"
     local root = self.root
     local kept: {profile.Sample} = {}
     local samples: integer = 0
@@ -631,7 +635,7 @@ function profile.SampleSession:stop(filename: string?): profile.SampleReport
     -- The key holds a NUL because a zone name and a frame can hold anything else.
     local merged: {[string]: profile.Sample} = {}
     for path, stacks in pairs(self.aggregate) do
-        if not prefix or path:sub(1, #prefix) == prefix then
+        if not prefix or path == prefix or path:sub(1, #subtree) == subtree then
             for _, sample in pairs(stacks) do
                 samples = samples + sample.count
                 local stack = root and trimToRoot(sample.stack, root) or sample.stack
