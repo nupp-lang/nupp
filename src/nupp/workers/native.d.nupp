@@ -20,9 +20,12 @@ local record native
     channelDictRegister: nosuspend function(any, string): integer?
     channelDictCount: nosuspend function(any): integer
     channelDictAddress: nosuspend function(any, integer): string?
-    channelPushBufferTask: nosuspend function(any, integer, string, string, number, string): boolean
-    channelPushBufferReply: nosuspend function(any, integer, number, string): boolean
-    channelPop: nosuspend function(any, integer): (string?, string?, integer?, integer?, string?, string?, any, number?)
+    channelPushBufferTask: nosuspend function(any, integer, string, string, number, string, any): boolean
+    channelPushBufferReply: nosuspend function(any, integer, number, string, any): boolean
+    channelPop: nosuspend function(
+        any,
+        integer
+    ): (string?, string?, integer?, integer?, string?, string?, any, number?, any)
     channelCount: nosuspend function(any): integer
     channelClosed: nosuspend function(any): boolean
 
