@@ -26798,7 +26798,25 @@ end
 return constant ( typeId , numeric ) , typeId
 elseif op == "bool" then
 return value . value and trueId or falseId , boolType
-elseif op == "int_to_f64" or op == "widen_f32_f64" or op == "narrow_f64_f32" then
+elseif op == "int_to_f64" then
+
+
+local input , inputType = expression ( value . value )
+if inputType == f32Type then
+return input , f32Type
+end
+assert (
+inputType == i32Type or inputType == u32Type ,
+"GPU integer widening source must already be fixed-width"
+)
+local converted = id ( )
+instruction ( functions , inputType == i32Type and OP . ConvertSToF or OP . ConvertUToF , {
+f32Type ,
+converted ,
+input
+} )
+return converted , f32Type
+elseif op == "widen_f32_f64" or op == "narrow_f64_f32" then
 
 
 return expression ( value . value )

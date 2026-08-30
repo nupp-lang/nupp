@@ -341,11 +341,23 @@ local function roundTripBf16Cpu(
         packed[i] = nupp.math.f32.toBF16Bits(value)
     end
 end
+
+@aot(target = "gpu")
+local function signedToFloat(
+    exclusive output: span.WriteSpan<float>,
+    borrows input: span.Span<int8>
+): nil
+    assert(#output == #input, "length mismatch")
+    for i = 1, #output do
+        output[i] = nupp.math.f32.narrow(input[i])
+    end
+end
 return {
     roundTrip = roundTrip,
     roundTripCpu = roundTripCpu,
     roundTripBf16 = roundTripBf16,
     roundTripBf16Cpu = roundTripBf16Cpu,
+    signedToFloat = signedToFloat,
 }
 ]],
     })
@@ -358,6 +370,7 @@ return {
     assert(shader:find("float nupp_bf16_to_f32", 1, true), shader)
     assert(shader:find("uint nupp_f32_to_bf16", 1, true), shader)
     assert(shader:find("ushort(nupp_f32_to_bf16", 1, true), shader)
+    assert(shader:find(" = float(", 1, true), shader)
 
     local c, cCode = run(dir, "--emit c half.nupp")
     test.equal(cCode, 0, c)
