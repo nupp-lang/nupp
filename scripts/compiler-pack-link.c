@@ -109,6 +109,7 @@ int main(int argc, char **argv) {
     }
     for (index = separator + 1; index < argc; index += 1) append(&cursor, argv[index]);
 #ifdef _WIN32
+    append(&cursor, "-lpthread");
     append(&cursor, "-lpsapi");
     append(&cursor, "-luser32");
     append(&cursor, "-ladvapi32");

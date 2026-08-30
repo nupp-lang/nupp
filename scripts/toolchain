@@ -1148,7 +1148,7 @@ build_host() {
     case "$PLATFORM" in
         darwin)  platform_libraries="-lm -lpthread -Wl,-export_dynamic" ;;
         windows)
-            platform_libraries="-lpsapi -luser32 -ladvapi32 -liphlpapi"
+            platform_libraries="-lpthread -lpsapi -luser32 -ladvapi32 -liphlpapi"
             platform_libraries="$platform_libraries -luserenv -lws2_32"
             platform_libraries="$platform_libraries -ldbghelp -lole32"
             platform_libraries="$platform_libraries -lshell32 -lbcrypt"
@@ -1245,7 +1245,7 @@ EOF
     case "$PLATFORM" in
         darwin)  set -- "$@" -lm -lpthread -Wl,-export_dynamic ;;
         windows)
-            set -- "$@" -lpsapi -luser32 -ladvapi32 -liphlpapi -luserenv
+            set -- "$@" -lpthread -lpsapi -luser32 -ladvapi32 -liphlpapi -luserenv
             set -- "$@" -lws2_32 -ldbghelp -lole32 -lshell32 -lbcrypt -Wl,--export-all-symbols
             ;;
         *)       set -- "$@" -lm -lpthread -ldl -Wl,-E ;;

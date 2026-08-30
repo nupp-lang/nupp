@@ -297,6 +297,22 @@ function M.windowsDefaultsToTheGnuCompilerPair()
    assert(automatic ~= msvc, "Windows selected the MSVC-targeting clang pair")
 end
 
+-- The host runtime uses pthread ownership checks on every platform. MinGW GCC
+-- links its runtime implicitly, while llvm-mingw's Clang requires the archive
+-- to be named. Both the ordinary host linker and the relocatable pack linker
+-- must carry it, or release-pack construction and installed standalone builds
+-- fail at different stages with the same unresolved pthread symbols.
+function M.windowsHostLinkersCarryPthread()
+   local driver = read(ROOT .. "/scripts/toolchain")
+   local packLinker = read(ROOT .. "/scripts/compiler-pack-link.c")
+   assert(driver:match('windows%)%s+platform_libraries="%-lpthread '),
+      "the Windows host build does not link pthread")
+   assert(driver:match('windows%)%s+set %-%- "?%$@"? %-lpthread '),
+      "the Windows application host linker does not link pthread")
+   assert(packLinker:match('#ifdef _WIN32%s+append%(&cursor, "%-lpthread"%);'),
+      "the Windows compiler-pack host linker does not link pthread")
+end
+
 -- A path answered by Git Bash can be handed directly to the native compiler or
 -- LuaJIT. Those processes do not understand its `/c/...` mount spelling.
 function M.windowsAnswersNativePaths()
