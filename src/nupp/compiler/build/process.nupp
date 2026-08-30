@@ -139,8 +139,16 @@ function process.command(argv: {string}, opts: process.Options?): string
             end
         end
     end
-    for _, arg in ipairs(argv) do
-        parts[#parts + 1] = quote(arg)
+    for index, arg in ipairs(argv) do
+        -- `cmd` reads a leading `/` as the start of a switch, so a program named
+        -- by a relative path with forward slashes is not a path to it: it reads
+        -- `build/nupp-test` as the command `build` with a `/nupp-test` switch,
+        -- and answers that `build` is not recognized. Only the program is
+        -- rewritten, and only where it is `cmd` that will resolve it. Its
+        -- arguments are the launched program's to parse, and where `launchArgs`
+        -- put a shell in front, that shell reads the rest and wants them as they
+        -- were written.
+        parts[#parts + 1] = quote(windows and index == 1 and (arg:gsub("/", "\\")) or arg)
     end
     local command = table.concat(parts, " ")
     if opts.cwd then
