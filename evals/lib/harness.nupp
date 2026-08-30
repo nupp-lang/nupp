@@ -148,6 +148,32 @@ function harness.copyTree(from: string, to: string): nil
     end
 end
 
+--- The compiler launcher, made runnable where it is a script and the platform
+--- cannot run one.
+---
+--- `bin/nupp` is shell, and Windows does not execute a shell script the way it
+--- executes a program: spawning it directly answers that the file is not there,
+--- which is what the evaluation self-test reported on that platform while the
+--- file sat in front of it. `NUPP_TEST_BASH` names the shell that can, the same
+--- variable and the same rule `nupp.compiler.build.process` uses for this, and
+--- it is set only where the question arises.
+local function launchable(argv: {string}): {string}
+    local shell = os.getenv("NUPP_TEST_BASH")
+    if shell == nil or shell == "" then
+        return argv
+    end
+    local first = tostring(argv[1] or ""):gsub("\\", "/")
+    if not first:match("/bin/nupp$") then
+        return argv
+    end
+    local launched = {shell}
+    for _, argument in ipairs(argv) do
+        launched[#launched + 1] = argument
+    end
+
+    return launched
+end
+
 function harness.run(
     argv: {string},
     cwd: string?,
@@ -155,7 +181,7 @@ function harness.run(
     timeoutSeconds: number?
 ): harness.CommandResult
     local options: process.Options = {
-        args = argv,
+        args = launchable(argv),
         cwd = cwd,
         env = env,
         stdin = "null",

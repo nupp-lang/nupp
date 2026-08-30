@@ -438,14 +438,40 @@ end
 end
 end
 
+
+
+
+
+
+
+
+
+
+local function launchable ( argv ) 
+local shell = os . getenv ( "NUPP_TEST_BASH" )
+if shell == nil or shell == "" then
+return argv
+end
+local first = tostring ( argv [ 1 ] or "" ) : gsub ( "\\" , "/" )
+if not first : match ( "/bin/nupp$" ) then
+return argv
+end
+local launched = { shell }
+for _ , argument in ipairs ( argv ) do
+launched [ # launched + 1 ] = argument
+end
+
+return launched
+end
+
 function harness . run (
 argv ,
 cwd ,
 env ,
 timeoutSeconds
-) local __nuppT32;
+) local __nuppT33;
 local options = {
-args = argv ,
+args = launchable ( argv ) ,
 cwd = cwd ,
 env = env ,
 stdin = "null" ,
@@ -453,7 +479,7 @@ stdout = "pipe" ,
 stderr = "pipe" ,
 timeoutMs = timeoutSeconds ~= nil and math . floor ( timeoutSeconds * 1000 ) or nil ,
 }
-do const  __nuppT39= process.Process.__nuppCtor1 ( options ) ; __nuppT32=__nuppT32 or {} ; local __nuppT40=__nuppT32[1]; if not __nuppT40 then __nuppT40=function(child) do
+do const  __nuppT40= process.Process.__nuppCtor1 ( options ) ; __nuppT33=__nuppT33 or {} ; local __nuppT41=__nuppT33[1]; if not __nuppT41 then __nuppT41=function(child) do
 local result , reason = child : communicate ( )
 child : close ( )
 if result == nil then
@@ -465,7 +491,7 @@ returncode = result . exit . exitCode ,
 stdout = result . output ,
 stderr = result . errorOutput ,
 timedOut = result . exit . timedOut ,
-} ) end; return "normal" end; __nuppT32[1]=__nuppT40 end; const __nuppT34,__nuppT35,__nuppT36=__nuppT14(__nuppT40,__nuppT10,__nuppT39); const __nuppT33=1; const __nuppT37={}; local __nuppT38=0; if __nuppT33>=1 then  const __nuppT41,__nuppT42=__nuppT13(__nuppCleanup2,__nuppT39);  if not __nuppT41 then __nuppT38=__nuppT38+1; __nuppT37[__nuppT38]=__nuppT42 end; end; if not __nuppT34 then if __nuppT38>0 then __nuppT15(__nuppT11(__nuppT35,__nuppT37,1),0) else __nuppT15(__nuppT35,0) end end; if __nuppT38>0 then if __nuppT38>1 then __nuppT15(__nuppT11(__nuppT37[1],__nuppT37,2),0) else __nuppT15(__nuppT37[1],0) end end; if __nuppT35=="return" then  return __nuppT16(__nuppT36,1,__nuppT36.n)  end; end
+} ) end; return "normal" end; __nuppT33[1]=__nuppT41 end; const __nuppT35,__nuppT36,__nuppT37=__nuppT14(__nuppT41,__nuppT10,__nuppT40); const __nuppT34=1; const __nuppT38={}; local __nuppT39=0; if __nuppT34>=1 then  const __nuppT42,__nuppT43=__nuppT13(__nuppCleanup2,__nuppT40);  if not __nuppT42 then __nuppT39=__nuppT39+1; __nuppT38[__nuppT39]=__nuppT43 end; end; if not __nuppT35 then if __nuppT39>0 then __nuppT15(__nuppT11(__nuppT36,__nuppT38,1),0) else __nuppT15(__nuppT36,0) end end; if __nuppT39>0 then if __nuppT39>1 then __nuppT15(__nuppT11(__nuppT38[1],__nuppT38,2),0) else __nuppT15(__nuppT38[1],0) end end; if __nuppT36=="return" then  return __nuppT16(__nuppT37,1,__nuppT37.n)  end; end
 end
 
 function harness . commandAvailable ( name ) 
