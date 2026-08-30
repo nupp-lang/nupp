@@ -58,6 +58,10 @@ Neither can be returned, reassigned, stored in a table, or passed to an ordinary
 call; only the operations in this module admit them.
 ]]
 
+----------------------------------------------------------------------------
+-- Reading the encoded tree
+----------------------------------------------------------------------------
+
 local valuebuilder = {}
 
 const NODE_SIZE: integer = 40
@@ -184,6 +188,10 @@ local function decodeString(borrows source: any, first: integer, length: integer
 
     return table.concat(parts)
 end
+
+----------------------------------------------------------------------------
+-- Materializing a tree
+----------------------------------------------------------------------------
 
 --- Materializes a pointer-free preorder tree into ordinary Lua values.
 ---
@@ -345,6 +353,10 @@ function valuebuilder.materializeTree(
     return materialize(root, 1)
 end
 
+----------------------------------------------------------------------------
+-- Starting a builder
+----------------------------------------------------------------------------
+
 --- Starts a direct stream of values.
 ---
 --- This is the streaming shape. Open a container with
@@ -460,6 +472,10 @@ function valuebuilder.newSerde(
     error("newSerde exists only inside an @aot function", 2)
 end
 
+----------------------------------------------------------------------------
+-- Escapes and numbers
+----------------------------------------------------------------------------
+
 --- Publishes one escaped source slice using backslash positions retained by
 --- the structural scan. Internal to AOT JSON stage two.
 --- @raises outside an AOT-compiled function
@@ -562,6 +578,10 @@ local function put(builder: any, value: any): nil
     end
 end
 
+----------------------------------------------------------------------------
+-- Rooted strings
+----------------------------------------------------------------------------
+
 --- Returns the rooted string's byte length without making a substring.
 ---
 --- This, [](nupp.data.valuebuilder.byte), and [](nupp.data.valuebuilder.word) are the
@@ -624,6 +644,10 @@ function valuebuilder.word(bytes: string, index: uint32): uint32
 
     return nupp.math.u32.wrap(readU32(bytes, offset as integer))
 end
+
+----------------------------------------------------------------------------
+-- Word scratch buffers
+----------------------------------------------------------------------------
 
 local function zeroed(capacity: uint32): {integer}
     local values: {integer} = {}
@@ -837,6 +861,10 @@ function valuebuilder.appendStringEscapeBits(
 ): uint32
     error("appendStringEscapeBits exists only inside an @aot function", 2)
 end
+
+----------------------------------------------------------------------------
+-- Byte scratch buffers
+----------------------------------------------------------------------------
 
 --- Allocates a fixed byte work buffer, every byte of it readable at once.
 ---
@@ -1055,6 +1083,10 @@ end
 function valuebuilder.depth(builder: any): uint32
     return nupp.math.u32.wrap(#builder.stack)
 end
+
+----------------------------------------------------------------------------
+-- Publishing values
+----------------------------------------------------------------------------
 
 --- Returns the current container's tag: 5 for an array and 6 for an object, the
 --- same numbering [](nupp.data.valuebuilder.materializeTree) uses.

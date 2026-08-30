@@ -61,6 +61,10 @@ function scalarIR.cIdentifier(prefix: string, name: string): string
     return prefix .. "_" .. name:gsub("[^%w_]", "_")
 end
 
+----------------------------------------------------------------------------
+-- Sources and types
+----------------------------------------------------------------------------
+
 --- Where an operation came from, for a diagnostic that has to name it.
 record scalarIR.Source
     line: integer
@@ -74,6 +78,10 @@ end
 --- claim. `bool` is what a comparison produces, and `multi` is a call with more
 --- than one result, which only a multiple binding may consume.
 type scalarIR.Type = 'f64' | 'f32' | 'i32' | 'u32' | 'i64' | 'u64' | 'bool' | 'multi' | string
+
+----------------------------------------------------------------------------
+-- Constants
+----------------------------------------------------------------------------
 
 --- A finite decimal literal, always binary64.
 record scalarIR.Constant
@@ -136,6 +144,10 @@ record scalarIR.ConstantBytes
 
     value: string
 end
+
+----------------------------------------------------------------------------
+-- Lua-owned values
+----------------------------------------------------------------------------
 
 --- A source string literal copied into ordinary Lua-owned storage.
 record scalarIR.LuaString
@@ -421,6 +433,10 @@ record scalarIR.LuaBuilderNumberToken
     source: scalarIR.Source?
 end
 
+----------------------------------------------------------------------------
+-- Reads
+----------------------------------------------------------------------------
+
 --- A local, a uniform parameter, or a helper's parameter.
 ---
 --- Three operations rather than one because they are emitted differently and
@@ -497,6 +513,10 @@ record scalarIR.FieldLoad
     sourceType: string?
     source: scalarIR.Source?
 end
+
+----------------------------------------------------------------------------
+-- Operators
+----------------------------------------------------------------------------
 
 --- Binary64 arithmetic, and the comparisons over it.
 ---
@@ -616,6 +636,10 @@ record scalarIR.Corrected
     source: scalarIR.Source?
 end
 
+----------------------------------------------------------------------------
+-- Conversions and calls
+----------------------------------------------------------------------------
+
 --- A conversion between representations.
 ---
 --- These are where a width changes, and the only places it does. An operator
@@ -715,6 +739,10 @@ record scalarIR.Simd
     source: scalarIR.Source?
 end
 
+----------------------------------------------------------------------------
+-- Every expression
+----------------------------------------------------------------------------
+
 --- Every scalar expression.
 type scalarIR.Expr = scalarIR.Constant
     | scalarIR.IntConstant
@@ -759,6 +787,10 @@ type scalarIR.Expr = scalarIR.Constant
     | scalarIR.Convert
     | scalarIR.HelperCall
     | scalarIR.Simd
+
+----------------------------------------------------------------------------
+-- Assignments
+----------------------------------------------------------------------------
 
 --- Where one assignment puts its value: a local, or one field of a struct
 --- element reached through a span.
@@ -926,6 +958,10 @@ record scalarIR.LuaScratchU8Set
     source: scalarIR.Source?
 end
 
+----------------------------------------------------------------------------
+-- Control flow
+----------------------------------------------------------------------------
+
 --- One arm of a conditional.
 record scalarIR.Clause
     condition: scalarIR.Expr
@@ -1032,6 +1068,10 @@ type scalarIR.Statement = scalarIR.Simd
     | scalarIR.Break
     | scalarIR.Continue
     | scalarIR.Return
+
+----------------------------------------------------------------------------
+-- Layouts and parameters
+----------------------------------------------------------------------------
 
 --- One stored field of a reified struct.
 record scalarIR.Field
@@ -1207,6 +1247,10 @@ record scalarIR.LaneBody
     --- of them gains far less from lanes than its operation count suggests.
     rounded: boolean?
 end
+
+----------------------------------------------------------------------------
+-- A whole program
+----------------------------------------------------------------------------
 
 --- One whole admitted `@aot` function.
 ---

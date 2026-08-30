@@ -51,6 +51,10 @@ local renderPage, homeHero, homeFeatures = pageMod.render, pageMod.homeHero, pag
 
 local doc = {}
 
+----------------------------------------------------------------------------
+-- What a site is built from
+----------------------------------------------------------------------------
+
 --- One page a manifest configured. `path` is the route it is written to; `source` is
 --- the markdown read into it.
 ---
@@ -138,6 +142,10 @@ type doc.BuildOptions = {
     title: string?,
     written: {string}?
 }
+
+----------------------------------------------------------------------------
+-- Extracting one file
+----------------------------------------------------------------------------
 
 --- Reads one source file as its documented declarations. Returns the module, or nil and
 --- the parse errors that stopped it. A third result carries the modules an `@namespace`
@@ -255,6 +263,10 @@ function doc.json(modules: {extractMod.Module}): string
 
     return json.encode({schemaVersion = 2, modules = model}) .. "\n"
 end
+
+----------------------------------------------------------------------------
+-- Loading a project's modules
+----------------------------------------------------------------------------
 
 local function sourceFiles(root, config, settings, requested)
     local paths, seen = {}, {}
@@ -433,6 +445,10 @@ local function loadModules(root, config, settings, requested)
     return modules, errors
 end
 
+----------------------------------------------------------------------------
+-- Embeds and rewritten links
+----------------------------------------------------------------------------
+
 -- `<<< @path` on its own line embeds another file's contents as a fenced code block,
 -- language guessed from its extension. A page like the grammar reference is written
 -- this way instead of pasting the grammar in by hand, so the two can never drift: the
@@ -535,6 +551,10 @@ local function rewriteModuleDocLinks(
         rewriteMembers(item.members)
     end
 end
+
+----------------------------------------------------------------------------
+-- Pages
+----------------------------------------------------------------------------
 
 -- The home page's hero and showcase are written in its markdown, between markers, and
 -- read back off it here. A page that carries neither region -- which is every page but
@@ -763,6 +783,10 @@ local function configuredPages(root, settings, title)
     return pages
 end
 
+----------------------------------------------------------------------------
+-- Search and redirects
+----------------------------------------------------------------------------
+
 local function redirectHtml(target)
     return '<!doctype html><meta charset="utf-8"><meta http-equiv="refresh" content="0; url=' .. htmlEscape(
         target
@@ -851,6 +875,10 @@ local function appendOutline(items: {pageMod.Entry}, markdown: string?)
         end
     end
 end
+
+----------------------------------------------------------------------------
+-- Rendering the site
+----------------------------------------------------------------------------
 
 local function renderSite(root, outDir, modules, title, settings)
     configureScintillua(root, settings)
@@ -1140,6 +1168,10 @@ local function renderSite(root, outDir, modules, title, settings)
     return true
 end
 
+----------------------------------------------------------------------------
+-- Writing the output
+----------------------------------------------------------------------------
+
 local function report(errors)
     for _, err in ipairs(errors) do
         io.stderr:write(
@@ -1304,6 +1336,10 @@ function doc.build(
 
     return code, output, format
 end
+
+----------------------------------------------------------------------------
+-- Targets from the manifest
+----------------------------------------------------------------------------
 
 -- A target's own table, plus the name it was declared under. The copy is what keeps a
 -- run's overrides off the manifest the caller is still holding.
