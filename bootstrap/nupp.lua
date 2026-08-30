@@ -33719,6 +33719,22 @@ local cache = { }
 
 
 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 local function jsonArray ( items ) 
 return json . asArray ( items )
 end
@@ -34258,6 +34274,10 @@ end
 return "lib" .. name .. ".so"
 end
 
+local function staticLibraryName ( name ) 
+return "lib" .. name : gsub ( "%-" , "_" ) .. ".a"
+end
+
 
 
 
@@ -34418,7 +34438,18 @@ end
 table . sort ( nativeInputs )
 local compiler = dep . cc or "cc"
 local _ , version = process . capture ( { compiler , "--version" } )
-local pkgFlags = { }
+local linkage = dep . linkage or "shared"
+local buildsShared = linkage == "shared" or linkage == "both"
+local buildsStatic = linkage == "static" or linkage == "both"
+local archiver , archiverIdentity = nil , ""
+if buildsStatic then
+local archiveProbe , found = process . capture ( { compiler , "-print-prog-name=ar" } )
+found = ( found or "" ) : match ( "^%s*(.-)%s*$" )
+archiver = archiveProbe == 0 and found ~= "" and found or "ar"
+local archiveVersionCode , archiveVersion = process . capture ( { archiver , "--version" } )
+archiverIdentity = archiver .. "\0" .. tostring ( archiveVersionCode ) .. "\0" .. archiveVersion
+end
+local pkgCflags , pkgSharedLibs , pkgStaticLibs = { } , { } , { }
 if dep . pkgConfig then
 local packages = type ( dep . pkgConfig ) == "table" and dep . pkgConfig or { }
 if type ( dep . pkgConfig ) == "string" then
@@ -34426,12 +34457,16 @@ for packageName in dep . pkgConfig : gmatch ( "%S+" ) do
 packages [ # packages + 1 ] = packageName
 end
 end
-local command = { "pkg-config" , "--cflags" , "--libs" }
+local cflagsCommand = { "pkg-config" , "--cflags" }
+local libsCommand = { "pkg-config" , "--libs" }
+local staticLibsCommand = { "pkg-config" , "--static" , "--libs" }
 for _ , packageName in ipairs ( packages ) do
-command [ # command + 1 ] = packageName
+cflagsCommand [ # cflagsCommand + 1 ] = packageName
+libsCommand [ # libsCommand + 1 ] = packageName
+staticLibsCommand [ # staticLibsCommand + 1 ] = packageName
 end
 local label = table . concat ( packages , ", " )
-local code , flags = process . capture ( command )
+local code , flags = process . capture ( cflagsCommand )
 if code ~= 0 then
 return nil , "pkg-config failed for " .. label .. ": " .. flags
 end
@@ -34439,7 +34474,27 @@ local parsed = syntax . shellWords : match ( flags )
 if not parsed then
 return nil , "pkg-config returned invalid flags for " .. label
 end
-pkgFlags = parsed
+pkgCflags = parsed
+code , flags = process . capture ( libsCommand )
+if code ~= 0 then
+return nil , "pkg-config failed for " .. label .. ": " .. flags
+end
+parsed = syntax . shellWords : match ( flags )
+if not parsed then
+return nil , "pkg-config returned invalid flags for " .. label
+end
+pkgSharedLibs = parsed
+if buildsStatic then
+code , flags = process . capture ( staticLibsCommand )
+if code ~= 0 then
+return nil , "pkg-config failed for " .. label .. ": " .. flags
+end
+parsed = syntax . shellWords : match ( flags )
+if not parsed then
+return nil , "pkg-config returned invalid flags for " .. label
+end
+pkgStaticLibs = parsed
+end
 end
 local cppflags = { }
 for _ , flag in ipairs ( dep . cppflags or { } ) do
@@ -34448,20 +34503,29 @@ end
 for _ , dir in ipairs ( dep . includeDirs or { } ) do
 cppflags [ # cppflags + 1 ] = "-I" .. join ( base , dir )
 end
-for _ , flag in ipairs ( pkgFlags ) do
-if flag : match ( "^-I" ) or flag : match ( "^-D" ) then
+for _ , flag in ipairs ( pkgCflags ) do
 cppflags [ # cppflags + 1 ] = flag
-end
 end
 local hasMacroBridge = configuredBinding and configuredBinding . macros and next ( configuredBinding . macros ) ~= nil
 local wantsLibrary = # sources > 0 or ( configuredBinding and configuredBinding . bridge ) or hasMacroBridge
-local output = wantsLibrary and join ( root , dep . out or join ( outDir , "lib/" .. sharedLibraryName ( name ) ) ) or nil
+local sharedOutput = wantsLibrary and buildsShared and join (
+root ,
+dep . out or join ( outDir , "lib/" .. sharedLibraryName ( name ) )
+) or nil
+local staticOutput = wantsLibrary and buildsStatic and join (
+root ,
+dep . staticOut or ( linkage == "static" and dep . out ) or join ( outDir , "lib/" .. staticLibraryName ( name ) )
+) or nil
+if sharedOutput ~= nil and staticOutput ~= nil and normalize ( sharedOutput ) == normalize ( staticOutput ) then
+return nil , "C dependency " .. name .. " must use different shared and static outputs"
+end
+local output = sharedOutput or staticOutput
 
 
 
 local reference = configuredBinding and (
 configuredBinding . library or dep . load or (
-output and libraryReference ( root , outDir , output )
+sharedOutput and libraryReference ( root , outDir , sharedOutput )
 ) or type ( dep . pkgConfig ) == "string" and dep . pkgConfig
 ) or nil
 local binding , bindingErr , bridge = generateBinding ( root , outDir , name , dep , base , reference , cppflags )
@@ -34479,29 +34543,49 @@ stable (
 dep
 ) .. "\0" .. hashFiles (
 nativeInputs
-) .. "\0" .. version .. "\0" .. stable ( pkgFlags ) .. "\0" .. stable ( childResults )
+) .. "\0" .. version .. "\0" .. stable (
+pkgCflags
+) .. "\0" .. stable (
+pkgSharedLibs
+) .. "\0" .. stable ( pkgStaticLibs ) .. "\0" .. archiverIdentity .. "\0" .. stable ( childResults )
 )
 if # sources > 0 then
-local builtOutput = output
-if not builtOutput then
+if not output then
 return nil , "C dependency " .. name .. " has sources but no library output"
 end
-if not previous or previous . key ~= key or not exists ( builtOutput ) then
-mkdir ( dirname ( builtOutput ) )
-local stagedOutput = builtOutput .. ".tmp"
-os . remove ( stagedOutput )
-local argv = { compiler }
-local osName = ( jit and jit . os or "" ) : lower ( )
-if osName == "osx" then
-argv [ # argv + 1 ] = "-dynamiclib"
-elseif osName ~= "windows" then
-argv [ # argv + 1 ] = "-shared" ;
-argv [ # argv + 1 ] = "-fPIC"
-else
-argv [ # argv + 1 ] = "-shared"
+local outputsExist = (
+sharedOutput == nil or exists ( sharedOutput )
+) and ( staticOutput == nil or exists ( staticOutput ) )
+if not previous or previous . key ~= key or not outputsExist then
+if sharedOutput then
+mkdir ( dirname ( sharedOutput ) )
 end
-argv [ # argv + 1 ] = "-o" ;
-argv [ # argv + 1 ] = stagedOutput
+if staticOutput then
+mkdir ( dirname ( staticOutput ) )
+end
+local objectStem = sharedOutput or staticOutput
+local objects = { }
+local osName = ( jit and jit . os or "" ) : lower ( )
+local function removeIntermediates ( ) 
+for _ , object in ipairs ( objects ) do
+os . remove ( object )
+end
+if sharedOutput then
+os . remove ( sharedOutput .. ".tmp" )
+end
+if staticOutput then
+os . remove ( staticOutput .. ".tmp" )
+end
+end
+
+for index , source in ipairs ( sources ) do
+local object = objectStem .. ".nupp-" .. tostring ( index ) .. ".o"
+objects [ # objects + 1 ] = object
+os . remove ( object )
+local argv = { compiler , "-c" , "-o" , object }
+if osName ~= "windows" then
+argv [ # argv + 1 ] = "-fPIC"
+end
 for _ , dir in ipairs ( dep . includeDirs or { } ) do
 argv [ # argv + 1 ] = "-I" .. join ( base , dir )
 end
@@ -34511,41 +34595,133 @@ end
 for _ , flag in ipairs ( dep . cppflags or { } ) do
 argv [ # argv + 1 ] = flag
 end
+for _ , flag in ipairs ( pkgCflags ) do
+argv [ # argv + 1 ] = flag
+end
 for _ , flag in ipairs ( dep . cflags or { } ) do
 argv [ # argv + 1 ] = flag
 end
-for _ , source in ipairs ( sources ) do
 argv [ # argv + 1 ] = source
+if process . run ( argv ) ~= 0 then
+removeIntermediates ( )
+return nil , "C compilation failed for " .. name
+end
+end
+
+if sharedOutput then
+local staged = sharedOutput .. ".tmp"
+os . remove ( staged )
+local argv = { compiler }
+if osName == "osx" then
+argv [ # argv + 1 ] = "-dynamiclib"
+else
+argv [ # argv + 1 ] = "-shared"
+end
+argv [ # argv + 1 ] = "-o"
+argv [ # argv + 1 ] = staged
+for _ , flag in ipairs ( dep . cflags or { } ) do
+argv [ # argv + 1 ] = flag
+end
+for _ , object in ipairs ( objects ) do
+argv [ # argv + 1 ] = object
 end
 for _ , childName in ipairs ( dep . dependencies or { } ) do
 local child = childResults and childResults [ childName ]
-if child . output then
-argv [ # argv + 1 ] = child . output
+for _ , childOutput in ipairs (
+child and child . linkOutputs or child and child . output and { child . output } or { }
+) do
+argv [ # argv + 1 ] = childOutput
+end
+for _ , childFlag in ipairs ( child and child . linkFlags or { } ) do
+argv [ # argv + 1 ] = childFlag
 end
 end
-for _ , flag in ipairs ( pkgFlags ) do
+for _ , flag in ipairs ( pkgSharedLibs ) do
 argv [ # argv + 1 ] = flag
 end
 for _ , flag in ipairs ( dep . ldflags or { } ) do
 argv [ # argv + 1 ] = flag
 end
 if process . run ( argv ) ~= 0 then
-os . remove ( stagedOutput )
-return nil , "C build failed for " .. name
-end
-local binary , binaryErr = readFile ( stagedOutput )
-os . remove ( stagedOutput )
-if not binary then
-return nil , binaryErr
-end
-local installed , installErr = writeFile ( builtOutput , binary )
-if not installed then
-return nil , installErr
-end
+removeIntermediates ( )
+return nil , "C shared link failed for " .. name
 end
 end
 
-return { key = key , output = output , binding = binding , reference = reference }
+if staticOutput then
+local staged = staticOutput .. ".tmp"
+os . remove ( staged )
+local argv = { archiver , "rcs" , staged }
+for _ , object in ipairs ( objects ) do
+argv [ # argv + 1 ] = object
+end
+if process . run ( argv ) ~= 0 then
+removeIntermediates ( )
+return nil , "C static archive failed for " .. name
+end
+end
+
+local function install ( builtOutput ) 
+if not builtOutput then
+return nil
+end
+local staged = builtOutput .. ".tmp"
+local binary , binaryErr = readFile ( staged )
+if not binary then
+return binaryErr
+end
+local installed , installErr = writeFile ( builtOutput , binary )
+if not installed then
+return installErr
+end
+
+return nil
+end
+
+local installErr = install ( sharedOutput ) or install ( staticOutput )
+if installErr then
+removeIntermediates ( )
+return nil , installErr
+end
+removeIntermediates ( )
+end
+end
+
+local linkOutputs = json . asArray ( { } )
+local linkFlags = json . asArray ( { } )
+if staticOutput then
+linkOutputs [ # linkOutputs + 1 ] = staticOutput
+for _ , childName in ipairs ( dep . dependencies or { } ) do
+local child = childResults and childResults [ childName ]
+for _ , childOutput in ipairs (
+child and child . linkOutputs or child and child . output and { child . output } or { }
+) do
+linkOutputs [ # linkOutputs + 1 ] = childOutput
+end
+for _ , childFlag in ipairs ( child and child . linkFlags or { } ) do
+linkFlags [ # linkFlags + 1 ] = childFlag
+end
+end
+for _ , flag in ipairs ( pkgStaticLibs ) do
+linkFlags [ # linkFlags + 1 ] = flag
+end
+for _ , flag in ipairs ( dep . ldflags or { } ) do
+linkFlags [ # linkFlags + 1 ] = flag
+end
+elseif sharedOutput then
+linkOutputs [ # linkOutputs + 1 ] = sharedOutput
+end
+
+return {
+key = key ,
+output = output ,
+staticOutput = staticOutput ,
+runtimeOutput = sharedOutput ,
+linkOutputs = linkOutputs ,
+linkFlags = linkFlags ,
+binding = binding ,
+reference = reference ,
+}
 end
 
 
@@ -35901,7 +36077,9 @@ c = {
 "cppflags" ,
 "ldflags" ,
 "pkgConfig" ,
+"linkage" ,
 "out" ,
+"staticOut" ,
 "load" ,
 "header" ,
 "bindings"
@@ -36573,6 +36751,22 @@ end
 end
 else
 return nil , "dependencies." .. name .. ".pkgConfig must be a string or array of strings"
+end
+end
+if dep . kind == "c"
+and dep . linkage ~= nil
+and dep . linkage ~= "shared"
+and dep . linkage ~= "static"
+and dep . linkage ~= "both"
+then
+return nil , "dependencies." .. name .. ".linkage must be \"shared\", \"static\", or \"both\""
+end
+if dep . kind == "c" and dep . staticOut ~= nil then
+if type ( dep . staticOut ) ~= "string" or dep . staticOut == "" then
+return nil , "dependencies." .. name .. ".staticOut must be a non-empty string"
+end
+if dep . linkage ~= "static" and dep . linkage ~= "both" then
+return nil , "dependencies." .. name .. ".staticOut requires linkage = \"static\" or \"both\""
 end
 end
 end
@@ -41038,9 +41232,10 @@ end
 
 for _ , dep in pairs ( dependencies ) do
 local relative = dep . reference ~= nil and ( dep . reference ) : match ( "^@(.+)$" ) or nil
-if relative ~= nil and dep . output ~= nil then
+local runtimeOutput = dep . runtimeOutput or ( dep . staticOutput == nil and dep . output ) or nil
+if relative ~= nil and runtimeOutput ~= nil then
 local beside = join ( dirname ( output ) , relative )
-local copied , copyErr = copyFile ( dep . output , beside )
+local copied , copyErr = copyFile ( runtimeOutput , beside )
 if not copied then
 io . stderr : write (
 ( "nupp: cannot put the compiled library beside %s: %s\n" ) : format ( output , tostring ( copyErr ) )
@@ -41056,6 +41251,9 @@ end
 for _ , dep in pairs ( dependencies ) do
 if dep . output then
 newState . outputs [ dep . output ] = true
+end
+if dep . staticOutput then
+newState . outputs [ dep . staticOutput ] = true
 end
 if dep . binding then
 newState . outputs [ dep . binding ] = true
@@ -73846,8 +74044,14 @@ required = { "symbol" , "role" , "counts" , "instructions" } ,
 
 
 
-local function outcome ( program ) 
+local function outcome ( program , artifacts ) 
 if program . lanes ~= nil then
+return "lowered"
+end
+
+
+
+if artifacts and artifacts . gpu and artifacts . gpu [ program . symbol ] ~= nil then
 return "lowered"
 end
 if program . lanesDeclined == true then
@@ -73858,15 +74062,22 @@ return "refused"
 end
 
 
-local function summarise ( path , program ) 
-local shape = program . lanes ~= nil and program . lanes . shape or "none"
-local how = outcome ( program )
+local function summarise ( path , program , artifacts ) 
+local gpu = artifacts and artifacts . gpu and artifacts . gpu [ program . symbol ] ~= nil
+local shape = program . lanes ~= nil and program . lanes . shape or ( gpu and "gpu" or "none" )
+local how = outcome ( program , artifacts )
 local why = ""
-if how == "declined" and program . thin == true then
+if gpu then
+why = ", one iteration per GPU invocation"
+elseif how == "declined" and program . thin == true then
 why = ", too little arithmetic per byte for lanes to pay"
 if program . stridedFields == true then
 why = why .. "; project hot fields from `nupp.mem.soa` column storage to make them contiguous"
 end
+elseif how == "declined" and program . loop == nil then
+why = ", no map loop to run in lanes"
+elseif how == "declined" and program . entryMode == "lua-builder" then
+why = ", lanes do not apply to a lua-builder entry"
 elseif how == "declined" then
 why = ", declined by `@aot(lanes = false)`"
 elseif how == "refused" then
@@ -73882,7 +74093,7 @@ program . entryMode ,
 program . intensity or 0 ,
 program . operations or 0 ,
 program . touchedBytes or 0 ,
-how == "lowered" and (
+how == "lowered" and program . lanes ~= nil and (
 shape .. ", " .. tostring (
 program . lanes . lanes
 ) .. " lanes" .. ( program . lanes . rounded == true and ", rounding explicit fixed-width work" or "" )
@@ -74136,7 +74347,7 @@ shape = program . lanes . shape ,
 lanes = program . lanes . lanes ,
 rounded = program . lanes . rounded == true ,
 } or nil ,
-outcome = outcome ( program ) ,
+outcome = outcome ( program , artifacts ) ,
 refusals = refusals ,
 }
 end
@@ -74183,12 +74394,12 @@ elseif emit == "binding" then
 io . write ( artifacts . binding )
 else
 for _ , program in ipairs ( artifacts . programs ) do
-io . write ( summarise ( path , program ) .. "\n" )
+io . write ( summarise ( path , program , artifacts ) .. "\n" )
 end
 end
 
 for _ , program in ipairs ( artifacts . programs ) do
-if outcome ( program ) == "refused" then
+if outcome ( program , artifacts ) == "refused" then
 refused = true
 end
 end
@@ -74197,7 +74408,7 @@ if parsed . values . check and refused then
 
 io . stdout : flush ( )
 for _ , program in ipairs ( artifacts . programs ) do
-if outcome ( program ) == "refused" then
+if outcome ( program , artifacts ) == "refused" then
 io . stderr : write ( ( "nupp: %s ran one iteration at a time\n" ) : format ( program . name ) )
 for _ , problem in ipairs ( program . laneRefusals or { } ) do
 io . stderr : write ( "  " .. aot . renderDiagnostic ( problem ) .. "\n" )
@@ -74544,8 +74755,12 @@ for _, seam in ipairs(selected.seams or {}) do
         found = true
         local ok, problem = seam:test()
         failed = failed or not ok
+        -- %q spells an embedded newline as a backslash and a literal newline, which
+        -- would split this row across two physical lines; the reader is line-based,
+        -- so respell it as \n, which load() undoes.
         io.write(table.concat({seam.name, tostring(seam.version), seam.binding or "runtime",
-            ok and "true" or "false", problem == nil and "nil" or string.format("%%q", tostring(problem))}, "\t"), "\n")
+            ok and "true" or "false", problem == nil and "nil"
+            or (string.format("%%q", tostring(problem)):gsub("\\\n", "\\n"))}, "\t"), "\n")
     end
 end
 if not found then error("backend does not supply focused seam", 0) end
@@ -75461,7 +75676,20 @@ local report = progressMod . new ( progressMode )
 local failed = false
 local written = { }
 local outputs = { }
-local function emitModule ( path ) 
+
+
+
+
+local function normalized ( path ) 
+path = path : gsub ( "\\" , "/" ) : gsub ( "/+" , "/" )
+path = path : gsub ( "^%./" , "" ) : gsub ( "/%./" , "/" )
+
+return ( path : gsub ( "/$" , "" ) )
+end
+
+local fs = require ( "nupp.compiler.fs" )
+local function emitModule ( givenPath ) 
+local path = normalized ( givenPath )
 if written [ path ] then
 return true
 end
@@ -75480,19 +75708,26 @@ return false
 end
 local outPath
 if outDir then
-local base = path : match ( "([^/\\]+)%.g%.nupp$" ) or path : match ( "([^/\\]+)%.nupp$" ) or path
-outPath = outDir .. "/" .. base .. ".lua"
+
+
+
+
+
+
+local relative = path
+if path : sub ( 1 , 1 ) == "/" or path : match ( "^[A-Za-z]:/" ) then
+relative = path : match ( "([^/]+)$" ) or path
+end
+outPath = outDir .. "/" .. relative : gsub ( "%.g%.nupp$" , "" ) : gsub ( "%.nupp$" , "" ) .. ".lua"
 else
 outPath = path : gsub ( "%.g%.nupp$" , "" ) : gsub ( "%.nupp$" , "" ) .. ".lua"
 end
-local out , err = io . open ( outPath , "wb" )
-if not out then
+report : at ( "write" )
+local wrote , err = fs . writeFile ( outPath , code )
+if not wrote then
 io . stderr : write ( "nupp: " .. tostring ( err ) .. "\n" )
 return false
 end
-report : at ( "write" )
-out : write ( code )
-out : close ( )
 outputs [ # outputs + 1 ] = outPath
 
 return true
@@ -76139,7 +76374,10 @@ local function choiceCases ( command )
 local out = { }
 for _ , option in ipairs ( command . spec . options ) do
 local choices = option . choices
-if choices then
+
+
+
+if choices and option . form == "value" then
 for _ , name in ipairs ( option . names ) do
 out [ # out + 1 ] = "    " .. name .. ")"
 out [ # out + 1 ] = "      COMPREPLY=( $(compgen -W '" .. words ( choices ) .. "' -- \"$cur\") )"
@@ -76217,12 +76455,15 @@ lines [ # lines + 1 ] = "_arguments -C '1:command:->command' '*::argument:->argu
 lines [ # lines + 1 ] = "case $state in"
 lines [ # lines + 1 ] = "  command) _describe -t commands 'nupp command' commands;;"
 lines [ # lines + 1 ] = "  argument)"
-lines [ # lines + 1 ] = "    case $words[2] in"
+
+
+
+lines [ # lines + 1 ] = "    case $words[1] in"
 for _ , command in ipairs ( commands ) do
 lines [ # lines + 1 ] = "    " .. command . name .. ")"
 local positional = firstPositionalChoices ( command )
 if positional then
-lines [ # lines + 1 ] = "      if (( CURRENT == 3 )); then"
+lines [ # lines + 1 ] = "      if (( CURRENT == 2 )); then"
 lines [ # lines + 1 ] = "        compadd -- " .. words ( positional )
 lines [ # lines + 1 ] = "      else"
 end
@@ -76244,16 +76485,20 @@ local lines
 
 = {
 "# Fish completion for nupp; generated from nupp.compiler.cli.spec." ,
+"function __fish_nupp_needs_command" ,
+"    set -l words (commandline -opc)" ,
+"    test (count $words) -eq 1" ,
+"end" ,
 "function __fish_nupp_using_command" ,
 "    set -l words (commandline -opc)" ,
-"    test (count $words) -ge 2; and test $words[2] = $argv[1]" ,
+"    test (count $words) -ge 2; and test \"$words[2]\" = \"$argv[1]\"" ,
 "end" ,
 "complete -c nupp -f" ,
 }
 for _ , command in ipairs ( commands ) do
 lines [
 # lines + 1
-] = "complete -c nupp -n '__fish_nupp_using_command' -a " .. command . name .. " -d " .. quoted (
+] = "complete -c nupp -n '__fish_nupp_needs_command' -a " .. command . name .. " -d " .. quoted (
 command . spec . summary
 )
 local positional = firstPositionalChoices ( command )
@@ -76274,7 +76519,10 @@ local line = "complete -c nupp -n '__fish_nupp_using_command "
 .. name : sub (
 3
 )
-if option . form ~= "flag" then
+
+
+
+if option . form == "value" then
 line = line .. " -r"
 end
 if choices then
@@ -76288,7 +76536,10 @@ local line = "complete -c nupp -n '__fish_nupp_using_command "
 .. name : sub (
 2
 )
-if option . form ~= "flag" then
+
+
+
+if option . form == "value" then
 line = line .. " -r"
 end
 if choices then
@@ -76934,24 +77185,38 @@ aggregateDescriptions [ # aggregateDescriptions + 1 ] = description
 return true
 end
 
+
+
+
+
+
+local function pointedAt ( t ) 
+while t do
+if t . tag == "ptr" or t . tag == "const" or t . tag == "carray" then
+t = t . elem or t . inner
+elseif t . tag == "union" and t . hasNil and # ( t . members or { } ) == 2 then
+local first , second = t . members [ 1 ] , t . members [ 2 ]
+t = first and first . tag == "nil" and second or first
+else
+break
+end
+end
+
+return t
+end
+
 for _ , selection in ipairs ( selections ) do
 if types [ selection ] then
 describe ( types [ selection ] , selection )
 elseif functions [ selection ] then
 functionSignatures [ # functionSignatures + 1 ] = functions [ selection ]
 for _ , parameter in ipairs ( functions [ selection ] . params or { } ) do
-local t = parameter . type
-while t and ( t . tag == "ptr" or t . tag == "const" or t . tag == "carray" ) do
-t = t . elem or t . inner
-end
+local t = pointedAt ( parameter . type )
 if t and t . tag == "nominal" and t . declKind == "struct" and not t . cdefName then
 describe ( t , cabi . identity ( t ) )
 end
 end
-local t = functions [ selection ] . result
-while t and ( t . tag == "ptr" or t . tag == "const" or t . tag == "carray" ) do
-t = t . elem or t . inner
-end
+local t = pointedAt ( functions [ selection ] . result )
 if t and t . tag == "nominal" and t . declKind == "struct" and not t . cdefName then
 describe ( t , cabi . identity ( t ) )
 end
@@ -77328,10 +77593,35 @@ end
 failed = true
 elseif write then
 if formatted ~= source then
-local out = assert ( io . open ( path , "wb" ) )
-out : write ( formatted )
-out : close ( )
+
+
+
+
+local wrote , writeErr = fs . writeFile ( path , formatted )
+if not wrote then
+if asJson then
+failures [ # failures + 1 ] = {
+file = path ,
+diagnostics = reportMod . diagnosticValues ( {
+{
+filename = path ,
+line = 0 ,
+col = 0 ,
+offset = 0 ,
+length = 0 ,
+code = "NUPP0001" ,
+msg = tostring ( writeErr ) ,
+help = "check that the path is writable"
+}
+} )
+}
+else
+io . stderr : write ( "nupp: " .. tostring ( writeErr ) .. "\n" )
+end
+failed = true
+else
 unformatted [ # unformatted + 1 ] = path
+end
 end
 elseif reporting then
 if formatted ~= source then
@@ -77492,8 +77782,14 @@ local bridgeOut = parsed . values . bridgeOut
 if bridgeOut and details and details . bridgeSource then
 local bridgeHandle , bridgeErr = io . open ( bridgeOut , "wb" )
 if not bridgeHandle then
+
+
+if asJson then
 warnings [ # warnings + 1 ] = tostring ( bridgeErr )
 return fail ( )
+end
+io . stderr : write ( "nupp: " .. tostring ( bridgeErr ) .. "\n" )
+return 1
 end
 bridgeHandle : write ( details . bridgeSource )
 bridgeHandle : close ( )
@@ -77830,6 +78126,11 @@ if # positional > 0 or values . from then
 return command : usageError ( "--list takes no other arguments" )
 end
 
+
+if values . format == "json" then
+return command : usageError ( "--list has no JSON output" )
+end
+
 return listBuiltins ( )
 end
 
@@ -77952,10 +78253,16 @@ local lints = require ( "nupp.compiler.lints" )
 local project = require ( "nupp.compiler.build.project" )
 
 
-local config , err = project . loadManifest ( "." )
-if not config and err then
-io . stderr : write ( err .. "\n" )
+
+
+local config = nil
+if require ( "nupp.compiler.fs" ) . exists ( "nupp.lua" ) then
+local loaded , err = project . loadManifest ( "." )
+if not loaded then
+io . stderr : write ( tostring ( err ) .. "\n" )
 return 1
+end
+config = loaded
 end
 local lintConfig = config and config . lints or nil
 local style = ansi . style ( io . stdout )
@@ -78235,11 +78542,6 @@ detail = { type = "string" } ,
 documentation = { type = "string" } ,
 container = { type = "string" } ,
 definition = reportMod . LOCATION ,
-definitions = {
-type = "array" ,
-items = reportMod . LOCATION ,
-description = "Every declaration that contributes, when more than one does." ,
-} ,
 location = reportMod . LOCATION ,
 range = reportMod . RANGE ,
 children = { type = "array" , items = { [ "$ref" ] = "#/definitions/symbol" } } ,
@@ -78281,7 +78583,17 @@ definition = operationSpec (
 "Find where the symbol at a position is defined" ,
 "nupp lsp definition [options] <file> <line> <column>" ,
 { } ,
-{ type = "object" , properties = { definition = reportMod . LOCATION } , }
+{
+type = "object" ,
+properties = {
+definition = reportMod . LOCATION ,
+definitions = {
+type = "array" ,
+items = reportMod . LOCATION ,
+description = "Every declaration that contributes, when more than one does." ,
+} ,
+} ,
+}
 ) ,
 references = operationSpec (
 "references" ,
@@ -78689,6 +79001,9 @@ detail = result . detail ,
 documentation = result . documentation ,
 definition = locationValue ( client , result . definition ) ,
 range = result . range and rangeValue ( client , path , result . range ) or nil ,
+
+
+automaticCleanup = result . automaticCleanup ,
 } or nil
 if opts . format == "json" then
 jsonOutput ( { symbol = value or json . NULL } )
@@ -79300,6 +79615,7 @@ end
 end
 
 local public = { }
+local completed = { }
 if # errors == 0 and not asking then
 local parser = require ( "nupp.compiler.parser" )
 local check = require ( "nupp.compiler.check" )
@@ -79337,6 +79653,7 @@ public [ # public + 1 ] = publicPlan ( plan , true , asJson )
 break
 end
 public [ # public + 1 ] = publicPlan ( plan , true , asJson )
+completed [ plan ] = true
 end
 else
 for _ , plan in ipairs ( plans ) do
@@ -79353,11 +79670,15 @@ errors = errors ,
 } )
 else
 for _ , plan in ipairs ( plans ) do
+
+
+if asking or completed [ plan ] then
 io . write ( plan . source .. " -> " .. plan . destination .. ( asking and " (planned)\n" or "\n" ) )
 for _ , item in ipairs ( plan . warnings ) do
 io . stderr : write (
 ( "%s:%d:%d: warning: %s: %s\n" ) : format ( plan . source , item . line , item . col , item . code , item . msg )
 )
+end
 end
 end
 for _ , message in ipairs ( errors ) do
@@ -79686,7 +80007,7 @@ contract = ft . paramModes and ft . paramModes [ j ] or "plain" ,
 end
 end
 for j , result in ipairs ( ft . rets or { } ) do
-if pointerShaped ( result , T ) or T . unwrapOwnership ( result ) . tag == "affine" then
+if pointerShaped ( result , T ) or result . tag == "affine" then
 results [ # results + 1 ] = { index = j , type = T . tostring ( result ) }
 end
 end
@@ -79736,11 +80057,13 @@ column = token and token . col or 0 ,
 kind = "unsafe assertion region" ,
 }
 inUnsafe = true
-elseif inUnsafe
-and node . ownershipIntrinsic
-and node . ownershipIntrinsic ~= "borrow"
-and node . ownershipIntrinsic ~= "drop"
-then
+
+
+
+
+elseif node . ownershipIntrinsic and (
+inUnsafe or node . ownershipIntrinsic == "adopt" or node . ownershipIntrinsic == "release"
+) and node . ownershipIntrinsic ~= "borrow" and node . ownershipIntrinsic ~= "drop" then
 local token = firstToken ( node )
 unsafeSites [
 # unsafeSites + 1
@@ -79766,22 +80089,30 @@ visit ( child , file , inUnsafe )
 end
 end
 
+local diagnosticMod = require ( "nupp.compiler.diagnostics" )
 for _ , file in ipairs ( sourceFiles ( parsed . positional , fs ) ) do
 local source = fs . readFile ( file )
 if source then
 local result = parser . parse ( source , file )
 if # result . errors == 0 then
 local diags = check . check ( result , file , env , { strict = false } )
+local errors = { }
 for _ , diag in ipairs ( diags ) do
 if diag . severity == "error" then
+errors [ # errors + 1 ] = diag
 failed = true
 end
+end
+if # errors > 0 then
+diagnosticMod . report ( errors )
 end
 visit ( result . root , file , false )
 else
+diagnosticMod . report ( result . errors )
 failed = true
 end
 else
+io . stderr : write ( "nupp: cannot read " .. file .. "\n" )
 failed = true
 end
 end
@@ -79982,6 +80313,18 @@ required = { "title" , "sections" , "chapters" , "tooling" , "markdown" } ,
 } ,
 }
 
+
+
+local function writeOutput ( path , content ) 
+local wrote , err = require ( "nupp.compiler.fs" ) . writeFile ( path , content .. "\n" )
+if not wrote then
+io . stderr : write ( "nupp: " .. tostring ( err ) .. "\n" )
+return 1
+end
+
+return 0
+end
+
 local function run ( parsed ) 
 local reference = require ( "nupp.compiler.reference" )
 local format = parsed . values . format or "markdown"
@@ -80048,27 +80391,13 @@ tooling = reference . tooling ,
 markdown = rendered ,
 }
 if parsed . values . output then
-local file , err = io . open ( parsed . values . output , "w" )
-if not file then
-io . stderr : write ( tostring ( err ) .. "\n" )
-return 1
-end
-file : write ( require ( "nupp.compiler.cli.report" ) . encode ( payload ) , "\n" )
-file : close ( )
-return 0
+return writeOutput ( parsed . values . output , require ( "nupp.compiler.cli.report" ) . encode ( payload ) )
 end
 require ( "nupp.compiler.cli.report" ) . write ( payload )
 return 0
 end
 if parsed . values . output then
-local file , err = io . open ( parsed . values . output , "w" )
-if not file then
-io . stderr : write ( tostring ( err ) .. "\n" )
-return 1
-end
-file : write ( rendered , "\n" )
-file : close ( )
-return 0
+return writeOutput ( parsed . values . output , rendered )
 end
 io . write ( rendered , "\n" )
 
@@ -80093,8 +80422,22 @@ text = reference . markdown ( )
 end
 
 if format == "json" then
+
+
+
+
+local listed = { }
+if chapter then
+listed = chapter . sections
+else
+for _ , one in ipairs ( reference . chapters ) do
+for _ , section in ipairs ( one . sections ) do
+listed [ # listed + 1 ] = section
+end
+end
+end
 local sections = { }
-for _ , section in ipairs ( chapter and chapter . sections or reference . sections ) do
+for _ , section in ipairs ( listed ) do
 sections [
 # sections + 1
 ] = { title = section . title , body = section . body , example = section . example , codes = section . codes , }
@@ -80110,28 +80453,14 @@ if chapter then
 payload . chapter = chapter
 end
 if parsed . values . output then
-local file , err = io . open ( parsed . values . output , "w" )
-if not file then
-io . stderr : write ( tostring ( err ) .. "\n" )
-return 1
-end
-file : write ( require ( "nupp.compiler.cli.report" ) . encode ( payload ) , "\n" )
-file : close ( )
-return 0
+return writeOutput ( parsed . values . output , require ( "nupp.compiler.cli.report" ) . encode ( payload ) )
 end
 require ( "nupp.compiler.cli.report" ) . write ( payload )
 return 0
 end
 
 if parsed . values . output then
-local file , err = io . open ( parsed . values . output , "w" )
-if not file then
-io . stderr : write ( tostring ( err ) .. "\n" )
-return 1
-end
-file : write ( text , "\n" )
-file : close ( )
-return 0
+return writeOutput ( parsed . values . output , text )
 end
 io . write ( text , "\n" )
 
@@ -80905,6 +81234,12 @@ sites = sites ,
 local wrote , writeErr = require ( "nupp.compiler.fs" ) . writeFile ( abortsOut , report . encode ( document ) .. "\n" )
 if not wrote then
 io . stderr : write ( "nupp: " .. tostring ( writeErr ) .. "\n" )
+
+
+if not ok then
+io . stderr : write ( "nupp: " .. tostring ( runErr ) .. "\n" )
+end
+
 return 1
 end
 end

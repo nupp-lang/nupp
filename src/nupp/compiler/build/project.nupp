@@ -728,9 +728,10 @@ local function buildOne(root: string?, opts: project.BuildOptions?): integer
         -- it is, since nothing is looking for it beside anything.
         for _, dep in pairs(dependencies) do
             local relative = dep.reference ~= nil and (dep.reference as string):match("^@(.+)$") or nil
-            if relative ~= nil and dep.output ~= nil then
+            local runtimeOutput = dep.runtimeOutput or (dep.staticOutput == nil and dep.output) or nil
+            if relative ~= nil and runtimeOutput ~= nil then
                 local beside = join(dirname(output), relative as string)
-                local copied, copyErr = copyFile(dep.output as string, beside)
+                local copied, copyErr = copyFile(runtimeOutput as string, beside)
                 if not copied then
                     io.stderr:write(
                         ("nupp: cannot put the compiled library beside %s: %s\n"):format(output, tostring(copyErr))
@@ -746,6 +747,9 @@ local function buildOne(root: string?, opts: project.BuildOptions?): integer
     for _, dep in pairs(dependencies) do
         if dep.output then
             newState.outputs[dep.output] = true
+        end
+        if dep.staticOutput then
+            newState.outputs[dep.staticOutput] = true
         end
         if dep.binding then
             newState.outputs[dep.binding] = true

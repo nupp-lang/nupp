@@ -90,6 +90,10 @@ local function sharedLibraryName(name)
     return "lib" .. name .. ".so"
 end
 
+local function staticLibraryName(name)
+    return "lib" .. name:gsub("%-", "_") .. ".a"
+end
+
 --- How a generated binding names a library this build produced.
 ---
 --- Marked with a leading `@` and spelled relative to the output directory, so
@@ -250,7 +254,18 @@ local function buildC(root, outDir, name, dep, previous, childResults)
     table.sort(nativeInputs)
     local compiler = dep.cc or "cc"
     local _, version = process.capture({compiler, "--version"})
-    local pkgFlags = {}
+    local linkage = dep.linkage or "shared"
+    local buildsShared = linkage == "shared" or linkage == "both"
+    local buildsStatic = linkage == "static" or linkage == "both"
+    local archiver, archiverIdentity = nil, ""
+    if buildsStatic then
+        local archiveProbe, found = process.capture({compiler, "-print-prog-name=ar"})
+        found = (found or ""):match("^%s*(.-)%s*$")
+        archiver = archiveProbe == 0 and found ~= "" and found or "ar"
+        local archiveVersionCode, archiveVersion = process.capture({archiver, "--version"})
+        archiverIdentity = archiver .. "\0" .. tostring(archiveVersionCode) .. "\0" .. archiveVersion
+    end
+    local pkgCflags, pkgSharedLibs, pkgStaticLibs = {}, {}, {}
     if dep.pkgConfig then
         local packages = type(dep.pkgConfig) == "table" and dep.pkgConfig or {}
         if type(dep.pkgConfig) == "string" then
@@ -258,12 +273,16 @@ local function buildC(root, outDir, name, dep, previous, childResults)
                 packages[#packages + 1] = packageName
             end
         end
-        local command = {"pkg-config", "--cflags", "--libs"}
+        local cflagsCommand = {"pkg-config", "--cflags"}
+        local libsCommand = {"pkg-config", "--libs"}
+        local staticLibsCommand = {"pkg-config", "--static", "--libs"}
         for _, packageName in ipairs(packages) do
-            command[#command + 1] = packageName
+            cflagsCommand[#cflagsCommand + 1] = packageName
+            libsCommand[#libsCommand + 1] = packageName
+            staticLibsCommand[#staticLibsCommand + 1] = packageName
         end
         local label = table.concat(packages, ", ")
-        local code, flags = process.capture(command)
+        local code, flags = process.capture(cflagsCommand)
         if code ~= 0 then
             return nil, "pkg-config failed for " .. label .. ": " .. flags
         end
@@ -271,7 +290,27 @@ local function buildC(root, outDir, name, dep, previous, childResults)
         if not parsed then
             return nil, "pkg-config returned invalid flags for " .. label
         end
-        pkgFlags = parsed
+        pkgCflags = parsed
+        code, flags = process.capture(libsCommand)
+        if code ~= 0 then
+            return nil, "pkg-config failed for " .. label .. ": " .. flags
+        end
+        parsed = syntax.shellWords:match(flags)
+        if not parsed then
+            return nil, "pkg-config returned invalid flags for " .. label
+        end
+        pkgSharedLibs = parsed
+        if buildsStatic then
+            code, flags = process.capture(staticLibsCommand)
+            if code ~= 0 then
+                return nil, "pkg-config failed for " .. label .. ": " .. flags
+            end
+            parsed = syntax.shellWords:match(flags)
+            if not parsed then
+                return nil, "pkg-config returned invalid flags for " .. label
+            end
+            pkgStaticLibs = parsed
+        end
     end
     local cppflags = {}
     for _, flag in ipairs(dep.cppflags or {}) do
@@ -280,20 +319,29 @@ local function buildC(root, outDir, name, dep, previous, childResults)
     for _, dir in ipairs(dep.includeDirs or {}) do
         cppflags[#cppflags + 1] = "-I" .. join(base, dir)
     end
-    for _, flag in ipairs(pkgFlags) do
-        if flag:match("^-I") or flag:match("^-D") then
-            cppflags[#cppflags + 1] = flag
-        end
+    for _, flag in ipairs(pkgCflags) do
+        cppflags[#cppflags + 1] = flag
     end
     local hasMacroBridge = configuredBinding and configuredBinding.macros and next(configuredBinding.macros) ~= nil
     local wantsLibrary = #sources > 0 or (configuredBinding and configuredBinding.bridge) or hasMacroBridge
-    local output = wantsLibrary and join(root, dep.out or join(outDir, "lib/" .. sharedLibraryName(name))) or nil
+    local sharedOutput = wantsLibrary and buildsShared and join(
+        root,
+        dep.out or join(outDir, "lib/" .. sharedLibraryName(name))
+    ) or nil
+    local staticOutput = wantsLibrary and buildsStatic and join(
+        root,
+        dep.staticOut or (linkage == "static" and dep.out) or join(outDir, "lib/" .. staticLibraryName(name))
+    ) or nil
+    if sharedOutput ~= nil and staticOutput ~= nil and normalize(sharedOutput) == normalize(staticOutput) then
+        return nil, "C dependency " .. name .. " must use different shared and static outputs"
+    end
+    local output = sharedOutput or staticOutput
     -- The same precedence `generateBinding` applies, worked out here as well so
     -- that what the record reports is what the binding wrote. A target that
     -- carries the binding somewhere has to carry the library it names.
     local reference = configuredBinding and (
         configuredBinding.library or dep.load or (
-            output and libraryReference(root, outDir, output)
+            sharedOutput and libraryReference(root, outDir, sharedOutput)
         ) or type(dep.pkgConfig) == "string" and dep.pkgConfig
     ) or nil
     local binding, bindingErr, bridge = generateBinding(root, outDir, name, dep, base, reference, cppflags)
@@ -311,73 +359,185 @@ local function buildC(root, outDir, name, dep, previous, childResults)
             dep
         ) .. "\0" .. hashFiles(
             nativeInputs
-        ) .. "\0" .. version .. "\0" .. stable(pkgFlags) .. "\0" .. stable(childResults)
+        ) .. "\0" .. version .. "\0" .. stable(
+            pkgCflags
+        ) .. "\0" .. stable(
+            pkgSharedLibs
+        ) .. "\0" .. stable(pkgStaticLibs) .. "\0" .. archiverIdentity .. "\0" .. stable(childResults)
     )
     if #sources > 0 then
-        local builtOutput = output
-        if not builtOutput then
+        if not output then
             return nil, "C dependency " .. name .. " has sources but no library output"
         end
-        if not previous or previous.key ~= key or not exists(builtOutput) then
-            mkdir(dirname(builtOutput))
-            local stagedOutput = builtOutput .. ".tmp"
-            os.remove(stagedOutput)
-            local argv = {compiler}
+        local outputsExist = (
+            sharedOutput == nil or exists(sharedOutput)
+        ) and (staticOutput == nil or exists(staticOutput))
+        if not previous or previous.key ~= key or not outputsExist then
+            if sharedOutput then
+                mkdir(dirname(sharedOutput))
+            end
+            if staticOutput then
+                mkdir(dirname(staticOutput))
+            end
+            local objectStem = sharedOutput or staticOutput as string
+            local objects = {}
             local osName = (jit and jit.os or ""):lower()
-            if osName == "osx" then
-                argv[#argv + 1] = "-dynamiclib"
-            elseif osName ~= "windows" then
-                argv[#argv + 1] = "-shared";
-                argv[#argv + 1] = "-fPIC"
-            else
-                argv[#argv + 1] = "-shared"
-            end
-            argv[#argv + 1] = "-o";
-            argv[#argv + 1] = stagedOutput
-            for _, dir in ipairs(dep.includeDirs or {}) do
-                argv[#argv + 1] = "-I" .. join(base, dir)
-            end
-            if bridge then
-                argv[#argv + 1] = "-I" .. base
-            end
-            for _, flag in ipairs(dep.cppflags or {}) do
-                argv[#argv + 1] = flag
-            end
-            for _, flag in ipairs(dep.cflags or {}) do
-                argv[#argv + 1] = flag
-            end
-            for _, source in ipairs(sources) do
-                argv[#argv + 1] = source
-            end
-            for _, childName in ipairs(dep.dependencies or {}) do
-                local child = childResults and childResults[childName]
-                if child.output then
-                    argv[#argv + 1] = child.output
+            local function removeIntermediates()
+                for _, object in ipairs(objects) do
+                    os.remove(object)
+                end
+                if sharedOutput then
+                    os.remove(sharedOutput .. ".tmp")
+                end
+                if staticOutput then
+                    os.remove(staticOutput .. ".tmp")
                 end
             end
-            for _, flag in ipairs(pkgFlags) do
-                argv[#argv + 1] = flag
+
+            for index, source in ipairs(sources) do
+                local object = objectStem .. ".nupp-" .. tostring(index) .. ".o"
+                objects[#objects + 1] = object
+                os.remove(object)
+                local argv = {compiler, "-c", "-o", object}
+                if osName ~= "windows" then
+                    argv[#argv + 1] = "-fPIC"
+                end
+                for _, dir in ipairs(dep.includeDirs or {}) do
+                    argv[#argv + 1] = "-I" .. join(base, dir)
+                end
+                if bridge then
+                    argv[#argv + 1] = "-I" .. base
+                end
+                for _, flag in ipairs(dep.cppflags or {}) do
+                    argv[#argv + 1] = flag
+                end
+                for _, flag in ipairs(pkgCflags) do
+                    argv[#argv + 1] = flag
+                end
+                for _, flag in ipairs(dep.cflags or {}) do
+                    argv[#argv + 1] = flag
+                end
+                argv[#argv + 1] = source
+                if process.run(argv) ~= 0 then
+                    removeIntermediates()
+                    return nil, "C compilation failed for " .. name
+                end
             end
-            for _, flag in ipairs(dep.ldflags or {}) do
-                argv[#argv + 1] = flag
+
+            if sharedOutput then
+                local staged = sharedOutput .. ".tmp"
+                os.remove(staged)
+                local argv = {compiler}
+                if osName == "osx" then
+                    argv[#argv + 1] = "-dynamiclib"
+                else
+                    argv[#argv + 1] = "-shared"
+                end
+                argv[#argv + 1] = "-o"
+                argv[#argv + 1] = staged
+                for _, flag in ipairs(dep.cflags or {}) do
+                    argv[#argv + 1] = flag
+                end
+                for _, object in ipairs(objects) do
+                    argv[#argv + 1] = object
+                end
+                for _, childName in ipairs(dep.dependencies or {}) do
+                    local child = childResults and childResults[childName]
+                    for _, childOutput in ipairs(
+                        child and child.linkOutputs or child and child.output and {child.output} or {}
+                    ) do
+                        argv[#argv + 1] = childOutput
+                    end
+                    for _, childFlag in ipairs(child and child.linkFlags or {}) do
+                        argv[#argv + 1] = childFlag
+                    end
+                end
+                for _, flag in ipairs(pkgSharedLibs) do
+                    argv[#argv + 1] = flag
+                end
+                for _, flag in ipairs(dep.ldflags or {}) do
+                    argv[#argv + 1] = flag
+                end
+                if process.run(argv) ~= 0 then
+                    removeIntermediates()
+                    return nil, "C shared link failed for " .. name
+                end
             end
-            if process.run(argv) ~= 0 then
-                os.remove(stagedOutput)
-                return nil, "C build failed for " .. name
+
+            if staticOutput then
+                local staged = staticOutput .. ".tmp"
+                os.remove(staged)
+                local argv = {archiver as string, "rcs", staged}
+                for _, object in ipairs(objects) do
+                    argv[#argv + 1] = object
+                end
+                if process.run(argv) ~= 0 then
+                    removeIntermediates()
+                    return nil, "C static archive failed for " .. name
+                end
             end
-            local binary, binaryErr = readFile(stagedOutput)
-            os.remove(stagedOutput)
-            if not binary then
-                return nil, binaryErr
+
+            local function install(builtOutput: string?): string?
+                if not builtOutput then
+                    return nil
+                end
+                local staged = builtOutput .. ".tmp"
+                local binary, binaryErr = readFile(staged)
+                if not binary then
+                    return binaryErr
+                end
+                local installed, installErr = writeFile(builtOutput, binary)
+                if not installed then
+                    return installErr
+                end
+
+                return nil
             end
-            local installed, installErr = writeFile(builtOutput, binary)
-            if not installed then
+
+            local installErr = install(sharedOutput) or install(staticOutput)
+            if installErr then
+                removeIntermediates()
                 return nil, installErr
             end
+            removeIntermediates()
         end
     end
 
-    return {key = key, output = output, binding = binding, reference = reference}
+    local linkOutputs = json.asArray({})
+    local linkFlags = json.asArray({})
+    if staticOutput then
+        linkOutputs[#linkOutputs + 1] = staticOutput
+        for _, childName in ipairs(dep.dependencies or {}) do
+            local child = childResults and childResults[childName]
+            for _, childOutput in ipairs(
+                child and child.linkOutputs or child and child.output and {child.output} or {}
+            ) do
+                linkOutputs[#linkOutputs + 1] = childOutput
+            end
+            for _, childFlag in ipairs(child and child.linkFlags or {}) do
+                linkFlags[#linkFlags + 1] = childFlag
+            end
+        end
+        for _, flag in ipairs(pkgStaticLibs) do
+            linkFlags[#linkFlags + 1] = flag
+        end
+        for _, flag in ipairs(dep.ldflags or {}) do
+            linkFlags[#linkFlags + 1] = flag
+        end
+    elseif sharedOutput then
+        linkOutputs[#linkOutputs + 1] = sharedOutput
+    end
+
+    return {
+        key = key,
+        output = output,
+        staticOutput = staticOutput,
+        runtimeOutput = sharedOutput,
+        linkOutputs = linkOutputs,
+        linkFlags = linkFlags,
+        binding = binding,
+        reference = reference,
+    }
 end
 
 --- Fetches a type-only source and records the directory the checker may read. Nothing

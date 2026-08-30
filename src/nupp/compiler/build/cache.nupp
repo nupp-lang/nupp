@@ -95,6 +95,22 @@ type cache.ModuleRecord = {
 type cache.DependencyRecord = {
     key: string?,
     output: string?,
+    staticOutput: string?,
+
+    --- The loadable artifact a generated binding can carry beside a package.
+    --- Unlike `output`, this is absent for a static-only C dependency.
+    runtimeOutput: string?,
+
+    --- Native artifacts a dependent library names at its final link. A static
+    --- archive carries no dependency metadata, so its own archive is followed by
+    --- the transitive archives it needs. A shared artifact has already completed
+    --- that link and is the whole list.
+    linkOutputs: {string}?,
+
+    --- Linker flags needed after `linkOutputs`. Static archives do not record
+    --- their pkg-config or explicit linker dependencies, so those travel with
+    --- the archive until a shared artifact or executable consumes them.
+    linkFlags: {string}?,
     binding: string?,
 
     --- How the generated binding names the library, which is not always where

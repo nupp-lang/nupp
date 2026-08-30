@@ -94,6 +94,27 @@ local function libraryName(name)
    return "lib" .. name .. ".so"
 end
 
+local function staticLibraryName(name)
+   return "lib" .. name .. ".a"
+end
+
+-- Loads an output tree in a fresh interpreter and reports what its entry module
+-- answered. The tree is named absolutely and the working directory is somewhere
+-- else, so no part of the answer can come from where the process was started.
+local function answerFrom(tree, cwd)
+   local here = assert(require("nupp.io.files").currentDirectory())
+   here = here:gsub("^/([A-Za-z])(/)", "%1:%2")
+   local script = ("package.path = %q .. %q .. package.path "
+      .. "print('VALUE ' .. tostring(require('main')))")
+      :format(tree .. "/?.lua;", here .. "/build/?.lua;")
+   local code, out = process.capture({"luajit", "-e", script}, {cwd = cwd})
+   if code ~= 0 then
+      return out or ""
+   end
+
+   return out:match("VALUE ([^\r\n]+)") or out
+end
+
 local M = {}
 
 function M.sha256KnownVectors()
@@ -462,6 +483,37 @@ return {dependencies = {native = {kind = "c", pkgConfig = {"simdjson", ""}}},
    assertEq(config, nil, "an empty package name rejects the manifest")
    assert(err:find("pkgConfig%[2%] must be a non%-empty string"), err)
    remove(invalid)
+end
+
+function M.manifestValidatesCDependencyLinkage()
+   for _, linkage in ipairs({"shared", "static", "both"}) do
+      local valid = tempProject({["nupp.lua"] = ([[
+return {dependencies = {native = {kind = "c", linkage = %q}},
+   build = {entries = {"main"}}}
+]]):format(linkage)})
+      local config, err = project.loadManifest(valid)
+      assert(config, err)
+      assertEq(config.dependencies.native.linkage, linkage)
+      remove(valid)
+   end
+
+   local invalid = tempProject({["nupp.lua"] = [[
+return {dependencies = {native = {kind = "c", linkage = "dynamic"}},
+   build = {entries = {"main"}}}
+]]})
+   local config, err = project.loadManifest(invalid)
+   assertEq(config, nil, "an unknown C linkage rejects the manifest")
+   assert(err:find('linkage must be "shared", "static", or "both"', 1, true), err)
+   remove(invalid)
+
+   local strayOutput = tempProject({["nupp.lua"] = [[
+return {dependencies = {native = {kind = "c", staticOut = "native.a"}},
+   build = {entries = {"main"}}}
+]]})
+   config, err = project.loadManifest(strayOutput)
+   assertEq(config, nil, "a static output without static linkage rejects the manifest")
+   assert(err:find('staticOut requires linkage = "static" or "both"', 1, true), err)
+   remove(strayOutput)
 end
 
 function M.manifestValidatesTypeDependenciesSeparatelyFromTargets()
@@ -2079,6 +2131,101 @@ return {
    remove(dir)
 end
 
+function M.cDependencyBuildsStaticArchive()
+   local dir = tempProject({
+      ["nupp.lua"] = [[
+return {
+   include = {"src"},
+   dependencies = {
+      tiny = {kind = "c", linkage = "static", sources = {"native/tiny.c"}},
+   },
+   build = {outDir = "out", entries = {"main"}, dependencies = {"tiny"}},
+}
+]],
+      ["src/main.nupp"] = "return true\n",
+      ["native/tiny.c"] = "int tiny_add(int a, int b) { return a + b; }\n",
+      ["native/main.c"] = table.concat({
+         "int tiny_add(int a, int b);",
+         "int main(void) { return tiny_add(2, 3) == 5 ? 0 : 1; }",
+      }, "\n"),
+   })
+   assertEq(project.build(dir), 0)
+   local archive = dir .. "/out/lib/" .. staticLibraryName("tiny")
+   assert(exists(archive), "C static archive emitted")
+   assert(not exists(dir .. "/out/lib/" .. libraryName("tiny")),
+      "a static dependency does not emit a shared library")
+
+   local executable = dir .. "/native/static-consumer"
+      .. (jit.os == "Windows" and ".exe" or "")
+   assertEq(process.run({"cc", dir .. "/native/main.c", archive, "-o", executable}), 0,
+      "the emitted archive links into a C executable")
+   assertEq(process.run({executable}), 0, "the linked archive supplies its symbols")
+   remove(dir)
+end
+
+function M.cDependencyBuildsSharedAndStaticArtifactsTogether()
+   local dir = tempProject({
+      ["nupp.lua"] = [[
+return {
+   include = {"src"},
+   dependencies = {
+      tiny = {kind = "c", linkage = "both", sources = {"native/tiny.c"},
+         bindings = {header = "native/tiny.h"}},
+   },
+   build = {outDir = "out", entries = {"main"}, dependencies = {"tiny"}},
+}
+]],
+      ["src/main.nupp"] = "local tiny = require('tiny')\nreturn tiny.tiny_add(2, 3)\n",
+      ["native/tiny.h"] = "int tiny_add(int a, int b);\n",
+      ["native/tiny.c"] = "int tiny_add(int a, int b) { return a + b; }\n",
+   })
+   assertEq(project.build(dir), 0)
+   local shared = dir .. "/out/lib/" .. libraryName("tiny")
+   local archive = dir .. "/out/lib/" .. staticLibraryName("tiny")
+   assert(exists(shared), "both linkage emits the shared library")
+   assert(exists(archive), "both linkage emits the static archive")
+   assertEq(answerFrom(dir .. "/out", dir), "5",
+      "the generated binding loads the shared artifact")
+
+   os.remove(archive)
+   assertEq(project.build(dir), 0, "a missing static half is rebuilt")
+   assert(exists(archive), "the rebuilt dependency restores its static archive")
+   remove(dir)
+end
+
+function M.cDependencyLinksAStaticClosureIntoItsSharedLibrary()
+   local dir = tempProject({
+      ["nupp.lua"] = [[
+return {
+   include = {"src"},
+   dependencies = {
+      base = {kind = "c", linkage = "static", sources = {"native/base.c"}},
+      core = {kind = "c", linkage = "static", dependencies = {"base"},
+         sources = {"native/core.c"}},
+      tiny = {kind = "c", dependencies = {"core"}, sources = {"native/tiny.c"},
+         bindings = {header = "native/tiny.h"}},
+   },
+   build = {outDir = "out", entries = {"main"}, dependencies = {"tiny"}},
+}
+]],
+      ["src/main.nupp"] = "local tiny = require('tiny')\nreturn tiny.tiny_add(2, 3)\n",
+      ["native/tiny.h"] = "int tiny_add(int a, int b);\n",
+      ["native/base.c"] = "int base_add(int a, int b) { return a + b; }\n",
+      ["native/core.c"] = table.concat({
+         "int base_add(int a, int b);",
+         "int core_add(int a, int b) { return base_add(a, b); }",
+      }, "\n"),
+      ["native/tiny.c"] = table.concat({
+         "int core_add(int a, int b);",
+         "int tiny_add(int a, int b) { return core_add(a, b); }",
+      }, "\n"),
+   })
+   assertEq(project.build(dir), 0)
+   assertEq(answerFrom(dir .. "/out", dir), "5",
+      "the shared parent contains its transitive static implementation")
+   remove(dir)
+end
+
 -- A project whose entry actually calls through the binding, so what is being
 -- tested is a load rather than the spelling of a string.
 local function callingProject()
@@ -2097,23 +2244,6 @@ return {
       ["native/tiny.h"] = "int tiny_add(int a, int b);\n",
       ["native/tiny.c"] = "int tiny_add(int a, int b) { return a + b; }\n",
    })
-end
-
--- Loads an output tree in a fresh interpreter and reports what its entry module
--- answered. The tree is named absolutely and the working directory is somewhere
--- else, so no part of the answer can come from where the process was started.
-local function answerFrom(tree, cwd)
-   local here = assert(require("nupp.io.files").currentDirectory())
-   here = here:gsub("^/([A-Za-z])(/)", "%1:%2")
-   local script = ("package.path = %q .. %q .. package.path "
-      .. "print('VALUE ' .. tostring(require('main')))")
-      :format(tree .. "/?.lua;", here .. "/build/?.lua;")
-   local code, out = process.capture({"luajit", "-e", script}, {cwd = cwd})
-   if code ~= 0 then
-      return out or ""
-   end
-
-   return out:match("VALUE ([^\r\n]+)") or out
 end
 
 -- A C dependency's library is the other thing a build produces and ships, and

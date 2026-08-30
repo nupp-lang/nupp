@@ -632,7 +632,7 @@ system.
 ## C dependencies
 
 `kind = "c"` supports local sources, `pkgConfig`, compiler and linker flags,
-include directories, and exact-revision Git sources:
+include directories, exact-revision Git sources, and shared or static linkage:
 
 ```lua
 zstd = {
@@ -652,12 +652,41 @@ several installed APIs, such as `{ "libpng", "zlib" }`. The packages are
 resolved together so their compiler and linker flags reach the same build.
 
 Fetched Git trees live under `.nupp/deps` and require an explicit revision.
-C builds emit a `.so`, `.dylib`, or `.dll` under `outDir/lib`. A configured
-header is passed through `import-c`, and the resulting Nupp module is placed
-under `outDir/generated` so it participates in normal module resolution.
+C dependencies default to `linkage = "shared"` and emit a `.so`, `.dylib`, or
+`.dll` under `outDir/lib`. `linkage = "static"` emits `lib<name>.a` instead,
+while `linkage = "both"` emits both from one set of compiled objects:
+
+```lua
+image = {
+   kind = "c",
+   linkage = "both",
+   sources = { "native/*.c" },
+   bindings = { header = "native/image.h" }
+}
+```
+
+The shared artifact remains the one a generated FFI binding loads. A static
+artifact is a linker input: another C dependency can name this dependency and
+will link the archive into its own shared library. A static archive does not by
+itself make a stamped binary self-contained; binary targets stamp their payload
+into an already-linked host and do not currently relink that host.
+
+`out` renames the sole artifact for `shared` or `static`; with `both`, it names
+the shared artifact. `staticOut` independently renames the archive and is most
+useful with `both`. Both default paths are under `outDir/lib`.
+
+A configured header is passed through `import-c`, and the resulting Nupp module
+is placed under `outDir/generated` so it participates in normal module
+resolution. A static-only binding without a `bindings.library`, `load`, or
+`pkgConfig` override declares symbols in the process namespace for a host that
+links the archive; an ordinary Nupp-produced sidecar should use `shared` or
+`both` so the binding has a loadable library.
+
 `sources` and `headers` are path globs: `*` and `?` stay inside one component,
 while `**/` matches zero or more directories. `pkg-config` output honors shell
 quotes and backslash escapes, but is never expanded or executed by a shell.
+Static linkage asks `pkg-config --static` for the transitive flags that must
+travel with an archive.
 
 ### Header-only C dependencies
 

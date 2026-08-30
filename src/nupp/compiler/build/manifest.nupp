@@ -373,7 +373,9 @@ local DEPENDENCY_KEYS: {
         "cppflags",
         "ldflags",
         "pkgConfig",
+        "linkage",
         "out",
+        "staticOut",
         "load",
         "header",
         "bindings"
@@ -1045,6 +1047,22 @@ local function validateManifest(config: manifest.Config): boolean?, string?
                 end
             else
                 return nil, "dependencies." .. name .. ".pkgConfig must be a string or array of strings"
+            end
+        end
+        if dep.kind == "c"
+            and dep.linkage ~= nil
+            and dep.linkage ~= "shared"
+            and dep.linkage ~= "static"
+            and dep.linkage ~= "both"
+        then
+            return nil, "dependencies." .. name .. ".linkage must be \"shared\", \"static\", or \"both\""
+        end
+        if dep.kind == "c" and dep.staticOut ~= nil then
+            if type(dep.staticOut) ~= "string" or dep.staticOut == "" then
+                return nil, "dependencies." .. name .. ".staticOut must be a non-empty string"
+            end
+            if dep.linkage ~= "static" and dep.linkage ~= "both" then
+                return nil, "dependencies." .. name .. ".staticOut requires linkage = \"static\" or \"both\""
             end
         end
     end
