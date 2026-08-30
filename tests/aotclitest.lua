@@ -120,7 +120,10 @@ local function doubled(
 ): nil
     if #output ~= #input then error("length mismatch", 2) end
     for i = 1, #output do
-        output[i] = nupp.math.f32.fma(nupp.math.f32.narrow(input[i]), scale, 0.0)
+        local value = nupp.math.f32.narrow(input[i])
+        local product = nupp.math.f32.mul(value, scale)
+        local adjusted = nupp.math.f32.sub(scale, 1.0)
+        output[i] = nupp.math.f32.fma(nupp.math.f32.add(product, adjusted), scale, 0.0)
     end
 end
 return {doubled = doubled}
@@ -133,6 +136,16 @@ return {doubled = doubled}
     assert(shader:find("= fma(", 1, true), shader)
     assert(shader:find("nupp_f32_fma(", 1, true), shader)
     assert(shader:find("uniforms._m3", 1, true), shader)
+    assert(shader:find("#pragma clang fp contract(off)", 1, true), shader)
+    assert(shader:find("inline T spvFMul(T l, T r)", 1, true), shader)
+    assert(shader:find("return l * r;", 1, true), shader)
+    assert(shader:find("inline T spvFAdd(T l, T r)", 1, true), shader)
+    assert(shader:find("return l + r;", 1, true), shader)
+    assert(shader:find("inline T spvFSub(T l, T r)", 1, true), shader)
+    assert(shader:find("return l - r;", 1, true), shader)
+    assert(not shader:find("[[clang::optnone]] T spvFMul", 1, true), shader)
+    assert(not shader:find("[[clang::optnone]] T spvFAdd", 1, true), shader)
+    assert(not shader:find("[[clang::optnone]] T spvFSub", 1, true), shader)
 
     local module, moduleCode = run(dir, "--emit spirv gpu.nupp")
     test.equal(moduleCode, 0, module)

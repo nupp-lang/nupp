@@ -1200,7 +1200,64 @@ function spirv.deriveMsl(binary: string): string
     assert(code == 0, "SPIRV-Cross rejected compiler-emitted SPIR-V: " .. translated)
     assert(source ~= nil, "SPIRV-Cross wrote no Metal source: " .. tostring(readErr))
 
-    return source as string
+    local metal = source as string
+
+    local function replaceOne(before: string, after: string, description: string): nil
+        local first, last = metal:find(before, 1, true)
+        assert(first ~= nil and last ~= nil, "SPIRV-Cross changed its " .. description)
+        assert(metal:find(before, (last as integer) + 1, true) == nil, "SPIRV-Cross emitted duplicate " .. description)
+        metal = metal:sub(1, (first as integer) - 1) .. after .. metal:sub((last as integer) + 1)
+    end
+
+    -- SPIRV-Cross conservatively implements NoContraction in MSL as an
+    -- `optnone` function call for every add, subtract and multiply.  That is a
+    -- severe inner-loop cost on Metal.  MSL already has the source-level
+    -- spelling Nupp's former direct emitter used: ordinary binary32 operators
+    -- under a translation-unit contraction ban.  Keep NoContraction in the
+    -- canonical SPIR-V for Vulkan, but legalize its Metal derivative to that
+    -- equivalent spelling.  Exact templates make a changed translator fail
+    -- closed instead of silently weakening the arithmetic contract.
+    replaceOne(
+        "using namespace metal;\n",
+        "using namespace metal;\n#pragma clang fp contract(off)\n",
+        "Metal namespace header"
+    )
+
+    local function legalize(name: string, conservative: string, ordinary: string): nil
+        if metal:find(name .. "(", 1, true) ~= nil then
+            replaceOne(
+                table.concat(
+                    {
+                        "template<typename T>",
+                        "[[clang::optnone]] T " .. name .. "(T l, T r)",
+                        "{",
+                        "    return " .. conservative .. ";",
+                        "}",
+                    },
+                    "\n"
+                ),
+                table.concat(
+                    {
+                        "template<typename T>",
+                        "inline T " .. name .. "(T l, T r)",
+                        "{",
+                        "    return " .. ordinary .. ";",
+                        "}",
+                    },
+                    "\n"
+                ),
+                name .. " NoContraction helper"
+            )
+        end
+    end
+
+    legalize("spvFMul", "fma(l, r, T(0))", "l * r")
+    legalize("spvFAdd", "fma(T(1), l, r)", "l + r")
+    legalize("spvFSub", "fma(T(-1), r, l)", "l - r")
+    assert(metal:find("[[clang::optnone]] T", 1, true) == nil,
+        "SPIRV-Cross emitted an unlegalized scalar optnone helper")
+
+    return metal
 end
 
 export = spirv

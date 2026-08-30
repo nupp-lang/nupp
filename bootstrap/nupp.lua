@@ -26231,7 +26231,64 @@ os . remove ( output )
 assert ( code == 0 , "SPIRV-Cross rejected compiler-emitted SPIR-V: " .. translated )
 assert ( source ~= nil , "SPIRV-Cross wrote no Metal source: " .. tostring ( readErr ) )
 
-return source
+local metal = source
+
+local function replaceOne ( before , after , description ) 
+local first , last = metal : find ( before , 1 , true )
+assert ( first ~= nil and last ~= nil , "SPIRV-Cross changed its " .. description )
+assert ( metal : find ( before , ( last ) + 1 , true ) == nil , "SPIRV-Cross emitted duplicate " .. description )
+metal = metal : sub ( 1 , ( first ) - 1 ) .. after .. metal : sub ( ( last ) + 1 )
+end
+
+
+
+
+
+
+
+
+
+replaceOne (
+"using namespace metal;\n" ,
+"using namespace metal;\n#pragma clang fp contract(off)\n" ,
+"Metal namespace header"
+)
+
+local function legalize ( name , conservative , ordinary ) 
+if metal : find ( name .. "(" , 1 , true ) ~= nil then
+replaceOne (
+table . concat (
+{
+"template<typename T>" ,
+"[[clang::optnone]] T " .. name .. "(T l, T r)" ,
+"{" ,
+"    return " .. conservative .. ";" ,
+"}" ,
+} ,
+"\n"
+) ,
+table . concat (
+{
+"template<typename T>" ,
+"inline T " .. name .. "(T l, T r)" ,
+"{" ,
+"    return " .. ordinary .. ";" ,
+"}" ,
+} ,
+"\n"
+) ,
+name .. " NoContraction helper"
+)
+end
+end
+
+legalize ( "spvFMul" , "fma(l, r, T(0))" , "l * r" )
+legalize ( "spvFAdd" , "fma(T(1), l, r)" , "l + r" )
+legalize ( "spvFSub" , "fma(T(-1), r, l)" , "l - r" )
+assert ( metal : find ( "[[clang::optnone]] T" , 1 , true ) == nil ,
+"SPIRV-Cross emitted an unlegalized scalar optnone helper" )
+
+return metal
 end
 
 const __nuppExportValue= spirv ;__nuppExports=__nuppExportValue
@@ -91613,7 +91670,18 @@ local SCRIPT = [[
         };
         addEventListener("scroll", update, {passive: true});
         addEventListener("resize", update);
-        update();
+        const settle = () => {
+            // Safari's native anchor jump can land a heading's top a hair
+            // above the outline's activation line, so `update` picks the
+            // prior heading. Nudge the scroll position past the boundary
+            // before recomputing.
+            scrollBy(0, 8);
+            update();
+        };
+        outlineLinks.forEach((link) =>
+            link.addEventListener("click", () => requestAnimationFrame(settle)));
+        if (location.hash) requestAnimationFrame(settle);
+        else update();
     }
 
     const showcaseFeatures = document.querySelectorAll(".nuppdoc-showcase-feature");
@@ -194767,6 +194835,18 @@ end
 
 
 
+local function settleParking ( task ) 
+task . _observed = true
+if not TaskImpl . isDone ( task ) then
+waitFor ( task . _scheduler , task . _lane , task . _id )
+end
+task . _lane . replies [ task . _id ] = nil
+
+return task . _state == "failed" and "nupp: worker task failed: " .. ( task . _error or "unknown failure" ) or nil
+end
+
+
+
 
 
 local function closeBlocking ( self ) 
@@ -194800,13 +194880,11 @@ self . _closed = true
 local firstFailure = nil
 for _ , task in ipairs ( self . _tasks ) do
 local observed = task . _observed == true
-local ok , problem = pcall ( function ( ) 
-task : await ( )
-end )
+local problem = settleParking ( task )
 if not observed then
 releasePlantedMoved ( task . _values , 0 )
 end
-if not ok and not observed and firstFailure == nil then
+if problem ~= nil and not observed and firstFailure == nil then
 firstFailure = problem
 end
 end
@@ -195019,6 +195097,9 @@ _G.assert(_G.loadstring("local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppM
 
 
 const native = {} native.__index = native
+
+
+
 
 
 
@@ -241931,6 +242012,18 @@ local function settleBlocking(task: any): string?
     return task._state == "failed" and "nupp: worker task failed: " .. (task._error or "unknown failure") or nil
 end
 
+--- Settles one child the way an explicit close may: under a suspension handler
+--- the wait parks, and without one it blocks on the native channel.
+local function settleParking(task: any): string?
+    task._observed = true
+    if not TaskImpl.isDone(task) then
+        waitFor(task._scheduler, task._lane, task._id)
+    end
+    task._lane.replies[task._id] = nil
+
+    return task._state == "failed" and "nupp: worker task failed: " .. (task._error or "unknown failure") or nil
+end
+
 ----------------------------------------------------------------------------
 -- Scopes
 ----------------------------------------------------------------------------
@@ -241966,13 +242059,11 @@ function workers.Scope:close(): nil
     local firstFailure: any = nil
     for _, task in ipairs(self._tasks) do
         local observed = task._observed == true
-        local ok, problem = pcall(function(): nil
-            task:await()
-        end)
+        local problem = settleParking(task)
         if not observed then
             releasePlantedMoved(task._values, 0)
         end
-        if not ok and not observed and firstFailure == nil then
+        if problem ~= nil and not observed and firstFailure == nil then
             firstFailure = problem
         end
     end
@@ -242198,9 +242289,12 @@ local record native
     channelDictRegister: nosuspend function(any, string): integer?
     channelDictCount: nosuspend function(any): integer
     channelDictAddress: nosuspend function(any, integer): string?
-    channelPushBufferTask: nosuspend function(any, integer, string, string, number, string): boolean
-    channelPushBufferReply: nosuspend function(any, integer, number, string): boolean
-    channelPop: nosuspend function(any, integer): (string?, string?, integer?, integer?, string?, string?, any, number?)
+    channelPushBufferTask: nosuspend function(any, integer, string, string, number, string, any): boolean
+    channelPushBufferReply: nosuspend function(any, integer, number, string, any): boolean
+    channelPop: nosuspend function(
+        any,
+        integer
+    ): (string?, string?, integer?, integer?, string?, string?, any, number?, any)
     channelCount: nosuspend function(any): integer
     channelClosed: nosuspend function(any): boolean
 

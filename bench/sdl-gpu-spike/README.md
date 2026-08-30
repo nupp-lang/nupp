@@ -42,17 +42,21 @@ One Apple Silicon run with SDL 3.4.14 measured:
 
 | implementation | ns/frame | MPix/s |
 | --- | ---: | ---: |
-| Nupp f32x8 | 4,070,520 | 193.20 |
-| Nupp f32x4 | 5,052,929 | 155.64 |
-| Nupp scalar | 12,970,808 | 60.63 |
-| SDL GPU generated binding | 387,508 | 2,029.46 |
+| Nupp f32x8 | 3,827,413 | 205.47 |
+| Nupp f32x4 | 4,843,207 | 162.38 |
+| Nupp scalar | 12,514,436 | 62.84 |
+| SDL GPU generated binding | 235,366 | 3,341.32 |
 
 All 786,432 GPU records agreed exactly with Nupp's scalar body and produced
 checksum `46372998`. Metal enables contraction when it compiles source by
 default, so the canonical module decorates ordinary binary32 operations with
-`NoContraction`; SPIRV-Cross preserves those rounding points in derived MSL.
-Without that contract the check caught a one-iteration difference at pixel
-54,903.
+`NoContraction`. SPIRV-Cross conservatively translates those decorations into
+unoptimized arithmetic helpers; the compiler legalizes the scalar helpers to
+inline operators under `#pragma clang fp contract(off)`, preserving the same
+rounding points without an inner-loop call. Two interleaved unlegalized and
+legalized runs measured 0.594 versus 0.237 ms and 0.588 versus 0.232 ms. All
+four results were element-exact. Without the contraction contract the check
+caught a one-iteration difference at pixel 54,903.
 
 The API takes the useful shape from Mojo/MAX: a context owns typed device
 buffers and compiled kernels, commands enqueue without waiting, and
