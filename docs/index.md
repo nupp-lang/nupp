@@ -9,9 +9,9 @@ layout: home
 
 LuaJIT with static guarantees.
 
-Nupp is the "what if we leaned all the way into LuaJIT" language, giving it
-types, checked C interop, ownership, scheduler-neutral suspension, workers,
-AOT, SIMD, and self-contained builds without losing Lua's charm.
+Nupp is the "lean all the way into LuaJIT" language, giving it types, checked C interop,
+ownership, scheduler-neutral suspension, workers, AOT, SIMD, GPU compute, and
+self-contained builds without losing Lua's charm.
 
 [Get started](getting-started/installation)
 [Playground](/playground/)
