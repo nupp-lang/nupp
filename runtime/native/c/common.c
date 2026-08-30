@@ -370,11 +370,19 @@ NUPP_EXPORT void nuppTimeSleepMs(double milliseconds) {
     if (!(milliseconds > 0.0)) {
         return;
     }
+    /* Converting a double past the integer type's range is undefined, and a
+     * deadline far enough away is a bounded wait, not forever. */
 #if NUPP_WINDOWS
+    if (milliseconds > 4294967294.0) {
+        milliseconds = 4294967294.0;
+    }
     Sleep((DWORD)(milliseconds + 0.5));
 #else
     struct timespec requested;
     struct timespec remaining;
+    if (milliseconds > 2147483647.0e3) {
+        milliseconds = 2147483647.0e3;
+    }
     requested.tv_sec = (time_t)(milliseconds / 1000.0);
     requested.tv_nsec = (long)((milliseconds - (double)requested.tv_sec * 1000.0) * 1.0e6);
     if (requested.tv_nsec < 0) {

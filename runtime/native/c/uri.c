@@ -138,13 +138,19 @@ static const char *why_not(const char *text, size_t length) {
 NUPP_EXPORT NuppUri *nuppUriParse(const uint8_t *data, size_t length) {
     NuppText text;
     NuppUri *uri;
+    ada_url url;
     if (!nupp_text(&text, data, length, "URI")) {
         return NULL;
     }
-    uri = hold(ada_parse(text.value, text.length));
-    if (uri == NULL) {
+    url = ada_parse(text.value, text.length);
+    if (!ada_is_valid(url)) {
+        ada_free(url);
         nupp_fail(why_not(text.value, text.length));
+        nupp_text_free(&text);
+        return NULL;
     }
+    /* `hold` refuses only for want of memory now, and that reason stands. */
+    uri = hold(url);
     nupp_text_free(&text);
     return uri;
 }
@@ -479,6 +485,12 @@ NUPP_EXPORT NuppUri *nuppUriWithEndpoint(const NuppUri *uri, const NuppUri *endp
         if (hadHash && hash.length > 1) {
             nupp_buffer_append(&keptHash, hash.data + 1, hash.length - 1);
         }
+        if (keptSearch.failed || keptHash.failed) {
+            nupp_buffer_free(&path);
+            nupp_buffer_free(&keptSearch);
+            nupp_buffer_free(&keptHash);
+            return refused(url, "out of memory");
+        }
         answered = joined(uri, theirPath.data, theirPath.length,
             (const char *)path.data, path.length, url);
         nupp_buffer_free(&path);
@@ -513,6 +525,7 @@ NUPP_EXPORT NuppUri *nuppUriResolve(
 ) {
     NuppText text;
     ada_string base;
+    ada_url url;
     NuppUri *answered;
 
     if (uri == NULL) {
@@ -523,10 +536,15 @@ NUPP_EXPORT NuppUri *nuppUriResolve(
         return NULL;
     }
     base = ada_get_href(uri->url);
-    answered = hold(ada_parse_with_base(text.value, text.length, base.data, base.length));
-    if (answered == NULL) {
+    url = ada_parse_with_base(text.value, text.length, base.data, base.length);
+    if (!ada_is_valid(url)) {
+        ada_free(url);
         nupp_fail("the URI reference cannot be resolved against this URI");
+        nupp_text_free(&text);
+        return NULL;
     }
+    /* `hold` refuses only for want of memory now, and that reason stands. */
+    answered = hold(url);
     nupp_text_free(&text);
     return answered;
 }

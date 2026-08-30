@@ -62,7 +62,8 @@ struct NuppGpuContext {
     NuppGpuBuffer *buffers;
     NuppGpuKernel *kernels;
     NuppGpuBinding *bindings;
-    bool started_video;
+    bool dispatched;
+    bool lost;
 };
 
 static bool gpu_fail(const char *operation) {
@@ -90,10 +91,23 @@ static void reset_queued(NuppGpuContext *context, bool completed) {
 }
 
 static void cancel_commands(NuppGpuContext *context) {
-    if (context->commands != NULL) {
-        SDL_CancelGPUCommandBuffer(context->commands);
-        context->commands = NULL;
+    NuppGpuBuffer *buffer;
+    if (context->commands == NULL) {
+        return;
     }
+    /* Work the caller was already told succeeded is going with this batch, so
+     * the next synchronize must say so rather than answer true. */
+    for (buffer = context->buffers; buffer != NULL; buffer = buffer->next) {
+        if (buffer->upload_queued || buffer->download_queued) {
+            context->lost = true;
+        }
+    }
+    if (context->dispatched) {
+        context->lost = true;
+    }
+    SDL_CancelGPUCommandBuffer(context->commands);
+    context->commands = NULL;
+    context->dispatched = false;
     reset_queued(context, false);
 }
 
@@ -117,7 +131,8 @@ NUPP_EXPORT NuppGpuContext *nuppGpuContextCreate(void) {
         nupp_fail("gpu: out of memory");
         return NULL;
     }
-    context->started_video = SDL_WasInit(SDL_INIT_VIDEO) == 0;
+    /* Init and quit are refcounted, so pairing them one to one per context
+     * leaves a host that brought video up itself with its subsystem intact. */
     if (!SDL_InitSubSystem(SDL_INIT_VIDEO)) {
         gpu_fail("initialize SDL video");
         free(context);
@@ -127,9 +142,7 @@ NUPP_EXPORT NuppGpuContext *nuppGpuContextCreate(void) {
         SDL_GPU_SHADERFORMAT_SPIRV | SDL_GPU_SHADERFORMAT_MSL, false, NULL);
     if (context->device == NULL) {
         gpu_fail("create device");
-        if (context->started_video) {
-            SDL_QuitSubSystem(SDL_INIT_VIDEO);
-        }
+        SDL_QuitSubSystem(SDL_INIT_VIDEO);
         free(context);
         return NULL;
     }
@@ -176,9 +189,7 @@ NUPP_EXPORT void nuppGpuContextDestroy(NuppGpuContext *context) {
     if (context->device != NULL) {
         SDL_DestroyGPUDevice(context->device);
     }
-    if (context->started_video) {
-        SDL_QuitSubSystem(SDL_INIT_VIDEO);
-    }
+    SDL_QuitSubSystem(SDL_INIT_VIDEO);
     free(context);
 }
 
@@ -317,11 +328,11 @@ NUPP_EXPORT bool nuppGpuBufferUpload(
     SDL_GPUBufferRegion to;
     SDL_GPUTransferBufferCreateInfo upload_info;
     void *mapped;
-    if (!owns_buffer(context, buffer) || source == NULL
-        || offset > buffer->size || size > buffer->size - offset) {
-        if (source == NULL || buffer != NULL) {
-            nupp_fail("gpu: upload range is outside the resident buffer");
-        }
+    if (!owns_buffer(context, buffer)) {
+        return false;
+    }
+    if (source == NULL || offset > buffer->size || size > buffer->size - offset) {
+        nupp_fail("gpu: upload range is outside the resident buffer");
         return false;
     }
     if (buffer->upload == NULL) {
@@ -518,6 +529,7 @@ NUPP_EXPORT bool nuppGpuBindingDispatch(
     SDL_DispatchGPUCompute(
         compute, (binding->count + kernel->threads - 1) / kernel->threads, 1, 1);
     SDL_EndGPUComputePass(compute);
+    context->dispatched = true;
     return true;
 }
 
@@ -529,11 +541,11 @@ NUPP_EXPORT bool nuppGpuBufferDownload(
     SDL_GPUBufferRegion from;
     SDL_GPUTransferBufferLocation to;
     SDL_GPUTransferBufferCreateInfo download_info;
-    if (!owns_buffer(context, buffer)
-        || offset > buffer->size || size > buffer->size - offset) {
-        if (buffer != NULL) {
-            nupp_fail("gpu: download range is outside the resident buffer");
-        }
+    if (!owns_buffer(context, buffer)) {
+        return false;
+    }
+    if (offset > buffer->size || size > buffer->size - offset) {
+        nupp_fail("gpu: download range is outside the resident buffer");
         return false;
     }
     if (buffer->download_queued) {
@@ -582,10 +594,17 @@ NUPP_EXPORT bool nuppGpuSynchronize(NuppGpuContext *context) {
         return false;
     }
     if (context->commands == NULL) {
+        if (context->lost) {
+            context->lost = false;
+            nupp_fail("gpu: queued work was discarded when an earlier command failed");
+            return false;
+        }
         return true;
     }
     fence = SDL_SubmitGPUCommandBufferAndAcquireFence(context->commands);
     context->commands = NULL;
+    context->dispatched = false;
+    context->lost = false;
     if (fence == NULL) {
         reset_queued(context, false);
         return gpu_fail("submit commands");
@@ -605,11 +624,11 @@ NUPP_EXPORT bool nuppGpuBufferRead(
     size_t offset, size_t size
 ) {
     void *mapped;
-    if (!owns_buffer(context, buffer) || destination == NULL
-        || offset > buffer->size || size > buffer->size - offset) {
-        if (destination == NULL || buffer != NULL) {
-            nupp_fail("gpu: read range is outside the downloaded buffer");
-        }
+    if (!owns_buffer(context, buffer)) {
+        return false;
+    }
+    if (destination == NULL || offset > buffer->size || size > buffer->size - offset) {
+        nupp_fail("gpu: read range is outside the downloaded buffer");
         return false;
     }
     if (!buffer->download_ready

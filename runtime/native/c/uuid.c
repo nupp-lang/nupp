@@ -51,7 +51,10 @@ static void stamp_version(uint8_t value[16], uint8_t version) {
 /* Version 4: random everywhere the version and variant are not. */
 NUPP_EXPORT bool nuppUuid4(char *output) {
     uint8_t value[16];
-    uv_random(NULL, NULL, value, sizeof value, 0, NULL);
+    if (uv_random(NULL, NULL, value, sizeof value, 0, NULL) != 0) {
+        nupp_fail("the system has no randomness to draw on");
+        return false;
+    }
     stamp_version(value, 4);
     return write_uuid(value, output);
 }
@@ -62,7 +65,10 @@ NUPP_EXPORT bool nuppUuid7(char *output) {
     uint8_t value[16];
     uint64_t milliseconds = nupp_unix_ms();
     unsigned at;
-    uv_random(NULL, NULL, value + 6, sizeof value - 6, 0, NULL);
+    if (uv_random(NULL, NULL, value + 6, sizeof value - 6, 0, NULL) != 0) {
+        nupp_fail("the system has no randomness to draw on");
+        return false;
+    }
     for (at = 0; at < 6; at++) {
         value[at] = (uint8_t)(milliseconds >> (8 * (5 - at)));
     }
