@@ -64,5 +64,15 @@ if [ "$ORIGIN_HEAD" = "$TASK_HEAD" ] && [ -f "$ORIGIN_STAMP" ] \
     touch "$TASK_ROOT/build/.nupp-complete"
 fi
 
+# `core.hooksPath` is one setting for the whole repository, worktrees included,
+# so this is idempotent and the last worktree to be made does not undo it for
+# the others. Set here rather than left to be remembered: the hook exists to
+# catch what CI would otherwise report twenty minutes later, and a hook nobody
+# turned on catches nothing.
+if [ "$(git -C "$TASK_ROOT" config core.hooksPath || true)" != ".githooks" ]; then
+    git -C "$TASK_ROOT" config core.hooksPath .githooks
+fi
+
 echo "created $TASK_ROOT"
 echo "seeded compiler, test scheduling, and native build caches where available"
+echo "hooks: .githooks (pre-push checks formatting; --no-verify skips it)"

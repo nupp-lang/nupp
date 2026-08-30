@@ -1,0 +1,66 @@
+#!/bin/sh
+# Refuses a push carrying source the formatter would rewrite.
+#
+# The gate exists because the answer is cheap here and expensive everywhere
+# else. `fmttreetest` asks the same question, but only in CI, twenty-odd
+# minutes after the push -- and with several worktrees pushing to one trunk,
+# the run that reports it is usually already testing somebody else's commit.
+# Formatting is also the one CI failure that never needs judgement: there is
+# exactly one formatted spelling, and `nupp fmt --write` produces it.
+#
+# Only the files this push actually adds or changes are asked about, so the
+# cost is proportional to the change rather than to the tree. A push that
+# touches no Nupp source does no work at all.
+#
+# `git push --no-verify` skips this, which is the escape hatch for a push that
+# has to happen now; CI still asks.
+set -eu
+
+root=$(git rev-parse --show-toplevel)
+cd "$root"
+
+# Nothing to check without a compiler to check it with. A fresh checkout has
+# not built one, and a hook is no place to start a build: say so and let the
+# push through rather than blocking on a tree that cannot answer yet.
+[ -x ./bin/nupp ] || exit 0
+
+# The commits being pushed, read from the refs git names on stdin. A deletion
+# has no new objects and a new branch has no remote counterpart to diff from,
+# so the merge base with the upstream trunk stands in for one.
+zero=0000000000000000000000000000000000000000
+changed=""
+while read -r _local localSha _remote remoteSha; do
+    [ "$localSha" = "$zero" ] && continue
+    if [ "$remoteSha" = "$zero" ]; then
+        base=$(git merge-base "$localSha" origin/main 2>/dev/null || true)
+    else
+        base=$remoteSha
+    fi
+    if [ -n "$base" ]; then
+        range="$base..$localSha"
+    else
+        range="$localSha"
+    fi
+    # Added, copied, modified and renamed. A file the push deletes is not
+    # there to be formatted.
+    found=$(git diff-tree -r --no-commit-id --name-only --diff-filter=ACMR \
+        "$range" -- '*.nupp' '*.d.nupp' 2>/dev/null || true)
+    changed=$(printf '%s\n%s' "$changed" "$found")
+done
+
+# Sorted and de-duplicated, and only what is still on disk: a file renamed
+# away in a later commit of the same push is named by the earlier one.
+present=""
+for file in $(printf '%s' "$changed" | sort -u); do
+    [ -n "$file" ] && [ -f "$file" ] && present="$present $file"
+done
+[ -n "$present" ] || exit 0
+
+# shellcheck disable=SC2086
+unformatted=$(./bin/nupp fmt --check $present 2>/dev/null || true)
+[ -n "$unformatted" ] || exit 0
+
+printf 'nupp: this push carries source the formatter would rewrite:\n\n' >&2
+printf '%s\n' "$unformatted" >&2
+printf '\nRun `nupp fmt --write` on them and amend, or push with --no-verify.\n' >&2
+exit 1

@@ -135,6 +135,20 @@ reasoning.
 
 ## Verification
 
+`.githooks/pre-push` refuses a push carrying source `nupp fmt` would rewrite,
+asking only about the files that push adds or changes. `scripts/worktree` points
+`core.hooksPath` at it; an existing checkout enables it once with
+
+```sh
+git config core.hooksPath .githooks
+```
+
+It is the one CI failure that never needs judgement — there is a single
+formatted spelling and `nupp fmt --write` produces it — and the one most worth
+catching here, because several worktrees push to one trunk and the run that
+reports it is usually already testing somebody else's commit. `git push
+--no-verify` skips it; CI still asks.
+
 - `./bin/nupp test [SUITE...]` runs the test suite, or only the named suites:
   `./bin/nupp test doctest` finishes in seconds where the whole suite takes
   about nine minutes. `--json` reports a record per test — name, status,
