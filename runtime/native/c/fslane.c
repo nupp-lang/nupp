@@ -33,7 +33,7 @@ typedef enum { WORK_READ, WORK_WRITE, WORK_COPY } WorkKind;
 
 /* One transfer's shared state, held by the caller's handle and by the work
  * running on the pool, released by whichever lets go last. */
-typedef struct {
+typedef struct Slot {
     atomic_int status;
     atomic_int references;
     uv_mutex_t guard;
@@ -51,6 +51,10 @@ typedef struct {
     size_t charged;
 
     uv_work_t work;
+
+    /* Intake and cancellation links, each used on its list at most once. */
+    struct Slot *intakeNext;
+    struct Slot *cancelNext;
 } Slot;
 
 struct NuppRequest {
@@ -73,6 +77,14 @@ static uv_mutex_t arrivalsGuard;
 static uv_cond_t arrivalsSignal;
 static size_t arrivals;
 static atomic_int laneStarted;
+
+/* Submissions and cancellations cross to the lane thread through these lists:
+ * `uv_async_send` is the one libuv call another thread may make, so queueing
+ * and cancelling work on the lane's loop happens on the lane's thread. */
+static uv_mutex_t intakeGuard;
+static Slot *intakeFirst;
+static Slot *intakeLast;
+static Slot *cancelFirst;
 
 static void slot_release(Slot *slot) {
     if (atomic_fetch_sub(&slot->references, 1) != 1) {
@@ -135,7 +147,9 @@ static bool read_whole(Slot *slot, int *code) {
     uint8_t *bytes;
     int64_t got = 0;
 
-    uv_fs_open(NULL, &request, slot->first, UV_FS_O_RDONLY, 0, NULL);
+    /* Nonblocking, so a FIFO submitted as if it were a file refuses or reads
+     * empty instead of wedging one of the pool's threads forever. */
+    uv_fs_open(NULL, &request, slot->first, UV_FS_O_RDONLY | UV_FS_O_NONBLOCK, 0, NULL);
     if (request.result < 0) {
         *code = (int)request.result;
         uv_fs_req_cleanup(&request);
@@ -145,8 +159,23 @@ static bool read_whole(Slot *slot, int *code) {
         uv_file handle = (uv_file)request.result;
         uv_fs_req_cleanup(&request);
         uv_fs_fstat(NULL, &request, handle, NULL);
-        size = request.result < 0 ? 0 : (int64_t)request.statbuf.st_size;
+        if (request.result < 0) {
+            *code = (int)request.result;
+            uv_fs_req_cleanup(&request);
+            uv_fs_close(NULL, &request, handle, NULL);
+            uv_fs_req_cleanup(&request);
+            return false;
+        }
+        size = (int64_t)request.statbuf.st_size;
         uv_fs_req_cleanup(&request);
+        if (size > (int64_t)MAX_REQUEST_BYTES) {
+            /* Priced at submission from a smaller size; a file that grew past
+             * the ceiling in between must not buy what it never paid for. */
+            uv_fs_close(NULL, &request, handle, NULL);
+            uv_fs_req_cleanup(&request);
+            *code = UV_EFBIG;
+            return false;
+        }
         bytes = malloc((size_t)size + 1);
         if (bytes == NULL) {
             uv_fs_close(NULL, &request, handle, NULL);
@@ -176,8 +205,10 @@ static bool read_whole(Slot *slot, int *code) {
         uv_fs_req_cleanup(&request);
     }
     bytes[got] = 0;
+    uv_mutex_lock(&slot->guard);
     slot->data = bytes;
     slot->length = (size_t)got;
+    uv_mutex_unlock(&slot->guard);
     return true;
 }
 
@@ -192,6 +223,17 @@ static bool write_atomic(Slot *slot, int *code) {
     char stampText[17];
     uv_file handle;
     bool ok = true;
+    bool keep = false;
+    uint32_t keepMode = 0;
+
+    /* The rename replaces the destination's inode, so an existing mode has to
+     * come along; a fresh destination gets what `write_whole` would create. */
+    uv_fs_stat(NULL, &request, slot->first, NULL);
+    if (request.result >= 0) {
+        keep = true;
+        keepMode = (uint32_t)request.statbuf.st_mode & 07777u;
+    }
+    uv_fs_req_cleanup(&request);
 
     nupp_buffer_init(&temporary);
     if (slash != NULL) {
@@ -209,7 +251,7 @@ static bool write_atomic(Slot *slot, int *code) {
     }
 
     uv_fs_open(NULL, &request, (const char *)temporary.data,
-        UV_FS_O_WRONLY | UV_FS_O_CREAT | UV_FS_O_EXCL, 0600, NULL);
+        UV_FS_O_WRONLY | UV_FS_O_CREAT | UV_FS_O_EXCL, keep ? 0600 : 0666, NULL);
     if (request.result < 0) {
         *code = (int)request.result;
         uv_fs_req_cleanup(&request);
@@ -218,7 +260,15 @@ static bool write_atomic(Slot *slot, int *code) {
     }
     handle = (uv_file)request.result;
     uv_fs_req_cleanup(&request);
-    {
+    if (keep) {
+        uv_fs_fchmod(NULL, &request, handle, (int)keepMode, NULL);
+        if (request.result < 0) {
+            *code = (int)request.result;
+            ok = false;
+        }
+        uv_fs_req_cleanup(&request);
+    }
+    if (ok) {
         size_t written = 0;
         while (written < slot->contentsLength) {
             uv_buf_t buffer = uv_buf_init((char *)slot->contents + written,
@@ -332,8 +382,38 @@ static void finished(uv_work_t *work, int status) {
     slot_release(slot);
 }
 
+/* Runs on the lane thread: the one place `uv_queue_work` and `uv_cancel` may
+ * touch the lane's loop. Intake drains before cancellations so a cancel always
+ * finds its work already queued. */
 static void woken(uv_async_t *handle) {
+    Slot *queue;
+    Slot *cancels;
     (void)handle;
+    uv_mutex_lock(&intakeGuard);
+    queue = intakeFirst;
+    intakeFirst = NULL;
+    intakeLast = NULL;
+    cancels = cancelFirst;
+    cancelFirst = NULL;
+    uv_mutex_unlock(&intakeGuard);
+    while (queue != NULL) {
+        Slot *slot = queue;
+        int code;
+        queue = slot->intakeNext;
+        slot->intakeNext = NULL;
+        code = uv_queue_work(&laneLoop, &slot->work, perform, finished);
+        if (code != 0) {
+            fail_slot(slot, code, slot->first);
+            slot_release(slot);
+        }
+    }
+    while (cancels != NULL) {
+        Slot *slot = cancels;
+        cancels = slot->cancelNext;
+        slot->cancelNext = NULL;
+        uv_cancel((uv_req_t *)&slot->work);
+        slot_release(slot);
+    }
 }
 
 static void lane_thread(void *unused) {
@@ -345,14 +425,20 @@ static void lane_thread(void *unused) {
  * caller into this library is on the thread that owns the Lua state, so two
  * submissions cannot race here. */
 static bool ensure_lane(void) {
-    if (atomic_load(&laneStarted) == 1) {
+    int state = atomic_load(&laneStarted);
+    if (state == 1) {
         return true;
     }
-    if (uv_loop_init(&laneLoop) != 0
+    /* A lane that failed to come up stays down: retrying would initialize
+     * libuv objects a first attempt already initialized, which is undefined. */
+    if (state != 0
+        || uv_loop_init(&laneLoop) != 0
         || uv_async_init(&laneLoop, &laneWake, woken) != 0
         || uv_mutex_init(&arrivalsGuard) != 0
         || uv_cond_init(&arrivalsSignal) != 0
+        || uv_mutex_init(&intakeGuard) != 0
         || uv_thread_create(&laneThread, lane_thread, NULL) != 0) {
+        atomic_store(&laneStarted, -1);
         nupp_fail("cannot create the file transfer lane");
         return false;
     }
@@ -416,14 +502,17 @@ static NuppRequest *submit(Slot *slot, size_t charge) {
     atomic_store(&slot->references, 2);
     slot->work.data = slot;
     request->slot = slot;
-    if (uv_queue_work(&laneLoop, &slot->work, perform, finished) != 0) {
-        free(request);
-        refund(charge);
-        atomic_store(&slot->references, 1);
-        slot_release(slot);
-        nupp_fail("the file worker queue is gone");
-        return NULL;
+    /* Queueing on the lane's loop is the lane thread's call to make; this
+     * only leaves the slot where that thread will find it, and wakes it. */
+    uv_mutex_lock(&intakeGuard);
+    slot->intakeNext = NULL;
+    if (intakeLast != NULL) {
+        intakeLast->intakeNext = slot;
+    } else {
+        intakeFirst = slot;
     }
+    intakeLast = slot;
+    uv_mutex_unlock(&intakeGuard);
     uv_async_send(&laneWake);
     return request;
 }
@@ -586,12 +675,24 @@ NUPP_EXPORT const char *nuppFsError(const NuppRequest *request) {
  * result is dropped, because a pool thread already reading cannot be recalled. */
 NUPP_EXPORT bool nuppFsCancel(NuppRequest *request) {
     int expected = STATUS_PENDING;
+    bool abandoned;
     if (request == NULL) {
         return false;
     }
-    uv_cancel((uv_req_t *)&request->slot->work);
-    return atomic_compare_exchange_strong(
+    abandoned = atomic_compare_exchange_strong(
         &request->slot->status, &expected, STATUS_CANCELED);
+    /* Skipping work the pool has not started yet is the lane thread's call to
+     * make; this only asks for it. */
+    if (abandoned && atomic_load(&laneStarted) == 1) {
+        Slot *slot = request->slot;
+        atomic_fetch_add(&slot->references, 1);
+        uv_mutex_lock(&intakeGuard);
+        slot->cancelNext = cancelFirst;
+        cancelFirst = slot;
+        uv_mutex_unlock(&intakeGuard);
+        uv_async_send(&laneWake);
+    }
+    return abandoned;
 }
 
 NUPP_EXPORT void nuppFsDestroy(NuppRequest *request) {

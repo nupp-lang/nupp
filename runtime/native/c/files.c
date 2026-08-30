@@ -339,7 +339,18 @@ static bool remove_tree(const char *path) {
         memcpy(child + pathLength + 1, entry.name, nameLength + 1);
         /* A directory is descended into; a link to one is unlinked, because
          * following it would delete somewhere the caller did not name. */
-        ok = entry.type == UV_DIRENT_DIR ? remove_tree(child) : remove_one(child, false);
+        {
+            bool descend = entry.type == UV_DIRENT_DIR;
+            if (entry.type == UV_DIRENT_UNKNOWN) {
+                /* Some filesystems answer a scan without types; asking again
+                 * without following links keeps the rule above. */
+                uv_fs_t look;
+                uv_fs_lstat(NULL, &look, child, NULL);
+                descend = look.result >= 0 && S_ISDIR(look.statbuf.st_mode);
+                uv_fs_req_cleanup(&look);
+            }
+            ok = descend ? remove_tree(child) : remove_one(child, false);
+        }
         free(child);
     }
     uv_fs_req_cleanup(&request);
@@ -416,6 +427,11 @@ NUPP_EXPORT NuppBytes *nuppFilesCreateTemporary(
         }
         nupp_buffer_append(&rootBuffer, scratch, strlen(scratch));
         nupp_buffer_push(&rootBuffer, 0);
+        if (rootBuffer.failed) {
+            nupp_buffer_free(&rootBuffer);
+            nupp_fail("out of memory");
+            return NULL;
+        }
         haveRoot = true;
     } else if (!nupp_text(&root, directory, directoryLength, "temporary directory")) {
         nupp_buffer_free(&rootBuffer);
@@ -783,11 +799,19 @@ NUPP_EXPORT bool nuppFileFlush(NuppFile *file) {
 
 NUPP_EXPORT bool nuppFileClose(NuppFile *file) {
     uv_fs_t request;
+    bool ok;
     if (file == NULL) {
         return true;
     }
+    /* Close is where some filesystems first report a write that could not
+     * land; swallowing it would call a lost write flushed. The descriptor is
+     * gone either way. */
     uv_fs_close(NULL, &request, file->handle, NULL);
+    ok = request.result >= 0;
+    if (!ok) {
+        nupp_fail_format("cannot close: %s", uv_strerror((int)request.result));
+    }
     uv_fs_req_cleanup(&request);
     free(file);
-    return true;
+    return ok;
 }

@@ -225,7 +225,7 @@ static void recurse(Walk *walk, NuppBuffer *prefix, size_t component) {
     }
     while (uv_fs_scandir_next(&request, &entry) != UV_EOF) {
         const char *name = entry.name;
-        if (entry.type != UV_DIRENT_DIR) {
+        if (entry.type != UV_DIRENT_DIR && entry.type != UV_DIRENT_UNKNOWN) {
             continue;
         }
         {
@@ -237,6 +237,20 @@ static void recurse(Walk *walk, NuppBuffer *prefix, size_t component) {
             if (prefix->failed) {
                 walk->failed = true;
                 break;
+            }
+            /* Some filesystems answer a scan without types; asking again keeps
+             * `**` from silently skipping their directories. Links are not
+             * followed: a walk that followed them could visit forever. */
+            if (entry.type == UV_DIRENT_UNKNOWN) {
+                uv_fs_t look;
+                bool directory;
+                uv_fs_lstat(NULL, &look, opening(prefix), NULL);
+                directory = look.result >= 0 && S_ISDIR(look.statbuf.st_mode);
+                uv_fs_req_cleanup(&look);
+                if (!directory) {
+                    prefix->length = restore;
+                    continue;
+                }
             }
             recurse(walk, prefix, component);
             prefix->length = restore;
@@ -435,13 +449,20 @@ NUPP_EXPORT NuppBytes *nuppFilesGlob(const uint8_t *data, size_t length) {
     nupp_buffer_free(&prefix);
 
     if (!walk.failed) {
+        size_t kept = 0;
         qsort(walk.matches, walk.matchCount, sizeof *walk.matches, compare_matches);
         nupp_buffer_init(&out);
         for (at = 0; at < walk.matchCount; at++) {
-            if (at != 0) {
+            /* A path reachable through more than one assignment of `**`
+             * components arrives once per route; the answer is a set. */
+            if (at != 0 && strcmp(walk.matches[at], walk.matches[at - 1]) == 0) {
+                continue;
+            }
+            if (kept != 0) {
                 nupp_buffer_push(&out, 0);
             }
             nupp_buffer_append(&out, walk.matches[at], strlen(walk.matches[at]));
+            kept++;
         }
         if (out.failed) {
             nupp_buffer_free(&out);

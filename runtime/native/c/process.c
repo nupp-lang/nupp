@@ -391,7 +391,7 @@ static NuppStream *new_stream(uv_loop_t *where, bool readable) {
 /* The environment the child receives. Entries modify rather than replace unless
  * the request cleared first, which is what makes "run this with one variable
  * set" a one-line request rather than a copy of everything the host holds. */
-static char **build_environment(NuppSpawn *request, Strings *out) {
+static bool build_environment(NuppSpawn *request, Strings *out, char ***environment) {
     uv_env_item_t *inherited = NULL;
     int count = 0;
     int at;
@@ -410,28 +410,33 @@ static char **build_environment(NuppSpawn *request, Strings *out) {
             }
             if (!replaced) {
                 NuppBuffer entry;
+                bool kept;
                 nupp_buffer_init(&entry);
                 nupp_buffer_append(&entry, inherited[at].name, nameLength);
                 nupp_buffer_push(&entry, '=');
                 nupp_buffer_append(&entry, inherited[at].value,
                     strlen(inherited[at].value));
-                if (!entry.failed) {
-                    strings_push(out, entry.data, entry.length);
-                }
+                kept = !entry.failed && strings_push(out, entry.data, entry.length);
                 nupp_buffer_free(&entry);
+                if (!kept) {
+                    /* A child with a silently truncated environment misbehaves
+                     * in ways nothing attributes to this spawn; refusing does. */
+                    uv_os_free_environ(inherited, count);
+                    return false;
+                }
             }
         }
         uv_os_free_environ(inherited, count);
     }
     for (which = 0; which < request->env.count; which++) {
-        strings_push(out, (const uint8_t *)request->env.items[which],
-            strlen(request->env.items[which]));
+        if (!strings_push(out, (const uint8_t *)request->env.items[which],
+                strlen(request->env.items[which]))) {
+            return false;
+        }
     }
     /* No entries and no clearing means inherit, which libuv spells as NULL. */
-    if (out->count == 0 && !request->clearEnv) {
-        return NULL;
-    }
-    return out->items;
+    *environment = out->count == 0 && !request->clearEnv ? NULL : out->items;
+    return true;
 }
 
 NUPP_EXPORT NuppChild *nuppProcessSpawnRun(NuppSpawn *request) {
@@ -477,7 +482,13 @@ NUPP_EXPORT NuppChild *nuppProcessSpawnRun(NuppSpawn *request) {
     if (request->modes[2] == NUPP_MODE_STDOUT
         && request->modes[1] == NUPP_MODE_PIPE) {
         uv_file pair[2];
-        int made = uv_pipe(pair, UV_NONBLOCK_PIPE, 0);
+        int made;
+        /* The same two-step create-then-mark window the guard below exists
+         * for, so this pipe is made under it too. */
+        uv_once(&spawnGuardOnce, make_spawn_guard);
+        uv_mutex_lock(&spawnGuard);
+        made = uv_pipe(pair, UV_NONBLOCK_PIPE, 0);
+        uv_mutex_unlock(&spawnGuard);
         if (made != 0) {
             fail_uv("cannot create a pipe for the child", made);
             free(child);
@@ -542,7 +553,10 @@ NUPP_EXPORT NuppChild *nuppProcessSpawnRun(NuppSpawn *request) {
     options.exit_cb = on_process_exit;
     options.file = request->args.items[0];
     options.args = request->args.items;
-    options.env = build_environment(request, &environment);
+    if (!build_environment(request, &environment, &options.env)) {
+        nupp_fail("out of memory");
+        goto refuse;
+    }
     options.cwd = request->cwd;
     options.stdio_count = 3;
     options.stdio = stdio;
@@ -558,6 +572,7 @@ NUPP_EXPORT NuppChild *nuppProcessSpawnRun(NuppSpawn *request) {
         uv_fs_t closing;
         uv_fs_close(NULL, &closing, childWriteEnd, NULL);
         uv_fs_req_cleanup(&closing);
+        childWriteEnd = -1;
     }
     if (started != 0) {
         fail_uv(request->args.items[0], started);
@@ -567,6 +582,12 @@ NUPP_EXPORT NuppChild *nuppProcessSpawnRun(NuppSpawn *request) {
     return child;
 
 refuse:
+    strings_free(&environment);
+    if (childWriteEnd >= 0) {
+        uv_fs_t closing;
+        uv_fs_close(NULL, &closing, childWriteEnd, NULL);
+        uv_fs_req_cleanup(&closing);
+    }
     for (which = 0; which < 3; which++) {
         if (child->ends[which] != NULL) {
             child->ends[which]->destroyed = true;
@@ -621,6 +642,10 @@ NUPP_EXPORT NuppStream *nuppProcessTakeStream(NuppChild *child, uint8_t which) {
         int begun = uv_read_start((uv_stream_t *)&stream->pipe, on_alloc, on_read);
         if (begun == 0) {
             stream->started = true;
+        } else if (stream->failure == 0) {
+            /* A stream that will never buffer anything must say why, or every
+             * read would answer would-block forever. */
+            stream->failure = begun;
         }
     }
     return stream;
@@ -960,12 +985,14 @@ NUPP_EXPORT int32_t nuppProcessWaitReady(
 
     for (at = 0; at < readableCount; at++) {
         NuppStream *stream = readable[at];
-        if (stream->length > stream->offset || stream->ended || stream->failure != 0) {
+        if (stream->closed || stream->length > stream->offset || stream->ended
+            || stream->failure != 0) {
             ready++;
         }
     }
     for (at = 0; at < writableCount; at++) {
-        if (writable[at]->writing == 0 || writable[at]->failure != 0) {
+        NuppStream *stream = writable[at];
+        if (stream->closed || stream->writing == 0 || stream->failure != 0) {
             ready++;
         }
     }
