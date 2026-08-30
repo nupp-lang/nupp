@@ -221,8 +221,13 @@ export function list(target: Schema): Schema
 end
 
 --- Creates an immutable map node.
+--- @raises when the key schema is not string-valued: document keys are
+---     strings, and the codec can neither emit nor read back any other kind
 --- @export
 export function map(key: Schema, value: Schema): Schema
+    if key.kind ~= "string" and key.kind ~= "stringEnum" then
+        error("nupp: map key schemas must be string-valued, not " .. key.kind, 2)
+    end
     return makeSchema("map", nil, nil, {key = key, value = value})
 end
 
@@ -427,6 +432,21 @@ export record DynamicValue
     end
 end
 
+--- A member's default is stored once on its schema, so handing the stored
+--- table out directly would alias every defaulted value to the schema and
+--- to each other, and decoding could then mutate the schema's own default.
+local function cloneDefault(value: any): any
+    if type(value) ~= "table" then
+        return value
+    end
+    local copy: any = {}
+    for key, item in pairs(value) do
+        copy[key] = cloneDefault(item)
+    end
+
+    return copy
+end
+
 --- A binding that constructs dense run-time values.
 --- @export
 export sealed interface DynamicBinding is Binding<DynamicValue>
@@ -464,7 +484,7 @@ local record DynamicBindingImpl is DynamicBinding
             if member.required and not result.token.present[member.index] then
                 error("nupp: missing required member " .. member.name, 2)
             elseif member.hasDefault and not result.token.present[member.index] then
-                result:set(member, member.defaultValue)
+                result:set(member, cloneDefault(member.defaultValue))
             end
         end
 
@@ -486,7 +506,27 @@ end
 
 local bindingForEntry: function(entry: any): any
 
+local jsonNull: any
+
+--- JSON null decodes to a sentinel on the serde fallback path so array
+--- positions survive the decode; consumers read through this to see it as
+--- the nil it stands for. The require is lazy because `nupp.data.json`
+--- itself loads this module.
+local function documentValue(value: any): any
+    if value ~= nil then
+        if jsonNull == nil then
+            jsonNull = require("nupp.data.json").NULL
+        end
+        if value == jsonNull then
+            return nil
+        end
+    end
+
+    return value
+end
+
 validateValue = function(value: any, schema: Schema, path: string): nil
+    value = documentValue(value)
     if value == nil then
         if schema.kind ~= "optional" and schema.kind ~= "null" then
             error("nupp: " .. path .. " cannot be nil", 3)
@@ -1310,7 +1350,7 @@ finishDecoded = function(value: any, plan: any, path: string): any
             if field.required then
                 error("nupp: missing required member " .. field.name, 3)
             elseif field.hasDefault then
-                item = field.defaultValue
+                item = cloneDefault(field.defaultValue)
             end
         end
         if item ~= nil then
@@ -1416,7 +1456,14 @@ toDocument = function(value: any, schema: Schema, profile: JsonProfile, access: 
     local layout = layoutFor(schema, profile)
     local out: any = {}
     for index, member in ipairs(schema.members) do
-        local item = access.kind == "dynamic" and value.token.values[member.index] or value[member.name]
+        -- Dynamic bindings accept plain tables for nested structure members,
+        -- so only a value carrying a token reads through it.
+        local item: any
+        if access.kind == "dynamic" and value.token ~= nil then
+            item = value.token.values[member.index]
+        else
+            item = value[member.name]
+        end
         if item ~= nil then
             local childAccess = access.kind == "dynamic" and {kind = "dynamic", schema = member.target} or nil
             out[layout.fields[index].wire] = toDocument(item, member.target as Schema, profile, childAccess)
@@ -1427,6 +1474,9 @@ toDocument = function(value: any, schema: Schema, profile: JsonProfile, access: 
 end
 
 fromDocument = function(value: any, schema: Schema, profile: JsonProfile, access: any?): any
+    if schema.kind ~= "document" then
+        value = documentValue(value)
+    end
     if value == nil or schema.kind == "document" then
         return value
     elseif schema.kind == "optional" then
@@ -1471,16 +1521,21 @@ fromDocument = function(value: any, schema: Schema, profile: JsonProfile, access
     local result: any
     if access.kind == "dynamic" then
         result = new DynamicValue(token = {schema = schema, values = {}, present = {}})
+    elseif access.typeObject == nil then
+        -- Shape bindings carry no type object; their values are plain tables.
+        result = {}
+    elseif type(access.typeObject) == "table" then
+        result = setmetatable({}, access.typeObject)
     else
-        result = type(access.typeObject) == "table" and setmetatable({}, access.typeObject) or access.typeObject()
+        result = access.typeObject()
     end
     for index, member in ipairs(schema.members) do
-        local item = value[layout.fields[index].wire]
+        local item = documentValue(value[layout.fields[index].wire])
         if item == nil then
             if member.required then
                 error("nupp: missing required member " .. member.name, 3)
             elseif member.hasDefault then
-                item = member.defaultValue
+                item = cloneDefault(member.defaultValue)
             end
         end
         if item ~= nil then
@@ -1556,7 +1611,14 @@ writeDocument = function(
         local layout = layoutFor(schema, profile)
         out:startObject()
         for index, member in ipairs(schema.members) do
-            local item = access.kind == "dynamic" and value.token.values[member.index] or value[member.name]
+            -- Dynamic bindings accept plain tables for nested structure members,
+        -- so only a value carrying a token reads through it.
+        local item: any
+        if access.kind == "dynamic" and value.token ~= nil then
+            item = value.token.values[member.index]
+        else
+            item = value[member.name]
+        end
             if item ~= nil then
                 out:key(layout.fields[index].wire as string)
                 local childAccess = access.kind == "dynamic" and {kind = "dynamic", schema = member.target} or nil
@@ -1619,7 +1681,10 @@ export record JsonCodec
                     end
                     return finishDecoded(decoded, decodePlan, "value")
                 end
-                local decoded = json.decode(text)
+                -- The null sentinel keeps explicit nulls in place, so tuple
+                -- slots the encoder wrote as null decode positionally instead
+                -- of compacting leftward.
+                local decoded = json.decode(text, json.NULL)
 
                 return fromDocument(decoded, schema, self.profile, access)
             end,
@@ -1634,7 +1699,7 @@ export record JsonCodec
                     end
                     return finishDecoded(decoded, decodePlan, "value")
                 end
-                local decoded = json.decode(input:tostring())
+                local decoded = json.decode(input:tostring(), json.NULL)
 
                 return fromDocument(decoded, schema, self.profile, access)
             end,

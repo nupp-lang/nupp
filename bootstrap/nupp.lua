@@ -151904,7 +151904,9 @@ if length > 0 then
 if valuebuilder . byte ( text , (__nuppBitTobit(( length )-( u32 ( 1 ) ))%4294967296) ) == 61 then
 padding = u32 ( 1 )
 end
-if length > 1 and valuebuilder . byte ( text , (__nuppBitTobit(( length )-( u32 ( 2 ) ))%4294967296) ) == 61 then
+
+
+if padding == 1 and length > 1 and valuebuilder . byte ( text , (__nuppBitTobit(( length )-( u32 ( 2 ) ))%4294967296) ) == 61 then
 padding = u32 ( 2 )
 end
 end
@@ -153418,7 +153420,13 @@ end
 if value == 0 then
 return "0"
 end
-return tostring ( value )
+local text = tostring ( value )
+if tonumber ( text ) ~= value then
+
+
+text = ( "%.17g" ) : format ( value )
+end
+return text
 elseif kind ~= "table" then
 error ( "cannot encode " .. kind .. " as JSON" , 0 )
 elseif depth >= 1024 then
@@ -154724,14 +154732,19 @@ local escaped = (__nuppBitBand( closingWord , 0x80000000 )%4294967296) ~= 0
 tapeCursor = (__nuppBitTobit(( tapeCursor )+( 1 ))%4294967296)
 local keyStart = (__nuppBitTobit(( opening )+( 1 ))%4294967296)
 local keyLength = (__nuppBitTobit(( closingQuote )-( keyStart ))%4294967296)
-if escaped and keyLength >= 64 then
 local keyEscapeStart = escapeCursor
+if escaped then
+
+
+
 while escapeCursor < escapeCount and _valueBuilder . scratchEscapeWord (
 tape ,
 escapeCursor
 ) < closingQuote do
 escapeCursor = (__nuppBitTobit(( escapeCursor )+( 1 ))%4294967296)
 end
+end
+if escaped and keyLength >= 64 then
 _valueBuilder . keyEscapes (
 values ,
 source ,
@@ -156131,14 +156144,19 @@ local escaped = (__nuppBitBand( closingWord , 0x80000000 )%4294967296) ~= 0
 tapeCursor = (__nuppBitTobit(( tapeCursor )+( 1 ))%4294967296)
 local keyStart = (__nuppBitTobit(( opening )+( 1 ))%4294967296)
 local keyLength = (__nuppBitTobit(( closingQuote )-( keyStart ))%4294967296)
-if escaped and keyLength >= 64 then
 local keyEscapeStart = escapeCursor
+if escaped then
+
+
+
 while escapeCursor < escapeCount and _valueBuilder . scratchEscapeWord (
 tape ,
 escapeCursor
 ) < closingQuote do
 escapeCursor = (__nuppBitTobit(( escapeCursor )+( 1 ))%4294967296)
 end
+end
+if escaped and keyLength >= 64 then
 _valueBuilder . keyEscapes (
 values ,
 source ,
@@ -156191,7 +156209,7 @@ const __nuppExportValue= fused ;__nuppExports=__nuppExportValue
  end);if not __nuppOk then package.loaded["nupp.data.jsondecoder.serde"]=nil;error(__nuppWhy,0) end;package.loaded["nupp.data.jsondecoder.serde"]=__nuppExports;return __nuppExports
 end
 package.preload["nupp.data.serde"] = function(...)
-_G.assert(_G.loadstring("local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppMath=rawget(__nupp,\"math\")or{};rawset(__nupp,\"math\",__nuppMath) local function __nuppCloseFile(handle)if io.type(handle)==\"closed file\"then return end;local ok,reason=handle:close();if not ok then error(reason or \"the file could not be closed\",0)end end local __nuppManagedBrand=_G.__nuppManagedBrand if not __nuppManagedBrand then __nuppManagedBrand={};_G.__nuppManagedBrand=__nuppManagedBrand end local __nuppManagedCells=_G.__nuppManagedCells if not __nuppManagedCells then __nuppManagedCells=setmetatable({},{__mode=\"k\"});_G.__nuppManagedCells=__nuppManagedCells end local __nuppManagedOwner={};__nuppManagedOwner.__index=__nuppManagedOwner;local __nuppManagedAlias={};__nuppManagedAlias.__index=__nuppManagedAlias local function __nuppManagedError(code,message)return{code=code,message=message}end local function __nuppManagedProblem(cell) if type(cell)~=\"table\"or cell._brand~=__nuppManagedBrand then return __nuppManagedError(\"NUPP2614\",\"value is not a managed alias\")end if cell._state==\"taken\"then return __nuppManagedError(\"NUPP2614\",\"managed ownership was already taken\")end if cell._state==\"closed\"or cell._state==\"closing\"then return __nuppManagedError(\"NUPP2614\",\"managed resource is closed\")end return nil end local function __nuppManagedClose(cell,checked) local problem=__nuppManagedProblem(cell);if problem then if checked then return problem end;return nil end if cell._borrows~=0 or cell._exclusive then local busy=__nuppManagedError(\"NUPP2620\",\"managed resource has an active borrow\");if checked then return busy end;error(busy.message,0)end cell._state=\"closing\";local value,cleanup=cell._value,cell._cleanup;cell._value=nil;cell._cleanup=nil local ok,reason=pcall(cleanup,value);cell._state=\"closed\";if not ok then error(reason,0)end;return nil end function __nuppManagedOwner:alias()return setmetatable({_cell=self,_brand=__nuppManagedBrand},__nuppManagedAlias)end function __nuppManagedOwner:close()return __nuppManagedClose(self,false)end local function __nuppAliasCell(self) if type(self)~=\"table\"or self._brand~=__nuppManagedBrand or getmetatable(self)~=__nuppManagedAlias then return nil,__nuppManagedError(\"NUPP2614\",\"value is not a managed alias\")end local cell=self._cell;local problem=__nuppManagedProblem(cell);if problem then return nil,problem end;return cell,nil end function __nuppManagedAlias:with(callback) local cell,problem=__nuppAliasCell(self);if not cell then return nil,problem end if cell._exclusive then return nil,__nuppManagedError(\"NUPP2620\",\"managed resource is exclusively borrowed\")end cell._borrows=cell._borrows+1;cell._state=\"shared-borrowed(\"..cell._borrows..\")\" local ok,result=pcall(callback,cell._value);cell._borrows=cell._borrows-1;cell._state=cell._borrows>0 and(\"shared-borrowed(\"..cell._borrows..\")\")or\"live\" if not ok then error(result,0)end;return result,nil end function __nuppManagedAlias:withExclusive(callback) local cell,problem=__nuppAliasCell(self);if not cell then return nil,problem end if cell._exclusive or cell._borrows~=0 then return nil,__nuppManagedError(\"NUPP2620\",\"managed resource is already borrowed\")end cell._exclusive=true;cell._state=\"exclusive-borrowed\";local ok,result=pcall(callback,cell._value);cell._exclusive=false;cell._state=\"live\" if not ok then error(result,0)end;return result,nil end function __nuppManagedAlias:take() local cell,problem=__nuppAliasCell(self);if not cell then return nil,problem end if cell._exclusive or cell._borrows~=0 then return nil,__nuppManagedError(\"NUPP2620\",\"managed resource has an active borrow\")end cell._state=\"taken\";local value=cell._value;cell._value=nil;cell._cleanup=nil;return value,nil end function __nuppManagedAlias:close() local cell,problem=__nuppAliasCell(self);if not cell then return problem end;return __nuppManagedClose(cell,true)end function __nuppManagedAlias:_downcast(policy) local cell,problem=__nuppAliasCell(self);if not cell then return nil,problem end if cell._policy~=policy then return nil,__nuppManagedError(\"NUPP2613\",\"managed alias has the wrong type or cleanup policy\")end return self,nil end function __nupp.__manage(value,cleanup,policy) local cell=setmetatable({_brand=__nuppManagedBrand,_value=value,_cleanup=cleanup,_policy=policy,_state=\"live\",_borrows=0,_exclusive=false},__nuppManagedOwner);__nuppManagedCells[cell]=true;return cell end function __nupp.__recoverAlias(value) if type(value)~=\"table\"or value._brand~=__nuppManagedBrand or getmetatable(value)~=__nuppManagedAlias then return nil,__nuppManagedError(\"NUPP2614\",\"value is not a managed alias\")end local cell,problem=__nuppAliasCell(value);if not cell then return nil,problem end;return value,nil end _G.__nuppManagedPolicyCount=function(policy)local count=0;for cell in pairs(__nuppManagedCells)do if cell._policy==policy and(cell._state==\"live\"or cell._state:match(\"borrowed\"))then count=count+1 end end;return count end local __nuppManagedGroup={};__nuppManagedGroup.__index=__nuppManagedGroup function __nuppManagedGroup:flush()end function __nuppManagedGroup:adopt(cell) if self._closed then error(\"managed group is closed\",2)end local handle=cell:alias();self._entries[#self._entries+1]=handle return handle end function __nuppManagedGroup:remove(handle) if self._closed then error(\"managed group is closed\",2)end for index=#self._entries,1,-1 do if self._entries[index]==handle then table.remove(self._entries,index);local value,problem=handle:take();if problem then error(problem.message,2)end;return value end end error(\"managed alias is not registered in this group\",2) end local function __nuppManagedCloseEntry(entry)local problem=entry:close();if problem and problem.code~=\"NUPP2614\"then error(problem.message,0)end end function __nuppManagedGroup:close() if self._closed then return end;self._closed=true;local first,suppressed=nil,0 for index=#self._entries,1,-1 do local ok,reason=pcall(__nuppManagedCloseEntry,self._entries[index]);if not ok then if first==nil then first=reason else suppressed=suppressed+1 end end end self._entries={};if first~=nil then if suppressed>0 then error(tostring(first)..\" (suppressed \"..tostring(suppressed)..\" cleanup failure(s))\",0)end;error(first,0)end end function __nupp.managedGroup()return setmetatable({_entries={},_closed=false},__nuppManagedGroup)end;\n","@nupp-prelude"))();--[[nupp-backends: resolved=data.json|2|runtime|nupp.runtime.backend.lunajson|8bdff32722f35edeb5fe6f35b5917e55966222abcfab16b083c41e57e7b49121|nupp.runtime.provider.lunajson||]]local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppMath=rawget(__nupp,"math")or{};rawset(__nupp,"math",__nuppMath) local function __nuppCloseFile(handle)if io.type(handle)=="closed file"then return end;local ok,reason=handle:close();if not ok then error(reason or "the file could not be closed",0)end end local __nuppManagedBrand=_G.__nuppManagedBrand if not __nuppManagedBrand then __nuppManagedBrand={};_G.__nuppManagedBrand=__nuppManagedBrand end local __nuppManagedCells=_G.__nuppManagedCells if not __nuppManagedCells then __nuppManagedCells=setmetatable({},{__mode="k"});_G.__nuppManagedCells=__nuppManagedCells end local __nuppManagedOwner={};__nuppManagedOwner.__index=__nuppManagedOwner;local __nuppManagedAlias={};__nuppManagedAlias.__index=__nuppManagedAlias local function __nuppManagedError(code,message)return{code=code,message=message}end local function __nuppManagedProblem(cell) if type(cell)~="table"or cell._brand~=__nuppManagedBrand then return __nuppManagedError("NUPP2614","value is not a managed alias")end if cell._state=="taken"then return __nuppManagedError("NUPP2614","managed ownership was already taken")end if cell._state=="closed"or cell._state=="closing"then return __nuppManagedError("NUPP2614","managed resource is closed")end return nil end local function __nuppManagedClose(cell,checked) local problem=__nuppManagedProblem(cell);if problem then if checked then return problem end;return nil end if cell._borrows~=0 or cell._exclusive then local busy=__nuppManagedError("NUPP2620","managed resource has an active borrow");if checked then return busy end;error(busy.message,0)end cell._state="closing";local value,cleanup=cell._value,cell._cleanup;cell._value=nil;cell._cleanup=nil local ok,reason=pcall(cleanup,value);cell._state="closed";if not ok then error(reason,0)end;return nil end function __nuppManagedOwner:alias()return setmetatable({_cell=self,_brand=__nuppManagedBrand},__nuppManagedAlias)end function __nuppManagedOwner:close()return __nuppManagedClose(self,false)end local function __nuppAliasCell(self) if type(self)~="table"or self._brand~=__nuppManagedBrand or getmetatable(self)~=__nuppManagedAlias then return nil,__nuppManagedError("NUPP2614","value is not a managed alias")end local cell=self._cell;local problem=__nuppManagedProblem(cell);if problem then return nil,problem end;return cell,nil end function __nuppManagedAlias:with(callback) local cell,problem=__nuppAliasCell(self);if not cell then return nil,problem end if cell._exclusive then return nil,__nuppManagedError("NUPP2620","managed resource is exclusively borrowed")end cell._borrows=cell._borrows+1;cell._state="shared-borrowed("..cell._borrows..")" local ok,result=pcall(callback,cell._value);cell._borrows=cell._borrows-1;cell._state=cell._borrows>0 and("shared-borrowed("..cell._borrows..")")or"live" if not ok then error(result,0)end;return result,nil end function __nuppManagedAlias:withExclusive(callback) local cell,problem=__nuppAliasCell(self);if not cell then return nil,problem end if cell._exclusive or cell._borrows~=0 then return nil,__nuppManagedError("NUPP2620","managed resource is already borrowed")end cell._exclusive=true;cell._state="exclusive-borrowed";local ok,result=pcall(callback,cell._value);cell._exclusive=false;cell._state="live" if not ok then error(result,0)end;return result,nil end function __nuppManagedAlias:take() local cell,problem=__nuppAliasCell(self);if not cell then return nil,problem end if cell._exclusive or cell._borrows~=0 then return nil,__nuppManagedError("NUPP2620","managed resource has an active borrow")end cell._state="taken";local value=cell._value;cell._value=nil;cell._cleanup=nil;return value,nil end function __nuppManagedAlias:close() local cell,problem=__nuppAliasCell(self);if not cell then return problem end;return __nuppManagedClose(cell,true)end function __nuppManagedAlias:_downcast(policy) local cell,problem=__nuppAliasCell(self);if not cell then return nil,problem end if cell._policy~=policy then return nil,__nuppManagedError("NUPP2613","managed alias has the wrong type or cleanup policy")end return self,nil end function __nupp.__manage(value,cleanup,policy) local cell=setmetatable({_brand=__nuppManagedBrand,_value=value,_cleanup=cleanup,_policy=policy,_state="live",_borrows=0,_exclusive=false},__nuppManagedOwner);__nuppManagedCells[cell]=true;return cell end function __nupp.__recoverAlias(value) if type(value)~="table"or value._brand~=__nuppManagedBrand or getmetatable(value)~=__nuppManagedAlias then return nil,__nuppManagedError("NUPP2614","value is not a managed alias")end local cell,problem=__nuppAliasCell(value);if not cell then return nil,problem end;return value,nil end _G.__nuppManagedPolicyCount=function(policy)local count=0;for cell in pairs(__nuppManagedCells)do if cell._policy==policy and(cell._state=="live"or cell._state:match("borrowed"))then count=count+1 end end;return count end local __nuppManagedGroup={};__nuppManagedGroup.__index=__nuppManagedGroup function __nuppManagedGroup:flush()end function __nuppManagedGroup:adopt(cell) if self._closed then error("managed group is closed",2)end local handle=cell:alias();self._entries[#self._entries+1]=handle return handle end function __nuppManagedGroup:remove(handle) if self._closed then error("managed group is closed",2)end for index=#self._entries,1,-1 do if self._entries[index]==handle then table.remove(self._entries,index);local value,problem=handle:take();if problem then error(problem.message,2)end;return value end end error("managed alias is not registered in this group",2) end local function __nuppManagedCloseEntry(entry)local problem=entry:close();if problem and problem.code~="NUPP2614"then error(problem.message,0)end end function __nuppManagedGroup:close() if self._closed then return end;self._closed=true;local first,suppressed=nil,0 for index=#self._entries,1,-1 do local ok,reason=pcall(__nuppManagedCloseEntry,self._entries[index]);if not ok then if first==nil then first=reason else suppressed=suppressed+1 end end end self._entries={};if first~=nil then if suppressed>0 then error(tostring(first).." (suppressed "..tostring(suppressed).." cleanup failure(s))",0)end;error(first,0)end end function __nupp.managedGroup()return setmetatable({_entries={},_closed=false},__nuppManagedGroup)end local function __nuppLazy(target,name,loader)local meta=getmetatable(target)or{};local loaders=meta.__nuppLoaders;if not loaders then loaders={};local prior=meta.__index;meta.__nuppLoaders=loaders;meta.__index=function(t,k)local load=loaders[k];if load then local value=load(k);loaders[k]=nil;if value==nil then value=rawget(t,k)else rawset(t,k,value)end;return value end;if type(prior)=="function"then return prior(t,k)elseif prior then return prior[k]end end;setmetatable(target,meta)end;if name~=nil and rawget(target,name)==nil and loaders[name]==nil then loaders[name]=loader end end (require("nupp.runtime.backend.lunajson")):install();const __nuppT85={}; const function __nuppT82(...) return {n=select("#",...),...} end; const __nuppT86,__nuppT87,__nuppT88,__nuppT89,__nuppT90,__nuppT91,__nuppT92,__nuppT93=pcall,xpcall,error,unpack,select,setmetatable,tostring,ipairs; const function __nuppT83(value) return value end; const function __nuppT84(primary,errors,start) const secondary={} for i=start,#errors do secondary[#secondary+1]=errors[i] end return __nuppT91({primary=primary,suppressed=secondary},{__tostring=function(v) local text=__nuppT92(v.primary) for _,reason in __nuppT93(v.suppressed) do text=text.."\ncleanup: "..__nuppT92(reason) end return text end}) end; const __nuppCleanup1 = function(__nuppV) return __nuppV:close() end;local __nuppExports={};package.loaded["nupp.data.serde"]=__nuppExports;local __nuppOk,__nuppWhy=pcall(function()local debugEntry;__nuppExports["debugEntry"]=function(...) return debugEntry(...) end;local dynamic;__nuppExports["dynamic"]=function(...) return dynamic(...) end;local json;__nuppExports["json"]=function(...) return json(...) end;local list;__nuppExports["list"]=function(...) return list(...) end;local map;__nuppExports["map"]=function(...) return map(...) end;local metadataKey;__nuppExports["metadataKey"]=function(...) return metadataKey(...) end;local of;__nuppExports["of"]=function(...) return of(...) end;local optional;__nuppExports["optional"]=function(...) return optional(...) end;local prepareDebug;__nuppExports["prepareDebug"]=function(...) return prepareDebug(...) end;
+_G.assert(_G.loadstring("local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppMath=rawget(__nupp,\"math\")or{};rawset(__nupp,\"math\",__nuppMath) local function __nuppCloseFile(handle)if io.type(handle)==\"closed file\"then return end;local ok,reason=handle:close();if not ok then error(reason or \"the file could not be closed\",0)end end local __nuppManagedBrand=_G.__nuppManagedBrand if not __nuppManagedBrand then __nuppManagedBrand={};_G.__nuppManagedBrand=__nuppManagedBrand end local __nuppManagedCells=_G.__nuppManagedCells if not __nuppManagedCells then __nuppManagedCells=setmetatable({},{__mode=\"k\"});_G.__nuppManagedCells=__nuppManagedCells end local __nuppManagedOwner={};__nuppManagedOwner.__index=__nuppManagedOwner;local __nuppManagedAlias={};__nuppManagedAlias.__index=__nuppManagedAlias local function __nuppManagedError(code,message)return{code=code,message=message}end local function __nuppManagedProblem(cell) if type(cell)~=\"table\"or cell._brand~=__nuppManagedBrand then return __nuppManagedError(\"NUPP2614\",\"value is not a managed alias\")end if cell._state==\"taken\"then return __nuppManagedError(\"NUPP2614\",\"managed ownership was already taken\")end if cell._state==\"closed\"or cell._state==\"closing\"then return __nuppManagedError(\"NUPP2614\",\"managed resource is closed\")end return nil end local function __nuppManagedClose(cell,checked) local problem=__nuppManagedProblem(cell);if problem then if checked then return problem end;return nil end if cell._borrows~=0 or cell._exclusive then local busy=__nuppManagedError(\"NUPP2620\",\"managed resource has an active borrow\");if checked then return busy end;error(busy.message,0)end cell._state=\"closing\";local value,cleanup=cell._value,cell._cleanup;cell._value=nil;cell._cleanup=nil local ok,reason=pcall(cleanup,value);cell._state=\"closed\";if not ok then error(reason,0)end;return nil end function __nuppManagedOwner:alias()return setmetatable({_cell=self,_brand=__nuppManagedBrand},__nuppManagedAlias)end function __nuppManagedOwner:close()return __nuppManagedClose(self,false)end local function __nuppAliasCell(self) if type(self)~=\"table\"or self._brand~=__nuppManagedBrand or getmetatable(self)~=__nuppManagedAlias then return nil,__nuppManagedError(\"NUPP2614\",\"value is not a managed alias\")end local cell=self._cell;local problem=__nuppManagedProblem(cell);if problem then return nil,problem end;return cell,nil end function __nuppManagedAlias:with(callback) local cell,problem=__nuppAliasCell(self);if not cell then return nil,problem end if cell._exclusive then return nil,__nuppManagedError(\"NUPP2620\",\"managed resource is exclusively borrowed\")end cell._borrows=cell._borrows+1;cell._state=\"shared-borrowed(\"..cell._borrows..\")\" local ok,result=pcall(callback,cell._value);cell._borrows=cell._borrows-1;cell._state=cell._borrows>0 and(\"shared-borrowed(\"..cell._borrows..\")\")or\"live\" if not ok then error(result,0)end;return result,nil end function __nuppManagedAlias:withExclusive(callback) local cell,problem=__nuppAliasCell(self);if not cell then return nil,problem end if cell._exclusive or cell._borrows~=0 then return nil,__nuppManagedError(\"NUPP2620\",\"managed resource is already borrowed\")end cell._exclusive=true;cell._state=\"exclusive-borrowed\";local ok,result=pcall(callback,cell._value);cell._exclusive=false;cell._state=\"live\" if not ok then error(result,0)end;return result,nil end function __nuppManagedAlias:take() local cell,problem=__nuppAliasCell(self);if not cell then return nil,problem end if cell._exclusive or cell._borrows~=0 then return nil,__nuppManagedError(\"NUPP2620\",\"managed resource has an active borrow\")end cell._state=\"taken\";local value=cell._value;cell._value=nil;cell._cleanup=nil;return value,nil end function __nuppManagedAlias:close() local cell,problem=__nuppAliasCell(self);if not cell then return problem end;return __nuppManagedClose(cell,true)end function __nuppManagedAlias:_downcast(policy) local cell,problem=__nuppAliasCell(self);if not cell then return nil,problem end if cell._policy~=policy then return nil,__nuppManagedError(\"NUPP2613\",\"managed alias has the wrong type or cleanup policy\")end return self,nil end function __nupp.__manage(value,cleanup,policy) local cell=setmetatable({_brand=__nuppManagedBrand,_value=value,_cleanup=cleanup,_policy=policy,_state=\"live\",_borrows=0,_exclusive=false},__nuppManagedOwner);__nuppManagedCells[cell]=true;return cell end function __nupp.__recoverAlias(value) if type(value)~=\"table\"or value._brand~=__nuppManagedBrand or getmetatable(value)~=__nuppManagedAlias then return nil,__nuppManagedError(\"NUPP2614\",\"value is not a managed alias\")end local cell,problem=__nuppAliasCell(value);if not cell then return nil,problem end;return value,nil end _G.__nuppManagedPolicyCount=function(policy)local count=0;for cell in pairs(__nuppManagedCells)do if cell._policy==policy and(cell._state==\"live\"or cell._state:match(\"borrowed\"))then count=count+1 end end;return count end local __nuppManagedGroup={};__nuppManagedGroup.__index=__nuppManagedGroup function __nuppManagedGroup:flush()end function __nuppManagedGroup:adopt(cell) if self._closed then error(\"managed group is closed\",2)end local handle=cell:alias();self._entries[#self._entries+1]=handle return handle end function __nuppManagedGroup:remove(handle) if self._closed then error(\"managed group is closed\",2)end for index=#self._entries,1,-1 do if self._entries[index]==handle then table.remove(self._entries,index);local value,problem=handle:take();if problem then error(problem.message,2)end;return value end end error(\"managed alias is not registered in this group\",2) end local function __nuppManagedCloseEntry(entry)local problem=entry:close();if problem and problem.code~=\"NUPP2614\"then error(problem.message,0)end end function __nuppManagedGroup:close() if self._closed then return end;self._closed=true;local first,suppressed=nil,0 for index=#self._entries,1,-1 do local ok,reason=pcall(__nuppManagedCloseEntry,self._entries[index]);if not ok then if first==nil then first=reason else suppressed=suppressed+1 end end end self._entries={};if first~=nil then if suppressed>0 then error(tostring(first)..\" (suppressed \"..tostring(suppressed)..\" cleanup failure(s))\",0)end;error(first,0)end end function __nupp.managedGroup()return setmetatable({_entries={},_closed=false},__nuppManagedGroup)end;\n","@nupp-prelude"))();--[[nupp-backends: resolved=data.json|2|runtime|nupp.runtime.backend.lunajson|8bdff32722f35edeb5fe6f35b5917e55966222abcfab16b083c41e57e7b49121|nupp.runtime.provider.lunajson||]]local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppMath=rawget(__nupp,"math")or{};rawset(__nupp,"math",__nuppMath) local function __nuppCloseFile(handle)if io.type(handle)=="closed file"then return end;local ok,reason=handle:close();if not ok then error(reason or "the file could not be closed",0)end end local __nuppManagedBrand=_G.__nuppManagedBrand if not __nuppManagedBrand then __nuppManagedBrand={};_G.__nuppManagedBrand=__nuppManagedBrand end local __nuppManagedCells=_G.__nuppManagedCells if not __nuppManagedCells then __nuppManagedCells=setmetatable({},{__mode="k"});_G.__nuppManagedCells=__nuppManagedCells end local __nuppManagedOwner={};__nuppManagedOwner.__index=__nuppManagedOwner;local __nuppManagedAlias={};__nuppManagedAlias.__index=__nuppManagedAlias local function __nuppManagedError(code,message)return{code=code,message=message}end local function __nuppManagedProblem(cell) if type(cell)~="table"or cell._brand~=__nuppManagedBrand then return __nuppManagedError("NUPP2614","value is not a managed alias")end if cell._state=="taken"then return __nuppManagedError("NUPP2614","managed ownership was already taken")end if cell._state=="closed"or cell._state=="closing"then return __nuppManagedError("NUPP2614","managed resource is closed")end return nil end local function __nuppManagedClose(cell,checked) local problem=__nuppManagedProblem(cell);if problem then if checked then return problem end;return nil end if cell._borrows~=0 or cell._exclusive then local busy=__nuppManagedError("NUPP2620","managed resource has an active borrow");if checked then return busy end;error(busy.message,0)end cell._state="closing";local value,cleanup=cell._value,cell._cleanup;cell._value=nil;cell._cleanup=nil local ok,reason=pcall(cleanup,value);cell._state="closed";if not ok then error(reason,0)end;return nil end function __nuppManagedOwner:alias()return setmetatable({_cell=self,_brand=__nuppManagedBrand},__nuppManagedAlias)end function __nuppManagedOwner:close()return __nuppManagedClose(self,false)end local function __nuppAliasCell(self) if type(self)~="table"or self._brand~=__nuppManagedBrand or getmetatable(self)~=__nuppManagedAlias then return nil,__nuppManagedError("NUPP2614","value is not a managed alias")end local cell=self._cell;local problem=__nuppManagedProblem(cell);if problem then return nil,problem end;return cell,nil end function __nuppManagedAlias:with(callback) local cell,problem=__nuppAliasCell(self);if not cell then return nil,problem end if cell._exclusive then return nil,__nuppManagedError("NUPP2620","managed resource is exclusively borrowed")end cell._borrows=cell._borrows+1;cell._state="shared-borrowed("..cell._borrows..")" local ok,result=pcall(callback,cell._value);cell._borrows=cell._borrows-1;cell._state=cell._borrows>0 and("shared-borrowed("..cell._borrows..")")or"live" if not ok then error(result,0)end;return result,nil end function __nuppManagedAlias:withExclusive(callback) local cell,problem=__nuppAliasCell(self);if not cell then return nil,problem end if cell._exclusive or cell._borrows~=0 then return nil,__nuppManagedError("NUPP2620","managed resource is already borrowed")end cell._exclusive=true;cell._state="exclusive-borrowed";local ok,result=pcall(callback,cell._value);cell._exclusive=false;cell._state="live" if not ok then error(result,0)end;return result,nil end function __nuppManagedAlias:take() local cell,problem=__nuppAliasCell(self);if not cell then return nil,problem end if cell._exclusive or cell._borrows~=0 then return nil,__nuppManagedError("NUPP2620","managed resource has an active borrow")end cell._state="taken";local value=cell._value;cell._value=nil;cell._cleanup=nil;return value,nil end function __nuppManagedAlias:close() local cell,problem=__nuppAliasCell(self);if not cell then return problem end;return __nuppManagedClose(cell,true)end function __nuppManagedAlias:_downcast(policy) local cell,problem=__nuppAliasCell(self);if not cell then return nil,problem end if cell._policy~=policy then return nil,__nuppManagedError("NUPP2613","managed alias has the wrong type or cleanup policy")end return self,nil end function __nupp.__manage(value,cleanup,policy) local cell=setmetatable({_brand=__nuppManagedBrand,_value=value,_cleanup=cleanup,_policy=policy,_state="live",_borrows=0,_exclusive=false},__nuppManagedOwner);__nuppManagedCells[cell]=true;return cell end function __nupp.__recoverAlias(value) if type(value)~="table"or value._brand~=__nuppManagedBrand or getmetatable(value)~=__nuppManagedAlias then return nil,__nuppManagedError("NUPP2614","value is not a managed alias")end local cell,problem=__nuppAliasCell(value);if not cell then return nil,problem end;return value,nil end _G.__nuppManagedPolicyCount=function(policy)local count=0;for cell in pairs(__nuppManagedCells)do if cell._policy==policy and(cell._state=="live"or cell._state:match("borrowed"))then count=count+1 end end;return count end local __nuppManagedGroup={};__nuppManagedGroup.__index=__nuppManagedGroup function __nuppManagedGroup:flush()end function __nuppManagedGroup:adopt(cell) if self._closed then error("managed group is closed",2)end local handle=cell:alias();self._entries[#self._entries+1]=handle return handle end function __nuppManagedGroup:remove(handle) if self._closed then error("managed group is closed",2)end for index=#self._entries,1,-1 do if self._entries[index]==handle then table.remove(self._entries,index);local value,problem=handle:take();if problem then error(problem.message,2)end;return value end end error("managed alias is not registered in this group",2) end local function __nuppManagedCloseEntry(entry)local problem=entry:close();if problem and problem.code~="NUPP2614"then error(problem.message,0)end end function __nuppManagedGroup:close() if self._closed then return end;self._closed=true;local first,suppressed=nil,0 for index=#self._entries,1,-1 do local ok,reason=pcall(__nuppManagedCloseEntry,self._entries[index]);if not ok then if first==nil then first=reason else suppressed=suppressed+1 end end end self._entries={};if first~=nil then if suppressed>0 then error(tostring(first).." (suppressed "..tostring(suppressed).." cleanup failure(s))",0)end;error(first,0)end end function __nupp.managedGroup()return setmetatable({_entries={},_closed=false},__nuppManagedGroup)end local function __nuppLazy(target,name,loader)local meta=getmetatable(target)or{};local loaders=meta.__nuppLoaders;if not loaders then loaders={};local prior=meta.__index;meta.__nuppLoaders=loaders;meta.__index=function(t,k)local load=loaders[k];if load then local value=load(k);loaders[k]=nil;if value==nil then value=rawget(t,k)else rawset(t,k,value)end;return value end;if type(prior)=="function"then return prior(t,k)elseif prior then return prior[k]end end;setmetatable(target,meta)end;if name~=nil and rawget(target,name)==nil and loaders[name]==nil then loaders[name]=loader end end (require("nupp.runtime.backend.lunajson")):install();const __nuppT87={}; const function __nuppT84(...) return {n=select("#",...),...} end; const __nuppT88,__nuppT89,__nuppT90,__nuppT91,__nuppT92,__nuppT93,__nuppT94,__nuppT95=pcall,xpcall,error,unpack,select,setmetatable,tostring,ipairs; const function __nuppT85(value) return value end; const function __nuppT86(primary,errors,start) const secondary={} for i=start,#errors do secondary[#secondary+1]=errors[i] end return __nuppT93({primary=primary,suppressed=secondary},{__tostring=function(v) local text=__nuppT94(v.primary) for _,reason in __nuppT95(v.suppressed) do text=text.."\ncleanup: "..__nuppT94(reason) end return text end}) end; const __nuppCleanup1 = function(__nuppV) return __nuppV:close() end;local __nuppExports={};package.loaded["nupp.data.serde"]=__nuppExports;local __nuppOk,__nuppWhy=pcall(function()local debugEntry;__nuppExports["debugEntry"]=function(...) return debugEntry(...) end;local dynamic;__nuppExports["dynamic"]=function(...) return dynamic(...) end;local json;__nuppExports["json"]=function(...) return json(...) end;local list;__nuppExports["list"]=function(...) return list(...) end;local map;__nuppExports["map"]=function(...) return map(...) end;local metadataKey;__nuppExports["metadataKey"]=function(...) return metadataKey(...) end;local of;__nuppExports["of"]=function(...) return of(...) end;local optional;__nuppExports["optional"]=function(...) return optional(...) end;local prepareDebug;__nuppExports["prepareDebug"]=function(...) return prepareDebug(...) end;
 
 
 
@@ -156415,7 +156433,12 @@ end ;__nuppExports["list"]=list
 
 
 
+
+
 map=function ( key , value ) 
+if key . kind ~= "string" and key . kind ~= "stringEnum" then
+error ( "nupp: map key schemas must be string-valued, not " .. key . kind , 2 )
+end
 return makeSchema ( "map" , nil , nil , { key = key , value = value } )
 end ;__nuppExports["map"]=map
 
@@ -156622,6 +156645,21 @@ end ;__nuppExports["DynamicValue"]=DynamicValue
 
 
 
+
+local function cloneDefault ( value ) 
+if type ( value ) ~= "table" then
+return value
+end
+local copy = { }
+for key , item in pairs ( value ) do
+copy [ key ] = cloneDefault ( item )
+end
+
+return copy
+end
+
+
+
 const DynamicBinding = {}
 
 
@@ -156657,7 +156695,7 @@ for _ , member in ipairs ( schema . members ) do
 if member . required and not result . token . present [ member . index ] then
 error ( "nupp: missing required member " .. member . name , 2 )
 elseif member . hasDefault and not result . token . present [ member . index ] then
-result : set ( member , member . defaultValue )
+result : set ( member , cloneDefault ( member . defaultValue ) )
 end
 end
 
@@ -156679,7 +156717,27 @@ end ;__nuppExports["dynamic"]=dynamic
 
 local bindingForEntry
 
+local jsonNull
+
+
+
+
+
+local function documentValue ( value ) 
+if value ~= nil then
+if jsonNull == nil then
+jsonNull = require ( "nupp.data.json" ) . NULL
+end
+if value == jsonNull then
+return nil
+end
+end
+
+return value
+end
+
 validateValue = function ( value , schema , path ) 
+value = documentValue ( value )
 if value == nil then
 if schema . kind ~= "optional" and schema . kind ~= "null" then
 error ( "nupp: " .. path .. " cannot be nil" , 3 )
@@ -157503,7 +157561,7 @@ if item == nil then
 if field . required then
 error ( "nupp: missing required member " .. field . name , 3 )
 elseif field . hasDefault then
-item = field . defaultValue
+item = cloneDefault ( field . defaultValue )
 end
 end
 if item ~= nil then
@@ -157609,7 +157667,14 @@ end
 local layout = layoutFor ( schema , profile )
 local out = { }
 for index , member in ipairs ( schema . members ) do
-local item = access . kind == "dynamic" and value . token . values [ member . index ] or value [ member . name ]
+
+
+local item
+if access . kind == "dynamic" and value . token ~= nil then
+item = value . token . values [ member . index ]
+else
+item = value [ member . name ]
+end
 if item ~= nil then
 local childAccess = access . kind == "dynamic" and { kind = "dynamic" , schema = member . target } or nil
 out [ layout . fields [ index ] . wire ] = toDocument ( item , member . target , profile , childAccess )
@@ -157620,6 +157685,9 @@ return out
 end
 
 fromDocument = function ( value , schema , profile , access ) 
+if schema . kind ~= "document" then
+value = documentValue ( value )
+end
 if value == nil or schema . kind == "document" then
 return value
 elseif schema . kind == "optional" then
@@ -157664,16 +157732,21 @@ end
 local result
 if access . kind == "dynamic" then
 result = setmetatable({ token =  { schema = schema , values = { } , present = { } } }, DynamicValue)
+elseif access . typeObject == nil then
+
+result = { }
+elseif type ( access . typeObject ) == "table" then
+result = setmetatable ( { } , access . typeObject )
 else
-result = type ( access . typeObject ) == "table" and setmetatable ( { } , access . typeObject ) or access . typeObject ( )
+result = access . typeObject ( )
 end
 for index , member in ipairs ( schema . members ) do
-local item = value [ layout . fields [ index ] . wire ]
+local item = documentValue ( value [ layout . fields [ index ] . wire ] )
 if item == nil then
 if member . required then
 error ( "nupp: missing required member " .. member . name , 3 )
 elseif member . hasDefault then
-item = member . defaultValue
+item = cloneDefault ( member . defaultValue )
 end
 end
 if item ~= nil then
@@ -157749,7 +157822,14 @@ end
 local layout = layoutFor ( schema , profile )
 out : startObject ( )
 for index , member in ipairs ( schema . members ) do
-local item = access . kind == "dynamic" and value . token . values [ member . index ] or value [ member . name ]
+
+
+local item
+if access . kind == "dynamic" and value . token ~= nil then
+item = value . token . values [ member . index ]
+else
+item = value [ member . name ]
+end
 if item ~= nil then
 out :__nupp_m_d9930e4662ee507090a52ff19d65f1844d2ce3c0cfdf6a56bcf88945d7356737 ( layout . fields [ index ] . wire )
 local childAccess = access . kind == "dynamic" and { kind = "dynamic" , schema = member . target } or nil
@@ -157795,11 +157875,11 @@ profile = self . profile ,
 
 fallbackEncode = function ( value ) 
 local buffer = require ( "string.buffer" ) . new ( )
-do local __nuppT94=0; local  __nuppT100 ; local __nuppT101=false ; const __nuppT95,__nuppT96,__nuppT97=__nuppT87(function() do const __nuppT102= json . writer ( buffer ) ; __nuppT100= __nuppT102 ; __nuppT94=1;  __nuppT101=true;  local writer=__nuppT100;
+do local __nuppT96=0; local  __nuppT102 ; local __nuppT103=false ; const __nuppT97,__nuppT98,__nuppT99=__nuppT89(function() do const __nuppT104= json . writer ( buffer ) ; __nuppT102= __nuppT104 ; __nuppT96=1;  __nuppT103=true;  local writer=__nuppT102;
 writeDocument ( writer , value , schema , self . profile , access )
-do (function(__nuppT103,...)  __nuppT101=false;  return __nuppT103:close(...)  end)( writer ) end
+do (function(__nuppT105,...)  __nuppT103=false;  return __nuppT105:close(...)  end)( writer ) end
 
-return "return",__nuppT82( buffer : tostring ( ) ) end; return "normal" end,__nuppT83); const __nuppT98={}; local __nuppT99=0; if __nuppT94>=1 and __nuppT101 then  const __nuppT104,__nuppT105=__nuppT86(__nuppCleanup1,__nuppT100);  if not __nuppT104 then __nuppT99=__nuppT99+1; __nuppT98[__nuppT99]=__nuppT105 end; end; if not __nuppT95 then if __nuppT99>0 then __nuppT88(__nuppT84(__nuppT96,__nuppT98,1),0) else __nuppT88(__nuppT96,0) end end; if __nuppT99>0 then if __nuppT99>1 then __nuppT88(__nuppT84(__nuppT98[1],__nuppT98,2),0) else __nuppT88(__nuppT98[1],0) end end; if __nuppT96=="return" then  return __nuppT89(__nuppT97,1,__nuppT97.n)  end; end
+return "return",__nuppT84( buffer : tostring ( ) ) end; return "normal" end,__nuppT85); const __nuppT100={}; local __nuppT101=0; if __nuppT96>=1 and __nuppT103 then  const __nuppT106,__nuppT107=__nuppT88(__nuppCleanup1,__nuppT102);  if not __nuppT106 then __nuppT101=__nuppT101+1; __nuppT100[__nuppT101]=__nuppT107 end; end; if not __nuppT97 then if __nuppT101>0 then __nuppT90(__nuppT86(__nuppT98,__nuppT100,1),0) else __nuppT90(__nuppT98,0) end end; if __nuppT101>0 then if __nuppT101>1 then __nuppT90(__nuppT86(__nuppT100[1],__nuppT100,2),0) else __nuppT90(__nuppT100[1],0) end end; if __nuppT98=="return" then  return __nuppT91(__nuppT99,1,__nuppT99.n)  end; end
 end ,
 fallbackDecode = function ( text ) 
 if nativeDecode ~= nil then
@@ -157812,7 +157892,10 @@ return decoded
 end
 return finishDecoded ( decoded , decodePlan , "value" )
 end
-local decoded = json . decode ( text )
+
+
+
+local decoded = json . decode ( text , json . NULL )
 
 return fromDocument ( decoded , schema , self . profile , access )
 end ,
@@ -157827,7 +157910,7 @@ return decoded
 end
 return finishDecoded ( decoded , decodePlan , "value" )
 end
-local decoded = json . decode ( input : tostring ( ) )
+local decoded = json . decode ( input : tostring ( ) , json . NULL )
 
 return fromDocument ( decoded , schema , self . profile , access )
 end ,
@@ -158453,7 +158536,14 @@ if replacement ~= nil then
 parts [ # parts + 1 ] = replacement
 position = position + 1
 elseif escapedByte == 117 then
-local codepoint = tonumber ( bytes : sub ( position + 1 , position + 4 ) , 16 )
+
+
+
+local hex = bytes : sub ( position + 1 , position + 4 )
+if # hex < 4 or hex : find ( "%X" ) ~= nil then
+error ( "invalid value-tree Unicode escape" , 0 )
+end
+local codepoint = tonumber ( hex , 16 )
 if codepoint == nil then
 error ( "invalid value-tree Unicode escape" , 0 )
 end
@@ -158462,7 +158552,11 @@ if codepoint >= 0xD800 and codepoint <= 0xDBFF then
 if bytes : byte ( position ) ~= 92 or bytes : byte ( position + 1 ) ~= 117 then
 error ( "unmatched value-tree high surrogate" , 0 )
 end
-local low = tonumber ( bytes : sub ( position + 2 , position + 5 ) , 16 )
+local lowHex = bytes : sub ( position + 2 , position + 5 )
+if # lowHex < 4 or lowHex : find ( "%X" ) ~= nil then
+error ( "invalid value-tree low surrogate" , 0 )
+end
+local low = tonumber ( lowHex , 16 )
 if low == nil or low < 0xDC00 or low > 0xDFFF then
 error ( "invalid value-tree low surrogate" , 0 )
 end
@@ -196990,7 +197084,9 @@ local function decodeAot(text: string, nullValue: any): any
         if valuebuilder.byte(text, nupp.math.u32.sub(length, u32(1))) == 61 then
             padding = u32(1)
         end
-        if length > 1 and valuebuilder.byte(text, nupp.math.u32.sub(length, u32(2))) == 61 then
+        -- A '=' in the third position only pads when the fourth is '=' too;
+        -- otherwise the quad is invalid and must reach the alphabet check.
+        if padding == 1 and length > 1 and valuebuilder.byte(text, nupp.math.u32.sub(length, u32(2))) == 61 then
             padding = u32(2)
         end
     end
@@ -199335,7 +199431,13 @@ encodeValue = function(value: any, nullValue: any, visiting: {[any]: boolean}, d
         if value == 0 then
             return "0"
         end
-        return tostring(value)
+        local text = tostring(value)
+        if tonumber(text) ~= value then
+            -- tostring keeps 14 significant digits, which loses the low
+            -- bits of some doubles; 17 round-trips every finite value.
+            text = ("%.17g"):format(value)
+        end
+        return text
     elseif kind ~= "table" then
         error("cannot encode " .. kind .. " as JSON", 0)
     elseif depth >= 1024 then
@@ -200639,14 +200741,19 @@ local function decode(
                 tapeCursor = nupp.math.u32.add(tapeCursor, 1)
                 local keyStart = nupp.math.u32.add(opening, 1)
                 local keyLength = nupp.math.u32.sub(closingQuote, keyStart)
-                if escaped and keyLength >= 64 then
-                    local keyEscapeStart: uint32 = escapeCursor
+                local keyEscapeStart: uint32 = escapeCursor
+                if escaped then
+                    -- Consume the key's escape words even when the key itself
+                    -- is published without them, or they poison the escape
+                    -- range of the next long escaped token.
                     while escapeCursor < escapeCount and _valueBuilder.scratchEscapeWord(
                         tape,
                         escapeCursor
                     ) < closingQuote do
                         escapeCursor = nupp.math.u32.add(escapeCursor, 1)
                     end
+                end
+                if escaped and keyLength >= 64 then
                     _valueBuilder.keyEscapes(
                         values,
                         source,
@@ -202044,14 +202151,19 @@ local function decodeSerde(
                 tapeCursor = nupp.math.u32.add(tapeCursor, 1)
                 local keyStart = nupp.math.u32.add(opening, 1)
                 local keyLength = nupp.math.u32.sub(closingQuote, keyStart)
-                if escaped and keyLength >= 64 then
-                    local keyEscapeStart: uint32 = escapeCursor
+                local keyEscapeStart: uint32 = escapeCursor
+                if escaped then
+                    -- Consume the key's escape words even when the key itself
+                    -- is published without them, or they poison the escape
+                    -- range of the next long escaped token.
                     while escapeCursor < escapeCount and _valueBuilder.scratchEscapeWord(
                         tape,
                         escapeCursor
                     ) < closingQuote do
                         escapeCursor = nupp.math.u32.add(escapeCursor, 1)
                     end
+                end
+                if escaped and keyLength >= 64 then
                     _valueBuilder.keyEscapes(
                         values,
                         source,
@@ -202326,8 +202438,13 @@ export function list(target: Schema): Schema
 end
 
 --- Creates an immutable map node.
+--- @raises when the key schema is not string-valued: document keys are
+---     strings, and the codec can neither emit nor read back any other kind
 --- @export
 export function map(key: Schema, value: Schema): Schema
+    if key.kind ~= "string" and key.kind ~= "stringEnum" then
+        error("nupp: map key schemas must be string-valued, not " .. key.kind, 2)
+    end
     return makeSchema("map", nil, nil, {key = key, value = value})
 end
 
@@ -202532,6 +202649,21 @@ export record DynamicValue
     end
 end
 
+--- A member's default is stored once on its schema, so handing the stored
+--- table out directly would alias every defaulted value to the schema and
+--- to each other, and decoding could then mutate the schema's own default.
+local function cloneDefault(value: any): any
+    if type(value) ~= "table" then
+        return value
+    end
+    local copy: any = {}
+    for key, item in pairs(value) do
+        copy[key] = cloneDefault(item)
+    end
+
+    return copy
+end
+
 --- A binding that constructs dense run-time values.
 --- @export
 export sealed interface DynamicBinding is Binding<DynamicValue>
@@ -202569,7 +202701,7 @@ local record DynamicBindingImpl is DynamicBinding
             if member.required and not result.token.present[member.index] then
                 error("nupp: missing required member " .. member.name, 2)
             elseif member.hasDefault and not result.token.present[member.index] then
-                result:set(member, member.defaultValue)
+                result:set(member, cloneDefault(member.defaultValue))
             end
         end
 
@@ -202591,7 +202723,27 @@ end
 
 local bindingForEntry: function(entry: any): any
 
+local jsonNull: any
+
+--- JSON null decodes to a sentinel on the serde fallback path so array
+--- positions survive the decode; consumers read through this to see it as
+--- the nil it stands for. The require is lazy because `nupp.data.json`
+--- itself loads this module.
+local function documentValue(value: any): any
+    if value ~= nil then
+        if jsonNull == nil then
+            jsonNull = require("nupp.data.json").NULL
+        end
+        if value == jsonNull then
+            return nil
+        end
+    end
+
+    return value
+end
+
 validateValue = function(value: any, schema: Schema, path: string): nil
+    value = documentValue(value)
     if value == nil then
         if schema.kind ~= "optional" and schema.kind ~= "null" then
             error("nupp: " .. path .. " cannot be nil", 3)
@@ -203415,7 +203567,7 @@ finishDecoded = function(value: any, plan: any, path: string): any
             if field.required then
                 error("nupp: missing required member " .. field.name, 3)
             elseif field.hasDefault then
-                item = field.defaultValue
+                item = cloneDefault(field.defaultValue)
             end
         end
         if item ~= nil then
@@ -203521,7 +203673,14 @@ toDocument = function(value: any, schema: Schema, profile: JsonProfile, access: 
     local layout = layoutFor(schema, profile)
     local out: any = {}
     for index, member in ipairs(schema.members) do
-        local item = access.kind == "dynamic" and value.token.values[member.index] or value[member.name]
+        -- Dynamic bindings accept plain tables for nested structure members,
+        -- so only a value carrying a token reads through it.
+        local item: any
+        if access.kind == "dynamic" and value.token ~= nil then
+            item = value.token.values[member.index]
+        else
+            item = value[member.name]
+        end
         if item ~= nil then
             local childAccess = access.kind == "dynamic" and {kind = "dynamic", schema = member.target} or nil
             out[layout.fields[index].wire] = toDocument(item, member.target as Schema, profile, childAccess)
@@ -203532,6 +203691,9 @@ toDocument = function(value: any, schema: Schema, profile: JsonProfile, access: 
 end
 
 fromDocument = function(value: any, schema: Schema, profile: JsonProfile, access: any?): any
+    if schema.kind ~= "document" then
+        value = documentValue(value)
+    end
     if value == nil or schema.kind == "document" then
         return value
     elseif schema.kind == "optional" then
@@ -203576,16 +203738,21 @@ fromDocument = function(value: any, schema: Schema, profile: JsonProfile, access
     local result: any
     if access.kind == "dynamic" then
         result = new DynamicValue(token = {schema = schema, values = {}, present = {}})
+    elseif access.typeObject == nil then
+        -- Shape bindings carry no type object; their values are plain tables.
+        result = {}
+    elseif type(access.typeObject) == "table" then
+        result = setmetatable({}, access.typeObject)
     else
-        result = type(access.typeObject) == "table" and setmetatable({}, access.typeObject) or access.typeObject()
+        result = access.typeObject()
     end
     for index, member in ipairs(schema.members) do
-        local item = value[layout.fields[index].wire]
+        local item = documentValue(value[layout.fields[index].wire])
         if item == nil then
             if member.required then
                 error("nupp: missing required member " .. member.name, 3)
             elseif member.hasDefault then
-                item = member.defaultValue
+                item = cloneDefault(member.defaultValue)
             end
         end
         if item ~= nil then
@@ -203661,7 +203828,14 @@ writeDocument = function(
         local layout = layoutFor(schema, profile)
         out:startObject()
         for index, member in ipairs(schema.members) do
-            local item = access.kind == "dynamic" and value.token.values[member.index] or value[member.name]
+            -- Dynamic bindings accept plain tables for nested structure members,
+        -- so only a value carrying a token reads through it.
+        local item: any
+        if access.kind == "dynamic" and value.token ~= nil then
+            item = value.token.values[member.index]
+        else
+            item = value[member.name]
+        end
             if item ~= nil then
                 out:key(layout.fields[index].wire as string)
                 local childAccess = access.kind == "dynamic" and {kind = "dynamic", schema = member.target} or nil
@@ -203724,7 +203898,10 @@ export record JsonCodec
                     end
                     return finishDecoded(decoded, decodePlan, "value")
                 end
-                local decoded = json.decode(text)
+                -- The null sentinel keeps explicit nulls in place, so tuple
+                -- slots the encoder wrote as null decode positionally instead
+                -- of compacting leftward.
+                local decoded = json.decode(text, json.NULL)
 
                 return fromDocument(decoded, schema, self.profile, access)
             end,
@@ -203739,7 +203916,7 @@ export record JsonCodec
                     end
                     return finishDecoded(decoded, decodePlan, "value")
                 end
-                local decoded = json.decode(input:tostring())
+                local decoded = json.decode(input:tostring(), json.NULL)
 
                 return fromDocument(decoded, schema, self.profile, access)
             end,
@@ -204363,7 +204540,14 @@ local function decodeString(borrows source: any, first: integer, length: integer
                 parts[#parts + 1] = replacement
                 position = position + 1
             elseif escapedByte == 117 then
-                local codepoint = tonumber(bytes:sub(position + 1, position + 4), 16)
+                -- tonumber alone accepts signs, whitespace, and short reads
+                -- from sub past the end; the code must be exactly four hex
+                -- digits.
+                local hex = bytes:sub(position + 1, position + 4)
+                if #hex < 4 or hex:find("%X") ~= nil then
+                    error("invalid value-tree Unicode escape", 0)
+                end
+                local codepoint = tonumber(hex, 16)
                 if codepoint == nil then
                     error("invalid value-tree Unicode escape", 0)
                 end
@@ -204372,7 +204556,11 @@ local function decodeString(borrows source: any, first: integer, length: integer
                     if bytes:byte(position) ~= 92 or bytes:byte(position + 1) ~= 117 then
                         error("unmatched value-tree high surrogate", 0)
                     end
-                    local low = tonumber(bytes:sub(position + 2, position + 5), 16)
+                    local lowHex = bytes:sub(position + 2, position + 5)
+                    if #lowHex < 4 or lowHex:find("%X") ~= nil then
+                        error("invalid value-tree low surrogate", 0)
+                    end
+                    local low = tonumber(lowHex, 16)
                     if low == nil or low < 0xDC00 or low > 0xDFFF then
                         error("invalid value-tree low surrogate", 0)
                     end

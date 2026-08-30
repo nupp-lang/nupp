@@ -144,7 +144,14 @@ local function decodeString(borrows source: any, first: integer, length: integer
                 parts[#parts + 1] = replacement
                 position = position + 1
             elseif escapedByte == 117 then
-                local codepoint = tonumber(bytes:sub(position + 1, position + 4), 16)
+                -- tonumber alone accepts signs, whitespace, and short reads
+                -- from sub past the end; the code must be exactly four hex
+                -- digits.
+                local hex = bytes:sub(position + 1, position + 4)
+                if #hex < 4 or hex:find("%X") ~= nil then
+                    error("invalid value-tree Unicode escape", 0)
+                end
+                local codepoint = tonumber(hex, 16)
                 if codepoint == nil then
                     error("invalid value-tree Unicode escape", 0)
                 end
@@ -153,7 +160,11 @@ local function decodeString(borrows source: any, first: integer, length: integer
                     if bytes:byte(position) ~= 92 or bytes:byte(position + 1) ~= 117 then
                         error("unmatched value-tree high surrogate", 0)
                     end
-                    local low = tonumber(bytes:sub(position + 2, position + 5), 16)
+                    local lowHex = bytes:sub(position + 2, position + 5)
+                    if #lowHex < 4 or lowHex:find("%X") ~= nil then
+                        error("invalid value-tree low surrogate", 0)
+                    end
+                    local low = tonumber(lowHex, 16)
                     if low == nil or low < 0xDC00 or low > 0xDFFF then
                         error("invalid value-tree low surrogate", 0)
                     end

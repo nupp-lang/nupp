@@ -683,14 +683,19 @@ local function decode(
                 tapeCursor = nupp.math.u32.add(tapeCursor, 1)
                 local keyStart = nupp.math.u32.add(opening, 1)
                 local keyLength = nupp.math.u32.sub(closingQuote, keyStart)
-                if escaped and keyLength >= 64 then
-                    local keyEscapeStart: uint32 = escapeCursor
+                local keyEscapeStart: uint32 = escapeCursor
+                if escaped then
+                    -- Consume the key's escape words even when the key itself
+                    -- is published without them, or they poison the escape
+                    -- range of the next long escaped token.
                     while escapeCursor < escapeCount and _valueBuilder.scratchEscapeWord(
                         tape,
                         escapeCursor
                     ) < closingQuote do
                         escapeCursor = nupp.math.u32.add(escapeCursor, 1)
                     end
+                end
+                if escaped and keyLength >= 64 then
                     _valueBuilder.keyEscapes(
                         values,
                         source,

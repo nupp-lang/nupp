@@ -215,7 +215,9 @@ local function decodeAot(text: string, nullValue: any): any
         if valuebuilder.byte(text, nupp.math.u32.sub(length, u32(1))) == 61 then
             padding = u32(1)
         end
-        if length > 1 and valuebuilder.byte(text, nupp.math.u32.sub(length, u32(2))) == 61 then
+        -- A '=' in the third position only pads when the fourth is '=' too;
+        -- otherwise the quad is invalid and must reach the alphabet check.
+        if padding == 1 and length > 1 and valuebuilder.byte(text, nupp.math.u32.sub(length, u32(2))) == 61 then
             padding = u32(2)
         end
     end

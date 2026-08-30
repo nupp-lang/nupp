@@ -253,7 +253,13 @@ encodeValue = function(value: any, nullValue: any, visiting: {[any]: boolean}, d
         if value == 0 then
             return "0"
         end
-        return tostring(value)
+        local text = tostring(value)
+        if tonumber(text) ~= value then
+            -- tostring keeps 14 significant digits, which loses the low
+            -- bits of some doubles; 17 round-trips every finite value.
+            text = ("%.17g"):format(value)
+        end
+        return text
     elseif kind ~= "table" then
         error("cannot encode " .. kind .. " as JSON", 0)
     elseif depth >= 1024 then
