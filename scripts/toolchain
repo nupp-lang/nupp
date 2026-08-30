@@ -629,9 +629,17 @@ build_sdl() {
 
     note "building SDL $SDL_VERSION with $CC"
     rm -rf "$out"
+    # `SDL_UNIX_CONSOLE_BUILD` is how SDL's own error says to answer it: without
+    # X11 or Wayland development headers its configure refuses outright, on the
+    # grounds that a desktop build which cannot open a window is most likely not
+    # what was wanted. Here it is exactly what is wanted -- this SDL is built to
+    # reach a GPU for compute, the conformance job runs headless against a
+    # software Vulkan device and already sets `SDL_VIDEODRIVER=dummy`, and no
+    # runner has those headers installed.
     cmake -S "$tree" -B "$out/build" \
         -DCMAKE_BUILD_TYPE=Release \
         -DCMAKE_INSTALL_PREFIX="$out" \
+        -DSDL_UNIX_CONSOLE_BUILD=ON \
         -DSDL_SHARED=ON -DSDL_STATIC=OFF -DSDL_TEST_LIBRARY=OFF \
         -DSDL_TESTS=OFF -DSDL_EXAMPLES=OFF >&2
     cmake --build "$out/build" --parallel "${NUPP_TOOLCHAIN_JOBS:-4}" >&2
