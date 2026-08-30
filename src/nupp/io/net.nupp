@@ -1299,6 +1299,18 @@ function net.streamHandle(borrows source: net.Stream): any
     return source._handle
 end
 
+--- The platform handle behind a datagram socket.
+---
+--- The message-oriented counterpart to `streamHandle`, for DTLS. It exposes
+--- no ownership: the datagram socket stays the caller's to close after the
+--- encrypted session layered over it has been closed.
+--- @param source the datagram socket to look behind
+--- @return its platform handle
+--- @export
+function net.datagramHandle(borrows source: net.Datagram): any
+    return source._handle
+end
+
 --- Drives this lane's reactor for at most `timeoutMs` milliseconds.
 ---
 --- Also for a layering module: a session waiting on a handshake is waiting on

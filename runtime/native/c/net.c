@@ -17,11 +17,15 @@
  */
 
 #include "nupp_native.h"
+#include "nupp_net.h"
 
 #include <uv.h>
 
 #include <stdlib.h>
 #include <string.h>
+#if defined(__linux__)
+#include <unistd.h>
+#endif
 
 /* Ceilings, because a queue that grows with its peers eventually takes the
  * process with it. The accept backlog is what libuv is told; the pending queue
@@ -185,6 +189,7 @@ struct NuppNetStream {
     bool destroyed;
     bool ended;
     bool wrote;
+    bool layered;
 
     /* A shutdown in libuv's hands. Not counted in `pending`, which is bytes:
      * the request carries none, so a caller waiting for the queue to empty
@@ -354,6 +359,10 @@ NUPP_EXPORT intptr_t nuppNetTryRead(NuppNetStream *stream, uint8_t *into, size_t
         nupp_fail("net: the stream is closed");
         return -1;
     }
+    if (stream->layered) {
+        nupp_fail("net: the stream is owned by kernel TLS");
+        return -1;
+    }
     net_stream_reading(stream);
     have = stream->length - stream->offset;
     if (have == 0) {
@@ -443,6 +452,10 @@ NUPP_EXPORT intptr_t nuppNetTryWrite(NuppNetStream *stream, const uint8_t *from,
         nupp_fail("net: the stream is closed");
         return -1;
     }
+    if (stream->layered) {
+        nupp_fail("net: the stream is owned by kernel TLS");
+        return -1;
+    }
     if (stream->wrote && stream->failure != 0) {
         nupp_fail_format("net: %s", uv_strerror(stream->failure));
         return -1;
@@ -474,6 +487,52 @@ NUPP_EXPORT intptr_t nuppNetTryWrite(NuppNetStream *stream, const uint8_t *from,
 /* Bytes this process still holds. Local, and not a delivery receipt. */
 NUPP_EXPORT size_t nuppNetPending(NuppNetStream *stream) {
     return stream == NULL ? 0 : stream->pending;
+}
+
+/* Gives kernel TLS an independent descriptor for the same connected socket and
+ * takes libuv out of its data path. The duplicate intentionally keeps the open
+ * file description alive only until the TLS session is released; ordinary
+ * connection ownership and the public closed guard remain on `stream`. */
+NUPP_EXPORT intptr_t nuppNetStreamTlsSocket(NuppNetStream *stream) {
+#if defined(__linux__)
+    uv_os_fd_t descriptor;
+    int duplicated;
+    if (stream == NULL || stream->closing || stream->isPipe) {
+        nupp_fail("net: kernel TLS needs an open TCP stream");
+        return -1;
+    }
+    if (stream->pending != 0 || stream->length != stream->offset) {
+        nupp_fail("net: kernel TLS needs an empty socket queue");
+        return -1;
+    }
+    if (stream->started) {
+        uv_read_stop((uv_stream_t *)&stream->socket);
+        stream->started = false;
+        stream->paused = false;
+    }
+    if (uv_fileno((const uv_handle_t *)&stream->socket, &descriptor) != 0) {
+        nupp_fail("net: the TCP descriptor is unavailable");
+        return -1;
+    }
+    duplicated = dup((int)descriptor);
+    if (duplicated < 0) {
+        nupp_fail("net: the TCP descriptor could not be duplicated");
+        return -1;
+    }
+    stream->layered = true;
+    return (intptr_t)duplicated;
+#else
+    (void)stream;
+    nupp_fail("net: kernel TLS is available only on Linux");
+    return -1;
+#endif
+}
+
+NUPP_EXPORT void *nuppNetStreamLoop(NuppNetStream *stream) {
+    if (stream == NULL) {
+        return NULL;
+    }
+    return uv_handle_get_loop((const uv_handle_t *)&stream->socket);
 }
 
 static void net_on_shutdown(uv_shutdown_t *request, int status) {
@@ -1237,6 +1296,7 @@ struct NuppNetDatagram {
     bool closing;
     bool closed;
     bool destroyed;
+    unsigned holders;
     int failure;
 
     uint8_t *slab;
@@ -1247,17 +1307,39 @@ struct NuppNetDatagram {
 
 typedef struct NuppNetDatagram NuppNetDatagram;
 
+static void net_datagram_reap(NuppNetDatagram *socket) {
+    if (!socket->closed || !socket->destroyed || socket->holders > 0) {
+        return;
+    }
+    for (size_t at = 0; at < socket->count; at++) {
+        free(socket->queue[(socket->head + at) % NET_DATAGRAM_QUEUE_MAX].bytes);
+    }
+    free(socket->slab);
+    free(socket);
+}
+
 static void net_datagram_closed(uv_handle_t *handle) {
     NuppNetDatagram *socket = handle->data;
     socket->closed = true;
-    if (socket->destroyed) {
-        size_t at;
-        for (at = 0; at < socket->count; at++) {
-            free(socket->queue[(socket->head + at) % NET_DATAGRAM_QUEUE_MAX].bytes);
-        }
-        free(socket->slab);
-        free(socket);
+    net_datagram_reap(socket);
+}
+
+NUPP_EXPORT void nuppNetDatagramRetain(NuppNetDatagram *socket) {
+    if (socket != NULL) {
+        socket->holders++;
     }
+}
+
+NUPP_EXPORT void nuppNetDatagramRelease(NuppNetDatagram *socket) {
+    if (socket == NULL || socket->holders == 0) {
+        return;
+    }
+    socket->holders--;
+    net_datagram_reap(socket);
+}
+
+NUPP_EXPORT bool nuppNetDatagramClosed(NuppNetDatagram *socket) {
+    return socket == NULL || socket->closing;
 }
 
 /* One slab, reused. libuv asks for somewhere to put the next datagram and this
@@ -1410,8 +1492,32 @@ NUPP_EXPORT intptr_t nuppNetDatagramReceive(
     size_t hostCapacity,
     int32_t *portOut
 ) {
+    return nuppNetDatagramReceivePeer(
+        socket, NULL, 0, true, into, capacity, status, truncated,
+        hostOut, hostCapacity, portOut);
+}
+
+/* Takes the oldest datagram from one peer, or the oldest datagram at all while
+ * a DTLS server is learning its peer. Messages for other sessions stay queued:
+ * sharing one UDP socket must not make whichever session happens to poll first
+ * consume another session's record. */
+NUPP_EXPORT intptr_t nuppNetDatagramReceivePeer(
+    NuppNetDatagram *socket,
+    const char *wantedHost,
+    int32_t wantedPort,
+    bool anyPeer,
+    uint8_t *into,
+    size_t capacity,
+    int32_t *status,
+    uint8_t *truncated,
+    char *hostOut,
+    size_t hostCapacity,
+    int32_t *portOut
+) {
     NetMessage *message;
+    size_t found = 0;
     size_t taking;
+    size_t at;
 
     if (status != NULL) {
         *status = -1;
@@ -1432,7 +1538,26 @@ NUPP_EXPORT intptr_t nuppNetDatagramReceive(
         }
         return 0;
     }
-    message = &socket->queue[socket->head];
+    if (!anyPeer) {
+        bool matched = false;
+        for (found = 0; found < socket->count; found++) {
+            message = &socket->queue[
+                (socket->head + found) % NET_DATAGRAM_QUEUE_MAX];
+            if (message->port == wantedPort && wantedHost != NULL &&
+                strcmp(message->host, wantedHost) == 0) {
+                matched = true;
+                break;
+            }
+        }
+        if (!matched) {
+            if (status != NULL) {
+                *status = 0;
+            }
+            return 0;
+        }
+    }
+    message = &socket->queue[
+        (socket->head + found) % NET_DATAGRAM_QUEUE_MAX];
     taking = message->length < capacity ? message->length : capacity;
     if (taking > 0 && into != NULL) {
         memcpy(into, message->bytes, taking);
@@ -1452,8 +1577,14 @@ NUPP_EXPORT intptr_t nuppNetDatagramReceive(
         *portOut = message->port;
     }
     free(message->bytes);
-    message->bytes = NULL;
-    socket->head = (socket->head + 1) % NET_DATAGRAM_QUEUE_MAX;
+    for (at = found; at + 1 < socket->count; at++) {
+        size_t destination = (socket->head + at) % NET_DATAGRAM_QUEUE_MAX;
+        size_t source = (socket->head + at + 1) % NET_DATAGRAM_QUEUE_MAX;
+        socket->queue[destination] = socket->queue[source];
+    }
+    memset(&socket->queue[
+        (socket->head + socket->count - 1) % NET_DATAGRAM_QUEUE_MAX],
+        0, sizeof socket->queue[0]);
     socket->count--;
     if (status != NULL) {
         *status = 1;
@@ -1473,9 +1604,7 @@ NUPP_EXPORT uint8_t nuppNetDatagramSend(
     size_t length
 ) {
     NuppText text;
-    struct sockaddr_storage address;
-    uv_buf_t buffer;
-    int sent;
+    intptr_t sent;
 
     if (socket == NULL || socket->closing) {
         nupp_fail("net: the datagram socket is closed");
@@ -1484,21 +1613,49 @@ NUPP_EXPORT uint8_t nuppNetDatagramSend(
     if (!nupp_text(&text, host, hostLength, "host")) {
         return 0;
     }
-    if (uv_ip4_addr(text.value, port, (struct sockaddr_in *)&address) != 0
-        && uv_ip6_addr(text.value, port, (struct sockaddr_in6 *)&address) != 0) {
-        nupp_fail_format("net: %s is not an address to send to", text.value);
-        nupp_text_free(&text);
+    sent = nuppNetDatagramTrySend(socket, text.value, port, bytes, length);
+    nupp_text_free(&text);
+    if (sent == 0 && length > 0) {
+        nupp_fail("net: the datagram socket would block");
         return 0;
     }
-    nupp_text_free(&text);
+    return sent >= 0 ? 1 : 0;
+}
 
+/* Nonblocking datagram send in the spelling mbedTLS's BIO expects: the whole
+ * message length on success, zero for backpressure, and -1 for a permanent
+ * failure. */
+NUPP_EXPORT intptr_t nuppNetDatagramTrySend(
+    NuppNetDatagram *socket,
+    const char *host,
+    int32_t port,
+    const uint8_t *bytes,
+    size_t length
+) {
+    struct sockaddr_storage address;
+    uv_buf_t buffer;
+    int sent;
+    if (socket == NULL || socket->closing) {
+        nupp_fail("net: the datagram socket is closed");
+        return -1;
+    }
+    if (host == NULL || port < 0 || port > 65535 ||
+        (uv_ip4_addr(host, port, (struct sockaddr_in *)&address) != 0 &&
+         uv_ip6_addr(host, port, (struct sockaddr_in6 *)&address) != 0)) {
+        nupp_fail("net: the datagram peer is not an address");
+        return -1;
+    }
     buffer = uv_buf_init((char *)(uintptr_t)bytes, (unsigned)length);
-    sent = uv_udp_try_send(&socket->udp, &buffer, 1, (const struct sockaddr *)&address);
+    sent = uv_udp_try_send(
+        &socket->udp, &buffer, 1, (const struct sockaddr *)&address);
+    if (sent == UV_EAGAIN) {
+        return 0;
+    }
     if (sent < 0) {
         nupp_fail_format("net: %s", uv_strerror(sent));
-        return 0;
+        return -1;
     }
-    return 1;
+    return (intptr_t)sent;
 }
 
 NUPP_EXPORT uint8_t nuppNetDatagramClose(NuppNetDatagram *socket) {
@@ -1522,14 +1679,7 @@ NUPP_EXPORT void nuppNetDatagramDestroy(NuppNetDatagram *socket) {
         nuppNetDatagramClose(socket);
     }
     socket->destroyed = true;
-    if (socket->closed) {
-        size_t at;
-        for (at = 0; at < socket->count; at++) {
-            free(socket->queue[(socket->head + at) % NET_DATAGRAM_QUEUE_MAX].bytes);
-        }
-        free(socket->slab);
-        free(socket);
-    }
+    net_datagram_reap(socket);
 }
 
 /* --- datagram options --------------------------------------------------- */

@@ -169873,6 +169873,18 @@ end
 
 
 
+
+
+function net . datagramHandle ( source ) 
+return source . _handle
+end
+
+
+
+
+
+
+
 function net . pump ( timeoutMs ) 
 const chosen = backend
 if chosen ~= nil then
@@ -173379,7 +173391,20 @@ const __nuppExportValue= process ;__nuppExports=__nuppExportValue
  end);if not __nuppOk then package.loaded["nupp.io.process"]=nil;error(__nuppWhy,0) end;package.loaded["nupp.io.process"]=__nuppExports;return __nuppExports
 end
 package.preload["nupp.io.tls"] = function(...)
-_G.assert(_G.loadstring("local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppMath=rawget(__nupp,\"math\")or{};rawset(__nupp,\"math\",__nuppMath) local function __nuppCloseFile(handle)if io.type(handle)==\"closed file\"then return end;local ok,reason=handle:close();if not ok then error(reason or \"the file could not be closed\",0)end end local __nuppManagedBrand=_G.__nuppManagedBrand if not __nuppManagedBrand then __nuppManagedBrand={};_G.__nuppManagedBrand=__nuppManagedBrand end local __nuppManagedCells=_G.__nuppManagedCells if not __nuppManagedCells then __nuppManagedCells=setmetatable({},{__mode=\"k\"});_G.__nuppManagedCells=__nuppManagedCells end local __nuppManagedOwner={};__nuppManagedOwner.__index=__nuppManagedOwner;local __nuppManagedAlias={};__nuppManagedAlias.__index=__nuppManagedAlias local function __nuppManagedError(code,message)return{code=code,message=message}end local function __nuppManagedProblem(cell) if type(cell)~=\"table\"or cell._brand~=__nuppManagedBrand then return __nuppManagedError(\"NUPP2614\",\"value is not a managed alias\")end if cell._state==\"taken\"then return __nuppManagedError(\"NUPP2614\",\"managed ownership was already taken\")end if cell._state==\"closed\"or cell._state==\"closing\"then return __nuppManagedError(\"NUPP2614\",\"managed resource is closed\")end return nil end local function __nuppManagedClose(cell,checked) local problem=__nuppManagedProblem(cell);if problem then if checked then return problem end;return nil end if cell._borrows~=0 or cell._exclusive then local busy=__nuppManagedError(\"NUPP2620\",\"managed resource has an active borrow\");if checked then return busy end;error(busy.message,0)end cell._state=\"closing\";local value,cleanup=cell._value,cell._cleanup;cell._value=nil;cell._cleanup=nil local ok,reason=pcall(cleanup,value);cell._state=\"closed\";if not ok then error(reason,0)end;return nil end function __nuppManagedOwner:alias()return setmetatable({_cell=self,_brand=__nuppManagedBrand},__nuppManagedAlias)end function __nuppManagedOwner:close()return __nuppManagedClose(self,false)end local function __nuppAliasCell(self) if type(self)~=\"table\"or self._brand~=__nuppManagedBrand or getmetatable(self)~=__nuppManagedAlias then return nil,__nuppManagedError(\"NUPP2614\",\"value is not a managed alias\")end local cell=self._cell;local problem=__nuppManagedProblem(cell);if problem then return nil,problem end;return cell,nil end function __nuppManagedAlias:with(callback) local cell,problem=__nuppAliasCell(self);if not cell then return nil,problem end if cell._exclusive then return nil,__nuppManagedError(\"NUPP2620\",\"managed resource is exclusively borrowed\")end cell._borrows=cell._borrows+1;cell._state=\"shared-borrowed(\"..cell._borrows..\")\" local ok,result=pcall(callback,cell._value);cell._borrows=cell._borrows-1;cell._state=cell._borrows>0 and(\"shared-borrowed(\"..cell._borrows..\")\")or\"live\" if not ok then error(result,0)end;return result,nil end function __nuppManagedAlias:withExclusive(callback) local cell,problem=__nuppAliasCell(self);if not cell then return nil,problem end if cell._exclusive or cell._borrows~=0 then return nil,__nuppManagedError(\"NUPP2620\",\"managed resource is already borrowed\")end cell._exclusive=true;cell._state=\"exclusive-borrowed\";local ok,result=pcall(callback,cell._value);cell._exclusive=false;cell._state=\"live\" if not ok then error(result,0)end;return result,nil end function __nuppManagedAlias:take() local cell,problem=__nuppAliasCell(self);if not cell then return nil,problem end if cell._exclusive or cell._borrows~=0 then return nil,__nuppManagedError(\"NUPP2620\",\"managed resource has an active borrow\")end cell._state=\"taken\";local value=cell._value;cell._value=nil;cell._cleanup=nil;return value,nil end function __nuppManagedAlias:close() local cell,problem=__nuppAliasCell(self);if not cell then return problem end;return __nuppManagedClose(cell,true)end function __nuppManagedAlias:_downcast(policy) local cell,problem=__nuppAliasCell(self);if not cell then return nil,problem end if cell._policy~=policy then return nil,__nuppManagedError(\"NUPP2613\",\"managed alias has the wrong type or cleanup policy\")end return self,nil end function __nupp.__manage(value,cleanup,policy) local cell=setmetatable({_brand=__nuppManagedBrand,_value=value,_cleanup=cleanup,_policy=policy,_state=\"live\",_borrows=0,_exclusive=false},__nuppManagedOwner);__nuppManagedCells[cell]=true;return cell end function __nupp.__recoverAlias(value) if type(value)~=\"table\"or value._brand~=__nuppManagedBrand or getmetatable(value)~=__nuppManagedAlias then return nil,__nuppManagedError(\"NUPP2614\",\"value is not a managed alias\")end local cell,problem=__nuppAliasCell(value);if not cell then return nil,problem end;return value,nil end _G.__nuppManagedPolicyCount=function(policy)local count=0;for cell in pairs(__nuppManagedCells)do if cell._policy==policy and(cell._state==\"live\"or cell._state:match(\"borrowed\"))then count=count+1 end end;return count end local __nuppManagedGroup={};__nuppManagedGroup.__index=__nuppManagedGroup function __nuppManagedGroup:flush()end function __nuppManagedGroup:adopt(cell) if self._closed then error(\"managed group is closed\",2)end local handle=cell:alias();self._entries[#self._entries+1]=handle return handle end function __nuppManagedGroup:remove(handle) if self._closed then error(\"managed group is closed\",2)end for index=#self._entries,1,-1 do if self._entries[index]==handle then table.remove(self._entries,index);local value,problem=handle:take();if problem then error(problem.message,2)end;return value end end error(\"managed alias is not registered in this group\",2) end local function __nuppManagedCloseEntry(entry)local problem=entry:close();if problem and problem.code~=\"NUPP2614\"then error(problem.message,0)end end function __nuppManagedGroup:close() if self._closed then return end;self._closed=true;local first,suppressed=nil,0 for index=#self._entries,1,-1 do local ok,reason=pcall(__nuppManagedCloseEntry,self._entries[index]);if not ok then if first==nil then first=reason else suppressed=suppressed+1 end end end self._entries={};if first~=nil then if suppressed>0 then error(tostring(first)..\" (suppressed \"..tostring(suppressed)..\" cleanup failure(s))\",0)end;error(first,0)end end function __nupp.managedGroup()return setmetatable({_entries={},_closed=false},__nuppManagedGroup)end;\n","@nupp-prelude"))();local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppMath=rawget(__nupp,"math")or{};rawset(__nupp,"math",__nuppMath) local function __nuppCloseFile(handle)if io.type(handle)=="closed file"then return end;local ok,reason=handle:close();if not ok then error(reason or "the file could not be closed",0)end end local __nuppManagedBrand=_G.__nuppManagedBrand if not __nuppManagedBrand then __nuppManagedBrand={};_G.__nuppManagedBrand=__nuppManagedBrand end local __nuppManagedCells=_G.__nuppManagedCells if not __nuppManagedCells then __nuppManagedCells=setmetatable({},{__mode="k"});_G.__nuppManagedCells=__nuppManagedCells end local __nuppManagedOwner={};__nuppManagedOwner.__index=__nuppManagedOwner;local __nuppManagedAlias={};__nuppManagedAlias.__index=__nuppManagedAlias local function __nuppManagedError(code,message)return{code=code,message=message}end local function __nuppManagedProblem(cell) if type(cell)~="table"or cell._brand~=__nuppManagedBrand then return __nuppManagedError("NUPP2614","value is not a managed alias")end if cell._state=="taken"then return __nuppManagedError("NUPP2614","managed ownership was already taken")end if cell._state=="closed"or cell._state=="closing"then return __nuppManagedError("NUPP2614","managed resource is closed")end return nil end local function __nuppManagedClose(cell,checked) local problem=__nuppManagedProblem(cell);if problem then if checked then return problem end;return nil end if cell._borrows~=0 or cell._exclusive then local busy=__nuppManagedError("NUPP2620","managed resource has an active borrow");if checked then return busy end;error(busy.message,0)end cell._state="closing";local value,cleanup=cell._value,cell._cleanup;cell._value=nil;cell._cleanup=nil local ok,reason=pcall(cleanup,value);cell._state="closed";if not ok then error(reason,0)end;return nil end function __nuppManagedOwner:alias()return setmetatable({_cell=self,_brand=__nuppManagedBrand},__nuppManagedAlias)end function __nuppManagedOwner:close()return __nuppManagedClose(self,false)end local function __nuppAliasCell(self) if type(self)~="table"or self._brand~=__nuppManagedBrand or getmetatable(self)~=__nuppManagedAlias then return nil,__nuppManagedError("NUPP2614","value is not a managed alias")end local cell=self._cell;local problem=__nuppManagedProblem(cell);if problem then return nil,problem end;return cell,nil end function __nuppManagedAlias:with(callback) local cell,problem=__nuppAliasCell(self);if not cell then return nil,problem end if cell._exclusive then return nil,__nuppManagedError("NUPP2620","managed resource is exclusively borrowed")end cell._borrows=cell._borrows+1;cell._state="shared-borrowed("..cell._borrows..")" local ok,result=pcall(callback,cell._value);cell._borrows=cell._borrows-1;cell._state=cell._borrows>0 and("shared-borrowed("..cell._borrows..")")or"live" if not ok then error(result,0)end;return result,nil end function __nuppManagedAlias:withExclusive(callback) local cell,problem=__nuppAliasCell(self);if not cell then return nil,problem end if cell._exclusive or cell._borrows~=0 then return nil,__nuppManagedError("NUPP2620","managed resource is already borrowed")end cell._exclusive=true;cell._state="exclusive-borrowed";local ok,result=pcall(callback,cell._value);cell._exclusive=false;cell._state="live" if not ok then error(result,0)end;return result,nil end function __nuppManagedAlias:take() local cell,problem=__nuppAliasCell(self);if not cell then return nil,problem end if cell._exclusive or cell._borrows~=0 then return nil,__nuppManagedError("NUPP2620","managed resource has an active borrow")end cell._state="taken";local value=cell._value;cell._value=nil;cell._cleanup=nil;return value,nil end function __nuppManagedAlias:close() local cell,problem=__nuppAliasCell(self);if not cell then return problem end;return __nuppManagedClose(cell,true)end function __nuppManagedAlias:_downcast(policy) local cell,problem=__nuppAliasCell(self);if not cell then return nil,problem end if cell._policy~=policy then return nil,__nuppManagedError("NUPP2613","managed alias has the wrong type or cleanup policy")end return self,nil end function __nupp.__manage(value,cleanup,policy) local cell=setmetatable({_brand=__nuppManagedBrand,_value=value,_cleanup=cleanup,_policy=policy,_state="live",_borrows=0,_exclusive=false},__nuppManagedOwner);__nuppManagedCells[cell]=true;return cell end function __nupp.__recoverAlias(value) if type(value)~="table"or value._brand~=__nuppManagedBrand or getmetatable(value)~=__nuppManagedAlias then return nil,__nuppManagedError("NUPP2614","value is not a managed alias")end local cell,problem=__nuppAliasCell(value);if not cell then return nil,problem end;return value,nil end _G.__nuppManagedPolicyCount=function(policy)local count=0;for cell in pairs(__nuppManagedCells)do if cell._policy==policy and(cell._state=="live"or cell._state:match("borrowed"))then count=count+1 end end;return count end local __nuppManagedGroup={};__nuppManagedGroup.__index=__nuppManagedGroup function __nuppManagedGroup:flush()end function __nuppManagedGroup:adopt(cell) if self._closed then error("managed group is closed",2)end local handle=cell:alias();self._entries[#self._entries+1]=handle return handle end function __nuppManagedGroup:remove(handle) if self._closed then error("managed group is closed",2)end for index=#self._entries,1,-1 do if self._entries[index]==handle then table.remove(self._entries,index);local value,problem=handle:take();if problem then error(problem.message,2)end;return value end end error("managed alias is not registered in this group",2) end local function __nuppManagedCloseEntry(entry)local problem=entry:close();if problem and problem.code~="NUPP2614"then error(problem.message,0)end end function __nuppManagedGroup:close() if self._closed then return end;self._closed=true;local first,suppressed=nil,0 for index=#self._entries,1,-1 do local ok,reason=pcall(__nuppManagedCloseEntry,self._entries[index]);if not ok then if first==nil then first=reason else suppressed=suppressed+1 end end end self._entries={};if first~=nil then if suppressed>0 then error(tostring(first).." (suppressed "..tostring(suppressed).." cleanup failure(s))",0)end;error(first,0)end end function __nupp.managedGroup()return setmetatable({_entries={},_closed=false},__nuppManagedGroup)end local function __nuppLazy(target,name,loader)local meta=getmetatable(target)or{};local loaders=meta.__nuppLoaders;if not loaders then loaders={};local prior=meta.__index;meta.__nuppLoaders=loaders;meta.__index=function(t,k)local load=loaders[k];if load then local value=load(k);loaders[k]=nil;if value==nil then value=rawget(t,k)else rawset(t,k,value)end;return value end;if type(prior)=="function"then return prior(t,k)elseif prior then return prior[k]end end;setmetatable(target,meta)end;if name~=nil and rawget(target,name)==nil and loaders[name]==nil then loaders[name]=loader end end;const __nuppT26={}; const function __nuppT23(...) return {n=select("#",...),...} end; const __nuppT27,__nuppT28,__nuppT29,__nuppT30,__nuppT31,__nuppT32,__nuppT33,__nuppT34=pcall,xpcall,error,unpack,select,setmetatable,tostring,ipairs; const function __nuppT24(value) return value end; const function __nuppT25(primary,errors,start) const secondary={} for i=start,#errors do secondary[#secondary+1]=errors[i] end return __nuppT32({primary=primary,suppressed=secondary},{__tostring=function(v) local text=__nuppT33(v.primary) for _,reason in __nuppT34(v.suppressed) do text=text.."\ncleanup: "..__nuppT33(reason) end return text end}) end; local __nuppCleanups=_G.__nuppCleanupRegistry;if __nuppCleanups==nil then __nuppCleanups={};_G.__nuppCleanupRegistry=__nuppCleanups end;local __nuppCleanup1;__nuppCleanup1=function(value) local cleanup=__nuppCleanups["nupp.mem.span#destroyWriteSpan"];if cleanup==nil then return _G.error("Nupp cleanup provider is not loaded: nupp.mem.span#destroyWriteSpan") end;__nuppCleanup1=cleanup;return cleanup(value) end;local __nuppCleanup2;__nuppCleanup2=function(value) local cleanup=__nuppCleanups["nupp.io#destroyOwner"];if cleanup==nil then return _G.error("Nupp cleanup provider is not loaded: nupp.io#destroyOwner") end;__nuppCleanup2=cleanup;return cleanup(value) end;const __nuppDrop1 = function(__nuppV) if __nuppV == nil then return end __nuppCleanup1(__nuppV);  end;local __nuppExports;local __nuppOk,__nuppWhy=pcall(function()
+_G.assert(_G.loadstring("local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppMath=rawget(__nupp,\"math\")or{};rawset(__nupp,\"math\",__nuppMath) local function __nuppCloseFile(handle)if io.type(handle)==\"closed file\"then return end;local ok,reason=handle:close();if not ok then error(reason or \"the file could not be closed\",0)end end local __nuppManagedBrand=_G.__nuppManagedBrand if not __nuppManagedBrand then __nuppManagedBrand={};_G.__nuppManagedBrand=__nuppManagedBrand end local __nuppManagedCells=_G.__nuppManagedCells if not __nuppManagedCells then __nuppManagedCells=setmetatable({},{__mode=\"k\"});_G.__nuppManagedCells=__nuppManagedCells end local __nuppManagedOwner={};__nuppManagedOwner.__index=__nuppManagedOwner;local __nuppManagedAlias={};__nuppManagedAlias.__index=__nuppManagedAlias local function __nuppManagedError(code,message)return{code=code,message=message}end local function __nuppManagedProblem(cell) if type(cell)~=\"table\"or cell._brand~=__nuppManagedBrand then return __nuppManagedError(\"NUPP2614\",\"value is not a managed alias\")end if cell._state==\"taken\"then return __nuppManagedError(\"NUPP2614\",\"managed ownership was already taken\")end if cell._state==\"closed\"or cell._state==\"closing\"then return __nuppManagedError(\"NUPP2614\",\"managed resource is closed\")end return nil end local function __nuppManagedClose(cell,checked) local problem=__nuppManagedProblem(cell);if problem then if checked then return problem end;return nil end if cell._borrows~=0 or cell._exclusive then local busy=__nuppManagedError(\"NUPP2620\",\"managed resource has an active borrow\");if checked then return busy end;error(busy.message,0)end cell._state=\"closing\";local value,cleanup=cell._value,cell._cleanup;cell._value=nil;cell._cleanup=nil local ok,reason=pcall(cleanup,value);cell._state=\"closed\";if not ok then error(reason,0)end;return nil end function __nuppManagedOwner:alias()return setmetatable({_cell=self,_brand=__nuppManagedBrand},__nuppManagedAlias)end function __nuppManagedOwner:close()return __nuppManagedClose(self,false)end local function __nuppAliasCell(self) if type(self)~=\"table\"or self._brand~=__nuppManagedBrand or getmetatable(self)~=__nuppManagedAlias then return nil,__nuppManagedError(\"NUPP2614\",\"value is not a managed alias\")end local cell=self._cell;local problem=__nuppManagedProblem(cell);if problem then return nil,problem end;return cell,nil end function __nuppManagedAlias:with(callback) local cell,problem=__nuppAliasCell(self);if not cell then return nil,problem end if cell._exclusive then return nil,__nuppManagedError(\"NUPP2620\",\"managed resource is exclusively borrowed\")end cell._borrows=cell._borrows+1;cell._state=\"shared-borrowed(\"..cell._borrows..\")\" local ok,result=pcall(callback,cell._value);cell._borrows=cell._borrows-1;cell._state=cell._borrows>0 and(\"shared-borrowed(\"..cell._borrows..\")\")or\"live\" if not ok then error(result,0)end;return result,nil end function __nuppManagedAlias:withExclusive(callback) local cell,problem=__nuppAliasCell(self);if not cell then return nil,problem end if cell._exclusive or cell._borrows~=0 then return nil,__nuppManagedError(\"NUPP2620\",\"managed resource is already borrowed\")end cell._exclusive=true;cell._state=\"exclusive-borrowed\";local ok,result=pcall(callback,cell._value);cell._exclusive=false;cell._state=\"live\" if not ok then error(result,0)end;return result,nil end function __nuppManagedAlias:take() local cell,problem=__nuppAliasCell(self);if not cell then return nil,problem end if cell._exclusive or cell._borrows~=0 then return nil,__nuppManagedError(\"NUPP2620\",\"managed resource has an active borrow\")end cell._state=\"taken\";local value=cell._value;cell._value=nil;cell._cleanup=nil;return value,nil end function __nuppManagedAlias:close() local cell,problem=__nuppAliasCell(self);if not cell then return problem end;return __nuppManagedClose(cell,true)end function __nuppManagedAlias:_downcast(policy) local cell,problem=__nuppAliasCell(self);if not cell then return nil,problem end if cell._policy~=policy then return nil,__nuppManagedError(\"NUPP2613\",\"managed alias has the wrong type or cleanup policy\")end return self,nil end function __nupp.__manage(value,cleanup,policy) local cell=setmetatable({_brand=__nuppManagedBrand,_value=value,_cleanup=cleanup,_policy=policy,_state=\"live\",_borrows=0,_exclusive=false},__nuppManagedOwner);__nuppManagedCells[cell]=true;return cell end function __nupp.__recoverAlias(value) if type(value)~=\"table\"or value._brand~=__nuppManagedBrand or getmetatable(value)~=__nuppManagedAlias then return nil,__nuppManagedError(\"NUPP2614\",\"value is not a managed alias\")end local cell,problem=__nuppAliasCell(value);if not cell then return nil,problem end;return value,nil end _G.__nuppManagedPolicyCount=function(policy)local count=0;for cell in pairs(__nuppManagedCells)do if cell._policy==policy and(cell._state==\"live\"or cell._state:match(\"borrowed\"))then count=count+1 end end;return count end local __nuppManagedGroup={};__nuppManagedGroup.__index=__nuppManagedGroup function __nuppManagedGroup:flush()end function __nuppManagedGroup:adopt(cell) if self._closed then error(\"managed group is closed\",2)end local handle=cell:alias();self._entries[#self._entries+1]=handle return handle end function __nuppManagedGroup:remove(handle) if self._closed then error(\"managed group is closed\",2)end for index=#self._entries,1,-1 do if self._entries[index]==handle then table.remove(self._entries,index);local value,problem=handle:take();if problem then error(problem.message,2)end;return value end end error(\"managed alias is not registered in this group\",2) end local function __nuppManagedCloseEntry(entry)local problem=entry:close();if problem and problem.code~=\"NUPP2614\"then error(problem.message,0)end end function __nuppManagedGroup:close() if self._closed then return end;self._closed=true;local first,suppressed=nil,0 for index=#self._entries,1,-1 do local ok,reason=pcall(__nuppManagedCloseEntry,self._entries[index]);if not ok then if first==nil then first=reason else suppressed=suppressed+1 end end end self._entries={};if first~=nil then if suppressed>0 then error(tostring(first)..\" (suppressed \"..tostring(suppressed)..\" cleanup failure(s))\",0)end;error(first,0)end end function __nupp.managedGroup()return setmetatable({_entries={},_closed=false},__nuppManagedGroup)end;\n","@nupp-prelude"))();local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppMath=rawget(__nupp,"math")or{};rawset(__nupp,"math",__nuppMath) local function __nuppCloseFile(handle)if io.type(handle)=="closed file"then return end;local ok,reason=handle:close();if not ok then error(reason or "the file could not be closed",0)end end local __nuppManagedBrand=_G.__nuppManagedBrand if not __nuppManagedBrand then __nuppManagedBrand={};_G.__nuppManagedBrand=__nuppManagedBrand end local __nuppManagedCells=_G.__nuppManagedCells if not __nuppManagedCells then __nuppManagedCells=setmetatable({},{__mode="k"});_G.__nuppManagedCells=__nuppManagedCells end local __nuppManagedOwner={};__nuppManagedOwner.__index=__nuppManagedOwner;local __nuppManagedAlias={};__nuppManagedAlias.__index=__nuppManagedAlias local function __nuppManagedError(code,message)return{code=code,message=message}end local function __nuppManagedProblem(cell) if type(cell)~="table"or cell._brand~=__nuppManagedBrand then return __nuppManagedError("NUPP2614","value is not a managed alias")end if cell._state=="taken"then return __nuppManagedError("NUPP2614","managed ownership was already taken")end if cell._state=="closed"or cell._state=="closing"then return __nuppManagedError("NUPP2614","managed resource is closed")end return nil end local function __nuppManagedClose(cell,checked) local problem=__nuppManagedProblem(cell);if problem then if checked then return problem end;return nil end if cell._borrows~=0 or cell._exclusive then local busy=__nuppManagedError("NUPP2620","managed resource has an active borrow");if checked then return busy end;error(busy.message,0)end cell._state="closing";local value,cleanup=cell._value,cell._cleanup;cell._value=nil;cell._cleanup=nil local ok,reason=pcall(cleanup,value);cell._state="closed";if not ok then error(reason,0)end;return nil end function __nuppManagedOwner:alias()return setmetatable({_cell=self,_brand=__nuppManagedBrand},__nuppManagedAlias)end function __nuppManagedOwner:close()return __nuppManagedClose(self,false)end local function __nuppAliasCell(self) if type(self)~="table"or self._brand~=__nuppManagedBrand or getmetatable(self)~=__nuppManagedAlias then return nil,__nuppManagedError("NUPP2614","value is not a managed alias")end local cell=self._cell;local problem=__nuppManagedProblem(cell);if problem then return nil,problem end;return cell,nil end function __nuppManagedAlias:with(callback) local cell,problem=__nuppAliasCell(self);if not cell then return nil,problem end if cell._exclusive then return nil,__nuppManagedError("NUPP2620","managed resource is exclusively borrowed")end cell._borrows=cell._borrows+1;cell._state="shared-borrowed("..cell._borrows..")" local ok,result=pcall(callback,cell._value);cell._borrows=cell._borrows-1;cell._state=cell._borrows>0 and("shared-borrowed("..cell._borrows..")")or"live" if not ok then error(result,0)end;return result,nil end function __nuppManagedAlias:withExclusive(callback) local cell,problem=__nuppAliasCell(self);if not cell then return nil,problem end if cell._exclusive or cell._borrows~=0 then return nil,__nuppManagedError("NUPP2620","managed resource is already borrowed")end cell._exclusive=true;cell._state="exclusive-borrowed";local ok,result=pcall(callback,cell._value);cell._exclusive=false;cell._state="live" if not ok then error(result,0)end;return result,nil end function __nuppManagedAlias:take() local cell,problem=__nuppAliasCell(self);if not cell then return nil,problem end if cell._exclusive or cell._borrows~=0 then return nil,__nuppManagedError("NUPP2620","managed resource has an active borrow")end cell._state="taken";local value=cell._value;cell._value=nil;cell._cleanup=nil;return value,nil end function __nuppManagedAlias:close() local cell,problem=__nuppAliasCell(self);if not cell then return problem end;return __nuppManagedClose(cell,true)end function __nuppManagedAlias:_downcast(policy) local cell,problem=__nuppAliasCell(self);if not cell then return nil,problem end if cell._policy~=policy then return nil,__nuppManagedError("NUPP2613","managed alias has the wrong type or cleanup policy")end return self,nil end function __nupp.__manage(value,cleanup,policy) local cell=setmetatable({_brand=__nuppManagedBrand,_value=value,_cleanup=cleanup,_policy=policy,_state="live",_borrows=0,_exclusive=false},__nuppManagedOwner);__nuppManagedCells[cell]=true;return cell end function __nupp.__recoverAlias(value) if type(value)~="table"or value._brand~=__nuppManagedBrand or getmetatable(value)~=__nuppManagedAlias then return nil,__nuppManagedError("NUPP2614","value is not a managed alias")end local cell,problem=__nuppAliasCell(value);if not cell then return nil,problem end;return value,nil end _G.__nuppManagedPolicyCount=function(policy)local count=0;for cell in pairs(__nuppManagedCells)do if cell._policy==policy and(cell._state=="live"or cell._state:match("borrowed"))then count=count+1 end end;return count end local __nuppManagedGroup={};__nuppManagedGroup.__index=__nuppManagedGroup function __nuppManagedGroup:flush()end function __nuppManagedGroup:adopt(cell) if self._closed then error("managed group is closed",2)end local handle=cell:alias();self._entries[#self._entries+1]=handle return handle end function __nuppManagedGroup:remove(handle) if self._closed then error("managed group is closed",2)end for index=#self._entries,1,-1 do if self._entries[index]==handle then table.remove(self._entries,index);local value,problem=handle:take();if problem then error(problem.message,2)end;return value end end error("managed alias is not registered in this group",2) end local function __nuppManagedCloseEntry(entry)local problem=entry:close();if problem and problem.code~="NUPP2614"then error(problem.message,0)end end function __nuppManagedGroup:close() if self._closed then return end;self._closed=true;local first,suppressed=nil,0 for index=#self._entries,1,-1 do local ok,reason=pcall(__nuppManagedCloseEntry,self._entries[index]);if not ok then if first==nil then first=reason else suppressed=suppressed+1 end end end self._entries={};if first~=nil then if suppressed>0 then error(tostring(first).." (suppressed "..tostring(suppressed).." cleanup failure(s))",0)end;error(first,0)end end function __nupp.managedGroup()return setmetatable({_entries={},_closed=false},__nuppManagedGroup)end local function __nuppLazy(target,name,loader)local meta=getmetatable(target)or{};local loaders=meta.__nuppLoaders;if not loaders then loaders={};local prior=meta.__index;meta.__nuppLoaders=loaders;meta.__index=function(t,k)local load=loaders[k];if load then local value=load(k);loaders[k]=nil;if value==nil then value=rawget(t,k)else rawset(t,k,value)end;return value end;if type(prior)=="function"then return prior(t,k)elseif prior then return prior[k]end end;setmetatable(target,meta)end;if name~=nil and rawget(target,name)==nil and loaders[name]==nil then loaders[name]=loader end end;const __nuppT27={}; const function __nuppT24(...) return {n=select("#",...),...} end; const __nuppT28,__nuppT29,__nuppT30,__nuppT31,__nuppT32,__nuppT33,__nuppT34,__nuppT35=pcall,xpcall,error,unpack,select,setmetatable,tostring,ipairs; const function __nuppT25(value) return value end; const function __nuppT26(primary,errors,start) const secondary={} for i=start,#errors do secondary[#secondary+1]=errors[i] end return __nuppT33({primary=primary,suppressed=secondary},{__tostring=function(v) local text=__nuppT34(v.primary) for _,reason in __nuppT35(v.suppressed) do text=text.."\ncleanup: "..__nuppT34(reason) end return text end}) end; local __nuppCleanups=_G.__nuppCleanupRegistry;if __nuppCleanups==nil then __nuppCleanups={};_G.__nuppCleanupRegistry=__nuppCleanups end;local __nuppCleanup1;__nuppCleanup1=function(value) local cleanup=__nuppCleanups["nupp.mem.span#destroyWriteSpan"];if cleanup==nil then return _G.error("Nupp cleanup provider is not loaded: nupp.mem.span#destroyWriteSpan") end;__nuppCleanup1=cleanup;return cleanup(value) end;local __nuppCleanup2;__nuppCleanup2=function(value) local cleanup=__nuppCleanups["nupp.io#destroyOwner"];if cleanup==nil then return _G.error("Nupp cleanup provider is not loaded: nupp.io#destroyOwner") end;__nuppCleanup2=cleanup;return cleanup(value) end;const __nuppDrop1 = function(__nuppV) if __nuppV == nil then return end __nuppCleanup1(__nuppV);  end;local __nuppExports;local __nuppOk,__nuppWhy=pcall(function()
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 
@@ -173488,7 +173513,28 @@ local tls = { }
 
 
 
+
+
+
+
+
+
+
+
 tls.Backend = {} tls.Backend.__index = tls.Backend
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 
@@ -173651,7 +173697,7 @@ tls.Session = {} tls.Session.__index = tls.Session
 
 
 function tls.Session:isConnected() 
-return self . _backend : connected ( self . _handle )
+return self . _backend : connected ( self . _session )
 end
 
 
@@ -173710,6 +173756,17 @@ end
 const resumed = self . _backend . resumed
 
 return resumed ~= nil and resumed ( self . _backend , self . _session ) or false
+end
+
+
+
+
+function tls.Session:isKernelOffloaded() 
+if self . _closed or not self . _ready then
+return false
+end
+
+return self . _backend : kernelOffloaded ( self . _session )
 end
 
 
@@ -173853,15 +173910,15 @@ end
 const landed = # chunk
 if landed > 0 then
 const input = span . fromString ( chunk )
-do local __nuppT35=0; local  __nuppT41 ; local __nuppT42=false ; const __nuppT36,__nuppT37,__nuppT38=__nuppT28(function() do const __nuppT43= destination : reserveWrite ( offset or 0 , landed ) ; __nuppT41= __nuppT43 ; __nuppT35=1;  __nuppT42=true;  const lease=__nuppT41;
+do local __nuppT36=0; local  __nuppT42 ; local __nuppT43=false ; const __nuppT37,__nuppT38,__nuppT39=__nuppT29(function() do const __nuppT44= destination : reserveWrite ( offset or 0 , landed ) ; __nuppT42= __nuppT44 ; __nuppT36=1;  __nuppT43=true;  const lease=__nuppT42;
 do
-do local __nuppT44=0; local  __nuppT50 ; local __nuppT51=false ; const __nuppT45,__nuppT46,__nuppT47=__nuppT28(function() do const __nuppT52= lease : span ( ) ; __nuppT50= __nuppT52 ; __nuppT44=1;  __nuppT51=true;  const output=__nuppT50;
+do local __nuppT45=0; local  __nuppT51 ; local __nuppT52=false ; const __nuppT46,__nuppT47,__nuppT48=__nuppT29(function() do const __nuppT53= lease : span ( ) ; __nuppT51= __nuppT53 ; __nuppT45=1;  __nuppT52=true;  const output=__nuppT51;
 for index = 1 , landed do
 output :set( index , input :get( index ) )
 end
-do __nuppT51=false; __nuppDrop1( output ) end end; return "normal" end,__nuppT24); const __nuppT48={}; local __nuppT49=0; if __nuppT44>=1 and __nuppT51 then  const __nuppT53,__nuppT54=__nuppT27(__nuppCleanup1,__nuppT50);  if not __nuppT53 then __nuppT49=__nuppT49+1; __nuppT48[__nuppT49]=__nuppT54 end; end; if not __nuppT45 then if __nuppT49>0 then __nuppT29(__nuppT25(__nuppT46,__nuppT48,1),0) else __nuppT29(__nuppT46,0) end end; if __nuppT49>0 then if __nuppT49>1 then __nuppT29(__nuppT25(__nuppT48[1],__nuppT48,2),0) else __nuppT29(__nuppT48[1],0) end end; if __nuppT46=="return" then  return "return",__nuppT47  end; end
+do __nuppT52=false; __nuppDrop1( output ) end end; return "normal" end,__nuppT25); const __nuppT49={}; local __nuppT50=0; if __nuppT45>=1 and __nuppT52 then  const __nuppT54,__nuppT55=__nuppT28(__nuppCleanup1,__nuppT51);  if not __nuppT54 then __nuppT50=__nuppT50+1; __nuppT49[__nuppT50]=__nuppT55 end; end; if not __nuppT46 then if __nuppT50>0 then __nuppT30(__nuppT26(__nuppT47,__nuppT49,1),0) else __nuppT30(__nuppT47,0) end end; if __nuppT50>0 then if __nuppT50>1 then __nuppT30(__nuppT26(__nuppT49[1],__nuppT49,2),0) else __nuppT30(__nuppT49[1],0) end end; if __nuppT47=="return" then  return "return",__nuppT48  end; end
 end
-do (function(__nuppT55,...)  __nuppT42=false;  return __nuppT55:commit(...)  end)( lease , landed ) end end; return "normal" end,__nuppT24); const __nuppT39={}; local __nuppT40=0; if __nuppT35>=1 and __nuppT42 then  const __nuppT56,__nuppT57=__nuppT27(__nuppCleanup2,__nuppT41);  if not __nuppT56 then __nuppT40=__nuppT40+1; __nuppT39[__nuppT40]=__nuppT57 end; end; if not __nuppT36 then if __nuppT40>0 then __nuppT29(__nuppT25(__nuppT37,__nuppT39,1),0) else __nuppT29(__nuppT37,0) end end; if __nuppT40>0 then if __nuppT40>1 then __nuppT29(__nuppT25(__nuppT39[1],__nuppT39,2),0) else __nuppT29(__nuppT39[1],0) end end; if __nuppT37=="return" then  return __nuppT30(__nuppT38,1,__nuppT38.n)  end; end
+do (function(__nuppT56,...)  __nuppT43=false;  return __nuppT56:commit(...)  end)( lease , landed ) end end; return "normal" end,__nuppT25); const __nuppT40={}; local __nuppT41=0; if __nuppT36>=1 and __nuppT43 then  const __nuppT57,__nuppT58=__nuppT28(__nuppCleanup2,__nuppT42);  if not __nuppT57 then __nuppT41=__nuppT41+1; __nuppT40[__nuppT41]=__nuppT58 end; end; if not __nuppT37 then if __nuppT41>0 then __nuppT30(__nuppT26(__nuppT38,__nuppT40,1),0) else __nuppT30(__nuppT38,0) end end; if __nuppT41>0 then if __nuppT41>1 then __nuppT30(__nuppT26(__nuppT40[1],__nuppT40,2),0) else __nuppT30(__nuppT40[1],0) end end; if __nuppT38=="return" then  return __nuppT31(__nuppT39,1,__nuppT39.n)  end; end
 end
 
 return landed
@@ -173987,6 +174044,217 @@ end
 
 
 
+tls.DatagramSession = {} tls.DatagramSession.__index = tls.DatagramSession
+
+
+
+
+
+
+
+function tls.DatagramSession:isConnected() 
+return self . _backend : connected ( self . _session )
+end
+
+
+function tls.DatagramSession:isReady() 
+return self . _ready
+end
+
+
+function tls.DatagramSession:isReleased() 
+return self . _closed
+end
+
+
+function tls.DatagramSession:isEnded() 
+return self . _ended
+end
+
+
+function tls.DatagramSession:peer() 
+const host , port = self . _backend : peer ( self . _session )
+if host == nil or port == nil then
+return nil
+end
+
+return { host = host , port = port }
+end
+
+
+function tls.DatagramSession:protocol() 
+if self . _closed or not self . _ready then
+return nil
+end
+
+return self . _backend : protocol ( self . _session )
+end
+
+
+function tls.DatagramSession:isVerified() 
+if self . _closed or not self . _ready then
+return false
+end
+
+return self . _backend : verified ( self . _session )
+end
+
+
+function tls.DatagramSession:isResumed() 
+if self . _closed or not self . _ready then
+return false
+end
+const resumed = self . _backend . resumed
+
+return resumed ~= nil and resumed ( self . _backend , self . _session ) or false
+end
+
+
+function tls.DatagramSession:step() 
+if self . _closed then
+return nil , "the session is closed"
+end
+if self . _ready then
+return true
+end
+const done , why = self . _backend : handshake ( self . _session )
+if done == nil then
+return nil , why
+end
+if done then
+self . _ready = true
+end
+
+return self . _ready
+end
+
+
+function tls.DatagramSession:handshake() 
+if self . _closed then
+return false , "the session is closed"
+end
+if not self : isConnected ( ) then
+return false , "the datagram socket underneath was closed first"
+end
+if self . _ready then
+return true
+end
+local failure = nil
+await ( "nupp.io.tls DTLS handshake" , function ( ) 
+const done , why = self : step ( )
+if done == nil then
+failure = why or "the handshake failed"
+
+return true
+end
+
+return done or false
+end )
+if failure ~= nil then
+return false , failure
+end
+
+return true
+end
+
+
+
+function tls.DatagramSession:receive(maximum) 
+if self . _closed then
+return nil , "the session is closed"
+end
+if not self : isConnected ( ) then
+return nil , "the datagram socket underneath was closed first"
+end
+if not self . _ready then
+return nil , "the handshake has not finished"
+end
+const wanted = positive ( maximum , "tls.DatagramSession receive maximum" , 2 )
+local message = nil
+local failure = nil
+await ( "nupp.io.tls DTLS receive" , function ( ) 
+const got , why = self . _backend : read ( self . _session , wanted )
+if why ~= nil then
+failure = why
+
+return true
+end
+if got == nil then
+return false
+end
+message = got
+if # got == 0 then
+self . _ended = true
+end
+
+return true
+end )
+if failure ~= nil then
+return nil , failure
+end
+
+return message or ""
+end
+
+
+function tls.DatagramSession:send(bytes) 
+if self . _closed then
+return false , "the session is closed"
+end
+if # bytes == 0 then
+return false , "DTLS does not send an empty application datagram"
+end
+if not self : isConnected ( ) then
+return false , "the datagram socket underneath was closed first"
+end
+if not self . _ready then
+return false , "the handshake has not finished"
+end
+local took = nil
+local failure = nil
+await ( "nupp.io.tls DTLS send" , function ( ) 
+const moved , why = self . _backend : write ( self . _session , bytes )
+if why ~= nil then
+failure = why
+
+return true
+end
+if moved == nil then
+return false
+end
+took = moved
+
+return true
+end )
+if failure ~= nil then
+return false , failure
+end
+if took ~= # bytes then
+return false , "the DTLS provider did not take one whole datagram"
+end
+
+return true
+end
+
+
+function tls.DatagramSession:close() 
+if self . _closed then
+return
+end
+if self . _ready and self : isConnected ( ) then
+self . _backend : closeNotify ( self . _session )
+end
+self . _closed = true
+self . _backend : destroy ( self . _session )
+end
+
+
+
+
+
+
+
+
 
 function tls . client ( stream , options ) 
 const chosen = platform ( )
@@ -173997,12 +174265,16 @@ end
 const session , why = chosen : wrap (
 net . streamHandle ( stream ) ,
 false ,
+false ,
+"" ,
+0 ,
 options . hostname or "" ,
 "" ,
 "" ,
 options . authority or "" ,
 packProtocols ( options . protocols , 2 ) ,
-verify
+verify ,
+options . kernelOffload == true
 )
 if session == nil then
 return nil , why
@@ -174028,13 +174300,17 @@ function tls . server ( stream , options )
 const chosen = platform ( )
 const session , why = chosen : wrap (
 net . streamHandle ( stream ) ,
+false ,
 true ,
+"" ,
+0 ,
 "" ,
 options . certificate ,
 options . privateKey ,
 options . authority or "" ,
 packProtocols ( options . protocols , 2 ) ,
-options . verify == true
+options . verify == true ,
+options . kernelOffload == true
 )
 if session == nil then
 return nil , why
@@ -174053,6 +174329,115 @@ end
 
 
 
+
+
+
+
+
+
+function tls . dtlsClient (
+socket ,
+peer ,
+options
+) 
+const chosen = platform ( )
+const verify = options . verify ~= false
+if verify and ( options . hostname == nil or options . hostname == "" ) then
+error ( "nupp: tls.dtlsClient needs a hostname to verify the peer against" , 2 )
+end
+if peer . port < 1 or peer . port > 65535 or math . floor ( peer . port ) ~= peer . port then
+error ( "nupp: tls.dtlsClient peer port must be 1 through 65535" , 2 )
+end
+if options . kernelOffload == true then
+error ( "nupp: kernel TLS offload does not apply to DTLS" , 2 )
+end
+const session , why = chosen : wrap (
+net . datagramHandle ( socket ) ,
+true ,
+false ,
+peer . host ,
+peer . port ,
+options . hostname or "" ,
+"" ,
+"" ,
+options . authority or "" ,
+packProtocols ( options . protocols , 2 ) ,
+verify ,
+false
+)
+if session == nil then
+return nil , why
+end
+
+return setmetatable({ _backend =
+chosen ,  _session =
+session ,  _closed =
+false ,  _ready =
+false ,  _ended =
+false }, tls.DatagramSession)
+
+end
+
+
+
+
+
+
+
+
+
+
+
+
+function tls . dtlsServer (
+socket ,
+options
+) 
+if options . kernelOffload == true then
+error ( "nupp: kernel TLS offload does not apply to DTLS" , 2 )
+end
+const chosen = platform ( )
+const session , why = chosen : wrap (
+net . datagramHandle ( socket ) ,
+true ,
+true ,
+"" ,
+0 ,
+"" ,
+options . certificate ,
+options . privateKey ,
+options . authority or "" ,
+packProtocols ( options . protocols , 2 ) ,
+options . verify == true ,
+false
+)
+if session == nil then
+return nil , why
+end
+
+return setmetatable({ _backend =
+chosen ,  _session =
+session ,  _closed =
+false ,  _ready =
+false ,  _ended =
+false }, tls.DatagramSession)
+
+end
+
+
+
+
+
+
+function tls . kernelOffloadSupported ( ) 
+const chosen = backend
+
+return chosen ~= nil and chosen : kernelSupported ( )
+end
+
+
+
+
 function tls . useBackend ( chosen ) 
 backend = chosen
 end
@@ -174062,14 +174447,20 @@ const native = require ( "nupp.runtime.native" )
 native . ffi . cdef [[
 typedef struct NuppTls NuppTls;
 typedef struct NuppNetStream NuppNetStream;
+typedef struct NuppNetDatagram NuppNetDatagram;
 
-NuppTls *nuppTlsWrap(NuppNetStream *, bool, const uint8_t *, size_t,
+NuppTls *nuppTlsWrap(void *, bool, bool, const uint8_t *, size_t, int32_t,
+    const uint8_t *, size_t,
     const uint8_t *, size_t, const uint8_t *, size_t, const uint8_t *, size_t,
-    const uint8_t *, size_t, bool);
+    const uint8_t *, size_t, bool, bool);
 const char *nuppTlsAlpn(NuppTls *);
 int32_t nuppTlsHandshake(NuppTls *);
 uint32_t nuppTlsVerifyResult(NuppTls *);
 bool nuppTlsResumed(NuppTls *);
+bool nuppTlsConnected(NuppTls *);
+bool nuppTlsKernelOffloaded(NuppTls *);
+bool nuppTlsKernelSupported(void);
+uint8_t nuppTlsPeer(NuppTls *, char *, size_t, int32_t *);
 intptr_t nuppTlsRead(NuppTls *, uint8_t *, size_t);
 intptr_t nuppTlsWrite(NuppTls *, const uint8_t *, size_t);
 uint8_t nuppTlsCloseNotify(NuppTls *);
@@ -174102,21 +174493,32 @@ return scratch
 end
 
 local function nativeBackend ( ) 
+const peerHostBuffer = native . ffi . new ( "char[64]" )
+const peerPortBuffer = native . ffi . new ( "int32_t[1]" )
+
 return setmetatable({ wrap =
 function (
 self ,
 handle ,
+datagram ,
 server ,
+peerHost ,
+peerPort ,
 hostname ,
 certificate ,
 privateKey ,
 authority ,
 protocols ,
-verify
+verify ,
+kernelOffload
 ) 
 const session = C . nuppTlsWrap (
 handle ,
+datagram ,
 server ,
+peerHost ,
+# peerHost ,
+peerPort ,
 hostname ,
 # hostname ,
 certificate ,
@@ -174127,7 +174529,8 @@ authority ,
 # authority ,
 protocols ,
 # protocols ,
-verify
+verify ,
+kernelOffload
 )
 if session == nil then
 return nil , reason ( "nupp: could not start the session" )
@@ -174190,8 +174593,8 @@ function ( self , session )
 C . nuppTlsDestroy ( session )
 end ,  connected =
 
-function ( self , handle ) 
-return not ( C . nuppNetStreamClosed ( handle ) )
+function ( self , session ) 
+return C . nuppTlsConnected ( session )
 end ,  protocol =
 
 function ( self , session ) 
@@ -174201,6 +174604,22 @@ return nil
 end
 
 return native . ffi . string ( chosen )
+end ,  kernelOffloaded =
+
+function ( self , session ) 
+return C . nuppTlsKernelOffloaded ( session )
+end ,  kernelSupported =
+
+function ( self ) 
+return C . nuppTlsKernelSupported ( )
+end ,  peer =
+
+function ( self , session ) 
+if C . nuppTlsPeer ( session , peerHostBuffer , 64 , peerPortBuffer ) == 0 then
+return nil
+end
+
+return native . ffi . string ( peerHostBuffer ) , tonumber ( peerPortBuffer [ 0 ] )
 end }, tls.Backend)
 
 end
@@ -186091,8 +186510,13 @@ local runtimeBackend = require ( "nupp.runtime.backend" )
 local seam = { moduleName = "nupp.runtime.seam.tls" , suiteModuleName = "nupp.runtime.seam.tlssuite" , }
 local CONTRACT = common . contract ( "host.tls" , {
 globalName = "__nuppTls" ,
-requiredFunctions = { "client" , "server" , "useBackend" } ,
-requiredValues = { "Backend" , "ClientOptions" , "ServerOptions" , "Session" } ,
+requiredFunctions = {
+"client" , "dtlsClient" , "dtlsServer" , "kernelOffloadSupported" ,
+"server" , "useBackend" ,
+} ,
+requiredValues = {
+"Backend" , "ClientOptions" , "DatagramSession" , "ServerOptions" , "Session" ,
+} ,
 suiteModule = seam . suiteModuleName ,
 modules = { [ "nupp.io.tls" ] = "" , } ,
 } )
@@ -215197,6 +215621,18 @@ function net.streamHandle(borrows source: net.Stream): any
     return source._handle
 end
 
+--- The platform handle behind a datagram socket.
+---
+--- The message-oriented counterpart to `streamHandle`, for DTLS. It exposes
+--- no ownership: the datagram socket stays the caller's to close after the
+--- encrypted session layered over it has been closed.
+--- @param source the datagram socket to look behind
+--- @return its platform handle
+--- @export
+function net.datagramHandle(borrows source: net.Datagram): any
+    return source._handle
+end
+
 --- Drives this lane's reactor for at most `timeoutMs` milliseconds.
 ---
 --- Also for a layering module: a session waiting on a handshake is waiting on
@@ -218740,6 +219176,19 @@ A session reads and writes through the same `Reader` and `Writer` contracts a
 plain connection does, so a parser written against byte I/O reads an encrypted
 connection without knowing it has one.
 
+DTLS sessions instead preserve message boundaries. `dtlsClient` names its peer
+when it is opened; `dtlsServer` learns the first peer to send a ClientHello,
+answers mbedTLS's stateless cookie challenge, and binds that session to the
+verified address. One datagram socket may hold several established sessions;
+records for their other peers stay queued.
+
+On Linux, a stream session opened with `kernelOffload = true` restricts the
+handshake to TLS 1.2 and requires the negotiated AES-GCM record keys to be
+installed as both `TLS_TX` and `TLS_RX`. The handshake fails when the kernel or
+negotiated cipher cannot support that handoff. This is explicit because a
+silent fallback would make a server believe `sendfile` was avoiding user-space
+encryption when it was not.
+
 The session does not own the connection. It borrows one, encrypts over it, and
 is closed first; the connection is closed by whoever owns it, which is what
 keeps one socket under exactly one cleanup obligation.
@@ -218785,7 +219234,12 @@ type tls.ClientOptions = {
     --- Application protocols to offer, in decreasing preference order, such as
     --- `{"h2", "http/1.1"}`. The server chooses from these, so the order is a
     --- preference and not a demand.
-    protocols: {string}?
+    protocols: {string}?,
+
+    --- Whether Linux must take over record encryption after the handshake.
+    --- This restricts negotiation to TLS 1.2; it is refused on other systems
+    --- and when the negotiated cipher is not AES-GCM.
+    kernelOffload: boolean?
 }
 
 --- How a server session is opened.
@@ -218809,7 +219263,10 @@ type tls.ServerOptions = {
     --- A server that names protocols and shares none with a client refuses the
     --- handshake rather than continuing without one, which is what makes naming
     --- them a commitment rather than a hint.
-    protocols: {string}?
+    protocols: {string}?,
+
+    --- Whether Linux must take over record encryption after the handshake.
+    kernelOffload: boolean?
 }
 
 --- The smallest set of operations a platform has to answer for this module.
@@ -218818,13 +219275,17 @@ record tls.Backend
     wrap: function(
         self: tls.Backend,
         handle: any,
+        datagram: boolean,
         server: boolean,
+        peerHost: string,
+        peerPort: integer,
         hostname: string,
         certificate: string,
         privateKey: string,
         authority: string,
         protocols: string,
-        verify: boolean
+        verify: boolean,
+        kernelOffload: boolean
     ): (any?, string?)
 
     --- Drives the handshake as far as it goes. Answers true when finished,
@@ -218851,10 +219312,19 @@ record tls.Backend
     destroy: function(self: tls.Backend, session: any): nil
 
     --- Whether the connection underneath is still open.
-    connected: function(self: tls.Backend, handle: any): boolean
+    connected: function(self: tls.Backend, session: any): boolean
 
     --- The application protocol both sides agreed on, or nil for none.
     protocol: function(self: tls.Backend, session: any): string?
+
+    --- Whether Linux owns both record directions for this session.
+    kernelOffloaded: function(self: tls.Backend, session: any): boolean
+
+    --- Whether this backend was built for Linux kernel TLS.
+    kernelSupported: function(self: tls.Backend): boolean
+
+    --- The peer a datagram session is bound to, once known.
+    peer: function(self: tls.Backend, session: any): (string?, integer?)
 end
 
 const READ_SIZE = 65536
@@ -218976,7 +219446,7 @@ record tls.Session is nupp.io.Reader, nupp.io.Writer
 
     --- Whether the connection underneath is still open.
     function isConnected(self): boolean
-        return self._backend:connected(self._handle)
+        return self._backend:connected(self._session)
     end
 
     --- Whether the handshake has finished.
@@ -219035,6 +219505,17 @@ record tls.Session is nupp.io.Reader, nupp.io.Writer
         const resumed = self._backend.resumed
 
         return resumed ~= nil and resumed(self._backend, self._session) or false
+    end
+
+    --- Whether Linux owns both transmit and receive record processing.
+    ---
+    --- False before the handshake and for ordinary user-space TLS sessions.
+    function isKernelOffloaded(self): boolean
+        if self._closed or not self._ready then
+            return false
+        end
+
+        return self._backend:kernelOffloaded(self._session)
     end
 
     --- Drives the handshake one pass, without suspending.
@@ -219306,6 +219787,217 @@ record tls.Session is nupp.io.Reader, nupp.io.Writer
     end
 end
 
+--- One encrypted datagram peer.
+---
+--- Unlike `Session`, this is deliberately not a `Reader` or `Writer`: each
+--- `send` is one application datagram and each `receive` returns one. Treating
+--- it as a byte stream would erase the boundary DTLS authenticates.
+--- @export
+record tls.DatagramSession is nupp.Closeable
+    private _backend: tls.Backend
+    private _session: any
+    private _closed: boolean
+    private _ready: boolean
+    private _ended: boolean
+
+    --- Whether the datagram socket underneath is still open.
+    function isConnected(self): boolean
+        return self._backend:connected(self._session)
+    end
+
+    --- Whether the handshake has finished.
+    function isReady(self): boolean
+        return self._ready
+    end
+
+    --- Whether this session has been released.
+    function isReleased(self): boolean
+        return self._closed
+    end
+
+    --- Whether the peer sent `close_notify`.
+    function isEnded(self): boolean
+        return self._ended
+    end
+
+    --- The peer address, once a server has received its first ClientHello.
+    function peer(self): net.Address?
+        const host, port = self._backend:peer(self._session)
+        if host == nil or port == nil then
+            return nil
+        end
+
+        return {host = host, port = port} as net.Address
+    end
+
+    --- The application protocol both peers agreed on, or nil for none.
+    function protocol(self): string?
+        if self._closed or not self._ready then
+            return nil
+        end
+
+        return self._backend:protocol(self._session)
+    end
+
+    --- Whether the peer certificate satisfied the requested verification.
+    function isVerified(self): boolean
+        if self._closed or not self._ready then
+            return false
+        end
+
+        return self._backend:verified(self._session)
+    end
+
+    --- Whether this client reused cached session key material.
+    function isResumed(self): boolean
+        if self._closed or not self._ready then
+            return false
+        end
+        const resumed = self._backend.resumed
+
+        return resumed ~= nil and resumed(self._backend, self._session) or false
+    end
+
+    --- Advances the cookie exchange or handshake without suspending.
+    function step(self): (boolean?, string?)
+        if self._closed then
+            return nil, "the session is closed"
+        end
+        if self._ready then
+            return true
+        end
+        const done, why = self._backend:handshake(self._session)
+        if done == nil then
+            return nil, why
+        end
+        if done then
+            self._ready = true
+        end
+
+        return self._ready
+    end
+
+    --- Drives the cookie exchange and handshake to completion.
+    function handshake(self): (boolean, string?)
+        if self._closed then
+            return false, "the session is closed"
+        end
+        if not self:isConnected() then
+            return false, "the datagram socket underneath was closed first"
+        end
+        if self._ready then
+            return true
+        end
+        local failure: string? = nil
+        await("nupp.io.tls DTLS handshake", function(): boolean
+            const done, why = self:step()
+            if done == nil then
+                failure = why or "the handshake failed"
+
+                return true
+            end
+
+            return done or false
+        end)
+        if failure ~= nil then
+            return false, failure
+        end
+
+        return true
+    end
+
+    --- Receives one authenticated application datagram.
+    --- @raises when maximum is not a positive integer
+    function receive(self, maximum: integer): (string?, string?)
+        if self._closed then
+            return nil, "the session is closed"
+        end
+        if not self:isConnected() then
+            return nil, "the datagram socket underneath was closed first"
+        end
+        if not self._ready then
+            return nil, "the handshake has not finished"
+        end
+        const wanted = positive(maximum, "tls.DatagramSession receive maximum", 2)
+        local message: string? = nil
+        local failure: string? = nil
+        await("nupp.io.tls DTLS receive", function(): boolean
+            const got, why = self._backend:read(self._session, wanted)
+            if why ~= nil then
+                failure = why
+
+                return true
+            end
+            if got == nil then
+                return false
+            end
+            message = got
+            if #got == 0 then
+                self._ended = true
+            end
+
+            return true
+        end)
+        if failure ~= nil then
+            return nil, failure
+        end
+
+        return message or ""
+    end
+
+    --- Sends one authenticated application datagram.
+    function send(exclusive self, bytes: string): (boolean, string?)
+        if self._closed then
+            return false, "the session is closed"
+        end
+        if #bytes == 0 then
+            return false, "DTLS does not send an empty application datagram"
+        end
+        if not self:isConnected() then
+            return false, "the datagram socket underneath was closed first"
+        end
+        if not self._ready then
+            return false, "the handshake has not finished"
+        end
+        local took: integer? = nil
+        local failure: string? = nil
+        await("nupp.io.tls DTLS send", function(): boolean
+            const moved, why = self._backend:write(self._session, bytes)
+            if why ~= nil then
+                failure = why
+
+                return true
+            end
+            if moved == nil then
+                return false
+            end
+            took = moved
+
+            return true
+        end)
+        if failure ~= nil then
+            return false, failure
+        end
+        if took ~= #bytes then
+            return false, "the DTLS provider did not take one whole datagram"
+        end
+
+        return true
+    end
+
+    --- Sends `close_notify` and releases the session, not its socket.
+    function close(takes self): nil
+        if self._closed then
+            return
+        end
+        if self._ready and self:isConnected() then
+            self._backend:closeNotify(self._session)
+        end
+        self._closed = true
+        self._backend:destroy(self._session)
+    end
+end
+
 --- Encrypts a connection as the client.
 --- @param stream the connection to encrypt over, which this borrows
 --- @param options what to expect of the peer
@@ -219322,12 +220014,16 @@ function tls.client(borrows stream: net.Stream, options: tls.ClientOptions): (af
     const session, why = chosen:wrap(
         net.streamHandle(stream),
         false,
+        false,
+        "",
+        0,
         options.hostname or "",
         "",
         "",
         options.authority or "",
         packProtocols(options.protocols, 2),
-        verify
+        verify,
+        options.kernelOffload == true
     )
     if session == nil then
         return nil, why
@@ -219353,13 +220049,17 @@ function tls.server(borrows stream: net.Stream, options: tls.ServerOptions): (af
     const chosen = platform()
     const session, why = chosen:wrap(
         net.streamHandle(stream),
+        false,
         true,
+        "",
+        0,
         "",
         options.certificate,
         options.privateKey,
         options.authority or "",
         packProtocols(options.protocols, 2),
-        options.verify == true
+        options.verify == true,
+        options.kernelOffload == true
     )
     if session == nil then
         return nil, why
@@ -219375,6 +220075,115 @@ function tls.server(borrows stream: net.Stream, options: tls.ServerOptions): (af
     )
 end
 
+--- Opens a DTLS client session over a bound datagram socket.
+--- @param socket the datagram socket to encrypt over, which this borrows
+--- @param peer where encrypted datagrams are sent
+--- @param options what to expect of the peer
+--- @return the session, which the caller owns and must close
+--- @return why it could not be made, when unsuccessful
+--- @raises when verification has no hostname, the peer port is invalid, or kernel
+---     offload is requested
+--- @export
+function tls.dtlsClient(
+    borrows socket: net.Datagram,
+    peer: net.Address,
+    options: tls.ClientOptions
+): (affine(tls.DatagramSession)?, string?)
+    const chosen = platform()
+    const verify = options.verify ~= false
+    if verify and (options.hostname == nil or options.hostname == "") then
+        error("nupp: tls.dtlsClient needs a hostname to verify the peer against", 2)
+    end
+    if peer.port < 1 or peer.port > 65535 or math.floor(peer.port) ~= peer.port then
+        error("nupp: tls.dtlsClient peer port must be 1 through 65535", 2)
+    end
+    if options.kernelOffload == true then
+        error("nupp: kernel TLS offload does not apply to DTLS", 2)
+    end
+    const session, why = chosen:wrap(
+        net.datagramHandle(socket),
+        true,
+        false,
+        peer.host,
+        peer.port,
+        options.hostname or "",
+        "",
+        "",
+        options.authority or "",
+        packProtocols(options.protocols, 2),
+        verify,
+        false
+    )
+    if session == nil then
+        return nil, why
+    end
+
+    return new tls.DatagramSession(
+        _backend = chosen,
+        _session = session,
+        _closed = false,
+        _ready = false,
+        _ended = false
+    )
+end
+
+--- Opens a DTLS server session which learns one peer from its ClientHello.
+---
+--- The first address is challenged with a stateless cookie before the
+--- expensive handshake continues. Once learned, records from other peers stay
+--- on the socket for their own sessions.
+--- @param socket the datagram socket to encrypt over, which this borrows
+--- @param options the certificate to present and what to ask of the client
+--- @return the session, which the caller owns and must close
+--- @return why it could not be made, when unsuccessful
+--- @raises when kernel offload is requested
+--- @export
+function tls.dtlsServer(
+    borrows socket: net.Datagram,
+    options: tls.ServerOptions
+): (affine(tls.DatagramSession)?, string?)
+    if options.kernelOffload == true then
+        error("nupp: kernel TLS offload does not apply to DTLS", 2)
+    end
+    const chosen = platform()
+    const session, why = chosen:wrap(
+        net.datagramHandle(socket),
+        true,
+        true,
+        "",
+        0,
+        "",
+        options.certificate,
+        options.privateKey,
+        options.authority or "",
+        packProtocols(options.protocols, 2),
+        options.verify == true,
+        false
+    )
+    if session == nil then
+        return nil, why
+    end
+
+    return new tls.DatagramSession(
+        _backend = chosen,
+        _session = session,
+        _closed = false,
+        _ready = false,
+        _ended = false
+    )
+end
+
+--- Whether this native host can request Linux kernel TLS offload.
+---
+--- True identifies the platform, not a guarantee that the running kernel has
+--- the TLS ULP enabled; a requested session reports that during its handshake.
+--- @export
+function tls.kernelOffloadSupported(): boolean
+    const chosen = backend
+
+    return chosen ~= nil and chosen:kernelSupported()
+end
+
 --- Installs the platform this module runs on.
 --- @param chosen what answers the operations above
 --- @export
@@ -219387,14 +220196,20 @@ const native = require("nupp.runtime.native")
 native.ffi.cdef[[
 typedef struct NuppTls NuppTls;
 typedef struct NuppNetStream NuppNetStream;
+typedef struct NuppNetDatagram NuppNetDatagram;
 
-NuppTls *nuppTlsWrap(NuppNetStream *, bool, const uint8_t *, size_t,
+NuppTls *nuppTlsWrap(void *, bool, bool, const uint8_t *, size_t, int32_t,
+    const uint8_t *, size_t,
     const uint8_t *, size_t, const uint8_t *, size_t, const uint8_t *, size_t,
-    const uint8_t *, size_t, bool);
+    const uint8_t *, size_t, bool, bool);
 const char *nuppTlsAlpn(NuppTls *);
 int32_t nuppTlsHandshake(NuppTls *);
 uint32_t nuppTlsVerifyResult(NuppTls *);
 bool nuppTlsResumed(NuppTls *);
+bool nuppTlsConnected(NuppTls *);
+bool nuppTlsKernelOffloaded(NuppTls *);
+bool nuppTlsKernelSupported(void);
+uint8_t nuppTlsPeer(NuppTls *, char *, size_t, int32_t *);
 intptr_t nuppTlsRead(NuppTls *, uint8_t *, size_t);
 intptr_t nuppTlsWrite(NuppTls *, const uint8_t *, size_t);
 uint8_t nuppTlsCloseNotify(NuppTls *);
@@ -219427,21 +220242,32 @@ local function readBuffer(): any
 end
 
 local function nativeBackend(): tls.Backend
+    const peerHostBuffer = native.ffi.new("char[64]")
+    const peerPortBuffer = native.ffi.new("int32_t[1]")
+
     return new tls.Backend(
         wrap = function(
             self: tls.Backend,
             handle: any,
+            datagram: boolean,
             server: boolean,
+            peerHost: string,
+            peerPort: integer,
             hostname: string,
             certificate: string,
             privateKey: string,
             authority: string,
             protocols: string,
-            verify: boolean
+            verify: boolean,
+            kernelOffload: boolean
         ): (any?, string?)
             const session = C.nuppTlsWrap(
                 handle,
+                datagram,
                 server,
+                peerHost,
+                #peerHost,
+                peerPort,
                 hostname,
                 #hostname,
                 certificate,
@@ -219452,7 +220278,8 @@ local function nativeBackend(): tls.Backend
                 #authority,
                 protocols,
                 #protocols,
-                verify
+                verify,
+                kernelOffload
             )
             if session == nil then
                 return nil, reason("nupp: could not start the session")
@@ -219515,8 +220342,8 @@ local function nativeBackend(): tls.Backend
             C.nuppTlsDestroy(session)
         end,
 
-        connected = function(self: tls.Backend, handle: any): boolean
-            return not (C.nuppNetStreamClosed(handle) as boolean)
+        connected = function(self: tls.Backend, session: any): boolean
+            return C.nuppTlsConnected(session) as boolean
         end,
 
         protocol = function(self: tls.Backend, session: any): string?
@@ -219526,6 +220353,22 @@ local function nativeBackend(): tls.Backend
             end
 
             return native.ffi.string(chosen) as string
+        end,
+
+        kernelOffloaded = function(self: tls.Backend, session: any): boolean
+            return C.nuppTlsKernelOffloaded(session) as boolean
+        end,
+
+        kernelSupported = function(self: tls.Backend): boolean
+            return C.nuppTlsKernelSupported() as boolean
+        end,
+
+        peer = function(self: tls.Backend, session: any): (string?, integer?)
+            if C.nuppTlsPeer(session, peerHostBuffer, 64, peerPortBuffer) == 0 then
+                return nil
+            end
+
+            return native.ffi.string(peerHostBuffer) as string, tonumber(peerPortBuffer[0]) as integer
         end
     )
 end
@@ -230863,8 +231706,13 @@ local runtimeBackend = require("nupp.runtime.backend")
 local seam = {moduleName = "nupp.runtime.seam.tls", suiteModuleName = "nupp.runtime.seam.tlssuite",}
 local CONTRACT = common.contract("host.tls", {
     globalName = "__nuppTls",
-    requiredFunctions = {"client", "server", "useBackend"},
-    requiredValues = {"Backend", "ClientOptions", "ServerOptions", "Session"},
+    requiredFunctions = {
+        "client", "dtlsClient", "dtlsServer", "kernelOffloadSupported",
+        "server", "useBackend",
+    },
+    requiredValues = {
+        "Backend", "ClientOptions", "DatagramSession", "ServerOptions", "Session",
+    },
     suiteModule = seam.suiteModuleName,
     modules = {["nupp.io.tls"] = "",},
 })

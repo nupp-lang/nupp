@@ -34,6 +34,19 @@ A session reads and writes through the same `Reader` and `Writer` contracts a
 plain connection does, so a parser written against byte I/O reads an encrypted
 connection without knowing it has one.
 
+DTLS sessions instead preserve message boundaries. `dtlsClient` names its peer
+when it is opened; `dtlsServer` learns the first peer to send a ClientHello,
+answers mbedTLS's stateless cookie challenge, and binds that session to the
+verified address. One datagram socket may hold several established sessions;
+records for their other peers stay queued.
+
+On Linux, a stream session opened with `kernelOffload = true` restricts the
+handshake to TLS 1.2 and requires the negotiated AES-GCM record keys to be
+installed as both `TLS_TX` and `TLS_RX`. The handshake fails when the kernel or
+negotiated cipher cannot support that handoff. This is explicit because a
+silent fallback would make a server believe `sendfile` was avoiding user-space
+encryption when it was not.
+
 The session does not own the connection. It borrows one, encrypts over it, and
 is closed first; the connection is closed by whoever owns it, which is what
 keeps one socket under exactly one cleanup obligation.
@@ -79,7 +92,12 @@ type tls.ClientOptions = {
     --- Application protocols to offer, in decreasing preference order, such as
     --- `{"h2", "http/1.1"}`. The server chooses from these, so the order is a
     --- preference and not a demand.
-    protocols: {string}?
+    protocols: {string}?,
+
+    --- Whether Linux must take over record encryption after the handshake.
+    --- This restricts negotiation to TLS 1.2; it is refused on other systems
+    --- and when the negotiated cipher is not AES-GCM.
+    kernelOffload: boolean?
 }
 
 --- How a server session is opened.
@@ -103,7 +121,10 @@ type tls.ServerOptions = {
     --- A server that names protocols and shares none with a client refuses the
     --- handshake rather than continuing without one, which is what makes naming
     --- them a commitment rather than a hint.
-    protocols: {string}?
+    protocols: {string}?,
+
+    --- Whether Linux must take over record encryption after the handshake.
+    kernelOffload: boolean?
 }
 
 --- The smallest set of operations a platform has to answer for this module.
@@ -112,13 +133,17 @@ record tls.Backend
     wrap: function(
         self: tls.Backend,
         handle: any,
+        datagram: boolean,
         server: boolean,
+        peerHost: string,
+        peerPort: integer,
         hostname: string,
         certificate: string,
         privateKey: string,
         authority: string,
         protocols: string,
-        verify: boolean
+        verify: boolean,
+        kernelOffload: boolean
     ): (any?, string?)
 
     --- Drives the handshake as far as it goes. Answers true when finished,
@@ -145,10 +170,19 @@ record tls.Backend
     destroy: function(self: tls.Backend, session: any): nil
 
     --- Whether the connection underneath is still open.
-    connected: function(self: tls.Backend, handle: any): boolean
+    connected: function(self: tls.Backend, session: any): boolean
 
     --- The application protocol both sides agreed on, or nil for none.
     protocol: function(self: tls.Backend, session: any): string?
+
+    --- Whether Linux owns both record directions for this session.
+    kernelOffloaded: function(self: tls.Backend, session: any): boolean
+
+    --- Whether this backend was built for Linux kernel TLS.
+    kernelSupported: function(self: tls.Backend): boolean
+
+    --- The peer a datagram session is bound to, once known.
+    peer: function(self: tls.Backend, session: any): (string?, integer?)
 end
 
 const READ_SIZE = 65536
@@ -270,7 +304,7 @@ record tls.Session is nupp.io.Reader, nupp.io.Writer
 
     --- Whether the connection underneath is still open.
     function isConnected(self): boolean
-        return self._backend:connected(self._handle)
+        return self._backend:connected(self._session)
     end
 
     --- Whether the handshake has finished.
@@ -329,6 +363,17 @@ record tls.Session is nupp.io.Reader, nupp.io.Writer
         const resumed = self._backend.resumed
 
         return resumed ~= nil and resumed(self._backend, self._session) or false
+    end
+
+    --- Whether Linux owns both transmit and receive record processing.
+    ---
+    --- False before the handshake and for ordinary user-space TLS sessions.
+    function isKernelOffloaded(self): boolean
+        if self._closed or not self._ready then
+            return false
+        end
+
+        return self._backend:kernelOffloaded(self._session)
     end
 
     --- Drives the handshake one pass, without suspending.
@@ -600,6 +645,217 @@ record tls.Session is nupp.io.Reader, nupp.io.Writer
     end
 end
 
+--- One encrypted datagram peer.
+---
+--- Unlike `Session`, this is deliberately not a `Reader` or `Writer`: each
+--- `send` is one application datagram and each `receive` returns one. Treating
+--- it as a byte stream would erase the boundary DTLS authenticates.
+--- @export
+record tls.DatagramSession is nupp.Closeable
+    private _backend: tls.Backend
+    private _session: any
+    private _closed: boolean
+    private _ready: boolean
+    private _ended: boolean
+
+    --- Whether the datagram socket underneath is still open.
+    function isConnected(self): boolean
+        return self._backend:connected(self._session)
+    end
+
+    --- Whether the handshake has finished.
+    function isReady(self): boolean
+        return self._ready
+    end
+
+    --- Whether this session has been released.
+    function isReleased(self): boolean
+        return self._closed
+    end
+
+    --- Whether the peer sent `close_notify`.
+    function isEnded(self): boolean
+        return self._ended
+    end
+
+    --- The peer address, once a server has received its first ClientHello.
+    function peer(self): net.Address?
+        const host, port = self._backend:peer(self._session)
+        if host == nil or port == nil then
+            return nil
+        end
+
+        return {host = host, port = port} as net.Address
+    end
+
+    --- The application protocol both peers agreed on, or nil for none.
+    function protocol(self): string?
+        if self._closed or not self._ready then
+            return nil
+        end
+
+        return self._backend:protocol(self._session)
+    end
+
+    --- Whether the peer certificate satisfied the requested verification.
+    function isVerified(self): boolean
+        if self._closed or not self._ready then
+            return false
+        end
+
+        return self._backend:verified(self._session)
+    end
+
+    --- Whether this client reused cached session key material.
+    function isResumed(self): boolean
+        if self._closed or not self._ready then
+            return false
+        end
+        const resumed = self._backend.resumed
+
+        return resumed ~= nil and resumed(self._backend, self._session) or false
+    end
+
+    --- Advances the cookie exchange or handshake without suspending.
+    function step(self): (boolean?, string?)
+        if self._closed then
+            return nil, "the session is closed"
+        end
+        if self._ready then
+            return true
+        end
+        const done, why = self._backend:handshake(self._session)
+        if done == nil then
+            return nil, why
+        end
+        if done then
+            self._ready = true
+        end
+
+        return self._ready
+    end
+
+    --- Drives the cookie exchange and handshake to completion.
+    function handshake(self): (boolean, string?)
+        if self._closed then
+            return false, "the session is closed"
+        end
+        if not self:isConnected() then
+            return false, "the datagram socket underneath was closed first"
+        end
+        if self._ready then
+            return true
+        end
+        local failure: string? = nil
+        await("nupp.io.tls DTLS handshake", function(): boolean
+            const done, why = self:step()
+            if done == nil then
+                failure = why or "the handshake failed"
+
+                return true
+            end
+
+            return done or false
+        end)
+        if failure ~= nil then
+            return false, failure
+        end
+
+        return true
+    end
+
+    --- Receives one authenticated application datagram.
+    --- @raises when maximum is not a positive integer
+    function receive(self, maximum: integer): (string?, string?)
+        if self._closed then
+            return nil, "the session is closed"
+        end
+        if not self:isConnected() then
+            return nil, "the datagram socket underneath was closed first"
+        end
+        if not self._ready then
+            return nil, "the handshake has not finished"
+        end
+        const wanted = positive(maximum, "tls.DatagramSession receive maximum", 2)
+        local message: string? = nil
+        local failure: string? = nil
+        await("nupp.io.tls DTLS receive", function(): boolean
+            const got, why = self._backend:read(self._session, wanted)
+            if why ~= nil then
+                failure = why
+
+                return true
+            end
+            if got == nil then
+                return false
+            end
+            message = got
+            if #got == 0 then
+                self._ended = true
+            end
+
+            return true
+        end)
+        if failure ~= nil then
+            return nil, failure
+        end
+
+        return message or ""
+    end
+
+    --- Sends one authenticated application datagram.
+    function send(exclusive self, bytes: string): (boolean, string?)
+        if self._closed then
+            return false, "the session is closed"
+        end
+        if #bytes == 0 then
+            return false, "DTLS does not send an empty application datagram"
+        end
+        if not self:isConnected() then
+            return false, "the datagram socket underneath was closed first"
+        end
+        if not self._ready then
+            return false, "the handshake has not finished"
+        end
+        local took: integer? = nil
+        local failure: string? = nil
+        await("nupp.io.tls DTLS send", function(): boolean
+            const moved, why = self._backend:write(self._session, bytes)
+            if why ~= nil then
+                failure = why
+
+                return true
+            end
+            if moved == nil then
+                return false
+            end
+            took = moved
+
+            return true
+        end)
+        if failure ~= nil then
+            return false, failure
+        end
+        if took ~= #bytes then
+            return false, "the DTLS provider did not take one whole datagram"
+        end
+
+        return true
+    end
+
+    --- Sends `close_notify` and releases the session, not its socket.
+    function close(takes self): nil
+        if self._closed then
+            return
+        end
+        if self._ready and self:isConnected() then
+            self._backend:closeNotify(self._session)
+        end
+        self._closed = true
+        self._backend:destroy(self._session)
+    end
+end
+
 --- Encrypts a connection as the client.
 --- @param stream the connection to encrypt over, which this borrows
 --- @param options what to expect of the peer
@@ -616,12 +872,16 @@ function tls.client(borrows stream: net.Stream, options: tls.ClientOptions): (af
     const session, why = chosen:wrap(
         net.streamHandle(stream),
         false,
+        false,
+        "",
+        0,
         options.hostname or "",
         "",
         "",
         options.authority or "",
         packProtocols(options.protocols, 2),
-        verify
+        verify,
+        options.kernelOffload == true
     )
     if session == nil then
         return nil, why
@@ -647,13 +907,17 @@ function tls.server(borrows stream: net.Stream, options: tls.ServerOptions): (af
     const chosen = platform()
     const session, why = chosen:wrap(
         net.streamHandle(stream),
+        false,
         true,
+        "",
+        0,
         "",
         options.certificate,
         options.privateKey,
         options.authority or "",
         packProtocols(options.protocols, 2),
-        options.verify == true
+        options.verify == true,
+        options.kernelOffload == true
     )
     if session == nil then
         return nil, why
@@ -669,6 +933,115 @@ function tls.server(borrows stream: net.Stream, options: tls.ServerOptions): (af
     )
 end
 
+--- Opens a DTLS client session over a bound datagram socket.
+--- @param socket the datagram socket to encrypt over, which this borrows
+--- @param peer where encrypted datagrams are sent
+--- @param options what to expect of the peer
+--- @return the session, which the caller owns and must close
+--- @return why it could not be made, when unsuccessful
+--- @raises when verification has no hostname, the peer port is invalid, or kernel
+---     offload is requested
+--- @export
+function tls.dtlsClient(
+    borrows socket: net.Datagram,
+    peer: net.Address,
+    options: tls.ClientOptions
+): (affine(tls.DatagramSession)?, string?)
+    const chosen = platform()
+    const verify = options.verify ~= false
+    if verify and (options.hostname == nil or options.hostname == "") then
+        error("nupp: tls.dtlsClient needs a hostname to verify the peer against", 2)
+    end
+    if peer.port < 1 or peer.port > 65535 or math.floor(peer.port) ~= peer.port then
+        error("nupp: tls.dtlsClient peer port must be 1 through 65535", 2)
+    end
+    if options.kernelOffload == true then
+        error("nupp: kernel TLS offload does not apply to DTLS", 2)
+    end
+    const session, why = chosen:wrap(
+        net.datagramHandle(socket),
+        true,
+        false,
+        peer.host,
+        peer.port,
+        options.hostname or "",
+        "",
+        "",
+        options.authority or "",
+        packProtocols(options.protocols, 2),
+        verify,
+        false
+    )
+    if session == nil then
+        return nil, why
+    end
+
+    return new tls.DatagramSession(
+        _backend = chosen,
+        _session = session,
+        _closed = false,
+        _ready = false,
+        _ended = false
+    )
+end
+
+--- Opens a DTLS server session which learns one peer from its ClientHello.
+---
+--- The first address is challenged with a stateless cookie before the
+--- expensive handshake continues. Once learned, records from other peers stay
+--- on the socket for their own sessions.
+--- @param socket the datagram socket to encrypt over, which this borrows
+--- @param options the certificate to present and what to ask of the client
+--- @return the session, which the caller owns and must close
+--- @return why it could not be made, when unsuccessful
+--- @raises when kernel offload is requested
+--- @export
+function tls.dtlsServer(
+    borrows socket: net.Datagram,
+    options: tls.ServerOptions
+): (affine(tls.DatagramSession)?, string?)
+    if options.kernelOffload == true then
+        error("nupp: kernel TLS offload does not apply to DTLS", 2)
+    end
+    const chosen = platform()
+    const session, why = chosen:wrap(
+        net.datagramHandle(socket),
+        true,
+        true,
+        "",
+        0,
+        "",
+        options.certificate,
+        options.privateKey,
+        options.authority or "",
+        packProtocols(options.protocols, 2),
+        options.verify == true,
+        false
+    )
+    if session == nil then
+        return nil, why
+    end
+
+    return new tls.DatagramSession(
+        _backend = chosen,
+        _session = session,
+        _closed = false,
+        _ready = false,
+        _ended = false
+    )
+end
+
+--- Whether this native host can request Linux kernel TLS offload.
+---
+--- True identifies the platform, not a guarantee that the running kernel has
+--- the TLS ULP enabled; a requested session reports that during its handshake.
+--- @export
+function tls.kernelOffloadSupported(): boolean
+    const chosen = backend
+
+    return chosen ~= nil and chosen:kernelSupported()
+end
+
 --- Installs the platform this module runs on.
 --- @param chosen what answers the operations above
 --- @export
@@ -681,14 +1054,20 @@ const native = require("nupp.runtime.native")
 native.ffi.cdef[[
 typedef struct NuppTls NuppTls;
 typedef struct NuppNetStream NuppNetStream;
+typedef struct NuppNetDatagram NuppNetDatagram;
 
-NuppTls *nuppTlsWrap(NuppNetStream *, bool, const uint8_t *, size_t,
+NuppTls *nuppTlsWrap(void *, bool, bool, const uint8_t *, size_t, int32_t,
+    const uint8_t *, size_t,
     const uint8_t *, size_t, const uint8_t *, size_t, const uint8_t *, size_t,
-    const uint8_t *, size_t, bool);
+    const uint8_t *, size_t, bool, bool);
 const char *nuppTlsAlpn(NuppTls *);
 int32_t nuppTlsHandshake(NuppTls *);
 uint32_t nuppTlsVerifyResult(NuppTls *);
 bool nuppTlsResumed(NuppTls *);
+bool nuppTlsConnected(NuppTls *);
+bool nuppTlsKernelOffloaded(NuppTls *);
+bool nuppTlsKernelSupported(void);
+uint8_t nuppTlsPeer(NuppTls *, char *, size_t, int32_t *);
 intptr_t nuppTlsRead(NuppTls *, uint8_t *, size_t);
 intptr_t nuppTlsWrite(NuppTls *, const uint8_t *, size_t);
 uint8_t nuppTlsCloseNotify(NuppTls *);
@@ -721,21 +1100,32 @@ local function readBuffer(): any
 end
 
 local function nativeBackend(): tls.Backend
+    const peerHostBuffer = native.ffi.new("char[64]")
+    const peerPortBuffer = native.ffi.new("int32_t[1]")
+
     return new tls.Backend(
         wrap = function(
             self: tls.Backend,
             handle: any,
+            datagram: boolean,
             server: boolean,
+            peerHost: string,
+            peerPort: integer,
             hostname: string,
             certificate: string,
             privateKey: string,
             authority: string,
             protocols: string,
-            verify: boolean
+            verify: boolean,
+            kernelOffload: boolean
         ): (any?, string?)
             const session = C.nuppTlsWrap(
                 handle,
+                datagram,
                 server,
+                peerHost,
+                #peerHost,
+                peerPort,
                 hostname,
                 #hostname,
                 certificate,
@@ -746,7 +1136,8 @@ local function nativeBackend(): tls.Backend
                 #authority,
                 protocols,
                 #protocols,
-                verify
+                verify,
+                kernelOffload
             )
             if session == nil then
                 return nil, reason("nupp: could not start the session")
@@ -809,8 +1200,8 @@ local function nativeBackend(): tls.Backend
             C.nuppTlsDestroy(session)
         end,
 
-        connected = function(self: tls.Backend, handle: any): boolean
-            return not (C.nuppNetStreamClosed(handle) as boolean)
+        connected = function(self: tls.Backend, session: any): boolean
+            return C.nuppTlsConnected(session) as boolean
         end,
 
         protocol = function(self: tls.Backend, session: any): string?
@@ -820,6 +1211,22 @@ local function nativeBackend(): tls.Backend
             end
 
             return native.ffi.string(chosen) as string
+        end,
+
+        kernelOffloaded = function(self: tls.Backend, session: any): boolean
+            return C.nuppTlsKernelOffloaded(session) as boolean
+        end,
+
+        kernelSupported = function(self: tls.Backend): boolean
+            return C.nuppTlsKernelSupported() as boolean
+        end,
+
+        peer = function(self: tls.Backend, session: any): (string?, integer?)
+            if C.nuppTlsPeer(session, peerHostBuffer, 64, peerPortBuffer) == 0 then
+                return nil
+            end
+
+            return native.ffi.string(peerHostBuffer) as string, tonumber(peerPortBuffer[0]) as integer
         end
     )
 end

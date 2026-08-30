@@ -26,11 +26,22 @@
 #include <mbedtls/sha256.h>
 #include <mbedtls/ssl_cache.h>
 #include <mbedtls/ssl_ticket.h>
+#include <mbedtls/ssl_cookie.h>
+#include <mbedtls/ssl_ciphersuites.h>
 
 #include <uv.h>
 
 #include <stdlib.h>
 #include <string.h>
+#include <errno.h>
+
+#if defined(__linux__)
+#include <linux/tls.h>
+#include <netinet/tcp.h>
+#include <sys/socket.h>
+#include <sys/uio.h>
+#include <unistd.h>
+#endif
 
 /* What a nonblocking answer is, for a caller that has to tell "not yet" from
  * "never". These have to be distinct: one means come back, the other means stop,
@@ -75,6 +86,8 @@ typedef struct {
     mbedtls_ctr_drbg_context drbg;
     mbedtls_ssl_cache_context sessions;
     mbedtls_ssl_ticket_context tickets;
+    mbedtls_ssl_cookie_ctx cookies;
+    bool cookiesReady;
 } TlsServerStoreEntry;
 
 static TlsClientCacheEntry clientCache[TLS_CLIENT_CACHE_MAX];
@@ -134,17 +147,16 @@ static void tls_digest_config(
     size_t thirdLength,
     const uint8_t *fourth,
     size_t fourthLength,
-    bool verify
+    uint8_t configuration
 ) {
     mbedtls_sha256_context digest;
-    unsigned char checked = verify ? 1 : 0;
     mbedtls_sha256_init(&digest);
     mbedtls_sha256_starts(&digest, 0);
     tls_digest_part(&digest, first, firstLength);
     tls_digest_part(&digest, second, secondLength);
     tls_digest_part(&digest, third, thirdLength);
     tls_digest_part(&digest, fourth, fourthLength);
-    tls_digest_part(&digest, &checked, sizeof checked);
+    tls_digest_part(&digest, &configuration, sizeof configuration);
     mbedtls_sha256_finish(&digest, out);
     mbedtls_sha256_free(&digest);
 }
@@ -208,7 +220,55 @@ static int tls_session_set(
     return state;
 }
 
+static int tls_cookie_write(
+    void *context,
+    unsigned char **start,
+    unsigned char *end,
+    const unsigned char *identity,
+    size_t identityLength
+) {
+    TlsServerStoreEntry *store = context;
+    int state;
+    uv_mutex_lock(&store->guard);
+    state = mbedtls_ssl_cookie_write(
+        &store->cookies, start, end, identity, identityLength);
+    uv_mutex_unlock(&store->guard);
+    return state;
+}
+
+static int tls_cookie_check(
+    void *context,
+    const unsigned char *cookie,
+    size_t cookieLength,
+    const unsigned char *identity,
+    size_t identityLength
+) {
+    TlsServerStoreEntry *store = context;
+    int state;
+    uv_mutex_lock(&store->guard);
+    state = mbedtls_ssl_cookie_check(
+        &store->cookies, cookie, cookieLength, identity, identityLength);
+    uv_mutex_unlock(&store->guard);
+    return state;
+}
+
+static bool tls_server_store_cookies(TlsServerStoreEntry *store) {
+    int failed = 0;
+    uv_mutex_lock(&store->guard);
+    if (!store->cookiesReady) {
+        failed = mbedtls_ssl_cookie_setup(
+            &store->cookies, mbedtls_ctr_drbg_random, &store->drbg);
+        store->cookiesReady = failed == 0;
+    }
+    uv_mutex_unlock(&store->guard);
+    if (failed != 0) {
+        tls_fail(failed, "the DTLS cookie secret could not be seeded");
+    }
+    return failed == 0;
+}
+
 static void tls_server_store_free(TlsServerStoreEntry *store) {
+    mbedtls_ssl_cookie_free(&store->cookies);
     mbedtls_ssl_ticket_free(&store->tickets);
     mbedtls_ssl_cache_free(&store->sessions);
     mbedtls_ctr_drbg_free(&store->drbg);
@@ -231,6 +291,7 @@ static bool tls_server_store_init(
     mbedtls_ctr_drbg_init(&store->drbg);
     mbedtls_ssl_cache_init(&store->sessions);
     mbedtls_ssl_ticket_init(&store->tickets);
+    mbedtls_ssl_cookie_init(&store->cookies);
     failed = mbedtls_ctr_drbg_seed(
         &store->drbg, mbedtls_entropy_func, &store->entropy,
         key, 32);
@@ -346,6 +407,28 @@ struct NuppTls {
     bool cacheCertificateReady;
 
     NuppNetStream *stream;
+    NuppNetDatagram *datagramSocket;
+
+    char peerHost[64];
+    int32_t peerPort;
+    bool peerReady;
+
+    uint64_t timerStarted;
+    uint32_t timerIntermediate;
+    uint32_t timerFinal;
+
+    unsigned char masterSecret[48];
+    unsigned char clientRandom[32];
+    unsigned char serverRandom[32];
+    mbedtls_tls_prf_types tlsPrf;
+    bool keyMaterialReady;
+
+#if defined(__linux__)
+    uv_poll_t kernelPoll;
+    int kernelFd;
+    bool kernelPollReady;
+    bool kernelPollClosing;
+#endif
 
     /* The protocol list, owned here because mbedTLS records the pointer rather
      * than the contents: its documentation requires the table to outlive the
@@ -355,6 +438,10 @@ struct NuppTls {
     const char **alpn;
 
     bool server;
+    bool datagram;
+    bool kernelRequested;
+    bool kernelOffloaded;
+    bool handshakeComplete;
     bool handshaken;
     bool failed;
     bool closed;
@@ -390,13 +477,19 @@ static void tls_client_cache_key(
     size_t protocolsLength,
     bool verify
 ) {
-    char peer[64];
+    char peer[64] = {0};
     int32_t port = 0;
     unsigned char portBytes[4];
     const uint8_t *host = hostname;
     size_t hostLength = hostnameLength;
-    if (nuppNetStreamPeer(session->stream, peer, sizeof peer, &port) &&
-        hostLength == 0) {
+    if (session->datagram && session->peerReady) {
+        memcpy(peer, session->peerHost, sizeof peer);
+        peer[sizeof peer - 1] = '\0';
+        port = session->peerPort;
+    } else if (session->stream != NULL) {
+        nuppNetStreamPeer(session->stream, peer, sizeof peer, &port);
+    }
+    if (peer[0] != '\0' && hostLength == 0) {
         host = (const uint8_t *)peer;
         hostLength = strlen(peer);
     }
@@ -410,7 +503,9 @@ static void tls_client_cache_key(
         portBytes, sizeof portBytes,
         protocols, protocolsLength,
         authority, authorityLength,
-        verify);
+        (uint8_t)((verify ? 1 : 0) |
+            (session->datagram ? 2 : 0) |
+            (session->kernelRequested ? 4 : 0)));
     session->cacheKeyReady = true;
 }
 
@@ -558,10 +653,98 @@ static void tls_fail(int code, const char *what) {
 
 /* --- the transport ------------------------------------------------------ */
 
+static int tls_set_peer_identity(NuppTls *session) {
+    unsigned char identity[70];
+    size_t hostLength;
+    if (!session->peerReady) {
+        return MBEDTLS_ERR_SSL_BAD_INPUT_DATA;
+    }
+    hostLength = strlen(session->peerHost);
+    if (hostLength + 5 > sizeof identity) {
+        return MBEDTLS_ERR_SSL_BAD_INPUT_DATA;
+    }
+    memcpy(identity, session->peerHost, hostLength);
+    identity[hostLength] = '\0';
+    identity[hostLength + 1] = (unsigned char)((uint32_t)session->peerPort >> 24);
+    identity[hostLength + 2] = (unsigned char)((uint32_t)session->peerPort >> 16);
+    identity[hostLength + 3] = (unsigned char)((uint32_t)session->peerPort >> 8);
+    identity[hostLength + 4] = (unsigned char)session->peerPort;
+    return mbedtls_ssl_set_client_transport_id(
+        &session->ssl, identity, hostLength + 5);
+}
+
+static void tls_set_timer(
+    void *context,
+    uint32_t intermediate,
+    uint32_t final
+) {
+    NuppTls *session = context;
+    session->timerIntermediate = intermediate;
+    session->timerFinal = final;
+    session->timerStarted = final == 0 ? 0 : uv_hrtime() / 1000000u;
+}
+
+static int tls_get_timer(void *context) {
+    NuppTls *session = context;
+    uint64_t elapsed;
+    if (session->timerStarted == 0 || session->timerFinal == 0) {
+        return 0;
+    }
+    elapsed = uv_hrtime() / 1000000u - session->timerStarted;
+    if (elapsed >= session->timerFinal) {
+        return 2;
+    }
+    if (session->timerIntermediate > 0 &&
+        elapsed >= session->timerIntermediate) {
+        return 1;
+    }
+    return 0;
+}
+
+static void tls_export_keys(
+    void *context,
+    mbedtls_ssl_key_export_type type,
+    const unsigned char *secret,
+    size_t secretLength,
+    const unsigned char clientRandom[32],
+    const unsigned char serverRandom[32],
+    mbedtls_tls_prf_types tlsPrf
+) {
+    NuppTls *session = context;
+    if (type != MBEDTLS_SSL_KEY_EXPORT_TLS12_MASTER_SECRET ||
+        secretLength != sizeof session->masterSecret) {
+        return;
+    }
+    memcpy(session->masterSecret, secret, sizeof session->masterSecret);
+    memcpy(session->clientRandom, clientRandom, sizeof session->clientRandom);
+    memcpy(session->serverRandom, serverRandom, sizeof session->serverRandom);
+    session->tlsPrf = tlsPrf;
+    session->keyMaterialReady = true;
+}
+
 /* The two halves of the reason this is C. Each hands bytes straight to the
  * socket beside it and reports "not yet" in mbedTLS's spelling. */
 static int tls_send(void *context, const unsigned char *bytes, size_t length) {
     NuppTls *session = context;
+    if (session->datagram) {
+        intptr_t sent;
+        if (!session->peerReady) {
+            return MBEDTLS_ERR_SSL_WANT_WRITE;
+        }
+        sent = nuppNetDatagramTrySend(
+            session->datagramSocket,
+            session->peerHost,
+            session->peerPort,
+            bytes,
+            length);
+        if (sent < 0) {
+            return NUPP_TLS_SEND_FAILED;
+        }
+        if (sent == 0 && length > 0) {
+            return MBEDTLS_ERR_SSL_WANT_WRITE;
+        }
+        return (int)sent;
+    }
     intptr_t took = nuppNetTryWrite(session->stream, bytes, length);
     if (took < 0) {
         return NUPP_TLS_SEND_FAILED;
@@ -574,6 +757,44 @@ static int tls_send(void *context, const unsigned char *bytes, size_t length) {
 
 static int tls_recv(void *context, unsigned char *into, size_t length) {
     NuppTls *session = context;
+    if (session->datagram) {
+        int32_t status = -1;
+        uint8_t truncated = 0;
+        char host[64];
+        int32_t port = 0;
+        intptr_t got = nuppNetDatagramReceivePeer(
+            session->datagramSocket,
+            session->peerHost,
+            session->peerPort,
+            !session->peerReady,
+            into,
+            length,
+            &status,
+            &truncated,
+            host,
+            sizeof host,
+            &port);
+        if (truncated) {
+            nupp_fail("tls: the DTLS record exceeded the receive buffer");
+            return NUPP_TLS_RECV_FAILED;
+        }
+        if (status < 0 || got < 0) {
+            return NUPP_TLS_RECV_FAILED;
+        }
+        if (status == 0) {
+            return MBEDTLS_ERR_SSL_WANT_READ;
+        }
+        if (!session->peerReady) {
+            memcpy(session->peerHost, host, sizeof session->peerHost);
+            session->peerHost[sizeof session->peerHost - 1] = '\0';
+            session->peerPort = port;
+            session->peerReady = true;
+            if (session->server && tls_set_peer_identity(session) != 0) {
+                return NUPP_TLS_RECV_FAILED;
+            }
+        }
+        return (int)got;
+    }
     intptr_t got = nuppNetTryRead(session->stream, into, length);
     if (got < 0) {
         return NUPP_TLS_RECV_FAILED;
@@ -635,6 +856,282 @@ static bool tls_alpn_adopt(NuppTls *session, const uint8_t *bytes, size_t length
     return true;
 }
 
+#if defined(__linux__)
+static void tls_kernel_ready(uv_poll_t *handle, int status, int events) {
+    (void)status;
+    (void)events;
+    uv_poll_stop(handle);
+}
+
+static void tls_kernel_wait(NuppTls *session, int events) {
+    if (session->kernelPollReady && !session->kernelPollClosing) {
+        uv_poll_start(&session->kernelPoll, events, tls_kernel_ready);
+    }
+}
+
+static bool tls_kernel_crypto(
+    NuppTls *session,
+    int option,
+    const unsigned char *key,
+    const unsigned char *salt,
+    const unsigned char sequence[8],
+    size_t keyLength
+) {
+    if (keyLength == TLS_CIPHER_AES_GCM_128_KEY_SIZE) {
+        struct tls12_crypto_info_aes_gcm_128 crypto;
+        memset(&crypto, 0, sizeof crypto);
+        crypto.info.version = TLS_1_2_VERSION;
+        crypto.info.cipher_type = TLS_CIPHER_AES_GCM_128;
+        memcpy(crypto.iv, sequence, sizeof crypto.iv);
+        memcpy(crypto.key, key, sizeof crypto.key);
+        memcpy(crypto.salt, salt, sizeof crypto.salt);
+        memcpy(crypto.rec_seq, sequence, sizeof crypto.rec_seq);
+        return setsockopt(
+            session->kernelFd, SOL_TLS, option, &crypto, sizeof crypto) == 0;
+    }
+    if (keyLength == TLS_CIPHER_AES_GCM_256_KEY_SIZE) {
+        struct tls12_crypto_info_aes_gcm_256 crypto;
+        memset(&crypto, 0, sizeof crypto);
+        crypto.info.version = TLS_1_2_VERSION;
+        crypto.info.cipher_type = TLS_CIPHER_AES_GCM_256;
+        memcpy(crypto.iv, sequence, sizeof crypto.iv);
+        memcpy(crypto.key, key, sizeof crypto.key);
+        memcpy(crypto.salt, salt, sizeof crypto.salt);
+        memcpy(crypto.rec_seq, sequence, sizeof crypto.rec_seq);
+        return setsockopt(
+            session->kernelFd, SOL_TLS, option, &crypto, sizeof crypto) == 0;
+    }
+    return false;
+}
+
+static bool tls_kernel_enable(NuppTls *session) {
+    const mbedtls_ssl_ciphersuite_t *suite;
+    const char *name;
+    unsigned char seed[64];
+    unsigned char keyBlock[72];
+    const unsigned char *clientKey;
+    const unsigned char *serverKey;
+    const unsigned char *clientSalt;
+    const unsigned char *serverSalt;
+    const unsigned char *writeKey;
+    const unsigned char *readKey;
+    const unsigned char *writeSalt;
+    const unsigned char *readSalt;
+    size_t keyLength;
+    intptr_t descriptor;
+    int failed;
+
+    if (!session->keyMaterialReady ||
+        mbedtls_ssl_get_version_number(&session->ssl) !=
+            MBEDTLS_SSL_VERSION_TLS1_2) {
+        nupp_fail("tls: kernel offload needs a TLS 1.2 master secret");
+        return false;
+    }
+    suite = mbedtls_ssl_ciphersuite_from_id(
+        mbedtls_ssl_get_ciphersuite_id_from_ssl(&session->ssl));
+    name = suite == NULL ? NULL : mbedtls_ssl_ciphersuite_get_name(suite);
+    keyLength = suite == NULL ? 0 :
+        mbedtls_ssl_ciphersuite_get_cipher_key_bitlen(suite) / 8;
+    if (name == NULL || strstr(name, "AES-") == NULL ||
+        strstr(name, "-GCM-") == NULL ||
+        (keyLength != TLS_CIPHER_AES_GCM_128_KEY_SIZE &&
+         keyLength != TLS_CIPHER_AES_GCM_256_KEY_SIZE)) {
+        nupp_fail("tls: the negotiated cipher cannot be handed to Linux kTLS");
+        return false;
+    }
+
+    memcpy(seed, session->serverRandom, sizeof session->serverRandom);
+    memcpy(seed + sizeof session->serverRandom,
+        session->clientRandom, sizeof session->clientRandom);
+    failed = mbedtls_ssl_tls_prf(
+        session->tlsPrf,
+        session->masterSecret,
+        sizeof session->masterSecret,
+        "key expansion",
+        seed,
+        sizeof seed,
+        keyBlock,
+        keyLength * 2 + 8);
+    if (failed != 0) {
+        tls_fail(failed, "the kernel record keys could not be derived");
+        return false;
+    }
+    clientKey = keyBlock;
+    serverKey = keyBlock + keyLength;
+    clientSalt = keyBlock + keyLength * 2;
+    serverSalt = clientSalt + 4;
+    writeKey = session->server ? serverKey : clientKey;
+    readKey = session->server ? clientKey : serverKey;
+    writeSalt = session->server ? serverSalt : clientSalt;
+    readSalt = session->server ? clientSalt : serverSalt;
+
+    descriptor = nuppNetStreamTlsSocket(session->stream);
+    if (descriptor < 0) {
+        mbedtls_platform_zeroize(keyBlock, sizeof keyBlock);
+        return false;
+    }
+    session->kernelFd = (int)descriptor;
+    if (setsockopt(
+            session->kernelFd, SOL_TCP, TCP_ULP, "tls", sizeof "tls") != 0) {
+        nupp_fail_format("tls: Linux kTLS could not attach: %s", strerror(errno));
+        mbedtls_platform_zeroize(keyBlock, sizeof keyBlock);
+        return false;
+    }
+    if (!tls_kernel_crypto(
+            session,
+            TLS_RX,
+            readKey,
+            readSalt,
+            session->ssl.MBEDTLS_PRIVATE(in_ctr),
+            keyLength)) {
+        nupp_fail_format("tls: Linux kTLS could not take receive records: %s",
+            strerror(errno));
+        mbedtls_platform_zeroize(keyBlock, sizeof keyBlock);
+        return false;
+    }
+    if (!tls_kernel_crypto(
+            session,
+            TLS_TX,
+            writeKey,
+            writeSalt,
+            session->ssl.MBEDTLS_PRIVATE(cur_out_ctr),
+            keyLength)) {
+        nupp_fail_format("tls: Linux kTLS could not take transmit records: %s",
+            strerror(errno));
+        mbedtls_platform_zeroize(keyBlock, sizeof keyBlock);
+        return false;
+    }
+    mbedtls_platform_zeroize(keyBlock, sizeof keyBlock);
+    if (uv_poll_init_socket(
+            (uv_loop_t *)nuppNetStreamLoop(session->stream),
+            &session->kernelPoll,
+            session->kernelFd) != 0) {
+        nupp_fail("tls: the kernel TLS socket could not join the reactor");
+        return false;
+    }
+    session->kernelPoll.data = session;
+    session->kernelPollReady = true;
+    session->kernelOffloaded = true;
+    return true;
+}
+
+static int tls_kernel_send(
+    NuppTls *session,
+    const unsigned char *bytes,
+    size_t length
+) {
+    ssize_t took = send(
+        session->kernelFd, bytes, length, MSG_DONTWAIT | MSG_NOSIGNAL);
+    if (took >= 0) {
+        return (int)took;
+    }
+    if (errno == EAGAIN || errno == EWOULDBLOCK) {
+        tls_kernel_wait(session, UV_WRITABLE);
+        return MBEDTLS_ERR_SSL_WANT_WRITE;
+    }
+    nupp_fail_format("tls: kernel record write failed: %s", strerror(errno));
+    return NUPP_TLS_SEND_FAILED;
+}
+
+static int tls_kernel_recv(
+    NuppTls *session,
+    unsigned char *into,
+    size_t length
+) {
+    struct msghdr message;
+    struct iovec input;
+    unsigned char controls[CMSG_SPACE(sizeof(unsigned char))];
+    struct cmsghdr *control;
+    ssize_t got;
+    unsigned char recordType = 23;
+    memset(&message, 0, sizeof message);
+    memset(controls, 0, sizeof controls);
+    input.iov_base = into;
+    input.iov_len = length;
+    message.msg_iov = &input;
+    message.msg_iovlen = 1;
+    message.msg_control = controls;
+    message.msg_controllen = sizeof controls;
+    got = recvmsg(session->kernelFd, &message, MSG_DONTWAIT);
+    if (got < 0) {
+        if (errno == EAGAIN || errno == EWOULDBLOCK) {
+            tls_kernel_wait(session, UV_READABLE);
+            return MBEDTLS_ERR_SSL_WANT_READ;
+        }
+        nupp_fail_format("tls: kernel record read failed: %s", strerror(errno));
+        return NUPP_TLS_RECV_FAILED;
+    }
+    control = CMSG_FIRSTHDR(&message);
+    if (control != NULL && control->cmsg_level == SOL_TLS &&
+        control->cmsg_type == TLS_GET_RECORD_TYPE &&
+        control->cmsg_len >= CMSG_LEN(sizeof recordType)) {
+        memcpy(&recordType, CMSG_DATA(control), sizeof recordType);
+    }
+    if (recordType == 23) {
+        return (int)got;
+    }
+    if (recordType == 21 && got >= 2 && into[1] == 0) {
+        return MBEDTLS_ERR_SSL_PEER_CLOSE_NOTIFY;
+    }
+    nupp_fail_format("tls: unexpected kernel TLS record type %u",
+        (unsigned)recordType);
+    return NUPP_TLS_RECV_FAILED;
+}
+
+static bool tls_kernel_close_notify(NuppTls *session) {
+    unsigned char alert[2] = {1, 0};
+    unsigned char recordType = 21;
+    unsigned char controls[CMSG_SPACE(sizeof recordType)];
+    struct msghdr message;
+    struct cmsghdr *control;
+    struct iovec output;
+    memset(&message, 0, sizeof message);
+    memset(controls, 0, sizeof controls);
+    output.iov_base = alert;
+    output.iov_len = sizeof alert;
+    message.msg_iov = &output;
+    message.msg_iovlen = 1;
+    message.msg_control = controls;
+    message.msg_controllen = sizeof controls;
+    control = CMSG_FIRSTHDR(&message);
+    control->cmsg_level = SOL_TLS;
+    control->cmsg_type = TLS_SET_RECORD_TYPE;
+    control->cmsg_len = CMSG_LEN(sizeof recordType);
+    memcpy(CMSG_DATA(control), &recordType, sizeof recordType);
+    message.msg_controllen = control->cmsg_len;
+    return sendmsg(session->kernelFd, &message, MSG_DONTWAIT | MSG_NOSIGNAL) ==
+        (ssize_t)sizeof alert;
+}
+#endif
+
+static void tls_reap(NuppTls *session) {
+#if defined(__linux__)
+    if (session->kernelFd >= 0) {
+        close(session->kernelFd);
+        session->kernelFd = -1;
+    }
+#endif
+    if (session->stream != NULL) {
+        nuppNetStreamRelease(session->stream);
+    }
+    if (session->datagramSocket != NULL) {
+        nuppNetDatagramRelease(session->datagramSocket);
+    }
+    mbedtls_platform_zeroize(
+        session->masterSecret, sizeof session->masterSecret);
+    free(session->alpn);
+    free(session->alpnBytes);
+    free(session);
+}
+
+#if defined(__linux__)
+static void tls_kernel_poll_closed(uv_handle_t *handle) {
+    NuppTls *session = handle->data;
+    session->kernelPollReady = false;
+    tls_reap(session);
+}
+#endif
+
 static void tls_free(NuppTls *session) {
     mbedtls_ssl_free(&session->ssl);
     mbedtls_ssl_config_free(&session->config);
@@ -644,10 +1141,15 @@ static void tls_free(NuppTls *session) {
     mbedtls_x509_crt_free(&session->authority);
     mbedtls_pk_free(&session->key);
     tls_server_store_release(session->serverStore);
-    nuppNetStreamRelease(session->stream);
-    free(session->alpn);
-    free(session->alpnBytes);
-    free(session);
+#if defined(__linux__)
+    if (session->kernelPollReady && !session->kernelPollClosing) {
+        session->kernelPollClosing = true;
+        uv_poll_stop(&session->kernelPoll);
+        uv_close((uv_handle_t *)&session->kernelPoll, tls_kernel_poll_closed);
+        return;
+    }
+#endif
+    tls_reap(session);
 }
 
 /* Wraps a connection.
@@ -657,8 +1159,12 @@ static void tls_free(NuppTls *session) {
  * affine layer above is enforcing.
  */
 NUPP_EXPORT NuppTls *nuppTlsWrap(
-    NuppNetStream *stream,
+    void *transport,
+    bool datagram,
     bool server,
+    const uint8_t *peerHost,
+    size_t peerHostLength,
+    int32_t peerPort,
     const uint8_t *hostname,
     size_t hostnameLength,
     const uint8_t *certificate,
@@ -669,25 +1175,46 @@ NUPP_EXPORT NuppTls *nuppTlsWrap(
     size_t authorityLength,
     const uint8_t *protocols,
     size_t protocolsLength,
-    bool verify
+    bool verify,
+    bool kernelOffload
 ) {
     NuppTls *session;
     int failed;
 
-    if (stream == NULL) {
-        nupp_fail("tls: wrapping needs a connection");
+    if (transport == NULL) {
+        nupp_fail("tls: wrapping needs a socket");
         return NULL;
     }
+    if (datagram && kernelOffload) {
+        nupp_fail("tls: kernel TLS offload applies only to TCP streams");
+        return NULL;
+    }
+#if !defined(__linux__)
+    if (kernelOffload) {
+        nupp_fail("tls: kernel TLS offload is available only on Linux");
+        return NULL;
+    }
+#endif
     session = calloc(1, sizeof *session);
     if (session == NULL) {
         nupp_fail("tls: out of memory");
         return NULL;
     }
-    session->stream = stream;
-    /* Held, so that the socket struct outlives the owner releasing it. The
-     * connection stops working the moment its owner closes it -- that is the
-     * point -- but asking whether it did must not read freed memory. */
-    nuppNetStreamRetain(stream);
+    session->datagram = datagram;
+    session->kernelRequested = kernelOffload;
+#if defined(__linux__)
+    session->kernelFd = -1;
+#endif
+    if (datagram) {
+        session->datagramSocket = transport;
+        nuppNetDatagramRetain(session->datagramSocket);
+    } else {
+        session->stream = transport;
+        /* Held, so that the socket struct outlives the owner releasing it. The
+         * connection stops working the moment its owner closes it -- that is
+         * the point -- but asking whether it did must not read freed memory. */
+        nuppNetStreamRetain(session->stream);
+    }
     session->server = server;
     mbedtls_ssl_init(&session->ssl);
     mbedtls_ssl_config_init(&session->config);
@@ -697,6 +1224,24 @@ NUPP_EXPORT NuppTls *nuppTlsWrap(
     mbedtls_x509_crt_init(&session->authority);
     mbedtls_pk_init(&session->key);
 
+    if (peerHost != NULL && peerHostLength > 0) {
+        NuppText peer;
+        if (peerPort < 0 || peerPort > 65535 ||
+            !nupp_text(&peer, peerHost, peerHostLength, "DTLS peer")) {
+            tls_free(session);
+            return NULL;
+        }
+        if (peer.length >= sizeof session->peerHost) {
+            nupp_text_free(&peer);
+            nupp_fail("tls: the DTLS peer address is too long");
+            tls_free(session);
+            return NULL;
+        }
+        memcpy(session->peerHost, peer.value, peer.length + 1);
+        session->peerPort = peerPort;
+        session->peerReady = true;
+        nupp_text_free(&peer);
+    }
     failed = mbedtls_ctr_drbg_seed(&session->drbg, mbedtls_entropy_func,
         &session->entropy, (const unsigned char *)"nupp.io.tls", 11);
     if (failed != 0) {
@@ -707,13 +1252,21 @@ NUPP_EXPORT NuppTls *nuppTlsWrap(
 
     failed = mbedtls_ssl_config_defaults(&session->config,
         server ? MBEDTLS_SSL_IS_SERVER : MBEDTLS_SSL_IS_CLIENT,
-        MBEDTLS_SSL_TRANSPORT_STREAM, MBEDTLS_SSL_PRESET_DEFAULT);
+        datagram ? MBEDTLS_SSL_TRANSPORT_DATAGRAM :
+            MBEDTLS_SSL_TRANSPORT_STREAM,
+        MBEDTLS_SSL_PRESET_DEFAULT);
     if (failed != 0) {
         tls_fail(failed, "the session could not be configured");
         tls_free(session);
         return NULL;
     }
     mbedtls_ssl_conf_rng(&session->config, mbedtls_ctr_drbg_random, &session->drbg);
+    if (kernelOffload) {
+        mbedtls_ssl_conf_min_tls_version(
+            &session->config, MBEDTLS_SSL_VERSION_TLS1_2);
+        mbedtls_ssl_conf_max_tls_version(
+            &session->config, MBEDTLS_SSL_VERSION_TLS1_2);
+    }
 
     /* mbedTLS wants its PEM NUL-terminated and counts the NUL, which is a
      * pointer arithmetic mistake waiting to be made once per caller. */
@@ -761,7 +1314,9 @@ NUPP_EXPORT NuppTls *nuppTlsWrap(
             privateKey, privateKeyLength,
             authority, authorityLength,
             protocols, protocolsLength,
-            verify);
+            (uint8_t)((verify ? 1 : 0) |
+                (datagram ? 2 : 0) |
+                (kernelOffload ? 4 : 0)));
         session->serverStore = tls_server_store_acquire(storeKey);
         if (session->serverStore == NULL) {
             tls_free(session);
@@ -777,6 +1332,17 @@ NUPP_EXPORT NuppTls *nuppTlsWrap(
             tls_ticket_write,
             tls_ticket_parse,
             session->serverStore);
+        if (datagram) {
+            if (!tls_server_store_cookies(session->serverStore)) {
+                tls_free(session);
+                return NULL;
+            }
+            mbedtls_ssl_conf_dtls_cookies(
+                &session->config,
+                tls_cookie_write,
+                tls_cookie_check,
+                session->serverStore);
+        }
     } else {
         tls_client_cache_key(
             session,
@@ -833,6 +1399,19 @@ NUPP_EXPORT NuppTls *nuppTlsWrap(
     if (!server) {
         session->resumptionOffered = tls_client_cache_load(session);
     }
+    if (datagram) {
+        if (!server && !session->peerReady) {
+            nupp_fail("tls: a DTLS client needs a peer address");
+            tls_free(session);
+            return NULL;
+        }
+        mbedtls_ssl_set_timer_cb(
+            &session->ssl, session, tls_set_timer, tls_get_timer);
+    }
+    if (kernelOffload) {
+        mbedtls_ssl_set_export_keys_cb(
+            &session->ssl, tls_export_keys, session);
+    }
     mbedtls_ssl_set_bio(&session->ssl, session, tls_send, tls_recv, NULL);
     return session;
 }
@@ -850,10 +1429,49 @@ NUPP_EXPORT int32_t nuppTlsHandshake(NuppTls *session) {
         return 1;
     }
     if (session->failed) {
-        tls_fail(session->failure, "the handshake failed");
+        if (session->failure != 0) {
+            tls_fail(session->failure, "the handshake failed");
+        } else {
+            nupp_fail("tls: the handshake previously failed");
+        }
         return -1;
     }
+    if (session->handshakeComplete) {
+        if (session->kernelRequested && !session->kernelOffloaded) {
+            if (nuppNetPending(session->stream) != 0) {
+                return 0;
+            }
+#if defined(__linux__)
+            if (!tls_kernel_enable(session)) {
+                session->failed = true;
+                return -1;
+            }
+#else
+            session->failed = true;
+            nupp_fail("tls: kernel TLS offload is available only on Linux");
+            return -1;
+#endif
+        }
+        session->handshaken = true;
+        return 1;
+    }
     state = mbedtls_ssl_handshake(&session->ssl);
+#if defined(MBEDTLS_SSL_DTLS_HELLO_VERIFY)
+    if (state == MBEDTLS_ERR_SSL_HELLO_VERIFY_REQUIRED &&
+        session->datagram && session->server) {
+        state = mbedtls_ssl_session_reset(&session->ssl);
+        if (state == 0) {
+            state = tls_set_peer_identity(session);
+        }
+        if (state == 0) {
+            mbedtls_ssl_set_timer_cb(
+                &session->ssl, session, tls_set_timer, tls_get_timer);
+            mbedtls_ssl_set_bio(
+                &session->ssl, session, tls_send, tls_recv, NULL);
+            return 0;
+        }
+    }
+#endif
 #if defined(MBEDTLS_SSL_PROTO_TLS1_3)
     if (state == MBEDTLS_ERR_SSL_RECEIVED_NEW_SESSION_TICKET) {
         tls_client_cache_save(session);
@@ -861,7 +1479,7 @@ NUPP_EXPORT int32_t nuppTlsHandshake(NuppTls *session) {
     }
 #endif
     if (state == 0) {
-        session->handshaken = true;
+        session->handshakeComplete = true;
         session->resumed = session->resumptionOffered &&
             !session->sawPeerCertificate;
         /* A TLS 1.3 ticket is a post-handshake message. Before that arrives,
@@ -869,7 +1487,7 @@ NUPP_EXPORT int32_t nuppTlsHandshake(NuppTls *session) {
         if (strcmp(mbedtls_ssl_get_version(&session->ssl), "TLSv1.3") != 0) {
             tls_client_cache_save(session);
         }
-        return 1;
+        return nuppTlsHandshake(session);
     }
     if (state == MBEDTLS_ERR_SSL_WANT_READ || state == MBEDTLS_ERR_SSL_WANT_WRITE) {
         return 0;
@@ -923,7 +1541,14 @@ NUPP_EXPORT intptr_t nuppTlsRead(NuppTls *session, uint8_t *into, size_t wanted)
         return TLS_FAILED;
     }
     do {
+#if defined(__linux__)
+        if (session->kernelOffloaded) {
+            got = tls_kernel_recv(session, into, wanted);
+        } else
+#endif
+        {
         got = mbedtls_ssl_read(&session->ssl, into, wanted);
+        }
 #if defined(MBEDTLS_SSL_PROTO_TLS1_3)
         if (got == MBEDTLS_ERR_SSL_RECEIVED_NEW_SESSION_TICKET) {
             tls_client_cache_save(session);
@@ -975,7 +1600,14 @@ NUPP_EXPORT intptr_t nuppTlsWrite(NuppTls *session, const uint8_t *bytes, size_t
     if (length == 0) {
         return 0;
     }
-    took = mbedtls_ssl_write(&session->ssl, bytes, length);
+#if defined(__linux__)
+    if (session->kernelOffloaded) {
+        took = tls_kernel_send(session, bytes, length);
+    } else
+#endif
+    {
+        took = mbedtls_ssl_write(&session->ssl, bytes, length);
+    }
     if (took >= 0) {
         return (intptr_t)took;
     }
@@ -995,11 +1627,61 @@ NUPP_EXPORT uint8_t nuppTlsCloseNotify(NuppTls *session) {
     if (session == NULL || session->closed || !session->handshaken) {
         return 0;
     }
+#if defined(__linux__)
+    if (session->kernelOffloaded) {
+        return tls_kernel_close_notify(session) ? 1 : 0;
+    }
+#endif
     state = mbedtls_ssl_close_notify(&session->ssl);
     if (state == MBEDTLS_ERR_SSL_WANT_READ || state == MBEDTLS_ERR_SSL_WANT_WRITE) {
         return 0;
     }
     return state == 0 ? 1 : 0;
+}
+
+NUPP_EXPORT bool nuppTlsConnected(NuppTls *session) {
+    if (session == NULL || session->closed) {
+        return false;
+    }
+    if (session->datagram) {
+        return !nuppNetDatagramClosed(session->datagramSocket);
+    }
+    return !nuppNetStreamClosed(session->stream);
+}
+
+NUPP_EXPORT bool nuppTlsKernelOffloaded(NuppTls *session) {
+    return session != NULL && session->handshaken && session->kernelOffloaded;
+}
+
+NUPP_EXPORT bool nuppTlsKernelSupported(void) {
+#if defined(__linux__)
+    return true;
+#else
+    return false;
+#endif
+}
+
+NUPP_EXPORT uint8_t nuppTlsPeer(
+    NuppTls *session,
+    char *host,
+    size_t capacity,
+    int32_t *port
+) {
+    size_t length;
+    if (session == NULL || !session->datagram || !session->peerReady ||
+        host == NULL || capacity == 0) {
+        return 0;
+    }
+    length = strlen(session->peerHost);
+    if (length >= capacity) {
+        length = capacity - 1;
+    }
+    memcpy(host, session->peerHost, length);
+    host[length] = '\0';
+    if (port != NULL) {
+        *port = session->peerPort;
+    }
+    return 1;
 }
 
 /* Releases the session and nothing else. The connection underneath outlives it

@@ -2,6 +2,16 @@
 
 ## Unreleased
 
+- `nupp.io.tls` can require Linux kernel TLS after a stream handshake. The
+  explicit `kernelOffload` option installs TLS 1.2 AES-GCM keys for both
+  `TLS_TX` and `TLS_RX`, and fails rather than silently returning to user-space
+  records when the kernel or negotiated cipher cannot take them.
+
+- `nupp.io.tls` now carries DTLS over a datagram socket. Client sessions name
+  their peer; server sessions challenge the first peer with mbedTLS's cookie
+  exchange and then bind to that address, while records for other sessions stay
+  queued. Each send and receive preserves one authenticated message boundary.
+
 - TLS clients resume earlier sessions by ticket or session ID, and TLS servers
   rotate ticket keys while retaining a bounded session-ID store. Both sides'
   state is native and process-wide, so a reconnect may resume when it lands on

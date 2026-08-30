@@ -276,7 +276,9 @@ function M.closeNotifyReadsAsTheEnd()
    local listener, clientSock, serverSock = sockets()
    local server = assert(tls.server(serverSock, {certificate = CERT, privateKey = KEY}))
    local client = assert(tls.client(clientSock, {hostname = "localhost", authority = CERT}))
-   assertTrue((shake(client, server)), "the handshake completes")
+   local clientDone, clientWhy, serverDone, serverWhy = shake(client, server)
+   assertTrue(clientDone, "the client handshake completes: " .. tostring(clientWhy))
+   assertTrue(serverDone, "the server handshake completes: " .. tostring(serverWhy))
 
    client:close()
    for _ = 1, 200 do net.pump(2) end
@@ -415,7 +417,9 @@ function M.aTruncatedSessionIsAFailureAndNotAnEnd()
    local listener, clientSock, serverSock = sockets()
    local server = assert(tls.server(serverSock, {certificate = CERT, privateKey = KEY}))
    local client = assert(tls.client(clientSock, {hostname = "localhost", authority = CERT}))
-   assertTrue((shake(client, server)), "the handshake completes")
+   local clientDone, clientWhy, serverDone, serverWhy = shake(client, server)
+   assertTrue(clientDone, "the client handshake completes: " .. tostring(clientWhy))
+   assertTrue(serverDone, "the server handshake completes: " .. tostring(serverWhy))
 
    assertTrue(server:write("half a mess"), "the server sends something")
    for _ = 1, 100 do net.pump(2) end
@@ -452,6 +456,97 @@ function M.aFailedReadDoesNotRetryForever()
 
    client:close()
    server:close()
+   serverSock:close()
+   listener:close()
+end
+
+function M.dtlsPreservesMessagesAndVerifiesTheCookiePeer()
+   local serverSock = assert(net.bind({host = "127.0.0.1", port = 0}))
+   local clientSock = assert(net.bind({host = "127.0.0.1", port = 0}))
+   local server = assert(tls.dtlsServer(serverSock, {
+      certificate = CERT, privateKey = KEY,
+   }))
+   local client = assert(tls.dtlsClient(clientSock, {
+      host = "127.0.0.1", port = serverSock:port(),
+   }, {hostname = "localhost", authority = CERT}))
+
+   local clientDone, clientWhy, serverDone, serverWhy = shake(client, server)
+   assertTrue(clientDone, "the DTLS client finishes: " .. tostring(clientWhy))
+   assertTrue(serverDone, "the DTLS server finishes: " .. tostring(serverWhy))
+   assertTrue(client:isVerified(), "the DTLS client verifies the certificate")
+   assertEq(server:peer().host, "127.0.0.1", "the cookie-bound peer host")
+   assertEq(server:peer().port, clientSock:port(), "the cookie-bound peer port")
+
+   local emptySent, emptyWhy = client:send("")
+   assertEq(emptySent, false, "an empty call cannot masquerade as a datagram")
+   assertTrue(emptyWhy ~= nil, "the empty send explains its limit")
+
+   local otherSock = assert(net.bind({host = "127.0.0.1", port = 0}))
+   local otherServer = assert(tls.dtlsServer(serverSock, {
+      certificate = CERT, privateKey = KEY,
+   }))
+   local otherClient = assert(tls.dtlsClient(otherSock, {
+      host = "127.0.0.1", port = serverSock:port(),
+   }, {hostname = "localhost", authority = CERT}))
+   local otherClientDone, otherClientWhy, otherServerDone, otherServerWhy =
+      shake(otherClient, otherServer)
+   assertTrue(otherClientDone,
+      "the second DTLS client finishes: " .. tostring(otherClientWhy))
+   assertTrue(otherServerDone,
+      "the second DTLS server finishes: " .. tostring(otherServerWhy))
+
+   assertTrue(otherClient:send("other"), "the other peer queues its message first")
+   assertTrue(client:send("first"), "the client sends one message")
+   assertEq(assert(server:receive(64)), "first",
+      "a session leaves another peer's earlier record queued")
+   assertEq(assert(otherServer:receive(64)), "other",
+      "the other session receives its own queued record")
+   assertTrue(client:send("second"), "the client sends another message")
+   assertEq(assert(server:receive(64)), "second", "the second boundary is kept")
+   assertTrue(server:send("reply"), "the server sends a message")
+   assertEq(assert(client:receive(64)), "reply", "the client decrypts the reply")
+
+   otherClient:close()
+   otherServer:close()
+   otherSock:close()
+   client:close()
+   server:close()
+   clientSock:close()
+   serverSock:close()
+end
+
+function M.kernelOffloadIsRequiredWhenItIsRequested()
+   if not tls.kernelOffloadSupported() then
+      local listener, clientSock, serverSock = sockets()
+      local session, why = tls.client(clientSock, {
+         verify = false, kernelOffload = true,
+      })
+      assertEq(session, nil, "a non-Linux host does not silently use user-space TLS")
+      assertTrue(why ~= nil, "and explains that kTLS is unavailable")
+      serverSock:close()
+      clientSock:close()
+      listener:close()
+      return
+   end
+
+   local listener, clientSock, serverSock = sockets()
+   local server = assert(tls.server(serverSock, {
+      certificate = CERT, privateKey = KEY, kernelOffload = true,
+   }))
+   local client = assert(tls.client(clientSock, {
+      hostname = "localhost", authority = CERT, kernelOffload = true,
+   }))
+   local clientDone, clientWhy, serverDone, serverWhy = shake(client, server)
+   assertTrue(clientDone, "the kTLS client finishes: " .. tostring(clientWhy))
+   assertTrue(serverDone, "the kTLS server finishes: " .. tostring(serverWhy))
+   assertTrue(client:isKernelOffloaded(), "the client handed both directions off")
+   assertTrue(server:isKernelOffloaded(), "the server handed both directions off")
+   assertTrue(client:write("in kernel"), "kernel TLS writes plaintext")
+   assertEq(assert(server:read(64)), "in kernel", "kernel TLS decrypts it")
+
+   client:close()
+   server:close()
+   clientSock:close()
    serverSock:close()
    listener:close()
 end
