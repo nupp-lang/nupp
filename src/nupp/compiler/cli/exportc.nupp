@@ -179,24 +179,38 @@ local function run(parsed: any): integer
         return true
     end
 
+    -- What a parameter or result ultimately points at. `T*?` resolves to a
+    -- two-member union with nil whose pointer cabi still renders, so the union is
+    -- stripped alongside the pointer wrappers: otherwise a nullable struct
+    -- pointer's struct would never be described and the header would name a
+    -- typedef it does not declare.
+    local function pointedAt(t: any): any?
+        while t do
+            if t.tag == "ptr" or t.tag == "const" or t.tag == "carray" then
+                t = t.elem or t.inner
+            elseif t.tag == "union" and t.hasNil and #(t.members or {}) == 2 then
+                local first, second = t.members[1], t.members[2]
+                t = first and first.tag == "nil" and second or first
+            else
+                break
+            end
+        end
+
+        return t
+    end
+
     for _, selection in ipairs(selections) do
         if types[selection] then
             describe(types[selection], selection)
         elseif functions[selection] then
             functionSignatures[#functionSignatures + 1] = functions[selection]
             for _, parameter in ipairs(functions[selection].params or {}) do
-                local t = parameter.type
-                while t and (t.tag == "ptr" or t.tag == "const" or t.tag == "carray") do
-                    t = t.elem or t.inner
-                end
+                local t = pointedAt(parameter.type)
                 if t and t.tag == "nominal" and t.declKind == "struct" and not t.cdefName then
                     describe(t, cabi.identity(t))
                 end
             end
-            local t = functions[selection].result
-            while t and (t.tag == "ptr" or t.tag == "const" or t.tag == "carray") do
-                t = t.elem or t.inner
-            end
+            local t = pointedAt(functions[selection].result)
             if t and t.tag == "nominal" and t.declKind == "struct" and not t.cdefName then
                 describe(t, cabi.identity(t))
             end

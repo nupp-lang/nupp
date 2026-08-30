@@ -70,11 +70,17 @@ local function run(parsed: any): integer
     local lints = require("nupp.compiler.lints")
     local project = require("nupp.compiler.build.project")
     -- The project's own configuration, so what prints is what would be enforced here
-    -- rather than what the defaults would have said.
-    local config, err = project.loadManifest(".")
-    if not config and err then
-        io.stderr:write(err .. "\n")
-        return 1
+    -- rather than what the defaults would have said. A directory with no `nupp.lua`
+    -- is a supported configuration, answered with the default levels; only a
+    -- manifest that exists and cannot be loaded is an error.
+    local config: any = nil
+    if require("nupp.compiler.fs").exists("nupp.lua") then
+        local loaded, err = project.loadManifest(".")
+        if not loaded then
+            io.stderr:write(tostring(err) .. "\n")
+            return 1
+        end
+        config = loaded
     end
     local lintConfig = config and config.lints or nil
     local style = ansi.style(io.stdout)

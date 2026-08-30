@@ -312,8 +312,14 @@ local command = spec.command{
 --- expected to vectorise and a loop that tried and could not are different
 --- facts, and a check that conflated them would either fail on the first or stay
 --- quiet about the second.
-local function outcome(program: any): string
+local function outcome(program: any, artifacts: any): string
     if program.lanes ~= nil then
+        return "lowered"
+    end
+    -- A GPU kernel never passes through lane selection, so `lanes` and
+    -- `lanesDeclined` stay unset; its compiled artifact is the evidence it
+    -- lowered rather than refusing.
+    if artifacts and artifacts.gpu and artifacts.gpu[program.symbol] ~= nil then
         return "lowered"
     end
     if program.lanesDeclined == true then
@@ -324,15 +330,22 @@ local function outcome(program: any): string
 end
 
 --- One line saying what happened, for a person.
-local function summarise(path: string, program: any): string
-    local shape = program.lanes ~= nil and program.lanes.shape or "none"
-    local how = outcome(program)
+local function summarise(path: string, program: any, artifacts: any): string
+    local gpu = artifacts and artifacts.gpu and artifacts.gpu[program.symbol] ~= nil
+    local shape = program.lanes ~= nil and program.lanes.shape or (gpu and "gpu" or "none")
+    local how = outcome(program, artifacts)
     local why = ""
-    if how == "declined" and program.thin == true then
+    if gpu then
+        why = ", one iteration per GPU invocation"
+    elseif how == "declined" and program.thin == true then
         why = ", too little arithmetic per byte for lanes to pay"
         if program.stridedFields == true then
             why = why .. "; project hot fields from `nupp.mem.soa` column storage to make them contiguous"
         end
+    elseif how == "declined" and program.loop == nil then
+        why = ", no map loop to run in lanes"
+    elseif how == "declined" and program.entryMode == "lua-builder" then
+        why = ", lanes do not apply to a lua-builder entry"
     elseif how == "declined" then
         why = ", declined by `@aot(lanes = false)`"
     elseif how == "refused" then
@@ -348,7 +361,7 @@ local function summarise(path: string, program: any): string
         program.intensity or 0,
         program.operations or 0,
         program.touchedBytes or 0,
-        how == "lowered" and (
+        how == "lowered" and program.lanes ~= nil and (
             shape .. ", " .. tostring(
                 program.lanes.lanes
             ) .. " lanes" .. (program.lanes.rounded == true and ", rounding explicit fixed-width work" or "")
@@ -602,7 +615,7 @@ local function run(parsed: any): integer
                     lanes = program.lanes.lanes,
                     rounded = program.lanes.rounded == true,
                 } or nil,
-                outcome = outcome(program),
+                outcome = outcome(program, artifacts),
                 refusals = refusals,
             }
         end
@@ -649,12 +662,12 @@ local function run(parsed: any): integer
         io.write(artifacts.binding)
     else
         for _, program in ipairs(artifacts.programs) do
-            io.write(summarise(path, program) .. "\n")
+            io.write(summarise(path, program, artifacts) .. "\n")
         end
     end
 
     for _, program in ipairs(artifacts.programs) do
-        if outcome(program) == "refused" then
+        if outcome(program, artifacts) == "refused" then
             refused = true
         end
     end
@@ -663,7 +676,7 @@ local function run(parsed: any): integer
         -- arrive after the failure it summarises.
         io.stdout:flush()
         for _, program in ipairs(artifacts.programs) do
-            if outcome(program) == "refused" then
+            if outcome(program, artifacts) == "refused" then
                 io.stderr:write(("nupp: %s ran one iteration at a time\n"):format(program.name))
                 for _, problem in ipairs(program.laneRefusals or {}) do
                     io.stderr:write("  " .. aot.renderDiagnostic(problem) .. "\n")

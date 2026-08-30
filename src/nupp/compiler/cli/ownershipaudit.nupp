@@ -159,7 +159,7 @@ local function run(parsed: any): integer
                 end
             end
             for j, result in ipairs(ft.rets or {}) do
-                if pointerShaped(result, T) or T.unwrapOwnership(result).tag == "affine" then
+                if pointerShaped(result, T) or result.tag == "affine" then
                     results[#results + 1] = {index = j, type = T.tostring(result)}
                 end
             end
@@ -209,11 +209,13 @@ local function run(parsed: any): integer
                 kind = "unsafe assertion region",
             }
             inUnsafe = true
-        elseif inUnsafe
-            and node.ownershipIntrinsic
-            and node.ownershipIntrinsic ~= "borrow"
-            and node.ownershipIntrinsic ~= "drop"
-        then
+            -- `unsafe adopt` and `unsafe release` are expressions, legal outside any
+            -- `unsafe do` block, and are assertion sites wherever they are spelled.
+            -- The other intrinsics are ordinary helpers, worth listing only inside a
+            -- declared unsafe region.
+        elseif node.ownershipIntrinsic and (
+            inUnsafe or node.ownershipIntrinsic == "adopt" or node.ownershipIntrinsic == "release"
+        ) and node.ownershipIntrinsic ~= "borrow" and node.ownershipIntrinsic ~= "drop" then
             local token = firstToken(node)
             unsafeSites[
                 #unsafeSites + 1
@@ -239,22 +241,30 @@ local function run(parsed: any): integer
         end
     end
 
+    local diagnosticMod = require("nupp.compiler.diagnostics")
     for _, file in ipairs(sourceFiles(parsed.positional, fs)) do
         local source = fs.readFile(file)
         if source then
             local result = parser.parse(source, file)
             if #result.errors == 0 then
                 local diags = check.check(result, file, env as {[string]: any}, {strict = false})
+                local errors = {}
                 for _, diag in ipairs(diags) do
                     if diag.severity == "error" then
+                        errors[#errors + 1] = diag
                         failed = true
                     end
                 end
+                if #errors > 0 then
+                    diagnosticMod.report(errors)
+                end
                 visit(result.root, file, false)
             else
+                diagnosticMod.report(result.errors)
                 failed = true
             end
         else
+            io.stderr:write("nupp: cannot read " .. file .. "\n")
             failed = true
         end
     end

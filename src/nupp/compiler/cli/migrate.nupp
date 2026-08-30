@@ -91,6 +91,7 @@ local function run(parsed: any): integer
     end
 
     local public = {}
+    local completed: {[any]: boolean} = {}
     if #errors == 0 and not asking then
         local parser = require("nupp.compiler.parser")
         local check = require("nupp.compiler.check")
@@ -128,6 +129,7 @@ local function run(parsed: any): integer
                 break
             end
             public[#public + 1] = publicPlan(plan, true, asJson)
+            completed[plan] = true
         end
     else
         for _, plan in ipairs(plans) do
@@ -144,11 +146,15 @@ local function run(parsed: any): integer
         })
     else
         for _, plan in ipairs(plans) do
-            io.write(plan.source .. " -> " .. plan.destination .. (asking and " (planned)\n" or "\n"))
-            for _, item in ipairs(plan.warnings) do
-                io.stderr:write(
-                    ("%s:%d:%d: warning: %s: %s\n"):format(plan.source, item.line, item.col, item.code, item.msg)
-                )
+            -- A migration that failed or was never attempted after an earlier
+            -- failure prints no success line: its story is the error below.
+            if asking or completed[plan] then
+                io.write(plan.source .. " -> " .. plan.destination .. (asking and " (planned)\n" or "\n"))
+                for _, item in ipairs(plan.warnings) do
+                    io.stderr:write(
+                        ("%s:%d:%d: warning: %s: %s\n"):format(plan.source, item.line, item.col, item.code, item.msg)
+                    )
+                end
             end
         end
         for _, message in ipairs(errors) do

@@ -126,8 +126,14 @@ local function run(parsed: any): integer
     if bridgeOut and details and details.bridgeSource then
         local bridgeHandle, bridgeErr = io.open(bridgeOut, "wb")
         if not bridgeHandle then
-            warnings[#warnings + 1] = tostring(bridgeErr)
-            return fail()
+            -- Text mode has already printed the warnings above; routing this
+            -- through fail() would print them all again, restyled as errors.
+            if asJson then
+                warnings[#warnings + 1] = tostring(bridgeErr)
+                return fail()
+            end
+            io.stderr:write("nupp: " .. tostring(bridgeErr) .. "\n")
+            return 1
         end
         bridgeHandle:write(details.bridgeSource)
         bridgeHandle:close()

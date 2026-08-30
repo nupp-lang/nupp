@@ -122,6 +122,18 @@ instead presents the same subjects as focused pages for human browsing.]],
     },
 }
 
+--- Writes `-o` output with the result checked, so a full disk is a failed
+--- command rather than a truncated file reported as success.
+local function writeOutput(path: string, content: string): integer
+    local wrote, err = require("nupp.compiler.fs").writeFile(path, content .. "\n")
+    if not wrote then
+        io.stderr:write("nupp: " .. tostring(err) .. "\n")
+        return 1
+    end
+
+    return 0
+end
+
 local function run(parsed: any): integer
     local reference = require("nupp.compiler.reference")
     local format = parsed.values.format or "markdown"
@@ -188,27 +200,13 @@ local function run(parsed: any): integer
                 markdown = rendered,
             }
             if parsed.values.output then
-                local file, err = io.open(parsed.values.output, "w")
-                if not file then
-                    io.stderr:write(tostring(err) .. "\n")
-                    return 1
-                end
-                file:write(require("nupp.compiler.cli.report").encode(payload), "\n")
-                file:close()
-                return 0
+                return writeOutput(parsed.values.output, require("nupp.compiler.cli.report").encode(payload))
             end
             require("nupp.compiler.cli.report").write(payload)
             return 0
         end
         if parsed.values.output then
-            local file, err = io.open(parsed.values.output, "w")
-            if not file then
-                io.stderr:write(tostring(err) .. "\n")
-                return 1
-            end
-            file:write(rendered, "\n")
-            file:close()
-            return 0
+            return writeOutput(parsed.values.output, rendered)
         end
         io.write(rendered, "\n")
 
@@ -233,8 +231,22 @@ local function run(parsed: any): integer
     end
 
     if format == "json" then
+        -- The whole document's sections are the chapters' sections, which carry
+        -- the appended language material; `reference.sections` is only the raw
+        -- language table and would leave the payload's `sections` disagreeing
+        -- with its own `markdown` and `chapters`.
+        local listed: {any} = {}
+        if chapter then
+            listed = chapter.sections
+        else
+            for _, one in ipairs(reference.chapters) do
+                for _, section in ipairs(one.sections) do
+                    listed[#listed + 1] = section
+                end
+            end
+        end
         local sections: {any} = {}
-        for _, section in ipairs(chapter and chapter.sections or reference.sections) do
+        for _, section in ipairs(listed) do
             sections[
                 #sections + 1
             ] = {title = section.title, body = section.body, example = section.example, codes = section.codes,}
@@ -250,28 +262,14 @@ local function run(parsed: any): integer
             payload.chapter = chapter
         end
         if parsed.values.output then
-            local file, err = io.open(parsed.values.output, "w")
-            if not file then
-                io.stderr:write(tostring(err) .. "\n")
-                return 1
-            end
-            file:write(require("nupp.compiler.cli.report").encode(payload), "\n")
-            file:close()
-            return 0
+            return writeOutput(parsed.values.output, require("nupp.compiler.cli.report").encode(payload))
         end
         require("nupp.compiler.cli.report").write(payload)
         return 0
     end
 
     if parsed.values.output then
-        local file, err = io.open(parsed.values.output, "w")
-        if not file then
-            io.stderr:write(tostring(err) .. "\n")
-            return 1
-        end
-        file:write(text, "\n")
-        file:close()
-        return 0
+        return writeOutput(parsed.values.output, text)
     end
     io.write(text, "\n")
 

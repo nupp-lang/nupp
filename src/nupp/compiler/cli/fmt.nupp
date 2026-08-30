@@ -231,10 +231,35 @@ local function run(parsed: any): integer
                 failed = true
             elseif write then
                 if formatted ~= source then
-                    local out = assert(io.open(path, "wb"))
-                    out:write(formatted)
-                    out:close()
-                    unformatted[#unformatted + 1] = path
+                    -- Staged and renamed with the result checked, so a full disk
+                    -- truncates a temporary file rather than the user's source, and
+                    -- a failed rewrite is a reported failure rather than a raised
+                    -- one that abandons the remaining files.
+                    local wrote, writeErr = fs.writeFile(path, formatted)
+                    if not wrote then
+                        if asJson then
+                            failures[#failures + 1] = {
+                                file = path,
+                                diagnostics = reportMod.diagnosticValues({
+                                    {
+                                        filename = path,
+                                        line = 0,
+                                        col = 0,
+                                        offset = 0,
+                                        length = 0,
+                                        code = "NUPP0001",
+                                        msg = tostring(writeErr),
+                                        help = "check that the path is writable"
+                                    }
+                                })
+                            }
+                        else
+                            io.stderr:write("nupp: " .. tostring(writeErr) .. "\n")
+                        end
+                        failed = true
+                    else
+                        unformatted[#unformatted + 1] = path
+                    end
                 end
             elseif reporting then
                 if formatted ~= source then

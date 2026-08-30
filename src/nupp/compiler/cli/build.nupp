@@ -411,7 +411,20 @@ local function run(parsed: any): integer
     local failed = false
     local written: {[string]: boolean} = {}
     local outputs: {string} = {}
-    local function emitModule(path: string): boolean
+    -- Positionals arrive spelled however the caller typed them, while `env.loaded`
+    -- records paths the environment has normalized. `written` is keyed on the
+    -- normalized spelling so `./lib.nupp` on the command line and `lib.nupp` in the
+    -- module graph are one module, emitted once.
+    local function normalized(path: string): string
+        path = path:gsub("\\", "/"):gsub("/+", "/")
+        path = path:gsub("^%./", ""):gsub("/%./", "/")
+
+        return (path:gsub("/$", ""))
+    end
+
+    local fs = require("nupp.compiler.fs")
+    local function emitModule(givenPath: string): boolean
+        local path = normalized(givenPath)
         if written[path] then
             return true
         end
@@ -430,19 +443,26 @@ local function run(parsed: any): integer
         end
         local outPath: string
         if outDir then
-            local base = path:match("([^/\\]+)%.g%.nupp$") or path:match("([^/\\]+)%.nupp$") or path
-            outPath = outDir .. "/" .. base .. ".lua"
+            -- The dependency loop below routes every reached module through here,
+            -- so the output tree keeps each module's relative directory: flattening
+            -- to basenames would let two same-named modules silently overwrite one
+            -- another and put `a/util.lua` where `require("a.util")` cannot find
+            -- it. An absolute source path has no relative spelling to keep and
+            -- lands by basename.
+            local relative = path
+            if path:sub(1, 1) == "/" or path:match("^[A-Za-z]:/") then
+                relative = path:match("([^/]+)$") or path
+            end
+            outPath = outDir .. "/" .. relative:gsub("%.g%.nupp$", ""):gsub("%.nupp$", "") .. ".lua"
         else
             outPath = path:gsub("%.g%.nupp$", ""):gsub("%.nupp$", "") .. ".lua"
         end
-        local out, err = io.open(outPath, "wb")
-        if not out then
+        report:at("write")
+        local wrote, err = fs.writeFile(outPath, code)
+        if not wrote then
             io.stderr:write("nupp: " .. tostring(err) .. "\n")
             return false
         end
-        report:at("write")
-        out:write(code)
-        out:close()
         outputs[#outputs + 1] = outPath
 
         return true

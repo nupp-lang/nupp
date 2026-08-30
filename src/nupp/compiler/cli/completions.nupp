@@ -69,7 +69,10 @@ local function choiceCases(command: Command): {string}
     local out: {string} = {}
     for _, option in ipairs(command.spec.options) do
         local choices = option.choices
-        if choices then
+        -- Only a "value" option consumes the word after it. An "attached" or
+        -- "optional" option takes its value as `--name=value`, so offering the
+        -- value as a following word would complete a spelling the parser refuses.
+        if choices and option.form == "value" then
             for _, name in ipairs(option.names) do
                 out[#out + 1] = "    " .. name .. ")"
                 out[#out + 1] = "      COMPREPLY=( $(compgen -W '" .. words(choices) .. "' -- \"$cur\") )"
@@ -147,12 +150,15 @@ local function zsh(commands: {Command}): string
     lines[#lines + 1] = "case $state in"
     lines[#lines + 1] = "  command) _describe -t commands 'nupp command' commands;;"
     lines[#lines + 1] = "  argument)"
-    lines[#lines + 1] = "    case $words[2] in"
+    -- The `*::argument:->argument` spec narrows $words and CURRENT to the
+    -- arguments after the command name, so the command is $words[1] and the
+    -- first argument position is CURRENT == 2.
+    lines[#lines + 1] = "    case $words[1] in"
     for _, command in ipairs(commands) do
         lines[#lines + 1] = "    " .. command.name .. ")"
         local positional = firstPositionalChoices(command)
         if positional then
-            lines[#lines + 1] = "      if (( CURRENT == 3 )); then"
+            lines[#lines + 1] = "      if (( CURRENT == 2 )); then"
             lines[#lines + 1] = "        compadd -- " .. words(positional)
             lines[#lines + 1] = "      else"
         end
@@ -174,16 +180,20 @@ local function fish(commands: {Command}): string
         string
     } = {
         "# Fish completion for nupp; generated from nupp.compiler.cli.spec.",
+        "function __fish_nupp_needs_command",
+        "    set -l words (commandline -opc)",
+        "    test (count $words) -eq 1",
+        "end",
         "function __fish_nupp_using_command",
         "    set -l words (commandline -opc)",
-        "    test (count $words) -ge 2; and test $words[2] = $argv[1]",
+        "    test (count $words) -ge 2; and test \"$words[2]\" = \"$argv[1]\"",
         "end",
         "complete -c nupp -f",
     }
     for _, command in ipairs(commands) do
         lines[
             #lines + 1
-        ] = "complete -c nupp -n '__fish_nupp_using_command' -a " .. command.name .. " -d " .. quoted(
+        ] = "complete -c nupp -n '__fish_nupp_needs_command' -a " .. command.name .. " -d " .. quoted(
             command.spec.summary
         )
         local positional = firstPositionalChoices(command)
@@ -204,7 +214,10 @@ local function fish(commands: {Command}): string
                         .. name:sub(
                         3
                     )
-                    if option.form ~= "flag" then
+                    -- `-r` makes fish complete the value as the next word, which
+                    -- only a "value" option consumes; attached and optional forms
+                    -- still get their choices offered after `--name=`.
+                    if option.form == "value" then
                         line = line .. " -r"
                     end
                     if choices then
@@ -218,7 +231,10 @@ local function fish(commands: {Command}): string
                         .. name:sub(
                         2
                     )
-                    if option.form ~= "flag" then
+                    -- `-r` makes fish complete the value as the next word, which
+                    -- only a "value" option consumes; attached and optional forms
+                    -- still get their choices offered after `--name=`.
+                    if option.form == "value" then
                         line = line .. " -r"
                     end
                     if choices then

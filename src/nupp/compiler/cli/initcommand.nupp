@@ -296,6 +296,11 @@ local function run(parsed: any): integer
         if #positional > 0 or values.from then
             return command:usageError("--list takes no other arguments")
         end
+        -- The command's JSON schema describes a scaffold, which a listing is not,
+        -- so refusing is honest where quietly printing text would not be.
+        if values.format == "json" then
+            return command:usageError("--list has no JSON output")
+        end
 
         return listBuiltins()
     end

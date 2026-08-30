@@ -400,6 +400,12 @@ local function run(parsed: any): integer
             local wrote, writeErr = require("nupp.compiler.fs").writeFile(abortsOut, report.encode(document) .. "\n")
             if not wrote then
                 io.stderr:write("nupp: " .. tostring(writeErr) .. "\n")
+                -- The program's own failure still gets reported: losing the trace
+                -- report is no reason to also lose the error the run ended on.
+                if not ok then
+                    io.stderr:write("nupp: " .. tostring(runErr) .. "\n")
+                end
+
                 return 1
             end
         end

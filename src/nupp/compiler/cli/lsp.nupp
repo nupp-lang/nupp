@@ -208,11 +208,6 @@ local SYMBOL = {
         documentation = {type = "string"},
         container = {type = "string"},
         definition = reportMod.LOCATION,
-        definitions = {
-            type = "array",
-            items = reportMod.LOCATION,
-            description = "Every declaration that contributes, when more than one does.",
-        },
         location = reportMod.LOCATION,
         range = reportMod.RANGE,
         children = {type = "array", items = {["$ref"] = "#/definitions/symbol"}},
@@ -254,7 +249,17 @@ local OPERATION_SPECS: {
         "Find where the symbol at a position is defined",
         "nupp lsp definition [options] <file> <line> <column>",
         {},
-        {type = "object", properties = {definition = reportMod.LOCATION},}
+        {
+            type = "object",
+            properties = {
+                definition = reportMod.LOCATION,
+                definitions = {
+                    type = "array",
+                    items = reportMod.LOCATION,
+                    description = "Every declaration that contributes, when more than one does.",
+                },
+            },
+        }
     ),
     references = operationSpec(
         "references",
@@ -662,6 +667,9 @@ local function runInspect(client, opts)
         documentation = result.documentation,
         definition = locationValue(client, result.definition),
         range = result.range and rangeValue(client, path, result.range) or nil,
+        -- Already in 1-based source coordinates: the checker records the cleanup
+        -- boundary directly, so nothing here needs converting from LSP positions.
+        automaticCleanup = result.automaticCleanup,
     } or nil
     if opts.format == "json" then
         jsonOutput({symbol = value or json.NULL})
