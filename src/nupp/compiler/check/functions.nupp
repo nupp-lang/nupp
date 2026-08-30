@@ -33,6 +33,10 @@ function functions.install(c: state.Checker): state.StatHandlers
     local ownershipState, pointerShaped = c.ownershipState, c.pointerShaped
     local expectedFuncbodies: {[any]: Type} = {}
 
+    ---------------------------------------------------------------------
+    -- Parameter modes
+    ---------------------------------------------------------------------
+
     local function inferredParameterModes(body)
         local modes, byname, declared = {}, {}, {}
         for j, p in ipairs(body.params or {}) do
@@ -209,6 +213,10 @@ function functions.install(c: state.Checker): state.StatHandlers
 
         return modes, declared
     end
+
+    ---------------------------------------------------------------------
+    -- Preservation
+    ---------------------------------------------------------------------
 
     --- Result-slot capability transfers stated by `preserves`, plus conservative
     --- identity inference for visible generic bodies. A source may pass directly,
@@ -448,6 +456,10 @@ function functions.install(c: state.Checker): state.StatHandlers
         return candidates
     end
 
+    ---------------------------------------------------------------------
+    -- Captures
+    ---------------------------------------------------------------------
+
     local function takenCaptures(body)
         if body.takenCaptures then
             return body.takenCaptures
@@ -562,6 +574,10 @@ function functions.install(c: state.Checker): state.StatHandlers
             end
         end
     end
+
+    ---------------------------------------------------------------------
+    -- Checking a body
+    ---------------------------------------------------------------------
 
     -- Builds the function type from a funcbody, binds params, checks the body, and
     -- returns the resulting type.
@@ -1111,6 +1127,10 @@ function functions.install(c: state.Checker): state.StatHandlers
         return callable
     end
 
+    ---------------------------------------------------------------------
+    -- The signature alone
+    ---------------------------------------------------------------------
+
     -- A function's type as its annotations give it, without checking the body. Enough
     -- to publish a method before its own statement is reached, so two methods may call
     -- each other.
@@ -1257,6 +1277,10 @@ function functions.install(c: state.Checker): state.StatHandlers
     c.inferredParameterModes = inferredParameterModes
 
     local handlers = {}
+
+    ---------------------------------------------------------------------
+    -- Function statements
+    ---------------------------------------------------------------------
 
     local function checkLocalFuncStmt(stat: cst.LocalFuncStmt)
         local nameTok, body = stat.name, stat.body

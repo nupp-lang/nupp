@@ -73,6 +73,10 @@ function expr.install(c: state.Checker): nil
     -- short function it happens to contain.
     local expectedShortfns: {[any]: Type} = {}
 
+    ---------------------------------------------------------------------
+    -- Captures and sendable literals
+    ---------------------------------------------------------------------
+
     local function captureProblem(captured: Type): string?
         local pending = {captured}
         local seen: {[string]: boolean} = {}
@@ -213,6 +217,10 @@ function expr.install(c: state.Checker): nil
 
         return names
     end
+
+    ---------------------------------------------------------------------
+    -- Numeric operands
+    ---------------------------------------------------------------------
 
     c.numericOperand = function(t, node, op)
         if t == T.any or isA(t, T.number) then
@@ -413,6 +421,10 @@ function expr.install(c: state.Checker): nil
         end
     end
 
+    ---------------------------------------------------------------------
+    -- Switch exhaustiveness
+    ---------------------------------------------------------------------
+
     local function staticCaseShape(node: Node?): boolean
         if not node then
             return false
@@ -597,6 +609,10 @@ function expr.install(c: state.Checker): nil
         return c.alwaysExits(block)
     end
 
+    ---------------------------------------------------------------------
+    -- Switch expressions
+    ---------------------------------------------------------------------
+
     local function inferSwitch(node: cst.SwitchExpr): Type
         local selector = node.selector
         local selectorT = selector and c.infer(selector) or T.any
@@ -774,6 +790,10 @@ function expr.install(c: state.Checker): nil
 
         return result
     end
+
+    ---------------------------------------------------------------------
+    -- One expression's type
+    ---------------------------------------------------------------------
 
     -- The type of one expression, before the pack an expanding expression owes its
     -- reader is settled. Reached through `c.infer`, never directly.
@@ -1438,6 +1458,10 @@ function expr.install(c: state.Checker): nil
 
         return T.any
     end
+
+    ---------------------------------------------------------------------
+    -- Inference with narrowing applied
+    ---------------------------------------------------------------------
 
     --- The type an expression has, with the facts narrowing currently knows applied.
     --- Called for effect as well as for the answer: it records what later passes need

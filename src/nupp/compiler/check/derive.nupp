@@ -38,6 +38,10 @@ record derive.Ops
     finalize: function(): nil
 end
 
+----------------------------------------------------------------------------
+-- Reading a declaration
+----------------------------------------------------------------------------
+
 local function fieldNodes(stat)
     local out = {}
     for _, entry in ipairs(stat.entries or {}) do
@@ -142,6 +146,10 @@ function derive.install(c: state.Checker): derive.Ops
     local providerMemo = {}
     local addDefinition: function(any, string, any, any, string, string, boolean, any?, boolean?): boolean
     local removeProviderFix: function(any, any, string, boolean?): any
+
+    ---------------------------------------------------------------------
+    -- Resolving a provider
+    ---------------------------------------------------------------------
 
     local function expressionPath(expr)
         if not expr then
@@ -261,6 +269,10 @@ function derive.install(c: state.Checker): derive.Ops
         publish()
     end
 
+    ---------------------------------------------------------------------
+    -- Types a provider may hand back
+    ---------------------------------------------------------------------
+
     local function probe(at): boolean
         if aborted then
             return false
@@ -355,6 +367,10 @@ function derive.install(c: state.Checker): derive.Ops
 
         return exports and exports.valueDefs and exports.valueDefs[descriptor.member] or nil
     end
+
+    ---------------------------------------------------------------------
+    -- Running a provider
+    ---------------------------------------------------------------------
 
     local function evaluateProvider(item, provider, plan, nodes)
         local n, contract = item.nominal, provider.contract
@@ -1037,6 +1053,10 @@ function derive.install(c: state.Checker): derive.Ops
         end
     end
 
+    ---------------------------------------------------------------------
+    -- Where a generated member came from
+    ---------------------------------------------------------------------
+
     local function origin(item, provider)
         return item.origins[provider] or item.stat.name
     end
@@ -1137,6 +1157,10 @@ function derive.install(c: state.Checker): derive.Ops
 
         return true
     end
+
+    ---------------------------------------------------------------------
+    -- Giving up
+    ---------------------------------------------------------------------
 
     local function clearGeneratedMembers(n)
         for name, generated in pairs(n.derivedByname or {}) do
