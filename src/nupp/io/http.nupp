@@ -612,10 +612,12 @@ local record Client is NativeClient
 
     --- Collects readiness events and wakes what they moved.
     ---
-    --- A wake is run under `pcall` so that one waiter raising still lets the event be
-    --- released; the native transport is holding the transfer until it is, and leaking
-    --- that would outlast the error.
-    --- @raises with whatever a woken waiter raised, once its event has been released
+    --- A wake is run under `pcall` so that one waiter raising still lets every event
+    --- in the batch be released and its waiters woken; the native transport is
+    --- holding each transfer until its release, and leaking the rest of the batch
+    --- would outlast the error. The first raise is kept and re-raised at the end.
+    --- @raises with whatever a woken waiter raised first, once the whole batch has
+    ---     been released
     function poll(self: Client, waitMs: integer): integer
         local count: any
         local moved: integer = 0
@@ -624,19 +626,22 @@ local record Client is NativeClient
         else
             count = C.nuppHttpClientPoll(self._handle, self._ready, READY_SLOTS, self._more)
         end
+        local failure: any = nil
         for index = 0, (tonumber(count) as integer) - 1 do
             local item = self._ready[index]
             local transfer = self._byHandle[tostring(item.transfer)]
-            local ok, problem = true, nil
             if transfer ~= nil then
-                ok, problem = pcall(function(): nil
+                local ok, problem = pcall(function(): nil
                     moved = moved + transfer:_ready(tonumber(item.tokens) as integer)
                 end)
+                if not ok and failure == nil then
+                    failure = problem
+                end
             end
             C.nuppHttpReadyRelease(item.transfer)
-            if not ok then
-                error(problem, 0)
-            end
+        end
+        if failure ~= nil then
+            error(failure, 0)
         end
         if self._admissionWaiters ~= nil and (
             tonumber(C.nuppHttpClientPending(self._handle)) as integer
@@ -1829,7 +1834,16 @@ function http.Client:send(borrows request: http.Request): (http.Response?, strin
         end
         head = value
     else
-        head = waitHead(self, transfer, true)
+        -- Protected for the same reason as the reader path above: cancellation
+        -- raises out of the parked wait, and a transfer left unclosed then stays
+        -- in the client's live table until the client itself closes.
+        local ok, value = pcall(waitHead, self, transfer, true)
+        if not ok then
+            transfer:cancel()
+            transfer:close()
+            error(value, 0)
+        end
+        head = value
     end
     if head == nil or head.reason ~= nil then
         problem = head and head.reason or "HTTP transfer failed"
@@ -1886,7 +1900,14 @@ function http.Client:send(borrows request: http.Request): (http.Response?, strin
                 end
             end
             transfer:close()
-            local redirected = new http.Request(
+            -- A plain descriptor rather than `new http.Request`. The hop owns
+            -- nothing a request's cleanup would close -- a reader body refuses
+            -- to follow, and a dropped body is nil -- and an owned request here
+            -- would put the recursive call inside a cleanup region whose
+            -- lowering caches its closure module-wide with the first caller's
+            -- `self`, sending every later client's redirect through the first
+            -- client.
+            local redirected: any = {
                 url = target,
                 method = nextMethod,
                 headers = merged,
@@ -1896,8 +1917,8 @@ function http.Client:send(borrows request: http.Request): (http.Response?, strin
                 maxBytes = given.maxBytes,
                 _redirected = true,
                 _redirects = followed + 1,
-                _deadline = deadline
-            )
+                _deadline = deadline,
+            }
             return self:send(redirected)
         end
     end

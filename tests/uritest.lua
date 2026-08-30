@@ -20,8 +20,12 @@ local unavailable
 local function temporaryRoot()
    local base = os.getenv("TMPDIR") or os.getenv("TEMP") or "/tmp"
    base = base:gsub("\\", "/")
+   -- Two workers sharding this suite can start in the same clock second and
+   -- draw the same seeded random suffix, so a per-process address keeps one
+   -- worker's teardown out of the other's root.
+   local unique = tostring({}):match("(%x+)$") or "0"
    return (base:gsub("/$", "")) .. "/nupp-uri-test-" .. tostring(os.time())
-      .. "-" .. tostring(math.random(1, 1e9))
+      .. "-" .. unique .. "-" .. tostring(math.random(1, 1e9))
 end
 
 function M.beforeAll()
@@ -213,6 +217,54 @@ function M.concatenatingAPathAddsOneSeparator()
    test.equal(plain:concatPath("/users"):path(), "/v1/users")
    test.equal(slashed:concatPath("users"):path(), "/v1/users")
    test.equal(slashed:concatPath("/users"):path(), "/v1/users")
+end
+
+-- A component holding a delimiter, or a path shaped like an authority, is
+-- refused rather than assembled into text that reparses with the boundary
+-- somewhere else.
+function M.composingRefusesComponentsThatShiftBoundaries()
+   local module = ready()
+   local refused = {
+      {{scheme = "https", host = "example.com", path = "status"},
+         'path must be empty or begin with "/"'},
+      {{scheme = "https", path = "//attacker.com/x"},
+         'path cannot begin with "//"'},
+      {{scheme = "https", host = "example.com", path = "/", query = "a=1#f"},
+         "query cannot contain a component delimiter"},
+      {{scheme = "https", host = "example.com", path = "/a#b"},
+         "path cannot contain a component delimiter"},
+      {{scheme = "https", host = "example.com", path = "/a?b=1"},
+         "path cannot contain a component delimiter"},
+      {{scheme = "https", host = "example.com/evil"},
+         "host cannot contain a component delimiter"},
+      {{scheme = "https", host = "evil@example.com"},
+         "host cannot contain a component delimiter"},
+      {{scheme = "https", userInfo = "u/v", host = "example.com", path = "/"},
+         "userInfo cannot contain a component delimiter"},
+   }
+   for _, row in ipairs(refused) do
+      local value, why = module.newURI(row[1])
+      test.equal(value, nil, row[2] .. ": refused")
+      assert(tostring(why):find(row[2], 1, true),
+         row[2] .. ": the reason says which rule, got " .. tostring(why))
+   end
+
+   -- The shapes the rules describe still compose.
+   local accepted = {
+      {{scheme = "https", host = "example.com", path = "/status"},
+         "https://example.com/status"},
+      {{scheme = "https", host = "example.com", path = ""},
+         "https://example.com/"},
+      {{scheme = "https", host = "example.com"},
+         "https://example.com/"},
+      {{scheme = "mailto", path = "someone@example.com"},
+         "mailto:someone@example.com"},
+   }
+   for _, row in ipairs(accepted) do
+      local value, why = module.newURI(row[1])
+      assert(value, row[2] .. ": " .. tostring(why))
+      test.equal(value:toString(), row[2], row[2] .. " composes")
+   end
 end
 
 function M.resolvingFollowsTheReferenceRules()

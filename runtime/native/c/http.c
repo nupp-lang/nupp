@@ -208,6 +208,7 @@ struct NuppHttpClient {
     uint32_t maxRedirects;
     uint32_t maxPendingRequests;
     int compressed;
+    bool hasInsecureHosts;
     int proxyMode;
     char *proxy;
     char *noProxy;
@@ -870,6 +871,7 @@ NUPP_EXPORT NuppHttpClient *nuppHttpClientCreate(const NuppHttpClientOptions *op
     client->maxRedirects = options->maxRedirects;
     client->maxPendingRequests = options->maxPendingRequests;
     client->compressed = options->compressed;
+    client->hasInsecureHosts = options->hasInsecureHosts != 0;
     client->proxyMode = options->proxyMode;
     client->noProxySet = options->noProxySet != 0;
     if (options->proxy.length != 0) {
@@ -1051,7 +1053,12 @@ NUPP_EXPORT const NuppHttpTransfer *nuppHttpClientSend(
         curl_easy_setopt(transfer->easy, CURLOPT_LOW_SPEED_LIMIT, 1L);
         curl_easy_setopt(transfer->easy, CURLOPT_LOW_SPEED_TIME, seconds);
     }
-    if (client->maxRedirects != 0) {
+    /* A client naming insecure hosts follows redirects from the Lua side, one
+     * request per hop: the TLS exemption and the credential headers are decided
+     * against each hop's host, and letting libcurl follow would carry this
+     * transfer's CURLOPT_SSL_VERIFYPEER across the whole chain on one easy
+     * handle. So the 3xx is surfaced as the answer instead. */
+    if (client->maxRedirects != 0 && !client->hasInsecureHosts) {
         curl_easy_setopt(transfer->easy, CURLOPT_FOLLOWLOCATION, 1L);
         curl_easy_setopt(transfer->easy, CURLOPT_MAXREDIRS, (long)client->maxRedirects);
     }

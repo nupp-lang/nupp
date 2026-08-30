@@ -23,8 +23,12 @@ end
 
 local function temporaryRoot()
    local base = os.getenv("TMPDIR") or "/tmp"
+   -- Two workers sharding this suite can start in the same clock second and
+   -- draw the same seeded random suffix, so a per-process address keeps one
+   -- worker's teardown out of the other's root.
+   local unique = tostring({}):match("(%x+)$") or "0"
    return (base:gsub("/$", "")) .. "/nupp-http-test-" .. tostring(os.time())
-      .. "-" .. tostring(math.random(1, 1e9))
+      .. "-" .. unique .. "-" .. tostring(math.random(1, 1e9))
 end
 
 local function startServer()
@@ -195,6 +199,65 @@ function M.selectivelyInsecureClientsRerouteEveryRedirect()
    test.equal(response.body:read(16), "none")
    test.equal(response.body:read(1), "")
    response:close()
+   client:close()
+end
+
+-- The hop from 127.0.0.1 to localhost changes the origin, so the cookie has
+-- to be stripped before the second request goes out, the way the authorization
+-- header already is in the test above.
+function M.selectivelyInsecureClientsStripCookiesAcrossOrigins()
+   if unavailable then
+      test.skip("the HTTP provider is unavailable: " .. unavailable)
+   end
+   local client = newHttpClient({
+      insecureHosts = {"127.0.0.1"},
+      headers = {Cookie = "session=secret"},
+   })
+   local response, reason = client:send({url = endpoint("/redirect-cookie")})
+   assert(response, reason)
+   test.equal(response.url:host(), "localhost")
+   test.equal(response.body:read(64), "none")
+   test.equal(response.body:read(1), "")
+   response:close()
+   client:close()
+end
+
+-- The bound is this side's as well: a chain past it answers this module's own
+-- reason, which it can only do when each hop is its own request.
+function M.selectivelyInsecureClientsEnforceMaxRedirectsThemselves()
+   if unavailable then
+      test.skip("the HTTP provider is unavailable: " .. unavailable)
+   end
+   local client = newHttpClient({
+      insecureHosts = {"127.0.0.1"},
+      maxRedirects = 2,
+   })
+   local response, reason = client:send({url = endpoint("/loop")})
+   test.equal(response, nil)
+   test.equal(reason, "HTTP request exceeded maxRedirects")
+   test.equal(client:pending(), 0)
+   -- One request per hop and no more: the initial request and two follows. A
+   -- transport following on its own would ask the server for every hop it
+   -- chained before this side saw a status at all.
+   local counted = assert(client:send({url = endpoint("/loop-count")}))
+   test.equal(counted.body:read(16), "3")
+   counted:close()
+   client:close()
+end
+
+-- Cancellation raises out of the parked wait for the response headers, and the
+-- request being abandoned has to close its transfer on the way out: the live
+-- table's strong reference otherwise keeps the native transfer and its
+-- connection until the client itself closes.
+function M.aCancelledPlainRequestReleasesItsTransfer()
+   local client = ready()
+   local value = suspension.race({
+      function() return client:send({url = endpoint("/slow")}) end,
+      function() return "settled first" end,
+   })
+   test.equal(value, "settled first")
+   test.equal(next(client._native._byHandle), nil,
+      "the abandoned transfer left the client's live table")
    client:close()
 end
 

@@ -10,6 +10,7 @@ if (!portFile) {
 }
 
 const largeBody = Buffer.from("0123456789abcdef".repeat(4 * 1024 * 1024 / 16));
+let loopHits = 0;
 
 function send(res, status, body = Buffer.alloc(0), headers = {}) {
   res.writeHead(status, {
@@ -28,10 +29,39 @@ const server = createServer((req, res) => {
       });
       return;
     }
+    if (req.url === "/redirect-cookie") {
+      const { port } = server.address();
+      send(res, 302, undefined, {
+        Location: `http://localhost:${port}/cookie`,
+      });
+      return;
+    }
+    if (req.url === "/loop") {
+      loopHits += 1;
+      send(res, 302, undefined, { Location: "/loop" });
+      return;
+    }
+    if (req.url === "/loop-count") {
+      // How many times /loop was asked for since the last read, so a test can
+      // tell one request per hop from a transport quietly chaining hops.
+      const body = Buffer.from(String(loopHits), "ascii");
+      loopHits = 0;
+      send(res, 200, body);
+      return;
+    }
+    if (req.url === "/slow") {
+      // Not answered within a test's patience: what a caller cancels against.
+      const timer = setTimeout(
+        () => send(res, 200, Buffer.from("slow response\n")), 30000);
+      res.on("close", () => clearTimeout(timer));
+      return;
+    }
 
     let body;
     if (req.url === "/authorization") {
       body = Buffer.from(req.headers.authorization ?? "none", "ascii");
+    } else if (req.url === "/cookie") {
+      body = Buffer.from(req.headers.cookie ?? "none", "ascii");
     } else if (req.url === "/large") {
       body = largeBody;
     } else {

@@ -583,7 +583,10 @@ withText = function(self: URI, kind: integer, value: string?): URI
 end
 
 -- Components are assembled into text and then parsed, so one grammar decides what is
--- valid rather than two.
+-- valid rather than two. What the grammar cannot decide is where one component was
+-- meant to end: a delimiter inside a value, or a path shaped like an authority,
+-- reparses as a different component rather than failing. Those shapes are refused
+-- here, before the text exists to misread.
 compose = function(components: any): (string?, string?)
     if type(components) ~= "table" then
         return nil, "nupp: io.URI.newURI needs absolute text or URI components"
@@ -601,6 +604,30 @@ compose = function(components: any): (string?, string?)
     local port = components.port
     if port ~= nil and (type(port) ~= "number" or port ~= math.floor(port) or port < 0 or port > 65535) then
         return nil, "nupp: URI component port must be an integer from 0 through 65535 or nil"
+    end
+    -- A delimiter that would end the component early. `#` always starts the
+    -- fragment, `?` starts the query anywhere before one, and inside the
+    -- authority `/`, `?` and `#` end it while `@` moves the host boundary.
+    for name, delimiters in pairs({
+        userInfo = "[/?#]",
+        host = "[/?#@]",
+        path = "[?#]",
+        query = "#",
+    }) do
+        local value = components[name]
+        if value ~= nil and (value as string):find(delimiters) ~= nil then
+            return nil, "nupp: URI component " .. name .. " cannot contain a component delimiter"
+        end
+    end
+    -- RFC 3986 section 3.3: beside an authority a path is empty or rooted, and
+    -- without one it must not begin with `//`, which would reparse as one.
+    local path = components.path
+    if components.host or components.userInfo or port then
+        if path ~= nil and path ~= "" and (path as string):sub(1, 1) ~= "/" then
+            return nil, "nupp: URI component path must be empty or begin with \"/\" beside an authority"
+        end
+    elseif path ~= nil and (path as string):sub(1, 2) == "//" then
+        return nil, "nupp: URI component path cannot begin with \"//\" when there is no authority"
     end
     local out = scheme .. ":"
     if components.host or components.userInfo or port then
