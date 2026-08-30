@@ -47,6 +47,10 @@ record lower.Context
     constantValues: {string}
 end
 
+----------------------------------------------------------------------------
+-- Types and conversions
+----------------------------------------------------------------------------
+
 --- The IR type one source spelling denotes, or nothing when it denotes none.
 ---
 --- `integer` lowers to binary64 rather than to a 32-bit type: it is Nupp's
@@ -387,6 +391,10 @@ function lower.unwrapped(node: cst.Node?): cst.Node?
     return current
 end
 
+----------------------------------------------------------------------------
+-- Layouts and span elements
+----------------------------------------------------------------------------
+
 --- The layouts one kernel reifies, in the order they were first reached.
 ---
 --- Order matters: it is the order the generated C declares the structs in, and
@@ -601,6 +609,10 @@ function lower.spanElement(
     )
 end
 
+----------------------------------------------------------------------------
+-- Reading names out of the tree
+----------------------------------------------------------------------------
+
 --- The name one node writes, if it is a bare name.
 function lower.nameOf(node: cst.Node?): string?
     if node == nil or node.kind ~= "name" then
@@ -671,6 +683,10 @@ function lower.callIdentity(node: cst.Node?): string?
 
     return nil
 end
+
+----------------------------------------------------------------------------
+-- The lowering environment
+----------------------------------------------------------------------------
 
 --- One name in scope, as the environment records it.
 record lower.Bound
@@ -804,6 +820,10 @@ record lower.Kernel
 
     context: lower.Context
 end
+
+----------------------------------------------------------------------------
+-- Reads, operators and calls
+----------------------------------------------------------------------------
 
 --- Notes that lowering reached a value only the VM can hold, and where.
 ---
@@ -2453,6 +2473,10 @@ local function unary(node: cst.Unop, value: scalarIR.Expr, kernel: lower.Kernel)
     return value
 end
 
+----------------------------------------------------------------------------
+-- Constants
+----------------------------------------------------------------------------
+
 --- The word count an expression names, where it is an exact non-negative
 --- integer constant, and nil otherwise.
 function lower.constantWidth(value: scalarIR.Expr): integer?
@@ -2540,6 +2564,10 @@ function lower.constantBytes(value: string, kernel: lower.Kernel, source: scalar
         source = source
     )
 end
+
+----------------------------------------------------------------------------
+-- Lowering one expression
+----------------------------------------------------------------------------
 
 --- A short-circuit left operand whose truth value proves the right operand's
 --- scratch cursor in bounds.
@@ -2855,6 +2883,10 @@ function lower.expression(
     return new scalarIR.Bool(op = "bool", value = false, type = "bool", source = lower.site(node))
 end
 
+----------------------------------------------------------------------------
+-- Helpers
+----------------------------------------------------------------------------
+
 --- The IR type one helper signature spelling denotes.
 ---
 --- A helper takes and returns ordinary Nupp values, so `float` here is binary64
@@ -3055,6 +3087,10 @@ function lower.helper(name: string, at: cst.Node?, kernel: lower.Kernel): scalar
 
     return helper
 end
+
+----------------------------------------------------------------------------
+-- Scopes and statements
+----------------------------------------------------------------------------
 
 --- An environment with the same entries, so a nested block cannot leak the
 --- names it introduces back out of itself.
@@ -3851,6 +3887,10 @@ local function forBound(bound: scalarIR.Expr, at: cst.Node?, kernel: lower.Kerne
     return bound
 end
 
+----------------------------------------------------------------------------
+-- Lowering a block
+----------------------------------------------------------------------------
+
 --- One block of admitted statements, and everything under it.
 function lower.block(statements: {cst.Node}, environment: {[string]: any}, kernel: lower.Kernel): {scalarIR.Statement}
     local context = kernel.context
@@ -4112,6 +4152,10 @@ function lower.block(statements: {cst.Node}, environment: {[string]: any}, kerne
     return out
 end
 
+----------------------------------------------------------------------------
+-- Parameters and regions
+----------------------------------------------------------------------------
+
 --- The span one `#x` names, if the node is that.
 function lower.dotCount(node: cst.Node?): string?
     if node == nil or node.kind ~= "unop" then
@@ -4327,6 +4371,10 @@ function lower.regions(spans: {scalarIR.Param}): ({scalarIR.Region}, {scalarIR.A
 
     return regions, facts
 end
+
+----------------------------------------------------------------------------
+-- Guards
+----------------------------------------------------------------------------
 
 --- The one clause of a guard that does nothing but call `error`.
 ---
@@ -4547,6 +4595,10 @@ function lower.loopIndex(
 
     return (counted.var as lexer.Token).text
 end
+
+----------------------------------------------------------------------------
+-- Scanning a module into a program
+----------------------------------------------------------------------------
 
 --- One `@aot` application: the annotation chain, and what it decorates.
 record lower.Application

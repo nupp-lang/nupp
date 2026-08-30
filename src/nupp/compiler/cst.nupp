@@ -21,6 +21,10 @@ local lexer = require("nupp.compiler.lexer")
 
 local cst = {}
 
+----------------------------------------------------------------------------
+-- What a pass leaves on a node
+----------------------------------------------------------------------------
+
 --- What later passes leave on a node for the ones after them. The checker works out
 --- what a name means; the generator needs the answer and must not work it out again.
 --- These belong to no one kind, so they are declared once and included by every node
@@ -583,6 +587,10 @@ interface cst.Hints
     continueExit: any
 end
 
+----------------------------------------------------------------------------
+-- Statements
+----------------------------------------------------------------------------
+
 --- A parsed file: its top-level blocks and the eof token that ends it.
 record cst.Chunk is cst.Hints
     {cst.Node | lexer.Token}
@@ -1137,6 +1145,10 @@ record cst.PragmaStmt is cst.Hints
     stat: cst.Node?
 end
 
+----------------------------------------------------------------------------
+-- Annotations
+----------------------------------------------------------------------------
+
 --- `@name(...)` attached to a declaration member rather than a statement.
 record cst.AnnotationApply is cst.Hints
     {cst.Node | lexer.Token}
@@ -1173,6 +1185,10 @@ record cst.AnnotationArg is cst.Hints
     --- The value.
     expr: cst.Node?
 end
+
+----------------------------------------------------------------------------
+-- Declarations
+----------------------------------------------------------------------------
 
 --- `associated type Name`, with an optional `is Bound` and an optional `= Answer`.
 ---
@@ -1476,6 +1492,10 @@ record cst.CdefStruct is cst.Hints
     cdefSemantic: string?
 end
 
+----------------------------------------------------------------------------
+-- Generics, parameters and bodies
+----------------------------------------------------------------------------
+
 --- A generic parameter clause, `<K, V is Bound>`.
 record cst.Generics is cst.Hints
     {cst.Node | lexer.Token}
@@ -1596,6 +1616,10 @@ record cst.CaptureClause is cst.Hints
     --- The captured names in source order.
     names: {lexer.Token}
 end
+
+----------------------------------------------------------------------------
+-- Expressions
+----------------------------------------------------------------------------
 
 --- A reference to a name.
 record cst.NameExpr is cst.Hints
@@ -2189,6 +2213,10 @@ record cst.Ternary is cst.Hints
     ifFalse: cst.Node?
 end
 
+----------------------------------------------------------------------------
+-- Types
+----------------------------------------------------------------------------
+
 --- `const T`, a read-only view.
 record cst.Tconst is cst.Hints
     {cst.Node | lexer.Token}
@@ -2581,6 +2609,10 @@ record cst.Tpreserves is cst.Hints
     param: lexer.Token?
 end
 
+----------------------------------------------------------------------------
+-- The node union
+----------------------------------------------------------------------------
+
 --- A node of the concrete syntax tree: one of the productions above, told apart by its
 --- `kind`. Reading a field that belongs to another kind is an error, which is what
 --- makes a dispatch loop check.
@@ -2731,6 +2763,10 @@ type cst.Bodied = cst.UnsafeStmt
     | cst.Shortfn
     | cst.SwitchCase
     | cst.SwitchElse
+
+----------------------------------------------------------------------------
+-- Reading a tree
+----------------------------------------------------------------------------
 
 --- True when `x` is a token rather than a node, which narrows it for the caller. Tokens
 --- are told apart by carrying trivia; this is the one place that test is asserted

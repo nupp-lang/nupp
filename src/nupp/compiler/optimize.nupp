@@ -29,6 +29,10 @@ local optimize = {}
 local isToken = cst.isToken
 local firstToken = cst.firstToken
 
+----------------------------------------------------------------------------
+-- The pass registry
+----------------------------------------------------------------------------
+
 --- The passes, by stable code: the name a person uses, the lowest `-O` level that runs
 --- the pass, and one line saying what it is for.
 optimize.passes = {
@@ -71,6 +75,10 @@ optimize.passes = {
         summary = "emit bounded private bodies for closed scalar const applications",
     },
 }
+
+----------------------------------------------------------------------------
+-- OPT-1 presize
+----------------------------------------------------------------------------
 
 -- Presizing pays from two fields up. An empty table grows its hash part by rehashing,
 -- so a single field costs one rehash, and replacing the constructor with a call to buy
@@ -349,6 +357,10 @@ local function walk(node, remarks)
     end
 end
 
+----------------------------------------------------------------------------
+-- OPT-2 numeric-ipairs
+----------------------------------------------------------------------------
+
 -- Nodes that own their own body, which this pass does not follow into: a loop written
 -- inside a function written inside this body is that function's body's question.
 local NESTED_FUNCTION = {localFuncStmt = true, funcStmt = true, inlineMethod = true, funcExpr = true, shortfn = true,}
@@ -460,6 +472,10 @@ local function numericIpairsBody(body, facts, remarks)
 
     walk(body)
 end
+
+----------------------------------------------------------------------------
+-- OPT-5 concat-buffer
+----------------------------------------------------------------------------
 
 -- The loops a string may be accumulated round. `repeat` is included: what matters is
 -- that the body runs an unknown number of times, not how it decides to stop.
@@ -614,6 +630,10 @@ local function concatBufferBlocks(node, asked, remarks, counter: integer): integ
     return counter
 end
 
+----------------------------------------------------------------------------
+-- Driving the body passes
+----------------------------------------------------------------------------
+
 --- Lowers a string accumulated round a loop to a `string.buffer`.
 ---
 --- `s = s .. piece` in a loop is O(n^2): each round allocates a string holding
@@ -648,6 +668,10 @@ local function numericIpairsWalk(result, remarks)
         numericIpairsBody(body, facts, remarks)
     end
 end
+
+----------------------------------------------------------------------------
+-- OPT-3 constant-fold
+----------------------------------------------------------------------------
 
 -- A folded value is deliberately smaller than Lua's constant vocabulary. In particular,
 -- cdata literals, floats, and calls are left alone: their target representation,
@@ -1284,6 +1308,10 @@ local function constantFoldWalk(node)
     end
 end
 
+----------------------------------------------------------------------------
+-- OPT-4 static-callable
+----------------------------------------------------------------------------
+
 local function hasJumpScope(block)
     for _, stat in ipairs(block.stats or {}) do
         if stat.kind == "gotoStmt" or stat.kind == "labelStmt" then
@@ -1398,6 +1426,10 @@ local function staticCallableWalk(root, remarks)
     end
     visit(root)
 end
+
+----------------------------------------------------------------------------
+-- OPT-6 indexed-range
+----------------------------------------------------------------------------
 
 -- Checking has already attached one representation-independent proof to each
 -- admitted access. Optimization merely selects the direct adapter; it does not
@@ -2077,6 +2109,10 @@ local function finalizeIndexedViewParameterTransport(plans, remarks)
     end
 end
 
+----------------------------------------------------------------------------
+-- OPT-7 inline-return-helper
+----------------------------------------------------------------------------
+
 -- OPT-7: a module's own single-return local helpers, inlined where they are called.
 --
 -- `@aot` already inlines exactly these into a compiled body, so before this the two
@@ -2543,6 +2579,10 @@ local function inlineReturnHelperWalk(result, remarks)
     end
 end
 
+----------------------------------------------------------------------------
+-- OPT-8 const-monomorphize
+----------------------------------------------------------------------------
+
 -- OPT-8 consumes the checked const tuple before erasure.  It does not copy the CST:
 -- generation re-emits the one checked body under a substitution environment, which
 -- keeps ownership/effect annotations and semantic definitions attached to the exact
@@ -2617,6 +2657,10 @@ local function constMonomorphizeWalk(result, remarks, selection: any?, selectedF
 
     return emittedBodies
 end
+
+----------------------------------------------------------------------------
+-- Running the passes
+----------------------------------------------------------------------------
 
 --- What a pass works on: the tree it rewrites in place and the analysis the checker
 --- left beside it.

@@ -28,6 +28,10 @@ local rawType = T.unwrapOwnership
 -- A call site has run inference: a binder nothing reached becomes `any`, which
 -- leaves the application gradual rather than leaking a binder into the caller.
 
+----------------------------------------------------------------------------
+-- Substitution and probing
+----------------------------------------------------------------------------
+
 --- Materializes and reduces in one evaluation, and reports what the reduction saw.
 ---
 --- The observations have to come from the same evaluation as the type. Reducing
@@ -280,6 +284,10 @@ local function signaturesText(signatures: {T.Func}): string
     return table.concat(parts, "; ")
 end
 
+----------------------------------------------------------------------------
+-- What the checker installs
+----------------------------------------------------------------------------
+
 --- What applying something to arguments is asked. All four are promoted onto the run as
 --- well, since an operator, an index and a call each reach a different one of them, and
 --- none of those passes is lexically inside this one.
@@ -304,6 +312,10 @@ type calls.Ops = {
 --- @return the operations the walk calls
 function calls.install(c: state.Checker): calls.Ops
     local ops = {}
+
+    ---------------------------------------------------------------------
+    -- Describing a call site
+    ---------------------------------------------------------------------
 
     local function callDetails(node)
         local callee = node and node.obj
@@ -375,6 +387,10 @@ function calls.install(c: state.Checker): calls.Ops
 
         return {{title = "build it from arguments", edits = edits}}
     end
+
+    ---------------------------------------------------------------------
+    -- Members and metamethods
+    ---------------------------------------------------------------------
 
     c.fieldType = function(t, name)
         t = rawType(t)
@@ -637,6 +653,8 @@ function calls.install(c: state.Checker): calls.Ops
     --- A method's type as a plain function, receiver removed.
 
     ---------------------------------------------------------------------
+    -- Generic instantiation
+    ---------------------------------------------------------------------
 
     --- What to do about a bound one type argument failed. A bound asking to name the
     --- value is the case worth spelling out: the two types print alike apart from the
@@ -651,9 +669,6 @@ function calls.install(c: state.Checker): calls.Ops
 
         return "pass a function a module exports, with the values it would have captured as arguments"
     end
-
-    -- Generic instantiation
-    ---------------------------------------------------------------------
 
     -- Rebuilds `t` with typevars replaced per `map` (unresolved -> any).
 
@@ -676,6 +691,10 @@ function calls.install(c: state.Checker): calls.Ops
             end
         end
     end
+
+    ---------------------------------------------------------------------
+    -- Contracts
+    ---------------------------------------------------------------------
 
     -- Checks one declared operation contract against already-inferred arguments. Unlike
     -- inferCall this never evaluates expressions again.
@@ -795,6 +814,10 @@ function calls.install(c: state.Checker): calls.Ops
 
         return rets[1] or T.nil_
     end
+
+    ---------------------------------------------------------------------
+    -- Inferring a call
+    ---------------------------------------------------------------------
 
     -- Returns ret1, full ret list.
     function ops.inferCall(node, calleeT, argsNode, knownAts)

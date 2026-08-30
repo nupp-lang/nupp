@@ -37,6 +37,10 @@ local visit = require("nupp.compiler.aot.visit")
 
 local verify = {}
 
+----------------------------------------------------------------------------
+-- What a rule is verified against
+----------------------------------------------------------------------------
+
 --- What every rule needs to know about the function being verified.
 ---
 --- Passed rather than reached for, so a rule cannot quietly depend on more of
@@ -81,6 +85,10 @@ record verify.Context
     scope: verify.Scope
 end
 
+----------------------------------------------------------------------------
+-- Refusing
+----------------------------------------------------------------------------
+
 --- Reports IR that cannot mean anything.
 ---
 --- Raised rather than returned: reaching one is a compiler bug and there is no
@@ -104,6 +112,10 @@ end
 local function laneHolds(condition: boolean, why: string): nil
     holds(condition, "invalid lane IR: " .. why)
 end
+
+----------------------------------------------------------------------------
+-- The opcode vocabulary
+----------------------------------------------------------------------------
 
 --- The largest value a 32-bit pattern can hold, for a literal standing in for
 --- one.
@@ -291,6 +303,10 @@ const verify.LANE_OPCODES = {
 local scalarWalk: function(scalarIR.Expr, {[string]: string}, verify.Scope): nil
 
 local laneWalk: function(lane.Expr, {[string]: string}, verify.Context): nil
+
+----------------------------------------------------------------------------
+-- Expressions
+----------------------------------------------------------------------------
 
 --- Whether an operand may take part in a bitwise operation.
 ---
@@ -1151,6 +1167,10 @@ function verify.statementOpcodes(): {[string]: boolean}
     return effects.statementOpcodes()
 end
 
+----------------------------------------------------------------------------
+-- Lane expressions
+----------------------------------------------------------------------------
+
 --- Every vector this gang may mention, so an opcode naming one that belongs to
 --- a different shape is caught rather than quietly accepted.
 local function laneTypes(shape: lane.Shape): {[string]: boolean}
@@ -1450,6 +1470,10 @@ end
 function verify.laneExpression(node: lane.Expr, values: {[string]: string}, context: verify.Context): nil
     laneWalk(node, values, context)
 end
+
+----------------------------------------------------------------------------
+-- Statements
+----------------------------------------------------------------------------
 
 --- An environment with the same entries, so a nested scope cannot leak the
 --- names it introduces back out of itself.
@@ -2180,6 +2204,10 @@ local function laneBlock(
         end
     end
 end
+
+----------------------------------------------------------------------------
+-- Whole programs
+----------------------------------------------------------------------------
 
 --- Indexes the layouts, filling in each one's fields by name.
 local function layoutsByName(program: scalarIR.Program): {[string]: scalarIR.Layout}

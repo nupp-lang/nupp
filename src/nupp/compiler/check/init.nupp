@@ -83,6 +83,10 @@ local type Child = cst.Child
 -- it
 -- and this file requires every pass. These keep the names a caller already had.
 
+----------------------------------------------------------------------------
+-- What a run produces
+----------------------------------------------------------------------------
+
 --- One thing to report about a file.
 type checkMod.Diagnostic = state.Diagnostic
 
@@ -104,6 +108,10 @@ checkMod.lintLevels = lints.levels
 checkMod.lintOptIn = lints.optIn
 checkMod.lintLevel = lints.level
 checkMod.lintFor = lints.get
+
+----------------------------------------------------------------------------
+-- Reifiable fields
+----------------------------------------------------------------------------
 
 -- The closed reifiable field set: numerics, bool, structs by value, pointers, nullable
 -- pointers. Everything GC-managed is out.
@@ -191,6 +199,10 @@ end
 -- moduleName, an annotation registry, and a seeded module export interface for
 -- recursive project declarations.
 
+----------------------------------------------------------------------------
+-- The strict floor
+----------------------------------------------------------------------------
+
 --- Whether a file is held to the strict floor when nothing said otherwise.
 ---
 --- The extension is the answer, so a file says what it wants where anyone reading it
@@ -260,6 +272,10 @@ local function reportTypedLayer(c: state.Checker, node: any)
         reportTypedLayer(c, child)
     end
 end
+
+----------------------------------------------------------------------------
+-- Yielding
+----------------------------------------------------------------------------
 
 -- The funcbody a value expression is, if it is one written out here rather than named.
 -- An alias -- `M.f = someLocal` -- deliberately answers nil: what it exports is a value
@@ -345,6 +361,10 @@ local function provenNonYielding(node: cst.Node?, body: cst.Node?): boolean
 
     return true
 end
+
+----------------------------------------------------------------------------
+-- What crosses a module boundary
+----------------------------------------------------------------------------
 
 -- Stamps a callable leaf with what its own definition proved.
 --
@@ -531,6 +551,10 @@ local function finalizeBoundary(c: state.Checker)
     -- definition -- which is what leaves an annotated or nominal export alone.
     c.moduleType = qualifyExport(c.moduleType, c.moduleReturnValue) as Type
 end
+
+----------------------------------------------------------------------------
+-- Finalizing a run
+----------------------------------------------------------------------------
 
 -- The boundary transports only exact definition identity and two positive facts.
 -- Complete summaries stay on bodies in this file and never enter a function type.
@@ -817,6 +841,10 @@ local function finalizeNominalEffects(c: state.Checker)
     c.moduleExports.nominalEffectFingerprint = table.concat(parts, "\0")
 end
 
+----------------------------------------------------------------------------
+-- The run
+----------------------------------------------------------------------------
+
 -- Returns diags, moduleType (top-level return plus runtime declaration exports), and
 -- the module's exported type/value interface.
 function checkMod.check(
@@ -970,6 +998,11 @@ function checkMod.check(
     end
 
     -- What this file has declared to the FFI. Per file, because a cdef binding is
+
+    ---------------------------------------------------------------------
+    -- Per-file state and diagnostics
+    ---------------------------------------------------------------------
+
     -- file-local, and because the alternative is process state deciding what a
     -- program means.
     c.cDeclared = {}
@@ -1229,6 +1262,10 @@ function checkMod.check(
             )
         end
     end
+
+    ---------------------------------------------------------------------
+    -- Scopes and bindings
+    ---------------------------------------------------------------------
 
     -- A cleanup body that resolves a name declared outside itself makes the generated
     -- region a closure over that binding, and a region with upvalues cannot be shared
@@ -1762,6 +1799,10 @@ function checkMod.check(
     -- extra return values. See nupp.compiler.check.expr for which expressions expand.
     local EXPANDS = expr.EXPANDS
 
+    ---------------------------------------------------------------------
+    -- Modes and list inference
+    ---------------------------------------------------------------------
+
     local function affineType(t)
         if not t then
             return false
@@ -1898,6 +1939,10 @@ function checkMod.check(
     local facts = narrow.install(c)
     c.facts = facts
     local pathKey = facts.pathKey
+
+    ---------------------------------------------------------------------
+    -- Control flow
+    ---------------------------------------------------------------------
 
     --- Whether calling this expression never comes back. `error` is recognized by name
     --- so that untyped code keeps the behaviour it always had; anything else has to say
@@ -2039,6 +2084,10 @@ function checkMod.check(
     -- Checking a declaration and publishing what it declares. See
     -- nupp.compiler.check.declare.
     declare.install(c, reifiableField, fix, insertBefore, validateAnnotation)
+
+    ---------------------------------------------------------------------
+    -- Module fields and exports
+    ---------------------------------------------------------------------
 
     --- Checks one statement, in the scope it stands in.
     ---
@@ -2333,6 +2382,10 @@ function checkMod.check(
         )
     end
 
+    ---------------------------------------------------------------------
+    -- Statements and hoisting
+    ---------------------------------------------------------------------
+
     local function checkStat(stat: Node)
         local handle = statHandlers[stat.kind]
         if handle then
@@ -2532,6 +2585,10 @@ function checkMod.check(
         c.hoisting = wasHoisting
     end
 
+    ---------------------------------------------------------------------
+    -- Blocks
+    ---------------------------------------------------------------------
+
     -- Resolves a pending direct module function against its block's lexical scope,
     -- after preceding imports and locals have been bound. The caller may be inside a
     -- different function body, whose generic and local names are not in scope at the
@@ -2639,6 +2696,10 @@ function checkMod.check(
             c.popScope()
         end
     end
+
+    ---------------------------------------------------------------------
+    -- Audits after the walk
+    ---------------------------------------------------------------------
 
     -- A goto may leave an exact extent because lowering drops before dispatch, but it
     -- may not enter one and bypass acquisition.

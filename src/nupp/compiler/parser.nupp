@@ -119,6 +119,10 @@ function parser.parse(source: string, filename: string?): parser.ParseResult
     -- Function bodies reset this depth, just as they reset loop depth.
     local switchArmDepth = 0
 
+    ---------------------------------------------------------------------
+    -- The cursor
+    ---------------------------------------------------------------------
+
     --- The token about to be consumed.
     local function cur(): Token
         return tokens[i]
@@ -176,6 +180,10 @@ function parser.parse(source: string, filename: string?): parser.ParseResult
 
         return ("%q"):format(tok.text)
     end
+
+    ---------------------------------------------------------------------
+    -- Reporting and recovering
+    ---------------------------------------------------------------------
 
     local function errAt(tok: Token, msg: string, code: string?, help: string?, fixes: any)
         if msg:find("expected", 1, true) and not msg:find("found", 1, true) then
@@ -269,6 +277,10 @@ function parser.parse(source: string, filename: string?): parser.ParseResult
 
         return expect(">", what)
     end
+
+    ---------------------------------------------------------------------
+    -- Contextual lookahead
+    ---------------------------------------------------------------------
 
     -- Runs fn with the no-method restriction lifted (inside (), [], {}, args).
 
@@ -466,6 +478,10 @@ function parser.parse(source: string, filename: string?): parser.ParseResult
             after.kind == "=" or after.kind == ":"
         )
     end
+
+    ---------------------------------------------------------------------
+    -- Types
+    ---------------------------------------------------------------------
 
     -- Consumes ':' as a type-annotation colon (formatted as "x: T").
 
@@ -1194,6 +1210,10 @@ function parser.parse(source: string, filename: string?): parser.ParseResult
         return n
     end
 
+    ---------------------------------------------------------------------
+    -- Calls and arguments
+    ---------------------------------------------------------------------
+
     --- A comma-separated expression list, appended to `n`.
     local function parseExplist(n: Node): {Node}
         local exprs: {Node} = {}
@@ -1403,6 +1423,10 @@ function parser.parse(source: string, filename: string?): parser.ParseResult
 
         return n
     end
+
+    ---------------------------------------------------------------------
+    -- Expressions
+    ---------------------------------------------------------------------
 
     --- A name or a parenthesized expression.
     local function parsePrimaryexp(): Node
@@ -2170,6 +2194,10 @@ function parser.parse(source: string, filename: string?): parser.ParseResult
         return n
     end
 
+    ---------------------------------------------------------------------
+    -- Result types and borrows
+    ---------------------------------------------------------------------
+
     -- Typed declarations are contextual [CS-5]. `modifierTok` is an already- consumed
     -- `local` or `global`; bare declarations have no modifier.
     local parseTypedecl
@@ -2236,6 +2264,10 @@ function parser.parse(source: string, filename: string?): parser.ParseResult
         return parseBorrowRelation(result)
     end
 
+    ---------------------------------------------------------------------
+    -- Annotations
+    ---------------------------------------------------------------------
+
     -- Parses the `@name(...)` part shared by statement and record-member annotations.
     -- Arguments are ordinary expressions required to be compile-time constants by the
     -- checker, except that an @ref definition member accepts a type name; `name =
@@ -2269,6 +2301,10 @@ function parser.parse(source: string, filename: string?): parser.ParseResult
 
         return n
     end
+
+    ---------------------------------------------------------------------
+    -- Declarations
+    ---------------------------------------------------------------------
 
     --- Whether an `associated type` member begins here.
     ---
@@ -2606,6 +2642,10 @@ function parser.parse(source: string, filename: string?): parser.ParseResult
 
         return n
     end
+
+    ---------------------------------------------------------------------
+    -- Statements
+    ---------------------------------------------------------------------
 
     --- One statement of any kind.
     parseStatement = function(): Node
@@ -3183,6 +3223,10 @@ function parser.parse(source: string, filename: string?): parser.ParseResult
 
         return n
     end
+
+    ---------------------------------------------------------------------
+    -- Blocks and the chunk
+    ---------------------------------------------------------------------
 
     --- Statements up to a block terminator.
     parseBlock = function(): Node

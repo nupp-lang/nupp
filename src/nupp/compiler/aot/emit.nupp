@@ -29,6 +29,10 @@ local explicitScalar = false
 local reusableScratchName: string? = nil
 local builderEager = false
 
+----------------------------------------------------------------------------
+-- Names, types and literals
+----------------------------------------------------------------------------
+
 --- The exported spelling of a logical program symbol in one tier.
 local function physicalSymbol(symbol: string, tier: string?): string
     return tier ~= nil and target.symbol(symbol, tier as string) or symbol
@@ -201,6 +205,10 @@ function emit.doubleLiteral(value: string): string
 
     return value
 end
+
+----------------------------------------------------------------------------
+-- Scalar expressions
+----------------------------------------------------------------------------
 
 local luaSite: function(source: scalarIR.Source?): string
 
@@ -975,6 +983,10 @@ local laneTemporary = 0
 
 local luaTemporary = 0
 
+----------------------------------------------------------------------------
+-- Lane expressions
+----------------------------------------------------------------------------
+
 --- Starts one function's emission.
 function emit.begin(): nil
     laneTemporary = 0
@@ -1166,6 +1178,10 @@ function emit.laneBits(node: lane.Bitwise): string
     return "(" .. emit.lane(node.args[1]) .. tostring(emit.BITWISE[verb]) .. right .. ")"
 end
 
+----------------------------------------------------------------------------
+-- Layouts, parameters and guards
+----------------------------------------------------------------------------
+
 --- One reified struct, as a C type whose layout the wrapper checks.
 ---
 --- Nothing here asserts the layout matches: the generated module compares
@@ -1353,6 +1369,10 @@ function emit.maskC(mask: string): string
     return spelling as string
 end
 
+----------------------------------------------------------------------------
+-- Includes and feature detection
+----------------------------------------------------------------------------
+
 --- What every generated file starts with.
 function emit.includes(): {string}
     return {
@@ -1502,6 +1522,10 @@ end
 --- the buffer is Lua-owned as before, because a frame is not the place to find
 --- out that a capacity was larger than the stack left.
 const emit.STACK_SCRATCH_WORDS = 1024
+
+----------------------------------------------------------------------------
+-- The Lua interop prelude
+----------------------------------------------------------------------------
 
 --- How large a fixed byte buffer may be and still stand on the C stack.
 ---
@@ -3149,6 +3173,10 @@ function emit.luaPrelude(wideNumbers: boolean): {string}
     return lines
 end
 
+----------------------------------------------------------------------------
+-- Layout reporters
+----------------------------------------------------------------------------
+
 --- Bytes as an unambiguous C string literal.
 local function cBytes(value: string): string
     local bytes: {string} = {}
@@ -3198,6 +3226,10 @@ function emit.layoutReporters(symbol: string, layout: scalarIR.Layout): {string}
 
     return lines
 end
+
+----------------------------------------------------------------------------
+-- The SIMD prelude
+----------------------------------------------------------------------------
 
 --- A set's keys in a fixed order, so the same IR renders the same text.
 ---
@@ -4549,6 +4581,10 @@ function emit.simdPrelude(width: integer, hasBuilder: boolean): {string}
     return lines
 end
 
+----------------------------------------------------------------------------
+-- Helpers
+----------------------------------------------------------------------------
+
 --- One helper's C parameter list.
 local function helperParams(helper: scalarIR.Helper): string
     local parts: {string} = {}
@@ -4620,6 +4656,10 @@ function emit.helpers(helpers: {scalarIR.Helper}): {string}
 
     return lines
 end
+
+----------------------------------------------------------------------------
+-- Bodies and Lua blocks
+----------------------------------------------------------------------------
 
 --- What a block needs from the program around it.
 record emit.Body
@@ -5223,6 +5263,10 @@ function emit.luaBlock(statements: {scalarIR.Statement}, depth: integer, body: e
     return lines
 end
 
+----------------------------------------------------------------------------
+-- Statements
+----------------------------------------------------------------------------
+
 --- The C type one local is declared with.
 ---
 --- A pointer to a struct element carries its own constness, because that is
@@ -5699,6 +5743,10 @@ function emit.block(statements: {any}, depth: integer, body: emit.Body): {string
 
     return lines
 end
+
+----------------------------------------------------------------------------
+-- The whole program
+----------------------------------------------------------------------------
 
 --- One or more programs, as one C file.
 ---
