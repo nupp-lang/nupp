@@ -11,6 +11,8 @@ When complete, delete the worktree. Leave no attribution in commits,
 do not use conventional commits, use imperative language, and keep commit
 lines under 72 characters.
 
+Before every commit, run `./bin/nupp fmt --write` on all changed code files.
+
 Main moving underneath you while you integrate, and the rebase that follows,
 is the expected, natural consequence of other agents working in parallel out
 of their own worktrees. Do not report this or call it out as needing
