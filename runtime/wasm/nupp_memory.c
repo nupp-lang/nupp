@@ -9,8 +9,14 @@
 #define NUPP_ALLOCATION "nupp.wasm.allocation"
 #define NUPP_POINTER "nupp.wasm.pointer"
 
+/* The header is a union with double so `bytes` sits eight-aligned: AOT
+ * kernels cast the payload to double and wider element pointers, and a
+ * payload at offset four would make every one of those accesses misaligned. */
 struct nupp_allocation {
-    size_t size;
+    union {
+        size_t size;
+        double aligned;
+    } header;
     unsigned char bytes[1];
 };
 
@@ -63,7 +69,7 @@ static int memory_allocate(lua_State *state) {
         state,
         sizeof(*allocation) + (size == 0 ? 0 : size - 1)
     );
-    allocation->size = size;
+    allocation->header.size = size;
     if (size != 0) {
         memset(allocation->bytes, 0, size);
     }
@@ -81,7 +87,7 @@ static int memory_pointer(lua_State *state) {
         checked_integer(state, 3, &stride) != 0) {
         return 0;
     }
-    if (offset > allocation->size) {
+    if (offset > allocation->header.size) {
         return luaL_error(state, "Wasm pointer offset is out of bounds");
     }
     if (stride == 0) {
@@ -90,7 +96,7 @@ static int memory_pointer(lua_State *state) {
     new_pointer(
         state,
         allocation->bytes + offset,
-        allocation->size - offset,
+        allocation->header.size - offset,
         stride,
         1
     );
@@ -194,8 +200,14 @@ static int memory_load(lua_State *state) {
     return 1;
 }
 
-static double modulo(lua_Number value, double modulus) {
-    double wrapped = fmod(value, modulus);
+static double modulo(lua_State *state, lua_Number value, double modulus) {
+    double wrapped;
+    /* fmod of an infinity or NaN answers NaN, and casting NaN to an integer
+     * type is undefined -- on wasm, a trap that takes the whole instance. */
+    if (!isfinite(value)) {
+        luaL_error(state, "Wasm integer store needs a finite number");
+    }
+    wrapped = fmod(value, modulus);
     return wrapped < 0.0 ? wrapped + modulus : wrapped;
 }
 
@@ -212,22 +224,22 @@ static int memory_store(lua_State *state) {
         double value = (double)luaL_checknumber(state, 4);
         memcpy(destination, &value, sizeof(value));
     } else if (strcmp(kind, "int8") == 0) {
-        int8_t value = (int8_t)(uint8_t)modulo(luaL_checknumber(state, 4), 256.0);
+        int8_t value = (int8_t)(uint8_t)modulo(state, luaL_checknumber(state, 4), 256.0);
         memcpy(destination, &value, sizeof(value));
     } else if (strcmp(kind, "uint8") == 0) {
-        uint8_t value = (uint8_t)modulo(luaL_checknumber(state, 4), 256.0);
+        uint8_t value = (uint8_t)modulo(state, luaL_checknumber(state, 4), 256.0);
         memcpy(destination, &value, sizeof(value));
     } else if (strcmp(kind, "int16") == 0) {
-        int16_t value = (int16_t)(uint16_t)modulo(luaL_checknumber(state, 4), 65536.0);
+        int16_t value = (int16_t)(uint16_t)modulo(state, luaL_checknumber(state, 4), 65536.0);
         memcpy(destination, &value, sizeof(value));
     } else if (strcmp(kind, "uint16") == 0) {
-        uint16_t value = (uint16_t)modulo(luaL_checknumber(state, 4), 65536.0);
+        uint16_t value = (uint16_t)modulo(state, luaL_checknumber(state, 4), 65536.0);
         memcpy(destination, &value, sizeof(value));
     } else if (strcmp(kind, "integer") == 0 || strcmp(kind, "int32") == 0) {
-        int32_t value = (int32_t)(uint32_t)modulo(luaL_checknumber(state, 4), 4294967296.0);
+        int32_t value = (int32_t)(uint32_t)modulo(state, luaL_checknumber(state, 4), 4294967296.0);
         memcpy(destination, &value, sizeof(value));
     } else {
-        uint32_t value = (uint32_t)modulo(luaL_checknumber(state, 4), 4294967296.0);
+        uint32_t value = (uint32_t)modulo(state, luaL_checknumber(state, 4), 4294967296.0);
         memcpy(destination, &value, sizeof(value));
     }
     return 0;

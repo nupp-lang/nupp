@@ -44,6 +44,21 @@ export function runtimeSourceDigest() {
   return digest.digest("hex");
 }
 
+// The Lua tree compiled into the module, digested separately: a check that has
+// no tree in hand can still validate the runtime's own sources, and one that
+// does must not reuse a module built from a different Lua.
+export function luaSourceDigest(luaSource) {
+  const digest = createHash("sha256");
+  const names = readdirSync(luaSource).filter((name) => /\.[ch]$/.test(name)).sort();
+  for (const name of names) {
+    digest.update(name);
+    digest.update("\0");
+    digest.update(readFileSync(path.join(luaSource, name)));
+    digest.update("\0");
+  }
+  return digest.digest("hex");
+}
+
 function record(file, name) {
   return {file: name, sha256: sha256(file), bytes: statSync(file).size};
 }
@@ -92,6 +107,7 @@ export function buildRuntimePackage(output, luaSource, environment = process.env
       schemaVersion: 1,
       emscripten: "6.0.8",
       sourceSha256: runtimeSourceDigest(),
+      luaSha256: luaSourceDigest(source),
       module: record(modulePath, moduleName),
       wasm: record(wasmPath, wasmName),
       loader: record(path.join(destination, "app-runtime.mjs"), "app-runtime.mjs"),

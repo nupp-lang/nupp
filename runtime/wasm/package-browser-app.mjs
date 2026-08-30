@@ -15,7 +15,7 @@ import {
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
-import { buildRuntimePackage, runtimeSourceDigest } from "./build-runtime-package.mjs";
+import { buildRuntimePackage, luaSourceDigest, runtimeSourceDigest } from "./build-runtime-package.mjs";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const repo = path.resolve(here, "../..");
@@ -79,8 +79,14 @@ function runtimePackage(directory, luaSource, environment) {
     ? JSON.parse(readFileSync(manifestPath, "utf8"))
     : undefined;
   const expectedSource = runtimeSourceDigest();
-  if (!manifest || manifest.schemaVersion !== 1 || manifest.emscripten !== "6.0.8" ||
-      manifest.sourceSha256 !== expectedSource) {
+  // A check with no Lua tree in hand can only vouch for the runtime's own
+  // sources; one with a tree must not reuse a module built from another Lua.
+  const expectedLua = luaSource ? luaSourceDigest(path.resolve(luaSource)) : undefined;
+  const stale = (candidate) =>
+    !candidate || candidate.schemaVersion !== 1 || candidate.emscripten !== "6.0.8" ||
+    candidate.sourceSha256 !== expectedSource ||
+    (expectedLua !== undefined && candidate.luaSha256 !== expectedLua);
+  if (stale(manifest)) {
     if (!luaSource) {
       const state = manifest ? "stale" : "absent";
       throw new Error(
@@ -90,8 +96,7 @@ function runtimePackage(directory, luaSource, environment) {
     buildRuntimePackage(directory, luaSource, environment);
     manifest = JSON.parse(readFileSync(manifestPath, "utf8"));
   }
-  if (manifest.schemaVersion !== 1 || manifest.emscripten !== "6.0.8" ||
-      manifest.sourceSha256 !== expectedSource) {
+  if (stale(manifest)) {
     throw new Error("unsupported Nupp Wasm runtime package");
   }
   const records = [

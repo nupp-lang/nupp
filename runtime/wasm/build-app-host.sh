@@ -20,7 +20,7 @@ if ! command -v "$emcc_command" >/dev/null 2>&1; then
   echo "Emscripten 6.0.8 is required (set EMCC or put emcc on PATH)" >&2
   exit 2
 fi
-version=$($emcc_command --version | sed -n '1s/.*emcc.* \([0-9][0-9.]*\).*/\1/p')
+version=$("$emcc_command" --version | sed -n '1s/.*emcc.* \([0-9][0-9.]*\).*/\1/p')
 if [[ $version != 6.0.8 ]]; then
   echo "Emscripten 6.0.8 is required, found $version" >&2
   exit 2

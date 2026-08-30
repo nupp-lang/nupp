@@ -1,7 +1,7 @@
 const worker = new Worker(new URL("./browser-worker.mjs", import.meta.url), {type: "module"});
 const pending = new Map();
 let nextId = 1;
-let launched = false;
+let launchedPromise = null;
 
 worker.addEventListener("message", (event) => {
   const request = pending.get(event.data?.id);
@@ -23,8 +23,7 @@ worker.addEventListener("error", (event) => {
 });
 
 export function run(options = {}) {
-  if (launched) return Promise.reject(new Error("this browser application already started"));
-  launched = true;
+  if (launchedPromise) return Promise.reject(new Error("this browser application already started"));
   const id = nextId++;
   const deadlineMs = options.deadlineMs || 30_000;
   const result = new Promise((resolve, reject) => {
@@ -42,6 +41,7 @@ export function run(options = {}) {
     limits: options.limits,
     storageName: options.storageName,
   });
+  launchedPromise = result;
   return result;
 }
 
@@ -58,6 +58,11 @@ export function close() {
   worker.terminate();
 }
 
-export const ready = run();
+// The importing page gets one turn to call `run` with its own options before
+// the default launch claims the only slot; `ready` follows whichever ran.
+export const ready = Promise.resolve().then(() => launchedPromise ?? run());
+// Marks the auto-launch handled for pages that import only `cancel`/`close`;
+// a page that awaits `ready` still sees the rejection itself.
+ready.catch(() => {});
 
 export default ready;

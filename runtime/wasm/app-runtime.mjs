@@ -202,6 +202,12 @@ async function defaultStorage(options) {
 
 async function performStorageEffect(effect, options) {
   const storage = options.storage || await defaultStorage(options);
+  // A cancelled run was told its turn never completed, so it must stop
+  // committing. Best-effort: an abort landing mid-transaction still lands,
+  // but one that already happened does not go on writing.
+  if (options.signal?.aborted) {
+    throw options.signal.reason || new DOMException("The operation was aborted", "AbortError");
+  }
   if (effect.operation === "clear") {
     await storage.clear();
     return null;
@@ -355,14 +361,11 @@ async function driveApplication(module, source, options) {
   // budget is per task rather than for one application run. `resetLimits` names
   // the request that begins a turn; without it every count is cumulative, which is
   // what a page's own application wants.
-  const beginTurn = () => {
-    effectCount = 0;
-    effectBytes = 0;
-    responseBytes = 0;
-    turnStarted = performance.now();
+  const stopDeadline = () => clearTimeout(deadlineTimer);
+  const armDeadline = (what) => {
     clearTimeout(deadlineTimer);
     deadlineTimer = setTimeout(() => deadline.abort(
-      new Error(`browser worker lane exceeded its ${options.limits.deadlineMs} ms deadline`),
+      new Error(`browser ${what} exceeded its ${options.limits.deadlineMs} ms deadline`),
     ), options.limits.deadlineMs);
   };
   try {
@@ -377,12 +380,22 @@ async function driveApplication(module, source, options) {
         throw options.signal.reason || new DOMException("The operation was aborted", "AbortError");
       }
       let request;
+      let beginsTurn = false;
       try {
         const requestText = payload(module);
         request = JSON.parse(requestText);
-        // Before the budgets are read, so a lane that waited minutes for its next
-        // task is measured against that task rather than against the wait.
-        if (options.resetLimits?.(request)) beginTurn();
+        // A turn-beginning frame is the one whose effect waits, unbounded, for
+        // the lane's next task. Its counters reset now, and the deadline clock
+        // stops until the task is in hand, so an idle lane is not killed for
+        // waiting and the wait is never billed to the task that follows it.
+        beginsTurn = options.resetLimits?.(request) === true;
+        if (beginsTurn) {
+          effectCount = 0;
+          effectBytes = 0;
+          responseBytes = 0;
+          turnStarted = performance.now();
+          stopDeadline();
+        }
         effectBytes += textEncoder.encode(requestText).length;
         if (effectBytes > options.limits.maxEffectBytes) {
           throw new Error(`browser effect payloads exceeded ${options.limits.maxEffectBytes} bytes`);
@@ -397,6 +410,10 @@ async function driveApplication(module, source, options) {
         const response = await abortable(
           (options.effects || handleBrowserEffects)(request, options), options.signal,
         );
+        if (beginsTurn) {
+          turnStarted = performance.now();
+          armDeadline("worker lane");
+        }
         const bytes = textEncoder.encode(JSON.stringify(response));
         responseBytes += bytes.length;
         if (responseBytes > options.limits.maxResponseBytes) {
