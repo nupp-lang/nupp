@@ -165,7 +165,8 @@ end
 `lines` closes the file when it reaches the end. A trailing carriage return is
 removed, so a file written on either platform reads the same. Abandoning the
 iterator early leaves the file open until it is collected; open it yourself when
-you mean to stop.
+you mean to stop. A read that fails once iteration has begun raises, because the
+iterator has no failure channel to answer through.
 
 ## Reading and writing through a cursor
 
@@ -1042,9 +1043,17 @@ local function described(path: string | paths.Path, follow: boolean, level: inte
     end
     local found: any = nil
     -- A pointer is not indexable in checked code, so the one-element array the library
-    -- filled is read through its own index.
+    -- filled is read through its own index. The fields are copied out rather than the
+    -- element handed back: an element is an interior reference that does not anchor
+    -- its array, so returning one would let the storage it points into be collected
+    -- under the caller.
     unsafe do
-        found = record[0]
+        found = {
+            kind = record[0].kind,
+            readOnly = record[0].readOnly,
+            size = record[0].size,
+            modified = record[0].modified,
+        }
     end
 
     return found
@@ -1120,9 +1129,22 @@ local function await(handle: any): nil
             return nil
         end
 
+        -- Cancellation raises out of the suspension, so `settled` never runs to
+        -- destroy this handle; destroying it here is what gives the lane its
+        -- request and byte budget back. The worker holds its own reference to the
+        -- shared state, so a transfer already running is unaffected. An abandoned
+        -- park is cancelled twice by design, and the first call frees the handle,
+        -- so the whole body runs once and the second call finds nothing to do.
+        local cancelled = false
+
         return function(): nil
+            if cancelled then
+                return
+            end
+            cancelled = true
             forget(entry)
             C.nuppFsCancel(handle)
+            C.nuppFsDestroy(handle)
         end
     end)
 end
@@ -1568,6 +1590,8 @@ end
 --- @param path the file to read
 --- @return an iterator answering each line, or nil on failure
 --- @return a failure reason, when unsuccessful
+--- @raises when a read fails once iteration has begun, since the iterator has no
+--- failure channel to answer through
 --- @export
 export function lines(path: string | paths.Path): (LineIterator?, string?)
     -- The file is opened here rather than through `open`, because `open` hands back an
@@ -1604,8 +1628,16 @@ export function lines(path: string | paths.Path): (LineIterator?, string?)
 
                 return trimmed(line)
             end
-            local chunk = reader:read(READ_SIZE)
-            if chunk == nil or chunk == "" then
+            local chunk, why = reader:read(READ_SIZE)
+            if chunk == nil then
+                -- A failed read is not the end of the file, and the iterator has no
+                -- error channel to answer through, so finishing cleanly here would
+                -- silently truncate the file. The file is closed and the reason
+                -- raised instead.
+                finished = true
+                closeFile(opened)
+                error("nupp: io.files lines could not read: " .. (why ?? "unknown reason"), 2)
+            elseif chunk == "" then
                 finished = true
                 closeFile(opened)
                 if #held > 0 then

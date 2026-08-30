@@ -351,6 +351,27 @@ function M.aTransferParksUnderAHandlerAndBlocksWithoutOne()
    test.equal(files.pendingTransfers(), 0)
 end
 
+-- Losing a race is the ordinary way a transfer is abandoned, and the lane's
+-- budget is bounded, so a cancelled transfer keeping its slot would shrink what
+-- every later transfer may hold until nothing fits at all.
+function M.aCancelledTransferGivesItsLaneSlotBack()
+   local files = ready()
+   local suspension = require("nupp.suspension")
+   assert(files.createDirectory(inRoot("cancel")))
+   assert(files.write(inRoot("cancel/large.bin"), ("drop"):rep(1000000)))
+   test.equal(files.pendingTransfers(), 0, "the lane starts idle")
+
+   -- The read is large enough to park, and the other branch settles at once, so
+   -- the race abandons the read while it is still in flight.
+   local value = suspension.race({
+      function() return assert(files.read(inRoot("cancel/large.bin"))) end,
+      function() return "settled first" end,
+   })
+   assert(value ~= nil)
+   test.equal(files.pendingTransfers(), 0,
+      "a cancelled transfer gave its slot and bytes back")
+end
+
 function M.anAtomicWriteLeavesTheDestinationAloneWhenItFails()
    local files = ready()
    assert(files.createDirectory(inRoot("atomic")))
@@ -466,6 +487,23 @@ function M.linesSplitOnEitherPlatformsEnding()
    local missing, reason = files.lines(inRoot("lines/absent"))
    test.equal(missing, nil)
    assert(type(reason) == "string")
+end
+
+-- A read that fails once iteration has begun is not the end of the file, and the
+-- iterator has no failure channel, so it must raise rather than end cleanly and
+-- silently truncate what it was reading. A directory is the deterministic way to
+-- make the first read fail on a handle that opened: POSIX opens one for reading
+-- and refuses to read it.
+function M.aFailingReadRaisesRatherThanEndingTheLines()
+   local files = ready()
+   assert(files.createDirectory(inRoot("lines")))
+   local iterate = files.lines(inRoot("lines"))
+   if iterate ~= nil then
+      local ok, why = pcall(iterate)
+      assert(not ok, "a failed read must raise rather than read as a clean end")
+      assert(type(why) == "string" and #why > 0,
+         "and it answers the platform's reason")
+   end
 end
 
 function M.pathsAndFoldersAnswerTheEnvironment()

@@ -180,4 +180,28 @@ function M.windowsTextRulesArePlatformIndependent()
       "C:/alpha/file.bak")
 end
 
+-- An anchor is compared by what it is rather than how it is spelled: `/` and
+-- `\` name the same root, while two drives are two coordinate systems and no
+-- count of `..` steps leads from one to the other.
+function M.relatingWindowsPathsComparesAnchorsByKind()
+   local answer, reason = pathtext.relative("C:\\a", "D:\\b", true)
+   test.equal(answer, nil)
+   assert(type(reason) == "string" and #reason > 0,
+      "two drives answer why there is no relative form")
+   test.equal(assert(pathtext.relative("C:/a", "C:\\b", true)), "../a")
+   test.equal(assert(pathtext.relative("\\a", "/b", true)), "../a")
+   -- A drive-anchored target against a merely rooted base is the same refusal.
+   test.equal(pathtext.relative("C:\\a", "\\b", true), nil)
+end
+
+-- A bare drive prefix names a coordinate system rather than a place, so joining
+-- onto one stays drive-relative. A share root is a place, and keeps its
+-- separator.
+function M.joiningOntoABareDriveStaysDriveRelative()
+   test.equal(pathtext.pushPart("C:", "foo", true), "C:foo")
+   test.equal(pathtext.join({"C:", "foo"}, true), "C:foo")
+   test.equal(pathtext.join({"\\\\server\\share", "file"}, true),
+      "//server/share/file")
+end
+
 return M

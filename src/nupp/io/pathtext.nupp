@@ -401,7 +401,14 @@ function pathtext.pushPart(carried: string, part: string, windows: boolean): str
             end
         end
     elseif #carried ~= 0 and not isSeparator(byte(carried, #carried), windows) then
-        head = carried .. "/"
+        -- A bare drive prefix names a coordinate system rather than a place, so a
+        -- part joined onto one stays drive-relative: `C:` and `foo` make `C:foo`,
+        -- not the absolute `C:/foo`. A share prefix names a place, and a separator
+        -- still belongs between it and what follows.
+        local currentPrefix = pathtext.prefixLength(carried, windows)
+        if currentPrefix ~= #carried or byte(carried, #carried) ~= COLON then
+            head = carried .. "/"
+        end
     end
 
     return head .. part
@@ -553,10 +560,19 @@ function pathtext.relative(target: string, base: string, windows: boolean): (str
         if targetKind ~= baseKind or targetLength ~= baseLength then
             break
         end
-        local targetPart = target:sub(targetStart as integer, (targetStart as integer) + targetLength - 1)
-        local basePart = base:sub(baseStart as integer, (baseStart as integer) + baseLength - 1)
-        if targetPart ~= basePart then
-            break
+        -- A root is compared by kind alone: `/` and `\` spell the same anchor. A
+        -- prefix is compared with its separators folded the same way, so a share
+        -- written in either spelling still matches itself.
+        if targetKind ~= pathtext.ROOT then
+            local targetPart = target:sub(targetStart as integer, (targetStart as integer) + targetLength - 1)
+            local basePart = base:sub(baseStart as integer, (baseStart as integer) + baseLength - 1)
+            if targetKind == pathtext.PREFIX then
+                targetPart = pathtext.finish(targetPart, windows)
+                basePart = pathtext.finish(basePart, windows)
+            end
+            if targetPart ~= basePart then
+                break
+            end
         end
         targetAt, targetPhase = nextTargetAt, nextTargetPhase
         baseAt, basePhase = nextBaseAt, nextBasePhase
@@ -567,6 +583,15 @@ function pathtext.relative(target: string, base: string, windows: boolean): (str
             windows
         )
         baseStart, baseLength, baseKind, nextBaseAt, nextBasePhase = nextComponent(base, baseAt, basePhase, windows)
+    end
+
+    -- Diverging at a prefix or a root means the paths are anchored in different
+    -- coordinate systems, and no count of `..` steps leads from one to the other.
+    if baseStart ~= nil and (
+        baseKind == pathtext.PREFIX or baseKind == pathtext.ROOT
+        or (targetStart ~= nil and (targetKind == pathtext.PREFIX or targetKind == pathtext.ROOT))
+    ) then
+        return nil, "paths do not share a relative coordinate system"
     end
 
     local parents: integer = 0
