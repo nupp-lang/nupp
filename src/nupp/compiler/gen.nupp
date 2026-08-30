@@ -672,11 +672,14 @@ function gen.generate(
         -- whenever the layout does. Two identical declarations sharing a tag is
         -- correct: same body, same layout.
         local moduleTag = (result.moduleName or filename or ""):gsub("[^%w]", "_")
+        -- FNV-1a over 32 bits. The prime 16777619 is 2^24 + 2^8 + 0x93 and is
+        -- multiplied in those pieces: each product fits a double's mantissa, where the
+        -- direct multiply can exceed it and lose exactly the low bits the fold keeps.
         local function digest(text)
-            local h = 2166136261
+            local h = bit.tobit(2166136261)
             for i = 1, #text do
-                h = bit.bxor(h, text:byte(i))
-                h = bit.band(h * 16777619, 0xffffffff)
+                local mixed = bit.bxor(h, text:byte(i))
+                h = bit.tobit(bit.lshift(mixed, 24) + bit.lshift(mixed, 8) + mixed * 0x93)
             end
 
             return ("%08x"):format(bit.band(h, 0x7fffffff))

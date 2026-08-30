@@ -106021,11 +106021,14 @@ collect ( result . root )
 
 
 local moduleTag = ( result . moduleName or filename or "" ) : gsub ( "[^%w]" , "_" )
+
+
+
 local function digest ( text ) 
-local h = 2166136261
+local h = bit . tobit ( 2166136261 )
 for i = 1 , # text do
-h = bit . bxor ( h , text : byte ( i ) )
-h = bit . band ( h * 16777619 , 0xffffffff )
+local mixed = bit . bxor ( h , text : byte ( i ) )
+h = bit . tobit ( bit . lshift ( mixed , 24 ) + bit . lshift ( mixed , 8 ) + mixed * 0x93 )
 end
 
 return ( "%08x" ) : format ( bit . band ( h , 0x7fffffff ) )
