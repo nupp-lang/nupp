@@ -13121,6 +13121,7 @@ _G.assert(_G.loadstring("local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppM
 
 local scalarIR = require ( "nupp.compiler.aot.scalar" )
 local spirvemit = require ( "nupp.compiler.aot.spirvemit" )
+local visit = require ( "nupp.compiler.aot.visit" )
 
 local gpuemit = { }
 
@@ -13238,14 +13239,32 @@ end
 
 
 
-local exactCounts = { }
+local provableCounts = { }
 if loop ~= nil then
-exactCounts [ ( loop ) . count ] = true
+provableCounts [ ( loop ) . count ] = true
 end
+local exactCounts = { }
 for _ , guard in ipairs ( program . guards ) do
+provableCounts [ guard . left ] = true
+provableCounts [ guard . right ] = true
 exactCounts [ guard . left ] = true
 exactCounts [ guard . right ] = true
 end
+visit . program (
+program , setmetatable({ scalarExpression =
+
+function ( value ) 
+if ( value . op == "load" or value . op == "element_ref" ) and ( value ) . cursor == nil then
+exactCounts [ ( value ) . span ] = true
+end
+end ,  scalarStatement =
+function ( statement ) 
+if statement . op == "store" and ( statement ) . cursor == nil then
+exactCounts [ ( statement ) . span ] = true
+end
+end }, visit.Visitor)
+
+)
 local function provenSpanIndex ( value ) 
 local index
 if value . cursor ~= nil then
@@ -13257,7 +13276,7 @@ loop ~= nil and value . index == ( loop ) . index ,
 "only the dispatch index or a proved cursor may address a GPU span"
 )
 assert (
-exactCounts [ value . span ] == true ,
+provableCounts [ value . span ] == true ,
 "a dispatch-indexed GPU span must be the loop bound or guarded equal to it: " .. tostring ( value . span )
 )
 
@@ -34097,6 +34116,7 @@ local selectedPolicy = session . inc . env . config . _target and session . inc 
 if selectedPolicy == "require" then
 for _ , source in ipairs ( sources ) do
 if mentionsGpuTarget ( sourceText [ source ] ) then
+session . stageBundled ( "nupp.gpulayout" )
 session . stageBundled ( "nupp.gpu" )
 break
 end
@@ -42425,6 +42445,7 @@ for _ , backendModule in ipairs ( target . backends or { } ) do
 session . stageBundled ( backendModule )
 end
 if opts . checkOnly and target . aot == "require" and checkedTargetNeedsGpu ( root , config , opts . paths ) then
+session . stageBundled ( "nupp.gpulayout" )
 session . stageBundled ( "nupp.gpu" )
 end
 local earlyBackend = backends . resolve ( session . inc , target . backends )
@@ -133581,6 +133602,7 @@ exports = { "nupp.data.json" } ,
 ] = {
 name = "gpu" ,
 module = "nupp.gpu" ,
+modules = { "nupp.gpulayout" } ,
 runtimeModule = "nupp.gpu" ,
 provider = "nupp_native" ,
 providerFeature = "gpu" ,
@@ -143332,10 +143354,15 @@ uniforms, written as a local function declaration. Uploads and downloads remain
 explicit, so several generated bindings can share resident buffers without an
 intermediate CPU copy. `Context:tensor(element, shape)` attaches a validated
 one- through four-dimensional dense row-major shape to an allocation.
-`buffer:subview(origin, shape)` creates a typed allocation-free view; origins
-are zero-based, bounds and rank are checked, zero dimensions are refused, and a
-rectangle with physical gaps is refused rather than flattened incorrectly.
-Generated bindings add each view's element offset to proved shader indices.
+`gpu.bufferLayout(buffer)` returns an element-independent layout whose
+`gpu.subviewLayout`,
+`gpu.transposeLayout`, `gpu.broadcastLayout`, and `gpu.asStridedLayout`
+operations check shapes, strides,
+physical extent, density, and write injectivity. `gpu.view(buffer, layout)` applies
+it without allocating. Generated bindings add the view offset to proved shader
+indices and use its physical extent for cursor bounds. Host transfers and
+dispatch-indexed spans remain dense; broadcast views are read-only because
+their zero strides alias.
 
 A pointer-free parser builds an ordinary Lua value through
 `nupp.data.valuebuilder`, either by materializing one bounds-checked node and
@@ -165684,9 +165711,10 @@ _G.assert(_G.loadstring("local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppM
 
 
 
-
 local native = require ( "nupp.runtime.native" )
 local span = require ( "nupp.mem.span" )
+local tensorlayout = require ( "nupp.gpulayout" )
+
 local ffi = native . ffi
 
 
@@ -165694,6 +165722,10 @@ local ffi = native . ffi
 local gpuLibrary = os . getenv ( "NUPP_GPU_LIBRARY" )
 local C = gpuLibrary and ffi . load ( gpuLibrary ) or native . C
 local gpu = { }
+
+
+
+
 
 
 
@@ -165742,8 +165774,6 @@ end
 
 
 gpu.Buffer = {} gpu.Buffer.__index = gpu.Buffer
-
-
 
 
 
@@ -166108,6 +166138,39 @@ function gpu . Buffer . strides ( self )
 return copied ( self . _strides )
 end
 
+function gpu . bufferIsDense ( buffer ) 
+local _ , _ , dense = tensorlayout . _facts ( buffer . _shape , buffer . _strides , 2 )
+return dense
+end
+
+function gpu . bufferIsInjective ( buffer ) 
+local _ , _ , _ , injective = tensorlayout . _facts ( buffer . _shape , buffer . _strides , 2 )
+return injective
+end
+
+function gpu . bufferLayout ( buffer ) 
+return tensorlayout . new ( buffer . _offset , buffer . _shape , buffer . _strides )
+end
+
+function gpu . view ( buffer , layout ) 
+local offset = tensorlayout . offset ( layout )
+local extent = tensorlayout . extent ( layout )
+if offset > buffer . _capacity or extent > buffer . _capacity - offset then
+error ( "nupp: GPU tensor view exceeds its allocation" , 2 )
+end
+
+return setmetatable({ _anchor =
+buffer ,  _handle =
+buffer . _handle ,  _width =
+buffer . _width ,  _offset =
+offset ,  _capacity =
+buffer . _capacity ,  _shape =
+tensorlayout . dimensions ( layout ) ,  _strides =
+tensorlayout . strides ( layout ) ,  count =
+layout . count }, gpu.Buffer)
+
+end
+
 function gpu . Buffer . subview (
 self ,
 origin ,
@@ -166116,22 +166179,17 @@ shape
 if # origin ~= # self . _shape or # shape ~= # self . _shape then
 error ( "nupp: GPU tensor subview rank does not match its buffer" , 2 )
 end
-local count , strides = denseShape ( shape )
+local count , extent = tensorlayout . _facts ( shape , self . _strides , 2 )
 local offset = self . _offset
-local expected = 1
 for index = # shape , 1 , - 1 do
 local first = origin [ index ]
 local dimension = shape [ index ]
 if first < 0 or first > self . _shape [ index ] or dimension > self . _shape [ index ] - first then
 error ( "nupp: GPU tensor subview is outside its buffer" , 2 )
 end
-if dimension > 1 and self . _strides [ index ] ~= expected then
-error ( "nupp: GPU tensor subview is not dense" , 2 )
-end
 offset = offset + first * self . _strides [ index ]
-expected = expected * dimension
 end
-if offset > self . _capacity or count > self . _capacity - offset then
+if offset > self . _capacity or extent > self . _capacity - offset then
 error ( "nupp: GPU tensor subview exceeds its allocation" , 2 )
 end
 
@@ -166142,7 +166200,7 @@ self . _width ,  _offset =
 offset ,  _capacity =
 self . _capacity ,  _shape =
 copied ( shape ) ,  _strides =
-strides ,  count =
+copied ( self . _strides ) ,  count =
 count }, gpu.Buffer)
 
 end
@@ -166209,7 +166267,11 @@ slot ,
 buffer ,
 matchCount
 ) 
-succeeded ( C . nuppGpuBindingSetRead ( self . _handle , slot , buffer . _handle , buffer . _offset , buffer . count , matchCount ) , 2 )
+local _ , extent , dense = tensorlayout . _facts ( buffer . _shape , buffer . _strides , 2 )
+if matchCount and not dense then
+error ( "nupp: dispatch-indexed GPU buffers must be dense" , 2 )
+end
+succeeded ( C . nuppGpuBindingSetRead ( self . _handle , slot , buffer . _handle , buffer . _offset , extent , matchCount ) , 2 )
 end
 
 function gpu . Binding . setWrite (
@@ -166218,7 +166280,14 @@ slot ,
 buffer ,
 matchCount
 ) 
-succeeded ( C . nuppGpuBindingSetWrite ( self . _handle , slot , buffer . _handle , buffer . _offset , buffer . count , matchCount ) , 2 )
+local _ , extent , dense , injective = tensorlayout . _facts ( buffer . _shape , buffer . _strides , 2 )
+if not injective or extent ~= buffer . count then
+error ( "nupp: writable GPU tensor views must be disjoint and cover one complete span extent" , 2 )
+end
+if matchCount and not dense then
+error ( "nupp: dispatch-indexed GPU buffers must be dense" , 2 )
+end
+succeeded ( C . nuppGpuBindingSetWrite ( self . _handle , slot , buffer . _handle , buffer . _offset , extent , matchCount ) , 2 )
 end
 
 function gpu . Binding . dispatchPacked ( self , uniforms , uniformBytes ) 
@@ -166234,6 +166303,9 @@ self ,
 buffer ,
 source
 ) 
+if not gpu . bufferIsDense ( buffer ) then
+error ( "nupp: GPU uploads require a dense tensor view" , 2 )
+end
 if source .count ~= buffer . count then
 error ( "nupp: GPU upload span length does not match its buffer" , 2 )
 end
@@ -166245,6 +166317,9 @@ uploadTyped ( live ( self ) , buffer . _handle , pointer , buffer . _offset * bu
 end
 
 function gpu . Context . enqueueDownload ( self , buffer ) 
+if not gpu . bufferIsDense ( buffer ) then
+error ( "nupp: GPU downloads require a dense tensor view" , 2 )
+end
 succeeded (
 C . nuppGpuBufferDownload (
 live ( self ) ,
@@ -166265,6 +166340,9 @@ self ,
 buffer ,
 destination
 ) 
+if not gpu . bufferIsDense ( buffer ) then
+error ( "nupp: GPU downloads require a dense tensor view" , 2 )
+end
 if destination .count ~= buffer . count then
 error ( "nupp: GPU download span length does not match its buffer" , 2 )
 end
@@ -166295,6 +166373,15 @@ return setmetatable({ _handle =  handle ,  _closed =  false }, gpu.Context)
 end
 
 gpu . Buffer = gpu . Buffer
+gpu . Layout = tensorlayout . Layout
+gpu . layoutDimensions = tensorlayout . dimensions
+gpu . layoutStrides = tensorlayout . strides
+gpu . layoutIsDense = tensorlayout . isDense
+gpu . layoutIsInjective = tensorlayout . isInjective
+gpu . subviewLayout = tensorlayout . subview
+gpu . transposeLayout = tensorlayout . transpose
+gpu . broadcastLayout = tensorlayout . broadcast
+gpu . asStridedLayout = tensorlayout . asStrided
 gpu . Kernel = gpu . Kernel
 gpu . Binding = gpu . Binding
 gpu . Shared = gpu . Shared
@@ -166304,6 +166391,208 @@ gpu . ContextToken = gpu . ContextToken
 
 const __nuppExportValue= gpu ;__nuppExports=__nuppExportValue
  end);if not __nuppOk then package.loaded["nupp.gpu"]=nil;error(__nuppWhy,0) end;package.loaded["nupp.gpu"]=__nuppExports;return __nuppExports
+end
+package.preload["nupp.gpulayout"] = function(...)
+_G.assert(_G.loadstring("local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppMath=rawget(__nupp,\"math\")or{};rawset(__nupp,\"math\",__nuppMath) local function __nuppCloseFile(handle)if io.type(handle)==\"closed file\"then return end;local ok,reason=handle:close();if not ok then error(reason or \"the file could not be closed\",0)end end local __nuppManagedBrand=_G.__nuppManagedBrand if not __nuppManagedBrand then __nuppManagedBrand={};_G.__nuppManagedBrand=__nuppManagedBrand end local __nuppManagedCells=_G.__nuppManagedCells if not __nuppManagedCells then __nuppManagedCells=setmetatable({},{__mode=\"k\"});_G.__nuppManagedCells=__nuppManagedCells end local __nuppManagedOwner={};__nuppManagedOwner.__index=__nuppManagedOwner;local __nuppManagedAlias={};__nuppManagedAlias.__index=__nuppManagedAlias local function __nuppManagedError(code,message)return{code=code,message=message}end local function __nuppManagedProblem(cell) if type(cell)~=\"table\"or cell._brand~=__nuppManagedBrand then return __nuppManagedError(\"NUPP2614\",\"value is not a managed alias\")end if cell._state==\"taken\"then return __nuppManagedError(\"NUPP2614\",\"managed ownership was already taken\")end if cell._state==\"closed\"or cell._state==\"closing\"then return __nuppManagedError(\"NUPP2614\",\"managed resource is closed\")end return nil end local function __nuppManagedClose(cell,checked) local problem=__nuppManagedProblem(cell);if problem then if checked then return problem end;return nil end if cell._borrows~=0 or cell._exclusive then local busy=__nuppManagedError(\"NUPP2620\",\"managed resource has an active borrow\");if checked then return busy end;error(busy.message,0)end cell._state=\"closing\";local value,cleanup=cell._value,cell._cleanup;cell._value=nil;cell._cleanup=nil local ok,reason=pcall(cleanup,value);cell._state=\"closed\";if not ok then error(reason,0)end;return nil end function __nuppManagedOwner:alias()return setmetatable({_cell=self,_brand=__nuppManagedBrand},__nuppManagedAlias)end function __nuppManagedOwner:close()return __nuppManagedClose(self,false)end local function __nuppAliasCell(self) if type(self)~=\"table\"or self._brand~=__nuppManagedBrand or getmetatable(self)~=__nuppManagedAlias then return nil,__nuppManagedError(\"NUPP2614\",\"value is not a managed alias\")end local cell=self._cell;local problem=__nuppManagedProblem(cell);if problem then return nil,problem end;return cell,nil end function __nuppManagedAlias:with(callback) local cell,problem=__nuppAliasCell(self);if not cell then return nil,problem end if cell._exclusive then return nil,__nuppManagedError(\"NUPP2620\",\"managed resource is exclusively borrowed\")end cell._borrows=cell._borrows+1;cell._state=\"shared-borrowed(\"..cell._borrows..\")\" local ok,result=pcall(callback,cell._value);cell._borrows=cell._borrows-1;cell._state=cell._borrows>0 and(\"shared-borrowed(\"..cell._borrows..\")\")or\"live\" if not ok then error(result,0)end;return result,nil end function __nuppManagedAlias:withExclusive(callback) local cell,problem=__nuppAliasCell(self);if not cell then return nil,problem end if cell._exclusive or cell._borrows~=0 then return nil,__nuppManagedError(\"NUPP2620\",\"managed resource is already borrowed\")end cell._exclusive=true;cell._state=\"exclusive-borrowed\";local ok,result=pcall(callback,cell._value);cell._exclusive=false;cell._state=\"live\" if not ok then error(result,0)end;return result,nil end function __nuppManagedAlias:take() local cell,problem=__nuppAliasCell(self);if not cell then return nil,problem end if cell._exclusive or cell._borrows~=0 then return nil,__nuppManagedError(\"NUPP2620\",\"managed resource has an active borrow\")end cell._state=\"taken\";local value=cell._value;cell._value=nil;cell._cleanup=nil;return value,nil end function __nuppManagedAlias:close() local cell,problem=__nuppAliasCell(self);if not cell then return problem end;return __nuppManagedClose(cell,true)end function __nuppManagedAlias:_downcast(policy) local cell,problem=__nuppAliasCell(self);if not cell then return nil,problem end if cell._policy~=policy then return nil,__nuppManagedError(\"NUPP2613\",\"managed alias has the wrong type or cleanup policy\")end return self,nil end function __nupp.__manage(value,cleanup,policy) local cell=setmetatable({_brand=__nuppManagedBrand,_value=value,_cleanup=cleanup,_policy=policy,_state=\"live\",_borrows=0,_exclusive=false},__nuppManagedOwner);__nuppManagedCells[cell]=true;return cell end function __nupp.__recoverAlias(value) if type(value)~=\"table\"or value._brand~=__nuppManagedBrand or getmetatable(value)~=__nuppManagedAlias then return nil,__nuppManagedError(\"NUPP2614\",\"value is not a managed alias\")end local cell,problem=__nuppAliasCell(value);if not cell then return nil,problem end;return value,nil end _G.__nuppManagedPolicyCount=function(policy)local count=0;for cell in pairs(__nuppManagedCells)do if cell._policy==policy and(cell._state==\"live\"or cell._state:match(\"borrowed\"))then count=count+1 end end;return count end local __nuppManagedGroup={};__nuppManagedGroup.__index=__nuppManagedGroup function __nuppManagedGroup:flush()end function __nuppManagedGroup:adopt(cell) if self._closed then error(\"managed group is closed\",2)end local handle=cell:alias();self._entries[#self._entries+1]=handle return handle end function __nuppManagedGroup:remove(handle) if self._closed then error(\"managed group is closed\",2)end for index=#self._entries,1,-1 do if self._entries[index]==handle then table.remove(self._entries,index);local value,problem=handle:take();if problem then error(problem.message,2)end;return value end end error(\"managed alias is not registered in this group\",2) end local function __nuppManagedCloseEntry(entry)local problem=entry:close();if problem and problem.code~=\"NUPP2614\"then error(problem.message,0)end end function __nuppManagedGroup:close() if self._closed then return end;self._closed=true;local first,suppressed=nil,0 for index=#self._entries,1,-1 do local ok,reason=pcall(__nuppManagedCloseEntry,self._entries[index]);if not ok then if first==nil then first=reason else suppressed=suppressed+1 end end end self._entries={};if first~=nil then if suppressed>0 then error(tostring(first)..\" (suppressed \"..tostring(suppressed)..\" cleanup failure(s))\",0)end;error(first,0)end end function __nupp.managedGroup()return setmetatable({_entries={},_closed=false},__nuppManagedGroup)end;\n","@nupp-prelude"))();local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppMath=rawget(__nupp,"math")or{};rawset(__nupp,"math",__nuppMath) local function __nuppCloseFile(handle)if io.type(handle)=="closed file"then return end;local ok,reason=handle:close();if not ok then error(reason or "the file could not be closed",0)end end local __nuppManagedBrand=_G.__nuppManagedBrand if not __nuppManagedBrand then __nuppManagedBrand={};_G.__nuppManagedBrand=__nuppManagedBrand end local __nuppManagedCells=_G.__nuppManagedCells if not __nuppManagedCells then __nuppManagedCells=setmetatable({},{__mode="k"});_G.__nuppManagedCells=__nuppManagedCells end local __nuppManagedOwner={};__nuppManagedOwner.__index=__nuppManagedOwner;local __nuppManagedAlias={};__nuppManagedAlias.__index=__nuppManagedAlias local function __nuppManagedError(code,message)return{code=code,message=message}end local function __nuppManagedProblem(cell) if type(cell)~="table"or cell._brand~=__nuppManagedBrand then return __nuppManagedError("NUPP2614","value is not a managed alias")end if cell._state=="taken"then return __nuppManagedError("NUPP2614","managed ownership was already taken")end if cell._state=="closed"or cell._state=="closing"then return __nuppManagedError("NUPP2614","managed resource is closed")end return nil end local function __nuppManagedClose(cell,checked) local problem=__nuppManagedProblem(cell);if problem then if checked then return problem end;return nil end if cell._borrows~=0 or cell._exclusive then local busy=__nuppManagedError("NUPP2620","managed resource has an active borrow");if checked then return busy end;error(busy.message,0)end cell._state="closing";local value,cleanup=cell._value,cell._cleanup;cell._value=nil;cell._cleanup=nil local ok,reason=pcall(cleanup,value);cell._state="closed";if not ok then error(reason,0)end;return nil end function __nuppManagedOwner:alias()return setmetatable({_cell=self,_brand=__nuppManagedBrand},__nuppManagedAlias)end function __nuppManagedOwner:close()return __nuppManagedClose(self,false)end local function __nuppAliasCell(self) if type(self)~="table"or self._brand~=__nuppManagedBrand or getmetatable(self)~=__nuppManagedAlias then return nil,__nuppManagedError("NUPP2614","value is not a managed alias")end local cell=self._cell;local problem=__nuppManagedProblem(cell);if problem then return nil,problem end;return cell,nil end function __nuppManagedAlias:with(callback) local cell,problem=__nuppAliasCell(self);if not cell then return nil,problem end if cell._exclusive then return nil,__nuppManagedError("NUPP2620","managed resource is exclusively borrowed")end cell._borrows=cell._borrows+1;cell._state="shared-borrowed("..cell._borrows..")" local ok,result=pcall(callback,cell._value);cell._borrows=cell._borrows-1;cell._state=cell._borrows>0 and("shared-borrowed("..cell._borrows..")")or"live" if not ok then error(result,0)end;return result,nil end function __nuppManagedAlias:withExclusive(callback) local cell,problem=__nuppAliasCell(self);if not cell then return nil,problem end if cell._exclusive or cell._borrows~=0 then return nil,__nuppManagedError("NUPP2620","managed resource is already borrowed")end cell._exclusive=true;cell._state="exclusive-borrowed";local ok,result=pcall(callback,cell._value);cell._exclusive=false;cell._state="live" if not ok then error(result,0)end;return result,nil end function __nuppManagedAlias:take() local cell,problem=__nuppAliasCell(self);if not cell then return nil,problem end if cell._exclusive or cell._borrows~=0 then return nil,__nuppManagedError("NUPP2620","managed resource has an active borrow")end cell._state="taken";local value=cell._value;cell._value=nil;cell._cleanup=nil;return value,nil end function __nuppManagedAlias:close() local cell,problem=__nuppAliasCell(self);if not cell then return problem end;return __nuppManagedClose(cell,true)end function __nuppManagedAlias:_downcast(policy) local cell,problem=__nuppAliasCell(self);if not cell then return nil,problem end if cell._policy~=policy then return nil,__nuppManagedError("NUPP2613","managed alias has the wrong type or cleanup policy")end return self,nil end function __nupp.__manage(value,cleanup,policy) local cell=setmetatable({_brand=__nuppManagedBrand,_value=value,_cleanup=cleanup,_policy=policy,_state="live",_borrows=0,_exclusive=false},__nuppManagedOwner);__nuppManagedCells[cell]=true;return cell end function __nupp.__recoverAlias(value) if type(value)~="table"or value._brand~=__nuppManagedBrand or getmetatable(value)~=__nuppManagedAlias then return nil,__nuppManagedError("NUPP2614","value is not a managed alias")end local cell,problem=__nuppAliasCell(value);if not cell then return nil,problem end;return value,nil end _G.__nuppManagedPolicyCount=function(policy)local count=0;for cell in pairs(__nuppManagedCells)do if cell._policy==policy and(cell._state=="live"or cell._state:match("borrowed"))then count=count+1 end end;return count end local __nuppManagedGroup={};__nuppManagedGroup.__index=__nuppManagedGroup function __nuppManagedGroup:flush()end function __nuppManagedGroup:adopt(cell) if self._closed then error("managed group is closed",2)end local handle=cell:alias();self._entries[#self._entries+1]=handle return handle end function __nuppManagedGroup:remove(handle) if self._closed then error("managed group is closed",2)end for index=#self._entries,1,-1 do if self._entries[index]==handle then table.remove(self._entries,index);local value,problem=handle:take();if problem then error(problem.message,2)end;return value end end error("managed alias is not registered in this group",2) end local function __nuppManagedCloseEntry(entry)local problem=entry:close();if problem and problem.code~="NUPP2614"then error(problem.message,0)end end function __nuppManagedGroup:close() if self._closed then return end;self._closed=true;local first,suppressed=nil,0 for index=#self._entries,1,-1 do local ok,reason=pcall(__nuppManagedCloseEntry,self._entries[index]);if not ok then if first==nil then first=reason else suppressed=suppressed+1 end end end self._entries={};if first~=nil then if suppressed>0 then error(tostring(first).." (suppressed "..tostring(suppressed).." cleanup failure(s))",0)end;error(first,0)end end function __nupp.managedGroup()return setmetatable({_entries={},_closed=false},__nuppManagedGroup)end;local __nuppExports;local __nuppOk,__nuppWhy=pcall(function()
+
+
+
+local layout = { }
+
+layout.Layout = {} layout.Layout.__index = layout.Layout
+
+
+
+
+
+
+
+
+
+
+local function copied ( values ) 
+local out = { }
+for index , value in ipairs ( values ) do
+out [ index ] = value
+end
+
+return out
+end
+
+local function facts ( shape , strides , level ) 
+if # shape < 1 or # shape > 4 or # strides ~= # shape then
+error ( "nupp: GPU tensor layouts take one through four matched dimensions and strides" , level )
+end
+local count = 1
+local extent = 1
+local expected = 1
+local dense = true
+for index = # shape , 1 , - 1 do
+local dimension = shape [ index ]
+local stride = strides [ index ]
+if dimension < 1 or stride < 0 or count > math.floor(( 4294967295 ) / ( dimension )) then
+error ( "nupp: GPU tensor dimensions and strides must fit uint32" , level )
+end
+if dimension > 1 and stride ~= expected then
+dense = false
+end
+count = count * dimension
+if dimension > 1 and stride > 0 then
+local distance = dimension - 1
+if distance > math.floor(( ( 4294967295 - extent ) ) / ( stride )) then
+error ( "nupp: GPU tensor layout extent exceeds uint32" , level )
+end
+extent = extent + distance * stride
+end
+expected = expected * dimension
+end
+
+local used = { }
+local occupied = 1
+local injective = true
+for _ = 1 , # shape do
+local chosen = 0
+local smallest = nil
+for axis = 1 , # shape do
+if not used [ axis ] and shape [ axis ] > 1 and ( smallest == nil or strides [ axis ] < ( smallest ) ) then
+chosen = axis
+smallest = strides [ axis ]
+end
+end
+if chosen == 0 then
+break
+end
+used [ chosen ] = true
+local stride = smallest
+if stride < occupied then
+injective = false
+end
+occupied = occupied + ( shape [ chosen ] - 1 ) * stride
+end
+
+return count , extent , dense , injective
+end
+
+function layout . _facts ( shape , strides , level ) 
+return facts ( shape , strides , level )
+end
+
+function layout . new ( offset , shape , strides ) 
+if offset < 0 or offset > 4294967295 then
+error ( "nupp: GPU tensor layout offset exceeds uint32" , 2 )
+end
+local count , extent , dense , injective = facts ( shape , strides , 2 )
+
+return setmetatable({ _offset =
+offset ,  _shape =
+copied ( shape ) ,  _strides =
+copied ( strides ) ,  _extent =
+extent ,  _dense =
+dense ,  _injective =
+injective ,  count =
+count }, layout.Layout)
+
+end
+
+function layout . offset ( value ) 
+return value . _offset
+end
+
+function layout . extent ( value ) 
+return value . _extent
+end
+
+function layout . dimensions ( value ) 
+return copied ( value . _shape )
+end
+
+function layout . strides ( value ) 
+return copied ( value . _strides )
+end
+
+function layout . isDense ( value ) 
+return value . _dense
+end
+
+function layout . isInjective ( value ) 
+return value . _injective
+end
+
+function layout . subview ( value , origin , shape ) 
+if # origin ~= # value . _shape or # shape ~= # value . _shape then
+error ( "nupp: GPU tensor subview rank does not match" , 2 )
+end
+local offset = value . _offset
+for index = # shape , 1 , - 1 do
+local first = origin [ index ]
+local dimension = shape [ index ]
+if first < 0 or first > value . _shape [ index ] or dimension > value . _shape [ index ] - first then
+error ( "nupp: GPU tensor subview is outside its layout" , 2 )
+end
+offset = offset + first * value . _strides [ index ]
+end
+
+return layout . new ( offset , shape , value . _strides )
+end
+
+function layout . transpose ( value , order ) 
+if # order ~= # value . _shape then
+error ( "nupp: GPU tensor transpose rank does not match" , 2 )
+end
+local shape = { }
+local strides = { }
+local seen = { }
+for index , axis in ipairs ( order ) do
+if axis < 1 or axis > # order or seen [ axis ] then
+error ( "nupp: GPU tensor transpose must name every axis exactly once" , 2 )
+end
+seen [ axis ] = true
+shape [ index ] = value . _shape [ axis ]
+strides [ index ] = value . _strides [ axis ]
+end
+
+return layout . new ( value . _offset , shape , strides )
+end
+
+function layout . broadcast ( value , shape ) 
+if # shape < # value . _shape or # shape > 4 then
+error ( "nupp: GPU tensor broadcast rank must contain the source rank" , 2 )
+end
+local strides = { }
+local shift = # shape - # value . _shape
+for index , dimension in ipairs ( shape ) do
+if index <= shift then
+strides [ index ] = 0
+else
+local source = value . _shape [ index - shift ]
+if source ~= dimension and source ~= 1 then
+error ( "nupp: GPU tensor broadcast dimensions are incompatible" , 2 )
+end
+strides [ index ] = source == 1 and dimension > 1 and 0 or value . _strides [ index - shift ]
+end
+end
+local result = layout . new ( value . _offset , shape , strides )
+if result . _extent > value . _extent then
+error ( "nupp: GPU tensor broadcast exceeds its source" , 2 )
+end
+
+return result
+end
+
+function layout . asStrided (
+value ,
+shape ,
+strides ,
+relativeOffset
+) 
+if relativeOffset < 0 or value . _offset > 4294967295 - relativeOffset then
+error ( "nupp: GPU strided layout offset exceeds uint32" , 2 )
+end
+return layout . new ( value . _offset + relativeOffset , shape , strides )
+end
+
+const __nuppExportValue= layout ;__nuppExports=__nuppExportValue
+ end);if not __nuppOk then package.loaded["nupp.gpulayout"]=nil;error(__nuppWhy,0) end;package.loaded["nupp.gpulayout"]=__nuppExports;return __nuppExports
 end
 package.preload["nupp.io"] = function(...)
 _G.assert(_G.loadstring("local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppMath=rawget(__nupp,\"math\")or{};rawset(__nupp,\"math\",__nuppMath) local function __nuppCloseFile(handle)if io.type(handle)==\"closed file\"then return end;local ok,reason=handle:close();if not ok then error(reason or \"the file could not be closed\",0)end end local __nuppManagedBrand=_G.__nuppManagedBrand if not __nuppManagedBrand then __nuppManagedBrand={};_G.__nuppManagedBrand=__nuppManagedBrand end local __nuppManagedCells=_G.__nuppManagedCells if not __nuppManagedCells then __nuppManagedCells=setmetatable({},{__mode=\"k\"});_G.__nuppManagedCells=__nuppManagedCells end local __nuppManagedOwner={};__nuppManagedOwner.__index=__nuppManagedOwner;local __nuppManagedAlias={};__nuppManagedAlias.__index=__nuppManagedAlias local function __nuppManagedError(code,message)return{code=code,message=message}end local function __nuppManagedProblem(cell) if type(cell)~=\"table\"or cell._brand~=__nuppManagedBrand then return __nuppManagedError(\"NUPP2614\",\"value is not a managed alias\")end if cell._state==\"taken\"then return __nuppManagedError(\"NUPP2614\",\"managed ownership was already taken\")end if cell._state==\"closed\"or cell._state==\"closing\"then return __nuppManagedError(\"NUPP2614\",\"managed resource is closed\")end return nil end local function __nuppManagedClose(cell,checked) local problem=__nuppManagedProblem(cell);if problem then if checked then return problem end;return nil end if cell._borrows~=0 or cell._exclusive then local busy=__nuppManagedError(\"NUPP2620\",\"managed resource has an active borrow\");if checked then return busy end;error(busy.message,0)end cell._state=\"closing\";local value,cleanup=cell._value,cell._cleanup;cell._value=nil;cell._cleanup=nil local ok,reason=pcall(cleanup,value);cell._state=\"closed\";if not ok then error(reason,0)end;return nil end function __nuppManagedOwner:alias()return setmetatable({_cell=self,_brand=__nuppManagedBrand},__nuppManagedAlias)end function __nuppManagedOwner:close()return __nuppManagedClose(self,false)end local function __nuppAliasCell(self) if type(self)~=\"table\"or self._brand~=__nuppManagedBrand or getmetatable(self)~=__nuppManagedAlias then return nil,__nuppManagedError(\"NUPP2614\",\"value is not a managed alias\")end local cell=self._cell;local problem=__nuppManagedProblem(cell);if problem then return nil,problem end;return cell,nil end function __nuppManagedAlias:with(callback) local cell,problem=__nuppAliasCell(self);if not cell then return nil,problem end if cell._exclusive then return nil,__nuppManagedError(\"NUPP2620\",\"managed resource is exclusively borrowed\")end cell._borrows=cell._borrows+1;cell._state=\"shared-borrowed(\"..cell._borrows..\")\" local ok,result=pcall(callback,cell._value);cell._borrows=cell._borrows-1;cell._state=cell._borrows>0 and(\"shared-borrowed(\"..cell._borrows..\")\")or\"live\" if not ok then error(result,0)end;return result,nil end function __nuppManagedAlias:withExclusive(callback) local cell,problem=__nuppAliasCell(self);if not cell then return nil,problem end if cell._exclusive or cell._borrows~=0 then return nil,__nuppManagedError(\"NUPP2620\",\"managed resource is already borrowed\")end cell._exclusive=true;cell._state=\"exclusive-borrowed\";local ok,result=pcall(callback,cell._value);cell._exclusive=false;cell._state=\"live\" if not ok then error(result,0)end;return result,nil end function __nuppManagedAlias:take() local cell,problem=__nuppAliasCell(self);if not cell then return nil,problem end if cell._exclusive or cell._borrows~=0 then return nil,__nuppManagedError(\"NUPP2620\",\"managed resource has an active borrow\")end cell._state=\"taken\";local value=cell._value;cell._value=nil;cell._cleanup=nil;return value,nil end function __nuppManagedAlias:close() local cell,problem=__nuppAliasCell(self);if not cell then return problem end;return __nuppManagedClose(cell,true)end function __nuppManagedAlias:_downcast(policy) local cell,problem=__nuppAliasCell(self);if not cell then return nil,problem end if cell._policy~=policy then return nil,__nuppManagedError(\"NUPP2613\",\"managed alias has the wrong type or cleanup policy\")end return self,nil end function __nupp.__manage(value,cleanup,policy) local cell=setmetatable({_brand=__nuppManagedBrand,_value=value,_cleanup=cleanup,_policy=policy,_state=\"live\",_borrows=0,_exclusive=false},__nuppManagedOwner);__nuppManagedCells[cell]=true;return cell end function __nupp.__recoverAlias(value) if type(value)~=\"table\"or value._brand~=__nuppManagedBrand or getmetatable(value)~=__nuppManagedAlias then return nil,__nuppManagedError(\"NUPP2614\",\"value is not a managed alias\")end local cell,problem=__nuppAliasCell(value);if not cell then return nil,problem end;return value,nil end _G.__nuppManagedPolicyCount=function(policy)local count=0;for cell in pairs(__nuppManagedCells)do if cell._policy==policy and(cell._state==\"live\"or cell._state:match(\"borrowed\"))then count=count+1 end end;return count end local __nuppManagedGroup={};__nuppManagedGroup.__index=__nuppManagedGroup function __nuppManagedGroup:flush()end function __nuppManagedGroup:adopt(cell) if self._closed then error(\"managed group is closed\",2)end local handle=cell:alias();self._entries[#self._entries+1]=handle return handle end function __nuppManagedGroup:remove(handle) if self._closed then error(\"managed group is closed\",2)end for index=#self._entries,1,-1 do if self._entries[index]==handle then table.remove(self._entries,index);local value,problem=handle:take();if problem then error(problem.message,2)end;return value end end error(\"managed alias is not registered in this group\",2) end local function __nuppManagedCloseEntry(entry)local problem=entry:close();if problem and problem.code~=\"NUPP2614\"then error(problem.message,0)end end function __nuppManagedGroup:close() if self._closed then return end;self._closed=true;local first,suppressed=nil,0 for index=#self._entries,1,-1 do local ok,reason=pcall(__nuppManagedCloseEntry,self._entries[index]);if not ok then if first==nil then first=reason else suppressed=suppressed+1 end end end self._entries={};if first~=nil then if suppressed>0 then error(tostring(first)..\" (suppressed \"..tostring(suppressed)..\" cleanup failure(s))\",0)end;error(first,0)end end function __nupp.managedGroup()return setmetatable({_entries={},_closed=false},__nuppManagedGroup)end;\n","@nupp-prelude"))();const __nuppFfi = require("ffi"); local __nuppBitTobit=bit.tobit;local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppMath=rawget(__nupp,"math")or{};rawset(__nupp,"math",__nuppMath) local function __nuppCloseFile(handle)if io.type(handle)=="closed file"then return end;local ok,reason=handle:close();if not ok then error(reason or "the file could not be closed",0)end end local __nuppManagedBrand=_G.__nuppManagedBrand if not __nuppManagedBrand then __nuppManagedBrand={};_G.__nuppManagedBrand=__nuppManagedBrand end local __nuppManagedCells=_G.__nuppManagedCells if not __nuppManagedCells then __nuppManagedCells=setmetatable({},{__mode="k"});_G.__nuppManagedCells=__nuppManagedCells end local __nuppManagedOwner={};__nuppManagedOwner.__index=__nuppManagedOwner;local __nuppManagedAlias={};__nuppManagedAlias.__index=__nuppManagedAlias local function __nuppManagedError(code,message)return{code=code,message=message}end local function __nuppManagedProblem(cell) if type(cell)~="table"or cell._brand~=__nuppManagedBrand then return __nuppManagedError("NUPP2614","value is not a managed alias")end if cell._state=="taken"then return __nuppManagedError("NUPP2614","managed ownership was already taken")end if cell._state=="closed"or cell._state=="closing"then return __nuppManagedError("NUPP2614","managed resource is closed")end return nil end local function __nuppManagedClose(cell,checked) local problem=__nuppManagedProblem(cell);if problem then if checked then return problem end;return nil end if cell._borrows~=0 or cell._exclusive then local busy=__nuppManagedError("NUPP2620","managed resource has an active borrow");if checked then return busy end;error(busy.message,0)end cell._state="closing";local value,cleanup=cell._value,cell._cleanup;cell._value=nil;cell._cleanup=nil local ok,reason=pcall(cleanup,value);cell._state="closed";if not ok then error(reason,0)end;return nil end function __nuppManagedOwner:alias()return setmetatable({_cell=self,_brand=__nuppManagedBrand},__nuppManagedAlias)end function __nuppManagedOwner:close()return __nuppManagedClose(self,false)end local function __nuppAliasCell(self) if type(self)~="table"or self._brand~=__nuppManagedBrand or getmetatable(self)~=__nuppManagedAlias then return nil,__nuppManagedError("NUPP2614","value is not a managed alias")end local cell=self._cell;local problem=__nuppManagedProblem(cell);if problem then return nil,problem end;return cell,nil end function __nuppManagedAlias:with(callback) local cell,problem=__nuppAliasCell(self);if not cell then return nil,problem end if cell._exclusive then return nil,__nuppManagedError("NUPP2620","managed resource is exclusively borrowed")end cell._borrows=cell._borrows+1;cell._state="shared-borrowed("..cell._borrows..")" local ok,result=pcall(callback,cell._value);cell._borrows=cell._borrows-1;cell._state=cell._borrows>0 and("shared-borrowed("..cell._borrows..")")or"live" if not ok then error(result,0)end;return result,nil end function __nuppManagedAlias:withExclusive(callback) local cell,problem=__nuppAliasCell(self);if not cell then return nil,problem end if cell._exclusive or cell._borrows~=0 then return nil,__nuppManagedError("NUPP2620","managed resource is already borrowed")end cell._exclusive=true;cell._state="exclusive-borrowed";local ok,result=pcall(callback,cell._value);cell._exclusive=false;cell._state="live" if not ok then error(result,0)end;return result,nil end function __nuppManagedAlias:take() local cell,problem=__nuppAliasCell(self);if not cell then return nil,problem end if cell._exclusive or cell._borrows~=0 then return nil,__nuppManagedError("NUPP2620","managed resource has an active borrow")end cell._state="taken";local value=cell._value;cell._value=nil;cell._cleanup=nil;return value,nil end function __nuppManagedAlias:close() local cell,problem=__nuppAliasCell(self);if not cell then return problem end;return __nuppManagedClose(cell,true)end function __nuppManagedAlias:_downcast(policy) local cell,problem=__nuppAliasCell(self);if not cell then return nil,problem end if cell._policy~=policy then return nil,__nuppManagedError("NUPP2613","managed alias has the wrong type or cleanup policy")end return self,nil end function __nupp.__manage(value,cleanup,policy) local cell=setmetatable({_brand=__nuppManagedBrand,_value=value,_cleanup=cleanup,_policy=policy,_state="live",_borrows=0,_exclusive=false},__nuppManagedOwner);__nuppManagedCells[cell]=true;return cell end function __nupp.__recoverAlias(value) if type(value)~="table"or value._brand~=__nuppManagedBrand or getmetatable(value)~=__nuppManagedAlias then return nil,__nuppManagedError("NUPP2614","value is not a managed alias")end local cell,problem=__nuppAliasCell(value);if not cell then return nil,problem end;return value,nil end _G.__nuppManagedPolicyCount=function(policy)local count=0;for cell in pairs(__nuppManagedCells)do if cell._policy==policy and(cell._state=="live"or cell._state:match("borrowed"))then count=count+1 end end;return count end local __nuppManagedGroup={};__nuppManagedGroup.__index=__nuppManagedGroup function __nuppManagedGroup:flush()end function __nuppManagedGroup:adopt(cell) if self._closed then error("managed group is closed",2)end local handle=cell:alias();self._entries[#self._entries+1]=handle return handle end function __nuppManagedGroup:remove(handle) if self._closed then error("managed group is closed",2)end for index=#self._entries,1,-1 do if self._entries[index]==handle then table.remove(self._entries,index);local value,problem=handle:take();if problem then error(problem.message,2)end;return value end end error("managed alias is not registered in this group",2) end local function __nuppManagedCloseEntry(entry)local problem=entry:close();if problem and problem.code~="NUPP2614"then error(problem.message,0)end end function __nuppManagedGroup:close() if self._closed then return end;self._closed=true;local first,suppressed=nil,0 for index=#self._entries,1,-1 do local ok,reason=pcall(__nuppManagedCloseEntry,self._entries[index]);if not ok then if first==nil then first=reason else suppressed=suppressed+1 end end end self._entries={};if first~=nil then if suppressed>0 then error(tostring(first).." (suppressed "..tostring(suppressed).." cleanup failure(s))",0)end;error(first,0)end end function __nupp.managedGroup()return setmetatable({_entries={},_closed=false},__nuppManagedGroup)end local function __nuppLazy(target,name,loader)local meta=getmetatable(target)or{};local loaders=meta.__nuppLoaders;if not loaders then loaders={};local prior=meta.__index;meta.__nuppLoaders=loaders;meta.__index=function(t,k)local load=loaders[k];if load then local value=load(k);loaders[k]=nil;if value==nil then value=rawget(t,k)else rawset(t,k,value)end;return value end;if type(prior)=="function"then return prior(t,k)elseif prior then return prior[k]end end;setmetatable(target,meta)end;if name~=nil and rawget(target,name)==nil and loaders[name]==nil then loaders[name]=loader end end require("nupp.compiler.runtime.math").install(rawget(__nupp,"math"));const __nuppT36={}; const function __nuppT33(...) return {n=select("#",...),...} end; const __nuppT37,__nuppT38,__nuppT39,__nuppT40,__nuppT41,__nuppT42,__nuppT43,__nuppT44=pcall,xpcall,error,unpack,select,setmetatable,tostring,ipairs; const function __nuppT34(value) return value end; const function __nuppT35(primary,errors,start) const secondary={} for i=start,#errors do secondary[#secondary+1]=errors[i] end return __nuppT42({primary=primary,suppressed=secondary},{__tostring=function(v) local text=__nuppT43(v.primary) for _,reason in __nuppT44(v.suppressed) do text=text.."\ncleanup: "..__nuppT43(reason) end return text end}) end; local __nuppCleanups=_G.__nuppCleanupRegistry;if __nuppCleanups==nil then __nuppCleanups={};_G.__nuppCleanupRegistry=__nuppCleanups end;local __nuppCleanup1;__nuppCleanup1=function(value) local cleanup=__nuppCleanups["nupp.mem.span#destroyWriteSpan"];if cleanup==nil then return _G.error("Nupp cleanup provider is not loaded: nupp.mem.span#destroyWriteSpan") end;__nuppCleanup1=cleanup;return cleanup(value) end;local __nuppCleanup2;__nuppCleanup2=function(value) local cleanup=__nuppCleanups["nupp.io#destroyOwner"];if cleanup==nil then return _G.error("Nupp cleanup provider is not loaded: nupp.io#destroyOwner") end;__nuppCleanup2=cleanup;return cleanup(value) end;const __nuppDrop1 = function(__nuppV) if __nuppV == nil then return end __nuppCleanup1(__nuppV);  end;local __nuppExports={};package.loaded["nupp.io"]=__nuppExports;local __nuppOk,__nuppWhy=pcall(function()local newBuffer;__nuppExports["newBuffer"]=function(...) return newBuffer(...) end;local newLines;__nuppExports["newLines"]=function(...) return newLines(...) end;local newQueueReader;__nuppExports["newQueueReader"]=function(...) return newQueueReader(...) end;local newStringReader;__nuppExports["newStringReader"]=function(...) return newStringReader(...) end;
@@ -212720,15 +213009,16 @@ and uniform packing remain compiler details. Ordinary spans are the CPU
 boundary; a chain of kernels keeps its intermediate buffers resident and pays
 upload/download only where the program asks for them.
 
-`context:tensor(element, shape)` allocates dense row-major storage. A
-zero-based `buffer:subview(origin, shape)` shares that allocation and carries
-its element offset into generated shaders. Shapes have one through four
-positive dimensions, broadcasting is absent, and a rectangle with physical
-gaps is refused until a tensor-indexed kernel can consume explicit strides.
+`context:tensor(element, shape)` allocates dense row-major storage. A checked
+`gpu.Layout` can be sliced, transposed, broadcast, or explicitly strided, then
+applied with `gpu.view(buffer, layout)` without allocating. Transfers remain dense;
+layout-aware kernels consume the explicit metadata.
 ]]
 
 local native = require("nupp.runtime.native")
 local span = require("nupp.mem.span")
+local tensorlayout = require("nupp.gpulayout")
+local {type Layout as TensorLayout} = require("nupp.gpulayout")
 local ffi = native.ffi
 -- Ad-hoc runs keep the compiler's broad development provider loaded. A GPU
 -- feature build can be named separately so it does not force SDL into that
@@ -212736,6 +213026,10 @@ local ffi = native.ffi
 local gpuLibrary = os.getenv("NUPP_GPU_LIBRARY")
 local C = gpuLibrary and ffi.load(gpuLibrary) or native.C
 local gpu = {}
+
+--- A checked logical tensor layout independent of its element and allocation.
+--- @export
+type gpu.Layout = TensorLayout
 
 --- The portable floor reserved for one generated workgroup. Backends may
 --- support more, but generated kernels deliberately do not depend on it.
@@ -212798,12 +213092,10 @@ record gpu.Buffer<T>
     --- Logical tensor dimensions. The returned table is a copy.
     dimensions: function(borrows self: gpu.Buffer<T>): {integer}
 
-    --- Dense row-major strides. The returned table is a copy.
+    --- Physical element strides. The returned table is a copy.
     strides: function(borrows self: gpu.Buffer<T>): {integer}
 
-    --- Creates an allocation-free dense subview. Origins are zero-based and
-    --- have one entry per dimension. Rectangles with physical gaps are refused
-    --- until tensor-indexed kernels carry strides in their verified signature.
+    --- Creates an allocation-free checked subview.
     subview: function(borrows self: gpu.Buffer<T>, origin: {integer}, shape: {integer}): gpu.Buffer<T> borrows (self)
 end
 
@@ -213150,6 +213442,39 @@ function gpu.Buffer.strides<T>(borrows self: gpu.Buffer<T>): {integer}
     return copied(self._strides)
 end
 
+function gpu.bufferIsDense<T>(borrows buffer: gpu.Buffer<T>): boolean
+    local _, _, dense = tensorlayout._facts(buffer._shape, buffer._strides, 2)
+    return dense
+end
+
+function gpu.bufferIsInjective<T>(borrows buffer: gpu.Buffer<T>): boolean
+    local _, _, _, injective = tensorlayout._facts(buffer._shape, buffer._strides, 2)
+    return injective
+end
+
+function gpu.bufferLayout<T>(borrows buffer: gpu.Buffer<T>): TensorLayout
+    return tensorlayout.new(buffer._offset, buffer._shape, buffer._strides)
+end
+
+function gpu.view<T>(borrows buffer: gpu.Buffer<T>, layout: TensorLayout): gpu.Buffer<T> borrows (buffer)
+    local offset = tensorlayout.offset(layout)
+    local extent = tensorlayout.extent(layout)
+    if offset > buffer._capacity or extent > buffer._capacity - offset then
+        error("nupp: GPU tensor view exceeds its allocation", 2)
+    end
+
+    return new gpu.Buffer(
+        _anchor = buffer,
+        _handle = buffer._handle,
+        _width = buffer._width,
+        _offset = offset,
+        _capacity = buffer._capacity,
+        _shape = tensorlayout.dimensions(layout),
+        _strides = tensorlayout.strides(layout),
+        count = layout.count
+    )
+end
+
 function gpu.Buffer.subview<T>(
     borrows self: gpu.Buffer<T>,
     origin: {integer},
@@ -213158,22 +213483,17 @@ function gpu.Buffer.subview<T>(
     if #origin ~= #self._shape or #shape ~= #self._shape then
         error("nupp: GPU tensor subview rank does not match its buffer", 2)
     end
-    local count, strides = denseShape(shape)
+    local count, extent = tensorlayout._facts(shape, self._strides, 2)
     local offset = self._offset
-    local expected: integer = 1
     for index = #shape, 1, -1 do
         local first = origin[index]
         local dimension = shape[index]
         if first < 0 or first > self._shape[index] or dimension > self._shape[index] - first then
             error("nupp: GPU tensor subview is outside its buffer", 2)
         end
-        if dimension > 1 and self._strides[index] ~= expected then
-            error("nupp: GPU tensor subview is not dense", 2)
-        end
         offset = offset + first * self._strides[index]
-        expected = expected * dimension
     end
-    if offset > self._capacity or count > self._capacity - offset then
+    if offset > self._capacity or extent > self._capacity - offset then
         error("nupp: GPU tensor subview exceeds its allocation", 2)
     end
 
@@ -213184,7 +213504,7 @@ function gpu.Buffer.subview<T>(
         _offset = offset,
         _capacity = self._capacity,
         _shape = copied(shape),
-        _strides = strides,
+        _strides = copied(self._strides),
         count = count
     )
 end
@@ -213251,7 +213571,11 @@ function gpu.Binding.setRead<T>(
     borrows buffer: gpu.Buffer<T>,
     matchCount: boolean
 ): nil
-    succeeded(C.nuppGpuBindingSetRead(self._handle, slot, buffer._handle, buffer._offset, buffer.count, matchCount), 2)
+    local _, extent, dense = tensorlayout._facts(buffer._shape, buffer._strides, 2)
+    if matchCount and not dense then
+        error("nupp: dispatch-indexed GPU buffers must be dense", 2)
+    end
+    succeeded(C.nuppGpuBindingSetRead(self._handle, slot, buffer._handle, buffer._offset, extent, matchCount), 2)
 end
 
 function gpu.Binding.setWrite<T>(
@@ -213260,7 +213584,14 @@ function gpu.Binding.setWrite<T>(
     borrows buffer: gpu.Buffer<T>,
     matchCount: boolean
 ): nil
-    succeeded(C.nuppGpuBindingSetWrite(self._handle, slot, buffer._handle, buffer._offset, buffer.count, matchCount), 2)
+    local _, extent, dense, injective = tensorlayout._facts(buffer._shape, buffer._strides, 2)
+    if not injective or extent ~= buffer.count then
+        error("nupp: writable GPU tensor views must be disjoint and cover one complete span extent", 2)
+    end
+    if matchCount and not dense then
+        error("nupp: dispatch-indexed GPU buffers must be dense", 2)
+    end
+    succeeded(C.nuppGpuBindingSetWrite(self._handle, slot, buffer._handle, buffer._offset, extent, matchCount), 2)
 end
 
 function gpu.Binding.dispatchPacked(borrows self: gpu.Binding, uniforms: any, uniformBytes: integer): nil
@@ -213276,6 +213607,9 @@ function gpu.Context.upload<T>(
     borrows buffer: gpu.Buffer<T>,
     borrows source: span.Span<T>
 ): nil
+    if not gpu.bufferIsDense(buffer) then
+        error("nupp: GPU uploads require a dense tensor view", 2)
+    end
     if #source ~= buffer.count then
         error("nupp: GPU upload span length does not match its buffer", 2)
     end
@@ -213287,6 +213621,9 @@ function gpu.Context.upload<T>(
 end
 
 function gpu.Context.enqueueDownload<T>(borrows self: gpu.Context, borrows buffer: gpu.Buffer<T>): nil
+    if not gpu.bufferIsDense(buffer) then
+        error("nupp: GPU downloads require a dense tensor view", 2)
+    end
     succeeded(
         C.nuppGpuBufferDownload(
             live(self),
@@ -213307,6 +213644,9 @@ function gpu.Context.readDownloaded<T>(
     borrows buffer: gpu.Buffer<T>,
     borrows destination: span.WriteSpan<T>
 ): nil
+    if not gpu.bufferIsDense(buffer) then
+        error("nupp: GPU downloads require a dense tensor view", 2)
+    end
     if #destination ~= buffer.count then
         error("nupp: GPU download span length does not match its buffer", 2)
     end
@@ -213337,6 +213677,15 @@ function gpu.open(): affine(gpu.Context, gpu.destroyContext)
 end
 
 gpu.Buffer = gpu.Buffer
+gpu.Layout = tensorlayout.Layout
+gpu.layoutDimensions = tensorlayout.dimensions
+gpu.layoutStrides = tensorlayout.strides
+gpu.layoutIsDense = tensorlayout.isDense
+gpu.layoutIsInjective = tensorlayout.isInjective
+gpu.subviewLayout = tensorlayout.subview
+gpu.transposeLayout = tensorlayout.transpose
+gpu.broadcastLayout = tensorlayout.broadcast
+gpu.asStridedLayout = tensorlayout.asStrided
 gpu.Kernel = gpu.Kernel
 gpu.Binding = gpu.Binding
 gpu.Shared = gpu.Shared
@@ -213346,6 +213695,207 @@ gpu.ContextToken = gpu.ContextToken
 
 export = gpu
 ]=],
+["/nupp/gpulayout.nupp"] = [[
+module nupp.gpulayout
+
+-- Checked non-generic tensor layout algebra used by nupp.gpu.
+
+local layout = {}
+
+record layout.Layout
+    private readonly _offset: integer
+    private _shape: {integer}
+    private _strides: {integer}
+    private readonly _extent: integer
+    private readonly _dense: boolean
+    private readonly _injective: boolean
+
+    readonly count: integer
+end
+
+local function copied(values: {integer}): {integer}
+    local out: {integer} = {}
+    for index, value in ipairs(values) do
+        out[index] = value
+    end
+
+    return out
+end
+
+local function facts(shape: {integer}, strides: {integer}, level: integer): (integer, integer, boolean, boolean)
+    if #shape < 1 or #shape > 4 or #strides ~= #shape then
+        error("nupp: GPU tensor layouts take one through four matched dimensions and strides", level)
+    end
+    local count: integer = 1
+    local extent: integer = 1
+    local expected: integer = 1
+    local dense = true
+    for index = #shape, 1, -1 do
+        local dimension = shape[index]
+        local stride = strides[index]
+        if dimension < 1 or stride < 0 or count > 4294967295 // dimension then
+            error("nupp: GPU tensor dimensions and strides must fit uint32", level)
+        end
+        if dimension > 1 and stride ~= expected then
+            dense = false
+        end
+        count = count * dimension
+        if dimension > 1 and stride > 0 then
+            local distance = dimension - 1
+            if distance > (4294967295 - extent) // stride then
+                error("nupp: GPU tensor layout extent exceeds uint32", level)
+            end
+            extent = extent + distance * stride
+        end
+        expected = expected * dimension
+    end
+
+    local used: {boolean} = {}
+    local occupied: integer = 1
+    local injective = true
+    for _ = 1, #shape do
+        local chosen: integer = 0
+        local smallest: integer? = nil
+        for axis = 1, #shape do
+            if not used[axis] and shape[axis] > 1 and (smallest == nil or strides[axis] < (smallest as integer)) then
+                chosen = axis
+                smallest = strides[axis]
+            end
+        end
+        if chosen == 0 then
+            break
+        end
+        used[chosen] = true
+        local stride = smallest as integer
+        if stride < occupied then
+            injective = false
+        end
+        occupied = occupied + (shape[chosen] - 1) * stride
+    end
+
+    return count, extent, dense, injective
+end
+
+function layout._facts(shape: {integer}, strides: {integer}, level: integer): (integer, integer, boolean, boolean)
+    return facts(shape, strides, level)
+end
+
+function layout.new(offset: integer, shape: {integer}, strides: {integer}): layout.Layout
+    if offset < 0 or offset > 4294967295 then
+        error("nupp: GPU tensor layout offset exceeds uint32", 2)
+    end
+    local count, extent, dense, injective = facts(shape, strides, 2)
+
+    return new layout.Layout(
+        _offset = offset,
+        _shape = copied(shape),
+        _strides = copied(strides),
+        _extent = extent,
+        _dense = dense,
+        _injective = injective,
+        count = count
+    )
+end
+
+function layout.offset(borrows value: layout.Layout): integer
+    return value._offset
+end
+
+function layout.extent(borrows value: layout.Layout): integer
+    return value._extent
+end
+
+function layout.dimensions(borrows value: layout.Layout): {integer}
+    return copied(value._shape)
+end
+
+function layout.strides(borrows value: layout.Layout): {integer}
+    return copied(value._strides)
+end
+
+function layout.isDense(borrows value: layout.Layout): boolean
+    return value._dense
+end
+
+function layout.isInjective(borrows value: layout.Layout): boolean
+    return value._injective
+end
+
+function layout.subview(borrows value: layout.Layout, origin: {integer}, shape: {integer}): layout.Layout
+    if #origin ~= #value._shape or #shape ~= #value._shape then
+        error("nupp: GPU tensor subview rank does not match", 2)
+    end
+    local offset = value._offset
+    for index = #shape, 1, -1 do
+        local first = origin[index]
+        local dimension = shape[index]
+        if first < 0 or first > value._shape[index] or dimension > value._shape[index] - first then
+            error("nupp: GPU tensor subview is outside its layout", 2)
+        end
+        offset = offset + first * value._strides[index]
+    end
+
+    return layout.new(offset, shape, value._strides)
+end
+
+function layout.transpose(borrows value: layout.Layout, order: {integer}): layout.Layout
+    if #order ~= #value._shape then
+        error("nupp: GPU tensor transpose rank does not match", 2)
+    end
+    local shape: {integer} = {}
+    local strides: {integer} = {}
+    local seen: {boolean} = {}
+    for index, axis in ipairs(order) do
+        if axis < 1 or axis > #order or seen[axis] then
+            error("nupp: GPU tensor transpose must name every axis exactly once", 2)
+        end
+        seen[axis] = true
+        shape[index] = value._shape[axis]
+        strides[index] = value._strides[axis]
+    end
+
+    return layout.new(value._offset, shape, strides)
+end
+
+function layout.broadcast(borrows value: layout.Layout, shape: {integer}): layout.Layout
+    if #shape < #value._shape or #shape > 4 then
+        error("nupp: GPU tensor broadcast rank must contain the source rank", 2)
+    end
+    local strides: {integer} = {}
+    local shift = #shape - #value._shape
+    for index, dimension in ipairs(shape) do
+        if index <= shift then
+            strides[index] = 0
+        else
+            local source = value._shape[index - shift]
+            if source ~= dimension and source ~= 1 then
+                error("nupp: GPU tensor broadcast dimensions are incompatible", 2)
+            end
+            strides[index] = source == 1 and dimension > 1 and 0 or value._strides[index - shift]
+        end
+    end
+    local result = layout.new(value._offset, shape, strides)
+    if result._extent > value._extent then
+        error("nupp: GPU tensor broadcast exceeds its source", 2)
+    end
+
+    return result
+end
+
+function layout.asStrided(
+    borrows value: layout.Layout,
+    shape: {integer},
+    strides: {integer},
+    relativeOffset: integer
+): layout.Layout
+    if relativeOffset < 0 or value._offset > 4294967295 - relativeOffset then
+        error("nupp: GPU strided layout offset exceeds uint32", 2)
+    end
+    return layout.new(value._offset + relativeOffset, shape, strides)
+end
+
+export = layout
+]],
 ["/nupp/io/files.nupp"] = [=[
 module nupp.io.files
 

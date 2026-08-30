@@ -30,15 +30,16 @@ and uniform packing remain compiler details. Ordinary spans are the CPU
 boundary; a chain of kernels keeps its intermediate buffers resident and pays
 upload/download only where the program asks for them.
 
-`context:tensor(element, shape)` allocates dense row-major storage. A
-zero-based `buffer:subview(origin, shape)` shares that allocation and carries
-its element offset into generated shaders. Shapes have one through four
-positive dimensions, broadcasting is absent, and a rectangle with physical
-gaps is refused until a tensor-indexed kernel can consume explicit strides.
+`context:tensor(element, shape)` allocates dense row-major storage. A checked
+`gpu.Layout` can be sliced, transposed, broadcast, or explicitly strided, then
+applied with `gpu.view(buffer, layout)` without allocating. Transfers remain dense;
+layout-aware kernels consume the explicit metadata.
 ]]
 
 local native = require("nupp.runtime.native")
 local span = require("nupp.mem.span")
+local tensorlayout = require("nupp.gpulayout")
+local {type Layout as TensorLayout} = require("nupp.gpulayout")
 local ffi = native.ffi
 -- Ad-hoc runs keep the compiler's broad development provider loaded. A GPU
 -- feature build can be named separately so it does not force SDL into that
@@ -46,6 +47,10 @@ local ffi = native.ffi
 local gpuLibrary = os.getenv("NUPP_GPU_LIBRARY")
 local C = gpuLibrary and ffi.load(gpuLibrary) or native.C
 local gpu = {}
+
+--- A checked logical tensor layout independent of its element and allocation.
+--- @export
+type gpu.Layout = TensorLayout
 
 --- The portable floor reserved for one generated workgroup. Backends may
 --- support more, but generated kernels deliberately do not depend on it.
@@ -108,12 +113,10 @@ record gpu.Buffer<T>
     --- Logical tensor dimensions. The returned table is a copy.
     dimensions: function(borrows self: gpu.Buffer<T>): {integer}
 
-    --- Dense row-major strides. The returned table is a copy.
+    --- Physical element strides. The returned table is a copy.
     strides: function(borrows self: gpu.Buffer<T>): {integer}
 
-    --- Creates an allocation-free dense subview. Origins are zero-based and
-    --- have one entry per dimension. Rectangles with physical gaps are refused
-    --- until tensor-indexed kernels carry strides in their verified signature.
+    --- Creates an allocation-free checked subview.
     subview: function(borrows self: gpu.Buffer<T>, origin: {integer}, shape: {integer}): gpu.Buffer<T> borrows (self)
 end
 
@@ -460,6 +463,39 @@ function gpu.Buffer.strides<T>(borrows self: gpu.Buffer<T>): {integer}
     return copied(self._strides)
 end
 
+function gpu.bufferIsDense<T>(borrows buffer: gpu.Buffer<T>): boolean
+    local _, _, dense = tensorlayout._facts(buffer._shape, buffer._strides, 2)
+    return dense
+end
+
+function gpu.bufferIsInjective<T>(borrows buffer: gpu.Buffer<T>): boolean
+    local _, _, _, injective = tensorlayout._facts(buffer._shape, buffer._strides, 2)
+    return injective
+end
+
+function gpu.bufferLayout<T>(borrows buffer: gpu.Buffer<T>): TensorLayout
+    return tensorlayout.new(buffer._offset, buffer._shape, buffer._strides)
+end
+
+function gpu.view<T>(borrows buffer: gpu.Buffer<T>, layout: TensorLayout): gpu.Buffer<T> borrows (buffer)
+    local offset = tensorlayout.offset(layout)
+    local extent = tensorlayout.extent(layout)
+    if offset > buffer._capacity or extent > buffer._capacity - offset then
+        error("nupp: GPU tensor view exceeds its allocation", 2)
+    end
+
+    return new gpu.Buffer(
+        _anchor = buffer,
+        _handle = buffer._handle,
+        _width = buffer._width,
+        _offset = offset,
+        _capacity = buffer._capacity,
+        _shape = tensorlayout.dimensions(layout),
+        _strides = tensorlayout.strides(layout),
+        count = layout.count
+    )
+end
+
 function gpu.Buffer.subview<T>(
     borrows self: gpu.Buffer<T>,
     origin: {integer},
@@ -468,22 +504,17 @@ function gpu.Buffer.subview<T>(
     if #origin ~= #self._shape or #shape ~= #self._shape then
         error("nupp: GPU tensor subview rank does not match its buffer", 2)
     end
-    local count, strides = denseShape(shape)
+    local count, extent = tensorlayout._facts(shape, self._strides, 2)
     local offset = self._offset
-    local expected: integer = 1
     for index = #shape, 1, -1 do
         local first = origin[index]
         local dimension = shape[index]
         if first < 0 or first > self._shape[index] or dimension > self._shape[index] - first then
             error("nupp: GPU tensor subview is outside its buffer", 2)
         end
-        if dimension > 1 and self._strides[index] ~= expected then
-            error("nupp: GPU tensor subview is not dense", 2)
-        end
         offset = offset + first * self._strides[index]
-        expected = expected * dimension
     end
-    if offset > self._capacity or count > self._capacity - offset then
+    if offset > self._capacity or extent > self._capacity - offset then
         error("nupp: GPU tensor subview exceeds its allocation", 2)
     end
 
@@ -494,7 +525,7 @@ function gpu.Buffer.subview<T>(
         _offset = offset,
         _capacity = self._capacity,
         _shape = copied(shape),
-        _strides = strides,
+        _strides = copied(self._strides),
         count = count
     )
 end
@@ -561,7 +592,11 @@ function gpu.Binding.setRead<T>(
     borrows buffer: gpu.Buffer<T>,
     matchCount: boolean
 ): nil
-    succeeded(C.nuppGpuBindingSetRead(self._handle, slot, buffer._handle, buffer._offset, buffer.count, matchCount), 2)
+    local _, extent, dense = tensorlayout._facts(buffer._shape, buffer._strides, 2)
+    if matchCount and not dense then
+        error("nupp: dispatch-indexed GPU buffers must be dense", 2)
+    end
+    succeeded(C.nuppGpuBindingSetRead(self._handle, slot, buffer._handle, buffer._offset, extent, matchCount), 2)
 end
 
 function gpu.Binding.setWrite<T>(
@@ -570,7 +605,14 @@ function gpu.Binding.setWrite<T>(
     borrows buffer: gpu.Buffer<T>,
     matchCount: boolean
 ): nil
-    succeeded(C.nuppGpuBindingSetWrite(self._handle, slot, buffer._handle, buffer._offset, buffer.count, matchCount), 2)
+    local _, extent, dense, injective = tensorlayout._facts(buffer._shape, buffer._strides, 2)
+    if not injective or extent ~= buffer.count then
+        error("nupp: writable GPU tensor views must be disjoint and cover one complete span extent", 2)
+    end
+    if matchCount and not dense then
+        error("nupp: dispatch-indexed GPU buffers must be dense", 2)
+    end
+    succeeded(C.nuppGpuBindingSetWrite(self._handle, slot, buffer._handle, buffer._offset, extent, matchCount), 2)
 end
 
 function gpu.Binding.dispatchPacked(borrows self: gpu.Binding, uniforms: any, uniformBytes: integer): nil
@@ -586,6 +628,9 @@ function gpu.Context.upload<T>(
     borrows buffer: gpu.Buffer<T>,
     borrows source: span.Span<T>
 ): nil
+    if not gpu.bufferIsDense(buffer) then
+        error("nupp: GPU uploads require a dense tensor view", 2)
+    end
     if #source ~= buffer.count then
         error("nupp: GPU upload span length does not match its buffer", 2)
     end
@@ -597,6 +642,9 @@ function gpu.Context.upload<T>(
 end
 
 function gpu.Context.enqueueDownload<T>(borrows self: gpu.Context, borrows buffer: gpu.Buffer<T>): nil
+    if not gpu.bufferIsDense(buffer) then
+        error("nupp: GPU downloads require a dense tensor view", 2)
+    end
     succeeded(
         C.nuppGpuBufferDownload(
             live(self),
@@ -617,6 +665,9 @@ function gpu.Context.readDownloaded<T>(
     borrows buffer: gpu.Buffer<T>,
     borrows destination: span.WriteSpan<T>
 ): nil
+    if not gpu.bufferIsDense(buffer) then
+        error("nupp: GPU downloads require a dense tensor view", 2)
+    end
     if #destination ~= buffer.count then
         error("nupp: GPU download span length does not match its buffer", 2)
     end
@@ -647,6 +698,15 @@ function gpu.open(): affine(gpu.Context, gpu.destroyContext)
 end
 
 gpu.Buffer = gpu.Buffer
+gpu.Layout = tensorlayout.Layout
+gpu.layoutDimensions = tensorlayout.dimensions
+gpu.layoutStrides = tensorlayout.strides
+gpu.layoutIsDense = tensorlayout.isDense
+gpu.layoutIsInjective = tensorlayout.isInjective
+gpu.subviewLayout = tensorlayout.subview
+gpu.transposeLayout = tensorlayout.transpose
+gpu.broadcastLayout = tensorlayout.broadcast
+gpu.asStridedLayout = tensorlayout.asStrided
 gpu.Kernel = gpu.Kernel
 gpu.Binding = gpu.Binding
 gpu.Shared = gpu.Shared

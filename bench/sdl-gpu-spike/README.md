@@ -122,6 +122,16 @@ through proved cursors and a loop-indexed access is refused at lowering with a
 source position. The CPU and GPU kernels consume the same verified scalar IR;
 the benchmark reports their current measurements after an element-exact check.
 
+`run-batched-gemm.sh` exercises checked non-dense layouts through the same
+generated binding. A dense batched A tensor multiplies one physically stored B
+matrix whose logical view is transposed and then broadcast across four batches
+with a zero batch stride. `gpu.Layout` validates the shape, physical extent,
+density, and write injectivity without allocating or materializing a transpose;
+the kernel receives explicit strides. The 4x64x64x64 GPU result agrees
+element-exact with the CPU `fmaf` loop. Transfers and dispatch-indexed buffers
+stay dense, while cursor-indexed reads may use strided or broadcast views and
+writes must be proved disjoint.
+
 `run-tiled-gemm.sh` exercises the implemented structured-workgroup surface from
 NEP 26. Both the 16x16 tiled kernel and the naive kernel are ordinary
 `@aot(target = "gpu")` functions with generated bindings; neither benchmark

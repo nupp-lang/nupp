@@ -1,0 +1,199 @@
+module nupp.gpulayout
+
+-- Checked non-generic tensor layout algebra used by nupp.gpu.
+
+local layout = {}
+
+record layout.Layout
+    private readonly _offset: integer
+    private _shape: {integer}
+    private _strides: {integer}
+    private readonly _extent: integer
+    private readonly _dense: boolean
+    private readonly _injective: boolean
+
+    readonly count: integer
+end
+
+local function copied(values: {integer}): {integer}
+    local out: {integer} = {}
+    for index, value in ipairs(values) do
+        out[index] = value
+    end
+
+    return out
+end
+
+local function facts(shape: {integer}, strides: {integer}, level: integer): (integer, integer, boolean, boolean)
+    if #shape < 1 or #shape > 4 or #strides ~= #shape then
+        error("nupp: GPU tensor layouts take one through four matched dimensions and strides", level)
+    end
+    local count: integer = 1
+    local extent: integer = 1
+    local expected: integer = 1
+    local dense = true
+    for index = #shape, 1, -1 do
+        local dimension = shape[index]
+        local stride = strides[index]
+        if dimension < 1 or stride < 0 or count > 4294967295 // dimension then
+            error("nupp: GPU tensor dimensions and strides must fit uint32", level)
+        end
+        if dimension > 1 and stride ~= expected then
+            dense = false
+        end
+        count = count * dimension
+        if dimension > 1 and stride > 0 then
+            local distance = dimension - 1
+            if distance > (4294967295 - extent) // stride then
+                error("nupp: GPU tensor layout extent exceeds uint32", level)
+            end
+            extent = extent + distance * stride
+        end
+        expected = expected * dimension
+    end
+
+    local used: {boolean} = {}
+    local occupied: integer = 1
+    local injective = true
+    for _ = 1, #shape do
+        local chosen: integer = 0
+        local smallest: integer? = nil
+        for axis = 1, #shape do
+            if not used[axis] and shape[axis] > 1 and (smallest == nil or strides[axis] < (smallest as integer)) then
+                chosen = axis
+                smallest = strides[axis]
+            end
+        end
+        if chosen == 0 then
+            break
+        end
+        used[chosen] = true
+        local stride = smallest as integer
+        if stride < occupied then
+            injective = false
+        end
+        occupied = occupied + (shape[chosen] - 1) * stride
+    end
+
+    return count, extent, dense, injective
+end
+
+function layout._facts(shape: {integer}, strides: {integer}, level: integer): (integer, integer, boolean, boolean)
+    return facts(shape, strides, level)
+end
+
+function layout.new(offset: integer, shape: {integer}, strides: {integer}): layout.Layout
+    if offset < 0 or offset > 4294967295 then
+        error("nupp: GPU tensor layout offset exceeds uint32", 2)
+    end
+    local count, extent, dense, injective = facts(shape, strides, 2)
+
+    return new layout.Layout(
+        _offset = offset,
+        _shape = copied(shape),
+        _strides = copied(strides),
+        _extent = extent,
+        _dense = dense,
+        _injective = injective,
+        count = count
+    )
+end
+
+function layout.offset(borrows value: layout.Layout): integer
+    return value._offset
+end
+
+function layout.extent(borrows value: layout.Layout): integer
+    return value._extent
+end
+
+function layout.dimensions(borrows value: layout.Layout): {integer}
+    return copied(value._shape)
+end
+
+function layout.strides(borrows value: layout.Layout): {integer}
+    return copied(value._strides)
+end
+
+function layout.isDense(borrows value: layout.Layout): boolean
+    return value._dense
+end
+
+function layout.isInjective(borrows value: layout.Layout): boolean
+    return value._injective
+end
+
+function layout.subview(borrows value: layout.Layout, origin: {integer}, shape: {integer}): layout.Layout
+    if #origin ~= #value._shape or #shape ~= #value._shape then
+        error("nupp: GPU tensor subview rank does not match", 2)
+    end
+    local offset = value._offset
+    for index = #shape, 1, -1 do
+        local first = origin[index]
+        local dimension = shape[index]
+        if first < 0 or first > value._shape[index] or dimension > value._shape[index] - first then
+            error("nupp: GPU tensor subview is outside its layout", 2)
+        end
+        offset = offset + first * value._strides[index]
+    end
+
+    return layout.new(offset, shape, value._strides)
+end
+
+function layout.transpose(borrows value: layout.Layout, order: {integer}): layout.Layout
+    if #order ~= #value._shape then
+        error("nupp: GPU tensor transpose rank does not match", 2)
+    end
+    local shape: {integer} = {}
+    local strides: {integer} = {}
+    local seen: {boolean} = {}
+    for index, axis in ipairs(order) do
+        if axis < 1 or axis > #order or seen[axis] then
+            error("nupp: GPU tensor transpose must name every axis exactly once", 2)
+        end
+        seen[axis] = true
+        shape[index] = value._shape[axis]
+        strides[index] = value._strides[axis]
+    end
+
+    return layout.new(value._offset, shape, strides)
+end
+
+function layout.broadcast(borrows value: layout.Layout, shape: {integer}): layout.Layout
+    if #shape < #value._shape or #shape > 4 then
+        error("nupp: GPU tensor broadcast rank must contain the source rank", 2)
+    end
+    local strides: {integer} = {}
+    local shift = #shape - #value._shape
+    for index, dimension in ipairs(shape) do
+        if index <= shift then
+            strides[index] = 0
+        else
+            local source = value._shape[index - shift]
+            if source ~= dimension and source ~= 1 then
+                error("nupp: GPU tensor broadcast dimensions are incompatible", 2)
+            end
+            strides[index] = source == 1 and dimension > 1 and 0 or value._strides[index - shift]
+        end
+    end
+    local result = layout.new(value._offset, shape, strides)
+    if result._extent > value._extent then
+        error("nupp: GPU tensor broadcast exceeds its source", 2)
+    end
+
+    return result
+end
+
+function layout.asStrided(
+    borrows value: layout.Layout,
+    shape: {integer},
+    strides: {integer},
+    relativeOffset: integer
+): layout.Layout
+    if relativeOffset < 0 or value._offset > 4294967295 - relativeOffset then
+        error("nupp: GPU strided layout offset exceeds uint32", 2)
+    end
+    return layout.new(value._offset + relativeOffset, shape, strides)
+end
+
+export = layout

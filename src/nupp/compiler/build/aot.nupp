@@ -1028,6 +1028,7 @@ function aot.emitC(
     if selectedPolicy == "require" then
         for _, source in ipairs(sources) do
             if mentionsGpuTarget(sourceText[source] as string) then
+                session.stageBundled("nupp.gpulayout")
                 session.stageBundled("nupp.gpu")
                 break
             end

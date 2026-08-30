@@ -54,6 +54,7 @@ local FEATURES: {[string]: native.Feature} = {
     ] = {
         name = "gpu",
         module = "nupp.gpu",
+        modules = {"nupp.gpulayout"},
         runtimeModule = "nupp.gpu",
         provider = "nupp_native",
         providerFeature = "gpu",

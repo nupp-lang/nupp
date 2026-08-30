@@ -10,6 +10,7 @@ layouts, uniform layout and entrypoint identity as one compiler-owned fact.
 
 local scalarIR = require("nupp.compiler.aot.scalar")
 local spirvemit = require("nupp.compiler.aot.spirvemit")
+local visit = require("nupp.compiler.aot.visit")
 
 local gpuemit = {}
 
@@ -127,14 +128,32 @@ function gpuemit.program(program: scalarIR.Program): gpuemit.Artifact
     -- dispatch length: the loop bound proves the primary, and a length guard
     -- proves the rest host-side. A proved cursor carries its own dominating
     -- bound check into the shader, so its span may be any length.
-    local exactCounts: {[string]: boolean} = {}
+    local provableCounts: {[string]: boolean} = {}
     if loop ~= nil then
-        exactCounts[(loop as scalarIR.Loop).count] = true
+        provableCounts[(loop as scalarIR.Loop).count] = true
     end
+    local exactCounts: {[string]: boolean} = {}
     for _, guard in ipairs(program.guards) do
+        provableCounts[guard.left] = true
+        provableCounts[guard.right] = true
         exactCounts[guard.left] = true
         exactCounts[guard.right] = true
     end
+    visit.program(
+        program,
+        new visit.Visitor(
+            scalarExpression = function(value: scalarIR.Expr): nil
+                if (value.op == "load" or value.op == "element_ref") and (value as any).cursor == nil then
+                    exactCounts[(value as any).span as string] = true
+                end
+            end,
+            scalarStatement = function(statement: scalarIR.Statement): nil
+                if statement.op == "store" and (statement as scalarIR.Store).cursor == nil then
+                    exactCounts[(statement as scalarIR.Store).span] = true
+                end
+            end
+        )
+    )
     local function provenSpanIndex(value: any): string
         local index: string
         if value.cursor ~= nil then
@@ -146,7 +165,7 @@ function gpuemit.program(program: scalarIR.Program): gpuemit.Artifact
             "only the dispatch index or a proved cursor may address a GPU span"
         )
         assert(
-            exactCounts[value.span as string] == true,
+            provableCounts[value.span as string] == true,
             "a dispatch-indexed GPU span must be the loop bound or guarded equal to it: " .. tostring(value.span)
         )
 

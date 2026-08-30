@@ -72,8 +72,16 @@ local outputView = workspace:subview({5, 0}, {1, elements})
 local dimensions, strides = outputView:dimensions(), outputView:strides()
 assert(dimensions[1] == 1 and dimensions[2] == elements)
 assert(strides[1] == elements and strides[2] == 1)
-assert(not pcall(function() workspace:subview({0, 0}, {6, elements / 2}) end),
-    "a physically gapped tensor rectangle was admitted")
+local gapped = workspace:subview({0, 0}, {6, elements / 2})
+local transposed = gpu.view(workspace, gpu.transposeLayout(gpu.bufferLayout(workspace), {2, 1}))
+local broadcast = gpu.view(qView, gpu.broadcastLayout(gpu.bufferLayout(qView), {6, elements}))
+local transposedShape, transposedStrides = transposed:dimensions(), transposed:strides()
+assert(not gpu.bufferIsDense(gapped) and gpu.bufferIsInjective(gapped))
+assert(transposedShape[1] == elements and transposedShape[2] == 6)
+assert(transposedStrides[1] == 1 and transposedStrides[2] == elements)
+assert(not gpu.bufferIsDense(broadcast) and not gpu.bufferIsInjective(broadcast))
+assert(not pcall(function() context:upload(gapped, inputSpan) end),
+    "a non-dense tensor upload was admitted")
 assert(not pcall(function() context:tensor(ffi.typeof("float"), {tokens, 0}) end),
     "a zero-stride broadcasting shape was admitted")
 

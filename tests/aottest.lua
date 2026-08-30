@@ -304,7 +304,7 @@ return wrong
 ]], "NUPP2006", "the generated binding rejects buffers in the wrong positions")
 end
 
-function M.gpuBuffersExposeCheckedDenseTensorViews()
+function M.gpuBuffersExposeCheckedTensorLayouts()
    reportsGpu([[
 local gpu = require("nupp.gpu")
 local native = require("nupp.runtime.native")
@@ -313,12 +313,20 @@ local ffi = native.ffi
 local context = gpu.open()
 local tensor = context:tensor(ffi.typeof<float>(), {4, 8})
 local row = tensor:subview({2, 0}, {1, 8})
+local tensorLayout: gpu.Layout = gpu.bufferLayout(tensor)
+local columns = gpu.view(tensor, gpu.transposeLayout(tensorLayout, {2, 1}))
+local repeated = gpu.view(row, gpu.broadcastLayout(gpu.bufferLayout(row), {4, 8}))
+local gapped = tensor:subview({0, 0}, {4, 4})
 local dimensions = row:dimensions()
 local strides = row:strides()
 assert(row.count == 8 and dimensions[1] == 1 and dimensions[2] == 8)
 assert(strides[1] == 8 and strides[2] == 1)
+assert(gpu.bufferIsDense(row) and gpu.bufferIsInjective(row))
+assert(not gpu.bufferIsDense(columns) and gpu.bufferIsInjective(columns))
+assert(not gpu.bufferIsDense(repeated) and not gpu.bufferIsInjective(repeated))
+assert(not gpu.bufferIsDense(gapped) and gpu.bufferIsInjective(gapped))
 return true
-]], "", "resident tensors expose typed allocation-free dense views")
+]], "", "resident tensors expose checked dense, strided, transposed, and broadcast views")
 end
 
 function M.gpuTargetWithoutRequiredLinkingRemainsAnOrdinaryFunction()

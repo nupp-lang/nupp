@@ -252,6 +252,55 @@ local function gemmTiled(
     end)
 end
 
+-- Dense batched output with independently strided A and B inputs. A zero batch
+-- stride broadcasts one matrix across every batch; transposes are represented
+-- by exchanging the row/inner or inner/column strides.
+@aot(target = "gpu")
+local function gemmBatched(
+    exclusive c: span.WriteSpan<float>,
+    borrows a: span.Span<float>,
+    borrows b: span.Span<float>,
+    rows: uint32,
+    columns: uint32,
+    inner: uint32,
+    aBatchStride: uint32,
+    aRowStride: uint32,
+    aInnerStride: uint32,
+    bBatchStride: uint32,
+    bInnerStride: uint32,
+    bColumnStride: uint32
+): nil
+    for i = 1, #c do
+        local offset = nupp.math.u32.sub(nupp.math.u32.wrap(i), 1)
+        local plane = nupp.math.u32.mul(rows, columns)
+        local batch = nupp.math.u32.div(offset, plane)
+        local within = nupp.math.u32.mod(offset, plane)
+        local row = nupp.math.u32.div(within, columns)
+        local column = nupp.math.u32.mod(within, columns)
+        local value: float = 0.0
+        local cursor: uint32 = 0
+        while cursor < inner do
+            local ai = nupp.math.u32.add(
+                nupp.math.u32.add(nupp.math.u32.mul(batch, aBatchStride), nupp.math.u32.mul(row, aRowStride)),
+                nupp.math.u32.mul(cursor, aInnerStride)
+            )
+            local bi = nupp.math.u32.add(
+                nupp.math.u32.add(nupp.math.u32.mul(batch, bBatchStride), nupp.math.u32.mul(cursor, bInnerStride)),
+                nupp.math.u32.mul(column, bColumnStride)
+            )
+            if ai < #a then
+                local left = nupp.math.f32.narrow(a[ai + 1])
+                if bi < #b then
+                    value = nupp.math.f32.fma(left, nupp.math.f32.narrow(b[bi + 1]), value)
+                end
+            end
+            cursor = nupp.math.u32.add(cursor, 1)
+        end
+        c[i] = value
+    end
+end
+
 export const gemm = gemmNaive
 export const cpu = gemmCpu
 export const tiled = gemmTiled
+export const batched = gemmBatched
