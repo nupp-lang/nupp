@@ -104,6 +104,14 @@ function M.dynamicResultsAreNotMapped()
    assertEq(selected.reason, "an arm result is not one inert scalar")
 end
 
+function M.dynamicFallbacksAreNotMapped()
+   local selected = plan((sourceFor(strings(8), "string", function(index)
+      return string.format("%q", "v" .. index)
+   end):gsub("else %-> 0", "else -> tostring(#selector)")))
+   assertEq(selected.tag, "OrderedBranches")
+   assertEq(selected.reason, "the fallback is not one inert scalar")
+end
+
 function M.nilResultsAreRecordedForConditionalSentinels()
    local selected = plan(sourceFor(strings(8), "string", function(index)
       return index == 3 and "nil" or string.format("%q", "v" .. index)

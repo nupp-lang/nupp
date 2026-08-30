@@ -116,13 +116,13 @@ function switchplan.facts(node: cst.SwitchExpr): switchplan.Facts
         end
     end
 
-    local fallback = node.elseCase and scalar(node.elseCase.switchStaticResult) or new switchplan.Scalar(kind = "nil")
+    local fallback = node.elseCase and scalar(node.elseCase.switchStaticResult) or nil
     if node.elseCase and (node.elseCase.body ~= nil or node.elseCase.expr == nil) then
         eligible, reason = false, "a block fallback needs lexical branches"
-    elseif not fallback then
+    elseif node.elseCase and not fallback then
         eligible, reason = false, "the fallback is not one inert scalar"
-        fallback = new switchplan.Scalar(kind = "nil")
     end
+    fallback = fallback or new switchplan.Scalar(kind = "nil")
     if #entries > switchplan.MAX_MAP_CASES then
         eligible, reason = false, "the map exceeds the generated-source case cap"
     end
