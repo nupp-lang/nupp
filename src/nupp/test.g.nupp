@@ -41,7 +41,7 @@ local function fail(message: string, level: integer?): never
 end
 
 --- Requires a truthy value and returns its complete input pack.
---- @raise when value is false or nil
+--- @raises when value is false or nil
 export function assert(value: any, ...: any): any
     if value then
         return value, ...
@@ -55,7 +55,7 @@ export function assert(value: any, ...: any): any
 end
 
 --- Requires two values to be equal and returns the actual value.
---- @raise when actual and expected differ
+--- @raises when actual and expected differ
 export function equal(actual: any, expected: any, message: string?): any
     if actual == expected then
         return actual
@@ -68,7 +68,7 @@ export function equal(actual: any, expected: any, message: string?): any
 end
 
 --- Requires two values to differ and returns the actual value.
---- @raise when actual and unwanted are equal
+--- @raises when actual and unwanted are equal
 export function notEqual(actual: any, unwanted: any, message: string?): any
     if actual ~= unwanted then
         return actual
@@ -81,7 +81,7 @@ export function notEqual(actual: any, unwanted: any, message: string?): any
 end
 
 --- Requires a string value containing a Lua pattern and returns the string.
---- @raise when value is not a string or does not contain pattern
+--- @raises when value is not a string or does not contain pattern
 export function matches(value: any, pattern: string, message: string?): string
     if type(value) == "string" and value:find(pattern) then
         return value
@@ -94,7 +94,7 @@ export function matches(value: any, pattern: string, message: string?): string
 end
 
 --- Requires a callback to raise and returns its error value.
---- @raise when the callback returns, or its error does not match pattern
+--- @raises when the callback returns, or its error does not match pattern
 export function raises(fn: function(...: any): any, pattern: string?): any
     local ok, problem = pcall(fn)
     if ok then
