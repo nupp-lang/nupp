@@ -83,6 +83,9 @@ bool nuppGpuBindingDispatch(NuppGpuBinding *, const void *, size_t);
 bool nuppGpuBufferDownload(NuppGpuContext *, NuppGpuBuffer *, size_t, size_t);
 bool nuppGpuSynchronize(NuppGpuContext *);
 bool nuppGpuBufferRead(NuppGpuContext *, NuppGpuBuffer *, void *, size_t, size_t);
+bool nuppGpuBufferDestroy(NuppGpuContext *, NuppGpuBuffer *);
+bool nuppGpuKernelDestroy(NuppGpuContext *, NuppGpuKernel *);
+bool nuppGpuBindingDestroy(NuppGpuContext *, NuppGpuBinding *);
 ]]
 
 -- `native.C` is late-bound, so restore the ownership contracts that the literal
@@ -104,6 +107,7 @@ record gpu.Buffer<T>
     private readonly _width: integer
     private readonly _offset: integer
     private readonly _capacity: integer
+    private readonly _root: boolean
     private _shape: {integer}
     private _strides: {integer}
 
@@ -136,6 +140,7 @@ record gpu.Binding
     private readonly _anchor: any
     private readonly _handle: any
     private readonly _uniformBytes: integer
+    private _released: boolean
 
     --- Number of elements dispatched by this binding.
     readonly count: integer
@@ -242,6 +247,20 @@ record gpu.Context is gpu.ContextToken
     --- span; the generated binding fills every slot before dispatching.
     --- @internal
     bindKernel: function(borrows self: Context, borrows kernel: gpu.Kernel, count: integer): gpu.Binding borrows (self)
+
+    --- Releases one root buffer's device storage without closing the context.
+    --- Refused while commands are queued; synchronize first. Any view of the
+    --- buffer is invalid afterwards, and using one raises.
+    releaseBuffer: function<T>(borrows self: Context, borrows buffer: gpu.Buffer<T>): nil
+
+    --- Releases a compiled kernel no binding uses any more.
+    --- @internal
+    releaseKernel: function(borrows self: Context, borrows kernel: gpu.Kernel): nil
+
+    --- Releases a binding's host-side attachment. The kernel and buffers it
+    --- named remain the context's.
+    --- @internal
+    releaseBinding: function(borrows self: Context, exclusive binding: gpu.Binding): nil
 
     --- Copies a complete shared span into a resident buffer or view and
     --- enqueues its transfer. It does not wait.
@@ -495,6 +514,7 @@ function gpu.Context.buffer<T>(
         _width = width,
         _offset = 0,
         _capacity = count,
+        _root = true,
         _shape = {count},
         _strides = {1},
         count = count
@@ -549,6 +569,7 @@ function gpu.view<T>(borrows buffer: gpu.Buffer<T>, layout: TensorLayout): gpu.B
         _width = buffer._width,
         _offset = offset,
         _capacity = buffer._capacity,
+        _root = false,
         _shape = tensorlayout.dimensions(layout),
         _strides = tensorlayout.strides(layout),
         count = layout.count
@@ -583,6 +604,7 @@ function gpu.Buffer.subview<T>(
         _width = self._width,
         _offset = offset,
         _capacity = self._capacity,
+        _root = false,
         _shape = copied(shape),
         _strides = copied(self._strides),
         count = count
@@ -642,7 +664,32 @@ function gpu.Context.bindKernel(
         error("nupp: " .. ffi.string(C.nuppNativeError()), 2)
     end
 
-    return new gpu.Binding(_anchor = self, _handle = handle, _uniformBytes = kernel._uniformBytes, count = count)
+    return new gpu.Binding(
+        _anchor = self,
+        _handle = handle,
+        _uniformBytes = kernel._uniformBytes,
+        _released = false,
+        count = count
+    )
+end
+
+function gpu.Context.releaseBuffer<T>(borrows self: gpu.Context, borrows buffer: gpu.Buffer<T>): nil
+    if not buffer._root then
+        error("nupp: a GPU view borrows its buffer; release the root buffer", 2)
+    end
+    succeeded(C.nuppGpuBufferDestroy(live(self), buffer._handle), 2)
+end
+
+function gpu.Context.releaseKernel(borrows self: gpu.Context, borrows kernel: gpu.Kernel): nil
+    succeeded(C.nuppGpuKernelDestroy(live(self), kernel._handle), 2)
+end
+
+function gpu.Context.releaseBinding(borrows self: gpu.Context, exclusive binding: gpu.Binding): nil
+    if binding._released then
+        return
+    end
+    succeeded(C.nuppGpuBindingDestroy(live(self), binding._handle), 2)
+    binding._released = true
 end
 
 function gpu.Binding.setRead<T>(
@@ -651,6 +698,9 @@ function gpu.Binding.setRead<T>(
     borrows buffer: gpu.Buffer<T>,
     matchCount: boolean
 ): nil
+    if self._released then
+        error("nupp: GPU binding was released", 2)
+    end
     local _, extent, dense = tensorlayout._facts(buffer._shape, buffer._strides, 2)
     if matchCount and not dense then
         error("nupp: dispatch-indexed GPU buffers must be dense", 2)
@@ -664,6 +714,9 @@ function gpu.Binding.setWrite<T>(
     borrows buffer: gpu.Buffer<T>,
     matchCount: boolean
 ): nil
+    if self._released then
+        error("nupp: GPU binding was released", 2)
+    end
     local _, extent, dense, injective = tensorlayout._facts(buffer._shape, buffer._strides, 2)
     if not injective or extent ~= buffer.count then
         error("nupp: writable GPU tensor views must be disjoint and cover one complete span extent", 2)
@@ -675,6 +728,9 @@ function gpu.Binding.setWrite<T>(
 end
 
 function gpu.Binding.dispatchPacked(borrows self: gpu.Binding, uniforms: any, uniformBytes: integer): nil
+    if self._released then
+        error("nupp: GPU binding was released", 2)
+    end
     if uniformBytes ~= self._uniformBytes then
         error("nupp: generated GPU uniform block has the wrong size", 2)
     end

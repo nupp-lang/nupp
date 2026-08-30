@@ -71,12 +71,46 @@ static bool gpu_fail(const char *operation) {
     return false;
 }
 
+/* Membership over identity: a released buffer's pointer is compared against
+ * the context's list and never dereferenced, so a handle used after its
+ * release answers this error rather than reading freed memory. */
 static bool owns_buffer(NuppGpuContext *context, NuppGpuBuffer *buffer) {
-    if (context == NULL || buffer == NULL || buffer->context != context) {
-        nupp_fail("gpu: buffer belongs to another or closed context");
-        return false;
+    NuppGpuBuffer *scan;
+    if (context != NULL && buffer != NULL) {
+        for (scan = context->buffers; scan != NULL; scan = scan->next) {
+            if (scan == buffer) {
+                return true;
+            }
+        }
     }
-    return true;
+    nupp_fail("gpu: buffer belongs to another or closed context");
+    return false;
+}
+
+static bool owns_kernel(NuppGpuContext *context, NuppGpuKernel *kernel) {
+    NuppGpuKernel *scan;
+    if (context != NULL && kernel != NULL) {
+        for (scan = context->kernels; scan != NULL; scan = scan->next) {
+            if (scan == kernel) {
+                return true;
+            }
+        }
+    }
+    nupp_fail("gpu: kernel belongs to another or closed context");
+    return false;
+}
+
+static bool owns_binding(NuppGpuContext *context, NuppGpuBinding *binding) {
+    NuppGpuBinding *scan;
+    if (context != NULL && binding != NULL) {
+        for (scan = context->bindings; scan != NULL; scan = scan->next) {
+            if (scan == binding) {
+                return true;
+            }
+        }
+    }
+    nupp_fail("gpu: binding belongs to another or closed context");
+    return false;
 }
 
 static void reset_queued(NuppGpuContext *context, bool completed) {
@@ -377,8 +411,11 @@ NUPP_EXPORT NuppGpuBinding *nuppGpuBindingCreate(
     NuppGpuContext *context, NuppGpuKernel *kernel, uint32_t count
 ) {
     NuppGpuBinding *binding;
-    if (context == NULL || context->device == NULL || kernel == NULL || kernel->context != context) {
+    if (context == NULL || context->device == NULL) {
         nupp_fail("gpu: binding needs a kernel from its own open context");
+        return NULL;
+    }
+    if (!owns_kernel(context, kernel)) {
         return NULL;
     }
     binding = calloc(1, sizeof *binding);
@@ -584,6 +621,90 @@ NUPP_EXPORT bool nuppGpuBufferDownload(
     buffer->download_ready = false;
     buffer->downloaded_offset = (uint32_t)offset;
     buffer->downloaded_size = (uint32_t)size;
+    return true;
+}
+
+/* --- releasing one resource --------------------------------------------- */
+
+/* Everything below validates by membership before touching the resource, so a
+ * second release -- or one on a pointer the context never issued -- answers an
+ * error instead of reading freed memory. Buffers and kernels refuse while
+ * commands are queued, because a recorded batch holds their device objects. */
+
+NUPP_EXPORT bool nuppGpuBufferDestroy(NuppGpuContext *context, NuppGpuBuffer *buffer) {
+    NuppGpuBuffer **link;
+    NuppGpuBinding *binding;
+    uint32_t slot;
+    if (!owns_buffer(context, buffer)) {
+        return false;
+    }
+    if (context->commands != NULL) {
+        nupp_fail("gpu: synchronize before releasing a buffer with queued commands");
+        return false;
+    }
+    /* A binding still naming this buffer would hand freed storage to its next
+     * dispatch; cleared, that dispatch reports the missing buffer instead. */
+    for (binding = context->bindings; binding != NULL; binding = binding->next) {
+        for (slot = 0; slot < NUPP_GPU_MAX_BINDINGS; slot++) {
+            if (binding->readable[slot] == buffer) {
+                binding->readable[slot] = NULL;
+            }
+            if (binding->writable[slot] == buffer) {
+                binding->writable[slot] = NULL;
+            }
+        }
+    }
+    for (link = &context->buffers; *link != buffer; link = &(*link)->next) {
+    }
+    *link = buffer->next;
+    if (buffer->download != NULL) {
+        SDL_ReleaseGPUTransferBuffer(context->device, buffer->download);
+    }
+    if (buffer->upload != NULL) {
+        SDL_ReleaseGPUTransferBuffer(context->device, buffer->upload);
+    }
+    if (buffer->storage != NULL) {
+        SDL_ReleaseGPUBuffer(context->device, buffer->storage);
+    }
+    free(buffer);
+    return true;
+}
+
+NUPP_EXPORT bool nuppGpuKernelDestroy(NuppGpuContext *context, NuppGpuKernel *kernel) {
+    NuppGpuKernel **link;
+    NuppGpuBinding *binding;
+    if (!owns_kernel(context, kernel)) {
+        return false;
+    }
+    if (context->commands != NULL) {
+        nupp_fail("gpu: synchronize before releasing a kernel with queued commands");
+        return false;
+    }
+    for (binding = context->bindings; binding != NULL; binding = binding->next) {
+        if (binding->kernel == kernel) {
+            nupp_fail("gpu: a binding still uses this kernel; release it first");
+            return false;
+        }
+    }
+    for (link = &context->kernels; *link != kernel; link = &(*link)->next) {
+    }
+    *link = kernel->next;
+    SDL_ReleaseGPUComputePipeline(context->device, kernel->pipeline);
+    free(kernel);
+    return true;
+}
+
+NUPP_EXPORT bool nuppGpuBindingDestroy(NuppGpuContext *context, NuppGpuBinding *binding) {
+    NuppGpuBinding **link;
+    if (!owns_binding(context, binding)) {
+        return false;
+    }
+    /* Recorded commands reference the pipeline and the storage, never this
+     * host-side attachment, so a queued batch does not hold it. */
+    for (link = &context->bindings; *link != binding; link = &(*link)->next) {
+    }
+    *link = binding->next;
+    free(binding);
     return true;
 }
 
