@@ -1276,6 +1276,19 @@ if #shard == 0 and #suites > 0
                            or ("exit %d"):format(code)
                         said = said:gsub("__status__:%d+%s*$", "")
                      end
+                     -- The last suite the worker said it was starting, which is
+                     -- the one it was in when it died. The marks themselves are
+                     -- taken out of what gets printed: there is one per suite,
+                     -- and a lane's worth of them would bury the message they
+                     -- are here to qualify.
+                     local inFlight
+                     for name in said:gmatch("__suite__:([^\n]*)") do
+                        inFlight = name
+                     end
+                     said = said:gsub("__suite__:[^\n]*\n?", "")
+                     if inFlight then
+                        why[#why + 1] = "died in " .. inFlight
+                     end
                      if #said > 0 then
                         why[#why + 1] = "stderr: " .. said:sub(-2000)
                      end
@@ -1614,6 +1627,17 @@ local function takeWork()
       name = name or spec
       local suiteInfo = byName[name]
       if suiteInfo then
+         -- Named before it is run, so that a worker which dies mid-suite says
+         -- which one. A report arrives only when a shard finishes, so a killed
+         -- worker sends nothing and every suite it claimed reads as `<unrun>`,
+         -- including the ones it had already passed -- the crash is somewhere
+         -- in a lane of dozens with nothing to say where. This goes to standard
+         -- error, which for a worker is the file the parent keeps for exactly
+         -- this question, and is marked so the parent can take the last one and
+         -- leave the rest out of what it prints.
+         if sharedProgressStream then
+            io.stderr:write("__suite__:", spec, "\n")
+         end
          local beforeTotal, beforePassed = total, passed
          local beforeFailed = failed
          runSuite(suiteInfo, index and {{index = tonumber(index),
@@ -1631,6 +1655,17 @@ if queueDir then
    takeWork()
 else
    for _, suiteInfo in ipairs(suites) do
+      -- Named before it is run, so that a worker which dies mid-suite says
+      -- which one. A report arrives only when a shard finishes, so a killed
+      -- worker sends nothing and every suite it was given reads as `<unrun>`,
+      -- including the ones it had already passed -- the crash is somewhere in a
+      -- lane of dozens with nothing to say where. This goes to standard error,
+      -- which for a worker is the file the parent keeps for exactly this
+      -- question, and is marked so the parent can take the last one and leave
+      -- the rest out of what it prints.
+      if sharedProgressStream then
+         io.stderr:write("__suite__:", suiteInfo.name, "\n")
+      end
       runSuite(suiteInfo, wanted and wanted[suiteInfo.name] or nil)
    end
 end
