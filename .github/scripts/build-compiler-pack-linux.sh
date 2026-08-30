@@ -63,7 +63,7 @@ cp -RL /usr/lib/gcc/x86_64-linux-gnu "$sysroot/usr/lib/gcc/"
 for object in /usr/lib/x86_64-linux-gnu/*.o; do
   test ! -f "$object" || cp -L "$object" "$sysroot/usr/lib/x86_64-linux-gnu/"
 done
-for pattern in libc libm libpthread libdl librt libutil libresolv; do
+for pattern in libc libm libmvec libpthread libdl librt libutil libresolv; do
   for library in /usr/lib/x86_64-linux-gnu/$pattern.so* /usr/lib/x86_64-linux-gnu/$pattern.a; do
     test ! -e "$library" || cp -L "$library" "$sysroot/usr/lib/x86_64-linux-gnu/"
   done
@@ -72,7 +72,7 @@ for pattern in libc libm libpthread libdl librt libutil libresolv; do
   done
 done
 for library in /usr/lib/x86_64-linux-gnu/libc_nonshared.a \
-  /usr/lib/x86_64-linux-gnu/libmvec.a /usr/lib/x86_64-linux-gnu/libmvec.so*; do
+  /usr/lib/x86_64-linux-gnu/libmvec.a; do
   test ! -e "$library" || cp -L "$library" "$sysroot/usr/lib/x86_64-linux-gnu/"
 done
 cp -L /lib64/ld-linux-x86-64.so.2 "$sysroot/lib64/ld-linux-x86-64.so.2"
