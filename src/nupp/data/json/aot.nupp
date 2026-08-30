@@ -10,30 +10,9 @@ local pullDecoder = require("nupp.data.jsondecode")
 local serdeDecoder = require("nupp.data.jsondecoder.serde")
 local newBuffer = require("string.buffer").new
 local bit = require("bit")
+local contracts = require("nupp.runtime.seam.contracts")
 
-local interface JsonProvider
-    decode: function(text: string, nullValue: any?): any
-    pull: function(text: string, shape: any, nullValue: any?): any
-    compileSerde: function(plan: any, unknownMembers: string): any
-    decodeSerde: function(schema: any, text: string): (any?, string?)
-    decodeSerdeBuffer: function(schema: any, exclusive input: string.buffer.Buffer): (any?, string?)
-    arrayOf: function(shape: any?): table
-    asArray: function<T is table>(takes value: T): T preserves value
-    asObject: function<T is table>(takes value: T): T preserves value
-    isArray: function(value: any): boolean
-    encode: function(value: any, nullValue: any?): string
-    serialize: function(value: any, nullValue: any?): string
-    encoded: function(value: any, nullValue: any?): any
-    encodedString: function(value: string): any
-    verified: function(text: string): any
-    verifiedString: function(text: string): any
-    writer: function(exclusive out: string.buffer.Buffer, nullValue: any?): any
-    NULL: any
-    EMPTY_ARRAY: table
-    EMPTY_OBJECT: table
-end
-
-local json: any = {}
+local json = {}
 local ARRAY_MARKER, OBJECT_MARKER, ARRAY_SHAPE = {}, {}, {}
 local SERDE_ALIASES, SERDE_WILDCARD, SERDE_REJECT, SERDE_METATABLE, SERDE_ORDER, SERDE_KEYS = {}, {}, {}, {}, {}, {}
 local SERDE_REQUIRED, SERDE_DEFAULTS, SERDE_NULLABLE = {}, {}, {}
@@ -848,4 +827,36 @@ function json.writer(out: any, nullValue: any?): any
     return writer
 end
 
-export = json as JsonProvider
+-- Stated rather than assumed, the same way the pure-Lua provider states it.
+-- The serde members are this provider's addition; the contract declares them
+-- optional, which is what lets the pure-Lua provider omit them and what makes
+-- each caller's nil test the checker's business rather than a convention.
+local checked: contracts.JsonProvider = {
+    arrayOf = json.arrayOf,
+    -- `asArray` and `asObject` are asserted where every other member is checked.
+    -- The contract owns what it marks, because `nupp.data.json.asArray` promises
+    -- its caller the same table back. No provider can state that and still read
+    -- the table: `pairs` takes neither an owner nor a borrow, so a body that
+    -- validates keys cannot also carry the owning signature. Both providers
+    -- therefore mark through `any`, and the cast is where that ends.
+    asArray = json.asArray as contracts.MarkContainer,
+    asObject = json.asObject as contracts.MarkContainer,
+    isArray = json.isArray,
+    decode = json.decode,
+    encode = json.encode,
+    serialize = json.serialize,
+    encoded = json.encoded,
+    encodedString = json.encodedString,
+    pull = json.pull,
+    verified = json.verified,
+    verifiedString = json.verifiedString,
+    writer = json.writer,
+    NULL = json.NULL,
+    EMPTY_ARRAY = json.EMPTY_ARRAY,
+    EMPTY_OBJECT = json.EMPTY_OBJECT,
+    compileSerde = json.compileSerde,
+    decodeSerde = json.decodeSerde,
+    decodeSerdeBuffer = json.decodeSerdeBuffer,
+}
+
+export = checked

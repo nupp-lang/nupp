@@ -10,6 +10,7 @@ explicitly; loading or building a program never executes that behavioral suite.
 ]]
 
 local runtimeBackend = require("nupp.runtime.backend")
+local contracts = require("nupp.runtime.seam.contracts")
 local jsonSeam = {}
 
 jsonSeam.moduleName = "nupp.runtime.seam.json"
@@ -25,42 +26,13 @@ const DYNAMIC_REQUIRES = "@requires-dynamically nupp.runtime.provider.*"
 
 jsonSeam.suiteModuleName = "nupp.runtime.seam.jsonsuite"
 
-local REQUIRED_FUNCTIONS = {
-    "arrayOf",
-    "asArray",
-    "asObject",
-    "isArray",
-    "decode",
-    "encode",
-    "encoded",
-    "encodedString",
-    "pull",
-    "serialize",
-    "verified",
-    "verifiedString",
-    "writer",
-}
-
 --- Answers why one loaded value cannot satisfy the shallow runtime contract.
+---
+--- The members come from [](nupp.runtime.seam.contracts.JsonProvider), which is
+--- also what `nupp.data.json` is written against, so a member added to the
+--- declaration is looked for here without being listed again.
 function jsonSeam.validate(value: any): string?
-    if type(value) ~= "table" then
-        return "module returned " .. type(value) .. ", expected table"
-    end
-    for _, name in ipairs(REQUIRED_FUNCTIONS) do
-        if type(value[name]) ~= "function" then
-            return "member " .. name .. " is " .. type(value[name]) .. ", expected function"
-        end
-    end
-    for _, name in ipairs({"EMPTY_ARRAY", "EMPTY_OBJECT"}) do
-        if type(value[name]) ~= "table" then
-            return "member " .. name .. " is " .. type(value[name]) .. ", expected table"
-        end
-    end
-    if value.NULL == nil then
-        return "member NULL is absent"
-    end
-
-    return nil
+    return contracts.validate("data.json", value)
 end
 
 local function failure(moduleName: string, problem: string): any

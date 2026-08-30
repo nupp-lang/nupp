@@ -13,6 +13,7 @@ projection, verified fragments and streaming-writer surface.
 local newDecoder = require(
     "nupp.runtime.vendor.lunajson.decoder"
 ) as function(): function(string, integer?, any?, boolean?): any
+local contracts = require("nupp.runtime.seam.contracts")
 local newEncoder = require("nupp.runtime.vendor.lunajson.encoder") as function(): function(any, any?): string
 local core = {decode = newDecoder(), encode = newEncoder(),}
 local json = {}
@@ -436,4 +437,33 @@ function json.writer(out: any, nullValue: any?): any
     return writer
 end
 
-export = json
+-- Stated rather than assumed. The projection is what reports a member whose
+-- signature drifted from the contract `nupp.data.json` is written against;
+-- without it a provider satisfying the seam's name check installed cleanly and
+-- answered a different signature than the declaration promised.
+local checked: contracts.JsonProvider = {
+    arrayOf = json.arrayOf,
+    -- `asArray` and `asObject` are asserted where every other member is checked.
+    -- The contract owns what it marks, because `nupp.data.json.asArray` promises
+    -- its caller the same table back. No provider can state that and still read
+    -- the table: `pairs` takes neither an owner nor a borrow, so a body that
+    -- validates keys cannot also carry the owning signature. Both providers
+    -- therefore mark through `any`, and the cast is where that ends.
+    asArray = json.asArray as contracts.MarkContainer,
+    asObject = json.asObject as contracts.MarkContainer,
+    isArray = json.isArray,
+    decode = json.decode,
+    encode = json.encode,
+    serialize = json.serialize,
+    encoded = json.encoded,
+    encodedString = json.encodedString,
+    pull = json.pull,
+    verified = json.verified,
+    verifiedString = json.verifiedString,
+    writer = json.writer,
+    NULL = json.NULL,
+    EMPTY_ARRAY = json.EMPTY_ARRAY,
+    EMPTY_OBJECT = json.EMPTY_OBJECT,
+}
+
+export = checked

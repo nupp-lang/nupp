@@ -1,5 +1,14 @@
 -- The internal binding for `nupp.data.json`. A selected runtime backend
 -- preloads this name; otherwise production uses Nupp's SIMD AOT codec.
+--
+-- The shape below restates [](nupp.runtime.seam.contracts.JsonProvider), which
+-- is what the `data.json` seam checks a provider against and what both
+-- providers project themselves onto. Restated rather than named: this module is
+-- part of the surface a consumer resolves `nupp.data.json` through, and a
+-- declaration there naming an interface from another module does not survive
+-- bundling -- the module resolves to `unknown`, `native.json` stops being
+-- recorded, and a selected backend never reaches the generated program. The
+-- two are held together by `dataJsonBindingAnswersItsContract`.
 local interface JsonProvider
     decode: function(text: string, nullValue: any?): any
     pull: function(text: string, shape: any, nullValue: any?): any

@@ -1,0 +1,140 @@
+@!internal
+
+module nupp.runtime.seam.contracts
+
+--[[
+The declared shape of each substitutable runtime contract, and the member names
+derived from it.
+
+A seam used to carry its required members twice: once as the interface a
+consumer was written against, and once as a list of strings `validate` walked at
+install time. The two drifted silently, because nothing compared them -- a
+provider satisfying the string list installed cleanly while answering a
+different signature than the declaration promised.
+
+The interface here is the single statement. `members` reads it with
+`nupp.reflect` at compile time and hands the seam the same names it used to
+spell out, so a member added to a contract reaches the runtime check without
+being written down again. A provider states conformance by projecting itself
+onto the interface, which is where a mismatched signature is now reported.
+]]
+
+local contracts = {}
+
+--- Splits one reflected contract into the members `validate` looks for.
+---
+--- Functions and values are checked differently at install: a function must be
+--- callable, where a value only has to be there. A value whose declared type
+--- names a Lua type is checked for that too, so a contract promising a table
+--- says so once rather than in each seam that wanted the stricter test.
+---
+--- An optional member is required of nobody. It reads as a union with a `nil`
+--- arm, which is also what tells a caller to reach it through a nil test.
+local comptime function memberNames(info: nupp.reflect.Info): any
+    local functions, values, valueTypes = {}, {}, {}
+    for _, field in ipairs(info.fields) do
+        const declared = field.type
+        if declared ~= nil then
+            const node = info.types[declared]
+            local optional = false
+            const arms = node.members
+            if node.kind == "union" and arms ~= nil then
+                for _, arm in ipairs(arms) do
+                    if info.types[arm].kind == "nil" then
+                        optional = true
+                    end
+                end
+            end
+            if optional then
+                -- Required of nobody, so it is named in neither list.
+            elseif node.kind == "func" then
+                functions[#functions + 1] = field.name
+            else
+                values[#values + 1] = field.name
+                if node.kind == "table" or node.kind == "string" or node.kind == "boolean" then
+                    valueTypes[field.name] = node.kind
+                end
+            end
+        end
+    end
+
+    return {functions = functions, values = values, valueTypes = valueTypes,}
+end
+
+--- What a provider does to a table it is asked to mark: takes it, marks it, and
+--- hands back the same one, so the caller's type survives the round trip.
+export type MarkContainer = function<T is table>(takes value: T): T preserves value
+
+--- `data.json`, the codec `nupp.data.json` is written against.
+---
+--- The marking members own what they mark. `nupp.data.json.asArray` hands its
+--- caller's table straight to the provider and promises to hand the same one
+--- back, so a provider answering `(value: any): any` breaks that promise one
+--- call further in -- which is what the checker says when this is written the
+--- weaker way.
+---
+--- The serde members are absent from a provider that has no schema-specialized
+--- decoder, which is why they are optional here and why every caller reaches
+--- them through a nil test.
+export interface JsonProvider
+    arrayOf: function(shape: any?): any
+    asArray: MarkContainer
+    asObject: MarkContainer
+    isArray: function(value: any): boolean
+    decode: function(text: string, nullValue: any?): any
+    encode: function(value: any, nullValue: any?): string
+    serialize: function(value: any, nullValue: any?): string
+    encoded: function(value: any, nullValue: any?): any
+    encodedString: function(value: string): any
+    pull: function(text: string, shape: any, nullValue: any?): any
+    verified: function(text: string): any
+    verifiedString: function(text: string): any
+    writer: function(exclusive out: string.buffer.Buffer, nullValue: any?): any
+    NULL: any
+    EMPTY_ARRAY: table
+    EMPTY_OBJECT: table
+    compileSerde: (function(plan: any, unknownMembers: string): any)?
+    decodeSerde: (function(schema: any, text: string): (any?, string?))?
+    decodeSerdeBuffer: (function(schema: any, exclusive input: string.buffer.Buffer): (any?, string?))?
+end
+
+--- The members each contract requires, by the name the registry knows it as.
+contracts.members = {
+    ["data.json"] = comptime do
+        return memberNames(nupp.reflect(JsonProvider))
+    end,
+}
+
+--- Answers why one loaded value cannot satisfy a contract's runtime shape.
+---
+--- This repeats at run time what the provider's own conformance projection
+--- already settled at compile time, for the provider nobody compiled against
+--- the contract: a rock, a host-supplied table, a module reached through a
+--- name the build never saw.
+function contracts.validate(name: string, value: any): string?
+    const required = contracts.members[name]
+    if required == nil then
+        return "no declared contract named " .. name
+    end
+    if type(value) ~= "table" then
+        return "module returned " .. type(value) .. ", expected table"
+    end
+    for _, member in ipairs(required.functions) do
+        if type(value[member]) ~= "function" then
+            return "member " .. member .. " is " .. type(value[member]) .. ", expected function"
+        end
+    end
+    for _, member in ipairs(required.values) do
+        if value[member] == nil then
+            return "member " .. member .. " is absent"
+        end
+        const expected = required.valueTypes[member]
+        if expected ~= nil and type(value[member]) ~= expected then
+            return "member " .. member .. " is " .. type(value[member]) .. ", expected " .. expected
+        end
+    end
+
+    return nil
+end
+
+export = contracts

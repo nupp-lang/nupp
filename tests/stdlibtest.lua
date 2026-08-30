@@ -687,6 +687,28 @@ function M.runtimeJsonSeamExposesItsOwnConformanceSuite()
    assert(ok, problem)
 end
 
+-- The `data.json` shape is written twice: once in `nupp.data.json.provider`,
+-- which is the surface a consumer resolves `nupp.data.json` through, and once
+-- in `nupp.runtime.seam.contracts`, which is what a provider is checked
+-- against. The second cannot name the first without the bundled declaration
+-- for the first resolving to `unknown`, so they are held together here
+-- instead: whatever the seam requires, the binding answers.
+function M.dataJsonBindingAnswersItsContract()
+   local contracts = require("nupp.runtime.seam.contracts")
+   local required = contracts.members["data.json"]
+   assert(required, "the data.json contract is declared")
+   assert(#required.functions > 0, "the contract derives its function members")
+   local binding = require(JSON_PROVIDER)
+   assertEq(contracts.validate("data.json", binding), nil,
+      "the native binding answers every member the seam requires")
+   for _, name in ipairs(required.functions) do
+      assertEq(type(binding[name]), "function", "binding member " .. name)
+   end
+   for _, name in ipairs(required.values) do
+      assert(binding[name] ~= nil, "binding member " .. name .. " is present")
+   end
+end
+
 function M.lunajsonAdapterPassesThePublicJsonContract()
    local passed, problem = jsonSeam.test("nupp.runtime.provider.lunajson")
    assert(passed, "the pinned pure-Lua adapter passes data.json contract 2: "
