@@ -8,8 +8,6 @@ local seam = {
 }
 local CONTRACT = common.contract("host.browser_storage", {
     globalName = "__nuppBrowserStorage",
-    requiredFunctions = {"clear", "get", "remove", "set"},
-    requiredValues = {},
     suiteModule = seam.suiteModuleName,
 })
 

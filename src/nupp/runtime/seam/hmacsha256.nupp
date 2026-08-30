@@ -5,8 +5,6 @@ local runtimeBackend = require("nupp.runtime.backend")
 local seam = {moduleName = "nupp.runtime.seam.hmacsha256", suiteModuleName = "nupp.runtime.seam.hmacsha256suite",}
 local CONTRACT = common.contract("crypto.hmac_sha256", {
     globalName = "__nuppHmacSha256",
-    requiredFunctions = {"digest", "hex"},
-    requiredValues = {},
     suiteModule = seam.suiteModuleName,
 })
 

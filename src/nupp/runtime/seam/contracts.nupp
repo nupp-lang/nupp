@@ -98,10 +98,79 @@ export interface JsonProvider
     decodeSerdeBuffer: (function(schema: any, exclusive input: string.buffer.Buffer): (any?, string?))?
 end
 
+--- `data.uuid`, the identifiers `nupp.data.uuid4` and `uuid7` are projected from.
+export interface UuidProvider
+    uuid4: function(): string
+    uuid7: function(): string
+end
+
+--- `crypto.hmac_sha256`, which `nupp.data.hmac` is written against.
+export interface HmacSha256Provider
+    digest: function(key: string, message: string): string
+    hex: function(key: string, message: string): string
+end
+
+--- `data.base64`, the faster codec a backend may have.
+---
+--- The seam is optional: `nupp.data.base64` answers when no backend installs
+--- one, so a provider here replaces a working implementation rather than
+--- supplying a missing one.
+export interface Base64Provider
+    encode: function(value: string): string
+    decode: function(text: string): string
+end
+
+--- `host.time`, which answers `nupp.time`.
+export interface TimeProvider
+    now: function(): number
+    wallTime: function(): number
+    sleep: function(milliseconds: number): nil
+    sleepUntil: function(deadline: number): nil
+end
+
+--- `host.path`, the environment `nupp.io.path` resolves against.
+---
+--- Each answer is a value-or-reason pair, because a host that cannot say what
+--- its current directory is has a reason rather than a path.
+export interface PathProvider
+    separator: function(): string
+    currentDirectory: function(): (string?, string?)
+    canonicalize: function(path: string): (string?, string?)
+end
+
+--- `host.browser_storage`, the key-value store behind `nupp.browser.storage`.
+export interface BrowserStorageProvider
+    get: function(name: string): string?
+    set: function(name: string, value: string): nil
+    remove: function(name: string): nil
+    clear: function(): nil
+end
+
 --- The members each contract requires, by the name the registry knows it as.
+---
+--- A contract absent here keeps the list its seam spells out. Adding one is
+--- declaring the interface above and naming it in this table.
 contracts.members = {
     ["data.json"] = comptime do
         return memberNames(nupp.reflect(JsonProvider))
+    end,
+    ["data.uuid"] = comptime do
+        return memberNames(nupp.reflect(UuidProvider))
+    end,
+    ["crypto.hmac_sha256"] = comptime do
+        return memberNames(nupp.reflect(HmacSha256Provider))
+    end,
+    ["data.base64"] = comptime do
+        return memberNames(nupp.reflect(Base64Provider))
+    end,
+    ["host.time"] = comptime do
+        return memberNames(nupp.reflect(TimeProvider))
+    end,
+    ["host.path"] = comptime do
+        return memberNames(nupp.reflect(PathProvider))
+    end,
+    ["host.browser_storage"] = comptime do
+        return memberNames(nupp.reflect(BrowserStorageProvider))
     end,
 }
 

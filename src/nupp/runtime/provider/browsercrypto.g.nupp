@@ -4,6 +4,7 @@ module nupp.runtime.provider.browsercrypto
 -- Worker performs the primitive; formatting and the Nupp contracts stay here.
 
 local base64 = require("nupp.data.base64")
+local contracts = require("nupp.runtime.seam.contracts")
 local response = require("nupp.runtime.browser.response")
 local crypto = {}
 
@@ -98,5 +99,13 @@ function crypto.uuid7(): string
 
     return canonical(bytes)
 end
+
+-- Stated rather than assumed. This module answers four seams, so it projects
+-- onto each declared contract in turn instead of exporting one of them: the
+-- export has to keep every member, and a projection keeps only the contract's.
+@allow("unused-binding")
+const ANSWERS_UUID: contracts.UuidProvider = {uuid4 = crypto.uuid4, uuid7 = crypto.uuid7,}
+@allow("unused-binding")
+const ANSWERS_HMAC: contracts.HmacSha256Provider = {digest = crypto.digest, hex = crypto.hex,}
 
 export = crypto

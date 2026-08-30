@@ -5,8 +5,6 @@ local runtimeBackend = require("nupp.runtime.backend")
 local seam = {moduleName = "nupp.runtime.seam.path", suiteModuleName = "nupp.runtime.seam.pathsuite",}
 local CONTRACT = common.contract("host.path", {
     globalName = "__nuppPathEnvironment",
-    requiredFunctions = {"canonicalize", "currentDirectory", "separator"},
-    requiredValues = {},
     suiteModule = seam.suiteModuleName,
 })
 

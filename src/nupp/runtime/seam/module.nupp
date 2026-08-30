@@ -14,6 +14,7 @@ export interface Contract
     readonly globalName: string
     readonly requiredFunctions: {string}
     readonly requiredValues: {string}
+    readonly valueTypes: {[string]: string}?
     readonly suiteModule: string
     readonly modules: {[string]: string}?
     readonly implementationModules: {[string]: boolean}?
@@ -22,6 +23,11 @@ end
 
 --- Combines runtime shape with the compiler/runtime's single seam identity record.
 --- @raises when the shape duplicates substitution metadata owned by the registry
+---
+--- A contract declared in `nupp.runtime.seam.contracts` supplies its own member
+--- names, read off the interface at compile time. A seam whose contract is not
+--- declared there yet keeps the list it spells out, so the two coexist while
+--- the remaining contracts are written down.
 function moduleSeam.contract(name: string, shape: any): Contract
     local identity = require("nupp.runtime.seam.registry").get(name)
     for _, field in ipairs({"modules", "implementationModules", "exports"}) do
@@ -29,6 +35,12 @@ function moduleSeam.contract(name: string, shape: any): Contract
             error("nupp: seam " .. name .. " declares " .. field .. " outside the runtime seam registry", 2)
         end
         shape[field] = identity[field]
+    end
+    local declared = require("nupp.runtime.seam.contracts").members[name]
+    if declared ~= nil then
+        shape.requiredFunctions = declared.functions
+        shape.requiredValues = declared.values
+        shape.valueTypes = declared.valueTypes
     end
     shape.name = identity.name
     shape.version = identity.version
@@ -49,6 +61,10 @@ function moduleSeam.validate(contract: Contract, value: any): string?
     for _, name in ipairs(contract.requiredValues) do
         if value[name] == nil then
             return "member " .. name .. " is absent"
+        end
+        const expected = (contract.valueTypes or {})[name]
+        if expected ~= nil and type(value[name]) ~= expected then
+            return "member " .. name .. " is " .. type(value[name]) .. ", expected " .. expected
         end
     end
 

@@ -5,8 +5,6 @@ local runtimeBackend = require("nupp.runtime.backend")
 local seam = {moduleName = "nupp.runtime.seam.time", suiteModuleName = "nupp.runtime.seam.timesuite",}
 local CONTRACT = common.contract("host.time", {
     globalName = "__nuppTime",
-    requiredFunctions = {"now", "sleep", "sleepUntil", "wallTime"},
-    requiredValues = {},
     suiteModule = seam.suiteModuleName,
 })
 

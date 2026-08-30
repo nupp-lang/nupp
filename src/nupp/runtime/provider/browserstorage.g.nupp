@@ -5,6 +5,7 @@ module nupp.runtime.provider.browserstorage
 -- checked, backend-independent call surface.
 
 local response = require("nupp.runtime.browser.response")
+local contracts = require("nupp.runtime.seam.contracts")
 local storage = {}
 
 local function key(value: string): string
@@ -34,4 +35,13 @@ function storage.clear(): nil
     response.await("storage", {operation = "clear",})
 end
 
-export = storage
+-- Stated rather than assumed: the projection is what reports a member whose
+-- signature drifted from the contract the seam installs this module behind.
+local checked: contracts.BrowserStorageProvider = {
+    get = storage.get,
+    set = storage.set,
+    remove = storage.remove,
+    clear = storage.clear,
+}
+
+export = checked

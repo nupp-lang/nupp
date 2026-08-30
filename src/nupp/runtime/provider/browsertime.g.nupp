@@ -4,6 +4,7 @@ module nupp.runtime.provider.browsertime
 -- suspension boundary once; no clock probe occurs in ordinary compute code.
 
 local response = require("nupp.runtime.browser.response")
+local contracts = require("nupp.runtime.seam.contracts")
 local time = {}
 
 local function duration(value: number, label: string): number
@@ -37,4 +38,13 @@ function time.sleepUntil(deadline: number): nil
     time.sleep(remaining)
 end
 
-export = time
+-- Stated rather than assumed: the projection is what reports a member whose
+-- signature drifted from the contract the seam installs this module behind.
+local checked: contracts.TimeProvider = {
+    now = time.now,
+    wallTime = time.wallTime,
+    sleep = time.sleep,
+    sleepUntil = time.sleepUntil,
+}
+
+export = checked
