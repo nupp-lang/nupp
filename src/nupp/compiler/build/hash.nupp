@@ -93,12 +93,14 @@ local function rotl64(hi: number, lo: number, count: number): (number, number)
     elseif count == 32 then
         return lo, hi
     elseif count < 32 then
-        return u32(bitops.bor(bitops.lshift(hi, count), bitops.rshift(lo, 32 - count))),
-            u32(bitops.bor(bitops.lshift(lo, count), bitops.rshift(hi, 32 - count)))
+        return u32(
+            bitops.bor(bitops.lshift(hi, count), bitops.rshift(lo, 32 - count))
+        ), u32(bitops.bor(bitops.lshift(lo, count), bitops.rshift(hi, 32 - count)))
     else
         local rest = count - 32
-        return u32(bitops.bor(bitops.lshift(lo, rest), bitops.rshift(hi, 32 - rest))),
-            u32(bitops.bor(bitops.lshift(hi, rest), bitops.rshift(lo, 32 - rest)))
+        return u32(
+            bitops.bor(bitops.lshift(lo, rest), bitops.rshift(hi, 32 - rest))
+        ), u32(bitops.bor(bitops.lshift(hi, rest), bitops.rshift(lo, 32 - rest)))
     end
 end
 
@@ -111,8 +113,7 @@ local function rshift64(hi: number, lo: number, count: number): (number, number)
     elseif count == 32 then
         return 0, hi
     elseif count < 32 then
-        return u32(bitops.rshift(hi, count)),
-            u32(bitops.bor(bitops.rshift(lo, count), bitops.lshift(hi, 32 - count)))
+        return u32(bitops.rshift(hi, count)), u32(bitops.bor(bitops.rshift(lo, count), bitops.lshift(hi, 32 - count)))
     else
         return 0, u32(bitops.rshift(hi, count - 32))
     end
@@ -176,8 +177,9 @@ end
 local function wordAt(input: string, offset: number): (number, number)
     local b1, b2, b3, b4, b5, b6, b7, b8 = input:byte(offset + 1, offset + 8)
 
-    return u32(bitops.bor(b5, bitops.lshift(b6, 8), bitops.lshift(b7, 16), bitops.lshift(b8, 24))),
-        u32(bitops.bor(b1, bitops.lshift(b2, 8), bitops.lshift(b3, 16), bitops.lshift(b4, 24)))
+    return u32(
+        bitops.bor(b5, bitops.lshift(b6, 8), bitops.lshift(b7, 16), bitops.lshift(b8, 24))
+    ), u32(bitops.bor(b1, bitops.lshift(b2, 8), bitops.lshift(b3, 16), bitops.lshift(b4, 24)))
 end
 
 local function halfAt(input: string, offset: number): number

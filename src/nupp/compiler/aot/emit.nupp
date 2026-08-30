@@ -3000,7 +3000,13 @@ function emit.luaPrelude(wideNumbers: boolean): {string}
         "        else if (escaped_byte == 'u') {",
         "            uint32_t codepoint = 0u; if (!ks_tree_hex4(input, count, &at, &codepoint)) { return luaL_error(L, \"AOT value stream has an invalid Unicode escape\"); }",
         "            if (codepoint >= 0xd800u && codepoint <= 0xdbffu) { uint32_t low = 0u; if (at > count || count - at < 2u || input[at] != '\\\\' || input[at + 1u] != 'u') { return luaL_error(L, \"AOT value stream has an unmatched high surrogate\"); } if (item + 1u >= escape_count || escapes->words[escapes->capacity - 1u - escape_index - item - 1u] != start + (uint32_t)at) { return luaL_error(L, \"AOT value stream surrogate escape metadata is invalid\"); } item += 1u; at += 2u; if (!ks_tree_hex4(input, count, &at, &low) || low < 0xdc00u || low > 0xdfffu) { return luaL_error(L, \"AOT value stream has an invalid low surrogate\"); } codepoint = 0x10000u + (codepoint - 0xd800u) * 0x400u + low - 0xdc00u; }",
-        "            else if (codepoint >= 0xdc00u && codepoint <= 0xdfffu) { return luaL_error(L, \"AOT value stream has an unmatched low surrogate\"); } written += ks_tree_utf8(out + written, codepoint);",
+        -- The write stays on its own line rather than trailing the `else if`
+        -- above it. Bracing a body settles `-Wmisleading-indentation` for an
+        -- `if`, but not for an `else`: GCC still reads a statement sharing the
+        -- line as one the `else` was meant to guard, and the whole emitted
+        -- helper is one line.
+        "            else if (codepoint >= 0xdc00u && codepoint <= 0xdfffu) { return luaL_error(L, \"AOT value stream has an unmatched low surrogate\"); }",
+        "            written += ks_tree_utf8(out + written, codepoint);",
         "        } else { return luaL_error(L, \"AOT value stream has an unknown escape\"); }",
         "    }",
         "    if (at < count) { memcpy(out + written, input + at, count - at); written += count - at; } *decoded = out; *decoded_length = written; return 1;",
@@ -4454,7 +4460,9 @@ function emit.simdPrelude(width: integer, hasBuilder: boolean): {string}
         .. "(ks_scalar_"
         .. suffix
         .. " a) {"
-    lines[#lines + 1] = "    for (uint32_t i = 0; i < " .. tostring(width) .. "u; ++i) { a.lane[i] = (uint8_t)~a.lane[i]; }"
+    lines[
+        #lines + 1
+    ] = "    for (uint32_t i = 0; i < " .. tostring(width) .. "u; ++i) { a.lane[i] = (uint8_t)~a.lane[i]; }"
     lines[#lines + 1] = "    return a;"
     lines[#lines + 1] = "}"
     for _, comparison in ipairs({"eq", "range"}) do

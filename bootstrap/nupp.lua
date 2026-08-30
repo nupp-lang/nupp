@@ -8864,7 +8864,13 @@ local lines = {
 "        else if (escaped_byte == 'u') {" ,
 "            uint32_t codepoint = 0u; if (!ks_tree_hex4(input, count, &at, &codepoint)) { return luaL_error(L, \"AOT value stream has an invalid Unicode escape\"); }" ,
 "            if (codepoint >= 0xd800u && codepoint <= 0xdbffu) { uint32_t low = 0u; if (at > count || count - at < 2u || input[at] != '\\\\' || input[at + 1u] != 'u') { return luaL_error(L, \"AOT value stream has an unmatched high surrogate\"); } if (item + 1u >= escape_count || escapes->words[escapes->capacity - 1u - escape_index - item - 1u] != start + (uint32_t)at) { return luaL_error(L, \"AOT value stream surrogate escape metadata is invalid\"); } item += 1u; at += 2u; if (!ks_tree_hex4(input, count, &at, &low) || low < 0xdc00u || low > 0xdfffu) { return luaL_error(L, \"AOT value stream has an invalid low surrogate\"); } codepoint = 0x10000u + (codepoint - 0xd800u) * 0x400u + low - 0xdc00u; }" ,
-"            else if (codepoint >= 0xdc00u && codepoint <= 0xdfffu) { return luaL_error(L, \"AOT value stream has an unmatched low surrogate\"); } written += ks_tree_utf8(out + written, codepoint);" ,
+
+
+
+
+
+"            else if (codepoint >= 0xdc00u && codepoint <= 0xdfffu) { return luaL_error(L, \"AOT value stream has an unmatched low surrogate\"); }" ,
+"            written += ks_tree_utf8(out + written, codepoint);" ,
 "        } else { return luaL_error(L, \"AOT value stream has an unknown escape\"); }" ,
 "    }" ,
 "    if (at < count) { memcpy(out + written, input + at, count - at); written += count - at; } *decoded = out; *decoded_length = written; return 1;" ,
@@ -10318,7 +10324,9 @@ lines [
 .. "(ks_scalar_"
 .. suffix
 .. " a) {"
-lines [ # lines + 1 ] = "    for (uint32_t i = 0; i < " .. tostring ( width ) .. "u; ++i) { a.lane[i] = (uint8_t)~a.lane[i]; }"
+lines [
+# lines + 1
+] = "    for (uint32_t i = 0; i < " .. tostring ( width ) .. "u; ++i) { a.lane[i] = (uint8_t)~a.lane[i]; }"
 lines [ # lines + 1 ] = "    return a;"
 lines [ # lines + 1 ] = "}"
 for _ , comparison in ipairs ( { "eq" , "range" } ) do
@@ -33477,12 +33485,14 @@ return hi , lo
 elseif count == 32 then
 return lo , hi
 elseif count < 32 then
-return u32 ( bitops . bor ( bitops . lshift ( hi , count ) , bitops . rshift ( lo , 32 - count ) ) ) ,
-u32 ( bitops . bor ( bitops . lshift ( lo , count ) , bitops . rshift ( hi , 32 - count ) ) )
+return u32 (
+bitops . bor ( bitops . lshift ( hi , count ) , bitops . rshift ( lo , 32 - count ) )
+) , u32 ( bitops . bor ( bitops . lshift ( lo , count ) , bitops . rshift ( hi , 32 - count ) ) )
 else
 local rest = count - 32
-return u32 ( bitops . bor ( bitops . lshift ( lo , rest ) , bitops . rshift ( hi , 32 - rest ) ) ) ,
-u32 ( bitops . bor ( bitops . lshift ( hi , rest ) , bitops . rshift ( lo , 32 - rest ) ) )
+return u32 (
+bitops . bor ( bitops . lshift ( lo , rest ) , bitops . rshift ( hi , 32 - rest ) )
+) , u32 ( bitops . bor ( bitops . lshift ( hi , rest ) , bitops . rshift ( lo , 32 - rest ) ) )
 end
 end
 
@@ -33495,8 +33505,7 @@ return hi , lo
 elseif count == 32 then
 return 0 , hi
 elseif count < 32 then
-return u32 ( bitops . rshift ( hi , count ) ) ,
-u32 ( bitops . bor ( bitops . rshift ( lo , count ) , bitops . lshift ( hi , 32 - count ) ) )
+return u32 ( bitops . rshift ( hi , count ) ) , u32 ( bitops . bor ( bitops . rshift ( lo , count ) , bitops . lshift ( hi , 32 - count ) ) )
 else
 return 0 , u32 ( bitops . rshift ( hi , count - 32 ) )
 end
@@ -33560,8 +33569,9 @@ end
 local function wordAt ( input , offset ) 
 local b1 , b2 , b3 , b4 , b5 , b6 , b7 , b8 = input : byte ( offset + 1 , offset + 8 )
 
-return u32 ( bitops . bor ( b5 , bitops . lshift ( b6 , 8 ) , bitops . lshift ( b7 , 16 ) , bitops . lshift ( b8 , 24 ) ) ) ,
-u32 ( bitops . bor ( b1 , bitops . lshift ( b2 , 8 ) , bitops . lshift ( b3 , 16 ) , bitops . lshift ( b4 , 24 ) ) )
+return u32 (
+bitops . bor ( b5 , bitops . lshift ( b6 , 8 ) , bitops . lshift ( b7 , 16 ) , bitops . lshift ( b8 , 24 ) )
+) , u32 ( bitops . bor ( b1 , bitops . lshift ( b2 , 8 ) , bitops . lshift ( b3 , 16 ) , bitops . lshift ( b4 , 24 ) ) )
 end
 
 local function halfAt ( input , offset ) 
@@ -107544,7 +107554,9 @@ if pluck . constSpecialize . emission ~= nil and kind == "fornumStmt" and x . va
 local first = pluck . constSpecialize . integer ( x . start )
 local last = pluck . constSpecialize . integer ( x . stop )
 local step = x . step ~= nil and pluck . constSpecialize . integer ( x . step ) or 1
-if first ~= nil and last ~= nil and step ~= nil and step ~= 0 and pluck . constSpecialize . unrollableBody ( x . body ) then
+if first ~= nil and last ~= nil and step ~= nil and step ~= 0 and pluck . constSpecialize . unrollableBody (
+x . body
+) then
 local count = step > 0 and first <= last and math . floor (
 ( last - first ) / step
 ) + 1 or step < 0 and first >= last and math . floor ( ( first - last ) / - step ) + 1 or 0

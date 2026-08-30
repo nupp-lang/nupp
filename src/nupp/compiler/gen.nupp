@@ -4598,7 +4598,9 @@ function gen.generate(
             local first = pluck.constSpecialize.integer(x.start)
             local last = pluck.constSpecialize.integer(x.stop)
             local step = x.step ~= nil and pluck.constSpecialize.integer(x.step) or 1
-            if first ~= nil and last ~= nil and step ~= nil and step ~= 0 and pluck.constSpecialize.unrollableBody(x.body) then
+            if first ~= nil and last ~= nil and step ~= nil and step ~= 0 and pluck.constSpecialize.unrollableBody(
+                x.body
+            ) then
                 local count = step > 0 and first <= last and math.floor(
                     (last - first) / step
                 ) + 1 or step < 0 and first >= last and math.floor((first - last) / -step) + 1 or 0
