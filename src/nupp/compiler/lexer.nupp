@@ -24,6 +24,10 @@ trip, which is what lets an editor keep working in a file that is mid-edit.
 local lexer = {}
 local triviaarena = require("nupp.compiler.triviaarena")
 
+----------------------------------------------------------------------------
+-- Trivia
+----------------------------------------------------------------------------
+
 -- Trivia kinds as the small integers an arena record stores, and the way back.
 const TRIVIA_WHITESPACE = 1
 const TRIVIA_COMMENT = 2
@@ -84,6 +88,10 @@ type lexer.Trivia = {
     --- 1-based column of the first character.
     col: integer
 }
+
+----------------------------------------------------------------------------
+-- Tokens
+----------------------------------------------------------------------------
 
 --- One token, carrying the trivia that preceded it. The final "eof" token carries the
 --- file's trailing trivia, so every byte of the input belongs to exactly one token.
@@ -331,6 +339,10 @@ lexer.CUSTOMARY = CUSTOMARY
 
 local byte, sub, find = string.byte, string.sub, string.find
 
+----------------------------------------------------------------------------
+-- Character classes
+----------------------------------------------------------------------------
+
 local function isDigit(c: integer?): boolean?
     return c and c >= 48 and c <= 57
 end
@@ -376,6 +388,10 @@ local function scanLongBracket(src: string, pos: integer): integer?, boolean
 
     return s + #close, true
 end
+
+----------------------------------------------------------------------------
+-- Lexing
+----------------------------------------------------------------------------
 
 function lexer.lex(source: string, filename: string?): {lexer.Token}, {lexer.LexError}
     local tokens: {lexer.Token} = {}
@@ -757,6 +773,10 @@ function lexer.lex(source: string, filename: string?): {lexer.Token}, {lexer.Lex
     return tokens, errors
 end
 
+----------------------------------------------------------------------------
+-- Reading a token's trivia
+----------------------------------------------------------------------------
+
 local function triviaIndex(tok: lexer.Token, index: integer): integer
     return tok.triviaFirst + index - 1
 end
@@ -801,6 +821,10 @@ function lexer.triviaRecord(tok: lexer.Token, index: integer): lexer.Trivia
         col = col
     }
 end
+
+----------------------------------------------------------------------------
+-- Text back out
+----------------------------------------------------------------------------
 
 -- Reconstructs the exact source from a token stream (the round-trip identity).
 function lexer.textOf(tokens: {lexer.Token}): string

@@ -22,6 +22,10 @@ local cdecl = require("nupp.compiler.cdecl")
 local process = require("nupp.compiler.build.process")
 local hash = require("nupp.compiler.build.hash")
 
+----------------------------------------------------------------------------
+-- Running the preprocessor
+----------------------------------------------------------------------------
+
 local function readFile(path)
     local f = io.open(path, "rb")
     if not f then
@@ -86,6 +90,10 @@ local function filterToHeader(preprocessed, headerPath)
 
     return table.concat(keep, "\n")
 end
+
+----------------------------------------------------------------------------
+-- Splitting the output into statements
+----------------------------------------------------------------------------
 
 -- Strips compiler-specific decoration LuaJIT's parser may reject.
 local function normalize(text)
@@ -199,6 +207,10 @@ local function collectTypedefs(stmts)
 
     return defs
 end
+
+----------------------------------------------------------------------------
+-- Rendering a C type
+----------------------------------------------------------------------------
 
 local INTEGER_TYPE = {
     [8] = {"int8", "uint8"},
@@ -324,6 +336,10 @@ renderFunctionType = function(fn, knownStructs)
     return out
 end
 
+----------------------------------------------------------------------------
+-- Macros
+----------------------------------------------------------------------------
+
 -- Object-like #define names declared by the header itself.
 local function headerMacroNames(rawHeader)
     local names = {}
@@ -378,6 +394,10 @@ local function balancedEnd(text, startAt, open, close)
 
     return nil
 end
+
+----------------------------------------------------------------------------
+-- Static inline functions
+----------------------------------------------------------------------------
 
 -- The bridge admits the deliberately small first-release inline family: a named
 -- internal-linkage definition with an ordinary parameter list. The original C
@@ -470,6 +490,10 @@ end
 local function ownedPointer(rendered: string): string
     return rendered:sub(-1) == "?" and rendered:sub(1, -2) or rendered
 end
+
+----------------------------------------------------------------------------
+-- What an import is asked for
+----------------------------------------------------------------------------
 
 --- What an import was asked for: the compiler that preprocesses the header, the flags
 --- it needs to find what the header includes, and the library the generated

@@ -43,6 +43,10 @@ local readFile, writeFile, exists = fs.readFile, fs.writeFile, fs.exists
 
 local template = {}
 
+----------------------------------------------------------------------------
+-- What a template is
+----------------------------------------------------------------------------
+
 --- Where the built-in templates sit under the compiled modules.
 const BUILTIN_PREFIX = "/templates"
 
@@ -146,6 +150,10 @@ end
 --- spelling mean different things in different directories, and the one thing a
 --- user should be able to predict about `nupp init something/other` is which of
 --- the two places it is about to reach.
+
+----------------------------------------------------------------------------
+-- Resolving a source
+----------------------------------------------------------------------------
 
 local function isPathSpelling(spelling: string): boolean
     return spelling:sub(
@@ -294,6 +302,10 @@ end
 --- of links is meant to read like a copied one -- and a template walk has to
 --- refuse the link rather than follow it somewhere outside the tree. So this is
 --- a second, stricter walker, and changing the shared one is not the fix.
+
+----------------------------------------------------------------------------
+-- The manifest sandbox
+----------------------------------------------------------------------------
 
 local function walk(root: string): {string}?, string?
     local found: {string} = {}
@@ -526,6 +538,10 @@ end
 --- `${name}` and nothing else. `$${` is a literal `${`, which is the only escape
 --- because it is the only ambiguity: a lone `$` means a dollar.
 
+----------------------------------------------------------------------------
+-- Substitution
+----------------------------------------------------------------------------
+
 local function substitute(text: string, values: {[string]: string}, where: string): string?, string?
     local failure: string? = nil
     -- Split on the escape first so an escaped opener cannot be re-read as one.
@@ -635,6 +651,10 @@ function template.values(
 end
 
 --- Reading and planning
+
+----------------------------------------------------------------------------
+-- Planning what to write
+----------------------------------------------------------------------------
 
 local function readTree(source: template.Source): {[string]: string}?, string?
     if source.kind == "builtin" then
@@ -817,6 +837,10 @@ function template.plan(source: template.Source, destination: string, opts: {
         dropped = dropped
     )
 end
+
+----------------------------------------------------------------------------
+-- Writing and fetching
+----------------------------------------------------------------------------
 
 --- Writes a plan.
 ---

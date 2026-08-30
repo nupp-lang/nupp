@@ -31,6 +31,10 @@ local type Type = T.Type
 
 local index = {}
 
+----------------------------------------------------------------------------
+-- Compiler-only namespaces
+----------------------------------------------------------------------------
+
 -- Compiler intrinsics keep precedence over disk modules with the same dotted spelling.
 -- `nupp.derive` is both the compile-time recipe API and the historical module holding
 -- the standard recipes; the latter remains available through explicit require.
@@ -81,6 +85,10 @@ end
 --- @return the expression kinds this family answers
 function index.install(c: state.Checker): state.ExprHandlers
     local handlers = {}
+
+    ---------------------------------------------------------------------
+    -- Dotted paths
+    ---------------------------------------------------------------------
 
     local function dottedPath(node): string?, string?, {any}?
         local parts = {}
@@ -699,6 +707,11 @@ function index.install(c: state.Checker): state.ExprHandlers
     --- reading it mints the fact on the type. Wrapping the whole rule rather than one
     --- of its exits: a member read leaves by whichever answer settled it first, and
     --- every one of them read the same module.
+
+    ---------------------------------------------------------------------
+    -- Field access
+    ---------------------------------------------------------------------
+
     handlers.dotIndex = function(node: cst.DotIndex | cst.SafeIndex): Type
         local out = fieldOf(node)
         if node.kind ~= "dotIndex" or node.writeContext or out.tag ~= "func" then
@@ -714,6 +727,10 @@ function index.install(c: state.Checker): state.ExprHandlers
     end
 
     handlers.safeIndex = fieldOf
+
+    ---------------------------------------------------------------------
+    -- Bracket access
+    ---------------------------------------------------------------------
 
     handlers.bracketIndex = function(node: cst.BracketIndex | cst.SafeBracket): Type
         local kind = node.kind
