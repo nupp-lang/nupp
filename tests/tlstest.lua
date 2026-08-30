@@ -323,6 +323,34 @@ function M.aSessionOutlivingItsConnectionIsRefused()
    listener:close()
 end
 
+function M.aReleasedSessionAnswersItsQuestionsRatherThanCrashing()
+   -- close() frees the native session, so every accessor has to answer from
+   -- the record's own state afterwards: asking the backend about a released
+   -- session is asking freed memory, which a plain-Lua caller can do however
+   -- firmly the affine layer forbids it in typed code.
+   local listener, clientSock, serverSock = sockets()
+   local client = assert(tls.client(clientSock, {verify = false}))
+   client:close()
+   assertEq(client:isConnected(), false, "a released session is not connected")
+   assertEq(client:isReleased(), true, "and says it was released")
+   serverSock:close()
+   clientSock:close()
+   listener:close()
+end
+
+function M.aReleasedDatagramSessionAnswersItsQuestionsRatherThanCrashing()
+   local serverSock = assert(net.bind({host = "127.0.0.1", port = 0}))
+   local clientSock = assert(net.bind({host = "127.0.0.1", port = 0}))
+   local client = assert(tls.dtlsClient(clientSock, {
+      host = "127.0.0.1", port = serverSock:port(),
+   }, {verify = false}))
+   client:close()
+   assertEq(client:isConnected(), false, "a released DTLS session is not connected")
+   assertEq(client:peer(), nil, "and no longer names a peer")
+   clientSock:close()
+   serverSock:close()
+end
+
 function M.aBadCertificateIsReportedRatherThanRaising()
    local listener, clientSock, serverSock = sockets()
    local session, why = tls.server(serverSock, {
@@ -509,6 +537,108 @@ function M.dtlsPreservesMessagesAndVerifiesTheCookiePeer()
    otherClient:close()
    otherServer:close()
    otherSock:close()
+   client:close()
+   server:close()
+   clientSock:close()
+   serverSock:close()
+end
+
+function M.aDatagramLargerThanTheReceiveMaximumIsRefusedWhole()
+   -- DTLS authenticates the datagram as one message. Handing over its first
+   -- `maximum` bytes and keeping the rest for the next call would hand a later
+   -- receive the tail of this message as though a peer had sent it.
+   local serverSock = assert(net.bind({host = "127.0.0.1", port = 0}))
+   local clientSock = assert(net.bind({host = "127.0.0.1", port = 0}))
+   local server = assert(tls.dtlsServer(serverSock, {
+      certificate = CERT, privateKey = KEY,
+   }))
+   local client = assert(tls.dtlsClient(clientSock, {
+      host = "127.0.0.1", port = serverSock:port(),
+   }, {hostname = "localhost", authority = CERT}))
+   local clientDone, clientWhy, serverDone, serverWhy = shake(client, server)
+   assertTrue(clientDone, "the DTLS client finishes: " .. tostring(clientWhy))
+   assertTrue(serverDone, "the DTLS server finishes: " .. tostring(serverWhy))
+
+   assertTrue(client:send(("x"):rep(200)), "a 200 byte datagram is sent")
+   local got, why = server:receive(64)
+   assertEq(got, nil, "receiving it with a smaller maximum does not split it")
+   assertTrue(why ~= nil, "the refusal says why")
+   assertTrue(client:send("after"), "the next datagram is its own message")
+   assertEq(assert(server:receive(64)), "after",
+      "and arrives whole rather than as the remainder of the refused one")
+
+   client:close()
+   server:close()
+   clientSock:close()
+   serverSock:close()
+end
+
+function M.anAbandonedClientHelloDoesNotWedgeTheServer()
+   local serverSock = assert(net.bind({host = "127.0.0.1", port = 0}))
+   local server = assert(tls.dtlsServer(serverSock, {
+      certificate = CERT, privateKey = KEY,
+   }))
+
+   -- A first hello whose sender never answers the cookie challenge. The
+   -- address is real, but until the cookie comes back it has proved no more
+   -- than a spoofed one, and the session must not stay bound to it.
+   local spoofSock = assert(net.bind({host = "127.0.0.1", port = 0}))
+   local spoof = assert(tls.dtlsClient(spoofSock, {
+      host = "127.0.0.1", port = serverSock:port(),
+   }, {hostname = "localhost", authority = CERT}))
+   spoof:step()
+   for _ = 1, 50 do
+      net.pump(2)
+      server:step()
+   end
+   spoof:close()
+   spoofSock:close()
+
+   local clientSock = assert(net.bind({host = "127.0.0.1", port = 0}))
+   local client = assert(tls.dtlsClient(clientSock, {
+      host = "127.0.0.1", port = serverSock:port(),
+   }, {hostname = "localhost", authority = CERT}))
+   local clientDone, clientWhy, serverDone, serverWhy = shake(client, server)
+   assertTrue(clientDone, "the honest client finishes: " .. tostring(clientWhy))
+   assertTrue(serverDone, "the challenged server finishes: " .. tostring(serverWhy))
+   assertEq(server:peer().port, clientSock:port(),
+      "and the session bound the peer that answered the cookie")
+
+   client:close()
+   server:close()
+   clientSock:close()
+   serverSock:close()
+end
+
+function M.aLearningSessionLeavesABoundPeersRecordsAlone()
+   local serverSock = assert(net.bind({host = "127.0.0.1", port = 0}))
+   local clientSock = assert(net.bind({host = "127.0.0.1", port = 0}))
+   local server = assert(tls.dtlsServer(serverSock, {
+      certificate = CERT, privateKey = KEY,
+   }))
+   local client = assert(tls.dtlsClient(clientSock, {
+      host = "127.0.0.1", port = serverSock:port(),
+   }, {hostname = "localhost", authority = CERT}))
+   local clientDone, clientWhy, serverDone, serverWhy = shake(client, server)
+   assertTrue(clientDone, "the DTLS client finishes: " .. tostring(clientWhy))
+   assertTrue(serverDone, "the DTLS server finishes: " .. tostring(serverWhy))
+
+   -- A second session, still waiting for a first hello of its own, polls the
+   -- shared socket while the bound peer's record is queued on it.
+   local learner = assert(tls.dtlsServer(serverSock, {
+      certificate = CERT, privateKey = KEY,
+   }))
+   assertTrue(client:send("mine"), "the bound peer sends a record")
+   for _ = 1, 20 do
+      net.pump(2)
+      learner:step()
+   end
+   assertEq(learner:peer(), nil,
+      "the learning session does not bind a peer already claimed")
+   assertEq(assert(server:receive(64)), "mine",
+      "and the bound session still receives its own record")
+
+   learner:close()
    client:close()
    server:close()
    clientSock:close()

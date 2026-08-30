@@ -38,6 +38,7 @@
 #if defined(__linux__)
 #include <linux/tls.h>
 #include <netinet/tcp.h>
+#include <poll.h>
 #include <sys/socket.h>
 #include <sys/uio.h>
 #include <unistd.h>
@@ -653,6 +654,26 @@ static void tls_fail(int code, const char *what) {
 
 /* --- the transport ------------------------------------------------------ */
 
+/* The bound peer, registered with the socket underneath. One datagram socket
+ * may carry several sessions, and a session still learning its own peer takes
+ * the oldest datagram from anybody: the claim is what keeps it from taking a
+ * record that another session was going to decrypt. It lasts exactly as long
+ * as the binding -- released when a cookie challenge unlearns the peer and
+ * when the session goes. */
+static void tls_claim_peer(NuppTls *session) {
+    if (session->datagram && session->peerReady) {
+        nuppNetDatagramClaimPeer(
+            session->datagramSocket, session->peerHost, session->peerPort);
+    }
+}
+
+static void tls_unclaim_peer(NuppTls *session) {
+    if (session->datagram && session->peerReady) {
+        nuppNetDatagramReleasePeer(
+            session->datagramSocket, session->peerHost, session->peerPort);
+    }
+}
+
 static int tls_set_peer_identity(NuppTls *session) {
     unsigned char identity[70];
     size_t hostLength;
@@ -792,6 +813,7 @@ static int tls_recv(void *context, unsigned char *into, size_t length) {
             if (session->server && tls_set_peer_identity(session) != 0) {
                 return NUPP_TLS_RECV_FAILED;
             }
+            tls_claim_peer(session);
         }
         return (int)got;
     }
@@ -1011,6 +1033,11 @@ static bool tls_kernel_enable(NuppTls *session) {
     }
     session->kernelPoll.data = session;
     session->kernelPollReady = true;
+    /* Marked only now, with the ULP attached, both directions' keys installed
+     * and the reactor watching the descriptor. Marking earlier would leave the
+     * stream refusing its ordinary byte transport after a handoff that failed
+     * partway, which its owner could otherwise still use or close cleanly. */
+    nuppNetStreamTlsEngaged(session->stream);
     session->kernelOffloaded = true;
     return true;
 }
@@ -1085,6 +1112,7 @@ static bool tls_kernel_close_notify(NuppTls *session) {
     struct msghdr message;
     struct cmsghdr *control;
     struct iovec output;
+    int attempt;
     memset(&message, 0, sizeof message);
     memset(controls, 0, sizeof controls);
     output.iov_base = alert;
@@ -1099,8 +1127,26 @@ static bool tls_kernel_close_notify(NuppTls *session) {
     control->cmsg_len = CMSG_LEN(sizeof recordType);
     memcpy(CMSG_DATA(control), &recordType, sizeof recordType);
     message.msg_controllen = control->cmsg_len;
-    return sendmsg(session->kernelFd, &message, MSG_DONTWAIT | MSG_NOSIGNAL) ==
-        (ssize_t)sizeof alert;
+    /* The socket buffer may be full of records already accepted, and a
+     * close_notify quietly dropped for that turns an ended session into a
+     * truncated one at the peer. The kernel drains that buffer on its own, so
+     * waiting for writability briefly is usually enough -- and only briefly,
+     * because a close must not hang on a peer that has stopped reading. */
+    for (attempt = 0; attempt < 25; attempt++) {
+        struct pollfd waiting;
+        if (sendmsg(session->kernelFd, &message,
+                MSG_DONTWAIT | MSG_NOSIGNAL) == (ssize_t)sizeof alert) {
+            return true;
+        }
+        if (errno != EAGAIN && errno != EWOULDBLOCK) {
+            return false;
+        }
+        waiting.fd = session->kernelFd;
+        waiting.events = POLLOUT;
+        waiting.revents = 0;
+        poll(&waiting, 1, 20);
+    }
+    return false;
 }
 #endif
 
@@ -1115,6 +1161,7 @@ static void tls_reap(NuppTls *session) {
         nuppNetStreamRelease(session->stream);
     }
     if (session->datagramSocket != NULL) {
+        tls_unclaim_peer(session);
         nuppNetDatagramRelease(session->datagramSocket);
     }
     mbedtls_platform_zeroize(
@@ -1240,6 +1287,7 @@ NUPP_EXPORT NuppTls *nuppTlsWrap(
         memcpy(session->peerHost, peer.value, peer.length + 1);
         session->peerPort = peerPort;
         session->peerReady = true;
+        tls_claim_peer(session);
         nupp_text_free(&peer);
     }
     failed = mbedtls_ctr_drbg_seed(&session->drbg, mbedtls_entropy_func,
@@ -1461,9 +1509,16 @@ NUPP_EXPORT int32_t nuppTlsHandshake(NuppTls *session) {
         session->datagram && session->server) {
         state = mbedtls_ssl_session_reset(&session->ssl);
         if (state == 0) {
-            state = tls_set_peer_identity(session);
-        }
-        if (state == 0) {
+            /* The address that sent this hello has proved nothing yet: the
+             * cookie it was just challenged with is the proof, and it may
+             * never answer. Staying bound to it would let one spoofed packet
+             * wedge the session forever, with every honest peer's records
+             * filtered out against an address that has gone quiet. Unlearned
+             * instead, so the next hello -- this peer's answer or somebody
+             * else's -- binds afresh, and `tls_recv` re-registers the
+             * transport identity when it does. */
+            tls_unclaim_peer(session);
+            session->peerReady = false;
             mbedtls_ssl_set_timer_cb(
                 &session->ssl, session, tls_set_timer, tls_get_timer);
             mbedtls_ssl_set_bio(

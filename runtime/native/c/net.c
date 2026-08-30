@@ -519,13 +519,24 @@ NUPP_EXPORT intptr_t nuppNetStreamTlsSocket(NuppNetStream *stream) {
         nupp_fail("net: the TCP descriptor could not be duplicated");
         return -1;
     }
-    stream->layered = true;
     return (intptr_t)duplicated;
 #else
     (void)stream;
     nupp_fail("net: kernel TLS is available only on Linux");
     return -1;
 #endif
+}
+
+/* Marks the stream as owned by the kernel record layer. Separate from handing
+ * out the descriptor, because between the two the TLS layer still has to
+ * attach the ULP and install both directions' keys, any of which can fail: a
+ * stream marked before then would go on refusing ordinary reads and writes
+ * over a handoff that never happened, wedging a connection its owner could
+ * otherwise still use or close cleanly. */
+NUPP_EXPORT void nuppNetStreamTlsEngaged(NuppNetStream *stream) {
+    if (stream != NULL) {
+        stream->layered = true;
+    }
 }
 
 NUPP_EXPORT void *nuppNetStreamLoop(NuppNetStream *stream) {
@@ -1290,6 +1301,17 @@ typedef struct {
     int32_t port;
 } NetMessage;
 
+/* A peer address some layered session has bound to. One datagram socket may
+ * carry several DTLS sessions, and a session that is still learning its own
+ * peer takes the oldest datagram from anybody -- so a peer another session has
+ * already claimed has to be off limits, or the learner consumes records that
+ * were that session's to decrypt. */
+typedef struct NetPeerClaim {
+    struct NetPeerClaim *next;
+    char host[64];
+    int32_t port;
+} NetPeerClaim;
+
 struct NuppNetDatagram {
     uv_udp_t udp;
     bool started;
@@ -1298,6 +1320,8 @@ struct NuppNetDatagram {
     bool destroyed;
     unsigned holders;
     int failure;
+
+    NetPeerClaim *claims;
 
     uint8_t *slab;
     NetMessage queue[NET_DATAGRAM_QUEUE_MAX];
@@ -1314,8 +1338,70 @@ static void net_datagram_reap(NuppNetDatagram *socket) {
     for (size_t at = 0; at < socket->count; at++) {
         free(socket->queue[(socket->head + at) % NET_DATAGRAM_QUEUE_MAX].bytes);
     }
+    while (socket->claims != NULL) {
+        NetPeerClaim *claim = socket->claims;
+        socket->claims = claim->next;
+        free(claim);
+    }
     free(socket->slab);
     free(socket);
+}
+
+static bool net_datagram_claimed(
+    NuppNetDatagram *socket,
+    const char *host,
+    int32_t port
+) {
+    const NetPeerClaim *at;
+    for (at = socket->claims; at != NULL; at = at->next) {
+        if (at->port == port && strcmp(at->host, host) == 0) {
+            return true;
+        }
+    }
+    return false;
+}
+
+/* Registered by the session that bound the peer, released when it unbinds or
+ * goes. Best effort on purpose: a claim that could not be allocated costs a
+ * learner possibly consuming a record, not correctness of the claimant's own
+ * addressed receives. */
+NUPP_EXPORT bool nuppNetDatagramClaimPeer(
+    NuppNetDatagram *socket,
+    const char *host,
+    int32_t port
+) {
+    NetPeerClaim *claim;
+    if (socket == NULL || host == NULL) {
+        return false;
+    }
+    claim = calloc(1, sizeof *claim);
+    if (claim == NULL) {
+        return false;
+    }
+    strncpy(claim->host, host, sizeof claim->host - 1);
+    claim->port = port;
+    claim->next = socket->claims;
+    socket->claims = claim;
+    return true;
+}
+
+NUPP_EXPORT void nuppNetDatagramReleasePeer(
+    NuppNetDatagram *socket,
+    const char *host,
+    int32_t port
+) {
+    NetPeerClaim **at;
+    if (socket == NULL || host == NULL) {
+        return;
+    }
+    for (at = &socket->claims; *at != NULL; at = &(*at)->next) {
+        if ((*at)->port == port && strcmp((*at)->host, host) == 0) {
+            NetPeerClaim *found = *at;
+            *at = found->next;
+            free(found);
+            return;
+        }
+    }
 }
 
 static void net_datagram_closed(uv_handle_t *handle) {
@@ -1550,6 +1636,25 @@ NUPP_EXPORT intptr_t nuppNetDatagramReceivePeer(
             }
         }
         if (!matched) {
+            if (status != NULL) {
+                *status = 0;
+            }
+            return 0;
+        }
+    } else {
+        /* Any peer means any peer nobody has claimed. A datagram from a
+         * claimed address belongs to the session that claimed it, and it stays
+         * queued for that session's own addressed receive. */
+        bool available = false;
+        for (found = 0; found < socket->count; found++) {
+            message = &socket->queue[
+                (socket->head + found) % NET_DATAGRAM_QUEUE_MAX];
+            if (!net_datagram_claimed(socket, message->host, message->port)) {
+                available = true;
+                break;
+            }
+        }
+        if (!available) {
             if (status != NULL) {
                 *status = 0;
             }

@@ -163,8 +163,9 @@ record tls.Backend
     --- Writes plaintext, answering how much was taken.
     write: function(self: tls.Backend, session: any, bytes: string): (integer?, string?)
 
-    --- Sends `close_notify`.
-    closeNotify: function(self: tls.Backend, session: any): nil
+    --- Sends `close_notify`, answering whether the alert left this process.
+    --- False when the socket could not take it yet, so a caller may retry.
+    closeNotify: function(self: tls.Backend, session: any): boolean
 
     --- Releases the session, and not the connection under it.
     destroy: function(self: tls.Backend, session: any): nil
@@ -303,7 +304,15 @@ record tls.Session is nupp.io.Reader, nupp.io.Writer
     private _ended: boolean
 
     --- Whether the connection underneath is still open.
+    ---
+    --- False once this session is released: closing frees the native session,
+    --- so the question has to be answered from this record's own state rather
+    --- than asked of memory that has been given back.
     function isConnected(self): boolean
+        if self._closed then
+            return false
+        end
+
         return self._backend:connected(self._session)
     end
 
@@ -659,7 +668,15 @@ record tls.DatagramSession is nupp.Closeable
     private _ended: boolean
 
     --- Whether the datagram socket underneath is still open.
+    ---
+    --- False once this session is released: closing frees the native session,
+    --- so the question has to be answered from this record's own state rather
+    --- than asked of memory that has been given back.
     function isConnected(self): boolean
+        if self._closed then
+            return false
+        end
+
         return self._backend:connected(self._session)
     end
 
@@ -680,6 +697,9 @@ record tls.DatagramSession is nupp.Closeable
 
     --- The peer address, once a server has received its first ClientHello.
     function peer(self): net.Address?
+        if self._closed then
+            return nil
+        end
         const host, port = self._backend:peer(self._session)
         if host == nil or port == nil then
             return nil
@@ -764,7 +784,14 @@ record tls.DatagramSession is nupp.Closeable
         return true
     end
 
-    --- Receives one authenticated application datagram.
+    --- Receives one authenticated application datagram, whole.
+    ---
+    --- The datagram is read at its own size rather than at `maximum`, because
+    --- DTLS authenticates it as one message and the provider keeps the rest of
+    --- a partially read record for the next call -- which would hand a later
+    --- receive the tail of this message as though a peer had sent it. One
+    --- larger than `maximum` is therefore consumed and reported as a failure
+    --- rather than split or silently truncated.
     --- @raises when maximum is not a positive integer
     function receive(self, maximum: integer): (string?, string?)
         if self._closed then
@@ -780,7 +807,7 @@ record tls.DatagramSession is nupp.Closeable
         local message: string? = nil
         local failure: string? = nil
         await("nupp.io.tls DTLS receive", function(): boolean
-            const got, why = self._backend:read(self._session, wanted)
+            const got, why = self._backend:read(self._session, READ_SIZE)
             if why ~= nil then
                 failure = why
 
@@ -799,8 +826,12 @@ record tls.DatagramSession is nupp.Closeable
         if failure ~= nil then
             return nil, failure
         end
+        const whole = message or ""
+        if #whole > wanted then
+            return nil, "the datagram is larger than the receive maximum"
+        end
 
-        return message or ""
+        return whole
     end
 
     --- Sends one authenticated application datagram.
@@ -849,7 +880,17 @@ record tls.DatagramSession is nupp.Closeable
             return
         end
         if self._ready and self:isConnected() then
-            self._backend:closeNotify(self._session)
+            -- A datagram is refused rather than queued when the socket's
+            -- buffer is full, and the provider then still holds the alert. A
+            -- few driven retries give the buffer time to drain; a bounded few,
+            -- because a close is not allowed to wait on a peer forever, and a
+            -- lost close_notify is a loss DTLS peers already have to survive.
+            for _ = 1, 8 do
+                if self._backend:closeNotify(self._session) then
+                    break
+                end
+                net.pump(1)
+            end
         end
         self._closed = true
         self._backend:destroy(self._session)
@@ -1192,8 +1233,8 @@ local function nativeBackend(): tls.Backend
             return took
         end,
 
-        closeNotify = function(self: tls.Backend, session: any): nil
-            C.nuppTlsCloseNotify(session)
+        closeNotify = function(self: tls.Backend, session: any): boolean
+            return C.nuppTlsCloseNotify(session) ~= 0
         end,
 
         destroy = function(self: tls.Backend, session: any): nil

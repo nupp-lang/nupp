@@ -32,6 +32,11 @@ size_t nuppNetPending(NuppNetStream *stream);
  * duplicate only lets the TLS layer poll and use the same open file
  * description without racing libuv's ordinary reads and writes. */
 intptr_t nuppNetStreamTlsSocket(NuppNetStream *stream);
+
+/* Marks the stream as owned by the kernel record layer, called only once the
+ * handoff has fully engaged. Until then the stream keeps its ordinary byte
+ * transport, so a failed handoff leaves a connection its owner can still use. */
+void nuppNetStreamTlsEngaged(NuppNetStream *stream);
 void *nuppNetStreamLoop(NuppNetStream *stream);
 
 /* A layering module holds the connection struct alive while it may still ask
@@ -63,5 +68,12 @@ intptr_t nuppNetDatagramTrySend(
 bool nuppNetDatagramClosed(NuppNetDatagram *socket);
 void nuppNetDatagramRetain(NuppNetDatagram *socket);
 void nuppNetDatagramRelease(NuppNetDatagram *socket);
+
+/* A session that has bound a datagram peer claims that address, so a session
+ * still learning its own peer on the same socket leaves the bound peer's
+ * records where they are. Released when the binding is undone or the session
+ * goes. */
+bool nuppNetDatagramClaimPeer(NuppNetDatagram *socket, const char *host, int32_t port);
+void nuppNetDatagramReleasePeer(NuppNetDatagram *socket, const char *host, int32_t port);
 
 #endif
