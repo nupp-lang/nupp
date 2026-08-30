@@ -87,6 +87,7 @@ record verify.Scope
     shared: {[string]: scalarIR.Type}?
     sharedCounts: {[string]: integer}?
     localReadLimit: integer?
+    localReadMinimum: integer?
 end
 
 --- What the lane rules need beyond the scope.
@@ -538,7 +539,8 @@ local function binary(node: scalarIR.Binary, values: {[string]: string}, scope: 
                 inPhase = scope.inPhase,
                 shared = scope.shared,
                 sharedCounts = scope.sharedCounts,
-                localReadLimit = scope.localReadLimit
+                localReadLimit = scope.localReadLimit,
+                localReadMinimum = scope.localReadMinimum
             )
         end
     end
@@ -644,10 +646,16 @@ scalarWalk = function(node: scalarIR.Expr, values: {[string]: string}, scope: ve
         local minimum, maximum = indexRange(load.index)
         local constant = load.index.op == "constant_i32" and tonumber((load.index as scalarIR.IntConstant).value) or nil
         local offset: number? = nil
+        local back: number? = nil
         if load.index.op == "u32_add" then
             local added = load.index as scalarIR.Fixed
             if added.left.op == "local_index" and added.right.op == "constant_i32" then
                 offset = tonumber((added.right as scalarIR.IntConstant).value)
+            end
+        elseif load.index.op == "u32_sub" then
+            local subtracted = load.index as scalarIR.Fixed
+            if subtracted.left.op == "local_index" and subtracted.right.op == "constant_i32" then
+                back = tonumber((subtracted.right as scalarIR.IntConstant).value)
             end
         end
         holds(
@@ -657,7 +665,11 @@ scalarWalk = function(node: scalarIR.Expr, values: {[string]: string}, scope: ve
                 load.shared
             ] or offset ~= nil and scope.localReadLimit ~= nil and offset >= 0 and (
                 scope.localReadLimit as integer
-            ) + offset <= counts[load.shared],
+            ) + offset <= counts[
+                load.shared
+            ] or back ~= nil and scope.localReadMinimum ~= nil and back >= 0 and (
+                scope.localReadMinimum as integer
+            ) >= back,
             "workgroup scratch read is not proved in bounds"
         )
         scalarWalk(load.index, values, scope)
@@ -2147,6 +2159,17 @@ local function block(
                         end
 
                         return scope.localReadLimit
+                    end)(),
+                    localReadMinimum = (function(): integer?
+                        local condition = clause.condition
+                        if condition.op == "ge" then
+                            local comparison = condition as scalarIR.Binary
+                            if comparison.left.op == "local_index" and comparison.right.op == "constant_i32" then
+                                return tonumber((comparison.right as scalarIR.IntConstant).value) as integer?
+                            end
+                        end
+
+                        return scope.localReadMinimum
                     end)()
                 )
                 block(clause.body, values, nestedScope, stored)
@@ -2187,7 +2210,8 @@ local function block(
                 inPhase = scope.inPhase,
                 shared = scope.shared,
                 sharedCounts = scope.sharedCounts,
-                localReadLimit = scope.localReadLimit
+                localReadLimit = scope.localReadLimit,
+                localReadMinimum = scope.localReadMinimum
             )
             if statement.boundSpan ~= nil then
                 holds(
@@ -2243,7 +2267,8 @@ local function block(
                 inPhase = scope.inPhase,
                 shared = scope.shared,
                 sharedCounts = scope.sharedCounts,
-                localReadLimit = scope.localReadLimit
+                localReadLimit = scope.localReadLimit,
+                localReadMinimum = scope.localReadMinimum
             )
             block(statement.body, values, nestedScope, stored)
             local invalidated: {string} = {}

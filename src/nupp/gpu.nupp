@@ -185,6 +185,15 @@ record gpu.Phases
     --- Reduces one power-of-two f32 workgroup in a fixed left-before-right
     --- tree. The sum is left in element zero.
     reduceSumF32: function(borrows self: gpu.Phases, exclusive values: gpu.Shared<float>): nil
+
+    --- Computes one deterministic inclusive u32 prefix sum. `temporary` is a
+    --- same-sized scratch array used for disjoint ping-pong stages; the result
+    --- is left in `values`.
+    inclusiveScanU32: function(
+        borrows self: gpu.Phases,
+        exclusive values: gpu.Shared<uint32>,
+        exclusive temporary: gpu.Shared<uint32>
+    ): nil
 end
 
 sealed interface gpu.ContextToken
@@ -373,6 +382,56 @@ function gpu.Phases.reduceSumF32(borrows self: gpu.Phases, exclusive values: gpu
             end
         end)
         stride = stride // 2
+    end
+end
+
+function gpu.Phases.inclusiveScanU32(
+    borrows self: gpu.Phases,
+    exclusive values: gpu.Shared<uint32>,
+    exclusive temporary: gpu.Shared<uint32>
+): nil
+    if values.count ~= self._size or temporary.count ~= self._size or self._size < 1 or self._size & (
+        self._size - 1
+    ) ~= 0 then
+        error("nupp: fixed scan needs two power-of-two arrays with one value per lane", 2)
+    end
+    local offset: integer = 1
+    local valuesAreSource = true
+    while offset < self._size do
+        local distance: integer = offset
+        if valuesAreSource then
+            self:run(function(localIndex: uint32)
+                local lane = localIndex as integer
+                local value = values[lane]
+                if lane >= distance then
+                    value = nupp.math.u32.add(
+                        nupp.math.u32.wrap(value as integer),
+                        nupp.math.u32.wrap(values[lane - distance] as integer)
+                    )
+                end
+                temporary[lane] = value
+            end)
+        else
+            self:run(function(localIndex: uint32)
+                local lane = localIndex as integer
+                local value = temporary[lane]
+                if lane >= distance then
+                    value = nupp.math.u32.add(
+                        nupp.math.u32.wrap(value as integer),
+                        nupp.math.u32.wrap(temporary[lane - distance] as integer)
+                    )
+                end
+                values[lane] = value
+            end)
+        end
+        valuesAreSource = not valuesAreSource
+        offset = offset * 2
+    end
+    if not valuesAreSource then
+        self:run(function(localIndex: uint32)
+            local lane = localIndex as integer
+            values[lane] = temporary[lane]
+        end)
     end
 end
 

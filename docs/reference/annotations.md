@@ -479,6 +479,11 @@ at its own local index. `phases:reduceSumF32(shared)` is the compiler-owned
 exception: it expands into a fixed, left-before-right power-of-two tree whose
 stage order is identical on CPU and GPU. There is no unordered or atomic
 reduction.
+`phases:inclusiveScanU32(values, temporary)` similarly expands into a
+deterministic power-of-two inclusive prefix tree. Both arrays contain one
+`uint32` per lane; the second is compiler-checked ping-pong scratch and the
+result is left in `values`. Stable block compaction can use the resulting
+prefix as each selected lane's destination without atomics.
 
 Both shapes accept any number of proved read and write spans and up to 128 bytes
 of fixed-width scalar uniforms in a local function declaration. Uploads and

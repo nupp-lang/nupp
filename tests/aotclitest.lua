@@ -470,6 +470,11 @@ export record Phases
     scratch: function<T>(borrows self: Phases, initial: T, count: integer): Shared<T>
     run: function(borrows self: Phases, scoped stage: function(uint32): nil): nil
     reduceSumF32: function(borrows self: Phases, exclusive values: Shared<float>): nil
+    inclusiveScanU32: function(
+        borrows self: Phases,
+        exclusive values: Shared<uint32>,
+        exclusive temporary: Shared<uint32>
+    ): nil
 end
 
 export const workgroups: function(
@@ -534,6 +539,47 @@ return {reduce = reduce}
     assert(binding:find("bindKernel(self._kernel, input.count)", 1, true), binding)
     assert(binding:find("raw:setRead(0, input, false)", 1, true), binding)
     assert(binding:find(", 4)", 1, true), binding)
+end
+
+function M.gpuTargetEmitsDeterministicInclusiveScan()
+    local dir = project({
+        ["nupp/gpu.d.nupp"] = GPU_PHASE_DECLARATIONS,
+        ["scan.nupp"] = [[
+local gpu = require("nupp.gpu")
+local span = require("nupp.mem.span")
+
+@aot(target = "gpu")
+local function scan(exclusive output: span.WriteSpan<uint32>): nil
+    local groups = nupp.math.u32.div(nupp.math.u32.wrap(#output), nupp.math.u32.wrap(4))
+    gpu.workgroups(groups, 4, function(groupIndex: uint32, phases: gpu.Phases)
+        local values = phases:scratch(nupp.math.u32.wrap(0), 4)
+        local temporary = phases:scratch(nupp.math.u32.wrap(0), 4)
+        phases:run(function(localIndex: uint32)
+            values[localIndex] = nupp.math.u32.add(localIndex, nupp.math.u32.wrap(1))
+        end)
+        phases:inclusiveScanU32(values, temporary)
+        phases:run(function(localIndex: uint32)
+            local cursor = nupp.math.u32.add(
+                nupp.math.u32.mul(groupIndex, nupp.math.u32.wrap(4)),
+                localIndex
+            )
+            if cursor < #output then
+                output[cursor + 1] = values[localIndex]
+            end
+        end)
+    end)
+end
+return {scan = scan}
+]],
+    })
+    local shader, code = run(dir, "--emit msl scan.nupp")
+    test.equal(code, 0, shader)
+    assert(shader:find("threadgroup spvUnsafeArray<uint, 4> values", 1, true), shader)
+    assert(shader:find("threadgroup spvUnsafeArray<uint, 4> temporary", 1, true), shader)
+    assert(shader:find("gl_LocalInvocationID.x - 1u", 1, true), shader)
+    assert(shader:find("gl_LocalInvocationID.x - 2u", 1, true), shader)
+    local _, barriers = shader:gsub("threadgroup_barrier%(mem_flags::mem_threadgroup%)", "")
+    assert(barriers == 5, shader)
 end
 
 function M.gpuTargetRefusesNonDisjointWorkgroupScratchWrites()

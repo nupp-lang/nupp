@@ -1,0 +1,137 @@
+module compaction
+
+local gpu = require("nupp.gpu")
+local span = require("nupp.mem.span")
+
+const BLOCK = 256
+
+--- Packs selected values into one fixed-size segment per block and records the
+--- number selected. A later offsets pass joins the segments without atomics.
+@aot(target = "gpu")
+local function compactBlocks(
+    exclusive blocked: span.WriteSpan<uint32>,
+    exclusive counts: span.WriteSpan<uint32>,
+    borrows input: span.Span<uint32>,
+    borrows selected: span.Span<uint32>
+): nil
+    local groups = nupp.math.u32.div(nupp.math.u32.wrap(#blocked), nupp.math.u32.wrap(BLOCK))
+    gpu.workgroups(groups, 256, function(groupIndex: uint32, phases: gpu.Phases)
+        local prefix = phases:scratch(nupp.math.u32.wrap(0), 256)
+        local temporary = phases:scratch(nupp.math.u32.wrap(0), 256)
+        phases:run(function(localIndex: uint32)
+            local source = nupp.math.u32.add(nupp.math.u32.mul(groupIndex, nupp.math.u32.wrap(BLOCK)), localIndex)
+            if source < #selected then
+                if selected[source + 1] ~= nupp.math.u32.wrap(0) then
+                    prefix[localIndex] = nupp.math.u32.wrap(1)
+                else
+                    prefix[localIndex] = nupp.math.u32.wrap(0)
+                end
+            else
+                prefix[localIndex] = nupp.math.u32.wrap(0)
+            end
+        end)
+        phases:inclusiveScanU32(prefix, temporary)
+        phases:run(function(localIndex: uint32)
+            local countCursor = groupIndex
+            if localIndex == nupp.math.u32.wrap(255) and countCursor < #counts then
+                counts[countCursor + 1] = prefix[255]
+            end
+        end)
+        phases:run(function(localIndex: uint32)
+            local source = nupp.math.u32.add(nupp.math.u32.mul(groupIndex, nupp.math.u32.wrap(BLOCK)), localIndex)
+            local selectedCursor = source
+            local inputCursor = source
+            if selectedCursor < #selected then
+                if selected[selectedCursor + 1] ~= nupp.math.u32.wrap(0) then
+                    if inputCursor < #input then
+                        local destination = nupp.math.u32.add(
+                            nupp.math.u32.mul(groupIndex, nupp.math.u32.wrap(BLOCK)),
+                            nupp.math.u32.sub(nupp.math.u32.wrap(prefix[localIndex] as integer), nupp.math.u32.wrap(1))
+                        )
+                        local blockedCursor = destination
+                        if blockedCursor < #blocked then
+                            blocked[blockedCursor + 1] = input[inputCursor + 1]
+                        end
+                    end
+                end
+            end
+        end)
+    end)
+end
+
+--- Converts up to one workgroup of block counts into exclusive offsets.
+@aot(target = "gpu")
+local function exclusiveOffsets(exclusive offsets: span.WriteSpan<uint32>, borrows counts: span.Span<uint32>): nil
+    local groups = nupp.math.u32.div(nupp.math.u32.wrap(#offsets), nupp.math.u32.wrap(BLOCK))
+    gpu.workgroups(groups, 256, function(groupIndex: uint32, phases: gpu.Phases)
+        local values = phases:scratch(nupp.math.u32.wrap(0), 256)
+        local temporary = phases:scratch(nupp.math.u32.wrap(0), 256)
+        phases:run(function(localIndex: uint32)
+            local countCursor = localIndex
+            if countCursor < #counts then
+                values[localIndex] = counts[countCursor + 1]
+            else
+                values[localIndex] = nupp.math.u32.wrap(0)
+            end
+        end)
+        phases:inclusiveScanU32(values, temporary)
+        phases:run(function(localIndex: uint32)
+            local offsetCursor = localIndex
+            local countCursor = localIndex
+            if offsetCursor < #offsets then
+                if countCursor < #counts then
+                    offsets[
+                        offsetCursor + 1
+                    ] = nupp.math.u32.sub(
+                        nupp.math.u32.wrap(values[localIndex] as integer),
+                        nupp.math.u32.wrap(counts[countCursor + 1] as integer)
+                    )
+                else
+                    offsets[offsetCursor + 1] = values[localIndex]
+                end
+            end
+        end)
+    end)
+end
+
+--- Joins block-local packed segments into one globally stable sequence.
+@aot(target = "gpu")
+local function scatter(
+    exclusive output: span.WriteSpan<uint32>,
+    borrows blocked: span.Span<uint32>,
+    borrows counts: span.Span<uint32>,
+    borrows offsets: span.Span<uint32>
+): nil
+    local groups = nupp.math.u32.div(nupp.math.u32.wrap(#blocked), nupp.math.u32.wrap(BLOCK))
+    gpu.workgroups(groups, 256, function(groupIndex: uint32, phases: gpu.Phases)
+        phases:run(function(localIndex: uint32)
+            local countGroup = groupIndex
+            local offsetGroup = groupIndex
+            if countGroup < #counts then
+                if localIndex < counts[countGroup + 1] then
+                    if offsetGroup < #offsets then
+                        local source = nupp.math.u32.add(
+                            nupp.math.u32.mul(groupIndex, nupp.math.u32.wrap(BLOCK)),
+                            localIndex
+                        )
+                        local destination = nupp.math.u32.add(
+                            nupp.math.u32.wrap(offsets[offsetGroup + 1] as integer),
+                            localIndex
+                        )
+                        local blockedCursor = source
+                        local outputCursor = destination
+                        if blockedCursor < #blocked then
+                            if outputCursor < #output then
+                                output[outputCursor + 1] = blocked[blockedCursor + 1]
+                            end
+                        end
+                    end
+                end
+            end
+        end)
+    end)
+end
+
+export const blocks = compactBlocks
+export const offsets = exclusiveOffsets
+export const scatter = scatter

@@ -19660,6 +19660,143 @@ lower . site ( stat ) }, scalarIR.Phase)
 
 stride = math.floor(( stride ) / ( 2 ))
 end
+elseif method ~= nil and phaseMethod == "inclusiveScanU32" then
+local args = (
+method
+) . args ~= nil and ( ( ( ( method ) . args ) . exprs or { } ) ) or { }
+local valuesName = # args == 2 and lower . nameOf ( args [ 1 ] ) or nil
+local temporaryName = # args == 2 and lower . nameOf ( args [ 2 ] ) or nil
+local values = valuesName ~= nil and environment [ valuesName ] or nil
+local temporary = temporaryName ~= nil and environment [ temporaryName ] or nil
+local size = kernel . workgroupSize
+if values == nil
+or temporary == nil
+or values . kind ~= "workgroup_shared"
+or temporary . kind ~= "workgroup_shared"
+or values . element ~= "u32"
+or temporary . element ~= "u32"
+or valuesName == temporaryName
+then
+context . reject ( lower . site ( method ) , "phases:inclusiveScanU32 takes two distinct u32 scratch arrays" )
+end
+if size == nil or size < 1 or size & (
+size - 1
+) ~= 0 or values . count ~= size or temporary . count ~= size then
+context . reject (
+lower . site ( method ) ,
+"fixed scan needs two power-of-two arrays with one value per lane"
+)
+end
+
+local sourceName = valuesName
+local targetName = temporaryName
+local offset = 1
+while offset < ( size ) do
+local lane = setmetatable({ op =
+"local_index" ,  type =
+"u32" ,  source =
+lower . site ( method ) }, scalarIR.WorkgroupIndex)
+
+local distance = setmetatable({ op =
+"constant_i32" ,  value =
+tostring ( offset ) ,  type =
+"u32" ,  source =
+lower . site ( method ) }, scalarIR.IntConstant)
+
+local current = setmetatable({ op =
+"shared_load" ,  shared =
+sourceName ,  index =
+lane ,  type =
+"u32" ,  source =
+lower . site ( method ) }, scalarIR.SharedLoad)
+
+local previous = setmetatable({ op =
+"shared_load" ,  shared =
+sourceName ,  index =  setmetatable({ op =
+
+"u32_sub" ,  left =
+lane ,  right =
+distance ,  type =
+"u32" ,  source =
+lower . site ( method ) }, scalarIR.Fixed) ,  type =
+
+"u32" ,  source =
+lower . site ( method ) }, scalarIR.SharedLoad)
+
+local accumulated = setmetatable({ op =
+"u32_add" ,  left =
+current ,  right =
+previous ,  type =
+"u32" ,  source =
+lower . site ( method ) }, scalarIR.Fixed)
+
+local function store ( value ) 
+return setmetatable({ op =
+"shared_store" ,  shared =
+targetName ,  index =
+lane ,  value =
+value ,  source =
+lower . site ( method ) }, scalarIR.SharedStore)
+
+end
+
+out [
+# out + 1
+] = setmetatable({ op =
+"phase" ,  body =
+{ setmetatable({ op =
+
+"if" ,  clauses =
+{ setmetatable({ condition =  setmetatable({ op =
+
+
+"ge" ,  left =
+lane ,  right =
+distance ,  type =
+"bool" ,  source =
+lower . site ( method ) }, scalarIR.Binary) ,  body =
+
+{ store ( accumulated ) } ,  source =
+lower . site ( method ) }, scalarIR.Clause)
+,
+} ,  elseBody =
+{ store ( current ) } ,  source =
+lower . site ( method ) }, scalarIR.If)
+,
+} ,  source =
+lower . site ( stat ) }, scalarIR.Phase)
+
+sourceName , targetName = targetName , sourceName
+offset = offset * 2
+end
+if sourceName ~= valuesName then
+local lane = setmetatable({ op =
+"local_index" ,  type =
+"u32" ,  source =
+lower . site ( method ) }, scalarIR.WorkgroupIndex)
+
+out [
+# out + 1
+] = setmetatable({ op =
+"phase" ,  body =
+{ setmetatable({ op =
+
+"shared_store" ,  shared =
+valuesName ,  index =
+lane ,  value =  setmetatable({ op =
+
+"shared_load" ,  shared =
+sourceName ,  index =
+lane ,  type =
+"u32" ,  source =
+lower . site ( method ) }, scalarIR.SharedLoad) ,  source =
+
+lower . site ( method ) }, scalarIR.SharedStore)
+,
+} ,  source =
+lower . site ( stat ) }, scalarIR.Phase)
+
+end
 elseif method ~= nil and phaseMethod == "run" then
 local args = (
 method
@@ -28060,6 +28197,7 @@ verify.Scope = {} verify.Scope.__index = verify.Scope
 
 
 
+
 verify.Context = {} verify.Context.__index = verify.Context
 
 
@@ -28508,7 +28646,8 @@ scope . workgroup ,  inPhase =
 scope . inPhase ,  shared =
 scope . shared ,  sharedCounts =
 scope . sharedCounts ,  localReadLimit =
-scope . localReadLimit }, verify.Scope)
+scope . localReadLimit ,  localReadMinimum =
+scope . localReadMinimum }, verify.Scope)
 
 end
 end
@@ -28614,10 +28753,16 @@ end
 local minimum , maximum = indexRange ( load . index )
 local constant = load . index . op == "constant_i32" and tonumber ( ( load . index ) . value ) or nil
 local offset = nil
+local back = nil
 if load . index . op == "u32_add" then
 local added = load . index
 if added . left . op == "local_index" and added . right . op == "constant_i32" then
 offset = tonumber ( ( added . right ) . value )
+end
+elseif load . index . op == "u32_sub" then
+local subtracted = load . index
+if subtracted . left . op == "local_index" and subtracted . right . op == "constant_i32" then
+back = tonumber ( ( subtracted . right ) . value )
 end
 end
 holds (
@@ -28627,7 +28772,11 @@ load . shared
 load . shared
 ] or offset ~= nil and scope . localReadLimit ~= nil and offset >= 0 and (
 scope . localReadLimit
-) + offset <= counts [ load . shared ] ,
+) + offset <= counts [
+load . shared
+] or back ~= nil and scope . localReadMinimum ~= nil and back >= 0 and (
+scope . localReadMinimum
+) >= back ,
 "workgroup scratch read is not proved in bounds"
 )
 scalarWalk ( load . index , values , scope )
@@ -30117,6 +30266,17 @@ end
 end
 
 return scope . localReadLimit
+end ) ( ) ,  localReadMinimum =
+( function ( ) 
+local condition = clause . condition
+if condition . op == "ge" then
+local comparison = condition
+if comparison . left . op == "local_index" and comparison . right . op == "constant_i32" then
+return tonumber ( ( comparison . right ) . value )
+end
+end
+
+return scope . localReadMinimum
 end ) ( ) }, verify.Scope)
 
 block ( clause . body , values , nestedScope , stored )
@@ -30157,7 +30317,8 @@ scope . workgroup ,  inPhase =
 scope . inPhase ,  shared =
 scope . shared ,  sharedCounts =
 scope . sharedCounts ,  localReadLimit =
-scope . localReadLimit }, verify.Scope)
+scope . localReadLimit ,  localReadMinimum =
+scope . localReadMinimum }, verify.Scope)
 
 if statement . boundSpan ~= nil then
 holds (
@@ -30213,7 +30374,8 @@ scope . workgroup ,  inPhase =
 scope . inPhase ,  shared =
 scope . shared ,  sharedCounts =
 scope . sharedCounts ,  localReadLimit =
-scope . localReadLimit }, verify.Scope)
+scope . localReadLimit ,  localReadMinimum =
+scope . localReadMinimum }, verify.Scope)
 
 block ( statement . body , values , nestedScope , stored )
 local invalidated = { }
@@ -165868,6 +166030,15 @@ gpu.Phases = {} gpu.Phases.__index = gpu.Phases
 
 
 
+
+
+
+
+
+
+
+
+
 function gpu . destroyContext ( context ) 
 context : drop ( )
 end ;__nuppCleanups["nupp.gpu#destroyContext"]=gpu.destroyContext
@@ -166048,6 +166219,56 @@ lane
 end
 end )
 stride = math.floor(( stride ) / ( 2 ))
+end
+end
+
+function gpu . Phases . inclusiveScanU32 (
+self ,
+values ,
+temporary
+) 
+if values . count ~= self . _size or temporary . count ~= self . _size or self . _size < 1 or self . _size & (
+self . _size - 1
+) ~= 0 then
+error ( "nupp: fixed scan needs two power-of-two arrays with one value per lane" , 2 )
+end
+local offset = 1
+local valuesAreSource = true
+while offset < self . _size do
+local distance = offset
+if valuesAreSource then
+self : run ( function ( localIndex ) 
+local lane = localIndex
+local value = values [ lane ]
+if lane >= distance then
+value = (__nuppBitTobit((
+(__nuppBitTobit( value )%4294967296) )+(
+(__nuppBitTobit( values [ lane - distance ] )%4294967296) ))%4294967296)
+
+end
+temporary [ lane ] = value
+end )
+else
+self : run ( function ( localIndex ) 
+local lane = localIndex
+local value = temporary [ lane ]
+if lane >= distance then
+value = (__nuppBitTobit((
+(__nuppBitTobit( value )%4294967296) )+(
+(__nuppBitTobit( temporary [ lane - distance ] )%4294967296) ))%4294967296)
+
+end
+values [ lane ] = value
+end )
+end
+valuesAreSource = not valuesAreSource
+offset = offset * 2
+end
+if not valuesAreSource then
+self : run ( function ( localIndex ) 
+local lane = localIndex
+values [ lane ] = temporary [ lane ]
+end )
 end
 end
 
@@ -213164,6 +213385,15 @@ record gpu.Phases
     --- Reduces one power-of-two f32 workgroup in a fixed left-before-right
     --- tree. The sum is left in element zero.
     reduceSumF32: function(borrows self: gpu.Phases, exclusive values: gpu.Shared<float>): nil
+
+    --- Computes one deterministic inclusive u32 prefix sum. `temporary` is a
+    --- same-sized scratch array used for disjoint ping-pong stages; the result
+    --- is left in `values`.
+    inclusiveScanU32: function(
+        borrows self: gpu.Phases,
+        exclusive values: gpu.Shared<uint32>,
+        exclusive temporary: gpu.Shared<uint32>
+    ): nil
 end
 
 sealed interface gpu.ContextToken
@@ -213352,6 +213582,56 @@ function gpu.Phases.reduceSumF32(borrows self: gpu.Phases, exclusive values: gpu
             end
         end)
         stride = stride // 2
+    end
+end
+
+function gpu.Phases.inclusiveScanU32(
+    borrows self: gpu.Phases,
+    exclusive values: gpu.Shared<uint32>,
+    exclusive temporary: gpu.Shared<uint32>
+): nil
+    if values.count ~= self._size or temporary.count ~= self._size or self._size < 1 or self._size & (
+        self._size - 1
+    ) ~= 0 then
+        error("nupp: fixed scan needs two power-of-two arrays with one value per lane", 2)
+    end
+    local offset: integer = 1
+    local valuesAreSource = true
+    while offset < self._size do
+        local distance: integer = offset
+        if valuesAreSource then
+            self:run(function(localIndex: uint32)
+                local lane = localIndex as integer
+                local value = values[lane]
+                if lane >= distance then
+                    value = nupp.math.u32.add(
+                        nupp.math.u32.wrap(value as integer),
+                        nupp.math.u32.wrap(values[lane - distance] as integer)
+                    )
+                end
+                temporary[lane] = value
+            end)
+        else
+            self:run(function(localIndex: uint32)
+                local lane = localIndex as integer
+                local value = temporary[lane]
+                if lane >= distance then
+                    value = nupp.math.u32.add(
+                        nupp.math.u32.wrap(value as integer),
+                        nupp.math.u32.wrap(temporary[lane - distance] as integer)
+                    )
+                end
+                values[lane] = value
+            end)
+        end
+        valuesAreSource = not valuesAreSource
+        offset = offset * 2
+    end
+    if not valuesAreSource then
+        self:run(function(localIndex: uint32)
+            local lane = localIndex as integer
+            values[lane] = temporary[lane]
+        end)
     end
 end
 

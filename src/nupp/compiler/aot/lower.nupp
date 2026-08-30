@@ -4406,6 +4406,143 @@ function lower.block(statements: {cst.Node}, environment: {[string]: any}, kerne
                     )
                     stride = stride // 2
                 end
+            elseif method ~= nil and phaseMethod == "inclusiveScanU32" then
+                local args = (
+                    method as cst.MethodCall
+                ).args ~= nil and ((((method as cst.MethodCall).args as cst.Args).exprs or {})) or {}
+                local valuesName = #args == 2 and lower.nameOf(args[1]) or nil
+                local temporaryName = #args == 2 and lower.nameOf(args[2]) or nil
+                local values = valuesName ~= nil and environment[valuesName as string] or nil
+                local temporary = temporaryName ~= nil and environment[temporaryName as string] or nil
+                local size = kernel.workgroupSize
+                if values == nil
+                    or temporary == nil
+                    or values.kind ~= "workgroup_shared"
+                    or temporary.kind ~= "workgroup_shared"
+                    or values.element ~= "u32"
+                    or temporary.element ~= "u32"
+                    or valuesName == temporaryName
+                then
+                    context.reject(lower.site(method), "phases:inclusiveScanU32 takes two distinct u32 scratch arrays")
+                end
+                if size == nil or size < 1 or size & (
+                    size - 1
+                ) ~= 0 or values.count ~= size or temporary.count ~= size then
+                    context.reject(
+                        lower.site(method),
+                        "fixed scan needs two power-of-two arrays with one value per lane"
+                    )
+                end
+
+                local sourceName = valuesName as string
+                local targetName = temporaryName as string
+                local offset = 1
+                while offset < (size as integer) do
+                    local lane = new scalarIR.WorkgroupIndex(
+                        op = "local_index",
+                        type = "u32",
+                        source = lower.site(method)
+                    )
+                    local distance = new scalarIR.IntConstant(
+                        op = "constant_i32",
+                        value = tostring(offset),
+                        type = "u32",
+                        source = lower.site(method)
+                    )
+                    local current = new scalarIR.SharedLoad(
+                        op = "shared_load",
+                        shared = sourceName,
+                        index = lane,
+                        type = "u32",
+                        source = lower.site(method)
+                    )
+                    local previous = new scalarIR.SharedLoad(
+                        op = "shared_load",
+                        shared = sourceName,
+                        index = new scalarIR.Fixed(
+                            op = "u32_sub",
+                            left = lane,
+                            right = distance,
+                            type = "u32",
+                            source = lower.site(method)
+                        ),
+                        type = "u32",
+                        source = lower.site(method)
+                    )
+                    local accumulated = new scalarIR.Fixed(
+                        op = "u32_add",
+                        left = current,
+                        right = previous,
+                        type = "u32",
+                        source = lower.site(method)
+                    )
+                    local function store(value: scalarIR.Expr): scalarIR.SharedStore
+                        return new scalarIR.SharedStore(
+                            op = "shared_store",
+                            shared = targetName,
+                            index = lane,
+                            value = value,
+                            source = lower.site(method)
+                        )
+                    end
+
+                    out[
+                        #out + 1
+                    ] = new scalarIR.Phase(
+                        op = "phase",
+                        body = {
+                            new scalarIR.If(
+                                op = "if",
+                                clauses = {
+                                    new scalarIR.Clause(
+                                        condition = new scalarIR.Binary(
+                                            op = "ge",
+                                            left = lane,
+                                            right = distance,
+                                            type = "bool",
+                                            source = lower.site(method)
+                                        ),
+                                        body = {store(accumulated)},
+                                        source = lower.site(method)
+                                    ),
+                                },
+                                elseBody = {store(current)},
+                                source = lower.site(method)
+                            ),
+                        },
+                        source = lower.site(stat)
+                    )
+                    sourceName, targetName = targetName, sourceName
+                    offset = offset * 2
+                end
+                if sourceName ~= valuesName then
+                    local lane = new scalarIR.WorkgroupIndex(
+                        op = "local_index",
+                        type = "u32",
+                        source = lower.site(method)
+                    )
+                    out[
+                        #out + 1
+                    ] = new scalarIR.Phase(
+                        op = "phase",
+                        body = {
+                            new scalarIR.SharedStore(
+                                op = "shared_store",
+                                shared = valuesName as string,
+                                index = lane,
+                                value = new scalarIR.SharedLoad(
+                                    op = "shared_load",
+                                    shared = sourceName,
+                                    index = lane,
+                                    type = "u32",
+                                    source = lower.site(method)
+                                ),
+                                source = lower.site(method)
+                            ),
+                        },
+                        source = lower.site(stat)
+                    )
+                end
             elseif method ~= nil and phaseMethod == "run" then
                 local args = (
                     method as cst.MethodCall
