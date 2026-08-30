@@ -139,16 +139,27 @@ static bool has_wildcard(const char *pattern, size_t length) {
 
 /* --- the walk ----------------------------------------------------------- */
 
+/* One C frame per directory level under a `**`, so the depth is bounded rather
+ * than left to the stack: a tree any local writer can make must fail the query,
+ * not crash the process. */
+#define NUPP_GLOB_DEPTH_MAX 512u
+
 typedef struct {
     const char *pattern;
     size_t *starts;
     size_t *lengths;
     size_t count;
 
+    /* Bytes of the pattern naming its root -- `/` or a drive's `C:/` -- which
+     * the walk starts from rather than matches against. Zero is relative. */
+    size_t rootEnd;
+
     char **matches;
     size_t matchCount;
     size_t matchCapacity;
+    unsigned depth;
     bool failed;
+    bool deep;
 } Walk;
 
 static void collect(Walk *walk, const char *path, size_t length) {
@@ -211,8 +222,15 @@ static const char *opening(NuppBuffer *prefix) {
 static void recurse(Walk *walk, NuppBuffer *prefix, size_t component) {
     uv_fs_t request;
     uv_dirent_t entry;
+    if (walk->depth == 0) {
+        walk->failed = true;
+        walk->deep = true;
+        return;
+    }
+    walk->depth--;
     descend(walk, prefix, component + 1);
     if (walk->failed) {
+        walk->depth++;
         return;
     }
     uv_fs_scandir(NULL, &request, opening(prefix), 0, NULL);
@@ -260,6 +278,7 @@ static void recurse(Walk *walk, NuppBuffer *prefix, size_t component) {
         }
     }
     uv_fs_req_cleanup(&request);
+    walk->depth++;
 }
 
 static void descend(Walk *walk, NuppBuffer *prefix, size_t component) {
@@ -385,12 +404,17 @@ static bool split(Walk *walk, const char *pattern, size_t length) {
         nupp_fail("out of memory");
         return false;
     }
-    /* A leading separator is the root, kept as an empty component because
-     * dropping it would move the walk to wherever the process happens to be. */
-    if (length != 0 && pattern[0] == '/') {
-        if (!remember(walk, &capacity, 0, 0)) {
-            return false;
-        }
+    /* A leading separator is the root, and so is a drive letter before one:
+     * `C:` alone names the drive's current directory, which a pattern must not
+     * silently mean, so only the slashed form roots the walk. Dropping either
+     * would move the walk to wherever the process happens to be. */
+    if (length >= 3 && pattern[1] == ':' && pattern[2] == '/'
+        && ((pattern[0] >= 'A' && pattern[0] <= 'Z')
+            || (pattern[0] >= 'a' && pattern[0] <= 'z'))) {
+        walk->rootEnd = 3;
+        at = 3;
+    } else if (length != 0 && pattern[0] == '/') {
+        walk->rootEnd = 1;
         at = 1;
     }
     while (at < length) {
@@ -409,7 +433,7 @@ static bool split(Walk *walk, const char *pattern, size_t length) {
             at++;
         }
     }
-    if (walk->count == 0) {
+    if (walk->count == 0 && walk->rootEnd == 0) {
         nupp_fail("the pattern names no path");
         return false;
     }
@@ -438,11 +462,13 @@ NUPP_EXPORT NuppBytes *nuppFilesGlob(const uint8_t *data, size_t length) {
     }
 
     nupp_buffer_init(&prefix);
-    /* A leading empty component is the root: the walk starts at `/` and the
-     * component itself contributes nothing more. */
-    if (walk.count > 0 && walk.lengths[0] == 0) {
-        nupp_buffer_push(&prefix, '/');
-        descend(&walk, &prefix, 1);
+    /* The root is where the walk starts, not something it matches against. */
+    if (walk.rootEnd != 0) {
+        nupp_buffer_append(&prefix, pattern.value, walk.rootEnd);
+    }
+    walk.depth = NUPP_GLOB_DEPTH_MAX;
+    if (prefix.failed) {
+        walk.failed = true;
     } else {
         descend(&walk, &prefix, 0);
     }
@@ -470,6 +496,9 @@ NUPP_EXPORT NuppBytes *nuppFilesGlob(const uint8_t *data, size_t length) {
         } else {
             answer = nupp_buffer_finish(&out);
         }
+    } else if (walk.deep) {
+        nupp_fail_format(
+            "the pattern reached a tree deeper than %u levels", NUPP_GLOB_DEPTH_MAX);
     } else {
         nupp_fail("out of memory");
     }

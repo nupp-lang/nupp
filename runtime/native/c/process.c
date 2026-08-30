@@ -143,9 +143,23 @@ struct NuppStream {
 
 typedef struct NuppStream NuppStream;
 
+/* How much may sit received-but-unread before this stops asking for more. The
+ * pipe fills behind it and the child blocks on write, so the backpressure
+ * reaches the producer rather than growing this process without bound. */
+#define NUPP_PROCESS_RECEIVE_HIGH_WATER (1024u * 1024u)
+
 static void on_alloc(uv_handle_t *handle, size_t suggested, uv_buf_t *buffer) {
     NuppStream *stream = handle->data;
-    size_t wanted = stream->length + suggested;
+    size_t wanted;
+    /* Bytes already handed to the caller are dead weight; moving the rest to
+     * the front keeps the growth below about what is actually buffered. */
+    if (stream->offset != 0) {
+        memmove(stream->buffer, stream->buffer + stream->offset,
+            stream->length - stream->offset);
+        stream->length -= stream->offset;
+        stream->offset = 0;
+    }
+    wanted = stream->length + suggested;
     if (wanted > stream->capacity) {
         size_t next = stream->capacity < 65536 ? 65536 : stream->capacity;
         uint8_t *grown;
@@ -169,6 +183,11 @@ static void on_read(uv_stream_t *handle, ssize_t got, const uv_buf_t *buffer) {
     (void)buffer;
     if (got > 0) {
         stream->length += (size_t)got;
+        if (stream->length - stream->offset >= NUPP_PROCESS_RECEIVE_HIGH_WATER) {
+            /* `tryRead` starts the reads again once the caller has drained. */
+            uv_read_stop(handle);
+            stream->started = false;
+        }
         return;
     }
     if (got == UV_EOF) {
@@ -689,6 +708,16 @@ NUPP_EXPORT intptr_t nuppProcessTryRead(NuppStream *stream, uint8_t *buffer, siz
     if (stream->offset == stream->length) {
         stream->offset = 0;
         stream->length = 0;
+    }
+    /* Reads paused at the high-water mark resume once there is room again. */
+    if (!stream->started && !stream->ended && stream->failure == 0
+        && stream->length - stream->offset < NUPP_PROCESS_RECEIVE_HIGH_WATER) {
+        int begun = uv_read_start((uv_stream_t *)&stream->pipe, on_alloc, on_read);
+        if (begun == 0) {
+            stream->started = true;
+        } else {
+            stream->failure = begun;
+        }
     }
     return (intptr_t)ready;
 }

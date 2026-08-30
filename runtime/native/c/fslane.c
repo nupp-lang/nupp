@@ -176,30 +176,62 @@ static bool read_whole(Slot *slot, int *code) {
             *code = UV_EFBIG;
             return false;
         }
-        bytes = malloc((size_t)size + 1);
-        if (bytes == NULL) {
-            uv_fs_close(NULL, &request, handle, NULL);
-            uv_fs_req_cleanup(&request);
-            *code = UV_ENOMEM;
-            return false;
-        }
-        while (got < size) {
-            uv_buf_t buffer = uv_buf_init((char *)bytes + got, (unsigned)(size - got));
-            int64_t step;
-            uv_fs_read(NULL, &request, handle, &buffer, 1, got, NULL);
-            step = request.result;
-            uv_fs_req_cleanup(&request);
-            if (step < 0) {
-                free(bytes);
+        /* A stat size of zero is not a promise of emptiness -- procfs answers
+         * zero for files with content -- so an unsized file is read to its
+         * end through a growing buffer instead of assumed empty. A sized file
+         * reads exactly its size, as before. */
+        {
+            size_t capacity = size != 0 ? (size_t)size : 4096;
+            bytes = malloc(capacity + 1);
+            if (bytes == NULL) {
                 uv_fs_close(NULL, &request, handle, NULL);
                 uv_fs_req_cleanup(&request);
-                *code = (int)step;
+                *code = UV_ENOMEM;
                 return false;
             }
-            if (step == 0) {
-                break;
+            for (;;) {
+                uv_buf_t buffer;
+                int64_t step;
+                if ((size_t)got == capacity) {
+                    uint8_t *grown;
+                    if (size != 0) {
+                        break;
+                    }
+                    if (capacity >= MAX_REQUEST_BYTES) {
+                        free(bytes);
+                        uv_fs_close(NULL, &request, handle, NULL);
+                        uv_fs_req_cleanup(&request);
+                        *code = UV_EFBIG;
+                        return false;
+                    }
+                    capacity = capacity * 2 > MAX_REQUEST_BYTES
+                        ? MAX_REQUEST_BYTES : capacity * 2;
+                    grown = realloc(bytes, capacity + 1);
+                    if (grown == NULL) {
+                        free(bytes);
+                        uv_fs_close(NULL, &request, handle, NULL);
+                        uv_fs_req_cleanup(&request);
+                        *code = UV_ENOMEM;
+                        return false;
+                    }
+                    bytes = grown;
+                }
+                buffer = uv_buf_init((char *)bytes + got, (unsigned)(capacity - (size_t)got));
+                uv_fs_read(NULL, &request, handle, &buffer, 1, got, NULL);
+                step = request.result;
+                uv_fs_req_cleanup(&request);
+                if (step < 0) {
+                    free(bytes);
+                    uv_fs_close(NULL, &request, handle, NULL);
+                    uv_fs_req_cleanup(&request);
+                    *code = (int)step;
+                    return false;
+                }
+                if (step == 0) {
+                    break;
+                }
+                got += step;
             }
-            got += step;
         }
         uv_fs_close(NULL, &request, handle, NULL);
         uv_fs_req_cleanup(&request);

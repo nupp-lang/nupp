@@ -150,7 +150,13 @@ NUPP_EXPORT bool nuppFilesCreateSymlink(
     return ok;
 }
 
-/* Sets or clears the read-only bit. */
+/* Sets or clears the read-only bit.
+ *
+ * Through a descriptor where one can be had, so the mode read and the mode
+ * written belong to one inode: a stat followed by a chmod by path can be
+ * retargeted between the two by whoever else can write the directory. A
+ * target that will not open -- a directory on Windows -- keeps the by-path
+ * form, which is no worse than it ever was. */
 NUPP_EXPORT bool nuppFilesSetReadOnly(const uint8_t *data, size_t length, bool readOnly) {
     NuppText path;
     uv_fs_t request;
@@ -159,6 +165,29 @@ NUPP_EXPORT bool nuppFilesSetReadOnly(const uint8_t *data, size_t length, bool r
     if (!nupp_text(&path, data, length, "path")) {
         return false;
     }
+    uv_fs_open(NULL, &request, path.value, UV_FS_O_RDONLY, 0, NULL);
+    if (request.result >= 0) {
+        uv_file handle = (uv_file)request.result;
+        uv_fs_req_cleanup(&request);
+        uv_fs_fstat(NULL, &request, handle, NULL);
+        if (!settled(&request, path.value)) {
+            uv_fs_req_cleanup(&request);
+            uv_fs_close(NULL, &request, handle, NULL);
+            uv_fs_req_cleanup(&request);
+            nupp_text_free(&path);
+            return false;
+        }
+        mode = (int)(request.statbuf.st_mode & 07777);
+        uv_fs_req_cleanup(&request);
+        mode = readOnly ? (mode & ~0222) : (mode | 0222);
+        uv_fs_fchmod(NULL, &request, handle, mode, NULL);
+        ok = refused(&request, path.value);
+        uv_fs_close(NULL, &request, handle, NULL);
+        uv_fs_req_cleanup(&request);
+        nupp_text_free(&path);
+        return ok;
+    }
+    uv_fs_req_cleanup(&request);
     uv_fs_stat(NULL, &request, path.value, NULL);
     if (!settled(&request, path.value)) {
         uv_fs_req_cleanup(&request);
@@ -303,7 +332,13 @@ NUPP_EXPORT NuppBytes *nuppFilesList(const uint8_t *data, size_t length) {
 
 /* Removes a file, a symbolic link, or an empty directory. `recursive` removes a
  * directory's contents with it. */
-static bool remove_tree(const char *path);
+
+/* One C frame per directory level, so the depth is bounded rather than left
+ * to the stack: a tree any local writer can make must fail the operation, not
+ * crash the process. */
+#define NUPP_REMOVE_DEPTH_MAX 512u
+
+static bool remove_tree(const char *path, unsigned depth);
 
 static bool remove_one(const char *path, bool directory) {
     uv_fs_t request;
@@ -315,12 +350,17 @@ static bool remove_one(const char *path, bool directory) {
     return refused(&request, path);
 }
 
-static bool remove_tree(const char *path) {
+static bool remove_tree(const char *path, unsigned depth) {
     uv_fs_t request;
     uv_dirent_t entry;
     size_t pathLength = strlen(path);
     bool ok = true;
 
+    if (depth == 0) {
+        nupp_fail_format("%s: the directory tree is deeper than %u levels", path,
+            NUPP_REMOVE_DEPTH_MAX);
+        return false;
+    }
     uv_fs_scandir(NULL, &request, path, 0, NULL);
     if (!settled(&request, path)) {
         uv_fs_req_cleanup(&request);
@@ -349,7 +389,7 @@ static bool remove_tree(const char *path) {
                 descend = look.result >= 0 && S_ISDIR(look.statbuf.st_mode);
                 uv_fs_req_cleanup(&look);
             }
-            ok = descend ? remove_tree(child) : remove_one(child, false);
+            ok = descend ? remove_tree(child, depth - 1) : remove_one(child, false);
         }
         free(child);
     }
@@ -374,7 +414,9 @@ NUPP_EXPORT bool nuppFilesRemove(const uint8_t *data, size_t length, bool recurs
     directory = S_ISDIR(request.statbuf.st_mode);
     uv_fs_req_cleanup(&request);
     ok = directory
-        ? (recursive ? remove_tree(path.value) : remove_one(path.value, true))
+        ? (recursive
+            ? remove_tree(path.value, NUPP_REMOVE_DEPTH_MAX)
+            : remove_one(path.value, true))
         : remove_one(path.value, false);
     nupp_text_free(&path);
     return ok;
