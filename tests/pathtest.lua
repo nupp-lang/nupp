@@ -161,7 +161,7 @@ function M.pathStagesOnlyTheGenericFilesystemSlice()
       handle:close()
       error("the removed path provider still exists")
    end
-   local source = assert(io.open("src/nupp/io/path.nupp", "rb"))
+   local source = assert(io.open("src/nupp/io/path/init.nupp", "rb"))
    local text = source:read("*a")
    source:close()
    assert(not text:find("nupp.runtime.native", 1, true),

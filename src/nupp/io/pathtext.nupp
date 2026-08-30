@@ -78,8 +78,10 @@ local function isVerbatim(text: string, windows: boolean): boolean
         return false
     end
 
-    return byte(text, 1) == BACKSLASH and byte(text, 2) == BACKSLASH
-        and byte(text, 3) == 63 and byte(text, 4) == BACKSLASH
+    return byte(
+        text,
+        1
+    ) == BACKSLASH and byte(text, 2) == BACKSLASH and byte(text, 3) == 63 and byte(text, 4) == BACKSLASH
 end
 
 --- How many leading bytes of `text` are its prefix: none on POSIX, and on
@@ -624,8 +626,9 @@ function pathtext.relative(target: string, base: string, windows: boolean): (str
     -- Diverging at a prefix or a root means the paths are anchored in different
     -- coordinate systems, and no count of `..` steps leads from one to the other.
     if baseStart ~= nil and (
-        baseKind == pathtext.PREFIX or baseKind == pathtext.ROOT
-        or (targetStart ~= nil and (targetKind == pathtext.PREFIX or targetKind == pathtext.ROOT))
+        baseKind == pathtext.PREFIX or baseKind == pathtext.ROOT or (
+            targetStart ~= nil and (targetKind == pathtext.PREFIX or targetKind == pathtext.ROOT)
+        )
     ) then
         return nil, "paths do not share a relative coordinate system"
     end

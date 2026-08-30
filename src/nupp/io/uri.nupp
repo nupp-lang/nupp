@@ -608,12 +608,7 @@ compose = function(components: any): (string?, string?)
     -- A delimiter that would end the component early. `#` always starts the
     -- fragment, `?` starts the query anywhere before one, and inside the
     -- authority `/`, `?` and `#` end it while `@` moves the host boundary.
-    for name, delimiters in pairs({
-        userInfo = "[/?#]",
-        host = "[/?#@]",
-        path = "[?#]",
-        query = "#",
-    }) do
+    for name, delimiters in pairs({userInfo = "[/?#]", host = "[/?#@]", path = "[?#]", query = "#",}) do
         local value = components[name]
         if value ~= nil and (value as string):find(delimiters) ~= nil then
             return nil, "nupp: URI component " .. name .. " cannot contain a component delimiter"

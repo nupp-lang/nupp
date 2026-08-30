@@ -99,11 +99,7 @@ record gpu.Buffer<T>
     --- Creates an allocation-free dense subview. Origins are zero-based and
     --- have one entry per dimension. Rectangles with physical gaps are refused
     --- until tensor-indexed kernels carry strides in their verified signature.
-    subview: function(
-        borrows self: gpu.Buffer<T>,
-        origin: {integer},
-        shape: {integer}
-    ): gpu.Buffer<T> borrows (self)
+    subview: function(borrows self: gpu.Buffer<T>, origin: {integer}, shape: {integer}): gpu.Buffer<T> borrows (self)
 end
 
 --- One compiled compute entry owned by its context.
@@ -276,6 +272,7 @@ local function copied(values: {integer}): {integer}
     for index, value in ipairs(values) do
         out[index] = value
     end
+
     return out
 end
 
@@ -335,6 +332,7 @@ function gpu.Context.tensor<T>(
     local out = self:buffer(element, count)
     out._shape = copied(shape)
     out._strides = strides
+
     return out
 end
 
@@ -447,9 +445,7 @@ function gpu.Binding.setRead<T>(
     borrows buffer: gpu.Buffer<T>,
     matchCount: boolean
 ): nil
-    succeeded(C.nuppGpuBindingSetRead(
-        self._handle, slot, buffer._handle, buffer._offset, buffer.count, matchCount
-    ), 2)
+    succeeded(C.nuppGpuBindingSetRead(self._handle, slot, buffer._handle, buffer._offset, buffer.count, matchCount), 2)
 end
 
 function gpu.Binding.setWrite<T>(
@@ -458,9 +454,7 @@ function gpu.Binding.setWrite<T>(
     borrows buffer: gpu.Buffer<T>,
     matchCount: boolean
 ): nil
-    succeeded(C.nuppGpuBindingSetWrite(
-        self._handle, slot, buffer._handle, buffer._offset, buffer.count, matchCount
-    ), 2)
+    succeeded(C.nuppGpuBindingSetWrite(self._handle, slot, buffer._handle, buffer._offset, buffer.count, matchCount), 2)
 end
 
 function gpu.Binding.dispatchPacked(borrows self: gpu.Binding, uniforms: any, uniformBytes: integer): nil
@@ -480,15 +474,22 @@ function gpu.Context.upload<T>(
         error("nupp: GPU upload span length does not match its buffer", 2)
     end
     local pointer, count = source:ref()
-    succeeded(uploadTyped(
-        live(self), buffer._handle, pointer, buffer._offset * buffer._width, buffer._width * count
-    ), 2)
+    succeeded(
+        uploadTyped(live(self), buffer._handle, pointer, buffer._offset * buffer._width, buffer._width * count),
+        2
+    )
 end
 
 function gpu.Context.enqueueDownload<T>(borrows self: gpu.Context, borrows buffer: gpu.Buffer<T>): nil
-    succeeded(C.nuppGpuBufferDownload(
-        live(self), buffer._handle, buffer._offset * buffer._width, buffer.count * buffer._width
-    ), 2)
+    succeeded(
+        C.nuppGpuBufferDownload(
+            live(self),
+            buffer._handle,
+            buffer._offset * buffer._width,
+            buffer.count * buffer._width
+        ),
+        2
+    )
 end
 
 function gpu.Context.synchronize(borrows self: gpu.Context): nil
@@ -504,9 +505,7 @@ function gpu.Context.readDownloaded<T>(
         error("nupp: GPU download span length does not match its buffer", 2)
     end
     local pointer, count = destination:ref()
-    succeeded(readTyped(
-        live(self), buffer._handle, pointer, buffer._offset * buffer._width, buffer._width * count
-    ), 2)
+    succeeded(readTyped(live(self), buffer._handle, pointer, buffer._offset * buffer._width, buffer._width * count), 2)
 end
 
 function gpu.Context.download<T>(

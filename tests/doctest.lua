@@ -864,7 +864,7 @@ function M.standardIOApiHasCompleteDocumentation()
          },
          functions = {newBuffer = true, newStringReader = true,},
       },
-      ["src/nupp/io/path.nupp"] = {
+      ["src/nupp/io/path/init.nupp"] = {
          types = {Path = true,},
          functions = {newPath = true, currentDirectory = true, separator = true,},
       },
@@ -907,8 +907,8 @@ function M.standardIOApiHasCompleteDocumentation()
    end
 
    -- Paths are interned by `newPath`; direct construction is intentionally unavailable.
-   local path = assert(readFile(HERE .. "/../src/nupp/io/path.nupp"))
-   local module = assert(doc.extract(path, "src/nupp/io/path.nupp", "nupp.io.path"))
+   local path = assert(readFile(HERE .. "/../src/nupp/io/path/init.nupp"))
+   local module = assert(doc.extract(path, "src/nupp/io/path/init.nupp", "nupp.io.path"))
    local factory
    for _, item in ipairs(module.items) do
       if item.name == "newPath" then factory = item end

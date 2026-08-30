@@ -566,23 +566,13 @@ function spirv.program(
         local leftBits, rightBits, zeroBits = id(), id(), id()
         instruction(functions, OP.Bitcast, {u32Type, leftBits, left})
         instruction(functions, OP.Bitcast, {u32Type, rightBits, right})
-        instruction(functions, minimum and OP.BitwiseOr or OP.BitwiseAnd, {
-            u32Type,
-            zeroBits,
-            leftBits,
-            rightBits,
-        })
+        instruction(functions, minimum and OP.BitwiseOr or OP.BitwiseAnd, {u32Type, zeroBits, leftBits, rightBits,})
         local signedZero = id()
         instruction(functions, OP.Bitcast, {f32Type, signedZero, zeroBits})
         local equalValue = id()
         instruction(functions, OP.Select, {f32Type, equalValue, isZero, signedZero, left})
         local ordered = id()
-        instruction(functions, minimum and OP.FOrdLessThan or OP.FOrdGreaterThan, {
-            boolType,
-            ordered,
-            left,
-            right,
-        })
+        instruction(functions, minimum and OP.FOrdLessThan or OP.FOrdGreaterThan, {boolType, ordered, left, right,})
         local unequalValue = id()
         instruction(functions, OP.Select, {f32Type, unequalValue, ordered, left, right})
         local finiteValue = id()
@@ -591,6 +581,7 @@ function spirv.program(
         instruction(functions, OP.Select, {f32Type, result, anyNan, canonicalNan, finiteValue})
         instruction(functions, OP.ReturnValue, {result})
         instruction(functions, OP.FunctionEnd, {})
+
         return fn
     end
 
@@ -793,12 +784,7 @@ function spirv.program(
             instruction(functions, OP.Load, {u32Type, indexId, pointer})
         end
         local physicalIndex = id()
-        instruction(functions, OP.IAdd, {
-            u32Type,
-            physicalIndex,
-            uniform(value.span .. "_offset", u32Type),
-            indexId,
-        })
+        instruction(functions, OP.IAdd, {u32Type, physicalIndex, uniform(value.span .. "_offset", u32Type), indexId,})
         local element = assert(bufferElement[value.span])
         local pointer = id()
         instruction(functions, OP.AccessChain, {
@@ -924,13 +910,7 @@ function spirv.program(
             local left = expression(value.left)
             local right = expression(value.right)
             local result = id()
-            instruction(functions, OP.FunctionCall, {
-                f32Type,
-                result,
-                op == "f32_min" and minFn or maxFn,
-                left,
-                right,
-            })
+            instruction(functions, OP.FunctionCall, {f32Type, result, op == "f32_min" and minFn or maxFn, left, right,})
             return result, f32Type
         elseif op == "f16_to_f32" or op == "f32_to_f16" or op == "f32_sqrt" or op == "f32_exp" then
             local input = expression(value.value)

@@ -6234,9 +6234,9 @@ return ( node ) . value and "true" or "false"
 elseif operation == "uniform" then
 return "p_" .. ( node ) . name
 elseif operation == "span_count" then
-return independentSpanCounts
-and "((double)count_" .. ( node ) . span .. ")"
-or "((double)count)"
+return independentSpanCounts and "((double)count_" .. (
+node
+) . span .. ")" or "((double)count)"
 elseif operation == "lua_string_length" then
 local bytes = ( node ) . bytes
 return "ks_lua_string_length(L, ks_length_" .. tostring ( bytes . cName ) .. ")"
@@ -13494,12 +13494,18 @@ line ( 1 , "return isnan(out) ? as_type<float>(0x7fc00000u) : out;" )
 line ( 0 , "}" )
 line ( 0 , "inline float nupp_f32_min(float left, float right) {" )
 line ( 1 , "if (isnan(left) || isnan(right)) return as_type<float>(0x7fc00000u);" )
-line ( 1 , "if (left == right) return left == 0.0f ? as_type<float>(as_type<uint>(left) | as_type<uint>(right)) : left;" )
+line (
+1 ,
+"if (left == right) return left == 0.0f ? as_type<float>(as_type<uint>(left) | as_type<uint>(right)) : left;"
+)
 line ( 1 , "return left < right ? left : right;" )
 line ( 0 , "}" )
 line ( 0 , "inline float nupp_f32_max(float left, float right) {" )
 line ( 1 , "if (isnan(left) || isnan(right)) return as_type<float>(0x7fc00000u);" )
-line ( 1 , "if (left == right) return left == 0.0f ? as_type<float>(as_type<uint>(left) & as_type<uint>(right)) : left;" )
+line (
+1 ,
+"if (left == right) return left == 0.0f ? as_type<float>(as_type<uint>(left) & as_type<uint>(right)) : left;"
+)
 line ( 1 , "return left > right ? left : right;" )
 line ( 0 , "}" )
 line ( 0 , "inline float nupp_f32_exp(float value) {" )
@@ -13507,9 +13513,18 @@ line ( 1 , "float x = max(-104.0f, min(value, 88.0f));" )
 line ( 1 , "float y = x * 0.0078125f;" )
 line ( 1 , "float out = 0.0000000020876757f;" )
 for _ , coefficient in ipairs ( {
-"0.000000025052108f" , "0.00000027557319f" , "0.0000027557319f" ,
-"0.000024801587f" , "0.0001984127f" , "0.0013888889f" ,
-"0.0083333333f" , "0.041666667f" , "0.16666667f" , "0.5f" , "1.0f" , "1.0f" ,
+"0.000000025052108f" ,
+"0.00000027557319f" ,
+"0.0000027557319f" ,
+"0.000024801587f" ,
+"0.0001984127f" ,
+"0.0013888889f" ,
+"0.0083333333f" ,
+"0.041666667f" ,
+"0.16666667f" ,
+"0.5f" ,
+"1.0f" ,
+"1.0f" ,
 } ) do
 line ( 1 , "out = nupp_f32_fma(out, y, " .. coefficient .. ");" )
 end
@@ -25582,23 +25597,13 @@ instruction ( functions , OP . FOrdEqual , { boolType , isZero , left , zeroF } 
 local leftBits , rightBits , zeroBits = id ( ) , id ( ) , id ( )
 instruction ( functions , OP . Bitcast , { u32Type , leftBits , left } )
 instruction ( functions , OP . Bitcast , { u32Type , rightBits , right } )
-instruction ( functions , minimum and OP . BitwiseOr or OP . BitwiseAnd , {
-u32Type ,
-zeroBits ,
-leftBits ,
-rightBits ,
-} )
+instruction ( functions , minimum and OP . BitwiseOr or OP . BitwiseAnd , { u32Type , zeroBits , leftBits , rightBits , } )
 local signedZero = id ( )
 instruction ( functions , OP . Bitcast , { f32Type , signedZero , zeroBits } )
 local equalValue = id ( )
 instruction ( functions , OP . Select , { f32Type , equalValue , isZero , signedZero , left } )
 local ordered = id ( )
-instruction ( functions , minimum and OP . FOrdLessThan or OP . FOrdGreaterThan , {
-boolType ,
-ordered ,
-left ,
-right ,
-} )
+instruction ( functions , minimum and OP . FOrdLessThan or OP . FOrdGreaterThan , { boolType , ordered , left , right , } )
 local unequalValue = id ( )
 instruction ( functions , OP . Select , { f32Type , unequalValue , ordered , left , right } )
 local finiteValue = id ( )
@@ -25607,6 +25612,7 @@ local result = id ( )
 instruction ( functions , OP . Select , { f32Type , result , anyNan , canonicalNan , finiteValue } )
 instruction ( functions , OP . ReturnValue , { result } )
 instruction ( functions , OP . FunctionEnd , { } )
+
 return fn
 end
 
@@ -25809,12 +25815,7 @@ indexId = id ( )
 instruction ( functions , OP . Load , { u32Type , indexId , pointer } )
 end
 local physicalIndex = id ( )
-instruction ( functions , OP . IAdd , {
-u32Type ,
-physicalIndex ,
-uniform ( value . span .. "_offset" , u32Type ) ,
-indexId ,
-} )
+instruction ( functions , OP . IAdd , { u32Type , physicalIndex , uniform ( value . span .. "_offset" , u32Type ) , indexId , } )
 local element = assert ( bufferElement [ value . span ] )
 local pointer = id ( )
 instruction ( functions , OP . AccessChain , {
@@ -25940,13 +25941,7 @@ elseif op == "f32_min" or op == "f32_max" then
 local left = expression ( value . left )
 local right = expression ( value . right )
 local result = id ( )
-instruction ( functions , OP . FunctionCall , {
-f32Type ,
-result ,
-op == "f32_min" and minFn or maxFn ,
-left ,
-right ,
-} )
+instruction ( functions , OP . FunctionCall , { f32Type , result , op == "f32_min" and minFn or maxFn , left , right , } )
 return result , f32Type
 elseif op == "f16_to_f32" or op == "f32_to_f16" or op == "f32_sqrt" or op == "f32_exp" then
 local input = expression ( value . value )
@@ -164337,10 +164332,6 @@ gpu.Buffer = {} gpu.Buffer.__index = gpu.Buffer
 
 
 
-
-
-
-
 gpu.Kernel = {} gpu.Kernel.__index = gpu.Kernel
 
 
@@ -164509,6 +164500,7 @@ local out = { }
 for index , value in ipairs ( values ) do
 out [ index ] = value
 end
+
 return out
 end
 
@@ -164568,6 +164560,7 @@ local count , strides = denseShape ( shape )
 local out = self : buffer ( element , count )
 out . _shape = copied ( shape )
 out . _strides = strides
+
 return out
 end
 
@@ -164680,9 +164673,7 @@ slot ,
 buffer ,
 matchCount
 ) 
-succeeded ( C . nuppGpuBindingSetRead (
-self . _handle , slot , buffer . _handle , buffer . _offset , buffer . count , matchCount
-) , 2 )
+succeeded ( C . nuppGpuBindingSetRead ( self . _handle , slot , buffer . _handle , buffer . _offset , buffer . count , matchCount ) , 2 )
 end
 
 function gpu . Binding . setWrite (
@@ -164691,9 +164682,7 @@ slot ,
 buffer ,
 matchCount
 ) 
-succeeded ( C . nuppGpuBindingSetWrite (
-self . _handle , slot , buffer . _handle , buffer . _offset , buffer . count , matchCount
-) , 2 )
+succeeded ( C . nuppGpuBindingSetWrite ( self . _handle , slot , buffer . _handle , buffer . _offset , buffer . count , matchCount ) , 2 )
 end
 
 function gpu . Binding . dispatchPacked ( self , uniforms , uniformBytes ) 
@@ -164713,15 +164702,22 @@ if source .count ~= buffer . count then
 error ( "nupp: GPU upload span length does not match its buffer" , 2 )
 end
 local pointer , count = source : ref ( )
-succeeded ( uploadTyped (
-live ( self ) , buffer . _handle , pointer , buffer . _offset * buffer . _width , buffer . _width * count
-) , 2 )
+succeeded (
+uploadTyped ( live ( self ) , buffer . _handle , pointer , buffer . _offset * buffer . _width , buffer . _width * count ) ,
+2
+)
 end
 
 function gpu . Context . enqueueDownload ( self , buffer ) 
-succeeded ( C . nuppGpuBufferDownload (
-live ( self ) , buffer . _handle , buffer . _offset * buffer . _width , buffer . count * buffer . _width
-) , 2 )
+succeeded (
+C . nuppGpuBufferDownload (
+live ( self ) ,
+buffer . _handle ,
+buffer . _offset * buffer . _width ,
+buffer . count * buffer . _width
+) ,
+2
+)
 end
 
 function gpu . Context . synchronize ( self ) 
@@ -164737,9 +164733,7 @@ if destination .count ~= buffer . count then
 error ( "nupp: GPU download span length does not match its buffer" , 2 )
 end
 local pointer , count = destination : ref ( )
-succeeded ( readTyped (
-live ( self ) , buffer . _handle , pointer , buffer . _offset * buffer . _width , buffer . _width * count
-) , 2 )
+succeeded ( readTyped ( live ( self ) , buffer . _handle , pointer , buffer . _offset * buffer . _width , buffer . _width * count ) , 2 )
 end
 
 function gpu . Context . download (
@@ -172839,8 +172833,10 @@ if not windows or # text < 4 then
 return false
 end
 
-return byte ( text , 1 ) == BACKSLASH and byte ( text , 2 ) == BACKSLASH
-and byte ( text , 3 ) == 63 and byte ( text , 4 ) == BACKSLASH
+return byte (
+text ,
+1
+) == BACKSLASH and byte ( text , 2 ) == BACKSLASH and byte ( text , 3 ) == 63 and byte ( text , 4 ) == BACKSLASH
 end
 
 
@@ -173385,8 +173381,9 @@ end
 
 
 if baseStart ~= nil and (
-baseKind == pathtext . PREFIX or baseKind == pathtext . ROOT
-or ( targetStart ~= nil and ( targetKind == pathtext . PREFIX or targetKind == pathtext . ROOT ) )
+baseKind == pathtext . PREFIX or baseKind == pathtext . ROOT or (
+targetStart ~= nil and ( targetKind == pathtext . PREFIX or targetKind == pathtext . ROOT )
+)
 ) then
 return nil , "paths do not share a relative coordinate system"
 end
@@ -177368,12 +177365,7 @@ end
 
 
 
-for name , delimiters in pairs ( {
-userInfo = "[/?#]" ,
-host = "[/?#@]" ,
-path = "[?#]" ,
-query = "#" ,
-} ) do
+for name , delimiters in pairs ( { userInfo = "[/?#]" , host = "[/?#@]" , path = "[?#]" , query = "#" , } ) do
 local value = components [ name ]
 if value ~= nil and ( value ) : find ( delimiters ) ~= nil then
 return nil , "nupp: URI component " .. name .. " cannot contain a component delimiter"
@@ -200068,6 +200060,7 @@ record nupp.F32MathLibrary
     --- A deterministic polynomial exponential, clamped to `[-104, 88]`.
     --- The specified binary32 operation sequence is shared by CPU and GPU AOT.
     exp: nosuspend function(value: float): float
+
     fromBits: nosuspend function(bits: uint32): float
     toBits: nosuspend function(value: float): uint32
 
@@ -210583,11 +210576,7 @@ record gpu.Buffer<T>
     --- Creates an allocation-free dense subview. Origins are zero-based and
     --- have one entry per dimension. Rectangles with physical gaps are refused
     --- until tensor-indexed kernels carry strides in their verified signature.
-    subview: function(
-        borrows self: gpu.Buffer<T>,
-        origin: {integer},
-        shape: {integer}
-    ): gpu.Buffer<T> borrows (self)
+    subview: function(borrows self: gpu.Buffer<T>, origin: {integer}, shape: {integer}): gpu.Buffer<T> borrows (self)
 end
 
 --- One compiled compute entry owned by its context.
@@ -210760,6 +210749,7 @@ local function copied(values: {integer}): {integer}
     for index, value in ipairs(values) do
         out[index] = value
     end
+
     return out
 end
 
@@ -210819,6 +210809,7 @@ function gpu.Context.tensor<T>(
     local out = self:buffer(element, count)
     out._shape = copied(shape)
     out._strides = strides
+
     return out
 end
 
@@ -210931,9 +210922,7 @@ function gpu.Binding.setRead<T>(
     borrows buffer: gpu.Buffer<T>,
     matchCount: boolean
 ): nil
-    succeeded(C.nuppGpuBindingSetRead(
-        self._handle, slot, buffer._handle, buffer._offset, buffer.count, matchCount
-    ), 2)
+    succeeded(C.nuppGpuBindingSetRead(self._handle, slot, buffer._handle, buffer._offset, buffer.count, matchCount), 2)
 end
 
 function gpu.Binding.setWrite<T>(
@@ -210942,9 +210931,7 @@ function gpu.Binding.setWrite<T>(
     borrows buffer: gpu.Buffer<T>,
     matchCount: boolean
 ): nil
-    succeeded(C.nuppGpuBindingSetWrite(
-        self._handle, slot, buffer._handle, buffer._offset, buffer.count, matchCount
-    ), 2)
+    succeeded(C.nuppGpuBindingSetWrite(self._handle, slot, buffer._handle, buffer._offset, buffer.count, matchCount), 2)
 end
 
 function gpu.Binding.dispatchPacked(borrows self: gpu.Binding, uniforms: any, uniformBytes: integer): nil
@@ -210964,15 +210951,22 @@ function gpu.Context.upload<T>(
         error("nupp: GPU upload span length does not match its buffer", 2)
     end
     local pointer, count = source:ref()
-    succeeded(uploadTyped(
-        live(self), buffer._handle, pointer, buffer._offset * buffer._width, buffer._width * count
-    ), 2)
+    succeeded(
+        uploadTyped(live(self), buffer._handle, pointer, buffer._offset * buffer._width, buffer._width * count),
+        2
+    )
 end
 
 function gpu.Context.enqueueDownload<T>(borrows self: gpu.Context, borrows buffer: gpu.Buffer<T>): nil
-    succeeded(C.nuppGpuBufferDownload(
-        live(self), buffer._handle, buffer._offset * buffer._width, buffer.count * buffer._width
-    ), 2)
+    succeeded(
+        C.nuppGpuBufferDownload(
+            live(self),
+            buffer._handle,
+            buffer._offset * buffer._width,
+            buffer.count * buffer._width
+        ),
+        2
+    )
 end
 
 function gpu.Context.synchronize(borrows self: gpu.Context): nil
@@ -210988,9 +210982,7 @@ function gpu.Context.readDownloaded<T>(
         error("nupp: GPU download span length does not match its buffer", 2)
     end
     local pointer, count = destination:ref()
-    succeeded(readTyped(
-        live(self), buffer._handle, pointer, buffer._offset * buffer._width, buffer._width * count
-    ), 2)
+    succeeded(readTyped(live(self), buffer._handle, pointer, buffer._offset * buffer._width, buffer._width * count), 2)
 end
 
 function gpu.Context.download<T>(
@@ -218660,8 +218652,10 @@ local function isVerbatim(text: string, windows: boolean): boolean
         return false
     end
 
-    return byte(text, 1) == BACKSLASH and byte(text, 2) == BACKSLASH
-        and byte(text, 3) == 63 and byte(text, 4) == BACKSLASH
+    return byte(
+        text,
+        1
+    ) == BACKSLASH and byte(text, 2) == BACKSLASH and byte(text, 3) == 63 and byte(text, 4) == BACKSLASH
 end
 
 --- How many leading bytes of `text` are its prefix: none on POSIX, and on
@@ -219206,8 +219200,9 @@ function pathtext.relative(target: string, base: string, windows: boolean): (str
     -- Diverging at a prefix or a root means the paths are anchored in different
     -- coordinate systems, and no count of `..` steps leads from one to the other.
     if baseStart ~= nil and (
-        baseKind == pathtext.PREFIX or baseKind == pathtext.ROOT
-        or (targetStart ~= nil and (targetKind == pathtext.PREFIX or targetKind == pathtext.ROOT))
+        baseKind == pathtext.PREFIX or baseKind == pathtext.ROOT or (
+            targetStart ~= nil and (targetKind == pathtext.PREFIX or targetKind == pathtext.ROOT)
+        )
     ) then
         return nil, "paths do not share a relative coordinate system"
     end
@@ -223186,12 +223181,7 @@ compose = function(components: any): (string?, string?)
     -- A delimiter that would end the component early. `#` always starts the
     -- fragment, `?` starts the query anywhere before one, and inside the
     -- authority `/`, `?` and `#` end it while `@` moves the host boundary.
-    for name, delimiters in pairs({
-        userInfo = "[/?#]",
-        host = "[/?#@]",
-        path = "[?#]",
-        query = "#",
-    }) do
+    for name, delimiters in pairs({userInfo = "[/?#]", host = "[/?#@]", path = "[?#]", query = "#",}) do
         local value = components[name]
         if value ~= nil and (value as string):find(delimiters) ~= nil then
             return nil, "nupp: URI component " .. name .. " cannot contain a component delimiter"
