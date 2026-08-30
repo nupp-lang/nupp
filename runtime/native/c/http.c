@@ -174,6 +174,11 @@ typedef struct NuppHttpTransfer {
     bool cancelled;
     bool finished;
     bool added;
+
+    /* The readiness queue's link. A transfer is on the queue at most once --
+     * the `queued` flag says so -- which is what lets the queue live inside
+     * the transfers and never allocate on the paths that report progress. */
+    struct NuppHttpTransfer *readyNext;
 } NuppHttpTransfer;
 
 struct NuppHttpClient {
@@ -188,10 +193,8 @@ struct NuppHttpClient {
     size_t incomingCount;
     size_t incomingCapacity;
 
-    NuppHttpTransfer **readyQueue;
-    size_t readyHead;
-    size_t readyCount;
-    size_t readyCapacity;
+    NuppHttpTransfer *readyFirst;
+    NuppHttpTransfer *readyLast;
 
     /* What the reactor has on the multi handle. Its own list, touched only by
      * it, because everything in it is a handle libcurl is driving and those are
@@ -265,27 +268,14 @@ static void raise_tokens(NuppHttpTransfer *transfer, uint32_t tokens) {
         return;
     }
     uv_mutex_lock(&client->guard);
-    if (client->readyCount == client->readyCapacity) {
-        size_t next = client->readyCapacity < 64 ? 64 : client->readyCapacity * 2;
-        NuppHttpTransfer **grown = malloc(next * sizeof *grown);
-        size_t at;
-        if (grown == NULL) {
-            uv_mutex_unlock(&client->guard);
-            atomic_store(&transfer->queued, false);
-            return;
-        }
-        for (at = 0; at < client->readyCount; at++) {
-            grown[at] = client->readyQueue[(client->readyHead + at) % client->readyCapacity];
-        }
-        free(client->readyQueue);
-        client->readyQueue = grown;
-        client->readyHead = 0;
-        client->readyCapacity = next;
-    }
     transfer_retain(transfer);
-    client->readyQueue[(client->readyHead + client->readyCount) % client->readyCapacity] =
-        transfer;
-    client->readyCount++;
+    transfer->readyNext = NULL;
+    if (client->readyLast != NULL) {
+        client->readyLast->readyNext = transfer;
+    } else {
+        client->readyFirst = transfer;
+    }
+    client->readyLast = transfer;
     uv_cond_broadcast(&client->arrived);
     uv_mutex_unlock(&client->guard);
 }
@@ -295,12 +285,21 @@ static void raise_tokens(NuppHttpTransfer *transfer, uint32_t tokens) {
 /* One response header line. libcurl hands them over one at a time, ending with
  * the blank line that closes the block -- which is where the head becomes
  * readable, because until then the caller would be looking at half of it. */
+static void publish_head(NuppHttpTransfer *transfer);
+
 static size_t on_header(char *buffer, size_t size, size_t count, void *raw) {
     NuppHttpTransfer *transfer = raw;
     size_t length = size * count;
     bool complete = false;
 
     uv_mutex_lock(&transfer->guard);
+    if (transfer->head != HEAD_PENDING) {
+        /* Trailers of a chunked response arrive here after the head was
+         * published. The table the binding reads is sealed by then, so they
+         * are dropped rather than grown past the ceiling above. */
+        uv_mutex_unlock(&transfer->guard);
+        return length;
+    }
     if (length <= 2 && (length == 0 || buffer[0] == '\r' || buffer[0] == '\n')) {
         complete = true;
     } else if (length > 5 && strncmp(buffer, "HTTP/", 5) == 0) {
@@ -319,7 +318,21 @@ static size_t on_header(char *buffer, size_t size, size_t count, void *raw) {
         }
     }
     uv_mutex_unlock(&transfer->guard);
-    (void)complete;
+    if (complete) {
+        /* The blank line closing the final block is where the head becomes
+         * readable: a caller can then act on a response whose body has not
+         * begun. An informational block is followed by the real one, and a
+         * redirect this client will follow is followed by the next hop's, so
+         * neither of those is published. */
+        long status = 0;
+        NuppHttpClient *client = transfer->client;
+        bool follows = client != NULL && client->maxRedirects != 0
+            && !client->hasInsecureHosts;
+        curl_easy_getinfo(transfer->easy, CURLINFO_RESPONSE_CODE, &status);
+        if (status >= 200 && !(follows && status >= 300 && status < 400)) {
+            publish_head(transfer);
+        }
+    }
     return length;
 }
 
@@ -351,6 +364,39 @@ static bool pack_headers(NuppHttpTransfer *transfer) {
         while (lineLength != 0 && (scan[lineLength - 1] == '\r' || scan[lineLength - 1] == '\n')) {
             lineLength--;
         }
+        if (lineLength != 0 && (scan[0] == ' ' || scan[0] == '\t')) {
+            /* An obs-fold continuation: the rest of the previous header's
+             * value, joined to it with one space as RFC 7230 asks. The value
+             * is the last thing written to `text`, so appending keeps it one
+             * contiguous span. */
+            size_t continued = 0;
+            while (continued < lineLength
+                && (scan[continued] == ' ' || scan[continued] == '\t')) {
+                continued++;
+            }
+            if (count != 0 && continued < lineLength) {
+                nupp_buffer_push(&text, ' ');
+                nupp_buffer_append(&text, scan + continued, lineLength - continued);
+                if (table.failed || text.failed) {
+                    break;
+                }
+                {
+                    uint8_t *slot = table.data + table.length - 16;
+                    uint32_t grownValue = (uint32_t)slot[12]
+                        | ((uint32_t)slot[13] << 8)
+                        | ((uint32_t)slot[14] << 16)
+                        | ((uint32_t)slot[15] << 24);
+                    grownValue += (uint32_t)(1 + lineLength - continued);
+                    slot[12] = (uint8_t)grownValue;
+                    slot[13] = (uint8_t)(grownValue >> 8);
+                    slot[14] = (uint8_t)(grownValue >> 16);
+                    slot[15] = (uint8_t)(grownValue >> 24);
+                }
+            }
+            scan += consumed;
+            remaining -= consumed;
+            continue;
+        }
         colon = memchr(scan, ':', lineLength);
         if (colon == NULL) {
             scan += consumed;
@@ -368,6 +414,12 @@ static bool pack_headers(NuppHttpTransfer *transfer) {
             memset(entry + at * 4, 0, 4);
         }
         nupp_buffer_append(&table, entry, sizeof entry);
+        if (table.failed) {
+            /* The slot below would otherwise be measured against storage the
+             * append never provided. The check on `failed` past the loop
+             * reports it. */
+            break;
+        }
         {
             size_t nameOffset = text.length;
             size_t valueOffset;
@@ -500,7 +552,16 @@ static size_t on_read(char *buffer, size_t size, size_t count, void *raw) {
     size_t moved;
 
     if (transfer->uploadFile != NULL) {
-        return fread(buffer, 1, room, transfer->uploadFile);
+        moved = fread(buffer, 1, room, transfer->uploadFile);
+        if (moved == 0 && ferror(transfer->uploadFile)) {
+            /* Zero is EOF to libcurl, and a Content-Length was already
+             * promised; a short body must fail loudly rather than arrive. */
+            uv_mutex_lock(&transfer->guard);
+            record(transfer, "cannot read the request body file");
+            uv_mutex_unlock(&transfer->guard);
+            return CURL_READFUNC_ABORT;
+        }
+        return moved;
     }
     uv_mutex_lock(&transfer->guard);
     if (transfer->uploadOffset == transfer->uploadLength) {
@@ -575,9 +636,9 @@ static void settle_transfer(NuppHttpTransfer *transfer, CURLcode result) {
 
 /* Everything a transfer's head needs before the body starts arriving.
  *
- * libcurl has no callback for "the head is complete"; the first body byte is
- * the signal, and a response with no body reaches it at the end. So this is
- * called from both places and does nothing the second time. */
+ * Called from the blank line that closes the final header block, from the
+ * first body byte, and from completion -- whichever comes first wins and the
+ * others do nothing. */
 static void publish_head(NuppHttpTransfer *transfer) {
     long status = 0;
     long version = 0;
@@ -658,6 +719,19 @@ static void reactor(void *raw) {
                 NuppHttpTransfer **grown =
                     realloc(client->attached, next * sizeof *grown);
                 if (grown == NULL) {
+                    /* A transfer libcurl drives that this list does not hold
+                     * could never be cancelled, resumed, or swept at stop, so
+                     * it fails here rather than running untracked. */
+                    curl_multi_remove_handle(client->multi, transfer->easy);
+                    transfer->added = false;
+                    uv_mutex_lock(&transfer->guard);
+                    record(transfer, "the HTTP client could not start the transfer");
+                    transfer->head = HEAD_FAILED;
+                    transfer->bodyTerminal = BODY_FAILED;
+                    transfer->finished = true;
+                    uv_mutex_unlock(&transfer->guard);
+                    raise_tokens(transfer, TOKEN_HEADERS | TOKEN_BODY | TOKEN_FAILED);
+                    transfer_release(transfer);
                     continue;
                 }
                 client->attached = grown;
@@ -814,7 +888,6 @@ static void client_free(NuppHttpClient *client) {
     uv_mutex_destroy(&client->guard);
     uv_cond_destroy(&client->arrived);
     free(client->incoming);
-    free(client->readyQueue);
     free(client->attached);
     free(client->proxy);
     free(client->noProxy);
@@ -905,15 +978,40 @@ NUPP_EXPORT NuppHttpClient *nuppHttpClientCreate(const NuppHttpClientOptions *op
 }
 
 NUPP_EXPORT void nuppHttpClientDestroy(NuppHttpClient *client) {
+    bool reap;
     if (client == NULL) {
         return;
     }
     uv_mutex_lock(&client->guard);
     client->stopping = true;
+    reap = client->started;
+    client->started = false;
     uv_mutex_unlock(&client->guard);
     nudge(client);
-    /* Whatever is still queued is the caller's to release; this hands back only
-     * the handle they were given. */
+    /* The reactor sees `stopping` and returns promptly; joining here is what
+     * reaps its thread, and is why nothing can raise readiness afterwards. */
+    if (reap) {
+        uv_thread_join(&client->thread);
+    }
+    /* Entries still on the readiness queue hold the references a drain would
+     * have handed back, and nobody is left to drain. */
+    for (;;) {
+        NuppHttpTransfer *transfer;
+        uv_mutex_lock(&client->guard);
+        transfer = client->readyFirst;
+        if (transfer != NULL) {
+            client->readyFirst = transfer->readyNext;
+            if (client->readyFirst == NULL) {
+                client->readyLast = NULL;
+            }
+        }
+        uv_mutex_unlock(&client->guard);
+        if (transfer == NULL) {
+            break;
+        }
+        atomic_store(&transfer->queued, false);
+        transfer_release(transfer);
+    }
     client_release(client);
 }
 
@@ -1134,17 +1232,25 @@ NUPP_EXPORT const NuppHttpTransfer *nuppHttpClientSend(
              * A peer that reads the header and not the chunks would otherwise
              * see an empty body, which is a real thing peers do. */
             {
-                long size = -1;
-                if (fseek(transfer->uploadFile, 0, SEEK_END) == 0) {
-                    size = ftell(transfer->uploadFile);
+                /* Sixty-four bits whatever `long` is: a body past two
+                 * gigabytes must not announce a truncated Content-Length. */
+                curl_off_t size = -1;
+#if NUPP_WINDOWS
+                if (_fseeki64(transfer->uploadFile, 0, SEEK_END) == 0) {
+                    size = (curl_off_t)_ftelli64(transfer->uploadFile);
                     rewind(transfer->uploadFile);
                 }
+#else
+                if (fseeko(transfer->uploadFile, 0, SEEK_END) == 0) {
+                    size = (curl_off_t)ftello(transfer->uploadFile);
+                    rewind(transfer->uploadFile);
+                }
+#endif
                 if (request->bodyLength >= 0) {
-                    size = (long)request->bodyLength;
+                    size = (curl_off_t)request->bodyLength;
                 }
                 if (size >= 0) {
-                    curl_easy_setopt(transfer->easy, CURLOPT_INFILESIZE_LARGE,
-                        (curl_off_t)size);
+                    curl_easy_setopt(transfer->easy, CURLOPT_INFILESIZE_LARGE, size);
                 }
             }
             break;
@@ -1453,11 +1559,14 @@ static size_t drain(
         capacity = READY_BATCH;
     }
     uv_mutex_lock(&client->guard);
-    while (count < capacity && client->readyCount != 0) {
-        NuppHttpTransfer *transfer = client->readyQueue[client->readyHead];
+    while (count < capacity && client->readyFirst != NULL) {
+        NuppHttpTransfer *transfer = client->readyFirst;
         uint32_t tokens;
-        client->readyHead = (client->readyHead + 1) % client->readyCapacity;
-        client->readyCount--;
+        client->readyFirst = transfer->readyNext;
+        if (client->readyFirst == NULL) {
+            client->readyLast = NULL;
+        }
+        transfer->readyNext = NULL;
         atomic_store(&transfer->queued, false);
         tokens = atomic_exchange(&transfer->tokens, 0);
         /* A token raised between the swap above and the flag below would
@@ -1466,16 +1575,19 @@ static size_t drain(
         if (atomic_load(&transfer->tokens) != 0
             && !atomic_exchange(&transfer->queued, true)) {
             transfer_retain(transfer);
-            client->readyQueue[(client->readyHead + client->readyCount) % client->readyCapacity] =
-                transfer;
-            client->readyCount++;
+            if (client->readyLast != NULL) {
+                client->readyLast->readyNext = transfer;
+            } else {
+                client->readyFirst = transfer;
+            }
+            client->readyLast = transfer;
         }
         output[count].transfer = transfer;
         output[count].tokens = tokens;
         count++;
     }
     if (more != NULL) {
-        *more = client->readyCount != 0;
+        *more = client->readyFirst != NULL;
     }
     uv_mutex_unlock(&client->guard);
     return count;
@@ -1513,7 +1625,7 @@ NUPP_EXPORT size_t nuppHttpClientWait(
         return count;
     }
     uv_mutex_lock(&client->guard);
-    if (client->readyCount == 0) {
+    if (client->readyFirst == NULL) {
         uv_cond_timedwait(&client->arrived, &client->guard,
             (uint64_t)milliseconds * 1000000u);
     }
