@@ -114,7 +114,14 @@ local function decode32(bits: number): number
             return sign * (1 / 0)
         end
 
-        return 0 / 0
+        -- Through `abs`, because `0 / 0` is the only NaN this can name without
+        -- `ffi` and its sign is the hardware's rather than a choice: an arm64
+        -- default NaN is positive and an x86-64 one is negative. Every
+        -- canonical NaN this module answers arrives here, so the sign the
+        -- platform happened to leave is the difference between agreeing with
+        -- the lowering and disagreeing with it on one architecture only.
+        -- `abs` clears that bit for a NaN the same as for a number.
+        return math.abs(0 / 0)
     elseif exponent == 0 then
         return sign * significand * 2 ^ -149
     end
