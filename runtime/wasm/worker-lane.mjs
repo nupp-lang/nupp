@@ -12,7 +12,6 @@ const inbox = [];
 let deliver;
 let current;
 let booted = false;
-let closing = false;
 
 // A Worker only sees a posted message on a fresh turn of its event loop, so asking
 // whether cancellation was requested costs one. A MessageChannel gives that turn
@@ -29,7 +28,6 @@ function nextTurn() {
 }
 
 function nextTask() {
-  if (closing) return Promise.resolve(undefined);
   const assigned = inbox.shift();
   if (assigned) return Promise.resolve(assigned);
 
@@ -74,12 +72,9 @@ self.addEventListener("message", (event) => {
       const [task] = inbox.splice(at, 1);
       self.postMessage({type: "reply", id: task.id, status: "cancelled", deadline: message.deadline === true});
     }
-    return;
   }
-  if (message?.type === "close") {
-    closing = true;
-    assign(undefined);
-  }
+  // The pool ends a lane by terminating its Worker; there is no close message,
+  // and a lane holds nothing a terminate would lose.
 });
 
 async function performLaneEffect(effect) {

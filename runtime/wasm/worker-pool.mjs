@@ -115,9 +115,6 @@ export function createWorkerPool({laneUrl, manifestUrl, maxLanes, limits, Worker
         type: "task",
         task: {id: task.id, module: task.module, member: task.member, payload: task.payload},
       });
-      if (task.cancelRequested) {
-        lane.worker.postMessage({type: "cancel", id: task.id, deadline: task.deadline === true});
-      }
     }
   }
 
