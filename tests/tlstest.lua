@@ -36,6 +36,12 @@ local function sockets()
    return listener, client, served
 end
 
+local function connectTo(listener)
+   local client = assert(net.connect({host = "127.0.0.1", port = listener:port()}))
+   local served = assert(listener:accept())
+   return client, served
+end
+
 -- Two peers taking turns until both are done or one refuses. Answers what each
 -- side ended up saying, so a test can assert on a refusal as easily as success.
 local function shake(client, server)
@@ -57,6 +63,140 @@ local function shake(client, server)
 end
 
 local M = {}
+
+function M.aClientResumesAStoredSession()
+   local listener = assert(net.listen({host = "127.0.0.1", port = 0}))
+
+   local firstSock, firstServed = connectTo(listener)
+   local firstServer = assert(tls.server(firstServed, {
+      certificate = CERT, privateKey = KEY, protocols = {"h2"},
+   }))
+   local firstClient = assert(tls.client(firstSock, {
+      hostname = "localhost", authority = CERT, protocols = {"h2"},
+   }))
+   assertTrue((shake(firstClient, firstServer)), "the first handshake completes")
+   assertTrue(firstServer:write("ticket follows"), "the server writes after its ticket")
+   assertEq(assert(firstClient:read(64)), "ticket follows",
+      "the client consumes the post-handshake ticket before the bytes")
+   firstClient:close()
+   firstServer:close()
+   firstServed:close()
+   firstSock:close()
+
+   local secondSock, secondServed = connectTo(listener)
+   local secondServer = assert(tls.server(secondServed, {
+      certificate = CERT, privateKey = KEY, protocols = {"h2"},
+   }))
+   local secondClient = assert(tls.client(secondSock, {
+      hostname = "localhost", authority = CERT, protocols = {"h2"},
+   }))
+   local clientDone, clientWhy, serverDone, serverWhy = shake(secondClient, secondServer)
+   assertTrue(clientDone, "the resumed client finishes: " .. tostring(clientWhy))
+   assertTrue(serverDone, "the resumed server finishes: " .. tostring(serverWhy))
+   assertTrue(secondClient:isResumed(), "the client says cached key material was used")
+   assertTrue(secondClient:write("abbreviated"), "a resumed session carries bytes")
+   assertEq(assert(secondServer:read(64)), "abbreviated", "the server decrypts them")
+
+   secondClient:close()
+   secondServer:close()
+   secondServed:close()
+   secondSock:close()
+   listener:close()
+end
+
+function M.resumptionCacheSeparatesProtocolsAndTrustMaterial()
+   local listener = assert(net.listen({host = "127.0.0.1", port = 0}))
+
+   local firstSock, firstServed = connectTo(listener)
+   local firstServer = assert(tls.server(firstServed, {
+      certificate = CERT, privateKey = KEY, protocols = {"h2", "http/1.1"},
+   }))
+   local firstClient = assert(tls.client(firstSock, {
+      hostname = "localhost", authority = CERT, protocols = {"h2"},
+   }))
+   assertTrue((shake(firstClient, firstServer)), "the cache seed handshake completes")
+   assertTrue(firstServer:write("seed"), "the first server writes")
+   assertEq(assert(firstClient:read(16)), "seed", "and the client collects its ticket")
+   firstClient:close()
+   firstServer:close()
+   firstServed:close()
+   firstSock:close()
+
+   local changedSock, changedServed = connectTo(listener)
+   local changedServer = assert(tls.server(changedServed, {
+      certificate = CERT, privateKey = KEY, protocols = {"h2", "http/1.1"},
+   }))
+   local changedClient = assert(tls.client(changedSock, {
+      hostname = "localhost", authority = CERT, protocols = {"http/1.1"},
+   }))
+   assertTrue((shake(changedClient, changedServer)), "the changed ALPN handshake completes")
+   assertEq(changedClient:protocol(), "http/1.1", "the changed protocol is negotiated")
+   assertEq(changedClient:isResumed(), false,
+      "a ticket cached for another ALPN offer is not resumed")
+
+   changedClient:close()
+   changedServer:close()
+   changedServed:close()
+   changedSock:close()
+
+   local trustSock, trustServed = connectTo(listener)
+   local trustServer = assert(tls.server(trustServed, {
+      certificate = CERT, privateKey = KEY, protocols = {"h2", "http/1.1"},
+   }))
+   local trustClient = assert(tls.client(trustSock, {
+      hostname = "localhost", authority = CERT .. CERT, protocols = {"h2"},
+   }))
+   assertTrue((shake(trustClient, trustServer)), "the changed trust handshake completes")
+   assertEq(trustClient:isResumed(), false,
+      "a ticket cached under another certificate set is not resumed")
+
+   trustClient:close()
+   trustServer:close()
+   trustServed:close()
+   trustSock:close()
+   listener:close()
+end
+
+function M.aRejectedTicketFallsBackToAFullHandshake()
+   local listener = assert(net.listen({host = "127.0.0.1", port = 0}))
+
+   local firstSock, firstServed = connectTo(listener)
+   local firstServer = assert(tls.server(firstServed, {
+      certificate = CERT, privateKey = KEY, protocols = {"h2", "http/1.1"},
+   }))
+   local firstClient = assert(tls.client(firstSock, {
+      verify = false, protocols = {"h2", "http/1.1"},
+   }))
+   assertTrue((shake(firstClient, firstServer)), "the cache seed handshake completes")
+   assertTrue(firstServer:write("seed"), "the first server writes")
+   assertEq(assert(firstClient:read(16)), "seed", "and the client collects its ticket")
+   firstClient:close()
+   firstServer:close()
+   firstServed:close()
+   firstSock:close()
+
+   -- Server protocol order is part of its ticket-key identity. The client has
+   -- the same endpoint key and offers its old ticket, but this configuration
+   -- cannot decrypt it and mbedTLS must continue with a full handshake.
+   local fallbackSock, fallbackServed = connectTo(listener)
+   local fallbackServer = assert(tls.server(fallbackServed, {
+      certificate = CERT, privateKey = KEY, protocols = {"http/1.1", "h2"},
+   }))
+   local fallbackClient = assert(tls.client(fallbackSock, {
+      verify = false, protocols = {"h2", "http/1.1"},
+   }))
+   assertTrue((shake(fallbackClient, fallbackServer)), "the fallback handshake completes")
+   assertEq(fallbackClient:isResumed(), false,
+      "offering a rejected ticket is not reported as resumption")
+   assertEq(fallbackClient:protocol(), "http/1.1",
+      "the replacement handshake negotiates the new server preference")
+
+   fallbackClient:close()
+   fallbackServer:close()
+   fallbackServed:close()
+   fallbackSock:close()
+   listener:close()
+end
 
 function M.aVerifiedHandshakeCarriesBytesBothWays()
    local listener, clientSock, serverSock = sockets()

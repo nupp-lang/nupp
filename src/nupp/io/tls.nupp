@@ -37,6 +37,18 @@ connection without knowing it has one.
 The session does not own the connection. It borrows one, encrypts over it, and
 is closed first; the connection is closed by whoever owns it, which is what
 keeps one socket under exactly one cleanup obligation.
+
+Successful client sessions are cached for resumption in bounded native process
+state, keyed by host, peer port, offered application protocols and trust
+material. The serialized session carries the verified end-entity certificate.
+The cache is process-wide rather than Lua-state-local, so reconnecting on a
+different worker lane can still resume; it is not persistent across processes.
+
+Servers likewise share session-ID stores and ticket keys between lanes when
+their certificate, private key, trust and protocol configuration match. Ticket
+keys rotate after one day. Resumption never sends application data before the
+handshake: TLS 1.3 early data is deliberately not enabled because accepting it
+requires an application-level replay policy.
 ]]
 
 local net = require("nupp.io.net")
@@ -115,6 +127,9 @@ record tls.Backend
 
     --- Whether the peer's certificate satisfied what was asked of it.
     verified: function(self: tls.Backend, session: any): boolean
+
+    --- Whether the client handshake resumed a cached session.
+    resumed: (function(self: tls.Backend, session: any): boolean)?
 
     --- Reads decrypted bytes. An empty answer is the end; nil with no reason
     --- means nothing has arrived yet.
@@ -298,6 +313,22 @@ record tls.Session is nupp.io.Reader, nupp.io.Writer
         end
 
         return self._backend:verified(self._session)
+    end
+
+    --- Whether this connection skipped the full asymmetric handshake by
+    --- resuming a cached session.
+    ---
+    --- Servers answer false. The server-side store is deliberately opaque: a
+    --- client can use this answer to observe its cache, while accepting a
+    --- session does not change what a server application may do with it.
+    function isResumed(self): boolean
+        if self._closed or not self._ready then
+            return false
+        end
+
+        const resumed = self._backend.resumed
+
+        return resumed ~= nil and resumed(self._backend, self._session) or false
     end
 
     --- Drives the handshake one pass, without suspending.
@@ -657,6 +688,7 @@ NuppTls *nuppTlsWrap(NuppNetStream *, bool, const uint8_t *, size_t,
 const char *nuppTlsAlpn(NuppTls *);
 int32_t nuppTlsHandshake(NuppTls *);
 uint32_t nuppTlsVerifyResult(NuppTls *);
+bool nuppTlsResumed(NuppTls *);
 intptr_t nuppTlsRead(NuppTls *, uint8_t *, size_t);
 intptr_t nuppTlsWrite(NuppTls *, const uint8_t *, size_t);
 uint8_t nuppTlsCloseNotify(NuppTls *);
@@ -734,6 +766,10 @@ local function nativeBackend(): tls.Backend
 
         verified = function(self: tls.Backend, session: any): boolean
             return tonumber(C.nuppTlsVerifyResult(session)) == 0
+        end,
+
+        resumed = function(self: tls.Backend, session: any): boolean
+            return C.nuppTlsResumed(session) as boolean
         end,
 
         read = function(self: tls.Backend, session: any, wanted: integer): (string?, string?)

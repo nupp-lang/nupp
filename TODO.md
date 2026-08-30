@@ -4,13 +4,6 @@ A living list, not a design record. Items are removed when completed.
 
 ## Transport security
 
-- [ ] **Session resumption.** Tickets and session IDs, so a client reconnecting
-      to a server it has met before skips the asymmetric work. Client side is a
-      cache keyed by host, port, ALPN and certificate; server side is a store or
-      ticket keys and their rotation. Decide where the cache lives, given that
-      lanes are shared-nothing and a client reconnecting on another lane misses.
-      `mbedtls_ssl_get_session`/`set_session` and `mbedtls_ssl_ticket_setup`.
-      Leave TLS 1.3 early data out until replay is answered.
 - [ ] **A platform trust store.** `tls.ClientOptions.authority` is PEM the
       caller supplies, so verifying against the public web PKI needs roots from
       somewhere. Three designs, and they fail differently: extract the

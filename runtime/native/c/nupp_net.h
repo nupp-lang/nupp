@@ -17,6 +17,12 @@ typedef struct NuppNetStream NuppNetStream;
 intptr_t nuppNetTryRead(NuppNetStream *stream, uint8_t *into, size_t wanted);
 intptr_t nuppNetTryWrite(NuppNetStream *stream, const uint8_t *from, size_t length);
 bool nuppNetStreamEnded(NuppNetStream *stream);
+bool nuppNetStreamPeer(
+    NuppNetStream *stream,
+    char *host,
+    size_t capacity,
+    int32_t *port
+);
 
 /* A layering module holds the connection struct alive while it may still ask
  * about it. The connection stops working when its owner closes it; this only

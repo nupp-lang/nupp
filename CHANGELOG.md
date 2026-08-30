@@ -2,6 +2,14 @@
 
 ## Unreleased
 
+- TLS clients resume earlier sessions by ticket or session ID, and TLS servers
+  rotate ticket keys while retaining a bounded session-ID store. Both sides'
+  state is native and process-wide, so a reconnect may resume when it lands on
+  another shared-nothing worker lane. Cache identity includes the host, peer
+  port, offered ALPN protocols and trust material; server stores are isolated by
+  their certificate and protocol configuration. `tls.Session:isResumed()` says
+  whether a client used the cache. TLS 1.3 early data remains disabled.
+
 - A native comparison mixing signed and unsigned fixed-width operands now
   answers by mathematical value, as the interpreter and the constant folder
   already did. C's usual arithmetic conversions decided `int32` against
