@@ -26,6 +26,7 @@ local visit = require("nupp.compiler.aot.visit")
 local emit = {}
 local explicitWidth = 0
 local explicitScalar = false
+local independentSpanCounts = true
 local reusableScratchName: string? = nil
 local builderEager = false
 
@@ -289,7 +290,9 @@ function emit.scalar(node: scalarIR.Expr): string
     elseif operation == "uniform" then
         return "p_" .. (node as scalarIR.Name).name
     elseif operation == "span_count" then
-        return "((double)count_" .. (node as scalarIR.SpanCount).span .. ")"
+        return independentSpanCounts
+            and "((double)count_" .. (node as scalarIR.SpanCount).span .. ")"
+            or "((double)count)"
     elseif operation == "lua_string_length" then
         local bytes = (node as scalarIR.LuaBytes).bytes as scalarIR.Name
         return "ks_lua_string_length(L, ks_length_" .. tostring(bytes.cName) .. ")"
@@ -6053,6 +6056,7 @@ function emit.program(programs: {scalarIR.Program}, tier: string?): string
             --- One C definition of the kernel.
             local function implementation(symbol: string, forced: boolean): nil
                 explicitScalar = forced and program.usesSimd == true
+                independentSpanCounts = independentCounts
                 if forced and general then
                     -- The block may declare locals before its first loop, so a
                     -- loop pragma cannot be placed at function entry. Keep this

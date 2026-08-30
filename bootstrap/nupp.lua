@@ -5944,6 +5944,7 @@ local visit = require ( "nupp.compiler.aot.visit" )
 local emit = { }
 local explicitWidth = 0
 local explicitScalar = false
+local independentSpanCounts = true
 local reusableScratchName = nil
 local builderEager = false
 
@@ -6207,7 +6208,9 @@ return ( node ) . value and "true" or "false"
 elseif operation == "uniform" then
 return "p_" .. ( node ) . name
 elseif operation == "span_count" then
-return "((double)count_" .. ( node ) . span .. ")"
+return independentSpanCounts
+and "((double)count_" .. ( node ) . span .. ")"
+or "((double)count)"
 elseif operation == "lua_string_length" then
 local bytes = ( node ) . bytes
 return "ks_lua_string_length(L, ks_length_" .. tostring ( bytes . cName ) .. ")"
@@ -11971,6 +11974,7 @@ resultTypes [ 1 ]
 
 local function implementation ( symbol , forced ) 
 explicitScalar = forced and program . usesSimd == true
+independentSpanCounts = independentCounts
 if forced and general then
 
 
@@ -12951,6 +12955,12 @@ end
 for _ , param in ipairs ( artifact . writable ) do
 fields [ # fields + 1 ] = "uint32_t " .. param . name : gsub ( "[^%w_]" , "_" ) .. "_count;"
 end
+for _ , param in ipairs ( artifact . readonly ) do
+fields [ # fields + 1 ] = "uint32_t " .. param . name : gsub ( "[^%w_]" , "_" ) .. "_offset;"
+end
+for _ , param in ipairs ( artifact . writable ) do
+fields [ # fields + 1 ] = "uint32_t " .. param . name : gsub ( "[^%w_]" , "_" ) .. "_offset;"
+end
 for _ , param in ipairs ( artifact . uniforms ) do
 fields [ # fields + 1 ] = tostring ( C_TYPE [ param . type ] ) .. " " .. param . name : gsub ( "[^%w_]" , "_" ) .. ";"
 end
@@ -13219,8 +13229,10 @@ exactCounts [ guard . left ] = true
 exactCounts [ guard . right ] = true
 end
 local function provenSpanIndex ( value ) 
+local index
 if value . cursor ~= nil then
-return "[" .. identifier ( value . cursorCName ) .. "]"
+index = identifier ( value . cursorCName )
+return "[uniforms." .. identifier ( value . span ) .. "_offset + " .. index .. "]"
 end
 assert ( value . index == loop . index , "only the dispatch index or a proved cursor may address a GPU span" )
 assert (
@@ -13228,7 +13240,7 @@ exactCounts [ value . span ] == true ,
 "a dispatch-indexed GPU span must be the loop bound or guarded equal to it: " .. tostring ( value . span )
 )
 
-return "[dispatch_index]"
+return "[uniforms." .. identifier ( value . span ) .. "_offset + dispatch_index]"
 end
 
 local expression
@@ -13264,6 +13276,9 @@ elseif op == "f32_fma" then
 return "nupp_f32_fma(" .. expression (
 value . args [ 1 ]
 ) .. ", " .. expression ( value . args [ 2 ] ) .. ", " .. expression ( value . args [ 3 ] ) .. ")"
+elseif op == "f32_min" or op == "f32_max" then
+local helper = op == "f32_min" and "nupp_f32_min" or "nupp_f32_max"
+return helper .. "(" .. expression ( value . left ) .. ", " .. expression ( value . right ) .. ")"
 elseif FIXED [ op ] ~= nil or BINARY [ op ] ~= nil then
 
 
@@ -13412,9 +13427,10 @@ end
 for _ , param in ipairs ( uniforms ) do
 for _ , span in ipairs ( spans ) do
 assert ( param . name ~= span . name .. "_count" , "GPU uniform name collides with a span count: " .. param . name )
+assert ( param . name ~= span . name .. "_offset" , "GPU uniform name collides with a span offset: " .. param . name )
 end
 end
-local uniformBytes = 4 * ( 1 + # spans + # uniforms )
+local uniformBytes = 4 * ( 1 + 2 * # spans + # uniforms )
 assert ( uniformBytes <= 128 , "GPU uniform block exceeds 128 bytes" )
 
 line ( 0 , "#include <metal_stdlib>" )
@@ -13436,6 +13452,9 @@ line ( 1 , "uint count;" )
 for _ , param in ipairs ( spans ) do
 line ( 1 , "uint " .. identifier ( param . name ) .. "_count;" )
 end
+for _ , param in ipairs ( spans ) do
+line ( 1 , "uint " .. identifier ( param . name ) .. "_offset;" )
+end
 for _ , param in ipairs ( uniforms ) do
 line ( 1 , tostring ( metalType ( param . type ) ) .. " " .. identifier ( param . name ) .. ";" )
 end
@@ -13446,6 +13465,16 @@ line ( 0 , "inline uint nupp_u32_mod(uint left, uint right) { return right == 0u
 line ( 0 , "inline float nupp_f32_fma(float a, float b, float c) {" )
 line ( 1 , "float out = fma(a, b, c);" )
 line ( 1 , "return isnan(out) ? as_type<float>(0x7fc00000u) : out;" )
+line ( 0 , "}" )
+line ( 0 , "inline float nupp_f32_min(float left, float right) {" )
+line ( 1 , "if (isnan(left) || isnan(right)) return as_type<float>(0x7fc00000u);" )
+line ( 1 , "if (left == right) return left == 0.0f ? as_type<float>(as_type<uint>(left) | as_type<uint>(right)) : left;" )
+line ( 1 , "return left < right ? left : right;" )
+line ( 0 , "}" )
+line ( 0 , "inline float nupp_f32_max(float left, float right) {" )
+line ( 1 , "if (isnan(left) || isnan(right)) return as_type<float>(0x7fc00000u);" )
+line ( 1 , "if (left == right) return left == 0.0f ? as_type<float>(as_type<uint>(left) & as_type<uint>(right)) : left;" )
+line ( 1 , "return left > right ? left : right;" )
 line ( 0 , "}" )
 line ( 0 , "inline float nupp_f32_exp(float value) {" )
 line ( 1 , "float x = max(-104.0f, min(value, 88.0f));" )
@@ -25332,6 +25361,7 @@ end
 
 local zeroU = constant ( u32Type , 0 )
 local oneU = constant ( u32Type , 1 )
+local zeroF = constant ( f32Type , 0 )
 local canonicalNan = constant ( f32Type , 2143289344 )
 local falseId = id ( )
 instruction ( declarations , OP . ConstantFalse , { boolType , falseId } )
@@ -25382,6 +25412,10 @@ spans [ # spans + 1 ] = param
 end
 for _ , param in ipairs ( spans ) do
 uniformIndex [ param . name .. "_count" ] = # uniformMembers
+uniformMembers [ # uniformMembers + 1 ] = u32Type
+end
+for _ , param in ipairs ( spans ) do
+uniformIndex [ param . name .. "_offset" ] = # uniformMembers
 uniformMembers [ # uniformMembers + 1 ] = u32Type
 end
 for _ , param in ipairs ( uniforms ) do
@@ -25451,6 +25485,7 @@ decorate ( globalId , DECORATION . BuiltIn , { 28 } )
 
 local fnVoid = functionType ( voidType , { } )
 local fnU32U32 = functionType ( u32Type , { u32Type , u32Type } )
+local fnF32F32 = functionType ( f32Type , { f32Type , f32Type } )
 local fnFma = functionType ( f32Type , { f32Type , f32Type , f32Type } )
 local fnF32 = functionType ( f32Type , { f32Type } )
 local fnF32FromU32 = functionType ( f32Type , { u32Type } )
@@ -25501,6 +25536,56 @@ local fusedOut = id ( )
 instruction ( functions , OP . Select , { f32Type , fusedOut , fusedNan , canonicalNan , fused } )
 instruction ( functions , OP . ReturnValue , { fusedOut } )
 instruction ( functions , OP . FunctionEnd , { } )
+
+local function correctedPair ( helperName , minimum ) 
+local fn = id ( )
+name ( fn , helperName )
+instruction ( functions , OP . Function , { f32Type , fn , 0 , fnF32F32 } )
+local left , right = id ( ) , id ( )
+instruction ( functions , OP . FunctionParameter , { f32Type , left } )
+instruction ( functions , OP . FunctionParameter , { f32Type , right } )
+local label = id ( )
+instruction ( functions , OP . Label , { label } )
+local leftNan , rightNan , anyNan = id ( ) , id ( ) , id ( )
+instruction ( functions , OP . IsNan , { boolType , leftNan , left } )
+instruction ( functions , OP . IsNan , { boolType , rightNan , right } )
+instruction ( functions , OP . LogicalOr , { boolType , anyNan , leftNan , rightNan } )
+local equal , isZero = id ( ) , id ( )
+instruction ( functions , OP . FOrdEqual , { boolType , equal , left , right } )
+instruction ( functions , OP . FOrdEqual , { boolType , isZero , left , zeroF } )
+local leftBits , rightBits , zeroBits = id ( ) , id ( ) , id ( )
+instruction ( functions , OP . Bitcast , { u32Type , leftBits , left } )
+instruction ( functions , OP . Bitcast , { u32Type , rightBits , right } )
+instruction ( functions , minimum and OP . BitwiseOr or OP . BitwiseAnd , {
+u32Type ,
+zeroBits ,
+leftBits ,
+rightBits ,
+} )
+local signedZero = id ( )
+instruction ( functions , OP . Bitcast , { f32Type , signedZero , zeroBits } )
+local equalValue = id ( )
+instruction ( functions , OP . Select , { f32Type , equalValue , isZero , signedZero , left } )
+local ordered = id ( )
+instruction ( functions , minimum and OP . FOrdLessThan or OP . FOrdGreaterThan , {
+boolType ,
+ordered ,
+left ,
+right ,
+} )
+local unequalValue = id ( )
+instruction ( functions , OP . Select , { f32Type , unequalValue , ordered , left , right } )
+local finiteValue = id ( )
+instruction ( functions , OP . Select , { f32Type , finiteValue , equal , equalValue , unequalValue } )
+local result = id ( )
+instruction ( functions , OP . Select , { f32Type , result , anyNan , canonicalNan , finiteValue } )
+instruction ( functions , OP . ReturnValue , { result } )
+instruction ( functions , OP . FunctionEnd , { } )
+return fn
+end
+
+local minFn = correctedPair ( "nupp_f32_min" , true )
+local maxFn = correctedPair ( "nupp_f32_max" , false )
 
 local halfToFloatFn = id ( )
 name ( halfToFloatFn , "nupp_f16_to_f32" )
@@ -25697,6 +25782,13 @@ local pointer = assert ( localPointers [ value . cursorCName ] )
 indexId = id ( )
 instruction ( functions , OP . Load , { u32Type , indexId , pointer } )
 end
+local physicalIndex = id ( )
+instruction ( functions , OP . IAdd , {
+u32Type ,
+physicalIndex ,
+uniform ( value . span .. "_offset" , u32Type ) ,
+indexId ,
+} )
 local element = assert ( bufferElement [ value . span ] )
 local pointer = id ( )
 instruction ( functions , OP . AccessChain , {
@@ -25704,7 +25796,7 @@ pointerType ( STORAGE . StorageBuffer , element ) ,
 pointer ,
 assert ( bufferVars [ value . span ] ) ,
 zeroU ,
-indexId
+physicalIndex
 } )
 
 return pointer , element
@@ -25817,6 +25909,18 @@ local b = expression ( value . args [ 2 ] )
 local c = expression ( value . args [ 3 ] )
 local result = id ( )
 instruction ( functions , OP . FunctionCall , { f32Type , result , fmaFn , a , b , c } )
+return result , f32Type
+elseif op == "f32_min" or op == "f32_max" then
+local left = expression ( value . left )
+local right = expression ( value . right )
+local result = id ( )
+instruction ( functions , OP . FunctionCall , {
+f32Type ,
+result ,
+op == "f32_min" and minFn or maxFn ,
+left ,
+right ,
+} )
 return result , f32Type
 elseif op == "f16_to_f32" or op == "f32_to_f16" or op == "f32_sqrt" or op == "f32_exp" then
 local input = expression ( value . value )
@@ -141772,7 +141876,12 @@ The current GPU subset is one complete-span map with fixed-width elements, any
 number of proved read and write spans, and up to 128 bytes of fixed-width scalar
 uniforms, written as a local function declaration. Uploads and downloads remain
 explicit, so several generated bindings can share resident buffers without an
-intermediate CPU copy.
+intermediate CPU copy. `Context:tensor(element, shape)` attaches a validated
+one- through four-dimensional dense row-major shape to an allocation.
+`buffer:subview(origin, shape)` creates a typed allocation-free view; origins
+are zero-based, bounds and rank are checked, zero dimensions are refused, and a
+rectangle with physical gaps is refused rather than flattened incorrectly.
+Generated bindings add each view's element offset to proved shader indices.
 
 A pointer-free parser builds an ordinary Lua value through
 `nupp.data.valuebuilder`, either by materializing one bounds-checked node and
@@ -164098,6 +164207,12 @@ _G.assert(_G.loadstring("local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppM
 
 
 
+
+
+
+
+
+
 local native = require ( "nupp.runtime.native" )
 local span = require ( "nupp.mem.span" )
 local ffi = native . ffi
@@ -164121,14 +164236,14 @@ NuppGpuKernel *nuppGpuKernelCreate(
     NuppGpuContext *, const uint8_t *, size_t, const uint8_t *, size_t,
     const uint8_t *, size_t,
     uint32_t, uint32_t, uint32_t, uint32_t);
-bool nuppGpuBufferUpload(NuppGpuContext *, NuppGpuBuffer *, const void *, size_t);
+bool nuppGpuBufferUpload(NuppGpuContext *, NuppGpuBuffer *, const void *, size_t, size_t);
 NuppGpuBinding *nuppGpuBindingCreate(NuppGpuContext *, NuppGpuKernel *, uint32_t);
-bool nuppGpuBindingSetRead(NuppGpuBinding *, uint32_t, NuppGpuBuffer *, uint32_t, bool);
-bool nuppGpuBindingSetWrite(NuppGpuBinding *, uint32_t, NuppGpuBuffer *, uint32_t, bool);
+bool nuppGpuBindingSetRead(NuppGpuBinding *, uint32_t, NuppGpuBuffer *, uint32_t, uint32_t, bool);
+bool nuppGpuBindingSetWrite(NuppGpuBinding *, uint32_t, NuppGpuBuffer *, uint32_t, uint32_t, bool);
 bool nuppGpuBindingDispatch(NuppGpuBinding *, const void *, size_t);
-bool nuppGpuBufferDownload(NuppGpuContext *, NuppGpuBuffer *);
+bool nuppGpuBufferDownload(NuppGpuContext *, NuppGpuBuffer *, size_t, size_t);
 bool nuppGpuSynchronize(NuppGpuContext *);
-bool nuppGpuBufferRead(NuppGpuContext *, NuppGpuBuffer *, void *, size_t);
+bool nuppGpuBufferRead(NuppGpuContext *, NuppGpuBuffer *, void *, size_t, size_t);
 ]]
 
 
@@ -164138,7 +164253,27 @@ local dispatchNative = C . nuppGpuBindingDispatch
 
 
 
+
 gpu.Buffer = {} gpu.Buffer.__index = gpu.Buffer
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 
@@ -164268,14 +164403,52 @@ end
 
 
 
-local function uploadTyped ( context , buffer , source , bytes ) 
+local function uploadTyped (
+context ,
+buffer ,
+source ,
+offset ,
+bytes
+) 
 local call = C . nuppGpuBufferUpload
-return call ( context , buffer , source , bytes )
+return call ( context , buffer , source , offset , bytes )
 end
 
-local function readTyped ( context , buffer , destination , bytes ) 
+local function readTyped (
+context ,
+buffer ,
+destination ,
+offset ,
+bytes
+) 
 local call = C . nuppGpuBufferRead
-return call ( context , buffer , destination , bytes )
+return call ( context , buffer , destination , offset , bytes )
+end
+
+local function denseShape ( shape ) 
+if # shape < 1 or # shape > 4 then
+error ( "nupp: GPU tensors take one through four dimensions" , 3 )
+end
+local count = 1
+local strides = { }
+for index = # shape , 1 , - 1 do
+local dimension = shape [ index ]
+if dimension < 1 or count > math.floor(( 4294967295 ) / ( dimension )) then
+error ( "nupp: GPU tensor dimensions must have 1 through 4294967295 elements" , 3 )
+end
+strides [ index ] = count
+count = count * dimension
+end
+
+return count , strides
+end
+
+local function copied ( values ) 
+local out = { }
+for index , value in ipairs ( values ) do
+out [ index ] = value
+end
+return out
 end
 
 function gpu . Context . drop ( self ) 
@@ -164313,7 +164486,75 @@ if handle == nil then
 error ( "nupp: " .. ffi . string ( C . nuppNativeError ( ) ) , 2 )
 end
 
-return setmetatable({ _anchor =  self ,  _handle =  handle ,  _width =  width ,  count =  count }, gpu.Buffer)
+return setmetatable({ _anchor =
+self ,  _handle =
+handle ,  _width =
+width ,  _offset =
+0 ,  _capacity =
+count ,  _shape =
+{ count } ,  _strides =
+{ 1 } ,  count =
+count }, gpu.Buffer)
+
+end
+
+function gpu . Context . tensor (
+self ,
+element ,
+shape
+) 
+local count , strides = denseShape ( shape )
+local out = self : buffer ( element , count )
+out . _shape = copied ( shape )
+out . _strides = strides
+return out
+end
+
+function gpu . Buffer . dimensions ( self ) 
+return copied ( self . _shape )
+end
+
+function gpu . Buffer . strides ( self ) 
+return copied ( self . _strides )
+end
+
+function gpu . Buffer . subview (
+self ,
+origin ,
+shape
+) 
+if # origin ~= # self . _shape or # shape ~= # self . _shape then
+error ( "nupp: GPU tensor subview rank does not match its buffer" , 2 )
+end
+local count , strides = denseShape ( shape )
+local offset = self . _offset
+local expected = 1
+for index = # shape , 1 , - 1 do
+local first = origin [ index ]
+local dimension = shape [ index ]
+if first < 0 or first > self . _shape [ index ] or dimension > self . _shape [ index ] - first then
+error ( "nupp: GPU tensor subview is outside its buffer" , 2 )
+end
+if dimension > 1 and self . _strides [ index ] ~= expected then
+error ( "nupp: GPU tensor subview is not dense" , 2 )
+end
+offset = offset + first * self . _strides [ index ]
+expected = expected * dimension
+end
+if offset > self . _capacity or count > self . _capacity - offset then
+error ( "nupp: GPU tensor subview exceeds its allocation" , 2 )
+end
+
+return setmetatable({ _anchor =
+self ,  _handle =
+self . _handle ,  _width =
+self . _width ,  _offset =
+offset ,  _capacity =
+self . _capacity ,  _shape =
+copied ( shape ) ,  _strides =
+strides ,  count =
+count }, gpu.Buffer)
+
 end
 
 function gpu . Context . compileGenerated (
@@ -164378,7 +164619,9 @@ slot ,
 buffer ,
 matchCount
 ) 
-succeeded ( C . nuppGpuBindingSetRead ( self . _handle , slot , buffer . _handle , buffer . count , matchCount ) , 2 )
+succeeded ( C . nuppGpuBindingSetRead (
+self . _handle , slot , buffer . _handle , buffer . _offset , buffer . count , matchCount
+) , 2 )
 end
 
 function gpu . Binding . setWrite (
@@ -164387,7 +164630,9 @@ slot ,
 buffer ,
 matchCount
 ) 
-succeeded ( C . nuppGpuBindingSetWrite ( self . _handle , slot , buffer . _handle , buffer . count , matchCount ) , 2 )
+succeeded ( C . nuppGpuBindingSetWrite (
+self . _handle , slot , buffer . _handle , buffer . _offset , buffer . count , matchCount
+) , 2 )
 end
 
 function gpu . Binding . dispatchPacked ( self , uniforms , uniformBytes ) 
@@ -164407,11 +164652,15 @@ if source .count ~= buffer . count then
 error ( "nupp: GPU upload span length does not match its buffer" , 2 )
 end
 local pointer , count = source : ref ( )
-succeeded ( uploadTyped ( live ( self ) , buffer . _handle , pointer , buffer . _width * count ) , 2 )
+succeeded ( uploadTyped (
+live ( self ) , buffer . _handle , pointer , buffer . _offset * buffer . _width , buffer . _width * count
+) , 2 )
 end
 
 function gpu . Context . enqueueDownload ( self , buffer ) 
-succeeded ( C . nuppGpuBufferDownload ( live ( self ) , buffer . _handle ) , 2 )
+succeeded ( C . nuppGpuBufferDownload (
+live ( self ) , buffer . _handle , buffer . _offset * buffer . _width , buffer . count * buffer . _width
+) , 2 )
 end
 
 function gpu . Context . synchronize ( self ) 
@@ -164427,7 +164676,9 @@ if destination .count ~= buffer . count then
 error ( "nupp: GPU download span length does not match its buffer" , 2 )
 end
 local pointer , count = destination : ref ( )
-succeeded ( readTyped ( live ( self ) , buffer . _handle , pointer , buffer . _width * count ) , 2 )
+succeeded ( readTyped (
+live ( self ) , buffer . _handle , pointer , buffer . _offset * buffer . _width , buffer . _width * count
+) , 2 )
 end
 
 function gpu . Context . download (
@@ -166328,7 +166579,12 @@ end
 
 
 
-if # self . _held - self . _at > self . _limit then
+
+
+
+
+local grace = self . _held : sub ( - 1 ) == "\r" and 1 or 0
+if # self . _held - self . _at > self . _limit + grace then
 return nil , "a line was longer than the limit"
 end
 if self . _ended then
@@ -166336,6 +166592,12 @@ if self . _at >= # self . _held then
 return nil
 end
 const rest = self . _held : sub ( self . _at + 1 )
+
+
+
+if # rest > self . _limit then
+return nil , "a line was longer than the limit"
+end
 self . _held = ""
 self . _at = 0
 
@@ -166484,6 +166746,7 @@ const newScalarWriter
 end
 package.preload["nupp.io.files"] = function(...)
 _G.assert(_G.loadstring("local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppMath=rawget(__nupp,\"math\")or{};rawset(__nupp,\"math\",__nuppMath) local function __nuppCloseFile(handle)if io.type(handle)==\"closed file\"then return end;local ok,reason=handle:close();if not ok then error(reason or \"the file could not be closed\",0)end end local __nuppManagedBrand=_G.__nuppManagedBrand if not __nuppManagedBrand then __nuppManagedBrand={};_G.__nuppManagedBrand=__nuppManagedBrand end local __nuppManagedCells=_G.__nuppManagedCells if not __nuppManagedCells then __nuppManagedCells=setmetatable({},{__mode=\"k\"});_G.__nuppManagedCells=__nuppManagedCells end local __nuppManagedOwner={};__nuppManagedOwner.__index=__nuppManagedOwner;local __nuppManagedAlias={};__nuppManagedAlias.__index=__nuppManagedAlias local function __nuppManagedError(code,message)return{code=code,message=message}end local function __nuppManagedProblem(cell) if type(cell)~=\"table\"or cell._brand~=__nuppManagedBrand then return __nuppManagedError(\"NUPP2614\",\"value is not a managed alias\")end if cell._state==\"taken\"then return __nuppManagedError(\"NUPP2614\",\"managed ownership was already taken\")end if cell._state==\"closed\"or cell._state==\"closing\"then return __nuppManagedError(\"NUPP2614\",\"managed resource is closed\")end return nil end local function __nuppManagedClose(cell,checked) local problem=__nuppManagedProblem(cell);if problem then if checked then return problem end;return nil end if cell._borrows~=0 or cell._exclusive then local busy=__nuppManagedError(\"NUPP2620\",\"managed resource has an active borrow\");if checked then return busy end;error(busy.message,0)end cell._state=\"closing\";local value,cleanup=cell._value,cell._cleanup;cell._value=nil;cell._cleanup=nil local ok,reason=pcall(cleanup,value);cell._state=\"closed\";if not ok then error(reason,0)end;return nil end function __nuppManagedOwner:alias()return setmetatable({_cell=self,_brand=__nuppManagedBrand},__nuppManagedAlias)end function __nuppManagedOwner:close()return __nuppManagedClose(self,false)end local function __nuppAliasCell(self) if type(self)~=\"table\"or self._brand~=__nuppManagedBrand or getmetatable(self)~=__nuppManagedAlias then return nil,__nuppManagedError(\"NUPP2614\",\"value is not a managed alias\")end local cell=self._cell;local problem=__nuppManagedProblem(cell);if problem then return nil,problem end;return cell,nil end function __nuppManagedAlias:with(callback) local cell,problem=__nuppAliasCell(self);if not cell then return nil,problem end if cell._exclusive then return nil,__nuppManagedError(\"NUPP2620\",\"managed resource is exclusively borrowed\")end cell._borrows=cell._borrows+1;cell._state=\"shared-borrowed(\"..cell._borrows..\")\" local ok,result=pcall(callback,cell._value);cell._borrows=cell._borrows-1;cell._state=cell._borrows>0 and(\"shared-borrowed(\"..cell._borrows..\")\")or\"live\" if not ok then error(result,0)end;return result,nil end function __nuppManagedAlias:withExclusive(callback) local cell,problem=__nuppAliasCell(self);if not cell then return nil,problem end if cell._exclusive or cell._borrows~=0 then return nil,__nuppManagedError(\"NUPP2620\",\"managed resource is already borrowed\")end cell._exclusive=true;cell._state=\"exclusive-borrowed\";local ok,result=pcall(callback,cell._value);cell._exclusive=false;cell._state=\"live\" if not ok then error(result,0)end;return result,nil end function __nuppManagedAlias:take() local cell,problem=__nuppAliasCell(self);if not cell then return nil,problem end if cell._exclusive or cell._borrows~=0 then return nil,__nuppManagedError(\"NUPP2620\",\"managed resource has an active borrow\")end cell._state=\"taken\";local value=cell._value;cell._value=nil;cell._cleanup=nil;return value,nil end function __nuppManagedAlias:close() local cell,problem=__nuppAliasCell(self);if not cell then return problem end;return __nuppManagedClose(cell,true)end function __nuppManagedAlias:_downcast(policy) local cell,problem=__nuppAliasCell(self);if not cell then return nil,problem end if cell._policy~=policy then return nil,__nuppManagedError(\"NUPP2613\",\"managed alias has the wrong type or cleanup policy\")end return self,nil end function __nupp.__manage(value,cleanup,policy) local cell=setmetatable({_brand=__nuppManagedBrand,_value=value,_cleanup=cleanup,_policy=policy,_state=\"live\",_borrows=0,_exclusive=false},__nuppManagedOwner);__nuppManagedCells[cell]=true;return cell end function __nupp.__recoverAlias(value) if type(value)~=\"table\"or value._brand~=__nuppManagedBrand or getmetatable(value)~=__nuppManagedAlias then return nil,__nuppManagedError(\"NUPP2614\",\"value is not a managed alias\")end local cell,problem=__nuppAliasCell(value);if not cell then return nil,problem end;return value,nil end _G.__nuppManagedPolicyCount=function(policy)local count=0;for cell in pairs(__nuppManagedCells)do if cell._policy==policy and(cell._state==\"live\"or cell._state:match(\"borrowed\"))then count=count+1 end end;return count end local __nuppManagedGroup={};__nuppManagedGroup.__index=__nuppManagedGroup function __nuppManagedGroup:flush()end function __nuppManagedGroup:adopt(cell) if self._closed then error(\"managed group is closed\",2)end local handle=cell:alias();self._entries[#self._entries+1]=handle return handle end function __nuppManagedGroup:remove(handle) if self._closed then error(\"managed group is closed\",2)end for index=#self._entries,1,-1 do if self._entries[index]==handle then table.remove(self._entries,index);local value,problem=handle:take();if problem then error(problem.message,2)end;return value end end error(\"managed alias is not registered in this group\",2) end local function __nuppManagedCloseEntry(entry)local problem=entry:close();if problem and problem.code~=\"NUPP2614\"then error(problem.message,0)end end function __nuppManagedGroup:close() if self._closed then return end;self._closed=true;local first,suppressed=nil,0 for index=#self._entries,1,-1 do local ok,reason=pcall(__nuppManagedCloseEntry,self._entries[index]);if not ok then if first==nil then first=reason else suppressed=suppressed+1 end end end self._entries={};if first~=nil then if suppressed>0 then error(tostring(first)..\" (suppressed \"..tostring(suppressed)..\" cleanup failure(s))\",0)end;error(first,0)end end function __nupp.managedGroup()return setmetatable({_entries={},_closed=false},__nuppManagedGroup)end;\n","@nupp-prelude"))();const __nuppFfi = require("ffi"); local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppMath=rawget(__nupp,"math")or{};rawset(__nupp,"math",__nuppMath) local function __nuppCloseFile(handle)if io.type(handle)=="closed file"then return end;local ok,reason=handle:close();if not ok then error(reason or "the file could not be closed",0)end end local __nuppManagedBrand=_G.__nuppManagedBrand if not __nuppManagedBrand then __nuppManagedBrand={};_G.__nuppManagedBrand=__nuppManagedBrand end local __nuppManagedCells=_G.__nuppManagedCells if not __nuppManagedCells then __nuppManagedCells=setmetatable({},{__mode="k"});_G.__nuppManagedCells=__nuppManagedCells end local __nuppManagedOwner={};__nuppManagedOwner.__index=__nuppManagedOwner;local __nuppManagedAlias={};__nuppManagedAlias.__index=__nuppManagedAlias local function __nuppManagedError(code,message)return{code=code,message=message}end local function __nuppManagedProblem(cell) if type(cell)~="table"or cell._brand~=__nuppManagedBrand then return __nuppManagedError("NUPP2614","value is not a managed alias")end if cell._state=="taken"then return __nuppManagedError("NUPP2614","managed ownership was already taken")end if cell._state=="closed"or cell._state=="closing"then return __nuppManagedError("NUPP2614","managed resource is closed")end return nil end local function __nuppManagedClose(cell,checked) local problem=__nuppManagedProblem(cell);if problem then if checked then return problem end;return nil end if cell._borrows~=0 or cell._exclusive then local busy=__nuppManagedError("NUPP2620","managed resource has an active borrow");if checked then return busy end;error(busy.message,0)end cell._state="closing";local value,cleanup=cell._value,cell._cleanup;cell._value=nil;cell._cleanup=nil local ok,reason=pcall(cleanup,value);cell._state="closed";if not ok then error(reason,0)end;return nil end function __nuppManagedOwner:alias()return setmetatable({_cell=self,_brand=__nuppManagedBrand},__nuppManagedAlias)end function __nuppManagedOwner:close()return __nuppManagedClose(self,false)end local function __nuppAliasCell(self) if type(self)~="table"or self._brand~=__nuppManagedBrand or getmetatable(self)~=__nuppManagedAlias then return nil,__nuppManagedError("NUPP2614","value is not a managed alias")end local cell=self._cell;local problem=__nuppManagedProblem(cell);if problem then return nil,problem end;return cell,nil end function __nuppManagedAlias:with(callback) local cell,problem=__nuppAliasCell(self);if not cell then return nil,problem end if cell._exclusive then return nil,__nuppManagedError("NUPP2620","managed resource is exclusively borrowed")end cell._borrows=cell._borrows+1;cell._state="shared-borrowed("..cell._borrows..")" local ok,result=pcall(callback,cell._value);cell._borrows=cell._borrows-1;cell._state=cell._borrows>0 and("shared-borrowed("..cell._borrows..")")or"live" if not ok then error(result,0)end;return result,nil end function __nuppManagedAlias:withExclusive(callback) local cell,problem=__nuppAliasCell(self);if not cell then return nil,problem end if cell._exclusive or cell._borrows~=0 then return nil,__nuppManagedError("NUPP2620","managed resource is already borrowed")end cell._exclusive=true;cell._state="exclusive-borrowed";local ok,result=pcall(callback,cell._value);cell._exclusive=false;cell._state="live" if not ok then error(result,0)end;return result,nil end function __nuppManagedAlias:take() local cell,problem=__nuppAliasCell(self);if not cell then return nil,problem end if cell._exclusive or cell._borrows~=0 then return nil,__nuppManagedError("NUPP2620","managed resource has an active borrow")end cell._state="taken";local value=cell._value;cell._value=nil;cell._cleanup=nil;return value,nil end function __nuppManagedAlias:close() local cell,problem=__nuppAliasCell(self);if not cell then return problem end;return __nuppManagedClose(cell,true)end function __nuppManagedAlias:_downcast(policy) local cell,problem=__nuppAliasCell(self);if not cell then return nil,problem end if cell._policy~=policy then return nil,__nuppManagedError("NUPP2613","managed alias has the wrong type or cleanup policy")end return self,nil end function __nupp.__manage(value,cleanup,policy) local cell=setmetatable({_brand=__nuppManagedBrand,_value=value,_cleanup=cleanup,_policy=policy,_state="live",_borrows=0,_exclusive=false},__nuppManagedOwner);__nuppManagedCells[cell]=true;return cell end function __nupp.__recoverAlias(value) if type(value)~="table"or value._brand~=__nuppManagedBrand or getmetatable(value)~=__nuppManagedAlias then return nil,__nuppManagedError("NUPP2614","value is not a managed alias")end local cell,problem=__nuppAliasCell(value);if not cell then return nil,problem end;return value,nil end _G.__nuppManagedPolicyCount=function(policy)local count=0;for cell in pairs(__nuppManagedCells)do if cell._policy==policy and(cell._state=="live"or cell._state:match("borrowed"))then count=count+1 end end;return count end local __nuppManagedGroup={};__nuppManagedGroup.__index=__nuppManagedGroup function __nuppManagedGroup:flush()end function __nuppManagedGroup:adopt(cell) if self._closed then error("managed group is closed",2)end local handle=cell:alias();self._entries[#self._entries+1]=handle return handle end function __nuppManagedGroup:remove(handle) if self._closed then error("managed group is closed",2)end for index=#self._entries,1,-1 do if self._entries[index]==handle then table.remove(self._entries,index);local value,problem=handle:take();if problem then error(problem.message,2)end;return value end end error("managed alias is not registered in this group",2) end local function __nuppManagedCloseEntry(entry)local problem=entry:close();if problem and problem.code~="NUPP2614"then error(problem.message,0)end end function __nuppManagedGroup:close() if self._closed then return end;self._closed=true;local first,suppressed=nil,0 for index=#self._entries,1,-1 do local ok,reason=pcall(__nuppManagedCloseEntry,self._entries[index]);if not ok then if first==nil then first=reason else suppressed=suppressed+1 end end end self._entries={};if first~=nil then if suppressed>0 then error(tostring(first).." (suppressed "..tostring(suppressed).." cleanup failure(s))",0)end;error(first,0)end end function __nupp.managedGroup()return setmetatable({_entries={},_closed=false},__nuppManagedGroup)end local function __nuppLazy(target,name,loader)local meta=getmetatable(target)or{};local loaders=meta.__nuppLoaders;if not loaders then loaders={};local prior=meta.__index;meta.__nuppLoaders=loaders;meta.__index=function(t,k)local load=loaders[k];if load then local value=load(k);loaders[k]=nil;if value==nil then value=rawget(t,k)else rawset(t,k,value)end;return value end;if type(prior)=="function"then return prior(t,k)elseif prior then return prior[k]end end;setmetatable(target,meta)end;if name~=nil and rawget(target,name)==nil and loaders[name]==nil then loaders[name]=loader end end;const __nuppT26={}; const function __nuppT23(...) return {n=select("#",...),...} end; const __nuppT27,__nuppT28,__nuppT29,__nuppT30,__nuppT31,__nuppT32,__nuppT33,__nuppT34=pcall,xpcall,error,unpack,select,setmetatable,tostring,ipairs; const function __nuppT24(value) return value end; const function __nuppT25(primary,errors,start) const secondary={} for i=start,#errors do secondary[#secondary+1]=errors[i] end return __nuppT32({primary=primary,suppressed=secondary},{__tostring=function(v) local text=__nuppT33(v.primary) for _,reason in __nuppT34(v.suppressed) do text=text.."\ncleanup: "..__nuppT33(reason) end return text end}) end; local __nuppCleanups=_G.__nuppCleanupRegistry;if __nuppCleanups==nil then __nuppCleanups={};_G.__nuppCleanupRegistry=__nuppCleanups end;local __nuppCleanup1;__nuppCleanup1=function(value) local cleanup=__nuppCleanups["nupp.mem.span#destroyWriteSpan"];if cleanup==nil then return _G.error("Nupp cleanup provider is not loaded: nupp.mem.span#destroyWriteSpan") end;__nuppCleanup1=cleanup;return cleanup(value) end;local __nuppCleanup2;__nuppCleanup2=function(value) local cleanup=__nuppCleanups["nupp.io#destroyOwner"];if cleanup==nil then return _G.error("Nupp cleanup provider is not loaded: nupp.io#destroyOwner") end;__nuppCleanup2=cleanup;return cleanup(value) end;const __nuppDrop1 = function(__nuppV) if __nuppV == nil then return end __nuppCleanup1(__nuppV);  end;local __nuppExports={};package.loaded["nupp.io.files"]=__nuppExports;local __nuppOk,__nuppWhy=pcall(function()local append;__nuppExports["append"]=function(...) return append(...) end;local copy;__nuppExports["copy"]=function(...) return copy(...) end;local createDirectory;__nuppExports["createDirectory"]=function(...) return createDirectory(...) end;local createSymlink;__nuppExports["createSymlink"]=function(...) return createSymlink(...) end;local createTemporaryDirectory;__nuppExports["createTemporaryDirectory"]=function(...) return createTemporaryDirectory(...) end;local createTemporaryFile;__nuppExports["createTemporaryFile"]=function(...) return createTemporaryFile(...) end;local currentDirectory;__nuppExports["currentDirectory"]=function(...) return currentDirectory(...) end;local exists;__nuppExports["exists"]=function(...) return exists(...) end;local glob;__nuppExports["glob"]=function(...) return glob(...) end;local info;__nuppExports["info"]=function(...) return info(...) end;local isDirectory;__nuppExports["isDirectory"]=function(...) return isDirectory(...) end;local isFile;__nuppExports["isFile"]=function(...) return isFile(...) end;local isSymlink;__nuppExports["isSymlink"]=function(...) return isSymlink(...) end;local lines;__nuppExports["lines"]=function(...) return lines(...) end;local list;__nuppExports["list"]=function(...) return list(...) end;local open;__nuppExports["open"]=function(...) return open(...) end;local pendingTransfers;__nuppExports["pendingTransfers"]=function(...) return pendingTransfers(...) end;local read;__nuppExports["read"]=function(...) return read(...) end;local readLink;__nuppExports["readLink"]=function(...) return readLink(...) end;local remove;__nuppExports["remove"]=function(...) return remove(...) end;local rename;__nuppExports["rename"]=function(...) return rename(...) end;local setReadOnly;__nuppExports["setReadOnly"]=function(...) return setReadOnly(...) end;local userFolder;__nuppExports["userFolder"]=function(...) return userFolder(...) end;local write;__nuppExports["write"]=function(...) return write(...) end;local writeAtomic;__nuppExports["writeAtomic"]=function(...) return writeAtomic(...) end;
+
 
 
 
@@ -167528,8 +167791,16 @@ end
 local found = nil
 
 
+
+
+
 do
-found = record [ 0 ]
+found = {
+kind = record [ 0 ] . kind ,
+readOnly = record [ 0 ] . readOnly ,
+size = record [ 0 ] . size ,
+modified = record [ 0 ] . modified ,
+}
 end
 
 return found
@@ -167605,9 +167876,22 @@ resume ( true )
 return nil
 end
 
+
+
+
+
+
+
+local cancelled = false
+
 return function ( ) 
+if cancelled then
+return
+end
+cancelled = true
 forget ( entry )
 C . nuppFsCancel ( handle )
+C . nuppFsDestroy ( handle )
 end
 end )
 end
@@ -168054,6 +168338,8 @@ end ;__nuppExports["open"]=open
 
 
 
+
+
 lines=function ( path ) 
 
 
@@ -168089,8 +168375,16 @@ held = held : sub ( ( stop ) + 1 )
 
 return trimmed ( line )
 end
-local chunk = reader : read ( READ_SIZE )
-if chunk == nil or chunk == "" then
+local chunk , why = reader : read ( READ_SIZE )
+if chunk == nil then
+
+
+
+
+finished = true
+closeFile ( opened )
+error ( "nupp: io.files lines could not read: " .. ( why ?? "unknown reason" ) , 2 )
+elseif chunk == "" then
 finished = true
 closeFile ( opened )
 if # held > 0 then
@@ -168798,6 +169092,8 @@ end
 
 
 
+
+
 function Client:poll(waitMs) 
 local count
 local moved = 0
@@ -168806,19 +169102,22 @@ count = C . nuppHttpClientWait ( self . _handle , waitMs , self . _ready , READY
 else
 count = C . nuppHttpClientPoll ( self . _handle , self . _ready , READY_SLOTS , self . _more )
 end
+local failure = nil
 for index = 0 , ( tonumber ( count ) ) - 1 do
 local item = self . _ready [ index ]
 local transfer = self . _byHandle [ tostring ( item . transfer ) ]
-local ok , problem = true , nil
 if transfer ~= nil then
-ok , problem = pcall ( function ( ) 
+local ok , problem = pcall ( function ( ) 
 moved = moved + transfer : _ready ( tonumber ( item . tokens ) )
 end )
+if not ok and failure == nil then
+failure = problem
+end
 end
 C . nuppHttpReadyRelease ( item . transfer )
-if not ok then
-error ( problem , 0 )
 end
+if failure ~= nil then
+error ( failure , 0 )
 end
 if self . _admissionWaiters ~= nil and (
 tonumber ( C . nuppHttpClientPending ( self . _handle ) )
@@ -170011,7 +170310,16 @@ error ( value , 0 )
 end
 head = value end; return "normal" end,__nuppT53); const __nuppT124={}; local __nuppT125=0; if __nuppT120>=2 and __nuppT129 then  const __nuppT171,__nuppT172=__nuppT56(__nuppClosureCleanup2,__nuppT128);  if not __nuppT171 then __nuppT125=__nuppT125+1; __nuppT124[__nuppT125]=__nuppT172 end; end; if __nuppT120>=1 and __nuppT127 then  const __nuppT173,__nuppT174=__nuppT56(__nuppCleanup2,__nuppT126);  if not __nuppT173 then __nuppT125=__nuppT125+1; __nuppT124[__nuppT125]=__nuppT174 end; end; if not __nuppT121 then if __nuppT125>0 then __nuppT58(__nuppT54(__nuppT122,__nuppT124,1),0) else __nuppT58(__nuppT122,0) end end; if __nuppT125>0 then if __nuppT125>1 then __nuppT58(__nuppT54(__nuppT124[1],__nuppT124,2),0) else __nuppT58(__nuppT124[1],0) end end; if __nuppT122=="return" then  return "return",__nuppT123  end; end
 else
-head = waitHead ( self , transfer , true )
+
+
+
+local ok , value = pcall ( waitHead , self , transfer , true )
+if not ok then
+transfer : cancel ( )
+transfer : close ( )
+error ( value , 0 )
+end
+head = value
 end
 if head == nil or head . reason ~= nil then
 problem = head and head . reason or "HTTP transfer failed"
@@ -170068,19 +170376,26 @@ end
 end
 end
 transfer : close ( )
-do const  __nuppT181= setmetatable({ url =
-target ,  method =
-nextMethod ,  headers =
-merged ,  body =
-nextBody ,  timeoutMs =
-given . timeoutMs ,  stallTimeoutMs =
-given . stallTimeoutMs ,  maxBytes =
-given . maxBytes ,  _redirected =
-true ,  _redirects =
-followed + 1 ,  _deadline =
-deadline }, http.Request) ; local __nuppT182=__nuppT55[2]; if not __nuppT182 then __nuppT182=function(redirected) do
 
-return "return",__nuppT52( self : send ( redirected ) ) end; return "normal" end; __nuppT55[2]=__nuppT182 end; const __nuppT176,__nuppT177,__nuppT178=__nuppT57(__nuppT182,__nuppT53,__nuppT181); const __nuppT175=1; const __nuppT179={}; local __nuppT180=0; if __nuppT175>=1 then  const __nuppT183,__nuppT184=__nuppT56(__nuppCleanup3,__nuppT181);  if not __nuppT183 then __nuppT180=__nuppT180+1; __nuppT179[__nuppT180]=__nuppT184 end; end; if not __nuppT176 then if __nuppT180>0 then __nuppT58(__nuppT54(__nuppT177,__nuppT179,1),0) else __nuppT58(__nuppT177,0) end end; if __nuppT180>0 then if __nuppT180>1 then __nuppT58(__nuppT54(__nuppT179[1],__nuppT179,2),0) else __nuppT58(__nuppT179[1],0) end end; if __nuppT177=="return" then  return "return",__nuppT178  end; end
+
+
+
+
+
+
+local redirected = {
+url = target ,
+method = nextMethod ,
+headers = merged ,
+body = nextBody ,
+timeoutMs = given . timeoutMs ,
+stallTimeoutMs = given . stallTimeoutMs ,
+maxBytes = given . maxBytes ,
+_redirected = true ,
+_redirects = followed + 1 ,
+_deadline = deadline ,
+}
+return "return",__nuppT52( self : send ( redirected ) )
 end
 end
 local bodyReady , bodyReason = transfer : takeBody ( )
@@ -170094,9 +170409,9 @@ transfer : close ( )
 return "return",__nuppT52( nil , "the HTTP provider returned an invalid effective URL" )
 end
 local version = head . version == 10 and "1.0" or head . version == 20 and "2" or "1.1"
-const __nuppT185= makeBody ( self , transfer ) ; __nuppT117= __nuppT185 ; __nuppT110=2;  __nuppT118=true;  local responseBody=__nuppT117;
+const __nuppT175= makeBody ( self , transfer ) ; __nuppT117= __nuppT175 ; __nuppT110=2;  __nuppT118=true;  local responseBody=__nuppT117;
 
-return "return",__nuppT52( (function(__nuppT186,...)  __nuppT118=false;  return __nuppT186(...)  end)( makeResponse , head . status , version , effective , responseBody , head . headers ) ) end; return "normal" end,__nuppT53); const __nuppT114={}; local __nuppT115=0; if __nuppT110>=2 and __nuppT118 then  const __nuppT187,__nuppT188=__nuppT56(__nuppCleanup3,__nuppT117);  if not __nuppT187 then __nuppT115=__nuppT115+1; __nuppT114[__nuppT115]=__nuppT188 end; end; if __nuppT110>=1 and __nuppT116~=nil then  const __nuppT189,__nuppT190=__nuppT56(__nuppCleanup3,__nuppT116);  if not __nuppT189 then __nuppT115=__nuppT115+1; __nuppT114[__nuppT115]=__nuppT190 end; end; if not __nuppT111 then if __nuppT115>0 then __nuppT58(__nuppT54(__nuppT112,__nuppT114,1),0) else __nuppT58(__nuppT112,0) end end; if __nuppT115>0 then if __nuppT115>1 then __nuppT58(__nuppT54(__nuppT114[1],__nuppT114,2),0) else __nuppT58(__nuppT114[1],0) end end; if __nuppT112=="return" then  return __nuppT59(__nuppT113,1,__nuppT113.n)  end; end
+return "return",__nuppT52( (function(__nuppT176,...)  __nuppT118=false;  return __nuppT176(...)  end)( makeResponse , head . status , version , effective , responseBody , head . headers ) ) end; return "normal" end,__nuppT53); const __nuppT114={}; local __nuppT115=0; if __nuppT110>=2 and __nuppT118 then  const __nuppT177,__nuppT178=__nuppT56(__nuppCleanup3,__nuppT117);  if not __nuppT177 then __nuppT115=__nuppT115+1; __nuppT114[__nuppT115]=__nuppT178 end; end; if __nuppT110>=1 and __nuppT116~=nil then  const __nuppT179,__nuppT180=__nuppT56(__nuppCleanup3,__nuppT116);  if not __nuppT179 then __nuppT115=__nuppT115+1; __nuppT114[__nuppT115]=__nuppT180 end; end; if not __nuppT111 then if __nuppT115>0 then __nuppT58(__nuppT54(__nuppT112,__nuppT114,1),0) else __nuppT58(__nuppT112,0) end end; if __nuppT115>0 then if __nuppT115>1 then __nuppT58(__nuppT54(__nuppT114[1],__nuppT114,2),0) else __nuppT58(__nuppT114[1],0) end end; if __nuppT112=="return" then  return __nuppT59(__nuppT113,1,__nuppT113.n)  end; end
 end
 
 
@@ -172790,7 +173105,14 @@ head = carried : sub ( 1 , currentPrefix )
 end
 end
 elseif # carried ~= 0 and not isSeparator ( byte ( carried , # carried ) , windows ) then
+
+
+
+
+local currentPrefix = pathtext . prefixLength ( carried , windows )
+if currentPrefix ~= # carried or byte ( carried , # carried ) ~= COLON then
 head = carried .. "/"
+end
 end
 
 return head .. part
@@ -172942,10 +173264,19 @@ while targetStart ~= nil and baseStart ~= nil do
 if targetKind ~= baseKind or targetLength ~= baseLength then
 break
 end
+
+
+
+if targetKind ~= pathtext . ROOT then
 local targetPart = target : sub ( targetStart , ( targetStart ) + targetLength - 1 )
 local basePart = base : sub ( baseStart , ( baseStart ) + baseLength - 1 )
+if targetKind == pathtext . PREFIX then
+targetPart = pathtext . finish ( targetPart , windows )
+basePart = pathtext . finish ( basePart , windows )
+end
 if targetPart ~= basePart then
 break
+end
 end
 targetAt , targetPhase = nextTargetAt , nextTargetPhase
 baseAt , basePhase = nextBaseAt , nextBasePhase
@@ -172956,6 +173287,15 @@ targetPhase ,
 windows
 )
 baseStart , baseLength , baseKind , nextBaseAt , nextBasePhase = nextComponent ( base , baseAt , basePhase , windows )
+end
+
+
+
+if baseStart ~= nil and (
+baseKind == pathtext . PREFIX or baseKind == pathtext . ROOT
+or ( targetStart ~= nil and ( targetKind == pathtext . PREFIX or targetKind == pathtext . ROOT ) )
+) then
+return nil , "paths do not share a relative coordinate system"
 end
 
 local parents = 0
@@ -174074,7 +174414,11 @@ if stderr ~= nil and not stderr . eof and not stderr . closed then
 read [ # read + 1 ] = stderr . handle
 end
 local write = { }
-if stdin ~= nil and not stdin . closed and sent < # pending then
+
+
+
+
+if stdin ~= nil and not stdin . closed and not stdin . gone and sent < # pending then
 write [ # write + 1 ] = stdin . handle
 end
 
@@ -174424,7 +174768,11 @@ local BLOCKING_WAIT_MS = 20
 
 local function blockOnce ( self , interest , stopAt ) 
 local budget = BLOCKING_WAIT_MS
-if self . deadline ~= nil then
+
+
+
+
+if self . deadline ~= nil and not self . timedOut then
 local remaining = self . deadline - self . backend : now ( )
 if remaining < budget then
 budget = remaining > 0 and remaining or 0
@@ -174840,6 +175188,18 @@ end
 if MODE [ errorMode ] == nil then
 error ( "nupp: process has no stderr mode named " .. tostring ( errorMode ) , 0 )
 end
+
+
+
+
+local entries = { }
+for key , value in pairs ( options . env or { } ) do
+entries [ # entries + 1 ] = key .. "=" .. value
+end
+local cwd = nil
+if options . cwd ~= nil then
+cwd = type ( options . cwd ) == "string" and options . cwd or ( options . cwd ) : toString ( )
+end
 local request = C . nuppProcessSpawnBegin ( )
 if request == nil then
 error ( reason ( "nupp: could not begin process spawn" ) , 0 )
@@ -174848,12 +175208,10 @@ for _ , argument in ipairs ( options . args or { } ) do
 configured ( C . nuppProcessSpawnArg ( request , argument , # argument ) , request , "argument" )
 end
 configured ( C . nuppProcessSpawnClearEnv ( request , options . clearEnv == true ) , request , "environment mode" )
-for key , value in pairs ( options . env or { } ) do
-local entry = key .. "=" .. value
+for _ , entry in ipairs ( entries ) do
 configured ( C . nuppProcessSpawnEnv ( request , entry , # entry ) , request , "environment" )
 end
-if options . cwd ~= nil then
-local cwd = type ( options . cwd ) == "string" and options . cwd or ( options . cwd ) : toString ( )
+if cwd ~= nil then
 configured ( C . nuppProcessSpawnCwd ( request , cwd , # cwd ) , request , "working directory" )
 end
 configured ( C . nuppProcessSpawnStdio ( request , 0 , MODE [ inputMode ] ) , request , "stdin" )
@@ -175194,6 +175552,7 @@ tls.Backend = {} tls.Backend.__index = tls.Backend
 
 
 
+
 const READ_SIZE = 65536
 
 
@@ -175312,7 +175671,15 @@ tls.Session = {} tls.Session.__index = tls.Session
 
 
 
+
+
+
+
 function tls.Session:isConnected() 
+if self . _closed then
+return false
+end
+
 return self . _backend : connected ( self . _session )
 end
 
@@ -175668,7 +176035,15 @@ tls.DatagramSession = {} tls.DatagramSession.__index = tls.DatagramSession
 
 
 
+
+
+
+
 function tls.DatagramSession:isConnected() 
+if self . _closed then
+return false
+end
+
 return self . _backend : connected ( self . _session )
 end
 
@@ -175689,6 +176064,9 @@ end
 
 
 function tls.DatagramSession:peer() 
+if self . _closed then
+return nil
+end
 const host , port = self . _backend : peer ( self . _session )
 if host == nil or port == nil then
 return nil
@@ -175775,6 +176153,13 @@ end
 
 
 
+
+
+
+
+
+
+
 function tls.DatagramSession:receive(maximum) 
 if self . _closed then
 return nil , "the session is closed"
@@ -175789,7 +176174,7 @@ const wanted = positive ( maximum , "tls.DatagramSession receive maximum" , 2 )
 local message = nil
 local failure = nil
 await ( "nupp.io.tls DTLS receive" , function ( ) 
-const got , why = self . _backend : read ( self . _session , wanted )
+const got , why = self . _backend : read ( self . _session , READ_SIZE )
 if why ~= nil then
 failure = why
 
@@ -175808,8 +176193,12 @@ end )
 if failure ~= nil then
 return nil , failure
 end
+const whole = message or ""
+if # whole > wanted then
+return nil , "the datagram is larger than the receive maximum"
+end
 
-return message or ""
+return whole
 end
 
 
@@ -175858,7 +176247,17 @@ if self . _closed then
 return
 end
 if self . _ready and self : isConnected ( ) then
-self . _backend : closeNotify ( self . _session )
+
+
+
+
+
+for _ = 1 , 8 do
+if self . _backend : closeNotify ( self . _session ) then
+break
+end
+net . pump ( 1 )
+end
 end
 self . _closed = true
 self . _backend : destroy ( self . _session )
@@ -176202,7 +176601,7 @@ return took
 end ,  closeNotify =
 
 function ( self , session ) 
-C . nuppTlsCloseNotify ( session )
+return C . nuppTlsCloseNotify ( session ) ~= 0
 end ,  destroy =
 
 function ( self , session ) 
@@ -176832,6 +177231,9 @@ end
 
 
 
+
+
+
 compose = function ( components ) 
 if type ( components ) ~= "table" then
 return nil , "nupp: io.URI.newURI needs absolute text or URI components"
@@ -176849,6 +177251,30 @@ end
 local port = components . port
 if port ~= nil and ( type ( port ) ~= "number" or port ~= math . floor ( port ) or port < 0 or port > 65535 ) then
 return nil , "nupp: URI component port must be an integer from 0 through 65535 or nil"
+end
+
+
+
+for name , delimiters in pairs ( {
+userInfo = "[/?#]" ,
+host = "[/?#@]" ,
+path = "[?#]" ,
+query = "#" ,
+} ) do
+local value = components [ name ]
+if value ~= nil and ( value ) : find ( delimiters ) ~= nil then
+return nil , "nupp: URI component " .. name .. " cannot contain a component delimiter"
+end
+end
+
+
+local path = components . path
+if components . host or components . userInfo or port then
+if path ~= nil and path ~= "" and ( path ) : sub ( 1 , 1 ) ~= "/" then
+return nil , "nupp: URI component path must be empty or begin with \"/\" beside an authority"
+end
+elseif path ~= nil and ( path ) : sub ( 1 , 2 ) == "//" then
+return nil , "nupp: URI component path cannot begin with \"//\" when there is no authority"
 end
 local out = scheme .. ":"
 if components . host or components . userInfo or port then
@@ -209974,6 +210400,12 @@ target with `aot = "require"`. Shader source, entrypoint identity, binding order
 and uniform packing remain compiler details. Ordinary spans are the CPU
 boundary; a chain of kernels keeps its intermediate buffers resident and pays
 upload/download only where the program asks for them.
+
+`context:tensor(element, shape)` allocates dense row-major storage. A
+zero-based `buffer:subview(origin, shape)` shares that allocation and carries
+its element offset into generated shaders. Shapes have one through four
+positive dimensions, broadcasting is absent, and a rectangle with physical
+gaps is refused until a tensor-indexed kernel can consume explicit strides.
 ]]
 
 local native = require("nupp.runtime.native")
@@ -209999,30 +210431,50 @@ NuppGpuKernel *nuppGpuKernelCreate(
     NuppGpuContext *, const uint8_t *, size_t, const uint8_t *, size_t,
     const uint8_t *, size_t,
     uint32_t, uint32_t, uint32_t, uint32_t);
-bool nuppGpuBufferUpload(NuppGpuContext *, NuppGpuBuffer *, const void *, size_t);
+bool nuppGpuBufferUpload(NuppGpuContext *, NuppGpuBuffer *, const void *, size_t, size_t);
 NuppGpuBinding *nuppGpuBindingCreate(NuppGpuContext *, NuppGpuKernel *, uint32_t);
-bool nuppGpuBindingSetRead(NuppGpuBinding *, uint32_t, NuppGpuBuffer *, uint32_t, bool);
-bool nuppGpuBindingSetWrite(NuppGpuBinding *, uint32_t, NuppGpuBuffer *, uint32_t, bool);
+bool nuppGpuBindingSetRead(NuppGpuBinding *, uint32_t, NuppGpuBuffer *, uint32_t, uint32_t, bool);
+bool nuppGpuBindingSetWrite(NuppGpuBinding *, uint32_t, NuppGpuBuffer *, uint32_t, uint32_t, bool);
 bool nuppGpuBindingDispatch(NuppGpuBinding *, const void *, size_t);
-bool nuppGpuBufferDownload(NuppGpuContext *, NuppGpuBuffer *);
+bool nuppGpuBufferDownload(NuppGpuContext *, NuppGpuBuffer *, size_t, size_t);
 bool nuppGpuSynchronize(NuppGpuContext *);
-bool nuppGpuBufferRead(NuppGpuContext *, NuppGpuBuffer *, void *, size_t);
+bool nuppGpuBufferRead(NuppGpuContext *, NuppGpuBuffer *, void *, size_t, size_t);
 ]]
 
 -- `native.C` is late-bound, so restore the ownership contracts that the literal
 -- cdef carries for the checker but a table lookup cannot preserve.
 local dispatchNative = C.nuppGpuBindingDispatch as function(any, borrows uniforms: const uint8[?], integer): boolean
 
---- One resident device allocation. Its storage is not CPU-addressable; upload
---- and download explicitly cross that boundary.
+--- One typed resident device range. A root buffer owns an allocation; a
+--- subview shares it with a checked element offset. Storage is not
+--- CPU-addressable, so upload and download explicitly cross that boundary.
 --- @export
 record gpu.Buffer<T>
     private readonly _anchor: any
     private readonly _handle: any
     private readonly _width: integer
+    private readonly _offset: integer
+    private readonly _capacity: integer
+    private _shape: {integer}
+    private _strides: {integer}
 
     --- Number of elements, kept with the allocation.
     readonly count: integer
+
+    --- Logical tensor dimensions. The returned table is a copy.
+    dimensions: function(borrows self: gpu.Buffer<T>): {integer}
+
+    --- Dense row-major strides. The returned table is a copy.
+    strides: function(borrows self: gpu.Buffer<T>): {integer}
+
+    --- Creates an allocation-free dense subview. Origins are zero-based and
+    --- have one entry per dimension. Rectangles with physical gaps are refused
+    --- until tensor-indexed kernels carry strides in their verified signature.
+    subview: function(
+        borrows self: gpu.Buffer<T>,
+        origin: {integer},
+        shape: {integer}
+    ): gpu.Buffer<T> borrows (self)
 end
 
 --- One compiled compute entry owned by its context.
@@ -210086,6 +210538,9 @@ record gpu.Context is gpu.ContextToken
     --- Allocates a typed resident device buffer.
     buffer: function<T>(borrows self: Context, element: ctype<T>, count: integer): gpu.Buffer<T> borrows (self)
 
+    --- Allocates a dense row-major resident tensor.
+    tensor: function<T>(borrows self: Context, element: ctype<T>, shape: {integer}): gpu.Buffer<T> borrows (self)
+
     --- Compiles metadata emitted beside an `@aot(target = "gpu")` body.
     --- @internal
     compileGenerated: function(
@@ -210105,11 +210560,11 @@ record gpu.Context is gpu.ContextToken
     --- @internal
     bindKernel: function(borrows self: Context, borrows kernel: gpu.Kernel, count: integer): gpu.Binding borrows (self)
 
-    --- Copies a complete shared span into a resident buffer and enqueues its
-    --- transfer. It does not wait.
+    --- Copies a complete shared span into a resident buffer or view and
+    --- enqueues its transfer. It does not wait.
     upload: function<T>(borrows self: Context, borrows buffer: gpu.Buffer<T>, borrows source: span.Span<T>): nil
 
-    --- Enqueues a complete resident-buffer download without waiting.
+    --- Enqueues a complete resident-buffer or view download without waiting.
     enqueueDownload: function<T>(borrows self: Context, borrows buffer: gpu.Buffer<T>): nil
 
     --- Submits the accumulated command stream and waits for it.
@@ -210147,14 +210602,52 @@ end
 -- Keep the element type on the span crossing the native boundary. Casting the
 -- pointer to bytes would erase its borrow provenance; only the C declaration
 -- needs to forget the pointee type.
-local function uploadTyped<T>(context: any, buffer: any, borrows source: const T[?], bytes: integer): boolean
-    local call = C.nuppGpuBufferUpload as function(any, any, borrows source: const T[?], integer): boolean
-    return call(context, buffer, source, bytes)
+local function uploadTyped<T>(
+    context: any,
+    buffer: any,
+    borrows source: const T[?],
+    offset: integer,
+    bytes: integer
+): boolean
+    local call = C.nuppGpuBufferUpload as function(any, any, borrows source: const T[?], integer, integer): boolean
+    return call(context, buffer, source, offset, bytes)
 end
 
-local function readTyped<T>(context: any, buffer: any, borrows destination: T[?], bytes: integer): boolean
-    local call = C.nuppGpuBufferRead as function(any, any, borrows destination: T[?], integer): boolean
-    return call(context, buffer, destination, bytes)
+local function readTyped<T>(
+    context: any,
+    buffer: any,
+    borrows destination: T[?],
+    offset: integer,
+    bytes: integer
+): boolean
+    local call = C.nuppGpuBufferRead as function(any, any, borrows destination: T[?], integer, integer): boolean
+    return call(context, buffer, destination, offset, bytes)
+end
+
+local function denseShape(shape: {integer}): (integer, {integer})
+    if #shape < 1 or #shape > 4 then
+        error("nupp: GPU tensors take one through four dimensions", 3)
+    end
+    local count: integer = 1
+    local strides: {integer} = {}
+    for index = #shape, 1, -1 do
+        local dimension = shape[index]
+        if dimension < 1 or count > 4294967295 // dimension then
+            error("nupp: GPU tensor dimensions must have 1 through 4294967295 elements", 3)
+        end
+        strides[index] = count
+        count = count * dimension
+    end
+
+    return count, strides
+end
+
+local function copied(values: {integer}): {integer}
+    local out: {integer} = {}
+    for index, value in ipairs(values) do
+        out[index] = value
+    end
+    return out
 end
 
 function gpu.Context.drop(takes self: gpu.Context): nil
@@ -210192,7 +210685,75 @@ function gpu.Context.buffer<T>(
         error("nupp: " .. ffi.string(C.nuppNativeError()), 2)
     end
 
-    return new gpu.Buffer(_anchor = self, _handle = handle, _width = width, count = count)
+    return new gpu.Buffer(
+        _anchor = self,
+        _handle = handle,
+        _width = width,
+        _offset = 0,
+        _capacity = count,
+        _shape = {count},
+        _strides = {1},
+        count = count
+    )
+end
+
+function gpu.Context.tensor<T>(
+    borrows self: gpu.Context,
+    element: ctype<T>,
+    shape: {integer}
+): gpu.Buffer<T> borrows (self)
+    local count, strides = denseShape(shape)
+    local out = self:buffer(element, count)
+    out._shape = copied(shape)
+    out._strides = strides
+    return out
+end
+
+function gpu.Buffer.dimensions<T>(borrows self: gpu.Buffer<T>): {integer}
+    return copied(self._shape)
+end
+
+function gpu.Buffer.strides<T>(borrows self: gpu.Buffer<T>): {integer}
+    return copied(self._strides)
+end
+
+function gpu.Buffer.subview<T>(
+    borrows self: gpu.Buffer<T>,
+    origin: {integer},
+    shape: {integer}
+): gpu.Buffer<T> borrows (self)
+    if #origin ~= #self._shape or #shape ~= #self._shape then
+        error("nupp: GPU tensor subview rank does not match its buffer", 2)
+    end
+    local count, strides = denseShape(shape)
+    local offset = self._offset
+    local expected: integer = 1
+    for index = #shape, 1, -1 do
+        local first = origin[index]
+        local dimension = shape[index]
+        if first < 0 or first > self._shape[index] or dimension > self._shape[index] - first then
+            error("nupp: GPU tensor subview is outside its buffer", 2)
+        end
+        if dimension > 1 and self._strides[index] ~= expected then
+            error("nupp: GPU tensor subview is not dense", 2)
+        end
+        offset = offset + first * self._strides[index]
+        expected = expected * dimension
+    end
+    if offset > self._capacity or count > self._capacity - offset then
+        error("nupp: GPU tensor subview exceeds its allocation", 2)
+    end
+
+    return new gpu.Buffer(
+        _anchor = self,
+        _handle = self._handle,
+        _width = self._width,
+        _offset = offset,
+        _capacity = self._capacity,
+        _shape = copied(shape),
+        _strides = strides,
+        count = count
+    )
 end
 
 function gpu.Context.compileGenerated(
@@ -210257,7 +210818,9 @@ function gpu.Binding.setRead<T>(
     borrows buffer: gpu.Buffer<T>,
     matchCount: boolean
 ): nil
-    succeeded(C.nuppGpuBindingSetRead(self._handle, slot, buffer._handle, buffer.count, matchCount), 2)
+    succeeded(C.nuppGpuBindingSetRead(
+        self._handle, slot, buffer._handle, buffer._offset, buffer.count, matchCount
+    ), 2)
 end
 
 function gpu.Binding.setWrite<T>(
@@ -210266,7 +210829,9 @@ function gpu.Binding.setWrite<T>(
     borrows buffer: gpu.Buffer<T>,
     matchCount: boolean
 ): nil
-    succeeded(C.nuppGpuBindingSetWrite(self._handle, slot, buffer._handle, buffer.count, matchCount), 2)
+    succeeded(C.nuppGpuBindingSetWrite(
+        self._handle, slot, buffer._handle, buffer._offset, buffer.count, matchCount
+    ), 2)
 end
 
 function gpu.Binding.dispatchPacked(borrows self: gpu.Binding, uniforms: any, uniformBytes: integer): nil
@@ -210286,11 +210851,15 @@ function gpu.Context.upload<T>(
         error("nupp: GPU upload span length does not match its buffer", 2)
     end
     local pointer, count = source:ref()
-    succeeded(uploadTyped(live(self), buffer._handle, pointer, buffer._width * count), 2)
+    succeeded(uploadTyped(
+        live(self), buffer._handle, pointer, buffer._offset * buffer._width, buffer._width * count
+    ), 2)
 end
 
 function gpu.Context.enqueueDownload<T>(borrows self: gpu.Context, borrows buffer: gpu.Buffer<T>): nil
-    succeeded(C.nuppGpuBufferDownload(live(self), buffer._handle), 2)
+    succeeded(C.nuppGpuBufferDownload(
+        live(self), buffer._handle, buffer._offset * buffer._width, buffer.count * buffer._width
+    ), 2)
 end
 
 function gpu.Context.synchronize(borrows self: gpu.Context): nil
@@ -210306,7 +210875,9 @@ function gpu.Context.readDownloaded<T>(
         error("nupp: GPU download span length does not match its buffer", 2)
     end
     local pointer, count = destination:ref()
-    succeeded(readTyped(live(self), buffer._handle, pointer, buffer._width * count), 2)
+    succeeded(readTyped(
+        live(self), buffer._handle, pointer, buffer._offset * buffer._width, buffer._width * count
+    ), 2)
 end
 
 function gpu.Context.download<T>(
@@ -210507,7 +211078,8 @@ end
 `lines` closes the file when it reaches the end. A trailing carriage return is
 removed, so a file written on either platform reads the same. Abandoning the
 iterator early leaves the file open until it is collected; open it yourself when
-you mean to stop.
+you mean to stop. A read that fails once iteration has begun raises, because the
+iterator has no failure channel to answer through.
 
 ## Reading and writing through a cursor
 
@@ -211384,9 +211956,17 @@ local function described(path: string | paths.Path, follow: boolean, level: inte
     end
     local found: any = nil
     -- A pointer is not indexable in checked code, so the one-element array the library
-    -- filled is read through its own index.
+    -- filled is read through its own index. The fields are copied out rather than the
+    -- element handed back: an element is an interior reference that does not anchor
+    -- its array, so returning one would let the storage it points into be collected
+    -- under the caller.
     unsafe do
-        found = record[0]
+        found = {
+            kind = record[0].kind,
+            readOnly = record[0].readOnly,
+            size = record[0].size,
+            modified = record[0].modified,
+        }
     end
 
     return found
@@ -211462,9 +212042,22 @@ local function await(handle: any): nil
             return nil
         end
 
+        -- Cancellation raises out of the suspension, so `settled` never runs to
+        -- destroy this handle; destroying it here is what gives the lane its
+        -- request and byte budget back. The worker holds its own reference to the
+        -- shared state, so a transfer already running is unaffected. An abandoned
+        -- park is cancelled twice by design, and the first call frees the handle,
+        -- so the whole body runs once and the second call finds nothing to do.
+        local cancelled = false
+
         return function(): nil
+            if cancelled then
+                return
+            end
+            cancelled = true
             forget(entry)
             C.nuppFsCancel(handle)
+            C.nuppFsDestroy(handle)
         end
     end)
 end
@@ -211910,6 +212503,8 @@ end
 --- @param path the file to read
 --- @return an iterator answering each line, or nil on failure
 --- @return a failure reason, when unsuccessful
+--- @raises when a read fails once iteration has begun, since the iterator has no
+--- failure channel to answer through
 --- @export
 export function lines(path: string | paths.Path): (LineIterator?, string?)
     -- The file is opened here rather than through `open`, because `open` hands back an
@@ -211946,8 +212541,16 @@ export function lines(path: string | paths.Path): (LineIterator?, string?)
 
                 return trimmed(line)
             end
-            local chunk = reader:read(READ_SIZE)
-            if chunk == nil or chunk == "" then
+            local chunk, why = reader:read(READ_SIZE)
+            if chunk == nil then
+                -- A failed read is not the end of the file, and the iterator has no
+                -- error channel to answer through, so finishing cleanly here would
+                -- silently truncate the file. The file is closed and the reason
+                -- raised instead.
+                finished = true
+                closeFile(opened)
+                error("nupp: io.files lines could not read: " .. (why ?? "unknown reason"), 2)
+            elseif chunk == "" then
                 finished = true
                 closeFile(opened)
                 if #held > 0 then
@@ -212650,10 +213253,12 @@ local record Client is NativeClient
 
     --- Collects readiness events and wakes what they moved.
     ---
-    --- A wake is run under `pcall` so that one waiter raising still lets the event be
-    --- released; the native transport is holding the transfer until it is, and leaking
-    --- that would outlast the error.
-    --- @raises with whatever a woken waiter raised, once its event has been released
+    --- A wake is run under `pcall` so that one waiter raising still lets every event
+    --- in the batch be released and its waiters woken; the native transport is
+    --- holding each transfer until its release, and leaking the rest of the batch
+    --- would outlast the error. The first raise is kept and re-raised at the end.
+    --- @raises with whatever a woken waiter raised first, once the whole batch has
+    ---     been released
     function poll(self: Client, waitMs: integer): integer
         local count: any
         local moved: integer = 0
@@ -212662,19 +213267,22 @@ local record Client is NativeClient
         else
             count = C.nuppHttpClientPoll(self._handle, self._ready, READY_SLOTS, self._more)
         end
+        local failure: any = nil
         for index = 0, (tonumber(count) as integer) - 1 do
             local item = self._ready[index]
             local transfer = self._byHandle[tostring(item.transfer)]
-            local ok, problem = true, nil
             if transfer ~= nil then
-                ok, problem = pcall(function(): nil
+                local ok, problem = pcall(function(): nil
                     moved = moved + transfer:_ready(tonumber(item.tokens) as integer)
                 end)
+                if not ok and failure == nil then
+                    failure = problem
+                end
             end
             C.nuppHttpReadyRelease(item.transfer)
-            if not ok then
-                error(problem, 0)
-            end
+        end
+        if failure ~= nil then
+            error(failure, 0)
         end
         if self._admissionWaiters ~= nil and (
             tonumber(C.nuppHttpClientPending(self._handle)) as integer
@@ -213867,7 +214475,16 @@ function http.Client:send(borrows request: http.Request): (http.Response?, strin
         end
         head = value
     else
-        head = waitHead(self, transfer, true)
+        -- Protected for the same reason as the reader path above: cancellation
+        -- raises out of the parked wait, and a transfer left unclosed then stays
+        -- in the client's live table until the client itself closes.
+        local ok, value = pcall(waitHead, self, transfer, true)
+        if not ok then
+            transfer:cancel()
+            transfer:close()
+            error(value, 0)
+        end
+        head = value
     end
     if head == nil or head.reason ~= nil then
         problem = head and head.reason or "HTTP transfer failed"
@@ -213924,7 +214541,14 @@ function http.Client:send(borrows request: http.Request): (http.Response?, strin
                 end
             end
             transfer:close()
-            local redirected = new http.Request(
+            -- A plain descriptor rather than `new http.Request`. The hop owns
+            -- nothing a request's cleanup would close -- a reader body refuses
+            -- to follow, and a dropped body is nil -- and an owned request here
+            -- would put the recursive call inside a cleanup region whose
+            -- lowering caches its closure module-wide with the first caller's
+            -- `self`, sending every later client's redirect through the first
+            -- client.
+            local redirected: any = {
                 url = target,
                 method = nextMethod,
                 headers = merged,
@@ -213934,8 +214558,8 @@ function http.Client:send(borrows request: http.Request): (http.Response?, strin
                 maxBytes = given.maxBytes,
                 _redirected = true,
                 _redirects = followed + 1,
-                _deadline = deadline
-            )
+                _deadline = deadline,
+            }
             return self:send(redirected)
         end
     end
@@ -215903,7 +216527,12 @@ local record LineReader is Lines
             -- No terminator yet. A line that never ends is not a line, and
             -- growing until it does is how a peer takes the process down, so
             -- the bound is checked before asking for more rather than after.
-            if #self._held - self._at > self._limit then
+            -- A trailing carriage return gets one byte of grace, because it
+            -- may be half of a terminator split across chunks: without it a
+            -- line of exactly the allowed length would be refused or kept
+            -- depending on where the chunks happened to fall.
+            local grace = self._held:sub(-1) == "\r" and 1 or 0
+            if #self._held - self._at > self._limit + grace then
                 return nil, "a line was longer than the limit"
             end
             if self._ended then
@@ -215911,6 +216540,12 @@ local record LineReader is Lines
                     return nil
                 end
                 const rest = self._held:sub(self._at + 1)
+                -- At the end a trailing carriage return is line content, not
+                -- half a terminator, so the grace granted while more could
+                -- still arrive is taken back here.
+                if #rest > self._limit then
+                    return nil, "a line was longer than the limit"
+                end
                 self._held = ""
                 self._at = 0
 
@@ -218662,7 +219297,14 @@ function pathtext.pushPart(carried: string, part: string, windows: boolean): str
             end
         end
     elseif #carried ~= 0 and not isSeparator(byte(carried, #carried), windows) then
-        head = carried .. "/"
+        -- A bare drive prefix names a coordinate system rather than a place, so a
+        -- part joined onto one stays drive-relative: `C:` and `foo` make `C:foo`,
+        -- not the absolute `C:/foo`. A share prefix names a place, and a separator
+        -- still belongs between it and what follows.
+        local currentPrefix = pathtext.prefixLength(carried, windows)
+        if currentPrefix ~= #carried or byte(carried, #carried) ~= COLON then
+            head = carried .. "/"
+        end
     end
 
     return head .. part
@@ -218814,10 +219456,19 @@ function pathtext.relative(target: string, base: string, windows: boolean): (str
         if targetKind ~= baseKind or targetLength ~= baseLength then
             break
         end
-        local targetPart = target:sub(targetStart as integer, (targetStart as integer) + targetLength - 1)
-        local basePart = base:sub(baseStart as integer, (baseStart as integer) + baseLength - 1)
-        if targetPart ~= basePart then
-            break
+        -- A root is compared by kind alone: `/` and `\` spell the same anchor. A
+        -- prefix is compared with its separators folded the same way, so a share
+        -- written in either spelling still matches itself.
+        if targetKind ~= pathtext.ROOT then
+            local targetPart = target:sub(targetStart as integer, (targetStart as integer) + targetLength - 1)
+            local basePart = base:sub(baseStart as integer, (baseStart as integer) + baseLength - 1)
+            if targetKind == pathtext.PREFIX then
+                targetPart = pathtext.finish(targetPart, windows)
+                basePart = pathtext.finish(basePart, windows)
+            end
+            if targetPart ~= basePart then
+                break
+            end
         end
         targetAt, targetPhase = nextTargetAt, nextTargetPhase
         baseAt, basePhase = nextBaseAt, nextBasePhase
@@ -218828,6 +219479,15 @@ function pathtext.relative(target: string, base: string, windows: boolean): (str
             windows
         )
         baseStart, baseLength, baseKind, nextBaseAt, nextBasePhase = nextComponent(base, baseAt, basePhase, windows)
+    end
+
+    -- Diverging at a prefix or a root means the paths are anchored in different
+    -- coordinate systems, and no count of `..` steps leads from one to the other.
+    if baseStart ~= nil and (
+        baseKind == pathtext.PREFIX or baseKind == pathtext.ROOT
+        or (targetStart ~= nil and (targetKind == pathtext.PREFIX or targetKind == pathtext.ROOT))
+    ) then
+        return nil, "paths do not share a relative coordinate system"
     end
 
     local parents: integer = 0
@@ -219945,7 +220605,11 @@ record process.Process
                     read[#read + 1] = stderr.handle
                 end
                 local write: {any} = {}
-                if stdin ~= nil and not stdin.closed and sent < #pending then
+                -- Gone is excluded the way closed is: a broken pipe polls ready
+                -- forever, so putting it in the write set would make every wait
+                -- return immediately and the drain loop spin until the outputs
+                -- reach end of file.
+                if stdin ~= nil and not stdin.closed and not stdin.gone and sent < #pending then
                     write[#write + 1] = stdin.handle
                 end
 
@@ -220295,7 +220959,11 @@ local BLOCKING_WAIT_MS = 20
 -- would report the timeout late by however much it overslept.
 local function blockOnce(self: any, interest: process.Interest, stopAt: number?): nil
     local budget = BLOCKING_WAIT_MS
-    if self.deadline ~= nil then
+    -- Only until it fires. Once `timedOut` is set the deadline is in the past and
+    -- what remains of it is negative forever, so clamping to it would pin every
+    -- wait to zero and spin on non-blocking polls until the killed child's exit
+    -- is observed.
+    if self.deadline ~= nil and not self.timedOut then
         local remaining = self.deadline - self.backend:now()
         if remaining < budget then
             budget = remaining > 0 and remaining or 0
@@ -220711,6 +221379,18 @@ nativeBackend = function(): process.Backend
             if MODE[errorMode] == nil then
                 error("nupp: process has no stderr mode named " .. tostring(errorMode), 0)
             end
+            -- Built before the request exists. Concatenating a non-string
+            -- environment value and rendering the working directory can both
+            -- raise, and a raise between `SpawnBegin` and `SpawnRun` that does
+            -- not go through `configured` leaks the request.
+            local entries: {string} = {}
+            for key, value in pairs(options.env or {}) do
+                entries[#entries + 1] = key .. "=" .. value
+            end
+            local cwd: string? = nil
+            if options.cwd ~= nil then
+                cwd = type(options.cwd) == "string" and options.cwd as string or (options.cwd as any):toString()
+            end
             local request = C.nuppProcessSpawnBegin()
             if request == nil then
                 error(reason("nupp: could not begin process spawn"), 0)
@@ -220719,12 +221399,10 @@ nativeBackend = function(): process.Backend
                 configured(C.nuppProcessSpawnArg(request, argument, #argument), request, "argument")
             end
             configured(C.nuppProcessSpawnClearEnv(request, options.clearEnv == true), request, "environment mode")
-            for key, value in pairs(options.env or {}) do
-                local entry = key .. "=" .. value
+            for _, entry in ipairs(entries) do
                 configured(C.nuppProcessSpawnEnv(request, entry, #entry), request, "environment")
             end
-            if options.cwd ~= nil then
-                local cwd = type(options.cwd) == "string" and options.cwd as string or (options.cwd as any):toString()
+            if cwd ~= nil then
                 configured(C.nuppProcessSpawnCwd(request, cwd, #cwd), request, "working directory")
             end
             configured(C.nuppProcessSpawnStdio(request, 0, MODE[inputMode]), request, "stdin")
@@ -221042,8 +221720,9 @@ record tls.Backend
     --- Writes plaintext, answering how much was taken.
     write: function(self: tls.Backend, session: any, bytes: string): (integer?, string?)
 
-    --- Sends `close_notify`.
-    closeNotify: function(self: tls.Backend, session: any): nil
+    --- Sends `close_notify`, answering whether the alert left this process.
+    --- False when the socket could not take it yet, so a caller may retry.
+    closeNotify: function(self: tls.Backend, session: any): boolean
 
     --- Releases the session, and not the connection under it.
     destroy: function(self: tls.Backend, session: any): nil
@@ -221182,7 +221861,15 @@ record tls.Session is nupp.io.Reader, nupp.io.Writer
     private _ended: boolean
 
     --- Whether the connection underneath is still open.
+    ---
+    --- False once this session is released: closing frees the native session,
+    --- so the question has to be answered from this record's own state rather
+    --- than asked of memory that has been given back.
     function isConnected(self): boolean
+        if self._closed then
+            return false
+        end
+
         return self._backend:connected(self._session)
     end
 
@@ -221538,7 +222225,15 @@ record tls.DatagramSession is nupp.Closeable
     private _ended: boolean
 
     --- Whether the datagram socket underneath is still open.
+    ---
+    --- False once this session is released: closing frees the native session,
+    --- so the question has to be answered from this record's own state rather
+    --- than asked of memory that has been given back.
     function isConnected(self): boolean
+        if self._closed then
+            return false
+        end
+
         return self._backend:connected(self._session)
     end
 
@@ -221559,6 +222254,9 @@ record tls.DatagramSession is nupp.Closeable
 
     --- The peer address, once a server has received its first ClientHello.
     function peer(self): net.Address?
+        if self._closed then
+            return nil
+        end
         const host, port = self._backend:peer(self._session)
         if host == nil or port == nil then
             return nil
@@ -221643,7 +222341,14 @@ record tls.DatagramSession is nupp.Closeable
         return true
     end
 
-    --- Receives one authenticated application datagram.
+    --- Receives one authenticated application datagram, whole.
+    ---
+    --- The datagram is read at its own size rather than at `maximum`, because
+    --- DTLS authenticates it as one message and the provider keeps the rest of
+    --- a partially read record for the next call -- which would hand a later
+    --- receive the tail of this message as though a peer had sent it. One
+    --- larger than `maximum` is therefore consumed and reported as a failure
+    --- rather than split or silently truncated.
     --- @raises when maximum is not a positive integer
     function receive(self, maximum: integer): (string?, string?)
         if self._closed then
@@ -221659,7 +222364,7 @@ record tls.DatagramSession is nupp.Closeable
         local message: string? = nil
         local failure: string? = nil
         await("nupp.io.tls DTLS receive", function(): boolean
-            const got, why = self._backend:read(self._session, wanted)
+            const got, why = self._backend:read(self._session, READ_SIZE)
             if why ~= nil then
                 failure = why
 
@@ -221678,8 +222383,12 @@ record tls.DatagramSession is nupp.Closeable
         if failure ~= nil then
             return nil, failure
         end
+        const whole = message or ""
+        if #whole > wanted then
+            return nil, "the datagram is larger than the receive maximum"
+        end
 
-        return message or ""
+        return whole
     end
 
     --- Sends one authenticated application datagram.
@@ -221728,7 +222437,17 @@ record tls.DatagramSession is nupp.Closeable
             return
         end
         if self._ready and self:isConnected() then
-            self._backend:closeNotify(self._session)
+            -- A datagram is refused rather than queued when the socket's
+            -- buffer is full, and the provider then still holds the alert. A
+            -- few driven retries give the buffer time to drain; a bounded few,
+            -- because a close is not allowed to wait on a peer forever, and a
+            -- lost close_notify is a loss DTLS peers already have to survive.
+            for _ = 1, 8 do
+                if self._backend:closeNotify(self._session) then
+                    break
+                end
+                net.pump(1)
+            end
         end
         self._closed = true
         self._backend:destroy(self._session)
@@ -222071,8 +222790,8 @@ local function nativeBackend(): tls.Backend
             return took
         end,
 
-        closeNotify = function(self: tls.Backend, session: any): nil
-            C.nuppTlsCloseNotify(session)
+        closeNotify = function(self: tls.Backend, session: any): boolean
+            return C.nuppTlsCloseNotify(session) ~= 0
         end,
 
         destroy = function(self: tls.Backend, session: any): nil
@@ -222700,7 +223419,10 @@ withText = function(self: URI, kind: integer, value: string?): URI
 end
 
 -- Components are assembled into text and then parsed, so one grammar decides what is
--- valid rather than two.
+-- valid rather than two. What the grammar cannot decide is where one component was
+-- meant to end: a delimiter inside a value, or a path shaped like an authority,
+-- reparses as a different component rather than failing. Those shapes are refused
+-- here, before the text exists to misread.
 compose = function(components: any): (string?, string?)
     if type(components) ~= "table" then
         return nil, "nupp: io.URI.newURI needs absolute text or URI components"
@@ -222718,6 +223440,30 @@ compose = function(components: any): (string?, string?)
     local port = components.port
     if port ~= nil and (type(port) ~= "number" or port ~= math.floor(port) or port < 0 or port > 65535) then
         return nil, "nupp: URI component port must be an integer from 0 through 65535 or nil"
+    end
+    -- A delimiter that would end the component early. `#` always starts the
+    -- fragment, `?` starts the query anywhere before one, and inside the
+    -- authority `/`, `?` and `#` end it while `@` moves the host boundary.
+    for name, delimiters in pairs({
+        userInfo = "[/?#]",
+        host = "[/?#@]",
+        path = "[?#]",
+        query = "#",
+    }) do
+        local value = components[name]
+        if value ~= nil and (value as string):find(delimiters) ~= nil then
+            return nil, "nupp: URI component " .. name .. " cannot contain a component delimiter"
+        end
+    end
+    -- RFC 3986 section 3.3: beside an authority a path is empty or rooted, and
+    -- without one it must not begin with `//`, which would reparse as one.
+    local path = components.path
+    if components.host or components.userInfo or port then
+        if path ~= nil and path ~= "" and (path as string):sub(1, 1) ~= "/" then
+            return nil, "nupp: URI component path must be empty or begin with \"/\" beside an authority"
+        end
+    elseif path ~= nil and (path as string):sub(1, 2) == "//" then
+        return nil, "nupp: URI component path cannot begin with \"//\" when there is no authority"
     end
     local out = scheme .. ":"
     if components.host or components.userInfo or port then

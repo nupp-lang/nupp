@@ -278,7 +278,7 @@ return {gemm = gemm}
     assert(shader:find("a [[buffer(2)]]", 1, true), shader)
     assert(shader:find("c [[buffer(3)]]", 1, true), shader)
     assert(shader:find("< uniforms._m2", 1, true), shader)
-    assert(shader:find("a._m0[v2_ai]", 1, true), shader)
+    assert(shader:find("a._m0[uniforms._m5 + v2_ai]", 1, true), shader)
 
     local binding, bindingCode = run(dir, "--emit binding gemm.nupp")
     test.equal(bindingCode, 0, binding)
@@ -317,6 +317,38 @@ return {gather = gather}
     local c, code = run(dir, "--emit c gather.nupp")
     test.equal(code, 0, c)
     assert(c:find("p_source[((size_t)v", 1, true), c)
+end
+
+-- A proved cursor may still name a guarded-equal span. Such a map shares one
+-- count in its private ABI, so the in-body bound check must read that shared
+-- count rather than inventing a count_input parameter the signature omitted.
+function M.cpuCursorUsesTheSharedCountOfGuardedSpans()
+    local dir = project({
+        ["shared-count.nupp"] = [[
+local span = require("nupp.mem.span")
+
+@aot
+local function copyFirst(
+    exclusive output: span.WriteSpan<float>,
+    borrows input: span.Span<float>
+): nil
+    assert(#output == #input, "length mismatch")
+    for i = 1, #output do
+        local cursor: uint32 = 0
+        local value: float = 0.0
+        if cursor < #input then
+            value = nupp.math.f32.narrow(input[cursor + 1])
+        end
+        output[i] = value
+    end
+end
+return {copyFirst = copyFirst}
+]],
+    })
+    local c, code = run(dir, "--emit c shared-count.nupp")
+    test.equal(code, 0, c)
+    assert(c:find("< ((double)count)", 1, true), c)
+    assert(not c:find("count_input", 1, true), c)
 end
 
 function M.gpuTargetExposesItsLoopIndexAndUnsignedDivision()
@@ -361,7 +393,7 @@ return {coordinates = coordinates, coordinatesCpu = coordinatesCpu}
     assert(shader:find("gl_GlobalInvocationID.x + 1u", 1, true), shader)
     assert(shader:find("nupp_u32_div(v", 1, true), shader)
     assert(shader:find("nupp_u32_mod(v", 1, true), shader)
-    assert(shader:find(", uniforms._m3)", 1, true), shader)
+    assert(shader:find(", uniforms._m5)", 1, true), shader)
 
     local c, cCode = run(dir, "--emit c coordinates.nupp")
     test.equal(cCode, 0, c)

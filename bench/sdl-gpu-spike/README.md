@@ -133,6 +133,15 @@ stage order. Both produced exactly `4317.14941`; Metal took 178.375 us, or
 367.41 million input values per second. There is no unordered or atomic
 variant.
 
+`run-tiny-transformer.sh` is the retained resident-tensor integration. One
+`6x64` allocation supplies allocation-free Q, K, V, score, probability, and
+output views; three projections, attention scores, polynomial softmax, and
+value mixing are enqueued as six generated kernels before synchronization.
+The CPU AOT control and Metal agreed on every element. The 8-token, width-8
+block measured 179.081 us per chain on the Apple M5 Pro. Normalization uses
+eight fixed binary32 Newton steps over its known `[1, 8]` denominator range, so
+it does not introduce a backend-selected division result.
+
 Run it on macOS with an SDL framework directory:
 
 ```sh

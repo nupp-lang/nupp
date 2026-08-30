@@ -23,6 +23,8 @@ struct NuppUniforms {
     uint count;
     uint input_count;
     uint output_count;
+    uint input_offset;
+    uint output_offset;
     uint active_count;
 };
 
@@ -62,14 +64,14 @@ kernel void fixed_tree_exp_sum(
     threadgroup float scratch[256];
     uint index = group * 256u + local;
     scratch[local] = index < uniforms.active_count
-        ? nupp_f32_exp(input[index])
+        ? nupp_f32_exp(input[uniforms.input_offset + index])
         : 0.0f;
     threadgroup_barrier(mem_flags::mem_threadgroup);
     for (uint stride = 128u; stride != 0u; stride >>= 1u) {
         if (local < stride) scratch[local] = scratch[local] + scratch[local + stride];
         threadgroup_barrier(mem_flags::mem_threadgroup);
     }
-    if (local == 0u && group < uniforms.output_count) output[group] = scratch[0];
+    if (local == 0u && group < uniforms.output_count) output[uniforms.output_offset + group] = scratch[0];
 }
 
 kernel void fixed_tree_sum(
@@ -81,13 +83,13 @@ kernel void fixed_tree_sum(
 {
     threadgroup float scratch[256];
     uint index = group * 256u + local;
-    scratch[local] = index < uniforms.active_count ? input[index] : 0.0f;
+    scratch[local] = index < uniforms.active_count ? input[uniforms.input_offset + index] : 0.0f;
     threadgroup_barrier(mem_flags::mem_threadgroup);
     for (uint stride = 128u; stride != 0u; stride >>= 1u) {
         if (local < stride) scratch[local] = scratch[local] + scratch[local + stride];
         threadgroup_barrier(mem_flags::mem_threadgroup);
     }
-    if (local == 0u && group < uniforms.output_count) output[group] = scratch[0];
+    if (local == 0u && group < uniforms.output_count) output[uniforms.output_offset + group] = scratch[0];
 }
 ]=]
 
@@ -166,7 +168,7 @@ local function makeKernel(entrypoint)
         dummySpirv, #dummySpirv,
         source, #source,
         entrypoint, #entrypoint,
-        1, 1, 16, workgroupSize)
+        1, 1, 24, workgroupSize)
     assert(kernel ~= nil, ffi.string(C.nuppNativeError()))
     return kernel
 end
@@ -176,15 +178,15 @@ local secondKernel = makeKernel("fixed_tree_sum")
 local first = C.nuppGpuBindingCreate(context._handle, firstKernel, count)
 local second = C.nuppGpuBindingCreate(context._handle, secondKernel, workgroupSize)
 assert(first ~= nil and second ~= nil, ffi.string(C.nuppNativeError()))
-assert(C.nuppGpuBindingSetRead(first, 0, input._handle, count, false))
-assert(C.nuppGpuBindingSetWrite(first, 0, partials._handle, count, true))
-assert(C.nuppGpuBindingSetRead(second, 0, partials._handle, count, false))
-assert(C.nuppGpuBindingSetWrite(second, 0, result._handle, workgroupSize, true))
+assert(C.nuppGpuBindingSetRead(first, 0, input._handle, 0, count, false))
+assert(C.nuppGpuBindingSetWrite(first, 0, partials._handle, 0, count, true))
+assert(C.nuppGpuBindingSetRead(second, 0, partials._handle, 0, count, false))
+assert(C.nuppGpuBindingSetWrite(second, 0, result._handle, 0, workgroupSize, true))
 
-local firstUniforms = ffi.new("uint32_t[4]")
-firstUniforms[3] = count
-local secondUniforms = ffi.new("uint32_t[4]")
-secondUniforms[3] = workgroupSize
+local firstUniforms = ffi.new("uint32_t[6]")
+firstUniforms[5] = count
+local secondUniforms = ffi.new("uint32_t[6]")
+secondUniforms[5] = workgroupSize
 
 local function dispatch()
     assert(C.nuppGpuBindingDispatch(first, firstUniforms, ffi.sizeof(firstUniforms)), ffi.string(C.nuppNativeError()))

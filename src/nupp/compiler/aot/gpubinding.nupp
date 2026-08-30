@@ -45,7 +45,7 @@ function gpubinding.replacement(program: scalarIR.Program, artifact: gpuemit.Art
     append(lines, "local " .. runtime .. " = require(\"nupp.gpu\")")
     append(lines, "local " .. native .. " = require(\"nupp.runtime.native\")")
     -- The block mirrors the shader's NuppUniforms: the dispatch count, one
-    -- element count per bound span in slot order, then the authored scalars.
+    -- element count and offset per bound span in slot order, then the authored scalars.
     -- Dispatch patches the leading words from the bound buffers, so generated
     -- code only fills the scalars.
     local fields: {string} = {"uint32_t count;"}
@@ -54,6 +54,12 @@ function gpubinding.replacement(program: scalarIR.Program, artifact: gpuemit.Art
     end
     for _, param in ipairs(artifact.writable) do
         fields[#fields + 1] = "uint32_t " .. param.name:gsub("[^%w_]", "_") .. "_count;"
+    end
+    for _, param in ipairs(artifact.readonly) do
+        fields[#fields + 1] = "uint32_t " .. param.name:gsub("[^%w_]", "_") .. "_offset;"
+    end
+    for _, param in ipairs(artifact.writable) do
+        fields[#fields + 1] = "uint32_t " .. param.name:gsub("[^%w_]", "_") .. "_offset;"
     end
     for _, param in ipairs(artifact.uniforms) do
         fields[#fields + 1] = tostring(C_TYPE[param.type]) .. " " .. param.name:gsub("[^%w_]", "_") .. ";"

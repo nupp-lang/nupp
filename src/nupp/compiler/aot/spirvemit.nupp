@@ -371,6 +371,7 @@ function spirv.program(
 
     local zeroU = constant(u32Type, 0)
     local oneU = constant(u32Type, 1)
+    local zeroF = constant(f32Type, 0)
     local canonicalNan = constant(f32Type, 2143289344)
     local falseId = id()
     instruction(declarations, OP.ConstantFalse, {boolType, falseId})
@@ -421,6 +422,10 @@ function spirv.program(
     end
     for _, param in ipairs(spans) do
         uniformIndex[param.name .. "_count"] = #uniformMembers
+        uniformMembers[#uniformMembers + 1] = u32Type
+    end
+    for _, param in ipairs(spans) do
+        uniformIndex[param.name .. "_offset"] = #uniformMembers
         uniformMembers[#uniformMembers + 1] = u32Type
     end
     for _, param in ipairs(uniforms) do
@@ -490,6 +495,7 @@ function spirv.program(
 
     local fnVoid = functionType(voidType, {})
     local fnU32U32 = functionType(u32Type, {u32Type, u32Type})
+    local fnF32F32 = functionType(f32Type, {f32Type, f32Type})
     local fnFma = functionType(f32Type, {f32Type, f32Type, f32Type})
     local fnF32 = functionType(f32Type, {f32Type})
     local fnF32FromU32 = functionType(f32Type, {u32Type})
@@ -540,6 +546,56 @@ function spirv.program(
     instruction(functions, OP.Select, {f32Type, fusedOut, fusedNan, canonicalNan, fused})
     instruction(functions, OP.ReturnValue, {fusedOut})
     instruction(functions, OP.FunctionEnd, {})
+
+    local function correctedPair(helperName: string, minimum: boolean): integer
+        local fn = id()
+        name(fn, helperName)
+        instruction(functions, OP.Function, {f32Type, fn, 0, fnF32F32})
+        local left, right = id(), id()
+        instruction(functions, OP.FunctionParameter, {f32Type, left})
+        instruction(functions, OP.FunctionParameter, {f32Type, right})
+        local label = id()
+        instruction(functions, OP.Label, {label})
+        local leftNan, rightNan, anyNan = id(), id(), id()
+        instruction(functions, OP.IsNan, {boolType, leftNan, left})
+        instruction(functions, OP.IsNan, {boolType, rightNan, right})
+        instruction(functions, OP.LogicalOr, {boolType, anyNan, leftNan, rightNan})
+        local equal, isZero = id(), id()
+        instruction(functions, OP.FOrdEqual, {boolType, equal, left, right})
+        instruction(functions, OP.FOrdEqual, {boolType, isZero, left, zeroF})
+        local leftBits, rightBits, zeroBits = id(), id(), id()
+        instruction(functions, OP.Bitcast, {u32Type, leftBits, left})
+        instruction(functions, OP.Bitcast, {u32Type, rightBits, right})
+        instruction(functions, minimum and OP.BitwiseOr or OP.BitwiseAnd, {
+            u32Type,
+            zeroBits,
+            leftBits,
+            rightBits,
+        })
+        local signedZero = id()
+        instruction(functions, OP.Bitcast, {f32Type, signedZero, zeroBits})
+        local equalValue = id()
+        instruction(functions, OP.Select, {f32Type, equalValue, isZero, signedZero, left})
+        local ordered = id()
+        instruction(functions, minimum and OP.FOrdLessThan or OP.FOrdGreaterThan, {
+            boolType,
+            ordered,
+            left,
+            right,
+        })
+        local unequalValue = id()
+        instruction(functions, OP.Select, {f32Type, unequalValue, ordered, left, right})
+        local finiteValue = id()
+        instruction(functions, OP.Select, {f32Type, finiteValue, equal, equalValue, unequalValue})
+        local result = id()
+        instruction(functions, OP.Select, {f32Type, result, anyNan, canonicalNan, finiteValue})
+        instruction(functions, OP.ReturnValue, {result})
+        instruction(functions, OP.FunctionEnd, {})
+        return fn
+    end
+
+    local minFn = correctedPair("nupp_f32_min", true)
+    local maxFn = correctedPair("nupp_f32_max", false)
 
     local halfToFloatFn = id()
     name(halfToFloatFn, "nupp_f16_to_f32")
@@ -736,6 +792,13 @@ function spirv.program(
             indexId = id()
             instruction(functions, OP.Load, {u32Type, indexId, pointer})
         end
+        local physicalIndex = id()
+        instruction(functions, OP.IAdd, {
+            u32Type,
+            physicalIndex,
+            uniform(value.span .. "_offset", u32Type),
+            indexId,
+        })
         local element = assert(bufferElement[value.span])
         local pointer = id()
         instruction(functions, OP.AccessChain, {
@@ -743,7 +806,7 @@ function spirv.program(
             pointer,
             assert(bufferVars[value.span]),
             zeroU,
-            indexId
+            physicalIndex
         })
 
         return pointer, element
@@ -856,6 +919,18 @@ function spirv.program(
             local c = expression(value.args[3])
             local result = id()
             instruction(functions, OP.FunctionCall, {f32Type, result, fmaFn, a, b, c})
+            return result, f32Type
+        elseif op == "f32_min" or op == "f32_max" then
+            local left = expression(value.left)
+            local right = expression(value.right)
+            local result = id()
+            instruction(functions, OP.FunctionCall, {
+                f32Type,
+                result,
+                op == "f32_min" and minFn or maxFn,
+                left,
+                right,
+            })
             return result, f32Type
         elseif op == "f16_to_f32" or op == "f32_to_f16" or op == "f32_sqrt" or op == "f32_exp" then
             local input = expression(value.value)

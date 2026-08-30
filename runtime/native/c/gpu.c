@@ -24,6 +24,8 @@ struct NuppGpuBuffer {
     bool upload_queued;
     bool download_queued;
     bool download_ready;
+    uint32_t downloaded_offset;
+    uint32_t downloaded_size;
     NuppGpuBuffer *next;
 };
 
@@ -39,16 +41,17 @@ struct NuppGpuKernel {
 
 /* One kernel attached to its buffers. The uniform block layout is the
  * compiler's: word zero is the dispatch count, the next words carry each
- * bound span's element count in slot order (read-only spans first), and the
- * authored scalar uniforms follow. Dispatch patches those leading words from
- * what was bound, so the shader's bound checks compare against the counts the
- * host validated. */
+ * bound span's element count in slot order (read-only spans first), then one
+ * element offset per span, and the authored scalar uniforms follow. Dispatch
+ * patches those leading words from what was bound, so views remain allocation
+ * free and shader bounds checks compare against the counts the host validated. */
 struct NuppGpuBinding {
     NuppGpuContext *context;
     NuppGpuKernel *kernel;
     NuppGpuBuffer *readable[NUPP_GPU_MAX_BINDINGS];
     NuppGpuBuffer *writable[NUPP_GPU_MAX_BINDINGS];
     uint32_t span_counts[2u * NUPP_GPU_MAX_BINDINGS];
+    uint32_t span_offsets[2u * NUPP_GPU_MAX_BINDINGS];
     uint32_t count;
     NuppGpuBinding *next;
 };
@@ -305,7 +308,8 @@ NUPP_EXPORT NuppGpuKernel *nuppGpuKernelCreate(
 }
 
 NUPP_EXPORT bool nuppGpuBufferUpload(
-    NuppGpuContext *context, NuppGpuBuffer *buffer, const void *source, size_t size
+    NuppGpuContext *context, NuppGpuBuffer *buffer, const void *source,
+    size_t offset, size_t size
 ) {
     SDL_GPUCommandBuffer *command_buffer;
     SDL_GPUCopyPass *copy;
@@ -313,9 +317,10 @@ NUPP_EXPORT bool nuppGpuBufferUpload(
     SDL_GPUBufferRegion to;
     SDL_GPUTransferBufferCreateInfo upload_info;
     void *mapped;
-    if (!owns_buffer(context, buffer) || source == NULL || size != buffer->size) {
-        if (source == NULL || (buffer != NULL && size != buffer->size)) {
-            nupp_fail("gpu: upload must fill the complete resident buffer");
+    if (!owns_buffer(context, buffer) || source == NULL
+        || offset > buffer->size || size > buffer->size - offset) {
+        if (source == NULL || buffer != NULL) {
+            nupp_fail("gpu: upload range is outside the resident buffer");
         }
         return false;
     }
@@ -332,7 +337,7 @@ NUPP_EXPORT bool nuppGpuBufferUpload(
     if (mapped == NULL) {
         return gpu_fail("map upload buffer");
     }
-    memcpy(mapped, source, size);
+    memcpy((uint8_t *)mapped + offset, source, size);
     SDL_UnmapGPUTransferBuffer(context->device, buffer->upload);
     command_buffer = commands(context);
     if (command_buffer == NULL) {
@@ -340,9 +345,11 @@ NUPP_EXPORT bool nuppGpuBufferUpload(
     }
     SDL_zero(from);
     from.transfer_buffer = buffer->upload;
+    from.offset = (uint32_t)offset;
     SDL_zero(to);
     to.buffer = buffer->storage;
-    to.size = buffer->size;
+    to.offset = (uint32_t)offset;
+    to.size = (uint32_t)size;
     copy = SDL_BeginGPUCopyPass(command_buffer);
     if (copy == NULL) {
         gpu_fail("begin upload pass");
@@ -381,9 +388,11 @@ static bool binding_slot(
     uint32_t slot,
     uint32_t limit,
     NuppGpuBuffer *buffer,
+    uint32_t element_offset,
     uint32_t element_count,
     bool match_count
 ) {
+    (void)element_offset;
     if (binding == NULL || binding->context == NULL || binding->context->device == NULL) {
         nupp_fail("gpu: binding belongs to a closed context");
         return false;
@@ -406,15 +415,17 @@ NUPP_EXPORT bool nuppGpuBindingSetRead(
     NuppGpuBinding *binding,
     uint32_t slot,
     NuppGpuBuffer *buffer,
+    uint32_t element_offset,
     uint32_t element_count,
     bool match_count
 ) {
     if (!binding_slot(binding, slot, binding == NULL ? 0 : binding->kernel->readonly_count,
-                      buffer, element_count, match_count)) {
+                      buffer, element_offset, element_count, match_count)) {
         return false;
     }
     binding->readable[slot] = buffer;
     binding->span_counts[slot] = element_count;
+    binding->span_offsets[slot] = element_offset;
     return true;
 }
 
@@ -422,15 +433,17 @@ NUPP_EXPORT bool nuppGpuBindingSetWrite(
     NuppGpuBinding *binding,
     uint32_t slot,
     NuppGpuBuffer *buffer,
+    uint32_t element_offset,
     uint32_t element_count,
     bool match_count
 ) {
     if (!binding_slot(binding, slot, binding == NULL ? 0 : binding->kernel->writable_count,
-                      buffer, element_count, match_count)) {
+                      buffer, element_offset, element_count, match_count)) {
         return false;
     }
     binding->writable[slot] = buffer;
     binding->span_counts[binding->kernel->readonly_count + slot] = element_count;
+    binding->span_offsets[binding->kernel->readonly_count + slot] = element_offset;
     return true;
 }
 
@@ -454,7 +467,7 @@ NUPP_EXPORT bool nuppGpuBindingDispatch(
     kernel = binding->kernel;
     spans = kernel->readonly_count + kernel->writable_count;
     if (uniform_size != kernel->uniform_size
-        || uniform_size < sizeof(uint32_t) * (1u + spans)
+        || uniform_size < sizeof(uint32_t) * (1u + 2u * spans)
         || uniforms == NULL) {
         nupp_fail("gpu: dispatch uniforms do not match the compiled kernel");
         return false;
@@ -481,6 +494,8 @@ NUPP_EXPORT bool nuppGpuBindingDispatch(
     memcpy(patched, uniforms, uniform_size);
     memcpy(patched, &binding->count, sizeof binding->count);
     memcpy(patched + sizeof(uint32_t), binding->span_counts, sizeof(uint32_t) * spans);
+    memcpy(patched + sizeof(uint32_t) * (1u + spans),
+           binding->span_offsets, sizeof(uint32_t) * spans);
     SDL_PushGPUComputeUniformData(command_buffer, 0, patched, (uint32_t)uniform_size);
     for (at = 0; at < kernel->writable_count; at += 1) {
         SDL_zero(writable_bindings[at]);
@@ -507,14 +522,18 @@ NUPP_EXPORT bool nuppGpuBindingDispatch(
 }
 
 NUPP_EXPORT bool nuppGpuBufferDownload(
-    NuppGpuContext *context, NuppGpuBuffer *buffer
+    NuppGpuContext *context, NuppGpuBuffer *buffer, size_t offset, size_t size
 ) {
     SDL_GPUCommandBuffer *command_buffer;
     SDL_GPUCopyPass *copy;
     SDL_GPUBufferRegion from;
     SDL_GPUTransferBufferLocation to;
     SDL_GPUTransferBufferCreateInfo download_info;
-    if (!owns_buffer(context, buffer)) {
+    if (!owns_buffer(context, buffer)
+        || offset > buffer->size || size > buffer->size - offset) {
+        if (buffer != NULL) {
+            nupp_fail("gpu: download range is outside the resident buffer");
+        }
         return false;
     }
     if (buffer->download_queued) {
@@ -536,9 +555,11 @@ NUPP_EXPORT bool nuppGpuBufferDownload(
     }
     SDL_zero(from);
     from.buffer = buffer->storage;
-    from.size = buffer->size;
+    from.offset = (uint32_t)offset;
+    from.size = (uint32_t)size;
     SDL_zero(to);
     to.transfer_buffer = buffer->download;
+    to.offset = (uint32_t)offset;
     copy = SDL_BeginGPUCopyPass(command_buffer);
     if (copy == NULL) {
         gpu_fail("begin download pass");
@@ -549,6 +570,8 @@ NUPP_EXPORT bool nuppGpuBufferDownload(
     SDL_EndGPUCopyPass(copy);
     buffer->download_queued = true;
     buffer->download_ready = false;
+    buffer->downloaded_offset = (uint32_t)offset;
+    buffer->downloaded_size = (uint32_t)size;
     return true;
 }
 
@@ -578,24 +601,27 @@ NUPP_EXPORT bool nuppGpuSynchronize(NuppGpuContext *context) {
 }
 
 NUPP_EXPORT bool nuppGpuBufferRead(
-    NuppGpuContext *context, NuppGpuBuffer *buffer, void *destination, size_t size
+    NuppGpuContext *context, NuppGpuBuffer *buffer, void *destination,
+    size_t offset, size_t size
 ) {
     void *mapped;
-    if (!owns_buffer(context, buffer) || destination == NULL || size != buffer->size) {
-        if (destination == NULL || (buffer != NULL && size != buffer->size)) {
-            nupp_fail("gpu: read must consume the complete downloaded buffer");
+    if (!owns_buffer(context, buffer) || destination == NULL
+        || offset > buffer->size || size > buffer->size - offset) {
+        if (destination == NULL || buffer != NULL) {
+            nupp_fail("gpu: read range is outside the downloaded buffer");
         }
         return false;
     }
-    if (!buffer->download_ready) {
-        nupp_fail("gpu: buffer has no synchronized download");
+    if (!buffer->download_ready
+        || offset != buffer->downloaded_offset || size != buffer->downloaded_size) {
+        nupp_fail("gpu: buffer has no matching synchronized download");
         return false;
     }
     mapped = SDL_MapGPUTransferBuffer(context->device, buffer->download, false);
     if (mapped == NULL) {
         return gpu_fail("map download buffer");
     }
-    memcpy(destination, mapped, size);
+    memcpy(destination, (uint8_t *)mapped + offset, size);
     SDL_UnmapGPUTransferBuffer(context->device, buffer->download);
     return true;
 }

@@ -25,6 +25,9 @@ struct NuppUniforms {
     uint a_count;
     uint b_count;
     uint c_count;
+    uint a_offset;
+    uint b_offset;
+    uint c_offset;
     uint columns;
     uint inner;
 };
@@ -59,8 +62,8 @@ kernel void tiled_gemm(
         uint bRow = base + laneRow;
         uint ai = row * uniforms.inner + aColumn;
         uint bi = bRow * uniforms.columns + column;
-        aTile[local] = aColumn < uniforms.inner && ai < uniforms.a_count ? a[ai] : 0.0f;
-        bTile[local] = bRow < uniforms.inner && bi < uniforms.b_count ? b[bi] : 0.0f;
+        aTile[local] = aColumn < uniforms.inner && ai < uniforms.a_count ? a[uniforms.a_offset + ai] : 0.0f;
+        bTile[local] = bRow < uniforms.inner && bi < uniforms.b_count ? b[uniforms.b_offset + bi] : 0.0f;
         threadgroup_barrier(mem_flags::mem_threadgroup);
 
         for (uint inner = 0u; inner < 16u && base + inner < uniforms.inner; inner += 1u) {
@@ -69,7 +72,7 @@ kernel void tiled_gemm(
         threadgroup_barrier(mem_flags::mem_threadgroup);
     }
 
-    if (output < uniforms.count && output < uniforms.c_count) c[output] = value;
+    if (output < uniforms.count && output < uniforms.c_count) c[uniforms.c_offset + output] = value;
 }
 ]=]
 
@@ -112,15 +115,15 @@ local tiledKernel = C.nuppGpuKernelCreate(
     dummySpirv, #dummySpirv,
     source, #source,
     "tiled_gemm", 10,
-    2, 1, 24, 256)
+    2, 1, 36, 256)
 assert(tiledKernel ~= nil, ffi.string(C.nuppNativeError()))
 local tiled = C.nuppGpuBindingCreate(context._handle, tiledKernel, m * n)
 assert(tiled ~= nil, ffi.string(C.nuppNativeError()))
-assert(C.nuppGpuBindingSetRead(tiled, 0, aBuffer._handle, m * k, false))
-assert(C.nuppGpuBindingSetRead(tiled, 1, bBuffer._handle, k * n, false))
-assert(C.nuppGpuBindingSetWrite(tiled, 0, tiledBuffer._handle, m * n, true))
-local uniforms = ffi.new("uint32_t[6]")
-uniforms[4], uniforms[5] = n, k
+assert(C.nuppGpuBindingSetRead(tiled, 0, aBuffer._handle, 0, m * k, false))
+assert(C.nuppGpuBindingSetRead(tiled, 1, bBuffer._handle, 0, k * n, false))
+assert(C.nuppGpuBindingSetWrite(tiled, 0, tiledBuffer._handle, 0, m * n, true))
+local uniforms = ffi.new("uint32_t[9]")
+uniforms[7], uniforms[8] = n, k
 
 local function naiveDispatch()
     naive:dispatch(n, k)
