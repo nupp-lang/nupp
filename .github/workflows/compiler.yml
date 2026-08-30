@@ -373,32 +373,40 @@ jobs:
       - name: Run the compiler suite
         if: runner.os != 'Windows'
         shell: bash
-        run: ./bin/nupp test
+        # `core_pattern` already pipes to systemd-coredump on this image, but
+        # the soft limit is zero, so the kernel writes nothing and the shell
+        # still says "core dumped". Raising it here is what makes the step
+        # below able to ask a crashed worker anything at all.
+        run: |
+          ulimit -c unlimited || true
+          ./bin/nupp test
 
       # A worker killed by a signal says which suite it was in, and on Linux it
-      # is currently killed by SIGSEGV in a different suite in each of the four.
-      # The suite name says where it was, not what went wrong; the core the
-      # kernel already wrote says that. Only runs when the step above failed, so
-      # a green run neither pays for this nor prints it.
+      # is killed by SIGSEGV in a different set of suites every run -- so the
+      # name says where it was, not what went wrong. The core says that.
+      # Retrieved through `coredumpctl` because `core_pattern` hands cores to
+      # systemd rather than leaving them in a directory. Only runs when the
+      # step above failed, and never fails the job itself: this reports on a
+      # failure, it is not one.
       - name: Report a crashed worker
         if: failure() && runner.os == 'Linux'
+        continue-on-error: true
         shell: bash
         run: |
           set -uo pipefail
           echo "core_pattern: $(cat /proc/sys/kernel/core_pattern 2>/dev/null)"
-          echo "core limit:   $(ulimit -c)"
-          found=$(find . /var/lib/systemd/coredump /tmp -maxdepth 3 \
-            -name 'core*' -type f -newermt '-2 hours' 2>/dev/null | head -5)
-          if [ -z "$found" ]; then
-            echo "no core file was written where this could look"
-            exit 0
-          fi
-          command -v gdb >/dev/null 2>&1 || sudo apt-get install -y -q gdb >/dev/null
-          for core in $found; do
-            echo "=== $core ==="
-            gdb -batch -q -ex 'thread apply all bt 30' \
-              "$(./scripts/toolchain luajit)/bin/luajit" "$core" 2>&1 | head -80
+          coredumpctl list --no-pager 2>&1 | tail -12 || true
+          command -v gdb >/dev/null 2>&1 \
+            || sudo apt-get install -y -q gdb >/dev/null 2>&1 || true
+          for pid in $(coredumpctl list --no-pager --no-legend 2>/dev/null \
+              | awk '$NF ~ /present/ || $0 ~ /luajit|nupp/ {print $5}' | tail -3); do
+            echo "=== core for pid $pid ==="
+            coredumpctl info "$pid" --no-pager 2>&1 | head -30
+            coredumpctl debug "$pid" --debugger=gdb \
+              --debugger-arguments='-batch -q -ex "thread apply all bt 25"' \
+              2>&1 | head -60
           done
+          exit 0
 
       # These name the Git Bash the suite hands its POSIX commands to. They were
       # set by a provisioning script that no longer exists, and an undefined
