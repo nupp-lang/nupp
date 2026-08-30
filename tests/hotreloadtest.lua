@@ -148,6 +148,51 @@ function M.retainedFunctionUsesPatchedBodyAndCapturedCell()
    assertEq(retained(1), 4, "patched implementation shares old value cell")
 end
 
+-- Lua numbers upvalues by order of first reference, so a patched body that
+-- references its captures in a different order carries the same names at
+-- different indices. The second patch is the one that would join through a
+-- stale index map recorded before the first commit.
+function M.secondPatchJoinsCapturesByNameNotStaleIndex()
+   local function source(firstNamed)
+      local selector = firstNamed and "first" or "second"
+      local matched = firstNamed and "first" or "second"
+      local other = firstNamed and "second" or "first"
+      return table.concat({
+         "local first: integer = 10",
+         "local second: integer = 20",
+         "local function read(which: string): integer",
+         "   if which == '" .. selector .. "' then",
+         "      return " .. matched,
+         "   end",
+         "   return " .. other,
+         "end",
+         "return {read = read}",
+      }, "\n")
+   end
+
+   local api = initial(source(true), "reorder")
+   assertEq(api.read("first"), 10, "initial first cell")
+   assertEq(api.read("second"), 20, "initial second cell")
+
+   local function commitPatch(body, label)
+      local patch = generate(body, "patch", "reorder")
+      local prepared, reason = hot.stage(patch, hot.generation())
+      assert(prepared, reason)
+      assert(hot.commit(prepared), label)
+   end
+
+   -- References `second` first, reversing the upvalue numbering.
+   commitPatch(source(false), "reordered patch commits")
+   assertEq(api.read("first"), 10, "first cell after a reordered patch")
+   assertEq(api.read("second"), 20, "second cell after a reordered patch")
+
+   -- Back to the initial order: this join must use the live implementation's
+   -- numbering rather than the initial generation's.
+   commitPatch(source(true), "restored patch commits")
+   assertEq(api.read("first"), 10, "first cell after the second patch")
+   assertEq(api.read("second"), 20, "second cell after the second patch")
+end
+
 function M.managedCellsKeepPolicyAndUseThePatchedCleanupSlot()
    local function source(multiplier)
       return table.concat({

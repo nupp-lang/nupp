@@ -61,7 +61,12 @@ type hotreload.Candidate = {
     module: any,
 
     index: integer,
-    implementation: hotreload.Implementation
+    implementation: hotreload.Implementation,
+
+    --- The implementation's own upvalue numbering. Committing publishes it into the
+    --- definition, because the next patch joins against this implementation and Lua
+    --- numbers upvalues by first reference, which a changed body reorders.
+    captures: hotreload.Captures
 }
 
 --- What `stage` accumulates while the patch chunk runs.
@@ -321,7 +326,7 @@ function hotreload.define(
     if staging.byKey[key] then
         error("nupp hot reload: patch defines " .. id .. " twice", 2)
     end
-    local candidate = {module = module, index = index, implementation = implementation}
+    local candidate = {module = module, index = index, implementation = implementation, captures = captures}
     staging.byKey[key] = candidate
     staging.candidates[#staging.candidates + 1] = candidate
 end
@@ -397,6 +402,7 @@ function hotreload.commit(prepared: hotreload.Transaction): integer?, string?
     -- these direct array writes, so no dispatch can observe a partial vector.
     for _, candidate in ipairs(prepared.candidates) do
         candidate.module.slots[candidate.index] = candidate.implementation
+        candidate.module.definitions[candidate.index].captures = candidate.captures
     end
     for module, policies in pairs(prepared.policies or {}) do
         module.policies = policies
