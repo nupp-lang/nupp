@@ -2375,9 +2375,12 @@ function gen.generate(
 
     -- OPT-8 re-emits a checked function body under exact scalar substitutions.
     -- Keep its helpers on `pluck`, which the recursive emitter already captures: that
-    -- emitter deliberately sits at LuaJIT's 60-upvalue boundary.
-    pluck.const = {emission = nil,} as any
-    pluck.const.integer = function(node): integer?
+    -- emitter deliberately sits at LuaJIT's 60-upvalue boundary. Not `pluck.const`:
+    -- `lowerPortableConst` above rewrites the bare identifier `const` to `local`
+    -- wherever it finds one in generated output, and this file is itself generated
+    -- for the portable dialect, so that name would rewrite its own definition.
+    pluck.constSpecialize = {emission = nil,} as any
+    pluck.constSpecialize.integer = function(node): integer?
         if node == nil or cst.isToken(node) then
             return nil
         end
@@ -2386,15 +2389,15 @@ function gen.generate(
             if value ~= nil and value == math.floor(value) then
                 return value as integer
             end
-        elseif node.kind == "name" and node.token ~= nil and pluck.const.emission ~= nil then
-            local emission = pluck.const.emission as any
+        elseif node.kind == "name" and node.token ~= nil and pluck.constSpecialize.emission ~= nil then
+            local emission = pluck.constSpecialize.emission as any
             local written = emission.substitutions[node.token.definition]
             local value = written ~= nil and tonumber(written) or nil
             if value ~= nil and value == math.floor(value) then
                 return value as integer
             end
         elseif node.kind == "castExpr" then
-            return pluck.const.integer(node.expr)
+            return pluck.constSpecialize.integer(node.expr)
         elseif node.folded ~= nil then
             local value = tonumber(node.folded)
             if value ~= nil and value == math.floor(value) then
@@ -2405,7 +2408,7 @@ function gen.generate(
         return nil
     end
 
-    pluck.const.unrollableBody = function(node): boolean
+    pluck.constSpecialize.unrollableBody = function(node): boolean
         local admitted = true
         local function walkConst(child)
             if not admitted or child == nil or cst.isToken(child) then
@@ -2432,11 +2435,11 @@ function gen.generate(
         return admitted
     end
 
-    pluck.const.emitSpecialization = function(declaration, specialization): nil
-        local prior = pluck.const.emission
-        pluck.const.emission = {substitutions = {}, specialization = specialization,}
+    pluck.constSpecialize.emitSpecialization = function(declaration, specialization): nil
+        local prior = pluck.constSpecialize.emission
+        pluck.constSpecialize.emission = {substitutions = {}, specialization = specialization,}
         for definition, value in pairs(specialization.substitutions) do
-            pluck.const.emission.substitutions[definition] = value
+            pluck.constSpecialize.emission.substitutions[definition] = value
         end
         local body = declaration.body
         e(";local function " .. specialization.name .. "(", sourceLine(declaration))
@@ -2465,10 +2468,10 @@ function gen.generate(
         emitDepth.endActivation()
         emitDepth.fn = emitDepth.fn - 1
         e("end")
-        pluck.const.emission = prior
+        pluck.constSpecialize.emission = prior
     end
 
-    pluck.const.emitRegistrations = function(declaration): nil
+    pluck.constSpecialize.emitRegistrations = function(declaration): nil
         local specializations = declaration.constSpecializationAliases or declaration.constSpecializations or {}
         if #specializations == 0 or declaration.name == nil then
             return
@@ -4259,8 +4262,8 @@ function gen.generate(
             end
             return
         end
-        if pluck.const.emission ~= nil and kind == "name" and x.token ~= nil then
-            local emission = pluck.const.emission as any
+        if pluck.constSpecialize.emission ~= nil and kind == "name" and x.token ~= nil then
+            local emission = pluck.constSpecialize.emission as any
             local replacement = emission.substitutions[x.token.definition]
             if replacement ~= nil then
                 e(replacement, sourceLine(x))
@@ -4591,17 +4594,17 @@ function gen.generate(
             end
             return
         end
-        if pluck.const.emission ~= nil and kind == "fornumStmt" and x.var ~= nil and x.body ~= nil then
-            local first = pluck.const.integer(x.start)
-            local last = pluck.const.integer(x.stop)
-            local step = x.step ~= nil and pluck.const.integer(x.step) or 1
-            if first ~= nil and last ~= nil and step ~= nil and step ~= 0 and pluck.const.unrollableBody(x.body) then
+        if pluck.constSpecialize.emission ~= nil and kind == "fornumStmt" and x.var ~= nil and x.body ~= nil then
+            local first = pluck.constSpecialize.integer(x.start)
+            local last = pluck.constSpecialize.integer(x.stop)
+            local step = x.step ~= nil and pluck.constSpecialize.integer(x.step) or 1
+            if first ~= nil and last ~= nil and step ~= nil and step ~= 0 and pluck.constSpecialize.unrollableBody(x.body) then
                 local count = step > 0 and first <= last and math.floor(
                     (last - first) / step
                 ) + 1 or step < 0 and first >= last and math.floor((first - last) / -step) + 1 or 0
                 if count <= 8 then
                     local definition = x.var.definition
-                    local emission = pluck.const.emission as any
+                    local emission = pluck.constSpecialize.emission as any
                     local prior = definition ~= nil and emission.substitutions[definition] or nil
                     e("do", sourceLine(x))
                     local value = first
@@ -7083,9 +7086,9 @@ function gen.generate(
                 emit(x.body)
             end
             for _, specialization in ipairs(x.constSpecializations or {}) do
-                pluck.const.emitSpecialization(x, specialization)
+                pluck.constSpecialize.emitSpecialization(x, specialization)
             end
-            pluck.const.emitRegistrations(x)
+            pluck.constSpecialize.emitRegistrations(x)
 
         elseif kind == "localFuncStmt" then
             if x.comptimeFunction or x.comptimeTok then
@@ -7099,9 +7102,9 @@ function gen.generate(
                 emitChildren(x)
             end
             for _, specialization in ipairs(x.constSpecializations or {}) do
-                pluck.const.emitSpecialization(x, specialization)
+                pluck.constSpecialize.emitSpecialization(x, specialization)
             end
-            pluck.const.emitRegistrations(x)
+            pluck.constSpecialize.emitRegistrations(x)
             for _, registration in ipairs(x.name and x.name.cleanupRegistrations or {}) do
                 local cleanup = registration.cleanup
                 e((";%s[%q]=%s"):format(cleanupRegistry(), cleanup.key, cleanup.name), sourceLine(x))
