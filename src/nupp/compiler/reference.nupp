@@ -1647,17 +1647,19 @@ is a named checking error.
 `@aot(target = "gpu")` records a GPU execution family in the verified IR and
 maps one whole-span loop iteration to one GPU invocation. It does not take a CPU
 `lanes` override. With the native `aot = "require"` policy, the compiler emits
-MSL and replaces the declaration with a typed kernel specification. Its
+canonical SPIR-V, derives MSL with its pinned SPIRV-Cross, and replaces the
+declaration with a typed kernel specification. Its
 `compile(context)` method owns the shader and entrypoint, `bind(...)` accepts
 resident `gpu.Buffer<T>` values in the span parameters' order and types, and
 `dispatch(...)` accepts the scalar parameters and packs their uniform block.
 The Wasm policies refuse GPU IR, and `aot = "off"` or `emit-c` retain the
-ordinary function value. `nupp aot --emit msl FILE` prints the generated shader.
+ordinary function value. `nupp aot --emit spirv FILE` writes the canonical
+binary module and `--emit msl` prints its Metal derivative.
 
-The current GPU subset is one complete-span map with one read span, one write
-span, fixed-width elements and up to 128 bytes of fixed-width scalar uniforms,
-written as a local function declaration. Uploads and downloads remain explicit,
-so several generated bindings can share resident buffers without an
+The current GPU subset is one complete-span map with fixed-width elements, any
+number of proved read and write spans, and up to 128 bytes of fixed-width scalar
+uniforms, written as a local function declaration. Uploads and downloads remain
+explicit, so several generated bindings can share resident buffers without an
 intermediate CPU copy.
 
 A pointer-free parser builds an ordinary Lua value through

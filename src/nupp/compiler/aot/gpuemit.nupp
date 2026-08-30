@@ -9,11 +9,13 @@ layouts, uniform layout and entrypoint identity as one compiler-owned fact.
 ]]
 
 local scalarIR = require("nupp.compiler.aot.scalar")
+local spirvemit = require("nupp.compiler.aot.spirvemit")
 
 local gpuemit = {}
 
 record gpuemit.Artifact
     source: string
+    spirv: string
     entrypoint: string
     readonly: {scalarIR.Param}
     writable: {scalarIR.Param}
@@ -417,14 +419,18 @@ function gpuemit.program(program: scalarIR.Program): gpuemit.Artifact
     statements(loop.statements, 1)
     line(0, "}")
 
+    local threads: integer = 256
+    local spirv = spirvemit.program(program, readonly, writable, uniforms, threads)
+
     return new gpuemit.Artifact(
-        source = table.concat(lines, "\n") .. "\n",
+        source = spirvemit.deriveMsl(spirv),
+        spirv = spirv,
         entrypoint = identifier(program.symbol) .. "_gpu",
         readonly = readonly,
         writable = writable,
         uniforms = uniforms,
         uniformBytes = uniformBytes,
-        threads = 256,
+        threads = threads,
         countSpan = loop.count,
         exactCounts = exactCounts
     )

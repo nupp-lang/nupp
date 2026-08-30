@@ -35,7 +35,8 @@ usage: scripts/toolchain COMPONENT...
        scripts/toolchain --all
        scripts/toolchain --prefix
 
-Components: luajit luarocks lpeg luautf8 ada libuv mbedtls curl
+Components: luajit luarocks lpeg luautf8 ada libuv mbedtls curl spirv-cross
+            sdl swiftshader
             native FEATURES, host FEATURES, host-library FEATURES
             fixture SOURCE OUTPUT
 
@@ -593,6 +594,80 @@ build_luautf8() {
     release_lock
 }
 
+build_spirv_cross() {
+    out="$PREFIX/spirv-cross"
+    take_lock spirv-cross "$out/.complete" || return 0
+    [ -f "$out/.complete" ] && { release_lock; return 0; }
+
+    directory="SPIRV-Cross-$SPIRV_CROSS_REV"
+    url="https://github.com/KhronosGroup/SPIRV-Cross/archive/$SPIRV_CROSS_REV.tar.gz"
+    tree=$(source_tree "$directory" "$url" "$SPIRV_CROSS_SHA256" "$SPIRV_CROSS_MARKER")
+
+    note "building SPIRV-Cross with $CXX"
+    rm -rf "$out"
+    "$MAKE" -C "$tree" clean >/dev/null 2>&1 || true
+    "$MAKE" -C "$tree" -j"${NUPP_TOOLCHAIN_JOBS:-4}" CXX="$CXX" >&2
+    mkdir -p "$out/bin"
+    executable="$tree/spirv-cross"
+    [ "$PLATFORM" = windows ] && executable="$tree/spirv-cross.exe"
+    [ -x "$executable" ] || die "SPIRV-Cross produced no command-line translator"
+    cp "$executable" "$out/bin/$(basename "$executable")"
+    native_path "$out/bin/$(basename "$executable")" > "$out/.executable"
+    printf 'done\n' > "$out/.complete"
+    release_lock
+}
+
+build_sdl() {
+    out="$PREFIX/sdl"
+    take_lock sdl "$out/.complete" || return 0
+    [ -f "$out/.complete" ] && { release_lock; return 0; }
+    command -v cmake >/dev/null 2>&1 || die "building SDL needs cmake"
+
+    directory="SDL-release-$SDL_VERSION"
+    url="https://github.com/libsdl-org/SDL/archive/refs/tags/release-$SDL_VERSION.tar.gz"
+    tree=$(source_tree "$directory" "$url" "$SDL_SHA256" "$SDL_MARKER")
+
+    note "building SDL $SDL_VERSION with $CC"
+    rm -rf "$out"
+    cmake -S "$tree" -B "$out/build" \
+        -DCMAKE_BUILD_TYPE=Release \
+        -DCMAKE_INSTALL_PREFIX="$out" \
+        -DSDL_SHARED=ON -DSDL_STATIC=OFF -DSDL_TEST_LIBRARY=OFF \
+        -DSDL_TESTS=OFF -DSDL_EXAMPLES=OFF >&2
+    cmake --build "$out/build" --parallel "${NUPP_TOOLCHAIN_JOBS:-4}" >&2
+    cmake --install "$out/build" >&2
+    [ -f "$out/include/SDL3/SDL.h" ] || die "SDL installed no headers"
+    printf 'done\n' > "$out/.complete"
+    release_lock
+}
+
+build_swiftshader() {
+    out="$PREFIX/swiftshader"
+    take_lock swiftshader "$out/.complete" || return 0
+    [ -f "$out/.complete" ] && { release_lock; return 0; }
+    command -v cmake >/dev/null 2>&1 || die "building SwiftShader needs cmake"
+
+    directory="swiftshader-$SWIFTSHADER_REV"
+    url="https://github.com/google/swiftshader/archive/$SWIFTSHADER_REV.tar.gz"
+    tree=$(source_tree "$directory" "$url" "$SWIFTSHADER_SHA256" "$SWIFTSHADER_MARKER")
+
+    note "building the pinned SwiftShader Vulkan ICD with $CXX"
+    rm -rf "$out"
+    cmake -S "$tree" -B "$out/build" \
+        -DCMAKE_BUILD_TYPE=Release \
+        -DSWIFTSHADER_BUILD_TESTS=OFF \
+        -DSWIFTSHADER_BUILD_BENCHMARKS=OFF \
+        -DSWIFTSHADER_BUILD_WSI_XCB=OFF \
+        -DSWIFTSHADER_BUILD_WSI_WAYLAND=OFF >&2
+    cmake --build "$out/build" --target vk_swiftshader \
+        --parallel "${NUPP_TOOLCHAIN_JOBS:-4}" >&2
+    icd=$(find "$out/build" -name vk_swiftshader_icd.json -type f | head -n 1)
+    [ -n "$icd" ] || die "SwiftShader produced no Vulkan ICD manifest"
+    native_path "$icd" > "$out/.icd"
+    printf 'done\n' > "$out/.complete"
+    release_lock
+}
+
 build_mbedtls() {
     out="$PREFIX/mbedtls"
     take_lock mbedtls "$out/.complete" || return 0
@@ -921,18 +996,22 @@ build_native_library() {
     fi
     # Only `gpu` reaches SDL, and only `gpu` may: it is the one feature that is
     # about SDL, nothing selects it by default, and the flags below are a macOS
-    # framework, which is not a thing to ask of Linux or Windows. A core feature
-    # every build needs cannot be gated on it -- see `bench/sdl-gpu-spike`,
-    # which says outright that this is evidence rather than a supported backend.
+    # framework on macOS or the pinned ordinary installation used by Linux CI.
+    # A core feature every build needs cannot be gated on it.
     sdlInclude=""
     sdlLibraries=""
     case " $providerSources " in
         *" c/gpu.c "*)
-            [ -n "${NUPP_SDL_FRAMEWORK_ROOT:-}" ] \
-                || die "the SDL GPU feature needs NUPP_SDL_FRAMEWORK_ROOT"
-            sdlInclude="-F$NUPP_SDL_FRAMEWORK_ROOT"
-            sdlLibraries="-F$NUPP_SDL_FRAMEWORK_ROOT -framework SDL3"
-            sdlLibraries="$sdlLibraries -Wl,-rpath,$NUPP_SDL_FRAMEWORK_ROOT"
+            if [ -n "${NUPP_SDL_FRAMEWORK_ROOT:-}" ]; then
+                sdlInclude="-F$NUPP_SDL_FRAMEWORK_ROOT"
+                sdlLibraries="-F$NUPP_SDL_FRAMEWORK_ROOT -framework SDL3"
+                sdlLibraries="$sdlLibraries -Wl,-rpath,$NUPP_SDL_FRAMEWORK_ROOT"
+            elif [ -n "${NUPP_SDL_ROOT:-}" ]; then
+                sdlInclude="-I$NUPP_SDL_ROOT/include"
+                sdlLibraries="-L$NUPP_SDL_ROOT/lib -lSDL3 -Wl,-rpath,$NUPP_SDL_ROOT/lib"
+            else
+                die "the SDL GPU feature needs NUPP_SDL_FRAMEWORK_ROOT or NUPP_SDL_ROOT"
+            fi
             ;;
     esac
     objects=""
@@ -1145,6 +1224,7 @@ case "$1" in
         build_ada
         build_libuv
         build_curl
+        build_spirv_cross
         exit 0
         ;;
     native)
@@ -1175,6 +1255,9 @@ for component in "$@"; do
         libuv)    build_libuv;    native_path "$PREFIX/libuv" ;;
         mbedtls)  build_mbedtls;  native_path "$PREFIX/mbedtls" ;;
         curl)     build_curl;     native_path "$PREFIX/curl" ;;
+        spirv-cross) build_spirv_cross; cat "$PREFIX/spirv-cross/.executable" ;;
+        sdl)      build_sdl;      native_path "$PREFIX/sdl" ;;
+        swiftshader) build_swiftshader; cat "$PREFIX/swiftshader/.icd" ;;
         *) note "unknown component $component"; usage ;;
     esac
 done

@@ -88,3 +88,28 @@ LIBUV_SHA256=478baf2599bfbc882c355288c9cb6f92e0e7dda435fa04031fa5b607cf3f414c
 LIBUV_URL='https://github.com/libuv/libuv/archive/refs/tags/v${LIBUV_VERSION}.tar.gz'
 LIBUV_MARKER=include/uv.h
 LIBUV_DIRECTORY='libuv-${LIBUV_VERSION}'
+
+# Canonical SPIR-V remains the shipped shader artifact. This translator is a
+# build tool: it derives Metal source from those exact bytes and is never linked
+# into an application.
+SPIRV_CROSS_REV=9c3c8e2cefdd8194b193bb8ed2fdff4d5527e382
+SPIRV_CROSS_SHA256=78939435d588998e5174a7865ddd36b6d9d7cd05eafac42d42ef537ea770b40a
+SPIRV_CROSS_URL='https://github.com/KhronosGroup/SPIRV-Cross/archive/${SPIRV_CROSS_REV}.tar.gz'
+SPIRV_CROSS_MARKER=spirv_cross.hpp
+SPIRV_CROSS_DIRECTORY='SPIRV-Cross-${SPIRV_CROSS_REV}'
+
+# The headless GPU conformance device. CI builds this exact Vulkan ICD rather
+# than accepting whichever physical adapter a hosted runner happens to expose.
+SWIFTSHADER_REV=694585a05946e1ed49b6bd577ca6537cbb57f025
+SWIFTSHADER_SHA256=96d0072058c4d9535ded472e4f12ce79976287d4ee9dce2915566ec4648e560e
+SWIFTSHADER_URL='https://github.com/google/swiftshader/archive/${SWIFTSHADER_REV}.tar.gz'
+SWIFTSHADER_MARKER=CMakeLists.txt
+SWIFTSHADER_DIRECTORY='swiftshader-${SWIFTSHADER_REV}'
+
+# SDL owns the portable GPU device and command API. The Linux conformance job
+# builds this release against the pinned software Vulkan ICD above.
+SDL_VERSION=3.4.14
+SDL_SHA256=9d57b178fb297e121ef2605275937b7afaa7cd24d99ce1f95953e69e7a2535d6
+SDL_URL='https://github.com/libsdl-org/SDL/archive/refs/tags/release-${SDL_VERSION}.tar.gz'
+SDL_MARKER=CMakeLists.txt
+SDL_DIRECTORY='SDL-release-${SDL_VERSION}'

@@ -52,6 +52,7 @@ void nuppGpuContextDestroy(NuppGpuContext *);
 NuppGpuBuffer *nuppGpuBufferCreate(NuppGpuContext *, size_t);
 NuppGpuKernel *nuppGpuKernelCreate(
     NuppGpuContext *, const uint8_t *, size_t, const uint8_t *, size_t,
+    const uint8_t *, size_t,
     uint32_t, uint32_t, uint32_t, uint32_t);
 bool nuppGpuBufferUpload(NuppGpuContext *, NuppGpuBuffer *, const void *, size_t);
 NuppGpuBinding *nuppGpuBindingCreate(NuppGpuContext *, NuppGpuKernel *, uint32_t);
@@ -144,7 +145,8 @@ record gpu.Context is gpu.ContextToken
     --- @internal
     compileGenerated: function(
         borrows self: Context,
-        source: string,
+        spirv: string,
+        msl: string,
         entrypoint: string,
         readonlyBuffers: integer,
         writableBuffers: integer,
@@ -250,7 +252,8 @@ end
 
 function gpu.Context.compileGenerated(
     borrows self: gpu.Context,
-    source: string,
+    spirv: string,
+    msl: string,
     entrypoint: string,
     readonlyBuffers: integer,
     writableBuffers: integer,
@@ -269,8 +272,10 @@ function gpu.Context.compileGenerated(
     end
     local handle = C.nuppGpuKernelCreate(
         live(self),
-        source,
-        #source,
+        spirv,
+        #spirv,
+        msl,
+        #msl,
         entrypoint,
         #entrypoint,
         readonlyBuffers,

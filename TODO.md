@@ -12,15 +12,6 @@ A living list, not a design record. Items are removed when completed.
       has no API and the file location varies by distribution.
 ## GPU compute
 
-- [ ] **Decide the GPU test-device policy.** NEP 25 requires it before
-      Accepted: either a pinned software Vulkan implementation becomes the
-      conformance device on headless runners, or the exclusion is named and
-      deliberate. Everything below lands suites behind this decision.
-- [ ] **Emit SPIR-V and derive MSL.** The largest single work item: a binary
-      SPIR-V emitter with structured control flow from the verified IR, plus a
-      pinned SPIRV-Cross build. On Metal, "precompiled" still means MSL source
-      compiled at pipeline creation unless the Apple toolchain exception is
-      taken; name whichever is chosen.
 - [ ] **Propose structured workgroup phases.** Its own NEP: statically sized
       workgroup scratch, stages whose boundaries are the barriers, writes
       structurally disjoint by `shared[localIndex]`, CPU meaning = stages run

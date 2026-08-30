@@ -13003,6 +13003,9 @@ append (
 lines ,
 "    local compiled = context:compileGenerated(" .. string . format (
 "%q" ,
+artifact . spirv
+) .. ", " .. string . format (
+"%q" ,
 artifact . source
 ) .. ", " .. string . format (
 "%q" ,
@@ -13076,10 +13079,12 @@ _G.assert(_G.loadstring("local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppM
 
 
 local scalarIR = require ( "nupp.compiler.aot.scalar" )
+local spirvemit = require ( "nupp.compiler.aot.spirvemit" )
 
 local gpuemit = { }
 
 gpuemit.Artifact = {} gpuemit.Artifact.__index = gpuemit.Artifact
+
 
 
 
@@ -13484,14 +13489,18 @@ line ( 1 , "if (dispatch_index >= uniforms.count) return;" )
 statements ( loop . statements , 1 )
 line ( 0 , "}" )
 
+local threads = 256
+local spirv = spirvemit . program ( program , readonly , writable , uniforms , threads )
+
 return setmetatable({ source =
-table . concat ( lines , "\n" ) .. "\n" ,  entrypoint =
+spirvemit . deriveMsl ( spirv ) ,  spirv =
+spirv ,  entrypoint =
 identifier ( program . symbol ) .. "_gpu" ,  readonly =
 readonly ,  writable =
 writable ,  uniforms =
 uniforms ,  uniformBytes =
 uniformBytes ,  threads =
-256 ,  countSpan =
+threads ,  countSpan =
 loop . count ,  exactCounts =
 exactCounts }, gpuemit.Artifact)
 
@@ -24905,6 +24914,1092 @@ end
 
 const __nuppExportValue= specialize ;__nuppExports=__nuppExportValue
  end);if not __nuppOk then package.loaded["nupp.compiler.aot.specialize"]=nil;error(__nuppWhy,0) end;package.loaded["nupp.compiler.aot.specialize"]=__nuppExports;return __nuppExports
+end
+package.preload["nupp.compiler.aot.spirvemit"] = function(...)
+_G.assert(_G.loadstring("local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppMath=rawget(__nupp,\"math\")or{};rawset(__nupp,\"math\",__nuppMath) local function __nuppCloseFile(handle)if io.type(handle)==\"closed file\"then return end;local ok,reason=handle:close();if not ok then error(reason or \"the file could not be closed\",0)end end local __nuppManagedBrand=_G.__nuppManagedBrand if not __nuppManagedBrand then __nuppManagedBrand={};_G.__nuppManagedBrand=__nuppManagedBrand end local __nuppManagedCells=_G.__nuppManagedCells if not __nuppManagedCells then __nuppManagedCells=setmetatable({},{__mode=\"k\"});_G.__nuppManagedCells=__nuppManagedCells end local __nuppManagedOwner={};__nuppManagedOwner.__index=__nuppManagedOwner;local __nuppManagedAlias={};__nuppManagedAlias.__index=__nuppManagedAlias local function __nuppManagedError(code,message)return{code=code,message=message}end local function __nuppManagedProblem(cell) if type(cell)~=\"table\"or cell._brand~=__nuppManagedBrand then return __nuppManagedError(\"NUPP2614\",\"value is not a managed alias\")end if cell._state==\"taken\"then return __nuppManagedError(\"NUPP2614\",\"managed ownership was already taken\")end if cell._state==\"closed\"or cell._state==\"closing\"then return __nuppManagedError(\"NUPP2614\",\"managed resource is closed\")end return nil end local function __nuppManagedClose(cell,checked) local problem=__nuppManagedProblem(cell);if problem then if checked then return problem end;return nil end if cell._borrows~=0 or cell._exclusive then local busy=__nuppManagedError(\"NUPP2620\",\"managed resource has an active borrow\");if checked then return busy end;error(busy.message,0)end cell._state=\"closing\";local value,cleanup=cell._value,cell._cleanup;cell._value=nil;cell._cleanup=nil local ok,reason=pcall(cleanup,value);cell._state=\"closed\";if not ok then error(reason,0)end;return nil end function __nuppManagedOwner:alias()return setmetatable({_cell=self,_brand=__nuppManagedBrand},__nuppManagedAlias)end function __nuppManagedOwner:close()return __nuppManagedClose(self,false)end local function __nuppAliasCell(self) if type(self)~=\"table\"or self._brand~=__nuppManagedBrand or getmetatable(self)~=__nuppManagedAlias then return nil,__nuppManagedError(\"NUPP2614\",\"value is not a managed alias\")end local cell=self._cell;local problem=__nuppManagedProblem(cell);if problem then return nil,problem end;return cell,nil end function __nuppManagedAlias:with(callback) local cell,problem=__nuppAliasCell(self);if not cell then return nil,problem end if cell._exclusive then return nil,__nuppManagedError(\"NUPP2620\",\"managed resource is exclusively borrowed\")end cell._borrows=cell._borrows+1;cell._state=\"shared-borrowed(\"..cell._borrows..\")\" local ok,result=pcall(callback,cell._value);cell._borrows=cell._borrows-1;cell._state=cell._borrows>0 and(\"shared-borrowed(\"..cell._borrows..\")\")or\"live\" if not ok then error(result,0)end;return result,nil end function __nuppManagedAlias:withExclusive(callback) local cell,problem=__nuppAliasCell(self);if not cell then return nil,problem end if cell._exclusive or cell._borrows~=0 then return nil,__nuppManagedError(\"NUPP2620\",\"managed resource is already borrowed\")end cell._exclusive=true;cell._state=\"exclusive-borrowed\";local ok,result=pcall(callback,cell._value);cell._exclusive=false;cell._state=\"live\" if not ok then error(result,0)end;return result,nil end function __nuppManagedAlias:take() local cell,problem=__nuppAliasCell(self);if not cell then return nil,problem end if cell._exclusive or cell._borrows~=0 then return nil,__nuppManagedError(\"NUPP2620\",\"managed resource has an active borrow\")end cell._state=\"taken\";local value=cell._value;cell._value=nil;cell._cleanup=nil;return value,nil end function __nuppManagedAlias:close() local cell,problem=__nuppAliasCell(self);if not cell then return problem end;return __nuppManagedClose(cell,true)end function __nuppManagedAlias:_downcast(policy) local cell,problem=__nuppAliasCell(self);if not cell then return nil,problem end if cell._policy~=policy then return nil,__nuppManagedError(\"NUPP2613\",\"managed alias has the wrong type or cleanup policy\")end return self,nil end function __nupp.__manage(value,cleanup,policy) local cell=setmetatable({_brand=__nuppManagedBrand,_value=value,_cleanup=cleanup,_policy=policy,_state=\"live\",_borrows=0,_exclusive=false},__nuppManagedOwner);__nuppManagedCells[cell]=true;return cell end function __nupp.__recoverAlias(value) if type(value)~=\"table\"or value._brand~=__nuppManagedBrand or getmetatable(value)~=__nuppManagedAlias then return nil,__nuppManagedError(\"NUPP2614\",\"value is not a managed alias\")end local cell,problem=__nuppAliasCell(value);if not cell then return nil,problem end;return value,nil end _G.__nuppManagedPolicyCount=function(policy)local count=0;for cell in pairs(__nuppManagedCells)do if cell._policy==policy and(cell._state==\"live\"or cell._state:match(\"borrowed\"))then count=count+1 end end;return count end local __nuppManagedGroup={};__nuppManagedGroup.__index=__nuppManagedGroup function __nuppManagedGroup:flush()end function __nuppManagedGroup:adopt(cell) if self._closed then error(\"managed group is closed\",2)end local handle=cell:alias();self._entries[#self._entries+1]=handle return handle end function __nuppManagedGroup:remove(handle) if self._closed then error(\"managed group is closed\",2)end for index=#self._entries,1,-1 do if self._entries[index]==handle then table.remove(self._entries,index);local value,problem=handle:take();if problem then error(problem.message,2)end;return value end end error(\"managed alias is not registered in this group\",2) end local function __nuppManagedCloseEntry(entry)local problem=entry:close();if problem and problem.code~=\"NUPP2614\"then error(problem.message,0)end end function __nuppManagedGroup:close() if self._closed then return end;self._closed=true;local first,suppressed=nil,0 for index=#self._entries,1,-1 do local ok,reason=pcall(__nuppManagedCloseEntry,self._entries[index]);if not ok then if first==nil then first=reason else suppressed=suppressed+1 end end end self._entries={};if first~=nil then if suppressed>0 then error(tostring(first)..\" (suppressed \"..tostring(suppressed)..\" cleanup failure(s))\",0)end;error(first,0)end end function __nupp.managedGroup()return setmetatable({_entries={},_closed=false},__nuppManagedGroup)end;\n","@nupp-prelude"))();local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppMath=rawget(__nupp,"math")or{};rawset(__nupp,"math",__nuppMath) local function __nuppCloseFile(handle)if io.type(handle)=="closed file"then return end;local ok,reason=handle:close();if not ok then error(reason or "the file could not be closed",0)end end local __nuppManagedBrand=_G.__nuppManagedBrand if not __nuppManagedBrand then __nuppManagedBrand={};_G.__nuppManagedBrand=__nuppManagedBrand end local __nuppManagedCells=_G.__nuppManagedCells if not __nuppManagedCells then __nuppManagedCells=setmetatable({},{__mode="k"});_G.__nuppManagedCells=__nuppManagedCells end local __nuppManagedOwner={};__nuppManagedOwner.__index=__nuppManagedOwner;local __nuppManagedAlias={};__nuppManagedAlias.__index=__nuppManagedAlias local function __nuppManagedError(code,message)return{code=code,message=message}end local function __nuppManagedProblem(cell) if type(cell)~="table"or cell._brand~=__nuppManagedBrand then return __nuppManagedError("NUPP2614","value is not a managed alias")end if cell._state=="taken"then return __nuppManagedError("NUPP2614","managed ownership was already taken")end if cell._state=="closed"or cell._state=="closing"then return __nuppManagedError("NUPP2614","managed resource is closed")end return nil end local function __nuppManagedClose(cell,checked) local problem=__nuppManagedProblem(cell);if problem then if checked then return problem end;return nil end if cell._borrows~=0 or cell._exclusive then local busy=__nuppManagedError("NUPP2620","managed resource has an active borrow");if checked then return busy end;error(busy.message,0)end cell._state="closing";local value,cleanup=cell._value,cell._cleanup;cell._value=nil;cell._cleanup=nil local ok,reason=pcall(cleanup,value);cell._state="closed";if not ok then error(reason,0)end;return nil end function __nuppManagedOwner:alias()return setmetatable({_cell=self,_brand=__nuppManagedBrand},__nuppManagedAlias)end function __nuppManagedOwner:close()return __nuppManagedClose(self,false)end local function __nuppAliasCell(self) if type(self)~="table"or self._brand~=__nuppManagedBrand or getmetatable(self)~=__nuppManagedAlias then return nil,__nuppManagedError("NUPP2614","value is not a managed alias")end local cell=self._cell;local problem=__nuppManagedProblem(cell);if problem then return nil,problem end;return cell,nil end function __nuppManagedAlias:with(callback) local cell,problem=__nuppAliasCell(self);if not cell then return nil,problem end if cell._exclusive then return nil,__nuppManagedError("NUPP2620","managed resource is exclusively borrowed")end cell._borrows=cell._borrows+1;cell._state="shared-borrowed("..cell._borrows..")" local ok,result=pcall(callback,cell._value);cell._borrows=cell._borrows-1;cell._state=cell._borrows>0 and("shared-borrowed("..cell._borrows..")")or"live" if not ok then error(result,0)end;return result,nil end function __nuppManagedAlias:withExclusive(callback) local cell,problem=__nuppAliasCell(self);if not cell then return nil,problem end if cell._exclusive or cell._borrows~=0 then return nil,__nuppManagedError("NUPP2620","managed resource is already borrowed")end cell._exclusive=true;cell._state="exclusive-borrowed";local ok,result=pcall(callback,cell._value);cell._exclusive=false;cell._state="live" if not ok then error(result,0)end;return result,nil end function __nuppManagedAlias:take() local cell,problem=__nuppAliasCell(self);if not cell then return nil,problem end if cell._exclusive or cell._borrows~=0 then return nil,__nuppManagedError("NUPP2620","managed resource has an active borrow")end cell._state="taken";local value=cell._value;cell._value=nil;cell._cleanup=nil;return value,nil end function __nuppManagedAlias:close() local cell,problem=__nuppAliasCell(self);if not cell then return problem end;return __nuppManagedClose(cell,true)end function __nuppManagedAlias:_downcast(policy) local cell,problem=__nuppAliasCell(self);if not cell then return nil,problem end if cell._policy~=policy then return nil,__nuppManagedError("NUPP2613","managed alias has the wrong type or cleanup policy")end return self,nil end function __nupp.__manage(value,cleanup,policy) local cell=setmetatable({_brand=__nuppManagedBrand,_value=value,_cleanup=cleanup,_policy=policy,_state="live",_borrows=0,_exclusive=false},__nuppManagedOwner);__nuppManagedCells[cell]=true;return cell end function __nupp.__recoverAlias(value) if type(value)~="table"or value._brand~=__nuppManagedBrand or getmetatable(value)~=__nuppManagedAlias then return nil,__nuppManagedError("NUPP2614","value is not a managed alias")end local cell,problem=__nuppAliasCell(value);if not cell then return nil,problem end;return value,nil end _G.__nuppManagedPolicyCount=function(policy)local count=0;for cell in pairs(__nuppManagedCells)do if cell._policy==policy and(cell._state=="live"or cell._state:match("borrowed"))then count=count+1 end end;return count end local __nuppManagedGroup={};__nuppManagedGroup.__index=__nuppManagedGroup function __nuppManagedGroup:flush()end function __nuppManagedGroup:adopt(cell) if self._closed then error("managed group is closed",2)end local handle=cell:alias();self._entries[#self._entries+1]=handle return handle end function __nuppManagedGroup:remove(handle) if self._closed then error("managed group is closed",2)end for index=#self._entries,1,-1 do if self._entries[index]==handle then table.remove(self._entries,index);local value,problem=handle:take();if problem then error(problem.message,2)end;return value end end error("managed alias is not registered in this group",2) end local function __nuppManagedCloseEntry(entry)local problem=entry:close();if problem and problem.code~="NUPP2614"then error(problem.message,0)end end function __nuppManagedGroup:close() if self._closed then return end;self._closed=true;local first,suppressed=nil,0 for index=#self._entries,1,-1 do local ok,reason=pcall(__nuppManagedCloseEntry,self._entries[index]);if not ok then if first==nil then first=reason else suppressed=suppressed+1 end end end self._entries={};if first~=nil then if suppressed>0 then error(tostring(first).." (suppressed "..tostring(suppressed).." cleanup failure(s))",0)end;error(first,0)end end function __nupp.managedGroup()return setmetatable({_entries={},_closed=false},__nuppManagedGroup)end;local __nuppExports;local __nuppOk,__nuppWhy=pcall(function()
+
+
+
+
+
+
+
+
+
+
+local scalarIR = require ( "nupp.compiler.aot.scalar" )
+local envMod = require ( "nupp.compiler.env" )
+local fs = require ( "nupp.compiler.fs" )
+local process = require ( "nupp.compiler.build.process" )
+
+local spirv = { }
+
+local windows = package . config : sub ( 1 , 1 ) == "\\"
+
+
+const OP = {
+Name = 5 ,
+MemberName = 6 ,
+ExtInstImport = 11 ,
+ExtInst = 12 ,
+MemoryModel = 14 ,
+EntryPoint = 15 ,
+ExecutionMode = 16 ,
+Capability = 17 ,
+TypeVoid = 19 ,
+TypeBool = 20 ,
+TypeInt = 21 ,
+TypeFloat = 22 ,
+TypeVector = 23 ,
+TypeRuntimeArray = 29 ,
+TypeStruct = 30 ,
+TypePointer = 32 ,
+TypeFunction = 33 ,
+ConstantTrue = 41 ,
+ConstantFalse = 42 ,
+Constant = 43 ,
+ConstantComposite = 44 ,
+Function = 54 ,
+FunctionParameter = 55 ,
+FunctionEnd = 56 ,
+FunctionCall = 57 ,
+Variable = 59 ,
+Load = 61 ,
+Store = 62 ,
+AccessChain = 65 ,
+Decorate = 71 ,
+MemberDecorate = 72 ,
+CompositeConstruct = 80 ,
+CompositeExtract = 81 ,
+ConvertFToU = 109 ,
+ConvertFToS = 110 ,
+ConvertSToF = 111 ,
+ConvertUToF = 112 ,
+UConvert = 113 ,
+SConvert = 114 ,
+Bitcast = 124 ,
+IAdd = 128 ,
+FAdd = 129 ,
+ISub = 130 ,
+FSub = 131 ,
+IMul = 132 ,
+FMul = 133 ,
+UDiv = 134 ,
+FDiv = 136 ,
+UMod = 137 ,
+IsNan = 156 ,
+LogicalEqual = 164 ,
+LogicalNotEqual = 165 ,
+LogicalOr = 166 ,
+LogicalAnd = 167 ,
+LogicalNot = 168 ,
+Select = 169 ,
+IEqual = 170 ,
+INotEqual = 171 ,
+UGreaterThan = 172 ,
+SGreaterThan = 173 ,
+UGreaterThanEqual = 174 ,
+SGreaterThanEqual = 175 ,
+ULessThan = 176 ,
+SLessThan = 177 ,
+ULessThanEqual = 178 ,
+SLessThanEqual = 179 ,
+FOrdEqual = 180 ,
+FOrdNotEqual = 182 ,
+FOrdLessThan = 184 ,
+FOrdGreaterThan = 186 ,
+FOrdLessThanEqual = 188 ,
+FOrdGreaterThanEqual = 190 ,
+ShiftRightLogical = 194 ,
+ShiftRightArithmetic = 195 ,
+ShiftLeftLogical = 196 ,
+BitwiseOr = 197 ,
+BitwiseXor = 198 ,
+BitwiseAnd = 199 ,
+SelectionMerge = 247 ,
+LoopMerge = 246 ,
+Label = 248 ,
+Branch = 249 ,
+BranchConditional = 250 ,
+Return = 253 ,
+ReturnValue = 254 ,
+}
+
+const STORAGE = { Input = 1 , Uniform = 2 , Function = 7 , StorageBuffer = 12 }
+const DECORATION = {
+Block = 2 ,
+ArrayStride = 6 ,
+BuiltIn = 11 ,
+NonWritable = 24 ,
+Binding = 33 ,
+DescriptorSet = 34 ,
+Offset = 35 ,
+NoContraction = 42 ,
+}
+
+local function push ( into , values ) 
+for _ , value in ipairs ( values ) do
+into [ # into + 1 ] = value
+end
+end
+
+local function instruction ( into , opcode , operands ) 
+into [ # into + 1 ] = opcode + ( # operands + 1 ) * 65536
+push ( into , operands )
+end
+
+local function stringWords ( value ) 
+local bytes = value .. "\0"
+local out = { }
+local at = 1
+while at <= # bytes do
+local word = 0
+local scale = 1
+for offset = 0 , 3 do
+local byte = bytes : byte ( at + offset ) or 0
+word = word + byte * scale
+scale = scale * 256
+end
+out [ # out + 1 ] = word
+at = at + 4
+end
+
+return out
+end
+
+local function namedOperands ( prefix , name , suffix ) 
+local out = { }
+push ( out , prefix )
+push ( out , stringWords ( name ) )
+push ( out , suffix or { } )
+
+return out
+end
+
+local function wordBytes ( word ) 
+local b0 = word % 256
+local b1 = math . floor ( word / 256 ) % 256
+local b2 = math . floor ( word / 65536 ) % 256
+local b3 = math . floor ( word / 16777216 ) % 256
+
+return string . char ( b0 , b1 , b2 , b3 )
+end
+
+
+local function f32Bits ( value ) 
+if value ~= value then
+return 2143289344
+end
+local sign = 0
+if value < 0 or ( value == 0 and 1 / value < 0 ) then
+sign = 2147483648
+end
+local magnitude = math . abs ( value )
+if magnitude == math . huge then
+return ( sign + 2139095040 )
+elseif magnitude == 0 then
+return sign
+end
+
+local fraction , exponent = math . frexp ( magnitude )
+local biased = exponent + 126
+local mantissa
+if biased <= 0 then
+mantissa = magnitude / ( 2 ^ - 149 )
+biased = 0
+else
+mantissa = ( fraction * 2 - 1 ) * 8388608
+end
+local lower = math . floor ( mantissa )
+local remainder = mantissa - lower
+if remainder > 0.5 or ( remainder == 0.5 and lower % 2 == 1 ) then
+lower = lower + 1
+end
+if biased == 0 and lower >= 8388608 then
+biased = 1
+lower = 0
+elseif lower >= 8388608 then
+biased = biased + 1
+lower = 0
+end
+if biased >= 255 then
+return ( sign + 2139095040 )
+end
+
+return ( sign + biased * 8388608 + lower )
+end
+
+local function align ( value , alignment ) 
+return ( math . floor ( ( value + alignment - 1 ) / alignment ) * alignment )
+end
+
+local function physical ( type_ , sourceType ) 
+local stored = sourceType or type_
+if stored == "float" or type_ == "f32" then
+return "f32" , 4 , 4
+elseif stored == "int8" then
+return "i8" , 1 , 1
+elseif stored == "uint8" then
+return "u8" , 1 , 1
+elseif stored == "int16" then
+return "i16" , 2 , 2
+elseif stored == "uint16" then
+return "u16" , 2 , 2
+elseif stored == "int32" or type_ == "i32" then
+return "i32" , 4 , 4
+elseif stored == "uint32" or type_ == "u32" then
+return "u32" , 4 , 4
+end
+
+return type_ , 0 , 0
+end
+
+
+function spirv . program (
+program ,
+readonly ,
+writable ,
+uniforms ,
+threads
+) 
+local capabilities = { }
+local entry = { }
+local debug = { }
+local annotations = { }
+local declarations = { }
+local functions = { }
+local nextId = 1
+local function id ( ) 
+local answer = nextId
+nextId = nextId + 1
+return answer
+end
+
+local function name ( target , value ) 
+instruction ( debug , OP . Name , namedOperands ( { target } , value ) )
+end
+
+local function decorate ( target , decoration , values ) 
+local operands = { target , decoration }
+push ( operands , values or { } )
+instruction ( annotations , OP . Decorate , operands )
+end
+
+instruction ( capabilities , OP . Capability , { 1 } )
+local needs8 , needs16 = false , false
+for _ , layout in ipairs ( program . layouts or { } ) do
+for _ , field in ipairs ( layout . fields ) do
+local _ , size = physical ( field . type , field . sourceType )
+needs8 = needs8 or size == 1
+needs16 = needs16 or size == 2
+end
+end
+for _ , param in ipairs ( program . params ) do
+local _ , size = physical ( param . type , param . sourceType )
+needs8 = needs8 or size == 1
+needs16 = needs16 or size == 2
+end
+if needs8 then
+instruction ( capabilities , OP . Capability , { 39 } )
+instruction ( capabilities , OP . Capability , { 4448 } )
+end
+if needs16 then
+instruction ( capabilities , OP . Capability , { 22 } )
+instruction ( capabilities , OP . Capability , { 4433 } )
+end
+
+local ext = id ( )
+instruction ( capabilities , OP . ExtInstImport , namedOperands ( { ext } , "GLSL.std.450" ) )
+instruction ( capabilities , OP . MemoryModel , { 0 , 1 } )
+
+local types = { }
+local function scalarType ( key ) 
+local cached = types [ key ]
+if cached then
+return cached
+end
+local answer = id ( )
+types [ key ] = answer
+if key == "void" then
+instruction ( declarations , OP . TypeVoid , { answer } )
+elseif key == "bool" then
+instruction ( declarations , OP . TypeBool , { answer } )
+elseif key == "f32" then
+instruction ( declarations , OP . TypeFloat , { answer , 32 } )
+else
+local width = tonumber ( key : match ( "%d+" ) )
+local signed = key : sub ( 1 , 1 ) == "i" and 1 or 0
+instruction ( declarations , OP . TypeInt , { answer , width , signed } )
+end
+
+return answer
+end
+
+local voidType = scalarType ( "void" )
+local boolType = scalarType ( "bool" )
+local f32Type = scalarType ( "f32" )
+local i32Type = scalarType ( "i32" )
+local u32Type = scalarType ( "u32" )
+local vec2fType = id ( )
+instruction ( declarations , OP . TypeVector , { vec2fType , f32Type , 2 } )
+local vec3uType = id ( )
+instruction ( declarations , OP . TypeVector , { vec3uType , u32Type , 3 } )
+
+local function pointerType ( storage , pointee ) 
+local key = tostring ( storage ) .. ":" .. tostring ( pointee )
+local cached = types [ key ]
+if cached then
+return cached
+end
+local answer = id ( )
+types [ key ] = answer
+instruction ( declarations , OP . TypePointer , { answer , storage , pointee } )
+
+return answer
+end
+
+local function functionType ( result , params ) 
+local key = "fn:" .. tostring ( result ) .. ":" .. table . concat ( params , "," )
+local cached = types [ key ]
+if cached then
+return cached
+end
+local answer = id ( )
+types [ key ] = answer
+local operands = { answer , result }
+push ( operands , params )
+instruction ( declarations , OP . TypeFunction , operands )
+
+return answer
+end
+
+local constants = { }
+local function constant ( typeId , word ) 
+local key = tostring ( typeId ) .. ":" .. tostring ( word )
+local cached = constants [ key ]
+if cached then
+return cached
+end
+local answer = id ( )
+constants [ key ] = answer
+instruction ( declarations , OP . Constant , { typeId , answer , word } )
+
+return answer
+end
+
+local zeroU = constant ( u32Type , 0 )
+local oneU = constant ( u32Type , 1 )
+local canonicalNan = constant ( f32Type , 2143289344 )
+local falseId = id ( )
+instruction ( declarations , OP . ConstantFalse , { boolType , falseId } )
+local trueId = id ( )
+instruction ( declarations , OP . ConstantTrue , { boolType , trueId } )
+
+local layoutTypes = { }
+local layoutFields = { }
+local layoutStride = { }
+for _ , layout in ipairs ( program . layouts or { } ) do
+local members = { }
+local offsets = { }
+local byName = { }
+local offset = 0
+local largest = 1
+for index , field in ipairs ( layout . fields ) do
+local key , size , alignment = physical ( field . type , field . sourceType )
+assert ( size > 0 , "SPIR-V struct field must have fixed-width storage" )
+offset = align ( offset , alignment )
+offsets [ index ] = offset
+members [ index ] = scalarType ( key )
+byName [ field . name ] = index - 1
+offset = offset + size
+largest = math . max ( largest , alignment )
+end
+local typeId = id ( )
+local operands = { typeId }
+push ( operands , members )
+instruction ( declarations , OP . TypeStruct , operands )
+name ( typeId , layout . name )
+for index , field in ipairs ( layout . fields ) do
+instruction ( debug , OP . MemberName , namedOperands ( { typeId , index - 1 } , field . name ) )
+instruction ( annotations , OP . MemberDecorate , { typeId , index - 1 , DECORATION . Offset , offsets [ index ] } )
+end
+layoutTypes [ layout . name ] = typeId
+layoutFields [ layout . name ] = byName
+layoutStride [ layout . name ] = align ( offset , largest )
+end
+
+local uniformMembers = { u32Type }
+local uniformIndex = { count = 0 }
+local spans = { }
+for _ , param in ipairs ( readonly ) do
+spans [ # spans + 1 ] = param
+end
+for _ , param in ipairs ( writable ) do
+spans [ # spans + 1 ] = param
+end
+for _ , param in ipairs ( spans ) do
+uniformIndex [ param . name .. "_count" ] = # uniformMembers
+uniformMembers [ # uniformMembers + 1 ] = u32Type
+end
+for _ , param in ipairs ( uniforms ) do
+uniformIndex [ param . name ] = # uniformMembers
+uniformMembers [ # uniformMembers + 1 ] = scalarType ( param . type )
+end
+local uniformStruct = id ( )
+local uniformOperands = { uniformStruct }
+push ( uniformOperands , uniformMembers )
+instruction ( declarations , OP . TypeStruct , uniformOperands )
+name ( uniformStruct , "NuppUniforms" )
+decorate ( uniformStruct , DECORATION . Block )
+for index = 0 , # uniformMembers - 1 do
+instruction ( annotations , OP . MemberDecorate , { uniformStruct , index , DECORATION . Offset , index * 4 } )
+end
+local uniformPointer = pointerType ( STORAGE . Uniform , uniformStruct )
+local uniformsVar = id ( )
+instruction ( declarations , OP . Variable , { uniformPointer , uniformsVar , STORAGE . Uniform } )
+name ( uniformsVar , "uniforms" )
+decorate ( uniformsVar , DECORATION . DescriptorSet , { 2 } )
+decorate ( uniformsVar , DECORATION . Binding , { 0 } )
+
+local bufferVars = { }
+local bufferElement = { }
+local bufferPhysical = { }
+local function declareBuffer ( param , set , binding , readonlyBuffer ) 
+local key , size = physical ( param . type , param . sourceType )
+local element = layoutTypes [ param . type : match ( "^struct:(.+)$" ) or "" ] or scalarType ( key )
+local stride = layoutStride [ param . type : match ( "^struct:(.+)$" ) or "" ] or size
+assert ( stride > 0 , "SPIR-V span must have fixed-width storage" )
+local arrayType = id ( )
+instruction ( declarations , OP . TypeRuntimeArray , { arrayType , element } )
+decorate ( arrayType , DECORATION . ArrayStride , { stride } )
+local blockType = id ( )
+instruction ( declarations , OP . TypeStruct , { blockType , arrayType } )
+decorate ( blockType , DECORATION . Block )
+instruction ( annotations , OP . MemberDecorate , { blockType , 0 , DECORATION . Offset , 0 } )
+if readonlyBuffer then
+instruction ( annotations , OP . MemberDecorate , { blockType , 0 , DECORATION . NonWritable } )
+end
+local pointer = pointerType ( STORAGE . StorageBuffer , blockType )
+local variable = id ( )
+instruction ( declarations , OP . Variable , { pointer , variable , STORAGE . StorageBuffer } )
+name ( variable , param . name )
+decorate ( variable , DECORATION . DescriptorSet , { set } )
+decorate ( variable , DECORATION . Binding , { binding } )
+if readonlyBuffer then
+decorate ( variable , DECORATION . NonWritable )
+end
+bufferVars [ param . name ] = variable
+bufferElement [ param . name ] = element
+bufferPhysical [ param . name ] = key
+end
+
+for index , param in ipairs ( readonly ) do
+declareBuffer ( param , 0 , index - 1 , true )
+end
+for index , param in ipairs ( writable ) do
+declareBuffer ( param , 1 , index - 1 , false )
+end
+
+local globalPointer = pointerType ( STORAGE . Input , vec3uType )
+local globalId = id ( )
+instruction ( declarations , OP . Variable , { globalPointer , globalId , STORAGE . Input } )
+name ( globalId , "global_invocation_id" )
+decorate ( globalId , DECORATION . BuiltIn , { 28 } )
+
+local fnVoid = functionType ( voidType , { } )
+local fnU32U32 = functionType ( u32Type , { u32Type , u32Type } )
+local fnFma = functionType ( f32Type , { f32Type , f32Type , f32Type } )
+local fnF32 = functionType ( f32Type , { f32Type } )
+local fnF32FromU32 = functionType ( f32Type , { u32Type } )
+
+local function safeUnsigned ( opcode , helperName ) 
+local fn = id ( )
+name ( fn , helperName )
+instruction ( functions , OP . Function , { u32Type , fn , 0 , fnU32U32 } )
+local left , right = id ( ) , id ( )
+instruction ( functions , OP . FunctionParameter , { u32Type , left } )
+instruction ( functions , OP . FunctionParameter , { u32Type , right } )
+local first , zeroBlock , valueBlock , merge = id ( ) , id ( ) , id ( ) , id ( )
+instruction ( functions , OP . Label , { first } )
+local isZero = id ( )
+instruction ( functions , OP . IEqual , { boolType , isZero , right , zeroU } )
+instruction ( functions , OP . SelectionMerge , { merge , 0 } )
+instruction ( functions , OP . BranchConditional , { isZero , zeroBlock , valueBlock } )
+instruction ( functions , OP . Label , { zeroBlock } )
+instruction ( functions , OP . ReturnValue , { zeroU } )
+instruction ( functions , OP . Label , { valueBlock } )
+local value = id ( )
+instruction ( functions , opcode , { u32Type , value , left , right } )
+instruction ( functions , OP . ReturnValue , { value } )
+instruction ( functions , OP . Label , { merge } )
+instruction ( functions , OP . ReturnValue , { zeroU } )
+instruction ( functions , OP . FunctionEnd , { } )
+
+return fn
+end
+
+local divFn = safeUnsigned ( OP . UDiv , "nupp_u32_div" )
+local modFn = safeUnsigned ( OP . UMod , "nupp_u32_mod" )
+
+local fmaFn = id ( )
+name ( fmaFn , "nupp_f32_fma" )
+instruction ( functions , OP . Function , { f32Type , fmaFn , 0 , fnFma } )
+local fa , fb , fc = id ( ) , id ( ) , id ( )
+instruction ( functions , OP . FunctionParameter , { f32Type , fa } )
+instruction ( functions , OP . FunctionParameter , { f32Type , fb } )
+instruction ( functions , OP . FunctionParameter , { f32Type , fc } )
+local fmaLabel = id ( )
+instruction ( functions , OP . Label , { fmaLabel } )
+local fused = id ( )
+instruction ( functions , OP . ExtInst , { f32Type , fused , ext , 50 , fa , fb , fc } )
+local fusedNan = id ( )
+instruction ( functions , OP . IsNan , { boolType , fusedNan , fused } )
+local fusedOut = id ( )
+instruction ( functions , OP . Select , { f32Type , fusedOut , fusedNan , canonicalNan , fused } )
+instruction ( functions , OP . ReturnValue , { fusedOut } )
+instruction ( functions , OP . FunctionEnd , { } )
+
+local halfToFloatFn = id ( )
+name ( halfToFloatFn , "nupp_f16_to_f32" )
+instruction ( functions , OP . Function , { f32Type , halfToFloatFn , 0 , fnF32FromU32 } )
+local halfBits = id ( )
+instruction ( functions , OP . FunctionParameter , { u32Type , halfBits } )
+local halfLabel = id ( )
+instruction ( functions , OP . Label , { halfLabel } )
+local unpacked = id ( )
+instruction ( functions , OP . ExtInst , { vec2fType , unpacked , ext , 62 , halfBits } )
+local unpackedLow = id ( )
+instruction ( functions , OP . CompositeExtract , { f32Type , unpackedLow , unpacked , 0 } )
+local unpackedNan = id ( )
+instruction ( functions , OP . IsNan , { boolType , unpackedNan , unpackedLow } )
+local unpackedOut = id ( )
+instruction ( functions , OP . Select , { f32Type , unpackedOut , unpackedNan , canonicalNan , unpackedLow } )
+instruction ( functions , OP . ReturnValue , { unpackedOut } )
+instruction ( functions , OP . FunctionEnd , { } )
+
+local floatToHalfFn = id ( )
+name ( floatToHalfFn , "nupp_f32_to_f16" )
+instruction ( functions , OP . Function , { u32Type , floatToHalfFn , 0 , fnF32 } )
+local floatValue = id ( )
+instruction ( functions , OP . FunctionParameter , { f32Type , floatValue } )
+local packLabel = id ( )
+instruction ( functions , OP . Label , { packLabel } )
+local valueNan = id ( )
+instruction ( functions , OP . IsNan , { boolType , valueNan , floatValue } )
+local canonicalValue = id ( )
+instruction ( functions , OP . Select , { f32Type , canonicalValue , valueNan , canonicalNan , floatValue } )
+local pair = id ( )
+instruction ( functions , OP . CompositeConstruct , { vec2fType , pair , canonicalValue , canonicalValue } )
+local packed = id ( )
+instruction ( functions , OP . ExtInst , { u32Type , packed , ext , 58 , pair } )
+local lowMask = constant ( u32Type , 65535 )
+local packedLow = id ( )
+instruction ( functions , OP . BitwiseAnd , { u32Type , packedLow , packed , lowMask } )
+instruction ( functions , OP . ReturnValue , { packedLow } )
+instruction ( functions , OP . FunctionEnd , { } )
+
+local sqrtFn = id ( )
+name ( sqrtFn , "nupp_f32_sqrt" )
+instruction ( functions , OP . Function , { f32Type , sqrtFn , 0 , fnF32 } )
+local sqrtValue = id ( )
+instruction ( functions , OP . FunctionParameter , { f32Type , sqrtValue } )
+local sqrtLabel = id ( )
+instruction ( functions , OP . Label , { sqrtLabel } )
+local sqrtOut = id ( )
+instruction ( functions , OP . ExtInst , { f32Type , sqrtOut , ext , 31 , sqrtValue } )
+instruction ( functions , OP . ReturnValue , { sqrtOut } )
+instruction ( functions , OP . FunctionEnd , { } )
+
+local main = id ( )
+local entryOperands = { 5 , main }
+push ( entryOperands , stringWords ( program . symbol .. "_gpu" ) )
+entryOperands [ # entryOperands + 1 ] = globalId
+instruction ( entry , OP . EntryPoint , entryOperands )
+instruction ( entry , OP . ExecutionMode , { main , 17 , threads , 1 , 1 } )
+name ( main , program . symbol .. "_gpu" )
+
+instruction ( functions , OP . Function , { voidType , main , 0 , fnVoid } )
+local mainLabel = id ( )
+instruction ( functions , OP . Label , { mainLabel } )
+
+local localPointers = { }
+local references = { }
+local function valueType ( type_ ) 
+if type_ : match ( "^ref:" ) then
+error ( "SPIR-V references do not have value types" , 0 )
+end
+return scalarType ( type_ == "f64" and "f32" or type_ )
+end
+
+local function collect ( statements ) 
+for _ , statement in ipairs ( statements ) do
+if statement . op == "let" and not statement . type : match ( "^ref:" ) then
+local pointer = id ( )
+localPointers [ statement . cName ] = pointer
+instruction ( functions , OP . Variable , {
+pointerType ( STORAGE . Function , valueType ( statement . type ) ) ,
+pointer ,
+STORAGE . Function
+} )
+name ( pointer , statement . cName )
+elseif statement . op == "while" or statement . op == "block" then
+collect ( statement . body )
+elseif statement . op == "if" then
+for _ , clause in ipairs ( statement . clauses ) do
+collect ( clause . body )
+end
+collect ( statement . elseBody or { } )
+end
+end
+end
+
+local loop = program . loop
+collect ( loop . statements )
+
+local loadedGlobal = id ( )
+instruction ( functions , OP . Load , { vec3uType , loadedGlobal , globalId } )
+local dispatch = id ( )
+instruction ( functions , OP . CompositeExtract , { u32Type , dispatch , loadedGlobal , 0 } )
+
+local function uniform ( name_ , typeId ) 
+local member = constant ( u32Type , uniformIndex [ name_ ] )
+local pointer = id ( )
+instruction ( functions , OP . AccessChain , { pointerType ( STORAGE . Uniform , typeId ) , pointer , uniformsVar , member } )
+local loaded = id ( )
+instruction ( functions , OP . Load , { typeId , loaded , pointer } )
+
+return loaded
+end
+
+local count = uniform ( "count" , u32Type )
+local inRange = id ( )
+instruction ( functions , OP . ULessThan , { boolType , inRange , dispatch , count } )
+local bodyLabel , returnLabel , entryMerge = id ( ) , id ( ) , id ( )
+instruction ( functions , OP . SelectionMerge , { entryMerge , 0 } )
+instruction ( functions , OP . BranchConditional , { inRange , bodyLabel , returnLabel } )
+instruction ( functions , OP . Label , { returnLabel } )
+instruction ( functions , OP . Return , { } )
+instruction ( functions , OP . Label , { bodyLabel } )
+
+local currentBreak = { }
+local currentContinue = { }
+local terminated = false
+local expression
+local function bufferPointer ( value ) 
+local indexId = dispatch
+if value . cursor ~= nil then
+local pointer = assert ( localPointers [ value . cursorCName ] )
+indexId = id ( )
+instruction ( functions , OP . Load , { u32Type , indexId , pointer } )
+end
+local element = assert ( bufferElement [ value . span ] )
+local pointer = id ( )
+instruction ( functions , OP . AccessChain , {
+pointerType ( STORAGE . StorageBuffer , element ) ,
+pointer ,
+assert ( bufferVars [ value . span ] ) ,
+zeroU ,
+indexId
+} )
+
+return pointer , element
+end
+
+expression = function ( value ) 
+local op = value . op
+if op == "local" then
+if value . type : match ( "^ref:" ) then
+return assert ( references [ value . cName or value . name ] ) , layoutTypes [ value . type : match ( "^ref:(.+)$" ) ] or 0
+end
+local pointer = assert ( localPointers [ value . cName or value . name ] )
+local typeId = valueType ( value . type )
+local loaded = id ( )
+instruction ( functions , OP . Load , { typeId , loaded , pointer } )
+return loaded , typeId
+elseif op == "uniform" then
+local typeId = valueType ( value . type )
+return uniform ( value . name , typeId ) , typeId
+elseif op == "loop_index" then
+local result = id ( )
+instruction ( functions , OP . IAdd , { u32Type , result , dispatch , oneU } )
+return result , u32Type
+elseif op == "span_count" then
+return uniform ( value . span .. "_count" , u32Type ) , u32Type
+elseif op == "element_ref" then
+return bufferPointer ( value )
+elseif op == "load" then
+local pointer , storedType = bufferPointer ( value )
+local loaded = id ( )
+instruction ( functions , OP . Load , { storedType , loaded , pointer } )
+local expected = valueType ( value . type )
+if storedType ~= expected then
+local converted = id ( )
+local conversion = bufferPhysical [ value . span ] : sub ( 1 , 1 ) == "i" and OP . SConvert or OP . UConvert
+instruction ( functions , conversion , { expected , converted , loaded } )
+return converted , expected
+end
+return loaded , storedType
+elseif op == "field_load" then
+local object = expression ( value . object )
+local fieldIndex = assert ( assert ( layoutFields [ value . layout ] ) [ value . field ] )
+local storedKey = physical ( value . type , value . sourceType )
+local storedType = scalarType ( storedKey )
+local member = constant ( u32Type , fieldIndex )
+local pointer = id ( )
+instruction ( functions , OP . AccessChain , {
+pointerType ( STORAGE . StorageBuffer , storedType ) ,
+pointer ,
+object ,
+member
+} )
+local loaded = id ( )
+instruction ( functions , OP . Load , { storedType , loaded , pointer } )
+local expected = valueType ( value . type )
+if storedType ~= expected then
+local converted = id ( )
+instruction ( functions , storedKey : sub ( 1 , 1 ) == "i" and OP . SConvert or OP . UConvert , {
+expected ,
+converted ,
+loaded
+} )
+return converted , expected
+end
+return loaded , storedType
+elseif op == "constant" then
+return constant ( f32Type , f32Bits ( assert ( tonumber ( value . value ) ) ) ) , f32Type
+elseif op == "constant_i32" then
+local typeId = valueType ( value . type )
+local numeric = assert ( tonumber ( value . value ) )
+if numeric < 0 then
+numeric = numeric + 4294967296
+end
+return constant ( typeId , numeric ) , typeId
+elseif op == "bool" then
+return value . value and trueId or falseId , boolType
+elseif op == "int_to_f64" or op == "widen_f32_f64" then
+return expression ( value . value )
+elseif op == "narrow_f64_f32" then
+local input , inputType = expression ( value . value )
+if inputType == f32Type then
+return input , f32Type
+end
+local converted = id ( )
+instruction ( functions , OP . FConvert , { f32Type , converted , input } )
+return converted , f32Type
+elseif op == "numeric_cast" then
+local input , inputType = expression ( value . value )
+local outputType = valueType ( value . type )
+if inputType == outputType then
+return input , outputType
+end
+local converted = id ( )
+local opcode = outputType == u32Type and (
+inputType == f32Type and OP . ConvertFToU or OP . UConvert
+) or outputType == i32Type and (
+inputType == f32Type and OP . ConvertFToS or OP . SConvert
+) or outputType == f32Type and ( inputType == i32Type and OP . ConvertSToF or OP . ConvertUToF ) or OP . Bitcast
+instruction ( functions , opcode , { outputType , converted , input } )
+return converted , outputType
+elseif op == "u32_div" or op == "u32_mod" then
+local left = expression ( value . left )
+local right = expression ( value . right )
+local result = id ( )
+instruction ( functions , OP . FunctionCall , { u32Type , result , op == "u32_div" and divFn or modFn , left , right } )
+return result , u32Type
+elseif op == "f32_fma" then
+local a = expression ( value . args [ 1 ] )
+local b = expression ( value . args [ 2 ] )
+local c = expression ( value . args [ 3 ] )
+local result = id ( )
+instruction ( functions , OP . FunctionCall , { f32Type , result , fmaFn , a , b , c } )
+return result , f32Type
+elseif op == "f16_to_f32" or op == "f32_to_f16" or op == "f32_sqrt" then
+local input = expression ( value . value )
+local resultType = op == "f32_to_f16" and u32Type or f32Type
+local helper = op == "f16_to_f32" and halfToFloatFn or op == "f32_to_f16" and floatToHalfFn or sqrtFn
+local result = id ( )
+instruction ( functions , OP . FunctionCall , { resultType , result , helper , input } )
+return result , resultType
+elseif op == "neg" or op == "not" or op == "bnot" or op == "u32_not" then
+local input , typeId = expression ( value . value )
+local result = id ( )
+if op == "not" then
+instruction ( functions , OP . LogicalNot , { boolType , result , input } )
+return result , boolType
+elseif op == "neg" then
+local zero = constant ( typeId , 0 )
+instruction ( functions , typeId == f32Type and OP . FSub or OP . ISub , { typeId , result , zero , input } )
+else
+local all = constant ( typeId , 4294967295 )
+instruction ( functions , OP . BitwiseXor , { typeId , result , input , all } )
+end
+return result , typeId
+end
+
+local left , leftType = expression ( value . left )
+local right = expression ( value . right )
+local resultType = valueType ( value . type )
+local opcode = (
+{
+f32_add = OP . FAdd ,
+f32_sub = OP . FSub ,
+f32_mul = OP . FMul ,
+f32_div = OP . FDiv ,
+i32_add = OP . IAdd ,
+i32_sub = OP . ISub ,
+i32_mul = OP . IMul ,
+u32_add = OP . IAdd ,
+u32_sub = OP . ISub ,
+u32_mul = OP . IMul ,
+u32_and = OP . BitwiseAnd ,
+u32_or = OP . BitwiseOr ,
+u32_xor = OP . BitwiseXor ,
+u32_shl = OP . ShiftLeftLogical ,
+u32_shr = OP . ShiftRightLogical ,
+add = leftType == f32Type and OP . FAdd or OP . IAdd ,
+sub = leftType == f32Type and OP . FSub or OP . ISub ,
+mul = leftType == f32Type and OP . FMul or OP . IMul ,
+div = leftType == f32Type and OP . FDiv or OP . UDiv ,
+mod = OP . UMod ,
+band = OP . BitwiseAnd ,
+bor = OP . BitwiseOr ,
+bxor = OP . BitwiseXor ,
+lshift = OP . ShiftLeftLogical ,
+rshift = OP . ShiftRightLogical ,
+arshift = OP . ShiftRightArithmetic ,
+[ "and" ] = OP . LogicalAnd ,
+[ "or" ] = OP . LogicalOr ,
+}
+) [ op ]
+if not opcode then
+local floatCompare = {
+eq = OP . FOrdEqual ,
+ne = OP . FOrdNotEqual ,
+lt = OP . FOrdLessThan ,
+le = OP . FOrdLessThanEqual ,
+gt = OP . FOrdGreaterThan ,
+ge = OP . FOrdGreaterThanEqual
+}
+local unsignedCompare = {
+eq = OP . IEqual ,
+ne = OP . INotEqual ,
+lt = OP . ULessThan ,
+le = OP . ULessThanEqual ,
+gt = OP . UGreaterThan ,
+ge = OP . UGreaterThanEqual
+}
+local signedCompare = {
+eq = OP . IEqual ,
+ne = OP . INotEqual ,
+lt = OP . SLessThan ,
+le = OP . SLessThanEqual ,
+gt = OP . SGreaterThan ,
+ge = OP . SGreaterThanEqual
+}
+opcode = (
+leftType == f32Type and floatCompare or leftType == i32Type and signedCompare or unsignedCompare
+) [ op ]
+end
+assert ( opcode ~= nil , "SPIR-V subset does not emit expression " .. tostring ( op ) )
+local result = id ( )
+instruction ( functions , opcode , { resultType , result , left , right } )
+if opcode == OP . FAdd or opcode == OP . FSub or opcode == OP . FMul then
+decorate ( result , DECORATION . NoContraction )
+end
+
+return result , resultType
+end
+
+local statements
+statements = function ( values ) 
+for _ , statement in ipairs ( values ) do
+if terminated then
+return
+end
+local op = statement . op
+if op == "let" then
+if statement . type : match ( "^ref:" ) then
+references [ statement . cName ] = bufferPointer ( statement . value )
+else
+local value = expression ( statement . value )
+instruction ( functions , OP . Store , { assert ( localPointers [ statement . cName ] ) , value } )
+end
+elseif op == "assign" then
+assert ( # statement . values == 1 , "SPIR-V subset does not emit parallel assignment" )
+local assignment = statement . values [ 1 ]
+local value = expression ( assignment . value )
+if assignment . target . kind == "local" then
+instruction ( functions , OP . Store , {
+assert ( localPointers [ assignment . target . cName or assignment . target . name ] ) ,
+value
+} )
+elseif assignment . target . kind == "field" then
+local object = expression ( assignment . target . object )
+local fieldIndex = assert ( assert ( layoutFields [ assignment . target . layout ] ) [ assignment . target . field ] )
+local storedKey = physical ( assignment . target . type , assignment . target . sourceType )
+local storedType = scalarType ( storedKey )
+local member = constant ( u32Type , fieldIndex )
+local pointer = id ( )
+instruction ( functions , OP . AccessChain , {
+pointerType ( STORAGE . StorageBuffer , storedType ) ,
+pointer ,
+object ,
+member
+} )
+local expected = valueType ( assignment . target . type )
+if expected ~= storedType then
+local narrowed = id ( )
+instruction ( functions , storedKey : sub ( 1 , 1 ) == "i" and OP . SConvert or OP . UConvert , {
+storedType ,
+narrowed ,
+value
+} )
+value = narrowed
+end
+instruction ( functions , OP . Store , { pointer , value } )
+else
+error ( "SPIR-V subset does not emit assignment target " .. tostring ( assignment . target . kind ) , 0 )
+end
+elseif op == "store" then
+local pointer , storedType = bufferPointer ( statement )
+local value , valueTypeId = expression ( statement . value )
+if storedType ~= valueTypeId then
+local narrowed = id ( )
+local storedKey = bufferPhysical [ statement . span ]
+instruction ( functions , storedKey : sub ( 1 , 1 ) == "i" and OP . SConvert or OP . UConvert , {
+storedType ,
+narrowed ,
+value
+} )
+value = narrowed
+end
+instruction ( functions , OP . Store , { pointer , value } )
+elseif op == "if" then
+local merge = id ( )
+for index , clause in ipairs ( statement . clauses ) do
+local yes = id ( )
+local no = id ( )
+local condition = expression ( clause . condition )
+instruction ( functions , OP . SelectionMerge , { merge , 0 } )
+instruction ( functions , OP . BranchConditional , { condition , yes , no } )
+instruction ( functions , OP . Label , { yes } )
+terminated = false
+statements ( clause . body )
+if not terminated then
+instruction ( functions , OP . Branch , { merge } )
+end
+instruction ( functions , OP . Label , { no } )
+terminated = false
+if index == # statement . clauses then
+statements ( statement . elseBody or { } )
+if not terminated then
+instruction ( functions , OP . Branch , { merge } )
+end
+end
+end
+instruction ( functions , OP . Label , { merge } )
+terminated = false
+elseif op == "while" then
+local header , body , continuing , merge = id ( ) , id ( ) , id ( ) , id ( )
+instruction ( functions , OP . Branch , { header } )
+instruction ( functions , OP . Label , { header } )
+instruction ( functions , OP . LoopMerge , { merge , continuing , 0 } )
+local condition = expression ( statement . condition )
+instruction ( functions , OP . BranchConditional , { condition , body , merge } )
+instruction ( functions , OP . Label , { body } )
+currentBreak [ # currentBreak + 1 ] = merge
+currentContinue [ # currentContinue + 1 ] = continuing
+terminated = false
+statements ( statement . body )
+currentBreak [ # currentBreak ] = nil
+currentContinue [ # currentContinue ] = nil
+if not terminated then
+instruction ( functions , OP . Branch , { continuing } )
+end
+instruction ( functions , OP . Label , { continuing } )
+instruction ( functions , OP . Branch , { header } )
+instruction ( functions , OP . Label , { merge } )
+terminated = false
+elseif op == "break" then
+instruction ( functions , OP . Branch , { assert ( currentBreak [ # currentBreak ] ) } )
+terminated = true
+elseif op == "continue" then
+instruction ( functions , OP . Branch , { assert ( currentContinue [ # currentContinue ] ) } )
+terminated = true
+elseif op == "block" then
+statements ( statement . body )
+else
+error ( "SPIR-V subset does not emit statement " .. tostring ( op ) , 0 )
+end
+end
+end
+statements ( loop . statements )
+if not terminated then
+instruction ( functions , OP . Branch , { entryMerge } )
+end
+instruction ( functions , OP . Label , { entryMerge } )
+instruction ( functions , OP . Return , { } )
+instruction ( functions , OP . FunctionEnd , { } )
+
+local words = { 119734787 , 66304 , 0 , nextId , 0 }
+push ( words , capabilities )
+push ( words , entry )
+push ( words , debug )
+push ( words , annotations )
+push ( words , declarations )
+push ( words , functions )
+local bytes = { }
+for _ , word in ipairs ( words ) do
+bytes [ # bytes + 1 ] = wordBytes ( word )
+end
+
+return table . concat ( bytes )
+end
+
+
+
+function spirv . deriveMsl ( binary ) 
+local executable = os . getenv ( "NUPP_SPIRV_CROSS" )
+if not executable then
+local root = envMod . compilerRoot ( )
+assert ( root ~= nil , "GPU builds need NUPP_SPIRV_CROSS when the compiler is not running from a source checkout" )
+local driver = fs . join ( root , "scripts/toolchain" )
+local argv = windows and { "sh.exe" , driver , "spirv-cross" } or { driver , "spirv-cross" }
+local code , output = process . capture ( argv )
+assert ( code == 0 , "cannot provision the pinned SPIRV-Cross: " .. output )
+for line in output : gmatch ( "[^\r\n]+" ) do
+if line : match ( "%S" ) then
+executable = line
+end
+end
+assert ( executable ~= nil , "the pinned SPIRV-Cross build named no executable" )
+end
+
+local base = os . tmpname ( )
+local input = base .. ".spv"
+local output = base .. ".metal"
+local wrote , writeErr = fs . writeFile ( input , binary )
+assert ( wrote , "cannot stage SPIR-V for Metal translation: " .. tostring ( writeErr ) )
+local code , translated = process . capture ( {
+executable ,
+input ,
+"--msl" ,
+"--msl-version" ,
+"20000" ,
+"--output" ,
+output ,
+} )
+local source , readErr = fs . readFile ( output )
+os . remove ( input )
+os . remove ( output )
+assert ( code == 0 , "SPIRV-Cross rejected compiler-emitted SPIR-V: " .. translated )
+assert ( source ~= nil , "SPIRV-Cross wrote no Metal source: " .. tostring ( readErr ) )
+
+return source
+end
+
+const __nuppExportValue= spirv ;__nuppExports=__nuppExportValue
+ end);if not __nuppOk then package.loaded["nupp.compiler.aot.spirvemit"]=nil;error(__nuppWhy,0) end;package.loaded["nupp.compiler.aot.spirvemit"]=__nuppExports;return __nuppExports
 end
 package.preload["nupp.compiler.aot.target"] = function(...)
 _G.assert(_G.loadstring("local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppMath=rawget(__nupp,\"math\")or{};rawset(__nupp,\"math\",__nuppMath) local function __nuppCloseFile(handle)if io.type(handle)==\"closed file\"then return end;local ok,reason=handle:close();if not ok then error(reason or \"the file could not be closed\",0)end end local __nuppManagedBrand=_G.__nuppManagedBrand if not __nuppManagedBrand then __nuppManagedBrand={};_G.__nuppManagedBrand=__nuppManagedBrand end local __nuppManagedCells=_G.__nuppManagedCells if not __nuppManagedCells then __nuppManagedCells=setmetatable({},{__mode=\"k\"});_G.__nuppManagedCells=__nuppManagedCells end local __nuppManagedOwner={};__nuppManagedOwner.__index=__nuppManagedOwner;local __nuppManagedAlias={};__nuppManagedAlias.__index=__nuppManagedAlias local function __nuppManagedError(code,message)return{code=code,message=message}end local function __nuppManagedProblem(cell) if type(cell)~=\"table\"or cell._brand~=__nuppManagedBrand then return __nuppManagedError(\"NUPP2614\",\"value is not a managed alias\")end if cell._state==\"taken\"then return __nuppManagedError(\"NUPP2614\",\"managed ownership was already taken\")end if cell._state==\"closed\"or cell._state==\"closing\"then return __nuppManagedError(\"NUPP2614\",\"managed resource is closed\")end return nil end local function __nuppManagedClose(cell,checked) local problem=__nuppManagedProblem(cell);if problem then if checked then return problem end;return nil end if cell._borrows~=0 or cell._exclusive then local busy=__nuppManagedError(\"NUPP2620\",\"managed resource has an active borrow\");if checked then return busy end;error(busy.message,0)end cell._state=\"closing\";local value,cleanup=cell._value,cell._cleanup;cell._value=nil;cell._cleanup=nil local ok,reason=pcall(cleanup,value);cell._state=\"closed\";if not ok then error(reason,0)end;return nil end function __nuppManagedOwner:alias()return setmetatable({_cell=self,_brand=__nuppManagedBrand},__nuppManagedAlias)end function __nuppManagedOwner:close()return __nuppManagedClose(self,false)end local function __nuppAliasCell(self) if type(self)~=\"table\"or self._brand~=__nuppManagedBrand or getmetatable(self)~=__nuppManagedAlias then return nil,__nuppManagedError(\"NUPP2614\",\"value is not a managed alias\")end local cell=self._cell;local problem=__nuppManagedProblem(cell);if problem then return nil,problem end;return cell,nil end function __nuppManagedAlias:with(callback) local cell,problem=__nuppAliasCell(self);if not cell then return nil,problem end if cell._exclusive then return nil,__nuppManagedError(\"NUPP2620\",\"managed resource is exclusively borrowed\")end cell._borrows=cell._borrows+1;cell._state=\"shared-borrowed(\"..cell._borrows..\")\" local ok,result=pcall(callback,cell._value);cell._borrows=cell._borrows-1;cell._state=cell._borrows>0 and(\"shared-borrowed(\"..cell._borrows..\")\")or\"live\" if not ok then error(result,0)end;return result,nil end function __nuppManagedAlias:withExclusive(callback) local cell,problem=__nuppAliasCell(self);if not cell then return nil,problem end if cell._exclusive or cell._borrows~=0 then return nil,__nuppManagedError(\"NUPP2620\",\"managed resource is already borrowed\")end cell._exclusive=true;cell._state=\"exclusive-borrowed\";local ok,result=pcall(callback,cell._value);cell._exclusive=false;cell._state=\"live\" if not ok then error(result,0)end;return result,nil end function __nuppManagedAlias:take() local cell,problem=__nuppAliasCell(self);if not cell then return nil,problem end if cell._exclusive or cell._borrows~=0 then return nil,__nuppManagedError(\"NUPP2620\",\"managed resource has an active borrow\")end cell._state=\"taken\";local value=cell._value;cell._value=nil;cell._cleanup=nil;return value,nil end function __nuppManagedAlias:close() local cell,problem=__nuppAliasCell(self);if not cell then return problem end;return __nuppManagedClose(cell,true)end function __nuppManagedAlias:_downcast(policy) local cell,problem=__nuppAliasCell(self);if not cell then return nil,problem end if cell._policy~=policy then return nil,__nuppManagedError(\"NUPP2613\",\"managed alias has the wrong type or cleanup policy\")end return self,nil end function __nupp.__manage(value,cleanup,policy) local cell=setmetatable({_brand=__nuppManagedBrand,_value=value,_cleanup=cleanup,_policy=policy,_state=\"live\",_borrows=0,_exclusive=false},__nuppManagedOwner);__nuppManagedCells[cell]=true;return cell end function __nupp.__recoverAlias(value) if type(value)~=\"table\"or value._brand~=__nuppManagedBrand or getmetatable(value)~=__nuppManagedAlias then return nil,__nuppManagedError(\"NUPP2614\",\"value is not a managed alias\")end local cell,problem=__nuppAliasCell(value);if not cell then return nil,problem end;return value,nil end _G.__nuppManagedPolicyCount=function(policy)local count=0;for cell in pairs(__nuppManagedCells)do if cell._policy==policy and(cell._state==\"live\"or cell._state:match(\"borrowed\"))then count=count+1 end end;return count end local __nuppManagedGroup={};__nuppManagedGroup.__index=__nuppManagedGroup function __nuppManagedGroup:flush()end function __nuppManagedGroup:adopt(cell) if self._closed then error(\"managed group is closed\",2)end local handle=cell:alias();self._entries[#self._entries+1]=handle return handle end function __nuppManagedGroup:remove(handle) if self._closed then error(\"managed group is closed\",2)end for index=#self._entries,1,-1 do if self._entries[index]==handle then table.remove(self._entries,index);local value,problem=handle:take();if problem then error(problem.message,2)end;return value end end error(\"managed alias is not registered in this group\",2) end local function __nuppManagedCloseEntry(entry)local problem=entry:close();if problem and problem.code~=\"NUPP2614\"then error(problem.message,0)end end function __nuppManagedGroup:close() if self._closed then return end;self._closed=true;local first,suppressed=nil,0 for index=#self._entries,1,-1 do local ok,reason=pcall(__nuppManagedCloseEntry,self._entries[index]);if not ok then if first==nil then first=reason else suppressed=suppressed+1 end end end self._entries={};if first~=nil then if suppressed>0 then error(tostring(first)..\" (suppressed \"..tostring(suppressed)..\" cleanup failure(s))\",0)end;error(first,0)end end function __nupp.managedGroup()return setmetatable({_entries={},_closed=false},__nuppManagedGroup)end;\n","@nupp-prelude"))();local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppMath=rawget(__nupp,"math")or{};rawset(__nupp,"math",__nuppMath) local function __nuppCloseFile(handle)if io.type(handle)=="closed file"then return end;local ok,reason=handle:close();if not ok then error(reason or "the file could not be closed",0)end end local __nuppManagedBrand=_G.__nuppManagedBrand if not __nuppManagedBrand then __nuppManagedBrand={};_G.__nuppManagedBrand=__nuppManagedBrand end local __nuppManagedCells=_G.__nuppManagedCells if not __nuppManagedCells then __nuppManagedCells=setmetatable({},{__mode="k"});_G.__nuppManagedCells=__nuppManagedCells end local __nuppManagedOwner={};__nuppManagedOwner.__index=__nuppManagedOwner;local __nuppManagedAlias={};__nuppManagedAlias.__index=__nuppManagedAlias local function __nuppManagedError(code,message)return{code=code,message=message}end local function __nuppManagedProblem(cell) if type(cell)~="table"or cell._brand~=__nuppManagedBrand then return __nuppManagedError("NUPP2614","value is not a managed alias")end if cell._state=="taken"then return __nuppManagedError("NUPP2614","managed ownership was already taken")end if cell._state=="closed"or cell._state=="closing"then return __nuppManagedError("NUPP2614","managed resource is closed")end return nil end local function __nuppManagedClose(cell,checked) local problem=__nuppManagedProblem(cell);if problem then if checked then return problem end;return nil end if cell._borrows~=0 or cell._exclusive then local busy=__nuppManagedError("NUPP2620","managed resource has an active borrow");if checked then return busy end;error(busy.message,0)end cell._state="closing";local value,cleanup=cell._value,cell._cleanup;cell._value=nil;cell._cleanup=nil local ok,reason=pcall(cleanup,value);cell._state="closed";if not ok then error(reason,0)end;return nil end function __nuppManagedOwner:alias()return setmetatable({_cell=self,_brand=__nuppManagedBrand},__nuppManagedAlias)end function __nuppManagedOwner:close()return __nuppManagedClose(self,false)end local function __nuppAliasCell(self) if type(self)~="table"or self._brand~=__nuppManagedBrand or getmetatable(self)~=__nuppManagedAlias then return nil,__nuppManagedError("NUPP2614","value is not a managed alias")end local cell=self._cell;local problem=__nuppManagedProblem(cell);if problem then return nil,problem end;return cell,nil end function __nuppManagedAlias:with(callback) local cell,problem=__nuppAliasCell(self);if not cell then return nil,problem end if cell._exclusive then return nil,__nuppManagedError("NUPP2620","managed resource is exclusively borrowed")end cell._borrows=cell._borrows+1;cell._state="shared-borrowed("..cell._borrows..")" local ok,result=pcall(callback,cell._value);cell._borrows=cell._borrows-1;cell._state=cell._borrows>0 and("shared-borrowed("..cell._borrows..")")or"live" if not ok then error(result,0)end;return result,nil end function __nuppManagedAlias:withExclusive(callback) local cell,problem=__nuppAliasCell(self);if not cell then return nil,problem end if cell._exclusive or cell._borrows~=0 then return nil,__nuppManagedError("NUPP2620","managed resource is already borrowed")end cell._exclusive=true;cell._state="exclusive-borrowed";local ok,result=pcall(callback,cell._value);cell._exclusive=false;cell._state="live" if not ok then error(result,0)end;return result,nil end function __nuppManagedAlias:take() local cell,problem=__nuppAliasCell(self);if not cell then return nil,problem end if cell._exclusive or cell._borrows~=0 then return nil,__nuppManagedError("NUPP2620","managed resource has an active borrow")end cell._state="taken";local value=cell._value;cell._value=nil;cell._cleanup=nil;return value,nil end function __nuppManagedAlias:close() local cell,problem=__nuppAliasCell(self);if not cell then return problem end;return __nuppManagedClose(cell,true)end function __nuppManagedAlias:_downcast(policy) local cell,problem=__nuppAliasCell(self);if not cell then return nil,problem end if cell._policy~=policy then return nil,__nuppManagedError("NUPP2613","managed alias has the wrong type or cleanup policy")end return self,nil end function __nupp.__manage(value,cleanup,policy) local cell=setmetatable({_brand=__nuppManagedBrand,_value=value,_cleanup=cleanup,_policy=policy,_state="live",_borrows=0,_exclusive=false},__nuppManagedOwner);__nuppManagedCells[cell]=true;return cell end function __nupp.__recoverAlias(value) if type(value)~="table"or value._brand~=__nuppManagedBrand or getmetatable(value)~=__nuppManagedAlias then return nil,__nuppManagedError("NUPP2614","value is not a managed alias")end local cell,problem=__nuppAliasCell(value);if not cell then return nil,problem end;return value,nil end _G.__nuppManagedPolicyCount=function(policy)local count=0;for cell in pairs(__nuppManagedCells)do if cell._policy==policy and(cell._state=="live"or cell._state:match("borrowed"))then count=count+1 end end;return count end local __nuppManagedGroup={};__nuppManagedGroup.__index=__nuppManagedGroup function __nuppManagedGroup:flush()end function __nuppManagedGroup:adopt(cell) if self._closed then error("managed group is closed",2)end local handle=cell:alias();self._entries[#self._entries+1]=handle return handle end function __nuppManagedGroup:remove(handle) if self._closed then error("managed group is closed",2)end for index=#self._entries,1,-1 do if self._entries[index]==handle then table.remove(self._entries,index);local value,problem=handle:take();if problem then error(problem.message,2)end;return value end end error("managed alias is not registered in this group",2) end local function __nuppManagedCloseEntry(entry)local problem=entry:close();if problem and problem.code~="NUPP2614"then error(problem.message,0)end end function __nuppManagedGroup:close() if self._closed then return end;self._closed=true;local first,suppressed=nil,0 for index=#self._entries,1,-1 do local ok,reason=pcall(__nuppManagedCloseEntry,self._entries[index]);if not ok then if first==nil then first=reason else suppressed=suppressed+1 end end end self._entries={};if first~=nil then if suppressed>0 then error(tostring(first).." (suppressed "..tostring(suppressed).." cleanup failure(s))",0)end;error(first,0)end end function __nupp.managedGroup()return setmetatable({_entries={},_closed=false},__nuppManagedGroup)end;local __nuppExports;local __nuppOk,__nuppWhy=pcall(function()
@@ -72177,6 +73272,7 @@ _G.assert(_G.loadstring("local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppM
 
 
 
+
 local aot = require ( "nupp.compiler.aot.compile" )
 local buildAot = require ( "nupp.compiler.build.aot" )
 local instructionsMod = require ( "nupp.compiler.aot.instructions" )
@@ -72194,8 +73290,8 @@ list [
 name = "--emit" ,
 key = "emit" ,
 value = "ARTIFACT" ,
-choices = { "ir" , "c" , "msl" , "asm" , "binding" } ,
-help = "Print one artifact: ir, c, msl, asm, or binding" ,
+choices = { "ir" , "c" , "spirv" , "msl" , "asm" , "binding" } ,
+help = "Print one artifact: ir, c, spirv, msl, asm, or binding" ,
 }
 list [
 # list + 1
@@ -72244,7 +73340,7 @@ local command = spec . command {
 name = "aot" ,
 summary = "Show what the @aot functions in a file compile to" ,
 usage = {
-"nupp aot [--emit ir|c|msl|asm|binding] [--check] [--function NAME] "
+"nupp aot [--emit ir|c|spirv|msl|asm|binding] [--check] [--function NAME] "
 .. "[--target TRIPLE] [--features TIER] <file>" ,
 } ,
 intro = "Reports what the ahead-of-time backend produces for one file, without writing it. "
@@ -72365,6 +73461,7 @@ message = { type = "string" } ,
 } ,
 ir = { type = "string" } ,
 c = { type = "string" } ,
+spirv = { type = "string" , description = "Canonical SPIR-V bytes as lowercase hexadecimal." } ,
 msl = { type = "string" } ,
 binding = { type = "string" } ,
 asm = {
@@ -72663,6 +73760,7 @@ end
 
 local emit = parsed . values . emit
 local mslParts = { }
+local spirvParts = { }
 for _ , program in ipairs ( artifacts . programs ) do
 local artifact = artifacts . gpu [ program . symbol ]
 local selectedFunction = parsed . values [ "function" ]
@@ -72670,11 +73768,28 @@ if artifact ~= nil and (
 selectedFunction == nil or selectedFunction == program . name or selectedFunction == program . symbol
 ) then
 mslParts [ # mslParts + 1 ] = artifact . source
+spirvParts [ # spirvParts + 1 ] = artifact . spirv
 end
 end
 local msl = table . concat ( mslParts , "\n" )
+local spirvHex = nil
+if emit == "spirv" and # spirvParts == 1 and parsed . values . format == "json" then
+local bytes = { }
+for index = 1 , # spirvParts [ 1 ] do
+bytes [ index ] = ( "%02x" ) : format ( spirvParts [ 1 ] : byte ( index ) )
+end
+spirvHex = table . concat ( bytes )
+end
 if emit == "msl" and # mslParts == 0 then
 io . stderr : write ( "nupp: no GPU function matched --emit msl\n" )
+return 1
+end
+if emit == "spirv" and # spirvParts ~= 1 then
+io . stderr : write (
+# spirvParts == 0
+and "nupp: no GPU function matched --emit spirv\n"
+or "nupp: --emit spirv needs one GPU function; select it with --function\n"
+)
 return 1
 end
 local refused = false
@@ -72739,6 +73854,7 @@ tier = ( selected ) . tier ,
 functions = functions ,
 ir = ( emit == nil or emit == "ir" ) and artifacts . irText or nil ,
 c = ( emit == nil or emit == "c" ) and artifacts . c or nil ,
+spirv = spirvHex ,
 msl = emit == "msl" and msl or nil ,
 binding = ( emit == nil or emit == "binding" ) and artifacts . binding or nil ,
 asm = instructionReport ,
@@ -72748,6 +73864,8 @@ elseif emit == "ir" then
 io . write ( artifacts . irText )
 elseif emit == "c" then
 io . write ( artifacts . c )
+elseif emit == "spirv" then
+io . write ( spirvParts [ 1 ] )
 elseif emit == "msl" then
 io . write ( msl )
 elseif emit == "asm" then
@@ -140525,17 +141643,19 @@ is a named checking error.
 `@aot(target = "gpu")` records a GPU execution family in the verified IR and
 maps one whole-span loop iteration to one GPU invocation. It does not take a CPU
 `lanes` override. With the native `aot = "require"` policy, the compiler emits
-MSL and replaces the declaration with a typed kernel specification. Its
+canonical SPIR-V, derives MSL with its pinned SPIRV-Cross, and replaces the
+declaration with a typed kernel specification. Its
 `compile(context)` method owns the shader and entrypoint, `bind(...)` accepts
 resident `gpu.Buffer<T>` values in the span parameters' order and types, and
 `dispatch(...)` accepts the scalar parameters and packs their uniform block.
 The Wasm policies refuse GPU IR, and `aot = "off"` or `emit-c` retain the
-ordinary function value. `nupp aot --emit msl FILE` prints the generated shader.
+ordinary function value. `nupp aot --emit spirv FILE` writes the canonical
+binary module and `--emit msl` prints its Metal derivative.
 
-The current GPU subset is one complete-span map with one read span, one write
-span, fixed-width elements and up to 128 bytes of fixed-width scalar uniforms,
-written as a local function declaration. Uploads and downloads remain explicit,
-so several generated bindings can share resident buffers without an
+The current GPU subset is one complete-span map with fixed-width elements, any
+number of proved read and write spans, and up to 128 bytes of fixed-width scalar
+uniforms, written as a local function declaration. Uploads and downloads remain
+explicit, so several generated bindings can share resident buffers without an
 intermediate CPU copy.
 
 A pointer-free parser builds an ordinary Lua value through
@@ -162853,6 +163973,7 @@ void nuppGpuContextDestroy(NuppGpuContext *);
 NuppGpuBuffer *nuppGpuBufferCreate(NuppGpuContext *, size_t);
 NuppGpuKernel *nuppGpuKernelCreate(
     NuppGpuContext *, const uint8_t *, size_t, const uint8_t *, size_t,
+    const uint8_t *, size_t,
     uint32_t, uint32_t, uint32_t, uint32_t);
 bool nuppGpuBufferUpload(NuppGpuContext *, NuppGpuBuffer *, const void *, size_t);
 NuppGpuBinding *nuppGpuBindingCreate(NuppGpuContext *, NuppGpuKernel *, uint32_t);
@@ -163051,7 +164172,8 @@ end
 
 function gpu . Context . compileGenerated (
 self ,
-source ,
+spirv ,
+msl ,
 entrypoint ,
 readonlyBuffers ,
 writableBuffers ,
@@ -163070,8 +164192,10 @@ error ( "nupp: GPU thread group must be from 1 through 1024" , 2 )
 end
 local handle = C . nuppGpuKernelCreate (
 live ( self ) ,
-source ,
-# source ,
+spirv ,
+# spirv ,
+msl ,
+# msl ,
 entrypoint ,
 # entrypoint ,
 readonlyBuffers ,
@@ -208694,6 +209818,7 @@ void nuppGpuContextDestroy(NuppGpuContext *);
 NuppGpuBuffer *nuppGpuBufferCreate(NuppGpuContext *, size_t);
 NuppGpuKernel *nuppGpuKernelCreate(
     NuppGpuContext *, const uint8_t *, size_t, const uint8_t *, size_t,
+    const uint8_t *, size_t,
     uint32_t, uint32_t, uint32_t, uint32_t);
 bool nuppGpuBufferUpload(NuppGpuContext *, NuppGpuBuffer *, const void *, size_t);
 NuppGpuBinding *nuppGpuBindingCreate(NuppGpuContext *, NuppGpuKernel *, uint32_t);
@@ -208786,7 +209911,8 @@ record gpu.Context is gpu.ContextToken
     --- @internal
     compileGenerated: function(
         borrows self: Context,
-        source: string,
+        spirv: string,
+        msl: string,
         entrypoint: string,
         readonlyBuffers: integer,
         writableBuffers: integer,
@@ -208892,7 +210018,8 @@ end
 
 function gpu.Context.compileGenerated(
     borrows self: gpu.Context,
-    source: string,
+    spirv: string,
+    msl: string,
     entrypoint: string,
     readonlyBuffers: integer,
     writableBuffers: integer,
@@ -208911,8 +210038,10 @@ function gpu.Context.compileGenerated(
     end
     local handle = C.nuppGpuKernelCreate(
         live(self),
-        source,
-        #source,
+        spirv,
+        #spirv,
+        msl,
+        #msl,
         entrypoint,
         #entrypoint,
         readonlyBuffers,

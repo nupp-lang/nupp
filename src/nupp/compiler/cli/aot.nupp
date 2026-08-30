@@ -7,7 +7,8 @@ Two questions, and they are asked for different reasons.
 
 The first is what the backend actually did. An `@aot` body is compiled somewhere
 a reader cannot see, so `--emit ir` shows the verified IR, `--emit c` shows the
-generated C, `--emit msl` shows a GPU shader, `--emit asm` shows the instructions that C became, and
+generated C, `--emit spirv` writes a canonical GPU module, `--emit msl` shows
+its Metal derivative, `--emit asm` shows the instructions that C became, and
 `--emit binding` shows the module that stands in front of it. Reading the C is
 how you tell a mask stack from a branch, and how you check that the loop you
 thought was register-resident is.
@@ -52,8 +53,8 @@ local function aotOptions(): {any}
         name = "--emit",
         key = "emit",
         value = "ARTIFACT",
-        choices = {"ir", "c", "msl", "asm", "binding"},
-        help = "Print one artifact: ir, c, msl, asm, or binding",
+        choices = {"ir", "c", "spirv", "msl", "asm", "binding"},
+        help = "Print one artifact: ir, c, spirv, msl, asm, or binding",
     }
     list[
         #list + 1
@@ -102,7 +103,7 @@ local command = spec.command{
     name = "aot",
     summary = "Show what the @aot functions in a file compile to",
     usage = {
-        "nupp aot [--emit ir|c|msl|asm|binding] [--check] [--function NAME] "
+        "nupp aot [--emit ir|c|spirv|msl|asm|binding] [--check] [--function NAME] "
         .. "[--target TRIPLE] [--features TIER] <file>",
     },
     intro = "Reports what the ahead-of-time backend produces for one file, without writing it. "
@@ -223,6 +224,7 @@ local command = spec.command{
             },
             ir = {type = "string"},
             c = {type = "string"},
+            spirv = {type = "string", description = "Canonical SPIR-V bytes as lowercase hexadecimal."},
             msl = {type = "string"},
             binding = {type = "string"},
             asm = {
@@ -521,6 +523,7 @@ local function run(parsed: any): integer
 
     local emit = parsed.values.emit
     local mslParts: {string} = {}
+    local spirvParts: {string} = {}
     for _, program in ipairs(artifacts.programs) do
         local artifact = artifacts.gpu[program.symbol]
         local selectedFunction = parsed.values["function"]
@@ -528,11 +531,28 @@ local function run(parsed: any): integer
             selectedFunction == nil or selectedFunction == program.name or selectedFunction == program.symbol
         ) then
             mslParts[#mslParts + 1] = artifact.source
+            spirvParts[#spirvParts + 1] = artifact.spirv
         end
     end
     local msl = table.concat(mslParts, "\n")
+    local spirvHex: string? = nil
+    if emit == "spirv" and #spirvParts == 1 and parsed.values.format == "json" then
+        local bytes: {string} = {}
+        for index = 1, #spirvParts[1] do
+            bytes[index] = ("%02x"):format(spirvParts[1]:byte(index))
+        end
+        spirvHex = table.concat(bytes)
+    end
     if emit == "msl" and #mslParts == 0 then
         io.stderr:write("nupp: no GPU function matched --emit msl\n")
+        return 1
+    end
+    if emit == "spirv" and #spirvParts ~= 1 then
+        io.stderr:write(
+            #spirvParts == 0
+            and "nupp: no GPU function matched --emit spirv\n"
+            or "nupp: --emit spirv needs one GPU function; select it with --function\n"
+        )
         return 1
     end
     local refused = false
@@ -597,6 +617,7 @@ local function run(parsed: any): integer
                 functions = functions,
                 ir = (emit == nil or emit == "ir") and artifacts.irText or nil,
                 c = (emit == nil or emit == "c") and artifacts.c or nil,
+                spirv = spirvHex,
                 msl = emit == "msl" and msl or nil,
                 binding = (emit == nil or emit == "binding") and artifacts.binding or nil,
                 asm = instructionReport,
@@ -606,6 +627,8 @@ local function run(parsed: any): integer
         io.write(artifacts.irText)
     elseif emit == "c" then
         io.write(artifacts.c)
+    elseif emit == "spirv" then
+        io.write(spirvParts[1])
     elseif emit == "msl" then
         io.write(msl)
     elseif emit == "asm" then

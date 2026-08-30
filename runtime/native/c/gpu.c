@@ -120,7 +120,8 @@ NUPP_EXPORT NuppGpuContext *nuppGpuContextCreate(void) {
         free(context);
         return NULL;
     }
-    context->device = SDL_CreateGPUDevice(SDL_GPU_SHADERFORMAT_MSL, false, NULL);
+    context->device = SDL_CreateGPUDevice(
+        SDL_GPU_SHADERFORMAT_SPIRV | SDL_GPU_SHADERFORMAT_MSL, false, NULL);
     if (context->device == NULL) {
         gpu_fail("create device");
         if (context->started_video) {
@@ -211,8 +212,10 @@ NUPP_EXPORT NuppGpuBuffer *nuppGpuBufferCreate(
 
 NUPP_EXPORT NuppGpuKernel *nuppGpuKernelCreate(
     NuppGpuContext *context,
-    const uint8_t *source,
-    size_t source_length,
+    const uint8_t *spirv,
+    size_t spirv_length,
+    const uint8_t *msl,
+    size_t msl_length,
     const uint8_t *entrypoint_data,
     size_t entrypoint_length,
     uint32_t readonly_count,
@@ -223,9 +226,15 @@ NUPP_EXPORT NuppGpuKernel *nuppGpuKernelCreate(
     NuppGpuKernel *kernel;
     NuppText entrypoint;
     SDL_GPUComputePipelineCreateInfo info;
+    SDL_GPUShaderFormat formats;
+    SDL_GPUShaderFormat format;
+    const uint8_t *code;
+    size_t code_length;
     uint8_t *terminated;
-    if (context == NULL || context->device == NULL || source == NULL || source_length == 0) {
-        nupp_fail("gpu: kernel needs a context and shader source");
+    if (context == NULL || context->device == NULL
+        || spirv == NULL || spirv_length == 0 || spirv_length % 4 != 0
+        || msl == NULL || msl_length == 0) {
+        nupp_fail("gpu: kernel needs canonical SPIR-V and derived MSL");
         return NULL;
     }
     if (readonly_count > NUPP_GPU_MAX_BINDINGS
@@ -238,22 +247,39 @@ NUPP_EXPORT NuppGpuKernel *nuppGpuKernelCreate(
     if (!nupp_text(&entrypoint, entrypoint_data, entrypoint_length, "GPU entrypoint")) {
         return NULL;
     }
-    terminated = malloc(source_length + 1);
+    formats = SDL_GetGPUShaderFormats(context->device);
+    if ((formats & SDL_GPU_SHADERFORMAT_SPIRV) != 0) {
+        format = SDL_GPU_SHADERFORMAT_SPIRV;
+        code = spirv;
+        code_length = spirv_length;
+        terminated = NULL;
+    } else if ((formats & SDL_GPU_SHADERFORMAT_MSL) != 0) {
+        format = SDL_GPU_SHADERFORMAT_MSL;
+        code_length = msl_length + 1;
+        terminated = malloc(code_length);
+        if (terminated != NULL) {
+            memcpy(terminated, msl, msl_length);
+            terminated[msl_length] = 0;
+        }
+        code = terminated;
+    } else {
+        nupp_fail("gpu: device accepts neither SPIR-V nor MSL");
+        nupp_text_free(&entrypoint);
+        return NULL;
+    }
     kernel = calloc(1, sizeof *kernel);
-    if (terminated == NULL || kernel == NULL) {
+    if (code == NULL || kernel == NULL) {
         nupp_fail("gpu: out of memory");
         free(terminated);
         free(kernel);
         nupp_text_free(&entrypoint);
         return NULL;
     }
-    memcpy(terminated, source, source_length);
-    terminated[source_length] = 0;
     SDL_zero(info);
-    info.code_size = source_length + 1;
-    info.code = terminated;
+    info.code_size = code_length;
+    info.code = code;
     info.entrypoint = entrypoint.value;
-    info.format = SDL_GPU_SHADERFORMAT_MSL;
+    info.format = format;
     info.num_readonly_storage_buffers = readonly_count;
     info.num_readwrite_storage_buffers = writable_count;
     info.num_uniform_buffers = uniform_size == 0 ? 0 : 1;

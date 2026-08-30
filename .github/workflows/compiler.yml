@@ -23,6 +23,37 @@ concurrency:
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
+  gpu-conformance:
+    name: GPU conformance / pinned SwiftShader Vulkan
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - name: Check out the repository
+        uses: actions/checkout@v5
+
+      - name: Restore the provisioned toolchain
+        uses: actions/cache@v4
+        with:
+          path: .nupp-cache/toolchain
+          key: >-
+            nupp-gpu-${{ runner.os }}-${{ runner.arch }}-${{
+            hashFiles('scripts/toolchain.pins', 'scripts/toolchain') }}
+          restore-keys: |
+            nupp-gpu-${{ runner.os }}-${{ runner.arch }}-
+
+      - name: Install the Vulkan loader
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libvulkan1
+
+      - name: Provision the compiler, SDL, and software GPU
+        run: |
+          ./scripts/toolchain --all
+          ./scripts/toolchain sdl swiftshader
+
+      - name: Run exact GPU dispatch and readback
+        run: .github/scripts/test-gpu-conformance.sh
+
   portable-compiler:
     name: Portable compiler on official Lua 5.1.5
     runs-on: ubuntu-24.04

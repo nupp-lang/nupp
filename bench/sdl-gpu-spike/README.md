@@ -4,8 +4,9 @@ This is implementation and performance evidence for the SDL GPU backend.
 
 The GPU path starts with an ordinary checked `@aot` function in
 `typed/heavy.nupp`.
-The compiler consumes its verified scalar IR, emits MSL, and replaces the
-declaration under `aot = "require"` with a generated typed specification. The
+The compiler consumes its verified scalar IR, emits canonical SPIR-V, derives
+MSL with its pinned SPIRV-Cross, and replaces the declaration under
+`aot = "require"` with a generated typed specification. The
 host compiles it with `kernel = heavy:compile(context)`, binds resident buffers
 with `invocation = kernel:bind(output, input)`, and dispatches only the scalar
 uniforms. Shader text, entrypoint names, buffer slots, and FFI uniform packing
@@ -48,9 +49,10 @@ One Apple Silicon run with SDL 3.4.14 measured:
 
 All 786,432 GPU records agreed exactly with Nupp's scalar body and produced
 checksum `46372998`. Metal enables contraction when it compiles source by
-default, so the generated MSL explicitly disables contraction to preserve the
-rounding points in `nupp.math.f32`; without it the check caught a one-iteration
-difference at pixel 54,903.
+default, so the canonical module decorates ordinary binary32 operations with
+`NoContraction`; SPIRV-Cross preserves those rounding points in derived MSL.
+Without that contract the check caught a one-iteration difference at pixel
+54,903.
 
 The API takes the useful shape from Mojo/MAX: a context owns typed device
 buffers and compiled kernels, commands enqueue without waiting, and

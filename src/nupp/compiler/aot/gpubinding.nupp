@@ -132,6 +132,9 @@ function gpubinding.replacement(program: scalarIR.Program, artifact: gpuemit.Art
         lines,
         "    local compiled = context:compileGenerated(" .. string.format(
             "%q",
+            artifact.spirv
+        ) .. ", " .. string.format(
+            "%q",
             artifact.source
         ) .. ", " .. string.format(
             "%q",
