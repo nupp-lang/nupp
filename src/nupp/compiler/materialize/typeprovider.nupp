@@ -11,6 +11,10 @@ the finalized graph through `nupp.compiler.typeblueprint`.
 local hash = require("nupp.compiler.hash")
 local stable = require("nupp.compiler.stable")
 
+----------------------------------------------------------------------------
+-- Handles and failures
+----------------------------------------------------------------------------
+
 type typeprovider.Failure = {
     readonly code: string,
     readonly message: string,
@@ -116,6 +120,10 @@ local function installIntrinsic(state, library, name, implementation)
     state.intrinsics[token] = implementation
     library[name] = token
 end
+
+----------------------------------------------------------------------------
+-- The evaluator
+----------------------------------------------------------------------------
 
 function typeprovider.installEvaluator(state, env, opaque, provenance)
     state.typeHandles = {}
@@ -763,6 +771,10 @@ function typeprovider.installEvaluator(state, env, opaque, provenance)
     env.nupp.types = library
 end
 
+----------------------------------------------------------------------------
+-- Imported descriptors
+----------------------------------------------------------------------------
+
 --- Imports one closed const-function identity as a worker-opaque handle. Only the
 --- compiler can mint the handle; provider code can pass it to affine construction but
 --- cannot recover or forge its registry key.
@@ -1125,6 +1137,10 @@ function typeprovider.importDescriptor(
     return root, nil
 end
 
+----------------------------------------------------------------------------
+-- Operators
+----------------------------------------------------------------------------
+
 function typeprovider.opaqueKind(state, value): string?
     local found = entry(state, value)
     if not found then
@@ -1147,6 +1163,10 @@ function typeprovider.operator(state, op, left, right): any, typeprovider.Failur
 
     return not equal, nil
 end
+
+----------------------------------------------------------------------------
+-- Finishing the graph
+----------------------------------------------------------------------------
 
 local function finalizeGraph(state, root)
     local indices, nodes, origins, references = {}, {}, {}, {}

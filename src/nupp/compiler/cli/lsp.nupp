@@ -24,6 +24,10 @@ local type CodeActionContext = {
     only: {string}?
 }
 
+----------------------------------------------------------------------------
+-- Paths and positions
+----------------------------------------------------------------------------
+
 local function jsonArray<T>(takes items: T): T preserves items
     return json.asArray(items)
 end
@@ -156,6 +160,10 @@ local function fromLspPosition(source, position)
 
     return {line = line, column = offset - start + 1, offset = offset}
 end
+
+----------------------------------------------------------------------------
+-- The command surface
+----------------------------------------------------------------------------
 
 local optionsMod = require("nupp.compiler.cli.options")
 
@@ -398,6 +406,10 @@ byte line and column numbers, matching compiler diagnostics. Rename previews by
 default and changes files only with --write.]],
 }
 
+----------------------------------------------------------------------------
+-- Talking to a session
+----------------------------------------------------------------------------
+
 local function usageError(message)
     return command:usageError(message)
 end
@@ -567,6 +579,10 @@ local function editValues(client, changes)
     return edits
 end
 
+----------------------------------------------------------------------------
+-- Reading options
+----------------------------------------------------------------------------
+
 local function jsonOutput(value)
     io.write(json.encode(value) .. "\n")
 end
@@ -620,6 +636,10 @@ local function target(client, opts, expected)
 
     return path, source, position
 end
+
+----------------------------------------------------------------------------
+-- The operations
+----------------------------------------------------------------------------
 
 local function runInspect(client, opts)
     local path, _, position, err = target(client, opts, 3)
@@ -1083,6 +1103,10 @@ local function runTraceCheck(client, opts)
 
     return true
 end
+
+----------------------------------------------------------------------------
+-- Dispatch
+----------------------------------------------------------------------------
 
 local OPERATIONS = {
     inspect = runInspect,

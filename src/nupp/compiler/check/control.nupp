@@ -35,6 +35,10 @@ local RANGE_NESTED_FUNCTION: {
     [string]: boolean
 } = {localFuncStmt = true, funcStmt = true, inlineMethod = true, funcExpr = true, shortfn = true,}
 
+----------------------------------------------------------------------------
+-- Reading a condition
+----------------------------------------------------------------------------
+
 --- The parts of a simple `name == literal` condition, or nil. The lint
 --- deliberately stays narrow: literal equality has no condition-side effect to skip,
 --- and a local binding cannot be changed by an ordinary call.
@@ -115,6 +119,11 @@ function control.install(c: state.Checker): state.StatHandlers
     -- A type constructor cannot in general prove the exact bound of the handle it
     -- builds. The closed evaluator validates the generated type against the declared
     -- bound at the type-function call boundary, so a broad `type` result is sound here.
+
+    ---------------------------------------------------------------------
+    -- Returns
+    ---------------------------------------------------------------------
+
     local function returnFits(got, expected, expr)
         if (c.comptimeFunctionDepth or 0) > 0 and got == T.type_ and expected.tag == "typeHandle" then
             return true, nil, false
@@ -138,6 +147,11 @@ function control.install(c: state.Checker): state.StatHandlers
     --
     -- The statement still records the move once every arm has been seen, so what a
     -- later statement sees does not change; only what a sibling arm sees does.
+
+    ---------------------------------------------------------------------
+    -- Ownership across an edge
+    ---------------------------------------------------------------------
+
     local function regionSignature(regions): string
         local keys = {}
         for path, count in pairs(regions or {}) do
@@ -242,6 +256,10 @@ function control.install(c: state.Checker): state.StatHandlers
     end
 
     local handlers = {}
+
+    ---------------------------------------------------------------------
+    -- Statements that leave a block
+    ---------------------------------------------------------------------
 
     handlers.switchYieldStmt = function(stat: cst.SwitchYieldStmt)
         local collector = c.switchYieldStack[#c.switchYieldStack]
@@ -618,6 +636,10 @@ function control.install(c: state.Checker): state.StatHandlers
         end
     end
 
+    ---------------------------------------------------------------------
+    -- Conditionals
+    ---------------------------------------------------------------------
+
     handlers.ifStmt = function(stat: cst.IfStmt)
         local adjacent = c.nextStat
         local first = literalEquality(stat)
@@ -801,6 +823,10 @@ function control.install(c: state.Checker): state.StatHandlers
         end
     end
 
+    ---------------------------------------------------------------------
+    -- Loops
+    ---------------------------------------------------------------------
+
     handlers.whileStmt = function(stat: cst.WhileStmt)
         local cond = stat.cond
         if cond then
@@ -842,6 +868,10 @@ function control.install(c: state.Checker): state.StatHandlers
         c.checkBlock(stat.body, true);
         c.popScope()
     end
+
+    ---------------------------------------------------------------------
+    -- Handled regions
+    ---------------------------------------------------------------------
 
     handlers.handleStmt = function(stat: cst.HandleStmt)
         -- The construct itself requires the runtime module, so its type is available
