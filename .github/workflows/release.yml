@@ -488,11 +488,20 @@ jobs:
           pattern: stub-*
           merge-multiple: true
 
+      - name: Download the built Linux compiler
+        uses: actions/download-artifact@v4
+        with:
+          name: base-nupp-linux-x86_64
+          path: release/catalog-compiler
+
       - name: Assemble and validate the immutable catalog
         shell: bash
         run: |
           set -euo pipefail
-          ./bin/nupp run scripts/release.nupp catalog \
+          mkdir -p release/catalog-runner
+          tar -xzf release/catalog-compiler/nupp-linux-x86_64.tar.gz \
+            -C release/catalog-runner
+          release/catalog-runner/nupp run scripts/release.nupp catalog \
             "$GITHUB_SHA" release/stubs release/stub-catalog.json \
             release/stubs/stub-*.json
 
