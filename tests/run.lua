@@ -71,13 +71,56 @@ local testJson = require("testjson")
 local embedded = rawget(_G, "__NUPP_TEST_EMBEDDED") == true
 local workerHost = rawget(_G, "__NUPP_TEST_WORKER_HOST") == true
 
+-- `tmpnam` draws from a sequence that starts again in every process, so two
+-- shards running at once are handed the same name, make the same directory, and
+-- one writes the sample the other is about to compile. What is reported then
+-- belongs to neither of them: a parse error against source the test that failed
+-- never wrote.
+--
+-- Impossible while the whole suite ran in one process, which is what kept it
+-- hidden until the shards arrived. Salted with the shard the parent named and
+-- counted within the process, so no two names can meet.
+--
+-- Every platform, not just Windows, which is where this started. A suite that
+-- builds a library into its temporary directory, loads it, and is still holding
+-- it when another shard is handed the same name and clears it out does not get
+-- a confusing diagnostic: it gets the library deleted from under a live mapping
+-- and a segmentation fault with nothing on the stack. That is what the Linux
+-- workers were dying of, four at a time, in whichever suite they happened to be
+-- in. macOS never showed it because its `tmpnam` template is per-process
+-- already.
+-- The name it answers is created here, because that is what it replaces:
+-- LuaJIT's `os.tmpname` reserves the name by making the file, and a caller that
+-- opens it for writing is reopening something that exists and is already its
+-- own. Handing back a name for a file nobody had made left the capture path
+-- creating it through `open` with a mode that never had to work before, and the
+-- output could then not be read back by name. Callers that want a directory
+-- remove it first, as they did before.
+local rawTmpname = os.tmpname
+local shardSalt = (os.getenv("NUPP_CACHE_DIR") or ""):match("shard%-(%d+)") or "0"
+local handedOut = 0
+os.tmpname = function()
+   handedOut = handedOut + 1
+   local reserved = rawTmpname()
+   local named = ("%s-%s-%d"):format((reserved:gsub("\\", "/")), shardSalt, handedOut)
+   local file = io.open(named, "wb")
+   if file then
+      file:close()
+   end
+   -- The reservation itself is not the name handed out, so it would otherwise
+   -- stay in the temporary directory for the length of the run, one per call.
+   os.remove(reserved)
+
+   return named
+end
+
 -- The suites predate Windows support and deliberately exercise shell-facing
 -- CLI behaviour with POSIX commands. On Windows the VM's `system` and `popen`
 -- otherwise hand those commands to cmd.exe even though the runner itself was
 -- launched by Git Bash. Keep one shell dialect for the tests, and keep native
 -- paths for the Windows programs those commands start.
 if package.config:sub(1, 1) == "\\" then
-   local rawExecute, rawPopen, rawTmpname = os.execute, io.popen, os.tmpname
+   local rawExecute, rawPopen = os.execute, io.popen
    -- Rejected empty as well as absent: an undefined workflow variable reaches a
    -- step as the empty string, which is true in Lua, so a bare `assert` let it
    -- through and every shelled-out command became `""` instead.
@@ -90,23 +133,6 @@ if package.config:sub(1, 1) == "\\" then
    local cwdPipe = assert(rawPopen("cd"))
    local cwd = assert(cwdPipe:read("*l")):gsub("\\", "/")
    cwdPipe:close()
-
-   -- `tmpnam` draws from a sequence that starts again in every process, so two
-   -- shards running at once are handed the same name, make the same directory,
-   -- and one writes the sample the other is about to compile. What is reported
-   -- then belongs to neither of them: a parse error against source the test that
-   -- failed never wrote.
-   --
-   -- Impossible while the whole suite ran in one process, which is what kept it
-   -- hidden until the shards arrived. Salted with the shard the parent named and
-   -- counted within the process, so no two names can meet.
-   local shardSalt = (os.getenv("NUPP_CACHE_DIR") or ""):match("shard%-(%d+)") or "0"
-   local handedOut = 0
-   os.tmpname = function()
-      handedOut = handedOut + 1
-
-      return ("%s-%s-%d"):format((rawTmpname():gsub("\\", "/")), shardSalt, handedOut)
-   end
 
    local function script(command)
       command = command:gsub("(%a):/", function(drive)
