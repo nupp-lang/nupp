@@ -4883,11 +4883,10 @@ end
 return { } , diagnostics , { }
 end
 
-local context = setmetatable({ checked =
-parsed ~= nil ,  constantNames =
-{ } ,  constantValues =
-{ } ,  reject =
-function ( at , message ) 
+local context = setmetatable({ checked =  parsed ~= nil ,  constantNames =  { } ,  constantValues =  { } ,  reject =  function (
+at ,
+message
+) 
 diagnostics [
 # diagnostics + 1
 ] = setmetatable({ file =
@@ -4898,7 +4897,6 @@ message }, compile.Diagnostic)
 
 error ( REFUSED , 0 )
 end }, lower.Context)
-
 
 
 
@@ -57037,12 +57035,7 @@ end
 local fixes = keyword and {
 c . edits . fix ( "change `record` to `struct`" , c . edits . replaceToken ( keyword , "struct" ) )
 } or nil
-c . diag (
-"NUPP2509" ,
-stat . name ,
-( "record %s declares only fields that reify" ) : format ( n . name ) ,
-fixes ,
-{
+c . diag ( "NUPP2509" , stat . name , ( "record %s declares only fields that reify" ) : format ( n . name ) , fixes , {
 help = "declaring it `struct` puts its instances in C memory, off the "
 .. "collector's graph, at the cost of a fixed layout: no fields added "
 .. "after construction" ,
@@ -57057,8 +57050,7 @@ notes = {
 .. "metamethod, and a serializer that walks tables will refuse it "
 .. "unless it is converted first" ,
 }
-}
-)
+} )
 end
 
 
@@ -104000,12 +103992,24 @@ local tail = g . elements [ # g . elements ]
 local block = tail . final ~= nil and BLOCK_CLOSERS [ tail . final . kind ] or false
 if g . open . lineIdx ~= g . close . lineIdx then
 local opening = lines [ g . open . lineIdx ]
+
+
+
+
+local at = opening and indexOfToken ( opening . items , tail . first ) or nil
+if at and not tail . first . opensGroup then
+local following = opening . items [ at + 1 ]
+if following and following . kind == "token" and following . token . opensGroup then
+at = at + 1
+end
+end
 local hugs = mode == "hug"
 and block
 and tail . first . lineIdx == g . open . lineIdx
-and opening ~= nil
-and lineWidth (
-opening
+and at ~= nil
+and prefixWidth (
+opening ,
+at
 ) <= width
 if not hugs then
 for _ , element in ipairs ( g . elements ) do
@@ -119090,11 +119094,7 @@ internDeriveRecipe = internDeriveRecipe ,
 { __index = env }
 )
 local external = envMod . isDependencyTypePath ( env , path )
-local diags , moduleType , exports = check . check (
-result ,
-path ,
-qenv ,
-{
+local diags , moduleType , exports = check . check ( result , path , qenv , {
 moduleName = envMod . moduleNameForPath ( env , path ) ,
 
 
@@ -119103,8 +119103,7 @@ dialect = dialect ,
 backendResolution = self : get ( "backendResolution" , "root" ) ,
 traceInspection = traceInspection ,
 initialExports = seeded ,
-}
-)
+} )
 
 activeModules [ path ] = nil
 
@@ -121700,9 +121699,7 @@ if not t then
 respond ( id , json . NULL ) ;
 return
 end
-respond (
-id ,
-{
+respond ( id , {
 name = def and def . name or tok . text ,
 kind = def and def . kind or "variable" ,
 type = T . tostring ( t ) ,
@@ -121722,8 +121719,7 @@ soaColumn = tok . soaColumn ,
 
 
 root = s . currentRoot ,
-}
-)
+} )
 end
 
 
@@ -122167,17 +122163,13 @@ end
 
 local function formattedText ( uri , doc ) 
 local path = uriToPath ( uri )
-local formatted , errors = fmt . format (
-doc . text ,
-path ,
-{
+local formatted , errors = fmt . format ( doc . text , path , {
 annotations = s . inc . env . annotations ,
 resolveAnnotation = function ( name ) 
 return s . inc . env . resolveProjectAnnotation ( s . inc . env , path , name )
 end ,
 methodParens = envMod . fmtMethodParensDefault ( s . inc . env ) ,
-}
-)
+} )
 if # errors > 0 or formatted == doc . text then
 return nil
 end
@@ -170034,9 +170026,10 @@ end )
 end
 
 local function waitAdmission ( client ) 
-suspension . suspend (
-"HTTP request admission" ,
-function ( resume , context ) 
+suspension . suspend ( "HTTP request admission" , function (
+resume ,
+context
+) 
 local active = true
 client : _retainSource ( context )
 local forget
@@ -170061,8 +170054,7 @@ forget ( )
 client : _releaseSource ( )
 end
 end
-end
-)
+end )
 end
 
 local function waitHead ( client , transfer , cancelNative ) 
@@ -170078,9 +170070,10 @@ end
 end
 
 local function fairnessYield ( ) 
-suspension . suspend (
-"HTTP response copy fairness" ,
-function ( resume , context ) 
+suspension . suspend ( "HTTP response copy fairness" , function (
+resume ,
+context
+) 
 local active = true
 context : source ( "nupp-http-fairness" , 20 , function ( ) 
 if not active then
@@ -170095,8 +170088,7 @@ end )
 return function ( ) 
 active = false
 end
-end
-)
+end )
 end
 
 
@@ -184234,6 +184226,7 @@ do const  __nuppT56= suspension . install ( branchHandler ) ; __nuppT37=__nuppT3
 entered [ index ] = true
 local value = bodies [ index ] ( )
 installed : release ( )
+
 return "return",__nuppT38( value ) end; return "normal" end; __nuppT37[1]=__nuppT57 end; const __nuppT51,__nuppT52,__nuppT53=__nuppT43(__nuppT57,__nuppT39,__nuppT56); const __nuppT50=1; const __nuppT54={}; local __nuppT55=0; if __nuppT50>=1 then  const __nuppT58,__nuppT59=__nuppT42(__nuppCleanup1,__nuppT56);  if not __nuppT58 then __nuppT55=__nuppT55+1; __nuppT54[__nuppT55]=__nuppT59 end; end; if not __nuppT51 then if __nuppT55>0 then __nuppT44(__nuppT40(__nuppT52,__nuppT54,1),0) else __nuppT44(__nuppT52,0) end end; if __nuppT55>0 then if __nuppT55>1 then __nuppT44(__nuppT40(__nuppT54[1],__nuppT54,2),0) else __nuppT44(__nuppT54[1],0) end end; if __nuppT52=="return" then  return __nuppT45(__nuppT53,1,__nuppT53.n)  end; end
 end )
 threads [ index ] = co
@@ -184665,11 +184658,15 @@ return uri . newURI ( prefix .. authority .. path .. suffix )
 end
 
 function uri.URI:withEndpoint(endpoint) 
-return assert ( uri . newURI (
-endpoint : scheme ( ) .. "://" .. ( endpoint : authority ( ) or "" ) .. self . _path .. (
+return assert (
+uri . newURI (
+endpoint : scheme ( ) .. "://" .. (
+endpoint : authority ( ) or ""
+) .. self . _path .. (
 self . _query ~= nil and "?" .. self . _query or ""
 ) .. ( self . _fragment ~= nil and "#" .. self . _fragment or "" )
-) )
+)
+)
 end
 
 
@@ -189222,6 +189219,7 @@ assert ( nestedResume ~= nil , "the nested park must subscribe before its siblin
 local resume = nestedResume
 nestedResume = nil
 resume ( 42 )
+
 return 0
 end ,
 } )
@@ -191788,9 +191786,10 @@ end
 end
 
 local function deferTurn ( ) 
-suspension . suspend (
-"nupp coroutine turn budget" ,
-function ( resume , context ) 
+suspension . suspend ( "nupp coroutine turn budget" , function (
+resume ,
+context
+) 
 context : uses ( turnDeferralSource ( ) )
 turnWaiters [ # turnWaiters + 1 ] = resume
 
@@ -191803,8 +191802,7 @@ break
 end
 end
 end
-end
-)
+end )
 end
 
 
@@ -214566,35 +214564,35 @@ local function appendWaiter(client: BodyClient, transfer: NativeTransfer, which:
 end
 
 local function waitAdmission(client: BodyClient): nil
-    suspension.suspend(
-        "HTTP request admission",
-        function(resume: function(boolean), context: suspension.Context): function()?
-            local active = true
-            client:_retainSource(context)
-            local forget: any
-            local function finish(): nil
-                if not active then
-                    return
-                end
-                active = false
-                if forget ~= nil then
-                    forget()
-                end
-                client:_releaseSource()
-                resume(true)
+    suspension.suspend("HTTP request admission", function(
+        resume: function(boolean),
+        context: suspension.Context
+    ): function()?
+        local active = true
+        client:_retainSource(context)
+        local forget: any
+        local function finish(): nil
+            if not active then
+                return
             end
+            active = false
+            if forget ~= nil then
+                forget()
+            end
+            client:_releaseSource()
+            resume(true)
+        end
 
-            forget = client._native:onAdmission(finish)
+        forget = client._native:onAdmission(finish)
 
-            return function(): nil
-                if active then
-                    active = false
-                    forget()
-                    client:_releaseSource()
-                end
+        return function(): nil
+            if active then
+                active = false
+                forget()
+                client:_releaseSource()
             end
         end
-    )
+    end)
 end
 
 local function waitHead(client: BodyClient, transfer: NativeTransfer, cancelNative: boolean): any
@@ -214610,25 +214608,25 @@ local function waitHead(client: BodyClient, transfer: NativeTransfer, cancelNati
 end
 
 local function fairnessYield(): nil
-    suspension.suspend(
-        "HTTP response copy fairness",
-        function(resume: function(boolean), context: suspension.Context): function()
-            local active = true
-            context:source("nupp-http-fairness", 20, function(): integer
-                if not active then
-                    return 0
-                end
-                active = false
-                resume(true)
-
-                return 1
-            end)
-
-            return function(): nil
-                active = false
+    suspension.suspend("HTTP response copy fairness", function(
+        resume: function(boolean),
+        context: suspension.Context
+    ): function()
+        local active = true
+        context:source("nupp-http-fairness", 20, function(): integer
+            if not active then
+                return 0
             end
+            active = false
+            resume(true)
+
+            return 1
+        end)
+
+        return function(): nil
+            active = false
         end
-    )
+    end)
 end
 
 ----------------------------------------------------------------------------
@@ -230289,6 +230287,7 @@ local function drive(bodies: {function(): any}, limit: integer?, stopEarly: bool
             entered[index] = true
             local value = bodies[index]()
             installed:release()
+
             return value
         end)
         threads[index] = co
@@ -230718,11 +230717,15 @@ record uri.URI
     end
 
     function withEndpoint(self, endpoint: uri.URI): uri.URI
-        return assert(uri.newURI(
-            endpoint:scheme() .. "://" .. (endpoint:authority() or "") .. self._path .. (
-                self._query ~= nil and "?" .. self._query or ""
-            ) .. (self._fragment ~= nil and "#" .. self._fragment or "")
-        ))
+        return assert(
+            uri.newURI(
+                endpoint:scheme() .. "://" .. (
+                    endpoint:authority() or ""
+                ) .. self._path .. (
+                    self._query ~= nil and "?" .. self._query or ""
+                ) .. (self._fragment ~= nil and "#" .. self._fragment or "")
+            )
+        )
     end
 end
 
@@ -232654,8 +232657,8 @@ local record Buffer
     end
 end
 
--- A 5.1-era VM without 5.2 compatibility ignores __len on tables, so `#buf`
--- answers correctly only where the host honors it; the other two fire anywhere.
+    -- A 5.1-era VM without 5.2 compatibility ignores __len on tables, so `#buf`
+    -- answers correctly only where the host honors it; the other two fire anywhere.
     ;
 (Buffer as {[string]: any}).__len = function(self: Buffer): integer
     local total = 0
@@ -235225,6 +235228,7 @@ function suite.test(provider: any): (boolean, string?)
                 local resume = nestedResume
                 nestedResume = nil
                 resume(42)
+
                 return 0
             end,
         })
@@ -237771,23 +237775,23 @@ local function consumeTurn(): nil
 end
 
 local function deferTurn(): nil
-    suspension.suspend(
-        "nupp coroutine turn budget",
-        function(resume: function(boolean), context: suspension.Context): function()
-            context:uses(turnDeferralSource())
-            turnWaiters[#turnWaiters + 1] = resume
+    suspension.suspend("nupp coroutine turn budget", function(
+        resume: function(boolean),
+        context: suspension.Context
+    ): function()
+        context:uses(turnDeferralSource())
+        turnWaiters[#turnWaiters + 1] = resume
 
-            return function(): nil
-                for index = #turnWaiters, 1, -1 do
-                    if turnWaiters[index] == resume then
-                        table.remove(turnWaiters, index)
+        return function(): nil
+            for index = #turnWaiters, 1, -1 do
+                if turnWaiters[index] == resume then
+                    table.remove(turnWaiters, index)
 
-                        break
-                    end
+                    break
                 end
             end
         end
-    )
+    end)
 end
 
 -- Task scopes use the same token without turning these scheduling details into
