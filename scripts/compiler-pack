@@ -90,8 +90,8 @@ cc_path="$pack/toolchain/$cc_relative"
 ar_path="$pack/toolchain/$ar_relative"
 link_path="$pack/bin/nupp-link-host$exe"
 if [ "$platform" = linux ]; then
-    compile_flags='["--sysroot={pack}/toolchain/sysroot", "--gcc-toolchain={pack}/toolchain/sysroot/usr", "--ld-path={pack}/toolchain/bin/ld.lld"]'
-    link_flags=$compile_flags
+    compile_flags='["--sysroot={pack}/toolchain/sysroot", "--gcc-toolchain={pack}/toolchain/sysroot/usr"]'
+    link_flags='["--sysroot={pack}/toolchain/sysroot", "--gcc-toolchain={pack}/toolchain/sysroot/usr", "--ld-path={pack}/toolchain/bin/ld.lld"]'
 else
     compile_flags='[]'
     link_flags='[]'

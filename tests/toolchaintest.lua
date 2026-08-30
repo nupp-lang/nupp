@@ -313,6 +313,19 @@ function M.windowsHostLinkersCarryPthread()
       "the Windows compiler-pack host linker does not link pthread")
 end
 
+-- Clang accepts --ld-path only while linking. Generated AOT compilation uses
+-- -Werror, so putting it among compile flags makes a valid installed pack fail
+-- before its linker can run.
+function M.linuxCompilerPackKeepsTheLinkerOutOfCompiles()
+   local packer = read(ROOT .. "/scripts/compiler-pack")
+   local compileFlags = assert(packer:match("compile_flags='(%[[^\n]+%])'"))
+   local linkFlags = assert(packer:match("link_flags='(%[[^\n]+%])'"))
+   assert(not compileFlags:find("--ld-path", 1, true),
+      "the Linux pack gives linker selection to compile-only commands")
+   assert(linkFlags:find("--ld-path", 1, true),
+      "the Linux pack does not select its bundled linker")
+end
+
 -- A path answered by Git Bash can be handed directly to the native compiler or
 -- LuaJIT. Those processes do not understand its `/c/...` mount spelling.
 function M.windowsAnswersNativePaths()
