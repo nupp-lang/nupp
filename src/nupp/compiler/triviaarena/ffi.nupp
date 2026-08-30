@@ -36,6 +36,11 @@ function FfiArena:append(kind: integer, offset: integer, length: integer, line: 
 end
 
 function FfiArena:record(index: integer): (integer, integer, integer, integer, integer)
+    -- Refused here rather than left to the reads: past `count` the block holds
+    -- zeroes that pass for a record, and before it lies foreign memory.
+    if index < 1 or index > self.count then
+        error("nupp: trivia record " .. index .. " is outside 1.." .. self.count, 2)
+    end
     local at = (index - 1) * STRIDE
     unsafe do
         return self.words[

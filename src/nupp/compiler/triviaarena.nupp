@@ -17,6 +17,8 @@ export interface Arena
     readonly source: string
     readonly count: integer
     append: function(self: Arena, kind: integer, offset: integer, length: integer, line: integer, col: integer): integer
+
+    --- @raises when `index` is outside `1..count`
     record: function(self: Arena, index: integer): (integer, integer, integer, integer, integer)
 end
 

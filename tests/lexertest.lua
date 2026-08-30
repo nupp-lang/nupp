@@ -74,6 +74,15 @@ function M.triviaArenaProvidersShareOneContract()
       assertEq(line, 67, "record line")
       assertEq(col, 68, "record column")
       assertEq(arena.source, "  -- note\nvalue", "the source is retained")
+      -- An out-of-range index is refused, not answered from memory the record
+      -- never reached: past `count` the ffi block holds zeroes that pass for a
+      -- record, and before it lies foreign memory.
+      for _, index in ipairs({0, -1, 81}) do
+         local ok, err = pcall(function() return arena:record(index) end)
+         assertEq(ok, false, "record " .. index .. " must be refused")
+         assertEq(tostring(err):match("outside 1%.%.80") ~= nil, true,
+            "record " .. index .. " names the range: " .. tostring(err))
+      end
    end
 end
 
