@@ -15,6 +15,7 @@
  */
 
 #include "nupp_xxh64.h"
+#include "nupp_native.h"
 
 #define P1 UINT64_C(0x9E3779B185EBCA87)
 #define P2 UINT64_C(0xC2B2AE3D27D4EB4F)
@@ -49,17 +50,17 @@ static uint64_t merge_lane(uint64_t accumulator, uint64_t lane) {
     return accumulator * P1 + P4;
 }
 
-uint64_t nuppXxh64(const uint8_t *bytes, size_t length) {
+static uint64_t xxh64(const uint8_t *bytes, size_t length, uint64_t seed) {
     const uint8_t *at = bytes;
     const uint8_t *end = bytes + length;
     uint64_t hash;
 
     if (length >= 32) {
         const uint8_t *limit = end - 32;
-        uint64_t v1 = P1 + P2;
-        uint64_t v2 = P2;
-        uint64_t v3 = 0;
-        uint64_t v4 = (uint64_t)0 - P1;
+        uint64_t v1 = seed + P1 + P2;
+        uint64_t v2 = seed + P2;
+        uint64_t v3 = seed;
+        uint64_t v4 = seed - P1;
         do {
             v1 = round_lane(v1, read64(at)); at += 8;
             v2 = round_lane(v2, read64(at)); at += 8;
@@ -72,7 +73,7 @@ uint64_t nuppXxh64(const uint8_t *bytes, size_t length) {
         hash = merge_lane(hash, v3);
         hash = merge_lane(hash, v4);
     } else {
-        hash = P5;
+        hash = seed + P5;
     }
 
     hash += (uint64_t)length;
@@ -100,4 +101,25 @@ uint64_t nuppXxh64(const uint8_t *bytes, size_t length) {
     hash ^= hash >> 32;
 
     return hash;
+}
+
+uint64_t nuppXxh64(const uint8_t *bytes, size_t length) {
+    return xxh64(bytes, length, 0);
+}
+
+static void write_hex(uint8_t *output, uint64_t value) {
+    static const uint8_t digits[] = "0123456789abcdef";
+    int index;
+
+    for (index = 15; index >= 0; index -= 1) {
+        output[index] = digits[value & 0xf];
+        value >>= 4;
+    }
+}
+
+/* The compiler's 128-bit cache digest, kept behind the native-provider boundary
+ * so portable compiler hosts continue to use their pure Nupp implementation. */
+NUPP_EXPORT void nuppXxh64Digest(const uint8_t *bytes, size_t length, uint8_t output[32]) {
+    write_hex(output, xxh64(bytes, length, 0));
+    write_hex(output + 16, xxh64(bytes, length, UINT64_C(0x9E3779B97F4A7C15)));
 }

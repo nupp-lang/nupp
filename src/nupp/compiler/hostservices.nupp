@@ -7,4 +7,5 @@ export = {
     cheader = require("nupp.compiler.cheader"),
     comptimeworker = require("nupp.compiler.comptimeworker"),
     fs = require("nupp.compiler.fs"),
+    hash = require("nupp.compiler.nativehash"),
 }

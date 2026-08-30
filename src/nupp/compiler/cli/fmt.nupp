@@ -169,15 +169,17 @@ local function run(parsed: any): integer
     local settled = reporting and envMod.formatStore(env) or nil
     local textNeeded = write and true or false
     local hashMod = require("nupp.compiler.build.hash")
+    local digest = env.compilerServices
+        and env.compilerServices.hash
+        and env.compilerServices.hash.digest
+        or hashMod.digest
     local optionsKey = nil
     local function verdictKey(path: string, source: string): string
         if not optionsKey then
-            optionsKey = hashMod.digest(
-                tostring(methodParens) .. "\0" .. tostring(width) .. "\0" .. envMod.annotationKey(env)
-            )
+            optionsKey = digest(tostring(methodParens) .. "\0" .. tostring(width) .. "\0" .. envMod.annotationKey(env))
         end
 
-        return hashMod.digest(optionsKey .. "\0" .. path .. "\0" .. source)
+        return digest(optionsKey .. "\0" .. path .. "\0" .. source)
     end
 
     local failed = false

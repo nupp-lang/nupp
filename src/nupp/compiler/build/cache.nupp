@@ -224,15 +224,17 @@ local function stable(value: unknown, seen: {[unknown]: boolean}?): string
     return "{" .. table.concat(parts, ",") .. "}"
 end
 
-local function hashFile(path: string): string?
+local function hashFile(path: string, contentDigest: (function(string): string)?): string?
     local text = readFile(path)
-    return text and hash.digest(text) or nil
+    local digest = contentDigest or hash.digest
+
+    return text and digest(text) or nil
 end
 
 local function hashFiles(files: {string}): string
     local parts = {}
     for _, path in ipairs(files) do
-        parts[#parts + 1] = path .. "\0" .. (hashFile(path) or "missing")
+        parts[#parts + 1] = path .. "\0" .. (hashFile(path, hash.digest) or "missing")
     end
 
     return hash.digest(table.concat(parts, "\0"))
@@ -248,10 +250,11 @@ end
 -- for a second process to be told the same thing.
 local toolFingerprintMemo = nil
 
-local function toolFingerprint(): string
+local function toolFingerprint(contentDigest: (function(string): string)?): string
     if toolFingerprintMemo then
         return toolFingerprintMemo
     end
+    local digest = contentDigest or hash.digest
     local dir = moduleDir()
     -- The installed build modules live one directory below the rest of the compiler.
     -- Digest the complete compiler tree, not just nupp.compiler.build.*.
@@ -280,10 +283,10 @@ local function toolFingerprint(): string
         if path:sub(1, #dir + 1) == dir .. "/" then
             relative = path:sub(#dir + 2)
         end
-        parts[#parts + 1] = relative .. "\0" .. (hashFile(path) or "missing")
+        parts[#parts + 1] = relative .. "\0" .. (hashFile(path, digest) or "missing")
     end
     table.sort(parts)
-    toolFingerprintMemo = hash.digest(table.concat(parts, "\0"))
+    toolFingerprintMemo = digest(table.concat(parts, "\0"))
 
     return toolFingerprintMemo
 end
@@ -404,7 +407,7 @@ end
 --- whole built tree, which is a tenth of a second and far too much to spend on every
 --- command; the store makes it once per compiler. Passing no directory computes it in
 --- this process, which is what a caller with nowhere to write does.
-local function moduleGraph(cacheDir: string?): cache.ModuleGraph?
+local function moduleGraph(cacheDir: string?, digest: function(string): string): cache.ModuleGraph?
     if graphAttempted then
         return graphMemo
     end
@@ -425,7 +428,7 @@ local function moduleGraph(cacheDir: string?): cache.ModuleGraph?
     if cacheDir then
         store = require(
             "nupp.compiler.build.store"
-        ).openValue(join(cacheDir, "modulegraph.buf"), GRAPH_STAMP .. "\0" .. toolFingerprint())
+        ).openValue(join(cacheDir, "modulegraph.buf"), GRAPH_STAMP .. "\0" .. toolFingerprint(digest))
         local stored = store.value
         if type(stored) == "table" then
             graphMemo = stored as cache.ModuleGraph
@@ -445,7 +448,7 @@ local function moduleGraph(cacheDir: string?): cache.ModuleGraph?
             local text = name and readFile(path) or nil
             if name and text then
                 graph.files[name] = path
-                graph.digests[name] = hash.digest(text)
+                graph.digests[name] = digest(text)
                 sources[name] = text
             end
         end
@@ -523,7 +526,12 @@ local subsystemMemo: {[string]: string} = {}
 --- Falls back to the whole compiler whenever the graph cannot be read, whenever a named
 --- module is not in it, and for the bootstrap, which is one file. Every fallback costs
 --- work that turns out to have been unnecessary and none of them changes an answer.
-function cache.subsystemFingerprint(roots: {string}, cacheDir: string?): string
+function cache.subsystemFingerprint(
+    roots: {string},
+    cacheDir: string?,
+    contentDigest: (function(string): string)?
+): string
+    local digest = contentDigest or hash.digest
     local ordered = {}
     for index, name in ipairs(roots) do
         ordered[index] = name
@@ -534,7 +542,7 @@ function cache.subsystemFingerprint(roots: {string}, cacheDir: string?): string
     if remembered then
         return remembered
     end
-    local graph = moduleGraph(cacheDir)
+    local graph = moduleGraph(cacheDir, digest)
     local answer = nil
     if graph then
         local reached: {[string]: boolean} = {}
@@ -566,10 +574,10 @@ function cache.subsystemFingerprint(roots: {string}, cacheDir: string?): string
                 parts[#parts + 1] = name .. "\0" .. (graph.digests[name] or "missing")
             end
             table.sort(parts)
-            answer = hash.digest(table.concat(parts, "\0"))
+            answer = digest(table.concat(parts, "\0"))
         end
     end
-    answer = answer or toolFingerprint()
+    answer = answer or toolFingerprint(digest)
     subsystemMemo[memoKey] = answer
 
     return answer as string

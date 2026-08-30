@@ -145,6 +145,26 @@ function M.xxh64KnownVectors()
       "fbcea83c8a378bf1")
 end
 
+-- The formatter reaches the same digest through native host services, so the
+-- fast path must keep every durable cache key compatible with the portable
+-- implementation. Exercise the stripe boundary, all tail branches, binary
+-- bytes, and enough input for the performance-sensitive path.
+function M.theNativeContentDigestMatchesThePortableOne()
+   local nativeHash = require("nupp.compiler.hostservices").hash
+   for _, input in ipairs({
+      "",
+      "a",
+      "abc",
+      ("x"):rep(31),
+      ("y"):rep(32),
+      ("z"):rep(33),
+      string.char(0, 255, 128, 1, 7),
+      ("Nobody inspects the spammish repetition\0"):rep(4096),
+   }) do
+      assertEq(nativeHash.digest(input), hash.digest(input))
+   end
+end
+
 -- The eight bytes a stamped binary's trailer records. `runtime/native/c/xxh64.c`
 -- recomputes them on every run of that binary before handing a byte of the
 -- payload to Lua, so this is one contract with two spellings and these are the
