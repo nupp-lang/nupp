@@ -331,9 +331,12 @@ static TlsServerStoreEntry *tls_server_store_acquire(
             break;
         }
         if (!serverStores[at].used || serverStores[at].references == 0) {
-            if (choice == NULL || !choice->used ||
-                (serverStores[at].used &&
-                 serverStores[at].lastUsed < choice->lastUsed)) {
+            /* An unused slot beats evicting anybody; among idle identities the
+             * least recently used goes. */
+            if (choice == NULL ||
+                (choice->used &&
+                 (!serverStores[at].used ||
+                  serverStores[at].lastUsed < choice->lastUsed))) {
                 choice = &serverStores[at];
             }
         }
@@ -476,6 +479,10 @@ static void tls_client_cache_key(
     size_t authorityLength,
     const uint8_t *protocols,
     size_t protocolsLength,
+    const uint8_t *certificate,
+    size_t certificateLength,
+    const uint8_t *privateKey,
+    size_t privateKeyLength,
     bool verify
 ) {
     char peer[64] = {0};
@@ -507,6 +514,18 @@ static void tls_client_cache_key(
         (uint8_t)((verify ? 1 : 0) |
             (session->datagram ? 2 : 0) |
             (session->kernelRequested ? 4 : 0)));
+    /* A ticket carries the identity that earned it. Folding the client's own
+     * certificate and key into the key is what keeps a session cached under
+     * one identity from being resumed -- and acted under -- by another. */
+    if (certificateLength != 0 || privateKeyLength != 0) {
+        tls_digest_config(
+            session->cacheKey,
+            session->cacheKey, sizeof session->cacheKey,
+            certificate, certificateLength,
+            privateKey, privateKeyLength,
+            NULL, 0,
+            1);
+    }
     session->cacheKeyReady = true;
 }
 
@@ -642,6 +661,40 @@ static void tls_client_cache_save(NuppTls *session) {
     choice->serializedLength = serializedLength;
     choice->lastUsed = ++clientCacheClock;
     uv_mutex_unlock(&clientCacheGuard);
+}
+
+/* PEM through mbedTLS, which wants the buffer NUL-terminated with the NUL
+ * counted. Both take a copy so the terminator lives in memory this call owns,
+ * and zero it after: a private key must not linger in a freed allocation. */
+static int tls_parse_certificates(
+    mbedtls_x509_crt *into, const uint8_t *bytes, size_t length
+) {
+    unsigned char *copy = malloc(length + 1);
+    int failed;
+    if (copy == NULL) {
+        return MBEDTLS_ERR_X509_ALLOC_FAILED;
+    }
+    memcpy(copy, bytes, length);
+    copy[length] = 0;
+    failed = mbedtls_x509_crt_parse(into, copy, length + 1);
+    mbedtls_platform_zeroize(copy, length + 1);
+    free(copy);
+    return failed;
+}
+
+static int tls_parse_key(NuppTls *session, const uint8_t *bytes, size_t length) {
+    unsigned char *copy = malloc(length + 1);
+    int failed;
+    if (copy == NULL) {
+        return MBEDTLS_ERR_PK_ALLOC_FAILED;
+    }
+    memcpy(copy, bytes, length);
+    copy[length] = 0;
+    failed = mbedtls_pk_parse_key(&session->key, copy, length + 1,
+        NULL, 0, mbedtls_ctr_drbg_random, &session->drbg);
+    mbedtls_platform_zeroize(copy, length + 1);
+    free(copy);
+    return failed;
 }
 
 /* mbedTLS wants a message for a code; it does not have one to hand without
@@ -796,8 +849,10 @@ static int tls_recv(void *context, unsigned char *into, size_t length) {
             sizeof host,
             &port);
         if (truncated) {
-            nupp_fail("tls: the DTLS record exceeded the receive buffer");
-            return NUPP_TLS_RECV_FAILED;
+            /* Discarded, not fatal: a UDP source is forgeable, and DTLS's rule
+             * for a datagram that cannot be a record is to drop it silently --
+             * one spoofed oversized packet must not end the session. */
+            return MBEDTLS_ERR_SSL_WANT_READ;
         }
         if (status < 0 || got < 0) {
             return NUPP_TLS_RECV_FAILED;
@@ -860,6 +915,11 @@ static bool tls_alpn_adopt(NuppTls *session, const uint8_t *bytes, size_t length
         if (session->alpnBytes[at] == '\0') {
             count++;
         }
+    }
+    /* A list without its trailing separator still names a final entry, which
+     * the terminator added above closes. */
+    if (session->alpnBytes[length - 1] != '\0') {
+        count++;
     }
     if (count == 0) {
         return false;
@@ -1354,10 +1414,11 @@ NUPP_EXPORT NuppTls *nuppTlsWrap(
             &session->config, MBEDTLS_SSL_VERSION_TLS1_2);
     }
 
-    /* mbedTLS wants its PEM NUL-terminated and counts the NUL, which is a
-     * pointer arithmetic mistake waiting to be made once per caller. */
+    /* mbedTLS wants its PEM NUL-terminated and counts the NUL. The terminator
+     * is added on a copy here: the caller handed a pointer and a length, and a
+     * byte past that span is not the call's to read. */
     if (certificate != NULL && certificateLength > 0) {
-        failed = mbedtls_x509_crt_parse(&session->chain, certificate, certificateLength + 1);
+        failed = tls_parse_certificates(&session->chain, certificate, certificateLength);
         if (failed != 0) {
             tls_fail(failed, "the certificate could not be read");
             tls_free(session);
@@ -1365,8 +1426,7 @@ NUPP_EXPORT NuppTls *nuppTlsWrap(
         }
     }
     if (privateKey != NULL && privateKeyLength > 0) {
-        failed = mbedtls_pk_parse_key(&session->key, privateKey, privateKeyLength + 1,
-            NULL, 0, mbedtls_ctr_drbg_random, &session->drbg);
+        failed = tls_parse_key(session, privateKey, privateKeyLength);
         if (failed != 0) {
             tls_fail(failed, "the private key could not be read");
             tls_free(session);
@@ -1380,7 +1440,7 @@ NUPP_EXPORT NuppTls *nuppTlsWrap(
         }
     }
     if (authority != NULL && authorityLength > 0) {
-        failed = mbedtls_x509_crt_parse(&session->authority, authority, authorityLength + 1);
+        failed = tls_parse_certificates(&session->authority, authority, authorityLength);
         if (failed != 0) {
             tls_fail(failed, "the trusted certificates could not be read");
             tls_free(session);
@@ -1435,6 +1495,8 @@ NUPP_EXPORT NuppTls *nuppTlsWrap(
             hostname, hostnameLength,
             authority, authorityLength,
             protocols, protocolsLength,
+            certificate, certificateLength,
+            privateKey, privateKeyLength,
             verify);
         /* TLS 1.3 tickets arrive after the handshake. Signalling them makes
          * the read path save each one rather than silently discarding it.
@@ -1633,6 +1695,12 @@ NUPP_EXPORT intptr_t nuppTlsRead(NuppTls *session, uint8_t *into, size_t wanted)
         nupp_fail("tls: the handshake has not finished");
         return TLS_FAILED;
     }
+    if (session->failed) {
+        /* mbedTLS documents a context that returned a fatal error as unusable;
+         * re-entering it answers nonsense at best. */
+        nupp_fail("tls: the session has failed");
+        return TLS_FAILED;
+    }
     do {
 #if defined(__linux__)
         if (session->kernelOffloaded) {
@@ -1688,6 +1756,10 @@ NUPP_EXPORT intptr_t nuppTlsWrite(NuppTls *session, const uint8_t *bytes, size_t
     }
     if (!session->handshaken) {
         nupp_fail("tls: the handshake has not finished");
+        return TLS_FAILED;
+    }
+    if (session->failed) {
+        nupp_fail("tls: the session has failed");
         return TLS_FAILED;
     }
     if (length == 0) {

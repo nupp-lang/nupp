@@ -733,6 +733,34 @@ static void net_listener_closed(uv_handle_t *handle) {
     }
 }
 
+static void net_discard_closed(uv_handle_t *handle) {
+    free(handle);
+}
+
+/* Accepts a connection there is no room for and closes it at once. Leaving it
+ * unaccepted instead would park it in the server handle, and libuv stops the
+ * watcher until an accept consumes it -- which would silence the listener for
+ * good however far the queue later drained. */
+static void net_discard_connection(NuppNetListener *listener, uv_stream_t *server) {
+    NetHandle *scratch = malloc(sizeof *scratch);
+    int made;
+    if (scratch == NULL) {
+        listener->failure = UV_ENOMEM;
+        return;
+    }
+    made = listener->isPipe
+        ? uv_pipe_init(listener->where, &scratch->pipe, 0)
+        : uv_tcp_init(listener->where, &scratch->tcp);
+    if (made != 0) {
+        free(scratch);
+        listener->failure = made;
+        return;
+    }
+    uv_accept(server, (uv_stream_t *)scratch);
+    ((uv_handle_t *)scratch)->data = NULL;
+    uv_close((uv_handle_t *)scratch, net_discard_closed);
+}
+
 /* A connection arrives whether or not anyone is ready for it. Accepting it here
  * and queueing keeps the kernel's backlog from being the only bound, and
  * refusing past the queue's own ceiling is what stops an unaccepted listener
@@ -746,11 +774,13 @@ static void net_on_connection(uv_stream_t *server, int status) {
         return;
     }
     if (listener->count == NET_ACCEPT_QUEUE_MAX) {
+        net_discard_connection(listener, server);
         return;
     }
     stream = net_stream_new(listener->where, listener->isPipe);
     if (stream == NULL) {
         listener->failure = UV_ENOMEM;
+        net_discard_connection(listener, server);
         return;
     }
     failed = uv_accept(server, (uv_stream_t *)&stream->socket);
