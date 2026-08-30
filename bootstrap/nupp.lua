@@ -37532,16 +37532,30 @@ local suffix = require ( "nupp.compiler.build.platform" ) . executableSuffix ( s
 return join ( root , configured or join ( outDir , join ( name , join ( selectedPlatform , name .. suffix ) ) ) )
 end
 
+local hostKey = require ( "nupp.compiler.build.platform" ) . hostKey ( )
+local hostSuffix = hostKey and require ( "nupp.compiler.build.platform" ) . executableSuffix ( hostKey ) or ""
+
+
+
+
+
+
+
+
 
 
 
 
 
 if target . output then
-return join ( root , target . output )
+local spelled = tostring ( target . output )
+local named = spelled : match ( "[^/\\]*$" ) or spelled
+if hostSuffix ~= "" and not named : find ( "." , 1 , true ) then
+spelled = spelled .. hostSuffix
 end
-local hostKey = require ( "nupp.compiler.build.platform" ) . hostKey ( )
-local hostSuffix = hostKey and require ( "nupp.compiler.build.platform" ) . executableSuffix ( hostKey ) or ""
+
+return join ( root , spelled )
+end
 
 return join ( root , join ( outDir , name .. hostSuffix ) )
 end

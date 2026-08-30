@@ -407,16 +407,30 @@ local function binaryOutput(
         return join(root, configured or join(outDir, join(name, join(selectedPlatform, name .. suffix))))
     end
 
+    local hostKey = require("nupp.compiler.build.platform").hostKey()
+    local hostSuffix = hostKey and require("nupp.compiler.build.platform").executableSuffix(hostKey) or ""
+
     -- A build for this machine gets this machine's suffix. Only the explicitly
     -- selected platform above used to, so building a binary on Windows wrote
     -- `app` where Windows will only run `app.exe` -- the stamp was correct and
-    -- what it was called was not. An `output` the project spelled out is left
-    -- alone: it named the file it wanted.
+    -- what it was called was not.
+    --
+    -- An `output` the project spelled out named the file it wanted and keeps
+    -- it, unless it named one this platform cannot run at all. A name with no
+    -- extension is that: `cmd` resolves a command by trying the extensions in
+    -- `PATHEXT`, so it finds `app.exe` whether it was asked for `app` or for
+    -- `app.exe`, and finds nothing for an extensionless file that is genuinely
+    -- there. That is how the manifest's `build/nupp-test` built on Windows and
+    -- then answered "is not recognized" when the suite ran it.
     if target.output then
-        return join(root, target.output)
+        local spelled = tostring(target.output)
+        local named = spelled:match("[^/\\]*$") or spelled
+        if hostSuffix ~= "" and not named:find(".", 1, true) then
+            spelled = spelled .. hostSuffix
+        end
+
+        return join(root, spelled)
     end
-    local hostKey = require("nupp.compiler.build.platform").hostKey()
-    local hostSuffix = hostKey and require("nupp.compiler.build.platform").executableSuffix(hostKey) or ""
 
     return join(root, join(outDir, name .. hostSuffix))
 end
