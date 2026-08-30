@@ -24,6 +24,10 @@ The first unobserved child failure is raised after all children have settled. A 
 blocks efficiently in an ordinary program and parks under a suspension handler.
 ]]
 
+----------------------------------------------------------------------------
+-- The host bindings
+----------------------------------------------------------------------------
+
 local type BufferValue = {
     encode: nosuspend function(any, any): any,
     decode: nosuspend function(any): any,
@@ -82,6 +86,10 @@ rawset(_G.nupp, "__workerCheckpoint", native.workerTaskCheckpoint)
 local workers = {}
 
 rawset(workers, "__parallelism", native.workerParallelism)
+
+----------------------------------------------------------------------------
+-- What crosses a lane
+----------------------------------------------------------------------------
 
 local type Packed = {
     values: {any},
@@ -308,6 +316,10 @@ end
 --- The typed handle for one submitted function.
 type workers.Task<F is Callable> = TaskType(F)
 
+----------------------------------------------------------------------------
+-- Sendable functions
+----------------------------------------------------------------------------
+
 local function pack(...: any): Packed
     return {values = {...}, count = select("#", ...)}
 end
@@ -347,6 +359,10 @@ end
 -- authored module surface while retaining them on the runtime table.
 rawset(workers, "__defineSendable", defineSendable)
 rawset(workers, "__sendable", describeSendable)
+
+----------------------------------------------------------------------------
+-- Handles
+----------------------------------------------------------------------------
 
 local type Frame = {
     kind: string,
@@ -443,6 +459,10 @@ local ChannelMT: metatable<Channel> = {__index = Channel}
 local TaskMT: metatable<TaskImpl> = {__index = TaskImpl}
 local ScopeMT: metatable<workers.Scope> = {__index = workers.Scope}
 
+----------------------------------------------------------------------------
+-- Channels
+----------------------------------------------------------------------------
+
 local function channel(handle: any, owned: boolean): Channel
     return setmetatable({handle = handle, owned = owned, destroyed = false}, ChannelMT) as Channel
 end
@@ -484,6 +504,10 @@ local function heapHooks(): nil
         heapArrayFree = rawget(heapModule as table, "__heapArrayFree")
     end
 end
+
+----------------------------------------------------------------------------
+-- What may be transferred
+----------------------------------------------------------------------------
 
 local function unsendable(value: any, path: string, depth: integer, state: TransferState): string?
     local kind = type(value)
@@ -615,6 +639,10 @@ end
 
 local noRecords: {string} = {}
 
+----------------------------------------------------------------------------
+-- Encoding a payload
+----------------------------------------------------------------------------
+
 -- One string.buffer codec per channel, whose metatable dictionary is the
 -- channel's ordered, append-only address registry. The sender registers an
 -- address once and invalidates its codec; the receiver compares the native
@@ -712,6 +740,10 @@ end
 -- never loads the module.
 local regionParts: any = nil
 local regionFromParts: any = nil
+
+----------------------------------------------------------------------------
+-- Attachments
+----------------------------------------------------------------------------
 
 local function regionHooks(): nil
     if regionParts == nil then
@@ -967,6 +999,10 @@ end
 -- with, so its schema ids are cached per state rather than per lane.
 local replySchemaIds: {[any]: any} = setmetatable({}, {__mode = "k"}) as {[any]: any}
 
+----------------------------------------------------------------------------
+-- Frames on the wire
+----------------------------------------------------------------------------
+
 local function encodeFrame(frame: Frame): string
     local header: any
     if frame.kind == "task" then
@@ -1205,6 +1241,10 @@ local function pop(source: Channel, timeoutMs: integer): Frame?
 
     return frame
 end
+
+----------------------------------------------------------------------------
+-- Lanes and the scheduler
+----------------------------------------------------------------------------
 
 local function destroy(value: Channel): nil
     if value.destroyed or not value.owned then
@@ -1451,6 +1491,10 @@ end
 -- not have loaded yet.
 local scannedAddresses: {[any]: {string}} = setmetatable({}, {__mode = "k"}) as {[any]: {string}}
 
+----------------------------------------------------------------------------
+-- Spawning
+----------------------------------------------------------------------------
+
 local function callableAddress(fn: any): (string?, string?)
     local described = sendableDescriptors[fn]
     if described ~= nil then
@@ -1665,6 +1709,10 @@ unsafe do
     workers.Scope.spawn = spawnSurface as any
 end
 
+----------------------------------------------------------------------------
+-- Tasks
+----------------------------------------------------------------------------
+
 function TaskImpl:isDone(): boolean
     if self._state ~= "queued" then
         return true
@@ -1761,6 +1809,10 @@ local function settleBlocking(task: any): string?
     return task._state == "failed" and "nupp: worker task failed: " .. (task._error or "unknown failure") or nil
 end
 
+----------------------------------------------------------------------------
+-- Scopes
+----------------------------------------------------------------------------
+
 local function closeBlocking(takes self: workers.Scope): nil
     if self._closed then
         return
@@ -1830,6 +1882,10 @@ function workers.scope(): affine(workers.Scope)
 end
 
 rawset(workers, "__scope", openScope)
+
+----------------------------------------------------------------------------
+-- The worker side
+----------------------------------------------------------------------------
 
 local function workerReply(outbox: Channel, id: integer, ok: boolean, answer: any, preparedOutput: any): nil
     if not ok then

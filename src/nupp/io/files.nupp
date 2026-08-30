@@ -284,6 +284,10 @@ Scheduling a transfer costs more than those cost to run.
 :::
 ]]
 
+----------------------------------------------------------------------------
+-- The native binding
+----------------------------------------------------------------------------
+
 const native = require("nupp.runtime.native")
 const suspension = require("nupp.suspension")
 const paths = require("nupp.io.path")
@@ -369,6 +373,10 @@ local PENDING, READY = 0, 1
 -- them; nothing here is latency-critical.
 local SOURCE, PRIORITY = "nupp-files", 20
 
+----------------------------------------------------------------------------
+-- What the filesystem answers with
+----------------------------------------------------------------------------
+
 --- What a resolved path refers to. A `symlink` answer only ever comes from
 --- `isSymlink`, since every other operation follows the link first.
 --- @export
@@ -431,6 +439,10 @@ export record TemporaryOptions
     --- Text after the generated part, such as an extension.
     suffix: string?
 end
+
+----------------------------------------------------------------------------
+-- Owners and argument checks
+----------------------------------------------------------------------------
 
 -- A terminal has to be a declared function wherever a contract names it, and these
 -- records hand each other out: an open file answers a reader and a writer. Written one
@@ -512,6 +524,10 @@ local function answer(handle: any): (string?, string?)
 
     return native.bytes(handle), nil
 end
+
+----------------------------------------------------------------------------
+-- Open files
+----------------------------------------------------------------------------
 
 --- An open file, and the obligation to close it.
 --- @export
@@ -653,6 +669,10 @@ local function closeFile(file: File): nil
     file._handle = nil
     C.nuppFileClose(handle)
 end
+
+----------------------------------------------------------------------------
+-- Readers and writers
+----------------------------------------------------------------------------
 
 --- A forward-only reader over an open file.
 --- @export
@@ -854,6 +874,10 @@ export record FileWriter is io.Writer
     end
 end
 
+----------------------------------------------------------------------------
+-- Temporary paths
+----------------------------------------------------------------------------
+
 --- A created temporary path, and the obligation to settle it.
 ---
 --- Closing removes it. `persist` moves it somewhere permanent instead and discharges
@@ -923,6 +947,10 @@ export record TemporaryPath
 
     metamethod __tostring: function(self): string
 end
+
+----------------------------------------------------------------------------
+-- Dropping
+----------------------------------------------------------------------------
 
 function TemporaryPath.drop(takes self: TemporaryPath): nil
     local state = unsafe release self
@@ -1026,6 +1054,10 @@ end
 -- lane that runs them is bounded, so a program that submits more than it waits for is
 -- something a caller can ask about.
 local waits: {any} = {}
+
+----------------------------------------------------------------------------
+-- Driving the request loop
+----------------------------------------------------------------------------
 
 -- Moves every settled request off the wait list and resumes whoever was waiting for
 -- it. Answers how many moved, which is what a readiness pump owes its driver.
@@ -1133,6 +1165,10 @@ local function fetched(handle: any): (string?, string?)
     return out, nil
 end
 
+----------------------------------------------------------------------------
+-- Naming a temporary
+----------------------------------------------------------------------------
+
 --- @raises when value is neither a string nor a field of that name
 local function optional(options: TemporaryOptions?, field: string, level: integer): string
     local value = options ~= nil and (options as any)[field] or nil
@@ -1166,6 +1202,10 @@ local function payload(value: any, what: string, level: integer): string
     end
     error("nupp: io.files " .. what .. " must be bytes or a byte view", level)
 end
+
+----------------------------------------------------------------------------
+-- Asking about a path
+----------------------------------------------------------------------------
 
 --- Describes one path, following symbolic links.
 ---
@@ -1482,6 +1522,10 @@ end
 export function pendingTransfers(): integer
     return tonumber(C.nuppFsPending()) as integer
 end
+
+----------------------------------------------------------------------------
+-- Opening and reading
+----------------------------------------------------------------------------
 
 --- Opens a file and hands over the obligation to close it.
 ---
