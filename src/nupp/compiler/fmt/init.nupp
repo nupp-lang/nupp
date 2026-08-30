@@ -1294,12 +1294,24 @@ local function spreadListGroups(lines, width)
                 local block = tail.final ~= nil and BLOCK_CLOSERS[tail.final.kind] or false
                 if g.open.lineIdx ~= g.close.lineIdx then
                     local opening = lines[g.open.lineIdx]
+                    -- The hug's price is what precedes the body: through the argument's
+                    -- own opening bracket -- the `{` itself, or the `(` after
+                    -- `function` -- not the whole opening line, which mid-convergence
+                    -- still carries what later passes will move off it.
+                    local at = opening and indexOfToken(opening.items, tail.first) or nil
+                    if at and not tail.first.opensGroup then
+                        local following = opening.items[at + 1]
+                        if following and following.kind == "token" and following.token.opensGroup then
+                            at = at + 1
+                        end
+                    end
                     local hugs = mode == "hug"
                         and block
                         and tail.first.lineIdx == g.open.lineIdx
-                        and opening ~= nil
-                        and lineWidth(
-                        opening
+                        and at ~= nil
+                        and prefixWidth(
+                        opening,
+                        at
                     ) <= width
                     if not hugs then
                         for _, element in ipairs(g.elements) do
