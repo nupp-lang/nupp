@@ -38,6 +38,7 @@ usage: scripts/toolchain COMPONENT...
 Components: luajit luarocks lpeg luautf8 ada libuv mbedtls curl spirv-cross
             sdl swiftshader
             native FEATURES, host FEATURES, host-library FEATURES
+            host-link FEATURES OUTPUT ARCHIVE... -- LINK_FLAG...
             fixture SOURCE OUTPUT
 
 Prints the install prefix of each component named, building it first when it is
@@ -1172,6 +1173,89 @@ build_host() {
     HOST_OUT="$out"
 }
 
+# Relinks the cached host objects with application-owned static archives. The
+# archive list comes before `--`; everything after it is an ordinary trailing
+# linker argument. FFI reaches symbols by name rather than by a C reference, so
+# application archives are force-loaded instead of left to archive extraction.
+link_host() {
+    features=${1:-}
+    output=${2:-}
+    [ -n "$output" ] || die "host-link needs an output path"
+    shift 2
+
+    build_host stub "$features"
+    host_out=$HOST_OUT
+    archives=""
+    while [ "$#" -gt 0 ] && [ "$1" != "--" ]; do
+        archives="$archives
+$1"
+        shift
+    done
+    [ "$#" -eq 0 ] || shift
+    flags_file="$output.nupp-link-flags.$$"
+    trap 'rm -f "$flags_file"' EXIT HUP INT TERM
+    : > "$flags_file"
+    while [ "$#" -gt 0 ]; do
+        printf '%s\n' "$1" >> "$flags_file"
+        shift
+    done
+
+    # Construct argv with `set --` so cache and project paths containing spaces
+    # remain one linker argument.
+    set -- "$CC" -o "$output"
+    for object in "$host_out"/objects/*.o; do
+        set -- "$@" "$object"
+    done
+    for feature in $(printf '%s' "$features" | tr ',' ' '); do
+        case "$feature" in
+            lpeg)       set -- "$@" "$PREFIX/lpeg/lib/liblpeg.a" ;;
+            lua-utf8)   set -- "$@" "$PREFIX/luautf8/lib/liblua-utf8.a" ;;
+            native-tls)
+                set -- "$@" "$PREFIX/mbedtls/lib/libmbedtls.a"
+                set -- "$@" "$PREFIX/mbedtls/lib/libmbedx509.a"
+                set -- "$@" "$PREFIX/mbedtls/lib/libmbedcrypto.a"
+                ;;
+        esac
+    done
+    set -- "$@" "$PREFIX/libuv/lib/libuv.a" "$PREFIX/luajit/lib/libluajit-5.1.a"
+
+    if [ -n "$archives" ]; then
+        case "$PLATFORM" in
+            darwin)
+                while IFS= read -r archive; do
+                    [ -z "$archive" ] || set -- "$@" "-Wl,-force_load,$archive"
+                done <<EOF
+$archives
+EOF
+                ;;
+            *)
+                set -- "$@" -Wl,--whole-archive
+                while IFS= read -r archive; do
+                    [ -z "$archive" ] || set -- "$@" "$archive"
+                done <<EOF
+$archives
+EOF
+                set -- "$@" -Wl,--no-whole-archive
+                ;;
+        esac
+    fi
+    while IFS= read -r flag; do
+        set -- "$@" "$flag"
+    done < "$flags_file"
+    case "$PLATFORM" in
+        darwin)  set -- "$@" -lm -lpthread -Wl,-export_dynamic ;;
+        windows)
+            set -- "$@" -lpsapi -luser32 -ladvapi32 -liphlpapi -luserenv
+            set -- "$@" -lws2_32 -ldbghelp -lole32 -lshell32 -lbcrypt -Wl,--export-all-symbols
+            ;;
+        *)       set -- "$@" -lm -lpthread -ldl -Wl,-E ;;
+    esac
+    "$@" >&2
+    rm -f "$flags_file"
+    trap - EXIT HUP INT TERM
+    native_path "$output"
+}
+
 # --- provider fixtures ------------------------------------------------------
 
 # Builds one C program against the native provider and answers where it landed.
@@ -1248,6 +1332,13 @@ case "$1" in
     host-library)
         build_host library "${2:-}"
         native_path "$HOST_OUT"
+        exit 0
+        ;;
+    host-link)
+        host_link_features=${2:-}
+        host_link_output=${3:-}
+        shift 3
+        link_host "$host_link_features" "$host_link_output" "$@"
         exit 0
         ;;
     -h|--help) usage ;;

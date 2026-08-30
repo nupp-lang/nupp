@@ -334,6 +334,49 @@ stage a current-machine sidecar beside a foreign executable. Sidecar-only
 features such as path, URI, UUID and HTTP are refused until the catalog has a
 provider artifact for that platform.
 
+### Standalone native binaries
+
+A compiler-owned binary can relink its host with the target's static native
+closure before stamping the payload:
+
+```lua
+build = {
+   kind = "binary",
+   stub = "nupp",
+   standalone = true,
+   entries = { "app.main" },
+   dependencies = { "image" }
+}
+```
+
+`nupp build --target app --standalone` enables the same mode for one build.
+Nupp compiles source C dependencies as static archives, rewrites their generated
+bindings to the executable's process namespace, emits native AOT as a static
+archive, and force-loads the complete archive closure into the host. The result
+does not carry those libraries under `lib`.
+
+An explicitly shared C dependency is refused in this mode; use
+`linkage = "static"` or `"both"`. Native facilities which only have a sidecar
+implementation are refused for the same reason. A path-valued third-party
+`stub` cannot be relinked and therefore cannot select `standalone`.
+
+Current-platform source builds use the repository toolchain driver. Installed
+and cross-target builds use a compiler pack selected by host and target triple.
+Installed distributions discover packs under `lib/nupp/compiler-packs` beside
+their `bin` directory. `NUPP_COMPILER_PACK_DIR` overrides that location with a
+pack tree containing `<host>/<target>/pack.json`; Nupp verifies the recorded
+size and SHA-256 of its compiler, archiver, and host linker before running them.
+An explicit `NUPP_NATIVE_CC` or dependency `cc` remains the expert override and
+the ambient compiler search remains the compatibility fallback when no pack
+directory is configured.
+
+`pack.json` has `schemaVersion = 1`, `host`, `target`, `version`, authenticated
+`cc` and `ar` tool records, optional `cxx` and `linkHost` records, and
+`compileFlags`/`linkFlags` arrays for its sysroot. Each tool record contains a
+pack-relative `path`, `sha256`, and `size`. `linkHost`, when present, accepts
+`FEATURES OUTPUT ARCHIVE... -- LINK_FLAG...`; it owns the target host objects,
+VM, native-provider libraries, and platform SDK linkage.
+
 ### Native artifacts
 
 Native artifacts are sidecars for modules targets and ordinary prebuilt stubs.
@@ -667,9 +710,9 @@ image = {
 
 The shared artifact remains the one a generated FFI binding loads. A static
 artifact is a linker input: another C dependency can name this dependency and
-will link the archive into its own shared library. A static archive does not by
-itself make a stamped binary self-contained; binary targets stamp their payload
-into an already-linked host and do not currently relink that host.
+will link the archive into its own shared library. A static archive becomes
+part of a binary only when that target selects `standalone`; ordinary binary
+targets retain the shared-library sidecar path.
 
 `out` renames the sole artifact for `shared` or `static`; with `both`, it names
 the shared artifact. `staticOut` independently renames the archive and is most
@@ -687,6 +730,34 @@ while `**/` matches zero or more directories. `pkg-config` output honors shell
 quotes and backslash escapes, but is never expanded or executed by a shell.
 Static linkage asks `pkg-config --static` for the transitive flags that must
 travel with an archive.
+
+### Target-indexed prebuilt C artifacts
+
+A library publisher can provide authenticated shared, static, or paired
+artifacts per target triple instead of asking an application build to compile
+the library again:
+
+```lua
+image = {
+   kind = "c",
+   linkage = "both",
+   bindings = { header = "include/image.h" },
+   artifacts = {
+      ["aarch64-apple-darwin"] = {
+         shared = {path = "prebuilt/macos/libimage.dylib", sha256 = "<64 hex>", size = 12345},
+         static = {path = "prebuilt/macos/libimage.a", sha256 = "<64 hex>", size = 23456}
+      }
+   }
+}
+```
+
+Selection uses the build's `layoutTarget`, or the modeled host triple for an
+ordinary host build. The file is read from the dependency root, authenticated,
+and staged under the same output name a source build would use. A standalone
+target selects `static`; an ordinary generated binding selects `shared`.
+Sources remain a fallback for triples without a matching artifact set. Prebuilt
+artifacts cannot request a generated macro/inline bridge, since that bridge must
+have been compiled into the published library already.
 
 ### Header-only C dependencies
 

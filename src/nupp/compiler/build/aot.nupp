@@ -18,10 +18,10 @@ half of each would be a build whose speed nobody could reason about.
   build when it cannot. Choosing it is how a project accepts a C compiler as a
   dependency; nothing else in Nupp makes a project depend on one.
 
-Code is linked, never mapped at run time. A shared library the loader already
-brought in needs no W^X policy, no `MAP_JIT`, no executable-memory budget and no
-code retirement, and all of those exist only because code is mapped at run time.
-They return if and when direct machine-code emission does.
+Code is linked, never mapped at run time. An ordinary build loads one shared
+library; a standalone binary links the same objects from an archive into its
+host. Neither route needs a W^X policy, `MAP_JIT`, an executable-memory budget,
+or code retirement. Those return if and when direct machine-code emission does.
 
 This pass finds its work by reading sources rather than the module build's
 bookkeeping, so it cannot be wrong about which source produced which artifact.
@@ -81,6 +81,12 @@ record aot.Toolchain
 
     --- Whose warning vocabulary it speaks, which decides the dialect flags.
     dialect: string
+
+    --- Pack-owned tools and target/sysroot flags. Absent for an ambient compiler.
+    archiver: string?
+
+    packCompileFlags: {string}?
+    packLinkFlags: {string}?
 end
 
 --- What the generated C needs from a compiler.
@@ -174,6 +180,9 @@ function aot.compileFlags(selected: targets.Target, chain: aot.Toolchain, extra:
     if targets.system(selected.triple) ~= "windows" then
         flags[#flags + 1] = "-fPIC"
     end
+    for _, flag in ipairs(chain.packCompileFlags or {}) do
+        flags[#flags + 1] = flag
+    end
     -- Last, so a project can override what is above it, and part of what the
     -- library is keyed on because a flag that changes the output has to.
     for _, flag in ipairs(extra or {}) do
@@ -225,6 +234,9 @@ function aot.linkFlags(selected: targets.Target, chain: aot.Toolchain, extra: {s
     if selected.triple ~= targets.hostTriple() and chain.dialect == "clang" then
         flags[#flags + 1] = "-target"
         flags[#flags + 1] = selected.triple
+    end
+    for _, flag in ipairs(chain.packLinkFlags or {}) do
+        flags[#flags + 1] = flag
     end
     for _, flag in ipairs(extra or {}) do
         flags[#flags + 1] = flag
@@ -340,11 +352,15 @@ end
 --- nobody could account for.
 ---
 --- @return the toolchain, or nothing and why there is none
-function aot.toolchain(): (aot.Toolchain?, string?)
+function aot.toolchain(targetTriple: string?): (aot.Toolchain?, string?)
     local named = os.getenv("NUPP_NATIVE_CC")
+    local pack, packErr = require("nupp.compiler.build.compilerpacks").resolve(targetTriple or targets.hostTriple())
+    if packErr ~= nil and named == nil then
+        return nil, packErr
+    end
     local onWindows = (jit and jit.os or ""):lower() == "windows"
     local preferred = onWindows and aot.WINDOWS_CANDIDATES or aot.CANDIDATES
-    local candidates = named ~= nil and {named as string} or preferred
+    local candidates = named ~= nil and {named as string} or pack ~= nil and {(pack as any).cc} or preferred
     local refusals: {string} = {}
     for _, command in ipairs(candidates) do
         local code, text = process.capture({command, "--version"})
@@ -363,8 +379,13 @@ function aot.toolchain(): (aot.Toolchain?, string?)
             else
                 return new aot.Toolchain(
                     command = command,
-                    version = (text:match("^[^\n]*") or command) as string,
-                    dialect = dialect as string
+                    version = pack and (
+                        (pack as any).version .. ":" .. (text:match("^[^\n]*") or command)
+                    ) or (text:match("^[^\n]*") or command) as string,
+                    dialect = dialect as string,
+                    archiver = pack and (pack as any).ar or nil,
+                    packCompileFlags = pack and (pack as any).compileFlags or nil,
+                    packLinkFlags = pack and (pack as any).linkFlags or nil
                 ), nil
             end
         end
@@ -564,12 +585,11 @@ function aot.dispatch(
         detectorAt = detectorAt == nil and family.site.from or math.min(detectorAt as integer, family.site.from)
     end
     for _, family in ipairs(constFamilies or {}) do
-        assert(library ~= nil, "const AOT family has no linked library")
         replacements[
             #replacements + 1
         ] = {
             site = family.site,
-            text = bindingRules.familyReplacement(family, library as string, tiers, family.site.from == detectorAt),
+            text = bindingRules.familyReplacement(family, library, tiers, family.site.from == detectorAt),
         }
     end
     for position = 1, #programs do
@@ -582,8 +602,7 @@ function aot.dispatch(
                 assert(artifact ~= nil, "GPU program has no emitted shader")
                 replacement = gpuBinding.replacement(program, artifact)
             else
-                assert(library ~= nil, "CPU AOT program has no linked library")
-                replacement = bindingRules.replacement(program, library as string, tiers, site.from == detectorAt)
+                replacement = bindingRules.replacement(program, library, tiers, site.from == detectorAt)
             end
             replacements[#replacements + 1] = {site = site, text = replacement,}
         end
@@ -777,7 +796,8 @@ function aot.link(
     emitted: {aot.Emitted},
     output: string,
     extra: {string}?,
-    needsLua: boolean?
+    needsLua: boolean?,
+    static: boolean?
 ): string?
     if not fs.mkdir(fs.dirname(output)) then
         return "could not create " .. fs.dirname(output)
@@ -828,6 +848,36 @@ function aot.link(
         objects[#objects + 1] = object
     end
     table.sort(objects)
+
+    if static then
+        local probeCode, probed = process.capture({chain.command, "-print-prog-name=ar"})
+        local archiver = chain.archiver or (probeCode == 0 and probed:match("^%s*(.-)%s*$") or nil)
+        if archiver == nil or archiver == "" then
+            archiver = "ar"
+        end
+        local staged = output .. ".tmp"
+        os.remove(staged)
+        local argv: {string} = {archiver as string, "rcs", staged}
+        for _, object in ipairs(objects) do
+            argv[#argv + 1] = object
+        end
+        local code, text = process.capture(argv)
+        if code ~= 0 then
+            os.remove(staged)
+            return "archiving the generated C failed:\n" .. text
+        end
+        local binary, readErr = fs.readFile(staged)
+        os.remove(staged)
+        if binary == nil then
+            return tostring(readErr)
+        end
+        local ok, writeErr = fs.writeFile(output, binary as string)
+        if not ok then
+            return tostring(writeErr)
+        end
+
+        return nil
+    end
 
     local shared, _, trailing = aot.linkage(selected, needsLua)
     local argv: {string} = {chain.command}
@@ -1146,7 +1196,7 @@ record aot.Result
     --- Logical const-specialized families, counted once before target tiers.
     specializedBodies: integer
 
-    --- The shared library, when the policy asked for one.
+    --- The shared library or standalone static archive, when the policy asked for one.
     library: string?
 
     --- The key that library was linked under.
@@ -1237,7 +1287,8 @@ function aot.apply(
     session: nupp.compiler.build.modules.Session,
     features: string?,
     triple: string?,
-    cflags: {string}?
+    cflags: {string}?,
+    standalone: boolean?
 ): (aot.Result?, string?)
     local wasmPolicy = aot.linksWasm(policy)
     if wasmPolicy then
@@ -1365,16 +1416,16 @@ function aot.apply(
         ), nil
     end
 
-    local chain, chainErr = aot.toolchain()
-    if chain == nil then
-        return nil, tostring(chainErr)
-    end
     local selectedTiers, targetErr = targets.buildTiers(triple, features)
     if selectedTiers == nil then
         return nil, tostring(targetErr)
     end
 
     local selected = (selectedTiers as {targets.Target})[1]
+    local chain, chainErr = aot.toolchain(selected.triple)
+    if chain == nil then
+        return nil, tostring(chainErr)
+    end
     local keys: {string} = {}
     local needsLua = false
     for _, one in ipairs(emitted as {aot.Emitted}) do
@@ -1386,8 +1437,14 @@ function aot.apply(
     end
 
     local shared, suffix = aot.linkage(selected, needsLua)
+    if standalone then
+        shared, suffix = {"static"}, ".a"
+    end
     local library = aot.libraryPath(outDir, name, suffix)
-    local reference = aot.libraryReference(name, suffix)
+    local reference = nil
+    if not standalone then
+        reference = aot.libraryReference(name, suffix)
+    end
     local keyedFlags: {string} = {}
     for _, one in ipairs(emitted as {aot.Emitted}) do
         local tierTarget = targets.select(selected.triple, one.tier)
@@ -1406,7 +1463,15 @@ function aot.apply(
     -- library it describes has to still be there. A relink costs seconds; a
     -- stale library loaded because a digest agreed costs a wrong answer.
     if previousLibraryKey ~= key or not fs.exists(library) then
-        local linkErr = aot.link(chain as aot.Toolchain, selected, emitted as {aot.Emitted}, library, cflags, needsLua)
+        local linkErr = aot.link(
+            chain as aot.Toolchain,
+            selected,
+            emitted as {aot.Emitted},
+            library,
+            cflags,
+            needsLua,
+            standalone
+        )
         if linkErr ~= nil then
             return nil, tostring(linkErr)
         end

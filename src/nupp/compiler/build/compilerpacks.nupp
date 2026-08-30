@@ -1,0 +1,174 @@
+module nupp.compiler.build.compilerpacks
+
+--[[
+Resolving an installed, target-indexed native compiler pack.
+
+A pack is an unpacked immutable directory. Installation owns transport and
+extraction; the compiler owns selection and verifies every executable before it
+runs one. `NUPP_COMPILER_PACK_DIR` points at the directory containing
+`<host>/<target>/pack.json`. A distribution may put the same tree beside its
+compiler and set that variable in its launcher.
+]]
+
+local fs = require("nupp.compiler.fs")
+local hash = require("nupp.compiler.build.hash")
+local layouts = require("nupp.compiler.targetlayout")
+
+local packs = {}
+
+type packs.Tool = {
+    path: string,
+    sha256: string,
+    size: integer
+}
+
+record packs.Pack
+    host: string
+    target: string
+    version: string
+    cc: string
+    cxx: string?
+    ar: string
+    linkHost: string?
+    compileFlags: {string}
+    linkFlags: {string}
+end
+
+local function safeRelative(path: any): boolean
+    return type(
+        path
+    ) == "string" and path ~= "" and path:sub(
+        1,
+        1
+    ) ~= "/" and path:sub(1, 1) ~= "\\" and not path:find("\\", 1, true) and not path:find("..", 1, true)
+end
+
+local function readTool(root: string, value: any, label: string): (string?, string?)
+    if type(value) ~= "table" or not safeRelative(value.path) then
+        return nil, label .. " requires a safe relative path"
+    end
+    if type(value.sha256) ~= "string" or #value.sha256 ~= 64 or not value.sha256:match("^[0-9a-f][0-9a-f]+$") then
+        return nil, label .. " requires a lowercase SHA-256"
+    end
+    if type(value.size) ~= "number" or value.size < 1 or value.size ~= math.floor(value.size) then
+        return nil, label .. " requires a positive integer size"
+    end
+    local path = fs.join(root, value.path)
+    local bytes, readErr = fs.readFile(path)
+    if not bytes then
+        return nil, "cannot read " .. label .. " " .. path .. ": " .. tostring(readErr)
+    end
+    if #bytes ~= value.size then
+        return nil, ("%s %s has %d bytes, expected %d"):format(label, path, #bytes, value.size)
+    end
+    local digest = hash.sha256(bytes)
+    if digest ~= value.sha256 then
+        return nil, label .. " " .. path .. " has SHA-256 " .. digest .. ", expected " .. value.sha256
+    end
+
+    return path, nil
+end
+
+local function stringArray(value: any, label: string): ({string}?, string?)
+    if value == nil then
+        return {}, nil
+    end
+    if type(value) ~= "table" then
+        return nil, label .. " must be an array of strings"
+    end
+    local out = {}
+    for index, item in ipairs(value) do
+        if type(item) ~= "string" then
+            return nil, label .. "[" .. index .. "] must be a string"
+        end
+        out[#out + 1] = item
+    end
+    if #out ~= #value then
+        return nil, label .. " must not have gaps"
+    end
+
+    return out, nil
+end
+
+--- Resolves a pack when one is installed. Absence is not an error: ambient
+--- toolchain discovery remains the compatibility fallback.
+function packs.resolve(target: string?): (packs.Pack?, string?)
+    local directory = os.getenv("NUPP_COMPILER_PACK_DIR")
+    local explicit = directory ~= nil and directory ~= ""
+    local host = layouts.hostKey()
+    if host == nil or target == nil then
+        return nil, "compiler pack selection needs modeled host and target triples"
+    end
+    if not explicit then
+        local executable = tostring(arg and arg[0] or "")
+        local bin = executable:match("^(.*)[/\\][^/\\]+$")
+        if bin == nil then
+            return nil, nil
+        end
+        directory = fs.normalize(fs.join(bin, "../lib/nupp/compiler-packs"))
+    end
+    local selectedDirectory = directory as string
+    local root = fs.join(selectedDirectory, fs.join(host, target))
+    local manifestPath = fs.join(root, "pack.json")
+    local text = fs.readFile(manifestPath)
+    if text == nil then
+        if not explicit then
+            return nil, nil
+        end
+        return nil, "no compiler pack for " .. host .. " -> " .. target .. " under " .. selectedDirectory
+    end
+    local ok, value = pcall(nupp.data.json.decode, text, nupp.data.json.NULL)
+    if not ok or type(value) ~= "table" then
+        return nil, "cannot decode compiler pack " .. manifestPath .. ": " .. tostring(value)
+    end
+    if value.schemaVersion ~= 1 or value.host ~= host or value.target ~= target then
+        return nil, "compiler pack " .. manifestPath .. " does not describe " .. host .. " -> " .. target
+    end
+    if type(value.version) ~= "string" or value.version == "" then
+        return nil, "compiler pack " .. manifestPath .. " requires a version"
+    end
+    local cc, ccErr = readTool(root, value.cc, "compiler pack cc")
+    if not cc then
+        return nil, ccErr
+    end
+    local ar, arErr = readTool(root, value.ar, "compiler pack ar")
+    if not ar then
+        return nil, arErr
+    end
+    local cxx, cxxErr = nil, nil
+    if value.cxx then
+        cxx, cxxErr = readTool(root, value.cxx, "compiler pack cxx")
+        if not cxx then
+            return nil, cxxErr
+        end
+    end
+    local linkHost, linkErr = nil, nil
+    if value.linkHost then
+        linkHost, linkErr = readTool(root, value.linkHost, "compiler pack linkHost")
+        if not linkHost then
+            return nil, linkErr
+        end
+    end
+    local compileFlags, compileErr = stringArray(value.compileFlags, "compiler pack compileFlags")
+    if not compileFlags then
+        return nil, compileErr
+    end
+    local linkFlags, flagsErr = stringArray(value.linkFlags, "compiler pack linkFlags")
+    if not linkFlags then
+        return nil, flagsErr
+    end
+
+    return new packs.Pack(
+        host = host,
+        target = target,
+        version = value.version,
+        cc = cc as string,
+        cxx = cxx,
+        ar = ar as string,
+        linkHost = linkHost,
+        compileFlags = compileFlags as {string},
+        linkFlags = linkFlags as {string}
+    ), nil
+end
+
+export = packs

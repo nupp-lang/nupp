@@ -4053,7 +4053,7 @@ binding . ABI_TYPE = {
 
 
 local function from ( library ) 
-return "from\"" .. library .. "\""
+return library and ( "from\"" .. library .. "\"" ) or ""
 end
 
 local function resultName ( program ) 
@@ -32186,6 +32186,12 @@ aot.Toolchain = {} aot.Toolchain.__index = aot.Toolchain
 
 
 
+
+
+
+
+
+
 aot . NEEDS = "__attribute__((vector_size)) and __builtin_convertvector"
 
 
@@ -32267,6 +32273,9 @@ end
 if targets . system ( selected . triple ) ~= "windows" then
 flags [ # flags + 1 ] = "-fPIC"
 end
+for _ , flag in ipairs ( chain . packCompileFlags or { } ) do
+flags [ # flags + 1 ] = flag
+end
 
 
 for _ , flag in ipairs ( extra or { } ) do
@@ -32318,6 +32327,9 @@ local flags = { }
 if selected . triple ~= targets . hostTriple ( ) and chain . dialect == "clang" then
 flags [ # flags + 1 ] = "-target"
 flags [ # flags + 1 ] = selected . triple
+end
+for _ , flag in ipairs ( chain . packLinkFlags or { } ) do
+flags [ # flags + 1 ] = flag
 end
 for _ , flag in ipairs ( extra or { } ) do
 flags [ # flags + 1 ] = flag
@@ -32433,11 +32445,15 @@ end
 
 
 
-function aot . toolchain ( ) 
+function aot . toolchain ( targetTriple ) 
 local named = os . getenv ( "NUPP_NATIVE_CC" )
+local pack , packErr = require ( "nupp.compiler.build.compilerpacks" ) . resolve ( targetTriple or targets . hostTriple ( ) )
+if packErr ~= nil and named == nil then
+return nil , packErr
+end
 local onWindows = ( jit and jit . os or "" ) : lower ( ) == "windows"
 local preferred = onWindows and aot . WINDOWS_CANDIDATES or aot . CANDIDATES
-local candidates = named ~= nil and { named } or preferred
+local candidates = named ~= nil and { named } or pack ~= nil and { ( pack ) . cc } or preferred
 local refusals = { }
 for _ , command in ipairs ( candidates ) do
 local code , text = process . capture ( { command , "--version" } )
@@ -32456,8 +32472,13 @@ refusals [
 else
 return setmetatable({ command =
 command ,  version =
-( text : match ( "^[^\n]*" ) or command ) ,  dialect =
-dialect }, aot.Toolchain)
+pack and (
+( pack ) . version .. ":" .. ( text : match ( "^[^\n]*" ) or command )
+) or ( text : match ( "^[^\n]*" ) or command ) ,  dialect =
+dialect ,  archiver =
+pack and ( pack ) . ar or nil ,  packCompileFlags =
+pack and ( pack ) . compileFlags or nil ,  packLinkFlags =
+pack and ( pack ) . linkFlags or nil }, aot.Toolchain)
 , nil
 end
 end
@@ -32657,7 +32678,6 @@ for _ , family in ipairs ( constFamilies or { } ) do
 detectorAt = detectorAt == nil and family . site . from or math . min ( detectorAt , family . site . from )
 end
 for _ , family in ipairs ( constFamilies or { } ) do
-assert ( library ~= nil , "const AOT family has no linked library" )
 replacements [
 # replacements + 1
 ] = {
@@ -32675,7 +32695,6 @@ local artifact = gpuArtifacts [ program . symbol ]
 assert ( artifact ~= nil , "GPU program has no emitted shader" )
 replacement = gpuBinding . replacement ( program , artifact )
 else
-assert ( library ~= nil , "CPU AOT program has no linked library" )
 replacement = bindingRules . replacement ( program , library , tiers , site . from == detectorAt )
 end
 replacements [ # replacements + 1 ] = { site = site , text = replacement , }
@@ -32870,7 +32889,8 @@ selected ,
 emitted ,
 output ,
 extra ,
-needsLua
+needsLua ,
+static
 ) 
 if not fs . mkdir ( fs . dirname ( output ) ) then
 return "could not create " .. fs . dirname ( output )
@@ -32921,6 +32941,36 @@ one . object = object
 objects [ # objects + 1 ] = object
 end
 table . sort ( objects )
+
+if static then
+local probeCode , probed = process . capture ( { chain . command , "-print-prog-name=ar" } )
+local archiver = chain . archiver or ( probeCode == 0 and probed : match ( "^%s*(.-)%s*$" ) or nil )
+if archiver == nil or archiver == "" then
+archiver = "ar"
+end
+local staged = output .. ".tmp"
+os . remove ( staged )
+local argv = { archiver , "rcs" , staged }
+for _ , object in ipairs ( objects ) do
+argv [ # argv + 1 ] = object
+end
+local code , text = process . capture ( argv )
+if code ~= 0 then
+os . remove ( staged )
+return "archiving the generated C failed:\n" .. text
+end
+local binary , readErr = fs . readFile ( staged )
+os . remove ( staged )
+if binary == nil then
+return tostring ( readErr )
+end
+local ok , writeErr = fs . writeFile ( output , binary )
+if not ok then
+return tostring ( writeErr )
+end
+
+return nil
+end
 
 local shared , _ , trailing = aot . linkage ( selected , needsLua )
 local argv = { chain . command }
@@ -33330,7 +33380,8 @@ previousLibraryKey ,
 session ,
 features ,
 triple ,
-cflags
+cflags ,
+standalone
 ) 
 local wasmPolicy = aot . linksWasm ( policy )
 if wasmPolicy then
@@ -33458,16 +33509,16 @@ constSelection }, aot.Result)
 , nil
 end
 
-local chain , chainErr = aot . toolchain ( )
-if chain == nil then
-return nil , tostring ( chainErr )
-end
 local selectedTiers , targetErr = targets . buildTiers ( triple , features )
 if selectedTiers == nil then
 return nil , tostring ( targetErr )
 end
 
 local selected = ( selectedTiers ) [ 1 ]
+local chain , chainErr = aot . toolchain ( selected . triple )
+if chain == nil then
+return nil , tostring ( chainErr )
+end
 local keys = { }
 local needsLua = false
 for _ , one in ipairs ( emitted ) do
@@ -33479,8 +33530,14 @@ end
 end
 
 local shared , suffix = aot . linkage ( selected , needsLua )
+if standalone then
+shared , suffix = { "static" } , ".a"
+end
 local library = aot . libraryPath ( outDir , name , suffix )
-local reference = aot . libraryReference ( name , suffix )
+local reference = nil
+if not standalone then
+reference = aot . libraryReference ( name , suffix )
+end
 local keyedFlags = { }
 for _ , one in ipairs ( emitted ) do
 local tierTarget = targets . select ( selected . triple , one . tier )
@@ -33499,7 +33556,15 @@ local key = aot . libraryKey ( keys , chain , keyedFlags , shared )
 
 
 if previousLibraryKey ~= key or not fs . exists ( library ) then
-local linkErr = aot . link ( chain , selected , emitted , library , cflags , needsLua )
+local linkErr = aot . link (
+chain ,
+selected ,
+emitted ,
+library ,
+cflags ,
+needsLua ,
+standalone
+)
 if linkErr ~= nil then
 return nil , tostring ( linkErr )
 end
@@ -34187,6 +34252,183 @@ cache . STATE_VERSION = STATE_VERSION
 const __nuppExportValue= cache ;__nuppExports=__nuppExportValue
  end);if not __nuppOk then package.loaded["nupp.compiler.build.cache"]=nil;error(__nuppWhy,0) end;package.loaded["nupp.compiler.build.cache"]=__nuppExports;return __nuppExports
 end
+package.preload["nupp.compiler.build.compilerpacks"] = function(...)
+_G.assert(_G.loadstring("local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppMath=rawget(__nupp,\"math\")or{};rawset(__nupp,\"math\",__nuppMath) local function __nuppCloseFile(handle)if io.type(handle)==\"closed file\"then return end;local ok,reason=handle:close();if not ok then error(reason or \"the file could not be closed\",0)end end local __nuppManagedBrand=_G.__nuppManagedBrand if not __nuppManagedBrand then __nuppManagedBrand={};_G.__nuppManagedBrand=__nuppManagedBrand end local __nuppManagedCells=_G.__nuppManagedCells if not __nuppManagedCells then __nuppManagedCells=setmetatable({},{__mode=\"k\"});_G.__nuppManagedCells=__nuppManagedCells end local __nuppManagedOwner={};__nuppManagedOwner.__index=__nuppManagedOwner;local __nuppManagedAlias={};__nuppManagedAlias.__index=__nuppManagedAlias local function __nuppManagedError(code,message)return{code=code,message=message}end local function __nuppManagedProblem(cell) if type(cell)~=\"table\"or cell._brand~=__nuppManagedBrand then return __nuppManagedError(\"NUPP2614\",\"value is not a managed alias\")end if cell._state==\"taken\"then return __nuppManagedError(\"NUPP2614\",\"managed ownership was already taken\")end if cell._state==\"closed\"or cell._state==\"closing\"then return __nuppManagedError(\"NUPP2614\",\"managed resource is closed\")end return nil end local function __nuppManagedClose(cell,checked) local problem=__nuppManagedProblem(cell);if problem then if checked then return problem end;return nil end if cell._borrows~=0 or cell._exclusive then local busy=__nuppManagedError(\"NUPP2620\",\"managed resource has an active borrow\");if checked then return busy end;error(busy.message,0)end cell._state=\"closing\";local value,cleanup=cell._value,cell._cleanup;cell._value=nil;cell._cleanup=nil local ok,reason=pcall(cleanup,value);cell._state=\"closed\";if not ok then error(reason,0)end;return nil end function __nuppManagedOwner:alias()return setmetatable({_cell=self,_brand=__nuppManagedBrand},__nuppManagedAlias)end function __nuppManagedOwner:close()return __nuppManagedClose(self,false)end local function __nuppAliasCell(self) if type(self)~=\"table\"or self._brand~=__nuppManagedBrand or getmetatable(self)~=__nuppManagedAlias then return nil,__nuppManagedError(\"NUPP2614\",\"value is not a managed alias\")end local cell=self._cell;local problem=__nuppManagedProblem(cell);if problem then return nil,problem end;return cell,nil end function __nuppManagedAlias:with(callback) local cell,problem=__nuppAliasCell(self);if not cell then return nil,problem end if cell._exclusive then return nil,__nuppManagedError(\"NUPP2620\",\"managed resource is exclusively borrowed\")end cell._borrows=cell._borrows+1;cell._state=\"shared-borrowed(\"..cell._borrows..\")\" local ok,result=pcall(callback,cell._value);cell._borrows=cell._borrows-1;cell._state=cell._borrows>0 and(\"shared-borrowed(\"..cell._borrows..\")\")or\"live\" if not ok then error(result,0)end;return result,nil end function __nuppManagedAlias:withExclusive(callback) local cell,problem=__nuppAliasCell(self);if not cell then return nil,problem end if cell._exclusive or cell._borrows~=0 then return nil,__nuppManagedError(\"NUPP2620\",\"managed resource is already borrowed\")end cell._exclusive=true;cell._state=\"exclusive-borrowed\";local ok,result=pcall(callback,cell._value);cell._exclusive=false;cell._state=\"live\" if not ok then error(result,0)end;return result,nil end function __nuppManagedAlias:take() local cell,problem=__nuppAliasCell(self);if not cell then return nil,problem end if cell._exclusive or cell._borrows~=0 then return nil,__nuppManagedError(\"NUPP2620\",\"managed resource has an active borrow\")end cell._state=\"taken\";local value=cell._value;cell._value=nil;cell._cleanup=nil;return value,nil end function __nuppManagedAlias:close() local cell,problem=__nuppAliasCell(self);if not cell then return problem end;return __nuppManagedClose(cell,true)end function __nuppManagedAlias:_downcast(policy) local cell,problem=__nuppAliasCell(self);if not cell then return nil,problem end if cell._policy~=policy then return nil,__nuppManagedError(\"NUPP2613\",\"managed alias has the wrong type or cleanup policy\")end return self,nil end function __nupp.__manage(value,cleanup,policy) local cell=setmetatable({_brand=__nuppManagedBrand,_value=value,_cleanup=cleanup,_policy=policy,_state=\"live\",_borrows=0,_exclusive=false},__nuppManagedOwner);__nuppManagedCells[cell]=true;return cell end function __nupp.__recoverAlias(value) if type(value)~=\"table\"or value._brand~=__nuppManagedBrand or getmetatable(value)~=__nuppManagedAlias then return nil,__nuppManagedError(\"NUPP2614\",\"value is not a managed alias\")end local cell,problem=__nuppAliasCell(value);if not cell then return nil,problem end;return value,nil end _G.__nuppManagedPolicyCount=function(policy)local count=0;for cell in pairs(__nuppManagedCells)do if cell._policy==policy and(cell._state==\"live\"or cell._state:match(\"borrowed\"))then count=count+1 end end;return count end local __nuppManagedGroup={};__nuppManagedGroup.__index=__nuppManagedGroup function __nuppManagedGroup:flush()end function __nuppManagedGroup:adopt(cell) if self._closed then error(\"managed group is closed\",2)end local handle=cell:alias();self._entries[#self._entries+1]=handle return handle end function __nuppManagedGroup:remove(handle) if self._closed then error(\"managed group is closed\",2)end for index=#self._entries,1,-1 do if self._entries[index]==handle then table.remove(self._entries,index);local value,problem=handle:take();if problem then error(problem.message,2)end;return value end end error(\"managed alias is not registered in this group\",2) end local function __nuppManagedCloseEntry(entry)local problem=entry:close();if problem and problem.code~=\"NUPP2614\"then error(problem.message,0)end end function __nuppManagedGroup:close() if self._closed then return end;self._closed=true;local first,suppressed=nil,0 for index=#self._entries,1,-1 do local ok,reason=pcall(__nuppManagedCloseEntry,self._entries[index]);if not ok then if first==nil then first=reason else suppressed=suppressed+1 end end end self._entries={};if first~=nil then if suppressed>0 then error(tostring(first)..\" (suppressed \"..tostring(suppressed)..\" cleanup failure(s))\",0)end;error(first,0)end end function __nupp.managedGroup()return setmetatable({_entries={},_closed=false},__nuppManagedGroup)end;\n","@nupp-prelude"))();--[[nupp-backends: resolved=data.json|2|runtime|nupp.runtime.backend.lunajson|8bdff32722f35edeb5fe6f35b5917e55966222abcfab16b083c41e57e7b49121|nupp.runtime.provider.lunajson||]]local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppMath=rawget(__nupp,"math")or{};rawset(__nupp,"math",__nuppMath) local function __nuppCloseFile(handle)if io.type(handle)=="closed file"then return end;local ok,reason=handle:close();if not ok then error(reason or "the file could not be closed",0)end end local __nuppManagedBrand=_G.__nuppManagedBrand if not __nuppManagedBrand then __nuppManagedBrand={};_G.__nuppManagedBrand=__nuppManagedBrand end local __nuppManagedCells=_G.__nuppManagedCells if not __nuppManagedCells then __nuppManagedCells=setmetatable({},{__mode="k"});_G.__nuppManagedCells=__nuppManagedCells end local __nuppManagedOwner={};__nuppManagedOwner.__index=__nuppManagedOwner;local __nuppManagedAlias={};__nuppManagedAlias.__index=__nuppManagedAlias local function __nuppManagedError(code,message)return{code=code,message=message}end local function __nuppManagedProblem(cell) if type(cell)~="table"or cell._brand~=__nuppManagedBrand then return __nuppManagedError("NUPP2614","value is not a managed alias")end if cell._state=="taken"then return __nuppManagedError("NUPP2614","managed ownership was already taken")end if cell._state=="closed"or cell._state=="closing"then return __nuppManagedError("NUPP2614","managed resource is closed")end return nil end local function __nuppManagedClose(cell,checked) local problem=__nuppManagedProblem(cell);if problem then if checked then return problem end;return nil end if cell._borrows~=0 or cell._exclusive then local busy=__nuppManagedError("NUPP2620","managed resource has an active borrow");if checked then return busy end;error(busy.message,0)end cell._state="closing";local value,cleanup=cell._value,cell._cleanup;cell._value=nil;cell._cleanup=nil local ok,reason=pcall(cleanup,value);cell._state="closed";if not ok then error(reason,0)end;return nil end function __nuppManagedOwner:alias()return setmetatable({_cell=self,_brand=__nuppManagedBrand},__nuppManagedAlias)end function __nuppManagedOwner:close()return __nuppManagedClose(self,false)end local function __nuppAliasCell(self) if type(self)~="table"or self._brand~=__nuppManagedBrand or getmetatable(self)~=__nuppManagedAlias then return nil,__nuppManagedError("NUPP2614","value is not a managed alias")end local cell=self._cell;local problem=__nuppManagedProblem(cell);if problem then return nil,problem end;return cell,nil end function __nuppManagedAlias:with(callback) local cell,problem=__nuppAliasCell(self);if not cell then return nil,problem end if cell._exclusive then return nil,__nuppManagedError("NUPP2620","managed resource is exclusively borrowed")end cell._borrows=cell._borrows+1;cell._state="shared-borrowed("..cell._borrows..")" local ok,result=pcall(callback,cell._value);cell._borrows=cell._borrows-1;cell._state=cell._borrows>0 and("shared-borrowed("..cell._borrows..")")or"live" if not ok then error(result,0)end;return result,nil end function __nuppManagedAlias:withExclusive(callback) local cell,problem=__nuppAliasCell(self);if not cell then return nil,problem end if cell._exclusive or cell._borrows~=0 then return nil,__nuppManagedError("NUPP2620","managed resource is already borrowed")end cell._exclusive=true;cell._state="exclusive-borrowed";local ok,result=pcall(callback,cell._value);cell._exclusive=false;cell._state="live" if not ok then error(result,0)end;return result,nil end function __nuppManagedAlias:take() local cell,problem=__nuppAliasCell(self);if not cell then return nil,problem end if cell._exclusive or cell._borrows~=0 then return nil,__nuppManagedError("NUPP2620","managed resource has an active borrow")end cell._state="taken";local value=cell._value;cell._value=nil;cell._cleanup=nil;return value,nil end function __nuppManagedAlias:close() local cell,problem=__nuppAliasCell(self);if not cell then return problem end;return __nuppManagedClose(cell,true)end function __nuppManagedAlias:_downcast(policy) local cell,problem=__nuppAliasCell(self);if not cell then return nil,problem end if cell._policy~=policy then return nil,__nuppManagedError("NUPP2613","managed alias has the wrong type or cleanup policy")end return self,nil end function __nupp.__manage(value,cleanup,policy) local cell=setmetatable({_brand=__nuppManagedBrand,_value=value,_cleanup=cleanup,_policy=policy,_state="live",_borrows=0,_exclusive=false},__nuppManagedOwner);__nuppManagedCells[cell]=true;return cell end function __nupp.__recoverAlias(value) if type(value)~="table"or value._brand~=__nuppManagedBrand or getmetatable(value)~=__nuppManagedAlias then return nil,__nuppManagedError("NUPP2614","value is not a managed alias")end local cell,problem=__nuppAliasCell(value);if not cell then return nil,problem end;return value,nil end _G.__nuppManagedPolicyCount=function(policy)local count=0;for cell in pairs(__nuppManagedCells)do if cell._policy==policy and(cell._state=="live"or cell._state:match("borrowed"))then count=count+1 end end;return count end local __nuppManagedGroup={};__nuppManagedGroup.__index=__nuppManagedGroup function __nuppManagedGroup:flush()end function __nuppManagedGroup:adopt(cell) if self._closed then error("managed group is closed",2)end local handle=cell:alias();self._entries[#self._entries+1]=handle return handle end function __nuppManagedGroup:remove(handle) if self._closed then error("managed group is closed",2)end for index=#self._entries,1,-1 do if self._entries[index]==handle then table.remove(self._entries,index);local value,problem=handle:take();if problem then error(problem.message,2)end;return value end end error("managed alias is not registered in this group",2) end local function __nuppManagedCloseEntry(entry)local problem=entry:close();if problem and problem.code~="NUPP2614"then error(problem.message,0)end end function __nuppManagedGroup:close() if self._closed then return end;self._closed=true;local first,suppressed=nil,0 for index=#self._entries,1,-1 do local ok,reason=pcall(__nuppManagedCloseEntry,self._entries[index]);if not ok then if first==nil then first=reason else suppressed=suppressed+1 end end end self._entries={};if first~=nil then if suppressed>0 then error(tostring(first).." (suppressed "..tostring(suppressed).." cleanup failure(s))",0)end;error(first,0)end end function __nupp.managedGroup()return setmetatable({_entries={},_closed=false},__nuppManagedGroup)end (require("nupp.runtime.backend.lunajson")):install();const __nuppModule = require("nupp.data.json"); local __nuppExports;local __nuppOk,__nuppWhy=pcall(function()
+
+
+
+
+
+
+
+
+
+
+
+local fs = require ( "nupp.compiler.fs" )
+local hash = require ( "nupp.compiler.build.hash" )
+local layouts = require ( "nupp.compiler.targetlayout" )
+
+local packs = { }
+
+
+
+
+
+
+
+packs.Pack = {} packs.Pack.__index = packs.Pack
+
+
+
+
+
+
+
+
+
+
+
+local function safeRelative ( path ) 
+return type (
+path
+) == "string" and path ~= "" and path : sub (
+1 ,
+1
+) ~= "/" and path : sub ( 1 , 1 ) ~= "\\" and not path : find ( "\\" , 1 , true ) and not path : find ( ".." , 1 , true )
+end
+
+local function readTool ( root , value , label ) 
+if type ( value ) ~= "table" or not safeRelative ( value . path ) then
+return nil , label .. " requires a safe relative path"
+end
+if type ( value . sha256 ) ~= "string" or # value . sha256 ~= 64 or not value . sha256 : match ( "^[0-9a-f][0-9a-f]+$" ) then
+return nil , label .. " requires a lowercase SHA-256"
+end
+if type ( value . size ) ~= "number" or value . size < 1 or value . size ~= math . floor ( value . size ) then
+return nil , label .. " requires a positive integer size"
+end
+local path = fs . join ( root , value . path )
+local bytes , readErr = fs . readFile ( path )
+if not bytes then
+return nil , "cannot read " .. label .. " " .. path .. ": " .. tostring ( readErr )
+end
+if # bytes ~= value . size then
+return nil , ( "%s %s has %d bytes, expected %d" ) : format ( label , path , # bytes , value . size )
+end
+local digest = hash . sha256 ( bytes )
+if digest ~= value . sha256 then
+return nil , label .. " " .. path .. " has SHA-256 " .. digest .. ", expected " .. value . sha256
+end
+
+return path , nil
+end
+
+local function stringArray ( value , label ) 
+if value == nil then
+return { } , nil
+end
+if type ( value ) ~= "table" then
+return nil , label .. " must be an array of strings"
+end
+local out = { }
+for index , item in ipairs ( value ) do
+if type ( item ) ~= "string" then
+return nil , label .. "[" .. index .. "] must be a string"
+end
+out [ # out + 1 ] = item
+end
+if # out ~= # value then
+return nil , label .. " must not have gaps"
+end
+
+return out , nil
+end
+
+
+
+function packs . resolve ( target ) 
+local directory = os . getenv ( "NUPP_COMPILER_PACK_DIR" )
+local explicit = directory ~= nil and directory ~= ""
+local host = layouts . hostKey ( )
+if host == nil or target == nil then
+return nil , "compiler pack selection needs modeled host and target triples"
+end
+if not explicit then
+local executable = tostring ( arg and arg [ 0 ] or "" )
+local bin = executable : match ( "^(.*)[/\\][^/\\]+$" )
+if bin == nil then
+return nil , nil
+end
+directory = fs . normalize ( fs . join ( bin , "../lib/nupp/compiler-packs" ) )
+end
+local selectedDirectory = directory
+local root = fs . join ( selectedDirectory , fs . join ( host , target ) )
+local manifestPath = fs . join ( root , "pack.json" )
+local text = fs . readFile ( manifestPath )
+if text == nil then
+if not explicit then
+return nil , nil
+end
+return nil , "no compiler pack for " .. host .. " -> " .. target .. " under " .. selectedDirectory
+end
+local ok , value = pcall ( __nuppModule .decode , text , __nuppModule .NULL )
+if not ok or type ( value ) ~= "table" then
+return nil , "cannot decode compiler pack " .. manifestPath .. ": " .. tostring ( value )
+end
+if value . schemaVersion ~= 1 or value . host ~= host or value . target ~= target then
+return nil , "compiler pack " .. manifestPath .. " does not describe " .. host .. " -> " .. target
+end
+if type ( value . version ) ~= "string" or value . version == "" then
+return nil , "compiler pack " .. manifestPath .. " requires a version"
+end
+local cc , ccErr = readTool ( root , value . cc , "compiler pack cc" )
+if not cc then
+return nil , ccErr
+end
+local ar , arErr = readTool ( root , value . ar , "compiler pack ar" )
+if not ar then
+return nil , arErr
+end
+local cxx , cxxErr = nil , nil
+if value . cxx then
+cxx , cxxErr = readTool ( root , value . cxx , "compiler pack cxx" )
+if not cxx then
+return nil , cxxErr
+end
+end
+local linkHost , linkErr = nil , nil
+if value . linkHost then
+linkHost , linkErr = readTool ( root , value . linkHost , "compiler pack linkHost" )
+if not linkHost then
+return nil , linkErr
+end
+end
+local compileFlags , compileErr = stringArray ( value . compileFlags , "compiler pack compileFlags" )
+if not compileFlags then
+return nil , compileErr
+end
+local linkFlags , flagsErr = stringArray ( value . linkFlags , "compiler pack linkFlags" )
+if not linkFlags then
+return nil , flagsErr
+end
+
+return setmetatable({ host =
+host ,  target =
+target ,  version =
+value . version ,  cc =
+cc ,  cxx =
+cxx ,  ar =
+ar ,  linkHost =
+linkHost ,  compileFlags =
+compileFlags ,  linkFlags =
+linkFlags }, packs.Pack)
+, nil
+end
+
+const __nuppExportValue= packs ;__nuppExports=__nuppExportValue
+ end);if not __nuppOk then package.loaded["nupp.compiler.build.compilerpacks"]=nil;error(__nuppWhy,0) end;package.loaded["nupp.compiler.build.compilerpacks"]=__nuppExports;return __nuppExports
+end
 package.preload["nupp.compiler.build.deps"] = function(...)
 _G.assert(_G.loadstring("local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppMath=rawget(__nupp,\"math\")or{};rawset(__nupp,\"math\",__nuppMath) local function __nuppCloseFile(handle)if io.type(handle)==\"closed file\"then return end;local ok,reason=handle:close();if not ok then error(reason or \"the file could not be closed\",0)end end local __nuppManagedBrand=_G.__nuppManagedBrand if not __nuppManagedBrand then __nuppManagedBrand={};_G.__nuppManagedBrand=__nuppManagedBrand end local __nuppManagedCells=_G.__nuppManagedCells if not __nuppManagedCells then __nuppManagedCells=setmetatable({},{__mode=\"k\"});_G.__nuppManagedCells=__nuppManagedCells end local __nuppManagedOwner={};__nuppManagedOwner.__index=__nuppManagedOwner;local __nuppManagedAlias={};__nuppManagedAlias.__index=__nuppManagedAlias local function __nuppManagedError(code,message)return{code=code,message=message}end local function __nuppManagedProblem(cell) if type(cell)~=\"table\"or cell._brand~=__nuppManagedBrand then return __nuppManagedError(\"NUPP2614\",\"value is not a managed alias\")end if cell._state==\"taken\"then return __nuppManagedError(\"NUPP2614\",\"managed ownership was already taken\")end if cell._state==\"closed\"or cell._state==\"closing\"then return __nuppManagedError(\"NUPP2614\",\"managed resource is closed\")end return nil end local function __nuppManagedClose(cell,checked) local problem=__nuppManagedProblem(cell);if problem then if checked then return problem end;return nil end if cell._borrows~=0 or cell._exclusive then local busy=__nuppManagedError(\"NUPP2620\",\"managed resource has an active borrow\");if checked then return busy end;error(busy.message,0)end cell._state=\"closing\";local value,cleanup=cell._value,cell._cleanup;cell._value=nil;cell._cleanup=nil local ok,reason=pcall(cleanup,value);cell._state=\"closed\";if not ok then error(reason,0)end;return nil end function __nuppManagedOwner:alias()return setmetatable({_cell=self,_brand=__nuppManagedBrand},__nuppManagedAlias)end function __nuppManagedOwner:close()return __nuppManagedClose(self,false)end local function __nuppAliasCell(self) if type(self)~=\"table\"or self._brand~=__nuppManagedBrand or getmetatable(self)~=__nuppManagedAlias then return nil,__nuppManagedError(\"NUPP2614\",\"value is not a managed alias\")end local cell=self._cell;local problem=__nuppManagedProblem(cell);if problem then return nil,problem end;return cell,nil end function __nuppManagedAlias:with(callback) local cell,problem=__nuppAliasCell(self);if not cell then return nil,problem end if cell._exclusive then return nil,__nuppManagedError(\"NUPP2620\",\"managed resource is exclusively borrowed\")end cell._borrows=cell._borrows+1;cell._state=\"shared-borrowed(\"..cell._borrows..\")\" local ok,result=pcall(callback,cell._value);cell._borrows=cell._borrows-1;cell._state=cell._borrows>0 and(\"shared-borrowed(\"..cell._borrows..\")\")or\"live\" if not ok then error(result,0)end;return result,nil end function __nuppManagedAlias:withExclusive(callback) local cell,problem=__nuppAliasCell(self);if not cell then return nil,problem end if cell._exclusive or cell._borrows~=0 then return nil,__nuppManagedError(\"NUPP2620\",\"managed resource is already borrowed\")end cell._exclusive=true;cell._state=\"exclusive-borrowed\";local ok,result=pcall(callback,cell._value);cell._exclusive=false;cell._state=\"live\" if not ok then error(result,0)end;return result,nil end function __nuppManagedAlias:take() local cell,problem=__nuppAliasCell(self);if not cell then return nil,problem end if cell._exclusive or cell._borrows~=0 then return nil,__nuppManagedError(\"NUPP2620\",\"managed resource has an active borrow\")end cell._state=\"taken\";local value=cell._value;cell._value=nil;cell._cleanup=nil;return value,nil end function __nuppManagedAlias:close() local cell,problem=__nuppAliasCell(self);if not cell then return problem end;return __nuppManagedClose(cell,true)end function __nuppManagedAlias:_downcast(policy) local cell,problem=__nuppAliasCell(self);if not cell then return nil,problem end if cell._policy~=policy then return nil,__nuppManagedError(\"NUPP2613\",\"managed alias has the wrong type or cleanup policy\")end return self,nil end function __nupp.__manage(value,cleanup,policy) local cell=setmetatable({_brand=__nuppManagedBrand,_value=value,_cleanup=cleanup,_policy=policy,_state=\"live\",_borrows=0,_exclusive=false},__nuppManagedOwner);__nuppManagedCells[cell]=true;return cell end function __nupp.__recoverAlias(value) if type(value)~=\"table\"or value._brand~=__nuppManagedBrand or getmetatable(value)~=__nuppManagedAlias then return nil,__nuppManagedError(\"NUPP2614\",\"value is not a managed alias\")end local cell,problem=__nuppAliasCell(value);if not cell then return nil,problem end;return value,nil end _G.__nuppManagedPolicyCount=function(policy)local count=0;for cell in pairs(__nuppManagedCells)do if cell._policy==policy and(cell._state==\"live\"or cell._state:match(\"borrowed\"))then count=count+1 end end;return count end local __nuppManagedGroup={};__nuppManagedGroup.__index=__nuppManagedGroup function __nuppManagedGroup:flush()end function __nuppManagedGroup:adopt(cell) if self._closed then error(\"managed group is closed\",2)end local handle=cell:alias();self._entries[#self._entries+1]=handle return handle end function __nuppManagedGroup:remove(handle) if self._closed then error(\"managed group is closed\",2)end for index=#self._entries,1,-1 do if self._entries[index]==handle then table.remove(self._entries,index);local value,problem=handle:take();if problem then error(problem.message,2)end;return value end end error(\"managed alias is not registered in this group\",2) end local function __nuppManagedCloseEntry(entry)local problem=entry:close();if problem and problem.code~=\"NUPP2614\"then error(problem.message,0)end end function __nuppManagedGroup:close() if self._closed then return end;self._closed=true;local first,suppressed=nil,0 for index=#self._entries,1,-1 do local ok,reason=pcall(__nuppManagedCloseEntry,self._entries[index]);if not ok then if first==nil then first=reason else suppressed=suppressed+1 end end end self._entries={};if first~=nil then if suppressed>0 then error(tostring(first)..\" (suppressed \"..tostring(suppressed)..\" cleanup failure(s))\",0)end;error(first,0)end end function __nupp.managedGroup()return setmetatable({_entries={},_closed=false},__nuppManagedGroup)end;\n","@nupp-prelude"))();--[[nupp-backends: resolved=data.json|2|runtime|nupp.runtime.backend.lunajson|8bdff32722f35edeb5fe6f35b5917e55966222abcfab16b083c41e57e7b49121|nupp.runtime.provider.lunajson||]]local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppMath=rawget(__nupp,"math")or{};rawset(__nupp,"math",__nuppMath) local function __nuppCloseFile(handle)if io.type(handle)=="closed file"then return end;local ok,reason=handle:close();if not ok then error(reason or "the file could not be closed",0)end end local __nuppManagedBrand=_G.__nuppManagedBrand if not __nuppManagedBrand then __nuppManagedBrand={};_G.__nuppManagedBrand=__nuppManagedBrand end local __nuppManagedCells=_G.__nuppManagedCells if not __nuppManagedCells then __nuppManagedCells=setmetatable({},{__mode="k"});_G.__nuppManagedCells=__nuppManagedCells end local __nuppManagedOwner={};__nuppManagedOwner.__index=__nuppManagedOwner;local __nuppManagedAlias={};__nuppManagedAlias.__index=__nuppManagedAlias local function __nuppManagedError(code,message)return{code=code,message=message}end local function __nuppManagedProblem(cell) if type(cell)~="table"or cell._brand~=__nuppManagedBrand then return __nuppManagedError("NUPP2614","value is not a managed alias")end if cell._state=="taken"then return __nuppManagedError("NUPP2614","managed ownership was already taken")end if cell._state=="closed"or cell._state=="closing"then return __nuppManagedError("NUPP2614","managed resource is closed")end return nil end local function __nuppManagedClose(cell,checked) local problem=__nuppManagedProblem(cell);if problem then if checked then return problem end;return nil end if cell._borrows~=0 or cell._exclusive then local busy=__nuppManagedError("NUPP2620","managed resource has an active borrow");if checked then return busy end;error(busy.message,0)end cell._state="closing";local value,cleanup=cell._value,cell._cleanup;cell._value=nil;cell._cleanup=nil local ok,reason=pcall(cleanup,value);cell._state="closed";if not ok then error(reason,0)end;return nil end function __nuppManagedOwner:alias()return setmetatable({_cell=self,_brand=__nuppManagedBrand},__nuppManagedAlias)end function __nuppManagedOwner:close()return __nuppManagedClose(self,false)end local function __nuppAliasCell(self) if type(self)~="table"or self._brand~=__nuppManagedBrand or getmetatable(self)~=__nuppManagedAlias then return nil,__nuppManagedError("NUPP2614","value is not a managed alias")end local cell=self._cell;local problem=__nuppManagedProblem(cell);if problem then return nil,problem end;return cell,nil end function __nuppManagedAlias:with(callback) local cell,problem=__nuppAliasCell(self);if not cell then return nil,problem end if cell._exclusive then return nil,__nuppManagedError("NUPP2620","managed resource is exclusively borrowed")end cell._borrows=cell._borrows+1;cell._state="shared-borrowed("..cell._borrows..")" local ok,result=pcall(callback,cell._value);cell._borrows=cell._borrows-1;cell._state=cell._borrows>0 and("shared-borrowed("..cell._borrows..")")or"live" if not ok then error(result,0)end;return result,nil end function __nuppManagedAlias:withExclusive(callback) local cell,problem=__nuppAliasCell(self);if not cell then return nil,problem end if cell._exclusive or cell._borrows~=0 then return nil,__nuppManagedError("NUPP2620","managed resource is already borrowed")end cell._exclusive=true;cell._state="exclusive-borrowed";local ok,result=pcall(callback,cell._value);cell._exclusive=false;cell._state="live" if not ok then error(result,0)end;return result,nil end function __nuppManagedAlias:take() local cell,problem=__nuppAliasCell(self);if not cell then return nil,problem end if cell._exclusive or cell._borrows~=0 then return nil,__nuppManagedError("NUPP2620","managed resource has an active borrow")end cell._state="taken";local value=cell._value;cell._value=nil;cell._cleanup=nil;return value,nil end function __nuppManagedAlias:close() local cell,problem=__nuppAliasCell(self);if not cell then return problem end;return __nuppManagedClose(cell,true)end function __nuppManagedAlias:_downcast(policy) local cell,problem=__nuppAliasCell(self);if not cell then return nil,problem end if cell._policy~=policy then return nil,__nuppManagedError("NUPP2613","managed alias has the wrong type or cleanup policy")end return self,nil end function __nupp.__manage(value,cleanup,policy) local cell=setmetatable({_brand=__nuppManagedBrand,_value=value,_cleanup=cleanup,_policy=policy,_state="live",_borrows=0,_exclusive=false},__nuppManagedOwner);__nuppManagedCells[cell]=true;return cell end function __nupp.__recoverAlias(value) if type(value)~="table"or value._brand~=__nuppManagedBrand or getmetatable(value)~=__nuppManagedAlias then return nil,__nuppManagedError("NUPP2614","value is not a managed alias")end local cell,problem=__nuppAliasCell(value);if not cell then return nil,problem end;return value,nil end _G.__nuppManagedPolicyCount=function(policy)local count=0;for cell in pairs(__nuppManagedCells)do if cell._policy==policy and(cell._state=="live"or cell._state:match("borrowed"))then count=count+1 end end;return count end local __nuppManagedGroup={};__nuppManagedGroup.__index=__nuppManagedGroup function __nuppManagedGroup:flush()end function __nuppManagedGroup:adopt(cell) if self._closed then error("managed group is closed",2)end local handle=cell:alias();self._entries[#self._entries+1]=handle return handle end function __nuppManagedGroup:remove(handle) if self._closed then error("managed group is closed",2)end for index=#self._entries,1,-1 do if self._entries[index]==handle then table.remove(self._entries,index);local value,problem=handle:take();if problem then error(problem.message,2)end;return value end end error("managed alias is not registered in this group",2) end local function __nuppManagedCloseEntry(entry)local problem=entry:close();if problem and problem.code~="NUPP2614"then error(problem.message,0)end end function __nuppManagedGroup:close() if self._closed then return end;self._closed=true;local first,suppressed=nil,0 for index=#self._entries,1,-1 do local ok,reason=pcall(__nuppManagedCloseEntry,self._entries[index]);if not ok then if first==nil then first=reason else suppressed=suppressed+1 end end end self._entries={};if first~=nil then if suppressed>0 then error(tostring(first).." (suppressed "..tostring(suppressed).." cleanup failure(s))",0)end;error(first,0)end end function __nupp.managedGroup()return setmetatable({_entries={},_closed=false},__nuppManagedGroup)end (require("nupp.runtime.backend.lunajson")):install();const __nuppModule = require("nupp.data.json"); local __nuppExports;local __nuppOk,__nuppWhy=pcall(function()
 
@@ -34361,7 +34603,7 @@ end
 return nil
 end
 
-local function generateBinding ( root , outDir , name , dep , base , libraryPath , extraCppflags ) 
+local function generateBinding ( root , outDir , name , dep , base , libraryPath , extraCppflags , bindingCc ) 
 local binding = bindingConfig ( dep )
 if not binding or not binding . header then
 return nil
@@ -34373,7 +34615,7 @@ end
 local text , warnings , details = importc . import ( header , {
 module = name ,
 lib = binding . library or dep . load or libraryPath ,
-cc = dep . cc ,
+cc = bindingCc or dep . cc ,
 cppflags = extraCppflags or dep . cppflags ,
 bridge = binding . bridge ,
 macros = binding . macros ,
@@ -34415,7 +34657,7 @@ end
 return output , nil , bridge
 end
 
-local function buildC ( root , outDir , name , dep , previous , childResults ) 
+local function buildC ( root , outDir , name , dep , previous , childResults , target ) 
 local base , fetchErr = fetchGit ( root , name , dep . source )
 if not base then
 return nil , fetchErr
@@ -34441,17 +34683,153 @@ header = join ( base , header )
 end
 nativeInputs [ # nativeInputs + 1 ] = header
 end
-table . sort ( nativeInputs )
-local compiler = dep . cc or "cc"
-local _ , version = process . capture ( { compiler , "--version" } )
-local linkage = dep . linkage or "shared"
-local buildsShared = linkage == "shared" or linkage == "both"
+local standalone = target and target . standalone == true
+if standalone and dep . linkage == "shared" then
+return nil , "standalone binary requires C dependency " .. name .. " to use linkage = \"static\" or \"both\""
+end
+local linkage = dep . linkage or ( standalone and "static" or "shared" )
+local buildsShared = not standalone and ( linkage == "shared" or linkage == "both" )
 local buildsStatic = linkage == "static" or linkage == "both"
+table . sort ( nativeInputs )
+
+local artifactTriple = target and target . layoutTarget or require ( "nupp.compiler.targetlayout" ) . hostKey ( )
+local pack , packErr = require ( "nupp.compiler.build.compilerpacks" ) . resolve ( artifactTriple )
+if packErr ~= nil and dep . cc == nil and configuredBinding ~= nil then
+return nil , packErr
+end
+local artifactSet = dep . artifacts and artifactTriple and dep . artifacts [ artifactTriple ] or nil
+if artifactSet then
+if configuredBinding and (
+configuredBinding . bridge or configuredBinding . macros and next ( configuredBinding . macros ) ~= nil
+) then
+return nil , "prebuilt C dependency " .. name .. " cannot generate a bridge; build it from sources"
+end
+local function stageArtifact ( kind , record , destination ) 
+if type ( record ) ~= "table" then
+return nil , "prebuilt C dependency " .. name .. " has no " .. kind .. " artifact for " .. tostring (
+artifactTriple
+)
+end
+local absolute = record . path : sub ( 1 , 1 ) == "/" or record . path : match ( "^%a:[/\\]" ) ~= nil
+local source = absolute and record . path or join ( base , record . path )
+local bytes , readErr = readFile ( source )
+if not bytes then
+return nil , "cannot read prebuilt C artifact " .. source .. ": " .. tostring ( readErr )
+end
+if # bytes ~= record . size then
+return nil , ( "prebuilt C artifact %s has %d bytes, expected %d" ) : format ( source , # bytes , record . size )
+end
+local digest = hash . sha256 ( bytes )
+if digest ~= record . sha256 then
+return nil , "prebuilt C artifact "
+.. source
+.. " has SHA-256 "
+.. digest
+.. ", expected "
+.. record . sha256
+end
+if kind == "static" and bytes : sub ( 1 , 8 ) ~= "!<arch>\n" then
+return nil , "prebuilt static C artifact " .. source .. " is not an archive"
+end
+local wrote , writeErr = writeFile ( destination , bytes )
+if not wrote then
+return nil , tostring ( writeErr )
+end
+
+return destination , nil
+end
+
+local sharedOutput = buildsShared and join (
+root ,
+dep . out or join ( outDir , "lib/" .. sharedLibraryName ( name ) )
+) or nil
+local staticOutput = buildsStatic and join (
+root ,
+dep . staticOut or ( linkage == "static" and dep . out ) or join ( outDir , "lib/" .. staticLibraryName ( name ) )
+) or nil
+local problem
+if sharedOutput then
+_ , problem = stageArtifact ( "shared" , artifactSet . shared , sharedOutput )
+end
+if problem == nil and staticOutput then
+_ , problem = stageArtifact ( "static" , artifactSet . static , staticOutput )
+end
+if problem ~= nil then
+return nil , problem
+end
+local reference = configuredBinding and not standalone and (
+configuredBinding . library or dep . load or ( sharedOutput and libraryReference ( root , outDir , sharedOutput ) )
+) or nil
+local artifactCppflags = { }
+for _ , flag in ipairs ( dep . cppflags or { } ) do
+artifactCppflags [ # artifactCppflags + 1 ] = flag
+end
+for _ , directory in ipairs ( dep . includeDirs or { } ) do
+artifactCppflags [ # artifactCppflags + 1 ] = "-I" .. join ( base , directory )
+end
+local binding , bindingErr = generateBinding (
+root ,
+outDir ,
+name ,
+dep ,
+base ,
+reference ,
+artifactCppflags ,
+dep . cc or pack and ( pack ) . cc or nil
+)
+if bindingErr then
+return nil , bindingErr
+end
+local linkOutputs = json . asArray ( { } )
+local linkFlags = json . asArray ( { } )
+if staticOutput then
+linkOutputs [ # linkOutputs + 1 ] = staticOutput
+for _ , childName in ipairs ( dep . dependencies or { } ) do
+local child = childResults and childResults [ childName ]
+for _ , childOutput in ipairs ( child and child . linkOutputs or { } ) do
+linkOutputs [ # linkOutputs + 1 ] = childOutput
+end
+for _ , childFlag in ipairs ( child and child . linkFlags or { } ) do
+linkFlags [ # linkFlags + 1 ] = childFlag
+end
+end
+for _ , flag in ipairs ( dep . ldflags or { } ) do
+linkFlags [ # linkFlags + 1 ] = flag
+end
+elseif sharedOutput then
+linkOutputs [ # linkOutputs + 1 ] = sharedOutput
+end
+
+return {
+key = hash . digest (
+stable ( dep ) .. "\0" .. tostring ( artifactTriple ) .. "\0standalone=" .. tostring ( standalone )
+) ,
+output = sharedOutput or staticOutput ,
+staticOutput = staticOutput ,
+runtimeOutput = sharedOutput ,
+linkOutputs = linkOutputs ,
+linkFlags = linkFlags ,
+binding = binding ,
+reference = reference ,
+}
+end
+if dep . artifacts ~= nil and # sources == 0 then
+return nil , "C dependency " .. name .. " has no prebuilt artifact for " .. tostring ( artifactTriple )
+end
+if packErr ~= nil and dep . cc == nil then
+return nil , packErr
+end
+local compiler = dep . cc or pack and ( pack ) . cc or "cc"
+local _ , version = process . capture ( { compiler , "--version" } )
 local archiver , archiverIdentity = nil , ""
 if buildsStatic then
+if pack ~= nil then
+archiver = ( pack ) . ar
+else
 local archiveProbe , found = process . capture ( { compiler , "-print-prog-name=ar" } )
 found = ( found or "" ) : match ( "^%s*(.-)%s*$" )
 archiver = archiveProbe == 0 and found ~= "" and found or "ar"
+end
 local archiveVersionCode , archiveVersion = process . capture ( { archiver , "--version" } )
 archiverIdentity = archiver .. "\0" .. tostring ( archiveVersionCode ) .. "\0" .. archiveVersion
 end
@@ -34512,6 +34890,9 @@ end
 for _ , flag in ipairs ( pkgCflags ) do
 cppflags [ # cppflags + 1 ] = flag
 end
+for _ , flag in ipairs ( pack and ( pack ) . compileFlags or { } ) do
+cppflags [ # cppflags + 1 ] = flag
+end
 local hasMacroBridge = configuredBinding and configuredBinding . macros and next ( configuredBinding . macros ) ~= nil
 local wantsLibrary = # sources > 0 or ( configuredBinding and configuredBinding . bridge ) or hasMacroBridge
 local sharedOutput = wantsLibrary and buildsShared and join (
@@ -34529,12 +34910,12 @@ local output = sharedOutput or staticOutput
 
 
 
-local reference = configuredBinding and (
+local reference = configuredBinding and not standalone and (
 configuredBinding . library or dep . load or (
 sharedOutput and libraryReference ( root , outDir , sharedOutput )
 ) or type ( dep . pkgConfig ) == "string" and dep . pkgConfig
 ) or nil
-local binding , bindingErr , bridge = generateBinding ( root , outDir , name , dep , base , reference , cppflags )
+local binding , bindingErr , bridge = generateBinding ( root , outDir , name , dep , base , reference , cppflags , compiler )
 if bindingErr then
 return nil , bindingErr
 end
@@ -34547,9 +34928,17 @@ end
 local key = hash . digest (
 stable (
 dep
+) .. "\0standalone=" .. tostring (
+standalone
 ) .. "\0" .. hashFiles (
 nativeInputs
 ) .. "\0" .. version .. "\0" .. stable (
+pack and {
+version = ( pack ) . version ,
+compileFlags = ( pack ) . compileFlags ,
+linkFlags = ( pack ) . linkFlags ,
+} or { }
+) .. "\0" .. stable (
 pkgCflags
 ) .. "\0" .. stable (
 pkgSharedLibs
@@ -34601,6 +34990,9 @@ end
 for _ , flag in ipairs ( dep . cppflags or { } ) do
 argv [ # argv + 1 ] = flag
 end
+for _ , flag in ipairs ( pack and ( pack ) . compileFlags or { } ) do
+argv [ # argv + 1 ] = flag
+end
 for _ , flag in ipairs ( pkgCflags ) do
 argv [ # argv + 1 ] = flag
 end
@@ -34626,6 +35018,9 @@ end
 argv [ # argv + 1 ] = "-o"
 argv [ # argv + 1 ] = staged
 for _ , flag in ipairs ( dep . cflags or { } ) do
+argv [ # argv + 1 ] = flag
+end
+for _ , flag in ipairs ( pack and ( pack ) . linkFlags or { } ) do
 argv [ # argv + 1 ] = flag
 end
 for _ , object in ipairs ( objects ) do
@@ -34712,6 +35107,9 @@ for _ , flag in ipairs ( pkgStaticLibs ) do
 linkFlags [ # linkFlags + 1 ] = flag
 end
 for _ , flag in ipairs ( dep . ldflags or { } ) do
+linkFlags [ # linkFlags + 1 ] = flag
+end
+for _ , flag in ipairs ( pack and ( pack ) . linkFlags or { } ) do
 linkFlags [ # linkFlags + 1 ] = flag
 end
 elseif sharedOutput then
@@ -35322,7 +35720,7 @@ return nil , err
 end
 childResults [ child ] = childResult
 end
-local result , err = provider ( root , outDir , name , dep , previous [ name ] , childResults )
+local result , err = provider ( root , outDir , name , dep , previous [ name ] , childResults , target )
 visiting [ name ] = nil
 if not result then
 return nil , err
@@ -35879,6 +36277,10 @@ local manifest = { }
 
 
 
+
+
+
+
 local function validateArray ( value , label , itemType , required ) 
 if value == nil then
 if required then
@@ -35957,6 +36359,7 @@ local DOCS_KEYS = {
 "output" ,
 "payloadOutput" ,
 "stub" ,
+"standalone" ,
 "platforms" ,
 "platformOutputs" ,
 "nativeFeatures" ,
@@ -36013,6 +36416,7 @@ local TARGET_KEYS = {
 "output" ,
 "payloadOutput" ,
 "stub" ,
+"standalone" ,
 "platforms" ,
 "platformOutputs" ,
 "entries" ,
@@ -36086,6 +36490,7 @@ c = {
 "linkage" ,
 "out" ,
 "staticOut" ,
+"artifacts" ,
 "load" ,
 "header" ,
 "bindings"
@@ -36111,6 +36516,8 @@ types = { "kind" , "format" , "source" , "path" } ,
 
 
 local BINDING_KEYS = { "header" , "library" , "out" , "bridge" , "macros" , "cbindgen" , "command" , "ownership" }
+local NATIVE_ARTIFACT_KEYS = { "path" , "sha256" , "size" }
+local NATIVE_ARTIFACT_SET_KEYS = { "shared" , "static" }
 
 local function validateKeys ( value , known , label ) 
 if type ( value ) ~= "table" then
@@ -36258,6 +36665,17 @@ if target . stub ~= nil then
 local valid , err = validateString ( target . stub , label .. ".stub" )
 if not valid then
 return nil , err
+end
+end
+if target . standalone ~= nil and type ( target . standalone ) ~= "boolean" then
+return nil , label .. ".standalone must be a boolean"
+end
+if target . standalone then
+if kind ~= "binary" then
+return nil , label .. ".standalone is only valid for a binary target"
+end
+if target . stub ~= "nupp" then
+return nil , label .. ".standalone requires the compiler-owned stub = \"nupp\""
 end
 end
 if target . platforms ~= nil then
@@ -36773,6 +37191,55 @@ return nil , "dependencies." .. name .. ".staticOut must be a non-empty string"
 end
 if dep . linkage ~= "static" and dep . linkage ~= "both" then
 return nil , "dependencies." .. name .. ".staticOut requires linkage = \"static\" or \"both\""
+end
+end
+if dep . kind == "c" and dep . artifacts ~= nil then
+local artifactLabel = "dependencies." .. name .. ".artifacts"
+if type ( dep . artifacts ) ~= "table" then
+return nil , artifactLabel .. " must be a table keyed by target triple"
+end
+local layouts = require ( "nupp.compiler.targetlayout" )
+for triple , artifactSet in pairs ( dep . artifacts ) do
+local setLabel = artifactLabel .. "." .. tostring ( triple )
+if type ( triple ) ~= "string" or not layouts . has ( triple ) then
+return nil , artifactLabel .. " names unknown target " .. tostring ( triple )
+end
+if type ( artifactSet ) ~= "table" then
+return nil , setLabel .. " must be a table"
+end
+valid , err = validateKeys ( artifactSet , NATIVE_ARTIFACT_SET_KEYS , setLabel )
+if not valid then
+return nil , err
+end
+if artifactSet . shared == nil and artifactSet . static == nil then
+return nil , setLabel .. " must provide shared, static, or both"
+end
+for _ , artifactKind in ipairs ( { "shared" , "static" } ) do
+local artifact = artifactSet [ artifactKind ]
+if artifact ~= nil then
+local oneLabel = setLabel .. "." .. artifactKind
+if type ( artifact ) ~= "table" then
+return nil , oneLabel .. " must be a table"
+end
+valid , err = validateKeys ( artifact , NATIVE_ARTIFACT_KEYS , oneLabel )
+if not valid then
+return nil , err
+end
+if type ( artifact . path ) ~= "string" or artifact . path == "" then
+return nil , oneLabel .. ".path must be a non-empty string"
+end
+if type (
+artifact . sha256
+) ~= "string" or not artifact . sha256 : match ( "^[0-9a-f][0-9a-f]+$" ) or # artifact . sha256 ~= 64 then
+return nil , oneLabel .. ".sha256 must be a lowercase SHA-256"
+end
+if type (
+artifact . size
+) ~= "number" or artifact . size < 1 or artifact . size ~= math . floor ( artifact . size ) then
+return nil , oneLabel .. ".size must be a positive integer"
+end
+end
+end
 end
 end
 end
@@ -38825,6 +39292,67 @@ end
 return built
 end
 
+
+
+
+function stage . linkHost (
+root ,
+target ,
+effects ,
+output ,
+archives ,
+flags
+) 
+local selected = target . layoutTarget
+local host = require ( "nupp.compiler.build.platform" ) . hostKey ( )
+local pack , packErr = require ( "nupp.compiler.build.compilerpacks" ) . resolve ( selected or host )
+if packErr ~= nil then
+return nil , packErr
+end
+local compilerRoot = envMod . compilerRoot ( )
+if pack == nil and selected ~= nil and selected ~= host then
+return nil , "standalone native linking for " .. tostring (
+selected
+) .. " requires a compiler pack for that target"
+end
+if not compilerRoot and ( pack == nil or ( pack ) . linkHost == nil ) then
+return nil , "standalone native linking needs compiler source or an installed compiler pack"
+end
+local featureNames = { }
+for _ , feature in ipairs ( native . features ( effects ) ) do
+if feature . host then
+featureNames [ # featureNames + 1 ] = feature . host
+end
+end
+table . sort ( featureNames )
+local driver = pack and ( pack ) . linkHost or join ( compilerRoot , "scripts/toolchain" )
+if driver == nil then
+return nil , "compiler pack for " .. tostring ( selected or host ) .. " has no standalone host linker"
+end
+local argv = windows and pack == nil and { "sh.exe" , driver } or { driver }
+if pack == nil then
+argv [ # argv + 1 ] = "host-link"
+end
+argv [ # argv + 1 ] = table . concat ( featureNames , "," )
+argv [ # argv + 1 ] = output
+for _ , archive in ipairs ( archives ) do
+argv [ # argv + 1 ] = archive
+end
+argv [ # argv + 1 ] = "--"
+for _ , flag in ipairs ( flags ) do
+argv [ # argv + 1 ] = flag
+end
+for _ , flag in ipairs ( pack and ( pack ) . linkFlags or { } ) do
+argv [ # argv + 1 ] = flag
+end
+local code , text = process . capture ( argv )
+if code ~= 0 then
+return nil , "cannot link the standalone Nupp host:\n" .. text
+end
+
+return output , nil
+end
+
 local function libraryFile ( name ) 
 if jit . os == "Windows" then
 return name .. ".dll"
@@ -38842,7 +39370,8 @@ root ,
 outDir ,
 effects ,
 selectedPlatform ,
-availableOutputs
+availableOutputs ,
+standalone
 ) 
 local outputs = { }
 local providers
@@ -38854,6 +39383,16 @@ local providers
 local providerKeys = { }
 for _ , feature in ipairs ( native . features ( effects ) ) do
 if feature . provider then
+if standalone and feature . host then
+
+
+goto continue
+end
+if standalone and not feature . host then
+return nil , "standalone binary needs sidecar-only native feature "
+.. feature . name
+.. "; no static host implementation exists"
+end
 if selectedPlatform and feature . host then
 
 
@@ -38915,15 +39454,13 @@ end
 for _ , feature in ipairs ( native . features ( effects ) ) do
 local moduleName = feature . runtimeModule
 if moduleName then
-if not compilerRoot then
-return nil , (
-"the %s runtime needs compiler source; use a source checkout to build this target"
-) : format ( feature . name )
-end
 local relative = ( moduleName : gsub ( "%." , "/" ) ) .. ".lua"
-local built = join ( compilerRoot , join ( "build" , relative ) )
 local output = join ( root , join ( outDir , relative ) )
 if not availableOutputs or not availableOutputs [ output ] then
+if not compilerRoot then
+return nil , ( "the %s runtime was not staged from the installed compiler" ) : format ( feature . name )
+end
+local built = join ( compilerRoot , join ( "build" , relative ) )
 local copied , err = fs . copyFile ( built , output )
 if not copied then
 return nil , ( "cannot stage the %s runtime: %s" ) : format ( feature . name , tostring ( err ) )
@@ -40647,6 +41184,9 @@ local project = { }
 
 
 
+
+
+
 local CHECK_STATE_STAMP = "checks/1"
 
 local normalize , join = fs . normalize , fs . join
@@ -40725,6 +41265,13 @@ if not target then
 io . stderr : write ( "nupp: " .. tostring ( targetErr ) .. "\n" ) ;
 return 1
 end
+if opts . standalone then
+if target . kind ~= "binary" or target . stub ~= "nupp" then
+io . stderr : write ( "nupp: --standalone requires a binary target with stub = \"nupp\"\n" )
+return 1
+end
+target . standalone = true
+end
 local dialectLabel = opts . dialect ~= nil and "--dialect" or "dialect"
 local dialect , dialectErr = require ( "nupp.compiler.dialects" ) . resolve ( opts . dialect or target . dialect , dialectLabel )
 if not dialect then
@@ -40770,7 +41317,7 @@ target . name or opts . target or "default"
 )
 return 1
 end
-if selectedPlatform and not opts . checkOnly then
+if selectedPlatform and not opts . checkOnly and not target . standalone then
 local record , recordErr = require ( "nupp.compiler.build.stubs" ) . record ( selectedPlatform )
 if not record then
 io . stderr : write ( "nupp: " .. tostring ( recordErr ) .. "\n" )
@@ -40875,7 +41422,7 @@ targetKey = targetKey .. "@" .. selectedPlatform
 end
 report : at ( "dependencies" )
 report : step ( "resolving dependencies" )
-local dependencies , depErr = buildDependencies ( root , outDir , config , oldState . dependencies )
+local dependencies , depErr = buildDependencies ( root , outDir , config , oldState . dependencies , target )
 report : clear ( )
 if not dependencies then
 io . stderr : write ( "nupp: " .. tostring ( depErr ) .. "\n" ) ;
@@ -40941,7 +41488,8 @@ oldState . aotLibrary ,
 session ,
 target . aotFeatures ,
 target . aotTarget ,
-target . aotCflags
+target . aotCflags ,
+target . standalone
 )
 report : clear ( )
 if produced == nil then
@@ -41072,7 +41620,14 @@ end
 end
 report : at ( "native" )
 report : step ( "building native providers" )
-local nativeOutputs , nativeErr = native . build ( root , outDir , resolvedEffects , selectedPlatform , result . outputs )
+local nativeOutputs , nativeErr = native . build (
+root ,
+outDir ,
+resolvedEffects ,
+selectedPlatform ,
+result . outputs ,
+target . standalone
+)
 report : clear ( )
 if not nativeOutputs then
 io . stderr : write ( "nupp: " .. tostring ( nativeErr ) .. "\n" )
@@ -41144,7 +41699,43 @@ return 1
 end
 newState . outputs [ payloadOutput ] = true
 end
-local stubPath , hostErr = native . hostStub ( root , outDir , target , resolvedEffects )
+local stubPath , hostErr
+if target . standalone then
+local archives , flags , seenArchives , seenFlags = { } , { } , { } , { }
+local function addUnique ( into , seen , value ) 
+if not seen [ value ] then
+seen [ value ] = true
+into [ # into + 1 ] = value
+end
+end
+
+for dependencyName , dep in pairs ( dependencies ) do
+if dep . staticOutput then
+for _ , archive in ipairs ( dep . linkOutputs or { dep . staticOutput } ) do
+addUnique ( archives , seenArchives , archive )
+end
+for _ , flag in ipairs ( dep . linkFlags or { } ) do
+addUnique ( flags , seenFlags , flag )
+end
+elseif dep . runtimeOutput and dep . reference then
+io . stderr : write (
+"nupp: standalone binary cannot carry shared dependency "
+.. dependencyName
+.. "; provide static linkage or a static prebuilt artifact\n"
+)
+return 1
+end
+end
+if aotLibrary ~= nil then
+addUnique ( archives , seenArchives , aotLibrary )
+end
+table . sort ( archives )
+local linkedHost = join ( root , join ( outDir , "cache/standalone-host-" .. name ) )
+fs . mkdir ( dirname ( linkedHost ) )
+stubPath , hostErr = native . linkHost ( root , target , resolvedEffects , linkedHost , archives , flags )
+else
+stubPath , hostErr = native . hostStub ( root , outDir , target , resolvedEffects )
+end
 if not stubPath then
 io . stderr : write ( "nupp: " .. tostring ( hostErr ) .. "\n" )
 return 1
@@ -41187,7 +41778,7 @@ newState . outputs [ output ] = true
 
 
 
-if aotLibrary ~= nil then
+if aotLibrary ~= nil and not target . standalone then
 local beside = join ( dirname ( output ) , "lib/" .. basename ( aotLibrary ) )
 local copied , copyErr = copyFile ( aotLibrary , beside )
 if not copied then
@@ -75318,13 +75909,14 @@ local command = spec . command {
 name = "build" ,
 summary = "Build source files or a configured project target" ,
 usage = {
-"nupp build [--strict] [--dialect DIALECT] [-O<n>] [--target NAME] [--platform NAME|all] [--out-dir DIR]"
+"nupp build [--strict] [--dialect DIALECT] [-O<n>] [--target NAME] [--platform NAME|all] [--standalone] [--out-dir DIR]"
 .. " [-q] [--format text|json]" ,
 "nupp build [--strict] [--dialect DIALECT] [-O<n>] [-o DIR] [-q] [--format text|json] <file...>" ,
 } ,
 options = optionsMod . join (
 { name = "--target" , value = "NAME" , help = "Build a named manifest target" } ,
 { name = "--platform" , value = "NAME" , help = "Build one configured binary platform, or all" } ,
+{ name = "--standalone" , help = "Link native FFI and AOT code into the binary host" } ,
 
 
 
@@ -75590,8 +76182,10 @@ local paths = parsed . positional
 
 local outDir , projectOutDir = values . outDir , values . projectOutDir
 local target = values . target
-if # paths > 0 and ( projectOutDir or target or values . platform ) then
-return command : usageError ( "--target, --platform and --out-dir cannot be used with explicit source files" )
+if # paths > 0 and ( projectOutDir or target or values . platform or values . standalone ) then
+return command : usageError (
+"--target, --platform, --standalone and --out-dir cannot be used with explicit source files"
+)
 end
 if # paths == 0 and outDir then
 return command : usageError ( "-o requires at least one explicit source file" )
@@ -75668,6 +76262,7 @@ local code = project . build ( "." , {
 outDir = projectOutDir ,
 target = target ,
 platform = values . platform ,
+standalone = values . standalone ,
 dialect = values . dialect ,
 strict = settings . strict ,
 optLevel = settings . optLevel ,

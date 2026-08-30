@@ -16,13 +16,14 @@ local command = spec.command{
     name = "build",
     summary = "Build source files or a configured project target",
     usage = {
-        "nupp build [--strict] [--dialect DIALECT] [-O<n>] [--target NAME] [--platform NAME|all] [--out-dir DIR]"
+        "nupp build [--strict] [--dialect DIALECT] [-O<n>] [--target NAME] [--platform NAME|all] [--standalone] [--out-dir DIR]"
         .. " [-q] [--format text|json]",
         "nupp build [--strict] [--dialect DIALECT] [-O<n>] [-o DIR] [-q] [--format text|json] <file...>",
     },
     options = optionsMod.join(
         {name = "--target", value = "NAME", help = "Build a named manifest target"},
         {name = "--platform", value = "NAME", help = "Build one configured binary platform, or all"},
+        {name = "--standalone", help = "Link native FFI and AOT code into the binary host"},
         -- Two directories, not two spellings of one: --out-dir moves a manifest
         -- target's output, -o says where a named file's Lua goes. Distinct keys, so
         -- giving both is a contradiction the command can see.
@@ -288,8 +289,10 @@ local function run(parsed: any): integer
     -- they are separate keys rather than aliases of one.
     local outDir, projectOutDir = values.outDir, values.projectOutDir
     local target = values.target
-    if #paths > 0 and (projectOutDir or target or values.platform) then
-        return command:usageError("--target, --platform and --out-dir cannot be used with explicit source files")
+    if #paths > 0 and (projectOutDir or target or values.platform or values.standalone) then
+        return command:usageError(
+            "--target, --platform, --standalone and --out-dir cannot be used with explicit source files"
+        )
     end
     if #paths == 0 and outDir then
         return command:usageError("-o requires at least one explicit source file")
@@ -366,6 +369,7 @@ local function run(parsed: any): integer
             outDir = projectOutDir,
             target = target,
             platform = values.platform,
+            standalone = values.standalone,
             dialect = values.dialect,
             strict = settings.strict,
             optLevel = settings.optLevel,

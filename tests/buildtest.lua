@@ -290,6 +290,8 @@ function M.cliProvidesCommandHelpAndValidatesOptions()
       "build help has a command summary: " .. help)
    assert(help:find("--target NAME", 1, true),
       "build help documents target selection: " .. help)
+   assert(help:find("--standalone", 1, true),
+      "build help documents self-contained native linking: " .. help)
 
    local missing = capture(("'%s' build --target"):format(NUPP))
    assert(missing:find("option --target requires a value", 1, true),

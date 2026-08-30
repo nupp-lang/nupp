@@ -39,6 +39,9 @@ type project.BuildOptions = {
     --- One configured binary platform, or "all" at the public build boundary.
     platform: string?,
 
+    --- Relink a compiler-owned binary host with its static native closure.
+    standalone: boolean?,
+
     --- Source-lowering dialect. Overrides the target; absent resolves to its setting
     --- and then to `luajit`.
     dialect: string?,
@@ -210,6 +213,13 @@ local function buildOne(root: string?, opts: project.BuildOptions?): integer
         io.stderr:write("nupp: " .. tostring(targetErr) .. "\n");
         return 1
     end
+    if opts.standalone then
+        if target.kind ~= "binary" or target.stub ~= "nupp" then
+            io.stderr:write("nupp: --standalone requires a binary target with stub = \"nupp\"\n")
+            return 1
+        end
+        target.standalone = true
+    end
     local dialectLabel = opts.dialect ~= nil and "--dialect" or "dialect"
     local dialect, dialectErr = require("nupp.compiler.dialects").resolve(opts.dialect or target.dialect, dialectLabel)
     if not dialect then
@@ -255,7 +265,7 @@ local function buildOne(root: string?, opts: project.BuildOptions?): integer
         )
         return 1
     end
-    if selectedPlatform and not opts.checkOnly then
+    if selectedPlatform and not opts.checkOnly and not target.standalone then
         local record, recordErr = require("nupp.compiler.build.stubs").record(selectedPlatform)
         if not record then
             io.stderr:write("nupp: " .. tostring(recordErr) .. "\n")
@@ -360,7 +370,7 @@ local function buildOne(root: string?, opts: project.BuildOptions?): integer
     end
     report:at("dependencies")
     report:step("resolving dependencies")
-    local dependencies, depErr = buildDependencies(root, outDir, config, oldState.dependencies)
+    local dependencies, depErr = buildDependencies(root, outDir, config, oldState.dependencies, target)
     report:clear()
     if not dependencies then
         io.stderr:write("nupp: " .. tostring(depErr) .. "\n");
@@ -426,7 +436,8 @@ local function buildOne(root: string?, opts: project.BuildOptions?): integer
             session,
             target.aotFeatures as string?,
             target.aotTarget as string?,
-            target.aotCflags as {string}?
+            target.aotCflags as {string}?,
+            target.standalone
         )
         report:clear()
         if produced == nil then
@@ -557,7 +568,14 @@ local function buildOne(root: string?, opts: project.BuildOptions?): integer
     end
     report:at("native")
     report:step("building native providers")
-    local nativeOutputs, nativeErr = native.build(root, outDir, resolvedEffects, selectedPlatform, result.outputs)
+    local nativeOutputs, nativeErr = native.build(
+        root,
+        outDir,
+        resolvedEffects,
+        selectedPlatform,
+        result.outputs,
+        target.standalone
+    )
     report:clear()
     if not nativeOutputs then
         io.stderr:write("nupp: " .. tostring(nativeErr) .. "\n")
@@ -629,7 +647,43 @@ local function buildOne(root: string?, opts: project.BuildOptions?): integer
                 end
                 newState.outputs[payloadOutput] = true
             end
-            local stubPath, hostErr = native.hostStub(root, outDir, target, resolvedEffects)
+            local stubPath, hostErr
+            if target.standalone then
+                local archives, flags, seenArchives, seenFlags = {}, {}, {}, {}
+                local function addUnique(into, seen, value)
+                    if not seen[value] then
+                        seen[value] = true
+                        into[#into + 1] = value
+                    end
+                end
+
+                for dependencyName, dep in pairs(dependencies) do
+                    if dep.staticOutput then
+                        for _, archive in ipairs(dep.linkOutputs or {dep.staticOutput as string}) do
+                            addUnique(archives, seenArchives, archive)
+                        end
+                        for _, flag in ipairs(dep.linkFlags or {}) do
+                            addUnique(flags, seenFlags, flag)
+                        end
+                    elseif dep.runtimeOutput and dep.reference then
+                        io.stderr:write(
+                            "nupp: standalone binary cannot carry shared dependency "
+                            .. dependencyName
+                            .. "; provide static linkage or a static prebuilt artifact\n"
+                        )
+                        return 1
+                    end
+                end
+                if aotLibrary ~= nil then
+                    addUnique(archives, seenArchives, aotLibrary as string)
+                end
+                table.sort(archives)
+                local linkedHost = join(root, join(outDir, "cache/standalone-host-" .. name))
+                fs.mkdir(dirname(linkedHost))
+                stubPath, hostErr = native.linkHost(root, target, resolvedEffects, linkedHost, archives, flags)
+            else
+                stubPath, hostErr = native.hostStub(root, outDir, target, resolvedEffects)
+            end
             if not stubPath then
                 io.stderr:write("nupp: " .. tostring(hostErr) .. "\n")
                 return 1
@@ -672,7 +726,7 @@ local function buildOne(root: string?, opts: project.BuildOptions?): integer
         -- beside the module that calls it, and for these kinds that module is
         -- the artifact, so the copy goes beside the artifact rather than staying
         -- in the build directory the artifact was assembled in.
-        if aotLibrary ~= nil then
+        if aotLibrary ~= nil and not target.standalone then
             local beside = join(dirname(output), "lib/" .. basename(aotLibrary as string))
             local copied, copyErr = copyFile(aotLibrary as string, beside)
             if not copied then

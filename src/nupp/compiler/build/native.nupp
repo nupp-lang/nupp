@@ -130,6 +130,67 @@ function stage.hostStub(
     return built
 end
 
+--- Relinks the current-platform compiler host with an application's static
+--- native closure. The driver force-loads archives because FFI symbol lookups
+--- do not create ordinary undefined references for an archive linker to see.
+function stage.linkHost(
+    root: string,
+    target: nupp.compiler.build.manifest.Target,
+    effects: {[string]: any}?,
+    output: string,
+    archives: {string},
+    flags: {string}
+): (string?, string?)
+    local selected = target.layoutTarget
+    local host = require("nupp.compiler.build.platform").hostKey()
+    local pack, packErr = require("nupp.compiler.build.compilerpacks").resolve(selected or host)
+    if packErr ~= nil then
+        return nil, packErr
+    end
+    local compilerRoot = envMod.compilerRoot()
+    if pack == nil and selected ~= nil and selected ~= host then
+        return nil, "standalone native linking for " .. tostring(
+            selected
+        ) .. " requires a compiler pack for that target"
+    end
+    if not compilerRoot and (pack == nil or (pack as any).linkHost == nil) then
+        return nil, "standalone native linking needs compiler source or an installed compiler pack"
+    end
+    local featureNames = {}
+    for _, feature in ipairs(native.features(effects)) do
+        if feature.host then
+            featureNames[#featureNames + 1] = feature.host
+        end
+    end
+    table.sort(featureNames)
+    local driver = pack and (pack as any).linkHost or join(compilerRoot as string, "scripts/toolchain")
+    if driver == nil then
+        return nil, "compiler pack for " .. tostring(selected or host) .. " has no standalone host linker"
+    end
+    local argv = windows and pack == nil and {"sh.exe", driver} or {driver}
+    if pack == nil then
+        argv[#argv + 1] = "host-link"
+    end
+    argv[#argv + 1] = table.concat(featureNames, ",")
+    argv[#argv + 1] = output
+    for _, archive in ipairs(archives) do
+        argv[#argv + 1] = archive
+    end
+    argv[#argv + 1] = "--"
+    for _, flag in ipairs(flags) do
+        argv[#argv + 1] = flag
+    end
+    for _, flag in ipairs(pack and (pack as any).linkFlags or {}) do
+        argv[#argv + 1] = flag
+    end
+    local code, text = process.capture(argv)
+    if code ~= 0 then
+        return nil, "cannot link the standalone Nupp host:\n" .. text
+    end
+
+    return output, nil
+end
+
 local function libraryFile(name: string): string
     if jit.os == "Windows" then
         return name .. ".dll"
@@ -147,7 +208,8 @@ function stage.build(
     outDir: string,
     effects: {[string]: any}?,
     selectedPlatform: string?,
-    availableOutputs: {[string]: boolean}?
+    availableOutputs: {[string]: boolean}?,
+    standalone: boolean?
 ): {[string]: boolean}?, string?
     local outputs = {}
     local providers: {[string]: {
@@ -159,6 +221,16 @@ function stage.build(
     local providerKeys = {}
     for _, feature in ipairs(native.features(effects)) do
         if feature.provider then
+            if standalone and feature.host then
+                -- The relinked host contains this provider; no loadable sidecar
+                -- is part of a standalone binary's runtime closure.
+                goto continue
+            end
+            if standalone and not feature.host then
+                return nil, "standalone binary needs sidecar-only native feature "
+                    .. feature.name
+                    .. "; no static host implementation exists"
+            end
             if selectedPlatform and feature.host then
                 -- The compiler-owned catalog stub carries this implementation. A
                 -- current-machine sidecar beside a foreign executable is invalid.
@@ -220,15 +292,13 @@ function stage.build(
     for _, feature in ipairs(native.features(effects)) do
         local moduleName = feature.runtimeModule
         if moduleName then
-            if not compilerRoot then
-                return nil, (
-                    "the %s runtime needs compiler source; use a source checkout to build this target"
-                ):format(feature.name)
-            end
             local relative = (moduleName:gsub("%.", "/")) .. ".lua"
-            local built = join(compilerRoot, join("build", relative))
             local output = join(root, join(outDir, relative))
             if not availableOutputs or not availableOutputs[output] then
+                if not compilerRoot then
+                    return nil, ("the %s runtime was not staged from the installed compiler"):format(feature.name)
+                end
+                local built = join(compilerRoot, join("build", relative))
                 local copied, err = fs.copyFile(built, output)
                 if not copied then
                     return nil, ("cannot stage the %s runtime: %s"):format(feature.name, tostring(err))

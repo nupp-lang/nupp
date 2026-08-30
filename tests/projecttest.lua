@@ -516,6 +516,31 @@ return {dependencies = {native = {kind = "c", staticOut = "native.a"}},
    remove(strayOutput)
 end
 
+function M.manifestValidatesStandaloneTargetsAndPrebuiltArtifacts()
+   local host = require("nupp.compiler.targetlayout").hostKey()
+   local valid = tempProject({["nupp.lua"] = ([=[
+return {
+   dependencies = {native = {kind = "c", linkage = "static", artifacts = {
+      [%q] = {static = {path = "native.a", sha256 = %q, size = 8}},
+   }}},
+   build = {kind = "binary", stub = "nupp", standalone = true,
+      entries = {"main"}, dependencies = {"native"}},
+}
+]=]):format(host, ("0"):rep(64))})
+   local config, err = project.loadManifest(valid)
+   assert(config, err)
+   assertEq(config.build.standalone, true)
+   remove(valid)
+
+   local invalid = tempProject({["nupp.lua"] = [[
+return {build = {kind = "bundle", standalone = true, entries = {"main"}}}
+]]})
+   config, err = project.loadManifest(invalid)
+   assertEq(config, nil, "standalone is restricted to compiler-owned binaries")
+   assert(err:find("standalone is only valid for a binary target", 1, true), err)
+   remove(invalid)
+end
+
 function M.manifestValidatesTypeDependenciesSeparatelyFromTargets()
    local valid = tempProject({["nupp.lua"] = [[
 return {
@@ -2190,6 +2215,99 @@ return {
    os.remove(archive)
    assertEq(project.build(dir), 0, "a missing static half is rebuilt")
    assert(exists(archive), "the rebuilt dependency restores its static archive")
+   remove(dir)
+end
+
+function M.cDependencyUsesTargetIndexedPrebuiltStaticArtifact()
+   local producer = tempProject({
+      ["nupp.lua"] = [[return {dependencies = {tiny = {kind = "c", linkage = "static",
+         sources = {"tiny.c"}}}, build = {entries = {"main"}, dependencies = {"tiny"}}}]],
+      ["main.g.nupp"] = "return true\n",
+      ["tiny.c"] = "int tiny_add(int a, int b) { return a + b; }\n",
+   })
+   assertEq(project.build(producer), 0)
+   local archive = producer .. "/build/lib/" .. staticLibraryName("tiny")
+   local bytes = read(archive)
+   local host = assert(require("nupp.compiler.targetlayout").hostKey())
+   local consumer = tempProject({
+      ["nupp.lua"] = ([=[
+return {
+   include = {"src"},
+   dependencies = {tiny = {kind = "c", linkage = "static",
+      bindings = {header = "native/tiny.h"}, artifacts = {
+         [%q] = {static = {path = %q, sha256 = %q, size = %d}},
+      }}},
+   build = {outDir = "out", entries = {"main"}, dependencies = {"tiny"}},
+}
+]=]):format(host, archive, hash.sha256(bytes), #bytes),
+      ["src/main.nupp"] = "local tiny = require('tiny')\nreturn tiny.tiny_add\n",
+      ["native/tiny.h"] = "int tiny_add(int a, int b);\n",
+   })
+   assertEq(project.build(consumer), 0, "a verified prebuilt artifact is selected for this target")
+   assertEq(read(consumer .. "/out/lib/" .. staticLibraryName("tiny")), bytes,
+      "the selected target artifact is staged byte-for-byte")
+   write(archive, ("x"):rep(#bytes))
+   assertEq(project.build(consumer), 1, "a digest-valid manifest refuses changed prebuilt bytes")
+   remove(consumer)
+   remove(producer)
+end
+
+function M.standaloneBinaryLinksCDependencyIntoItsOwnHost()
+   local dir = tempProject({
+      ["nupp.lua"] = [[
+return {
+   include = {"src"},
+   dependencies = {tiny = {kind = "c", sources = {"native/tiny.c"},
+      bindings = {header = "native/tiny.h"}}},
+   build = {kind = "binary", stub = "nupp", standalone = true,
+      outDir = "out", output = "out/app", entries = {"main"}, dependencies = {"tiny"}},
+}
+]],
+      ["src/main.nupp"] = [[local tiny = require("tiny")
+print(tiny.tiny_add(2, 3))
+]],
+      ["native/tiny.h"] = "int tiny_add(int a, int b);\n",
+      ["native/tiny.c"] = "int tiny_add(int a, int b) { return a + b; }\n",
+   })
+   assertEq(project.build(dir), 0)
+   local output = dir .. "/out/app"
+   assert(exists(output), "the standalone executable is emitted")
+   assert(not exists(dir .. "/out/lib/" .. libraryName("tiny")),
+      "the standalone build has no shared FFI sidecar")
+   local code, text = process.capture({output})
+   assertEq(code, 0, text)
+   assertEq(text:match("[^\r\n]+"), "5", "the executable resolves FFI from its own symbols")
+   remove(dir)
+end
+
+function M.standaloneBinaryLinksAotIntoItsOwnHost()
+   local dir = tempProject({
+      ["src/main.nupp"] = [[
+@aot(lanes = false)
+local function triangular(count: integer): number
+   local result = 0.0
+   for index = 1, count do
+      result = result + index
+   end
+   return result
+end
+print(triangular(4))
+]],
+   })
+   write(dir .. "/nupp.lua", ([=[return {include = {"src"}, build = {kind = "binary",
+      stub = "nupp", standalone = true, aot = "require", outDir = %q,
+      output = %q, entries = {"main"}}}]=]):format(dir .. "/out", dir .. "/out/app"))
+   if require("nupp.compiler.build.aot").toolchain() == nil then
+      remove(dir)
+      return require("assert").skip("C compiler is unavailable")
+   end
+   assertEq(project.build(dir), 0)
+   assert(exists(dir .. "/out/lib/libdefault_aot.a"), "standalone AOT emits a static archive")
+   assert(not exists(dir .. "/out/lib/" .. libraryName("default_aot")),
+      "standalone AOT emits no loadable sidecar")
+   local code, text = process.capture({dir .. "/out/app"})
+   assertEq(code, 0, text)
+   assertEq(text:match("[^\r\n]+"), "10", "the executable resolves its AOT entry internally")
    remove(dir)
 end
 

@@ -51,6 +51,10 @@ type manifest.Target = {
     --- The prebuilt host a `binary` target's payload is stamped into.
     stub: string?,
 
+    --- Relink the compiler-owned host with static AOT and FFI archives before
+    --- stamping the payload, producing an executable with no native sidecars.
+    standalone: boolean?,
+
     --- Compiler-owned distribution platforms. Their public spellings are target
     --- triples; only triples with cataloged native stubs are accepted.
     platforms: {string}?,
@@ -247,6 +251,7 @@ local DOCS_KEYS = {
     "output",
     "payloadOutput",
     "stub",
+    "standalone",
     "platforms",
     "platformOutputs",
     "nativeFeatures",
@@ -303,6 +308,7 @@ local TARGET_KEYS = {
     "output",
     "payloadOutput",
     "stub",
+    "standalone",
     "platforms",
     "platformOutputs",
     "entries",
@@ -376,6 +382,7 @@ local DEPENDENCY_KEYS: {
         "linkage",
         "out",
         "staticOut",
+        "artifacts",
         "load",
         "header",
         "bindings"
@@ -401,6 +408,8 @@ local DEPENDENCY_KEYS: {
 
 -- The generated FFI binding a C or Cargo dependency asks for by naming a header.
 local BINDING_KEYS = {"header", "library", "out", "bridge", "macros", "cbindgen", "command", "ownership"}
+local NATIVE_ARTIFACT_KEYS = {"path", "sha256", "size"}
+local NATIVE_ARTIFACT_SET_KEYS = {"shared", "static"}
 
 local function validateKeys(value, known, label)
     if type(value) ~= "table" then
@@ -548,6 +557,17 @@ local function validateTarget(target, label, dependencies)
         local valid, err = validateString(target.stub, label .. ".stub")
         if not valid then
             return nil, err
+        end
+    end
+    if target.standalone ~= nil and type(target.standalone) ~= "boolean" then
+        return nil, label .. ".standalone must be a boolean"
+    end
+    if target.standalone then
+        if kind ~= "binary" then
+            return nil, label .. ".standalone is only valid for a binary target"
+        end
+        if target.stub ~= "nupp" then
+            return nil, label .. ".standalone requires the compiler-owned stub = \"nupp\""
         end
     end
     if target.platforms ~= nil then
@@ -1063,6 +1083,55 @@ local function validateManifest(config: manifest.Config): boolean?, string?
             end
             if dep.linkage ~= "static" and dep.linkage ~= "both" then
                 return nil, "dependencies." .. name .. ".staticOut requires linkage = \"static\" or \"both\""
+            end
+        end
+        if dep.kind == "c" and dep.artifacts ~= nil then
+            local artifactLabel = "dependencies." .. name .. ".artifacts"
+            if type(dep.artifacts) ~= "table" then
+                return nil, artifactLabel .. " must be a table keyed by target triple"
+            end
+            local layouts = require("nupp.compiler.targetlayout")
+            for triple, artifactSet in pairs(dep.artifacts) do
+                local setLabel = artifactLabel .. "." .. tostring(triple)
+                if type(triple) ~= "string" or not layouts.has(triple) then
+                    return nil, artifactLabel .. " names unknown target " .. tostring(triple)
+                end
+                if type(artifactSet) ~= "table" then
+                    return nil, setLabel .. " must be a table"
+                end
+                valid, err = validateKeys(artifactSet, NATIVE_ARTIFACT_SET_KEYS, setLabel)
+                if not valid then
+                    return nil, err
+                end
+                if artifactSet.shared == nil and artifactSet.static == nil then
+                    return nil, setLabel .. " must provide shared, static, or both"
+                end
+                for _, artifactKind in ipairs({"shared", "static"}) do
+                    local artifact = artifactSet[artifactKind]
+                    if artifact ~= nil then
+                        local oneLabel = setLabel .. "." .. artifactKind
+                        if type(artifact) ~= "table" then
+                            return nil, oneLabel .. " must be a table"
+                        end
+                        valid, err = validateKeys(artifact, NATIVE_ARTIFACT_KEYS, oneLabel)
+                        if not valid then
+                            return nil, err
+                        end
+                        if type(artifact.path) ~= "string" or artifact.path == "" then
+                            return nil, oneLabel .. ".path must be a non-empty string"
+                        end
+                        if type(
+                            artifact.sha256
+                        ) ~= "string" or not artifact.sha256:match("^[0-9a-f][0-9a-f]+$") or #artifact.sha256 ~= 64 then
+                            return nil, oneLabel .. ".sha256 must be a lowercase SHA-256"
+                        end
+                        if type(
+                            artifact.size
+                        ) ~= "number" or artifact.size < 1 or artifact.size ~= math.floor(artifact.size) then
+                            return nil, oneLabel .. ".size must be a positive integer"
+                        end
+                    end
+                end
             end
         end
     end

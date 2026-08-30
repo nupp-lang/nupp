@@ -62,8 +62,8 @@ const binding.ABI_TYPE = {
 }
 
 --- The library clause a `cdef` ends with.
-local function from(library: string): string
-    return "from\"" .. library .. "\""
+local function from(library: string?): string
+    return library and ("from\"" .. library .. "\"") or ""
 end
 
 local function resultName(program: scalarIR.Program): string
@@ -97,7 +97,7 @@ end
 --- The object exports a function per measurement rather than a table of
 --- numbers, so the answers come from the C compiler that actually laid the
 --- struct out.
-function binding.layoutReporters(symbol: string, layout: scalarIR.Layout, library: string): {string}
+function binding.layoutReporters(symbol: string, layout: scalarIR.Layout, library: string?): {string}
     local prefix = "cdef function " .. symbol .. "_layout_" .. layout.name
     local lines: {string} = {prefix .. "_size(): uint64 " .. from(library)}
     for _, field in ipairs(layout.fields) do
@@ -144,7 +144,7 @@ end
 --- Spans arrive as pointers and either a shared count or their independent
 --- counts, exactly as the generated C takes them. The ownership annotations
 --- are carried across so the unsafe call is still governed by them.
-function binding.foreign(program: scalarIR.Program, library: string, symbol: string?): {string}
+function binding.foreign(program: scalarIR.Program, library: string?, symbol: string?): {string}
     local params: {string} = {}
     for _, param in ipairs(program.params) do
         if param.kind == "write_span" then
@@ -327,7 +327,7 @@ end
 --- in the generated module local.
 function binding.builderLoader(
     program: scalarIR.Program,
-    library: string,
+    library: string?,
     tiers: {string}?,
     detector: boolean?
 ): {string}
@@ -476,7 +476,7 @@ function binding.compiledMarker(program: scalarIR.Program): {string}
 end
 
 --- The one runtime feature query shared by all selections in a source module.
-function binding.featureDetector(library: string): {string}
+function binding.featureDetector(library: string?): {string}
     return {"cdef function ks_aot_feature_tier(): int32 " .. from(library)}
 end
 
@@ -497,7 +497,7 @@ end
 --- it names a parameter it does not have and reports NUPP1007.
 function binding.multiversion(
     program: scalarIR.Program,
-    library: string,
+    library: string?,
     tiers: {string},
     detector: boolean?
 ): ({string}, string)
@@ -541,7 +541,7 @@ end
 --- @raises when passed malformed or unverified IR
 function binding.replacement(
     program: scalarIR.Program,
-    library: string,
+    library: string?,
     tiers: {string}?,
     includeDetector: boolean?
 ): string
@@ -629,7 +629,7 @@ end
 --- The source signature remains the authored signature.  Only the body changes: a
 --- checked tuple tail-dispatches to its private wrapper and an unchecked tuple that
 --- was not part of the deliverable fails instead of silently crossing to Lua.
-function binding.familyReplacement(family: any, library: string, tiers: {string}?, includeDetector: boolean?): string
+function binding.familyReplacement(family: any, library: string?, tiers: {string}?, includeDetector: boolean?): string
     local lines: {string} = {}
     for position, program in ipairs(family.programs) do
         lines[#lines + 1] = binding.replacement(program, library, tiers, includeDetector == true and position == 1)
@@ -672,7 +672,7 @@ end
 
 --- The whole generated module: structs, their layout checks, the foreign
 --- declaration, the wrapper, and what all of it exports.
-function binding.module(programs: {scalarIR.Program}, library: string): string
+function binding.module(programs: {scalarIR.Program}, library: string?): string
     local lines: {
         string
     } = {"-- Generated from verified test-only native C IR.", "", "local span = require(\"nupp.mem.span\")", "",}

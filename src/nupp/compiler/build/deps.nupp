@@ -171,7 +171,7 @@ local function bindingConfig(dep)
     return nil
 end
 
-local function generateBinding(root, outDir, name, dep, base, libraryPath, extraCppflags)
+local function generateBinding(root, outDir, name, dep, base, libraryPath, extraCppflags, bindingCc)
     local binding = bindingConfig(dep)
     if not binding or not binding.header then
         return nil
@@ -183,7 +183,7 @@ local function generateBinding(root, outDir, name, dep, base, libraryPath, extra
     local text, warnings, details = importc.import(header, {
         module = name,
         lib = binding.library or dep.load or libraryPath,
-        cc = dep.cc,
+        cc = bindingCc or dep.cc,
         cppflags = extraCppflags or dep.cppflags,
         bridge = binding.bridge,
         macros = binding.macros,
@@ -225,7 +225,7 @@ local function generateBinding(root, outDir, name, dep, base, libraryPath, extra
     return output, nil, bridge
 end
 
-local function buildC(root, outDir, name, dep, previous, childResults)
+local function buildC(root, outDir, name, dep, previous, childResults, target)
     local base, fetchErr = fetchGit(root, name, dep.source)
     if not base then
         return nil, fetchErr
@@ -251,17 +251,153 @@ local function buildC(root, outDir, name, dep, previous, childResults)
         end
         nativeInputs[#nativeInputs + 1] = header
     end
-    table.sort(nativeInputs)
-    local compiler = dep.cc or "cc"
-    local _, version = process.capture({compiler, "--version"})
-    local linkage = dep.linkage or "shared"
-    local buildsShared = linkage == "shared" or linkage == "both"
+    local standalone = target and target.standalone == true
+    if standalone and dep.linkage == "shared" then
+        return nil, "standalone binary requires C dependency " .. name .. " to use linkage = \"static\" or \"both\""
+    end
+    local linkage = dep.linkage or (standalone and "static" or "shared")
+    local buildsShared = not standalone and (linkage == "shared" or linkage == "both")
     local buildsStatic = linkage == "static" or linkage == "both"
+    table.sort(nativeInputs)
+
+    local artifactTriple = target and target.layoutTarget or require("nupp.compiler.targetlayout").hostKey()
+    local pack, packErr = require("nupp.compiler.build.compilerpacks").resolve(artifactTriple)
+    if packErr ~= nil and dep.cc == nil and configuredBinding ~= nil then
+        return nil, packErr
+    end
+    local artifactSet = dep.artifacts and artifactTriple and dep.artifacts[artifactTriple] or nil
+    if artifactSet then
+        if configuredBinding and (
+            configuredBinding.bridge or configuredBinding.macros and next(configuredBinding.macros) ~= nil
+        ) then
+            return nil, "prebuilt C dependency " .. name .. " cannot generate a bridge; build it from sources"
+        end
+        local function stageArtifact(kind: string, record: any, destination: string): string?, string?
+            if type(record) ~= "table" then
+                return nil, "prebuilt C dependency " .. name .. " has no " .. kind .. " artifact for " .. tostring(
+                    artifactTriple
+                )
+            end
+            local absolute = record.path:sub(1, 1) == "/" or record.path:match("^%a:[/\\]") ~= nil
+            local source = absolute and record.path or join(base, record.path)
+            local bytes, readErr = readFile(source)
+            if not bytes then
+                return nil, "cannot read prebuilt C artifact " .. source .. ": " .. tostring(readErr)
+            end
+            if #bytes ~= record.size then
+                return nil, ("prebuilt C artifact %s has %d bytes, expected %d"):format(source, #bytes, record.size)
+            end
+            local digest = hash.sha256(bytes)
+            if digest ~= record.sha256 then
+                return nil, "prebuilt C artifact "
+                    .. source
+                    .. " has SHA-256 "
+                    .. digest
+                    .. ", expected "
+                    .. record.sha256
+            end
+            if kind == "static" and bytes:sub(1, 8) ~= "!<arch>\n" then
+                return nil, "prebuilt static C artifact " .. source .. " is not an archive"
+            end
+            local wrote, writeErr = writeFile(destination, bytes)
+            if not wrote then
+                return nil, tostring(writeErr)
+            end
+
+            return destination, nil
+        end
+
+        local sharedOutput = buildsShared and join(
+            root,
+            dep.out or join(outDir, "lib/" .. sharedLibraryName(name))
+        ) or nil
+        local staticOutput = buildsStatic and join(
+            root,
+            dep.staticOut or (linkage == "static" and dep.out) or join(outDir, "lib/" .. staticLibraryName(name))
+        ) or nil
+        local problem
+        if sharedOutput then
+            _, problem = stageArtifact("shared", artifactSet.shared, sharedOutput)
+        end
+        if problem == nil and staticOutput then
+            _, problem = stageArtifact("static", artifactSet.static, staticOutput)
+        end
+        if problem ~= nil then
+            return nil, problem
+        end
+        local reference = configuredBinding and not standalone and (
+            configuredBinding.library or dep.load or (sharedOutput and libraryReference(root, outDir, sharedOutput))
+        ) or nil
+        local artifactCppflags = {}
+        for _, flag in ipairs(dep.cppflags or {}) do
+            artifactCppflags[#artifactCppflags + 1] = flag
+        end
+        for _, directory in ipairs(dep.includeDirs or {}) do
+            artifactCppflags[#artifactCppflags + 1] = "-I" .. join(base, directory)
+        end
+        local binding, bindingErr = generateBinding(
+            root,
+            outDir,
+            name,
+            dep,
+            base,
+            reference,
+            artifactCppflags,
+            dep.cc or pack and (pack as any).cc or nil
+        )
+        if bindingErr then
+            return nil, bindingErr
+        end
+        local linkOutputs = json.asArray({})
+        local linkFlags = json.asArray({})
+        if staticOutput then
+            linkOutputs[#linkOutputs + 1] = staticOutput
+            for _, childName in ipairs(dep.dependencies or {}) do
+                local child = childResults and childResults[childName]
+                for _, childOutput in ipairs(child and child.linkOutputs or {}) do
+                    linkOutputs[#linkOutputs + 1] = childOutput
+                end
+                for _, childFlag in ipairs(child and child.linkFlags or {}) do
+                    linkFlags[#linkFlags + 1] = childFlag
+                end
+            end
+            for _, flag in ipairs(dep.ldflags or {}) do
+                linkFlags[#linkFlags + 1] = flag
+            end
+        elseif sharedOutput then
+            linkOutputs[#linkOutputs + 1] = sharedOutput
+        end
+
+        return {
+            key = hash.digest(
+                stable(dep) .. "\0" .. tostring(artifactTriple) .. "\0standalone=" .. tostring(standalone)
+            ),
+            output = sharedOutput or staticOutput,
+            staticOutput = staticOutput,
+            runtimeOutput = sharedOutput,
+            linkOutputs = linkOutputs,
+            linkFlags = linkFlags,
+            binding = binding,
+            reference = reference,
+        }
+    end
+    if dep.artifacts ~= nil and #sources == 0 then
+        return nil, "C dependency " .. name .. " has no prebuilt artifact for " .. tostring(artifactTriple)
+    end
+    if packErr ~= nil and dep.cc == nil then
+        return nil, packErr
+    end
+    local compiler = dep.cc or pack and (pack as any).cc or "cc"
+    local _, version = process.capture({compiler, "--version"})
     local archiver, archiverIdentity = nil, ""
     if buildsStatic then
-        local archiveProbe, found = process.capture({compiler, "-print-prog-name=ar"})
-        found = (found or ""):match("^%s*(.-)%s*$")
-        archiver = archiveProbe == 0 and found ~= "" and found or "ar"
+        if pack ~= nil then
+            archiver = (pack as any).ar
+        else
+            local archiveProbe, found = process.capture({compiler, "-print-prog-name=ar"})
+            found = (found or ""):match("^%s*(.-)%s*$")
+            archiver = archiveProbe == 0 and found ~= "" and found or "ar"
+        end
         local archiveVersionCode, archiveVersion = process.capture({archiver, "--version"})
         archiverIdentity = archiver .. "\0" .. tostring(archiveVersionCode) .. "\0" .. archiveVersion
     end
@@ -322,6 +458,9 @@ local function buildC(root, outDir, name, dep, previous, childResults)
     for _, flag in ipairs(pkgCflags) do
         cppflags[#cppflags + 1] = flag
     end
+    for _, flag in ipairs(pack and (pack as any).compileFlags or {}) do
+        cppflags[#cppflags + 1] = flag
+    end
     local hasMacroBridge = configuredBinding and configuredBinding.macros and next(configuredBinding.macros) ~= nil
     local wantsLibrary = #sources > 0 or (configuredBinding and configuredBinding.bridge) or hasMacroBridge
     local sharedOutput = wantsLibrary and buildsShared and join(
@@ -339,12 +478,12 @@ local function buildC(root, outDir, name, dep, previous, childResults)
     -- The same precedence `generateBinding` applies, worked out here as well so
     -- that what the record reports is what the binding wrote. A target that
     -- carries the binding somewhere has to carry the library it names.
-    local reference = configuredBinding and (
+    local reference = configuredBinding and not standalone and (
         configuredBinding.library or dep.load or (
             sharedOutput and libraryReference(root, outDir, sharedOutput)
         ) or type(dep.pkgConfig) == "string" and dep.pkgConfig
     ) or nil
-    local binding, bindingErr, bridge = generateBinding(root, outDir, name, dep, base, reference, cppflags)
+    local binding, bindingErr, bridge = generateBinding(root, outDir, name, dep, base, reference, cppflags, compiler)
     if bindingErr then
         return nil, bindingErr
     end
@@ -357,9 +496,17 @@ local function buildC(root, outDir, name, dep, previous, childResults)
     local key = hash.digest(
         stable(
             dep
+        ) .. "\0standalone=" .. tostring(
+            standalone
         ) .. "\0" .. hashFiles(
             nativeInputs
         ) .. "\0" .. version .. "\0" .. stable(
+            pack and {
+                version = (pack as any).version,
+                compileFlags = (pack as any).compileFlags,
+                linkFlags = (pack as any).linkFlags,
+            } or {}
+        ) .. "\0" .. stable(
             pkgCflags
         ) .. "\0" .. stable(
             pkgSharedLibs
@@ -411,6 +558,9 @@ local function buildC(root, outDir, name, dep, previous, childResults)
                 for _, flag in ipairs(dep.cppflags or {}) do
                     argv[#argv + 1] = flag
                 end
+                for _, flag in ipairs(pack and (pack as any).compileFlags or {}) do
+                    argv[#argv + 1] = flag
+                end
                 for _, flag in ipairs(pkgCflags) do
                     argv[#argv + 1] = flag
                 end
@@ -436,6 +586,9 @@ local function buildC(root, outDir, name, dep, previous, childResults)
                 argv[#argv + 1] = "-o"
                 argv[#argv + 1] = staged
                 for _, flag in ipairs(dep.cflags or {}) do
+                    argv[#argv + 1] = flag
+                end
+                for _, flag in ipairs(pack and (pack as any).linkFlags or {}) do
                     argv[#argv + 1] = flag
                 end
                 for _, object in ipairs(objects) do
@@ -522,6 +675,9 @@ local function buildC(root, outDir, name, dep, previous, childResults)
             linkFlags[#linkFlags + 1] = flag
         end
         for _, flag in ipairs(dep.ldflags or {}) do
+            linkFlags[#linkFlags + 1] = flag
+        end
+        for _, flag in ipairs(pack and (pack as any).linkFlags or {}) do
             linkFlags[#linkFlags + 1] = flag
         end
     elseif sharedOutput then
@@ -1132,7 +1288,7 @@ local function buildDependencies(
             end
             childResults[child] = childResult
         end
-        local result, err = provider(root, outDir, name, dep, previous[name], childResults)
+        local result, err = provider(root, outDir, name, dep, previous[name], childResults, target)
         visiting[name] = nil
         if not result then
             return nil, err

@@ -375,10 +375,12 @@ A distributed binary is deliberately none of these things.
 - **It does not replace the bootstrap.** `bootstrap/nupp.lua` exists so a source
   checkout can build a compiler; a distributed binary is what comes out the
   other end. Different problems that are easy to conflate.
-- **It does not absorb arbitrary native dependencies.** Self-contained means the
-  program needs no LuaJIT and no engine installed. A project with its own C or
-  provider library still ships that library beside the binary, unless it is linked
-  into a stub built for the purpose.
+- **Ordinary stamping does not absorb arbitrary native dependencies.** A normal
+  binary still ships project C and provider libraries beside it. A
+  [`standalone` binary](../guides/build.md#standalone-native-binaries) is the
+  explicit exception: Nupp relinks its compiler-owned host with static C and
+  AOT archives before stamping. It refuses a dependency or native feature for
+  which no static implementation exists rather than quietly leaving a sidecar.
 
   Nupp's compiler payload detects two native modules, and its compiler-owned
   host links exactly those features: LPeg, which backs direct LPeg patterns and every
