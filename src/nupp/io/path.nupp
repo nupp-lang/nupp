@@ -73,7 +73,8 @@ with a reason when it does.
 - `canonicalize()` asks the filesystem for the real path, following every
   symbolic link, which requires the path to exist.
 - `relativeTo(base)` expresses the path against another one, when both share a
-  coordinate system.
+  coordinate system. A path expressed against itself answers `.`, the path
+  that stays where the base already is.
 
 ```nupp
 const path = require("nupp.io.path")
@@ -222,7 +223,8 @@ export record Path
         return raw(pathtext.finish(text as string, WINDOWS)), nil
     end
 
-    --- Expresses this path relative to another.
+    --- Expresses this path relative to another. A path expressed against
+    --- itself answers `.`, the path that stays where the base already is.
     --- @param self this path
     --- @param base the path to express this one against
     --- @return the relative path, or nil when there is no relative form

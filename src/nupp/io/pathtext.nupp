@@ -70,6 +70,18 @@ local function isDriveLetter(value: integer?): boolean
     return (value >= 65 and value <= 90) or (value >= 97 and value <= 122)
 end
 
+--- Whether the path is spelled in the verbatim form. The test is byte-exact:
+--- the system recognises `\\?\` and nothing else -- not `//?/`, and not `/` as
+--- a separator after it -- so a spelling this loses is a path this corrupts.
+local function isVerbatim(text: string, windows: boolean): boolean
+    if not windows or #text < 4 then
+        return false
+    end
+
+    return byte(text, 1) == BACKSLASH and byte(text, 2) == BACKSLASH
+        and byte(text, 3) == 63 and byte(text, 4) == BACKSLASH
+end
+
 --- How many leading bytes of `text` are its prefix: none on POSIX, and on
 --- Windows the drive, the share, or the verbatim marker.
 ---
@@ -135,13 +147,15 @@ end
 ---
 --- Windows writes a separator either way and answers with one, so what it wrote
 --- is rewritten here. POSIX does not, and must not: a backslash there is an
---- ordinary byte in an ordinary name.
+--- ordinary byte in an ordinary name. A verbatim path is Windows's own
+--- exception: the system reads `\\?\` and its backslashes literally, so the
+--- answer keeps every byte as it was written.
 ---
 --- @param value the text to answer with
 --- @param windows whether Windows rules apply
 --- @return the text, with separators as the answer spells them
 function pathtext.finish(value: string, windows: boolean): string
-    if not windows then
+    if not windows or isVerbatim(value, windows) then
         return value
     end
 
@@ -304,10 +318,18 @@ local function normalizeImpl(text: string, windows: boolean): string
 end
 
 --- Resolves what can be resolved without asking the filesystem.
+---
+--- A verbatim path is answered exactly as written: the system does not
+--- normalise one, so resolving a `..` or respelling a separator here would
+--- make this text name something the original did not.
 --- @param text the path
 --- @param windows whether Windows rules apply
 --- @return the normalized path
 function pathtext.normalize(text: string, windows: boolean): string
+    if isVerbatim(text, windows) then
+        return text
+    end
+
     return normalizeImpl(text, windows)
 end
 
@@ -404,10 +426,12 @@ function pathtext.pushPart(carried: string, part: string, windows: boolean): str
         -- A bare drive prefix names a coordinate system rather than a place, so a
         -- part joined onto one stays drive-relative: `C:` and `foo` make `C:foo`,
         -- not the absolute `C:/foo`. A share prefix names a place, and a separator
-        -- still belongs between it and what follows.
+        -- still belongs between it and what follows. A verbatim path gets the
+        -- one separator the system reads there, since `/` is an ordinary byte
+        -- after `\\?\`.
         local currentPrefix = pathtext.prefixLength(carried, windows)
         if currentPrefix ~= #carried or byte(carried, #carried) ~= COLON then
-            head = carried .. "/"
+            head = carried .. (isVerbatim(carried, windows) and "\\" or "/")
         end
     end
 
@@ -502,11 +526,15 @@ end
 ---
 --- This is the textual half of making a path absolute: duplicate separators
 --- and `.` disappear, while `..` remains because resolving it across a symbolic
---- link requires the filesystem.
+--- link requires the filesystem. A verbatim path is answered unchanged, for
+--- the same reason `normalize` leaves one alone.
 --- @param text the path
 --- @param windows whether Windows rules apply
 --- @return the cleaned path
 function pathtext.clean(text: string, windows: boolean): string
+    if isVerbatim(text, windows) then
+        return text
+    end
     local answer = ""
     local needsSeparator = false
     local at: integer = 0
@@ -531,12 +559,20 @@ function pathtext.clean(text: string, windows: boolean): string
 end
 
 --- Expresses `target` against `base` using their component views.
+---
+--- A target that is its base answers `.`: the path is where the base already
+--- is, and `.` is how a path spells that, where `""` names nothing a
+--- filesystem call accepts. A verbatim path is refused, because expressing
+--- one is exactly the reasoning about its components this module does not do.
 --- @param target the path to express
 --- @param base the path to express it against
 --- @param windows whether Windows rules apply
 --- @return the relative path, or nil when the coordinate systems differ
 --- @return a failure reason, when there is no relative form
 function pathtext.relative(target: string, base: string, windows: boolean): (string?, string?)
+    if isVerbatim(target, windows) or isVerbatim(base, windows) then
+        return nil, "a verbatim path is carried rather than reasoned about"
+    end
     local targetAbsolute = pathtext.isAbsolute(target, windows)
     local baseAbsolute = pathtext.isAbsolute(base, windows)
     if targetAbsolute ~= baseAbsolute then
@@ -627,6 +663,10 @@ function pathtext.relative(target: string, base: string, windows: boolean): (str
             windows
         )
     end
+    if #answer == 0 then
+        -- No steps up and none along: the target is its base.
+        answer = "."
+    end
 
     return pathtext.finish(answer, windows), nil
 end
@@ -662,7 +702,7 @@ function pathtext.with(text: string, replacement: string, extension: boolean, wi
     end
     local head = hasName and text:sub(1, beforeLast(text, start as integer, anchored, windows)) or text
     if #head ~= 0 and not isSeparator(byte(head, #head), windows) then
-        head = head .. "/"
+        head = head .. (isVerbatim(head, windows) and "\\" or "/")
     end
 
     return pathtext.finish(head .. replacement, windows)

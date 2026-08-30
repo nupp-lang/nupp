@@ -117,9 +117,19 @@ end
 function M.relatingNeedsBothPathsAnchoredTheSameWay()
    local module = ready()
    test.equal(module.newPath("/a/b/c"):relativeTo("/a/d"):toString(), "../b/c")
-   test.equal(module.newPath("/a/b"):relativeTo("/a/b"):toString(), "")
    test.equal(module.newPath("/a/b"):relativeTo("a/b"):toString(), "/a/b")
    test.equal(module.newPath("a/b"):relativeTo("/a/b"), nil)
+end
+
+-- A path expressed against itself is where the base already is, and `.` is
+-- how a path spells that: `""` names nothing a filesystem call accepts.
+function M.relatingAPathToItselfAnswersDot()
+   local module = ready()
+   test.equal(module.newPath("/a/b"):relativeTo("/a/b"):toString(), ".")
+   test.equal(module.newPath("a/b"):relativeTo("a/b"):toString(), ".")
+   -- Nor does a trailing separator or a `.` component move the answer.
+   test.equal(module.newPath("a/b/"):relativeTo("a/b"):toString(), ".")
+   test.equal(module.newPath("a/./b"):relativeTo("a/b"):toString(), ".")
 end
 
 function M.joiningLetsAnAbsolutePartReplaceWhatCameBefore()
@@ -202,6 +212,29 @@ function M.joiningOntoABareDriveStaysDriveRelative()
    test.equal(pathtext.join({"C:", "foo"}, true), "C:foo")
    test.equal(pathtext.join({"\\\\server\\share", "file"}, true),
       "//server/share/file")
+end
+
+-- The verbatim form's whole point is that the system does not normalise it,
+-- so nothing here may either: no `..` resolution, no separator respelling.
+-- The system reads `\\?\` and nothing else -- not `//?/`, and not `/` as a
+-- separator after it -- so a rewritten answer names a different thing.
+function M.verbatimWindowsPathsAreCarriedUntouched()
+   test.equal(pathtext.normalize("\\\\?\\C:\\a\\..\\b", true),
+      "\\\\?\\C:\\a\\..\\b")
+   test.equal(pathtext.normalize("\\\\?\\UNC\\server\\share\\a\\..\\b", true),
+      "\\\\?\\UNC\\server\\share\\a\\..\\b")
+   test.equal(pathtext.clean("\\\\?\\C:\\a\\.\\\\b", true),
+      "\\\\?\\C:\\a\\.\\\\b")
+   test.equal(pathtext.finish("\\\\?\\C:\\a", true), "\\\\?\\C:\\a")
+   -- Joining appends the one separator the system reads there.
+   test.equal(pathtext.pushPart("\\\\?\\C:\\a", "b", true), "\\\\?\\C:\\a\\b")
+   test.equal(pathtext.with("\\\\?\\C:\\a\\file.txt", "bak", true, true),
+      "\\\\?\\C:\\a\\file.bak")
+   -- Expressing one is exactly the component reasoning verbatim opts out of.
+   local answer, reason = pathtext.relative("\\\\?\\C:\\a\\b", "\\\\?\\C:\\a", true)
+   test.equal(answer, nil)
+   assert(type(reason) == "string" and #reason > 0,
+      "a verbatim path answers why there is no relative form")
 end
 
 return M
