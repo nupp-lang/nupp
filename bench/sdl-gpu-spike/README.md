@@ -23,6 +23,36 @@ download. Creating the Metal device and compiling two source shaders took
 58.4 ms. Production artifacts should carry precompiled shaders and cache the
 device, pipelines, and buffers.
 
+`run-mandelbrot.sh` adds SDL GPU to the existing `bench/simd-mandelbrot`
+harness instead of defining a friendlier GPU workload. It uses the same
+precomputed 1024x768 binary32 point array, 256-iteration limit, structs,
+checksum, full per-pixel scalar comparison, warmups, one-second timing windows,
+and output format. The timed GPU call includes the upload and download needed
+to implement that CPU-span ABI; device, pipeline, and buffer creation are
+outside it.
+
+One Apple Silicon run with SDL 3.4.14 measured:
+
+| implementation | ns/frame | MPix/s |
+| --- | ---: | ---: |
+| Nupp f32x8 | 3,827,664 | 205.46 |
+| Nupp f32x4 | 4,847,764 | 162.23 |
+| Nupp scalar | 12,611,499 | 62.36 |
+| SDL GPU end-to-end | 530,264 | 1,483.10 |
+
+All 786,432 GPU records agreed exactly with Nupp's scalar body and produced
+checksum `46372998`. Metal enables contraction when it compiles source by
+default, so the generated MSL explicitly disables contraction to preserve the
+rounding points in `nupp.math.f32`; without it the check caught a one-iteration
+difference at pixel 54,903.
+
+Run it on macOS with an SDL framework directory:
+
+```sh
+NUPP_SDL_FRAMEWORK_ROOT=/path/to/SDL3.framework/.. \
+    bench/sdl-gpu-spike/run-mandelbrot.sh
+```
+
 `runtime/native/c/glob.c` is replaced in this branch by an SDL implementation.
 It retains `**`, drops bracket classes, and passes `filestest`. It is 218 lines
 instead of 464. One thousand `src/**/*.nupp` scans took 1.00 seconds versus

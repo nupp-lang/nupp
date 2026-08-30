@@ -1,0 +1,76 @@
+-- The same binary32 point-batch as bench/simd-mandelbrot, expressed as a
+-- whole-span map because one GPU dispatch covers the complete input.
+local span = require("nupp.mem.span")
+
+local struct Point
+    re: float
+    im: float
+end
+
+local struct Escape
+    iterations: int32
+    escaped: uint32
+end
+
+@aot(lanes = false)
+local function mandelbrot(
+    exclusive escapes: span.WriteSpan<Escape>,
+    borrows points: span.Span<Point>,
+    maxIterations: int32
+): nil
+    if #escapes ~= #points then
+        error("length mismatch", 2)
+    end
+
+    for i = 1, #escapes do
+        local escape = escapes[i]
+        local point = points[i]
+        local cx = nupp.math.f32.narrow(point.re)
+        local cy = nupp.math.f32.narrow(point.im)
+        local cardioidX = nupp.math.f32.sub(cx, 0.25)
+        local ySquared = nupp.math.f32.mul(cy, cy)
+        local cardioidSquare = nupp.math.f32.mul(cardioidX, cardioidX)
+        local q = nupp.math.f32.add(cardioidSquare, ySquared)
+        local cardioidMetric = nupp.math.f32.mul(q, nupp.math.f32.add(q, cardioidX))
+        local cardioidLimit = nupp.math.f32.mul(0.25, ySquared)
+        local inside: int32 = 0
+        if cardioidMetric <= cardioidLimit then
+            inside = 1
+        end
+        local shifted = nupp.math.f32.add(cx, 1.0)
+        local bulbSquare = nupp.math.f32.mul(shifted, shifted)
+        if nupp.math.f32.add(bulbSquare, ySquared) <= 0.0625 then
+            inside = 1
+        end
+
+        local zx: float = 0.0
+        local zy: float = 0.0
+        local zxSquared: float = 0.0
+        local zySquared: float = 0.0
+        local iteration: int32 = 0
+        local escaped: int32 = 0
+        if inside == 1 then
+            iteration = maxIterations
+        end
+        while iteration < maxIterations do
+            if nupp.math.f32.add(zxSquared, zySquared) > 4.0 then
+                escaped = 1
+                break
+            end
+            local doubledZx = nupp.math.f32.mul(zx, 2.0)
+            local product = nupp.math.f32.mul(doubledZx, zy)
+            zy = nupp.math.f32.add(product, cy)
+            zx = nupp.math.f32.add(nupp.math.f32.sub(zxSquared, zySquared), cx)
+            zxSquared = nupp.math.f32.mul(zx, zx)
+            zySquared = nupp.math.f32.mul(zy, zy)
+            iteration = nupp.math.i32.add(iteration, 1)
+        end
+        if iteration < maxIterations then
+            escaped = 1
+        end
+        escape.iterations = iteration
+        escape.escaped = escaped
+    end
+end
+
+return {mandelbrot = mandelbrot, Point = Point, Escape = Escape,}

@@ -49,9 +49,12 @@ local program = programs[1]
 assert(program.entryMode == "kernel" and program.loop, "GPU entry must be a map kernel")
 assert(program.loop.first == 1 and program.loop.last == program.loop.count,
    "the spike currently dispatches a whole span")
-assert(#(program.layouts or {}) == 0, "the spike currently accepts scalar spans")
 
 local types = {f32 = "float", i32 = "int", u32 = "uint", bool = "bool"}
+local function metalType(value)
+   local layout = value:match("^struct:(.+)$")
+   return layout or types[value]
+end
 local binary = {
    add = "+", sub = "-", mul = "*", div = "/", mod = "%",
    lt = "<", le = "<=", gt = ">", ge = ">=", eq = "==", ne = "!=",
@@ -75,6 +78,11 @@ expression = function(value)
    elseif op == "load" then
       assert(value.index == program.loop.index, "only the dispatch index may load a span")
       return identifier(value.span) .. "[dispatch_index]"
+   elseif op == "element_ref" then
+      assert(value.index == program.loop.index, "only the dispatch index may reference a span")
+      return "&" .. identifier(value.span) .. "[dispatch_index]"
+   elseif op == "field_load" then
+      return "(" .. expression(value.object) .. ")->" .. identifier(value.field)
    elseif op == "constant" then
       return value.value
    elseif op == "constant_i32" then
@@ -98,7 +106,7 @@ expression = function(value)
       -- rejected by the type checks below.
       return expression(value.value)
    elseif op == "numeric_cast" then
-      return tostring(types[value.type]) .. "(" .. expression(value.value) .. ")"
+      return tostring(metalType(value.type)) .. "(" .. expression(value.value) .. ")"
    elseif op == "f32_sqrt" then
       return "sqrt(" .. expression(value.value) .. ")"
    end
@@ -115,15 +123,31 @@ statements = function(values, depth)
    for _, statement in ipairs(values) do
       local op = statement.op
       if op == "let" then
-         assert(types[statement.type], "GPU local must have fixed width: " .. statement.type)
-         line(depth, types[statement.type] .. " " .. identifier(statement.cName)
-            .. " = " .. expression(statement.value) .. ";")
+         local reference = statement.type:match("^ref:(.+)$")
+         if reference then
+            assert(statement.value.op == "element_ref", "GPU references must point into spans")
+            local qualifier = statement.value.mutable and "device " or "device const "
+            line(depth, qualifier .. reference .. "* " .. identifier(statement.cName)
+               .. " = " .. expression(statement.value) .. ";")
+         else
+            assert(metalType(statement.type), "GPU local must have fixed width: " .. statement.type)
+            line(depth, metalType(statement.type) .. " " .. identifier(statement.cName)
+               .. " = " .. expression(statement.value) .. ";")
+         end
       elseif op == "assign" then
          assert(#statement.values == 1, "the spike does not yet emit parallel assignment")
          local assignment = statement.values[1]
-         assert(assignment.target.kind == "local", "the spike only assigns scalar locals")
-         line(depth, identifier(assignment.target.cName or assignment.target.name)
-            .. " = " .. expression(assignment.value) .. ";")
+         local target
+         if assignment.target.kind == "local" then
+            target = identifier(assignment.target.cName or assignment.target.name)
+         elseif assignment.target.kind == "field" then
+            target = "(" .. expression(assignment.target.object) .. ")->"
+               .. identifier(assignment.target.field)
+         else
+            error("GPU subset does not emit assignment target "
+               .. tostring(assignment.target.kind), 0)
+         end
+         line(depth, target .. " = " .. expression(assignment.value) .. ";")
       elseif op == "store" then
          assert(statement.index == program.loop.index, "only the dispatch index may store a span")
          line(depth, identifier(statement.span) .. "[dispatch_index] = "
@@ -159,13 +183,13 @@ end
 local readonly, writable, uniforms = {}, {}, {}
 for _, param in ipairs(program.params) do
    if param.kind == "read_span" then
-      assert(types[param.type], "GPU span must have fixed-width scalar elements")
+      assert(metalType(param.type), "GPU span must have fixed-width elements")
       readonly[#readonly + 1] = param
    elseif param.kind == "write_span" then
-      assert(types[param.type], "GPU span must have fixed-width scalar elements")
+      assert(metalType(param.type), "GPU span must have fixed-width elements")
       writable[#writable + 1] = param
    elseif param.kind == "uniform" then
-      assert(types[param.type], "GPU uniform must have fixed width")
+      assert(metalType(param.type), "GPU uniform must have fixed width")
       uniforms[#uniforms + 1] = param
    else
       error("GPU subset does not admit scalar ABI parameters", 0)
@@ -174,11 +198,21 @@ end
 
 line(0, "#include <metal_stdlib>")
 line(0, "using namespace metal;")
+line(0, "#pragma clang fp contract(off)")
 line(0, "")
+for _, layout in ipairs(program.layouts or {}) do
+   line(0, "struct " .. identifier(layout.name) .. " {")
+   for _, field in ipairs(layout.fields) do
+      assert(metalType(field.type), "GPU struct field must have fixed width")
+      line(1, metalType(field.type) .. " " .. identifier(field.name) .. ";")
+   end
+   line(0, "};")
+   line(0, "")
+end
 line(0, "struct NuppUniforms {")
 line(1, "uint count;")
 for _, param in ipairs(uniforms) do
-   line(1, types[param.type] .. " " .. identifier(param.name) .. ";")
+   line(1, metalType(param.type) .. " " .. identifier(param.name) .. ";")
 end
 line(0, "};")
 line(0, "")
@@ -186,12 +220,12 @@ line(0, "kernel void " .. identifier(program.symbol) .. "_gpu(")
 local arguments = {"constant NuppUniforms& uniforms [[buffer(0)]]"}
 local binding = 1
 for _, param in ipairs(readonly) do
-   arguments[#arguments + 1] = "device const " .. types[param.type] .. "* "
+   arguments[#arguments + 1] = "device const " .. metalType(param.type) .. "* "
       .. identifier(param.name) .. " [[buffer(" .. binding .. ")]]"
    binding = binding + 1
 end
 for _, param in ipairs(writable) do
-   arguments[#arguments + 1] = "device " .. types[param.type] .. "* "
+   arguments[#arguments + 1] = "device " .. metalType(param.type) .. "* "
       .. identifier(param.name) .. " [[buffer(" .. binding .. ")]]"
    binding = binding + 1
 end
