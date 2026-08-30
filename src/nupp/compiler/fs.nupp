@@ -143,11 +143,47 @@ local function mkdir(path: string): boolean
     return (nupp.io.files.createDirectory(path))
 end
 
+--- What distinguishes this process's staging files from another's.
+---
+--- The rename below is atomic, so a reader sees one whole file or the one
+--- before it -- but only if the file being renamed was written by one writer.
+--- Two processes staging the same destination through one name both truncate
+--- it and both write into it, and the one that renames can publish what the
+--- other had got to: the right length with a hole through it, which is a
+--- corrupt module rather than a missing one. Concurrent builds write the same
+--- bytes to a given path by construction, so this was invisible until enough
+--- of them ran at once.
+---
+--- `getpid` because nothing else here is reliably distinct. `os.tmpname` draws
+--- from a sequence that restarts in every process, which is the same trap in a
+--- different place, and an address is only as unpredictable as the allocator.
+local stagingToken = (function(): string
+    local ok, ffi = pcall(require, "ffi")
+    if not ok then
+        return "0"
+    end
+    local declared = pcall(ffi.cdef, "int getpid(void);")
+    local read, pid = pcall(function(): integer
+        return ffi.C.getpid() as integer
+    end)
+    if not declared or not read then
+        return "0"
+    end
+
+    return tostring(pid)
+end)()
+
+local staged = 0
+
 local function writeFile(path: string, text: string): boolean?, string?
     if not mkdir(dirname(path)) then
         return nil, "cannot create " .. dirname(path)
     end
-    local tmp = path .. ".tmp"
+    -- The counter as well as the process, so that one process staging the same
+    -- path twice at once -- a retry, a caller that writes then rewrites -- does
+    -- not collide with itself either.
+    staged = staged + 1
+    local tmp = ("%s.%s-%d.tmp"):format(path, stagingToken, staged)
     local f, err = io.open(tmp, "wb")
     if not f then
         return nil, err
@@ -155,8 +191,13 @@ local function writeFile(path: string, text: string): boolean?, string?
     f:write(text)
     f:close()
     local ok, renameErr = os.rename(tmp, path)
+    -- The Windows fallback, where a rename cannot replace an existing file. The
+    -- backup is named for this writer for the same reason the staging file is:
+    -- two of them moving the destination aside under one name would have the
+    -- second move the first's backup, and whichever restored last would put
+    -- back a file neither of them wrote.
     if not ok and exists(path) then
-        local backup = path .. ".old"
+        local backup = ("%s.%s-%d.old"):format(path, stagingToken, staged)
         os.remove(backup)
         local moved, moveErr = os.rename(path, backup)
         if not moved then

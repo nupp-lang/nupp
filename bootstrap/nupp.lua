@@ -103048,11 +103048,47 @@ end
 return ( __nuppModule .createDirectory ( path ) )
 end
 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+local stagingToken = ( function ( ) 
+local ok , ffi = pcall ( require , "ffi" )
+if not ok then
+return "0"
+end
+local declared = pcall ( ffi . cdef , "int getpid(void);" )
+local read , pid = pcall ( function ( ) 
+return ffi . C . getpid ( )
+end )
+if not declared or not read then
+return "0"
+end
+
+return tostring ( pid )
+end ) ( )
+
+local staged = 0
+
 local function writeFile ( path , text ) 
 if not mkdir ( dirname ( path ) ) then
 return nil , "cannot create " .. dirname ( path )
 end
-local tmp = path .. ".tmp"
+
+
+
+staged = staged + 1
+local tmp = ( "%s.%s-%d.tmp" ) : format ( path , stagingToken , staged )
 local f , err = io . open ( tmp , "wb" )
 if not f then
 return nil , err
@@ -103060,8 +103096,13 @@ end
 f : write ( text )
 f : close ( )
 local ok , renameErr = os . rename ( tmp , path )
+
+
+
+
+
 if not ok and exists ( path ) then
-local backup = path .. ".old"
+local backup = ( "%s.%s-%d.old" ) : format ( path , stagingToken , staged )
 os . remove ( backup )
 local moved , moveErr = os . rename ( path , backup )
 if not moved then
