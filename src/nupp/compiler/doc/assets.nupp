@@ -340,7 +340,18 @@ local SCRIPT = [[
         };
         addEventListener("scroll", update, {passive: true});
         addEventListener("resize", update);
-        update();
+        const settle = () => {
+            // Safari's native anchor jump can land a heading's top a hair
+            // above the outline's activation line, so `update` picks the
+            // prior heading. Nudge the scroll position past the boundary
+            // before recomputing.
+            scrollBy(0, 8);
+            update();
+        };
+        outlineLinks.forEach((link) =>
+            link.addEventListener("click", () => requestAnimationFrame(settle)));
+        if (location.hash) requestAnimationFrame(settle);
+        else update();
     }
 
     const showcaseFeatures = document.querySelectorAll(".nuppdoc-showcase-feature");
