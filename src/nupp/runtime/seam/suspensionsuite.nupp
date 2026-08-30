@@ -75,6 +75,40 @@ function suite.test(provider: any): (boolean, string?)
             end,
         })
         assert(gathered[1] == 3 and errors[1] == nil and errors[2] ~= nil, "gather must isolate branch failures")
+
+        -- A branch may run part of its body on a coroutine it creates through the
+        -- provider -- a protected call's forwarder, a generated cleanup wrapper --
+        -- and a park from that coroutine must still wake the branch it belongs to.
+        local nestedResume: any = nil
+        local nested = provider.all({
+            function(): any
+                local child = provider.create(function(): any
+                    return provider.suspend("contract.nested", function(resume: function(any)): function()
+                        nestedResume = resume
+                        return function(): nil
+                            nestedResume = nil
+                        end
+                    end)
+                end)
+                local passed: any = nil
+                while true do
+                    local resumed, value = coroutine.resume(child, passed)
+                    assert(resumed, tostring(value))
+                    if coroutine.status(child) == "dead" then
+                        return value
+                    end
+                    passed = coroutine.yield(value)
+                end
+            end,
+            function(): any
+                assert(nestedResume ~= nil, "the nested park must subscribe before its sibling runs")
+                local resume = nestedResume
+                nestedResume = nil
+                resume(42)
+                return 0
+            end,
+        })
+        assert(nested[1] == 42, "a nested coroutine's park must wake the branch that owns it")
     end)
     if not ok then
         return false, tostring(problem)

@@ -377,6 +377,12 @@ local function drive(bodies: {function(): any}, limit: integer?, stopEarly: bool
     local first: integer? = nil
     local wakeDriver: any = nil
 
+    -- Which branch the loop below is resuming right now. A park can arrive from a
+    -- coroutine the branch created with the handler inherited -- a protected call's
+    -- forwarder, a generated cleanup wrapper -- and that coroutine is not in
+    -- `indexOf`; the branch being resumed is the branch it belongs to.
+    local resuming: integer? = nil
+
     local function nudge(): nil
         if wakeDriver ~= nil then
             local wake = wakeDriver
@@ -387,7 +393,7 @@ local function drive(bodies: {function(): any}, limit: integer?, stopEarly: bool
 
     local branchHandler = new suspension.Handler(
         park = function(_: suspension.Handler, waiting: suspension.Waiting, cancel: function(): nil): nil
-            local index = indexOf[running()]
+            local index = indexOf[running()] or resuming
             local function markRunnable(): nil
                 runnable[index] = true
                 nudge()
@@ -450,7 +456,9 @@ local function drive(bodies: {function(): any}, limit: integer?, stopEarly: bool
             if co ~= nil and runnable[index] then
                 runnable[index] = nil
                 ran = true
+                resuming = index
                 local ok, value = coroutine.resume(co)
+                resuming = nil
                 if coroutine.status(co) == "dead" then
                     threads[index] = nil
                     finished = finished + 1
@@ -471,7 +479,9 @@ local function drive(bodies: {function(): any}, limit: integer?, stopEarly: bool
                             if victim ~= nil then
                                 abandoned[other] = true
                                 if entered[other] then
+                                    resuming = other
                                     coroutine.resume(victim)
+                                    resuming = nil
                                 else
                                     local victimBody = bodies[other] as any
                                     if type(victimBody) == "table" and victimBody.__nuppRelease then

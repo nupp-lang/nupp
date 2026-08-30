@@ -91366,7 +91366,11 @@ local THEME = [[
 :root[data-theme="dark"]{--nuppdoc-admonition-seealso:var(--nuppdoc-dark-admonition-seealso);--nuppdoc-admonition-deepdive:var(--nuppdoc-dark-admonition-deepdive)}
 :root[data-theme="light"]{--nuppdoc-admonition-seealso:var(--nuppdoc-light-admonition-seealso);--nuppdoc-admonition-deepdive:var(--nuppdoc-light-admonition-deepdive)}
 .nuppdoc-admonition{--nuppdoc-admonition-color:var(--nuppdoc-admonition-note);margin:1.25rem 0;padding:.85rem 1rem;border:1px solid color-mix(in srgb,var(--nuppdoc-admonition-color) 45%,var(--nuppdoc-border));border-left:4px solid var(--nuppdoc-admonition-color);border-radius:8px;background:color-mix(in srgb,var(--nuppdoc-admonition-color) 9%,var(--nuppdoc-background))}.nuppdoc-admonition-info{--nuppdoc-admonition-color:var(--nuppdoc-admonition-info)}.nuppdoc-admonition-tip{--nuppdoc-admonition-color:var(--nuppdoc-admonition-tip)}.nuppdoc-admonition-warning{--nuppdoc-admonition-color:var(--nuppdoc-admonition-warning)}.nuppdoc-admonition-danger{--nuppdoc-admonition-color:var(--nuppdoc-admonition-danger)}.nuppdoc-admonition-seealso{--nuppdoc-admonition-color:var(--nuppdoc-admonition-seealso)}.nuppdoc-admonition-deepdive{--nuppdoc-admonition-color:var(--nuppdoc-admonition-deepdive);padding:0;border-left-width:1px}details.nuppdoc-admonition>summary{cursor:pointer;padding:.7rem 1rem;list-style:none}details.nuppdoc-admonition>summary::-webkit-details-marker{display:none}details.nuppdoc-admonition>summary::before{content:'\25B8';display:inline-block;width:1em;transition:transform .12s ease}details.nuppdoc-admonition[open]>summary::before{transform:rotate(90deg)}details.nuppdoc-admonition>.nuppdoc-admonition-body{padding:0 1rem .85rem 2rem}.nuppdoc-admonition-title{margin:0;color:var(--nuppdoc-admonition-color);font-size:.78rem;font-weight:750;text-transform:uppercase;letter-spacing:.04em}.nuppdoc-admonition-body>:first-child{margin-top:.35rem}.nuppdoc-admonition-body>:last-child{margin-bottom:0}
-.nuppdoc-code-group{position:relative;display:flex;overflow:hidden;flex-wrap:wrap;margin:1.25rem 0;border:1px solid var(--nuppdoc-border);border-radius:var(--nuppdoc-code-block-radius);background:var(--nuppdoc-code-background);box-shadow:none}.nuppdoc-code-tab-input{position:absolute;width:1px;height:1px;margin:0;padding:0;border:0;opacity:0;appearance:none;clip-path:inset(50%);pointer-events:none;-webkit-appearance:none}.nuppdoc-code-tab{order:-1;padding:var(--nuppdoc-code-tab-padding);border-bottom:2px solid transparent;color:var(--nuppdoc-code-tab-text);cursor:pointer;font-family:var(--nuppdoc-font);font-size:var(--nuppdoc-code-tab-font-size);font-weight:var(--nuppdoc-code-tab-font-weight)}.nuppdoc-code-tab:hover{color:var(--nuppdoc-code-tab-hover-text)}.nuppdoc-code-panel{display:none;width:100%;margin:0;border-top:1px solid var(--nuppdoc-code-tab-divider)}.nuppdoc-code-tab-input:checked+.nuppdoc-code-tab+.nuppdoc-code-panel{display:block}.nuppdoc-code-tab-input:checked+.nuppdoc-code-tab{border-bottom-color:var(--nuppdoc-code-tab-active-bar);color:var(--nuppdoc-code-tab-active-text)}.nuppdoc-code-tab-input:focus-visible+.nuppdoc-code-tab{outline:2px solid var(--nuppdoc-accent);outline-offset:-2px}.nuppdoc-code-group>.nuppdoc-code-block{width:100%}.nuppdoc-code-group>.nuppdoc-code-block pre,.nuppdoc-code-panel .nuppdoc-code-block pre{margin:0;border:0;border-radius:0}.nuppdoc-labeled-code{margin:1.25rem 0}.nuppdoc-code-group>.nuppdoc-labeled-code{margin:0}.nuppdoc-code-group>.nuppdoc-labeled-code+.nuppdoc-labeled-code{border-top:1px solid var(--nuppdoc-border)}.nuppdoc-labeled-code figcaption{padding:.45rem .6rem;color:var(--nuppdoc-text-muted);font-family:var(--nuppdoc-font);font-size:.72rem;font-weight:600}.nuppdoc-labeled-code pre{margin:0;border-radius:0}.nuppdoc-code-group>.nuppdoc-labeled-code pre{border:0}@media print{.nuppdoc-code-panel{display:block}}
+/* Tab inputs live in their own .nuppdoc-code-tabs row so a long caption scrolls
+ * the row instead of wrapping every tab after it, which means a panel is no
+ * longer its input's next sibling: :has() re-pairs each panel with the input
+ * at the same position. Fifteen slots is more tabs than any group wants. */
+.nuppdoc-code-group{position:relative;display:block;overflow:hidden;margin:1.25rem 0;border:1px solid var(--nuppdoc-border);border-radius:var(--nuppdoc-code-block-radius);background:var(--nuppdoc-code-background);box-shadow:none}.nuppdoc-code-tabs{display:flex;overflow-x:auto;flex-wrap:nowrap}.nuppdoc-code-tabs .nuppdoc-code-tab{flex:none;white-space:nowrap}.nuppdoc-code-tab-input{position:absolute;width:1px;height:1px;margin:0;padding:0;border:0;opacity:0;appearance:none;clip-path:inset(50%);pointer-events:none;-webkit-appearance:none}.nuppdoc-code-tab{padding:var(--nuppdoc-code-tab-padding);border-bottom:2px solid transparent;color:var(--nuppdoc-code-tab-text);cursor:pointer;font-family:var(--nuppdoc-font);font-size:var(--nuppdoc-code-tab-font-size);font-weight:var(--nuppdoc-code-tab-font-weight)}.nuppdoc-code-tab:hover{color:var(--nuppdoc-code-tab-hover-text)}.nuppdoc-code-panel{display:none;width:100%;margin:0;border-top:1px solid var(--nuppdoc-code-tab-divider)}.nuppdoc-code-group:has(.nuppdoc-code-tabs>input:nth-of-type(1):checked) .nuppdoc-code-panel:nth-of-type(1),.nuppdoc-code-group:has(.nuppdoc-code-tabs>input:nth-of-type(2):checked) .nuppdoc-code-panel:nth-of-type(2),.nuppdoc-code-group:has(.nuppdoc-code-tabs>input:nth-of-type(3):checked) .nuppdoc-code-panel:nth-of-type(3),.nuppdoc-code-group:has(.nuppdoc-code-tabs>input:nth-of-type(4):checked) .nuppdoc-code-panel:nth-of-type(4),.nuppdoc-code-group:has(.nuppdoc-code-tabs>input:nth-of-type(5):checked) .nuppdoc-code-panel:nth-of-type(5),.nuppdoc-code-group:has(.nuppdoc-code-tabs>input:nth-of-type(6):checked) .nuppdoc-code-panel:nth-of-type(6),.nuppdoc-code-group:has(.nuppdoc-code-tabs>input:nth-of-type(7):checked) .nuppdoc-code-panel:nth-of-type(7),.nuppdoc-code-group:has(.nuppdoc-code-tabs>input:nth-of-type(8):checked) .nuppdoc-code-panel:nth-of-type(8),.nuppdoc-code-group:has(.nuppdoc-code-tabs>input:nth-of-type(9):checked) .nuppdoc-code-panel:nth-of-type(9),.nuppdoc-code-group:has(.nuppdoc-code-tabs>input:nth-of-type(10):checked) .nuppdoc-code-panel:nth-of-type(10),.nuppdoc-code-group:has(.nuppdoc-code-tabs>input:nth-of-type(11):checked) .nuppdoc-code-panel:nth-of-type(11),.nuppdoc-code-group:has(.nuppdoc-code-tabs>input:nth-of-type(12):checked) .nuppdoc-code-panel:nth-of-type(12),.nuppdoc-code-group:has(.nuppdoc-code-tabs>input:nth-of-type(13):checked) .nuppdoc-code-panel:nth-of-type(13),.nuppdoc-code-group:has(.nuppdoc-code-tabs>input:nth-of-type(14):checked) .nuppdoc-code-panel:nth-of-type(14),.nuppdoc-code-group:has(.nuppdoc-code-tabs>input:nth-of-type(15):checked) .nuppdoc-code-panel:nth-of-type(15){display:block}.nuppdoc-code-tab-input:checked+.nuppdoc-code-tab{border-bottom-color:var(--nuppdoc-code-tab-active-bar);color:var(--nuppdoc-code-tab-active-text)}.nuppdoc-code-tab-input:focus-visible+.nuppdoc-code-tab{outline:2px solid var(--nuppdoc-accent);outline-offset:-2px}.nuppdoc-code-group>.nuppdoc-code-block{width:100%}.nuppdoc-code-group>.nuppdoc-code-block pre,.nuppdoc-code-panel .nuppdoc-code-block pre{margin:0;border:0;border-radius:0}.nuppdoc-labeled-code{margin:1.25rem 0}.nuppdoc-code-group>.nuppdoc-labeled-code{margin:0}.nuppdoc-code-group>.nuppdoc-labeled-code+.nuppdoc-labeled-code{border-top:1px solid var(--nuppdoc-border)}.nuppdoc-labeled-code figcaption{padding:.45rem .6rem;color:var(--nuppdoc-text-muted);font-family:var(--nuppdoc-font);font-size:.72rem;font-weight:600}.nuppdoc-labeled-code pre{margin:0;border-radius:0}.nuppdoc-code-group>.nuppdoc-labeled-code pre{border:0}@media print{.nuppdoc-code-panel{display:block}}
 /* The gutter and the code are siblings sharing the pre's line box metrics, so the
  * numbers stay level with their lines. The code scrolls inside itself, which keeps
  * a long line from sliding out under the numbers. */
@@ -91784,6 +91788,10 @@ local INDEX = "index.md"
 
 
 local function frontmatter ( source ) 
+
+
+
+source = source : gsub ( "\r\n?" , "\n" )
 if source : sub ( 1 , 4 ) ~= "---\n" then
 return { } , source
 end
@@ -93917,6 +93925,10 @@ local frontmatter = { }
 
 
 function frontmatter . parse ( source ) 
+
+
+
+source = source : gsub ( "\r\n?" , "\n" )
 if source : sub ( 1 , 4 ) ~= "---\n" then
 return { } , source
 end
@@ -94980,13 +94992,11 @@ return codeBlockHtml ( block . source , block . language , links , block . first
 end
 
 local function codeGroupHtml ( blocks , links ) 
-local labeled = { }
+local captioned = false
 for _ , block in ipairs ( blocks ) do
-if block . caption then
-labeled [ # labeled + 1 ] = block
+captioned = captioned or block . caption ~= nil
 end
-end
-if # labeled == 0 then
+if not captioned then
 local out = { '<div class="nuppdoc-code-group" role="group">' }
 for _ , block in ipairs ( blocks ) do
 out [ # out + 1 ] = renderedCodeBlockHtml ( block , links )
@@ -95002,16 +95012,20 @@ local out = { '<div class="nuppdoc-code-group" role="radiogroup"' .. ' aria-labe
 
 
 out [ # out + 1 ] = '<div class="nuppdoc-code-tabs">'
-for index , block in ipairs ( labeled ) do
+for index , block in ipairs ( blocks ) do
+
+
 local id = name .. "-" .. tostring ( index )
 out [
 # out + 1
 ] = '<input class="nuppdoc-code-tab-input" type="radio"' .. ' name="' .. name .. '" id="' .. id .. '"' .. (
 index == 1 and " checked" or ""
-) .. '><label class="nuppdoc-code-tab" for="' .. id .. '">' .. htmlEscape ( block . caption ) .. "</label>"
+) .. '><label class="nuppdoc-code-tab" for="' .. id .. '">' .. htmlEscape (
+block . caption or block . language
+) .. "</label>"
 end
 out [ # out + 1 ] = "</div>"
-for index , block in ipairs ( labeled ) do
+for _ , block in ipairs ( blocks ) do
 out [ # out + 1 ] = '<figure class="nuppdoc-code-panel">' .. renderedCodeBlockHtml ( block , links ) .. "</figure>"
 end
 out [ # out + 1 ] = "</div>"
@@ -121077,17 +121091,25 @@ refreshOpenDocuments ( doc . uri )
 end
 
 handlers [ "textDocument/didChange" ] = function ( _ , params ) 
-local changes = params . contentChanges
-if changes and changes [ 1 ] and changes [ 1 ] . text then
+
+
+
+local full = nil
+for _ , change in ipairs ( params . contentChanges or { } ) do
+if change . text and not change . range then
+full = change
+end
+end
+if full then
 local uri = params . textDocument . uri
 local doc = s . documents [ uri ] or { }
-doc . text = changes [ 1 ] . text
+doc . text = full . text
 
 
 doc . version = params . textDocument . version
 s . documents [ uri ] = doc
 eachGraph ( function ( inc ) 
-inc . changeDocument ( uriToPath ( uri ) , changes [ 1 ] . text )
+inc . changeDocument ( uriToPath ( uri ) , full . text )
 end )
 refreshOpenDocuments ( uri )
 end
@@ -121105,8 +121127,13 @@ if not offset then
 respond ( id , json . NULL ) ;
 return
 end
-for _ , tok in ipairs ( doc . result . tokens ) do
-if tok . kind ~= "eof" and offset >= tok . offset and offset < tok . offset + # tok . text then
+
+
+local tok = tokenAt ( doc . result , offset )
+if not tok then
+respond ( id , json . NULL )
+return
+end
 local member = memberAt ( doc , offset )
 if member then
 respond ( id , memberLocation ( member ) )
@@ -121125,18 +121152,7 @@ respond ( id , locations )
 return
 end
 end
-local location = definitionLocation ( tok . definition )
-if location == json . NULL then
-local member = memberAt ( doc , offset )
-if member then
-location = memberLocation ( member )
-end
-end
-respond ( id , location )
-return
-end
-end
-respond ( id , json . NULL )
+respond ( id , definitionLocation ( tok . definition ) )
 end
 
 local function capabilityDetail ( t ) 
@@ -121538,7 +121554,9 @@ activeSignature = candidateIndex - 1
 end
 end
 local active = candidates [ activeSignature + 1 ]
-local parameterCount = active and # active . paramPack . head or 0
+
+
+local parameterCount = active and ( # active . paramPack . head + ( active . paramPack . tail and 1 or 0 ) ) or 0
 if parameterCount > 0 then
 activeParameter = math . min ( activeParameter , parameterCount - 1 )
 else
@@ -122215,16 +122233,24 @@ local body = buffered : sub ( bodyAt , bodyAt + length - 1 )
 buffered = buffered : sub ( bodyAt + length )
 local ok , message = pcall ( json . decode , body , json . NULL )
 
-return ok and message or nil
+
+
+if not ok or type ( message ) ~= "table" then
+return false
+end
+
+return message
 end
 
 local function harvest ( ) 
 while true do
 local message = takeMessage ( )
-if not message then
+if message == nil then
 break
 end
-if message . method == "$/cancelRequest" and message . params then
+if message == false then
+
+elseif message . method == "$/cancelRequest" and message . params then
 cancelled [ message . params . id ] = true
 else
 local document = type ( message . params ) == "table" and message . params . textDocument or nil
@@ -124902,9 +124928,11 @@ for index = 1 , count do
 local kind = kindAt ( index )
 if kind == "comment" then
 local text = textAt ( index )
-text = text : gsub ( "^%-%-%-?%s?" , "" )
+
+
 text = text : gsub ( "^%-%-%[=*%[" , "" )
 text = text : gsub ( "%]=*%]$" , "" )
+text = text : gsub ( "^%-%-%-?%s?" , "" )
 lines [ # lines + 1 ] = text
 elseif kind == "whitespace" and textAt ( index ) : find ( "\n%s*\n" ) then
 lines = { }
@@ -183813,6 +183841,12 @@ local finished = 0
 local first = nil
 local wakeDriver = nil
 
+
+
+
+
+local resuming = nil
+
 local function nudge ( ) 
 if wakeDriver ~= nil then
 local wake = wakeDriver
@@ -183823,7 +183857,7 @@ end
 
 local branchHandler = setmetatable({ park =
 function ( _ , waiting , cancel ) 
-local index = indexOf [ running ( ) ]
+local index = indexOf [ running ( ) ] or resuming
 local function markRunnable ( ) 
 runnable [ index ] = true
 nudge ( )
@@ -183886,7 +183920,9 @@ local co = threads [ index ]
 if co ~= nil and runnable [ index ] then
 runnable [ index ] = nil
 ran = true
+resuming = index
 local ok , value = coroutine . resume ( co )
+resuming = nil
 if coroutine . status ( co ) == "dead" then
 threads [ index ] = nil
 finished = finished + 1
@@ -183907,7 +183943,9 @@ local victim = threads [ other ]
 if victim ~= nil then
 abandoned [ other ] = true
 if entered [ other ] then
+resuming = other
 coroutine . resume ( victim )
+resuming = nil
 else
 local victimBody = bodies [ other ]
 if type ( victimBody ) == "table" and victimBody . __nuppRelease then
@@ -184601,7 +184639,11 @@ local function protectedCall ( body )
 
 
 
-local thread = coroutine . create ( body )
+
+
+
+
+local thread = suspension . create ( body )
 local passed = nil
 while true do
 local ok , value = coroutine . resume ( thread , passed )
@@ -188805,6 +188847,40 @@ error ( "contract failure" )
 end ,
 } )
 assert ( gathered [ 1 ] == 3 and errors [ 1 ] == nil and errors [ 2 ] ~= nil , "gather must isolate branch failures" )
+
+
+
+
+local nestedResume = nil
+local nested = provider . all ( {
+function ( ) 
+local child = provider . create ( function ( ) 
+return provider . suspend ( "contract.nested" , function ( resume ) 
+nestedResume = resume
+return function ( ) 
+nestedResume = nil
+end
+end )
+end )
+local passed = nil
+while true do
+local resumed , value = coroutine . resume ( child , passed )
+assert ( resumed , tostring ( value ) )
+if coroutine . status ( child ) == "dead" then
+return value
+end
+passed = coroutine . yield ( value )
+end
+end ,
+function ( ) 
+assert ( nestedResume ~= nil , "the nested park must subscribe before its sibling runs" )
+local resume = nestedResume
+nestedResume = nil
+resume ( 42 )
+return 0
+end ,
+} )
+assert ( nested [ 1 ] == 42 , "a nested coroutine's park must wake the branch that owns it" )
 end )
 if not ok then
 return false , tostring ( problem )
@@ -191463,6 +191539,12 @@ local inFlight = limit and ( limit > 1 and limit or 1 ) or count
 
 
 
+
+
+local resuming = nil
+
+
+
 local function nudge ( ) 
 local wake = wakeDriver
 if wake then
@@ -191473,7 +191555,7 @@ end
 
 local branchHandler = setmetatable({ park =
 function ( _ , waiting , cancel ) 
-local index = indexOf [ running ( ) ]
+local index = ( indexOf [ running ( ) ] or resuming )
 local function markRunnable ( ) 
 runnable [ index ] = true
 nudge ( )
@@ -191561,7 +191643,9 @@ end
 runnable [ index ] = nil
 ran = true
 consumeTurn ( )
+resuming = index
 local ok , answer = coroutine . resume ( co )
+resuming = nil
 if coroutine . status ( co ) == "dead" then
 threads [ index ] = nil
 finished = finished + 1
@@ -191585,7 +191669,9 @@ while not turnAvailable ( ) do
 deferTurn ( )
 end
 consumeTurn ( )
+resuming = other
 coroutine . resume ( victim )
+resuming = nil
 else
 local victimBody = bodies [ other ]
 if type ( victimBody ) == "table" and victimBody . __nuppRelease then
@@ -229810,6 +229896,12 @@ local function drive(bodies: {function(): any}, limit: integer?, stopEarly: bool
     local first: integer? = nil
     local wakeDriver: any = nil
 
+    -- Which branch the loop below is resuming right now. A park can arrive from a
+    -- coroutine the branch created with the handler inherited -- a protected call's
+    -- forwarder, a generated cleanup wrapper -- and that coroutine is not in
+    -- `indexOf`; the branch being resumed is the branch it belongs to.
+    local resuming: integer? = nil
+
     local function nudge(): nil
         if wakeDriver ~= nil then
             local wake = wakeDriver
@@ -229820,7 +229912,7 @@ local function drive(bodies: {function(): any}, limit: integer?, stopEarly: bool
 
     local branchHandler = new suspension.Handler(
         park = function(_: suspension.Handler, waiting: suspension.Waiting, cancel: function(): nil): nil
-            local index = indexOf[running()]
+            local index = indexOf[running()] or resuming
             local function markRunnable(): nil
                 runnable[index] = true
                 nudge()
@@ -229883,7 +229975,9 @@ local function drive(bodies: {function(): any}, limit: integer?, stopEarly: bool
             if co ~= nil and runnable[index] then
                 runnable[index] = nil
                 ran = true
+                resuming = index
                 local ok, value = coroutine.resume(co)
+                resuming = nil
                 if coroutine.status(co) == "dead" then
                     threads[index] = nil
                     finished = finished + 1
@@ -229904,7 +229998,9 @@ local function drive(bodies: {function(): any}, limit: integer?, stopEarly: bool
                             if victim ~= nil then
                                 abandoned[other] = true
                                 if entered[other] then
+                                    resuming = other
                                     coroutine.resume(victim)
+                                    resuming = nil
                                 else
                                     local victimBody = bodies[other] as any
                                     if type(victimBody) == "table" and victimBody.__nuppRelease then
@@ -230595,7 +230691,11 @@ local function protectedCall(body: function(): any): (boolean, any)
     -- The resumed value belongs to whichever `coroutine.yield` inside the body is
     -- waiting for it, not to the body's own parameters, which is a shape the typed
     -- coroutine pack has no way to name.
-    local thread: any = coroutine.create(body)
+    --
+    -- Created through the suspension provider so the body inherits any installed
+    -- handler: a raw coroutine would park on the host boundary instead, and inside
+    -- a `nupp.suspension` branch that boundary yield is discarded by the driver.
+    local thread: any = suspension.create(body)
     local passed: any = nil
     while true do
         local ok, value = coroutine.resume(thread, passed)
@@ -234750,6 +234850,40 @@ function suite.test(provider: any): (boolean, string?)
             end,
         })
         assert(gathered[1] == 3 and errors[1] == nil and errors[2] ~= nil, "gather must isolate branch failures")
+
+        -- A branch may run part of its body on a coroutine it creates through the
+        -- provider -- a protected call's forwarder, a generated cleanup wrapper --
+        -- and a park from that coroutine must still wake the branch it belongs to.
+        local nestedResume: any = nil
+        local nested = provider.all({
+            function(): any
+                local child = provider.create(function(): any
+                    return provider.suspend("contract.nested", function(resume: function(any)): function()
+                        nestedResume = resume
+                        return function(): nil
+                            nestedResume = nil
+                        end
+                    end)
+                end)
+                local passed: any = nil
+                while true do
+                    local resumed, value = coroutine.resume(child, passed)
+                    assert(resumed, tostring(value))
+                    if coroutine.status(child) == "dead" then
+                        return value
+                    end
+                    passed = coroutine.yield(value)
+                end
+            end,
+            function(): any
+                assert(nestedResume ~= nil, "the nested park must subscribe before its sibling runs")
+                local resume = nestedResume
+                nestedResume = nil
+                resume(42)
+                return 0
+            end,
+        })
+        assert(nested[1] == 42, "a nested coroutine's park must wake the branch that owns it")
     end)
     if not ok then
         return false, tostring(problem)
@@ -237386,6 +237520,12 @@ local function drive<T>(
     local wakeDriver: any = nil
     local inFlight: integer = limit and (limit > 1 and limit or 1) or count
 
+    -- Which branch the loop below is resuming right now. A park can arrive from a
+    -- coroutine the branch created with the handler inherited -- a generated lua51
+    -- cleanup wrapper's forwarder -- and that coroutine is not in `indexOf`; the
+    -- branch being resumed is the branch it belongs to.
+    local resuming: integer? = nil
+
     -- A branch becoming runnable while the driver waits is the only thing that ends
     -- that wait.
     local function nudge()
@@ -237398,7 +237538,7 @@ local function drive<T>(
 
     local branchHandler = new suspension.Handler(
         park = function(_: suspension.Handler, waiting: suspension.Waiting, cancel: function(): nil): nil
-            local index = indexOf[running()] as integer
+            local index = (indexOf[running()] or resuming) as integer
             local function markRunnable(): nil
                 runnable[index] = true
                 nudge()
@@ -237486,7 +237626,9 @@ local function drive<T>(
                 runnable[index] = nil
                 ran = true
                 consumeTurn()
+                resuming = index
                 local ok, answer = coroutine.resume(co)
+                resuming = nil
                 if coroutine.status(co) == "dead" then
                     threads[index] = nil
                     finished = finished + 1
@@ -237510,7 +237652,9 @@ local function drive<T>(
                                         deferTurn()
                                     end
                                     consumeTurn()
+                                    resuming = other
                                     coroutine.resume(victim)
+                                    resuming = nil
                                 else
                                     local victimBody = bodies[other] as any
                                     if type(victimBody) == "table" and victimBody.__nuppRelease then

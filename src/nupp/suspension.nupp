@@ -1107,6 +1107,12 @@ local function drive<T>(
     local wakeDriver: any = nil
     local inFlight: integer = limit and (limit > 1 and limit or 1) or count
 
+    -- Which branch the loop below is resuming right now. A park can arrive from a
+    -- coroutine the branch created with the handler inherited -- a generated lua51
+    -- cleanup wrapper's forwarder -- and that coroutine is not in `indexOf`; the
+    -- branch being resumed is the branch it belongs to.
+    local resuming: integer? = nil
+
     -- A branch becoming runnable while the driver waits is the only thing that ends
     -- that wait.
     local function nudge()
@@ -1119,7 +1125,7 @@ local function drive<T>(
 
     local branchHandler = new suspension.Handler(
         park = function(_: suspension.Handler, waiting: suspension.Waiting, cancel: function(): nil): nil
-            local index = indexOf[running()] as integer
+            local index = (indexOf[running()] or resuming) as integer
             local function markRunnable(): nil
                 runnable[index] = true
                 nudge()
@@ -1207,7 +1213,9 @@ local function drive<T>(
                 runnable[index] = nil
                 ran = true
                 consumeTurn()
+                resuming = index
                 local ok, answer = coroutine.resume(co)
+                resuming = nil
                 if coroutine.status(co) == "dead" then
                     threads[index] = nil
                     finished = finished + 1
@@ -1231,7 +1239,9 @@ local function drive<T>(
                                         deferTurn()
                                     end
                                     consumeTurn()
+                                    resuming = other
                                     coroutine.resume(victim)
+                                    resuming = nil
                                 else
                                     local victimBody = bodies[other] as any
                                     if type(victimBody) == "table" and victimBody.__nuppRelease then

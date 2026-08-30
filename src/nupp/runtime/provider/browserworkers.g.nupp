@@ -222,7 +222,11 @@ local function protectedCall(body: function(): any): (boolean, any)
     -- The resumed value belongs to whichever `coroutine.yield` inside the body is
     -- waiting for it, not to the body's own parameters, which is a shape the typed
     -- coroutine pack has no way to name.
-    local thread: any = coroutine.create(body)
+    --
+    -- Created through the suspension provider so the body inherits any installed
+    -- handler: a raw coroutine would park on the host boundary instead, and inside
+    -- a `nupp.suspension` branch that boundary yield is discarded by the driver.
+    local thread: any = suspension.create(body)
     local passed: any = nil
     while true do
         local ok, value = coroutine.resume(thread, passed)
