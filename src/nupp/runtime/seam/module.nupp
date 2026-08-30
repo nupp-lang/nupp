@@ -5,6 +5,10 @@ module nupp.runtime.seam.module
 --[[Shared mechanics for exact third-party runtime-module seams.]]
 
 local runtimeBackend = require("nupp.runtime.backend")
+-- Required here rather than where it is read: a require inside a body is not a
+-- require the module graph follows, so a build staging the seam sources would
+-- carry this module without the contracts it reads.
+local contracts = require("nupp.runtime.seam.contracts")
 local moduleSeam = {}
 
 export interface Contract
@@ -36,7 +40,7 @@ function moduleSeam.contract(name: string, shape: any): Contract
         end
         shape[field] = identity[field]
     end
-    local declared = require("nupp.runtime.seam.contracts").members[name]
+    local declared = contracts.members[name]
     if declared ~= nil then
         shape.requiredFunctions = declared.functions
         shape.requiredValues = declared.values

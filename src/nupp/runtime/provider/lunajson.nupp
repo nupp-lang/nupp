@@ -13,8 +13,8 @@ projection, verified fragments and streaming-writer surface.
 local newDecoder = require(
     "nupp.runtime.vendor.lunajson.decoder"
 ) as function(): function(string, integer?, any?, boolean?): any
-local contracts = require("nupp.runtime.seam.contracts")
 local newEncoder = require("nupp.runtime.vendor.lunajson.encoder") as function(): function(any, any?): string
+local contracts = require("nupp.runtime.seam.contracts")
 local core = {decode = newDecoder(), encode = newEncoder(),}
 local json = {}
 

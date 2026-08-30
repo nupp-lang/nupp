@@ -952,7 +952,12 @@ local function buildModules(root: string, outDir: string, config: Config, target
     end
 
     if hasBackends then
-        for _, name in ipairs({"nupp.runtime.backend", "nupp.runtime.seam.registry", "nupp.runtime.seam.module",}) do
+        for _, name in ipairs({
+            "nupp.runtime.backend",
+            "nupp.runtime.seam.registry",
+            "nupp.runtime.seam.contracts",
+            "nupp.runtime.seam.module",
+        }) do
             linkedModules[name] = true
             stageBundled(name)
         end

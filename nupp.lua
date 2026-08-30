@@ -216,7 +216,7 @@ local RESOURCES = {
    {source = "src/nupp/workers/native.d.nupp", output = "nupp/compiler/nupp/workers/native.d.nupp"},
 }
 local SEAM_FACTORY_RESOURCES = {
-   "registry", "module", "bitset", "browsercrypto", "browserstorage",
+   "registry", "module", "contracts", "bitset", "browsercrypto", "browserstorage",
    "files", "hash", "hmacsha256", "http",
    "int64", "iobytes", "net", "path", "peg", "process", "sha256", "simd", "tls",
    "structvalue", "suspension", "textbuffer", "time", "uri", "utf8", "uuid",
