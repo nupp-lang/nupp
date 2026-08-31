@@ -7,10 +7,11 @@
  * both abort trace recording and put a garbage collector underneath a
  * handshake.
  *
- * Nothing here blocks. The BIO callbacks answer `WANT_READ` and `WANT_WRITE`
- * when the socket has nothing to give or cannot take more, mbedTLS returns the
- * same to its caller, and the Lua side drives the reactor and comes back --
- * exactly as it already does for a plain socket.
+ * No transport operation here blocks. The BIO callbacks answer `WANT_READ`
+ * and `WANT_WRITE` when the socket has nothing to give or cannot take more,
+ * mbedTLS returns the same to its caller, and the Lua side drives the reactor
+ * and comes back -- exactly as it already does for a plain socket. The first
+ * verified client configuration may load the platform's root certificates.
  */
 
 #include "nupp_native.h"
@@ -31,9 +32,20 @@
 
 #include <uv.h>
 
+#include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <errno.h>
+
+#if NUPP_WINDOWS
+#include <windows.h>
+#include <wincrypt.h>
+#endif
+
+#if defined(__APPLE__) && defined(__MACH__)
+#include <CoreFoundation/CoreFoundation.h>
+#include <Security/Security.h>
+#endif
 
 #if defined(__linux__)
 #include <linux/tls.h>
@@ -100,6 +112,18 @@ static bool storesReady;
 static uint64_t clientCacheClock;
 static uint64_t serverStoreClock;
 
+/* The platform's roots are immutable process state once first asked for. TLS
+ * configurations borrow this chain, so it must outlive every session using it;
+ * loading it once also keeps opening a connection from rereading hundreds of
+ * certificates. The error is stored beside the once result because a later
+ * worker asking after the initializing worker failed needs the same reason in
+ * its own thread-local error slot. */
+static mbedtls_x509_crt systemAuthorities;
+static unsigned char systemAuthorityIdentity[32];
+static uv_once_t systemAuthoritiesOnce = UV_ONCE_INIT;
+static bool systemAuthoritiesReady;
+static char systemAuthoritiesError[512];
+
 static void tls_fail(int code, const char *what);
 
 static void tls_stores_init(void) {
@@ -160,6 +184,269 @@ static void tls_digest_config(
     tls_digest_part(&digest, &configuration, sizeof configuration);
     mbedtls_sha256_finish(&digest, out);
     mbedtls_sha256_free(&digest);
+}
+
+static void tls_system_authority_error(
+    const char *what, const char *source, int failure
+) {
+    char detail[128] = {0};
+    if (failure != 0) {
+        mbedtls_strerror(failure, detail, sizeof detail);
+    }
+    if (source != NULL && detail[0] != '\0') {
+        snprintf(systemAuthoritiesError, sizeof systemAuthoritiesError,
+            "tls: %s %s: %s", what, source, detail);
+    } else if (source != NULL) {
+        snprintf(systemAuthoritiesError, sizeof systemAuthoritiesError,
+            "tls: %s %s", what, source);
+    } else if (detail[0] != '\0') {
+        snprintf(systemAuthoritiesError, sizeof systemAuthoritiesError,
+            "tls: %s: %s", what, detail);
+    } else {
+        snprintf(systemAuthoritiesError, sizeof systemAuthoritiesError,
+            "tls: %s", what);
+    }
+}
+
+static bool tls_system_authority_loaded(void) {
+    return systemAuthorities.raw.p != NULL && systemAuthorities.raw.len != 0;
+}
+
+static bool tls_system_authority_file(const char *path, int *failure) {
+    int state;
+    mbedtls_x509_crt_free(&systemAuthorities);
+    mbedtls_x509_crt_init(&systemAuthorities);
+    state = mbedtls_x509_crt_parse_file(&systemAuthorities, path);
+    if (failure != NULL) {
+        *failure = state;
+    }
+    return state >= 0 && tls_system_authority_loaded();
+}
+
+/* SSL_CERT_DIR follows OpenSSL and Go: a list rather than one directory. The
+ * separator cannot be ':' on Windows, where it is already part of a drive
+ * name. mbedTLS parses every certificate file in each directory and appends it
+ * to the one chain. */
+static int tls_system_authority_directories(
+    const char *paths, int *failure
+) {
+#if NUPP_WINDOWS
+    const char separator = ';';
+#else
+    const char separator = ':';
+#endif
+    const char *start = paths;
+    bool readDirectory = false;
+    while (start != NULL && *start != '\0') {
+        const char *end = strchr(start, separator);
+        size_t length = end != NULL ? (size_t)(end - start) : strlen(start);
+        if (length != 0) {
+            char *path = malloc(length + 1);
+            int state;
+            if (path == NULL) {
+                if (failure != NULL) {
+                    *failure = MBEDTLS_ERR_X509_ALLOC_FAILED;
+                }
+                return -1;
+            }
+            memcpy(path, start, length);
+            path[length] = '\0';
+            state = mbedtls_x509_crt_parse_path(&systemAuthorities, path);
+            free(path);
+            if (state >= 0) {
+                readDirectory = true;
+            } else if (failure != NULL) {
+                *failure = state;
+            }
+        }
+        start = end != NULL ? end + 1 : NULL;
+    }
+    return readDirectory && tls_system_authority_loaded() ? 1 : 0;
+}
+
+#if defined(__APPLE__) && defined(__MACH__)
+static int tls_system_authority_apple_store(void) {
+    CFArrayRef anchors = NULL;
+    CFIndex at;
+    int loaded = 0;
+    if (SecTrustCopyAnchorCertificates(&anchors) != errSecSuccess ||
+        anchors == NULL) {
+        return 0;
+    }
+    for (at = 0; at < CFArrayGetCount(anchors); at++) {
+        SecCertificateRef certificate =
+            (SecCertificateRef)CFArrayGetValueAtIndex(anchors, at);
+        CFDataRef bytes = SecCertificateCopyData(certificate);
+        if (bytes != NULL) {
+            int state = mbedtls_x509_crt_parse_der(
+                &systemAuthorities,
+                CFDataGetBytePtr(bytes),
+                (size_t)CFDataGetLength(bytes));
+            CFRelease(bytes);
+            if (state == 0) {
+                loaded++;
+            } else if (state == MBEDTLS_ERR_X509_ALLOC_FAILED) {
+                CFRelease(anchors);
+                return -1;
+            }
+        }
+    }
+    CFRelease(anchors);
+    return loaded;
+}
+#endif
+
+#if NUPP_WINDOWS
+static int tls_system_authority_windows_store(DWORD location) {
+    HCERTSTORE store = CertOpenStore(
+        CERT_STORE_PROV_SYSTEM_A,
+        X509_ASN_ENCODING | PKCS_7_ASN_ENCODING,
+        0,
+        location | CERT_STORE_OPEN_EXISTING_FLAG | CERT_STORE_READONLY_FLAG,
+        "ROOT");
+    PCCERT_CONTEXT certificate = NULL;
+    int loaded = 0;
+    if (store == NULL) {
+        return 0;
+    }
+    while ((certificate = CertEnumCertificatesInStore(store, certificate)) != NULL) {
+        int state = mbedtls_x509_crt_parse_der(
+            &systemAuthorities,
+            certificate->pbCertEncoded,
+            certificate->cbCertEncoded);
+        if (state == 0) {
+            loaded++;
+        } else if (state == MBEDTLS_ERR_X509_ALLOC_FAILED) {
+            CertFreeCertificateContext(certificate);
+            CertCloseStore(store, 0);
+            return -1;
+        }
+    }
+    CertCloseStore(store, 0);
+    return loaded;
+}
+#endif
+
+static void tls_system_authorities_init(void) {
+#if !NUPP_WINDOWS && !(defined(__APPLE__) && defined(__MACH__))
+    static const char *files[] = {
+        "/etc/ssl/certs/ca-certificates.crt",
+        "/etc/pki/tls/certs/ca-bundle.crt",
+        "/etc/pki/tls/cacert.pem",
+        "/etc/pki/ca-trust/extracted/pem/tls-ca-bundle.pem",
+        "/etc/ssl/ca-bundle.pem",
+        "/usr/share/ssl/certs/ca-bundle.crt",
+        "/usr/local/share/certs/ca-root-nss.crt",
+        "/etc/ssl/cert.pem",
+    };
+#endif
+    const char *file = getenv("SSL_CERT_FILE");
+    const char *directories = getenv("SSL_CERT_DIR");
+    int failure = 0;
+#if !NUPP_WINDOWS && !(defined(__APPLE__) && defined(__MACH__))
+    size_t at;
+#endif
+
+    mbedtls_x509_crt_init(&systemAuthorities);
+
+    /* Environment configuration is an explicit override. A miss is therefore
+     * reported rather than silently falling through to a different authority
+     * than the process asked for. When both are present, the directory roots
+     * augment the file just as they do in the APIs these names come from. */
+    if ((file != NULL && file[0] != '\0') ||
+        (directories != NULL && directories[0] != '\0')) {
+        if (file != NULL && file[0] != '\0') {
+            if (!tls_system_authority_file(file, &failure)) {
+                tls_system_authority_error(
+                    "could not read SSL_CERT_FILE", file, failure);
+                return;
+            }
+        }
+        if (directories != NULL && directories[0] != '\0') {
+            int state = tls_system_authority_directories(directories, &failure);
+            if (state < 0) {
+                tls_system_authority_error(
+                    "could not read SSL_CERT_DIR", directories, failure);
+                return;
+            }
+            if (state == 0 && !tls_system_authority_loaded()) {
+                tls_system_authority_error(
+                    "could not read SSL_CERT_DIR", directories, failure);
+                return;
+            }
+        }
+    } else {
+#if defined(__APPLE__) && defined(__MACH__)
+        int anchors = tls_system_authority_apple_store();
+        if (anchors < 0) {
+            tls_system_authority_error(
+                "could not load the macOS root certificates",
+                NULL, MBEDTLS_ERR_X509_ALLOC_FAILED);
+            return;
+        }
+#elif NUPP_WINDOWS
+        int currentUser = tls_system_authority_windows_store(
+            CERT_SYSTEM_STORE_CURRENT_USER);
+        int localMachine = tls_system_authority_windows_store(
+            CERT_SYSTEM_STORE_LOCAL_MACHINE);
+        if (currentUser < 0 || localMachine < 0) {
+            tls_system_authority_error(
+                "could not load the Windows root certificate stores",
+                NULL, MBEDTLS_ERR_X509_ALLOC_FAILED);
+            return;
+        }
+#else
+        for (at = 0; at < sizeof files / sizeof files[0]; at++) {
+            if (tls_system_authority_file(files[at], &failure)) {
+                break;
+            }
+        }
+        if (!tls_system_authority_loaded()) {
+            mbedtls_x509_crt_free(&systemAuthorities);
+            mbedtls_x509_crt_init(&systemAuthorities);
+            (void)tls_system_authority_directories(
+                "/etc/ssl/certs", &failure);
+        }
+#endif
+    }
+
+    if (!tls_system_authority_loaded()) {
+        tls_system_authority_error(
+            "no system certificate store was found; set SSL_CERT_FILE or supply authority",
+            NULL, 0);
+        return;
+    }
+
+    {
+        static const char identity[] = "nupp system authority v1";
+        const mbedtls_x509_crt *certificate = &systemAuthorities;
+        mbedtls_sha256_context digest;
+        mbedtls_sha256_init(&digest);
+        mbedtls_sha256_starts(&digest, 0);
+        tls_digest_part(&digest, identity, sizeof identity - 1);
+        while (certificate != NULL && certificate->raw.p != NULL) {
+            tls_digest_part(
+                &digest, certificate->raw.p, certificate->raw.len);
+            certificate = certificate->next;
+        }
+        mbedtls_sha256_finish(&digest, systemAuthorityIdentity);
+        mbedtls_sha256_free(&digest);
+    }
+    systemAuthoritiesReady = true;
+}
+
+static mbedtls_x509_crt *tls_system_authority(
+    const uint8_t **identity, size_t *identityLength
+) {
+    uv_once(&systemAuthoritiesOnce, tls_system_authorities_init);
+    if (!systemAuthoritiesReady) {
+        nupp_fail(systemAuthoritiesError[0] != '\0' ? systemAuthoritiesError :
+            "tls: the system certificate store could not be initialized");
+        return NULL;
+    }
+    *identity = systemAuthorityIdentity;
+    *identityLength = sizeof systemAuthorityIdentity;
+    return &systemAuthorities;
 }
 
 static int tls_ticket_write(
@@ -483,7 +770,8 @@ static void tls_client_cache_key(
     size_t certificateLength,
     const uint8_t *privateKey,
     size_t privateKeyLength,
-    bool verify
+    bool verify,
+    bool systemAuthority
 ) {
     char peer[64] = {0};
     int32_t port = 0;
@@ -513,7 +801,8 @@ static void tls_client_cache_key(
         authority, authorityLength,
         (uint8_t)((verify ? 1 : 0) |
             (session->datagram ? 2 : 0) |
-            (session->kernelRequested ? 4 : 0)));
+            (session->kernelRequested ? 4 : 0) |
+            (systemAuthority ? 8 : 0)));
     /* A ticket carries the identity that earned it. Folding the client's own
      * certificate and key into the key is what keeps a session cached under
      * one identity from being resumed -- and acted under -- by another. */
@@ -1321,6 +1610,9 @@ NUPP_EXPORT NuppTls *nuppTlsWrap(
     bool kernelOffload
 ) {
     NuppTls *session;
+    const uint8_t *authorityIdentity = authority;
+    size_t authorityIdentityLength = authorityLength;
+    bool systemAuthority = !server && verify && authority == NULL;
     int failed;
 
     if (transport == NULL) {
@@ -1439,7 +1731,15 @@ NUPP_EXPORT NuppTls *nuppTlsWrap(
             return NULL;
         }
     }
-    if (authority != NULL && authorityLength > 0) {
+    if (systemAuthority) {
+        mbedtls_x509_crt *roots = tls_system_authority(
+            &authorityIdentity, &authorityIdentityLength);
+        if (roots == NULL) {
+            tls_free(session);
+            return NULL;
+        }
+        mbedtls_ssl_conf_ca_chain(&session->config, roots, NULL);
+    } else if (authority != NULL && authorityLength > 0) {
         failed = tls_parse_certificates(&session->authority, authority, authorityLength);
         if (failed != 0) {
             tls_fail(failed, "the trusted certificates could not be read");
@@ -1493,11 +1793,12 @@ NUPP_EXPORT NuppTls *nuppTlsWrap(
         tls_client_cache_key(
             session,
             hostname, hostnameLength,
-            authority, authorityLength,
+            authorityIdentity, authorityIdentityLength,
             protocols, protocolsLength,
             certificate, certificateLength,
             privateKey, privateKeyLength,
-            verify);
+            verify,
+            systemAuthority);
         /* TLS 1.3 tickets arrive after the handshake. Signalling them makes
          * the read path save each one rather than silently discarding it.
          * Early data remains disabled in the mbedTLS configuration. */

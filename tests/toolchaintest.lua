@@ -313,6 +313,34 @@ function M.windowsHostLinkersCarryPthread()
       "the Windows compiler-pack host linker does not link pthread")
 end
 
+-- Native TLS reads the Windows ROOT stores through CryptoAPI. Every route that
+-- links a host must therefore carry crypt32: the ordinary host, an installed
+-- compiler pack's application host, and the relocatable pack linker.
+function M.windowsHostLinkersCarryCryptoApi()
+   local driver = read(ROOT .. "/scripts/toolchain")
+   local packLinker = read(ROOT .. "/scripts/compiler-pack-link.c")
+   local _, ordinary = driver:gsub("%-lcrypt32", "")
+   assert(ordinary >= 4,
+      "not every Windows toolchain linker carries crypt32")
+   assert(packLinker:match('append%(&cursor, "%-lcrypt32"%);'),
+      "the Windows compiler-pack host linker does not link crypt32")
+end
+
+-- The same host routes carry the two macOS frameworks used to copy the
+-- platform's trust anchors into mbedTLS.
+function M.macOSHostLinkersCarryTheSecurityFramework()
+   local driver = read(ROOT .. "/scripts/toolchain")
+   local packLinker = read(ROOT .. "/scripts/compiler-pack-link.c")
+   local _, security = driver:gsub("%-framework Security", "")
+   local _, foundation = driver:gsub("%-framework CoreFoundation", "")
+   assert(security >= 4 and foundation >= 4,
+      "not every macOS toolchain linker carries the trust-store frameworks")
+   assert(packLinker:match('append%(&cursor, "Security"%);'),
+      "the macOS compiler-pack host linker does not link Security.framework")
+   assert(packLinker:match('append%(&cursor, "CoreFoundation"%);'),
+      "the macOS compiler-pack host linker does not link CoreFoundation")
+end
+
 -- Clang accepts --ld-path only while linking. Generated AOT compilation uses
 -- -Werror, so putting it among compile flags makes a valid installed pack fail
 -- before its linker can run.

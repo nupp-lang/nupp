@@ -64,6 +64,61 @@ end
 
 local M = {}
 
+-- The platform roots are process-wide. A child whose environment names this
+-- fixture can prove both sides of the nil-versus-empty contract without the
+-- rest of this suite having initialized the real machine roots first.
+if os.getenv("NUPP_TLS_SYSTEM_ROOTS_CHILD") == "1" then
+   function M.omittedAuthorityUsesTheConfiguredSystemRoots()
+      local listener, clientSock, serverSock = sockets()
+      local server = assert(tls.server(serverSock, {certificate = CERT, privateKey = KEY}))
+      local client = assert(tls.client(clientSock, {hostname = "localhost"}))
+      local clientDone, clientWhy, serverDone, serverWhy = shake(client, server)
+      assertTrue(clientDone, "the client trusts SSL_CERT_FILE: " .. tostring(clientWhy))
+      assertTrue(serverDone, "the server completes: " .. tostring(serverWhy))
+      assertTrue(client:isVerified(), "the system-root handshake is verified")
+      client:close()
+      server:close()
+      serverSock:close()
+      clientSock:close()
+      listener:close()
+
+      listener, clientSock, serverSock = sockets()
+      server = assert(tls.server(serverSock, {certificate = CERT, privateKey = KEY}))
+      client = assert(tls.client(clientSock, {hostname = "localhost", authority = ""}))
+      clientDone, clientWhy = shake(client, server)
+      assertEq(clientDone, false, "an explicit empty authority does not use system roots")
+      assertTrue(clientWhy ~= nil, "the explicit empty trust set is refused")
+      client:close()
+      server:close()
+      serverSock:close()
+      clientSock:close()
+      listener:close()
+   end
+
+   return M
+end
+
+function M.anOmittedAuthorityUsesThePlatformTrustStore()
+   local source = debug.getinfo(1, "S").source:match("^@(.+)[/\\]tests[/\\]tlstest%.lua$")
+   if source == nil then
+      local current = assert(io.popen("pwd"))
+      source = assert(current:read("*l"))
+      current:close()
+   end
+   source = source:gsub("\\", "/")
+   local command = ("cd %q && NUPP_TLS_SYSTEM_ROOTS_CHILD=1 "
+      .. "SSL_CERT_FILE=%q SSL_CERT_DIR= %q tlstest --jobs=1 --no-color 2>&1; "
+      .. "echo '__exit__:'$?"):format(source,
+         source .. "/tests/data/localhost-cert.pem", source .. "/build/nupp-test")
+   local pipe = assert(io.popen(command))
+   local output = pipe:read("*a")
+   pipe:close()
+   local status = tonumber(output:match("__exit__:(%d+)%s*$"))
+   assertEq(status, 0, "the isolated system-root run succeeds:\n" .. output)
+   assertTrue(output:find("1 tests, 1 passed", 1, true) ~= nil,
+      "the isolated system-root case ran:\n" .. output)
+end
+
 function M.aClientResumesAStoredSession()
    local listener = assert(net.listen({host = "127.0.0.1", port = 0}))
 
@@ -222,8 +277,8 @@ function M.aVerifiedHandshakeCarriesBytesBothWays()
 end
 
 function M.anUntrustedCertificateIsRefused()
-   -- The property that makes verification worth having: with no trust store,
-   -- the self-signed certificate must not satisfy a client that asked to verify.
+   -- The property that makes verification worth having: the machine's ordinary
+   -- roots must not trust this private self-signed fixture.
    local listener, clientSock, serverSock = sockets()
    local server = assert(tls.server(serverSock, {certificate = CERT, privateKey = KEY}))
    local client = assert(tls.client(clientSock, {hostname = "localhost"}))

@@ -166119,6 +166119,9 @@ bool nuppGpuBindingDispatch(NuppGpuBinding *, const void *, size_t);
 bool nuppGpuBufferDownload(NuppGpuContext *, NuppGpuBuffer *, size_t, size_t);
 bool nuppGpuSynchronize(NuppGpuContext *);
 bool nuppGpuBufferRead(NuppGpuContext *, NuppGpuBuffer *, void *, size_t, size_t);
+bool nuppGpuBufferDestroy(NuppGpuContext *, NuppGpuBuffer *);
+bool nuppGpuKernelDestroy(NuppGpuContext *, NuppGpuKernel *);
+bool nuppGpuBindingDestroy(NuppGpuContext *, NuppGpuBinding *);
 ]]
 
 
@@ -166158,6 +166161,7 @@ gpu.Buffer = {} gpu.Buffer.__index = gpu.Buffer
 
 
 
+
 gpu.Kernel = {} gpu.Kernel.__index = gpu.Kernel
 
 
@@ -166169,6 +166173,7 @@ gpu.Kernel = {} gpu.Kernel.__index = gpu.Kernel
 
 
 gpu.Binding = {} gpu.Binding.__index = gpu.Binding
+
 
 
 
@@ -166245,6 +166250,20 @@ end ;__nuppCleanups["nupp.gpu#destroyContext"]=gpu.destroyContext
 
 
 gpu.Context = {} gpu.Context.__index = gpu.Context
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 
@@ -166530,7 +166549,8 @@ self ,  _handle =
 handle ,  _width =
 width ,  _offset =
 0 ,  _capacity =
-count ,  _shape =
+count ,  _root =
+true ,  _shape =
 { count } ,  _strides =
 { 1 } ,  count =
 count }, gpu.Buffer)
@@ -166584,7 +166604,8 @@ buffer ,  _handle =
 buffer . _handle ,  _width =
 buffer . _width ,  _offset =
 offset ,  _capacity =
-buffer . _capacity ,  _shape =
+buffer . _capacity ,  _root =
+false ,  _shape =
 tensorlayout . dimensions ( layout ) ,  _strides =
 tensorlayout . strides ( layout ) ,  count =
 layout . count }, gpu.Buffer)
@@ -166618,7 +166639,8 @@ self ,  _handle =
 self . _handle ,  _width =
 self . _width ,  _offset =
 offset ,  _capacity =
-self . _capacity ,  _shape =
+self . _capacity ,  _root =
+false ,  _shape =
 copied ( shape ) ,  _strides =
 copied ( self . _strides ) ,  count =
 count }, gpu.Buffer)
@@ -166678,7 +166700,32 @@ if handle == nil then
 error ( "nupp: " .. ffi . string ( C . nuppNativeError ( ) ) , 2 )
 end
 
-return setmetatable({ _anchor =  self ,  _handle =  handle ,  _uniformBytes =  kernel . _uniformBytes ,  count =  count }, gpu.Binding)
+return setmetatable({ _anchor =
+self ,  _handle =
+handle ,  _uniformBytes =
+kernel . _uniformBytes ,  _released =
+false ,  count =
+count }, gpu.Binding)
+
+end
+
+function gpu . Context . releaseBuffer ( self , buffer ) 
+if not buffer . _root then
+error ( "nupp: a GPU view borrows its buffer; release the root buffer" , 2 )
+end
+succeeded ( C . nuppGpuBufferDestroy ( live ( self ) , buffer . _handle ) , 2 )
+end
+
+function gpu . Context . releaseKernel ( self , kernel ) 
+succeeded ( C . nuppGpuKernelDestroy ( live ( self ) , kernel . _handle ) , 2 )
+end
+
+function gpu . Context . releaseBinding ( self , binding ) 
+if binding . _released then
+return
+end
+succeeded ( C . nuppGpuBindingDestroy ( live ( self ) , binding . _handle ) , 2 )
+binding . _released = true
 end
 
 function gpu . Binding . setRead (
@@ -166687,6 +166734,9 @@ slot ,
 buffer ,
 matchCount
 ) 
+if self . _released then
+error ( "nupp: GPU binding was released" , 2 )
+end
 local _ , extent , dense = tensorlayout . _facts ( buffer . _shape , buffer . _strides , 2 )
 if matchCount and not dense then
 error ( "nupp: dispatch-indexed GPU buffers must be dense" , 2 )
@@ -166700,6 +166750,9 @@ slot ,
 buffer ,
 matchCount
 ) 
+if self . _released then
+error ( "nupp: GPU binding was released" , 2 )
+end
 local _ , extent , dense , injective = tensorlayout . _facts ( buffer . _shape , buffer . _strides , 2 )
 if not injective or extent ~= buffer . count then
 error ( "nupp: writable GPU tensor views must be disjoint and cover one complete span extent" , 2 )
@@ -166711,6 +166764,9 @@ succeeded ( C . nuppGpuBindingSetWrite ( self . _handle , slot , buffer . _handl
 end
 
 function gpu . Binding . dispatchPacked ( self , uniforms , uniformBytes ) 
+if self . _released then
+error ( "nupp: GPU binding was released" , 2 )
+end
 if uniformBytes ~= self . _uniformBytes then
 error ( "nupp: generated GPU uniform block has the wrong size" , 2 )
 end
@@ -177775,9 +177831,6 @@ _G.assert(_G.loadstring("local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppM
 
 
 
-
-
-
 local net = require ( "nupp.io.net" )
 local suspension = require ( "nupp.suspension" )
 local span = require ( "nupp.mem.span" )
@@ -178641,7 +178694,7 @@ false ,
 options . hostname or "" ,
 "" ,
 "" ,
-options . authority or "" ,
+options . authority ,
 packProtocols ( options . protocols , 2 ) ,
 verify ,
 options . kernelOffload == true
@@ -178677,7 +178730,7 @@ true ,
 "" ,
 options . certificate ,
 options . privateKey ,
-options . authority or "" ,
+options . authority ,
 packProtocols ( options . protocols , 2 ) ,
 options . verify == true ,
 options . kernelOffload == true
@@ -178730,7 +178783,7 @@ peer . port ,
 options . hostname or "" ,
 "" ,
 "" ,
-options . authority or "" ,
+options . authority ,
 packProtocols ( options . protocols , 2 ) ,
 verify ,
 false
@@ -178776,7 +178829,7 @@ true ,
 "" ,
 options . certificate ,
 options . privateKey ,
-options . authority or "" ,
+options . authority ,
 packProtocols ( options . protocols , 2 ) ,
 options . verify == true ,
 false
@@ -178884,6 +178937,7 @@ protocols ,
 verify ,
 kernelOffload
 ) 
+const authorityLength = authority ~= nil and # authority or 0
 const session = C . nuppTlsWrap (
 handle ,
 datagram ,
@@ -178898,7 +178952,7 @@ certificate ,
 privateKey ,
 # privateKey ,
 authority ,
-# authority ,
+authorityLength ,
 protocols ,
 # protocols ,
 verify ,
@@ -214052,6 +214106,9 @@ bool nuppGpuBindingDispatch(NuppGpuBinding *, const void *, size_t);
 bool nuppGpuBufferDownload(NuppGpuContext *, NuppGpuBuffer *, size_t, size_t);
 bool nuppGpuSynchronize(NuppGpuContext *);
 bool nuppGpuBufferRead(NuppGpuContext *, NuppGpuBuffer *, void *, size_t, size_t);
+bool nuppGpuBufferDestroy(NuppGpuContext *, NuppGpuBuffer *);
+bool nuppGpuKernelDestroy(NuppGpuContext *, NuppGpuKernel *);
+bool nuppGpuBindingDestroy(NuppGpuContext *, NuppGpuBinding *);
 ]]
 
 -- `native.C` is late-bound, so restore the ownership contracts that the literal
@@ -214073,6 +214130,7 @@ record gpu.Buffer<T>
     private readonly _width: integer
     private readonly _offset: integer
     private readonly _capacity: integer
+    private readonly _root: boolean
     private _shape: {integer}
     private _strides: {integer}
 
@@ -214105,6 +214163,7 @@ record gpu.Binding
     private readonly _anchor: any
     private readonly _handle: any
     private readonly _uniformBytes: integer
+    private _released: boolean
 
     --- Number of elements dispatched by this binding.
     readonly count: integer
@@ -214211,6 +214270,20 @@ record gpu.Context is gpu.ContextToken
     --- span; the generated binding fills every slot before dispatching.
     --- @internal
     bindKernel: function(borrows self: Context, borrows kernel: gpu.Kernel, count: integer): gpu.Binding borrows (self)
+
+    --- Releases one root buffer's device storage without closing the context.
+    --- Refused while commands are queued; synchronize first. Any view of the
+    --- buffer is invalid afterwards, and using one raises.
+    releaseBuffer: function<T>(borrows self: Context, borrows buffer: gpu.Buffer<T>): nil
+
+    --- Releases a compiled kernel no binding uses any more.
+    --- @internal
+    releaseKernel: function(borrows self: Context, borrows kernel: gpu.Kernel): nil
+
+    --- Releases a binding's host-side attachment. The kernel and buffers it
+    --- named remain the context's.
+    --- @internal
+    releaseBinding: function(borrows self: Context, exclusive binding: gpu.Binding): nil
 
     --- Copies a complete shared span into a resident buffer or view and
     --- enqueues its transfer. It does not wait.
@@ -214464,6 +214537,7 @@ function gpu.Context.buffer<T>(
         _width = width,
         _offset = 0,
         _capacity = count,
+        _root = true,
         _shape = {count},
         _strides = {1},
         count = count
@@ -214518,6 +214592,7 @@ function gpu.view<T>(borrows buffer: gpu.Buffer<T>, layout: TensorLayout): gpu.B
         _width = buffer._width,
         _offset = offset,
         _capacity = buffer._capacity,
+        _root = false,
         _shape = tensorlayout.dimensions(layout),
         _strides = tensorlayout.strides(layout),
         count = layout.count
@@ -214552,6 +214627,7 @@ function gpu.Buffer.subview<T>(
         _width = self._width,
         _offset = offset,
         _capacity = self._capacity,
+        _root = false,
         _shape = copied(shape),
         _strides = copied(self._strides),
         count = count
@@ -214611,7 +214687,32 @@ function gpu.Context.bindKernel(
         error("nupp: " .. ffi.string(C.nuppNativeError()), 2)
     end
 
-    return new gpu.Binding(_anchor = self, _handle = handle, _uniformBytes = kernel._uniformBytes, count = count)
+    return new gpu.Binding(
+        _anchor = self,
+        _handle = handle,
+        _uniformBytes = kernel._uniformBytes,
+        _released = false,
+        count = count
+    )
+end
+
+function gpu.Context.releaseBuffer<T>(borrows self: gpu.Context, borrows buffer: gpu.Buffer<T>): nil
+    if not buffer._root then
+        error("nupp: a GPU view borrows its buffer; release the root buffer", 2)
+    end
+    succeeded(C.nuppGpuBufferDestroy(live(self), buffer._handle), 2)
+end
+
+function gpu.Context.releaseKernel(borrows self: gpu.Context, borrows kernel: gpu.Kernel): nil
+    succeeded(C.nuppGpuKernelDestroy(live(self), kernel._handle), 2)
+end
+
+function gpu.Context.releaseBinding(borrows self: gpu.Context, exclusive binding: gpu.Binding): nil
+    if binding._released then
+        return
+    end
+    succeeded(C.nuppGpuBindingDestroy(live(self), binding._handle), 2)
+    binding._released = true
 end
 
 function gpu.Binding.setRead<T>(
@@ -214620,6 +214721,9 @@ function gpu.Binding.setRead<T>(
     borrows buffer: gpu.Buffer<T>,
     matchCount: boolean
 ): nil
+    if self._released then
+        error("nupp: GPU binding was released", 2)
+    end
     local _, extent, dense = tensorlayout._facts(buffer._shape, buffer._strides, 2)
     if matchCount and not dense then
         error("nupp: dispatch-indexed GPU buffers must be dense", 2)
@@ -214633,6 +214737,9 @@ function gpu.Binding.setWrite<T>(
     borrows buffer: gpu.Buffer<T>,
     matchCount: boolean
 ): nil
+    if self._released then
+        error("nupp: GPU binding was released", 2)
+    end
     local _, extent, dense, injective = tensorlayout._facts(buffer._shape, buffer._strides, 2)
     if not injective or extent ~= buffer.count then
         error("nupp: writable GPU tensor views must be disjoint and cover one complete span extent", 2)
@@ -214644,6 +214751,9 @@ function gpu.Binding.setWrite<T>(
 end
 
 function gpu.Binding.dispatchPacked(borrows self: gpu.Binding, uniforms: any, uniformBytes: integer): nil
+    if self._released then
+        error("nupp: GPU binding was released", 2)
+    end
     if uniformBytes ~= self._uniformBytes then
         error("nupp: generated GPU uniform block has the wrong size", 2)
     end
@@ -225635,12 +225745,10 @@ module nupp.io.tls
 `nupp.io.tls` encrypts a connection [](nupp.io.net) already opened.
 
 ```nupp
-local function fetch(rootsPath: string): string
-    local roots = assert(nupp.io.files.read(rootsPath))
+local function fetch(): string
     local stream = assert(nupp.io.net.connect({host = "example.com", port = 443}))
     local session = assert(nupp.io.tls.client(stream, {
         hostname = "example.com",
-        authority = roots,
     }))
     assert(session:handshake())
     assert(session:write("GET / HTTP/1.1\r\nHost: example.com\r\nConnection: close\r\n\r\n"))
@@ -225652,14 +225760,13 @@ local function fetch(rootsPath: string): string
 end
 ```
 
-`rootsPath` is a parameter rather than a constant. The trust store is read from a
-file because this module has none of its own: verification is on unless a caller
-turns it off, and an omitted `authority` is an empty store rather than the
-platform's roots, so a client that verifies must say what it trusts. Where those
-roots live is a per-platform question this module does not answer -- a file
-whose location varies by distribution on Linux, the Keychain on macOS, the
-certificate stores on Windows -- and answering it wrongly by default is worse
-than not answering it.
+Passing `authority` selects exactly those PEM roots. Omitting it uses the
+platform's root certificates. `SSL_CERT_FILE` and `SSL_CERT_DIR` override the
+platform on every system; without them, macOS reads Security.framework anchors,
+Windows reads its root stores, and other Unix systems search the ordinary
+distribution locations. The roots are loaded once per process. An explicitly
+configured file which cannot be read is a failure rather than permission to
+silently trust something else.
 
 A session reads and writes through the same `Reader` and `Writer` contracts a
 plain connection does, so a parser written against byte I/O reads an encrypted
@@ -225716,8 +225823,8 @@ type tls.ClientOptions = {
     --- is a certificate belonging to anybody.
     hostname: string?,
 
-    --- Certificates to trust, as PEM. Nil uses no trust store at all, which is
-    --- only sensible with `verify` off.
+    --- Certificates to trust, as PEM. Nil uses the platform's root
+    --- certificates; a supplied string replaces them.
     authority: string?,
 
     --- Whether the peer's certificate must satisfy the trust store. On by
@@ -225781,7 +225888,7 @@ record tls.Backend
         hostname: string,
         certificate: string,
         privateKey: string,
-        authority: string,
+        authority: string?,
         protocols: string,
         verify: boolean,
         kernelOffload: boolean
@@ -226564,7 +226671,7 @@ function tls.client(borrows stream: net.Stream, options: tls.ClientOptions): (af
         options.hostname or "",
         "",
         "",
-        options.authority or "",
+        options.authority,
         packProtocols(options.protocols, 2),
         verify,
         options.kernelOffload == true
@@ -226600,7 +226707,7 @@ function tls.server(borrows stream: net.Stream, options: tls.ServerOptions): (af
         "",
         options.certificate,
         options.privateKey,
-        options.authority or "",
+        options.authority,
         packProtocols(options.protocols, 2),
         options.verify == true,
         options.kernelOffload == true
@@ -226653,7 +226760,7 @@ function tls.dtlsClient(
         options.hostname or "",
         "",
         "",
-        options.authority or "",
+        options.authority,
         packProtocols(options.protocols, 2),
         verify,
         false
@@ -226699,7 +226806,7 @@ function tls.dtlsServer(
         "",
         options.certificate,
         options.privateKey,
-        options.authority or "",
+        options.authority,
         packProtocols(options.protocols, 2),
         options.verify == true,
         false
@@ -226802,11 +226909,12 @@ local function nativeBackend(): tls.Backend
             hostname: string,
             certificate: string,
             privateKey: string,
-            authority: string,
+            authority: string?,
             protocols: string,
             verify: boolean,
             kernelOffload: boolean
         ): (any?, string?)
+            const authorityLength = authority ~= nil and #authority or 0
             const session = C.nuppTlsWrap(
                 handle,
                 datagram,
@@ -226821,7 +226929,7 @@ local function nativeBackend(): tls.Backend
                 privateKey,
                 #privateKey,
                 authority,
-                #authority,
+                authorityLength,
                 protocols,
                 #protocols,
                 verify,

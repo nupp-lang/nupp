@@ -4,12 +4,10 @@ module nupp.io.tls
 `nupp.io.tls` encrypts a connection [](nupp.io.net) already opened.
 
 ```nupp
-local function fetch(rootsPath: string): string
-    local roots = assert(nupp.io.files.read(rootsPath))
+local function fetch(): string
     local stream = assert(nupp.io.net.connect({host = "example.com", port = 443}))
     local session = assert(nupp.io.tls.client(stream, {
         hostname = "example.com",
-        authority = roots,
     }))
     assert(session:handshake())
     assert(session:write("GET / HTTP/1.1\r\nHost: example.com\r\nConnection: close\r\n\r\n"))
@@ -21,14 +19,13 @@ local function fetch(rootsPath: string): string
 end
 ```
 
-`rootsPath` is a parameter rather than a constant. The trust store is read from a
-file because this module has none of its own: verification is on unless a caller
-turns it off, and an omitted `authority` is an empty store rather than the
-platform's roots, so a client that verifies must say what it trusts. Where those
-roots live is a per-platform question this module does not answer -- a file
-whose location varies by distribution on Linux, the Keychain on macOS, the
-certificate stores on Windows -- and answering it wrongly by default is worse
-than not answering it.
+Passing `authority` selects exactly those PEM roots. Omitting it uses the
+platform's root certificates. `SSL_CERT_FILE` and `SSL_CERT_DIR` override the
+platform on every system; without them, macOS reads Security.framework anchors,
+Windows reads its root stores, and other Unix systems search the ordinary
+distribution locations. The roots are loaded once per process. An explicitly
+configured file which cannot be read is a failure rather than permission to
+silently trust something else.
 
 A session reads and writes through the same `Reader` and `Writer` contracts a
 plain connection does, so a parser written against byte I/O reads an encrypted
@@ -85,8 +82,8 @@ type tls.ClientOptions = {
     --- is a certificate belonging to anybody.
     hostname: string?,
 
-    --- Certificates to trust, as PEM. Nil uses no trust store at all, which is
-    --- only sensible with `verify` off.
+    --- Certificates to trust, as PEM. Nil uses the platform's root
+    --- certificates; a supplied string replaces them.
     authority: string?,
 
     --- Whether the peer's certificate must satisfy the trust store. On by
@@ -150,7 +147,7 @@ record tls.Backend
         hostname: string,
         certificate: string,
         privateKey: string,
-        authority: string,
+        authority: string?,
         protocols: string,
         verify: boolean,
         kernelOffload: boolean
@@ -933,7 +930,7 @@ function tls.client(borrows stream: net.Stream, options: tls.ClientOptions): (af
         options.hostname or "",
         "",
         "",
-        options.authority or "",
+        options.authority,
         packProtocols(options.protocols, 2),
         verify,
         options.kernelOffload == true
@@ -969,7 +966,7 @@ function tls.server(borrows stream: net.Stream, options: tls.ServerOptions): (af
         "",
         options.certificate,
         options.privateKey,
-        options.authority or "",
+        options.authority,
         packProtocols(options.protocols, 2),
         options.verify == true,
         options.kernelOffload == true
@@ -1022,7 +1019,7 @@ function tls.dtlsClient(
         options.hostname or "",
         "",
         "",
-        options.authority or "",
+        options.authority,
         packProtocols(options.protocols, 2),
         verify,
         false
@@ -1068,7 +1065,7 @@ function tls.dtlsServer(
         "",
         options.certificate,
         options.privateKey,
-        options.authority or "",
+        options.authority,
         packProtocols(options.protocols, 2),
         options.verify == true,
         false
@@ -1171,11 +1168,12 @@ local function nativeBackend(): tls.Backend
             hostname: string,
             certificate: string,
             privateKey: string,
-            authority: string,
+            authority: string?,
             protocols: string,
             verify: boolean,
             kernelOffload: boolean
         ): (any?, string?)
+            const authorityLength = authority ~= nil and #authority or 0
             const session = C.nuppTlsWrap(
                 handle,
                 datagram,
@@ -1190,7 +1188,7 @@ local function nativeBackend(): tls.Backend
                 privateKey,
                 #privateKey,
                 authority,
-                #authority,
+                authorityLength,
                 protocols,
                 #protocols,
                 verify,

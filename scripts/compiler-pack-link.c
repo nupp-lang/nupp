@@ -120,7 +120,16 @@ int main(int argc, char **argv) {
     append(&cursor, "-lole32");
     append(&cursor, "-lshell32");
     append(&cursor, "-lbcrypt");
+    append(&cursor, "-lcrypt32");
     append(&cursor, "-Wl,--export-all-symbols");
+#elif defined(__APPLE__)
+    append(&cursor, "-lm");
+    append(&cursor, "-lpthread");
+    append(&cursor, "-framework");
+    append(&cursor, "CoreFoundation");
+    append(&cursor, "-framework");
+    append(&cursor, "Security");
+    append(&cursor, "-Wl,-export_dynamic");
 #else
     append(&cursor, "-lm");
     append(&cursor, "-lpthread");

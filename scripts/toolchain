@@ -1035,12 +1035,16 @@ build_native_library() {
     done
 
     case "$PLATFORM" in
-        darwin)  shared="-dynamiclib"; name="libnupp_native.dylib"; extra="-undefined dynamic_lookup" ;;
+        darwin)
+            shared="-dynamiclib"
+            name="libnupp_native.dylib"
+            extra="-undefined dynamic_lookup -framework CoreFoundation -framework Security"
+            ;;
         windows)
             shared="-shared"
             name="nupp_native.dll"
             extra="-lpsapi -luser32 -ladvapi32 -liphlpapi -luserenv"
-            extra="$extra -lws2_32 -ldbghelp -lole32 -lshell32 -lbcrypt"
+            extra="$extra -lws2_32 -ldbghelp -lole32 -lshell32 -lbcrypt -lcrypt32"
             ;;
         *)       shared="-shared"; name="libnupp_native.so"; extra="-lpthread -ldl" ;;
     esac
@@ -1146,12 +1150,15 @@ build_host() {
     done
     platform_libraries="-lm -lpthread"
     case "$PLATFORM" in
-        darwin)  platform_libraries="-lm -lpthread -Wl,-export_dynamic" ;;
+        darwin)
+            platform_libraries="-lm -lpthread -framework CoreFoundation"
+            platform_libraries="$platform_libraries -framework Security -Wl,-export_dynamic"
+            ;;
         windows)
             platform_libraries="-lpthread -lpsapi -luser32 -ladvapi32 -liphlpapi"
             platform_libraries="$platform_libraries -luserenv -lws2_32"
             platform_libraries="$platform_libraries -ldbghelp -lole32"
-            platform_libraries="$platform_libraries -lshell32 -lbcrypt"
+            platform_libraries="$platform_libraries -lshell32 -lbcrypt -lcrypt32"
             platform_libraries="$platform_libraries -Wl,--export-all-symbols"
             ;;
         *)       platform_libraries="-lm -lpthread -ldl -Wl,-E" ;;
@@ -1243,10 +1250,13 @@ EOF
         set -- "$@" "$flag"
     done < "$flags_file"
     case "$PLATFORM" in
-        darwin)  set -- "$@" -lm -lpthread -Wl,-export_dynamic ;;
+        darwin)
+            set -- "$@" -lm -lpthread -framework CoreFoundation -framework Security
+            set -- "$@" -Wl,-export_dynamic
+            ;;
         windows)
             set -- "$@" -lpthread -lpsapi -luser32 -ladvapi32 -liphlpapi -luserenv
-            set -- "$@" -lws2_32 -ldbghelp -lole32 -lshell32 -lbcrypt -Wl,--export-all-symbols
+            set -- "$@" -lws2_32 -ldbghelp -lole32 -lshell32 -lbcrypt -lcrypt32 -Wl,--export-all-symbols
             ;;
         *)       set -- "$@" -lm -lpthread -ldl -Wl,-E ;;
     esac
@@ -1279,12 +1289,14 @@ build_fixture() {
         || die "the pinned libuv is not built; run scripts/toolchain libuv"
 
     case "$PLATFORM" in
-        darwin)  fixture_libraries="-lm -lpthread" ;;
+        darwin)
+            fixture_libraries="-lm -lpthread -framework CoreFoundation -framework Security"
+            ;;
         windows)
             fixture_libraries="-lpsapi -luser32 -ladvapi32 -liphlpapi"
             fixture_libraries="$fixture_libraries -luserenv -lws2_32"
             fixture_libraries="$fixture_libraries -ldbghelp -lole32"
-            fixture_libraries="$fixture_libraries -lshell32 -lbcrypt"
+            fixture_libraries="$fixture_libraries -lshell32 -lbcrypt -lcrypt32"
             ;;
         *)       fixture_libraries="-lm -lpthread -ldl" ;;
     esac
