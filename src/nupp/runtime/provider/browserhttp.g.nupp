@@ -7,7 +7,7 @@ module nupp.runtime.provider.browserhttp
 local effects = require("nupp.runtime.browser.effects")
 local base64 = require("nupp.data.base64")
 local suspension = require("nupp.suspension")
-local uri = require("nupp.io.uri")
+local uri = require("nupp.runtime.provider.browseruri")
 local http = {}
 
 record http.Options

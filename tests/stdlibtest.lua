@@ -837,6 +837,20 @@ function M.browserProvidersPassTheirPublicContracts()
    end
 end
 
+function M.browserHttpProviderHasAPortableDependencyClosure()
+   local path = HERE .. "/../src/nupp/runtime/provider/browserhttp.g.nupp"
+   local handle = assert(io.open(path, "rb"))
+   local source = handle:read("*a")
+   handle:close()
+   local result = parser.parse(source, path)
+   assertEq(#result.errors, 0, "syntax errors in browser HTTP provider")
+   local diags = check.check(result, path, envMod.new(HERE .. "/.."), {
+      dialect = "lua51",
+   })
+   assertEq(diags[1] and diags[1].msg or "", "",
+      "the browser HTTP provider must not reach a native implementation")
+end
+
 function M.missingRuntimeJsonProviderNamesTheDependency()
    local selected = "fixtures.provider_that_is_missing"
    local backendModule = "fixtures.missing_provider_backend"
