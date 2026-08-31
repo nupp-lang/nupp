@@ -14,12 +14,19 @@ it, because the compiler that has to produce it runs inside a browser and has
 no process to spawn.
 
 The WebGPU provider runs in the Worker that already owns the application's Wasm
-memory, so a transfer names a region of that memory instead of carrying its
-bytes through the effect channel. Device acquisition, submission, and readback
-park on the existing browser suspension protocol. Conformance runs one kernel
-three ways — the ordinary CPU body, the native artifact on the pinned software
-Vulkan device, and the WGSL artifact on a software WebGPU device in the
-existing headless browser harness — and requires element-exact agreement.
+memory. A new bounded transfer lease lets an effect name a validated heap range
+instead of carrying its bytes through JSON; JavaScript resolves the lease to a
+current Wasm-memory view before it calls WebGPU. WebGPU still copies the range
+into device memory, but the host does not base64-encode, JSON-copy, or
+structured-clone it first. Device acquisition, submission, and readback park on
+the existing browser suspension protocol.
+
+The first browser profile is deliberately integer-only: `int32` and `uint32`
+storage and scalar uniforms. Conformance runs one kernel three ways — the
+ordinary CPU body, the native artifact on the pinned software Vulkan device,
+and the WGSL artifact on a software WebGPU device in the existing headless
+browser harness — and requires element-exact agreement. Floating-point GPU
+source remains refused until its cross-backend exactness contract is specified.
 
 ## Goals
 
@@ -27,9 +34,9 @@ existing headless browser harness — and requires element-exact agreement.
 - Keep SPIR-V canonical and add WGSL beside it rather than underneath it.
 - Produce the browser shader inside the portable compiler, with no subprocess.
 - Carry both device backends on one seam, so generated bindings name neither.
-- Move a resident buffer without encoding it.
-- Put WebGPU's weaker float guarantees into the admission rules rather than
-  into a test's tolerance.
+- Move a resident buffer without JSON, base64, or structured-clone payloads.
+- State the browser numeric subset before its conformance tests, rather than
+  hiding an incompatible float contract behind a tolerance.
 - Test the browser backend on a device whose version changes only by review.
 
 ## Non-goals
@@ -40,6 +47,7 @@ existing headless browser harness — and requires element-exact agreement.
 - Running a device on the page, sharing one device between worker lanes, or
   presenting to a canvas.
 - Cross-origin isolation, `SharedArrayBuffer`, or Wasm threads.
+- Browser `f32` kernels until a portable exactness contract admits them.
 - A tolerance-based numeric contract for browser results.
 - Const-specialized GPU kernels, which remain refused on every backend.
 
@@ -84,13 +92,16 @@ upload exceeds the cap, and every smaller one pays an encode, a decode, and two
 copies for bytes that never leave the process.
 
 The handler that services an effect runs in the same Worker as the Wasm module
-and holds that module's heap. A transfer therefore only has to *name* a region
-rather than contain it. There is no `SharedArrayBuffer` and no cross-origin
-isolation in this host, so that in-Worker heap view is the only zero-copy path
-available, and designing transfers around it from the start is what separates a
-GPU backend from a demonstration.
+and holds that module's heap. It cannot presently name a Lua allocation: the
+Wasm storage provider exposes only opaque userdata to Lua, while the JavaScript
+host sees only JSON protocol frames. The backend therefore adds a host-owned,
+bounds-checked transfer lease. Its JSON form contains an opaque lease ID and
+byte count, never a raw address; the host resolves it to a fresh `HEAPU8` view
+at the point of `writeBuffer` or readback. There is no `SharedArrayBuffer` and
+no cross-origin isolation in this host. This avoids protocol copies, not the
+copy WebGPU makes between Wasm and device memory.
 
-### WGSL cannot express the numeric guarantees SPIR-V can
+### WGSL needs its own exactness profile
 
 NEP 25's central invariant is that GPU execution preserves the ordinary CPU
 meaning exactly, and SPIR-V can ask for it: denormal preservation and
@@ -99,10 +110,13 @@ WGSL has no spelling for either. A browser lowers a module through its own
 translator to whatever the platform driver does, so subnormal flushing and NaN
 payloads are decided below the artifact and vary by device.
 
-Bit identity therefore cannot be assumed for this backend. It has to be a rule
-about which operations are admitted, decided before the conformance suite is
-written, because a suite that only diffs GPU against CPU would otherwise
-discover the gap one browser and one device at a time.
+Bit identity therefore cannot be assumed for floating point. The initial
+browser profile admits only fixed-width integer storage, uniforms, and IR
+operations whose wrapped integer meaning is shared by the CPU and WGSL. It
+refuses `f32` parameters, storage, and operations at lowering. This is a
+portable baseline rather than an assertion that float is unimportant: admitting
+float later requires a source-visible finite-range and operation contract that
+proves the ordinary CPU meaning is identical, not a tolerance in the test.
 
 ## Overview and specification
 
@@ -114,14 +128,14 @@ the body, the annotation, or the resident-buffer protocol is browser-specific:
 
 ```nupp
 @aot(target = "gpu")
-local function scale(
-    exclusive output: span.WriteSpan<float>,
-    borrows input: span.Span<float>,
-    factor: float
+local function xorMask(
+    exclusive output: span.WriteSpan<uint32>,
+    borrows input: span.Span<uint32>,
+    mask: uint32
 ): nil
     assert(#output == #input, "length mismatch")
     for i = 1, #output do
-        output[i] = nupp.math.f32.mul(nupp.math.f32.narrow(input[i]), factor)
+        output[i] = nupp.math.u32.xorBits(input[i], mask)
     end
 end
 ```
@@ -154,16 +168,15 @@ change for a provider that parks.
 
 `compileGenerated` takes an artifact set rather than a fixed SPIR-V and Metal
 pair, and each provider selects the member it can consume. A provider handed a
-kernel with no artifact it accepts raises at compile time, naming the kernel
-and the backend.
+kernel with no artifact it accepts raises at the dynamic compile call, naming
+the kernel and backend.
 
 ### WGSL emission
 
 A WGSL emitter sits beside the SPIR-V and Metal emitters and consumes the same
-`scalarIR.Program`. Resource layout mirrors NEP 25's, one bind group per
-descriptor set: group 0 holds readonly storage buffers in source slot order,
-group 1 holds read-write storage buffers in source slot order, group 2 binding
-0 holds the uniform block, the dispatch position is
+`scalarIR.Program`. It uses one bind group: storage buffers occupy bindings in
+source slot order and the uniform block is the following binding. The dispatch
+position is
 `@builtin(global_invocation_id).x`, and the workgroup size is fixed in
 `@workgroup_size`. A phase boundary is `workgroupBarrier()` and workgroup
 scratch is `var<workgroup>`, which is the same structural mapping NEP 26 gives
@@ -174,14 +187,13 @@ count word per bound span in binding order, one offset word per span, then the
 authored scalars, every field four-byte aligned and the whole block capped at
 128 bytes.
 
-WGSL's storage address space holds 32-bit scalars only. A kernel whose span
-element is a narrower physical type is refused at lowering, naming the element
-and the backend. Emitting shift-and-mask packing instead would make the browser
-artifact structurally different from the other two consumers of one IR, which
-is the divergence the single-IR rule exists to prevent; if narrow storage is
-wanted later it belongs in the IR, where every backend gets it at once. Value
-conversions that are already synthesized from integer arithmetic, such as the
-half and bfloat helpers, are unaffected — their storage is a 32-bit word.
+The first profile accepts only `int32` and `uint32` storage and scalars. A
+kernel using float, a narrow physical element, or a struct is refused at
+lowering, naming the element and the `webgpu-int32` profile. Emitting
+shift-and-mask packing would make the browser artifact structurally different
+from the other two consumers of one IR, which is the divergence the
+single-IR rule exists to prevent; if narrow storage is wanted later it belongs
+in the IR, where every backend gets it at once.
 
 ### The uniform block without FFI
 
@@ -193,17 +205,21 @@ entry point unchanged on that side. The layout stays one compiler fact with
 four consumers — SPIR-V, Metal, WGSL, and the writer — rather than a C
 declaration that two of them agree with by inspection.
 
-### Transfers name memory
+### Transfers use bounded Wasm-memory leases
 
-An upload allocates or reuses a staging region in the host's own memory through
-the storage seam, copies the source span into it, and enqueues an effect naming
-the buffer handle, the region, and its byte extent. The JavaScript handler
-resolves that region to a view of the module's heap and calls `writeBuffer`;
-nothing is encoded. A download is the mirror: a copy into a mappable buffer,
-a park on the map, and a response naming the region the handler filled, which
-`readDownloaded` copies into the destination span. The effect JSON stays small
-enough that the existing request and response caps are untouched, and the
-number of copies is the one the seam's opaque memory already requires.
+The Wasm application host owns a transfer-lease table. The browser GPU provider
+asks it to lease a proved span range; it answers an opaque ID, byte count, and
+an expiry tied to the outstanding operation. An upload then enqueues an effect
+naming the buffer handle and lease. The JavaScript handler validates the lease,
+resolves it to a fresh view of the module's heap, and calls `writeBuffer`.
+
+A download is the mirror: WebGPU copies into a mappable staging buffer, the
+handler waits for `mapAsync`, writes the mapped bytes into the leased Wasm
+range, and resumes with the lease ID. The provider validates and releases that
+lease before it exposes the bytes to the destination span. Cancellation,
+device loss, and any validation failure release every outstanding lease. The
+effect JSON remains bounded control data; it never contains buffer contents or
+a raw heap address.
 
 Buffer handles are opaque on both sides. Lua never receives a device pointer or
 a numeric heap address, which is the same rule the Wasm storage seam already
@@ -221,25 +237,30 @@ with a diagnosable error, not at dispatch.
 ### Limits
 
 The portable floors NEP 25 fixed — 256 workgroup threads and 16 KiB of
-workgroup scratch — are exactly WebGPU's guaranteed maximum compute
-invocations per workgroup and maximum workgroup storage size, so no kernel
-generated against the portable floor is refused for its shape. The guaranteed
-limit this backend must obey instead is storage buffers per shader stage, which
-bounds how many spans one kernel may bind; exceeding it is a lowering refusal
-naming the limit rather than a runtime failure. The guaranteed maximum storage
-buffer binding size and buffer size bound one resident allocation, and
-exceeding either raises at allocation rather than truncating.
+workgroup scratch — are WebGPU guarantees, so no kernel generated against the
+portable floor is refused for its workgroup shape. Its storage-buffer floor is
+eight bindings per compute stage, far below the native runtime's sixteen reads
+plus sixteen writes. The `webgpu-int32` profile therefore accepts at most eight
+total span parameters. The compiler rejects a larger browser artifact before
+it produces WGSL; `gpu.open()` also requires an adapter whose reported limits
+meet that profile.
+
+The profile caps one resident allocation at WebGPU's guaranteed storage-buffer
+binding size and the application host's Wasm-memory limit, whichever is
+smaller. Allocation exceeding either raises rather than truncating. A later,
+explicitly named WebGPU profile may request larger adapter limits, but it does
+not silently widen a portable artifact.
 
 ### Conformance
 
-The browser application suite gains a GPU case alongside its scalar and SIMD
-cases, driven by the existing headless browser harness with a software adapter
-selected, so the device is one named implementation rather than whatever the
-runner has. Every conformance vector runs three ways — the ordinary CPU body,
-the native artifact on the pinned software Vulkan device, and the WGSL artifact
-in the browser — and the three must agree element-exactly across exact-match
-vectors, non-multiple workgroup tails, every binding class, independent span
-counts, and repeated dispatch over resident intermediates.
+The browser application suite gains an integer GPU case through the existing
+headless browser harness with a software adapter selected, so the device is one
+named implementation rather than whatever the runner has. Every conformance
+vector runs three ways — the ordinary CPU body, the native artifact on the
+pinned software Vulkan device, and the WGSL artifact in the browser — and the
+three must agree element-exactly across wrapped arithmetic, non-multiple
+workgroup tails, every binding class, independent span counts, and repeated
+dispatch over resident intermediates.
 
 A missing adapter fails the job. It is not converted to a skip, for the reason
 NEP 25 gives: a GPU suite that can pass by not running is a compile-only suite
@@ -255,10 +276,10 @@ admit rather than disappearing.
 
 ## Risks and assumptions
 
-- **WGSL float semantics are decided below the artifact.** The bet is that the
-  admitted operation set does not depend on subnormal or NaN behavior. If that
-  is wrong, the browser subset narrows further, or the guarantee is restated as
-  exact over the normal range. It is not answered with a tolerance.
+- **Float is deferred rather than fuzzed.** The initial integer profile avoids
+  WGSL's implementation-defined floating-point edge behavior. A future float
+  profile needs an explicit proof obligation for ranges, rounding, NaNs,
+  infinities, signed zero, and subnormals before it can add one operation.
 - **A software WebGPU device is the deterministic floor, not proof.** It says
   nothing about what a vendor's browser and driver pair does, exactly as
   SwiftShader says nothing about a physical Vulkan driver. Hardware runs stay
@@ -266,9 +287,10 @@ admit rather than disappearing.
 - **Two emitters can drift where a translator could not.** The defense is that
   an IR construct with no WGSL case fails emission rather than emitting
   something, and that conformance compares the two artifacts on every vector.
-- **The transfer design assumes effects are serviced in the module's Worker.**
-  A host that ever services them off-thread loses the heap view, and transfers
-  would need a different design rather than a larger cap.
+- **The transfer lease is a new host ABI.** It is deliberately opaque and
+  short-lived, but it touches allocation, cancellation, and the JavaScript
+  host. A host that services effects off-thread needs a different transfer
+  design rather than a larger JSON cap.
 - **WebGPU availability is uneven.** Worker-scope support and adapter behavior
   differ by browser. The backend is opt-in per application, and the failure is
   at device open where it can be reported.
@@ -304,6 +326,12 @@ live in the Worker's heap.
 for native, and adopting it here would make `target = "gpu"` mean one thing on a
 desktop and another in a browser — a difference that would show up as wrong
 answers rather than as a refusal.
+
+**Starting with float because the native example scales floats.** WebGPU's
+integer operations give the first browser backend an element-exact contract,
+while floating-point exceptional values and rounding are not yet a shared
+contract. An integer profile is a useful backend; a claimed-exact float profile
+without those rules would only look more complete.
 
 **A WebGL2 compute fallback for hosts without WebGPU.** WebGL2 has no compute
 shaders; emulating them through transform feedback would be a third semantics
