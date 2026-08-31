@@ -13114,18 +13114,15 @@ lines ,
 .. kernelType
 .. " borrows (context)"
 )
+append ( lines , "    local artifacts = new " .. runtime .. ".ArtifactSet(" )
+append ( lines , "        spirv = " .. string . format ( "%q" , artifact . spirv ) .. "," )
+append ( lines , "        msl = " .. string . format ( "%q" , artifact . source ) .. "," )
+append ( lines , "        wgsl = " .. ( artifact . wgsl ~= nil and string . format ( "%q" , artifact . wgsl ) or "nil" ) .. "," )
+append ( lines , "        entrypoint = " .. string . format ( "%q" , artifact . entrypoint ) )
+append ( lines , "    )" )
 append (
 lines ,
-"    local compiled = context:compileGenerated(" .. string . format (
-"%q" ,
-artifact . spirv
-) .. ", " .. string . format (
-"%q" ,
-artifact . source
-) .. ", " .. string . format (
-"%q" ,
-artifact . entrypoint
-) .. ", " .. tostring (
+"    local compiled = context:compileGenerated(artifacts, " .. tostring (
 # artifact . readonly
 ) .. ", " .. tostring (
 # artifact . writable
@@ -144012,6 +144009,9 @@ declaration with a typed kernel specification. Its
 `compile(context)` method owns the shader and entrypoint, `bind(...)` accepts
 resident `gpu.Buffer<T>` values in the span parameters' order and types, and
 `dispatch(...)` accepts the scalar parameters and packs their uniform block.
+The generated `compile(...)` call carries an `ArtifactSet` with the SPIR-V,
+MSL, optional WGSL, and entrypoint; the selected device provider chooses the
+member it can consume.
 The Wasm policies refuse GPU IR, and `aot = "off"` or `emit-c` retain the
 ordinary function value. `nupp aot --emit spirv FILE` writes the canonical
 binary module, `--emit msl` prints its Metal derivative, and `--emit wgsl`
@@ -166513,6 +166513,19 @@ gpu.Kernel = {} gpu.Kernel.__index = gpu.Kernel
 
 
 
+
+
+gpu.ArtifactSet = {} gpu.ArtifactSet.__index = gpu.ArtifactSet
+
+
+
+
+
+
+
+
+
+
 gpu.Binding = {} gpu.Binding.__index = gpu.Binding
 
 
@@ -166591,7 +166604,6 @@ end ;__nuppCleanups["nupp.gpu#destroyContext"]=gpu.destroyContext
 
 
 gpu.Context = {} gpu.Context.__index = gpu.Context
-
 
 
 
@@ -166990,9 +167002,7 @@ end
 
 function gpu . Context . compileGenerated (
 self ,
-spirv ,
-msl ,
-entrypoint ,
+artifacts ,
 readonlyBuffers ,
 writableBuffers ,
 uniformBytes ,
@@ -167008,14 +167018,17 @@ end
 if group < 1 or group > 1024 then
 error ( "nupp: GPU thread group must be from 1 through 1024" , 2 )
 end
+if # artifacts . spirv == 0 or # artifacts . msl == 0 or # artifacts . entrypoint == 0 then
+error ( "nupp: native GPU kernels need non-empty SPIR-V, MSL, and an entrypoint" , 2 )
+end
 local handle = C . nuppGpuKernelCreate (
 live ( self ) ,
-spirv ,
-# spirv ,
-msl ,
-# msl ,
-entrypoint ,
-# entrypoint ,
+artifacts . spirv ,
+# artifacts . spirv ,
+artifacts . msl ,
+# artifacts . msl ,
+artifacts . entrypoint ,
+# artifacts . entrypoint ,
 readonlyBuffers ,
 writableBuffers ,
 uniformBytes ,
@@ -214543,6 +214556,19 @@ record gpu.Kernel
     private readonly _uniformBytes: integer
 end
 
+--- The peer artifacts emitted for one verified GPU kernel.
+---
+--- A context selects the member its provider can consume. Native contexts use
+--- the canonical SPIR-V and its MSL derivative; a browser context can instead
+--- select WGSL without changing compiler-generated host bindings.
+--- @internal
+record gpu.ArtifactSet
+    readonly spirv: string
+    readonly msl: string
+    readonly wgsl: string?
+    readonly entrypoint: string
+end
+
 --- A compiler-generated kernel attached to its resident buffers. User source
 --- receives a more specific generated wrapper; this erased value is the shared
 --- runtime implementation underneath it.
@@ -214640,13 +214666,12 @@ record gpu.Context is gpu.ContextToken
     --- Allocates a dense row-major resident tensor.
     tensor: function<T>(borrows self: Context, element: ctype<T>, shape: {integer}): gpu.Buffer<T> borrows (self)
 
-    --- Compiles metadata emitted beside an `@aot(target = "gpu")` body.
+    --- Compiles the artifacts emitted beside an `@aot(target = "gpu")` body.
+    --- The selected provider chooses its source member from this set.
     --- @internal
     compileGenerated: function(
         borrows self: Context,
-        spirv: string,
-        msl: string,
-        entrypoint: string,
+        artifacts: gpu.ArtifactSet,
         readonlyBuffers: integer,
         writableBuffers: integer,
         uniformBytes: integer,
@@ -215024,9 +215049,7 @@ end
 
 function gpu.Context.compileGenerated(
     borrows self: gpu.Context,
-    spirv: string,
-    msl: string,
-    entrypoint: string,
+    artifacts: gpu.ArtifactSet,
     readonlyBuffers: integer,
     writableBuffers: integer,
     uniformBytes: integer,
@@ -215042,14 +215065,17 @@ function gpu.Context.compileGenerated(
     if group < 1 or group > 1024 then
         error("nupp: GPU thread group must be from 1 through 1024", 2)
     end
+    if #artifacts.spirv == 0 or #artifacts.msl == 0 or #artifacts.entrypoint == 0 then
+        error("nupp: native GPU kernels need non-empty SPIR-V, MSL, and an entrypoint", 2)
+    end
     local handle = C.nuppGpuKernelCreate(
         live(self),
-        spirv,
-        #spirv,
-        msl,
-        #msl,
-        entrypoint,
-        #entrypoint,
+        artifacts.spirv,
+        #artifacts.spirv,
+        artifacts.msl,
+        #artifacts.msl,
+        artifacts.entrypoint,
+        #artifacts.entrypoint,
         readonlyBuffers,
         writableBuffers,
         uniformBytes,

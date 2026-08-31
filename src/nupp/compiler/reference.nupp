@@ -1656,6 +1656,9 @@ declaration with a typed kernel specification. Its
 `compile(context)` method owns the shader and entrypoint, `bind(...)` accepts
 resident `gpu.Buffer<T>` values in the span parameters' order and types, and
 `dispatch(...)` accepts the scalar parameters and packs their uniform block.
+The generated `compile(...)` call carries an `ArtifactSet` with the SPIR-V,
+MSL, optional WGSL, and entrypoint; the selected device provider chooses the
+member it can consume.
 The Wasm policies refuse GPU IR, and `aot = "off"` or `emit-c` retain the
 ordinary function value. `nupp aot --emit spirv FILE` writes the canonical
 binary module, `--emit msl` prints its Metal derivative, and `--emit wgsl`

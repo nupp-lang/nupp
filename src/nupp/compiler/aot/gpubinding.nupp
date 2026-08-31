@@ -134,18 +134,15 @@ function gpubinding.replacement(program: scalarIR.Program, artifact: gpuemit.Art
         .. kernelType
         .. " borrows (context)"
     )
+    append(lines, "    local artifacts = new " .. runtime .. ".ArtifactSet(")
+    append(lines, "        spirv = " .. string.format("%q", artifact.spirv) .. ",")
+    append(lines, "        msl = " .. string.format("%q", artifact.source) .. ",")
+    append(lines, "        wgsl = " .. (artifact.wgsl ~= nil and string.format("%q", artifact.wgsl) or "nil") .. ",")
+    append(lines, "        entrypoint = " .. string.format("%q", artifact.entrypoint))
+    append(lines, "    )")
     append(
         lines,
-        "    local compiled = context:compileGenerated(" .. string.format(
-            "%q",
-            artifact.spirv
-        ) .. ", " .. string.format(
-            "%q",
-            artifact.source
-        ) .. ", " .. string.format(
-            "%q",
-            artifact.entrypoint
-        ) .. ", " .. tostring(
+        "    local compiled = context:compileGenerated(artifacts, " .. tostring(
             #artifact.readonly
         ) .. ", " .. tostring(
             #artifact.writable

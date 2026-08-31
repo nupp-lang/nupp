@@ -156,6 +156,9 @@ return {doubled = doubled}
     test.equal(bindingCode, 0, binding)
     assert(binding:find("Buffer<float>", 1, true), binding)
     assert(binding:find("scale: float", 1, true), binding)
+    assert(binding:find("ArtifactSet", 1, true), binding)
+    assert(binding:find("spirv =", 1, true), binding)
+    assert(binding:find("msl =", 1, true), binding)
     assert(binding:find("compileGenerated", 1, true), binding)
     assert(binding:find("bindKernel", 1, true), binding)
     assert(binding:find("setRead(0, input, true)", 1, true), binding)
@@ -200,6 +203,12 @@ return xorMask
     assert(shader:find("var<storage, read_write> output: array<u32>", 1, true), shader)
     assert(shader:find("output[uniforms.output_offset + dispatch_index]", 1, true), shader)
     assert(shader:find("^ uniforms.mask", 1, true), shader)
+
+    local binding, bindingCode = run(dir, "--emit binding gpu.nupp")
+    test.equal(bindingCode, 0, binding)
+    assert(binding:find("local artifacts = new gpuRuntime_ks_xor_mask.ArtifactSet", 1, true), binding)
+    assert(binding:find("wgsl = \"struct NuppUniforms", 1, true), binding)
+    assert(binding:find("compileGenerated(artifacts, 1, 1", 1, true), binding)
 
     local floatingDir = project({
         ["gpu.nupp"] = [[
