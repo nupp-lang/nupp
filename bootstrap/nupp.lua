@@ -34833,6 +34833,7 @@ if selectedPolicy == "require" then
 for _ , source in ipairs ( sources ) do
 if mentionsGpuTarget ( sourceText [ source ] ) then
 session . stageBundled ( "nupp.gpulayout" )
+session . stageBundled ( "nupp.runtime.provider.nativegpu" )
 session . stageBundled ( "nupp.gpu" )
 break
 end
@@ -43245,6 +43246,7 @@ session . stageBundled ( backendModule )
 end
 if opts . checkOnly and target . aot == "require" and checkedTargetNeedsGpu ( root , config , opts . paths ) then
 session . stageBundled ( "nupp.gpulayout" )
+session . stageBundled ( "nupp.runtime.provider.nativegpu" )
 session . stageBundled ( "nupp.gpu" )
 end
 local earlyBackend = backends . resolve ( session . inc , target . backends )

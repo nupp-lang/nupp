@@ -491,6 +491,42 @@ return {
    return dir
 end
 
+local function gpuProject()
+   local dir = os.tmpname()
+   os.remove(dir)
+   assert(os.execute("mkdir -p '" .. dir .. "/src'") == 0)
+   local manifest = assert(io.open(dir .. "/nupp.lua", "wb"))
+   manifest:write([[
+return {
+   include = {"src"},
+   build = {targets = {native = {
+      kind = "modules", entries = {"gpucheck"}, outDir = "build/native",
+      aot = "require",
+   }}},
+}
+]])
+   manifest:close()
+   local source = assert(io.open(dir .. "/src/gpucheck.nupp", "wb"))
+   source:write([[
+module gpucheck
+
+local span = require("nupp.mem.span")
+
+@aot(target = "gpu")
+local function copy(exclusive output: span.WriteSpan<float>, borrows input: span.Span<float>): nil
+    assert(#output == #input)
+    for index = 1, #output do
+        output[index] = input[index]
+    end
+end
+
+export const kernel = copy
+]])
+   source:close()
+
+   return dir
+end
+
 -- One binding read only inside the `@aot` body, and one read nowhere. A policy
 -- that links replaces the whole declaration with its wrapper before the module
 -- build checks the file, so the first of these has no reader left in the text
@@ -759,6 +795,18 @@ local function build(dir)
    return (out:gsub("__exit__:%d+%s*$", "")), code
 end
 
+local function check(dir)
+   local cache = dir .. "/build/test-cache"
+   local pipe = assert(io.popen(
+      ("cd %q && NUPP_CACHE_DIR=%q NO_COLOR= '%s' check 2>&1; echo \"__exit__:$?\"")
+         :format(dir, cache, NUPP)))
+   local out = pipe:read("*a")
+   pipe:close()
+   local code = assert(tonumber(out:match("__exit__:(%d+)%s*$")), "no exit status in:\n" .. out)
+
+   return (out:gsub("__exit__:%d+%s*$", "")), code
+end
+
 -- The immutable baseline read-only assertions share. Cases that make cache
 -- assertions get a fixture of their own below: suite slicing can run several
 -- cases in one long-lived process, and a case that appends source or damages an
@@ -840,6 +888,16 @@ function M.cpuOnlyAotDoesNotStageTheGpuRuntime()
    assert(
       read(dir .. "/build/native/cache/backend-runtime-source/nupp/gpu.nupp") == nil,
       "a CPU-only AOT target staged the SDL GPU runtime"
+   )
+end
+
+function M.gpuCheckStagesTheDefaultProviderTypeSurface()
+   local dir = gpuProject()
+   local out, code = check(dir)
+   test.equal(code, 0, out)
+   assert(
+      read(dir .. "/build/native/cache/backend-runtime-source/nupp/runtime/provider/nativegpu.nupp"),
+      "a GPU check did not stage the native provider types its public facade re-exports"
    )
 end
 

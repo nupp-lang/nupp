@@ -1041,6 +1041,7 @@ function aot.emitC(
         for _, source in ipairs(sources) do
             if mentionsGpuTarget(sourceText[source] as string) then
                 session.stageBundled("nupp.gpulayout")
+                session.stageBundled("nupp.runtime.provider.nativegpu")
                 session.stageBundled("nupp.gpu")
                 break
             end
