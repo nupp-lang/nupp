@@ -229,7 +229,7 @@ local SEAM_FACTORY_RESOURCES = {
    "registry", "module", "contracts", "bitset", "browsercrypto", "browserstorage",
    "files", "hash", "hmacsha256", "http",
    "int64", "iobytes", "net", "path", "peg", "process", "sha256", "simd", "tls",
-   "structvalue", "suspension", "textbuffer", "time", "uri", "utf8", "uuid",
+   "structvalue", "suspension", "textbuffer", "time", "uri", "utf8", "uuid", "gpu",
    "wasm", "workers",
 }
 for _, name in ipairs(SEAM_FACTORY_RESOURCES) do
@@ -241,7 +241,7 @@ end
 local SEAM_SUITE_RESOURCES = {
    "bitset", "browsercrypto", "browserstorage", "files",
    "hash", "hmacsha256", "http", "int64", "iobytes",
-   "net", "path", "peg", "process", "sha256", "simd", "structvalue", "textbuffer",
+   "net", "path", "peg", "process", "sha256", "simd", "structvalue", "textbuffer", "gpu",
    "tls", "suspension", "time", "uri", "utf8", "uuid", "wasm", "workers",
 }
 for _, name in ipairs(SEAM_SUITE_RESOURCES) do
@@ -268,6 +268,7 @@ for _, resource in ipairs({
    "src/nupp/runtime/provider/browseruri.g.nupp",
    "src/nupp/runtime/provider/browserworkers.g.nupp",
    "src/nupp/runtime/provider/lunajson.nupp",
+    "src/nupp/runtime/provider/nativegpu.nupp",
    "src/nupp/runtime/provider/scalarbitops.nupp",
    "src/nupp/runtime/provider/tablebuffer.nupp",
    "src/nupp/runtime/vendor/lunajson/decoder.lua",

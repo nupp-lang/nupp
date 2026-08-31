@@ -104,6 +104,13 @@ local CONTRACTS: {any} = {
         exports = {["nupp.data.Bitset"] = "Bitset", ["nupp.data.WORD_BITS"] = "WORD_BITS",}
     },
     {
+        name = "compute.gpu",
+        effect = "native.gpu",
+        binding = "runtime",
+        factoryModule = "nupp.runtime.seam.gpu",
+        modules = {["nupp.gpu"] = ""},
+    },
+    {
         name = "peg",
         effect = "native.lpeg",
         effects = {"native.lpeg", "stdlib.lpeg.re", "stdlib.peg", "stdlib.peg.compile"},

@@ -40194,6 +40194,17 @@ linkRuntimeSource ( dependency )
 end
 end
 
+
+
+
+
+
+for _ , descriptor in ipairs ( backendResolution . modules or { } ) do
+for _ , seam in ipairs ( descriptor . seams or { } ) do
+linkRuntimeSource ( seam . runtimeModule )
+end
+end
+
 if hasBackends then
 for _ , name in ipairs ( {
 "nupp.runtime.backend" ,
@@ -73114,6 +73125,17 @@ end
 c . validateTypeBounds ( t . typeParams , t . typeBounds , map , node )
 
 local origin = ( t . origin or t )
+local selectedGpu = c . opts . backendResolution
+and c . opts . backendResolution . seams
+and c . opts . backendResolution . seams [
+"compute.gpu"
+]
+local isGpuBuffer = origin . name == "Buffer" and (
+origin . moduleName == "nupp.gpu"
+or origin . moduleName == "nupp.runtime.provider.nativegpu"
+or selectedGpu
+and origin . moduleName == selectedGpu . runtimeModule
+)
 local storageGeneric = (
 origin . moduleName == "nupp.mem.span" and (
 origin . name == "Span"
@@ -73126,11 +73148,7 @@ or origin . name == "WriteSplit"
 origin . moduleName == "nupp.mem.soa" and (
 origin . name == "Array" or origin . name == "Span" or origin . name == "WriteSpan"
 )
-)
-or origin . moduleName == "nupp.mem.heap"
-and origin . name == "Array"
-or origin . moduleName == "nupp.gpu"
-and origin . name == "Buffer"
+) or origin . moduleName == "nupp.mem.heap" and origin . name == "Array" or isGpuBuffer
 if not storageGeneric then
 local typePosition = 1
 for position , kind in ipairs ( t . paramKinds or { } ) do
@@ -102096,6 +102114,8 @@ local BUNDLED_SOURCE = {
 [ "nupp.runtime.provider.browsertime" ] = "/nupp/runtime/provider/browsertime.g.nupp" ,
 [ "nupp.runtime.provider.browseruri" ] = "/nupp/runtime/provider/browseruri.g.nupp" ,
 [ "nupp.runtime.seam.registry" ] = "/nupp/runtime/seam/registry.nupp" ,
+[ "nupp.runtime.seam.gpu" ] = "/nupp/runtime/seam/gpu.nupp" ,
+[ "nupp.runtime.seam.gpusuite" ] = "/nupp/runtime/seam/gpusuite.nupp" ,
 [ "nupp.runtime.seam.contracts" ] = "/nupp/runtime/seam/contracts.nupp" ,
 [ "nupp.runtime.seam.module" ] = "/nupp/runtime/seam/module.nupp" ,
 [ "nupp.runtime.seam.json" ] = "/nupp/runtime/seam/json.nupp" ,
@@ -134349,13 +134369,14 @@ module = "nupp.data.json.provider" ,
 modules = { "nupp.data.json" } ,
 exports = { "nupp.data.json" } ,
 } ,
-[
-"native.gpu"
-] = {
+[ "native.gpu" ] = {
 name = "gpu" ,
-module = "nupp.gpu" ,
+
+
+
+module = "nupp.runtime.provider.nativegpu" ,
 modules = { "nupp.gpulayout" } ,
-runtimeModule = "nupp.gpu" ,
+runtimeModule = "nupp.runtime.provider.nativegpu" ,
 provider = "nupp_native" ,
 providerFeature = "gpu" ,
 library = "nupp_native" ,
@@ -150248,11 +150269,8 @@ local MODULES = {
 
 
 [ "nupp.derive" ] = selected ( "runtime" , "text.buffer" ) ,
-
-
-
-
-[ "nupp.gpu" ] = { kind = "unavailable" , capability = "cinterop" } ,
+[ "nupp.gpu" ] = selected ( "runtime" , "compute.gpu" ) ,
+[ "nupp.runtime.provider.nativegpu" ] = { kind = "unavailable" , capability = "cinterop" } ,
 [ "nupp.runtime.hotreload" ] = { kind = "unavailable" , capability = "cinterop" } ,
 [ "nupp.io" ] = selected ( "runtime" , "io.bytes" ) ,
 [ "nupp.io.path.provider" ] = selected ( "host" , "host.path" ) ,
@@ -166462,7 +166480,7 @@ const __nuppExportValue= derive ;__nuppExports=__nuppExportValue
  end);if not __nuppOk then package.loaded["nupp.derive"]=nil;error(__nuppWhy,0) end;package.loaded["nupp.derive"]=__nuppExports;return __nuppExports
 end
 package.preload["nupp.gpu"] = function(...)
-_G.assert(_G.loadstring("local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppMath=rawget(__nupp,\"math\")or{};rawset(__nupp,\"math\",__nuppMath) local function __nuppCloseFile(handle)if io.type(handle)==\"closed file\"then return end;local ok,reason=handle:close();if not ok then error(reason or \"the file could not be closed\",0)end end local __nuppManagedBrand=_G.__nuppManagedBrand if not __nuppManagedBrand then __nuppManagedBrand={};_G.__nuppManagedBrand=__nuppManagedBrand end local __nuppManagedCells=_G.__nuppManagedCells if not __nuppManagedCells then __nuppManagedCells=setmetatable({},{__mode=\"k\"});_G.__nuppManagedCells=__nuppManagedCells end local __nuppManagedOwner={};__nuppManagedOwner.__index=__nuppManagedOwner;local __nuppManagedAlias={};__nuppManagedAlias.__index=__nuppManagedAlias local function __nuppManagedError(code,message)return{code=code,message=message}end local function __nuppManagedProblem(cell) if type(cell)~=\"table\"or cell._brand~=__nuppManagedBrand then return __nuppManagedError(\"NUPP2614\",\"value is not a managed alias\")end if cell._state==\"taken\"then return __nuppManagedError(\"NUPP2614\",\"managed ownership was already taken\")end if cell._state==\"closed\"or cell._state==\"closing\"then return __nuppManagedError(\"NUPP2614\",\"managed resource is closed\")end return nil end local function __nuppManagedClose(cell,checked) local problem=__nuppManagedProblem(cell);if problem then if checked then return problem end;return nil end if cell._borrows~=0 or cell._exclusive then local busy=__nuppManagedError(\"NUPP2620\",\"managed resource has an active borrow\");if checked then return busy end;error(busy.message,0)end cell._state=\"closing\";local value,cleanup=cell._value,cell._cleanup;cell._value=nil;cell._cleanup=nil local ok,reason=pcall(cleanup,value);cell._state=\"closed\";if not ok then error(reason,0)end;return nil end function __nuppManagedOwner:alias()return setmetatable({_cell=self,_brand=__nuppManagedBrand},__nuppManagedAlias)end function __nuppManagedOwner:close()return __nuppManagedClose(self,false)end local function __nuppAliasCell(self) if type(self)~=\"table\"or self._brand~=__nuppManagedBrand or getmetatable(self)~=__nuppManagedAlias then return nil,__nuppManagedError(\"NUPP2614\",\"value is not a managed alias\")end local cell=self._cell;local problem=__nuppManagedProblem(cell);if problem then return nil,problem end;return cell,nil end function __nuppManagedAlias:with(callback) local cell,problem=__nuppAliasCell(self);if not cell then return nil,problem end if cell._exclusive then return nil,__nuppManagedError(\"NUPP2620\",\"managed resource is exclusively borrowed\")end cell._borrows=cell._borrows+1;cell._state=\"shared-borrowed(\"..cell._borrows..\")\" local ok,result=pcall(callback,cell._value);cell._borrows=cell._borrows-1;cell._state=cell._borrows>0 and(\"shared-borrowed(\"..cell._borrows..\")\")or\"live\" if not ok then error(result,0)end;return result,nil end function __nuppManagedAlias:withExclusive(callback) local cell,problem=__nuppAliasCell(self);if not cell then return nil,problem end if cell._exclusive or cell._borrows~=0 then return nil,__nuppManagedError(\"NUPP2620\",\"managed resource is already borrowed\")end cell._exclusive=true;cell._state=\"exclusive-borrowed\";local ok,result=pcall(callback,cell._value);cell._exclusive=false;cell._state=\"live\" if not ok then error(result,0)end;return result,nil end function __nuppManagedAlias:take() local cell,problem=__nuppAliasCell(self);if not cell then return nil,problem end if cell._exclusive or cell._borrows~=0 then return nil,__nuppManagedError(\"NUPP2620\",\"managed resource has an active borrow\")end cell._state=\"taken\";local value=cell._value;cell._value=nil;cell._cleanup=nil;return value,nil end function __nuppManagedAlias:close() local cell,problem=__nuppAliasCell(self);if not cell then return problem end;return __nuppManagedClose(cell,true)end function __nuppManagedAlias:_downcast(policy) local cell,problem=__nuppAliasCell(self);if not cell then return nil,problem end if cell._policy~=policy then return nil,__nuppManagedError(\"NUPP2613\",\"managed alias has the wrong type or cleanup policy\")end return self,nil end function __nupp.__manage(value,cleanup,policy) local cell=setmetatable({_brand=__nuppManagedBrand,_value=value,_cleanup=cleanup,_policy=policy,_state=\"live\",_borrows=0,_exclusive=false},__nuppManagedOwner);__nuppManagedCells[cell]=true;return cell end function __nupp.__recoverAlias(value) if type(value)~=\"table\"or value._brand~=__nuppManagedBrand or getmetatable(value)~=__nuppManagedAlias then return nil,__nuppManagedError(\"NUPP2614\",\"value is not a managed alias\")end local cell,problem=__nuppAliasCell(value);if not cell then return nil,problem end;return value,nil end _G.__nuppManagedPolicyCount=function(policy)local count=0;for cell in pairs(__nuppManagedCells)do if cell._policy==policy and(cell._state==\"live\"or cell._state:match(\"borrowed\"))then count=count+1 end end;return count end local __nuppManagedGroup={};__nuppManagedGroup.__index=__nuppManagedGroup function __nuppManagedGroup:flush()end function __nuppManagedGroup:adopt(cell) if self._closed then error(\"managed group is closed\",2)end local handle=cell:alias();self._entries[#self._entries+1]=handle return handle end function __nuppManagedGroup:remove(handle) if self._closed then error(\"managed group is closed\",2)end for index=#self._entries,1,-1 do if self._entries[index]==handle then table.remove(self._entries,index);local value,problem=handle:take();if problem then error(problem.message,2)end;return value end end error(\"managed alias is not registered in this group\",2) end local function __nuppManagedCloseEntry(entry)local problem=entry:close();if problem and problem.code~=\"NUPP2614\"then error(problem.message,0)end end function __nuppManagedGroup:close() if self._closed then return end;self._closed=true;local first,suppressed=nil,0 for index=#self._entries,1,-1 do local ok,reason=pcall(__nuppManagedCloseEntry,self._entries[index]);if not ok then if first==nil then first=reason else suppressed=suppressed+1 end end end self._entries={};if first~=nil then if suppressed>0 then error(tostring(first)..\" (suppressed \"..tostring(suppressed)..\" cleanup failure(s))\",0)end;error(first,0)end end function __nupp.managedGroup()return setmetatable({_entries={},_closed=false},__nuppManagedGroup)end;\n","@nupp-prelude"))();const __nuppFfi = require("ffi"); local __nuppBitTobit=bit.tobit;local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppMath=rawget(__nupp,"math")or{};rawset(__nupp,"math",__nuppMath) local function __nuppCloseFile(handle)if io.type(handle)=="closed file"then return end;local ok,reason=handle:close();if not ok then error(reason or "the file could not be closed",0)end end local __nuppManagedBrand=_G.__nuppManagedBrand if not __nuppManagedBrand then __nuppManagedBrand={};_G.__nuppManagedBrand=__nuppManagedBrand end local __nuppManagedCells=_G.__nuppManagedCells if not __nuppManagedCells then __nuppManagedCells=setmetatable({},{__mode="k"});_G.__nuppManagedCells=__nuppManagedCells end local __nuppManagedOwner={};__nuppManagedOwner.__index=__nuppManagedOwner;local __nuppManagedAlias={};__nuppManagedAlias.__index=__nuppManagedAlias local function __nuppManagedError(code,message)return{code=code,message=message}end local function __nuppManagedProblem(cell) if type(cell)~="table"or cell._brand~=__nuppManagedBrand then return __nuppManagedError("NUPP2614","value is not a managed alias")end if cell._state=="taken"then return __nuppManagedError("NUPP2614","managed ownership was already taken")end if cell._state=="closed"or cell._state=="closing"then return __nuppManagedError("NUPP2614","managed resource is closed")end return nil end local function __nuppManagedClose(cell,checked) local problem=__nuppManagedProblem(cell);if problem then if checked then return problem end;return nil end if cell._borrows~=0 or cell._exclusive then local busy=__nuppManagedError("NUPP2620","managed resource has an active borrow");if checked then return busy end;error(busy.message,0)end cell._state="closing";local value,cleanup=cell._value,cell._cleanup;cell._value=nil;cell._cleanup=nil local ok,reason=pcall(cleanup,value);cell._state="closed";if not ok then error(reason,0)end;return nil end function __nuppManagedOwner:alias()return setmetatable({_cell=self,_brand=__nuppManagedBrand},__nuppManagedAlias)end function __nuppManagedOwner:close()return __nuppManagedClose(self,false)end local function __nuppAliasCell(self) if type(self)~="table"or self._brand~=__nuppManagedBrand or getmetatable(self)~=__nuppManagedAlias then return nil,__nuppManagedError("NUPP2614","value is not a managed alias")end local cell=self._cell;local problem=__nuppManagedProblem(cell);if problem then return nil,problem end;return cell,nil end function __nuppManagedAlias:with(callback) local cell,problem=__nuppAliasCell(self);if not cell then return nil,problem end if cell._exclusive then return nil,__nuppManagedError("NUPP2620","managed resource is exclusively borrowed")end cell._borrows=cell._borrows+1;cell._state="shared-borrowed("..cell._borrows..")" local ok,result=pcall(callback,cell._value);cell._borrows=cell._borrows-1;cell._state=cell._borrows>0 and("shared-borrowed("..cell._borrows..")")or"live" if not ok then error(result,0)end;return result,nil end function __nuppManagedAlias:withExclusive(callback) local cell,problem=__nuppAliasCell(self);if not cell then return nil,problem end if cell._exclusive or cell._borrows~=0 then return nil,__nuppManagedError("NUPP2620","managed resource is already borrowed")end cell._exclusive=true;cell._state="exclusive-borrowed";local ok,result=pcall(callback,cell._value);cell._exclusive=false;cell._state="live" if not ok then error(result,0)end;return result,nil end function __nuppManagedAlias:take() local cell,problem=__nuppAliasCell(self);if not cell then return nil,problem end if cell._exclusive or cell._borrows~=0 then return nil,__nuppManagedError("NUPP2620","managed resource has an active borrow")end cell._state="taken";local value=cell._value;cell._value=nil;cell._cleanup=nil;return value,nil end function __nuppManagedAlias:close() local cell,problem=__nuppAliasCell(self);if not cell then return problem end;return __nuppManagedClose(cell,true)end function __nuppManagedAlias:_downcast(policy) local cell,problem=__nuppAliasCell(self);if not cell then return nil,problem end if cell._policy~=policy then return nil,__nuppManagedError("NUPP2613","managed alias has the wrong type or cleanup policy")end return self,nil end function __nupp.__manage(value,cleanup,policy) local cell=setmetatable({_brand=__nuppManagedBrand,_value=value,_cleanup=cleanup,_policy=policy,_state="live",_borrows=0,_exclusive=false},__nuppManagedOwner);__nuppManagedCells[cell]=true;return cell end function __nupp.__recoverAlias(value) if type(value)~="table"or value._brand~=__nuppManagedBrand or getmetatable(value)~=__nuppManagedAlias then return nil,__nuppManagedError("NUPP2614","value is not a managed alias")end local cell,problem=__nuppAliasCell(value);if not cell then return nil,problem end;return value,nil end _G.__nuppManagedPolicyCount=function(policy)local count=0;for cell in pairs(__nuppManagedCells)do if cell._policy==policy and(cell._state=="live"or cell._state:match("borrowed"))then count=count+1 end end;return count end local __nuppManagedGroup={};__nuppManagedGroup.__index=__nuppManagedGroup function __nuppManagedGroup:flush()end function __nuppManagedGroup:adopt(cell) if self._closed then error("managed group is closed",2)end local handle=cell:alias();self._entries[#self._entries+1]=handle return handle end function __nuppManagedGroup:remove(handle) if self._closed then error("managed group is closed",2)end for index=#self._entries,1,-1 do if self._entries[index]==handle then table.remove(self._entries,index);local value,problem=handle:take();if problem then error(problem.message,2)end;return value end end error("managed alias is not registered in this group",2) end local function __nuppManagedCloseEntry(entry)local problem=entry:close();if problem and problem.code~="NUPP2614"then error(problem.message,0)end end function __nuppManagedGroup:close() if self._closed then return end;self._closed=true;local first,suppressed=nil,0 for index=#self._entries,1,-1 do local ok,reason=pcall(__nuppManagedCloseEntry,self._entries[index]);if not ok then if first==nil then first=reason else suppressed=suppressed+1 end end end self._entries={};if first~=nil then if suppressed>0 then error(tostring(first).." (suppressed "..tostring(suppressed).." cleanup failure(s))",0)end;error(first,0)end end function __nupp.managedGroup()return setmetatable({_entries={},_closed=false},__nuppManagedGroup)end local function __nuppLazy(target,name,loader)local meta=getmetatable(target)or{};local loaders=meta.__nuppLoaders;if not loaders then loaders={};local prior=meta.__index;meta.__nuppLoaders=loaders;meta.__index=function(t,k)local load=loaders[k];if load then local value=load(k);loaders[k]=nil;if value==nil then value=rawget(t,k)else rawset(t,k,value)end;return value end;if type(prior)=="function"then return prior(t,k)elseif prior then return prior[k]end end;setmetatable(target,meta)end;if name~=nil and rawget(target,name)==nil and loaders[name]==nil then loaders[name]=loader end end require("nupp.compiler.runtime.math").install(rawget(__nupp,"math"));local __nuppCleanups=_G.__nuppCleanupRegistry;if __nuppCleanups==nil then __nuppCleanups={};_G.__nuppCleanupRegistry=__nuppCleanups end;local __nuppExports;local __nuppOk,__nuppWhy=pcall(function()
+_G.assert(_G.loadstring("local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppMath=rawget(__nupp,\"math\")or{};rawset(__nupp,\"math\",__nuppMath) local function __nuppCloseFile(handle)if io.type(handle)==\"closed file\"then return end;local ok,reason=handle:close();if not ok then error(reason or \"the file could not be closed\",0)end end local __nuppManagedBrand=_G.__nuppManagedBrand if not __nuppManagedBrand then __nuppManagedBrand={};_G.__nuppManagedBrand=__nuppManagedBrand end local __nuppManagedCells=_G.__nuppManagedCells if not __nuppManagedCells then __nuppManagedCells=setmetatable({},{__mode=\"k\"});_G.__nuppManagedCells=__nuppManagedCells end local __nuppManagedOwner={};__nuppManagedOwner.__index=__nuppManagedOwner;local __nuppManagedAlias={};__nuppManagedAlias.__index=__nuppManagedAlias local function __nuppManagedError(code,message)return{code=code,message=message}end local function __nuppManagedProblem(cell) if type(cell)~=\"table\"or cell._brand~=__nuppManagedBrand then return __nuppManagedError(\"NUPP2614\",\"value is not a managed alias\")end if cell._state==\"taken\"then return __nuppManagedError(\"NUPP2614\",\"managed ownership was already taken\")end if cell._state==\"closed\"or cell._state==\"closing\"then return __nuppManagedError(\"NUPP2614\",\"managed resource is closed\")end return nil end local function __nuppManagedClose(cell,checked) local problem=__nuppManagedProblem(cell);if problem then if checked then return problem end;return nil end if cell._borrows~=0 or cell._exclusive then local busy=__nuppManagedError(\"NUPP2620\",\"managed resource has an active borrow\");if checked then return busy end;error(busy.message,0)end cell._state=\"closing\";local value,cleanup=cell._value,cell._cleanup;cell._value=nil;cell._cleanup=nil local ok,reason=pcall(cleanup,value);cell._state=\"closed\";if not ok then error(reason,0)end;return nil end function __nuppManagedOwner:alias()return setmetatable({_cell=self,_brand=__nuppManagedBrand},__nuppManagedAlias)end function __nuppManagedOwner:close()return __nuppManagedClose(self,false)end local function __nuppAliasCell(self) if type(self)~=\"table\"or self._brand~=__nuppManagedBrand or getmetatable(self)~=__nuppManagedAlias then return nil,__nuppManagedError(\"NUPP2614\",\"value is not a managed alias\")end local cell=self._cell;local problem=__nuppManagedProblem(cell);if problem then return nil,problem end;return cell,nil end function __nuppManagedAlias:with(callback) local cell,problem=__nuppAliasCell(self);if not cell then return nil,problem end if cell._exclusive then return nil,__nuppManagedError(\"NUPP2620\",\"managed resource is exclusively borrowed\")end cell._borrows=cell._borrows+1;cell._state=\"shared-borrowed(\"..cell._borrows..\")\" local ok,result=pcall(callback,cell._value);cell._borrows=cell._borrows-1;cell._state=cell._borrows>0 and(\"shared-borrowed(\"..cell._borrows..\")\")or\"live\" if not ok then error(result,0)end;return result,nil end function __nuppManagedAlias:withExclusive(callback) local cell,problem=__nuppAliasCell(self);if not cell then return nil,problem end if cell._exclusive or cell._borrows~=0 then return nil,__nuppManagedError(\"NUPP2620\",\"managed resource is already borrowed\")end cell._exclusive=true;cell._state=\"exclusive-borrowed\";local ok,result=pcall(callback,cell._value);cell._exclusive=false;cell._state=\"live\" if not ok then error(result,0)end;return result,nil end function __nuppManagedAlias:take() local cell,problem=__nuppAliasCell(self);if not cell then return nil,problem end if cell._exclusive or cell._borrows~=0 then return nil,__nuppManagedError(\"NUPP2620\",\"managed resource has an active borrow\")end cell._state=\"taken\";local value=cell._value;cell._value=nil;cell._cleanup=nil;return value,nil end function __nuppManagedAlias:close() local cell,problem=__nuppAliasCell(self);if not cell then return problem end;return __nuppManagedClose(cell,true)end function __nuppManagedAlias:_downcast(policy) local cell,problem=__nuppAliasCell(self);if not cell then return nil,problem end if cell._policy~=policy then return nil,__nuppManagedError(\"NUPP2613\",\"managed alias has the wrong type or cleanup policy\")end return self,nil end function __nupp.__manage(value,cleanup,policy) local cell=setmetatable({_brand=__nuppManagedBrand,_value=value,_cleanup=cleanup,_policy=policy,_state=\"live\",_borrows=0,_exclusive=false},__nuppManagedOwner);__nuppManagedCells[cell]=true;return cell end function __nupp.__recoverAlias(value) if type(value)~=\"table\"or value._brand~=__nuppManagedBrand or getmetatable(value)~=__nuppManagedAlias then return nil,__nuppManagedError(\"NUPP2614\",\"value is not a managed alias\")end local cell,problem=__nuppAliasCell(value);if not cell then return nil,problem end;return value,nil end _G.__nuppManagedPolicyCount=function(policy)local count=0;for cell in pairs(__nuppManagedCells)do if cell._policy==policy and(cell._state==\"live\"or cell._state:match(\"borrowed\"))then count=count+1 end end;return count end local __nuppManagedGroup={};__nuppManagedGroup.__index=__nuppManagedGroup function __nuppManagedGroup:flush()end function __nuppManagedGroup:adopt(cell) if self._closed then error(\"managed group is closed\",2)end local handle=cell:alias();self._entries[#self._entries+1]=handle return handle end function __nuppManagedGroup:remove(handle) if self._closed then error(\"managed group is closed\",2)end for index=#self._entries,1,-1 do if self._entries[index]==handle then table.remove(self._entries,index);local value,problem=handle:take();if problem then error(problem.message,2)end;return value end end error(\"managed alias is not registered in this group\",2) end local function __nuppManagedCloseEntry(entry)local problem=entry:close();if problem and problem.code~=\"NUPP2614\"then error(problem.message,0)end end function __nuppManagedGroup:close() if self._closed then return end;self._closed=true;local first,suppressed=nil,0 for index=#self._entries,1,-1 do local ok,reason=pcall(__nuppManagedCloseEntry,self._entries[index]);if not ok then if first==nil then first=reason else suppressed=suppressed+1 end end end self._entries={};if first~=nil then if suppressed>0 then error(tostring(first)..\" (suppressed \"..tostring(suppressed)..\" cleanup failure(s))\",0)end;error(first,0)end end function __nupp.managedGroup()return setmetatable({_entries={},_closed=false},__nuppManagedGroup)end;\n","@nupp-prelude"))();local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppMath=rawget(__nupp,"math")or{};rawset(__nupp,"math",__nuppMath) local function __nuppCloseFile(handle)if io.type(handle)=="closed file"then return end;local ok,reason=handle:close();if not ok then error(reason or "the file could not be closed",0)end end local __nuppManagedBrand=_G.__nuppManagedBrand if not __nuppManagedBrand then __nuppManagedBrand={};_G.__nuppManagedBrand=__nuppManagedBrand end local __nuppManagedCells=_G.__nuppManagedCells if not __nuppManagedCells then __nuppManagedCells=setmetatable({},{__mode="k"});_G.__nuppManagedCells=__nuppManagedCells end local __nuppManagedOwner={};__nuppManagedOwner.__index=__nuppManagedOwner;local __nuppManagedAlias={};__nuppManagedAlias.__index=__nuppManagedAlias local function __nuppManagedError(code,message)return{code=code,message=message}end local function __nuppManagedProblem(cell) if type(cell)~="table"or cell._brand~=__nuppManagedBrand then return __nuppManagedError("NUPP2614","value is not a managed alias")end if cell._state=="taken"then return __nuppManagedError("NUPP2614","managed ownership was already taken")end if cell._state=="closed"or cell._state=="closing"then return __nuppManagedError("NUPP2614","managed resource is closed")end return nil end local function __nuppManagedClose(cell,checked) local problem=__nuppManagedProblem(cell);if problem then if checked then return problem end;return nil end if cell._borrows~=0 or cell._exclusive then local busy=__nuppManagedError("NUPP2620","managed resource has an active borrow");if checked then return busy end;error(busy.message,0)end cell._state="closing";local value,cleanup=cell._value,cell._cleanup;cell._value=nil;cell._cleanup=nil local ok,reason=pcall(cleanup,value);cell._state="closed";if not ok then error(reason,0)end;return nil end function __nuppManagedOwner:alias()return setmetatable({_cell=self,_brand=__nuppManagedBrand},__nuppManagedAlias)end function __nuppManagedOwner:close()return __nuppManagedClose(self,false)end local function __nuppAliasCell(self) if type(self)~="table"or self._brand~=__nuppManagedBrand or getmetatable(self)~=__nuppManagedAlias then return nil,__nuppManagedError("NUPP2614","value is not a managed alias")end local cell=self._cell;local problem=__nuppManagedProblem(cell);if problem then return nil,problem end;return cell,nil end function __nuppManagedAlias:with(callback) local cell,problem=__nuppAliasCell(self);if not cell then return nil,problem end if cell._exclusive then return nil,__nuppManagedError("NUPP2620","managed resource is exclusively borrowed")end cell._borrows=cell._borrows+1;cell._state="shared-borrowed("..cell._borrows..")" local ok,result=pcall(callback,cell._value);cell._borrows=cell._borrows-1;cell._state=cell._borrows>0 and("shared-borrowed("..cell._borrows..")")or"live" if not ok then error(result,0)end;return result,nil end function __nuppManagedAlias:withExclusive(callback) local cell,problem=__nuppAliasCell(self);if not cell then return nil,problem end if cell._exclusive or cell._borrows~=0 then return nil,__nuppManagedError("NUPP2620","managed resource is already borrowed")end cell._exclusive=true;cell._state="exclusive-borrowed";local ok,result=pcall(callback,cell._value);cell._exclusive=false;cell._state="live" if not ok then error(result,0)end;return result,nil end function __nuppManagedAlias:take() local cell,problem=__nuppAliasCell(self);if not cell then return nil,problem end if cell._exclusive or cell._borrows~=0 then return nil,__nuppManagedError("NUPP2620","managed resource has an active borrow")end cell._state="taken";local value=cell._value;cell._value=nil;cell._cleanup=nil;return value,nil end function __nuppManagedAlias:close() local cell,problem=__nuppAliasCell(self);if not cell then return problem end;return __nuppManagedClose(cell,true)end function __nuppManagedAlias:_downcast(policy) local cell,problem=__nuppAliasCell(self);if not cell then return nil,problem end if cell._policy~=policy then return nil,__nuppManagedError("NUPP2613","managed alias has the wrong type or cleanup policy")end return self,nil end function __nupp.__manage(value,cleanup,policy) local cell=setmetatable({_brand=__nuppManagedBrand,_value=value,_cleanup=cleanup,_policy=policy,_state="live",_borrows=0,_exclusive=false},__nuppManagedOwner);__nuppManagedCells[cell]=true;return cell end function __nupp.__recoverAlias(value) if type(value)~="table"or value._brand~=__nuppManagedBrand or getmetatable(value)~=__nuppManagedAlias then return nil,__nuppManagedError("NUPP2614","value is not a managed alias")end local cell,problem=__nuppAliasCell(value);if not cell then return nil,problem end;return value,nil end _G.__nuppManagedPolicyCount=function(policy)local count=0;for cell in pairs(__nuppManagedCells)do if cell._policy==policy and(cell._state=="live"or cell._state:match("borrowed"))then count=count+1 end end;return count end local __nuppManagedGroup={};__nuppManagedGroup.__index=__nuppManagedGroup function __nuppManagedGroup:flush()end function __nuppManagedGroup:adopt(cell) if self._closed then error("managed group is closed",2)end local handle=cell:alias();self._entries[#self._entries+1]=handle return handle end function __nuppManagedGroup:remove(handle) if self._closed then error("managed group is closed",2)end for index=#self._entries,1,-1 do if self._entries[index]==handle then table.remove(self._entries,index);local value,problem=handle:take();if problem then error(problem.message,2)end;return value end end error("managed alias is not registered in this group",2) end local function __nuppManagedCloseEntry(entry)local problem=entry:close();if problem and problem.code~="NUPP2614"then error(problem.message,0)end end function __nuppManagedGroup:close() if self._closed then return end;self._closed=true;local first,suppressed=nil,0 for index=#self._entries,1,-1 do local ok,reason=pcall(__nuppManagedCloseEntry,self._entries[index]);if not ok then if first==nil then first=reason else suppressed=suppressed+1 end end end self._entries={};if first~=nil then if suppressed>0 then error(tostring(first).." (suppressed "..tostring(suppressed).." cleanup failure(s))",0)end;error(first,0)end end function __nupp.managedGroup()return setmetatable({_entries={},_closed=false},__nuppManagedGroup)end local function __nuppLazy(target,name,loader)local meta=getmetatable(target)or{};local loaders=meta.__nuppLoaders;if not loaders then loaders={};local prior=meta.__index;meta.__nuppLoaders=loaders;meta.__index=function(t,k)local load=loaders[k];if load then local value=load(k);loaders[k]=nil;if value==nil then value=rawget(t,k)else rawset(t,k,value)end;return value end;if type(prior)=="function"then return prior(t,k)elseif prior then return prior[k]end end;setmetatable(target,meta)end;if name~=nil and rawget(target,name)==nil and loaders[name]==nil then loaders[name]=loader end end;local __nuppExports;local __nuppOk,__nuppWhy=pcall(function()
 
 
 
@@ -166472,6 +166490,7 @@ _G.assert(_G.loadstring("local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppM
 
 
 
+local native = require ( "nupp.runtime.provider.nativegpu" )
 
 
 
@@ -166483,830 +166502,7 @@ _G.assert(_G.loadstring("local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppM
 
 
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-local native = require ( "nupp.runtime.native" )
-local span = require ( "nupp.mem.span" )
-local tensorlayout = require ( "nupp.gpulayout" )
-
-local ffi = native . ffi
-
-
-
-local gpuLibrary = os . getenv ( "NUPP_GPU_LIBRARY" )
-local C = gpuLibrary and ffi . load ( gpuLibrary ) or native . C
-local gpu = { }
-
-
-
-
-
-
-
-
-gpu . PORTABLE_WORKGROUP_THREADS = 256
-
-
-
-
-gpu . PORTABLE_SCRATCH_BYTES = 16384
-
-native . ffi . cdef [[
-typedef struct NuppGpuContext NuppGpuContext;
-typedef struct NuppGpuBuffer NuppGpuBuffer;
-typedef struct NuppGpuKernel NuppGpuKernel;
-typedef struct NuppGpuBinding NuppGpuBinding;
-NuppGpuContext *nuppGpuContextCreate(void);
-const char *nuppGpuContextDriver(const NuppGpuContext *);
-void nuppGpuContextDestroy(NuppGpuContext *);
-NuppGpuBuffer *nuppGpuBufferCreate(NuppGpuContext *, size_t);
-NuppGpuKernel *nuppGpuKernelCreate(
-    NuppGpuContext *, const uint8_t *, size_t, const uint8_t *, size_t,
-    const uint8_t *, size_t,
-    uint32_t, uint32_t, uint32_t, uint32_t);
-bool nuppGpuBufferUpload(NuppGpuContext *, NuppGpuBuffer *, const void *, size_t, size_t);
-NuppGpuBinding *nuppGpuBindingCreate(NuppGpuContext *, NuppGpuKernel *, uint32_t);
-bool nuppGpuBindingSetRead(NuppGpuBinding *, uint32_t, NuppGpuBuffer *, uint32_t, uint32_t, bool);
-bool nuppGpuBindingSetWrite(NuppGpuBinding *, uint32_t, NuppGpuBuffer *, uint32_t, uint32_t, bool);
-bool nuppGpuBindingDispatch(NuppGpuBinding *, const void *, size_t);
-bool nuppGpuBufferDownload(NuppGpuContext *, NuppGpuBuffer *, size_t, size_t);
-bool nuppGpuSynchronize(NuppGpuContext *);
-bool nuppGpuBufferRead(NuppGpuContext *, NuppGpuBuffer *, void *, size_t, size_t);
-bool nuppGpuBufferDestroy(NuppGpuContext *, NuppGpuBuffer *);
-bool nuppGpuKernelDestroy(NuppGpuContext *, NuppGpuKernel *);
-bool nuppGpuBindingDestroy(NuppGpuContext *, NuppGpuBinding *);
-]]
-
-
-
-
-
-local function dispatchNative ( binding , uniforms , bytes ) 
-local call = C . nuppGpuBindingDispatch
-return call ( binding , uniforms , bytes )
-end
-
-
-
-
-
-gpu.Buffer = {} gpu.Buffer.__index = gpu.Buffer
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-gpu.Kernel = {} gpu.Kernel.__index = gpu.Kernel
-
-
-
-
-
-
-
-
-
-
-
-gpu.ArtifactSet = {} gpu.ArtifactSet.__index = gpu.ArtifactSet
-
-
-
-
-
-
-
-
-
-
-gpu.Binding = {} gpu.Binding.__index = gpu.Binding
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-gpu.Shared = {} gpu.Shared.__index = gpu.Shared
-
-
-
-
-
-
-
-
-
-
-gpu.Phases = {} gpu.Phases.__index = gpu.Phases
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-function gpu . destroyContext ( context ) 
-context : drop ( )
-end ;__nuppCleanups["nupp.gpu#destroyContext"]=gpu.destroyContext
-
-
-
-gpu.Context = {} gpu.Context.__index = gpu.Context
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-local function live ( self ) 
-if self . _closed or self . _handle == nil then
-error ( "nupp: GPU context is closed" , 3 )
-end
-return self . _handle
-end
-
-local function succeeded ( ok , level ) 
-if not ok then
-error ( "nupp: " .. ffi . string ( C . nuppNativeError ( ) ) , level )
-end
-end
-
-
-
-
-local function uploadTyped (
-context ,
-buffer ,
-source ,
-offset ,
-bytes
-) 
-local call = C . nuppGpuBufferUpload
-return call ( context , buffer , source , offset , bytes )
-end
-
-local function readTyped (
-context ,
-buffer ,
-destination ,
-offset ,
-bytes
-) 
-local call = C . nuppGpuBufferRead
-return call ( context , buffer , destination , offset , bytes )
-end
-
-local function denseShape ( shape ) 
-if # shape < 1 or # shape > 4 then
-error ( "nupp: GPU tensors take one through four dimensions" , 3 )
-end
-local count = 1
-local strides = { }
-for index = # shape , 1 , - 1 do
-local dimension = shape [ index ]
-if dimension < 1 or count > math.floor(( 4294967295 ) / ( dimension )) then
-error ( "nupp: GPU tensor dimensions must have 1 through 4294967295 elements" , 3 )
-end
-strides [ index ] = count
-count = count * dimension
-end
-
-return count , strides
-end
-
-local function copied ( values ) 
-local out = { }
-for index , value in ipairs ( values ) do
-out [ index ] = value
-end
-
-return out
-end
-
-function gpu . Shared . get ( self , index ) 
-if index < 0 or index >= self . count then
-error ( "nupp: GPU shared-scratch index out of bounds" , 2 )
-end
-return self . _values [ index + 1 ]
-end
-
-function gpu . Shared . set ( self , index , value ) 
-if index < 0 or index >= self . count then
-error ( "nupp: GPU shared-scratch index out of bounds" , 2 )
-end
-self . _values [ index + 1 ] = value
-end
-
-function gpu . Phases . scratch ( self , initial , count ) 
-if count < 1 then
-error ( "nupp: GPU shared scratch must contain at least one element" , 2 )
-end
-local values = { }
-for index = 1 , count do
-values [ index ] = initial
-end
-
-return setmetatable({ _values =  values ,  count =  count }, gpu.Shared)
-end
-
-function gpu . Phases . run ( self , stage ) 
-for index = 0 , self . _size - 1 do
-stage ( (__nuppBitTobit( index )%4294967296) )
-end
-end
-
-function gpu . Phases . reduceSumF32 ( self , values ) 
-if values . count ~= self . _size or self . _size < 1 or self . _size & ( self . _size - 1 ) ~= 0 then
-error ( "nupp: fixed-tree reduction needs one power-of-two value per lane" , 2 )
-end
-local stride = math.floor(( self . _size ) / ( 2 ))
-while stride > 0 do
-local active = stride
-self : run ( function ( localIndex ) 
-local lane = localIndex
-if lane < active then
-values [
-lane
-] = nupp . math . f32 . add ( nupp . math . f32 . narrow ( values [ lane ] ) , nupp . math . f32 . narrow ( values [ lane + active ] ) )
-end
-end )
-stride = math.floor(( stride ) / ( 2 ))
-end
-end
-
-function gpu . Phases . inclusiveScanU32 (
-self ,
-values ,
-temporary
-) 
-if values . count ~= self . _size or temporary . count ~= self . _size or self . _size < 1 or self . _size & (
-self . _size - 1
-) ~= 0 then
-error ( "nupp: fixed scan needs two power-of-two arrays with one value per lane" , 2 )
-end
-local offset = 1
-local valuesAreSource = true
-while offset < self . _size do
-local distance = offset
-if valuesAreSource then
-self : run ( function ( localIndex ) 
-local lane = localIndex
-local value = values [ lane ]
-if lane >= distance then
-value = (__nuppBitTobit((
-(__nuppBitTobit( value )%4294967296) )+(
-(__nuppBitTobit( values [ lane - distance ] )%4294967296) ))%4294967296)
-
-end
-temporary [ lane ] = value
-end )
-else
-self : run ( function ( localIndex ) 
-local lane = localIndex
-local value = temporary [ lane ]
-if lane >= distance then
-value = (__nuppBitTobit((
-(__nuppBitTobit( value )%4294967296) )+(
-(__nuppBitTobit( temporary [ lane - distance ] )%4294967296) ))%4294967296)
-
-end
-values [ lane ] = value
-end )
-end
-valuesAreSource = not valuesAreSource
-offset = offset * 2
-end
-if not valuesAreSource then
-self : run ( function ( localIndex ) 
-local lane = localIndex
-values [ lane ] = temporary [ lane ]
-end )
-end
-end
-
-
-
-
-
-
-
-
-function gpu . workgroups ( groups , size , controller ) 
-local groupCount = groups
-local groupSize = size
-if groupSize < 1 or groupSize > gpu . PORTABLE_WORKGROUP_THREADS then
-error ( "nupp: GPU workgroup size exceeds the portable limit" , 2 )
-end
-local phases = setmetatable({ _size =  groupSize }, gpu.Phases)
-for groupIndex = 0 , groupCount - 1 do
-controller ( (__nuppBitTobit( groupIndex )%4294967296) , phases )
-end
-end
-
-function gpu . Context . drop ( self ) 
-local state = self
-if state . _closed then
-return
-end
-state . _closed = true
-local handle = state . _handle
-state . _handle = nil
-do
-local destroy = C . nuppGpuContextDestroy
-destroy ( handle )
-end
-end
-
-function gpu . Context . driver ( self ) 
-return ffi . string ( C . nuppGpuContextDriver ( live ( self ) ) )
-end
-
-function gpu . Context . buffer (
-self ,
-element ,
-count
-) 
-if count < 0 then
-error ( "nupp: GPU buffer count cannot be negative" , 2 )
-end
-local width = ffi . sizeof ( element )
-if width <= 0 or count == 0 or count > math.floor(( 4294967295 ) / ( width )) then
-error ( "nupp: GPU buffer must contain 1 through 4294967295 bytes" , 2 )
-end
-local handle = C . nuppGpuBufferCreate ( live ( self ) , width * count )
-if handle == nil then
-error ( "nupp: " .. ffi . string ( C . nuppNativeError ( ) ) , 2 )
-end
-
-return setmetatable({ _anchor =
-self ,  _handle =
-handle ,  _width =
-width ,  _offset =
-0 ,  _capacity =
-count ,  _root =
-true ,  _shape =
-{ count } ,  _strides =
-{ 1 } ,  count =
-count }, gpu.Buffer)
-
-end
-
-function gpu . Context . tensor (
-self ,
-element ,
-shape
-) 
-local count , strides = denseShape ( shape )
-local out = self : buffer ( element , count )
-out . _shape = copied ( shape )
-out . _strides = strides
-
-return out
-end
-
-function gpu . Buffer . dimensions ( self ) 
-return copied ( self . _shape )
-end
-
-function gpu . Buffer . strides ( self ) 
-return copied ( self . _strides )
-end
-
-function gpu . bufferIsDense ( buffer ) 
-local _ , _ , dense = tensorlayout . _facts ( buffer . _shape , buffer . _strides , 2 )
-return dense
-end
-
-function gpu . bufferIsInjective ( buffer ) 
-local _ , _ , _ , injective = tensorlayout . _facts ( buffer . _shape , buffer . _strides , 2 )
-return injective
-end
-
-function gpu . bufferLayout ( buffer ) 
-return tensorlayout . new ( buffer . _offset , buffer . _shape , buffer . _strides )
-end
-
-function gpu . view ( buffer , layout ) 
-local offset = tensorlayout . offset ( layout )
-local extent = tensorlayout . extent ( layout )
-if offset > buffer . _capacity or extent > buffer . _capacity - offset then
-error ( "nupp: GPU tensor view exceeds its allocation" , 2 )
-end
-
-return setmetatable({ _anchor =
-buffer ,  _handle =
-buffer . _handle ,  _width =
-buffer . _width ,  _offset =
-offset ,  _capacity =
-buffer . _capacity ,  _root =
-false ,  _shape =
-tensorlayout . dimensions ( layout ) ,  _strides =
-tensorlayout . strides ( layout ) ,  count =
-layout . count }, gpu.Buffer)
-
-end
-
-function gpu . Buffer . subview (
-self ,
-origin ,
-shape
-) 
-if # origin ~= # self . _shape or # shape ~= # self . _shape then
-error ( "nupp: GPU tensor subview rank does not match its buffer" , 2 )
-end
-local count , extent = tensorlayout . _facts ( shape , self . _strides , 2 )
-local offset = self . _offset
-for index = # shape , 1 , - 1 do
-local first = origin [ index ]
-local dimension = shape [ index ]
-if first < 0 or first > self . _shape [ index ] or dimension > self . _shape [ index ] - first then
-error ( "nupp: GPU tensor subview is outside its buffer" , 2 )
-end
-offset = offset + first * self . _strides [ index ]
-end
-if offset > self . _capacity or extent > self . _capacity - offset then
-error ( "nupp: GPU tensor subview exceeds its allocation" , 2 )
-end
-
-return setmetatable({ _anchor =
-self ,  _handle =
-self . _handle ,  _width =
-self . _width ,  _offset =
-offset ,  _capacity =
-self . _capacity ,  _root =
-false ,  _shape =
-copied ( shape ) ,  _strides =
-copied ( self . _strides ) ,  count =
-count }, gpu.Buffer)
-
-end
-
-function gpu . Context . compileGenerated (
-self ,
-artifacts ,
-readonlyBuffers ,
-writableBuffers ,
-uniformBytes ,
-threads
-) 
-local group = threads or 256
-if readonlyBuffers < 0 or readonlyBuffers > 16 or writableBuffers < 1 or writableBuffers > 16 then
-error ( "nupp: generated GPU kernels take up to 16 read and 1 through 16 write buffers" , 2 )
-end
-if uniformBytes < 0 or uniformBytes > 128 then
-error ( "nupp: GPU uniform block must be from 0 through 128 bytes" , 2 )
-end
-if group < 1 or group > 1024 then
-error ( "nupp: GPU thread group must be from 1 through 1024" , 2 )
-end
-if # artifacts . spirv == 0 or # artifacts . msl == 0 or # artifacts . entrypoint == 0 then
-error ( "nupp: native GPU kernels need non-empty SPIR-V, MSL, and an entrypoint" , 2 )
-end
-local handle = C . nuppGpuKernelCreate (
-live ( self ) ,
-artifacts . spirv ,
-# artifacts . spirv ,
-artifacts . msl ,
-# artifacts . msl ,
-artifacts . entrypoint ,
-# artifacts . entrypoint ,
-readonlyBuffers ,
-writableBuffers ,
-uniformBytes ,
-group
-)
-if handle == nil then
-error ( "nupp: " .. ffi . string ( C . nuppNativeError ( ) ) , 2 )
-end
-
-return setmetatable({ _anchor =  self ,  _handle =  handle ,  _uniformBytes =  uniformBytes }, gpu.Kernel)
-end
-
-function gpu . Context . bindKernel (
-self ,
-kernel ,
-count
-) 
-if count < 0 or count > 4294967295 then
-error ( "nupp: GPU dispatch count must be from 0 through 4294967295" , 2 )
-end
-local handle = C . nuppGpuBindingCreate ( live ( self ) , kernel . _handle , count )
-if handle == nil then
-error ( "nupp: " .. ffi . string ( C . nuppNativeError ( ) ) , 2 )
-end
-
-return setmetatable({ _anchor =
-self ,  _handle =
-handle ,  _uniformBytes =
-kernel . _uniformBytes ,  _released =
-false ,  count =
-count }, gpu.Binding)
-
-end
-
-function gpu . Context . releaseBuffer ( self , buffer ) 
-if not buffer . _root then
-error ( "nupp: a GPU view borrows its buffer; release the root buffer" , 2 )
-end
-succeeded ( C . nuppGpuBufferDestroy ( live ( self ) , buffer . _handle ) , 2 )
-end
-
-function gpu . Context . releaseKernel ( self , kernel ) 
-succeeded ( C . nuppGpuKernelDestroy ( live ( self ) , kernel . _handle ) , 2 )
-end
-
-function gpu . Context . releaseBinding ( self , binding ) 
-if binding . _released then
-return
-end
-succeeded ( C . nuppGpuBindingDestroy ( live ( self ) , binding . _handle ) , 2 )
-binding . _released = true
-end
-
-function gpu . Binding . setRead (
-self ,
-slot ,
-buffer ,
-matchCount
-) 
-if self . _released then
-error ( "nupp: GPU binding was released" , 2 )
-end
-local _ , extent , dense = tensorlayout . _facts ( buffer . _shape , buffer . _strides , 2 )
-if matchCount and not dense then
-error ( "nupp: dispatch-indexed GPU buffers must be dense" , 2 )
-end
-succeeded ( C . nuppGpuBindingSetRead ( self . _handle , slot , buffer . _handle , buffer . _offset , extent , matchCount ) , 2 )
-end
-
-function gpu . Binding . setWrite (
-self ,
-slot ,
-buffer ,
-matchCount
-) 
-if self . _released then
-error ( "nupp: GPU binding was released" , 2 )
-end
-local _ , extent , dense , injective = tensorlayout . _facts ( buffer . _shape , buffer . _strides , 2 )
-if not injective or extent ~= buffer . count then
-error ( "nupp: writable GPU tensor views must be disjoint and cover one complete span extent" , 2 )
-end
-if matchCount and not dense then
-error ( "nupp: dispatch-indexed GPU buffers must be dense" , 2 )
-end
-succeeded ( C . nuppGpuBindingSetWrite ( self . _handle , slot , buffer . _handle , buffer . _offset , extent , matchCount ) , 2 )
-end
-
-function gpu . Binding . dispatchPacked ( self , uniforms , uniformBytes ) 
-if self . _released then
-error ( "nupp: GPU binding was released" , 2 )
-end
-if uniformBytes ~= self . _uniformBytes then
-error ( "nupp: generated GPU uniform block has the wrong size" , 2 )
-end
-local uniformPointer = __nuppFfi.cast("const uint8_t *" , uniforms )
-succeeded ( dispatchNative ( self . _handle , uniformPointer , uniformBytes ) , 2 )
-end
-
-function gpu . Context . upload (
-self ,
-buffer ,
-source
-) 
-if not gpu . bufferIsDense ( buffer ) then
-error ( "nupp: GPU uploads require a dense tensor view" , 2 )
-end
-if source .count ~= buffer . count then
-error ( "nupp: GPU upload span length does not match its buffer" , 2 )
-end
-local pointer , count = source : ref ( )
-succeeded (
-uploadTyped ( live ( self ) , buffer . _handle , pointer , buffer . _offset * buffer . _width , buffer . _width * count ) ,
-2
-)
-end
-
-function gpu . Context . enqueueDownload ( self , buffer ) 
-if not gpu . bufferIsDense ( buffer ) then
-error ( "nupp: GPU downloads require a dense tensor view" , 2 )
-end
-succeeded (
-C . nuppGpuBufferDownload (
-live ( self ) ,
-buffer . _handle ,
-buffer . _offset * buffer . _width ,
-buffer . count * buffer . _width
-) ,
-2
-)
-end
-
-function gpu . Context . synchronize ( self ) 
-succeeded ( C . nuppGpuSynchronize ( live ( self ) ) , 2 )
-end
-
-function gpu . Context . readDownloaded (
-self ,
-buffer ,
-destination
-) 
-if not gpu . bufferIsDense ( buffer ) then
-error ( "nupp: GPU downloads require a dense tensor view" , 2 )
-end
-if destination .count ~= buffer . count then
-error ( "nupp: GPU download span length does not match its buffer" , 2 )
-end
-local pointer , count = destination : ref ( )
-succeeded ( readTyped ( live ( self ) , buffer . _handle , pointer , buffer . _offset * buffer . _width , buffer . _width * count ) , 2 )
-end
-
-function gpu . Context . download (
-self ,
-buffer ,
-destination
-) 
-self : enqueueDownload ( buffer )
-self : synchronize ( )
-self : readDownloaded ( buffer , destination )
-end
-
-
-
-
-function gpu . open ( ) __nuppCleanups["nupp.gpu#destroyContext"]=gpu.destroyContext; 
-local handle = C . nuppGpuContextCreate ( )
-if handle == nil then
-error ( "nupp: " .. ffi . string ( C . nuppNativeError ( ) ) , 2 )
-end
-
-return setmetatable({ _handle =  handle ,  _closed =  false }, gpu.Context)
-end
-
-gpu . Buffer = gpu . Buffer
-gpu . Layout = tensorlayout . Layout
-gpu . layoutDimensions = tensorlayout . dimensions
-gpu . layoutStrides = tensorlayout . strides
-gpu . layoutIsDense = tensorlayout . isDense
-gpu . layoutIsInjective = tensorlayout . isInjective
-gpu . subviewLayout = tensorlayout . subview
-gpu . transposeLayout = tensorlayout . transpose
-gpu . broadcastLayout = tensorlayout . broadcast
-gpu . asStridedLayout = tensorlayout . asStrided
-gpu . Kernel = gpu . Kernel
-gpu . Binding = gpu . Binding
-gpu . Shared = gpu . Shared
-gpu . Phases = gpu . Phases
-gpu . Context = gpu . Context
-gpu . ContextToken = gpu . ContextToken
-
-const __nuppExportValue= gpu ;__nuppExports=__nuppExportValue
+const __nuppExportValue= native ;__nuppExports=__nuppExportValue
  end);if not __nuppOk then package.loaded["nupp.gpu"]=nil;error(__nuppWhy,0) end;package.loaded["nupp.gpu"]=__nuppExports;return __nuppExports
 end
 package.preload["nupp.gpulayout"] = function(...)
@@ -189000,6 +188196,854 @@ EMPTY_OBJECT = json . EMPTY_OBJECT ,
 const __nuppExportValue= checked ;__nuppExports=__nuppExportValue
  end);if not __nuppOk then package.loaded["nupp.runtime.provider.lunajson"]=nil;error(__nuppWhy,0) end;package.loaded["nupp.runtime.provider.lunajson"]=__nuppExports;return __nuppExports
 end
+package.preload["nupp.runtime.provider.nativegpu"] = function(...)
+_G.assert(_G.loadstring("local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppMath=rawget(__nupp,\"math\")or{};rawset(__nupp,\"math\",__nuppMath) local function __nuppCloseFile(handle)if io.type(handle)==\"closed file\"then return end;local ok,reason=handle:close();if not ok then error(reason or \"the file could not be closed\",0)end end local __nuppManagedBrand=_G.__nuppManagedBrand if not __nuppManagedBrand then __nuppManagedBrand={};_G.__nuppManagedBrand=__nuppManagedBrand end local __nuppManagedCells=_G.__nuppManagedCells if not __nuppManagedCells then __nuppManagedCells=setmetatable({},{__mode=\"k\"});_G.__nuppManagedCells=__nuppManagedCells end local __nuppManagedOwner={};__nuppManagedOwner.__index=__nuppManagedOwner;local __nuppManagedAlias={};__nuppManagedAlias.__index=__nuppManagedAlias local function __nuppManagedError(code,message)return{code=code,message=message}end local function __nuppManagedProblem(cell) if type(cell)~=\"table\"or cell._brand~=__nuppManagedBrand then return __nuppManagedError(\"NUPP2614\",\"value is not a managed alias\")end if cell._state==\"taken\"then return __nuppManagedError(\"NUPP2614\",\"managed ownership was already taken\")end if cell._state==\"closed\"or cell._state==\"closing\"then return __nuppManagedError(\"NUPP2614\",\"managed resource is closed\")end return nil end local function __nuppManagedClose(cell,checked) local problem=__nuppManagedProblem(cell);if problem then if checked then return problem end;return nil end if cell._borrows~=0 or cell._exclusive then local busy=__nuppManagedError(\"NUPP2620\",\"managed resource has an active borrow\");if checked then return busy end;error(busy.message,0)end cell._state=\"closing\";local value,cleanup=cell._value,cell._cleanup;cell._value=nil;cell._cleanup=nil local ok,reason=pcall(cleanup,value);cell._state=\"closed\";if not ok then error(reason,0)end;return nil end function __nuppManagedOwner:alias()return setmetatable({_cell=self,_brand=__nuppManagedBrand},__nuppManagedAlias)end function __nuppManagedOwner:close()return __nuppManagedClose(self,false)end local function __nuppAliasCell(self) if type(self)~=\"table\"or self._brand~=__nuppManagedBrand or getmetatable(self)~=__nuppManagedAlias then return nil,__nuppManagedError(\"NUPP2614\",\"value is not a managed alias\")end local cell=self._cell;local problem=__nuppManagedProblem(cell);if problem then return nil,problem end;return cell,nil end function __nuppManagedAlias:with(callback) local cell,problem=__nuppAliasCell(self);if not cell then return nil,problem end if cell._exclusive then return nil,__nuppManagedError(\"NUPP2620\",\"managed resource is exclusively borrowed\")end cell._borrows=cell._borrows+1;cell._state=\"shared-borrowed(\"..cell._borrows..\")\" local ok,result=pcall(callback,cell._value);cell._borrows=cell._borrows-1;cell._state=cell._borrows>0 and(\"shared-borrowed(\"..cell._borrows..\")\")or\"live\" if not ok then error(result,0)end;return result,nil end function __nuppManagedAlias:withExclusive(callback) local cell,problem=__nuppAliasCell(self);if not cell then return nil,problem end if cell._exclusive or cell._borrows~=0 then return nil,__nuppManagedError(\"NUPP2620\",\"managed resource is already borrowed\")end cell._exclusive=true;cell._state=\"exclusive-borrowed\";local ok,result=pcall(callback,cell._value);cell._exclusive=false;cell._state=\"live\" if not ok then error(result,0)end;return result,nil end function __nuppManagedAlias:take() local cell,problem=__nuppAliasCell(self);if not cell then return nil,problem end if cell._exclusive or cell._borrows~=0 then return nil,__nuppManagedError(\"NUPP2620\",\"managed resource has an active borrow\")end cell._state=\"taken\";local value=cell._value;cell._value=nil;cell._cleanup=nil;return value,nil end function __nuppManagedAlias:close() local cell,problem=__nuppAliasCell(self);if not cell then return problem end;return __nuppManagedClose(cell,true)end function __nuppManagedAlias:_downcast(policy) local cell,problem=__nuppAliasCell(self);if not cell then return nil,problem end if cell._policy~=policy then return nil,__nuppManagedError(\"NUPP2613\",\"managed alias has the wrong type or cleanup policy\")end return self,nil end function __nupp.__manage(value,cleanup,policy) local cell=setmetatable({_brand=__nuppManagedBrand,_value=value,_cleanup=cleanup,_policy=policy,_state=\"live\",_borrows=0,_exclusive=false},__nuppManagedOwner);__nuppManagedCells[cell]=true;return cell end function __nupp.__recoverAlias(value) if type(value)~=\"table\"or value._brand~=__nuppManagedBrand or getmetatable(value)~=__nuppManagedAlias then return nil,__nuppManagedError(\"NUPP2614\",\"value is not a managed alias\")end local cell,problem=__nuppAliasCell(value);if not cell then return nil,problem end;return value,nil end _G.__nuppManagedPolicyCount=function(policy)local count=0;for cell in pairs(__nuppManagedCells)do if cell._policy==policy and(cell._state==\"live\"or cell._state:match(\"borrowed\"))then count=count+1 end end;return count end local __nuppManagedGroup={};__nuppManagedGroup.__index=__nuppManagedGroup function __nuppManagedGroup:flush()end function __nuppManagedGroup:adopt(cell) if self._closed then error(\"managed group is closed\",2)end local handle=cell:alias();self._entries[#self._entries+1]=handle return handle end function __nuppManagedGroup:remove(handle) if self._closed then error(\"managed group is closed\",2)end for index=#self._entries,1,-1 do if self._entries[index]==handle then table.remove(self._entries,index);local value,problem=handle:take();if problem then error(problem.message,2)end;return value end end error(\"managed alias is not registered in this group\",2) end local function __nuppManagedCloseEntry(entry)local problem=entry:close();if problem and problem.code~=\"NUPP2614\"then error(problem.message,0)end end function __nuppManagedGroup:close() if self._closed then return end;self._closed=true;local first,suppressed=nil,0 for index=#self._entries,1,-1 do local ok,reason=pcall(__nuppManagedCloseEntry,self._entries[index]);if not ok then if first==nil then first=reason else suppressed=suppressed+1 end end end self._entries={};if first~=nil then if suppressed>0 then error(tostring(first)..\" (suppressed \"..tostring(suppressed)..\" cleanup failure(s))\",0)end;error(first,0)end end function __nupp.managedGroup()return setmetatable({_entries={},_closed=false},__nuppManagedGroup)end;\n","@nupp-prelude"))();const __nuppFfi = require("ffi"); local __nuppBitTobit=bit.tobit;local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppMath=rawget(__nupp,"math")or{};rawset(__nupp,"math",__nuppMath) local function __nuppCloseFile(handle)if io.type(handle)=="closed file"then return end;local ok,reason=handle:close();if not ok then error(reason or "the file could not be closed",0)end end local __nuppManagedBrand=_G.__nuppManagedBrand if not __nuppManagedBrand then __nuppManagedBrand={};_G.__nuppManagedBrand=__nuppManagedBrand end local __nuppManagedCells=_G.__nuppManagedCells if not __nuppManagedCells then __nuppManagedCells=setmetatable({},{__mode="k"});_G.__nuppManagedCells=__nuppManagedCells end local __nuppManagedOwner={};__nuppManagedOwner.__index=__nuppManagedOwner;local __nuppManagedAlias={};__nuppManagedAlias.__index=__nuppManagedAlias local function __nuppManagedError(code,message)return{code=code,message=message}end local function __nuppManagedProblem(cell) if type(cell)~="table"or cell._brand~=__nuppManagedBrand then return __nuppManagedError("NUPP2614","value is not a managed alias")end if cell._state=="taken"then return __nuppManagedError("NUPP2614","managed ownership was already taken")end if cell._state=="closed"or cell._state=="closing"then return __nuppManagedError("NUPP2614","managed resource is closed")end return nil end local function __nuppManagedClose(cell,checked) local problem=__nuppManagedProblem(cell);if problem then if checked then return problem end;return nil end if cell._borrows~=0 or cell._exclusive then local busy=__nuppManagedError("NUPP2620","managed resource has an active borrow");if checked then return busy end;error(busy.message,0)end cell._state="closing";local value,cleanup=cell._value,cell._cleanup;cell._value=nil;cell._cleanup=nil local ok,reason=pcall(cleanup,value);cell._state="closed";if not ok then error(reason,0)end;return nil end function __nuppManagedOwner:alias()return setmetatable({_cell=self,_brand=__nuppManagedBrand},__nuppManagedAlias)end function __nuppManagedOwner:close()return __nuppManagedClose(self,false)end local function __nuppAliasCell(self) if type(self)~="table"or self._brand~=__nuppManagedBrand or getmetatable(self)~=__nuppManagedAlias then return nil,__nuppManagedError("NUPP2614","value is not a managed alias")end local cell=self._cell;local problem=__nuppManagedProblem(cell);if problem then return nil,problem end;return cell,nil end function __nuppManagedAlias:with(callback) local cell,problem=__nuppAliasCell(self);if not cell then return nil,problem end if cell._exclusive then return nil,__nuppManagedError("NUPP2620","managed resource is exclusively borrowed")end cell._borrows=cell._borrows+1;cell._state="shared-borrowed("..cell._borrows..")" local ok,result=pcall(callback,cell._value);cell._borrows=cell._borrows-1;cell._state=cell._borrows>0 and("shared-borrowed("..cell._borrows..")")or"live" if not ok then error(result,0)end;return result,nil end function __nuppManagedAlias:withExclusive(callback) local cell,problem=__nuppAliasCell(self);if not cell then return nil,problem end if cell._exclusive or cell._borrows~=0 then return nil,__nuppManagedError("NUPP2620","managed resource is already borrowed")end cell._exclusive=true;cell._state="exclusive-borrowed";local ok,result=pcall(callback,cell._value);cell._exclusive=false;cell._state="live" if not ok then error(result,0)end;return result,nil end function __nuppManagedAlias:take() local cell,problem=__nuppAliasCell(self);if not cell then return nil,problem end if cell._exclusive or cell._borrows~=0 then return nil,__nuppManagedError("NUPP2620","managed resource has an active borrow")end cell._state="taken";local value=cell._value;cell._value=nil;cell._cleanup=nil;return value,nil end function __nuppManagedAlias:close() local cell,problem=__nuppAliasCell(self);if not cell then return problem end;return __nuppManagedClose(cell,true)end function __nuppManagedAlias:_downcast(policy) local cell,problem=__nuppAliasCell(self);if not cell then return nil,problem end if cell._policy~=policy then return nil,__nuppManagedError("NUPP2613","managed alias has the wrong type or cleanup policy")end return self,nil end function __nupp.__manage(value,cleanup,policy) local cell=setmetatable({_brand=__nuppManagedBrand,_value=value,_cleanup=cleanup,_policy=policy,_state="live",_borrows=0,_exclusive=false},__nuppManagedOwner);__nuppManagedCells[cell]=true;return cell end function __nupp.__recoverAlias(value) if type(value)~="table"or value._brand~=__nuppManagedBrand or getmetatable(value)~=__nuppManagedAlias then return nil,__nuppManagedError("NUPP2614","value is not a managed alias")end local cell,problem=__nuppAliasCell(value);if not cell then return nil,problem end;return value,nil end _G.__nuppManagedPolicyCount=function(policy)local count=0;for cell in pairs(__nuppManagedCells)do if cell._policy==policy and(cell._state=="live"or cell._state:match("borrowed"))then count=count+1 end end;return count end local __nuppManagedGroup={};__nuppManagedGroup.__index=__nuppManagedGroup function __nuppManagedGroup:flush()end function __nuppManagedGroup:adopt(cell) if self._closed then error("managed group is closed",2)end local handle=cell:alias();self._entries[#self._entries+1]=handle return handle end function __nuppManagedGroup:remove(handle) if self._closed then error("managed group is closed",2)end for index=#self._entries,1,-1 do if self._entries[index]==handle then table.remove(self._entries,index);local value,problem=handle:take();if problem then error(problem.message,2)end;return value end end error("managed alias is not registered in this group",2) end local function __nuppManagedCloseEntry(entry)local problem=entry:close();if problem and problem.code~="NUPP2614"then error(problem.message,0)end end function __nuppManagedGroup:close() if self._closed then return end;self._closed=true;local first,suppressed=nil,0 for index=#self._entries,1,-1 do local ok,reason=pcall(__nuppManagedCloseEntry,self._entries[index]);if not ok then if first==nil then first=reason else suppressed=suppressed+1 end end end self._entries={};if first~=nil then if suppressed>0 then error(tostring(first).." (suppressed "..tostring(suppressed).." cleanup failure(s))",0)end;error(first,0)end end function __nupp.managedGroup()return setmetatable({_entries={},_closed=false},__nuppManagedGroup)end local function __nuppLazy(target,name,loader)local meta=getmetatable(target)or{};local loaders=meta.__nuppLoaders;if not loaders then loaders={};local prior=meta.__index;meta.__nuppLoaders=loaders;meta.__index=function(t,k)local load=loaders[k];if load then local value=load(k);loaders[k]=nil;if value==nil then value=rawget(t,k)else rawset(t,k,value)end;return value end;if type(prior)=="function"then return prior(t,k)elseif prior then return prior[k]end end;setmetatable(target,meta)end;if name~=nil and rawget(target,name)==nil and loaders[name]==nil then loaders[name]=loader end end require("nupp.compiler.runtime.math").install(rawget(__nupp,"math"));local __nuppCleanups=_G.__nuppCleanupRegistry;if __nuppCleanups==nil then __nuppCleanups={};_G.__nuppCleanupRegistry=__nuppCleanups end;local __nuppExports;local __nuppOk,__nuppWhy=pcall(function()
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+local native = require ( "nupp.runtime.native" )
+local span = require ( "nupp.mem.span" )
+local tensorlayout = require ( "nupp.gpulayout" )
+
+local ffi = native . ffi
+
+
+
+local gpuLibrary = os . getenv ( "NUPP_GPU_LIBRARY" )
+local C = gpuLibrary and ffi . load ( gpuLibrary ) or native . C
+local gpu = { }
+
+
+
+
+
+
+
+
+gpu . PORTABLE_WORKGROUP_THREADS = 256
+
+
+
+
+gpu . PORTABLE_SCRATCH_BYTES = 16384
+
+native . ffi . cdef [[
+typedef struct NuppGpuContext NuppGpuContext;
+typedef struct NuppGpuBuffer NuppGpuBuffer;
+typedef struct NuppGpuKernel NuppGpuKernel;
+typedef struct NuppGpuBinding NuppGpuBinding;
+NuppGpuContext *nuppGpuContextCreate(void);
+const char *nuppGpuContextDriver(const NuppGpuContext *);
+void nuppGpuContextDestroy(NuppGpuContext *);
+NuppGpuBuffer *nuppGpuBufferCreate(NuppGpuContext *, size_t);
+NuppGpuKernel *nuppGpuKernelCreate(
+    NuppGpuContext *, const uint8_t *, size_t, const uint8_t *, size_t,
+    const uint8_t *, size_t,
+    uint32_t, uint32_t, uint32_t, uint32_t);
+bool nuppGpuBufferUpload(NuppGpuContext *, NuppGpuBuffer *, const void *, size_t, size_t);
+NuppGpuBinding *nuppGpuBindingCreate(NuppGpuContext *, NuppGpuKernel *, uint32_t);
+bool nuppGpuBindingSetRead(NuppGpuBinding *, uint32_t, NuppGpuBuffer *, uint32_t, uint32_t, bool);
+bool nuppGpuBindingSetWrite(NuppGpuBinding *, uint32_t, NuppGpuBuffer *, uint32_t, uint32_t, bool);
+bool nuppGpuBindingDispatch(NuppGpuBinding *, const void *, size_t);
+bool nuppGpuBufferDownload(NuppGpuContext *, NuppGpuBuffer *, size_t, size_t);
+bool nuppGpuSynchronize(NuppGpuContext *);
+bool nuppGpuBufferRead(NuppGpuContext *, NuppGpuBuffer *, void *, size_t, size_t);
+bool nuppGpuBufferDestroy(NuppGpuContext *, NuppGpuBuffer *);
+bool nuppGpuKernelDestroy(NuppGpuContext *, NuppGpuKernel *);
+bool nuppGpuBindingDestroy(NuppGpuContext *, NuppGpuBinding *);
+]]
+
+
+
+
+
+local function dispatchNative ( binding , uniforms , bytes ) 
+local call = C . nuppGpuBindingDispatch
+return call ( binding , uniforms , bytes )
+end
+
+
+
+
+
+gpu.Buffer = {} gpu.Buffer.__index = gpu.Buffer
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+gpu.Kernel = {} gpu.Kernel.__index = gpu.Kernel
+
+
+
+
+
+
+
+
+
+
+
+gpu.ArtifactSet = {} gpu.ArtifactSet.__index = gpu.ArtifactSet
+
+
+
+
+
+
+
+
+
+
+gpu.Binding = {} gpu.Binding.__index = gpu.Binding
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+gpu.Shared = {} gpu.Shared.__index = gpu.Shared
+
+
+
+
+
+
+
+
+
+
+gpu.Phases = {} gpu.Phases.__index = gpu.Phases
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+function gpu . destroyContext ( context ) 
+context : drop ( )
+end ;__nuppCleanups["nupp.runtime.provider.nativegpu#destroyContext"]=gpu.destroyContext
+
+
+
+gpu.Context = {} gpu.Context.__index = gpu.Context
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+local function live ( self ) 
+if self . _closed or self . _handle == nil then
+error ( "nupp: GPU context is closed" , 3 )
+end
+return self . _handle
+end
+
+local function succeeded ( ok , level ) 
+if not ok then
+error ( "nupp: " .. ffi . string ( C . nuppNativeError ( ) ) , level )
+end
+end
+
+
+
+
+local function uploadTyped (
+context ,
+buffer ,
+source ,
+offset ,
+bytes
+) 
+local call = C . nuppGpuBufferUpload
+return call ( context , buffer , source , offset , bytes )
+end
+
+local function readTyped (
+context ,
+buffer ,
+destination ,
+offset ,
+bytes
+) 
+local call = C . nuppGpuBufferRead
+return call ( context , buffer , destination , offset , bytes )
+end
+
+local function denseShape ( shape ) 
+if # shape < 1 or # shape > 4 then
+error ( "nupp: GPU tensors take one through four dimensions" , 3 )
+end
+local count = 1
+local strides = { }
+for index = # shape , 1 , - 1 do
+local dimension = shape [ index ]
+if dimension < 1 or count > math.floor(( 4294967295 ) / ( dimension )) then
+error ( "nupp: GPU tensor dimensions must have 1 through 4294967295 elements" , 3 )
+end
+strides [ index ] = count
+count = count * dimension
+end
+
+return count , strides
+end
+
+local function copied ( values ) 
+local out = { }
+for index , value in ipairs ( values ) do
+out [ index ] = value
+end
+
+return out
+end
+
+function gpu . Shared . get ( self , index ) 
+if index < 0 or index >= self . count then
+error ( "nupp: GPU shared-scratch index out of bounds" , 2 )
+end
+return self . _values [ index + 1 ]
+end
+
+function gpu . Shared . set ( self , index , value ) 
+if index < 0 or index >= self . count then
+error ( "nupp: GPU shared-scratch index out of bounds" , 2 )
+end
+self . _values [ index + 1 ] = value
+end
+
+function gpu . Phases . scratch ( self , initial , count ) 
+if count < 1 then
+error ( "nupp: GPU shared scratch must contain at least one element" , 2 )
+end
+local values = { }
+for index = 1 , count do
+values [ index ] = initial
+end
+
+return setmetatable({ _values =  values ,  count =  count }, gpu.Shared)
+end
+
+function gpu . Phases . run ( self , stage ) 
+for index = 0 , self . _size - 1 do
+stage ( (__nuppBitTobit( index )%4294967296) )
+end
+end
+
+function gpu . Phases . reduceSumF32 ( self , values ) 
+if values . count ~= self . _size or self . _size < 1 or self . _size & ( self . _size - 1 ) ~= 0 then
+error ( "nupp: fixed-tree reduction needs one power-of-two value per lane" , 2 )
+end
+local stride = math.floor(( self . _size ) / ( 2 ))
+while stride > 0 do
+local active = stride
+self : run ( function ( localIndex ) 
+local lane = localIndex
+if lane < active then
+values [
+lane
+] = nupp . math . f32 . add ( nupp . math . f32 . narrow ( values [ lane ] ) , nupp . math . f32 . narrow ( values [ lane + active ] ) )
+end
+end )
+stride = math.floor(( stride ) / ( 2 ))
+end
+end
+
+function gpu . Phases . inclusiveScanU32 (
+self ,
+values ,
+temporary
+) 
+if values . count ~= self . _size or temporary . count ~= self . _size or self . _size < 1 or self . _size & (
+self . _size - 1
+) ~= 0 then
+error ( "nupp: fixed scan needs two power-of-two arrays with one value per lane" , 2 )
+end
+local offset = 1
+local valuesAreSource = true
+while offset < self . _size do
+local distance = offset
+if valuesAreSource then
+self : run ( function ( localIndex ) 
+local lane = localIndex
+local value = values [ lane ]
+if lane >= distance then
+value = (__nuppBitTobit((
+(__nuppBitTobit( value )%4294967296) )+(
+(__nuppBitTobit( values [ lane - distance ] )%4294967296) ))%4294967296)
+
+end
+temporary [ lane ] = value
+end )
+else
+self : run ( function ( localIndex ) 
+local lane = localIndex
+local value = temporary [ lane ]
+if lane >= distance then
+value = (__nuppBitTobit((
+(__nuppBitTobit( value )%4294967296) )+(
+(__nuppBitTobit( temporary [ lane - distance ] )%4294967296) ))%4294967296)
+
+end
+values [ lane ] = value
+end )
+end
+valuesAreSource = not valuesAreSource
+offset = offset * 2
+end
+if not valuesAreSource then
+self : run ( function ( localIndex ) 
+local lane = localIndex
+values [ lane ] = temporary [ lane ]
+end )
+end
+end
+
+
+
+
+
+
+
+
+function gpu . workgroups ( groups , size , controller ) 
+local groupCount = groups
+local groupSize = size
+if groupSize < 1 or groupSize > gpu . PORTABLE_WORKGROUP_THREADS then
+error ( "nupp: GPU workgroup size exceeds the portable limit" , 2 )
+end
+local phases = setmetatable({ _size =  groupSize }, gpu.Phases)
+for groupIndex = 0 , groupCount - 1 do
+controller ( (__nuppBitTobit( groupIndex )%4294967296) , phases )
+end
+end
+
+function gpu . Context . drop ( self ) 
+local state = self
+if state . _closed then
+return
+end
+state . _closed = true
+local handle = state . _handle
+state . _handle = nil
+do
+local destroy = C . nuppGpuContextDestroy
+destroy ( handle )
+end
+end
+
+function gpu . Context . driver ( self ) 
+return ffi . string ( C . nuppGpuContextDriver ( live ( self ) ) )
+end
+
+function gpu . Context . buffer (
+self ,
+element ,
+count
+) 
+if count < 0 then
+error ( "nupp: GPU buffer count cannot be negative" , 2 )
+end
+local width = ffi . sizeof ( element )
+if width <= 0 or count == 0 or count > math.floor(( 4294967295 ) / ( width )) then
+error ( "nupp: GPU buffer must contain 1 through 4294967295 bytes" , 2 )
+end
+local handle = C . nuppGpuBufferCreate ( live ( self ) , width * count )
+if handle == nil then
+error ( "nupp: " .. ffi . string ( C . nuppNativeError ( ) ) , 2 )
+end
+
+return setmetatable({ _anchor =
+self ,  _handle =
+handle ,  _width =
+width ,  _offset =
+0 ,  _capacity =
+count ,  _root =
+true ,  _shape =
+{ count } ,  _strides =
+{ 1 } ,  count =
+count }, gpu.Buffer)
+
+end
+
+function gpu . Context . tensor (
+self ,
+element ,
+shape
+) 
+local count , strides = denseShape ( shape )
+local out = self : buffer ( element , count )
+out . _shape = copied ( shape )
+out . _strides = strides
+
+return out
+end
+
+function gpu . Buffer . dimensions ( self ) 
+return copied ( self . _shape )
+end
+
+function gpu . Buffer . strides ( self ) 
+return copied ( self . _strides )
+end
+
+function gpu . bufferIsDense ( buffer ) 
+local _ , _ , dense = tensorlayout . _facts ( buffer . _shape , buffer . _strides , 2 )
+return dense
+end
+
+function gpu . bufferIsInjective ( buffer ) 
+local _ , _ , _ , injective = tensorlayout . _facts ( buffer . _shape , buffer . _strides , 2 )
+return injective
+end
+
+function gpu . bufferLayout ( buffer ) 
+return tensorlayout . new ( buffer . _offset , buffer . _shape , buffer . _strides )
+end
+
+function gpu . view ( buffer , layout ) 
+local offset = tensorlayout . offset ( layout )
+local extent = tensorlayout . extent ( layout )
+if offset > buffer . _capacity or extent > buffer . _capacity - offset then
+error ( "nupp: GPU tensor view exceeds its allocation" , 2 )
+end
+
+return setmetatable({ _anchor =
+buffer ,  _handle =
+buffer . _handle ,  _width =
+buffer . _width ,  _offset =
+offset ,  _capacity =
+buffer . _capacity ,  _root =
+false ,  _shape =
+tensorlayout . dimensions ( layout ) ,  _strides =
+tensorlayout . strides ( layout ) ,  count =
+layout . count }, gpu.Buffer)
+
+end
+
+function gpu . Buffer . subview (
+self ,
+origin ,
+shape
+) 
+if # origin ~= # self . _shape or # shape ~= # self . _shape then
+error ( "nupp: GPU tensor subview rank does not match its buffer" , 2 )
+end
+local count , extent = tensorlayout . _facts ( shape , self . _strides , 2 )
+local offset = self . _offset
+for index = # shape , 1 , - 1 do
+local first = origin [ index ]
+local dimension = shape [ index ]
+if first < 0 or first > self . _shape [ index ] or dimension > self . _shape [ index ] - first then
+error ( "nupp: GPU tensor subview is outside its buffer" , 2 )
+end
+offset = offset + first * self . _strides [ index ]
+end
+if offset > self . _capacity or extent > self . _capacity - offset then
+error ( "nupp: GPU tensor subview exceeds its allocation" , 2 )
+end
+
+return setmetatable({ _anchor =
+self ,  _handle =
+self . _handle ,  _width =
+self . _width ,  _offset =
+offset ,  _capacity =
+self . _capacity ,  _root =
+false ,  _shape =
+copied ( shape ) ,  _strides =
+copied ( self . _strides ) ,  count =
+count }, gpu.Buffer)
+
+end
+
+function gpu . Context . compileGenerated (
+self ,
+artifacts ,
+readonlyBuffers ,
+writableBuffers ,
+uniformBytes ,
+threads
+) 
+local group = threads or 256
+if readonlyBuffers < 0 or readonlyBuffers > 16 or writableBuffers < 1 or writableBuffers > 16 then
+error ( "nupp: generated GPU kernels take up to 16 read and 1 through 16 write buffers" , 2 )
+end
+if uniformBytes < 0 or uniformBytes > 128 then
+error ( "nupp: GPU uniform block must be from 0 through 128 bytes" , 2 )
+end
+if group < 1 or group > 1024 then
+error ( "nupp: GPU thread group must be from 1 through 1024" , 2 )
+end
+if # artifacts . spirv == 0 or # artifacts . msl == 0 or # artifacts . entrypoint == 0 then
+error ( "nupp: native GPU kernels need non-empty SPIR-V, MSL, and an entrypoint" , 2 )
+end
+local handle = C . nuppGpuKernelCreate (
+live ( self ) ,
+artifacts . spirv ,
+# artifacts . spirv ,
+artifacts . msl ,
+# artifacts . msl ,
+artifacts . entrypoint ,
+# artifacts . entrypoint ,
+readonlyBuffers ,
+writableBuffers ,
+uniformBytes ,
+group
+)
+if handle == nil then
+error ( "nupp: " .. ffi . string ( C . nuppNativeError ( ) ) , 2 )
+end
+
+return setmetatable({ _anchor =  self ,  _handle =  handle ,  _uniformBytes =  uniformBytes }, gpu.Kernel)
+end
+
+function gpu . Context . bindKernel (
+self ,
+kernel ,
+count
+) 
+if count < 0 or count > 4294967295 then
+error ( "nupp: GPU dispatch count must be from 0 through 4294967295" , 2 )
+end
+local handle = C . nuppGpuBindingCreate ( live ( self ) , kernel . _handle , count )
+if handle == nil then
+error ( "nupp: " .. ffi . string ( C . nuppNativeError ( ) ) , 2 )
+end
+
+return setmetatable({ _anchor =
+self ,  _handle =
+handle ,  _uniformBytes =
+kernel . _uniformBytes ,  _released =
+false ,  count =
+count }, gpu.Binding)
+
+end
+
+function gpu . Context . releaseBuffer ( self , buffer ) 
+if not buffer . _root then
+error ( "nupp: a GPU view borrows its buffer; release the root buffer" , 2 )
+end
+succeeded ( C . nuppGpuBufferDestroy ( live ( self ) , buffer . _handle ) , 2 )
+end
+
+function gpu . Context . releaseKernel ( self , kernel ) 
+succeeded ( C . nuppGpuKernelDestroy ( live ( self ) , kernel . _handle ) , 2 )
+end
+
+function gpu . Context . releaseBinding ( self , binding ) 
+if binding . _released then
+return
+end
+succeeded ( C . nuppGpuBindingDestroy ( live ( self ) , binding . _handle ) , 2 )
+binding . _released = true
+end
+
+function gpu . Binding . setRead (
+self ,
+slot ,
+buffer ,
+matchCount
+) 
+if self . _released then
+error ( "nupp: GPU binding was released" , 2 )
+end
+local _ , extent , dense = tensorlayout . _facts ( buffer . _shape , buffer . _strides , 2 )
+if matchCount and not dense then
+error ( "nupp: dispatch-indexed GPU buffers must be dense" , 2 )
+end
+succeeded ( C . nuppGpuBindingSetRead ( self . _handle , slot , buffer . _handle , buffer . _offset , extent , matchCount ) , 2 )
+end
+
+function gpu . Binding . setWrite (
+self ,
+slot ,
+buffer ,
+matchCount
+) 
+if self . _released then
+error ( "nupp: GPU binding was released" , 2 )
+end
+local _ , extent , dense , injective = tensorlayout . _facts ( buffer . _shape , buffer . _strides , 2 )
+if not injective or extent ~= buffer . count then
+error ( "nupp: writable GPU tensor views must be disjoint and cover one complete span extent" , 2 )
+end
+if matchCount and not dense then
+error ( "nupp: dispatch-indexed GPU buffers must be dense" , 2 )
+end
+succeeded ( C . nuppGpuBindingSetWrite ( self . _handle , slot , buffer . _handle , buffer . _offset , extent , matchCount ) , 2 )
+end
+
+function gpu . Binding . dispatchPacked ( self , uniforms , uniformBytes ) 
+if self . _released then
+error ( "nupp: GPU binding was released" , 2 )
+end
+if uniformBytes ~= self . _uniformBytes then
+error ( "nupp: generated GPU uniform block has the wrong size" , 2 )
+end
+local uniformPointer = __nuppFfi.cast("const uint8_t *" , uniforms )
+succeeded ( dispatchNative ( self . _handle , uniformPointer , uniformBytes ) , 2 )
+end
+
+function gpu . Context . upload (
+self ,
+buffer ,
+source
+) 
+if not gpu . bufferIsDense ( buffer ) then
+error ( "nupp: GPU uploads require a dense tensor view" , 2 )
+end
+if source .count ~= buffer . count then
+error ( "nupp: GPU upload span length does not match its buffer" , 2 )
+end
+local pointer , count = source : ref ( )
+succeeded (
+uploadTyped ( live ( self ) , buffer . _handle , pointer , buffer . _offset * buffer . _width , buffer . _width * count ) ,
+2
+)
+end
+
+function gpu . Context . enqueueDownload ( self , buffer ) 
+if not gpu . bufferIsDense ( buffer ) then
+error ( "nupp: GPU downloads require a dense tensor view" , 2 )
+end
+succeeded (
+C . nuppGpuBufferDownload (
+live ( self ) ,
+buffer . _handle ,
+buffer . _offset * buffer . _width ,
+buffer . count * buffer . _width
+) ,
+2
+)
+end
+
+function gpu . Context . synchronize ( self ) 
+succeeded ( C . nuppGpuSynchronize ( live ( self ) ) , 2 )
+end
+
+function gpu . Context . readDownloaded (
+self ,
+buffer ,
+destination
+) 
+if not gpu . bufferIsDense ( buffer ) then
+error ( "nupp: GPU downloads require a dense tensor view" , 2 )
+end
+if destination .count ~= buffer . count then
+error ( "nupp: GPU download span length does not match its buffer" , 2 )
+end
+local pointer , count = destination : ref ( )
+succeeded ( readTyped ( live ( self ) , buffer . _handle , pointer , buffer . _offset * buffer . _width , buffer . _width * count ) , 2 )
+end
+
+function gpu . Context . download (
+self ,
+buffer ,
+destination
+) 
+self : enqueueDownload ( buffer )
+self : synchronize ( )
+self : readDownloaded ( buffer , destination )
+end
+
+
+
+
+function gpu . open ( ) __nuppCleanups["nupp.runtime.provider.nativegpu#destroyContext"]=gpu.destroyContext; 
+local handle = C . nuppGpuContextCreate ( )
+if handle == nil then
+error ( "nupp: " .. ffi . string ( C . nuppNativeError ( ) ) , 2 )
+end
+
+return setmetatable({ _handle =  handle ,  _closed =  false }, gpu.Context)
+end
+
+gpu . Buffer = gpu . Buffer
+gpu . Layout = tensorlayout . Layout
+gpu . layoutDimensions = tensorlayout . dimensions
+gpu . layoutStrides = tensorlayout . strides
+gpu . layoutIsDense = tensorlayout . isDense
+gpu . layoutIsInjective = tensorlayout . isInjective
+gpu . subviewLayout = tensorlayout . subview
+gpu . transposeLayout = tensorlayout . transpose
+gpu . broadcastLayout = tensorlayout . broadcast
+gpu . asStridedLayout = tensorlayout . asStrided
+gpu . Kernel = gpu . Kernel
+gpu . Binding = gpu . Binding
+gpu . Shared = gpu . Shared
+gpu . Phases = gpu . Phases
+gpu . Context = gpu . Context
+gpu . ContextToken = gpu . ContextToken
+
+const __nuppExportValue= gpu ;__nuppExports=__nuppExportValue
+ end);if not __nuppOk then package.loaded["nupp.runtime.provider.nativegpu"]=nil;error(__nuppWhy,0) end;package.loaded["nupp.runtime.provider.nativegpu"]=__nuppExports;return __nuppExports
+end
 package.preload["nupp.runtime.provider.scalarbitops"] = function(...)
 _G.assert(_G.loadstring("local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppMath=rawget(__nupp,\"math\")or{};rawset(__nupp,\"math\",__nuppMath) local function __nuppCloseFile(handle)if io.type(handle)==\"closed file\"then return end;local ok,reason=handle:close();if not ok then error(reason or \"the file could not be closed\",0)end end local __nuppManagedBrand=_G.__nuppManagedBrand if not __nuppManagedBrand then __nuppManagedBrand={};_G.__nuppManagedBrand=__nuppManagedBrand end local __nuppManagedCells=_G.__nuppManagedCells if not __nuppManagedCells then __nuppManagedCells=setmetatable({},{__mode=\"k\"});_G.__nuppManagedCells=__nuppManagedCells end local __nuppManagedOwner={};__nuppManagedOwner.__index=__nuppManagedOwner;local __nuppManagedAlias={};__nuppManagedAlias.__index=__nuppManagedAlias local function __nuppManagedError(code,message)return{code=code,message=message}end local function __nuppManagedProblem(cell) if type(cell)~=\"table\"or cell._brand~=__nuppManagedBrand then return __nuppManagedError(\"NUPP2614\",\"value is not a managed alias\")end if cell._state==\"taken\"then return __nuppManagedError(\"NUPP2614\",\"managed ownership was already taken\")end if cell._state==\"closed\"or cell._state==\"closing\"then return __nuppManagedError(\"NUPP2614\",\"managed resource is closed\")end return nil end local function __nuppManagedClose(cell,checked) local problem=__nuppManagedProblem(cell);if problem then if checked then return problem end;return nil end if cell._borrows~=0 or cell._exclusive then local busy=__nuppManagedError(\"NUPP2620\",\"managed resource has an active borrow\");if checked then return busy end;error(busy.message,0)end cell._state=\"closing\";local value,cleanup=cell._value,cell._cleanup;cell._value=nil;cell._cleanup=nil local ok,reason=pcall(cleanup,value);cell._state=\"closed\";if not ok then error(reason,0)end;return nil end function __nuppManagedOwner:alias()return setmetatable({_cell=self,_brand=__nuppManagedBrand},__nuppManagedAlias)end function __nuppManagedOwner:close()return __nuppManagedClose(self,false)end local function __nuppAliasCell(self) if type(self)~=\"table\"or self._brand~=__nuppManagedBrand or getmetatable(self)~=__nuppManagedAlias then return nil,__nuppManagedError(\"NUPP2614\",\"value is not a managed alias\")end local cell=self._cell;local problem=__nuppManagedProblem(cell);if problem then return nil,problem end;return cell,nil end function __nuppManagedAlias:with(callback) local cell,problem=__nuppAliasCell(self);if not cell then return nil,problem end if cell._exclusive then return nil,__nuppManagedError(\"NUPP2620\",\"managed resource is exclusively borrowed\")end cell._borrows=cell._borrows+1;cell._state=\"shared-borrowed(\"..cell._borrows..\")\" local ok,result=pcall(callback,cell._value);cell._borrows=cell._borrows-1;cell._state=cell._borrows>0 and(\"shared-borrowed(\"..cell._borrows..\")\")or\"live\" if not ok then error(result,0)end;return result,nil end function __nuppManagedAlias:withExclusive(callback) local cell,problem=__nuppAliasCell(self);if not cell then return nil,problem end if cell._exclusive or cell._borrows~=0 then return nil,__nuppManagedError(\"NUPP2620\",\"managed resource is already borrowed\")end cell._exclusive=true;cell._state=\"exclusive-borrowed\";local ok,result=pcall(callback,cell._value);cell._exclusive=false;cell._state=\"live\" if not ok then error(result,0)end;return result,nil end function __nuppManagedAlias:take() local cell,problem=__nuppAliasCell(self);if not cell then return nil,problem end if cell._exclusive or cell._borrows~=0 then return nil,__nuppManagedError(\"NUPP2620\",\"managed resource has an active borrow\")end cell._state=\"taken\";local value=cell._value;cell._value=nil;cell._cleanup=nil;return value,nil end function __nuppManagedAlias:close() local cell,problem=__nuppAliasCell(self);if not cell then return problem end;return __nuppManagedClose(cell,true)end function __nuppManagedAlias:_downcast(policy) local cell,problem=__nuppAliasCell(self);if not cell then return nil,problem end if cell._policy~=policy then return nil,__nuppManagedError(\"NUPP2613\",\"managed alias has the wrong type or cleanup policy\")end return self,nil end function __nupp.__manage(value,cleanup,policy) local cell=setmetatable({_brand=__nuppManagedBrand,_value=value,_cleanup=cleanup,_policy=policy,_state=\"live\",_borrows=0,_exclusive=false},__nuppManagedOwner);__nuppManagedCells[cell]=true;return cell end function __nupp.__recoverAlias(value) if type(value)~=\"table\"or value._brand~=__nuppManagedBrand or getmetatable(value)~=__nuppManagedAlias then return nil,__nuppManagedError(\"NUPP2614\",\"value is not a managed alias\")end local cell,problem=__nuppAliasCell(value);if not cell then return nil,problem end;return value,nil end _G.__nuppManagedPolicyCount=function(policy)local count=0;for cell in pairs(__nuppManagedCells)do if cell._policy==policy and(cell._state==\"live\"or cell._state:match(\"borrowed\"))then count=count+1 end end;return count end local __nuppManagedGroup={};__nuppManagedGroup.__index=__nuppManagedGroup function __nuppManagedGroup:flush()end function __nuppManagedGroup:adopt(cell) if self._closed then error(\"managed group is closed\",2)end local handle=cell:alias();self._entries[#self._entries+1]=handle return handle end function __nuppManagedGroup:remove(handle) if self._closed then error(\"managed group is closed\",2)end for index=#self._entries,1,-1 do if self._entries[index]==handle then table.remove(self._entries,index);local value,problem=handle:take();if problem then error(problem.message,2)end;return value end end error(\"managed alias is not registered in this group\",2) end local function __nuppManagedCloseEntry(entry)local problem=entry:close();if problem and problem.code~=\"NUPP2614\"then error(problem.message,0)end end function __nuppManagedGroup:close() if self._closed then return end;self._closed=true;local first,suppressed=nil,0 for index=#self._entries,1,-1 do local ok,reason=pcall(__nuppManagedCloseEntry,self._entries[index]);if not ok then if first==nil then first=reason else suppressed=suppressed+1 end end end self._entries={};if first~=nil then if suppressed>0 then error(tostring(first)..\" (suppressed \"..tostring(suppressed)..\" cleanup failure(s))\",0)end;error(first,0)end end function __nupp.managedGroup()return setmetatable({_entries={},_closed=false},__nuppManagedGroup)end;\n","@nupp-prelude"))();local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppMath=rawget(__nupp,"math")or{};rawset(__nupp,"math",__nuppMath) local function __nuppCloseFile(handle)if io.type(handle)=="closed file"then return end;local ok,reason=handle:close();if not ok then error(reason or "the file could not be closed",0)end end local __nuppManagedBrand=_G.__nuppManagedBrand if not __nuppManagedBrand then __nuppManagedBrand={};_G.__nuppManagedBrand=__nuppManagedBrand end local __nuppManagedCells=_G.__nuppManagedCells if not __nuppManagedCells then __nuppManagedCells=setmetatable({},{__mode="k"});_G.__nuppManagedCells=__nuppManagedCells end local __nuppManagedOwner={};__nuppManagedOwner.__index=__nuppManagedOwner;local __nuppManagedAlias={};__nuppManagedAlias.__index=__nuppManagedAlias local function __nuppManagedError(code,message)return{code=code,message=message}end local function __nuppManagedProblem(cell) if type(cell)~="table"or cell._brand~=__nuppManagedBrand then return __nuppManagedError("NUPP2614","value is not a managed alias")end if cell._state=="taken"then return __nuppManagedError("NUPP2614","managed ownership was already taken")end if cell._state=="closed"or cell._state=="closing"then return __nuppManagedError("NUPP2614","managed resource is closed")end return nil end local function __nuppManagedClose(cell,checked) local problem=__nuppManagedProblem(cell);if problem then if checked then return problem end;return nil end if cell._borrows~=0 or cell._exclusive then local busy=__nuppManagedError("NUPP2620","managed resource has an active borrow");if checked then return busy end;error(busy.message,0)end cell._state="closing";local value,cleanup=cell._value,cell._cleanup;cell._value=nil;cell._cleanup=nil local ok,reason=pcall(cleanup,value);cell._state="closed";if not ok then error(reason,0)end;return nil end function __nuppManagedOwner:alias()return setmetatable({_cell=self,_brand=__nuppManagedBrand},__nuppManagedAlias)end function __nuppManagedOwner:close()return __nuppManagedClose(self,false)end local function __nuppAliasCell(self) if type(self)~="table"or self._brand~=__nuppManagedBrand or getmetatable(self)~=__nuppManagedAlias then return nil,__nuppManagedError("NUPP2614","value is not a managed alias")end local cell=self._cell;local problem=__nuppManagedProblem(cell);if problem then return nil,problem end;return cell,nil end function __nuppManagedAlias:with(callback) local cell,problem=__nuppAliasCell(self);if not cell then return nil,problem end if cell._exclusive then return nil,__nuppManagedError("NUPP2620","managed resource is exclusively borrowed")end cell._borrows=cell._borrows+1;cell._state="shared-borrowed("..cell._borrows..")" local ok,result=pcall(callback,cell._value);cell._borrows=cell._borrows-1;cell._state=cell._borrows>0 and("shared-borrowed("..cell._borrows..")")or"live" if not ok then error(result,0)end;return result,nil end function __nuppManagedAlias:withExclusive(callback) local cell,problem=__nuppAliasCell(self);if not cell then return nil,problem end if cell._exclusive or cell._borrows~=0 then return nil,__nuppManagedError("NUPP2620","managed resource is already borrowed")end cell._exclusive=true;cell._state="exclusive-borrowed";local ok,result=pcall(callback,cell._value);cell._exclusive=false;cell._state="live" if not ok then error(result,0)end;return result,nil end function __nuppManagedAlias:take() local cell,problem=__nuppAliasCell(self);if not cell then return nil,problem end if cell._exclusive or cell._borrows~=0 then return nil,__nuppManagedError("NUPP2620","managed resource has an active borrow")end cell._state="taken";local value=cell._value;cell._value=nil;cell._cleanup=nil;return value,nil end function __nuppManagedAlias:close() local cell,problem=__nuppAliasCell(self);if not cell then return problem end;return __nuppManagedClose(cell,true)end function __nuppManagedAlias:_downcast(policy) local cell,problem=__nuppAliasCell(self);if not cell then return nil,problem end if cell._policy~=policy then return nil,__nuppManagedError("NUPP2613","managed alias has the wrong type or cleanup policy")end return self,nil end function __nupp.__manage(value,cleanup,policy) local cell=setmetatable({_brand=__nuppManagedBrand,_value=value,_cleanup=cleanup,_policy=policy,_state="live",_borrows=0,_exclusive=false},__nuppManagedOwner);__nuppManagedCells[cell]=true;return cell end function __nupp.__recoverAlias(value) if type(value)~="table"or value._brand~=__nuppManagedBrand or getmetatable(value)~=__nuppManagedAlias then return nil,__nuppManagedError("NUPP2614","value is not a managed alias")end local cell,problem=__nuppAliasCell(value);if not cell then return nil,problem end;return value,nil end _G.__nuppManagedPolicyCount=function(policy)local count=0;for cell in pairs(__nuppManagedCells)do if cell._policy==policy and(cell._state=="live"or cell._state:match("borrowed"))then count=count+1 end end;return count end local __nuppManagedGroup={};__nuppManagedGroup.__index=__nuppManagedGroup function __nuppManagedGroup:flush()end function __nuppManagedGroup:adopt(cell) if self._closed then error("managed group is closed",2)end local handle=cell:alias();self._entries[#self._entries+1]=handle return handle end function __nuppManagedGroup:remove(handle) if self._closed then error("managed group is closed",2)end for index=#self._entries,1,-1 do if self._entries[index]==handle then table.remove(self._entries,index);local value,problem=handle:take();if problem then error(problem.message,2)end;return value end end error("managed alias is not registered in this group",2) end local function __nuppManagedCloseEntry(entry)local problem=entry:close();if problem and problem.code~="NUPP2614"then error(problem.message,0)end end function __nuppManagedGroup:close() if self._closed then return end;self._closed=true;local first,suppressed=nil,0 for index=#self._entries,1,-1 do local ok,reason=pcall(__nuppManagedCloseEntry,self._entries[index]);if not ok then if first==nil then first=reason else suppressed=suppressed+1 end end end self._entries={};if first~=nil then if suppressed>0 then error(tostring(first).." (suppressed "..tostring(suppressed).." cleanup failure(s))",0)end;error(first,0)end end function __nupp.managedGroup()return setmetatable({_entries={},_closed=false},__nuppManagedGroup)end;local __nuppExports;local __nuppOk,__nuppWhy=pcall(function()
 
@@ -190788,6 +190832,65 @@ end
 const __nuppExportValue= suite ;__nuppExports=__nuppExportValue
  end);if not __nuppOk then package.loaded["nupp.runtime.seam.filessuite"]=nil;error(__nuppWhy,0) end;package.loaded["nupp.runtime.seam.filessuite"]=__nuppExports;return __nuppExports
 end
+package.preload["nupp.runtime.seam.gpu"] = function(...)
+_G.assert(_G.loadstring("local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppMath=rawget(__nupp,\"math\")or{};rawset(__nupp,\"math\",__nuppMath) local function __nuppCloseFile(handle)if io.type(handle)==\"closed file\"then return end;local ok,reason=handle:close();if not ok then error(reason or \"the file could not be closed\",0)end end local __nuppManagedBrand=_G.__nuppManagedBrand if not __nuppManagedBrand then __nuppManagedBrand={};_G.__nuppManagedBrand=__nuppManagedBrand end local __nuppManagedCells=_G.__nuppManagedCells if not __nuppManagedCells then __nuppManagedCells=setmetatable({},{__mode=\"k\"});_G.__nuppManagedCells=__nuppManagedCells end local __nuppManagedOwner={};__nuppManagedOwner.__index=__nuppManagedOwner;local __nuppManagedAlias={};__nuppManagedAlias.__index=__nuppManagedAlias local function __nuppManagedError(code,message)return{code=code,message=message}end local function __nuppManagedProblem(cell) if type(cell)~=\"table\"or cell._brand~=__nuppManagedBrand then return __nuppManagedError(\"NUPP2614\",\"value is not a managed alias\")end if cell._state==\"taken\"then return __nuppManagedError(\"NUPP2614\",\"managed ownership was already taken\")end if cell._state==\"closed\"or cell._state==\"closing\"then return __nuppManagedError(\"NUPP2614\",\"managed resource is closed\")end return nil end local function __nuppManagedClose(cell,checked) local problem=__nuppManagedProblem(cell);if problem then if checked then return problem end;return nil end if cell._borrows~=0 or cell._exclusive then local busy=__nuppManagedError(\"NUPP2620\",\"managed resource has an active borrow\");if checked then return busy end;error(busy.message,0)end cell._state=\"closing\";local value,cleanup=cell._value,cell._cleanup;cell._value=nil;cell._cleanup=nil local ok,reason=pcall(cleanup,value);cell._state=\"closed\";if not ok then error(reason,0)end;return nil end function __nuppManagedOwner:alias()return setmetatable({_cell=self,_brand=__nuppManagedBrand},__nuppManagedAlias)end function __nuppManagedOwner:close()return __nuppManagedClose(self,false)end local function __nuppAliasCell(self) if type(self)~=\"table\"or self._brand~=__nuppManagedBrand or getmetatable(self)~=__nuppManagedAlias then return nil,__nuppManagedError(\"NUPP2614\",\"value is not a managed alias\")end local cell=self._cell;local problem=__nuppManagedProblem(cell);if problem then return nil,problem end;return cell,nil end function __nuppManagedAlias:with(callback) local cell,problem=__nuppAliasCell(self);if not cell then return nil,problem end if cell._exclusive then return nil,__nuppManagedError(\"NUPP2620\",\"managed resource is exclusively borrowed\")end cell._borrows=cell._borrows+1;cell._state=\"shared-borrowed(\"..cell._borrows..\")\" local ok,result=pcall(callback,cell._value);cell._borrows=cell._borrows-1;cell._state=cell._borrows>0 and(\"shared-borrowed(\"..cell._borrows..\")\")or\"live\" if not ok then error(result,0)end;return result,nil end function __nuppManagedAlias:withExclusive(callback) local cell,problem=__nuppAliasCell(self);if not cell then return nil,problem end if cell._exclusive or cell._borrows~=0 then return nil,__nuppManagedError(\"NUPP2620\",\"managed resource is already borrowed\")end cell._exclusive=true;cell._state=\"exclusive-borrowed\";local ok,result=pcall(callback,cell._value);cell._exclusive=false;cell._state=\"live\" if not ok then error(result,0)end;return result,nil end function __nuppManagedAlias:take() local cell,problem=__nuppAliasCell(self);if not cell then return nil,problem end if cell._exclusive or cell._borrows~=0 then return nil,__nuppManagedError(\"NUPP2620\",\"managed resource has an active borrow\")end cell._state=\"taken\";local value=cell._value;cell._value=nil;cell._cleanup=nil;return value,nil end function __nuppManagedAlias:close() local cell,problem=__nuppAliasCell(self);if not cell then return problem end;return __nuppManagedClose(cell,true)end function __nuppManagedAlias:_downcast(policy) local cell,problem=__nuppAliasCell(self);if not cell then return nil,problem end if cell._policy~=policy then return nil,__nuppManagedError(\"NUPP2613\",\"managed alias has the wrong type or cleanup policy\")end return self,nil end function __nupp.__manage(value,cleanup,policy) local cell=setmetatable({_brand=__nuppManagedBrand,_value=value,_cleanup=cleanup,_policy=policy,_state=\"live\",_borrows=0,_exclusive=false},__nuppManagedOwner);__nuppManagedCells[cell]=true;return cell end function __nupp.__recoverAlias(value) if type(value)~=\"table\"or value._brand~=__nuppManagedBrand or getmetatable(value)~=__nuppManagedAlias then return nil,__nuppManagedError(\"NUPP2614\",\"value is not a managed alias\")end local cell,problem=__nuppAliasCell(value);if not cell then return nil,problem end;return value,nil end _G.__nuppManagedPolicyCount=function(policy)local count=0;for cell in pairs(__nuppManagedCells)do if cell._policy==policy and(cell._state==\"live\"or cell._state:match(\"borrowed\"))then count=count+1 end end;return count end local __nuppManagedGroup={};__nuppManagedGroup.__index=__nuppManagedGroup function __nuppManagedGroup:flush()end function __nuppManagedGroup:adopt(cell) if self._closed then error(\"managed group is closed\",2)end local handle=cell:alias();self._entries[#self._entries+1]=handle return handle end function __nuppManagedGroup:remove(handle) if self._closed then error(\"managed group is closed\",2)end for index=#self._entries,1,-1 do if self._entries[index]==handle then table.remove(self._entries,index);local value,problem=handle:take();if problem then error(problem.message,2)end;return value end end error(\"managed alias is not registered in this group\",2) end local function __nuppManagedCloseEntry(entry)local problem=entry:close();if problem and problem.code~=\"NUPP2614\"then error(problem.message,0)end end function __nuppManagedGroup:close() if self._closed then return end;self._closed=true;local first,suppressed=nil,0 for index=#self._entries,1,-1 do local ok,reason=pcall(__nuppManagedCloseEntry,self._entries[index]);if not ok then if first==nil then first=reason else suppressed=suppressed+1 end end end self._entries={};if first~=nil then if suppressed>0 then error(tostring(first)..\" (suppressed \"..tostring(suppressed)..\" cleanup failure(s))\",0)end;error(first,0)end end function __nupp.managedGroup()return setmetatable({_entries={},_closed=false},__nuppManagedGroup)end;\n","@nupp-prelude"))();local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppMath=rawget(__nupp,"math")or{};rawset(__nupp,"math",__nuppMath) local function __nuppCloseFile(handle)if io.type(handle)=="closed file"then return end;local ok,reason=handle:close();if not ok then error(reason or "the file could not be closed",0)end end local __nuppManagedBrand=_G.__nuppManagedBrand if not __nuppManagedBrand then __nuppManagedBrand={};_G.__nuppManagedBrand=__nuppManagedBrand end local __nuppManagedCells=_G.__nuppManagedCells if not __nuppManagedCells then __nuppManagedCells=setmetatable({},{__mode="k"});_G.__nuppManagedCells=__nuppManagedCells end local __nuppManagedOwner={};__nuppManagedOwner.__index=__nuppManagedOwner;local __nuppManagedAlias={};__nuppManagedAlias.__index=__nuppManagedAlias local function __nuppManagedError(code,message)return{code=code,message=message}end local function __nuppManagedProblem(cell) if type(cell)~="table"or cell._brand~=__nuppManagedBrand then return __nuppManagedError("NUPP2614","value is not a managed alias")end if cell._state=="taken"then return __nuppManagedError("NUPP2614","managed ownership was already taken")end if cell._state=="closed"or cell._state=="closing"then return __nuppManagedError("NUPP2614","managed resource is closed")end return nil end local function __nuppManagedClose(cell,checked) local problem=__nuppManagedProblem(cell);if problem then if checked then return problem end;return nil end if cell._borrows~=0 or cell._exclusive then local busy=__nuppManagedError("NUPP2620","managed resource has an active borrow");if checked then return busy end;error(busy.message,0)end cell._state="closing";local value,cleanup=cell._value,cell._cleanup;cell._value=nil;cell._cleanup=nil local ok,reason=pcall(cleanup,value);cell._state="closed";if not ok then error(reason,0)end;return nil end function __nuppManagedOwner:alias()return setmetatable({_cell=self,_brand=__nuppManagedBrand},__nuppManagedAlias)end function __nuppManagedOwner:close()return __nuppManagedClose(self,false)end local function __nuppAliasCell(self) if type(self)~="table"or self._brand~=__nuppManagedBrand or getmetatable(self)~=__nuppManagedAlias then return nil,__nuppManagedError("NUPP2614","value is not a managed alias")end local cell=self._cell;local problem=__nuppManagedProblem(cell);if problem then return nil,problem end;return cell,nil end function __nuppManagedAlias:with(callback) local cell,problem=__nuppAliasCell(self);if not cell then return nil,problem end if cell._exclusive then return nil,__nuppManagedError("NUPP2620","managed resource is exclusively borrowed")end cell._borrows=cell._borrows+1;cell._state="shared-borrowed("..cell._borrows..")" local ok,result=pcall(callback,cell._value);cell._borrows=cell._borrows-1;cell._state=cell._borrows>0 and("shared-borrowed("..cell._borrows..")")or"live" if not ok then error(result,0)end;return result,nil end function __nuppManagedAlias:withExclusive(callback) local cell,problem=__nuppAliasCell(self);if not cell then return nil,problem end if cell._exclusive or cell._borrows~=0 then return nil,__nuppManagedError("NUPP2620","managed resource is already borrowed")end cell._exclusive=true;cell._state="exclusive-borrowed";local ok,result=pcall(callback,cell._value);cell._exclusive=false;cell._state="live" if not ok then error(result,0)end;return result,nil end function __nuppManagedAlias:take() local cell,problem=__nuppAliasCell(self);if not cell then return nil,problem end if cell._exclusive or cell._borrows~=0 then return nil,__nuppManagedError("NUPP2620","managed resource has an active borrow")end cell._state="taken";local value=cell._value;cell._value=nil;cell._cleanup=nil;return value,nil end function __nuppManagedAlias:close() local cell,problem=__nuppAliasCell(self);if not cell then return problem end;return __nuppManagedClose(cell,true)end function __nuppManagedAlias:_downcast(policy) local cell,problem=__nuppAliasCell(self);if not cell then return nil,problem end if cell._policy~=policy then return nil,__nuppManagedError("NUPP2613","managed alias has the wrong type or cleanup policy")end return self,nil end function __nupp.__manage(value,cleanup,policy) local cell=setmetatable({_brand=__nuppManagedBrand,_value=value,_cleanup=cleanup,_policy=policy,_state="live",_borrows=0,_exclusive=false},__nuppManagedOwner);__nuppManagedCells[cell]=true;return cell end function __nupp.__recoverAlias(value) if type(value)~="table"or value._brand~=__nuppManagedBrand or getmetatable(value)~=__nuppManagedAlias then return nil,__nuppManagedError("NUPP2614","value is not a managed alias")end local cell,problem=__nuppAliasCell(value);if not cell then return nil,problem end;return value,nil end _G.__nuppManagedPolicyCount=function(policy)local count=0;for cell in pairs(__nuppManagedCells)do if cell._policy==policy and(cell._state=="live"or cell._state:match("borrowed"))then count=count+1 end end;return count end local __nuppManagedGroup={};__nuppManagedGroup.__index=__nuppManagedGroup function __nuppManagedGroup:flush()end function __nuppManagedGroup:adopt(cell) if self._closed then error("managed group is closed",2)end local handle=cell:alias();self._entries[#self._entries+1]=handle return handle end function __nuppManagedGroup:remove(handle) if self._closed then error("managed group is closed",2)end for index=#self._entries,1,-1 do if self._entries[index]==handle then table.remove(self._entries,index);local value,problem=handle:take();if problem then error(problem.message,2)end;return value end end error("managed alias is not registered in this group",2) end local function __nuppManagedCloseEntry(entry)local problem=entry:close();if problem and problem.code~="NUPP2614"then error(problem.message,0)end end function __nuppManagedGroup:close() if self._closed then return end;self._closed=true;local first,suppressed=nil,0 for index=#self._entries,1,-1 do local ok,reason=pcall(__nuppManagedCloseEntry,self._entries[index]);if not ok then if first==nil then first=reason else suppressed=suppressed+1 end end end self._entries={};if first~=nil then if suppressed>0 then error(tostring(first).." (suppressed "..tostring(suppressed).." cleanup failure(s))",0)end;error(first,0)end end function __nupp.managedGroup()return setmetatable({_entries={},_closed=false},__nuppManagedGroup)end;local __nuppExports;local __nuppOk,__nuppWhy=pcall(function()
+
+
+
+local common = require ( "nupp.runtime.seam.module" )
+local runtimeBackend = require ( "nupp.runtime.backend" )
+local seam = { }
+
+seam . moduleName = "nupp.runtime.seam.gpu"
+seam . suiteModuleName = "nupp.runtime.seam.gpusuite"
+
+local CONTRACT = common . contract ( "compute.gpu" , {
+globalName = "__nuppGpu" ,
+requiredFunctions = { "open" , "workgroups" , "destroyContext" } ,
+requiredValues = { "Layout" , "Buffer" , "Kernel" , "Binding" , "ArtifactSet" , "Shared" , "Phases" , "Context" , } ,
+suiteModule = seam . suiteModuleName ,
+} )
+
+function seam . validate ( value ) 
+return common . validate ( CONTRACT , value )
+end
+
+function seam . seam ( moduleName ) 
+return common . seam ( CONTRACT , moduleName )
+end
+
+function seam . backend ( moduleName ) 
+return runtimeBackend . new ( "gpu:" .. moduleName , { seam . seam ( moduleName ) } )
+end
+
+const __nuppExportValue= seam ;__nuppExports=__nuppExportValue
+ end);if not __nuppOk then package.loaded["nupp.runtime.seam.gpu"]=nil;error(__nuppWhy,0) end;package.loaded["nupp.runtime.seam.gpu"]=__nuppExports;return __nuppExports
+end
+package.preload["nupp.runtime.seam.gpusuite"] = function(...)
+_G.assert(_G.loadstring("local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppMath=rawget(__nupp,\"math\")or{};rawset(__nupp,\"math\",__nuppMath) local function __nuppCloseFile(handle)if io.type(handle)==\"closed file\"then return end;local ok,reason=handle:close();if not ok then error(reason or \"the file could not be closed\",0)end end local __nuppManagedBrand=_G.__nuppManagedBrand if not __nuppManagedBrand then __nuppManagedBrand={};_G.__nuppManagedBrand=__nuppManagedBrand end local __nuppManagedCells=_G.__nuppManagedCells if not __nuppManagedCells then __nuppManagedCells=setmetatable({},{__mode=\"k\"});_G.__nuppManagedCells=__nuppManagedCells end local __nuppManagedOwner={};__nuppManagedOwner.__index=__nuppManagedOwner;local __nuppManagedAlias={};__nuppManagedAlias.__index=__nuppManagedAlias local function __nuppManagedError(code,message)return{code=code,message=message}end local function __nuppManagedProblem(cell) if type(cell)~=\"table\"or cell._brand~=__nuppManagedBrand then return __nuppManagedError(\"NUPP2614\",\"value is not a managed alias\")end if cell._state==\"taken\"then return __nuppManagedError(\"NUPP2614\",\"managed ownership was already taken\")end if cell._state==\"closed\"or cell._state==\"closing\"then return __nuppManagedError(\"NUPP2614\",\"managed resource is closed\")end return nil end local function __nuppManagedClose(cell,checked) local problem=__nuppManagedProblem(cell);if problem then if checked then return problem end;return nil end if cell._borrows~=0 or cell._exclusive then local busy=__nuppManagedError(\"NUPP2620\",\"managed resource has an active borrow\");if checked then return busy end;error(busy.message,0)end cell._state=\"closing\";local value,cleanup=cell._value,cell._cleanup;cell._value=nil;cell._cleanup=nil local ok,reason=pcall(cleanup,value);cell._state=\"closed\";if not ok then error(reason,0)end;return nil end function __nuppManagedOwner:alias()return setmetatable({_cell=self,_brand=__nuppManagedBrand},__nuppManagedAlias)end function __nuppManagedOwner:close()return __nuppManagedClose(self,false)end local function __nuppAliasCell(self) if type(self)~=\"table\"or self._brand~=__nuppManagedBrand or getmetatable(self)~=__nuppManagedAlias then return nil,__nuppManagedError(\"NUPP2614\",\"value is not a managed alias\")end local cell=self._cell;local problem=__nuppManagedProblem(cell);if problem then return nil,problem end;return cell,nil end function __nuppManagedAlias:with(callback) local cell,problem=__nuppAliasCell(self);if not cell then return nil,problem end if cell._exclusive then return nil,__nuppManagedError(\"NUPP2620\",\"managed resource is exclusively borrowed\")end cell._borrows=cell._borrows+1;cell._state=\"shared-borrowed(\"..cell._borrows..\")\" local ok,result=pcall(callback,cell._value);cell._borrows=cell._borrows-1;cell._state=cell._borrows>0 and(\"shared-borrowed(\"..cell._borrows..\")\")or\"live\" if not ok then error(result,0)end;return result,nil end function __nuppManagedAlias:withExclusive(callback) local cell,problem=__nuppAliasCell(self);if not cell then return nil,problem end if cell._exclusive or cell._borrows~=0 then return nil,__nuppManagedError(\"NUPP2620\",\"managed resource is already borrowed\")end cell._exclusive=true;cell._state=\"exclusive-borrowed\";local ok,result=pcall(callback,cell._value);cell._exclusive=false;cell._state=\"live\" if not ok then error(result,0)end;return result,nil end function __nuppManagedAlias:take() local cell,problem=__nuppAliasCell(self);if not cell then return nil,problem end if cell._exclusive or cell._borrows~=0 then return nil,__nuppManagedError(\"NUPP2620\",\"managed resource has an active borrow\")end cell._state=\"taken\";local value=cell._value;cell._value=nil;cell._cleanup=nil;return value,nil end function __nuppManagedAlias:close() local cell,problem=__nuppAliasCell(self);if not cell then return problem end;return __nuppManagedClose(cell,true)end function __nuppManagedAlias:_downcast(policy) local cell,problem=__nuppAliasCell(self);if not cell then return nil,problem end if cell._policy~=policy then return nil,__nuppManagedError(\"NUPP2613\",\"managed alias has the wrong type or cleanup policy\")end return self,nil end function __nupp.__manage(value,cleanup,policy) local cell=setmetatable({_brand=__nuppManagedBrand,_value=value,_cleanup=cleanup,_policy=policy,_state=\"live\",_borrows=0,_exclusive=false},__nuppManagedOwner);__nuppManagedCells[cell]=true;return cell end function __nupp.__recoverAlias(value) if type(value)~=\"table\"or value._brand~=__nuppManagedBrand or getmetatable(value)~=__nuppManagedAlias then return nil,__nuppManagedError(\"NUPP2614\",\"value is not a managed alias\")end local cell,problem=__nuppAliasCell(value);if not cell then return nil,problem end;return value,nil end _G.__nuppManagedPolicyCount=function(policy)local count=0;for cell in pairs(__nuppManagedCells)do if cell._policy==policy and(cell._state==\"live\"or cell._state:match(\"borrowed\"))then count=count+1 end end;return count end local __nuppManagedGroup={};__nuppManagedGroup.__index=__nuppManagedGroup function __nuppManagedGroup:flush()end function __nuppManagedGroup:adopt(cell) if self._closed then error(\"managed group is closed\",2)end local handle=cell:alias();self._entries[#self._entries+1]=handle return handle end function __nuppManagedGroup:remove(handle) if self._closed then error(\"managed group is closed\",2)end for index=#self._entries,1,-1 do if self._entries[index]==handle then table.remove(self._entries,index);local value,problem=handle:take();if problem then error(problem.message,2)end;return value end end error(\"managed alias is not registered in this group\",2) end local function __nuppManagedCloseEntry(entry)local problem=entry:close();if problem and problem.code~=\"NUPP2614\"then error(problem.message,0)end end function __nuppManagedGroup:close() if self._closed then return end;self._closed=true;local first,suppressed=nil,0 for index=#self._entries,1,-1 do local ok,reason=pcall(__nuppManagedCloseEntry,self._entries[index]);if not ok then if first==nil then first=reason else suppressed=suppressed+1 end end end self._entries={};if first~=nil then if suppressed>0 then error(tostring(first)..\" (suppressed \"..tostring(suppressed)..\" cleanup failure(s))\",0)end;error(first,0)end end function __nupp.managedGroup()return setmetatable({_entries={},_closed=false},__nuppManagedGroup)end;\n","@nupp-prelude"))();local __nuppBitTobit=bit.tobit;local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppMath=rawget(__nupp,"math")or{};rawset(__nupp,"math",__nuppMath) local function __nuppCloseFile(handle)if io.type(handle)=="closed file"then return end;local ok,reason=handle:close();if not ok then error(reason or "the file could not be closed",0)end end local __nuppManagedBrand=_G.__nuppManagedBrand if not __nuppManagedBrand then __nuppManagedBrand={};_G.__nuppManagedBrand=__nuppManagedBrand end local __nuppManagedCells=_G.__nuppManagedCells if not __nuppManagedCells then __nuppManagedCells=setmetatable({},{__mode="k"});_G.__nuppManagedCells=__nuppManagedCells end local __nuppManagedOwner={};__nuppManagedOwner.__index=__nuppManagedOwner;local __nuppManagedAlias={};__nuppManagedAlias.__index=__nuppManagedAlias local function __nuppManagedError(code,message)return{code=code,message=message}end local function __nuppManagedProblem(cell) if type(cell)~="table"or cell._brand~=__nuppManagedBrand then return __nuppManagedError("NUPP2614","value is not a managed alias")end if cell._state=="taken"then return __nuppManagedError("NUPP2614","managed ownership was already taken")end if cell._state=="closed"or cell._state=="closing"then return __nuppManagedError("NUPP2614","managed resource is closed")end return nil end local function __nuppManagedClose(cell,checked) local problem=__nuppManagedProblem(cell);if problem then if checked then return problem end;return nil end if cell._borrows~=0 or cell._exclusive then local busy=__nuppManagedError("NUPP2620","managed resource has an active borrow");if checked then return busy end;error(busy.message,0)end cell._state="closing";local value,cleanup=cell._value,cell._cleanup;cell._value=nil;cell._cleanup=nil local ok,reason=pcall(cleanup,value);cell._state="closed";if not ok then error(reason,0)end;return nil end function __nuppManagedOwner:alias()return setmetatable({_cell=self,_brand=__nuppManagedBrand},__nuppManagedAlias)end function __nuppManagedOwner:close()return __nuppManagedClose(self,false)end local function __nuppAliasCell(self) if type(self)~="table"or self._brand~=__nuppManagedBrand or getmetatable(self)~=__nuppManagedAlias then return nil,__nuppManagedError("NUPP2614","value is not a managed alias")end local cell=self._cell;local problem=__nuppManagedProblem(cell);if problem then return nil,problem end;return cell,nil end function __nuppManagedAlias:with(callback) local cell,problem=__nuppAliasCell(self);if not cell then return nil,problem end if cell._exclusive then return nil,__nuppManagedError("NUPP2620","managed resource is exclusively borrowed")end cell._borrows=cell._borrows+1;cell._state="shared-borrowed("..cell._borrows..")" local ok,result=pcall(callback,cell._value);cell._borrows=cell._borrows-1;cell._state=cell._borrows>0 and("shared-borrowed("..cell._borrows..")")or"live" if not ok then error(result,0)end;return result,nil end function __nuppManagedAlias:withExclusive(callback) local cell,problem=__nuppAliasCell(self);if not cell then return nil,problem end if cell._exclusive or cell._borrows~=0 then return nil,__nuppManagedError("NUPP2620","managed resource is already borrowed")end cell._exclusive=true;cell._state="exclusive-borrowed";local ok,result=pcall(callback,cell._value);cell._exclusive=false;cell._state="live" if not ok then error(result,0)end;return result,nil end function __nuppManagedAlias:take() local cell,problem=__nuppAliasCell(self);if not cell then return nil,problem end if cell._exclusive or cell._borrows~=0 then return nil,__nuppManagedError("NUPP2620","managed resource has an active borrow")end cell._state="taken";local value=cell._value;cell._value=nil;cell._cleanup=nil;return value,nil end function __nuppManagedAlias:close() local cell,problem=__nuppAliasCell(self);if not cell then return problem end;return __nuppManagedClose(cell,true)end function __nuppManagedAlias:_downcast(policy) local cell,problem=__nuppAliasCell(self);if not cell then return nil,problem end if cell._policy~=policy then return nil,__nuppManagedError("NUPP2613","managed alias has the wrong type or cleanup policy")end return self,nil end function __nupp.__manage(value,cleanup,policy) local cell=setmetatable({_brand=__nuppManagedBrand,_value=value,_cleanup=cleanup,_policy=policy,_state="live",_borrows=0,_exclusive=false},__nuppManagedOwner);__nuppManagedCells[cell]=true;return cell end function __nupp.__recoverAlias(value) if type(value)~="table"or value._brand~=__nuppManagedBrand or getmetatable(value)~=__nuppManagedAlias then return nil,__nuppManagedError("NUPP2614","value is not a managed alias")end local cell,problem=__nuppAliasCell(value);if not cell then return nil,problem end;return value,nil end _G.__nuppManagedPolicyCount=function(policy)local count=0;for cell in pairs(__nuppManagedCells)do if cell._policy==policy and(cell._state=="live"or cell._state:match("borrowed"))then count=count+1 end end;return count end local __nuppManagedGroup={};__nuppManagedGroup.__index=__nuppManagedGroup function __nuppManagedGroup:flush()end function __nuppManagedGroup:adopt(cell) if self._closed then error("managed group is closed",2)end local handle=cell:alias();self._entries[#self._entries+1]=handle return handle end function __nuppManagedGroup:remove(handle) if self._closed then error("managed group is closed",2)end for index=#self._entries,1,-1 do if self._entries[index]==handle then table.remove(self._entries,index);local value,problem=handle:take();if problem then error(problem.message,2)end;return value end end error("managed alias is not registered in this group",2) end local function __nuppManagedCloseEntry(entry)local problem=entry:close();if problem and problem.code~="NUPP2614"then error(problem.message,0)end end function __nuppManagedGroup:close() if self._closed then return end;self._closed=true;local first,suppressed=nil,0 for index=#self._entries,1,-1 do local ok,reason=pcall(__nuppManagedCloseEntry,self._entries[index]);if not ok then if first==nil then first=reason else suppressed=suppressed+1 end end end self._entries={};if first~=nil then if suppressed>0 then error(tostring(first).." (suppressed "..tostring(suppressed).." cleanup failure(s))",0)end;error(first,0)end end function __nupp.managedGroup()return setmetatable({_entries={},_closed=false},__nuppManagedGroup)end;local __nuppExports;local __nuppOk,__nuppWhy=pcall(function()
+
+
+
+local suite = { }
+
+function suite . test ( provider ) 
+if provider . PORTABLE_WORKGROUP_THREADS ~= 256 or provider . PORTABLE_SCRATCH_BYTES ~= 16384 then
+return false , "provider changed the portable workgroup floors"
+end
+local seen = 0
+provider . workgroups ( (__nuppBitTobit( 2 )%4294967296) , (__nuppBitTobit( 2 )%4294967296) , function ( ) 
+seen = seen + 1
+end )
+if seen ~= 2 then
+return false , "workgroups must invoke the controller once per group"
+end
+
+return true
+end
+
+const __nuppExportValue= suite ;__nuppExports=__nuppExportValue
+ end);if not __nuppOk then package.loaded["nupp.runtime.seam.gpusuite"]=nil;error(__nuppWhy,0) end;package.loaded["nupp.runtime.seam.gpusuite"]=__nuppExports;return __nuppExports
+end
 package.preload["nupp.runtime.seam.hash"] = function(...)
 _G.assert(_G.loadstring("local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppMath=rawget(__nupp,\"math\")or{};rawset(__nupp,\"math\",__nuppMath) local function __nuppCloseFile(handle)if io.type(handle)==\"closed file\"then return end;local ok,reason=handle:close();if not ok then error(reason or \"the file could not be closed\",0)end end local __nuppManagedBrand=_G.__nuppManagedBrand if not __nuppManagedBrand then __nuppManagedBrand={};_G.__nuppManagedBrand=__nuppManagedBrand end local __nuppManagedCells=_G.__nuppManagedCells if not __nuppManagedCells then __nuppManagedCells=setmetatable({},{__mode=\"k\"});_G.__nuppManagedCells=__nuppManagedCells end local __nuppManagedOwner={};__nuppManagedOwner.__index=__nuppManagedOwner;local __nuppManagedAlias={};__nuppManagedAlias.__index=__nuppManagedAlias local function __nuppManagedError(code,message)return{code=code,message=message}end local function __nuppManagedProblem(cell) if type(cell)~=\"table\"or cell._brand~=__nuppManagedBrand then return __nuppManagedError(\"NUPP2614\",\"value is not a managed alias\")end if cell._state==\"taken\"then return __nuppManagedError(\"NUPP2614\",\"managed ownership was already taken\")end if cell._state==\"closed\"or cell._state==\"closing\"then return __nuppManagedError(\"NUPP2614\",\"managed resource is closed\")end return nil end local function __nuppManagedClose(cell,checked) local problem=__nuppManagedProblem(cell);if problem then if checked then return problem end;return nil end if cell._borrows~=0 or cell._exclusive then local busy=__nuppManagedError(\"NUPP2620\",\"managed resource has an active borrow\");if checked then return busy end;error(busy.message,0)end cell._state=\"closing\";local value,cleanup=cell._value,cell._cleanup;cell._value=nil;cell._cleanup=nil local ok,reason=pcall(cleanup,value);cell._state=\"closed\";if not ok then error(reason,0)end;return nil end function __nuppManagedOwner:alias()return setmetatable({_cell=self,_brand=__nuppManagedBrand},__nuppManagedAlias)end function __nuppManagedOwner:close()return __nuppManagedClose(self,false)end local function __nuppAliasCell(self) if type(self)~=\"table\"or self._brand~=__nuppManagedBrand or getmetatable(self)~=__nuppManagedAlias then return nil,__nuppManagedError(\"NUPP2614\",\"value is not a managed alias\")end local cell=self._cell;local problem=__nuppManagedProblem(cell);if problem then return nil,problem end;return cell,nil end function __nuppManagedAlias:with(callback) local cell,problem=__nuppAliasCell(self);if not cell then return nil,problem end if cell._exclusive then return nil,__nuppManagedError(\"NUPP2620\",\"managed resource is exclusively borrowed\")end cell._borrows=cell._borrows+1;cell._state=\"shared-borrowed(\"..cell._borrows..\")\" local ok,result=pcall(callback,cell._value);cell._borrows=cell._borrows-1;cell._state=cell._borrows>0 and(\"shared-borrowed(\"..cell._borrows..\")\")or\"live\" if not ok then error(result,0)end;return result,nil end function __nuppManagedAlias:withExclusive(callback) local cell,problem=__nuppAliasCell(self);if not cell then return nil,problem end if cell._exclusive or cell._borrows~=0 then return nil,__nuppManagedError(\"NUPP2620\",\"managed resource is already borrowed\")end cell._exclusive=true;cell._state=\"exclusive-borrowed\";local ok,result=pcall(callback,cell._value);cell._exclusive=false;cell._state=\"live\" if not ok then error(result,0)end;return result,nil end function __nuppManagedAlias:take() local cell,problem=__nuppAliasCell(self);if not cell then return nil,problem end if cell._exclusive or cell._borrows~=0 then return nil,__nuppManagedError(\"NUPP2620\",\"managed resource has an active borrow\")end cell._state=\"taken\";local value=cell._value;cell._value=nil;cell._cleanup=nil;return value,nil end function __nuppManagedAlias:close() local cell,problem=__nuppAliasCell(self);if not cell then return problem end;return __nuppManagedClose(cell,true)end function __nuppManagedAlias:_downcast(policy) local cell,problem=__nuppAliasCell(self);if not cell then return nil,problem end if cell._policy~=policy then return nil,__nuppManagedError(\"NUPP2613\",\"managed alias has the wrong type or cleanup policy\")end return self,nil end function __nupp.__manage(value,cleanup,policy) local cell=setmetatable({_brand=__nuppManagedBrand,_value=value,_cleanup=cleanup,_policy=policy,_state=\"live\",_borrows=0,_exclusive=false},__nuppManagedOwner);__nuppManagedCells[cell]=true;return cell end function __nupp.__recoverAlias(value) if type(value)~=\"table\"or value._brand~=__nuppManagedBrand or getmetatable(value)~=__nuppManagedAlias then return nil,__nuppManagedError(\"NUPP2614\",\"value is not a managed alias\")end local cell,problem=__nuppAliasCell(value);if not cell then return nil,problem end;return value,nil end _G.__nuppManagedPolicyCount=function(policy)local count=0;for cell in pairs(__nuppManagedCells)do if cell._policy==policy and(cell._state==\"live\"or cell._state:match(\"borrowed\"))then count=count+1 end end;return count end local __nuppManagedGroup={};__nuppManagedGroup.__index=__nuppManagedGroup function __nuppManagedGroup:flush()end function __nuppManagedGroup:adopt(cell) if self._closed then error(\"managed group is closed\",2)end local handle=cell:alias();self._entries[#self._entries+1]=handle return handle end function __nuppManagedGroup:remove(handle) if self._closed then error(\"managed group is closed\",2)end for index=#self._entries,1,-1 do if self._entries[index]==handle then table.remove(self._entries,index);local value,problem=handle:take();if problem then error(problem.message,2)end;return value end end error(\"managed alias is not registered in this group\",2) end local function __nuppManagedCloseEntry(entry)local problem=entry:close();if problem and problem.code~=\"NUPP2614\"then error(problem.message,0)end end function __nuppManagedGroup:close() if self._closed then return end;self._closed=true;local first,suppressed=nil,0 for index=#self._entries,1,-1 do local ok,reason=pcall(__nuppManagedCloseEntry,self._entries[index]);if not ok then if first==nil then first=reason else suppressed=suppressed+1 end end end self._entries={};if first~=nil then if suppressed>0 then error(tostring(first)..\" (suppressed \"..tostring(suppressed)..\" cleanup failure(s))\",0)end;error(first,0)end end function __nupp.managedGroup()return setmetatable({_entries={},_closed=false},__nuppManagedGroup)end;\n","@nupp-prelude"))();local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppMath=rawget(__nupp,"math")or{};rawset(__nupp,"math",__nuppMath) local function __nuppCloseFile(handle)if io.type(handle)=="closed file"then return end;local ok,reason=handle:close();if not ok then error(reason or "the file could not be closed",0)end end local __nuppManagedBrand=_G.__nuppManagedBrand if not __nuppManagedBrand then __nuppManagedBrand={};_G.__nuppManagedBrand=__nuppManagedBrand end local __nuppManagedCells=_G.__nuppManagedCells if not __nuppManagedCells then __nuppManagedCells=setmetatable({},{__mode="k"});_G.__nuppManagedCells=__nuppManagedCells end local __nuppManagedOwner={};__nuppManagedOwner.__index=__nuppManagedOwner;local __nuppManagedAlias={};__nuppManagedAlias.__index=__nuppManagedAlias local function __nuppManagedError(code,message)return{code=code,message=message}end local function __nuppManagedProblem(cell) if type(cell)~="table"or cell._brand~=__nuppManagedBrand then return __nuppManagedError("NUPP2614","value is not a managed alias")end if cell._state=="taken"then return __nuppManagedError("NUPP2614","managed ownership was already taken")end if cell._state=="closed"or cell._state=="closing"then return __nuppManagedError("NUPP2614","managed resource is closed")end return nil end local function __nuppManagedClose(cell,checked) local problem=__nuppManagedProblem(cell);if problem then if checked then return problem end;return nil end if cell._borrows~=0 or cell._exclusive then local busy=__nuppManagedError("NUPP2620","managed resource has an active borrow");if checked then return busy end;error(busy.message,0)end cell._state="closing";local value,cleanup=cell._value,cell._cleanup;cell._value=nil;cell._cleanup=nil local ok,reason=pcall(cleanup,value);cell._state="closed";if not ok then error(reason,0)end;return nil end function __nuppManagedOwner:alias()return setmetatable({_cell=self,_brand=__nuppManagedBrand},__nuppManagedAlias)end function __nuppManagedOwner:close()return __nuppManagedClose(self,false)end local function __nuppAliasCell(self) if type(self)~="table"or self._brand~=__nuppManagedBrand or getmetatable(self)~=__nuppManagedAlias then return nil,__nuppManagedError("NUPP2614","value is not a managed alias")end local cell=self._cell;local problem=__nuppManagedProblem(cell);if problem then return nil,problem end;return cell,nil end function __nuppManagedAlias:with(callback) local cell,problem=__nuppAliasCell(self);if not cell then return nil,problem end if cell._exclusive then return nil,__nuppManagedError("NUPP2620","managed resource is exclusively borrowed")end cell._borrows=cell._borrows+1;cell._state="shared-borrowed("..cell._borrows..")" local ok,result=pcall(callback,cell._value);cell._borrows=cell._borrows-1;cell._state=cell._borrows>0 and("shared-borrowed("..cell._borrows..")")or"live" if not ok then error(result,0)end;return result,nil end function __nuppManagedAlias:withExclusive(callback) local cell,problem=__nuppAliasCell(self);if not cell then return nil,problem end if cell._exclusive or cell._borrows~=0 then return nil,__nuppManagedError("NUPP2620","managed resource is already borrowed")end cell._exclusive=true;cell._state="exclusive-borrowed";local ok,result=pcall(callback,cell._value);cell._exclusive=false;cell._state="live" if not ok then error(result,0)end;return result,nil end function __nuppManagedAlias:take() local cell,problem=__nuppAliasCell(self);if not cell then return nil,problem end if cell._exclusive or cell._borrows~=0 then return nil,__nuppManagedError("NUPP2620","managed resource has an active borrow")end cell._state="taken";local value=cell._value;cell._value=nil;cell._cleanup=nil;return value,nil end function __nuppManagedAlias:close() local cell,problem=__nuppAliasCell(self);if not cell then return problem end;return __nuppManagedClose(cell,true)end function __nuppManagedAlias:_downcast(policy) local cell,problem=__nuppAliasCell(self);if not cell then return nil,problem end if cell._policy~=policy then return nil,__nuppManagedError("NUPP2613","managed alias has the wrong type or cleanup policy")end return self,nil end function __nupp.__manage(value,cleanup,policy) local cell=setmetatable({_brand=__nuppManagedBrand,_value=value,_cleanup=cleanup,_policy=policy,_state="live",_borrows=0,_exclusive=false},__nuppManagedOwner);__nuppManagedCells[cell]=true;return cell end function __nupp.__recoverAlias(value) if type(value)~="table"or value._brand~=__nuppManagedBrand or getmetatable(value)~=__nuppManagedAlias then return nil,__nuppManagedError("NUPP2614","value is not a managed alias")end local cell,problem=__nuppAliasCell(value);if not cell then return nil,problem end;return value,nil end _G.__nuppManagedPolicyCount=function(policy)local count=0;for cell in pairs(__nuppManagedCells)do if cell._policy==policy and(cell._state=="live"or cell._state:match("borrowed"))then count=count+1 end end;return count end local __nuppManagedGroup={};__nuppManagedGroup.__index=__nuppManagedGroup function __nuppManagedGroup:flush()end function __nuppManagedGroup:adopt(cell) if self._closed then error("managed group is closed",2)end local handle=cell:alias();self._entries[#self._entries+1]=handle return handle end function __nuppManagedGroup:remove(handle) if self._closed then error("managed group is closed",2)end for index=#self._entries,1,-1 do if self._entries[index]==handle then table.remove(self._entries,index);local value,problem=handle:take();if problem then error(problem.message,2)end;return value end end error("managed alias is not registered in this group",2) end local function __nuppManagedCloseEntry(entry)local problem=entry:close();if problem and problem.code~="NUPP2614"then error(problem.message,0)end end function __nuppManagedGroup:close() if self._closed then return end;self._closed=true;local first,suppressed=nil,0 for index=#self._entries,1,-1 do local ok,reason=pcall(__nuppManagedCloseEntry,self._entries[index]);if not ok then if first==nil then first=reason else suppressed=suppressed+1 end end end self._entries={};if first~=nil then if suppressed>0 then error(tostring(first).." (suppressed "..tostring(suppressed).." cleanup failure(s))",0)end;error(first,0)end end function __nupp.managedGroup()return setmetatable({_entries={},_closed=false},__nuppManagedGroup)end;local __nuppExports;local __nuppOk,__nuppWhy=pcall(function()
 
@@ -191912,6 +192015,13 @@ effect = "runtime.data_bitset" ,
 binding = "runtime" ,
 factoryModule = "nupp.runtime.seam.bitset" ,
 exports = { [ "nupp.data.Bitset" ] = "Bitset" , [ "nupp.data.WORD_BITS" ] = "WORD_BITS" , }
+} ,
+{
+name = "compute.gpu" ,
+effect = "native.gpu" ,
+binding = "runtime" ,
+factoryModule = "nupp.runtime.seam.gpu" ,
+modules = { [ "nupp.gpu" ] = "" } ,
 } ,
 {
 name = "peg" ,
@@ -214512,848 +214622,26 @@ export = derive
 module nupp.gpu
 
 --[[
-Resident compute buffers over SDL GPU.
+The public GPU surface.
 
-The context owns every buffer and compiled kernel created from it. Buffers and
-kernels borrow that context, so checked code cannot close the device while one
-is live. Uploads, dispatches, and downloads only enqueue commands;
-`synchronize()` is the explicit CPU boundary.
-
-```nupp
-local gpu = require("nupp.gpu")
-local kernels = require("kernels")
-local ffi = require("nupp.runtime.native").ffi
-
-local context = gpu.open()
-local input = context:buffer(ffi.typeof<float>(), 1024)
-local output = context:buffer(ffi.typeof<float>(), 1024)
-local scale = kernels.scale:compile(context):bind(output, input)
-context:upload(input, values:read())
-scale:dispatch(2.0)
-context:enqueueDownload(output)
-context:synchronize()
-context:readDownloaded(output, result:write())
-```
-
-Here `kernels.scale` is generated from an `@aot(target = "gpu")` function by a
-target with `aot = "require"`. Shader source, entrypoint identity, binding order
-and uniform packing remain compiler details. Ordinary spans are the CPU
-boundary; a chain of kernels keeps its intermediate buffers resident and pays
-upload/download only where the program asks for them.
-
-`context:tensor(element, shape)` allocates dense row-major storage. A checked
-`gpu.Layout` can be sliced, transposed, broadcast, or explicitly strided, then
-applied with `gpu.view(buffer, layout)` without allocating. Transfers remain dense;
-layout-aware kernels consume the explicit metadata.
+Native programs answer it with the SDL provider. A selected backend may replace
+this module with another provider under the same name, so generated bindings
+and user source never name a host implementation directly.
 ]]
 
-local native = require("nupp.runtime.native")
-local span = require("nupp.mem.span")
-local tensorlayout = require("nupp.gpulayout")
-local {type Layout as TensorLayout} = require("nupp.gpulayout")
-local ffi = native.ffi
--- Ad-hoc runs keep the compiler's broad development provider loaded. A GPU
--- feature build can be named separately so it does not force SDL into that
--- provider; packaged targets use their feature-matched `native.C` as usual.
-local gpuLibrary = os.getenv("NUPP_GPU_LIBRARY")
-local C = gpuLibrary and ffi.load(gpuLibrary) or native.C
-local gpu = {}
-
---- A checked logical tensor layout independent of its element and allocation.
---- @export
-type gpu.Layout = TensorLayout
-
---- The portable floor reserved for one generated workgroup. Backends may
---- support more, but generated kernels deliberately do not depend on it.
---- @export
-const gpu.PORTABLE_WORKGROUP_THREADS = 256
-
---- The portable workgroup-scratch floor in bytes. Generated kernels are
---- refused at compile time when their statically sized scratch exceeds it.
---- @export
-const gpu.PORTABLE_SCRATCH_BYTES = 16384
-
-native.ffi.cdef[[
-typedef struct NuppGpuContext NuppGpuContext;
-typedef struct NuppGpuBuffer NuppGpuBuffer;
-typedef struct NuppGpuKernel NuppGpuKernel;
-typedef struct NuppGpuBinding NuppGpuBinding;
-NuppGpuContext *nuppGpuContextCreate(void);
-const char *nuppGpuContextDriver(const NuppGpuContext *);
-void nuppGpuContextDestroy(NuppGpuContext *);
-NuppGpuBuffer *nuppGpuBufferCreate(NuppGpuContext *, size_t);
-NuppGpuKernel *nuppGpuKernelCreate(
-    NuppGpuContext *, const uint8_t *, size_t, const uint8_t *, size_t,
-    const uint8_t *, size_t,
-    uint32_t, uint32_t, uint32_t, uint32_t);
-bool nuppGpuBufferUpload(NuppGpuContext *, NuppGpuBuffer *, const void *, size_t, size_t);
-NuppGpuBinding *nuppGpuBindingCreate(NuppGpuContext *, NuppGpuKernel *, uint32_t);
-bool nuppGpuBindingSetRead(NuppGpuBinding *, uint32_t, NuppGpuBuffer *, uint32_t, uint32_t, bool);
-bool nuppGpuBindingSetWrite(NuppGpuBinding *, uint32_t, NuppGpuBuffer *, uint32_t, uint32_t, bool);
-bool nuppGpuBindingDispatch(NuppGpuBinding *, const void *, size_t);
-bool nuppGpuBufferDownload(NuppGpuContext *, NuppGpuBuffer *, size_t, size_t);
-bool nuppGpuSynchronize(NuppGpuContext *);
-bool nuppGpuBufferRead(NuppGpuContext *, NuppGpuBuffer *, void *, size_t, size_t);
-bool nuppGpuBufferDestroy(NuppGpuContext *, NuppGpuBuffer *);
-bool nuppGpuKernelDestroy(NuppGpuContext *, NuppGpuKernel *);
-bool nuppGpuBindingDestroy(NuppGpuContext *, NuppGpuBinding *);
-]]
-
--- `native.C` is late-bound, so restore the ownership contracts that the literal
--- cdef carries for the checker but a table lookup cannot preserve. Resolve the
--- symbol only when a real GPU dispatch happens: the ordinary workgroup/phase
--- implementation remains usable in builds whose provider did not link SDL.
-local function dispatchNative(binding: any, borrows uniforms: const uint8[?], bytes: integer): boolean
-    local call = C.nuppGpuBindingDispatch as function(any, borrows uniforms: const uint8[?], integer): boolean
-    return call(binding, uniforms, bytes)
-end
-
---- One typed resident device range. A root buffer owns an allocation; a
---- subview shares it with a checked element offset. Storage is not
---- CPU-addressable, so upload and download explicitly cross that boundary.
---- @export
-record gpu.Buffer<T>
-    private readonly _anchor: any
-    private readonly _handle: any
-    private readonly _width: integer
-    private readonly _offset: integer
-    private readonly _capacity: integer
-    private readonly _root: boolean
-    private _shape: {integer}
-    private _strides: {integer}
-
-    --- Number of elements, kept with the allocation.
-    readonly count: integer
-
-    --- Logical tensor dimensions. The returned table is a copy.
-    dimensions: function(borrows self: gpu.Buffer<T>): {integer}
-
-    --- Physical element strides. The returned table is a copy.
-    strides: function(borrows self: gpu.Buffer<T>): {integer}
-
-    --- Creates an allocation-free checked subview.
-    subview: function(borrows self: gpu.Buffer<T>, origin: {integer}, shape: {integer}): gpu.Buffer<T> borrows (self)
-end
-
---- One compiled compute entry owned by its context.
---- @internal
-record gpu.Kernel
-    private readonly _anchor: any
-    private readonly _handle: any
-    private readonly _uniformBytes: integer
-end
-
---- The peer artifacts emitted for one verified GPU kernel.
----
---- A context selects the member its provider can consume. Native contexts use
---- the canonical SPIR-V and its MSL derivative; a browser context can instead
---- select WGSL without changing compiler-generated host bindings.
---- @internal
-record gpu.ArtifactSet
-    readonly spirv: string
-    readonly msl: string
-    readonly wgsl: string?
-    readonly entrypoint: string
-end
-
---- A compiler-generated kernel attached to its resident buffers. User source
---- receives a more specific generated wrapper; this erased value is the shared
---- runtime implementation underneath it.
---- @internal
-record gpu.Binding
-    private readonly _anchor: any
-    private readonly _handle: any
-    private readonly _uniformBytes: integer
-    private _released: boolean
-
-    --- Number of elements dispatched by this binding.
-    readonly count: integer
-
-    --- Attaches a resident buffer to one read-only slot. A dispatch-indexed
-    --- span asks for `matchCount`, which holds the buffer to one element per
-    --- dispatched thread; a cursor-proved span passes false and may be any
-    --- length, because its bound check runs inside the shader.
-    --- @internal
-    setRead: function<T>(borrows self: Binding, slot: integer, borrows buffer: gpu.Buffer<T>, matchCount: boolean): nil
-
-    --- Attaches a resident buffer to one writable slot.
-    --- @internal
-    setWrite: function<T>(borrows self: Binding, slot: integer, borrows buffer: gpu.Buffer<T>, matchCount: boolean): nil
-
-    --- Enqueues the binding with a compiler-laid-out uniform block.
-    --- @internal
-    dispatchPacked: function(borrows self: Binding, uniforms: any, uniformBytes: integer): nil
-end
-
---- Statically sized, zero-based storage shared by one CPU workgroup.
----
---- GPU AOT replaces this ordinary representation with workgroup address-space
---- storage. Keeping its indexing zero-based makes the interpreted CPU body and
---- the shader body use exactly the same authored indices.
---- @export
-record gpu.Shared<T>
-    private _values: {T}
-    readonly count: integer
-
-    metamethod __len: function(borrows self: gpu.Shared<T>): integer
-    metamethod __index: function(borrows self: gpu.Shared<T>, index: integer): T
-    metamethod __newindex: function(exclusive self: gpu.Shared<T>, index: integer, value: T): nil
-end
-
---- The ordered stages and scratch belonging to one workgroup.
---- @export
-record gpu.Phases
-    private readonly _size: integer
-
-    --- Allocates fresh zero-based scratch for this workgroup.
-    scratch: function<T>(borrows self: gpu.Phases, initial: T, count: integer): gpu.Shared<T>
-
-    --- Runs one stage to completion in ascending local-index order.
-    run: function(borrows self: gpu.Phases, scoped stage: function(uint32): nil): nil
-
-    --- Reduces one power-of-two f32 workgroup in a fixed left-before-right
-    --- tree. The sum is left in element zero.
-    reduceSumF32: function(borrows self: gpu.Phases, exclusive values: gpu.Shared<float>): nil
-
-    --- Computes one deterministic inclusive u32 prefix sum. `temporary` is a
-    --- same-sized scratch array used for disjoint ping-pong stages; the result
-    --- is left in `values`.
-    inclusiveScanU32: function(
-        borrows self: gpu.Phases,
-        exclusive values: gpu.Shared<uint32>,
-        exclusive temporary: gpu.Shared<uint32>
-    ): nil
-end
-
-sealed interface gpu.ContextToken
-    drop: nosuspend function(takes self: ContextToken): nil
-end
-
---- Releases a GPU context and everything it owns.
---- @export
-function gpu.destroyContext<T is gpu.ContextToken>(takes context: T): nil
-    context:drop()
-end
-
---- An SDL GPU device and its current asynchronous command stream.
---- @export
-record gpu.Context is gpu.ContextToken
-    private _handle: any
-    private _closed: boolean
-
-    --- Releases the device, compiled kernels, and resident buffers.
-    drop: nosuspend function(takes self: Context): nil
-
-    --- SDL backend selected for this device.
-    driver: function(borrows self: Context): string
-
-    --- Allocates a typed resident device buffer.
-    buffer: function<T>(borrows self: Context, element: ctype<T>, count: integer): gpu.Buffer<T> borrows (self)
-
-    --- Allocates a dense row-major resident tensor.
-    tensor: function<T>(borrows self: Context, element: ctype<T>, shape: {integer}): gpu.Buffer<T> borrows (self)
-
-    --- Compiles the artifacts emitted beside an `@aot(target = "gpu")` body.
-    --- The selected provider chooses its source member from this set.
-    --- @internal
-    compileGenerated: function(
-        borrows self: Context,
-        artifacts: gpu.ArtifactSet,
-        readonlyBuffers: integer,
-        writableBuffers: integer,
-        uniformBytes: integer,
-        threads: integer?
-    ): gpu.Kernel borrows (self)
-
-    --- Starts attaching a generated kernel to resident buffers. `count` is the
-    --- dispatch length, which the compiler takes from the kernel's primary
-    --- span; the generated binding fills every slot before dispatching.
-    --- @internal
-    bindKernel: function(borrows self: Context, borrows kernel: gpu.Kernel, count: integer): gpu.Binding borrows (self)
-
-    --- Releases one root buffer's device storage without closing the context.
-    --- Refused while commands are queued; synchronize first. Any view of the
-    --- buffer is invalid afterwards, and using one raises.
-    releaseBuffer: function<T>(borrows self: Context, borrows buffer: gpu.Buffer<T>): nil
-
-    --- Releases a compiled kernel no binding uses any more.
-    --- @internal
-    releaseKernel: function(borrows self: Context, borrows kernel: gpu.Kernel): nil
-
-    --- Releases a binding's host-side attachment. The kernel and buffers it
-    --- named remain the context's.
-    --- @internal
-    releaseBinding: function(borrows self: Context, exclusive binding: gpu.Binding): nil
-
-    --- Copies a complete shared span into a resident buffer or view and
-    --- enqueues its transfer. It does not wait.
-    upload: function<T>(borrows self: Context, borrows buffer: gpu.Buffer<T>, borrows source: span.Span<T>): nil
-
-    --- Enqueues a complete resident-buffer or view download without waiting.
-    enqueueDownload: function<T>(borrows self: Context, borrows buffer: gpu.Buffer<T>): nil
-
-    --- Submits the accumulated command stream and waits for it.
-    synchronize: function(borrows self: Context): nil
-
-    --- Copies a download completed by `synchronize()` into a complete writable
-    --- span. No GPU work or waiting happens here.
-    readDownloaded: function<T>(
-        borrows self: Context,
-        borrows buffer: gpu.Buffer<T>,
-        borrows destination: span.WriteSpan<T>
-    ): nil
-
-    --- Convenience CPU boundary: enqueue, synchronize, and copy out.
-    download: function<T>(
-        borrows self: Context,
-        borrows buffer: gpu.Buffer<T>,
-        borrows destination: span.WriteSpan<T>
-    ): nil
-end
-
-local function live(borrows self: gpu.Context): any
-    if self._closed or self._handle == nil then
-        error("nupp: GPU context is closed", 3)
-    end
-    return self._handle
-end
-
-local function succeeded(ok: boolean, level: integer): nil
-    if not ok then
-        error("nupp: " .. ffi.string(C.nuppNativeError()), level)
-    end
-end
-
--- Keep the element type on the span crossing the native boundary. Casting the
--- pointer to bytes would erase its borrow provenance; only the C declaration
--- needs to forget the pointee type.
-local function uploadTyped<T>(
-    context: any,
-    buffer: any,
-    borrows source: const T[?],
-    offset: integer,
-    bytes: integer
-): boolean
-    local call = C.nuppGpuBufferUpload as function(any, any, borrows source: const T[?], integer, integer): boolean
-    return call(context, buffer, source, offset, bytes)
-end
-
-local function readTyped<T>(
-    context: any,
-    buffer: any,
-    borrows destination: T[?],
-    offset: integer,
-    bytes: integer
-): boolean
-    local call = C.nuppGpuBufferRead as function(any, any, borrows destination: T[?], integer, integer): boolean
-    return call(context, buffer, destination, offset, bytes)
-end
-
-local function denseShape(shape: {integer}): (integer, {integer})
-    if #shape < 1 or #shape > 4 then
-        error("nupp: GPU tensors take one through four dimensions", 3)
-    end
-    local count: integer = 1
-    local strides: {integer} = {}
-    for index = #shape, 1, -1 do
-        local dimension = shape[index]
-        if dimension < 1 or count > 4294967295 // dimension then
-            error("nupp: GPU tensor dimensions must have 1 through 4294967295 elements", 3)
-        end
-        strides[index] = count
-        count = count * dimension
-    end
-
-    return count, strides
-end
-
-local function copied(values: {integer}): {integer}
-    local out: {integer} = {}
-    for index, value in ipairs(values) do
-        out[index] = value
-    end
-
-    return out
-end
-
-function gpu.Shared.get<T>(borrows self: gpu.Shared<T>, index: integer): T
-    if index < 0 or index >= self.count then
-        error("nupp: GPU shared-scratch index out of bounds", 2)
-    end
-    return self._values[index + 1]
-end
-
-function gpu.Shared.set<T>(exclusive self: gpu.Shared<T>, index: integer, value: T): nil
-    if index < 0 or index >= self.count then
-        error("nupp: GPU shared-scratch index out of bounds", 2)
-    end
-    self._values[index + 1] = value
-end
-
-function gpu.Phases.scratch<T>(borrows self: gpu.Phases, initial: T, count: integer): gpu.Shared<T>
-    if count < 1 then
-        error("nupp: GPU shared scratch must contain at least one element", 2)
-    end
-    local values: {T} = {}
-    for index = 1, count do
-        values[index] = initial
-    end
-
-    return new gpu.Shared(_values = values, count = count)
-end
-
-function gpu.Phases.run(borrows self: gpu.Phases, scoped stage: function(uint32): nil): nil
-    for index = 0, self._size - 1 do
-        stage(nupp.math.u32.wrap(index))
-    end
-end
-
-function gpu.Phases.reduceSumF32(borrows self: gpu.Phases, exclusive values: gpu.Shared<float>): nil
-    if values.count ~= self._size or self._size < 1 or self._size & (self._size - 1) ~= 0 then
-        error("nupp: fixed-tree reduction needs one power-of-two value per lane", 2)
-    end
-    local stride = self._size // 2
-    while stride > 0 do
-        local active = stride
-        self:run(function(localIndex: uint32)
-            local lane = localIndex as integer
-            if lane < active then
-                values[
-                    lane
-                ] = nupp.math.f32.add(nupp.math.f32.narrow(values[lane]), nupp.math.f32.narrow(values[lane + active]))
-            end
-        end)
-        stride = stride // 2
-    end
-end
-
-function gpu.Phases.inclusiveScanU32(
-    borrows self: gpu.Phases,
-    exclusive values: gpu.Shared<uint32>,
-    exclusive temporary: gpu.Shared<uint32>
-): nil
-    if values.count ~= self._size or temporary.count ~= self._size or self._size < 1 or self._size & (
-        self._size - 1
-    ) ~= 0 then
-        error("nupp: fixed scan needs two power-of-two arrays with one value per lane", 2)
-    end
-    local offset: integer = 1
-    local valuesAreSource = true
-    while offset < self._size do
-        local distance: integer = offset
-        if valuesAreSource then
-            self:run(function(localIndex: uint32)
-                local lane = localIndex as integer
-                local value = values[lane]
-                if lane >= distance then
-                    value = nupp.math.u32.add(
-                        nupp.math.u32.wrap(value as integer),
-                        nupp.math.u32.wrap(values[lane - distance] as integer)
-                    )
-                end
-                temporary[lane] = value
-            end)
-        else
-            self:run(function(localIndex: uint32)
-                local lane = localIndex as integer
-                local value = temporary[lane]
-                if lane >= distance then
-                    value = nupp.math.u32.add(
-                        nupp.math.u32.wrap(value as integer),
-                        nupp.math.u32.wrap(temporary[lane - distance] as integer)
-                    )
-                end
-                values[lane] = value
-            end)
-        end
-        valuesAreSource = not valuesAreSource
-        offset = offset * 2
-    end
-    if not valuesAreSource then
-        self:run(function(localIndex: uint32)
-            local lane = localIndex as integer
-            values[lane] = temporary[lane]
-        end)
-    end
-end
-
---- Executes uniformly ordered workgroup phases on the CPU.
----
---- A GPU AOT body recognizes this call and its immediate callbacks as
---- structure: the controller does not escape, each `run` is a device barrier,
---- and each stage invocation becomes one local lane.
---- @export
---- @raises when size is outside the portable workgroup limit
-function gpu.workgroups(groups: uint32, size: uint32, scoped controller: function(uint32, gpu.Phases): nil): nil
-    local groupCount = groups as integer
-    local groupSize = size as integer
-    if groupSize < 1 or groupSize > gpu.PORTABLE_WORKGROUP_THREADS then
-        error("nupp: GPU workgroup size exceeds the portable limit", 2)
-    end
-    local phases = new gpu.Phases(_size = groupSize)
-    for groupIndex = 0, groupCount - 1 do
-        controller(nupp.math.u32.wrap(groupIndex), phases)
-    end
-end
-
-function gpu.Context.drop(takes self: gpu.Context): nil
-    local state = unsafe release self
-    if state._closed then
-        return
-    end
-    state._closed = true
-    local handle = state._handle
-    state._handle = nil
-    nosuspend do
-        local destroy = C.nuppGpuContextDestroy as nosuspend function(any): nil
-        destroy(handle)
-    end
-end
-
-function gpu.Context.driver(borrows self: gpu.Context): string
-    return ffi.string(C.nuppGpuContextDriver(live(self)))
-end
-
-function gpu.Context.buffer<T>(
-    borrows self: gpu.Context,
-    element: ctype<T>,
-    count: integer
-): gpu.Buffer<T> borrows (self)
-    if count < 0 then
-        error("nupp: GPU buffer count cannot be negative", 2)
-    end
-    local width = ffi.sizeof(element) as integer
-    if width <= 0 or count == 0 or count > 4294967295 // width then
-        error("nupp: GPU buffer must contain 1 through 4294967295 bytes", 2)
-    end
-    local handle = C.nuppGpuBufferCreate(live(self), width * count)
-    if handle == nil then
-        error("nupp: " .. ffi.string(C.nuppNativeError()), 2)
-    end
-
-    return new gpu.Buffer(
-        _anchor = self,
-        _handle = handle,
-        _width = width,
-        _offset = 0,
-        _capacity = count,
-        _root = true,
-        _shape = {count},
-        _strides = {1},
-        count = count
-    )
-end
-
-function gpu.Context.tensor<T>(
-    borrows self: gpu.Context,
-    element: ctype<T>,
-    shape: {integer}
-): gpu.Buffer<T> borrows (self)
-    local count, strides = denseShape(shape)
-    local out = self:buffer(element, count)
-    out._shape = copied(shape)
-    out._strides = strides
-
-    return out
-end
-
-function gpu.Buffer.dimensions<T>(borrows self: gpu.Buffer<T>): {integer}
-    return copied(self._shape)
-end
-
-function gpu.Buffer.strides<T>(borrows self: gpu.Buffer<T>): {integer}
-    return copied(self._strides)
-end
-
-function gpu.bufferIsDense<T>(borrows buffer: gpu.Buffer<T>): boolean
-    local _, _, dense = tensorlayout._facts(buffer._shape, buffer._strides, 2)
-    return dense
-end
-
-function gpu.bufferIsInjective<T>(borrows buffer: gpu.Buffer<T>): boolean
-    local _, _, _, injective = tensorlayout._facts(buffer._shape, buffer._strides, 2)
-    return injective
-end
-
-function gpu.bufferLayout<T>(borrows buffer: gpu.Buffer<T>): TensorLayout
-    return tensorlayout.new(buffer._offset, buffer._shape, buffer._strides)
-end
-
-function gpu.view<T>(borrows buffer: gpu.Buffer<T>, layout: TensorLayout): gpu.Buffer<T> borrows (buffer)
-    local offset = tensorlayout.offset(layout)
-    local extent = tensorlayout.extent(layout)
-    if offset > buffer._capacity or extent > buffer._capacity - offset then
-        error("nupp: GPU tensor view exceeds its allocation", 2)
-    end
-
-    return new gpu.Buffer(
-        _anchor = buffer,
-        _handle = buffer._handle,
-        _width = buffer._width,
-        _offset = offset,
-        _capacity = buffer._capacity,
-        _root = false,
-        _shape = tensorlayout.dimensions(layout),
-        _strides = tensorlayout.strides(layout),
-        count = layout.count
-    )
-end
-
-function gpu.Buffer.subview<T>(
-    borrows self: gpu.Buffer<T>,
-    origin: {integer},
-    shape: {integer}
-): gpu.Buffer<T> borrows (self)
-    if #origin ~= #self._shape or #shape ~= #self._shape then
-        error("nupp: GPU tensor subview rank does not match its buffer", 2)
-    end
-    local count, extent = tensorlayout._facts(shape, self._strides, 2)
-    local offset = self._offset
-    for index = #shape, 1, -1 do
-        local first = origin[index]
-        local dimension = shape[index]
-        if first < 0 or first > self._shape[index] or dimension > self._shape[index] - first then
-            error("nupp: GPU tensor subview is outside its buffer", 2)
-        end
-        offset = offset + first * self._strides[index]
-    end
-    if offset > self._capacity or extent > self._capacity - offset then
-        error("nupp: GPU tensor subview exceeds its allocation", 2)
-    end
-
-    return new gpu.Buffer(
-        _anchor = self,
-        _handle = self._handle,
-        _width = self._width,
-        _offset = offset,
-        _capacity = self._capacity,
-        _root = false,
-        _shape = copied(shape),
-        _strides = copied(self._strides),
-        count = count
-    )
-end
-
-function gpu.Context.compileGenerated(
-    borrows self: gpu.Context,
-    artifacts: gpu.ArtifactSet,
-    readonlyBuffers: integer,
-    writableBuffers: integer,
-    uniformBytes: integer,
-    threads: integer?
-): gpu.Kernel borrows (self)
-    local group = threads or 256
-    if readonlyBuffers < 0 or readonlyBuffers > 16 or writableBuffers < 1 or writableBuffers > 16 then
-        error("nupp: generated GPU kernels take up to 16 read and 1 through 16 write buffers", 2)
-    end
-    if uniformBytes < 0 or uniformBytes > 128 then
-        error("nupp: GPU uniform block must be from 0 through 128 bytes", 2)
-    end
-    if group < 1 or group > 1024 then
-        error("nupp: GPU thread group must be from 1 through 1024", 2)
-    end
-    if #artifacts.spirv == 0 or #artifacts.msl == 0 or #artifacts.entrypoint == 0 then
-        error("nupp: native GPU kernels need non-empty SPIR-V, MSL, and an entrypoint", 2)
-    end
-    local handle = C.nuppGpuKernelCreate(
-        live(self),
-        artifacts.spirv,
-        #artifacts.spirv,
-        artifacts.msl,
-        #artifacts.msl,
-        artifacts.entrypoint,
-        #artifacts.entrypoint,
-        readonlyBuffers,
-        writableBuffers,
-        uniformBytes,
-        group
-    )
-    if handle == nil then
-        error("nupp: " .. ffi.string(C.nuppNativeError()), 2)
-    end
-
-    return new gpu.Kernel(_anchor = self, _handle = handle, _uniformBytes = uniformBytes)
-end
-
-function gpu.Context.bindKernel(
-    borrows self: gpu.Context,
-    borrows kernel: gpu.Kernel,
-    count: integer
-): gpu.Binding borrows (self)
-    if count < 0 or count > 4294967295 then
-        error("nupp: GPU dispatch count must be from 0 through 4294967295", 2)
-    end
-    local handle = C.nuppGpuBindingCreate(live(self), kernel._handle, count)
-    if handle == nil then
-        error("nupp: " .. ffi.string(C.nuppNativeError()), 2)
-    end
-
-    return new gpu.Binding(
-        _anchor = self,
-        _handle = handle,
-        _uniformBytes = kernel._uniformBytes,
-        _released = false,
-        count = count
-    )
-end
-
-function gpu.Context.releaseBuffer<T>(borrows self: gpu.Context, borrows buffer: gpu.Buffer<T>): nil
-    if not buffer._root then
-        error("nupp: a GPU view borrows its buffer; release the root buffer", 2)
-    end
-    succeeded(C.nuppGpuBufferDestroy(live(self), buffer._handle), 2)
-end
-
-function gpu.Context.releaseKernel(borrows self: gpu.Context, borrows kernel: gpu.Kernel): nil
-    succeeded(C.nuppGpuKernelDestroy(live(self), kernel._handle), 2)
-end
-
-function gpu.Context.releaseBinding(borrows self: gpu.Context, exclusive binding: gpu.Binding): nil
-    if binding._released then
-        return
-    end
-    succeeded(C.nuppGpuBindingDestroy(live(self), binding._handle), 2)
-    binding._released = true
-end
-
-function gpu.Binding.setRead<T>(
-    borrows self: gpu.Binding,
-    slot: integer,
-    borrows buffer: gpu.Buffer<T>,
-    matchCount: boolean
-): nil
-    if self._released then
-        error("nupp: GPU binding was released", 2)
-    end
-    local _, extent, dense = tensorlayout._facts(buffer._shape, buffer._strides, 2)
-    if matchCount and not dense then
-        error("nupp: dispatch-indexed GPU buffers must be dense", 2)
-    end
-    succeeded(C.nuppGpuBindingSetRead(self._handle, slot, buffer._handle, buffer._offset, extent, matchCount), 2)
-end
-
-function gpu.Binding.setWrite<T>(
-    borrows self: gpu.Binding,
-    slot: integer,
-    borrows buffer: gpu.Buffer<T>,
-    matchCount: boolean
-): nil
-    if self._released then
-        error("nupp: GPU binding was released", 2)
-    end
-    local _, extent, dense, injective = tensorlayout._facts(buffer._shape, buffer._strides, 2)
-    if not injective or extent ~= buffer.count then
-        error("nupp: writable GPU tensor views must be disjoint and cover one complete span extent", 2)
-    end
-    if matchCount and not dense then
-        error("nupp: dispatch-indexed GPU buffers must be dense", 2)
-    end
-    succeeded(C.nuppGpuBindingSetWrite(self._handle, slot, buffer._handle, buffer._offset, extent, matchCount), 2)
-end
-
-function gpu.Binding.dispatchPacked(borrows self: gpu.Binding, uniforms: any, uniformBytes: integer): nil
-    if self._released then
-        error("nupp: GPU binding was released", 2)
-    end
-    if uniformBytes ~= self._uniformBytes then
-        error("nupp: generated GPU uniform block has the wrong size", 2)
-    end
-    local uniformPointer = ffi.cast<const uint8[?]>(uniforms)
-    succeeded(dispatchNative(self._handle, uniformPointer, uniformBytes), 2)
-end
-
-function gpu.Context.upload<T>(
-    borrows self: gpu.Context,
-    borrows buffer: gpu.Buffer<T>,
-    borrows source: span.Span<T>
-): nil
-    if not gpu.bufferIsDense(buffer) then
-        error("nupp: GPU uploads require a dense tensor view", 2)
-    end
-    if #source ~= buffer.count then
-        error("nupp: GPU upload span length does not match its buffer", 2)
-    end
-    local pointer, count = source:ref()
-    succeeded(
-        uploadTyped(live(self), buffer._handle, pointer, buffer._offset * buffer._width, buffer._width * count),
-        2
-    )
-end
-
-function gpu.Context.enqueueDownload<T>(borrows self: gpu.Context, borrows buffer: gpu.Buffer<T>): nil
-    if not gpu.bufferIsDense(buffer) then
-        error("nupp: GPU downloads require a dense tensor view", 2)
-    end
-    succeeded(
-        C.nuppGpuBufferDownload(
-            live(self),
-            buffer._handle,
-            buffer._offset * buffer._width,
-            buffer.count * buffer._width
-        ),
-        2
-    )
-end
-
-function gpu.Context.synchronize(borrows self: gpu.Context): nil
-    succeeded(C.nuppGpuSynchronize(live(self)), 2)
-end
-
-function gpu.Context.readDownloaded<T>(
-    borrows self: gpu.Context,
-    borrows buffer: gpu.Buffer<T>,
-    borrows destination: span.WriteSpan<T>
-): nil
-    if not gpu.bufferIsDense(buffer) then
-        error("nupp: GPU downloads require a dense tensor view", 2)
-    end
-    if #destination ~= buffer.count then
-        error("nupp: GPU download span length does not match its buffer", 2)
-    end
-    local pointer, count = destination:ref()
-    succeeded(readTyped(live(self), buffer._handle, pointer, buffer._offset * buffer._width, buffer._width * count), 2)
-end
-
-function gpu.Context.download<T>(
-    borrows self: gpu.Context,
-    borrows buffer: gpu.Buffer<T>,
-    borrows destination: span.WriteSpan<T>
-): nil
-    self:enqueueDownload(buffer)
-    self:synchronize()
-    self:readDownloaded(buffer, destination)
-end
-
---- Opens the preferred SDL GPU device.
---- @export
---- @raises when SDL has no compatible GPU backend
-function gpu.open(): affine(gpu.Context, gpu.destroyContext)
-    local handle = C.nuppGpuContextCreate()
-    if handle == nil then
-        error("nupp: " .. ffi.string(C.nuppNativeError()), 2)
-    end
-
-    return new gpu.Context(_handle = handle, _closed = false)
-end
-
-gpu.Buffer = gpu.Buffer
-gpu.Layout = tensorlayout.Layout
-gpu.layoutDimensions = tensorlayout.dimensions
-gpu.layoutStrides = tensorlayout.strides
-gpu.layoutIsDense = tensorlayout.isDense
-gpu.layoutIsInjective = tensorlayout.isInjective
-gpu.subviewLayout = tensorlayout.subview
-gpu.transposeLayout = tensorlayout.transpose
-gpu.broadcastLayout = tensorlayout.broadcast
-gpu.asStridedLayout = tensorlayout.asStrided
-gpu.Kernel = gpu.Kernel
-gpu.Binding = gpu.Binding
-gpu.Shared = gpu.Shared
-gpu.Phases = gpu.Phases
-gpu.Context = gpu.Context
-gpu.ContextToken = gpu.ContextToken
-
-export = gpu
+local native = require("nupp.runtime.provider.nativegpu")
+
+export type Layout = native.Layout
+export type Buffer<T> = native.Buffer<T>
+export type Kernel = native.Kernel
+export type Binding = native.Binding
+export type ArtifactSet = native.ArtifactSet
+export type Shared<T> = native.Shared<T>
+export type Phases = native.Phases
+export type ContextToken = native.ContextToken
+export type Context = native.Context
+
+export = native
 ]=],
 ["/nupp/gpulayout.nupp"] = [[
 module nupp.gpulayout
@@ -236520,6 +235808,853 @@ local checked: contracts.JsonProvider = {
 
 export = checked
 ]=],
+["/nupp/runtime/provider/nativegpu.nupp"] = [=[
+module nupp.runtime.provider.nativegpu
+
+--[[
+Resident compute buffers over SDL GPU.
+
+The context owns every buffer and compiled kernel created from it. Buffers and
+kernels borrow that context, so checked code cannot close the device while one
+is live. Uploads, dispatches, and downloads only enqueue commands;
+`synchronize()` is the explicit CPU boundary.
+
+```nupp
+local gpu = require("nupp.gpu")
+local kernels = require("kernels")
+local ffi = require("nupp.runtime.native").ffi
+
+local context = gpu.open()
+local input = context:buffer(ffi.typeof<float>(), 1024)
+local output = context:buffer(ffi.typeof<float>(), 1024)
+local scale = kernels.scale:compile(context):bind(output, input)
+context:upload(input, values:read())
+scale:dispatch(2.0)
+context:enqueueDownload(output)
+context:synchronize()
+context:readDownloaded(output, result:write())
+```
+
+Here `kernels.scale` is generated from an `@aot(target = "gpu")` function by a
+target with `aot = "require"`. Shader source, entrypoint identity, binding order
+and uniform packing remain compiler details. Ordinary spans are the CPU
+boundary; a chain of kernels keeps its intermediate buffers resident and pays
+upload/download only where the program asks for them.
+
+`context:tensor(element, shape)` allocates dense row-major storage. A checked
+`gpu.Layout` can be sliced, transposed, broadcast, or explicitly strided, then
+applied with `gpu.view(buffer, layout)` without allocating. Transfers remain dense;
+layout-aware kernels consume the explicit metadata.
+]]
+
+local native = require("nupp.runtime.native")
+local span = require("nupp.mem.span")
+local tensorlayout = require("nupp.gpulayout")
+local {type Layout as TensorLayout} = require("nupp.gpulayout")
+local ffi = native.ffi
+-- Ad-hoc runs keep the compiler's broad development provider loaded. A GPU
+-- feature build can be named separately so it does not force SDL into that
+-- provider; packaged targets use their feature-matched `native.C` as usual.
+local gpuLibrary = os.getenv("NUPP_GPU_LIBRARY")
+local C = gpuLibrary and ffi.load(gpuLibrary) or native.C
+local gpu = {}
+
+--- A checked logical tensor layout independent of its element and allocation.
+--- @export
+type gpu.Layout = TensorLayout
+
+--- The portable floor reserved for one generated workgroup. Backends may
+--- support more, but generated kernels deliberately do not depend on it.
+--- @export
+const gpu.PORTABLE_WORKGROUP_THREADS = 256
+
+--- The portable workgroup-scratch floor in bytes. Generated kernels are
+--- refused at compile time when their statically sized scratch exceeds it.
+--- @export
+const gpu.PORTABLE_SCRATCH_BYTES = 16384
+
+native.ffi.cdef[[
+typedef struct NuppGpuContext NuppGpuContext;
+typedef struct NuppGpuBuffer NuppGpuBuffer;
+typedef struct NuppGpuKernel NuppGpuKernel;
+typedef struct NuppGpuBinding NuppGpuBinding;
+NuppGpuContext *nuppGpuContextCreate(void);
+const char *nuppGpuContextDriver(const NuppGpuContext *);
+void nuppGpuContextDestroy(NuppGpuContext *);
+NuppGpuBuffer *nuppGpuBufferCreate(NuppGpuContext *, size_t);
+NuppGpuKernel *nuppGpuKernelCreate(
+    NuppGpuContext *, const uint8_t *, size_t, const uint8_t *, size_t,
+    const uint8_t *, size_t,
+    uint32_t, uint32_t, uint32_t, uint32_t);
+bool nuppGpuBufferUpload(NuppGpuContext *, NuppGpuBuffer *, const void *, size_t, size_t);
+NuppGpuBinding *nuppGpuBindingCreate(NuppGpuContext *, NuppGpuKernel *, uint32_t);
+bool nuppGpuBindingSetRead(NuppGpuBinding *, uint32_t, NuppGpuBuffer *, uint32_t, uint32_t, bool);
+bool nuppGpuBindingSetWrite(NuppGpuBinding *, uint32_t, NuppGpuBuffer *, uint32_t, uint32_t, bool);
+bool nuppGpuBindingDispatch(NuppGpuBinding *, const void *, size_t);
+bool nuppGpuBufferDownload(NuppGpuContext *, NuppGpuBuffer *, size_t, size_t);
+bool nuppGpuSynchronize(NuppGpuContext *);
+bool nuppGpuBufferRead(NuppGpuContext *, NuppGpuBuffer *, void *, size_t, size_t);
+bool nuppGpuBufferDestroy(NuppGpuContext *, NuppGpuBuffer *);
+bool nuppGpuKernelDestroy(NuppGpuContext *, NuppGpuKernel *);
+bool nuppGpuBindingDestroy(NuppGpuContext *, NuppGpuBinding *);
+]]
+
+-- `native.C` is late-bound, so restore the ownership contracts that the literal
+-- cdef carries for the checker but a table lookup cannot preserve. Resolve the
+-- symbol only when a real GPU dispatch happens: the ordinary workgroup/phase
+-- implementation remains usable in builds whose provider did not link SDL.
+local function dispatchNative(binding: any, borrows uniforms: const uint8[?], bytes: integer): boolean
+    local call = C.nuppGpuBindingDispatch as function(any, borrows uniforms: const uint8[?], integer): boolean
+    return call(binding, uniforms, bytes)
+end
+
+--- One typed resident device range. A root buffer owns an allocation; a
+--- subview shares it with a checked element offset. Storage is not
+--- CPU-addressable, so upload and download explicitly cross that boundary.
+--- @export
+record gpu.Buffer<T>
+    private readonly _anchor: any
+    private readonly _handle: any
+    private readonly _width: integer
+    private readonly _offset: integer
+    private readonly _capacity: integer
+    private readonly _root: boolean
+    private _shape: {integer}
+    private _strides: {integer}
+
+    --- Number of elements, kept with the allocation.
+    readonly count: integer
+
+    --- Logical tensor dimensions. The returned table is a copy.
+    dimensions: function(borrows self: gpu.Buffer<T>): {integer}
+
+    --- Physical element strides. The returned table is a copy.
+    strides: function(borrows self: gpu.Buffer<T>): {integer}
+
+    --- Creates an allocation-free checked subview.
+    subview: function(borrows self: gpu.Buffer<T>, origin: {integer}, shape: {integer}): gpu.Buffer<T> borrows (self)
+end
+
+--- One compiled compute entry owned by its context.
+--- @internal
+record gpu.Kernel
+    private readonly _anchor: any
+    private readonly _handle: any
+    private readonly _uniformBytes: integer
+end
+
+--- The peer artifacts emitted for one verified GPU kernel.
+---
+--- A context selects the member its provider can consume. Native contexts use
+--- the canonical SPIR-V and its MSL derivative; a browser context can instead
+--- select WGSL without changing compiler-generated host bindings.
+--- @internal
+record gpu.ArtifactSet
+    readonly spirv: string
+    readonly msl: string
+    readonly wgsl: string?
+    readonly entrypoint: string
+end
+
+--- A compiler-generated kernel attached to its resident buffers. User source
+--- receives a more specific generated wrapper; this erased value is the shared
+--- runtime implementation underneath it.
+--- @internal
+record gpu.Binding
+    private readonly _anchor: any
+    private readonly _handle: any
+    private readonly _uniformBytes: integer
+    private _released: boolean
+
+    --- Number of elements dispatched by this binding.
+    readonly count: integer
+
+    --- Attaches a resident buffer to one read-only slot. A dispatch-indexed
+    --- span asks for `matchCount`, which holds the buffer to one element per
+    --- dispatched thread; a cursor-proved span passes false and may be any
+    --- length, because its bound check runs inside the shader.
+    --- @internal
+    setRead: function<T>(borrows self: Binding, slot: integer, borrows buffer: gpu.Buffer<T>, matchCount: boolean): nil
+
+    --- Attaches a resident buffer to one writable slot.
+    --- @internal
+    setWrite: function<T>(borrows self: Binding, slot: integer, borrows buffer: gpu.Buffer<T>, matchCount: boolean): nil
+
+    --- Enqueues the binding with a compiler-laid-out uniform block.
+    --- @internal
+    dispatchPacked: function(borrows self: Binding, uniforms: any, uniformBytes: integer): nil
+end
+
+--- Statically sized, zero-based storage shared by one CPU workgroup.
+---
+--- GPU AOT replaces this ordinary representation with workgroup address-space
+--- storage. Keeping its indexing zero-based makes the interpreted CPU body and
+--- the shader body use exactly the same authored indices.
+--- @export
+record gpu.Shared<T>
+    private _values: {T}
+    readonly count: integer
+
+    metamethod __len: function(borrows self: gpu.Shared<T>): integer
+    metamethod __index: function(borrows self: gpu.Shared<T>, index: integer): T
+    metamethod __newindex: function(exclusive self: gpu.Shared<T>, index: integer, value: T): nil
+end
+
+--- The ordered stages and scratch belonging to one workgroup.
+--- @export
+record gpu.Phases
+    private readonly _size: integer
+
+    --- Allocates fresh zero-based scratch for this workgroup.
+    scratch: function<T>(borrows self: gpu.Phases, initial: T, count: integer): gpu.Shared<T>
+
+    --- Runs one stage to completion in ascending local-index order.
+    run: function(borrows self: gpu.Phases, scoped stage: function(uint32): nil): nil
+
+    --- Reduces one power-of-two f32 workgroup in a fixed left-before-right
+    --- tree. The sum is left in element zero.
+    reduceSumF32: function(borrows self: gpu.Phases, exclusive values: gpu.Shared<float>): nil
+
+    --- Computes one deterministic inclusive u32 prefix sum. `temporary` is a
+    --- same-sized scratch array used for disjoint ping-pong stages; the result
+    --- is left in `values`.
+    inclusiveScanU32: function(
+        borrows self: gpu.Phases,
+        exclusive values: gpu.Shared<uint32>,
+        exclusive temporary: gpu.Shared<uint32>
+    ): nil
+end
+
+sealed interface gpu.ContextToken
+    drop: nosuspend function(takes self: ContextToken): nil
+end
+
+--- Releases a GPU context and everything it owns.
+--- @export
+function gpu.destroyContext<T is gpu.ContextToken>(takes context: T): nil
+    context:drop()
+end
+
+--- An SDL GPU device and its current asynchronous command stream.
+--- @export
+record gpu.Context is gpu.ContextToken
+    private _handle: any
+    private _closed: boolean
+
+    --- Releases the device, compiled kernels, and resident buffers.
+    drop: nosuspend function(takes self: Context): nil
+
+    --- SDL backend selected for this device.
+    driver: function(borrows self: Context): string
+
+    --- Allocates a typed resident device buffer.
+    buffer: function<T>(borrows self: Context, element: ctype<T>, count: integer): gpu.Buffer<T> borrows (self)
+
+    --- Allocates a dense row-major resident tensor.
+    tensor: function<T>(borrows self: Context, element: ctype<T>, shape: {integer}): gpu.Buffer<T> borrows (self)
+
+    --- Compiles the artifacts emitted beside an `@aot(target = "gpu")` body.
+    --- The selected provider chooses its source member from this set.
+    --- @internal
+    compileGenerated: function(
+        borrows self: Context,
+        artifacts: gpu.ArtifactSet,
+        readonlyBuffers: integer,
+        writableBuffers: integer,
+        uniformBytes: integer,
+        threads: integer?
+    ): gpu.Kernel borrows (self)
+
+    --- Starts attaching a generated kernel to resident buffers. `count` is the
+    --- dispatch length, which the compiler takes from the kernel's primary
+    --- span; the generated binding fills every slot before dispatching.
+    --- @internal
+    bindKernel: function(borrows self: Context, borrows kernel: gpu.Kernel, count: integer): gpu.Binding borrows (self)
+
+    --- Releases one root buffer's device storage without closing the context.
+    --- Refused while commands are queued; synchronize first. Any view of the
+    --- buffer is invalid afterwards, and using one raises.
+    releaseBuffer: function<T>(borrows self: Context, borrows buffer: gpu.Buffer<T>): nil
+
+    --- Releases a compiled kernel no binding uses any more.
+    --- @internal
+    releaseKernel: function(borrows self: Context, borrows kernel: gpu.Kernel): nil
+
+    --- Releases a binding's host-side attachment. The kernel and buffers it
+    --- named remain the context's.
+    --- @internal
+    releaseBinding: function(borrows self: Context, exclusive binding: gpu.Binding): nil
+
+    --- Copies a complete shared span into a resident buffer or view and
+    --- enqueues its transfer. It does not wait.
+    upload: function<T>(borrows self: Context, borrows buffer: gpu.Buffer<T>, borrows source: span.Span<T>): nil
+
+    --- Enqueues a complete resident-buffer or view download without waiting.
+    enqueueDownload: function<T>(borrows self: Context, borrows buffer: gpu.Buffer<T>): nil
+
+    --- Submits the accumulated command stream and waits for it.
+    synchronize: function(borrows self: Context): nil
+
+    --- Copies a download completed by `synchronize()` into a complete writable
+    --- span. No GPU work or waiting happens here.
+    readDownloaded: function<T>(
+        borrows self: Context,
+        borrows buffer: gpu.Buffer<T>,
+        borrows destination: span.WriteSpan<T>
+    ): nil
+
+    --- Convenience CPU boundary: enqueue, synchronize, and copy out.
+    download: function<T>(
+        borrows self: Context,
+        borrows buffer: gpu.Buffer<T>,
+        borrows destination: span.WriteSpan<T>
+    ): nil
+end
+
+local function live(borrows self: gpu.Context): any
+    if self._closed or self._handle == nil then
+        error("nupp: GPU context is closed", 3)
+    end
+    return self._handle
+end
+
+local function succeeded(ok: boolean, level: integer): nil
+    if not ok then
+        error("nupp: " .. ffi.string(C.nuppNativeError()), level)
+    end
+end
+
+-- Keep the element type on the span crossing the native boundary. Casting the
+-- pointer to bytes would erase its borrow provenance; only the C declaration
+-- needs to forget the pointee type.
+local function uploadTyped<T>(
+    context: any,
+    buffer: any,
+    borrows source: const T[?],
+    offset: integer,
+    bytes: integer
+): boolean
+    local call = C.nuppGpuBufferUpload as function(any, any, borrows source: const T[?], integer, integer): boolean
+    return call(context, buffer, source, offset, bytes)
+end
+
+local function readTyped<T>(
+    context: any,
+    buffer: any,
+    borrows destination: T[?],
+    offset: integer,
+    bytes: integer
+): boolean
+    local call = C.nuppGpuBufferRead as function(any, any, borrows destination: T[?], integer, integer): boolean
+    return call(context, buffer, destination, offset, bytes)
+end
+
+local function denseShape(shape: {integer}): (integer, {integer})
+    if #shape < 1 or #shape > 4 then
+        error("nupp: GPU tensors take one through four dimensions", 3)
+    end
+    local count: integer = 1
+    local strides: {integer} = {}
+    for index = #shape, 1, -1 do
+        local dimension = shape[index]
+        if dimension < 1 or count > 4294967295 // dimension then
+            error("nupp: GPU tensor dimensions must have 1 through 4294967295 elements", 3)
+        end
+        strides[index] = count
+        count = count * dimension
+    end
+
+    return count, strides
+end
+
+local function copied(values: {integer}): {integer}
+    local out: {integer} = {}
+    for index, value in ipairs(values) do
+        out[index] = value
+    end
+
+    return out
+end
+
+function gpu.Shared.get<T>(borrows self: gpu.Shared<T>, index: integer): T
+    if index < 0 or index >= self.count then
+        error("nupp: GPU shared-scratch index out of bounds", 2)
+    end
+    return self._values[index + 1]
+end
+
+function gpu.Shared.set<T>(exclusive self: gpu.Shared<T>, index: integer, value: T): nil
+    if index < 0 or index >= self.count then
+        error("nupp: GPU shared-scratch index out of bounds", 2)
+    end
+    self._values[index + 1] = value
+end
+
+function gpu.Phases.scratch<T>(borrows self: gpu.Phases, initial: T, count: integer): gpu.Shared<T>
+    if count < 1 then
+        error("nupp: GPU shared scratch must contain at least one element", 2)
+    end
+    local values: {T} = {}
+    for index = 1, count do
+        values[index] = initial
+    end
+
+    return new gpu.Shared(_values = values, count = count)
+end
+
+function gpu.Phases.run(borrows self: gpu.Phases, scoped stage: function(uint32): nil): nil
+    for index = 0, self._size - 1 do
+        stage(nupp.math.u32.wrap(index))
+    end
+end
+
+function gpu.Phases.reduceSumF32(borrows self: gpu.Phases, exclusive values: gpu.Shared<float>): nil
+    if values.count ~= self._size or self._size < 1 or self._size & (self._size - 1) ~= 0 then
+        error("nupp: fixed-tree reduction needs one power-of-two value per lane", 2)
+    end
+    local stride = self._size // 2
+    while stride > 0 do
+        local active = stride
+        self:run(function(localIndex: uint32)
+            local lane = localIndex as integer
+            if lane < active then
+                values[
+                    lane
+                ] = nupp.math.f32.add(nupp.math.f32.narrow(values[lane]), nupp.math.f32.narrow(values[lane + active]))
+            end
+        end)
+        stride = stride // 2
+    end
+end
+
+function gpu.Phases.inclusiveScanU32(
+    borrows self: gpu.Phases,
+    exclusive values: gpu.Shared<uint32>,
+    exclusive temporary: gpu.Shared<uint32>
+): nil
+    if values.count ~= self._size or temporary.count ~= self._size or self._size < 1 or self._size & (
+        self._size - 1
+    ) ~= 0 then
+        error("nupp: fixed scan needs two power-of-two arrays with one value per lane", 2)
+    end
+    local offset: integer = 1
+    local valuesAreSource = true
+    while offset < self._size do
+        local distance: integer = offset
+        if valuesAreSource then
+            self:run(function(localIndex: uint32)
+                local lane = localIndex as integer
+                local value = values[lane]
+                if lane >= distance then
+                    value = nupp.math.u32.add(
+                        nupp.math.u32.wrap(value as integer),
+                        nupp.math.u32.wrap(values[lane - distance] as integer)
+                    )
+                end
+                temporary[lane] = value
+            end)
+        else
+            self:run(function(localIndex: uint32)
+                local lane = localIndex as integer
+                local value = temporary[lane]
+                if lane >= distance then
+                    value = nupp.math.u32.add(
+                        nupp.math.u32.wrap(value as integer),
+                        nupp.math.u32.wrap(temporary[lane - distance] as integer)
+                    )
+                end
+                values[lane] = value
+            end)
+        end
+        valuesAreSource = not valuesAreSource
+        offset = offset * 2
+    end
+    if not valuesAreSource then
+        self:run(function(localIndex: uint32)
+            local lane = localIndex as integer
+            values[lane] = temporary[lane]
+        end)
+    end
+end
+
+--- Executes uniformly ordered workgroup phases on the CPU.
+---
+--- A GPU AOT body recognizes this call and its immediate callbacks as
+--- structure: the controller does not escape, each `run` is a device barrier,
+--- and each stage invocation becomes one local lane.
+--- @export
+--- @raises when size is outside the portable workgroup limit
+function gpu.workgroups(groups: uint32, size: uint32, scoped controller: function(uint32, gpu.Phases): nil): nil
+    local groupCount = groups as integer
+    local groupSize = size as integer
+    if groupSize < 1 or groupSize > gpu.PORTABLE_WORKGROUP_THREADS then
+        error("nupp: GPU workgroup size exceeds the portable limit", 2)
+    end
+    local phases = new gpu.Phases(_size = groupSize)
+    for groupIndex = 0, groupCount - 1 do
+        controller(nupp.math.u32.wrap(groupIndex), phases)
+    end
+end
+
+function gpu.Context.drop(takes self: gpu.Context): nil
+    local state = unsafe release self
+    if state._closed then
+        return
+    end
+    state._closed = true
+    local handle = state._handle
+    state._handle = nil
+    nosuspend do
+        local destroy = C.nuppGpuContextDestroy as nosuspend function(any): nil
+        destroy(handle)
+    end
+end
+
+function gpu.Context.driver(borrows self: gpu.Context): string
+    return ffi.string(C.nuppGpuContextDriver(live(self)))
+end
+
+function gpu.Context.buffer<T>(
+    borrows self: gpu.Context,
+    element: ctype<T>,
+    count: integer
+): gpu.Buffer<T> borrows (self)
+    if count < 0 then
+        error("nupp: GPU buffer count cannot be negative", 2)
+    end
+    local width = ffi.sizeof(element) as integer
+    if width <= 0 or count == 0 or count > 4294967295 // width then
+        error("nupp: GPU buffer must contain 1 through 4294967295 bytes", 2)
+    end
+    local handle = C.nuppGpuBufferCreate(live(self), width * count)
+    if handle == nil then
+        error("nupp: " .. ffi.string(C.nuppNativeError()), 2)
+    end
+
+    return new gpu.Buffer(
+        _anchor = self,
+        _handle = handle,
+        _width = width,
+        _offset = 0,
+        _capacity = count,
+        _root = true,
+        _shape = {count},
+        _strides = {1},
+        count = count
+    )
+end
+
+function gpu.Context.tensor<T>(
+    borrows self: gpu.Context,
+    element: ctype<T>,
+    shape: {integer}
+): gpu.Buffer<T> borrows (self)
+    local count, strides = denseShape(shape)
+    local out = self:buffer(element, count)
+    out._shape = copied(shape)
+    out._strides = strides
+
+    return out
+end
+
+function gpu.Buffer.dimensions<T>(borrows self: gpu.Buffer<T>): {integer}
+    return copied(self._shape)
+end
+
+function gpu.Buffer.strides<T>(borrows self: gpu.Buffer<T>): {integer}
+    return copied(self._strides)
+end
+
+function gpu.bufferIsDense<T>(borrows buffer: gpu.Buffer<T>): boolean
+    local _, _, dense = tensorlayout._facts(buffer._shape, buffer._strides, 2)
+    return dense
+end
+
+function gpu.bufferIsInjective<T>(borrows buffer: gpu.Buffer<T>): boolean
+    local _, _, _, injective = tensorlayout._facts(buffer._shape, buffer._strides, 2)
+    return injective
+end
+
+function gpu.bufferLayout<T>(borrows buffer: gpu.Buffer<T>): TensorLayout
+    return tensorlayout.new(buffer._offset, buffer._shape, buffer._strides)
+end
+
+function gpu.view<T>(borrows buffer: gpu.Buffer<T>, layout: TensorLayout): gpu.Buffer<T> borrows (buffer)
+    local offset = tensorlayout.offset(layout)
+    local extent = tensorlayout.extent(layout)
+    if offset > buffer._capacity or extent > buffer._capacity - offset then
+        error("nupp: GPU tensor view exceeds its allocation", 2)
+    end
+
+    return new gpu.Buffer(
+        _anchor = buffer,
+        _handle = buffer._handle,
+        _width = buffer._width,
+        _offset = offset,
+        _capacity = buffer._capacity,
+        _root = false,
+        _shape = tensorlayout.dimensions(layout),
+        _strides = tensorlayout.strides(layout),
+        count = layout.count
+    )
+end
+
+function gpu.Buffer.subview<T>(
+    borrows self: gpu.Buffer<T>,
+    origin: {integer},
+    shape: {integer}
+): gpu.Buffer<T> borrows (self)
+    if #origin ~= #self._shape or #shape ~= #self._shape then
+        error("nupp: GPU tensor subview rank does not match its buffer", 2)
+    end
+    local count, extent = tensorlayout._facts(shape, self._strides, 2)
+    local offset = self._offset
+    for index = #shape, 1, -1 do
+        local first = origin[index]
+        local dimension = shape[index]
+        if first < 0 or first > self._shape[index] or dimension > self._shape[index] - first then
+            error("nupp: GPU tensor subview is outside its buffer", 2)
+        end
+        offset = offset + first * self._strides[index]
+    end
+    if offset > self._capacity or extent > self._capacity - offset then
+        error("nupp: GPU tensor subview exceeds its allocation", 2)
+    end
+
+    return new gpu.Buffer(
+        _anchor = self,
+        _handle = self._handle,
+        _width = self._width,
+        _offset = offset,
+        _capacity = self._capacity,
+        _root = false,
+        _shape = copied(shape),
+        _strides = copied(self._strides),
+        count = count
+    )
+end
+
+function gpu.Context.compileGenerated(
+    borrows self: gpu.Context,
+    artifacts: gpu.ArtifactSet,
+    readonlyBuffers: integer,
+    writableBuffers: integer,
+    uniformBytes: integer,
+    threads: integer?
+): gpu.Kernel borrows (self)
+    local group = threads or 256
+    if readonlyBuffers < 0 or readonlyBuffers > 16 or writableBuffers < 1 or writableBuffers > 16 then
+        error("nupp: generated GPU kernels take up to 16 read and 1 through 16 write buffers", 2)
+    end
+    if uniformBytes < 0 or uniformBytes > 128 then
+        error("nupp: GPU uniform block must be from 0 through 128 bytes", 2)
+    end
+    if group < 1 or group > 1024 then
+        error("nupp: GPU thread group must be from 1 through 1024", 2)
+    end
+    if #artifacts.spirv == 0 or #artifacts.msl == 0 or #artifacts.entrypoint == 0 then
+        error("nupp: native GPU kernels need non-empty SPIR-V, MSL, and an entrypoint", 2)
+    end
+    local handle = C.nuppGpuKernelCreate(
+        live(self),
+        artifacts.spirv,
+        #artifacts.spirv,
+        artifacts.msl,
+        #artifacts.msl,
+        artifacts.entrypoint,
+        #artifacts.entrypoint,
+        readonlyBuffers,
+        writableBuffers,
+        uniformBytes,
+        group
+    )
+    if handle == nil then
+        error("nupp: " .. ffi.string(C.nuppNativeError()), 2)
+    end
+
+    return new gpu.Kernel(_anchor = self, _handle = handle, _uniformBytes = uniformBytes)
+end
+
+function gpu.Context.bindKernel(
+    borrows self: gpu.Context,
+    borrows kernel: gpu.Kernel,
+    count: integer
+): gpu.Binding borrows (self)
+    if count < 0 or count > 4294967295 then
+        error("nupp: GPU dispatch count must be from 0 through 4294967295", 2)
+    end
+    local handle = C.nuppGpuBindingCreate(live(self), kernel._handle, count)
+    if handle == nil then
+        error("nupp: " .. ffi.string(C.nuppNativeError()), 2)
+    end
+
+    return new gpu.Binding(
+        _anchor = self,
+        _handle = handle,
+        _uniformBytes = kernel._uniformBytes,
+        _released = false,
+        count = count
+    )
+end
+
+function gpu.Context.releaseBuffer<T>(borrows self: gpu.Context, borrows buffer: gpu.Buffer<T>): nil
+    if not buffer._root then
+        error("nupp: a GPU view borrows its buffer; release the root buffer", 2)
+    end
+    succeeded(C.nuppGpuBufferDestroy(live(self), buffer._handle), 2)
+end
+
+function gpu.Context.releaseKernel(borrows self: gpu.Context, borrows kernel: gpu.Kernel): nil
+    succeeded(C.nuppGpuKernelDestroy(live(self), kernel._handle), 2)
+end
+
+function gpu.Context.releaseBinding(borrows self: gpu.Context, exclusive binding: gpu.Binding): nil
+    if binding._released then
+        return
+    end
+    succeeded(C.nuppGpuBindingDestroy(live(self), binding._handle), 2)
+    binding._released = true
+end
+
+function gpu.Binding.setRead<T>(
+    borrows self: gpu.Binding,
+    slot: integer,
+    borrows buffer: gpu.Buffer<T>,
+    matchCount: boolean
+): nil
+    if self._released then
+        error("nupp: GPU binding was released", 2)
+    end
+    local _, extent, dense = tensorlayout._facts(buffer._shape, buffer._strides, 2)
+    if matchCount and not dense then
+        error("nupp: dispatch-indexed GPU buffers must be dense", 2)
+    end
+    succeeded(C.nuppGpuBindingSetRead(self._handle, slot, buffer._handle, buffer._offset, extent, matchCount), 2)
+end
+
+function gpu.Binding.setWrite<T>(
+    borrows self: gpu.Binding,
+    slot: integer,
+    borrows buffer: gpu.Buffer<T>,
+    matchCount: boolean
+): nil
+    if self._released then
+        error("nupp: GPU binding was released", 2)
+    end
+    local _, extent, dense, injective = tensorlayout._facts(buffer._shape, buffer._strides, 2)
+    if not injective or extent ~= buffer.count then
+        error("nupp: writable GPU tensor views must be disjoint and cover one complete span extent", 2)
+    end
+    if matchCount and not dense then
+        error("nupp: dispatch-indexed GPU buffers must be dense", 2)
+    end
+    succeeded(C.nuppGpuBindingSetWrite(self._handle, slot, buffer._handle, buffer._offset, extent, matchCount), 2)
+end
+
+function gpu.Binding.dispatchPacked(borrows self: gpu.Binding, uniforms: any, uniformBytes: integer): nil
+    if self._released then
+        error("nupp: GPU binding was released", 2)
+    end
+    if uniformBytes ~= self._uniformBytes then
+        error("nupp: generated GPU uniform block has the wrong size", 2)
+    end
+    local uniformPointer = ffi.cast<const uint8[?]>(uniforms)
+    succeeded(dispatchNative(self._handle, uniformPointer, uniformBytes), 2)
+end
+
+function gpu.Context.upload<T>(
+    borrows self: gpu.Context,
+    borrows buffer: gpu.Buffer<T>,
+    borrows source: span.Span<T>
+): nil
+    if not gpu.bufferIsDense(buffer) then
+        error("nupp: GPU uploads require a dense tensor view", 2)
+    end
+    if #source ~= buffer.count then
+        error("nupp: GPU upload span length does not match its buffer", 2)
+    end
+    local pointer, count = source:ref()
+    succeeded(
+        uploadTyped(live(self), buffer._handle, pointer, buffer._offset * buffer._width, buffer._width * count),
+        2
+    )
+end
+
+function gpu.Context.enqueueDownload<T>(borrows self: gpu.Context, borrows buffer: gpu.Buffer<T>): nil
+    if not gpu.bufferIsDense(buffer) then
+        error("nupp: GPU downloads require a dense tensor view", 2)
+    end
+    succeeded(
+        C.nuppGpuBufferDownload(
+            live(self),
+            buffer._handle,
+            buffer._offset * buffer._width,
+            buffer.count * buffer._width
+        ),
+        2
+    )
+end
+
+function gpu.Context.synchronize(borrows self: gpu.Context): nil
+    succeeded(C.nuppGpuSynchronize(live(self)), 2)
+end
+
+function gpu.Context.readDownloaded<T>(
+    borrows self: gpu.Context,
+    borrows buffer: gpu.Buffer<T>,
+    borrows destination: span.WriteSpan<T>
+): nil
+    if not gpu.bufferIsDense(buffer) then
+        error("nupp: GPU downloads require a dense tensor view", 2)
+    end
+    if #destination ~= buffer.count then
+        error("nupp: GPU download span length does not match its buffer", 2)
+    end
+    local pointer, count = destination:ref()
+    succeeded(readTyped(live(self), buffer._handle, pointer, buffer._offset * buffer._width, buffer._width * count), 2)
+end
+
+function gpu.Context.download<T>(
+    borrows self: gpu.Context,
+    borrows buffer: gpu.Buffer<T>,
+    borrows destination: span.WriteSpan<T>
+): nil
+    self:enqueueDownload(buffer)
+    self:synchronize()
+    self:readDownloaded(buffer, destination)
+end
+
+--- Opens the preferred SDL GPU device.
+--- @export
+--- @raises when SDL has no compatible GPU backend
+function gpu.open(): affine(gpu.Context, gpu.destroyContext)
+    local handle = C.nuppGpuContextCreate()
+    if handle == nil then
+        error("nupp: " .. ffi.string(C.nuppNativeError()), 2)
+    end
+
+    return new gpu.Context(_handle = handle, _closed = false)
+end
+
+gpu.Buffer = gpu.Buffer
+gpu.Layout = tensorlayout.Layout
+gpu.layoutDimensions = tensorlayout.dimensions
+gpu.layoutStrides = tensorlayout.strides
+gpu.layoutIsDense = tensorlayout.isDense
+gpu.layoutIsInjective = tensorlayout.isInjective
+gpu.subviewLayout = tensorlayout.subview
+gpu.transposeLayout = tensorlayout.transpose
+gpu.broadcastLayout = tensorlayout.broadcast
+gpu.asStridedLayout = tensorlayout.asStrided
+gpu.Kernel = gpu.Kernel
+gpu.Binding = gpu.Binding
+gpu.Shared = gpu.Shared
+gpu.Phases = gpu.Phases
+gpu.Context = gpu.Context
+gpu.ContextToken = gpu.ContextToken
+
+export = gpu
+]=],
 ["/nupp/runtime/provider/scalarbitops.nupp"] = [[
 module nupp.runtime.provider.scalarbitops
 
@@ -238289,6 +238424,63 @@ end
 
 export = suite
 ]],
+["/nupp/runtime/seam/gpu.nupp"] = [=[
+module nupp.runtime.seam.gpu
+
+--[[The selectable provider behind the public `nupp.gpu` module.]]
+
+local common = require("nupp.runtime.seam.module")
+local runtimeBackend = require("nupp.runtime.backend")
+local seam = {}
+
+seam.moduleName = "nupp.runtime.seam.gpu"
+seam.suiteModuleName = "nupp.runtime.seam.gpusuite"
+
+local CONTRACT = common.contract("compute.gpu", {
+    globalName = "__nuppGpu",
+    requiredFunctions = {"open", "workgroups", "destroyContext"},
+    requiredValues = {"Layout", "Buffer", "Kernel", "Binding", "ArtifactSet", "Shared", "Phases", "Context",},
+    suiteModule = seam.suiteModuleName,
+})
+
+function seam.validate(value: any): string?
+    return common.validate(CONTRACT, value)
+end
+
+function seam.seam(moduleName: string): runtimeBackend.Seam
+    return common.seam(CONTRACT, moduleName)
+end
+
+function seam.backend(moduleName: string): runtimeBackend.Backend
+    return runtimeBackend.new("gpu:" .. moduleName, {seam.seam(moduleName)})
+end
+
+export = seam
+]=],
+["/nupp/runtime/seam/gpusuite.nupp"] = [=[
+module nupp.runtime.seam.gpusuite
+
+--[[Portable conformance checks that do not require a physical GPU device.]]
+
+local suite = {}
+
+function suite.test(provider: any): (boolean, string?)
+    if provider.PORTABLE_WORKGROUP_THREADS ~= 256 or provider.PORTABLE_SCRATCH_BYTES ~= 16384 then
+        return false, "provider changed the portable workgroup floors"
+    end
+    local seen: integer = 0
+    provider.workgroups(nupp.math.u32.wrap(2), nupp.math.u32.wrap(2), function(): nil
+        seen = seen + 1
+    end)
+    if seen ~= 2 then
+        return false, "workgroups must invoke the controller once per group"
+    end
+
+    return true
+end
+
+export = suite
+]=],
 ["/nupp/runtime/seam/hash.nupp"] = [[
 module nupp.runtime.seam.hash
 
@@ -239392,6 +239584,13 @@ local CONTRACTS: {any} = {
         binding = "runtime",
         factoryModule = "nupp.runtime.seam.bitset",
         exports = {["nupp.data.Bitset"] = "Bitset", ["nupp.data.WORD_BITS"] = "WORD_BITS",}
+    },
+    {
+        name = "compute.gpu",
+        effect = "native.gpu",
+        binding = "runtime",
+        factoryModule = "nupp.runtime.seam.gpu",
+        modules = {["nupp.gpu"] = ""},
     },
     {
         name = "peg",

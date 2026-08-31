@@ -464,6 +464,17 @@ function resolve.install(c: state.Checker): nil
         c.validateTypeBounds(t.typeParams, t.typeBounds, map, node)
 
         local origin = (t.origin or t) as T.Nominal
+        local selectedGpu = c.opts.backendResolution
+            and c.opts.backendResolution.seams
+            and c.opts.backendResolution.seams[
+            "compute.gpu"
+        ]
+        local isGpuBuffer = origin.name == "Buffer" and (
+            origin.moduleName == "nupp.gpu"
+            or origin.moduleName == "nupp.runtime.provider.nativegpu"
+            or selectedGpu
+            and origin.moduleName == selectedGpu.runtimeModule
+        )
         local storageGeneric = (
             origin.moduleName == "nupp.mem.span" and (
                 origin.name == "Span"
@@ -476,11 +487,7 @@ function resolve.install(c: state.Checker): nil
             origin.moduleName == "nupp.mem.soa" and (
                 origin.name == "Array" or origin.name == "Span" or origin.name == "WriteSpan"
             )
-        )
-            or origin.moduleName == "nupp.mem.heap"
-            and origin.name == "Array"
-            or origin.moduleName == "nupp.gpu"
-            and origin.name == "Buffer"
+        ) or origin.moduleName == "nupp.mem.heap" and origin.name == "Array" or isGpuBuffer
         if not storageGeneric then
             local typePosition = 1
             for position, kind in ipairs(t.paramKinds or {}) do

@@ -32,11 +32,8 @@ local MODULES = {
     -- outright, so a program that reaches them without selecting a provider is told
     -- which seam it is missing, on the line that reached them.
     ["nupp.derive"] = selected("runtime", "text.buffer"),
-    -- An FFI binding to a native GPU device. It requires `nupp.runtime.native`
-    -- and `nupp.mem.span` before it does anything, so it is refused for the
-    -- capability the first of those is refused for rather than through a seam:
-    -- there is no portable substitute for a device.
-    ["nupp.gpu"] = {kind = "unavailable", capability = "cinterop"},
+    ["nupp.gpu"] = selected("runtime", "compute.gpu"),
+    ["nupp.runtime.provider.nativegpu"] = {kind = "unavailable", capability = "cinterop"},
     ["nupp.runtime.hotreload"] = {kind = "unavailable", capability = "cinterop"},
     ["nupp.io"] = selected("runtime", "io.bytes"),
     ["nupp.io.path.provider"] = selected("host", "host.path"),

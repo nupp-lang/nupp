@@ -951,6 +951,17 @@ local function buildModules(root: string, outDir: string, config: Config, target
         end
     end
 
+    -- A selected whole-module provider is source in its own right. Link its
+    -- ordinary dependencies before the work queue checks it, just as it would
+    -- for a source module reached from an application. Otherwise a provider
+    -- whose contract module was replaced can see declarations but not the
+    -- implementation modules it requires.
+    for _, descriptor in ipairs(backendResolution.modules or {}) do
+        for _, seam in ipairs(descriptor.seams or {}) do
+            linkRuntimeSource(seam.runtimeModule)
+        end
+    end
+
     if hasBackends then
         for _, name in ipairs({
             "nupp.runtime.backend",

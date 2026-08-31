@@ -1,0 +1,31 @@
+module nupp.runtime.seam.gpu
+
+--[[The selectable provider behind the public `nupp.gpu` module.]]
+
+local common = require("nupp.runtime.seam.module")
+local runtimeBackend = require("nupp.runtime.backend")
+local seam = {}
+
+seam.moduleName = "nupp.runtime.seam.gpu"
+seam.suiteModuleName = "nupp.runtime.seam.gpusuite"
+
+local CONTRACT = common.contract("compute.gpu", {
+    globalName = "__nuppGpu",
+    requiredFunctions = {"open", "workgroups", "destroyContext"},
+    requiredValues = {"Layout", "Buffer", "Kernel", "Binding", "ArtifactSet", "Shared", "Phases", "Context",},
+    suiteModule = seam.suiteModuleName,
+})
+
+function seam.validate(value: any): string?
+    return common.validate(CONTRACT, value)
+end
+
+function seam.seam(moduleName: string): runtimeBackend.Seam
+    return common.seam(CONTRACT, moduleName)
+end
+
+function seam.backend(moduleName: string): runtimeBackend.Backend
+    return runtimeBackend.new("gpu:" .. moduleName, {seam.seam(moduleName)})
+end
+
+export = seam

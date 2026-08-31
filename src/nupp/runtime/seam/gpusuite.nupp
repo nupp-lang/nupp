@@ -1,0 +1,22 @@
+module nupp.runtime.seam.gpusuite
+
+--[[Portable conformance checks that do not require a physical GPU device.]]
+
+local suite = {}
+
+function suite.test(provider: any): (boolean, string?)
+    if provider.PORTABLE_WORKGROUP_THREADS ~= 256 or provider.PORTABLE_SCRATCH_BYTES ~= 16384 then
+        return false, "provider changed the portable workgroup floors"
+    end
+    local seen: integer = 0
+    provider.workgroups(nupp.math.u32.wrap(2), nupp.math.u32.wrap(2), function(): nil
+        seen = seen + 1
+    end)
+    if seen ~= 2 then
+        return false, "workgroups must invoke the controller once per group"
+    end
+
+    return true
+end
+
+export = suite

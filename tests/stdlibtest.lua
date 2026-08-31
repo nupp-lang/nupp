@@ -25,6 +25,7 @@ local browserStorageSeam = require("nupp.runtime.seam.browserstorage")
 local timeSeam = require("nupp.runtime.seam.time")
 local workersSeam = require("nupp.runtime.seam.workers")
 local wasmSeam = require("nupp.runtime.seam.wasm")
+local gpuSeam = require("nupp.runtime.seam.gpu")
 local optimize = require("nupp.compiler.optimize")
 local gen = require("nupp.compiler.gen")
 
@@ -537,6 +538,7 @@ function M.seamRegistryOwnsEveryRuntimeModuleSubstitution()
       ["host.net"] = "nupp.io.net",
       ["host.process"] = "nupp.io.process",
       ["host.tls"] = "nupp.io.tls",
+      ["compute.gpu"] = "nupp.gpu",
    }
    for seamName, moduleName in pairs(wholeModules) do
       local contract = seamRegistry.get(seamName)
@@ -563,6 +565,11 @@ function M.seamRegistryOwnsEveryRuntimeModuleSubstitution()
    })
    assert(not accepted and tostring(problem):find("outside the runtime seam registry", 1, true),
       "a factory-local module mapping must fail loudly: " .. tostring(problem))
+end
+
+function M.nativeGpuProviderPassesItsDeviceFreeSeamContract()
+   local passed, problem = gpuSeam.backend("nupp.runtime.provider.nativegpu"):test()
+   assert(passed, "the native GPU provider passes compute.gpu contract 1: " .. tostring(problem))
 end
 
 function M.runtimeJsonProviderIsOptInLazyAndChecked()
