@@ -949,6 +949,7 @@ local function rememberTimings(records, cases)
    if not encoded then
       return
    end
+   os.execute("mkdir -p " .. string.format("%q", buildRoot))
    local file = io.open(timingsPath, "wb")
    if file then
       file:write(text .. "\n")

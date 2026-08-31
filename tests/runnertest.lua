@@ -72,13 +72,11 @@ return M
 ]=]):format(name, name))
    end
 
-   -- Keep the copied runner in one process on Windows. A runner nested inside
-   -- the matrix's MSYS/native worker boundary cannot safely add another pair
-   -- of native subprocess workers; the external discovery and bundled command
-   -- are what this case exercises.
-   local jobs = jit.os == "Windows" and 1 or 2
+   -- Keep the copied runner in one process. External discovery, persistence,
+   -- and the bundled command are what this case exercises; worker shape is
+   -- covered independently below.
    local command = ("cd %q && NUPP_TEST_BUILD=%q %q test-runner "
-      .. "--jobs=%d --json 2>/dev/null"):format(dir, dir .. "/build", NUPP, jobs)
+      .. "--jobs=1 --json 2>/dev/null"):format(dir, dir .. "/build", NUPP)
    local pipe = assert(io.popen(command))
    local output = pipe:read("*a")
    local ok = pipe:close()
@@ -86,8 +84,7 @@ return M
    local report = require("testjson").decode(output)
    test.equal(report.total, 2, "both external suites ran")
    test.equal(report.passed, 2, "both external suites passed")
-   test.equal(#report.shards, jobs == 1 and 0 or 2,
-      "the external run used the requested worker shape")
+   test.equal(#report.shards, 0, "the external run stayed serial")
    local timings = read(dir .. "/build/.nupp-test-times.json")
    test.matches(timings, '"alphatest"', "external timing history is persisted")
    test.matches(timings, '"betatest"', "every external suite is timed")
