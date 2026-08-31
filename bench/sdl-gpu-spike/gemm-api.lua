@@ -109,6 +109,27 @@ for i = 0, m * n - 1 do
             i, abiOutput[i], want))
 end
 
+local loop = generated.loop:compile(context):bind(cBuffer, aBuffer)
+loop:dispatch(k)
+context:synchronize()
+local loopOutput = readBuffer(cBuffer, m * n)
+for i = 0, m * n - 1 do
+    assert(loopOutput[i] == k,
+        ("GPU loop mismatch at element %d: got %.9g, want %d"):format(
+            i, loopOutput[i], k))
+end
+
+local fma = generated.fma:compile(context):bind(cBuffer, aBuffer, bBuffer)
+fma:dispatch()
+context:synchronize()
+local fmaOutput = readBuffer(cBuffer, m * n)
+for i = 0, m * n - 1 do
+    local want = f32(a[i] * b[i])
+    assert(fmaOutput[i] == want,
+        ("GPU FMA mismatch at element %d: got %.9g, want %.9g"):format(
+            i, fmaOutput[i], want))
+end
+
 local function dispatch()
     invocation:dispatch(n, k)
     context:synchronize()

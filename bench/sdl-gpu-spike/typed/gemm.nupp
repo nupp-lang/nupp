@@ -56,6 +56,36 @@ local function abiProbe(
 end
 
 @aot(target = "gpu")
+local function loopProbe(
+    exclusive output: span.WriteSpan<float>,
+    borrows input: span.Span<float>,
+    iterations: uint32
+): nil
+    assert(#output == #input)
+    for i = 1, #output do
+        local value: float = 0.0
+        local cursor: uint32 = 0
+        while cursor < iterations do
+            value = nupp.math.f32.add(value, 1.0)
+            cursor = nupp.math.u32.add(cursor, 1)
+        end
+        output[i] = input[i] * 0.0 + value
+    end
+end
+
+@aot(target = "gpu")
+local function fmaProbe(
+    exclusive output: span.WriteSpan<float>,
+    borrows a: span.Span<float>,
+    borrows b: span.Span<float>
+): nil
+    assert(#output == #a and #output == #b)
+    for i = 1, #output do
+        output[i] = nupp.math.f32.fma(nupp.math.f32.narrow(a[i]), nupp.math.f32.narrow(b[i]), nupp.math.f32.narrow(0.0))
+    end
+end
+
+@aot(target = "gpu")
 local function gemmNaive(
     exclusive c: span.WriteSpan<float>,
     borrows a: span.Span<float>,
@@ -354,3 +384,5 @@ export const batched = gemmBatched
 export const copy = copyProbe
 export const fill = fillProbe
 export const abi = abiProbe
+export const loop = loopProbe
+export const fma = fmaProbe
