@@ -10,7 +10,10 @@ bench=$root/bench/sdl-gpu-spike
 
 export NUPP_SDL_ROOT="$sdl"
 export VK_ICD_FILENAMES="$icd"
-export SDL_VIDEODRIVER=dummy
+# Unlike `dummy`, SDL's offscreen driver exposes Vulkan hooks while still
+# needing no display. The GPU backend rejects a video driver without them
+# before it can discover the pinned SwiftShader device.
+export SDL_VIDEODRIVER=offscreen
 export LD_LIBRARY_PATH="$sdl/lib${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
 
 "$root/bin/nupp" build

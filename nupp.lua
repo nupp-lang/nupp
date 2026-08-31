@@ -220,6 +220,11 @@ local RESOURCES = {
    {source = "src/nupp/io/http.nupp", output = "nupp/compiler/nupp/io/http.nupp"},
    {source = "src/nupp/workers/native.d.nupp", output = "nupp/compiler/nupp/workers/native.d.nupp"},
 }
+
+-- The compiler carries the GPU runtime as source for programs that select it,
+-- but does not execute it itself. Keep an ordinary compiler build independent
+-- of SDL; an application that reaches `nupp.gpu` still selects the provider.
+local COMPILER_NATIVE_FEATURES = {gpu = false}
 local SEAM_FACTORY_RESOURCES = {
    "registry", "module", "contracts", "bitset", "browsercrypto", "browserstorage",
    "files", "hash", "hmacsha256", "http",
@@ -338,6 +343,7 @@ return {
             optimize = 2,
             entries = { "nupp.compiler.main" },
             backends = { "nupp.runtime.backend.lunajson" },
+            nativeFeatures = COMPILER_NATIVE_FEATURES,
             resources = RESOURCES,
          },
          testRunner = {
@@ -357,6 +363,7 @@ return {
             outDir = "build/bootstrap-compiler",
             entries = { "nupp.compiler.main" },
             backends = { "nupp.runtime.backend.lunajson" },
+            nativeFeatures = COMPILER_NATIVE_FEATURES,
             resources = RESOURCES,
          },
          playgroundCompiler = {
@@ -408,6 +415,7 @@ return {
             -- claims to have.
             dependencies = { "lunamark", "scintillua" },
             backends = { "nupp.runtime.backend.lunajson" },
+            nativeFeatures = COMPILER_NATIVE_FEATURES,
             resources = RESOURCES,
             stub = "nupp",
             output = "build/dist/nupp",
