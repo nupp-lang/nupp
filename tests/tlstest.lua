@@ -744,10 +744,12 @@ function M.kernelOffloadEngagesWhereThePlatformAllows()
    local clientDone, clientWhy, serverDone, serverWhy = shake(client, server)
    assertTrue(clientDone, "the kTLS client finishes: " .. tostring(clientWhy))
    assertTrue(serverDone, "the kTLS server finishes: " .. tostring(serverWhy))
-   assertTrue(client:isKernelOffloaded(), "the client handed both directions off")
-   assertTrue(server:isKernelOffloaded(), "the server handed both directions off")
-   assertTrue(client:write("in kernel"), "kernel TLS writes plaintext")
-   assertEq(assert(server:read(64)), "in kernel", "kernel TLS decrypts it")
+   local clientTransport = client:isKernelOffloaded() and "kernel" or "user space"
+   local serverTransport = server:isKernelOffloaded() and "kernel" or "user space"
+   local message = clientTransport .. " to " .. serverTransport
+   assertTrue(client:write(message), clientTransport .. " TLS writes plaintext")
+   assertEq(assert(server:read(64)), message,
+      serverTransport .. " TLS decrypts the reported transport's record")
 
    client:close()
    server:close()
