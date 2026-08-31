@@ -532,6 +532,7 @@ function spirv.program(
     local fnFma = functionType(f32Type, {f32Type, f32Type, f32Type})
     local fnF32 = functionType(f32Type, {f32Type})
     local fnF32FromU32 = functionType(f32Type, {u32Type})
+    local fnU32FromF32 = functionType(u32Type, {f32Type})
 
     local function safeUnsigned(opcode: integer, helperName: string): integer
         local fn = id()
@@ -641,7 +642,7 @@ function spirv.program(
 
     local floatToHalfFn = id()
     name(floatToHalfFn, "nupp_f32_to_f16")
-    instruction(functions, OP.Function, {u32Type, floatToHalfFn, 0, fnF32})
+    instruction(functions, OP.Function, {u32Type, floatToHalfFn, 0, fnU32FromF32})
     local floatValue = id()
     instruction(functions, OP.FunctionParameter, {f32Type, floatValue})
     local packLabel = id()
@@ -682,7 +683,7 @@ function spirv.program(
 
     local floatToBf16Fn = id()
     name(floatToBf16Fn, "nupp_f32_to_bf16")
-    instruction(functions, OP.Function, {u32Type, floatToBf16Fn, 0, fnF32})
+    instruction(functions, OP.Function, {u32Type, floatToBf16Fn, 0, fnU32FromF32})
     local bf16Input = id()
     instruction(functions, OP.FunctionParameter, {f32Type, bf16Input})
     local bf16StoreLabel = id()
@@ -1311,8 +1312,8 @@ function spirv.program(
                 local header, body, continuing, merge = id(), id(), id(), id()
                 instruction(functions, OP.Branch, {header})
                 instruction(functions, OP.Label, {header})
-                instruction(functions, OP.LoopMerge, {merge, continuing, 0})
                 local condition = expression(statement.condition)
+                instruction(functions, OP.LoopMerge, {merge, continuing, 0})
                 instruction(functions, OP.BranchConditional, {condition, body, merge})
                 instruction(functions, OP.Label, {body})
                 currentBreak[#currentBreak + 1] = merge

@@ -47,6 +47,50 @@ local function run(dir, argv)
     return (out:gsub("__exit__:%d+%s*$", "")), code
 end
 
+local function spirvWord(module, offset)
+    local a, b, c, d = module:byte(offset, offset + 3)
+    assert(d ~= nil, "truncated SPIR-V word")
+    return a + b * 256 + c * 65536 + d * 16777216
+end
+
+local function assertSpirvStructure(module)
+    local instructions = {}
+    local offset = 21
+    while offset <= #module do
+        local first = spirvWord(module, offset)
+        local wordCount = math.floor(first / 65536)
+        assert(wordCount > 0, "zero-length SPIR-V instruction")
+        local operands = {}
+        for word = 1, wordCount - 1 do
+            operands[word] = spirvWord(module, offset + word * 4)
+        end
+        instructions[#instructions + 1] = {opcode = first % 65536, operands = operands}
+        offset = offset + wordCount * 4
+    end
+    test.equal(offset, #module + 1)
+
+    local functionReturns = {}
+    local functions, loops = 0, 0
+    for index, instruction in ipairs(instructions) do
+        if instruction.opcode == 33 then -- OpTypeFunction
+            functionReturns[instruction.operands[1]] = instruction.operands[2]
+        elseif instruction.opcode == 54 then -- OpFunction
+            functions = functions + 1
+            test.equal(
+                functionReturns[instruction.operands[4]],
+                instruction.operands[1],
+                "SPIR-V function result and function type disagree"
+            )
+        elseif instruction.opcode == 246 then -- OpLoopMerge
+            loops = loops + 1
+            local nextOpcode = assert(instructions[index + 1], "unterminated SPIR-V loop merge").opcode
+            assert(nextOpcode == 249 or nextOpcode == 250, "SPIR-V loop merge does not immediately precede its branch")
+        end
+    end
+    assert(functions > 1, "SPIR-V module has no helper functions")
+    assert(loops > 0, "SPIR-V module has no structured loops")
+end
+
 -- A register-resident loop: sixteen bytes read once, then arithmetic over locals that
 -- touches no memory. Above the intensity threshold, so lanes are expected to pay.
 local COMPUTE = [[
@@ -109,7 +153,9 @@ return {escapes = escapes, Point = Point, Escape = Escape,}
 
 function M.gpuTargetEmitsShaderAndTypedHostBinding()
     local dir = project({
-        ["gpu.nupp"] = [[
+        [
+            "gpu.nupp"
+        ] = [[
 local span = require("nupp.mem.span")
 
 @aot(target = "gpu")
@@ -121,7 +167,12 @@ local function doubled(
     if #output ~= #input then error("length mismatch", 2) end
     for i = 1, #output do
         local value = nupp.math.f32.narrow(input[i])
-        local product = nupp.math.f32.mul(value, scale)
+        local product: float = 0.0
+        local repetition: uint32 = 0
+        while repetition < nupp.math.u32.wrap(1) do
+            product = nupp.math.f32.mul(value, scale)
+            repetition = nupp.math.u32.add(repetition, 1)
+        end
         local adjusted = nupp.math.f32.sub(scale, 1.0)
         output[i] = nupp.math.f32.fma(nupp.math.f32.add(product, adjusted), scale, 0.0)
     end
@@ -151,6 +202,7 @@ return {doubled = doubled}
     test.equal(moduleCode, 0, module)
     test.equal(#module > 20, true)
     test.equal(module:sub(1, 4), "\3\2\35\7")
+    assertSpirvStructure(module)
 
     local binding, bindingCode = run(dir, "--emit binding gpu.nupp")
     test.equal(bindingCode, 0, binding)
@@ -173,15 +225,18 @@ return {doubled = doubled}
 
     local summary, summaryCode = run(dir, "--check gpu.nupp")
     test.equal(summaryCode, 0, summary)
-    assert(summary:find(", gpu, one iteration per GPU invocation", 1, true),
-        "a compiled GPU artifact is reported with its lowered shape: " .. summary)
-    assert(not summary:find("refused", 1, true),
-        "a working GPU kernel is not treated as a refusal: " .. summary)
+    assert(
+        summary:find(", gpu, one iteration per GPU invocation", 1, true),
+        "a compiled GPU artifact is reported with its lowered shape: " .. summary
+    )
+    assert(not summary:find("refused", 1, true), "a working GPU kernel is not treated as a refusal: " .. summary)
 end
 
 function M.gpuTargetEmitsWebGpuIntegerArtifact()
     local dir = project({
-        ["gpu.nupp"] = [[
+        [
+            "gpu.nupp"
+        ] = [[
 local span = require("nupp.mem.span")
 
 @aot(target = "gpu")
@@ -213,7 +268,9 @@ return xorMask
     assert(binding:find("compileGenerated(artifacts, 1, 1", 1, true), binding)
 
     local floatingDir = project({
-        ["gpu.nupp"] = [[
+        [
+            "gpu.nupp"
+        ] = [[
 local span = require("nupp.mem.span")
 
 @aot(target = "gpu")
@@ -247,14 +304,18 @@ return doubled
     })
     local summary, code = run(dir, "scalar.nupp")
     test.equal(code, 0, summary)
-    assert(summary:find("no map loop to run in lanes", 1, true),
-        "the summary describes the body rather than inventing lanes=false: " .. summary)
+    assert(
+        summary:find("no map loop to run in lanes", 1, true),
+        "the summary describes the body rather than inventing lanes=false: " .. summary
+    )
     assert(not summary:find("@aot(lanes = false)", 1, true), summary)
 end
 
 function M.qualifiedAotDeclarationIsRefusedWithoutATraceback()
     local dir = project({
-        ["qualified.nupp"] = [[
+        [
+            "qualified.nupp"
+        ] = [[
 local api = {}
 @aot
 function api.doubled(value: number): number
@@ -265,14 +326,15 @@ return api
     })
     local output, code = run(dir, "qualified.nupp")
     assert(code ~= 0, output)
-    assert(output:find("NUPP2902", 1, true)
-        and output:find("requires a local function declaration", 1, true), output)
+    assert(output:find("NUPP2902", 1, true) and output:find("requires a local function declaration", 1, true), output)
     assert(not output:find("stack traceback", 1, true), output)
 end
 
 function M.gpuTargetHonoursPerFunctionFpContraction()
     local dir = project({
-        ["relaxed.nupp"] = [[
+        [
+            "relaxed.nupp"
+        ] = [[
 local span = require("nupp.mem.span")
 
 @relax("fp-contract")
@@ -305,7 +367,9 @@ end
 
 function M.aotUsesNativeTranscendentalsOnlyWhenGranted()
     local dir = project({
-        ["native-exp.nupp"] = [[
+        [
+            "native-exp.nupp"
+        ] = [[
 local span = require("nupp.mem.span")
 
 @relax("fp-transcendentals")
@@ -344,7 +408,9 @@ end
 
 function M.gpuTargetLoadsAndStoresBinary16Bits()
     local dir = project({
-        ["half.nupp"] = [[
+        [
+            "half.nupp"
+        ] = [[
 local span = require("nupp.mem.span")
 
 @aot(target = "gpu")
@@ -442,7 +508,9 @@ end
 
 function M.gpuTargetUsesTheIrPolynomialExponential()
     local dir = project({
-        ["exp.nupp"] = [[
+        [
+            "exp.nupp"
+        ] = [[
 local span = require("nupp.mem.span")
 
 @aot(target = "gpu")
@@ -486,7 +554,9 @@ end
 -- keeps each dominating bound check against the span counts in its uniforms.
 function M.gpuTargetTakesManyBuffersAndProvedCursors()
     local dir = project({
-        ["gemm.nupp"] = [[
+        [
+            "gemm.nupp"
+        ] = [[
 local span = require("nupp.mem.span")
 
 @aot(target = "gpu")
@@ -530,7 +600,9 @@ end
 -- may be reached through a cursor dominated by its own count check.
 function M.cpuTargetTakesPartialGuardsAndProvedCursors()
     local dir = project({
-        ["gather.nupp"] = [[
+        [
+            "gather.nupp"
+        ] = [[
 local span = require("nupp.mem.span")
 
 @aot
@@ -562,7 +634,9 @@ end
 -- count rather than inventing a count_input parameter the signature omitted.
 function M.cpuCursorUsesTheSharedCountOfGuardedSpans()
     local dir = project({
-        ["shared-count.nupp"] = [[
+        [
+            "shared-count.nupp"
+        ] = [[
 local span = require("nupp.mem.span")
 
 @aot
@@ -591,7 +665,9 @@ end
 
 function M.gpuTargetExposesItsLoopIndexAndUnsignedDivision()
     local dir = project({
-        ["coordinates.nupp"] = [[
+        [
+            "coordinates.nupp"
+        ] = [[
 local span = require("nupp.mem.span")
 
 @aot(target = "gpu")
@@ -670,7 +746,9 @@ export const workgroups: function(
 function M.gpuTargetEmitsStructuredWorkgroupPhasesAndFixedTreeReduction()
     local dir = project({
         ["nupp/gpu.d.nupp"] = GPU_PHASE_DECLARATIONS,
-        ["reduce.nupp"] = [[
+        [
+            "reduce.nupp"
+        ] = [[
 local gpu = require("nupp.gpu")
 local span = require("nupp.mem.span")
 
@@ -727,7 +805,9 @@ end
 function M.gpuTargetEmitsDeterministicInclusiveScan()
     local dir = project({
         ["nupp/gpu.d.nupp"] = GPU_PHASE_DECLARATIONS,
-        ["scan.nupp"] = [[
+        [
+            "scan.nupp"
+        ] = [[
 local gpu = require("nupp.gpu")
 local span = require("nupp.mem.span")
 
@@ -768,7 +848,9 @@ end
 function M.gpuTargetRefusesNonDisjointWorkgroupScratchWrites()
     local dir = project({
         ["nupp/gpu.d.nupp"] = GPU_PHASE_DECLARATIONS,
-        ["bad-phase.nupp"] = [[
+        [
+            "bad-phase.nupp"
+        ] = [[
 local gpu = require("nupp.gpu")
 local span = require("nupp.mem.span")
 
@@ -794,7 +876,9 @@ end
 function M.gpuTargetRefusesSamePhaseCrossLaneScratchRace()
     local dir = project({
         ["nupp/gpu.d.nupp"] = GPU_PHASE_DECLARATIONS,
-        ["racy-phase.nupp"] = [[
+        [
+            "racy-phase.nupp"
+        ] = [[
 local gpu = require("nupp.gpu")
 local span = require("nupp.mem.span")
 
@@ -830,7 +914,9 @@ end
 -- no dominating check in the shader -- so the entry is refused at the source.
 function M.gpuTargetRefusesDispatchIndexingAnUnguardedSpan()
     local dir = project({
-        ["fill.nupp"] = [[
+        [
+            "fill.nupp"
+        ] = [[
 local span = require("nupp.mem.span")
 
 @aot(target = "gpu")
@@ -1306,12 +1392,15 @@ end
 function M.aFourTripLoopLowersToTheSameLaneIrAsWritingItOut()
     local written = FIXED_MIX:gsub(
         "        for round = 1, 4 do\n            value = value %* 1%.0009765625 %+ round %* 0%.125\n        end",
-        table.concat({
-            "        value = value * 1.0009765625 + 0.125",
-            "        value = value * 1.0009765625 + 0.25",
-            "        value = value * 1.0009765625 + 0.375",
-            "        value = value * 1.0009765625 + 0.5",
-        }, "\n")
+        table.concat(
+            {
+                "        value = value * 1.0009765625 + 0.125",
+                "        value = value * 1.0009765625 + 0.25",
+                "        value = value * 1.0009765625 + 0.375",
+                "        value = value * 1.0009765625 + 0.5",
+            },
+            "\n"
+        )
     )
     assert(written ~= FIXED_MIX, "the fixed loop was replaced by its control")
     local dir = project{["loop.nupp"] = FIXED_MIX, ["written.nupp"] = written}
@@ -1385,13 +1474,11 @@ function M.aLaneBodyDeclinesRatherThanCallingAnEntryPerLane()
     -- A compiled entry takes one set of scalars and answers once, so there is no
     -- per-lane form of it. Declining names that, rather than the loop quietly
     -- running scalar for a reason nothing reports.
-    local source = COMPUTE
-        :gsub(
-            "@aot\n",
-            "@aot\nlocal function beyondFour(a: number, b: number): number\n"
-            .. "    return a + b - 4.0\nend\n\n@aot\n",
-            1
-        )
+    local source = COMPUTE:gsub(
+        "@aot\n",
+        "@aot\nlocal function beyondFour(a: number, b: number): number\n" .. "    return a + b - 4.0\nend\n\n@aot\n",
+        1
+    )
         :gsub("if zxSquared %+ zySquared > 4%.0 then", "if beyondFour(zxSquared, zySquared) > 0.0 then")
     local dir = project{["perlane.nupp"] = source}
     local out, code = run(dir, "--check perlane.nupp")
@@ -1428,23 +1515,28 @@ end
 -- multi-result path always converted; the single-result one returned the call.
 function M.aSingleFixedWidthResultIsEstablishedByItsWrapper()
     local dir = project{
-        ["counter.nupp"] = table.concat({
-            "module counter",
-            "local valuebuilder = require(\"nupp.data.valuebuilder\")",
-            "@aot(lanes = false)",
-            "local function count(bytes: string): uint32",
-            "    local limit: uint32 = valuebuilder.length(bytes)",
-            "    local at: uint32 = nupp.math.u32.wrap(0)",
-            "    while at < limit do",
-            "        at = nupp.math.u32.add(at, nupp.math.u32.wrap(1))",
-            "    end",
-            "",
-            "    return at",
-            "end",
-            "local counter = {}",
-            "counter.count = count",
-            "export = counter",
-        }, "\n"),
+        [
+            "counter.nupp"
+        ] = table.concat(
+            {
+                "module counter",
+                "local valuebuilder = require(\"nupp.data.valuebuilder\")",
+                "@aot(lanes = false)",
+                "local function count(bytes: string): uint32",
+                "    local limit: uint32 = valuebuilder.length(bytes)",
+                "    local at: uint32 = nupp.math.u32.wrap(0)",
+                "    while at < limit do",
+                "        at = nupp.math.u32.add(at, nupp.math.u32.wrap(1))",
+                "    end",
+                "",
+                "    return at",
+                "end",
+                "local counter = {}",
+                "counter.count = count",
+                "export = counter",
+            },
+            "\n"
+        ),
     }
     local binding, bindingCode = run(dir, "--emit binding counter.nupp")
     test.equal(bindingCode, 0, binding)
@@ -2203,7 +2295,9 @@ end
 
 function M.ordinaryLuaConstructionLowersThroughVmAwareIr()
     local dir = project{
-        ["ordinary.nupp"] = [[
+        [
+            "ordinary.nupp"
+        ] = [[
 @aot(lanes = false)
 local function label(text: string): string
     local offsets: {integer} = {}
@@ -2236,7 +2330,9 @@ end
 
 function M.aStringAccumulatorKeepsTheVmStackAboveItsChunksTemporary()
     local dir = project{
-        ["unsafe.nupp"] = [[
+        [
+            "unsafe.nupp"
+        ] = [[
 @aot(lanes = false)
 local function unsafe(text: string): string
     local answer = ""
@@ -2449,7 +2545,9 @@ end
 
 function M.valueStreamBuilderModesAreAotConstants()
     local dir = project{
-        ["nupp/data/valuebuilder.nupp"] = [[
+        [
+            "nupp/data/valuebuilder.nupp"
+        ] = [[
 local builder = {}
 function builder.newSized(nullValue: any, depth: uint32, bytes: uint32): any return {} end
 function builder.newPull(nullValue: any, depth: uint32, bytes: uint32, arrayMarker: any, objectMarker: any, shape: any, arrayShape: any, markers: any): any return {} end
@@ -2458,7 +2556,9 @@ function builder.number(state: any, value: number): nil end
 function builder.finish(state: any): any return nil end
 return builder
 ]],
-        ["modes.nupp"] = [[
+        [
+            "modes.nupp"
+        ] = [[
 local builder = require("nupp.data.valuebuilder")
 
 @aot
@@ -2508,12 +2608,16 @@ end
 
 function M.uncheckedRootedByteReadsAreRejected()
     local dir = project{
-        ["nupp/data/valuebuilder.nupp"] = [[
+        [
+            "nupp/data/valuebuilder.nupp"
+        ] = [[
 local builder = {}
 function builder.byteAt(bytes: string, offset: uint32): uint32 return offset end
 return builder
 ]],
-        ["read.g.nupp"] = [[
+        [
+            "read.g.nupp"
+        ] = [[
 local builder = require("nupp.data.valuebuilder")
 @aot(lanes = false)
 local function read(source: string, offset: uint32): uint32
@@ -2536,7 +2640,10 @@ end
 --- spelling back to Lua, and refused whatever would not go back through a
 --- double-quoted literal.
 function M.aConstantStringIsPlacedAsTheBytesItDenotes()
-    local dir = project{["classes.g.nupp"] = [[
+    local dir = project{
+        [
+            "classes.g.nupp"
+        ] = [[
 local valueBuilder = require("nupp.data.valuebuilder")
 
 const CLASSES = "\1\2\34\92"
@@ -2554,7 +2661,8 @@ local function entry(index: uint32, nullValue: any): any
 end
 
 return {entry = entry}
-]]}
+]]
+    }
     local out, code = run(dir, PINNED .. "--emit c classes.g.nupp")
     test.equal(code, 0, out)
     assert(
