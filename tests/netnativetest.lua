@@ -6,6 +6,7 @@
 -- on a fixed port being free or on anything outside this machine.
 local net = require("nupp.io.net")
 local io_ = require("nupp.io")
+local test = require("assert")
 
 local HERE = assert(debug.getinfo(1, "S").source:match("^@(.*)[/\\]"))
 
@@ -305,11 +306,10 @@ function M.loadBalancingReuseIsRefusedCleanlyWhereItIsUnsupported()
    first:close()
 end
 
--- A local stream name unique to this run: a filesystem socket on POSIX and a
--- named pipe in the namespace libuv requires on Windows.
+-- A socket path under the system temporary directory, unique to this run.
 local function socketPath(label)
    if jit.os == "Windows" then
-      return "\\\\.\\pipe\\nupp-net-" .. label .. "-" .. tostring(os.time())
+      test.skip("Unix domain sockets are unavailable on Windows")
    end
    local base = os.getenv("TMPDIR") or "/tmp/"
    if base:sub(-1) ~= "/" then base = base .. "/" end
