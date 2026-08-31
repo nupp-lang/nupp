@@ -245919,6 +245919,9 @@ local function recordResult(suite, name, defined, ok, err, stdout, stderr, elaps
       local message, errFile, errLine = errorPosition(err)
       record.failure = {message = message, file = errFile, line = errLine}
       record.output = {stdout = stdout, stderr = stderr}
+      if os.getenv("NUPP_TEST_TRACE_CASES") then
+         io.stderr:write("__failure__:", tostring(message), "\n")
+      end
       if not queueDir then mark("E") end
    end
    if verbose then
@@ -246483,9 +246486,15 @@ if #shard == 0 and #suites > 0
                      for name in said:gmatch("__suite__:([^\n]*)") do
                         inFlight = name
                      end
+                     local inFlightCase
+                     for name in said:gmatch("__case__:([^\n]*)") do
+                        inFlightCase = name
+                     end
                      said = said:gsub("__suite__:[^\n]*\n?", "")
+                     said = said:gsub("__case__:[^\n]*\n?", "")
                      if inFlight then
                         why[#why + 1] = "died in " .. inFlight
+                           .. (inFlightCase and " / " .. inFlightCase or "")
                      end
                      if #said > 0 then
                         why[#why + 1] = "stderr: " .. said:sub(-2000)
@@ -246703,6 +246712,9 @@ local function runSuite(suiteInfo, slices)
    else
       for _, name in ipairs(cases) do
          local case = suite[name]
+         if sharedProgressStream or os.getenv("NUPP_TEST_TRACE_CASES") then
+            io.stderr:write("__case__:", name, "\n")
+         end
          local caseBefore = now()
          local ok, err, stdout, stderr = capture(function()
             runCase(hooks, case)

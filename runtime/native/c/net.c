@@ -90,6 +90,10 @@ NUPP_EXPORT int32_t nuppNetLoopRun(NuppNetLoop *reactor, int32_t timeoutMs) {
         return 0;
     }
     if (timeoutMs > 0) {
+        /* Timer deadlines are relative to libuv's cached clock. Refresh it
+         * after caller work that may have run without pumping this loop, or a
+         * newly armed timeout can already be in the past on the first run. */
+        uv_update_time(&reactor->loop);
         uv_timer_start(&reactor->deadline, net_expired, (uint64_t)timeoutMs, 0);
         uv_run(&reactor->loop, UV_RUN_ONCE);
         uv_timer_stop(&reactor->deadline);
@@ -1066,7 +1070,9 @@ static void net_connect_stop_timer(NuppNetConnect *request) {
         return;
     }
     uv_timer_stop(&request->deadline);
-    uv_close((uv_handle_t *)&request->deadline, net_connect_timer_closed);
+    if (!uv_is_closing((uv_handle_t *)&request->deadline)) {
+        uv_close((uv_handle_t *)&request->deadline, net_connect_timer_closed);
+    }
 }
 
 /* The deadline does not cancel libuv's work -- a resolution or a handshake
@@ -1226,6 +1232,7 @@ NUPP_EXPORT NuppNetConnect *nuppNetConnectBegin(
     if (timeoutMs > 0 && uv_timer_init(&reactor->loop, &request->deadline) == 0) {
         request->deadline.data = request;
         request->timing = true;
+        uv_update_time(&reactor->loop);
         uv_timer_start(&request->deadline, net_connect_expired, (uint64_t)timeoutMs, 0);
     }
     return request;
@@ -1278,6 +1285,7 @@ NUPP_EXPORT NuppNetConnect *nuppNetConnectPath(
     if (timeoutMs > 0 && uv_timer_init(&reactor->loop, &request->deadline) == 0) {
         request->deadline.data = request;
         request->timing = true;
+        uv_update_time(&reactor->loop);
         uv_timer_start(&request->deadline, net_connect_expired, (uint64_t)timeoutMs, 0);
     }
     return request;

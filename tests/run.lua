@@ -513,12 +513,6 @@ do
    end
 end
 
-if os.getenv("NUPP_TEST_TRACE_CASES") then
-   rawset(_G, "__NUPP_TEST_TRACE", function(stage)
-      progressWrite("__stage__:" .. tostring(stage) .. "\n")
-   end)
-end
-
 local RESET = "\27[0m"
 local function paint(code, text)
    return useColor and ("\27[" .. code .. "m" .. text .. RESET) or text

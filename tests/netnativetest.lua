@@ -20,13 +20,6 @@ local function assertTrue(cond, label)
    if not cond then error(label or "expected true", 2) end
 end
 
-local function trace(stage)
-   local emit = rawget(_G, "__NUPP_TEST_TRACE")
-   if emit then
-      emit(stage)
-   end
-end
-
 -- A listener, a connection to it, and the connection it accepted.
 local function pair()
    local listener = assert(net.listen({host = "127.0.0.1", port = 0}))
@@ -89,24 +82,15 @@ function M.aLargeValueCrossesInPieces()
 end
 
 function M.aReaderViewReadsARealConnection()
-   trace("reader pair")
    local listener, client, served = pair()
-   trace("reader write")
    assertTrue(client:write("through the contract"), "the client writes")
-   trace("reader borrow")
    local reader = net.asReader(served)
-   trace("reader read")
    assertEq(assert(reader:read(64)), "through the contract",
       "a borrowed view reads through the shared Reader contract")
-   trace("reader view close")
    reader:close()
-   trace("reader stream close")
    served:close()
-   trace("reader client close")
    client:close()
-   trace("reader listener close")
    listener:close()
-   trace("reader done")
 end
 
 function M.closingTheWriterViewEndsOneDirection()
@@ -283,6 +267,27 @@ function M.aConnectGivesUpOnItsDeadline()
    assertEq(stream, nil, "the connect gives up rather than hanging")
    assertTrue(why ~= nil, "and says why")
    assertTrue(os.clock() - started < 10, "well before anything else would time it out")
+end
+
+function M.aConnectDeadlineStartsWhenTheConnectionDoes()
+   -- libuv's clock is cached. Work outside its reactor must not make the next
+   -- connection's freshly armed deadline look as though it has already passed.
+   local listener, client, served = pair()
+   served:close()
+   client:close()
+   listener:close()
+
+   local until_ = os.clock() + 0.25
+   while os.clock() < until_ do end
+
+   listener = assert(net.listen({host = "127.0.0.1", port = 0}))
+   client = assert(net.connect({
+      host = "127.0.0.1", port = listener:port(), timeoutMs = 100,
+   }))
+   served = assert(listener:accept())
+   served:close()
+   client:close()
+   listener:close()
 end
 
 function M.loadBalancingReuseIsRefusedCleanlyWhereItIsUnsupported()
