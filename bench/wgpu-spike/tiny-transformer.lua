@@ -28,18 +28,10 @@ local input = ffi.new("float[?]", elements)
 local queryWeights = ffi.new("float[?]", width * width)
 local keyWeights = ffi.new("float[?]", width * width)
 local valueWeights = ffi.new("float[?]", width * width)
-for index = 0, elements - 1 do
-    input[index] = nextValue()
-end
-for index = 0, width * width - 1 do
-    queryWeights[index] = nextValue()
-end
-for index = 0, width * width - 1 do
-    keyWeights[index] = nextValue()
-end
-for index = 0, width * width - 1 do
-    valueWeights[index] = nextValue()
-end
+for index = 0, elements - 1 do input[index] = nextValue() end
+for index = 0, width * width - 1 do queryWeights[index] = nextValue() end
+for index = 0, width * width - 1 do keyWeights[index] = nextValue() end
+for index = 0, width * width - 1 do valueWeights[index] = nextValue() end
 
 local q = ffi.new("float[?]", elements)
 local k = ffi.new("float[?]", elements)
@@ -56,22 +48,14 @@ transformer.scoresCpu(
     span.writeCarray(scores, tokens * tokens),
     span.fromCarray(q, elements),
     span.fromCarray(k, elements),
-    tokens,
-    width,
-    scale
-)
+    tokens, width, scale)
 transformer.softmaxCpu(
     span.writeCarray(probabilities, tokens * tokens),
-    span.fromCarray(scores, tokens * tokens),
-    tokens
-)
+    span.fromCarray(scores, tokens * tokens), tokens)
 transformer.mixCpu(
     span.writeCarray(expected, elements),
     span.fromCarray(probabilities, tokens * tokens),
-    span.fromCarray(v, elements),
-    tokens,
-    width
-)
+    span.fromCarray(v, elements), tokens, width)
 
 local context = gpu.open()
 local inputBuffer = context:tensor(ffi.typeof("float"), {tokens, width})
@@ -96,18 +80,10 @@ assert(not gpu.bufferIsDense(gapped) and gpu.bufferIsInjective(gapped))
 assert(transposedShape[1] == elements and transposedShape[2] == 6)
 assert(transposedStrides[1] == 1 and transposedStrides[2] == elements)
 assert(not gpu.bufferIsDense(broadcast) and not gpu.bufferIsInjective(broadcast))
-assert(
-    not pcall(function()
-        context:upload(gapped, inputSpan)
-    end),
-    "a non-dense tensor upload was admitted"
-)
-assert(
-    not pcall(function()
-        context:tensor(ffi.typeof("float"), {tokens, 0})
-    end),
-    "a zero-stride broadcasting shape was admitted"
-)
+assert(not pcall(function() context:upload(gapped, inputSpan) end),
+    "a non-dense tensor upload was admitted")
+assert(not pcall(function() context:tensor(ffi.typeof("float"), {tokens, 0}) end),
+    "a zero-stride broadcasting shape was admitted")
 
 context:upload(inputBuffer, inputSpan)
 context:upload(qWeightsBuffer, span.fromCarray(queryWeights, width * width))
@@ -133,9 +109,7 @@ local function dispatch()
     context:synchronize()
 end
 
-for _ = 1, 3 do
-    dispatch()
-end
+for _ = 1, 3 do dispatch() end
 local started, passes = now(), 0
 repeat
     dispatch()
@@ -161,18 +135,13 @@ context:synchronize()
 context:readDownloaded(probabilitiesView, span.writeCarray(gpuProbabilities, elements))
 for index = 0, elements - 1 do
     assert(projected[index] == q[index], ("Q view mismatch at %d"):format(index))
-    assert(
-        gpuScores[index] == scores[index],
-        ("score mismatch at %d: got %.9g, want %.9g"):format(index, gpuScores[index], scores[index])
-    )
-    assert(
-        gpuProbabilities[index] == probabilities[index],
-        ("softmax mismatch at %d: got %.9g, want %.9g"):format(index, gpuProbabilities[index], probabilities[index])
-    )
-    assert(
-        output[index] == expected[index],
-        ("transformer mismatch at %d: got %.9g, want %.9g"):format(index, output[index], expected[index])
-    )
+    assert(gpuScores[index] == scores[index], ("score mismatch at %d: got %.9g, want %.9g"):format(
+        index, gpuScores[index], scores[index]))
+    assert(gpuProbabilities[index] == probabilities[index],
+        ("softmax mismatch at %d: got %.9g, want %.9g"):format(
+            index, gpuProbabilities[index], probabilities[index]))
+    assert(output[index] == expected[index], ("transformer mismatch at %d: got %.9g, want %.9g"):format(
+        index, output[index], expected[index]))
 end
 
 io.write("Tiny transformer: 6 chained kernels and 6 resident views agree element-exact with CPU AOT\n")

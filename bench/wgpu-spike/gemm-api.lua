@@ -27,15 +27,14 @@ end
 
 local a = ffi.new("float[?]", m * k)
 local b = ffi.new("float[?]", k * n)
-for i = 0, m * k - 1 do
-    a[i] = nextValue()
-end
-for i = 0, k * n - 1 do
-    b[i] = nextValue()
-end
+for i = 0, m * k - 1 do a[i] = nextValue() end
+for i = 0, k * n - 1 do b[i] = nextValue() end
 
 local expected = ffi.new("float[?]", m * n)
-local spans = {a = span.fromCarray(a, m * k), b = span.fromCarray(b, k * n),}
+local spans = {
+    a = span.fromCarray(a, m * k),
+    b = span.fromCarray(b, k * n),
+}
 
 local cpuStarted = now()
 generated.cpu(span.writeCarray(expected, m * n), spans.a, spans.b, n, k)
@@ -47,16 +46,13 @@ local driver = context:driver()
 local expectedBackend = os.getenv("NUPP_EXPECT_GPU_BACKEND")
 local expectedAdapter = os.getenv("NUPP_EXPECT_GPU_ADAPTER")
 if expectedBackend then
-    assert(
-        driver:find(expectedBackend .. ":", 1, true) == 1,
-        ("GPU backend mismatch: got %s, want %s"):format(driver, expectedBackend)
-    )
+    assert(driver:find(expectedBackend .. ":", 1, true) == 1,
+        ("GPU backend mismatch: got %s, want %s"):format(driver, expectedBackend))
 end
 if expectedAdapter then
-    assert(
-        driver:find(expectedAdapter, 1, true),
-        ("GPU adapter mismatch: got %s, want a name containing %s"):format(driver, expectedAdapter)
-    )
+    assert(driver:find(expectedAdapter, 1, true),
+        ("GPU adapter mismatch: got %s, want a name containing %s"):format(
+            driver, expectedAdapter))
 end
 io.write(("GPU driver: %s\n"):format(driver))
 io.stdout:flush()
@@ -66,9 +62,7 @@ local bBuffer = context:buffer(ffi.typeof("float"), k * n)
 local kernel = generated.gemm:compile(context)
 local invocation = kernel:bind(cBuffer, aBuffer, bBuffer)
 
-for i = 0, m * n - 1 do
-    output[i] = 127.25
-end
+for i = 0, m * n - 1 do output[i] = 127.25 end
 context:upload(cBuffer, span.fromCarray(output, m * n))
 context:upload(aBuffer, spans.a)
 context:upload(bBuffer, spans.b)
@@ -80,10 +74,9 @@ local function verifyTransfer(buffer, source, count, name)
     context:synchronize()
     context:readDownloaded(buffer, span.writeCarray(copied, count))
     for i = 0, count - 1 do
-        assert(
-            copied[i] == source[i],
-            ("%s transfer mismatch at element %d: got %.9g, want %.9g"):format(name, i, copied[i], source[i])
-        )
+        assert(copied[i] == source[i],
+            ("%s transfer mismatch at element %d: got %.9g, want %.9g"):format(
+                name, i, copied[i], source[i]))
     end
 end
 
@@ -95,7 +88,6 @@ local function readBuffer(buffer, count)
     context:enqueueDownload(buffer)
     context:synchronize()
     context:readDownloaded(buffer, span.writeCarray(copied, count))
-
     return copied
 end
 
@@ -104,10 +96,9 @@ copy:dispatch()
 context:synchronize()
 local copied = readBuffer(cBuffer, m * n)
 for i = 0, m * n - 1 do
-    assert(
-        copied[i] == a[i],
-        ("storage binding mismatch at element %d: got %.9g, want %.9g"):format(i, copied[i], a[i])
-    )
+    assert(copied[i] == a[i],
+        ("storage binding mismatch at element %d: got %.9g, want %.9g"):format(
+            i, copied[i], a[i]))
 end
 
 local fill = generated.fill:compile(context):bind(cBuffer, aBuffer)
@@ -115,7 +106,8 @@ fill:dispatch(9.25)
 context:synchronize()
 local filled = readBuffer(cBuffer, m * n)
 for i = 0, m * n - 1 do
-    assert(filled[i] == 9.25, ("scalar uniform mismatch at element %d: got %.9g, want 9.25"):format(i, filled[i]))
+    assert(filled[i] == 9.25,
+        ("scalar uniform mismatch at element %d: got %.9g, want 9.25"):format(i, filled[i]))
 end
 
 local abi = generated.abi:compile(context):bind(cBuffer, aBuffer, bBuffer)
@@ -124,7 +116,9 @@ context:synchronize()
 local abiOutput = readBuffer(cBuffer, m * n)
 for i = 0, m * n - 1 do
     local want = f32(a[i] + b[i])
-    assert(abiOutput[i] == want, ("GEMM ABI mismatch at element %d: got %.9g, want %.9g"):format(i, abiOutput[i], want))
+    assert(abiOutput[i] == want,
+        ("GEMM ABI mismatch at element %d: got %.9g, want %.9g"):format(
+            i, abiOutput[i], want))
 end
 
 local uintUniform = generated.uintUniform:compile(context):bind(cBuffer, aBuffer)
@@ -132,10 +126,9 @@ uintUniform:dispatch(73)
 context:synchronize()
 local uintUniformOutput = readBuffer(cBuffer, m * n)
 for i = 0, m * n - 1 do
-    assert(
-        uintUniformOutput[i] == a[i],
-        ("uint uniform mismatch at element %d: got %.9g, want %.9g"):format(i, uintUniformOutput[i], a[i])
-    )
+    assert(uintUniformOutput[i] == a[i],
+        ("uint uniform mismatch at element %d: got %.9g, want %.9g"):format(
+            i, uintUniformOutput[i], a[i]))
 end
 
 local fixedLoop = generated.fixedLoop:compile(context):bind(cBuffer, aBuffer)
@@ -143,10 +136,9 @@ fixedLoop:dispatch()
 context:synchronize()
 local fixedLoopOutput = readBuffer(cBuffer, m * n)
 for i = 0, m * n - 1 do
-    assert(
-        fixedLoopOutput[i] == 7.0,
-        ("fixed GPU loop mismatch at element %d: got %.9g, want 7"):format(i, fixedLoopOutput[i])
-    )
+    assert(fixedLoopOutput[i] == 7.0,
+        ("fixed GPU loop mismatch at element %d: got %.9g, want 7"):format(
+            i, fixedLoopOutput[i]))
 end
 
 local loop = generated.loop:compile(context):bind(cBuffer, aBuffer)
@@ -154,7 +146,9 @@ loop:dispatch(k)
 context:synchronize()
 local loopOutput = readBuffer(cBuffer, m * n)
 for i = 0, m * n - 1 do
-    assert(loopOutput[i] == k, ("GPU loop mismatch at element %d: got %.9g, want %d"):format(i, loopOutput[i], k))
+    assert(loopOutput[i] == k,
+        ("GPU loop mismatch at element %d: got %.9g, want %d"):format(
+            i, loopOutput[i], k))
 end
 
 local fma = generated.fma:compile(context):bind(cBuffer, aBuffer, bBuffer)
@@ -163,7 +157,9 @@ context:synchronize()
 local fmaOutput = readBuffer(cBuffer, m * n)
 for i = 0, m * n - 1 do
     local want = f32(a[i] * b[i])
-    assert(fmaOutput[i] == want, ("GPU FMA mismatch at element %d: got %.9g, want %.9g"):format(i, fmaOutput[i], want))
+    assert(fmaOutput[i] == want,
+        ("GPU FMA mismatch at element %d: got %.9g, want %.9g"):format(
+            i, fmaOutput[i], want))
 end
 
 local function dispatch()
@@ -171,9 +167,7 @@ local function dispatch()
     context:synchronize()
 end
 
-for _ = 1, 3 do
-    dispatch()
-end
+for _ = 1, 3 do dispatch() end
 local started = now()
 local passes = 0
 repeat
@@ -188,10 +182,8 @@ context:readDownloaded(cBuffer, span.writeCarray(output, m * n))
 
 assert(output[0] ~= 127.25, "GEMM dispatch left its output buffer unchanged")
 for i = 0, m * n - 1 do
-    assert(
-        output[i] == expected[i],
-        ("GEMM mismatch at element %d: got %.9g, want %.9g"):format(i, output[i], expected[i])
-    )
+    assert(output[i] == expected[i],
+        ("GEMM mismatch at element %d: got %.9g, want %.9g"):format(i, output[i], expected[i]))
 end
 
 local flops = 2.0 * m * n * k
