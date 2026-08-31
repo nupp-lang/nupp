@@ -660,8 +660,9 @@ binary64 conversion fallback.
 
 ### Registrar and loading
 
-Every builder in one generated C file shares one digest-named registrar. The
-generated module loads it with `package.loadlib`, validates the returned closure
+Every builder in one generated C file shares one digest-named registrar. For
+the default shared-library linkage, the generated module resolves its sidecar,
+opens that registrar with `package.loadlib`, validates the returned closure
 table, and caches that table for the Lua state:
 
 ```nupp
@@ -679,6 +680,24 @@ modules[cacheKey] = registered
 `nupp aot --emit binding` prints the whole thing, including the walk that finds
 the library beside the module. Pure kernels retain their existing FFI path and
 have no Lua pointer or GC authority.
+
+With `aotLinkage = "static"` on a component target, the component never opens a
+library at runtime. The embedding host links the archive and calls its registrar
+with the host-owned `lua_State` before loading the component. The generated
+module reads the registered table instead:
+
+```nupp [Generated static binding, private]
+local modules = rawget(_G, "__nuppAotBuilderModules")
+local registered = modules and modules["ks_register_<component>_<digest>"]
+if type(registered) ~= "table" then
+    error("AOT builder archive is not registered", 0)
+end
+```
+
+Lua source cannot call this registrar through `ffi.C`: the registrar needs a
+`lua_State *`, which belongs to the embedding host. See
+[Static AOT components](build.md#static-aot-components) for the build choice
+and [Embedding Nupp](embedding.md#static-aot-components) for the host handoff.
 
 ## Benchmarks
 
@@ -1596,7 +1615,11 @@ so a rebuild never reuses an artifact built from a different body. `nupp check`
 does none of this: it answers a question about the source as written, and never
 needs a C compiler.
 
-### Shipping an artifact
+### Shipping a shared artifact
+
+This section describes the default `aotLinkage = "shared"` route. A static
+component ships its archive to the host build rather than carrying a `lib/`
+sidecar; see [Static AOT components](build.md#static-aot-components).
 
 The wrapper names the library with a leading `@`, which means *beside the module
 that loads me* rather than *at this path*:

@@ -360,6 +360,41 @@ An explicitly shared C dependency is refused in this mode; use
 implementation are refused for the same reason. A path-valued third-party
 `stub` cannot be relinked and therefore cannot select `standalone`.
 
+### Static AOT components
+
+An embedded host that owns its final executable can consume a component's AOT
+code as an archive instead of carrying a shared-library sidecar:
+
+```lua
+build = {
+   kind = "component",
+   entries = { "game.main" },
+   aot = "require",
+   aotLinkage = "static",
+}
+```
+
+`aotLinkage` is `"shared"` by default. That route writes a shared AOT library
+beside the component and the generated binding opens it at runtime. `"static"`
+writes an AOT archive under `outDir/lib` for the embedding application's link;
+the generated binding instead resolves ordinary kernels from the process C
+namespace. It does not make Nupp produce or relink an executable.
+
+Choose `"shared"` for a file-based application or a component that must be
+updated independently of its host. Choose `"static"` only when the host owns
+the final link and deliberately has no dynamic-loader dependency. The host must
+force-link and retain the archive, export its AOT symbols to the embedded
+LuaJIT default namespace, and use the same target ABI as the component. Static
+archives are source-qualified because every linked component shares one C
+namespace.
+
+A component whose AOT entry constructs Lua tables or strings also carries a
+Lua C-module registrar. Its host registers that archive before it loads the
+component; see [Embedding Nupp](embedding.md#static-aot-components). Pure
+numeric and span kernels need no registrar. A static component cannot make a
+sidecar-only native provider available: its native dependencies must already be
+linked into, or otherwise supplied by, the host.
+
 Current-platform source builds use the repository toolchain driver. Installed
 and cross-target builds use a compiler pack selected by host and target triple.
 Installed distributions discover packs under `lib/nupp/compiler-packs` beside

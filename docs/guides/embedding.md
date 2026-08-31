@@ -206,6 +206,27 @@ A registration attempted after component loading returns
 `NUPP_STATUS_RUNTIME`. Configure every provider before loading any component,
 including a library component whose entry will never start.
 
+### Static AOT components
+
+A component target selects static AOT with `aotLinkage = "static"` and
+`aot = "require"`. Its build produces the ordinary component plus an AOT
+archive under `outDir/lib`. The archive is input to the embedding application's
+link, not a file the component will discover at runtime.
+
+The host must force-link and retain that archive, make its symbols visible to
+LuaJIT's default C namespace, and construct the component with the same target
+ABI. Numeric and span kernels then resolve through the process image. A
+Lua-building AOT entry additionally requires
+`nupp_runtime_register_aot_builders` before `nupp_component_load`, as shown
+above. A missing archive, an archive stripped by the linker, or an unregistered
+builder is a host deployment error; substituting `ffi.load` would reintroduce
+the dynamic-loader dependency this mode avoids.
+
+Use static AOT when the application owns the final link or cannot rely on a
+dynamic loader. Use the default shared AOT linkage when components must travel
+and update independently of the host. Static archives share one C namespace,
+so the compiler qualifies their generated AOT and registrar symbols.
+
 ## Component lifecycle
 
 Loading, starting, and releasing are separate operations.
