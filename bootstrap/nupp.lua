@@ -27304,7 +27304,11 @@ os . remove ( output )
 assert ( code == 0 , "SPIRV-Cross rejected compiler-emitted SPIR-V: " .. translated )
 assert ( source ~= nil , "SPIRV-Cross wrote no Metal source: " .. tostring ( readErr ) )
 
-local metal = source
+
+
+
+
+local metal = ( source ) : gsub ( "\r\n" , "\n" )
 
 local function replaceOne ( before , after , description ) 
 local first , last = metal : find ( before , 1 , true )

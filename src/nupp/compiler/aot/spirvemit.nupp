@@ -1402,7 +1402,11 @@ function spirv.deriveMsl(binary: string, fpContract: boolean?): string
     assert(code == 0, "SPIRV-Cross rejected compiler-emitted SPIR-V: " .. translated)
     assert(source ~= nil, "SPIRV-Cross wrote no Metal source: " .. tostring(readErr))
 
-    local metal = source as string
+    -- SPIRV-Cross writes through a text-mode stream, so its Windows build
+    -- expands line endings even though the translation is otherwise byte-for-
+    -- byte equivalent. Canonicalize before matching and patching the pinned
+    -- templates; generated source uses LF on every host.
+    local metal = (source as string):gsub("\r\n", "\n")
 
     local function replaceOne(before: string, after: string, description: string): nil
         local first, last = metal:find(before, 1, true)
