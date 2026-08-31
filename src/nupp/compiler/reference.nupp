@@ -1658,7 +1658,8 @@ resident `gpu.Buffer<T>` values in the span parameters' order and types, and
 `dispatch(...)` accepts the scalar parameters and packs their uniform block.
 The Wasm policies refuse GPU IR, and `aot = "off"` or `emit-c` retain the
 ordinary function value. `nupp aot --emit spirv FILE` writes the canonical
-binary module and `--emit msl` prints its Metal derivative.
+binary module, `--emit msl` prints its Metal derivative, and `--emit wgsl`
+prints the `webgpu-int32` artifact when the kernel lies inside that profile.
 
 The current GPU subset is one complete-span map with fixed-width elements, any
 number of proved read and write spans, and up to 128 bytes of fixed-width scalar

@@ -11,12 +11,18 @@ layouts, uniform layout and entrypoint identity as one compiler-owned fact.
 local scalarIR = require("nupp.compiler.aot.scalar")
 local spirvemit = require("nupp.compiler.aot.spirvemit")
 local visit = require("nupp.compiler.aot.visit")
+local wgslemit = require("nupp.compiler.aot.wgslemit")
 
 local gpuemit = {}
 
 record gpuemit.Artifact
     source: string
     spirv: string
+
+    --- Browser source for the exact integer WebGPU profile. Native GPU
+    --- artifacts remain valid even when their IR lies outside that profile.
+    wgsl: string?
+
     entrypoint: string
     readonly: {scalarIR.Param}
     writable: {scalarIR.Param}
@@ -557,10 +563,16 @@ function gpuemit.program(program: scalarIR.Program): gpuemit.Artifact
 
     local threads: integer = workgroup ~= nil and (workgroup as scalarIR.Workgroup).size or 256
     local spirv = spirvemit.program(program, readonly, writable, uniforms, threads)
+    local wgsl: string? = nil
+    local browserOk, browserSource = pcall(wgslemit.program, program, readonly, writable, uniforms, threads)
+    if browserOk then
+        wgsl = browserSource as string
+    end
 
     return new gpuemit.Artifact(
         source = spirvemit.deriveMsl(spirv, program.fpContract),
         spirv = spirv,
+        wgsl = wgsl,
         entrypoint = identifier(program.symbol) .. "_gpu",
         readonly = readonly,
         writable = writable,

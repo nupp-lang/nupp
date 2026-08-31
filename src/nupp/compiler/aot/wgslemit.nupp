@@ -1,0 +1,271 @@
+module nupp.compiler.aot.wgslemit
+
+--[[
+WGSL emission for the exact integer browser profile.
+
+This is intentionally a peer of the native GPU emitters: it consumes verified
+scalar IR directly and never translates SPIR-V. The initial profile is a
+complete-span map kernel over 32-bit integer buffers and uniforms. More IR is
+added only after the corresponding WebGPU conformance case exists.
+]]
+
+local scalarIR = require("nupp.compiler.aot.scalar")
+
+local wgslemit = {}
+
+const WGSL_TYPE: {[string]: string} = {i32 = "i32", u32 = "u32", bool = "bool"}
+
+const BINARY: {
+    [string]: string
+} = {
+    add = "+",
+    sub = "-",
+    mul = "*",
+    div = "/",
+    mod = "%",
+    lt = "<",
+    le = "<=",
+    gt = ">",
+    ge = ">=",
+    eq = "==",
+    ne = "!=",
+    ["and"] = "&&",
+    ["or"] = "||",
+    band = "&",
+    bor = "|",
+    bxor = "^",
+    lshift = "<<",
+    rshift = ">>",
+    arshift = ">>",
+    i32_add = "+",
+    i32_sub = "-",
+    i32_mul = "*",
+    u32_add = "+",
+    u32_sub = "-",
+    u32_mul = "*",
+    u32_and = "&",
+    u32_or = "|",
+    u32_xor = "^",
+    u32_shl = "<<",
+    u32_shr = ">>",
+}
+
+local function identifier(value: string): string
+    return (value:gsub("[^%w_]", "_"))
+end
+
+local function typeName(value: string): string
+    local named = WGSL_TYPE[value]
+    assert(named ~= nil, "webgpu-int32 only admits int32 and uint32 values, got " .. value)
+    return named as string
+end
+
+local function literal(value: any, type_: string): string
+    local text = tostring(value)
+    if type_ == "u32" then
+        return text:match("u$") and text or text .. "u"
+    end
+
+    return text
+end
+
+--- Emits a verified integer map kernel for the browser WebGPU profile.
+--- @raises when verified IR lies outside webgpu-int32
+function wgslemit.program(
+    program: scalarIR.Program,
+    readonly: {scalarIR.Param},
+    writable: {scalarIR.Param},
+    uniforms: {scalarIR.Param},
+    threads: integer
+): string
+    assert(program.executionTarget == "gpu", "WGSL emission requires @aot(target = \"gpu\")")
+    local loop = program.loop
+    assert(program.workgroup == nil and loop ~= nil, "webgpu-int32 currently admits complete-span map kernels")
+    assert(#(program.layouts or {}) == 0, "webgpu-int32 does not yet admit struct storage")
+    assert(threads > 0 and threads <= 256, "webgpu-int32 workgroup size must be between 1 and 256")
+
+    local spans: {scalarIR.Param} = {}
+    for _, param in ipairs(readonly) do
+        assert(param.type == "i32" or param.type == "u32", "webgpu-int32 storage must be int32 or uint32")
+        spans[#spans + 1] = param
+    end
+    for _, param in ipairs(writable) do
+        assert(param.type == "i32" or param.type == "u32", "webgpu-int32 storage must be int32 or uint32")
+        spans[#spans + 1] = param
+    end
+    assert(#spans <= 8, "webgpu-int32 admits at most eight storage buffers")
+    for _, param in ipairs(uniforms) do
+        assert(param.type == "i32" or param.type == "u32", "webgpu-int32 uniforms must be int32 or uint32")
+    end
+
+    local function spanIndex(value: any): string
+        assert(value.cursor == nil, "webgpu-int32 does not yet admit cursor-indexed spans")
+        assert(value.index == (loop as scalarIR.Loop).index, "webgpu-int32 spans must use the dispatch index")
+        return "[uniforms." .. identifier(value.span) .. "_offset + dispatch_index]"
+    end
+
+    local expression: function(any): string
+    expression = function(value: any): string
+        local op = value.op
+        if op == "local" or op == "helper_param" then
+            return identifier(value.cName or value.name)
+        elseif op == "uniform" then
+            return "uniforms." .. identifier(value.name)
+        elseif op == "loop_index" then
+            return "(dispatch_index + 1u)"
+        elseif op == "load" then
+            return identifier(value.span) .. spanIndex(value)
+        elseif op == "span_count" then
+            return "uniforms." .. identifier(value.span) .. "_count"
+        elseif op == "constant" or op == "constant_i32" then
+            return literal(value.value, value.type)
+        elseif op == "bool" then
+            return value.value and "true" or "false"
+        elseif op == "numeric_cast" then
+            return typeName(value.type) .. "(" .. expression(value.value) .. ")"
+        elseif BINARY[op] ~= nil then
+            return "(" .. expression(value.left) .. " " .. tostring(BINARY[op]) .. " " .. expression(value.right) .. ")"
+        elseif op == "neg" then
+            return "(-" .. expression(value.value) .. ")"
+        elseif op == "not" then
+            return "(!" .. expression(value.value) .. ")"
+        elseif op == "bnot" or op == "u32_not" then
+            return "(~" .. expression(value.value) .. ")"
+        end
+        error("webgpu-int32 does not emit expression " .. tostring(op), 0)
+    end
+
+    local lines: {string} = {}
+    local function line(depth: integer, value: string): nil
+        lines[#lines + 1] = string.rep("    ", depth) .. value
+    end
+
+    local mutable: {[string]: boolean} = {}
+    local function findAssignments(values: {any}): nil
+        for _, statement in ipairs(values) do
+            if statement.op == "assign" then
+                for _, assignment in ipairs(statement.values) do
+                    if assignment.target.kind == "local" then
+                        mutable[identifier(assignment.target.cName or assignment.target.name)] = true
+                    end
+                end
+            elseif statement.op == "if" then
+                for _, clause in ipairs(statement.clauses) do
+                    findAssignments(clause.body)
+                end
+                if statement.elseBody ~= nil then
+                    findAssignments(statement.elseBody)
+                end
+            elseif statement.op == "while" or statement.op == "block" then
+                findAssignments(statement.body)
+            end
+        end
+    end
+
+    findAssignments((loop as scalarIR.Loop).statements)
+
+    local statements: function({any}, integer): nil
+    statements = function(values: {any}, depth: integer): nil
+        for _, statement in ipairs(values) do
+            local op = statement.op
+            if op == "let" then
+                assert(not statement.type:match("^ref:"), "webgpu-int32 does not yet admit element references")
+                line(
+                    depth,
+                    (
+                        mutable[identifier(statement.cName)] == true and "var " or "let "
+                    ) .. identifier(
+                        statement.cName
+                    ) .. ": " .. typeName(statement.type) .. " = " .. expression(statement.value) .. ";"
+                )
+            elseif op == "assign" then
+                assert(
+                    #statement.values == 1 and statement.values[1].target.kind == "local",
+                    "webgpu-int32 only assigns locals"
+                )
+                local assignment = statement.values[1]
+                line(
+                    depth,
+                    identifier(
+                        assignment.target.cName or assignment.target.name
+                    ) .. " = " .. expression(assignment.value) .. ";"
+                )
+            elseif op == "store" then
+                line(
+                    depth,
+                    identifier(statement.span) .. spanIndex(statement) .. " = " .. expression(statement.value) .. ";"
+                )
+            elseif op == "if" then
+                for index, clause in ipairs(statement.clauses) do
+                    line(depth, (index == 1 and "if (" or "else if (") .. expression(clause.condition) .. ") {")
+                    statements(clause.body, depth + 1)
+                    line(depth, "}")
+                end
+                if statement.elseBody ~= nil then
+                    line(depth, "else {")
+                    statements(statement.elseBody, depth + 1)
+                    line(depth, "}")
+                end
+            elseif op == "while" then
+                line(depth, "while (" .. expression(statement.condition) .. ") {")
+                statements(statement.body, depth + 1)
+                line(depth, "}")
+            elseif op == "break" or op == "continue" then
+                line(depth, op .. ";")
+            elseif op == "block" then
+                line(depth, "{")
+                statements(statement.body, depth + 1)
+                line(depth, "}")
+            else
+                error("webgpu-int32 does not emit statement " .. tostring(op), 0)
+            end
+        end
+    end
+
+    line(0, "struct NuppUniforms {")
+    line(1, "count: u32,")
+    for _, param in ipairs(spans) do
+        line(1, identifier(param.name) .. "_count: u32,")
+    end
+    for _, param in ipairs(spans) do
+        line(1, identifier(param.name) .. "_offset: u32,")
+    end
+    for _, param in ipairs(uniforms) do
+        line(1, identifier(param.name) .. ": " .. typeName(param.type) .. ",")
+    end
+    line(0, "}")
+    line(0, "")
+    local binding = 0
+    for _, param in ipairs(readonly) do
+        line(
+            0,
+            "@group(0) @binding(" .. tostring(
+                binding
+            ) .. ") var<storage, read> " .. identifier(param.name) .. ": array<" .. typeName(param.type) .. ">;"
+        )
+        binding = binding + 1
+    end
+    for _, param in ipairs(writable) do
+        line(
+            0,
+            "@group(0) @binding(" .. tostring(
+                binding
+            ) .. ") var<storage, read_write> " .. identifier(param.name) .. ": array<" .. typeName(param.type) .. ">;"
+        )
+        binding = binding + 1
+    end
+    line(0, "@group(0) @binding(" .. tostring(binding) .. ") var<uniform> uniforms: NuppUniforms;")
+    line(0, "")
+    line(0, "@compute @workgroup_size(" .. tostring(threads) .. ")")
+    line(0, "fn " .. identifier(program.symbol) .. "_gpu(@builtin(global_invocation_id) global_id: vec3<u32>) {")
+    line(1, "let dispatch_index = global_id.x;")
+    line(1, "if (dispatch_index >= uniforms.count) {")
+    line(2, "return;")
+    line(1, "}")
+    statements((loop as scalarIR.Loop).statements, 1)
+    line(0, "}")
+
+    return table.concat(lines, "\n")
+end
+
+export = wgslemit

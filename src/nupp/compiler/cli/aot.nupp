@@ -8,7 +8,7 @@ Two questions, and they are asked for different reasons.
 The first is what the backend actually did. An `@aot` body is compiled somewhere
 a reader cannot see, so `--emit ir` shows the verified IR, `--emit c` shows the
 generated C, `--emit spirv` writes a canonical GPU module, `--emit msl` shows
-its Metal derivative, `--emit asm` shows the instructions that C became, and
+its Metal derivative, `--emit wgsl` shows the WebGPU integer artifact, `--emit asm` shows the instructions that C became, and
 `--emit binding` shows the module that stands in front of it. Reading the C is
 how you tell a mask stack from a branch, and how you check that the loop you
 thought was register-resident is.
@@ -53,8 +53,8 @@ local function aotOptions(): {any}
         name = "--emit",
         key = "emit",
         value = "ARTIFACT",
-        choices = {"ir", "c", "spirv", "msl", "asm", "binding"},
-        help = "Print one artifact: ir, c, spirv, msl, asm, or binding",
+        choices = {"ir", "c", "spirv", "msl", "wgsl", "asm", "binding"},
+        help = "Print one artifact: ir, c, spirv, msl, wgsl, asm, or binding",
     }
     list[
         #list + 1
@@ -103,7 +103,7 @@ local command = spec.command{
     name = "aot",
     summary = "Show what the @aot functions in a file compile to",
     usage = {
-        "nupp aot [--emit ir|c|spirv|msl|asm|binding] [--check] [--function NAME] "
+        "nupp aot [--emit ir|c|spirv|msl|wgsl|asm|binding] [--check] [--function NAME] "
         .. "[--target TRIPLE] [--features TIER] <file>",
     },
     intro = "Reports what the ahead-of-time backend produces for one file, without writing it. "
@@ -537,6 +537,7 @@ local function run(parsed: any): integer
     local emit = parsed.values.emit
     local mslParts: {string} = {}
     local spirvParts: {string} = {}
+    local wgslParts: {string} = {}
     for _, program in ipairs(artifacts.programs) do
         local artifact = artifacts.gpu[program.symbol]
         local selectedFunction = parsed.values["function"]
@@ -545,9 +546,13 @@ local function run(parsed: any): integer
         ) then
             mslParts[#mslParts + 1] = artifact.source
             spirvParts[#spirvParts + 1] = artifact.spirv
+            if artifact.wgsl ~= nil then
+                wgslParts[#wgslParts + 1] = artifact.wgsl as string
+            end
         end
     end
     local msl = table.concat(mslParts, "\n")
+    local wgsl = table.concat(wgslParts, "\n")
     local spirvHex: string? = nil
     if emit == "spirv" and #spirvParts == 1 and parsed.values.format == "json" then
         local bytes: {string} = {}
@@ -558,6 +563,10 @@ local function run(parsed: any): integer
     end
     if emit == "msl" and #mslParts == 0 then
         io.stderr:write("nupp: no GPU function matched --emit msl\n")
+        return 1
+    end
+    if emit == "wgsl" and #wgslParts == 0 then
+        io.stderr:write("nupp: no GPU function matched --emit wgsl with the webgpu-int32 profile\n")
         return 1
     end
     if emit == "spirv" and #spirvParts ~= 1 then
@@ -632,6 +641,7 @@ local function run(parsed: any): integer
                 c = (emit == nil or emit == "c") and artifacts.c or nil,
                 spirv = spirvHex,
                 msl = emit == "msl" and msl or nil,
+                wgsl = emit == "wgsl" and wgsl or nil,
                 binding = (emit == nil or emit == "binding") and artifacts.binding or nil,
                 asm = instructionReport,
             }) .. "\n"
@@ -644,6 +654,8 @@ local function run(parsed: any): integer
         io.write(spirvParts[1])
     elseif emit == "msl" then
         io.write(msl)
+    elseif emit == "wgsl" then
+        io.write(wgsl)
     elseif emit == "asm" then
         io.write(
             (

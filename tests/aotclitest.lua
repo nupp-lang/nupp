@@ -174,6 +174,56 @@ return {doubled = doubled}
         "a working GPU kernel is not treated as a refusal: " .. summary)
 end
 
+function M.gpuTargetEmitsWebGpuIntegerArtifact()
+    local dir = project({
+        ["gpu.nupp"] = [[
+local span = require("nupp.mem.span")
+
+@aot(target = "gpu")
+local function xorMask(
+    exclusive output: span.WriteSpan<uint32>,
+    borrows input: span.Span<uint32>,
+    mask: uint32
+): nil
+    assert(#output == #input, "length mismatch")
+    for i = 1, #output do
+        output[i] = nupp.math.u32.xorBits(input[i], mask)
+    end
+end
+return xorMask
+]],
+    })
+    local shader, code = run(dir, "--emit wgsl gpu.nupp")
+    test.equal(code, 0, shader)
+    assert(shader:find("@compute @workgroup_size(256)", 1, true), shader)
+    assert(shader:find("var<storage, read> input: array<u32>", 1, true), shader)
+    assert(shader:find("var<storage, read_write> output: array<u32>", 1, true), shader)
+    assert(shader:find("output[uniforms.output_offset + dispatch_index]", 1, true), shader)
+    assert(shader:find("^ uniforms.mask", 1, true), shader)
+
+    local floatingDir = project({
+        ["gpu.nupp"] = [[
+local span = require("nupp.mem.span")
+
+@aot(target = "gpu")
+local function doubled(
+    exclusive output: span.WriteSpan<float>,
+    borrows input: span.Span<float>
+): nil
+    assert(#output == #input, "length mismatch")
+    for i = 1, #output do
+        local value = nupp.math.f32.narrow(input[i])
+        output[i] = nupp.math.f32.mul(value, 2.0)
+    end
+end
+return doubled
+]],
+    })
+    local floating, floatingCode = run(floatingDir, "--emit wgsl gpu.nupp")
+    test.equal(floatingCode, 1, floating)
+    assert(floating:find("webgpu-int32 profile", 1, true), floating)
+end
+
 function M.loopFreeScalarExplainsWhyLanesDoNotApply()
     local dir = project({
         ["scalar.nupp"] = [[
