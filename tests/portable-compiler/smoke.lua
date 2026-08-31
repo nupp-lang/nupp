@@ -76,6 +76,20 @@ print(storage.get("key"), hmac.hex("key", "message"), crypto.uuid4())
    assert(type(browser.code) == "string" and #browser.code > 0,
       "browser platform compile returned no source")
 
+   local browserGpu = session:compile([[
+local gpu = require("nupp.browser.gpu")
+local u32 = nupp.math.u32.wrap
+local values: {uint32} = {u32(0), u32(1)}
+local result = gpu.xorU32(values, u32(0xa5a5a5a5))
+print(result[1], result[2])
+]], "webgpu-compute.nupp", {
+      strict = true,
+      dialect = "lua51",
+   })
+   noErrors(browserGpu, "browser WebGPU compile")
+   assert(type(browserGpu.code) == "string" and #browserGpu.code > 0,
+      "browser WebGPU compile returned no source")
+
    local wire = session:request(
       [[{"kind":"check","source":"return 1","options":{"dialect":"lua51"}}]])
    assert(type(wire) == "string" and wire:find("diagnostics", 1, true),

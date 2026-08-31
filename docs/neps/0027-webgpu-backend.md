@@ -1,6 +1,6 @@
 ---
 title: WebGPU backend for browser builds
-status: Draft
+status: Implemented
 created: 2026-08-30
 ---
 

@@ -459,9 +459,21 @@ the declaration with a typed kernel specification. Its
 `compile(context)` method owns the shader and entrypoint, `bind(...)` accepts
 resident `gpu.Buffer<T>` values in the span parameters' order and types, and
 `dispatch(...)` accepts the scalar parameters and packs their uniform block.
-The Wasm policies refuse GPU IR, and `aot = "off"` or `emit-c` retain the
-ordinary function value. `nupp aot --emit spirv FILE` writes the canonical
-binary module and `--emit msl` prints its Metal derivative.
+
+With `aot = "require-wasm"`, the same declaration emits WGSL for a browser
+WebGPU application. Browser GPU storage uses `nupp.wasm.Span` and
+`nupp.wasm.WriteSpan`, not native `nupp.mem.span` values. The first browser
+profile admits complete-span map kernels over `int32` and `uint32` storage and
+scalar uniforms; it does not yet admit floating-point values, structs,
+cursor-indexed storage, or workgroup phases. The generated binding retains the
+same `compile`, `bind`, and `dispatch` shape and crosses the browser Worker
+boundary through bounded Wasm-memory transfer leases. See
+[wasm-aot.md](../guides/wasm-aot.md#browser-webgpu-compute) for a complete
+browser target and source example.
+
+`aot = "off"` or `emit-c` retain the ordinary function value. `nupp aot --emit
+spirv FILE` writes the canonical binary module and `--emit msl` prints its Metal
+derivative.
 
 The GPU subset has two entry shapes. A complete-span map assigns one invocation
 to every element. A structured workgroup entry ends in

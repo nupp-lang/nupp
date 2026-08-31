@@ -33590,6 +33590,7 @@ local BROWSER_SEAMS = {
 { "host.browser_crypto" , "nupp.runtime.provider.browsercrypto" } ,
 { "host.browser_storage" , "nupp.runtime.provider.browserstorage" } ,
 { "host.workers" , "nupp.runtime.provider.browserworkers" } ,
+{ "host.wasm" , "nupp.runtime.provider.wasmstorage" } ,
 { "data.sha256" , "nupp.runtime.provider.browsercrypto" } ,
 { "crypto.hmac_sha256" , "nupp.runtime.provider.browsercrypto" } ,
 { "data.uuid" , "nupp.runtime.provider.browsercrypto" } ,
@@ -102175,6 +102176,7 @@ local BUNDLED_SOURCE = {
 [ "nupp.runtime.provider.wasmstorage" ] = "/nupp/runtime/provider/wasmstorage.nupp" ,
 [ "nupp.runtime.browser.effects" ] = "/nupp/runtime/browser/effects.g.nupp" ,
 [ "nupp.runtime.browser.response" ] = "/nupp/runtime/browser/response.g.nupp" ,
+[ "nupp.browser.gpu" ] = "/nupp/browser/gpu.g.nupp" ,
 [ "nupp.runtime.provider.browsercrypto" ] = "/nupp/runtime/provider/browsercrypto.g.nupp" ,
 [ "nupp.runtime.provider.browserhttp" ] = "/nupp/runtime/provider/browserhttp.g.nupp" ,
 [ "nupp.runtime.provider.browserpath" ] = "/nupp/runtime/provider/browserpath.nupp" ,
@@ -184336,6 +184338,7 @@ const Suspension = require ( "nupp.runtime.seam.suspension" )
 const TextBuffer = require ( "nupp.runtime.seam.textbuffer" )
 const URI = require ( "nupp.runtime.seam.uri" )
 const UUID = require ( "nupp.runtime.seam.uuid" )
+const Wasm = require ( "nupp.runtime.seam.wasm" )
 
 const __nuppExportValue= Backend . new ( "nupp.browser" , {
 Bitops . seam ( "nupp.runtime.provider.scalarbitops" ) ,
@@ -184349,6 +184352,7 @@ Time . seam ( "nupp.runtime.provider.browsertime" ) ,
 BrowserCrypto . seam ( "nupp.runtime.provider.browsercrypto" ) ,
 BrowserStorage . seam ( "nupp.runtime.provider.browserstorage" ) ,
 Workers . seam ( "nupp.runtime.provider.browserworkers" ) ,
+Wasm . seam ( "nupp.runtime.provider.wasmstorage" ) ,
 SHA256 . seam ( "nupp.runtime.provider.browsercrypto" ) ,
 HMAC . seam ( "nupp.runtime.provider.browsercrypto" ) ,
 UUID . seam ( "nupp.runtime.provider.browsercrypto" ) ,
@@ -232936,6 +232940,7 @@ const Suspension = require("nupp.runtime.seam.suspension")
 const TextBuffer = require("nupp.runtime.seam.textbuffer")
 const URI = require("nupp.runtime.seam.uri")
 const UUID = require("nupp.runtime.seam.uuid")
+const Wasm = require("nupp.runtime.seam.wasm")
 
 export = Backend.new("nupp.browser", {
     Bitops.seam("nupp.runtime.provider.scalarbitops"),
@@ -232949,6 +232954,7 @@ export = Backend.new("nupp.browser", {
     BrowserCrypto.seam("nupp.runtime.provider.browsercrypto"),
     BrowserStorage.seam("nupp.runtime.provider.browserstorage"),
     Workers.seam("nupp.runtime.provider.browserworkers"),
+    Wasm.seam("nupp.runtime.provider.wasmstorage"),
     SHA256.seam("nupp.runtime.provider.browsercrypto"),
     HMAC.seam("nupp.runtime.provider.browsercrypto"),
     UUID.seam("nupp.runtime.provider.browsercrypto"),

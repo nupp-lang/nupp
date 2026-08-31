@@ -67,6 +67,7 @@ local BROWSER_SEAMS = {
     {"host.browser_crypto", "nupp.runtime.provider.browsercrypto"},
     {"host.browser_storage", "nupp.runtime.provider.browserstorage"},
     {"host.workers", "nupp.runtime.provider.browserworkers"},
+    {"host.wasm", "nupp.runtime.provider.wasmstorage"},
     {"data.sha256", "nupp.runtime.provider.browsercrypto"},
     {"crypto.hmac_sha256", "nupp.runtime.provider.browsercrypto"},
     {"data.uuid", "nupp.runtime.provider.browsercrypto"},

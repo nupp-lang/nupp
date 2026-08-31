@@ -248,6 +248,51 @@ Persistent storage maps string keys to string values. Each application package
 uses an IndexedDB database derived from its content digest; callers embedding
 the runtime can provide another database name or a storage adapter.
 
+## Browser WebGPU compute
+
+`require-wasm` also makes an admitted `@aot(target = "gpu")` map kernel run
+through WebGPU. Keep the source in ordinary Nupp; the compiler produces WGSL
+from the verified scalar IR and replaces the declaration with its checked GPU
+binding. A browser GPU kernel uses Wasm-memory spans so the host can transfer
+them without encoding the buffer into the Worker protocol:
+
+```nupp
+local wasm = require("nupp.wasm")
+
+@aot(target = "gpu")
+local function addMask(
+    exclusive output: wasm.WriteSpan<uint32>,
+    borrows input: wasm.Span<uint32>,
+    mask: uint32
+): nil
+    assert(#output == #input, "length mismatch")
+    for index = 1, #output do
+        output[index] = nupp.math.u32.add(input[index], mask)
+    end
+end
+```
+
+Select the browser backend in the application target:
+
+```lua
+app = {
+   kind = "bundle",
+   entries = {"main"},
+   dialect = "lua51",
+   backends = {"nupp.runtime.backend.browser"},
+   aot = "require-wasm",
+}
+```
+
+The browser backend supplies WebGPU, Wasm storage, and the Worker effect
+handler; `scripts/browser-app` packages the WGSL binding with the normal
+application assets. The initial portable WebGPU profile is deliberately narrow:
+complete-span map kernels with `int32` or `uint32` storage and scalar uniforms.
+It rejects floats, struct storage, cursor-indexed storage, and workgroup phases
+until their cross-browser exactness contracts are specified. WebGPU must be
+available in the browser; there is no WebGL fallback because WebGL has no
+compute shader API.
+
 JSON remains a dependency-backed seam, so the target names the pinned pure-Lua
 `lunajson` rock as both an installed dependency and bundled payload:
 
