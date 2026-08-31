@@ -305,8 +305,12 @@ function M.loadBalancingReuseIsRefusedCleanlyWhereItIsUnsupported()
    first:close()
 end
 
--- A socket path under the system temporary directory, unique to this run.
+-- A local stream name unique to this run: a filesystem socket on POSIX and a
+-- named pipe in the namespace libuv requires on Windows.
 local function socketPath(label)
+   if jit.os == "Windows" then
+      return "\\\\.\\pipe\\nupp-net-" .. label .. "-" .. tostring(os.time())
+   end
    local base = os.getenv("TMPDIR") or "/tmp/"
    if base:sub(-1) ~= "/" then base = base .. "/" end
    return base .. "nupp-net-" .. label .. "-" .. tostring(os.time()) .. ".sock"
