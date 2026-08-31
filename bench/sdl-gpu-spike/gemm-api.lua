@@ -89,7 +89,7 @@ for i = 0, m * n - 1 do
             i, copied[i], a[i]))
 end
 
-local fill = generated.fill:compile(context):bind(cBuffer)
+local fill = generated.fill:compile(context):bind(cBuffer, aBuffer)
 fill:dispatch(9.25)
 context:synchronize()
 local filled = readBuffer(cBuffer, m * n)

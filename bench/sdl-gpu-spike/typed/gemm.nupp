@@ -19,9 +19,10 @@ local function copyProbe(exclusive output: span.WriteSpan<float>, borrows input:
 end
 
 @aot(target = "gpu")
-local function fillProbe(exclusive output: span.WriteSpan<float>, value: float): nil
+local function fillProbe(exclusive output: span.WriteSpan<float>, borrows input: span.Span<float>, value: float): nil
+    assert(#output == #input)
     for i = 1, #output do
-        output[i] = value
+        output[i] = input[i] * 0.0 + value
     end
 end
 
