@@ -25911,6 +25911,7 @@ _G.assert(_G.loadstring("local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppM
 local scalarIR = require ( "nupp.compiler.aot.scalar" )
 local envMod = require ( "nupp.compiler.env" )
 local fs = require ( "nupp.compiler.fs" )
+local hash = require ( "nupp.compiler.build.hash" )
 local process = require ( "nupp.compiler.build.process" )
 
 local spirv = { }
@@ -27276,7 +27277,13 @@ end
 assert ( executable ~= nil , "the pinned SPIRV-Cross build named no executable" )
 end
 
-local base = os . tmpname ( )
+local candidate = os . tmpname ( )
+os . remove ( candidate )
+
+
+
+local nonce = hash . sha256 ( candidate .. tostring ( { } ) .. tostring ( os . clock ( ) ) ) : sub ( 1 , 16 )
+local base = candidate .. "-" .. nonce
 local input = base .. ".spv"
 local output = base .. ".metal"
 local wrote , writeErr = fs . writeFile ( input , binary )

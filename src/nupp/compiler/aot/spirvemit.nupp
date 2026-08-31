@@ -12,6 +12,7 @@ by the pinned SPIRV-Cross tool at artifact construction time.
 local scalarIR = require("nupp.compiler.aot.scalar")
 local envMod = require("nupp.compiler.env")
 local fs = require("nupp.compiler.fs")
+local hash = require("nupp.compiler.build.hash")
 local process = require("nupp.compiler.build.process")
 
 local spirv = {}
@@ -1377,7 +1378,13 @@ function spirv.deriveMsl(binary: string, fpContract: boolean?): string
         assert(executable ~= nil, "the pinned SPIRV-Cross build named no executable")
     end
 
-    local base = os.tmpname()
+    local candidate = os.tmpname()
+    os.remove(candidate)
+    -- Windows' C runtime can repeat `tmpnam`'s sequence in independent
+    -- compiler processes. Keep the system-selected directory, but make the
+    -- related input/output pair process-local before either path is created.
+    local nonce = hash.sha256(candidate .. tostring({}) .. tostring(os.clock())):sub(1, 16)
+    local base = candidate .. "-" .. nonce
     local input = base .. ".spv"
     local output = base .. ".metal"
     local wrote, writeErr = fs.writeFile(input, binary)
