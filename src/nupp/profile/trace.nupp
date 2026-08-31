@@ -17,7 +17,7 @@ local reason = trace.forOpcode("FNEW")
 print(reason.id, reason.repair)
 ```
 
-See [jit-trace-checking.md](docs/guides/jit-trace-checking.md) for the static side of this, and
+See [jit-trace-checking.md](docs/learn/performance/jit-trace-checking.md) for the static side of this, and
 [](nupp.profile) for the collector that reports the runtime side.
 ]]
 

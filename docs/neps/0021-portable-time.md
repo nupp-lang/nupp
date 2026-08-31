@@ -107,7 +107,7 @@ time.
 
 One lazy timer manager holds pending waits ordered by absolute monotonic
 deadline. Its single readiness source is
-[registered](../concepts/suspension.md#libraries-register-readiness) on first
+[registered](../learn/runtime/concurrency/suspension.md#libraries-register-readiness) on first
 use.
 
 The nonblocking half reads `now`, removes every due timer and resumes its

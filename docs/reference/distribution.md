@@ -16,7 +16,7 @@ one Lua chunk carrying everything the program needs.
 Making a binary is copying a stub, appending a payload, and writing a trailer
 that says where the payload starts. Nothing in that is specific to Nupp's own
 compiler: an engine or framework can publish a host that opens a window or owns
-an event loop, and [`nupp build`](../guides/build.md) stamps programs into it
+an event loop, and [`nupp build`](../learn/projects/build.md) stamps programs into it
 without knowing what it is.
 
 ## Container
@@ -169,7 +169,7 @@ Rock modules ride in `package.preload` too, under the names `require` would have
 found them by in the tree they came from, so `require("lunamark")` resolves in a
 checkout, in a bundle, and in a stamped binary, and the program cannot tell
 which it is running in. A target names what it carries with the `bundle` globs
-on its [rock dependencies](../guides/build.md#rock-dependencies); a rock tree
+on its [rock dependencies](../learn/projects/build.md#rock-dependencies); a rock tree
 also holds test scripts, command-line programs and lexers nobody asked for, and
 a payload that swept the tree would carry all of it.
 
@@ -377,7 +377,7 @@ A distributed binary is deliberately none of these things.
   other end. Different problems that are easy to conflate.
 - **Ordinary stamping does not absorb arbitrary native dependencies.** A normal
   binary still ships project C and provider libraries beside it. A
-  [`standalone` binary](../guides/build.md#standalone-native-binaries) is the
+  [`standalone` binary](../learn/projects/build.md#standalone-native-binaries) is the
   explicit exception: Nupp relinks its compiler-owned host with static C and
   AOT archives before stamping. It refuses a dependency or native feature for
   which no static implementation exists rather than quietly leaving a sidecar.
@@ -399,9 +399,9 @@ A distributed binary is deliberately none of these things.
   the same machinery that already builds a project's other native dependencies.
 
 ::: seealso
-- [build.md](../guides/build.md#rock-dependencies) for the targets and rock
+- [build.md](../learn/projects/build.md#rock-dependencies) for the targets and rock
   globs a payload is assembled from
-- [embedding.md](../guides/embedding.md) for running Nupp inside a host you own
+- [embedding.md](../learn/projects/embedding.md) for running Nupp inside a host you own
   rather than one the packager stamps
 - [NEP 8](../neps/0008-c-interop-and-embedding.md) for the design record behind
   the C boundary a stub sits on

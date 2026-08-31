@@ -8,7 +8,7 @@ created: 2026-08-23
 
 Application coroutine work belongs to a structured task scope. The scope owns
 every child, its failures, its deadline and its cancellation, while an
-installed [suspension](../concepts/suspension.md) handler continues to own only
+installed [suspension](../learn/runtime/concurrency/suspension.md) handler continues to own only
 how the aggregate parks. A host such as Tecs, the SDL-hosted ECS engine Nupp is
 being adopted into, sees one bounded aggregate rather than every child: Nupp
 schedules children in FIFO order under one turn budget shared by nested scopes,
@@ -63,7 +63,7 @@ pretending their heaps or scheduling are the same.
 ### Neither existing family is an application scope
 
 `nupp.suspension` runs a fixed family through its
-[combinators](../concepts/suspension.md#combinators-interleave-waits), each call
+[combinators](../learn/runtime/concurrency/suspension.md#combinators-interleave-waits), each call
 owning its complete family and returning only after that family has settled,
 while `suspension.create` supplies the lower-level operation and deliberately
 says nothing about the created coroutine's result, failure or lifetime.
@@ -73,7 +73,7 @@ needs one place that answers what happens when its body returns, one child
 fails, or the scene is cancelled.
 
 `nupp.workers` has the typed handle and lexical parent for CPU work, but its
-[terminal cleanup](../concepts/workers.md#structured-scopes) is necessarily
+[terminal cleanup](../learn/runtime/concurrency/workers.md#structured-scopes) is necessarily
 non-suspending and blocks until unawaited children finish — correct for a worker
 scope and wrong as the shortest application spelling inside an SDL frame. An
 application scope needs to drain while its enclosing handler can keep parking
@@ -146,7 +146,7 @@ never intended to pass.
 
 ### Task-owned worker scope
 
-`workers.scope()` returns an [affine](../concepts/ownership.md) scope, so a
+`workers.scope()` returns an [affine](../learn/runtime/ownership/index.md) scope, so a
 task scope that owns one owns it as a field and answers a borrow rooted in
 itself:
 
@@ -155,7 +155,7 @@ function tasks.Scope:workers(borrows self): workers.Scope borrows (self)
 ```
 
 `T borrows (source)` is the existing way [a rooted value leaves the scope that
-made it](../type-system/ownership.md#borrowing-and-pinning). The borrow carries
+made it](../learn/runtime/ownership/borrowing.md#borrowing-and-pinning). The borrow carries
 no close obligation, because the task scope's field holds it, and it carries
 provenance, so the same escape analysis that keeps a task handle inside its
 `run` body keeps the worker scope there too. The scope is created on first call

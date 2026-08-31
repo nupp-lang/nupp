@@ -13,7 +13,7 @@ child:close()
 ```
 
 A child and its streams are owners. See
-[ownership.md](docs/type-system/ownership.md) for the contract they are handed
+[ownership.md](docs/learn/runtime/ownership/borrowing.md) for the contract they are handed
 out under, and [0005-suspension.md](docs/neps/0005-suspension.md) for why
 waiting is a suspension rather than a block.
 ]]

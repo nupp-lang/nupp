@@ -13,8 +13,8 @@ no second API, no `async` coloring, and no library carrying a policy parameter
 it did not want.
 
 ::: seealso
-- [suspension.md](../concepts/suspension.md) for waiting as a caller meets it
-- [effects.md](../concepts/effects.md) for the contracts the checker tracks
+- [suspension.md](../learn/runtime/concurrency/suspension.md) for waiting as a caller meets it
+- [effects.md](../learn/language/effects.md) for the contracts the checker tracks
 :::
 
 ## Goals

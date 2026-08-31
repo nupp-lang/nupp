@@ -492,9 +492,10 @@ local function embedFiles(root, markdown)
 end
 
 -- A doc comment is markdown written in a source file rather than on a page, so a link
--- in one names a repository path: `docs/type-system/ownership.md`. The API page it ends
--- up on is routed somewhere else entirely, so those paths are resolved against the
--- site's routes exactly as a configured page's are, once, before anything renders.
+-- in one names a repository path: `docs/learn/runtime/ownership/borrowing.md`. The API
+-- page it ends up on is routed somewhere else entirely, so those paths are resolved
+-- against the site's routes exactly as a configured page's are, once, before anything
+-- renders.
 --
 -- Every prose field is rewritten rather than only the leading text, because a `@param`
 -- description carries a link as readily as the sentence above it does.

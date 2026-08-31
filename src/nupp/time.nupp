@@ -10,7 +10,7 @@ print(time.now() - started)
 ```
 
 ::: note See also
-* [Suspension handlers](docs/concepts/suspension.md) can be used to cooperatively
+* [Suspension handlers](docs/learn/runtime/concurrency/suspension.md) can be used to cooperatively
   park a coroutine while waiting for a deadline.
 * A [](nupp.runtime.seam.time) backend seam can be installed to use a custom clock source.
 :::

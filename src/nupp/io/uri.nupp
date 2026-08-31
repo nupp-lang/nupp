@@ -141,7 +141,7 @@ through 65535. Every field is URI text rather than a filesystem name.
 ::: seealso
 - [](nupp.io.path) for filesystem names, where the platform's separators and
   `..` rules apply instead
-- [standard-library.md](docs/concepts/standard-library.md) for how reaching a
+- [standard-library.md](docs/learn/runtime/data/standard-library.md) for how reaching a
   module selects the provider behind it
 :::
 ]]

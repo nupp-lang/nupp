@@ -13,7 +13,7 @@ that changes what the struct means everywhere. Direct indexed field expressions
 keep their ordinary spelling, and the two view types are deliberately not
 interchangeable.
 
-See [structure-of-arrays.md](../concepts/structure-of-arrays.md) for allocating
+See [structure-of-arrays.md](../learn/runtime/data/structure-of-arrays.md) for allocating
 and reading a column container.
 
 ## Goals

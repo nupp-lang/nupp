@@ -3,7 +3,7 @@ module nupp.mem.span
 --[[
 `nupp.mem.span` gives a C array a rooted, one-based, bounds-checked view. A
 shared `Span<T>` reads contiguous elements; a writable span adds exclusive
-access and an [affine lifetime](docs/concepts/ownership.md), so the pointer
+access and an [affine lifetime](docs/learn/runtime/ownership/index.md), so the pointer
 cannot outlive or overlap its owner.
 
 ```nupp
@@ -16,7 +16,7 @@ assert(#bytes == 5)
 
 Use spans at checked boundaries. Direct indexing through a pointer or
 variable-length C array remains an [`unsafe`
-operation](docs/concepts/ownership.md#unsafe-representation-boundaries).
+operation](docs/learn/runtime/ownership/index.md#unsafe-representation-boundaries).
 
 `Span<T>` is a sealed contract over a private implementation that keeps an
 element count beside a rooted pointer, so public code can neither forge one nor
@@ -130,7 +130,7 @@ overlap.
 
 `indexed.range(first, last, ...)` checks one inclusive range against every
 trusted Span or [SoA
-view](docs/concepts/structure-of-arrays.md) and answers a record whose
+view](docs/learn/runtime/data/structure-of-arrays.md) and answers a record whose
 `first` and `last` are ordinary integers:
 
 ```nupp
@@ -169,7 +169,7 @@ range check proves matching indexed reads and writes non-raising inside
 the dominated numeric loop. This proof is part of checking at every optimization
 level: it is what permits those calls inside `noraise` code.
 
-See [`OPT-6`](docs/guides/performance.md#opt-6-indexed-views) for how that
+See [`OPT-6`](docs/learn/performance/index.md#opt-6-indexed-views) for how that
 proof is spent at `-O1`, as direct FFI element access and virtual slices that
 allocate no wrapper.
 
@@ -181,16 +181,16 @@ access and return `T[?]`. The returned pointer borrows the span, so it cannot
 escape independently.
 
 A declarative C binding can use
-[`countedBy(count)`](docs/concepts/c-interop.md#counted-pointer-adapters)
+[`countedBy(count)`](docs/learn/runtime/c-interop/index.md#counted-pointer-adapters)
 instead. Its checked call surface accepts spans, verifies shared counts, and
 projects the physical pointer and count arguments automatically.
 
 ::: seealso
-- [ownership.md](docs/concepts/ownership.md) for what makes a writable span
+- [ownership.md](docs/learn/runtime/ownership/index.md) for what makes a writable span
   affine and when its access ends
-- [exact-affine-scopes.md](docs/concepts/exact-affine-scopes.md) for the scopes
+- [exact-affine-scopes.md](docs/learn/runtime/ownership/exact-scopes.md) for the scopes
   that end a writable span, including the `with` block
-- [c-interop.md](docs/concepts/c-interop.md) for the boundary `ref` and
+- [c-interop.md](docs/learn/runtime/c-interop/index.md) for the boundary `ref` and
   `countedBy` sit on
 :::
 ]]

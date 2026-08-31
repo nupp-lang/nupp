@@ -550,7 +550,7 @@ Parameter packs must differ, because return types cannot select an entry.
 `@override` replaces the exact matching interface-default entry and leaves other
 overloads inherited.
 
-See [overloads.md](docs/type-system/overloads.md) for worked method bodies,
+See [overloads.md](docs/learn/language/types/overloads.md) for worked method bodies,
 interface contracts, per-entry defaults, generics, constructors, ambiguity, and
 dynamic facades.
 ]=],
@@ -1323,8 +1323,8 @@ an old alias can never select a later resource. `nupp.ManagedGroup` implements
 runtime-sized heterogeneous custody as ordinary library code over aliases.
 `nupp.mem.heap.Array<T>` remains the typed homogeneous owning container.
 
-See [ownership.md](docs/type-system/ownership.md) for the complete contract
-reference, and [affine-types.md](docs/type-system/affine-types.md) for the
+See [ownership.md](docs/learn/runtime/ownership/borrowing.md) for the complete contract
+reference, and [affine-types.md](docs/learn/runtime/ownership/affine-types.md) for the
 model.
 ]=],
         example = [=[
@@ -1683,7 +1683,7 @@ their zero strides alias.
 A pointer-free parser builds an ordinary Lua value through
 `nupp.data.valuebuilder`, either by materializing one bounds-checked node and
 link blob in a single C traversal or by driving its iterative stream. See
-[ahead-of-time.md](docs/guides/ahead-of-time.md#building-ordinary-lua-values)
+[lua-values.md](docs/learn/performance/ahead-of-time/lua-values.md)
 for those operations and their limits.
 ]=],
         example = [=[
@@ -1964,7 +1964,7 @@ are concurrency and not CPU parallelism. Cores are `nupp.workers`.
 A closure that captures an owner directly cannot be stored, so a body that
 shares one client calls a function holding it rather than closing over it.
 
-See [suspension.md](docs/concepts/suspension.md) for the handler contract,
+See [suspension.md](docs/learn/runtime/concurrency/suspension.md) for the handler contract,
 cancellation, and the protocol a waiting library subscribes through.
 ]=],
         example = [=[
@@ -2091,7 +2091,7 @@ locals are reconstructed when the declared module loads in that lane.
 
 `nupp.workers` is what asks for this today. Its source form puts the callable
 last: `scope:spawn(arguments..., callable)`. See
-[workers.md](docs/concepts/workers.md).
+[workers.md](docs/learn/runtime/concurrency/workers.md).
 ]=],
         context = {
             [
@@ -2442,7 +2442,7 @@ Reflection of a runtime value, an unresolved type, or a non-record codec input
 is `NUPP2418`. The ordinary materialization boundary, envelope, and size
 diagnostics remain `NUPP2414` through `NUPP2416`.
 
-See [reflection.md](docs/concepts/reflection.md) for runtime reflection and type
+See [reflection.md](docs/learn/language/reflection.md) for runtime reflection and type
 witnesses.
 ]=],
         example = [=[

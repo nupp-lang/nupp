@@ -121,7 +121,7 @@ the name between the answer and the use. `directory` selects where, defaulting
 to the platform's temporary directory; `prefix` and `suffix` bracket the
 generated part, which is what puts an extension on a temporary file.
 
-A temporary is an [owner](docs/concepts/ownership.md): closing it removes
+A temporary is an [owner](docs/learn/runtime/ownership/index.md): closing it removes
 what it created, and the checker runs that cleanup at the end of the scope
 whether the block falls through, returns early, or raises.
 
@@ -240,7 +240,7 @@ answers it now. Anything that moves a whole file's bytes is submitted to the
 native library's worker lane and waited for, so a program inside a scheduler
 yields instead of blocking its host. Making both suspend would tax every `stat`
 for a wait that never happens; making neither suspend would block a host on a
-transfer it cannot see. See [suspension.md](docs/concepts/suspension.md)
+transfer it cannot see. See [suspension.md](docs/learn/runtime/concurrency/suspension.md)
 for how one call takes either path.
 :::
 
@@ -262,7 +262,7 @@ Reaching `nupp.io.files` selects the compiler-owned C provider, whose filesystem
 operations and worker lane are backed by libuv, and loads it on first use. A
 program that never reaches it links nothing and initializes nothing, which is
 the rule for every facility in the [standard
-library](docs/concepts/standard-library.md). A target that uses it also carries
+library](docs/learn/runtime/data/standard-library.md). A target that uses it also carries
 the suspension runtime, because that is what answers the wait above.
 
 The lane those workers run is bounded three ways: how many transfers may be
@@ -278,9 +278,9 @@ Scheduling a transfer costs more than those cost to run.
 - [](nupp.io.path) for building and taking apart the names these operations
   read
 - [](nupp.io) for the buffers, readers and writers a file's bytes move through
-- [ownership.md](docs/type-system/ownership.md) for the complete contract an
+- [ownership.md](docs/learn/runtime/ownership/borrowing.md) for the complete contract an
   open file and a temporary path are written against
-- [suspension.md](docs/concepts/suspension.md) for what a wait does under a
+- [suspension.md](docs/learn/runtime/concurrency/suspension.md) for what a wait does under a
   scheduler, and how several compose
 :::
 ]]

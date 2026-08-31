@@ -782,7 +782,7 @@ local function buildModules(root: string, outDir: string, config: Config, target
             msg = "type dependency declaration not imported: " .. problem.msg,
             help = "the declarations beside it were imported; pin a revision this "
             .. "compiler can read, or report the construct",
-            docs = "docs/guides/integrations/luacats.md",
+            docs = "docs/learn/projects/integrations/luacats.md",
         }
         if diagnostics ~= nil then
             diagnostics[#diagnostics + 1] = diagnostic

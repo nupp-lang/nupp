@@ -76,7 +76,7 @@ An annotation definition is registered project-wide under its own name, which is
 why it is written without a visibility: applications name an unqualified
 `@name`, so the name has to be unique across the project and there is no table
 to reach it through. It is the one declaration exempt from `NUPP2119`; see
-[modules.md](../concepts/modules.md#exports-and-privacy) for the visibility rule
+[modules.md](../learn/language/modules.md#exports-and-privacy) for the visibility rule
 every other declaration holds to. Definitions and applications may live in
 different files, no runtime import is required, and the definition record itself
 and every application are erased from generated Lua.
@@ -121,7 +121,7 @@ requires named members.
 The formatter treats the positional form as canonical: whenever an application
 contains only the designated named member, it rewrites it to the single-value
 form. That works for definitions in the same file and for definitions resolved
-elsewhere in the project. See [fmt.md](../guides/fmt.md#formatting-rules) for
+elsewhere in the project. See [fmt.md](../learn/tooling/formatter.md#formatting-rules) for
 the rest of what the formatter rewrites.
 
 ## Type-reference members
@@ -152,7 +152,7 @@ end
 The value must be a bare or module-qualified type name. It is resolved in the
 type namespace and checked against the member's declared type; `any` accepts any
 valid type reference. Editors navigate from the reference to the type
-declaration through the [language server](../guides/lsp.md). `@ref` is valid
+declaration through the [language server](../learn/tooling/language-server.md). `@ref` is valid
 only on a field inside an `@annotation` record or struct.
 
 ## Attachment targets
@@ -202,14 +202,14 @@ module app.internals
 `@!nofmt` disables formatting for one file. `@!internal` hides one file from
 public generated documentation and, when it is placed on `init.nupp`, hides the
 entire module namespace beneath it. See
-[doc.md](../guides/doc.md#public-surface) for what the documentation generator
+[doc.md](../learn/tooling/documentation.md#public-surface) for what the documentation generator
 publishes.
 
 ## Compile-time reflection
 
 Checked user-defined annotations on records, interfaces, structs, and their
 fields are available through `nupp.reflect(T)` inside
-[comptime](../concepts/comptime.md). Applications retain source order, and
+[comptime](../learn/language/comptime.md). Applications retain source order, and
 arguments follow the annotation definition's member order:
 
 ```nupp
@@ -226,7 +226,7 @@ and `value`; an explicitly supplied nil uses `kind = "nil"`. A member declared
 with `@ref` uses `kind = "type"` and `type`, whose integer value indexes the
 same `info.types` graph as field types, so reflection carries semantic type
 identity rather than a possibly aliased source name. See
-[reflection.md](../concepts/reflection.md#comptime-reflection) for the rest of
+[reflection.md](../learn/language/reflection.md#comptime-reflection) for the rest of
 the `Info` surface.
 
 Annotation names, argument values, and referenced types participate in the
@@ -302,9 +302,9 @@ end
 That catches both the misspelling that silently defines a new method instead of
 overriding, and the interface that later adds a default which would otherwise
 silently shadow an implementor's method. See
-[overloads.md](../type-system/overloads.md#default-implementations-and-override)
+[overloads.md](../learn/language/types/overloads.md#default-implementations-and-override)
 for per-entry replacement, and
-[interfaces.md](../type-system/interfaces.md#default-implementations) for how
+[interfaces.md](../learn/language/types/interfaces.md#default-implementations) for how
 interface defaults behave.
 
 ### `@partition`
@@ -328,7 +328,7 @@ end
 That preserves a private implementation's `nupp.partition` proof through the
 public interface signature. It may not be attached to an unsealed or externally
 implementable contract, and `nupp ownership-audit` lists every use. See
-[ownership.md](../type-system/ownership.md#public-capability-contracts) for the
+[ownership.md](../learn/runtime/ownership/borrowing.md#public-capability-contracts) for the
 contracts a public signature is allowed to carry.
 
 ### `@derive`
@@ -385,7 +385,7 @@ local defaults = [[
 
 The bundled VS Code extension recognizes JSON, GLSL, Lua, Nupp, and PEG when the
 initializer is a long string; other names remain available to tools that
-understand them. See [editors.md](../guides/editors.md#visual-studio-code) for
+understand them. See [editors.md](../learn/tooling/editors.md#visual-studio-code) for
 what the extension provides.
 
 ### `@jit`
@@ -413,7 +413,7 @@ body.
 The annotation does not promise that the function runs, becomes hot, receives
 stable runtime types, or stays compiled for every input. Compile-time-only
 helpers use the `comptime function` declaration modifier rather than an
-annotation. See [jit-trace-checking.md](../guides/jit-trace-checking.md) for
+annotation. See [jit-trace-checking.md](../learn/performance/jit-trace-checking.md) for
 every current blocker, risk, expected stop, warning, call-path error, bytecode
 verdict, editor query, and runtime reason.
 
@@ -437,7 +437,7 @@ compiles that C into the project's own shared library and fails the build when
 it cannot. Lua 5.1 targets use `emit-wasm` to package pointer kernels and
 Lua-building entries as Wasm side modules, or `require-wasm` to replace their
 bodies with checked calls into those modules. See
-[wasm-aot.md](../guides/wasm-aot.md) for that host and its limits.
+[wasm-aot.md](../learn/performance/ahead-of-time/wasm.md) for that host and its limits.
 
 A closure, table, interpolated string, vararg, `goto`, dynamic call, or unsafe
 operation inside the body reports `NUPP2903` at the construct. Stacking it with
@@ -448,7 +448,8 @@ A body of one top-level numeric map loop over spans may also be lowered
 lane-parallel, at a width the compiler decides from the arithmetic the loop does
 per byte it touches. `lanes = true` and `lanes = false` override that estimate,
 and neither requires the lowering to succeed. See
-[ahead-of-time.md](../guides/ahead-of-time.md#build-policy) for a full kernel,
+[build-and-artifacts.md](../learn/performance/ahead-of-time/build-and-artifacts.md)
+for a full kernel,
 the build policy, and what the backend does not do yet.
 
 `target = "gpu"` records a GPU execution family in the verified IR and maps one
@@ -468,7 +469,7 @@ scalar uniforms; it does not yet admit floating-point values, structs,
 cursor-indexed storage, or workgroup phases. The generated binding retains the
 same `compile`, `bind`, and `dispatch` shape and crosses the browser Worker
 boundary through bounded Wasm-memory transfer leases. See
-[wasm-aot.md](../guides/wasm-aot.md#browser-webgpu-compute) for a complete
+[gpu.md](../learn/performance/ahead-of-time/gpu.md#browser-gpu-kernels) for a complete
 browser target and source example.
 
 `aot = "off"` or `emit-c` retain the ordinary function value. `nupp aot --emit
@@ -568,10 +569,10 @@ A declaration that never comes back, because it raises, exits, or loops forever,
 says so with `never` as its return type rather than with an annotation.
 
 ::: seealso
-- [ownership.md](../type-system/ownership.md) for the complete affine contract
+- [ownership.md](../learn/runtime/ownership/borrowing.md) for the complete affine contract
   reference
-- [c-interop.md](../concepts/c-interop.md) for what a C boundary adds to it
-- [primitives.md](../type-system/primitives.md#never-the-bottom-type) for
+- [c-interop.md](../learn/runtime/c-interop/index.md) for what a C boundary adds to it
+- [primitives.md](../learn/language/types/primitives.md#never-the-bottom-type) for
   `never` as the bottom type
 :::
 
@@ -600,7 +601,7 @@ The list members are `reads`, `writes`, `shapes`, `metatables`, `escapes`,
 and `external`. Every member defaults to empty or false, so `@effects()` means
 the function has no observable effects; it does not mean "infer these later."
 
-See [effects.md](../concepts/effects.md) for the path vocabulary, every member's
+See [effects.md](../learn/language/effects.md) for the path vocabulary, every member's
 meaning, inference and fixed-point propagation, return aliases, unknown-call
 behavior, trusted declarations, optimizer interaction, current limitations, and
 complete examples.
@@ -669,7 +670,8 @@ end
 ```
 
 See [Influencing
-vectorization](../guides/ahead-of-time.md#influencing-vectorization) for what
+vectorization](../learn/performance/ahead-of-time/vectorization.md#influencing-vectorization)
+for what
 that fusion is worth on a measured kernel.
 
 `fp-transcendentals` lets explicit fixed-width transcendental operations use
@@ -732,6 +734,6 @@ and compiler extensions.
 - [lints.md](lints.md) for the lints `@allow` reaches and how a project moves
   their levels
 - [derives.md](derives.md) for what `@derive`, `@json`, and `@debug` generate
-- [effects.md](../concepts/effects.md) for the `@effects` vocabulary in full
+- [effects.md](../learn/language/effects.md) for the `@effects` vocabulary in full
 - [diagnostics.md](diagnostics.md) for every code an annotation can report
 :::

@@ -13,7 +13,7 @@ is safe. The compiler owns identity, compatibility, and diagnostics; the host
 owns the event loop and the commit boundary. With watch mode absent, generated
 code is byte-identical to before the feature existed.
 
-See [hot-reload.md](../guides/hot-reload.md) for the surface a host drives.
+See [hot-reload.md](../learn/projects/hot-reload.md) for the surface a host drives.
 
 ## Goals
 

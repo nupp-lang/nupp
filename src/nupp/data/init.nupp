@@ -3,7 +3,7 @@ module nupp.data
 --[[
 Bytes become values and values become bytes: `nupp.data` holds serialization,
 Unicode, identifiers, byte digests and bitsets. Reach it from the global [`nupp`
-namespace](docs/concepts/standard-library.md), which is where the C and Rust
+namespace](docs/learn/runtime/data/standard-library.md), which is where the C and Rust
 providers behind it stay hidden.
 
 ```nupp
@@ -57,7 +57,7 @@ computes the population on demand.
 
 Which functions are native is not part of the contract. The build selects the
 UUID provider only when generated code reaches that exact member. See
-[Compiler-native features](docs/guides/build.md#compiler-native-features) for
+[Compiler-native features](docs/learn/projects/build.md#compiler-native-features) for
 how feature selection works and how to override it.
 
 SHA-256 used to be one of them and is not any more. It is

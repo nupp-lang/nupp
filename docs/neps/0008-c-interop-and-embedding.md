@@ -15,8 +15,8 @@ LuaJIT is, sharing one state and one heap behind a stable C SDK, with the
 standalone host becoming one consumer of the same library.
 
 ::: seealso
-- [c-interop.md](../concepts/c-interop.md) for declaring and calling C
-- [embedding.md](../guides/embedding.md) for hosting Nupp from a C application
+- [c-interop.md](../learn/runtime/c-interop/index.md) for declaring and calling C
+- [embedding.md](../learn/projects/embedding.md) for hosting Nupp from a C application
 :::
 
 ## Goals

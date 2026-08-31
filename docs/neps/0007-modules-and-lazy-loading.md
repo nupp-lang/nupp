@@ -16,8 +16,8 @@ Separately, packages may register roots so a qualified path resolves to a real
 module, with no runtime namespace tree.
 
 ::: seealso
-- [modules.md](../concepts/modules.md) for declaring and requiring a module
-- [standard-library.md](../concepts/standard-library.md) for the qualified
+- [modules.md](../learn/language/modules.md) for declaring and requiring a module
+- [standard-library.md](../learn/runtime/data/standard-library.md) for the qualified
   paths the standard library publishes
 :::
 

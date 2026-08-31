@@ -98,7 +98,7 @@ local function run(parsed: any): integer
         and "Whether the recorder accepts this operation depends on runtime or target facts."
         or "This is ordinary trace formation rather than a recorder failure.",
         related = {},
-        docs = "docs/guides/performance.md#rewrites-deliberately-not-made",
+        docs = "docs/learn/performance/index.md#rewrites-deliberately-not-made",
         family = false,
         class = reason.class,
         repair = reason.repair,

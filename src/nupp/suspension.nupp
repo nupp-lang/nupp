@@ -32,7 +32,7 @@ local function waitUntil(ready: function(): boolean): nil
 end
 ```
 
-See [suspension.md](docs/concepts/suspension.md) for what a caller writes, and
+See [suspension.md](docs/learn/runtime/concurrency/suspension.md) for what a caller writes, and
 [0005-suspension.md](docs/neps/0005-suspension.md) for why waiting is an
 operation rather than a second API.
 ]]

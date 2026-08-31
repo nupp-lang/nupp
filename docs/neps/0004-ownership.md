@@ -16,11 +16,11 @@ ordinary values, so there are no named lifetimes, no lifetime parameters, and no
 read-only shared references.
 
 ::: seealso
-- [concepts/ownership.md](../concepts/ownership.md) for the annotations a caller
+- [concepts/ownership.md](../learn/runtime/ownership/index.md) for the annotations a caller
   writes
-- [type-system/ownership.md](../type-system/ownership.md) for the model behind
+- [type-system/ownership.md](../learn/runtime/ownership/borrowing.md) for the model behind
   them
-- [exact-affine-scopes.md](../concepts/exact-affine-scopes.md) for the explicit
+- [exact-affine-scopes.md](../learn/runtime/ownership/exact-scopes.md) for the explicit
   one-extent form
 :::
 

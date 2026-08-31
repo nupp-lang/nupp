@@ -42,7 +42,7 @@ end
 ---
 --- `glob` is one pattern or several, matched against project-relative paths. `base` is
 --- the directory routes are named from, and defaults to the fixed prefix the first
---- pattern opens with, so `docs/**.md` publishes `docs/guides/build.md` at
+--- pattern opens with, so `docs/**.md` publishes `docs/learn/projects/build.md` at
 --- `guides/build`. `exclude` drops files the tree holds and the site does not publish.
 type sweep.Settings = {
     base: string?,

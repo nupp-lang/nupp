@@ -207,7 +207,7 @@ compiler-provided facility. A module that never logs carries nothing.
 ::: seealso
 - [diagnostics.md](docs/reference/diagnostics.md#diagnostic-index) for the
   codes a mistyped format string reports
-- [standard-library.md](docs/concepts/standard-library.md) for how a facility
+- [standard-library.md](docs/learn/runtime/data/standard-library.md) for how a facility
   reaches a program without being linked into one that never uses it
 :::
 ]]

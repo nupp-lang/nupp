@@ -317,10 +317,10 @@ decoration.
 :::
 
 ::: seealso
-- [tour.md](../getting-started/tour.md) for a walk through the scaffolded
+- [tour.md](../learn/getting-started/tour.md) for a walk through the scaffolded
   project
-- [build.md](../guides/build.md) for the `nupp.lua` a template writes
-- [LuaRocks](../guides/integrations/luarocks.md) for the layout the `lib` template
+- [build.md](../learn/projects/build.md) for the `nupp.lua` a template writes
+- [LuaRocks](../learn/projects/integrations/luarocks.md) for the layout the `lib` template
   scaffolds
 :::
 
@@ -424,7 +424,7 @@ Options:
 
 The bare command says what the backend decided for every `@aot` function in the
 file: how much arithmetic each loop does per byte it touches, and which
-[gang](../guides/ahead-of-time.md) it was lowered to, if any.
+[gang](../learn/performance/ahead-of-time/index.md) it was lowered to, if any.
 
 ```text [nupp aot bench/kernel-subset-spike/mandelbrot.nupp]
 bench/kernel-subset-spike/mandelbrot.nupp: mandelbrot, 5.19 operations per byte (83 over 16), f64x4, 4 lanes
@@ -491,7 +491,7 @@ through fields of consecutive structs, the text report also suggests projecting
 the hot fields from `nupp.mem.soa` column storage. This is guidance rather than
 a failed check: the scalar body remains the selected implementation.
 
-See [ahead-of-time.md](../guides/ahead-of-time.md#targets-and-feature-tiers)
+See [vectorization.md](../learn/performance/ahead-of-time/vectorization.md#targets-and-feature-tiers)
 for how a gang is chosen and for the tiers `--features` names.
 
 ### `bc`
@@ -564,9 +564,9 @@ anything about a closure the compiler's own lowerings put in a loop, which is
 what this reads.
 
 ::: seealso
-- [jit-trace-checking.md](../guides/jit-trace-checking.md) for reading a
+- [jit-trace-checking.md](../learn/performance/jit-trace-checking.md) for reading a
   `--check` report and acting on it
-- [performance.md](../guides/performance.md) for where bytecode checking sits
+- [performance.md](../learn/performance/index.md) for where bytecode checking sits
   among the other measurements
 :::
 
@@ -611,9 +611,9 @@ src/greet.nupp:6:23: error: NUPP2001: cannot initialize shout: string is not a n
    |                       ^~~~~
 ```
 
-See [strictness.md](../concepts/strictness.md#strict-floor-rules) for what the
+See [strictness.md](../learn/language/gradual-typing.md#strict-floor-rules) for what the
 strict floor holds a file to, and
-[strictness.md](../concepts/strictness.md#file-extensions) for which extension
+[strictness.md](../learn/language/gradual-typing.md#file-extensions) for which extension
 carries it.
 
 #### Diagnostics as JSON
@@ -689,7 +689,7 @@ no account of itself to give.
 ::: seealso
 - [lints.md](lints.md#project-configuration) for moving a lint's level in
   `nupp.lua`
-- [build.md](../guides/build.md#cache-and-failure-behavior) for what the build
+- [build.md](../learn/projects/build.md#cache-and-failure-behavior) for what the build
   cache holds between runs
 :::
 
@@ -774,7 +774,7 @@ src/messy.nupp
 }
 ```
 
-See [fmt.md](../guides/fmt.md) for the rules the formatter applies and for the
+See [fmt.md](../learn/tooling/formatter.md) for the rules the formatter applies and for the
 `fmt` table in `nupp.lua`.
 
 ### `build`
@@ -818,7 +818,7 @@ Manifest target options cannot be combined with explicit source files.
 Use 'nupp tasks' to discover target names and configuration.
 
 The level is part of the build key, so changing it rebuilds rather than
-mixing artifacts compiled at two different levels. See docs/guides/performance.md.
+mixing artifacts compiled at two different levels. See docs/learn/performance/index.md.
 
 --json reports the same diagnostics as 'nupp check --json' alongside what the
 build wrote, so one call answers both what went wrong and what landed. It also
@@ -852,8 +852,8 @@ A `binary`, `bundle`, or `component` target is a release artifact and builds
 at `-O2` unless its manifest entry declares its own level with
 `optimize = 0|1|2`; an explicit `-O` on the command line wins over both. The
 compiler builds itself optimized the same way, through `optimize = 2` on its
-own target. `-O1` and `-O2` currently run the same six passes, `OPT-1`
-through `OPT-6`.
+own target. `-O1` and `-O2` currently run the same eight passes, `OPT-1`
+through `OPT-8`.
 
 ```bash
 nupp build -O1 --remarks
@@ -865,7 +865,7 @@ nupp build -O1 -Zno-opt=OPT-3
 it as unstable: the option's name may change or go away. `--relax=GUARANTEE`
 opts in to a named observable tradeoff and may be given more than once; no
 current pass requires one. See
-[performance.md](../guides/performance.md#optimization-passes) for what each
+[performance.md](../learn/performance/index.md#optimization-passes) for what each
 pass rewrites and what it measured.
 
 ::: deepdive
@@ -929,9 +929,9 @@ provider, schema, fingerprint, backend, sizes, runtime features, and ABI
 versions.
 
 ::: seealso
-- [build.md](../guides/build.md) for `nupp.lua`'s targets, dependencies, and
+- [build.md](../learn/projects/build.md) for `nupp.lua`'s targets, dependencies, and
   cache
-- [build.md](../guides/build.md#build-progress-and-timing) for reading the
+- [build.md](../learn/projects/build.md#build-progress-and-timing) for reading the
   progress report
 - [distribution.md](distribution.md) for turning a built target into something
   to ship
@@ -964,7 +964,7 @@ nupp backend test acme.portable --dialect lua51 --runtime lua5.1
 The command reports evidence from that run. It does not modify a manifest,
 discover providers, or record a certification for later builds.
 
-See [portable-libraries.md](../guides/portable-libraries.md#backend-conformance)
+See [portable-libraries.md](../learn/projects/portability/libraries.md#backend-conformance)
 for backend source, dependency providers, and a multi-runtime test matrix.
 
 ### `clean`
@@ -1004,7 +1004,7 @@ removed build
 
 `--platform` narrows one target's outputs and so requires `--target`; giving it
 alone is a usage error. See
-[build.md](../guides/build.md#cache-and-failure-behavior) for what a build
+[build.md](../learn/projects/build.md#cache-and-failure-behavior) for what a build
 leaves in the output directory.
 
 ### `tasks`
@@ -1055,7 +1055,7 @@ Dependencies:
   (none)
 ```
 
-See [tasks.md](../guides/tasks.md) for the manifest shape, and [`task`](#task)
+See [tasks.md](../learn/projects/project-tasks.md) for the manifest shape, and [`task`](#task)
 for running one.
 
 ### `lints`
@@ -1173,11 +1173,11 @@ obligation begins at `blockNew`, which is ordinary Nupp and so is not a foreign
 contract to enumerate.
 
 ::: seealso
-- [type-system/ownership.md](../type-system/ownership.md) for the contract each
+- [type-system/ownership.md](../learn/runtime/ownership/borrowing.md) for the contract each
   `cdef` declaration states
-- [concepts/ownership.md](../concepts/ownership.md) for the annotations a caller
+- [concepts/ownership.md](../learn/runtime/ownership/index.md) for the annotations a caller
   writes
-- [c-interop.md](../concepts/c-interop.md) for what the foreign side of the
+- [c-interop.md](../learn/runtime/c-interop/index.md) for what the foreign side of the
   boundary promises
 :::
 
@@ -1256,7 +1256,7 @@ explain a diagnostic code -- which is what a reader holding one actually has.
   nupp reference cli
   nupp reference language
   nupp reference --section affine-resources
-  nupp reference --section docs/concepts/modules.md#modules
+  nupp reference --section docs/learn/language/modules.md#modules
   nupp reference --for NUPP2004
   nupp reference cli --format skill -o .claude/skills/nupp-cli/SKILL.md
   nupp reference performance --format skill -o .claude/skills/nupp-performance/SKILL.md
@@ -1322,7 +1322,7 @@ before the `#` is ignored, so the anchor a diagnostic already carries can be
 followed straight through:
 
 ```bash
-nupp reference --section docs/concepts/modules.md#modules
+nupp reference --section docs/learn/language/modules.md#modules
 ```
 
 That prints the same section as `--section modules`. `--for CODE` goes the other
@@ -1353,7 +1353,7 @@ are running. Printing it from the binary makes the two the same artifact.
 
 ::: seealso
 - [diagnostics.md](diagnostics.md) for the codes `--for` resolves
-- [tour.md](../getting-started/tour.md) for the same material written for a
+- [tour.md](../learn/getting-started/tour.md) for the same material written for a
   first read rather than for pasting
 :::
 
@@ -1491,9 +1491,9 @@ its `beforeAll` -- and `shards` is one record per worker process, empty here
 because a single named suite runs in one.
 
 ::: seealso
-- [testing.md](../guides/testing.md#test-configuration) for the `test` table in
+- [testing.md](../learn/projects/testing.md#test-configuration) for the `test` table in
   `nupp.lua`
-- [testing.md](../guides/testing.md#bringing-your-own-harness) for what a runner
+- [testing.md](../learn/projects/testing.md#bringing-your-own-harness) for what a runner
   other than Nupp's has to write
 - [coverage](#coverage) for running the same suites under instrumentation
 :::
@@ -1561,7 +1561,7 @@ coverage: lines 16.80%, functions 16.38%, branches 10.19%
 coverage: report written to build/reports/coverage/index.html
 ```
 
-See [testing.md](../guides/testing.md#coverage) for the report's contents and
+See [testing.md](../learn/projects/testing.md#coverage) for the report's contents and
 for what a custom runner has to do.
 
 ### `task`
@@ -1585,7 +1585,7 @@ Hello, world
 ```
 
 The exit code is the task command's own. See
-[tasks.md](../guides/tasks.md) for declaring a task and for the build it runs
+[tasks.md](../learn/projects/project-tasks.md) for declaring a task and for the build it runs
 first.
 
 ### `doc`
@@ -1627,7 +1627,7 @@ A successful run writes nothing to the terminal. `--json` names what it wrote:
 }
 ```
 
-See [doc.md](../guides/doc.md) for the docblock tags it reads and for
+See [doc.md](../learn/tooling/documentation.md) for the docblock tags it reads and for
 configuring a documentation target.
 
 ### `fixpoint`
@@ -1679,7 +1679,7 @@ nupp: tracked bootstrap is stale; run nupp fixpoint --update-bootstrap
 
 `--update-bootstrap` writes the regenerated bundle instead of comparing it, and
 is how an intentional bootstrap change lands. See
-[build.md](../guides/build.md#self-hosting) for what `selfHost` configures.
+[build.md](../learn/projects/build.md#self-hosting) for what `selfHost` configures.
 
 `--binary` names the target it stamped and the size the two runs agreed on. A
 mismatch keeps both stages for inspection and exits 1. See
@@ -1765,11 +1765,11 @@ abort default becomes `jit-aborts.json`, and every site carries both the raw VM
 detail and its stable normalized reason identity.
 
 ::: seealso
-- [profiling.md](../guides/profiling.md) for reading a collapsed-stack profile
+- [profiling.md](../learn/performance/profiling.md) for reading a collapsed-stack profile
   and an abort report
-- [performance.md](../guides/performance.md) for what to measure before
+- [performance.md](../learn/performance/index.md) for what to measure before
   changing anything
-- [hot-reload.md](../guides/hot-reload.md) for `--watch` and the poll points a
+- [hot-reload.md](../learn/projects/hot-reload.md) for `--watch` and the poll points a
   program has to reach
 :::
 
@@ -1895,7 +1895,7 @@ their explicit signatures under a C dependency's `bindings.macros`. Combining
 `--bridge-out` with `--inspect` previews which inline functions would bridge but
 still writes no file.
 
-See [c-interop.md](../concepts/c-interop.md#header-only-functions) for complete
+See [c-interop.md](../learn/runtime/c-interop/index.md#header-only-functions) for complete
 direct and bridge headers, a runnable header-only manifest, macro recipe types,
 emitted C, ownership refinements, and supported limits.
 
@@ -1927,7 +1927,7 @@ is removed. An existing destination is never replaced.
 ```
 
 The annotated-Lua guide describes [always-on comment
-ingestion](../guides/integrations/luacats.md) and the shared command/editor migration
+ingestion](../learn/projects/integrations/luacats.md) and the shared command/editor migration
 planner. `--check` reports the complete plan without writing or removing files.
 
 ### `export-c`
@@ -1956,7 +1956,7 @@ compiler host is used. Header generation itself invokes no C compiler.
 The command writes one target-specific header from selected exported structs
 and `cdef` functions. It includes transitive layout dependencies, stable C
 names, layout assertions, and the typed declarations used by native wrappers.
-See [c-interop.md](../concepts/c-interop.md#export-ordinary-structs-to-c) for
+See [c-interop.md](../learn/runtime/c-interop/index.md#export-ordinary-structs-to-c) for
 what a struct has to be for a header to be exportable from it.
 
 ### `rock`
@@ -2003,7 +2003,7 @@ what `require` is given:
      └── run.lua
 ```
 
-See [LuaRocks](../guides/integrations/luarocks.md) for the declaration's contents and for
+See [LuaRocks](../learn/projects/integrations/luarocks.md) for the declaration's contents and for
 publishing one.
 
 ### `lsp`
@@ -2130,10 +2130,10 @@ nupp lsp trace-check --json src/greet.nupp 2 16
 operation answers `--schema` with its own.
 
 ::: seealso
-- [lsp.md](../guides/lsp.md) for what the resident server supports
-- [editors.md](../guides/editors.md) for wiring it into an editor
+- [lsp.md](../learn/tooling/language-server.md) for what the resident server supports
+- [editors.md](../learn/tooling/editors.md) for wiring it into an editor
 - [diagnostics.md](diagnostics.md) for the codes a quickfix answers
-- [jit-trace-checking.md](../guides/jit-trace-checking.md) for what
+- [jit-trace-checking.md](../learn/performance/jit-trace-checking.md) for what
   `trace-check` reports
 :::
 

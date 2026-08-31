@@ -30,8 +30,8 @@ A nonescaping `read` or `write` can remain virtual, so no span wrapper is
 allocated. An escape or an opaque call materializes the same checked span.
 :::
 
-See [c-interop.md](docs/concepts/c-interop.md#c-arrays) for how this sits beside
-`carray`, and [ownership.md](docs/type-system/ownership.md) for the borrow rules
+See [c-interop.md](docs/learn/runtime/c-interop/index.md#c-arrays) for how this sits beside
+`carray`, and [ownership.md](docs/learn/runtime/ownership/borrowing.md) for the borrow rules
 the views are written against.
 ]]
 

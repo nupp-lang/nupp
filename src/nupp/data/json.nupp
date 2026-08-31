@@ -124,7 +124,7 @@ than answered by the codec, so each raises when nothing derived JSON for the
 type it was handed.
 
 ::: seealso
-- [reflection.md](docs/concepts/reflection.md#json-through-a-type-witness) for
+- [reflection.md](docs/learn/language/reflection.md#json-through-a-type-witness) for
   the derived schema and the generated `writeJSON` and `fromJSON` members
 - [derives.md](docs/reference/derives.md#json) for what `nupp.derive.JSON` adds
   to a declaration

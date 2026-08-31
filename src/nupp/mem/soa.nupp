@@ -34,7 +34,7 @@ A nonescaping `read` or `write` can remain virtual, so no row-view wrapper is
 allocated. An escape or an opaque call materializes the same checked view.
 :::
 
-See [structure-of-arrays.md](docs/concepts/structure-of-arrays.md) for when this layout is the one to
+See [structure-of-arrays.md](docs/learn/runtime/data/structure-of-arrays.md) for when this layout is the one to
 reach for, and [0010-structure-of-arrays.md](docs/neps/0010-structure-of-arrays.md) for why the container
 rather than the declaration chooses it.
 ]]

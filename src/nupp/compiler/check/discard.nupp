@@ -25,7 +25,7 @@ round.
 Whether the callee writes is the intra-procedural question, and the summary is
 not authoritative on it. A summary tracks writes through parameter-rooted paths
 and treats a write through any other local as staying local, which is what
-`docs/concepts/effects.md` means by scratch. A local that was read out of a
+`docs/learn/language/effects.md` means by scratch. A local that was read out of a
 parameter, as `local top = self.stack[n]` is, is not scratch, and the alias
 classes only follow
 direct name copies, so a write through it is recorded nowhere. Declining to

@@ -186,7 +186,7 @@ Derived fields currently admit booleans, strings, finite numbers, integers
 through 32 bits, optionals, arrays, string-keyed maps, and other declarations
 that also derive `Serde`. Pointer-bearing struct fields are rejected because a
 pointer does not describe its extent or ownership. See [Schema-driven
-serde](../concepts/serde.md) for dynamic schemas, profiles, extensions, and the
+serde](../learn/runtime/data/serde.md) for dynamic schemas, profiles, extensions, and the
 prepared JSON path.
 
 ## JSON
@@ -318,7 +318,7 @@ The JSON field codec is allocated lazily as a runtime reflection extension. Use
 `decodeAs(User, text)` when a type-witness API fits better than generated
 members. The allocating `encodeRecord` and `encodeAs` wrappers remain available
 when a complete string is specifically required. See
-[reflection.md](../concepts/reflection.md#runtime-reflection) for the witness
+[reflection.md](../learn/language/reflection.md#runtime-reflection) for the witness
 and allocation model, and [](nupp.data.json) for the rest of the codec.
 
 ## Package providers
@@ -360,7 +360,7 @@ provider uses, and their schema configuration (`@debug` and `@json`) is part of
 the semantic annotations visible through `Info` rather than a second planner.
 
 That is also the boundary against source generation.
-[Comptime](../concepts/comptime.md) evaluates closed value-producing programs
+[Comptime](../learn/language/comptime.md) evaluates closed value-producing programs
 after normal type checking, and derives run as part of declaration checking and
 may attach only validated member recipes. Neither becomes a way to emit
 arbitrary source.
@@ -416,7 +416,7 @@ restart. Missing files are diagnostics.
 
 Providers have no general host I/O, so network resources, environment variables,
 clocks, mutable tables, and hidden filesystem reads cannot silently enter a
-cache or a [hot-reload](../guides/hot-reload.md) guarantee.
+cache or a [hot-reload](../learn/projects/hot-reload.md) guarantee.
 
 ## Closed forwarding recipes
 
@@ -484,9 +484,9 @@ provider contract, so a recipe cannot depend on it happening.
 ::: seealso
 - [annotations.md](annotations.md#built-in-annotations) for `@derive`, `@json`,
   and `@debug` beside the rest of the built-ins
-- [comptime.md](../concepts/comptime.md) for the evaluation model a provider
+- [comptime.md](../learn/language/comptime.md) for the evaluation model a provider
   runs in
-- [reflection.md](../concepts/reflection.md#runtime-reflection) for the type
+- [reflection.md](../learn/language/reflection.md#runtime-reflection) for the type
   witnesses generated members are built on
 - [diagnostics.md](diagnostics.md) for the codes a provider failure reports
 :::

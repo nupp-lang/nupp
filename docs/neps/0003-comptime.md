@@ -18,8 +18,8 @@ None of it exposes the syntax tree, pastes source text, or generates
 declarations.
 
 ::: seealso
-- [comptime.md](../concepts/comptime.md) for the construct as a reader meets it
-- [type-level-computation.md](../type-system/type-level-computation.md) for
+- [comptime.md](../learn/language/comptime.md) for the construct as a reader meets it
+- [type-level-computation.md](../learn/language/types/comptime-types.md) for
   comptime in type position
 - [derives.md](../reference/derives.md) for the derive providers that ship
 :::

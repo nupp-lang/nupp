@@ -16,8 +16,7 @@ A type error says the program does not mean what it says it means, so it is not
 configurable, not suppressible, and always stops the build. A lint says the
 program means something you probably did not intend, so it has a name, a default
 level, and both project-wide and per-statement overrides. Being wrong about one
-costs a suppression, not a fork. Clippy's split between `rustc` errors and
-`clippy::` lints is the same line.
+costs a suppression rather than changing the compiler's correctness rules.
 
 ## Severity levels
 
@@ -118,7 +117,7 @@ help: add branches for "blue", "green" or add an else clause
 ```
 :::
 
-See [narrowing.md](../type-system/narrowing.md) for how a closed set is narrowed
+See [narrowing.md](../learn/language/types/narrowing.md) for how a closed set is narrowed
 in the first place.
 
 ### `string-pointer`
@@ -137,7 +136,7 @@ src/string-pointer.nupp:1:17: warning: NUPP2501 string-pointer: a pointer taken 
 ```
 :::
 
-See [c-interop.md](../concepts/c-interop.md) for the lifetimes a C boundary
+See [c-interop.md](../learn/runtime/c-interop/index.md) for the lifetimes a C boundary
 gives a Lua value.
 
 ### `jit-callback`
@@ -259,7 +258,7 @@ help: write new Point(field = value, ...) to name the fields
 
 A struct is exempt. It is its C layout, the ctype takes its values in that
 layout's order, and naming them is an error rather than a preference. See
-[records.md](../type-system/records.md#structs) for the difference.
+[records.md](../learn/language/types/records-and-structs.md#structs) for the difference.
 
 ### `loop-invariant-closure`
 
@@ -328,7 +327,7 @@ catalogued recorder blockers; `jit.off` on the enclosing function silences it,
 since a function taken off the JIT has no trace to lose. And `nupp bc --check`
 reads the bytecode of any file and reports the same loops, together with the
 ones the compiler's own lowerings could introduce. See [Function construction in
-a loop](../guides/jit-trace-checking.md#function-construction-in-a-loop) for the
+a loop](../learn/performance/jit-trace-checking.md#function-construction-in-a-loop) for the
 bytecode this rests on.
 
 ### `undocumented-raise`
@@ -363,7 +362,7 @@ help: add an @raises line saying what makes it raise
 Only functions with a `---` documentation run are judged. `error` counts but
 `assert` does not, nested functions own their raises, and the lint does not
 propagate through calls. `nupp lsp inspect` shows a callee's documented
-`@raises` at its use site. See [doc.md](../guides/doc.md#raised-errors) for the
+`@raises` at its use site. See [doc.md](../learn/tooling/documentation.md#raised-errors) for the
 tag itself.
 
 ### `unused-binding`
@@ -441,9 +440,8 @@ escapes, declared callees, yielding and raising all are. A function returning
 nothing, including one returning only `nil`, discards nothing and is not judged.
 
 ::: deepdive
-Rust needs `#[must_use]` on each function to say this. Nupp does not, because
-[effects](../concepts/effects.md) are inferred for every visible function
-already, so being nothing but a result is proved rather than declared.
+Nupp infers [effects](../learn/language/effects.md) for every visible function,
+so being nothing but a result is proved rather than declared at each function.
 
 The proof is two questions. Whether the callee reaches anything the compiler
 cannot see is answered by its effect summary, which is file-local: a callee that
@@ -451,7 +449,7 @@ reaches another module, or makes an unresolved call, widens to `top` and is left
 alone. Whether it writes is answered separately and syntactically, because a
 summary treats a write through a non-parameter local as staying local, and a
 local read out of a parameter is not scratch. See
-[effects.md](../concepts/effects.md#calls-and-fixed-point-propagation) for the
+[effects.md](../learn/language/effects.md#calls-and-fixed-point-propagation) for the
 propagation those answers come from.
 :::
 
@@ -465,7 +463,7 @@ local erased = collect(nil as any) -- warning: gradual-projection
 ```
 
 An answer somebody wrote as `any` is a different thing and does not report. See
-[associated-types.md](../type-system/associated-types.md#gradual-projections)
+[associated-types.md](../learn/language/types/associated-types.md#gradual-projections)
 for what a projection is and when its head settles.
 
 ### `reifiable-record`
@@ -659,7 +657,7 @@ return {
 
 Resolution runs registry default, then category setting, then name setting, then
 the `@allow` on the statement. The most specific wins. See
-[build.md](../guides/build.md) for the rest of the manifest.
+[build.md](../learn/projects/build.md) for the rest of the manifest.
 
 ## Local suppressions
 
@@ -734,7 +732,7 @@ local EDITOR_ADVICE = {["NUPP2120"] = "warning", -- a project module used withou
 ```
 
 The build still enforces the registry level. Only the protocol severity
-changes. See [lsp.md](../guides/lsp.md#diagnostics-in-an-editor) for what an
+changes. See [lsp.md](../learn/tooling/language-server.md#diagnostics-in-an-editor) for what an
 editor does with it.
 
 ### Lint tests

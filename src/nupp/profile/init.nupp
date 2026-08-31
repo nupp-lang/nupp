@@ -34,8 +34,8 @@ table write at every interval; a trace session pays a callback at every abort,
 inside the compiler. Stop a session once the question it was opened for has an
 answer.
 
-See [profiling.md](docs/guides/profiling.md) for reading a report, and
-[jit-trace-checking.md](docs/guides/jit-trace-checking.md) for finding the same aborts without running
+See [profiling.md](docs/learn/performance/profiling.md) for reading a report, and
+[jit-trace-checking.md](docs/learn/performance/jit-trace-checking.md) for finding the same aborts without running
 the program.
 ]]
 
@@ -769,7 +769,8 @@ end
 
 -- A record's namespace table is the metatable its instances are stamped with, so
 -- installing a declared contract is an ordinary assignment to it. The cast is because
--- the contract is not a field: see [metamethods.md](docs/concepts/metamethods.md).
+-- the contract is not a field: see
+-- [metamethods.md](docs/learn/language/metamethods.md).
 (profile.TraceReport as {[string]: any}).__tostring = serializeTraceReport;
 
 (profile.SampleReport as {[string]: any}).__tostring = function(report: profile.SampleReport): string

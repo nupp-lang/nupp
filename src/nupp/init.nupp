@@ -13,8 +13,8 @@ nupp.log.info("wrote %d bytes", #text)
 without the need to require anything. Submodules are loaded lazily on first
 access.
 
-See [standard-library.md](docs/concepts/standard-library.md) for what belongs here and what does not,
-and [modules.md](docs/concepts/modules.md) for how a declared module is reached.
+See [standard-library.md](docs/learn/runtime/data/standard-library.md) for what belongs here and what does not,
+and [modules.md](docs/learn/language/modules.md) for how a declared module is reached.
 ]]
 
 const nupp = {}

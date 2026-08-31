@@ -40109,7 +40109,7 @@ code = "NUPP1009" ,
 msg = "type dependency declaration not imported: " .. problem . msg ,
 help = "the declarations beside it were imported; pin a revision this "
 .. "compiler can read, or report the construct" ,
-docs = "docs/guides/integrations/luacats.md" ,
+docs = "docs/learn/projects/integrations/luacats.md" ,
 }
 if diagnostics ~= nil then
 diagnostics [ # diagnostics + 1 ] = diagnostic
@@ -77890,7 +77890,7 @@ detail = [[Manifest target options cannot be combined with explicit source files
 Use 'nupp tasks' to discover target names and configuration.
 
 The level is part of the build key, so changing it rebuilds rather than
-mixing artifacts compiled at two different levels. See docs/guides/performance.md.
+mixing artifacts compiled at two different levels. See docs/learn/performance/index.md.
 
 --json reports the same diagnostics as 'nupp check --json' alongside what the
 build wrote, so one call answers both what went wrong and what landed. It also
@@ -79290,7 +79290,7 @@ or reason . class == "risk"
 and "Whether the recorder accepts this operation depends on runtime or target facts."
 or "This is ordinary trace formation rather than a recorder failure." ,
 related = { } ,
-docs = "docs/guides/performance.md#rewrites-deliberately-not-made" ,
+docs = "docs/learn/performance/index.md#rewrites-deliberately-not-made" ,
 family = false ,
 class = reason . class ,
 repair = reason . repair ,
@@ -82583,7 +82583,7 @@ explain a diagnostic code -- which is what a reader holding one actually has.
   nupp reference cli
   nupp reference language
   nupp reference --section affine-resources
-  nupp reference --section docs/concepts/modules.md#modules
+  nupp reference --section docs/learn/language/modules.md#modules
   nupp reference --for NUPP2004
   nupp reference cli --format skill -o .claude/skills/nupp-cli/SKILL.md
   nupp reference performance --format skill -o .claude/skills/nupp-performance/SKILL.md
@@ -92536,6 +92536,7 @@ end
 
 
 
+
 local function rewriteModuleDocLinks (
 module ,
 pages ,
@@ -98858,7 +98859,7 @@ prefix
 )
 .. '<div class="nuppdoc-top-nav"><a href="'
 .. prefix
-.. 'getting-started/installation/index.html">Overview</a><a href="'
+.. 'learn/getting-started/index.html">Getting started</a><a href="'
 .. 'https://nupp.org/modules/nupp/index.html">API</a><a href="/playground/">Playground</a></div><div class="nuppdoc-actions">'
 .. table . concat (
 actions
@@ -102498,7 +102499,7 @@ summary = "A development-time change requires a restart" ,
 rule = "The running program cannot apply this change without replacing "
 .. "state or callable structure that hot reload promises to preserve. "
 .. "Restart it so the new program can initialize that state normally." ,
-docs = "docs/guides/hot-reload.md#changes-that-require-restart"
+docs = "docs/learn/projects/hot-reload.md#changes-that-require-restart"
 } ,
 {
 prefix = "OPT" ,
@@ -102507,7 +102508,7 @@ summary = "An optimizer remark" ,
 rule = "Not a problem. A pass saying what it rewrote, or what it looked "
 .. "at and declined to rewrite. Always a note, and never fails a "
 .. "build." ,
-docs = "docs/guides/performance.md"
+docs = "docs/learn/performance/index.md"
 } ,
 }
 
@@ -102522,7 +102523,7 @@ rule = "countedBy(count) replaces a call-duration borrowed pointer/count pair "
 wrong = "cdef function visit(\n" .. "    borrows values: const int32* countedBy(missing), count: uint64\n)\n" ,
 right = "cdef function visit(\n" .. "    borrows values: const int32* countedBy(count), count: uint64\n)\n" ,
 related = { "NUPP2203" , "NUPP2602" } ,
-docs = "docs/concepts/c-interop.md#counted-pointer-adapters" ,
+docs = "docs/learn/runtime/c-interop/index.md#counted-pointer-adapters" ,
 } ,
 {
 code = "NUPP2209" ,
@@ -102533,7 +102534,7 @@ rule = "A private field is representation available only while checking the "
 wrong = "local h = require('nupp.mem.heap')\nlocal a = h.allocate(ffi.typeof<int32>(), 1)\nreturn a.pointer\n" ,
 right = "local h = require('nupp.mem.heap')\nlocal a = h.allocate(ffi.typeof<int32>(), 1)\nreturn a:read()[1]\n" ,
 related = { "NUPP2004" , "NUPP2202" } ,
-docs = "docs/type-system/records.md#private-fields" ,
+docs = "docs/learn/language/types/records-and-structs.md#private-fields" ,
 } ,
 {
 code = "NUPP0001" ,
@@ -102564,7 +102565,7 @@ rule = "An @param line documents one parameter of the declaration below it. "
 wrong = "--- @param valeu the value\nlocal function keep(value: integer): integer\n    return value\nend\nreturn keep(1)\n" ,
 right = "--- @param value the value\nlocal function keep(value: integer): integer\n    return value\nend\nreturn keep(1)\n" ,
 related = { "NUPP2506" } ,
-docs = "docs/guides/doc.md#doc-comments" ,
+docs = "docs/learn/tooling/documentation.md#doc-comments" ,
 } ,
 {
 code = "NUPP1006" ,
@@ -102584,7 +102585,7 @@ rule = "Type comments in a .lua file are always read. A malformed, "
 .. "ambiguous, unsupported, or ownership-incomplete foreign type recovers "
 .. "at the smallest affected position, usually as any, and checking continues." ,
 related = { "NUPP1006" , "NUPP2101" } ,
-docs = "docs/guides/integrations/luacats.md#recovery" ,
+docs = "docs/learn/projects/integrations/luacats.md#recovery" ,
 } ,
 {
 code = "NUPP1009" ,
@@ -102596,7 +102597,7 @@ rule = "A `kind = \"types\"` dependency is somebody else's source, pinned "
 .. "API does not cost the project the rest of it. Pin a revision this "
 .. "compiler can read, or report the construct that stopped it." ,
 related = { "NUPP1008" , "NUPP1006" } ,
-docs = "docs/guides/integrations/luacats.md#recovery" ,
+docs = "docs/learn/projects/integrations/luacats.md#recovery" ,
 } ,
 {
 code = "NUPP2001" ,
@@ -102618,7 +102619,7 @@ rule = "A function's result annotation is a promise to every caller. "
 wrong = "local function length(): integer\n    return \"long\"\nend\n\n" .. "return length\n" ,
 right = "local function length(): integer\n    return 4\nend\n\n" .. "return length\n" ,
 related = { "NUPP2001" , "NUPP2010" } ,
-docs = "docs/type-system/primitives.md#function-declarations" ,
+docs = "docs/learn/language/types/primitives.md#function-declarations" ,
 } ,
 {
 code = "NUPP2004" ,
@@ -102653,7 +102654,7 @@ right = "local record Vec3\n    x: number\n    y: number\n    z: number\nend\n\n
 .. "local function make(): Vec3\n    return new Vec3(x = 1, y = 2, z = 3)\nend\n\n"
 .. "local position = make()\ndraw({x, y} = position)\n\nreturn draw\n" ,
 related = { "NUPP2004" , "NUPP2125" } ,
-docs = "docs/concepts/calls.md" ,
+docs = "docs/learn/language/named-arguments.md" ,
 } ,
 {
 code = "NUPP2009" ,
@@ -102664,7 +102665,7 @@ rule = "A read-only property may be read but not assigned, and a "
 wrong = "local out: {writeonly value: string} = {}\n" .. "local value = out.value\nreturn value\n" ,
 right = "local out: {writeonly value: string} = {}\n" .. "out.value = \"ready\"\nreturn out\n" ,
 related = { "NUPP2004" , "NUPP2008" } ,
-docs = "docs/type-system/properties.md#access-diagnostics" ,
+docs = "docs/learn/language/types/properties.md#access-diagnostics" ,
 } ,
 {
 code = "NUPP2010" ,
@@ -102676,7 +102677,7 @@ rule = "Calls, returns, assignments, selection, and coroutine transfers "
 wrong = "local value = select(0, 1, 2)\nreturn value\n" ,
 right = "local first, second = select(1, 1, 2)\n" .. "return first, second\n" ,
 related = { "NUPP2002" , "NUPP2007" , "NUPP2121" } ,
-docs = "docs/type-system/packs.md#pack-compatibility" ,
+docs = "docs/learn/language/types/packs.md#pack-compatibility" ,
 } ,
 {
 code = "NUPP2011" ,
@@ -102698,7 +102699,7 @@ rule = "`int8`, `int16`, `uint8`, and `uint16` describe physical layout. "
 wrong = "local byte: uint8 = 1\nreturn byte\n" ,
 right = "local byte: uint32 = 1\nreturn byte\n" ,
 related = { "NUPP2011" , "NUPP2201" , "NUPP2203" } ,
-docs = "docs/type-system/primitives.md#numbers" ,
+docs = "docs/learn/language/types/primitives.md#numbers" ,
 } ,
 {
 code = "NUPP2101" ,
@@ -102852,7 +102853,7 @@ wrong = "local answer: number = mathutil.double(21)\nreturn answer\n" ,
 right = "local mathutil = require(\"mathutil\")\n"
 .. "local answer: number = mathutil.double(21)\nreturn answer\n" ,
 related = { "NUPP2101" , "NUPP2105" } ,
-docs = "docs/concepts/modules.md#naming-a-member-from-another-file" ,
+docs = "docs/learn/language/modules.md#naming-a-member-from-another-file" ,
 } ,
 {
 code = "NUPP2121" ,
@@ -102864,7 +102865,7 @@ rule = "A pack binder must follow every ordinary type binder, and a pack "
 wrong = "local value: (number, string)\nreturn value\n" ,
 right = "local function pair(): (number, string)\n" .. "    return 1, \"one\"\nend\nreturn pair\n" ,
 related = { "NUPP2010" } ,
-docs = "docs/type-system/packs.md#syntax" ,
+docs = "docs/learn/language/types/packs.md#syntax" ,
 } ,
 {
 code = "NUPP2122" ,
@@ -102894,7 +102895,7 @@ right = "local interface Circle\n    kind: string\n\n"
 .. "    satisfies |self| -> self.kind == \"circle\"\nend\n\n"
 .. "return Circle\n" ,
 related = { "NUPP2116" } ,
-docs = "docs/type-system/refinements.md" ,
+docs = "docs/learn/language/types/refinements.md" ,
 } ,
 {
 code = "NUPP2123" ,
@@ -102919,7 +102920,7 @@ right = "local record I64\n    v: integer\n"
 .. "setmetatable(x, {__add = function(a: I64, b: I64): I64\n"
 .. "    return new I64(v = a.v + b.v)\nend})\n\nreturn x\n" ,
 related = { "NUPP2118" , "NUPP2006" } ,
-docs = "docs/concepts/metamethods.md" ,
+docs = "docs/learn/language/metamethods.md" ,
 } ,
 {
 code = "NUPP2124" ,
@@ -102931,7 +102932,7 @@ rule = "A value of `A & B` must satisfy both contracts. Nupp reports only "
 wrong = "local type Impossible = string & number\nreturn Impossible\n" ,
 right = "local type NamedValue = {name: string} & {value: number}\n" .. "return NamedValue\n" ,
 related = { "NUPP2125" , "NUPP2126" } ,
-docs = "docs/type-system/intersections.md#provable-emptiness" ,
+docs = "docs/learn/language/types/intersections.md#provable-emptiness" ,
 } ,
 {
 code = "NUPP2125" ,
@@ -102944,7 +102945,7 @@ wrong = "local type F = function(integer): string & function(string): boolean\n"
 right = "local type F = function(integer): string & function(string): boolean\n"
 .. "local f: F = nil as any\nreturn f(1)\n" ,
 related = { "NUPP2006" , "NUPP2126" } ,
-docs = "docs/type-system/intersections.md#overload-selection" ,
+docs = "docs/learn/language/types/intersections.md#overload-selection" ,
 } ,
 {
 code = "NUPP2126" ,
@@ -102957,7 +102958,7 @@ wrong = "local type F = function(integer): string & function(number): boolean\n"
 right = "local type F = function(integer): string & function(string): boolean\n"
 .. "local f: F = nil as any\nreturn f(1)\n" ,
 related = { "NUPP2125" , "NUPP2208" } ,
-docs = "docs/type-system/intersections.md#overload-selection" ,
+docs = "docs/learn/language/types/intersections.md#overload-selection" ,
 } ,
 {
 code = "NUPP2127" ,
@@ -102973,7 +102974,7 @@ right = "local interface Reader\n    associated type Item\nend\n\n"
 .. "local record Lines is Reader\n    associated type Item = string\n"
 .. "end\n\nreturn Lines\n" ,
 related = { "NUPP2128" , "NUPP2116" } ,
-docs = "docs/type-system/associated-types.md" ,
+docs = "docs/learn/language/types/associated-types.md" ,
 } ,
 {
 code = "NUPP2128" ,
@@ -102986,7 +102987,7 @@ rule = "An interface states a requirement, and `=` on one states a default. "
 wrong = "local record Box\n    associated type Item\nend\n\nreturn Box\n" ,
 right = "local record Box\n    type Item = string\nend\n\nreturn Box\n" ,
 related = { "NUPP2127" , "NUPP2117" } ,
-docs = "docs/type-system/associated-types.md" ,
+docs = "docs/learn/language/types/associated-types.md" ,
 } ,
 {
 code = "NUPP2129" ,
@@ -103000,7 +103001,7 @@ wrong = "local interface Reader\n    type Item = string\n"
 right = "local interface Reader\n    type Unit = string\n"
 .. "    associated type Item\nend\n\nreturn Reader\n" ,
 related = { "NUPP2128" } ,
-docs = "docs/type-system/associated-types.md" ,
+docs = "docs/learn/language/types/associated-types.md" ,
 } ,
 {
 code = "NUPP2134" ,
@@ -103015,7 +103016,7 @@ right = "local interface Reader\n    associated type Item\nend\n\n"
 .. "local function first<T is Reader>(x: T): T.Item\n    return nil as any\n"
 .. "end\n\nreturn first\n" ,
 related = { "NUPP2127" } ,
-docs = "docs/type-system/associated-types.md" ,
+docs = "docs/learn/language/types/associated-types.md" ,
 } ,
 {
 code = "NUPP2135" ,
@@ -103032,7 +103033,7 @@ right = "local interface Holds\n    associated type Value\nend\n\n"
 .. "local record Direct is Holds\n    associated type Value = string\n"
 .. "end\n\nreturn Direct\n" ,
 related = { "NUPP2127" } ,
-docs = "docs/type-system/associated-types.md" ,
+docs = "docs/learn/language/types/associated-types.md" ,
 } ,
 {
 code = "NUPP2136" ,
@@ -103047,7 +103048,7 @@ right = "local spans = require(\"nupp.mem.span\")\n\n"
 .. "local storage = ffi.new<int32[4]>()\n"
 .. "local view = spans.fromFixedCarray(storage, 4)\n\nreturn #view\n" ,
 related = { "NUPP2001" , "NUPP2117" } ,
-docs = "docs/type-system/interfaces.md#sealed-interfaces" ,
+docs = "docs/learn/language/types/interfaces.md#sealed-interfaces" ,
 } ,
 {
 code = "NUPP2137" ,
@@ -103060,7 +103061,7 @@ wrong = "local n: integer = 2\nlocal value = switch n do\n"
 right = "local n: integer = 2\nlocal value = switch n do\n"
 .. "    case 2 -> 'two'\n    else -> 'other'\nend\nreturn value\n" ,
 related = { "NUPP2138" , "NUPP2140" } ,
-docs = "docs/concepts/switch-expressions.md#switch-expressions" ,
+docs = "docs/learn/language/switch-expressions.md#switch-expressions" ,
 } ,
 {
 code = "NUPP2138" ,
@@ -103072,7 +103073,7 @@ wrong = "local n: number = 1\nlocal value = switch n do\n"
 right = "local n: number = 1\nlocal value = switch n do\n"
 .. "    case 1 -> 'one'\n    else -> 'other'\nend\nreturn value\n" ,
 related = { "NUPP2137" , "NUPP2139" } ,
-docs = "docs/concepts/switch-expressions.md#switch-expressions" ,
+docs = "docs/learn/language/switch-expressions.md#switch-expressions" ,
 } ,
 {
 code = "NUPP2139" ,
@@ -103085,7 +103086,7 @@ wrong = "local n: 1 = 1\nlocal value = switch n do\n"
 right = "local n: number = 1\nlocal value = switch n do\n"
 .. "    case 2 -> 'two'\n    else -> 'other'\nend\nreturn value\n" ,
 related = { "NUPP2138" , "NUPP2140" } ,
-docs = "docs/concepts/switch-expressions.md#switch-expressions" ,
+docs = "docs/learn/language/switch-expressions.md#switch-expressions" ,
 } ,
 {
 code = "NUPP2140" ,
@@ -103100,7 +103101,7 @@ right = "local type Mode = 'read' | 'write'\nlocal mode: Mode = 'read'\n"
 .. "local value = switch mode do\n    case 'read' -> 1\n"
 .. "    case 'write' -> 2\nend\nreturn value\n" ,
 related = { "NUPP2139" , "NUPP2141" } ,
-docs = "docs/concepts/switch-expressions.md#switch-expressions" ,
+docs = "docs/learn/language/switch-expressions.md#switch-expressions" ,
 } ,
 {
 code = "NUPP2141" ,
@@ -103113,7 +103114,7 @@ wrong = "local value = switch 1 do\n    else -> do\n"
 right = "local value = switch 1 do\n    else -> do\n"
 .. "        local answer = 1\n        yield answer\n    end\nend\nreturn value\n" ,
 related = { "NUPP2140" , "NUPP2142" } ,
-docs = "docs/concepts/switch-expressions.md#switch-expressions" ,
+docs = "docs/learn/language/switch-expressions.md#switch-expressions" ,
 } ,
 {
 code = "NUPP2142" ,
@@ -103124,7 +103125,7 @@ rule = "The first lexical lowering lifts switches from statement-root eager "
 .. "waits for general expression normalization. Bind the switch in a preceding "
 .. "statement instead." ,
 related = { "NUPP2140" } ,
-docs = "docs/concepts/switch-expressions.md#switch-expressions" ,
+docs = "docs/learn/language/switch-expressions.md#switch-expressions" ,
 } ,
 {
 code = "NUPP2143" ,
@@ -103140,7 +103141,7 @@ wrong = "module geom.shapes\n\nlocal shapes = {}\n\n"
 right = "module geom.shapes\n\nlocal shapes = {}\n\n"
 .. "record shapes.Point\n    x: number\nend\n\nexport = shapes\n" ,
 related = { "NUPP2119" } ,
-docs = "docs/concepts/modules.md#migrating-a-table-shaped-module" ,
+docs = "docs/learn/language/modules.md#migrating-a-table-shaped-module" ,
 } ,
 {
 code = "NUPP2511" ,
@@ -103157,7 +103158,7 @@ right = "local interface Holds\n    associated type Item\nend\n\n"
 .. "local function held<T is Holds>(x: T): T.Item\n    return nil as any\nend\n\n"
 .. "local kept = held(new Lines())\n\nreturn kept\n" ,
 related = { "NUPP2134" } ,
-docs = "docs/type-system/associated-types.md" ,
+docs = "docs/learn/language/types/associated-types.md" ,
 } ,
 {
 code = "NUPP2133" ,
@@ -103174,7 +103175,7 @@ right = "local comptime function DeepElement(T: type): type\n"
 .. "    return T\nend\n"
 .. "local value: DeepElement({{integer}}) = 1\nreturn value\n" ,
 related = { "NUPP2130" , "NUPP2132" } ,
-docs = "docs/type-system/type-level-computation.md#closed-and-generic-calls" ,
+docs = "docs/learn/language/types/comptime-types.md#closed-and-generic-calls" ,
 } ,
 {
 code = "NUPP2202" ,
@@ -103189,7 +103190,7 @@ rule = "Records and structs are constructed with `new`. Calling a "
 wrong = "local record Point\n    x: integer\nend\n\n" .. "local p = Point{x = 1}\n\nreturn p\n" ,
 right = "local record Point\n    x: integer\nend\n\n" .. "local p = new Point(x = 1)\n\nreturn p\n" ,
 related = { "NUPP2206" } ,
-docs = "docs/type-system/records.md#records" ,
+docs = "docs/learn/language/types/records-and-structs.md#records" ,
 } ,
 {
 code = "NUPP2203" ,
@@ -103200,7 +103201,7 @@ rule = "A `cdef` signature and struct layout cross the C ABI, so their "
 wrong = "cdef function process(values: {number}): int32\nreturn process\n" ,
 right = "cdef function process(values: voidptr): int32\nreturn process\n" ,
 related = { "NUPP2201" , "NUPP2602" } ,
-docs = "docs/concepts/c-interop.md#hand-write-a-small-binding" ,
+docs = "docs/learn/runtime/c-interop/index.md#hand-write-a-small-binding" ,
 } ,
 {
 code = "NUPP2605" ,
@@ -103218,7 +103219,7 @@ right = "local record Resource\nend\n"
 .. "    return new Resource()\nend\n"
 .. "local value = acquire()\nrelease(value)\nreturn acquire\n" ,
 related = { "NUPP2602" , "NUPP2603" , "NUPP2010" } ,
-docs = "docs/type-system/packs.md#ownership-and-provenance" ,
+docs = "docs/learn/language/types/packs.md#ownership-and-provenance" ,
 } ,
 {
 code = "NUPP2606" ,
@@ -103232,7 +103233,7 @@ wrong = "local function forward<T>(borrows value: T): T preserves value\n"
 right = "local function forward<T>(takes value: T): T preserves value\n"
 .. "    return value\nend\nreturn forward\n" ,
 related = { "NUPP2602" , "NUPP2603" , "NUPP2605" } ,
-docs = "docs/type-system/ownership.md#generic-preservation" ,
+docs = "docs/learn/runtime/ownership/borrowing.md#generic-preservation" ,
 } ,
 {
 code = "NUPP2607" ,
@@ -103245,7 +103246,7 @@ wrong = "local function pair(exclusive a: table, exclusive b: table): nil end\n"
 .. "local value = {}\npair(value, value)\n" ,
 right = "local function pair(exclusive a: table, exclusive b: table): nil end\n" .. "pair({}, {})\n" ,
 related = { "NUPP2602" , "NUPP2608" , "NUPP2609" } ,
-docs = "docs/type-system/ownership.md#regions-and-loop-carried-capabilities" ,
+docs = "docs/learn/runtime/ownership/borrowing.md#regions-and-loop-carried-capabilities" ,
 } ,
 {
 code = "NUPP2608" ,
@@ -103257,7 +103258,7 @@ wrong = "local function leak(borrows value: table): table\n" .. "    return borr
 right = "local function view(borrows value: table): table borrows (value)\n"
 .. "    return borrow(value)\nend\nreturn view\n" ,
 related = { "NUPP2603" , "NUPP2607" , "NUPP2611" } ,
-docs = "docs/type-system/ownership.md#borrowing-and-pinning" ,
+docs = "docs/learn/runtime/ownership/borrowing.md#borrowing-and-pinning" ,
 } ,
 {
 code = "NUPP2609" ,
@@ -103280,7 +103281,7 @@ right = "local record Resource\nend\n"
 .. "    if again then\n        print('once')\n    end\n"
 .. "    drop(value)\nend\nreturn run\n" ,
 related = { "NUPP2601" , "NUPP2603" , "NUPP2607" } ,
-docs = "docs/type-system/ownership.md#regions-and-loop-carried-capabilities" ,
+docs = "docs/learn/runtime/ownership/borrowing.md#regions-and-loop-carried-capabilities" ,
 } ,
 {
 code = "NUPP2610" ,
@@ -103292,7 +103293,7 @@ wrong = "local m = {}\nfunction m.forward<T>(value: T): T\n" .. "    return valu
 right = "local m = {}\nfunction m.forward<T>(takes value: T): T preserves value\n"
 .. "    return value\nend\nreturn m\n" ,
 related = { "NUPP2606" , "NUPP2611" } ,
-docs = "docs/type-system/ownership.md#public-capability-contracts" ,
+docs = "docs/learn/runtime/ownership/borrowing.md#public-capability-contracts" ,
 } ,
 {
 code = "NUPP2611" ,
@@ -103305,7 +103306,7 @@ wrong = "local function erase(value: affine(table)): any\n    return value\nend\
 right = "local function erase(takes value: affine(table)): any\n"
 .. "    return unsafe release value\nend\nreturn erase\n" ,
 related = { "NUPP2603" , "NUPP2608" , "NUPP2612" } ,
-docs = "docs/type-system/ownership.md#dynamic-boundaries" ,
+docs = "docs/learn/runtime/ownership/borrowing.md#dynamic-boundaries" ,
 } ,
 {
 code = "NUPP2612" ,
@@ -103321,7 +103322,7 @@ right = "local record Resource\nend\n"
 .. "local function open(): affine(Resource, close) return new Resource() end\n"
 .. "local cell = nupp.manage(open())\n" ,
 related = { "NUPP2608" , "NUPP2611" , "NUPP2614" } ,
-docs = "docs/type-system/ownership.md#dynamic-boundaries" ,
+docs = "docs/learn/runtime/ownership/borrowing.md#dynamic-boundaries" ,
 } ,
 {
 code = "NUPP2613" ,
@@ -103341,7 +103342,7 @@ right = "local record File is nupp.Closeable\n"
 .. "local recovered = nupp.recoverAlias(erased)\n"
 .. "local file = recovered and recovered:downcast<File>()\n" ,
 related = { "NUPP2611" , "NUPP2614" } ,
-docs = "docs/type-system/ownership.md#dynamic-boundaries" ,
+docs = "docs/learn/runtime/ownership/borrowing.md#dynamic-boundaries" ,
 } ,
 {
 code = "NUPP2614" ,
@@ -103350,7 +103351,7 @@ rule = "An alias must carry the runtime brand of one managed cell. Closing or "
 .. "taking the payload leaves that cell as a permanent tombstone, and every "
 .. "copied alias fails before reading the payload." ,
 related = { "NUPP2612" , "NUPP2613" } ,
-docs = "docs/type-system/ownership.md#dynamic-boundaries" ,
+docs = "docs/learn/runtime/ownership/borrowing.md#dynamic-boundaries" ,
 } ,
 {
 code = "NUPP2603" ,
@@ -103364,7 +103365,7 @@ right = "cdef function begin_request(): affine(voidptr)\n"
 .. "cdef function submit_request(takes request: voidptr)\n"
 .. "local request = begin_request()\nsubmit_request(request)\nreturn 0\n" ,
 related = { "NUPP2601" , "NUPP2602" , "NUPP2605" } ,
-docs = "docs/type-system/ownership.md#consumption-and-lexical-destruction" ,
+docs = "docs/learn/runtime/ownership/borrowing.md#consumption-and-lexical-destruction" ,
 } ,
 {
 code = "NUPP2615" ,
@@ -103381,7 +103382,7 @@ right = "local record Resource\nend\nlocal record Other\nend\n"
 .. "local function acquire(): affine(Resource, release)\n"
 .. "    return new Resource()\nend\nreturn acquire\n" ,
 related = { "NUPP2602" , "NUPP2603" } ,
-docs = "docs/type-system/affine-types.md#cleanup-and-transfer-only-forms" ,
+docs = "docs/learn/runtime/ownership/affine-types.md#cleanup-and-transfer-only-forms" ,
 } ,
 {
 code = "NUPP2620" ,
@@ -103391,7 +103392,7 @@ rule = "Shared alias callbacks exclude an exclusive callback, and an "
 .. "require no active callback borrow. The runtime releases a borrow before "
 .. "propagating a callback error." ,
 related = { "NUPP2607" , "NUPP2614" } ,
-docs = "docs/type-system/ownership.md#dynamic-boundaries" ,
+docs = "docs/learn/runtime/ownership/borrowing.md#dynamic-boundaries" ,
 } ,
 {
 code = "NUPP2801" ,
@@ -103501,7 +103502,7 @@ rule = "A `nosuspend` region and every cleanup contract must finish without "
 wrong = "local function wait(): nil\n    coroutine.yield()\nend\n\n" .. "nosuspend do\n    wait()\nend\n" ,
 right = "local function finish(): nil\nend\n\n" .. "nosuspend do\n    finish()\nend\n" ,
 related = { "NUPP2602" , "NUPP2603" } ,
-docs = "docs/concepts/suspension.md#non-suspending-regions" ,
+docs = "docs/learn/runtime/concurrency/suspension.md#non-suspending-regions" ,
 } ,
 {
 code = "NUPP2702" ,
@@ -103511,7 +103512,7 @@ rule = "LuaJIT cannot yield through every C frame. Make the callback and every "
 wrong = "table.sort({2, 1}, function(a, b): boolean\n" .. "    coroutine.yield()\n    return a < b\nend)\n" ,
 right = "table.sort({2, 1}, function(a, b): boolean\n" .. "    return a < b\nend)\n" ,
 related = { "NUPP2701" } ,
-docs = "docs/concepts/suspension.md#c-call-boundaries" ,
+docs = "docs/learn/runtime/concurrency/suspension.md#c-call-boundaries" ,
 } ,
 {
 code = "NUPP2706" ,
@@ -103522,7 +103523,7 @@ rule = "Entering a `handle suspension` body from outside would bypass handler "
 wrong = "goto inside\nhandle suspension with handler do\n" .. "    ::inside::\nend\n" ,
 right = "handle suspension with handler do\nend\n::outside::\n" ,
 related = { "NUPP2701" , "NUPP2702" } ,
-docs = "docs/concepts/suspension.md#handler-scope-follows-the-coroutine" ,
+docs = "docs/learn/runtime/concurrency/suspension.md#handler-scope-follows-the-coroutine" ,
 } ,
 {
 code = "NUPP2206" ,
@@ -103539,7 +103540,7 @@ right = "local interface Named\n    name: string\nend\n\n"
 .. "local record User is Named\n    name: string\nend\n\n"
 .. "local n = new User(name = \"ada\")\n\nreturn n\n" ,
 related = { "NUPP2202" } ,
-docs = "docs/type-system/records.md#records" ,
+docs = "docs/learn/language/types/records-and-structs.md#records" ,
 } ,
 {
 code = "NUPP2207" ,
@@ -103555,7 +103556,7 @@ rule = "`local v: Vec2` used to construct one where it was declared, "
 wrong = "local record Point\n    x: integer\nend\n\n" .. "local p: Point\n\nreturn p.x\n" ,
 right = "local record Point\n    x: integer\nend\n\n" .. "local p: Point = new Point(x = 0)\n\nreturn p.x\n" ,
 related = { "NUPP2202" , "NUPP2206" } ,
-docs = "docs/type-system/records.md#records" ,
+docs = "docs/learn/language/types/records-and-structs.md#records" ,
 } ,
 {
 code = "NUPP2512" ,
@@ -103631,7 +103632,7 @@ right = "local record Account\n    name: string\n    balance: number\n"
 .. "\n    constructor(self, name: string)\n        self.name = name\n"
 .. "        self.balance = 0\n    end\nend\n\nreturn Account\n" ,
 related = { "NUPP2202" , "NUPP2207" } ,
-docs = "docs/type-system/records.md#constructors-and-result-policies" ,
+docs = "docs/learn/language/types/records-and-structs.md#constructors-and-result-policies" ,
 } ,
 {
 code = "NUPP3005" ,
@@ -103692,7 +103693,7 @@ right = "local interface Drawable\n    kind: \"drawable\"\n"
 .. "local unknown: any = new Sprite(kind = \"drawable\", width = 1)\n\n"
 .. "return unknown is Drawable\n" ,
 related = { "NUPP2122" } ,
-docs = "docs/type-system/interfaces.md" ,
+docs = "docs/learn/language/types/interfaces.md" ,
 } ,
 }
 
@@ -103707,7 +103708,7 @@ rule = "`@jit` promises that a function contains no variadic FFI call and "
 wrong = "cdef function printf(format: cstring, ...): int32\n\n@jit\nlocal function hot(): nil\n    printf('%d', 1)\nend\n" ,
 right = "cdef function printf(format: cstring, ...): int32\n\nlocal function cold(): nil\n    printf('%d', 1)\nend\n\njit.off(cold)\n" ,
 related = { "NUPP2502" , "NUPP2514" } ,
-docs = "docs/concepts/c-interop.md" ,
+docs = "docs/learn/runtime/c-interop/index.md" ,
 }
 
 ENTRIES [
@@ -103722,7 +103723,7 @@ rule = "A `noalloc` region may only call operations whose visible bodies or "
 wrong = "local function build(): nil\n    local values = {}\nend\n\nnoalloc do\n    build()\nend\n" ,
 right = "local function update(): nil\n    local n = 1\nend\n\nnoalloc do\n    update()\nend\n" ,
 related = { "NUPP2112" , "NUPP2711" } ,
-docs = "docs/concepts/effects.md#allocation-and-raising-regions" ,
+docs = "docs/learn/language/effects.md#allocation-and-raising-regions" ,
 }
 
 ENTRIES [
@@ -103737,7 +103738,7 @@ rule = "A `noraise` region may only call operations whose visible bodies or "
 wrong = "local function fail(): nil\n    error('failed')\nend\n\nnoraise do\n    fail()\nend\n" ,
 right = "local function finish(): nil\nend\n\nnoraise do\n    finish()\nend\n" ,
 related = { "NUPP2112" , "NUPP2710" } ,
-docs = "docs/concepts/effects.md#allocation-and-raising-regions" ,
+docs = "docs/learn/language/effects.md#allocation-and-raising-regions" ,
 }
 
 ENTRIES [ # ENTRIES + 1 ] = {
@@ -103914,7 +103915,7 @@ rule = "A function that takes fewer parameters is usable where more are supplied
 wrong = "local function keep(value: integer): integer\n    return value\nend\nreturn keep(1, 2)\n" ,
 right = "local function keep(value: integer): integer\n    return value\nend\nreturn keep(1)\n" ,
 related = { "NUPP2006" , "NUPP2010" } ,
-docs = "docs/type-system/primitives.md#function-declarations" ,
+docs = "docs/learn/language/types/primitives.md#function-declarations" ,
 }
 
 ENTRIES [
@@ -103926,7 +103927,7 @@ rule = "The `const` modifier on a local or a module field is a promise that noth
 wrong = "const count = 1\ncount = 2\nreturn count\n" ,
 right = "local count = 1\ncount = 2\nreturn count\n" ,
 related = { "NUPP2001" , "NUPP2602" } ,
-docs = "docs/type-system/primitives.md#const" ,
+docs = "docs/learn/language/types/primitives.md#const" ,
 }
 
 ENTRIES [
@@ -103971,7 +103972,7 @@ rule = "Several forms name a parameter or a value already in scope rather than i
 wrong = "local record R\n    x: integer\nend\n\nlocal function f(a: R): b is R\n    return true\nend\n\nreturn f\n" ,
 right = "local record R\n    x: integer\nend\n\nlocal function f(a: R): a is R\n    return true\nend\n\nreturn f\n" ,
 related = { "NUPP2110" } ,
-docs = "docs/type-system/narrowing.md#predicate-functions" ,
+docs = "docs/learn/language/types/narrowing.md#predicate-functions" ,
 }
 
 ENTRIES [
@@ -103983,7 +103984,7 @@ rule = "A predicate's return type `param is T` is trusted rather than verified f
 wrong = "local record R\n    x: integer\nend\n\nlocal function f(a: string): a is R\n    return true\nend\n\nreturn f\n" ,
 right = "local record R\n    x: integer\nend\n\nlocal function f(a: R): a is R\n    return true\nend\n\nreturn f\n" ,
 related = { "NUPP2109" } ,
-docs = "docs/type-system/narrowing.md#predicate-functions" ,
+docs = "docs/learn/language/types/narrowing.md#predicate-functions" ,
 }
 
 ENTRIES [
@@ -104053,7 +104054,7 @@ rule = "A `T is Bound` constraint, wherever it is written -- a generic type para
 wrong = "local interface Named\n    name: string\nend\n\nlocal interface Tagged\n    associated type Tag is Named = integer\nend\n\nreturn Tagged\n" ,
 right = "local interface Named\n    name: string\nend\n\nlocal interface Tagged\n    associated type Tag is Named = Named\nend\n\nreturn Tagged\n" ,
 related = { "NUPP2117" , "NUPP2003" } ,
-docs = "docs/type-system/generics.md#constraints-use-is" ,
+docs = "docs/learn/language/types/generics.md#constraints-use-is" ,
 }
 
 ENTRIES [
@@ -104065,7 +104066,7 @@ rule = "Only an interface may appear after `is` on a record or struct declaratio
 wrong = "local record Other\nend\n\nlocal record Bad is Other\nend\n\nreturn Bad\n" ,
 right = "local interface Other\nend\n\nlocal record Bad is Other\nend\n\nreturn Bad\n" ,
 related = { "NUPP2116" , "NUPP2136" } ,
-docs = "docs/type-system/interfaces.md#is-is-a-claim-not-a-proof" ,
+docs = "docs/learn/language/types/interfaces.md#is-is-a-claim-not-a-proof" ,
 }
 
 ENTRIES [
@@ -104077,7 +104078,7 @@ rule = "`keyof`, `T.[K]`, `writeof`, mapped shapes, and template construction ea
 wrong = "local function read(value: {name: string}.['missing']): string\n    return value\nend\n\nreturn read\n" ,
 right = "local function read(value: {name: string}.['name']): string\n    return value\nend\n\nreturn read\n" ,
 related = { "NUPP2132" , "NUPP2133" } ,
-docs = "docs/type-system/type-level-computation.md#direct-finite-operators" ,
+docs = "docs/learn/language/types/comptime-types.md#direct-finite-operators" ,
 }
 
 ENTRIES [
@@ -104089,7 +104090,7 @@ rule = "A `const` type parameter's value must be inferable from a use that names
 wrong = "local function same<const S: string>(left: S, right: S): nil\nend\n\nsame('x', 'y')\n" ,
 right = "local function same<const S: string>(left: S, right: S): nil\nend\n\nsame('x', 'x')\n" ,
 related = { "NUPP2101" , "NUPP2130" } ,
-docs = "docs/type-system/type-level-computation.md#const-parameters" ,
+docs = "docs/learn/language/types/comptime-types.md#const-parameters" ,
 }
 
 ENTRIES [
@@ -104101,7 +104102,7 @@ rule = "A backtick template type's `${...}` holes must each reduce to a finite u
 wrong = "local function read(value: `${string}`): string\n    return value\nend\n\nreturn read\n" ,
 right = "local type Choice = 'a' | 'b'\nlocal function read(value: `${Choice}`): string\n    return value\nend\n\nreturn read\n" ,
 related = { "NUPP2130" , "NUPP2133" } ,
-docs = "docs/type-system/type-level-computation.md#direct-finite-operators" ,
+docs = "docs/learn/language/types/comptime-types.md#direct-finite-operators" ,
 }
 
 ENTRIES [
@@ -104113,7 +104114,7 @@ rule = "A struct is laid out in C memory, so every field needs a fixed size and 
 wrong = "local struct Loop\n    me: Loop\n    n: int32\nend\nreturn Loop\n" ,
 right = "local struct Loop\n    me: Loop*?\n    n: int32\nend\nreturn Loop\n" ,
 related = { "NUPP2204" , "NUPP2205" , "NUPP2402" } ,
-docs = "docs/type-system/records.md#pointing-at-itself" ,
+docs = "docs/learn/language/types/records-and-structs.md#pointing-at-itself" ,
 }
 
 ENTRIES [
@@ -104149,7 +104150,7 @@ rule = "cheader reads the named header at compile time, so its path has to be kn
 wrong = "local mini = cheader(\"mini\" .. \".h\")\nreturn mini\n" ,
 right = "local mini = cheader(\"mini.h\")\nreturn mini\n" ,
 related = { "NUPP2302" } ,
-docs = "docs/concepts/c-interop.md#type-the-header-in-place" ,
+docs = "docs/learn/runtime/c-interop/index.md#type-the-header-in-place" ,
 }
 
 ENTRIES [ # ENTRIES + 1 ] = {
@@ -104161,7 +104162,7 @@ summary = "A cheader path cannot be read" ,
 rule = "cheader resolves its literal path relative to the file, then as written, then against each project root, and reads whichever candidate exists first. When none can be opened, the diagnostic reports why, the same way an unreadable source path is reported." ,
 wrong = "local mini = cheader(\"missing.h\")\nreturn mini\n" ,
 related = { "NUPP2301" , "NUPP0001" } ,
-docs = "docs/concepts/c-interop.md#type-the-header-in-place" ,
+docs = "docs/learn/runtime/c-interop/index.md#type-the-header-in-place" ,
 }
 
 ENTRIES [
@@ -104173,7 +104174,7 @@ rule = "A literal string given directly to ffi.cdef declares to the checker as w
 wrong = "local ffi = require(\"ffi\")\nffi.cdef[[ this is not C ]]\nreturn 0\n" ,
 right = "local ffi = require(\"ffi\")\nffi.cdef[[ int mini_add(int a, int b); ]]\nreturn 0\n" ,
 related = { "NUPP2301" , "NUPP2304" } ,
-docs = "docs/concepts/c-interop.md#hand-write-a-small-binding" ,
+docs = "docs/learn/runtime/c-interop/index.md#hand-write-a-small-binding" ,
 }
 
 ENTRIES [
@@ -104185,7 +104186,7 @@ rule = "ffi.new, ffi.cast, ffi.typeof, ffi.istype, ffi.sizeof, and ffi.alignof r
 wrong = "local ffi = require(\"ffi\")\nffi.cdef[[ struct CstA { int x; }; ]]\nlocal p = ffi.new(\"struct CstNoSuch\")\nreturn p\n" ,
 right = "local ffi = require(\"ffi\")\nffi.cdef[[ struct CstA { int x; }; ]]\nlocal p = ffi.new(\"struct CstA\")\nreturn p\n" ,
 related = { "NUPP2303" , "NUPP2203" } ,
-docs = "docs/concepts/c-interop.md#typed-ffi-operations" ,
+docs = "docs/learn/runtime/c-interop/index.md#typed-ffi-operations" ,
 }
 
 ENTRIES [
@@ -104197,7 +104198,7 @@ rule = "carray(T, n) allocates a zero-based C array of n elements of T. T must r
 wrong = "local record Point\n    x: number\n    y: number\nend\n\nlocal points = carray(Point, 4)\nreturn points\n" ,
 right = "local struct Point\n    x: float\n    y: float\nend\n\nlocal points = carray(Point, 4)\nreturn points\n" ,
 related = { "NUPP2402" , "NUPP2201" } ,
-docs = "docs/concepts/c-interop.md#typed-ffi-operations" ,
+docs = "docs/learn/runtime/c-interop/index.md#typed-ffi-operations" ,
 }
 
 ENTRIES [
@@ -104209,7 +104210,7 @@ rule = "layoutof(T) answers how a reified struct sits in memory: its fields in d
 wrong = "local record Point\n    x: number\n    y: number\nend\n\nreturn layoutof(Point)\n" ,
 right = "local struct Point\n    x: float\n    y: float\nend\n\nreturn layoutof(Point)\n" ,
 related = { "NUPP2401" , "NUPP2201" } ,
-docs = "docs/concepts/c-interop.md#read-a-structs-layout" ,
+docs = "docs/learn/runtime/c-interop/index.md#read-a-structs-layout" ,
 }
 
 ENTRIES [
@@ -104269,7 +104270,7 @@ rule = "A block's result is quoted into the generated Lua as a literal: nil, boo
 wrong = "local value: {{integer}} = comptime do\n    local shared = {1}\n    return {shared, shared}\nend\nprint(value)\n" ,
 right = "local value: {{integer}} = comptime do\n    return {{1}, {1}}\nend\nprint(value)\n" ,
 related = { "NUPP2414" , "NUPP2416" } ,
-docs = "docs/concepts/comptime.md#one-value-checked-where-it-lands" ,
+docs = "docs/learn/language/comptime.md#values-checked-at-their-destination" ,
 }
 
 ENTRIES [
@@ -104281,7 +104282,7 @@ rule = "A sealed provider -- reflection's field-codec builder among them -- may 
 wrong = "local record Position\n    x: number\n    y: number\nend\n\nconst codec = comptime do\n    return nupp.reflect.fieldCodec(nupp.reflect(Position))\nend\n\nprint(codec)\n" ,
 right = "local record Position\n    x: number\n    y: number\nend\n\nconst codec: nupp.reflect.FieldCodec<Position> = comptime do\n    return nupp.reflect.fieldCodec(nupp.reflect(Position))\nend\n\nprint(codec)\n" ,
 related = { "NUPP2415" , "NUPP2416" } ,
-docs = "docs/concepts/reflection.md#comptime-reflection" ,
+docs = "docs/learn/language/reflection.md#comptime-reflection" ,
 }
 
 ENTRIES [
@@ -104353,7 +104354,7 @@ rule = "nupp.types.error(message) lets a comptime type function refuse a specifi
 wrong = "local comptime function Positive(): type\n    return nupp.types.error(\"always fails\")\nend\nlocal value: Positive() = 1\nreturn value\n" ,
 right = "local comptime function Positive(): type\n    return nupp.types.number\nend\nlocal value: Positive() = 1\nreturn value\n" ,
 related = { "NUPP2415" , "NUPP2421" } ,
-docs = "docs/type-system/type-level-computation.md#inspection-and-construction" ,
+docs = "docs/learn/language/types/comptime-types.md#inspection-and-construction" ,
 }
 
 ENTRIES [
@@ -104365,7 +104366,7 @@ rule = "Type handles, comptime type aliases, and members typed comptime type or 
 wrong = "local leaked = nupp.types.string\nreturn leaked\n" ,
 right = "local comptime function Self(): type\n    return nupp.types.string\nend\nlocal value: Self() = \"ok\"\nreturn value\n" ,
 related = { "NUPP2133" , "NUPP2420" } ,
-docs = "docs/type-system/type-level-computation.md#inspection-and-construction" ,
+docs = "docs/learn/language/types/comptime-types.md#inspection-and-construction" ,
 }
 
 ENTRIES [
@@ -104483,7 +104484,7 @@ rule = "A result annotated with an owning (affine) type promises every caller a 
 wrong = "local record Buffer\n    value: string\nend\n\nlocal function closeBuffer(takes value: Buffer): nil\nend\n\nlocal function bad(borrows source: Buffer): affine(Buffer, closeBuffer)\n    return source\nend\n\nreturn bad\n" ,
 right = "local record Buffer\n    value: string\nend\n\nlocal function ok(borrows source: Buffer): Buffer borrows (source)\n    return source\nend\n\nreturn ok\n" ,
 related = { "NUPP2608" , "NUPP2619" } ,
-docs = "docs/type-system/ownership.md#borrowing-and-pinning" ,
+docs = "docs/learn/runtime/ownership/borrowing.md#borrowing-and-pinning" ,
 }
 
 ENTRIES [
@@ -104495,7 +104496,7 @@ rule = "`borrows (param)` on a result ties the result's lifetime to a live argum
 wrong = "local record Buffer\n    value: string\nend\n\nlocal function bad(takes value: Buffer): Buffer borrows (value)\n    return value\nend\n\nreturn bad\n" ,
 right = "local record Buffer\n    value: string\nend\n\nlocal function ok(borrows value: Buffer): Buffer borrows (value)\n    return value\nend\n\nreturn ok\n" ,
 related = { "NUPP2109" , "NUPP2616" } ,
-docs = "docs/type-system/ownership.md#borrowing-and-pinning" ,
+docs = "docs/learn/runtime/ownership/borrowing.md#borrowing-and-pinning" ,
 }
 
 ENTRIES [
@@ -104507,7 +104508,7 @@ rule = "A field declared `T borrows (source)` must be provably derived from the 
 wrong = "local record Buffer\n    value: string\nend\n\nlocal function view(borrows source: Buffer): Buffer borrows (source)\n    return source\nend\n\nlocal record Cursor\n    source: Buffer\n    bytes: Buffer borrows (source)\nend\n\nlocal left = new Buffer(value = \"left\")\nlocal right = new Buffer(value = \"right\")\nlocal cursor = new Cursor(source = left, bytes = view(right))\nprint(cursor.bytes.value)\n" ,
 right = "local record Buffer\n    value: string\nend\n\nlocal function view(borrows source: Buffer): Buffer borrows (source)\n    return source\nend\n\nlocal record Cursor\n    source: Buffer\n    bytes: Buffer borrows (source)\nend\n\nlocal left = new Buffer(value = \"left\")\nlocal cursor = new Cursor(source = left, bytes = view(left))\nprint(cursor.bytes.value)\n" ,
 related = { "NUPP2602" , "NUPP2203" , "NUPP2707" } ,
-docs = "docs/type-system/ownership.md#borrowing-and-pinning" ,
+docs = "docs/learn/runtime/ownership/borrowing.md#borrowing-and-pinning" ,
 }
 
 ENTRIES [
@@ -104519,7 +104520,7 @@ rule = "Every field of a reified `struct` lowers to a literal C declarator insid
 wrong = "local record Widget\n    id: integer\nend\n\nlocal struct Holder\n    items: Widget*[3]\nend\n\nreturn Holder\n" ,
 right = "cdef struct Widget\n    id: integer\nend\n\nlocal struct Holder\n    items: Widget*\n    count: int32\nend\n\nreturn Holder\n" ,
 related = { "NUPP2201" , "NUPP3003" , "NUPP3004" } ,
-docs = "docs/concepts/c-interop.md#type-mapping" ,
+docs = "docs/learn/runtime/c-interop/index.md#type-mapping" ,
 }
 
 ENTRIES [
@@ -104531,7 +104532,7 @@ rule = "`cdef struct` and `cdef function` declare literal C, and every field and
 wrong = "local record Widget\n    id: integer\nend\n\ncdef function inspect(target: Widget*)\n\nreturn inspect\n" ,
 right = "cdef struct Widget\n    id: integer\nend\n\ncdef function inspect(target: Widget*)\n\nreturn inspect\n" ,
 related = { "NUPP2203" , "NUPP3002" , "NUPP3004" } ,
-docs = "docs/concepts/c-interop.md#type-mapping" ,
+docs = "docs/learn/runtime/c-interop/index.md#type-mapping" ,
 }
 
 ENTRIES [
@@ -104543,7 +104544,7 @@ rule = "`ffi.new<T>`, `ffi.cast<T>`, `ffi.typeof<T>` and their siblings take T a
 wrong = "local record Widget\n    id: integer\nend\n\nlocal w = ffi.new<Widget>()\nreturn w\n" ,
 right = "local struct Widget\n    id: integer\nend\n\nlocal w = ffi.new<Widget>()\nreturn w\n" ,
 related = { "NUPP2203" , "NUPP3002" , "NUPP3003" } ,
-docs = "docs/concepts/c-interop.md#type-mapping" ,
+docs = "docs/learn/runtime/c-interop/index.md#type-mapping" ,
 }
 
 ENTRIES [
@@ -104563,7 +104564,7 @@ code = "NUPP5001" ,
 summary = "A running program cannot apply a change without a restart" ,
 rule = "Hot reload replaces a watched module's callable bodies in place, but cannot rebind top-level executable statements or initializers, add, remove, rename or move a named declaration, change a callable's signature or capture set, change a record, struct, native or component layout, or repatch a function that took ownership of a cleanup-bearing capture. Loaded FFI declarations, native libraries, and values already built from them are likewise fixed for the life of the process. Any such edit is rejected with NUPP5001 and the previous generation keeps running until the process restarts." ,
 related = { } ,
-docs = "docs/guides/hot-reload.md#changes-that-require-restart" ,
+docs = "docs/learn/projects/hot-reload.md#changes-that-require-restart" ,
 }
 
 local byCode = { }
@@ -143133,7 +143134,7 @@ Parameter packs must differ, because return types cannot select an entry.
 `@override` replaces the exact matching interface-default entry and leaves other
 overloads inherited.
 
-See [overloads.md](docs/type-system/overloads.md) for worked method bodies,
+See [overloads.md](docs/learn/language/types/overloads.md) for worked method bodies,
 interface contracts, per-entry defaults, generics, constructors, ambiguity, and
 dynamic facades.
 ]=] ,  example =
@@ -143906,8 +143907,8 @@ an old alias can never select a later resource. `nupp.ManagedGroup` implements
 runtime-sized heterogeneous custody as ordinary library code over aliases.
 `nupp.mem.heap.Array<T>` remains the typed homogeneous owning container.
 
-See [ownership.md](docs/type-system/ownership.md) for the complete contract
-reference, and [affine-types.md](docs/type-system/affine-types.md) for the
+See [ownership.md](docs/learn/runtime/ownership/borrowing.md) for the complete contract
+reference, and [affine-types.md](docs/learn/runtime/ownership/affine-types.md) for the
 model.
 ]=] ,  example =
 [=[
@@ -144266,7 +144267,7 @@ their zero strides alias.
 A pointer-free parser builds an ordinary Lua value through
 `nupp.data.valuebuilder`, either by materializing one bounds-checked node and
 link blob in a single C traversal or by driving its iterative stream. See
-[ahead-of-time.md](docs/guides/ahead-of-time.md#building-ordinary-lua-values)
+[lua-values.md](docs/learn/performance/ahead-of-time/lua-values.md)
 for those operations and their limits.
 ]=] ,  example =
 [=[
@@ -144547,7 +144548,7 @@ are concurrency and not CPU parallelism. Cores are `nupp.workers`.
 A closure that captures an owner directly cannot be stored, so a body that
 shares one client calls a function holding it rather than closing over it.
 
-See [suspension.md](docs/concepts/suspension.md) for the handler contract,
+See [suspension.md](docs/learn/runtime/concurrency/suspension.md) for the handler contract,
 cancellation, and the protocol a waiting library subscribes through.
 ]=] ,  example =
 [=[
@@ -144674,7 +144675,7 @@ locals are reconstructed when the declared module loads in that lane.
 
 `nupp.workers` is what asks for this today. Its source form puts the callable
 last: `scope:spawn(arguments..., callable)`. See
-[workers.md](docs/concepts/workers.md).
+[workers.md](docs/learn/runtime/concurrency/workers.md).
 ]=] ,  context =
 {
 [
@@ -145025,7 +145026,7 @@ Reflection of a runtime value, an unresolved type, or a non-record codec input
 is `NUPP2418`. The ordinary materialization boundary, envelope, and size
 diagnostics remain `NUPP2414` through `NUPP2416`.
 
-See [reflection.md](docs/concepts/reflection.md) for runtime reflection and type
+See [reflection.md](docs/learn/language/reflection.md) for runtime reflection and type
 witnesses.
 ]=] ,  example =
 [=[
@@ -183516,6 +183517,7 @@ end
 
 
 
+
 ( profile . TraceReport ) . __tostring = serializeTraceReport ;
 
 ( profile . SampleReport ) . __tostring = function ( report ) 
@@ -202010,12 +202012,12 @@ local coroutine: {
 -- The base functions below say `nosuspend`: calling one cannot suspend the caller.
 --
 -- Two of them are a stated trust rather than a proof, in the same category as a
--- metamethod contract (`docs/concepts/metamethods.md`). `tostring` reaches `__tostring`
--- and `pairs` reaches `__pairs`, and on this baseline an ordinary metamethod may yield,
--- so a pathological one could. The trade is deliberate: without it a `table.sort`
--- comparator cannot call `tostring`, which is most comparators, and a check nobody can
--- leave on protects nothing. A metamethod that does yield still fails loudly, because
--- the C frame underneath raises.
+-- metamethod contract (`docs/learn/language/metamethods.md`). `tostring` reaches
+-- `__tostring` and `pairs` reaches `__pairs`, and on this baseline an ordinary
+-- metamethod may yield, so a pathological one could. The trade is deliberate: without
+-- it a `table.sort` comparator cannot call `tostring`, which is most comparators, and a
+-- check nobody can leave on protects nothing. A metamethod that does yield still fails
+-- loudly, because the C frame underneath raises.
 
 --- LuaJIT's BitOp library, which is also the semantics behind the `&`, `|`, `~`, `<<`,
 --- `>>` and `~>>` operators: arguments are normalized to 32-bit integers and results
@@ -202492,8 +202494,8 @@ local nupp: {
     ---
     --- The `int8`, `int16`, `uint8`, and `uint16` names describe physical storage
     --- rather than ordinary values. See
-    --- [Numbers](docs/type-system/primitives.md#numbers) for the positions they are
-    --- allowed in and how a load behaves.
+    --- [Numbers](docs/learn/language/types/primitives.md#numbers) for the positions
+    --- they are allowed in and how a load behaves.
     ---
     --- ## Two-dimensional vectors
     ---
@@ -203296,7 +203298,7 @@ end
 
 --- `nupp.peg` compiles textual parsing-expression grammars into reusable typed
 --- matchers. The same grammar language works inside
---- [`comptime`](docs/concepts/comptime.md) and at runtime.
+--- [`comptime`](docs/learn/language/comptime.md) and at runtime.
 ---
 --- ```nupp:playground
 --- const Identifier = comptime do
@@ -203883,7 +203885,7 @@ end
 --- :::
 ---
 --- ::: seealso
---- - [comptime.md](docs/concepts/comptime.md) for what a `comptime do` block may
+--- - [comptime.md](docs/learn/language/comptime.md) for what a `comptime do` block may
 ---   compute and how its result reaches the program
 --- - [diagnostics.md](docs/reference/diagnostics.md#diagnostic-index) for the codes
 ---   a rejected grammar reports
@@ -206057,7 +206059,7 @@ takes its descriptor with it. The descriptor a program sees is an empty table wh
 metatable reads through to that state, which is how it stays immutable without any
 field on it to write over.
 
-See [reflection.md](docs/concepts/reflection.md) for what a program does with a descriptor.
+See [reflection.md](docs/learn/language/reflection.md) for what a program does with a descriptor.
 ]]
 
 local reflectruntime = {}
@@ -206933,7 +206935,7 @@ module nupp.data
 --[[
 Bytes become values and values become bytes: `nupp.data` holds serialization,
 Unicode, identifiers, byte digests and bitsets. Reach it from the global [`nupp`
-namespace](docs/concepts/standard-library.md), which is where the C and Rust
+namespace](docs/learn/runtime/data/standard-library.md), which is where the C and Rust
 providers behind it stay hidden.
 
 ```nupp
@@ -206987,7 +206989,7 @@ computes the population on demand.
 
 Which functions are native is not part of the contract. The build selects the
 UUID provider only when generated code reaches that exact member. See
-[Compiler-native features](docs/guides/build.md#compiler-native-features) for
+[Compiler-native features](docs/learn/projects/build.md#compiler-native-features) for
 how feature selection works and how to override it.
 
 SHA-256 used to be one of them and is not any more. It is
@@ -207889,7 +207891,7 @@ than answered by the codec, so each raises when nothing derived JSON for the
 type it was handed.
 
 ::: seealso
-- [reflection.md](docs/concepts/reflection.md#json-through-a-type-witness) for
+- [reflection.md](docs/learn/language/reflection.md#json-through-a-type-witness) for
   the derived schema and the generated `writeJSON` and `fromJSON` members
 - [derives.md](docs/reference/derives.md#json) for what `nupp.derive.JSON` adds
   to a declaration
@@ -212583,7 +212585,7 @@ boundary an AOT builder may cross, and it stays a narrow one: no `lua_State`, no
 stack index, no collector object appears in any signature here. Outside `@aot`
 the module still works and still answers the same, but it buys nothing over
 writing the tables directly. See
-[ahead-of-time.md](docs/guides/ahead-of-time.md) for what the generated code
+[ahead-of-time.md](docs/learn/performance/ahead-of-time/index.md) for what the generated code
 is allowed to do.
 
 Two shapes are offered, and a parser picks one.
@@ -213870,7 +213872,7 @@ Both halves of the standard derives: the comptime providers that decide what a
 derived member is, and the runtime that member calls.
 
 See [derives.md](docs/reference/derives.md) for what each standard derive writes, and
-[reflection.md](docs/concepts/reflection.md) for the descriptors the JSON codec is memoized
+[reflection.md](docs/learn/language/reflection.md) for the descriptors the JSON codec is memoized
 against.
 ]]
 
@@ -215585,7 +215587,7 @@ the name between the answer and the use. `directory` selects where, defaulting
 to the platform's temporary directory; `prefix` and `suffix` bracket the
 generated part, which is what puts an extension on a temporary file.
 
-A temporary is an [owner](docs/concepts/ownership.md): closing it removes
+A temporary is an [owner](docs/learn/runtime/ownership/index.md): closing it removes
 what it created, and the checker runs that cleanup at the end of the scope
 whether the block falls through, returns early, or raises.
 
@@ -215704,7 +215706,7 @@ answers it now. Anything that moves a whole file's bytes is submitted to the
 native library's worker lane and waited for, so a program inside a scheduler
 yields instead of blocking its host. Making both suspend would tax every `stat`
 for a wait that never happens; making neither suspend would block a host on a
-transfer it cannot see. See [suspension.md](docs/concepts/suspension.md)
+transfer it cannot see. See [suspension.md](docs/learn/runtime/concurrency/suspension.md)
 for how one call takes either path.
 :::
 
@@ -215726,7 +215728,7 @@ Reaching `nupp.io.files` selects the compiler-owned C provider, whose filesystem
 operations and worker lane are backed by libuv, and loads it on first use. A
 program that never reaches it links nothing and initializes nothing, which is
 the rule for every facility in the [standard
-library](docs/concepts/standard-library.md). A target that uses it also carries
+library](docs/learn/runtime/data/standard-library.md). A target that uses it also carries
 the suspension runtime, because that is what answers the wait above.
 
 The lane those workers run is bounded three ways: how many transfers may be
@@ -215742,9 +215744,9 @@ Scheduling a transfer costs more than those cost to run.
 - [](nupp.io.path) for building and taking apart the names these operations
   read
 - [](nupp.io) for the buffers, readers and writers a file's bytes move through
-- [ownership.md](docs/type-system/ownership.md) for the complete contract an
+- [ownership.md](docs/learn/runtime/ownership/borrowing.md) for the complete contract an
   open file and a temporary path are written against
-- [suspension.md](docs/concepts/suspension.md) for what a wait does under a
+- [suspension.md](docs/learn/runtime/concurrency/suspension.md) for what a wait does under a
   scheduler, and how several compose
 :::
 ]]
@@ -217210,7 +217212,7 @@ response:close()
 client:close()
 ```
 
-Calls suspend through [`nupp.suspension`](docs/concepts/suspension.md): a CLI
+Calls suspend through [`nupp.suspension`](docs/learn/runtime/concurrency/suspension.md): a CLI
 blocks on the provider's condvar, while a scheduler or SDL host only drives the
 nonblocking source. See [0005-suspension.md](docs/neps/0005-suspension.md) for
 why waiting is a suspension rather than a block.
@@ -217267,9 +217269,9 @@ its lexical boundary unless it is transferred. Closing a request also closes a
 reader body transferred into it.
 
 ::: seealso
-- [ownership.md](docs/type-system/ownership.md) for the complete contract
+- [ownership.md](docs/learn/runtime/ownership/borrowing.md) for the complete contract
   reference
-- [suspension.md](docs/concepts/suspension.md) for what a wait does under a
+- [suspension.md](docs/learn/runtime/concurrency/suspension.md) for what a wait does under a
   handler
 - [](nupp.io.uri) for the URI values a request is addressed with
 :::
@@ -219256,7 +219258,7 @@ assert(bytes:getString() == "hello!")
 
 Buffer offsets are zero-based, as they are wherever a count is an offset into
 storage rather than a position in a Lua string. See [Byte
-positions](docs/concepts/standard-library.md#byte-positions) for the rule and
+positions](docs/learn/runtime/data/standard-library.md#byte-positions) for the rule and
 where the other convention applies.
 
 `getString(offset, count)` copies a range. `setString` overwrites from an
@@ -219463,9 +219465,9 @@ empty leaves an empty queue rather than a released one.
 ::: seealso
 - [](nupp.io.files) for the same contracts over a file on disk
 - [](nupp.io.path) for filesystem names rather than file contents
-- [ownership.md](docs/type-system/ownership.md) for the complete contract every
+- [ownership.md](docs/learn/runtime/ownership/borrowing.md) for the complete contract every
   value here is written against
-- [standard-library.md](docs/concepts/standard-library.md) for the errors,
+- [standard-library.md](docs/learn/runtime/data/standard-library.md) for the errors,
   ownership and byte-position conventions every facility shares
 :::
 ]]
@@ -221257,7 +221259,7 @@ it has one. A read answers bytes, suspends while none have arrived, or answers
 empty because the peer closed its sending half; empty is only ever the end.
 
 A listener and a connection are owners. See
-[ownership.md](docs/type-system/ownership.md) for the contract they are handed
+[ownership.md](docs/learn/runtime/ownership/borrowing.md) for the contract they are handed
 out under.
 ]]
 
@@ -223002,7 +223004,7 @@ normalization while an AOT-off build retains its allocation-light scalar body.
 Only current-directory and canonical-path queries cross a three-function host
 provider, because those answers are environment state rather than path
 arithmetic. `nupp.io.uri` is separated from `nupp.io` for the same reason. See [Compiler-native
-features](docs/guides/build.md#compiler-native-features) for how a reached
+features](docs/learn/projects/build.md#compiler-native-features) for how a reached
 module selects the feature it needs.
 :::
 
@@ -224212,7 +224214,7 @@ child:close()
 ```
 
 A child and its streams are owners. See
-[ownership.md](docs/type-system/ownership.md) for the contract they are handed
+[ownership.md](docs/learn/runtime/ownership/borrowing.md) for the contract they are handed
 out under, and [0005-suspension.md](docs/neps/0005-suspension.md) for why
 waiting is a suspension rather than a block.
 ]]
@@ -227581,7 +227583,7 @@ through 65535. Every field is URI text rather than a filesystem name.
 ::: seealso
 - [](nupp.io.path) for filesystem names, where the platform's separators and
   `..` rules apply instead
-- [standard-library.md](docs/concepts/standard-library.md) for how reaching a
+- [standard-library.md](docs/learn/runtime/data/standard-library.md) for how reaching a
   module selects the provider behind it
 :::
 ]]
@@ -228378,7 +228380,7 @@ compiler-provided facility. A module that never logs carries nothing.
 ::: seealso
 - [diagnostics.md](docs/reference/diagnostics.md#diagnostic-index) for the
   codes a mistyped format string reports
-- [standard-library.md](docs/concepts/standard-library.md) for how a facility
+- [standard-library.md](docs/learn/runtime/data/standard-library.md) for how a facility
   reaches a program without being linked into one that never uses it
 :::
 ]]
@@ -228838,8 +228840,8 @@ A nonescaping `read` or `write` can remain virtual, so no span wrapper is
 allocated. An escape or an opaque call materializes the same checked span.
 :::
 
-See [c-interop.md](docs/concepts/c-interop.md#c-arrays) for how this sits beside
-`carray`, and [ownership.md](docs/type-system/ownership.md) for the borrow rules
+See [c-interop.md](docs/learn/runtime/c-interop/index.md#c-arrays) for how this sits beside
+`carray`, and [ownership.md](docs/learn/runtime/ownership/borrowing.md) for the borrow rules
 the views are written against.
 ]]
 
@@ -229081,7 +229083,7 @@ representation-neutral and reads the private count slot each bundled view
 implementation carries.
 
 See [](nupp.mem.span) for the views this validates, and
-[ownership.md](docs/type-system/ownership.md) for the borrow rules they are written against.
+[ownership.md](docs/learn/runtime/ownership/borrowing.md) for the borrow rules they are written against.
 ]]
 
 local indexed = {}
@@ -229199,8 +229201,8 @@ Nothing is re-exported here. A view knows its element count, and every index and
 slice is checked against it before the only unsafe pointer arithmetic in the
 standard library.
 
-See [c-interop.md](docs/concepts/c-interop.md) for what crossing the C boundary costs, and
-[ownership.md](docs/type-system/ownership.md) for the borrow rules the views are written
+See [c-interop.md](docs/learn/runtime/c-interop/index.md) for what crossing the C boundary costs, and
+[ownership.md](docs/learn/runtime/ownership/borrowing.md) for the borrow rules the views are written
 against.
 ]]
 ]=],
@@ -229534,7 +229536,7 @@ A nonescaping `read` or `write` can remain virtual, so no row-view wrapper is
 allocated. An escape or an opaque call materializes the same checked view.
 :::
 
-See [structure-of-arrays.md](docs/concepts/structure-of-arrays.md) for when this layout is the one to
+See [structure-of-arrays.md](docs/learn/runtime/data/structure-of-arrays.md) for when this layout is the one to
 reach for, and [0010-structure-of-arrays.md](docs/neps/0010-structure-of-arrays.md) for why the container
 rather than the declaration chooses it.
 ]]
@@ -230149,7 +230151,7 @@ module nupp.mem.span
 --[[
 `nupp.mem.span` gives a C array a rooted, one-based, bounds-checked view. A
 shared `Span<T>` reads contiguous elements; a writable span adds exclusive
-access and an [affine lifetime](docs/concepts/ownership.md), so the pointer
+access and an [affine lifetime](docs/learn/runtime/ownership/index.md), so the pointer
 cannot outlive or overlap its owner.
 
 ```nupp
@@ -230162,7 +230164,7 @@ assert(#bytes == 5)
 
 Use spans at checked boundaries. Direct indexing through a pointer or
 variable-length C array remains an [`unsafe`
-operation](docs/concepts/ownership.md#unsafe-representation-boundaries).
+operation](docs/learn/runtime/ownership/index.md#unsafe-representation-boundaries).
 
 `Span<T>` is a sealed contract over a private implementation that keeps an
 element count beside a rooted pointer, so public code can neither forge one nor
@@ -230276,7 +230278,7 @@ overlap.
 
 `indexed.range(first, last, ...)` checks one inclusive range against every
 trusted Span or [SoA
-view](docs/concepts/structure-of-arrays.md) and answers a record whose
+view](docs/learn/runtime/data/structure-of-arrays.md) and answers a record whose
 `first` and `last` are ordinary integers:
 
 ```nupp
@@ -230315,7 +230317,7 @@ range check proves matching indexed reads and writes non-raising inside
 the dominated numeric loop. This proof is part of checking at every optimization
 level: it is what permits those calls inside `noraise` code.
 
-See [`OPT-6`](docs/guides/performance.md#opt-6-indexed-views) for how that
+See [`OPT-6`](docs/learn/performance/index.md#opt-6-indexed-views) for how that
 proof is spent at `-O1`, as direct FFI element access and virtual slices that
 allocate no wrapper.
 
@@ -230327,16 +230329,16 @@ access and return `T[?]`. The returned pointer borrows the span, so it cannot
 escape independently.
 
 A declarative C binding can use
-[`countedBy(count)`](docs/concepts/c-interop.md#counted-pointer-adapters)
+[`countedBy(count)`](docs/learn/runtime/c-interop/index.md#counted-pointer-adapters)
 instead. Its checked call surface accepts spans, verifies shared counts, and
 projects the physical pointer and count arguments automatically.
 
 ::: seealso
-- [ownership.md](docs/concepts/ownership.md) for what makes a writable span
+- [ownership.md](docs/learn/runtime/ownership/index.md) for what makes a writable span
   affine and when its access ends
-- [exact-affine-scopes.md](docs/concepts/exact-affine-scopes.md) for the scopes
+- [exact-affine-scopes.md](docs/learn/runtime/ownership/exact-scopes.md) for the scopes
   that end a writable span, including the `with` block
-- [c-interop.md](docs/concepts/c-interop.md) for the boundary `ref` and
+- [c-interop.md](docs/learn/runtime/c-interop/index.md) for the boundary `ref` and
   `countedBy` sit on
 :::
 ]]
@@ -231411,8 +231413,8 @@ table write at every interval; a trace session pays a callback at every abort,
 inside the compiler. Stop a session once the question it was opened for has an
 answer.
 
-See [profiling.md](docs/guides/profiling.md) for reading a report, and
-[jit-trace-checking.md](docs/guides/jit-trace-checking.md) for finding the same aborts without running
+See [profiling.md](docs/learn/performance/profiling.md) for reading a report, and
+[jit-trace-checking.md](docs/learn/performance/jit-trace-checking.md) for finding the same aborts without running
 the program.
 ]]
 
@@ -232146,7 +232148,8 @@ end
 
 -- A record's namespace table is the metatable its instances are stamped with, so
 -- installing a declared contract is an ordinary assignment to it. The cast is because
--- the contract is not a field: see [metamethods.md](docs/concepts/metamethods.md).
+-- the contract is not a field: see
+-- [metamethods.md](docs/learn/language/metamethods.md).
 (profile.TraceReport as {[string]: any}).__tostring = serializeTraceReport;
 
 (profile.SampleReport as {[string]: any}).__tostring = function(report: profile.SampleReport): string
@@ -232343,7 +232346,7 @@ local reason = trace.forOpcode("FNEW")
 print(reason.id, reason.repair)
 ```
 
-See [jit-trace-checking.md](docs/guides/jit-trace-checking.md) for the static side of this, and
+See [jit-trace-checking.md](docs/learn/performance/jit-trace-checking.md) for the static side of this, and
 [](nupp.profile) for the collector that reports the runtime side.
 ]]
 
@@ -232647,7 +232650,7 @@ discarded. The same call a hot path would otherwise pay for is what the note
 above is about. The fields exist for that generated code to reach; every other
 call site, and every function below, still goes through the ordinary API.
 
-See [profiling.md](docs/guides/profiling.md) for what a zone path does to a report, and
+See [profiling.md](docs/learn/performance/profiling.md) for what a zone path does to a report, and
 [](nupp.profile) for the sessions that read one.
 ]]
 
@@ -235571,7 +235574,7 @@ separate provider rather than a second transport under the native one:
   request costs one turn of that lane's event loop, so a checkpoint belongs at a
   granularity the loop chooses rather than on every iteration of a tight one.
 
-See [](docs/concepts/workers.md) for the shared surface and NEP 18 for why
+See [](docs/learn/runtime/concurrency/workers.md) for the shared surface and NEP 18 for why
 worker tasks are structured this way.
 ]]
 
@@ -242386,7 +242389,7 @@ runtime value could exist, so nothing here is ever boxed. A target built with
 that would have to manufacture a vector, and reaching one of these functions at
 run time raises for the same reason.
 
-See [ahead-of-time.md](docs/guides/ahead-of-time.md) for what an `@aot` boundary admits, and
+See [ahead-of-time.md](docs/learn/performance/ahead-of-time/index.md) for what an `@aot` boundary admits, and
 [0011-simd.md](docs/neps/0011-simd.md) for why the vocabulary is shaped this way.
 ]]
 
@@ -242717,7 +242720,7 @@ local function waitUntil(ready: function(): boolean): nil
 end
 ```
 
-See [suspension.md](docs/concepts/suspension.md) for what a caller writes, and
+See [suspension.md](docs/learn/runtime/concurrency/suspension.md) for what a caller writes, and
 [0005-suspension.md](docs/neps/0005-suspension.md) for why waiting is an
 operation rather than a second API.
 ]]
@@ -247104,7 +247107,7 @@ print(time.now() - started)
 ```
 
 ::: note See also
-* [Suspension handlers](docs/concepts/suspension.md) can be used to cooperatively
+* [Suspension handlers](docs/learn/runtime/concurrency/suspension.md) can be used to cooperatively
   park a coroutine while waiting for a deadline.
 * A [](nupp.runtime.seam.time) backend seam can be installed to use a custom clock source.
 :::

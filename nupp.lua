@@ -447,7 +447,6 @@ return {
                path = "reference/diagnostics",
                title = "Diagnostics",
                source = "docs/reference/diagnostics.md",
-               redirects = { "reference/diagnostic-index" },
             },
             -- The LuaJIT surface on one page, read from the declarations the
             -- checker itself loads. The prelude is public API written in a
@@ -462,9 +461,8 @@ return {
             -- The site is the docs tree: a page is published by being written
             -- to `docs/`, at the route its path gives, under the title its
             -- heading gives. What a path cannot say, a page says in its own
-            -- front matter -- `order` places it, `title` renames it in
-            -- navigation, `redirects` carries the routes it used to answer at
-            -- -- so nothing here repeats a directory listing back at itself.
+            -- front matter, so nothing here repeats a directory listing back
+            -- at itself.
             --
             -- The style guide is written for whoever writes the docs rather
             -- than for whoever reads them, so it is the one file in the tree
@@ -490,14 +488,9 @@ return {
                   title = "nupp.derive",
                   source = "docs/reference/derives.md",
                },
-               -- `nupp.io.path` answered at a handwritten route before it was
-               -- filed under the module, and that address is not this site's
-               -- to stop answering. A module page has no file of its own to
-               -- carry the redirect in front matter.
                {
                   path = "modules/nupp/io/path",
                   title = "nupp.io.path",
-                  redirects = { "concepts/paths-and-uris" },
                },
             },
          },

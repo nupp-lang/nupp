@@ -26,7 +26,7 @@ runtime value could exist, so nothing here is ever boxed. A target built with
 that would have to manufacture a vector, and reaching one of these functions at
 run time raises for the same reason.
 
-See [ahead-of-time.md](docs/guides/ahead-of-time.md) for what an `@aot` boundary admits, and
+See [ahead-of-time.md](docs/learn/performance/ahead-of-time/index.md) for what an `@aot` boundary admits, and
 [0011-simd.md](docs/neps/0011-simd.md) for why the vocabulary is shaped this way.
 ]]
 

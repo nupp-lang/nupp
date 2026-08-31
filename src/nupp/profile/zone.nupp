@@ -35,7 +35,7 @@ discarded. The same call a hot path would otherwise pay for is what the note
 above is about. The fields exist for that generated code to reach; every other
 call site, and every function below, still goes through the ordinary API.
 
-See [profiling.md](docs/guides/profiling.md) for what a zone path does to a report, and
+See [profiling.md](docs/learn/performance/profiling.md) for what a zone path does to a report, and
 [](nupp.profile) for the sessions that read one.
 ]]
 

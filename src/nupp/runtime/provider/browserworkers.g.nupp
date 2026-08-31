@@ -27,7 +27,7 @@ separate provider rather than a second transport under the native one:
   request costs one turn of that lane's event loop, so a checkpoint belongs at a
   granularity the loop chooses rather than on every iteration of a tight one.
 
-See [](docs/concepts/workers.md) for the shared surface and NEP 18 for why
+See [](docs/learn/runtime/concurrency/workers.md) for the shared surface and NEP 18 for why
 worker tasks are structured this way.
 ]]
 

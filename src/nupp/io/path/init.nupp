@@ -23,7 +23,7 @@ normalization while an AOT-off build retains its allocation-light scalar body.
 Only current-directory and canonical-path queries cross a three-function host
 provider, because those answers are environment state rather than path
 arithmetic. `nupp.io.uri` is separated from `nupp.io` for the same reason. See [Compiler-native
-features](docs/guides/build.md#compiler-native-features) for how a reached
+features](docs/learn/projects/build.md#compiler-native-features) for how a reached
 module selects the feature it needs.
 :::
 

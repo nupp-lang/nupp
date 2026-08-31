@@ -36,8 +36,8 @@ specifies the contracts and may ship thin adapters for common modules, but it
 does not acquire a second pure-Lua implementation of every library facility.
 
 ::: seealso
-- [syntax.md](../concepts/syntax.md) for what generated Lua requires today
-- [records.md](../type-system/records.md) for the `struct` contract a backend
+- [syntax.md](../learn/language/syntax.md) for what generated Lua requires today
+- [records.md](../learn/language/types/records-and-structs.md) for the `struct` contract a backend
   has to satisfy
 - [NEP 14](0014-lua-in-wasm-aot.md) for the hybrid portable-Lua and AOT host
 :::
@@ -84,7 +84,7 @@ does not acquire a second pure-Lua implementation of every library facility.
 
 Generated code targets LuaJIT 2.1.1784535649 or newer, and `nupp` checks for it
 rather than letting a run fail on a line nobody wrote. See [required LuaJIT
-build](../concepts/syntax.md#required-luajit-build).
+build](../learn/language/syntax.md#required-luajit-build).
 
 That floor makes a Nupp library consumable by Nupp, not publishable to a
 project on stock 5.1, on 5.4, or inside a browser interpreter, which together
@@ -93,7 +93,7 @@ writes the library twice.
 
 ### Erasure already reaches most of the way
 
-[Stock Lua 5.1](../concepts/syntax.md#stock-lua-51) enumerates the three things
+[Stock Lua 5.1](../learn/language/syntax.md#stock-lua-51) enumerates the three things
 that stop generated code from running there: a passed-through extension is a
 5.1 parse error, `require("ffi")` is injected for any struct or `cdef`, and
 `require("table.new")` is injected when that builtin is used. It closes by
@@ -108,7 +108,7 @@ program against that decision, and records the answer.
 
 `JSON_FALLBACK` in `src/nupp/compiler/stdlib.nupp` is a pure-Lua JSON
 implementation used by the stage-zero compiler, and
-[standard-library.md](../concepts/standard-library.md) already states that the
+[standard-library.md](../learn/runtime/data/standard-library.md) already states that the
 compiler selects each native implementation from the members checked source
 reaches.
 
@@ -195,7 +195,7 @@ and there is nothing to substitute, so there is no backend for them.
 and a `repeat ... until true` under `lua51`. The lowering also rewrites a
 `break` in that loop so the synthetic `repeat` cannot capture it. That costs
 what the deepdive under
-[required LuaJIT build](../concepts/syntax.md#required-luajit-build) declined to
+[required LuaJIT build](../learn/language/syntax.md#required-luajit-build) declined to
 pay: lowering an extension the runtime already has makes output slower than the
 Lua somebody would have written by hand. The reasoning holds for `luajit`,
 where the extension is present. It does not reach a dialect where the extension
@@ -297,7 +297,7 @@ operators and this module is never loaded, bound, or named in the output.
 
 `struct` already forbids the constructs a table could not carry: metamethod
 contracts, private fields, nested declarations, `{T}` fields, strings, function
-types and `number?`. See [choosing](../type-system/records.md#choosing). What
+types and `number?`. See [choosing](../learn/language/types/records-and-structs.md#choosing). What
 remains is a closed set of scalar, nested-struct and fixed-array fields, which
 is what the `structvalue` capability describes. The contract below describes
 their value behavior; it makes no C-layout promise:
@@ -377,7 +377,7 @@ change.
 
 A struct held in a Lua variable is a reference to its cdata, so mutating a
 field through a parameter is visible to the caller. See [value or
-reference](../type-system/records.md#value-or-reference). A table matches that.
+reference](../learn/language/types/records-and-structs.md#value-or-reference). A table matches that.
 
 Where the two diverge is assignment. `g.cells[0] = c` copies bytes through the
 FFI and aliases a table, and so does `a.inner = b.inner` between struct-typed
@@ -763,7 +763,7 @@ step does not compensate for a failure in an earlier one.
   cost lands on features that have nothing to do with portability.
 - **`referenceValued` assumes the divergences are enumerable.** By-value
   assignment and width truncation are the two found by reading
-  [records.md](../type-system/records.md). A third that nobody enumerated
+  [records.md](../learn/language/types/records-and-structs.md). A third that nobody enumerated
   becomes a silent difference, which is the failure this design exists to
   prevent.
 
@@ -771,7 +771,7 @@ step does not compensate for a failure in an earlier one.
 
 **A directory convention, where `foo.lua51.nupp` beside `foo.nupp` overrides
 it.** Rejected: adding a file would change what a build lowers to, and
-[standard-library.md](../concepts/standard-library.md) already refuses a shape
+[standard-library.md](../learn/runtime/data/standard-library.md) already refuses a shape
 whose answer depends on a load order the source does not show. A filename also
 cannot be checked against a contract, and the safety argument here is entirely
 that it is.
@@ -782,7 +782,7 @@ complete to run against. A `Backend` may contain a subset of the known seams so
 packages compose, but each `Seam` value is a complete contract.
 
 **Lower `struct` to a table automatically wherever the FFI is absent.**
-Rejected: the deepdive under [choosing](../type-system/records.md#choosing)
+Rejected: the deepdive under [choosing](../learn/language/types/records-and-structs.md#choosing)
 already says the record-or-struct decision is a declaration rather than an
 optimization, because a compiler picking for you would be choosing a memory
 representation from an annotation. A dialect that chose silently would do

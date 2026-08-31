@@ -13,8 +13,8 @@ part of the module's name, tightening a file is a rename that changes nothing
 requiring it.
 
 ::: seealso
-- [strictness.md](../concepts/strictness.md) for the floor as a reader meets it
-- [overview.md](../type-system/overview.md) for the type system it sits under
+- [strictness.md](../learn/language/gradual-typing.md) for the floor as a reader meets it
+- [overview.md](../learn/language/types/index.md) for the type system it sits under
 :::
 
 ## Goals

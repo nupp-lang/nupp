@@ -48,7 +48,7 @@ assert(bytes:getString() == "hello!")
 
 Buffer offsets are zero-based, as they are wherever a count is an offset into
 storage rather than a position in a Lua string. See [Byte
-positions](docs/concepts/standard-library.md#byte-positions) for the rule and
+positions](docs/learn/runtime/data/standard-library.md#byte-positions) for the rule and
 where the other convention applies.
 
 `getString(offset, count)` copies a range. `setString` overwrites from an
@@ -255,9 +255,9 @@ empty leaves an empty queue rather than a released one.
 ::: seealso
 - [](nupp.io.files) for the same contracts over a file on disk
 - [](nupp.io.path) for filesystem names rather than file contents
-- [ownership.md](docs/type-system/ownership.md) for the complete contract every
+- [ownership.md](docs/learn/runtime/ownership/borrowing.md) for the complete contract every
   value here is written against
-- [standard-library.md](docs/concepts/standard-library.md) for the errors,
+- [standard-library.md](docs/learn/runtime/data/standard-library.md) for the errors,
   ownership and byte-position conventions every facility shares
 :::
 ]]

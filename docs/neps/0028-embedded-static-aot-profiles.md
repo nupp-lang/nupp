@@ -47,7 +47,7 @@ platform.
 
 ### A component is not necessarily a file
 
-The [AOT guide](../guides/ahead-of-time.md) describes the file-based shared
+The [AOT guide](../learn/performance/ahead-of-time/index.md) describes the file-based shared
 library path. An engine commonly loads component bytes into a state it already
 owns. There is no source path to walk and no library for the operating system
 to map. Preserving that path would make filesystem discovery and dynamic loading
@@ -74,7 +74,7 @@ Some admitted AOT bodies construct fresh Lua strings and tables. Their native
 entry has the Lua C-module ABI: it receives `lua_State *` and registers Lua
 closures. A numeric kernel can be called through `ffi.C`, but a Lua builder
 cannot be invoked directly from Lua because generated FFI code never fabricates
-or discovers a `lua_State *`; see [AOT lowering](../guides/ahead-of-time.md).
+or discovers a `lua_State *`; see [AOT lowering](../learn/performance/ahead-of-time/index.md).
 
 Static linkage must therefore not disguise a C-module registrar as an FFI
 function. The engine, which owns the state, performs registration during
@@ -296,7 +296,7 @@ provide.
 
 - [NEP 8: C interop and embedding](0008-c-interop-and-embedding.md)
 - [NEP 9: Ahead-of-time compilation](0009-ahead-of-time-compilation.md)
-- [Ahead-of-time compilation](../guides/ahead-of-time.md)
-- [Embedding Nupp](../guides/embedding.md)
+- [Ahead-of-time compilation](../learn/performance/ahead-of-time/index.md)
+- [Embedding Nupp](../learn/projects/embedding.md)
 - [NEP 13: Dialects and capability backends](0013-dialects-and-capability-backends.md)
 :::

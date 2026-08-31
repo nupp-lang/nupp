@@ -18,7 +18,7 @@ it has one. A read answers bytes, suspends while none have arrived, or answers
 empty because the peer closed its sending half; empty is only ever the end.
 
 A listener and a connection are owners. See
-[ownership.md](docs/type-system/ownership.md) for the contract they are handed
+[ownership.md](docs/learn/runtime/ownership/borrowing.md) for the contract they are handed
 out under.
 ]]
 

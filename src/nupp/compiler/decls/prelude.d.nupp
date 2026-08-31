@@ -175,8 +175,8 @@ local nupp: {
     ---
     --- The `int8`, `int16`, `uint8`, and `uint16` names describe physical storage
     --- rather than ordinary values. See
-    --- [Numbers](docs/type-system/primitives.md#numbers) for the positions they are
-    --- allowed in and how a load behaves.
+    --- [Numbers](docs/learn/language/types/primitives.md#numbers) for the positions
+    --- they are allowed in and how a load behaves.
     ---
     --- ## Two-dimensional vectors
     ---
@@ -979,7 +979,7 @@ end
 
 --- `nupp.peg` compiles textual parsing-expression grammars into reusable typed
 --- matchers. The same grammar language works inside
---- [`comptime`](docs/concepts/comptime.md) and at runtime.
+--- [`comptime`](docs/learn/language/comptime.md) and at runtime.
 ---
 --- ```nupp:playground
 --- const Identifier = comptime do
@@ -1566,7 +1566,7 @@ end
 --- :::
 ---
 --- ::: seealso
---- - [comptime.md](docs/concepts/comptime.md) for what a `comptime do` block may
+--- - [comptime.md](docs/learn/language/comptime.md) for what a `comptime do` block may
 ---   compute and how its result reaches the program
 --- - [diagnostics.md](docs/reference/diagnostics.md#diagnostic-index) for the codes
 ---   a rejected grammar reports

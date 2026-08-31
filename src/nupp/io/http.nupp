@@ -18,7 +18,7 @@ response:close()
 client:close()
 ```
 
-Calls suspend through [`nupp.suspension`](docs/concepts/suspension.md): a CLI
+Calls suspend through [`nupp.suspension`](docs/learn/runtime/concurrency/suspension.md): a CLI
 blocks on the provider's condvar, while a scheduler or SDL host only drives the
 nonblocking source. See [0005-suspension.md](docs/neps/0005-suspension.md) for
 why waiting is a suspension rather than a block.
@@ -75,9 +75,9 @@ its lexical boundary unless it is transferred. Closing a request also closes a
 reader body transferred into it.
 
 ::: seealso
-- [ownership.md](docs/type-system/ownership.md) for the complete contract
+- [ownership.md](docs/learn/runtime/ownership/borrowing.md) for the complete contract
   reference
-- [suspension.md](docs/concepts/suspension.md) for what a wait does under a
+- [suspension.md](docs/learn/runtime/concurrency/suspension.md) for what a wait does under a
   handler
 - [](nupp.io.uri) for the URI values a request is addressed with
 :::

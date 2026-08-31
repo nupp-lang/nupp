@@ -70,7 +70,7 @@ appear when there is something to say:
 - `related`: labeled secondary ranges, including ranges in other files.
 - `fixes`: titled edit sets a tool can apply without reading the prose.
 - `notes`: context that points at no source, such as the trace classification a
-  [JIT trace check](../guides/jit-trace-checking.md) attaches to its finding.
+  [JIT trace check](../learn/performance/jit-trace-checking.md) attaches to its finding.
 - `lint`: the lint name, when the code names one.
 - `docs`: the reference section covering the code, as a path and an anchor.
 
@@ -122,7 +122,7 @@ Remarks are off unless `--remarks` is passed, and they come from `nupp build`
 and `nupp run` rather than `nupp check`, which does not optimize. The code is
 stable across a pass being renamed, split, or merged, so it can be cited in a
 bug report or passed to `-Zno-opt`. See the [performance
-guide](../guides/performance.md) for what each pass reports.
+guide](../learn/performance/index.md) for what each pass reports.
 
 ::: deepdive
 An optimizer is the one part of the compiler whose silence is ambiguous. A pass
@@ -145,44 +145,44 @@ that page:
 
 | Area | Page | Codes |
 | --- | --- | --- |
-| Affine types | [affine-types.md](../type-system/affine-types.md) | `NUPP2606` |
-| Ahead-of-time compilation | [ahead-of-time.md](../guides/ahead-of-time.md) | `NUPP2901`, `NUPP2902`, `NUPP2903` |
+| Affine types | [affine-types.md](../learn/runtime/ownership/affine-types.md) | `NUPP2606` |
+| Ahead-of-time compilation | [ahead-of-time.md](../learn/performance/ahead-of-time/index.md) | `NUPP2901`, `NUPP2902`, `NUPP2903` |
 | Annotations | [annotations.md](annotations.md) | `NUPP2108`, `NUPP2112`, `NUPP2113`, `NUPP2119`, `NUPP2707`, `NUPP2901`, `NUPP2902`, `NUPP2903` |
-| Associated types | [associated-types.md](../type-system/associated-types.md) | `NUPP2127`, `NUPP2128`, `NUPP2129`, `NUPP2134`, `NUPP2135`, `NUPP2511` |
-| C interop | [c-interop.md](../concepts/c-interop.md) | `NUPP2201`, `NUPP2402`, `NUPP2403` |
+| Associated types | [associated-types.md](../learn/language/types/associated-types.md) | `NUPP2127`, `NUPP2128`, `NUPP2129`, `NUPP2134`, `NUPP2135`, `NUPP2511` |
+| C interop | [c-interop.md](../learn/runtime/c-interop/index.md) | `NUPP2201`, `NUPP2402`, `NUPP2403` |
 | Checked spans | [](nupp.mem.span) | `NUPP2001`, `NUPP2004`, `NUPP2602`, `NUPP2604` |
-| Comptime | [comptime.md](../concepts/comptime.md) | `NUPP2410` through `NUPP2416`, `NUPP2419`, `NUPP2420`, `NUPP2421` |
-| Comptime types | [type-level-computation.md](../type-system/type-level-computation.md) | `NUPP2001` |
+| Comptime | [comptime.md](../learn/language/comptime.md) | `NUPP2410` through `NUPP2416`, `NUPP2419`, `NUPP2420`, `NUPP2421` |
+| Comptime types | [type-level-computation.md](../learn/language/types/comptime-types.md) | `NUPP2001` |
 | Derives | [derives.md](derives.md) | `NUPP2810` |
-| Effect contracts | [effects.md](../concepts/effects.md) | `NUPP2112`, `NUPP2710`, `NUPP2711` |
+| Effect contracts | [effects.md](../learn/language/effects.md) | `NUPP2112`, `NUPP2710`, `NUPP2711` |
 | Files | [](nupp.io.files) | `NUPP2701` |
-| Formatter | [fmt.md](../guides/fmt.md) | `NUPP4001` |
-| Generics | [generics.md](../type-system/generics.md) | `NUPP2003`, `NUPP2116`, `NUPP2122` |
-| Gradual typing | [strictness.md](../concepts/strictness.md) | `NUPP1006`, `NUPP1008`, `NUPP2105`, `NUPP2106` |
-| Hot reload | [hot-reload.md](../guides/hot-reload.md) | `NUPP5001` |
-| Interfaces | [interfaces.md](../type-system/interfaces.md) | `NUPP2116`, `NUPP2117`, `NUPP2118`, `NUPP2136`, `NUPP3001` |
-| Intersections and overloads | [intersections.md](../type-system/intersections.md) | `NUPP2124`, `NUPP2125`, `NUPP2126`, `NUPP2208` |
+| Formatter | [fmt.md](../learn/tooling/formatter.md) | `NUPP4001` |
+| Generics | [generics.md](../learn/language/types/generics.md) | `NUPP2003`, `NUPP2116`, `NUPP2122` |
+| Gradual typing | [strictness.md](../learn/language/gradual-typing.md) | `NUPP1006`, `NUPP1008`, `NUPP2105`, `NUPP2106` |
+| Hot reload | [hot-reload.md](../learn/projects/hot-reload.md) | `NUPP5001` |
+| Interfaces | [interfaces.md](../learn/language/types/interfaces.md) | `NUPP2116`, `NUPP2117`, `NUPP2118`, `NUPP2136`, `NUPP3001` |
+| Intersections and overloads | [intersections.md](../learn/language/types/intersections.md) | `NUPP2124`, `NUPP2125`, `NUPP2126`, `NUPP2208` |
 | Lints | [lints.md](lints.md) | `NUPP2107`, `NUPP2120`, `NUPP2501`, `NUPP2502`, `NUPP2504` through `NUPP2515` |
 | Logging | [](nupp.log) | `NUPP2006` |
-| LuaJIT trace checking | [jit-trace-checking.md](../guides/jit-trace-checking.md) | `NUPP2502`, `NUPP2505`, `NUPP2514`, `NUPP2515`, `NUPP2707` |
+| LuaJIT trace checking | [jit-trace-checking.md](../learn/performance/jit-trace-checking.md) | `NUPP2502`, `NUPP2505`, `NUPP2514`, `NUPP2515`, `NUPP2707` |
 | Math | [](nupp.math) | `NUPP2011`, `NUPP2012` |
-| Metamethods | [metamethods.md](../concepts/metamethods.md) | `NUPP2003`, `NUPP2005`, `NUPP2006`, `NUPP2007`, `NUPP2116`, `NUPP2117`, `NUPP2118` |
-| Modules | [modules.md](../concepts/modules.md) | `NUPP1002`, `NUPP2004`, `NUPP2101`, `NUPP2105`, `NUPP2119` |
-| Named and plucked arguments | [calls.md](../concepts/calls.md) | `NUPP2004`, `NUPP2006`, `NUPP2125` |
-| Narrowing | [narrowing.md](../type-system/narrowing.md) | `NUPP2002`, `NUPP2109`, `NUPP2110` |
-| Overloads and overrides | [overloads.md](../type-system/overloads.md) | `NUPP2118`, `NUPP2125`, `NUPP2126`, `NUPP2208` |
-| Ownership | [ownership.md](../type-system/ownership.md) | `NUPP2601`, `NUPP2602`, `NUPP2603`, `NUPP2606` through `NUPP2615`, `NUPP2620` |
-| Primitive types | [primitives.md](../type-system/primitives.md) | `NUPP2001`, `NUPP2002`, `NUPP2004`, `NUPP2006`, `NUPP2106`, `NUPP2115` |
-| Property capabilities | [properties.md](../type-system/properties.md) | `NUPP2009`, `NUPP2118` |
-| Records and structs | [records.md](../type-system/records.md) | `NUPP2118`, `NUPP2201`, `NUPP2202`, `NUPP2204`, `NUPP2205` |
-| Reflection | [reflection.md](../concepts/reflection.md) | `NUPP2414`, `NUPP2415`, `NUPP2416`, `NUPP2418` |
-| Refinements | [refinements.md](../type-system/refinements.md) | `NUPP2122` |
-| Structure-of-arrays storage | [structure-of-arrays.md](../concepts/structure-of-arrays.md) | `NUPP2009`, `NUPP2403` |
-| Suspension | [suspension.md](../concepts/suspension.md) | `NUPP2603`, `NUPP2701`, `NUPP2702`, `NUPP2706` |
-| Switch expressions | [switch-expressions.md](../concepts/switch-expressions.md) | `NUPP2137` through `NUPP2142`, `NUPP3001` |
-| Type packs | [packs.md](../type-system/packs.md) | `NUPP2007`, `NUPP2010`, `NUPP2121`, `NUPP2605` |
-| Type system | [overview.md](../type-system/overview.md) | `NUPP2001`, `NUPP2004`, `NUPP2011`, `NUPP2012`, `NUPP2105`, `NUPP2106` |
-| Unions | [unions.md](../type-system/unions.md) | `NUPP2001`, `NUPP2107`, `NUPP2138`, `NUPP2139`, `NUPP2140` |
+| Metamethods | [metamethods.md](../learn/language/metamethods.md) | `NUPP2003`, `NUPP2005`, `NUPP2006`, `NUPP2007`, `NUPP2116`, `NUPP2117`, `NUPP2118` |
+| Modules | [modules.md](../learn/language/modules.md) | `NUPP1002`, `NUPP2004`, `NUPP2101`, `NUPP2105`, `NUPP2119` |
+| Named and plucked arguments | [calls.md](../learn/language/named-arguments.md) | `NUPP2004`, `NUPP2006`, `NUPP2125` |
+| Narrowing | [narrowing.md](../learn/language/types/narrowing.md) | `NUPP2002`, `NUPP2109`, `NUPP2110` |
+| Overloads and overrides | [overloads.md](../learn/language/types/overloads.md) | `NUPP2118`, `NUPP2125`, `NUPP2126`, `NUPP2208` |
+| Ownership | [ownership.md](../learn/runtime/ownership/borrowing.md) | `NUPP2601`, `NUPP2602`, `NUPP2603`, `NUPP2606` through `NUPP2615`, `NUPP2620` |
+| Primitive types | [primitives.md](../learn/language/types/primitives.md) | `NUPP2001`, `NUPP2002`, `NUPP2004`, `NUPP2006`, `NUPP2106`, `NUPP2115` |
+| Property capabilities | [properties.md](../learn/language/types/properties.md) | `NUPP2009`, `NUPP2118` |
+| Records and structs | [records.md](../learn/language/types/records-and-structs.md) | `NUPP2118`, `NUPP2201`, `NUPP2202`, `NUPP2204`, `NUPP2205` |
+| Reflection | [reflection.md](../learn/language/reflection.md) | `NUPP2414`, `NUPP2415`, `NUPP2416`, `NUPP2418` |
+| Refinements | [refinements.md](../learn/language/types/refinements.md) | `NUPP2122` |
+| Structure-of-arrays storage | [structure-of-arrays.md](../learn/runtime/data/structure-of-arrays.md) | `NUPP2009`, `NUPP2403` |
+| Suspension | [suspension.md](../learn/runtime/concurrency/suspension.md) | `NUPP2603`, `NUPP2701`, `NUPP2702`, `NUPP2706` |
+| Switch expressions | [switch-expressions.md](../learn/language/switch-expressions.md) | `NUPP2137` through `NUPP2142`, `NUPP3001` |
+| Type packs | [packs.md](../learn/language/types/packs.md) | `NUPP2007`, `NUPP2010`, `NUPP2121`, `NUPP2605` |
+| Type system | [overview.md](../learn/language/types/index.md) | `NUPP2001`, `NUPP2004`, `NUPP2011`, `NUPP2012`, `NUPP2105`, `NUPP2106` |
+| Unions | [unions.md](../learn/language/types/unions.md) | `NUPP2001`, `NUPP2107`, `NUPP2138`, `NUPP2139`, `NUPP2140` |
 
 A code appears in several rows when several rules can report it. `NUPP2004` is
 one code for "that field is not there", and which page explains it depends on
@@ -298,5 +298,5 @@ the error standing and reports `NUPP2108` for the name. See
 
 ::: seealso
 - [cli.md](cli.md) for every command, its options, and its exit codes
-- [lsp.md](../guides/lsp.md) for the same diagnostics inside an editor
+- [lsp.md](../learn/tooling/language-server.md) for the same diagnostics inside an editor
 :::

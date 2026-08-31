@@ -18,7 +18,7 @@ end
 local M = {}
 
 function M.everyOverloadGuideExampleChecksAsDocumented()
-   local file = assert(io.open(ROOT .. "/docs/type-system/overloads.md", "rb"))
+   local file = assert(io.open(ROOT .. "/docs/learn/language/types/overloads.md", "rb"))
    local markdown = file:read("*a")
    file:close()
    markdown = markdown:gsub("\r\n?", "\n")

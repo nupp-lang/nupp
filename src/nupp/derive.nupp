@@ -5,7 +5,7 @@ Both halves of the standard derives: the comptime providers that decide what a
 derived member is, and the runtime that member calls.
 
 See [derives.md](docs/reference/derives.md) for what each standard derive writes, and
-[reflection.md](docs/concepts/reflection.md) for the descriptors the JSON codec is memoized
+[reflection.md](docs/learn/language/reflection.md) for the descriptors the JSON codec is memoized
 against.
 ]]
 

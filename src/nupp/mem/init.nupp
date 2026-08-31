@@ -14,7 +14,7 @@ Nothing is re-exported here. A view knows its element count, and every index and
 slice is checked against it before the only unsafe pointer arithmetic in the
 standard library.
 
-See [c-interop.md](docs/concepts/c-interop.md) for what crossing the C boundary costs, and
-[ownership.md](docs/type-system/ownership.md) for the borrow rules the views are written
+See [c-interop.md](docs/learn/runtime/c-interop/index.md) for what crossing the C boundary costs, and
+[ownership.md](docs/learn/runtime/ownership/borrowing.md) for the borrow rules the views are written
 against.
 ]]

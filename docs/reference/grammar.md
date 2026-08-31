@@ -26,7 +26,7 @@ and the typed layer takes nothing away from the untyped one.
 <<< @docs/grammar.abnf
 
 ::: seealso
-- [syntax.md](../concepts/syntax.md) for the same constructs with prose and
+- [syntax.md](../learn/language/syntax.md) for the same constructs with prose and
   worked examples
 - [annotations.md](annotations.md) for what each `@annotation` the grammar
   admits means

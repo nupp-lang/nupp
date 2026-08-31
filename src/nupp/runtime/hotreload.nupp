@@ -13,7 +13,7 @@ The state is process-wide so a host and generated modules may require this
 module through different loader paths without splitting the registry. Ordinary
 generated programs never require it.
 
-See [hot-reload.md](docs/guides/hot-reload.md) for what a watch build does with this, and
+See [hot-reload.md](docs/learn/projects/hot-reload.md) for what a watch build does with this, and
 [0006-hot-reload.md](docs/neps/0006-hot-reload.md) for why a patch is refused rather than applied
 partially.
 ]]

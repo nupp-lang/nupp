@@ -15,7 +15,7 @@ witness proves them, a second calling convention lets an admitted function build
 a Lua value graph natively, and an advisory analysis finds candidates without
 adding anything to the source.
 
-See [ahead-of-time.md](../guides/ahead-of-time.md) for the annotation and the
+See [ahead-of-time.md](../learn/performance/ahead-of-time/index.md) for the annotation and the
 build flags a project uses.
 
 ## Goals

@@ -18,7 +18,7 @@ boundary an AOT builder may cross, and it stays a narrow one: no `lua_State`, no
 stack index, no collector object appears in any signature here. Outside `@aot`
 the module still works and still answers the same, but it buys nothing over
 writing the tables directly. See
-[ahead-of-time.md](docs/guides/ahead-of-time.md) for what the generated code
+[ahead-of-time.md](docs/learn/performance/ahead-of-time/index.md) for what the generated code
 is allowed to do.
 
 Two shapes are offered, and a parser picks one.

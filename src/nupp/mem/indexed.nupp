@@ -22,7 +22,7 @@ representation-neutral and reads the private count slot each bundled view
 implementation carries.
 
 See [](nupp.mem.span) for the views this validates, and
-[ownership.md](docs/type-system/ownership.md) for the borrow rules they are written against.
+[ownership.md](docs/learn/runtime/ownership/borrowing.md) for the borrow rules they are written against.
 ]]
 
 local indexed = {}

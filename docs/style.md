@@ -212,11 +212,10 @@ that section, a question as a heading is a fact the page has not committed to
 yet. Stop at H5; reaching H6 usually means the page should split.
 
 **A page ends with `## FAQ`** when readers keep arriving with questions its own
-order cannot answer: a comparison against the thing they came from, a limit
-they expect to hit, a decision between two constructs the page introduced
-separately. Each entry is an H3 holding one complete question, ending in a
-question mark, answered in two or three sentences and a link. A concept page, a
-type-system page or a guide is where this earns its place. Do not invent
+order cannot answer: a limit they expect to hit or a decision between two
+constructs the page introduced separately. Each entry is an H3 holding one
+complete question, ending in a question mark, answered in two or three
+sentences and a link. A learning page is where this earns its place. Do not invent
 questions to fill a section: three real ones are a good FAQ and eight invented
 ones are padding.
 
@@ -309,12 +308,12 @@ Link generously. A page is a node, not a document.
 - Link the first mention of any concept that has a page of its own, then use the
   bare term afterward on that page.
 - Deep-link to the heading that answers the question, not the page top: `[rock
-  dependencies](guides/build.md#rock-dependencies)`.
+  dependencies](learn/projects/build.md#rock-dependencies)`.
 - One page owns each concept; the rest link to it and state only what they need.
   `concepts/ownership.md` states the annotations a caller writes and links
   `type-system/ownership.md` for the model.
 - Say what is on the other end, as in `See
-  [ownership.md](type-system/ownership.md) for the complete contract reference`.
+  [ownership.md](learn/runtime/ownership/borrowing.md) for the complete contract reference`.
   Never a bare "see here" or a naked URL.
 - **Send the reader; do not describe the destination.** A cross-reference is an
   instruction, so write it as one: "See [NEP 5](neps/0005-suspension.md) for
@@ -328,7 +327,7 @@ Link generously. A page is a node, not a document.
   [lints.md](reference/lints.md) say which code reports it. A code inside an
   example, as the comment on the line that reports it, is part of the example.
 - A link whose text is the file it points at, as
-  [ownership.md](type-system/ownership.md), renders as that page's title. Write
+  [ownership.md](learn/runtime/ownership/borrowing.md), renders as that page's title. Write
   the filename and let the site title it; write your own text only when the
   sentence needs a word the title does not give it.
 - Doc comments in `src/` link the same way. A `---` block that names a concept
@@ -363,7 +362,7 @@ table. A table with one row is a sentence.
 
 - **Scope, at the top of a page**, when a reader is likely to reach for a
   feature they do not need. The `@effects` note on
-  [effects.md](concepts/effects.md) is the model.
+  [effects.md](learn/language/effects.md) is the model.
 - **A trap**, where the obvious reading is wrong and the consequence is silent.
 
 Two per page is a lot. An admonition that restates the prose above it is
@@ -377,8 +376,8 @@ one link and what is on the other end of it.
 
 ```markdown
 ::: seealso
-- [ownership.md](type-system/ownership.md) for the complete contract reference
-- [c-interop.md](concepts/c-interop.md) for what a C boundary adds to it
+- [ownership.md](learn/runtime/ownership/borrowing.md) for the complete contract reference
+- [c-interop.md](learn/runtime/c-interop/index.md) for what a C boundary adds to it
 :::
 ```
 
@@ -440,16 +439,16 @@ the guarantee.
   and none of them is `argv[0]`" tells the reader a number before it says what
   is being counted. Write "The three platforms discover the executable path
   differently; none uses `argv[0]`" instead.
-- **No marketing.** "Powerful", "elegant", "blazing", "seamless" say nothing
-  checkable. The comparison that earns its place is a specific one: what Lua
-  gives you, what Nupp adds, what it costs.
-- **Credit the prior art plainly** when a comparison helps, as in "which is
-  the part Python's context managers and Java's try-with-resources do not
-  have", and never as a dunk.
-- **Own the limits in the same voice as the features.** "The model is
-  intentionally smaller than Rust's" is a sentence about design, not an
-  apology. Never apologize for the design, and never promise a future version
-  will fix it outside a roadmap link.
+- **No marketing.** "Powerful", "elegant", "blazing", and "seamless" say
+  nothing checkable. State what Nupp does, the condition that enables it, and
+  its cost.
+- **No product comparisons.** Describe Nupp's behavior and limits directly.
+  Name another tool only when it is an actual runtime, dependency, file format,
+  or supported integration in the feature being documented. Design records may
+  name alternatives because preserving that reasoning is their purpose.
+- **Own the limits in the same voice as the features.** State the unsupported
+  case and its consequence. Never apologize for the design, and never promise a
+  future version will fix it outside a roadmap link.
 - No emoji, no exclamation points, no rhetorical questions.
 
 ## Words
@@ -534,7 +533,7 @@ The rest is formatting, and none of it is negotiable per page:
   period is fine when the items form one sentence, as in the ownership
   guarantees list.
 - Relative links between pages, with the `.md` extension, as
-  [ownership.md](type-system/ownership.md) does.
+  [ownership.md](learn/runtime/ownership/borrowing.md) does.
 
 ## Checklist
 
