@@ -32,6 +32,42 @@ else
    }
 end
 
+-- The arenas `nupp.compiler.types` answers `==` out of, and the counters that
+-- number what it interns next. A restored graph that is in no arena is equal to
+-- nothing: the checker asks for `lit(string:#)` when it sees `select("#", ...)`
+-- and builds a second literal under a key the image never filled, so the two
+-- `'#'`s in one program are different objects. Every interned table therefore
+-- goes out with the arena and key it was interned under, and the reader puts it
+-- back there. See `nupp.compiler.preludecache`, which keeps the same contract
+-- for the native compiler's own prelude cache.
+local types = require("nupp.compiler.types")
+local identity = types.identity()
+
+-- Sorted, because the image is compared byte for byte and `pairs` is not an
+-- order. Bucket first, then key, and the first pair a table is found under wins
+-- when one table is interned twice.
+local buckets = {}
+for bucket in pairs(identity.arenas) do
+   buckets[#buckets + 1] = bucket
+end
+table.sort(buckets)
+local bucketKeys = {}
+local internedAt = {}
+for _, bucket in ipairs(buckets) do
+   local keys = {}
+   for key in pairs(identity.arenas[bucket]) do
+      keys[#keys + 1] = key
+   end
+   table.sort(keys)
+   bucketKeys[bucket] = keys
+   for _, key in ipairs(keys) do
+      local value = identity.arenas[bucket][key]
+      if type(value) == "table" and internedAt[value] == nil then
+         internedAt[value] = {bucket, key}
+      end
+   end
+end
+
 local ids = {}
 local tables = {}
 local pending = {}
@@ -106,6 +142,16 @@ for _, name in ipairs({
    identify(roots[name], name)
 end
 
+-- And from the arenas, not only from the roots. Checking the prelude interns
+-- types that nothing in its seven roots reaches, and reachability is the wrong
+-- question about them: an interned type is one the checker will later look for
+-- by key, and a key that finds nothing becomes a second type built under it.
+for _, bucket in ipairs(buckets) do
+   for _, key in ipairs(bucketKeys[bucket]) do
+      identify(identity.arenas[bucket][key], "arena " .. bucket .. " " .. key)
+   end
+end
+
 local at = 1
 while at <= #pending do
    local owner = pending[at]
@@ -150,7 +196,28 @@ local function writeValue(value)
    end
 end
 
-assert(file:write("NUPP-PRELUDE-1\n", tostring(#tables), "\n"))
+-- The interning header comes before the bodies, because the reader has to know
+-- which tables are already live in its own arenas before it starts filling any
+-- of them in: what is already there is left exactly as it stands.
+local internedAs = {}
+for id, value in ipairs(tables) do
+   if internedAt[value] then
+      internedAs[#internedAs + 1] = {id = id, where = internedAt[value]}
+   end
+end
+
+assert(file:write("NUPP-PRELUDE-2\n", tostring(#tables), "\n"))
+assert(file:write(tostring(#internedAs), "\n"))
+for _, entry in ipairs(internedAs) do
+   assert(file:write(tostring(entry.id), "\n"))
+   writeValue(entry.where[1])
+   writeValue(entry.where[2])
+end
+assert(file:write(
+   tostring(identity.serial), "\n",
+   tostring(identity.capability), "\n",
+   tostring(identity.nominal), "\n"
+))
 for id, value in ipairs(tables) do
    local members = entries(value)
    assert(file:write(tostring(#members), "\n"))

@@ -8,8 +8,18 @@ Hydrates the portable compiler's checked prelude graph.
 The image is data generated from the ordinary declaration checker. This module is the
 only implementation of its format: the generated resource contains no Lua source or
 executable fallback.
+
+Restoring the graph means restoring its identity. The checker compares types with `==`
+and answers from the arenas `nupp.compiler.types` keeps, so a type put back as an
+anonymous copy is equal to nothing: the checker asks for `lit(string:#)` when it reads
+`select("#", ...)`, finds a key the image never filled, and builds a second literal --
+two different objects for a type that is meant to be one. Every interned table is
+therefore written down with its arena and key and put back there, along with the counters
+that number what comes next. `nupp.compiler.preludecache` keeps the same contract for the
+native compiler's own prelude cache.
 ]]
 
+local T = require("nupp.compiler.types")
 local bundled = require("nupp.compiler.bundled")
 local image = {schema = 1,}
 
@@ -34,12 +44,9 @@ function image.new(): any
         return value
     end
 
-    assert(line() == "NUPP-PRELUDE-1", "portable prelude image has an unsupported format")
-    local tableCount = assert(tonumber(line()), "portable prelude image has no table count")
+    assert(line() == "NUPP-PRELUDE-2", "portable prelude image has an unsupported format")
+    local tableCount = assert(tonumber(line()), "portable prelude image has no table count") as integer
     local tables = {}
-    for index = 1, tableCount do
-        tables[index] = {}
-    end
 
     local function value(): any
         local tag = data:sub(cursor, cursor)
@@ -74,20 +81,68 @@ function image.new(): any
         error("portable prelude image has an unknown value tag", 0)
     end
 
+    -- Which arena each interned table belongs in, read before any body is: whether
+    -- an id names a table of this image's own or one the process already has
+    -- decides what filling it in would mean.
+    local internedAs: {[integer]: {string}} = {}
+    local internedCount = assert(tonumber(line()), "portable prelude image has no interned count") as integer
+    for _ = 1, internedCount do
+        local id = assert(tonumber(line()), "portable prelude image has an invalid interned id") as integer
+        local bucket: any = value()
+        local key: any = value()
+        assert(type(bucket) == "string" and type(key) == "string", "portable prelude image has an invalid interned key")
+        internedAs[id] = {bucket as string, key as string}
+    end
+    local identity = {
+        serial = assert(tonumber(line()), "portable prelude image has no serial counter"),
+        capability = assert(tonumber(line()), "portable prelude image has no capability counter"),
+        nominal = assert(tonumber(line()), "portable prelude image has no nominal counter"),
+    }
+
+    -- A key this process already interned answers with the type it is already
+    -- using, and that type is left exactly as it stands. Writing the image's
+    -- members onto it would be a rewiring rather than a refresh: every reference
+    -- already pointing at it would come away pointing into this graph's copies of
+    -- everything that is not interned.
+    local mine: {[integer]: boolean} = {}
+    local adopting: {integer} = {}
+    for index = 1, tableCount do
+        local where = internedAs[index]
+        local live = where ~= nil and T.interned(where[1], where[2]) or nil
+        if where ~= nil and live == nil then
+            adopting[#adopting + 1] = index
+        end
+        tables[index] = live or {}
+        mine[index] = live == nil
+    end
+
     local metatables = {}
     for index = 1, tableCount do
         local memberCount = assert(tonumber(line()), "portable prelude image has no member count")
-        local target = tables[index]
+        local target = mine[index] and tables[index] or nil
         for _ = 1, memberCount do
-            target[value()] = value()
+            local key: any = value()
+            local member: any = value()
+            if target ~= nil then
+                target[key] = member
+            end
         end
         metatables[index] = assert(tonumber(line()), "portable prelude image has an invalid metatable")
     end
     for index, metatableIndex in ipairs(metatables) do
-        if metatableIndex ~= 0 then
+        if metatableIndex ~= 0 and mine[index] then
             setmetatable(tables[index], tables[metatableIndex])
         end
     end
+
+    -- Interned last, so a type only enters an arena once it is complete, and the
+    -- counters after them, or the next type this process interns is stamped with a
+    -- serial one of these already carries.
+    for _, index in ipairs(adopting) do
+        local where = assert(internedAs[index])
+        T.adopt(where[1], where[2], tables[index])
+    end
+    T.resumeIdentity(identity)
 
     local roots: any = {}
     for _, name in ipairs(ROOT_NAMES) do

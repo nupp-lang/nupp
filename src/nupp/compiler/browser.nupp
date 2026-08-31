@@ -53,13 +53,23 @@ local type HoverResponse = {
 local BROWSER_DESCRIPTOR = {
     name = "nupp.browser",
     module = "nupp.runtime.backend.browser",
-    digest = "portable-browser-providers-3",
+    digest = "portable-browser-providers-4",
     seams = {},
 }
 local BACKENDS = {modules = {BROWSER_DESCRIPTOR}, seams = {}, byEffect = {},}
+
+-- The same providers `nupp.runtime.backend.browser` selects, spelled out here
+-- because the compiler resolves against a descriptor rather than requiring the
+-- backend it describes. The two lists have to say the same thing: a seam the
+-- backend carries and this one omits is a module the checker refuses to reach,
+-- which is how `text.buffer` came to make `nupp.derive` unreachable in a
+-- browser that had a buffer provider all along.
 local BROWSER_SEAMS = {
     {"numeric.bitops", "nupp.runtime.provider.scalarbitops"},
+    {"text.buffer", "nupp.runtime.provider.tablebuffer"},
     {"data.json", "nupp.runtime.provider.lunajson"},
+    {"host.path", "nupp.runtime.provider.browserpath"},
+    {"numeric.simd", "nupp.runtime.provider.scalarsimd"},
     {"suspension", "nupp.runtime.provider.browsersuspension"},
     {"io.uri", "nupp.runtime.provider.browseruri"},
     {"host.http", "nupp.runtime.provider.browserhttp"},
@@ -71,6 +81,7 @@ local BROWSER_SEAMS = {
     {"data.sha256", "nupp.runtime.provider.browsercrypto"},
     {"crypto.hmac_sha256", "nupp.runtime.provider.browsercrypto"},
     {"data.uuid", "nupp.runtime.provider.browsercrypto"},
+    {"compute.gpu", "nupp.runtime.provider.browserwebgpu"},
 }
 local seamRegistry = require("nupp.runtime.seam.registry")
 for _, values in ipairs(BROWSER_SEAMS) do

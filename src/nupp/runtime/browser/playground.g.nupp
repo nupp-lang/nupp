@@ -9,6 +9,13 @@ local json = require("nupp.runtime.provider.lunajson")
 -- Keep the public browser GPU module in the checked application bundle. User
 -- programs load it later from package.preload, just like the other providers.
 local browserGpu = require("nupp.browser.gpu")
+-- The derive runtime and the two libraries a derived binding reaches, for the
+-- same reason: a program that derives `Serde` compiles to `require("nupp.derive")`,
+-- and a module the bundle does not carry is a program that checks, compiles, and
+-- then cannot run.
+local derive = require("nupp.derive")
+local serde = require("nupp.data.serde")
+local dataJson = require("nupp.data.json")
 local lines: {string} = {}
 local outputBytes = 0
 local OUTPUT_LIMIT = 1048576
@@ -29,6 +36,9 @@ end
 _G.__nuppPlaygroundRun = function(source: string): string
     if browserGpu == nil then
         error("nupp: browser GPU runtime did not load", 0)
+    end
+    if derive == nil or serde == nil or dataJson == nil then
+        error("nupp: derive runtime did not load", 0)
     end
     lines = {}
     outputBytes = 0
