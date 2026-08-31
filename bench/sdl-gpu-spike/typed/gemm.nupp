@@ -26,6 +26,35 @@ local function fillProbe(exclusive output: span.WriteSpan<float>, borrows input:
     end
 end
 
+-- Keep the complete GEMM ABI but avoid its loop and index arithmetic. This
+-- distinguishes missing span metadata or trailing scalar uniforms from a
+-- failure in the matrix body itself.
+@aot(target = "gpu")
+local function abiProbe(
+    exclusive output: span.WriteSpan<float>,
+    borrows a: span.Span<float>,
+    borrows b: span.Span<float>,
+    columns: uint32,
+    inner: uint32
+): nil
+    for i = 1, #output do
+        local offset = nupp.math.u32.sub(nupp.math.u32.wrap(i), 1)
+        local value: float = 0.0
+        if offset < #a then
+            local left = nupp.math.f32.narrow(a[offset + 1])
+            if offset < #b then
+                local right = nupp.math.f32.narrow(b[offset + 1])
+                if columns ~= 0 then
+                    if inner ~= 0 then
+                        value = nupp.math.f32.add(left, right)
+                    end
+                end
+            end
+        end
+        output[i] = value
+    end
+end
+
 @aot(target = "gpu")
 local function gemmNaive(
     exclusive c: span.WriteSpan<float>,
@@ -324,3 +353,4 @@ export const tiled = gemmTiled
 export const batched = gemmBatched
 export const copy = copyProbe
 export const fill = fillProbe
+export const abi = abiProbe

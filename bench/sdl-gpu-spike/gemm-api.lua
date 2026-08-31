@@ -98,6 +98,17 @@ for i = 0, m * n - 1 do
         ("scalar uniform mismatch at element %d: got %.9g, want 9.25"):format(i, filled[i]))
 end
 
+local abi = generated.abi:compile(context):bind(cBuffer, aBuffer, bBuffer)
+abi:dispatch(n, k)
+context:synchronize()
+local abiOutput = readBuffer(cBuffer, m * n)
+for i = 0, m * n - 1 do
+    local want = f32(a[i] + b[i])
+    assert(abiOutput[i] == want,
+        ("GEMM ABI mismatch at element %d: got %.9g, want %.9g"):format(
+            i, abiOutput[i], want))
+end
+
 local function dispatch()
     invocation:dispatch(n, k)
     context:synchronize()
