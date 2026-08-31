@@ -26764,14 +26764,38 @@ localIndex = id ( )
 instruction ( functions , OP . CompositeExtract , { u32Type , localIndex , loadedLocal , 0 } )
 end
 
+local uniformValues = { }
+local uniformTypes = { }
 local function uniform ( name_ , typeId ) 
+local existing = uniformValues [ name_ ]
+if existing ~= nil then
+assert ( uniformTypes [ name_ ] == typeId , "GPU uniform has inconsistent scalar types" )
+return existing
+end
 local member = constant ( u32Type , uniformIndex [ name_ ] )
 local pointer = id ( )
 instruction ( functions , OP . AccessChain , { pointerType ( STORAGE . Uniform , typeId ) , pointer , uniformsVar , member } )
 local loaded = id ( )
 instruction ( functions , OP . Load , { typeId , loaded , pointer } )
+uniformValues [ name_ ] = loaded
+uniformTypes [ name_ ] = typeId
 
 return loaded
+end
+
+
+
+
+
+uniform ( "count" , u32Type )
+for _ , param in ipairs ( spans ) do
+uniform ( param . name .. "_count" , u32Type )
+end
+for _ , param in ipairs ( spans ) do
+uniform ( param . name .. "_offset" , u32Type )
+end
+for _ , param in ipairs ( uniforms ) do
+uniform ( param . name , scalarType ( param . type ) )
 end
 
 local entryMerge = nil

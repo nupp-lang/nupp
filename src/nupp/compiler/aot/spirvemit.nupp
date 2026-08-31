@@ -862,14 +862,38 @@ function spirv.program(
         instruction(functions, OP.CompositeExtract, {u32Type, localIndex as integer, loadedLocal, 0})
     end
 
+    local uniformValues: {[string]: integer} = {}
+    local uniformTypes: {[string]: integer} = {}
     local function uniform(name_: string, typeId: integer): integer
+        local existing = uniformValues[name_]
+        if existing ~= nil then
+            assert(uniformTypes[name_] == typeId, "GPU uniform has inconsistent scalar types")
+            return existing
+        end
         local member = constant(u32Type, uniformIndex[name_] as integer)
         local pointer = id()
         instruction(functions, OP.AccessChain, {pointerType(STORAGE.Uniform, typeId), pointer, uniformsVar, member})
         local loaded = id()
         instruction(functions, OP.Load, {typeId, loaded, pointer})
+        uniformValues[name_] = loaded
+        uniformTypes[name_] = typeId
 
         return loaded
+    end
+
+    -- Read the dispatch packet once in the entry block. Besides avoiding
+    -- repeated UBO loads, this keeps loop conditions dependent on an ordinary
+    -- SSA value instead of a descriptor load in the loop header, which is the
+    -- portable SPIR-V shape across the Vulkan implementations we exercise.
+    uniform("count", u32Type)
+    for _, param in ipairs(spans) do
+        uniform(param.name .. "_count", u32Type)
+    end
+    for _, param in ipairs(spans) do
+        uniform(param.name .. "_offset", u32Type)
+    end
+    for _, param in ipairs(uniforms) do
+        uniform(param.name, scalarType(param.type))
     end
 
     local entryMerge: integer? = nil
