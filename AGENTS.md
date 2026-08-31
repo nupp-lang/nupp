@@ -132,8 +132,9 @@ When work lands, change the status in the same commit and leave the body alone.
 [NEP 1](docs/neps/0001-nep-process.md) says how to write one; adding a proposal
 is writing `docs/neps/NNNN-slug.md` and nothing else.
 
-`TODO.md` is the backlog. It is not a design record and does not carry
-reasoning.
+Generally do not leave behind unfinished work for a task. Rather than reporting
+unfinished work that was asked to be completed, complete it. For work that
+truly needs a concerted followup, add a GitHub issue to track it.
 
 ## Verification
 
