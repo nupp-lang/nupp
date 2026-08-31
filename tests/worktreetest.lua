@@ -1,4 +1,5 @@
 local HERE = assert(debug.getinfo(1, "S").source:match("^@(.*)[/\\]"))
+local test = require("assert")
 if not HERE:match("^/") then
    local pipe = assert(io.popen("pwd"))
    HERE = pipe:read("*l") .. "/" .. HERE
@@ -106,6 +107,9 @@ end
 -- file came from or how it was cached: the driver keys that by the compiler
 -- this machine has, and every worktree of a checkout shares one answer.
 function M.launcherBuildsTheProviderThroughTheToolchainDriver()
+   if jit.os == "Windows" then
+      test.skip("the fake Darwin toolchain fixture requires a POSIX host")
+   end
    local root = temporary()
    local fake = root .. "/fake-bin"
    assert(os.execute(("mkdir -p %s/bin %s/bootstrap %s/scripts %s/build/lib %s")
