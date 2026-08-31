@@ -86,6 +86,36 @@ local function fmaProbe(
 end
 
 @aot(target = "gpu")
+local function uintUniformProbe(
+    exclusive output: span.WriteSpan<float>,
+    borrows input: span.Span<float>,
+    value: uint32
+): nil
+    assert(#output == #input)
+    for i = 1, #output do
+        if value == 73 then
+            output[i] = input[i]
+        else
+            output[i] = 0.0
+        end
+    end
+end
+
+@aot(target = "gpu")
+local function fixedLoopProbe(exclusive output: span.WriteSpan<float>, borrows input: span.Span<float>): nil
+    assert(#output == #input)
+    for i = 1, #output do
+        local value: float = 0.0
+        local cursor: uint32 = 0
+        while cursor < 7 do
+            value = nupp.math.f32.add(value, 1.0)
+            cursor = nupp.math.u32.add(cursor, 1)
+        end
+        output[i] = input[i] * 0.0 + value
+    end
+end
+
+@aot(target = "gpu")
 local function gemmNaive(
     exclusive c: span.WriteSpan<float>,
     borrows a: span.Span<float>,
@@ -386,3 +416,5 @@ export const fill = fillProbe
 export const abi = abiProbe
 export const loop = loopProbe
 export const fma = fmaProbe
+export const uintUniform = uintUniformProbe
+export const fixedLoop = fixedLoopProbe

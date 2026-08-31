@@ -109,6 +109,26 @@ for i = 0, m * n - 1 do
             i, abiOutput[i], want))
 end
 
+local uintUniform = generated.uintUniform:compile(context):bind(cBuffer, aBuffer)
+uintUniform:dispatch(73)
+context:synchronize()
+local uintUniformOutput = readBuffer(cBuffer, m * n)
+for i = 0, m * n - 1 do
+    assert(uintUniformOutput[i] == a[i],
+        ("uint uniform mismatch at element %d: got %.9g, want %.9g"):format(
+            i, uintUniformOutput[i], a[i]))
+end
+
+local fixedLoop = generated.fixedLoop:compile(context):bind(cBuffer, aBuffer)
+fixedLoop:dispatch()
+context:synchronize()
+local fixedLoopOutput = readBuffer(cBuffer, m * n)
+for i = 0, m * n - 1 do
+    assert(fixedLoopOutput[i] == 7.0,
+        ("fixed GPU loop mismatch at element %d: got %.9g, want 7"):format(
+            i, fixedLoopOutput[i]))
+end
+
 local loop = generated.loop:compile(context):bind(cBuffer, aBuffer)
 loop:dispatch(k)
 context:synchronize()
