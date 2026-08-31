@@ -159,6 +159,127 @@ async function performHmacEffect(effect, options) {
   return {digestBase64: bytesToBase64(digest)};
 }
 
+const XOR_U32_WGSL = `
+struct Uniforms {
+  count: u32,
+  mask: u32,
+}
+
+@group(0) @binding(0) var<storage, read> input: array<u32>;
+@group(0) @binding(1) var<storage, read_write> output: array<u32>;
+@group(0) @binding(2) var<uniform> uniforms: Uniforms;
+
+@compute @workgroup_size(64)
+fn xor_u32(@builtin(global_invocation_id) id: vec3<u32>) {
+  if (id.x < uniforms.count) {
+    output[id.x] = input[id.x] ^ uniforms.mask;
+  }
+}
+`;
+
+function webGpu(options) {
+  const gpu = options.gpu || globalThis.navigator?.gpu;
+  if (!gpu?.requestAdapter) throw new Error("WebGPU is unavailable in this Worker");
+  return gpu;
+}
+
+function webGpuUsage(options) {
+  const usage = options.GPUBufferUsage || globalThis.GPUBufferUsage;
+  if (!usage) throw new Error("WebGPU buffer usage constants are unavailable");
+  return usage;
+}
+
+function webGpuMapMode(options) {
+  const mode = options.GPUMapMode || globalThis.GPUMapMode;
+  if (!mode) throw new Error("WebGPU map mode constants are unavailable");
+  return mode;
+}
+
+function uint32(value, name) {
+  if (!Number.isInteger(value) || value < 0 || value > 0xffffffff) {
+    throw new Error(`browser GPU ${name} must be a uint32`);
+  }
+  return value >>> 0;
+}
+
+async function gpuDevice(options) {
+  if (!options.gpuDevice) {
+    options.gpuDevice = (async () => {
+      const adapter = await webGpu(options).requestAdapter();
+      if (!adapter) throw new Error("no WebGPU adapter is available");
+      const device = await adapter.requestDevice();
+      device.lost?.then((info) => {
+        options.gpuDevice = null;
+        options.gpuPipeline = null;
+        options.gpuFailure = `WebGPU device was lost: ${info?.message || info?.reason || "unknown reason"}`;
+      });
+      return device;
+    })();
+  }
+  return options.gpuDevice;
+}
+
+async function gpuPipeline(device, options) {
+  if (!options.gpuPipeline) {
+    const descriptor = {
+      layout: "auto",
+      compute: {module: device.createShaderModule({code: XOR_U32_WGSL}), entryPoint: "xor_u32"},
+    };
+    options.gpuPipeline = device.createComputePipelineAsync
+      ? device.createComputePipelineAsync(descriptor)
+      : Promise.resolve(device.createComputePipeline(descriptor));
+  }
+  return options.gpuPipeline;
+}
+
+async function performGpuEffect(effect, options) {
+  if (effect.operation !== "xor-u32") throw new Error("unsupported browser GPU operation");
+  if (!Array.isArray(effect.values) || effect.values.length < 1 || effect.values.length > 262144) {
+    throw new Error("browser GPU xor needs 1 through 262144 uint32 values");
+  }
+  if (options.signal?.aborted) throw abortError(options.signal);
+  const values = Uint32Array.from(effect.values, (value) => uint32(value, "input"));
+  const mask = uint32(effect.mask, "mask");
+  const bytes = values.byteLength;
+  const usage = webGpuUsage(options);
+  const device = await gpuDevice(options);
+  if (options.gpuFailure) throw new Error(options.gpuFailure);
+  const pipeline = await gpuPipeline(device, options);
+  const input = device.createBuffer({size: bytes, usage: usage.STORAGE | usage.COPY_DST});
+  const output = device.createBuffer({size: bytes, usage: usage.STORAGE | usage.COPY_SRC});
+  const uniform = device.createBuffer({size: 8, usage: usage.UNIFORM | usage.COPY_DST});
+  const readback = device.createBuffer({size: bytes, usage: usage.MAP_READ | usage.COPY_DST});
+  try {
+    device.queue.writeBuffer(input, 0, values);
+    device.queue.writeBuffer(uniform, 0, Uint32Array.of(values.length, mask));
+    const bindGroup = device.createBindGroup({
+      layout: pipeline.getBindGroupLayout(0),
+      entries: [
+        {binding: 0, resource: {buffer: input}},
+        {binding: 1, resource: {buffer: output}},
+        {binding: 2, resource: {buffer: uniform}},
+      ],
+    });
+    const encoder = device.createCommandEncoder();
+    const pass = encoder.beginComputePass();
+    pass.setPipeline(pipeline);
+    pass.setBindGroup(0, bindGroup);
+    pass.dispatchWorkgroups(Math.ceil(values.length / 64));
+    pass.end();
+    encoder.copyBufferToBuffer(output, 0, readback, 0, bytes);
+    device.queue.submit([encoder.finish()]);
+    await readback.mapAsync(webGpuMapMode(options).READ);
+    const result = Array.from(new Uint32Array(readback.getMappedRange().slice(0)));
+    readback.unmap();
+    return {values: result};
+  } finally {
+    input.destroy();
+    output.destroy();
+    uniform.destroy();
+    readback.destroy();
+  }
+}
+
 function openStorage(name, indexedDB = globalThis.indexedDB) {
   if (!indexedDB) throw new Error("IndexedDB is unavailable in this Worker");
   return new Promise((resolve, reject) => {
@@ -332,6 +453,7 @@ export async function handleBrowserEffects(message, options = {}) {
       else if (effect.kind === "sha256") value = await performSha256Effect(effect, options);
       else if (effect.kind === "hmac-sha256") value = await performHmacEffect(effect, options);
       else if (effect.kind === "storage") value = await performStorageEffect(effect, options);
+      else if (effect.kind === "gpu") value = await performGpuEffect(effect, options);
       else throw new Error(`unsupported browser effect ${effect.kind}`);
       return {id: effect.id, ok: true, value};
     } catch (error) {

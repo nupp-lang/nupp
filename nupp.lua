@@ -258,6 +258,7 @@ for _, resource in ipairs({
    "src/nupp/runtime/browser/effects.g.nupp",
    "src/nupp/runtime/browser/response.g.nupp",
    "src/nupp/runtime/browser/workercodec.g.nupp",
+   "src/nupp/browser/gpu.g.nupp",
    "src/nupp/runtime/provider/browsercrypto.g.nupp",
    "src/nupp/runtime/provider/browserhttp.g.nupp",
    "src/nupp/runtime/provider/browserpath.nupp",

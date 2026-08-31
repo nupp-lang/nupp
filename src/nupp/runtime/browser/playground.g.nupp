@@ -6,6 +6,9 @@ module nupp.runtime.browser.playground
 -- output capture without synthesizing Lua source in JavaScript.
 
 local json = require("nupp.runtime.provider.lunajson")
+-- Keep the public browser GPU module in the checked application bundle. User
+-- programs load it later from package.preload, just like the other providers.
+local browserGpu = require("nupp.browser.gpu")
 local lines: {string} = {}
 local outputBytes = 0
 local OUTPUT_LIMIT = 1048576
@@ -24,6 +27,9 @@ _G.print = function(...: any): nil
 end
 
 _G.__nuppPlaygroundRun = function(source: string): string
+    if browserGpu == nil then
+        error("nupp: browser GPU runtime did not load", 0)
+    end
     lines = {}
     outputBytes = 0
     local chunk, problem = loadstring(source, "@playground.nupp")

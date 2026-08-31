@@ -1,0 +1,39 @@
+module nupp.browser.gpu
+
+-- The first browser GPU surface is intentionally small: it proves that a
+-- checked Nupp program can enqueue, await, and validate a real WebGPU compute
+-- dispatch without making the page own a device. More general resident buffers
+-- and compiler-emitted WGSL follow the same browser effect boundary.
+
+local json = require("nupp.runtime.provider.lunajson")
+local response = require("nupp.runtime.browser.response")
+local gpu = {}
+
+local MAX_VALUES = 262144
+
+--- Xors every uint32 in `values` with `mask` in one WebGPU invocation per
+--- element. The result is copied back only after the Worker observes completion.
+--- @raises when WebGPU is unavailable or the request is outside the portable cap
+function gpu.xorU32(values: {uint32}, mask: uint32): {uint32}
+    if #values == 0 then
+        return {}
+    end
+    if #values > MAX_VALUES then
+        error("nupp: browser GPU xor accepts at most " .. MAX_VALUES .. " uint32 values", 2)
+    end
+
+    local input: {any} = json.asArray({})
+    for index, value in ipairs(values) do
+        input[index] = value
+    end
+
+    local answer = response.await("gpu", {operation = "xor-u32", values = input, mask = mask,})
+    local output = answer.values
+    if type(output) ~= "table" or #output ~= #values then
+        error("nupp: browser GPU returned an invalid xor result", 2)
+    end
+
+    return output as {uint32}
+end
+
+export = gpu

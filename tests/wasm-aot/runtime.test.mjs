@@ -148,6 +148,76 @@ test("browser Web Crypto effects provide random, SHA-256, and HMAC", async () =>
   );
 });
 
+test("browser WebGPU xor runs one uint32 invocation per input", async () => {
+  const buffers = [];
+  const device = {
+    lost: {then() {}},
+    queue: {
+      writeBuffer(buffer, offset, value) {
+        buffer.bytes.set(new Uint8Array(value.buffer, value.byteOffset, value.byteLength), offset);
+      },
+      submit([command]) {
+        const input = new Uint32Array(buffers[0].bytes.buffer);
+        const output = new Uint32Array(buffers[1].bytes.buffer);
+        const uniform = new Uint32Array(buffers[2].bytes.buffer);
+        for (let index = 0; index < uniform[0]; index += 1) output[index] = input[index] ^ uniform[1];
+        command.copy.destination.bytes.set(command.copy.source.bytes);
+      },
+    },
+    createShaderModule: () => ({}),
+    createComputePipelineAsync: async () => ({getBindGroupLayout: () => ({})}),
+    createBuffer({size}) {
+      const buffer = {
+        bytes: new Uint8Array(size),
+        destroy() {},
+        async mapAsync() {},
+        getMappedRange() { return this.bytes.buffer; },
+        unmap() {},
+      };
+      buffers.push(buffer);
+      return buffer;
+    },
+    createBindGroup: () => ({}),
+    createCommandEncoder() {
+      const command = {
+        beginComputePass: () => ({setPipeline() {}, setBindGroup() {}, dispatchWorkgroups() {}, end() {}}),
+        copyBufferToBuffer(source, _sourceOffset, destination) { command.copy = {source, destination}; },
+        finish: () => command,
+      };
+      return command;
+    },
+  };
+  const gpu = {requestAdapter: async () => ({requestDevice: async () => device})};
+  const result = await handleBrowserEffects({
+    kind: "effects",
+    requests: [{id: 1, kind: "gpu", operation: "xor-u32", values: [0, 0x12345678], mask: 0xa5a5a5a5}],
+  }, {
+    gpu,
+    GPUBufferUsage: {STORAGE: 1, COPY_DST: 2, COPY_SRC: 4, UNIFORM: 8, MAP_READ: 16},
+    GPUMapMode: {READ: 1},
+  });
+  assert.deepEqual(result.responses, [{
+    id: 1,
+    ok: true,
+    value: {values: [0xa5a5a5a5, 0xb791f3dd]},
+  }]);
+});
+
+test("browser WebGPU effects reject invalid uint32 input before opening a device", async () => {
+  let requested = false;
+  const result = await handleBrowserEffects({
+    kind: "effects",
+    requests: [{id: 1, kind: "gpu", operation: "xor-u32", values: [-1], mask: 0}],
+  }, {
+    gpu: {requestAdapter: async () => { requested = true; return null; }},
+    GPUBufferUsage: {},
+    GPUMapMode: {READ: 1},
+  });
+  assert.equal(requested, false);
+  assert.equal(result.responses[0].ok, false);
+  assert.match(result.responses[0].error, /input must be a uint32/);
+});
+
 test("browser storage effects preserve values through the provider contract", async () => {
   const values = new Map();
   const storage = {
