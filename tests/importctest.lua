@@ -3,12 +3,20 @@ local parser = require("nupp.compiler.parser")
 local check = require("fragment")
 local envMod = require("nupp.compiler.env")
 
-local HERE = assert(debug.getinfo(1, "S").source:match("^@(.*)[/\\]"))
-if not HERE:match("^/") then
-   local pipe = assert(io.popen("pwd"))
-   HERE = pipe:read("*l") .. "/" .. HERE
-   pipe:close()
+local function sourceDirectory(source, currentDirectory)
+   local directory = assert(source:match("^@(.*)[/\\]")):gsub("\\", "/")
+   if not directory:match("^/") and not directory:match("^%a:/") then
+      directory = currentDirectory() .. "/" .. directory
+   end
+   return directory
 end
+
+local HERE = sourceDirectory(debug.getinfo(1, "S").source, function()
+   local pipe = assert(io.popen("pwd"))
+   local directory = assert(pipe:read("*l"))
+   pipe:close()
+   return directory
+end)
 local NUPP = HERE .. "/../bin/nupp"
 
 local function assertContains(text, needle, label)
@@ -26,6 +34,13 @@ local function assertEq(got, want, label)
 end
 
 local M = {}
+
+function M.windowsSourceDirectoryStaysAbsolute()
+   local directory = sourceDirectory("@D:\\a\\nupp\\tests\\importctest.lua", function()
+      error("an absolute drive path must not ask for the current directory")
+   end)
+   assertEq(directory, "D:/a/nupp/tests")
+end
 
 local function readFile(path)
    local file = assert(io.open(path, "rb"))
