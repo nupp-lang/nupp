@@ -198,10 +198,18 @@ pub unsafe extern "C" fn nuppNativeV2Xxh64Digest(
 }
 
 #[cfg(feature = "uuid")]
-unsafe fn write_uuid(value: String, output: *mut u8, capacity: usize) -> i32 {
+unsafe fn write_uuid(
+    make: fn() -> Result<String, String>,
+    output: *mut u8,
+    capacity: usize,
+) -> i32 {
     if output.is_null() || capacity < 37 {
         return failed(Status::Capacity, "UUID output needs 37 bytes");
     }
+    let value = match make() {
+        Ok(value) => value,
+        Err(error) => return failed(Status::Internal, &error),
+    };
     // SAFETY: the output capacity was checked and a canonical UUID is 36 bytes.
     unsafe {
         ptr::copy_nonoverlapping(value.as_ptr(), output, value.len());
@@ -218,7 +226,7 @@ unsafe fn write_uuid(value: String, output: *mut u8, capacity: usize) -> i32 {
 ///
 /// `output` must be writable for at least `capacity` bytes.
 pub unsafe extern "C" fn nuppNativeV2Uuid4(output: *mut u8, capacity: usize) -> i32 {
-    unsafe { write_uuid(nupp_native_platform::uuid4(), output, capacity) }
+    unsafe { write_uuid(nupp_native_platform::uuid4, output, capacity) }
 }
 
 #[cfg(feature = "uuid")]
@@ -229,7 +237,7 @@ pub unsafe extern "C" fn nuppNativeV2Uuid4(output: *mut u8, capacity: usize) -> 
 ///
 /// `output` must be writable for at least `capacity` bytes.
 pub unsafe extern "C" fn nuppNativeV2Uuid7(output: *mut u8, capacity: usize) -> i32 {
-    unsafe { write_uuid(nupp_native_platform::uuid7(), output, capacity) }
+    unsafe { write_uuid(nupp_native_platform::uuid7, output, capacity) }
 }
 
 #[cfg(test)]

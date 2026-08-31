@@ -31,13 +31,27 @@ pub fn sleep_ms(milliseconds: u64) {
 }
 
 #[cfg(feature = "uuid")]
-pub fn uuid4() -> String {
-    Uuid::new_v4().hyphenated().to_string()
+fn uuid(version: u8, timestamp: Option<u64>) -> Result<String, String> {
+    let mut bytes = [0u8; 16];
+    getrandom::fill(&mut bytes)
+        .map_err(|error| format!("the system has no randomness to draw on: {error}"))?;
+    if let Some(milliseconds) = timestamp {
+        let encoded = milliseconds.to_be_bytes();
+        bytes[..6].copy_from_slice(&encoded[2..]);
+    }
+    bytes[6] = (bytes[6] & 0x0f) | (version << 4);
+    bytes[8] = (bytes[8] & 0x3f) | 0x80;
+    Ok(Uuid::from_bytes(bytes).hyphenated().to_string())
 }
 
 #[cfg(feature = "uuid")]
-pub fn uuid7() -> String {
-    Uuid::now_v7().hyphenated().to_string()
+pub fn uuid4() -> Result<String, String> {
+    uuid(4, None)
+}
+
+#[cfg(feature = "uuid")]
+pub fn uuid7() -> Result<String, String> {
+    uuid(7, Some(wall_ms()))
 }
 
 pub fn xxh64(bytes: &[u8], seed: u64) -> u64 {
@@ -141,12 +155,14 @@ mod tests {
     #[test]
     #[cfg(feature = "uuid")]
     fn uuids_have_the_selected_versions_and_variant() {
-        let four = Uuid::parse_str(&uuid4()).unwrap();
-        let seven = Uuid::parse_str(&uuid7()).unwrap();
+        let four = Uuid::parse_str(&uuid4().unwrap()).unwrap();
+        let seven = Uuid::parse_str(&uuid7().unwrap()).unwrap();
+        let fixed = Uuid::parse_str(&uuid(7, Some(0x0102_0304_0506)).unwrap()).unwrap();
         assert_eq!(four.get_version_num(), 4);
         assert_eq!(seven.get_version_num(), 7);
         assert_eq!(four.as_bytes()[8] & 0xc0, 0x80);
         assert_eq!(seven.as_bytes()[8] & 0xc0, 0x80);
+        assert_eq!(&fixed.as_bytes()[..6], &[1, 2, 3, 4, 5, 6]);
     }
 
     #[test]

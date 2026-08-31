@@ -262,7 +262,7 @@ end
 function M.migratedRustFeaturesAreNotBuildableInLegacyC()
    local directory = temporary()
    local compiler = fakeCompiler(directory, "fake-cc", "fake")
-   for _, feature in ipairs({"gpu", "http", "uri"}) do
+   for _, feature in ipairs({"gpu", "http", "uri", "uuid"}) do
       local status, output = run({
          NUPP_TOOLCHAIN_DIR = directory .. "/cache",
          NUPP_CC = compiler,

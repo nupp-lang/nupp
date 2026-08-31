@@ -1321,7 +1321,7 @@ function M.subprocessPreservesEmptyArguments()
    assertEq(output, "2||tail", "an empty argv entry reaches the child process")
 end
 
-function M.sharedNativeFacilitiesBuildOneFeatureGatedProvider()
+function M.nativeFacilitiesGroupByProviderAndDriver()
    local originalCapture, originalCopy = process.capture, fs.copyFile
    local originalCompilerRoot = compilerEnv.compilerRoot
    local calls, copies = {}, {}
@@ -1329,6 +1329,9 @@ function M.sharedNativeFacilitiesBuildOneFeatureGatedProvider()
    -- writes; anything before that is progress.
    process.capture = function(argv)
       calls[#calls + 1] = argv
+      if table.concat(argv, "\n"):find("native%-rust") then
+         return 0, "/built/libnupp_native_v2.dylib\n"
+      end
       return 0, "building the native provider\n/built/libnupp_native.dylib\n"
    end
    fs.copyFile = function(source, destination)
@@ -1344,17 +1347,26 @@ function M.sharedNativeFacilitiesBuildOneFeatureGatedProvider()
    compilerEnv.compilerRoot = originalCompilerRoot
    assert(ok, outputs)
    assert(outputs, problem)
-   assertEq(#calls, 1, "one provider build serves both facilities")
-   assertEq(#copies, 1, "the shared library is staged once")
-   local command = table.concat(calls[1], "\n")
-   assert(command:find("scripts/toolchain", 1, true),
-      "the provider is built by the toolchain driver")
-   assert(command:find("filesystem,uuid", 1, true),
-      "provider enables the selected feature union")
-   assertEq(copies[1][1], "/built/libnupp_native.dylib",
-      "the driver's answer is what gets staged")
-   assert(copies[1][2]:find("out/lib/nupp_native", 1, true),
-      "provider has one stable public sidecar name")
+   assertEq(#calls, 2, "independent providers are built separately")
+   assertEq(#copies, 2, "each provider stages one shared library")
+   local commands = "\n" .. table.concat(calls[1], "\n")
+      .. "\n" .. table.concat(calls[2], "\n") .. "\n"
+   assert(commands:find("\nnative\nfilesystem\n"),
+      "path selects the legacy provider and only its feature")
+   assert(commands:find("\nnative%-rust\nuuid\n"),
+      "UUID selects the Rust provider and only its feature")
+   local legacySource, rustSource
+   for _, copy in ipairs(copies) do
+      if copy[2]:find("out/lib/nupp_native_v2", 1, true) then
+         rustSource = copy[1]
+      elseif copy[2]:find("out/lib/nupp_native", 1, true) then
+         legacySource = copy[1]
+      end
+   end
+   assertEq(legacySource, "/built/libnupp_native.dylib",
+      "the legacy provider keeps its stable sidecar name")
+   assertEq(rustSource, "/built/libnupp_native_v2.dylib",
+      "the Rust provider has an independent stable sidecar name")
 end
 
 function M.nativeFacilityCanSelectItsProviderDriver()

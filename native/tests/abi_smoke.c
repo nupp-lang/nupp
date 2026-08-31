@@ -90,6 +90,17 @@ int main(void) {
         fprintf(stderr, "uuid4 is not canonical\n");
         return 1;
     }
+    status = nuppNativeV2Uuid7(uuid, sizeof uuid);
+    if (status != NUPP_NATIVE_V2_OK) return failed("uuid7", status);
+    if (uuid[14] != '7' || uuid[36] != '\0') {
+        fprintf(stderr, "uuid7 is not canonical\n");
+        return 1;
+    }
+    if (nuppNativeV2Uuid4(uuid, sizeof uuid - 1)
+        != NUPP_NATIVE_V2_CAPACITY) {
+        fprintf(stderr, "uuid4 accepted a short output\n");
+        return 1;
+    }
     status = nuppNativeV2Xxh64Digest(NULL, 0, digest, sizeof digest);
     if (status != NUPP_NATIVE_V2_OK) return failed("xxh64", status);
     if (memcmp(digest, "ef46db3751d8e999", 16) != 0) {

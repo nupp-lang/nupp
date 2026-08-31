@@ -916,7 +916,7 @@ provider_sources() {
     # is not here at all any more -- `nupp.data.sha256` is Nupp, and the one
     # remaining C copy is compiled directly by the playground's own build for
     # its bundle check.
-    printf '%s' "c/common.c c/xxh64.c c/uuid.c"
+    printf '%s' "c/common.c c/xxh64.c"
     case " $1 " in
         *" files "*|*" native-files "*|*" filesystem "*) printf '%s' " c/files.c" ;;
     esac
@@ -927,7 +927,6 @@ provider_sources() {
             process|native-process) printf '%s' " c/process.c" ;;
             net|native-net)    printf '%s' " c/net.c" ;;
             tls|native-tls)    printf '%s' " c/tls.c" ;;
-            uuid) ;;
             # Host-only features select no provider source of their own.
             json|lpeg|lua-utf8|workers) ;;
             *) die "unknown native feature $feature" ;;

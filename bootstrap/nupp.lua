@@ -134063,10 +134063,12 @@ requires = { "runtime.native_v2" } ,
 ] = {
 name = "uuid" ,
 exports = { "nupp.data.uuid4" , "nupp.data.uuid7" } ,
-provider = "nupp_native" ,
+provider = "nupp_native_v2" ,
+providerDriver = "native-rust" ,
 providerFeature = "uuid" ,
-library = "nupp_native" ,
+library = "nupp_native_v2" ,
 binary = true ,
+requires = { "runtime.native_v2" } ,
 } ,
 [ "native.files" ] = {
 name = "files" ,
@@ -157160,13 +157162,14 @@ _G.assert(_G.loadstring("local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppM
 local data = { }
 local ffi = require ( "ffi" )
 const digest = require ( "nupp.data.digest" )
-const native = require ( "nupp.runtime.native" )
+const native = require ( "nupp.runtime.nativev2" )
 
 native . ffi . cdef [[
-bool nuppUuid4(char *);
-bool nuppUuid7(char *);
+int32_t nuppNativeV2Uuid4(uint8_t *, size_t);
+int32_t nuppNativeV2Uuid7(uint8_t *, size_t);
 ]]
 
+const C = native . C
 const band = bit . band
 const bnot = bit . bnot
 const bor = bit . bor
@@ -157264,10 +157267,9 @@ end
 
 
 function data . uuid4 ( ) 
-local output = native . ffi . new ( "char[37]" )
-if not native . C . nuppUuid4 ( output ) then
-error ( "nupp: UUID generation failed" , 2 )
-end
+native . requireFeature ( 2 , "UUID support" )
+local output = native . ffi . new ( "uint8_t[37]" )
+native . succeeded ( C . nuppNativeV2Uuid4 ( output , 37 ) , 2 )
 
 return native . ffi . string ( output )
 end
@@ -157278,10 +157280,9 @@ end
 
 
 function data . uuid7 ( ) 
-local output = native . ffi . new ( "char[37]" )
-if not native . C . nuppUuid7 ( output ) then
-error ( "nupp: UUID generation failed" , 2 )
-end
+native . requireFeature ( 2 , "UUID support" )
+local output = native . ffi . new ( "uint8_t[37]" )
+native . succeeded ( C . nuppNativeV2Uuid7 ( output , 37 ) , 2 )
 
 return native . ffi . string ( output )
 end
@@ -206864,13 +206865,14 @@ that, and the same digest on every target either way.
 local data = {}
 local ffi = require("ffi")
 const digest = require("nupp.data.digest")
-const native = require("nupp.runtime.native")
+const native = require("nupp.runtime.nativev2")
 
 native.ffi.cdef[[
-bool nuppUuid4(char *);
-bool nuppUuid7(char *);
+int32_t nuppNativeV2Uuid4(uint8_t *, size_t);
+int32_t nuppNativeV2Uuid7(uint8_t *, size_t);
 ]]
 
+const C = native.C
 const band = bit.band
 const bnot = bit.bnot
 const bor = bit.bor
@@ -206968,10 +206970,9 @@ end
 --- @raises when the system has no randomness to draw on
 --- @export
 function data.uuid4(): string
-    local output = native.ffi.new("char[37]")
-    if not native.C.nuppUuid4(output) then
-        error("nupp: UUID generation failed", 2)
-    end
+    native.requireFeature(2, "UUID support")
+    local output = native.ffi.new("uint8_t[37]")
+    native.succeeded(C.nuppNativeV2Uuid4(output, 37), 2)
 
     return native.ffi.string(output)
 end
@@ -206982,10 +206983,9 @@ end
 --- @raises when the system has no randomness to draw on
 --- @export
 function data.uuid7(): string
-    local output = native.ffi.new("char[37]")
-    if not native.C.nuppUuid7(output) then
-        error("nupp: UUID generation failed", 2)
-    end
+    native.requireFeature(2, "UUID support")
+    local output = native.ffi.new("uint8_t[37]")
+    native.succeeded(C.nuppNativeV2Uuid7(output, 37), 2)
 
     return native.ffi.string(output)
 end

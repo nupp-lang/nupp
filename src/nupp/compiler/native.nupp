@@ -139,10 +139,12 @@ local FEATURES: {[string]: native.Feature} = {
     ] = {
         name = "uuid",
         exports = {"nupp.data.uuid4", "nupp.data.uuid7"},
-        provider = "nupp_native",
+        provider = "nupp_native_v2",
+        providerDriver = "native-rust",
         providerFeature = "uuid",
-        library = "nupp_native",
+        library = "nupp_native_v2",
         binary = true,
+        requires = {"runtime.native_v2"},
     },
     ["native.files"] = {
         name = "files",
