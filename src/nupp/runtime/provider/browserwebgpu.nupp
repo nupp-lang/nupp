@@ -60,9 +60,7 @@ record gpu.Kernel
 end
 
 record gpu.ArtifactSet
-    readonly spirv: string
-    readonly msl: string
-    readonly wgsl: string?
+    readonly wgsl: string
     readonly entrypoint: string
 end
 

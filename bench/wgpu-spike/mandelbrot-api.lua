@@ -7,7 +7,7 @@ local gpu = require("nupp.gpu")
 local here = assert(debug.getinfo(1, "S").source:match("^@(.*[/\\])"))
 local now = dofile(here .. "../simd-mandelbrot/clock.lua")
 
-ffi.cdef [[
+ffi.cdef[[
 typedef struct { int32_t iterations; uint32_t escaped; } KsEscape;
 typedef struct { float re; float im; } KsPoint;
 ]]
@@ -58,7 +58,9 @@ local function dispatch()
     context:synchronize()
 end
 
-for _ = 1, 3 do dispatch() end
+for _ = 1, 3 do
+    dispatch()
+end
 local started = now()
 local passes = 0
 repeat
@@ -77,14 +79,15 @@ local checksum = 0
 for i = 0, count - 1 do
     local want = ffi.cast("const KsEscape *", expected)[i]
     local got = output[i]
-    assert(got.iterations == want.iterations and got.escaped == want.escaped,
-        ("SDL GPU API mismatch at pixel %d: got %d/%d, want %d/%d"):format(
-            i, got.iterations, got.escaped, want.iterations, want.escaped))
+    assert(
+        got.iterations == want.iterations and got.escaped == want.escaped,
+        (
+            "WGPU API mismatch at pixel %d: got %d/%d, want %d/%d"
+        ):format(i, got.iterations, got.escaped, want.iterations, want.escaped)
+    )
     checksum = checksum + got.iterations
 end
 
-io.write(("Mandelbrot GPU API: %dx%d, %d max iterations, checksum %d\n"):format(
-    width, height, maxIterations, checksum))
-io.write(("%-16s %10.0f ns/frame  %8.2f MPix/s\n"):format(
-    "SDL GPU resident", elapsed * 1e9, count / elapsed / 1e6))
+io.write(("Mandelbrot GPU API: %dx%d, %d max iterations, checksum %d\n"):format(width, height, maxIterations, checksum))
+io.write(("%-16s %10.0f ns/frame  %8.2f MPix/s\n"):format("WGPU resident", elapsed * 1e9, count / elapsed / 1e6))
 context:drop()

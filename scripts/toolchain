@@ -36,8 +36,7 @@ usage: scripts/toolchain COMPONENT...
        scripts/toolchain --prefix
 
 Components: luajit luarocks lpeg lpeg-source luautf8 ada libuv mbedtls curl
-            spirv-cross
-            sdl swiftshader
+            swiftshader
             native FEATURES, native-rust FEATURES
             rust-vendor OUTPUT
             host FEATURES, host-rust, host-library FEATURES
@@ -837,61 +836,6 @@ build_luautf8() {
     release_lock
 }
 
-build_spirv_cross() {
-    out="$PREFIX/spirv-cross"
-    take_lock spirv-cross "$out/.complete" || return 0
-    [ -f "$out/.complete" ] && { release_lock; return 0; }
-
-    directory="SPIRV-Cross-$SPIRV_CROSS_REV"
-    url="https://github.com/KhronosGroup/SPIRV-Cross/archive/$SPIRV_CROSS_REV.tar.gz"
-    tree=$(source_tree "$directory" "$url" "$SPIRV_CROSS_SHA256" "$SPIRV_CROSS_MARKER")
-
-    note "building SPIRV-Cross with $CXX"
-    rm -rf "$out"
-    "$MAKE" -C "$tree" clean >/dev/null 2>&1 || true
-    "$MAKE" -C "$tree" -j"${NUPP_TOOLCHAIN_JOBS:-4}" CXX="$CXX" >&2
-    mkdir -p "$out/bin"
-    executable="$tree/spirv-cross"
-    [ "$PLATFORM" = windows ] && executable="$tree/spirv-cross.exe"
-    [ -x "$executable" ] || die "SPIRV-Cross produced no command-line translator"
-    cp "$executable" "$out/bin/$(basename "$executable")"
-    native_path "$out/bin/$(basename "$executable")" > "$out/.executable"
-    printf 'done\n' > "$out/.complete"
-    release_lock
-}
-
-build_sdl() {
-    out="$PREFIX/sdl"
-    take_lock sdl "$out/.complete" || return 0
-    [ -f "$out/.complete" ] && { release_lock; return 0; }
-    command -v cmake >/dev/null 2>&1 || die "building SDL needs cmake"
-
-    directory="SDL-release-$SDL_VERSION"
-    url="https://github.com/libsdl-org/SDL/archive/refs/tags/release-$SDL_VERSION.tar.gz"
-    tree=$(source_tree "$directory" "$url" "$SDL_SHA256" "$SDL_MARKER")
-
-    note "building SDL $SDL_VERSION with $CC"
-    rm -rf "$out"
-    # `SDL_UNIX_CONSOLE_BUILD` is how SDL's own error says to answer it: without
-    # X11 or Wayland development headers its configure refuses outright, on the
-    # grounds that a desktop build which cannot open a window is most likely not
-    # what was wanted. Here it is exactly what is wanted -- this SDL is built to
-    # reach a GPU for compute, the conformance job runs headless against a
-    # software Vulkan device and already sets `SDL_VIDEODRIVER=dummy`, and no
-    # runner has those headers installed.
-    cmake -S "$tree" -B "$out/build" \
-        -DCMAKE_BUILD_TYPE=Release \
-        -DCMAKE_INSTALL_PREFIX="$out" \
-        -DSDL_UNIX_CONSOLE_BUILD=ON \
-        -DSDL_SHARED=ON -DSDL_STATIC=OFF -DSDL_TEST_LIBRARY=OFF \
-        -DSDL_TESTS=OFF -DSDL_EXAMPLES=OFF >&2
-    cmake --build "$out/build" --parallel "${NUPP_TOOLCHAIN_JOBS:-4}" >&2
-    cmake --install "$out/build" >&2
-    [ -f "$out/include/SDL3/SDL.h" ] || die "SDL installed no headers"
-    printf 'done\n' > "$out/.complete"
-    release_lock
-}
-
 build_swiftshader() {
     out="$PREFIX/swiftshader"
     take_lock swiftshader "$out/.complete" || return 0
@@ -1032,7 +976,6 @@ provider_sources() {
             net|native-net)    printf '%s' " c/net.c" ;;
             tls|native-tls)    printf '%s' " c/tls.c" ;;
             http)              printf '%s' " c/http.c" ;;
-            gpu)               printf '%s' " c/gpu.c" ;;
             uuid) ;;
             # Host-only features select no provider source of their own.
             json|lpeg|lua-utf8|workers) ;;
@@ -1245,32 +1188,12 @@ build_native_library() {
             curlDefine="-DCURL_STATICLIB"
         fi
     fi
-    # Only `gpu` reaches SDL, and only `gpu` may: it is the one feature that is
-    # about SDL, nothing selects it by default, and the flags below are a macOS
-    # framework on macOS or the pinned ordinary installation used by Linux CI.
-    # A core feature every build needs cannot be gated on it.
-    sdlInclude=""
-    sdlLibraries=""
-    case " $providerSources " in
-        *" c/gpu.c "*)
-            if [ -n "${NUPP_SDL_FRAMEWORK_ROOT:-}" ]; then
-                sdlInclude="-F$NUPP_SDL_FRAMEWORK_ROOT"
-                sdlLibraries="-F$NUPP_SDL_FRAMEWORK_ROOT -framework SDL3"
-                sdlLibraries="$sdlLibraries -Wl,-rpath,$NUPP_SDL_FRAMEWORK_ROOT"
-            elif [ -n "${NUPP_SDL_ROOT:-}" ]; then
-                sdlInclude="-I$NUPP_SDL_ROOT/include"
-                sdlLibraries="-L$NUPP_SDL_ROOT/lib -lSDL3 -Wl,-rpath,$NUPP_SDL_ROOT/lib"
-            else
-                die "the SDL GPU feature needs NUPP_SDL_FRAMEWORK_ROOT or NUPP_SDL_ROOT"
-            fi
-            ;;
-    esac
     objects=""
     for source in $providerSources; do
         object="$out/objects/$(basename "$source" .c).o"
         # shellcheck disable=SC2086
         "$CC" -c -std=gnu11 -O2 -fPIC -DNDEBUG -Wall -Wextra \
-            -I"$ROOT/runtime/native/c" -I"$include" $uvInclude $curlInclude $sdlInclude \
+            -I"$ROOT/runtime/native/c" -I"$include" $uvInclude $curlInclude \
             $curlDefine $adaInclude $tlsInclude \
             -o "$object" "$ROOT/runtime/native/$source" >&2
         objects="$objects $object"
@@ -1291,7 +1214,7 @@ build_native_library() {
         *)       shared="-shared"; name="libnupp_native.so"; extra="-lpthread -ldl" ;;
     esac
     # shellcheck disable=SC2086
-    "$linker" $shared -o "$out/$name" $objects $libraries $sdlLibraries $extra >&2
+    "$linker" $shared -o "$out/$name" $objects $libraries $extra >&2
     printf '%s\n' "$name" > "$out/.filename"
     printf 'done\n' > "$out/.complete"
     release_lock
@@ -1570,7 +1493,6 @@ case "$1" in
         build_ada
         build_libuv
         build_curl
-        build_spirv_cross
         exit 0
         ;;
     native)
@@ -1624,8 +1546,6 @@ for component in "$@"; do
         libuv)    build_libuv;    native_path "$PREFIX/libuv" ;;
         mbedtls)  build_mbedtls;  native_path "$PREFIX/mbedtls" ;;
         curl)     build_curl;     native_path "$PREFIX/curl" ;;
-        spirv-cross) build_spirv_cross; cat "$PREFIX/spirv-cross/.executable" ;;
-        sdl)      build_sdl;      native_path "$PREFIX/sdl" ;;
         swiftshader) build_swiftshader; cat "$PREFIX/swiftshader/.icd" ;;
         *) note "unknown component $component"; usage ;;
     esac

@@ -4812,7 +4812,7 @@ local hash = require ( "nupp.compiler.build.hash" )
 local cst = require ( "nupp.compiler.cst" )
 local lexer = require ( "nupp.compiler.lexer" )
 local emit = require ( "nupp.compiler.aot.emit" )
-local gpuemit = require ( "nupp.compiler.aot.gpuemit" )
+local gpuartifact = require ( "nupp.compiler.aot.gpuartifact" )
 local gpuBinding = require ( "nupp.compiler.aot.gpubinding" )
 local intensity = require ( "nupp.compiler.aot.intensity" )
 local lower = require ( "nupp.compiler.aot.lower" )
@@ -5553,6 +5553,7 @@ local loopReports = { }
 local gpu = { }
 local cpuPrograms = { }
 local declaredModule = parsed ~= nil and cst . declaredModule ( ( parsed ) . root ) ~= nil
+local browser = selected . triple : match ( "^wasm" ) ~= nil
 for position , program in ipairs ( programs ) do
 optimizations [ position ] = aotOptimize . program ( program )
 
@@ -5560,7 +5561,7 @@ optimizations [ position ] = aotOptimize . program ( program )
 
 verify . program ( program )
 if program . executionTarget == "gpu" then
-local ok , artifact = pcall ( gpuemit . program , program )
+local ok , artifact = pcall ( gpuartifact . program , program , browser )
 if not ok then
 local site = sites [ position ]
 local line , column = sitePosition ( source , site ~= nil and ( site ) . from or 1 )
@@ -5614,9 +5615,7 @@ local generatedGpuBindings = { }
 for _ , program in ipairs ( programs ) do
 local artifact = gpu [ program . symbol ]
 if artifact ~= nil then
-generatedGpuBindings [
-# generatedGpuBindings + 1
-] = gpuBinding . replacement ( program , artifact , selected . triple : match ( "^wasm" ) ~= nil )
+generatedGpuBindings [ # generatedGpuBindings + 1 ] = gpuBinding . replacement ( program , artifact , browser )
 end
 end
 local generatedBinding = bindingRules . module ( cpuPrograms , library )
@@ -13017,6 +13016,175 @@ end
 const __nuppExportValue= fold ;__nuppExports=__nuppExportValue
  end);if not __nuppOk then package.loaded["nupp.compiler.aot.fold"]=nil;error(__nuppWhy,0) end;package.loaded["nupp.compiler.aot.fold"]=__nuppExports;return __nuppExports
 end
+package.preload["nupp.compiler.aot.gpuartifact"] = function(...)
+_G.assert(_G.loadstring("local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppMath=rawget(__nupp,\"math\")or{};rawset(__nupp,\"math\",__nuppMath) local function __nuppCloseFile(handle)if io.type(handle)==\"closed file\"then return end;local ok,reason=handle:close();if not ok then error(reason or \"the file could not be closed\",0)end end local __nuppManagedBrand=_G.__nuppManagedBrand if not __nuppManagedBrand then __nuppManagedBrand={};_G.__nuppManagedBrand=__nuppManagedBrand end local __nuppManagedCells=_G.__nuppManagedCells if not __nuppManagedCells then __nuppManagedCells=setmetatable({},{__mode=\"k\"});_G.__nuppManagedCells=__nuppManagedCells end local __nuppManagedOwner={};__nuppManagedOwner.__index=__nuppManagedOwner;local __nuppManagedAlias={};__nuppManagedAlias.__index=__nuppManagedAlias local function __nuppManagedError(code,message)return{code=code,message=message}end local function __nuppManagedProblem(cell) if type(cell)~=\"table\"or cell._brand~=__nuppManagedBrand then return __nuppManagedError(\"NUPP2614\",\"value is not a managed alias\")end if cell._state==\"taken\"then return __nuppManagedError(\"NUPP2614\",\"managed ownership was already taken\")end if cell._state==\"closed\"or cell._state==\"closing\"then return __nuppManagedError(\"NUPP2614\",\"managed resource is closed\")end return nil end local function __nuppManagedClose(cell,checked) local problem=__nuppManagedProblem(cell);if problem then if checked then return problem end;return nil end if cell._borrows~=0 or cell._exclusive then local busy=__nuppManagedError(\"NUPP2620\",\"managed resource has an active borrow\");if checked then return busy end;error(busy.message,0)end cell._state=\"closing\";local value,cleanup=cell._value,cell._cleanup;cell._value=nil;cell._cleanup=nil local ok,reason=pcall(cleanup,value);cell._state=\"closed\";if not ok then error(reason,0)end;return nil end function __nuppManagedOwner:alias()return setmetatable({_cell=self,_brand=__nuppManagedBrand},__nuppManagedAlias)end function __nuppManagedOwner:close()return __nuppManagedClose(self,false)end local function __nuppAliasCell(self) if type(self)~=\"table\"or self._brand~=__nuppManagedBrand or getmetatable(self)~=__nuppManagedAlias then return nil,__nuppManagedError(\"NUPP2614\",\"value is not a managed alias\")end local cell=self._cell;local problem=__nuppManagedProblem(cell);if problem then return nil,problem end;return cell,nil end function __nuppManagedAlias:with(callback) local cell,problem=__nuppAliasCell(self);if not cell then return nil,problem end if cell._exclusive then return nil,__nuppManagedError(\"NUPP2620\",\"managed resource is exclusively borrowed\")end cell._borrows=cell._borrows+1;cell._state=\"shared-borrowed(\"..cell._borrows..\")\" local ok,result=pcall(callback,cell._value);cell._borrows=cell._borrows-1;cell._state=cell._borrows>0 and(\"shared-borrowed(\"..cell._borrows..\")\")or\"live\" if not ok then error(result,0)end;return result,nil end function __nuppManagedAlias:withExclusive(callback) local cell,problem=__nuppAliasCell(self);if not cell then return nil,problem end if cell._exclusive or cell._borrows~=0 then return nil,__nuppManagedError(\"NUPP2620\",\"managed resource is already borrowed\")end cell._exclusive=true;cell._state=\"exclusive-borrowed\";local ok,result=pcall(callback,cell._value);cell._exclusive=false;cell._state=\"live\" if not ok then error(result,0)end;return result,nil end function __nuppManagedAlias:take() local cell,problem=__nuppAliasCell(self);if not cell then return nil,problem end if cell._exclusive or cell._borrows~=0 then return nil,__nuppManagedError(\"NUPP2620\",\"managed resource has an active borrow\")end cell._state=\"taken\";local value=cell._value;cell._value=nil;cell._cleanup=nil;return value,nil end function __nuppManagedAlias:close() local cell,problem=__nuppAliasCell(self);if not cell then return problem end;return __nuppManagedClose(cell,true)end function __nuppManagedAlias:_downcast(policy) local cell,problem=__nuppAliasCell(self);if not cell then return nil,problem end if cell._policy~=policy then return nil,__nuppManagedError(\"NUPP2613\",\"managed alias has the wrong type or cleanup policy\")end return self,nil end function __nupp.__manage(value,cleanup,policy) local cell=setmetatable({_brand=__nuppManagedBrand,_value=value,_cleanup=cleanup,_policy=policy,_state=\"live\",_borrows=0,_exclusive=false},__nuppManagedOwner);__nuppManagedCells[cell]=true;return cell end function __nupp.__recoverAlias(value) if type(value)~=\"table\"or value._brand~=__nuppManagedBrand or getmetatable(value)~=__nuppManagedAlias then return nil,__nuppManagedError(\"NUPP2614\",\"value is not a managed alias\")end local cell,problem=__nuppAliasCell(value);if not cell then return nil,problem end;return value,nil end _G.__nuppManagedPolicyCount=function(policy)local count=0;for cell in pairs(__nuppManagedCells)do if cell._policy==policy and(cell._state==\"live\"or cell._state:match(\"borrowed\"))then count=count+1 end end;return count end local __nuppManagedGroup={};__nuppManagedGroup.__index=__nuppManagedGroup function __nuppManagedGroup:flush()end function __nuppManagedGroup:adopt(cell) if self._closed then error(\"managed group is closed\",2)end local handle=cell:alias();self._entries[#self._entries+1]=handle return handle end function __nuppManagedGroup:remove(handle) if self._closed then error(\"managed group is closed\",2)end for index=#self._entries,1,-1 do if self._entries[index]==handle then table.remove(self._entries,index);local value,problem=handle:take();if problem then error(problem.message,2)end;return value end end error(\"managed alias is not registered in this group\",2) end local function __nuppManagedCloseEntry(entry)local problem=entry:close();if problem and problem.code~=\"NUPP2614\"then error(problem.message,0)end end function __nuppManagedGroup:close() if self._closed then return end;self._closed=true;local first,suppressed=nil,0 for index=#self._entries,1,-1 do local ok,reason=pcall(__nuppManagedCloseEntry,self._entries[index]);if not ok then if first==nil then first=reason else suppressed=suppressed+1 end end end self._entries={};if first~=nil then if suppressed>0 then error(tostring(first)..\" (suppressed \"..tostring(suppressed)..\" cleanup failure(s))\",0)end;error(first,0)end end function __nupp.managedGroup()return setmetatable({_entries={},_closed=false},__nuppManagedGroup)end;\n","@nupp-prelude"))();local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppMath=rawget(__nupp,"math")or{};rawset(__nupp,"math",__nuppMath) local function __nuppCloseFile(handle)if io.type(handle)=="closed file"then return end;local ok,reason=handle:close();if not ok then error(reason or "the file could not be closed",0)end end local __nuppManagedBrand=_G.__nuppManagedBrand if not __nuppManagedBrand then __nuppManagedBrand={};_G.__nuppManagedBrand=__nuppManagedBrand end local __nuppManagedCells=_G.__nuppManagedCells if not __nuppManagedCells then __nuppManagedCells=setmetatable({},{__mode="k"});_G.__nuppManagedCells=__nuppManagedCells end local __nuppManagedOwner={};__nuppManagedOwner.__index=__nuppManagedOwner;local __nuppManagedAlias={};__nuppManagedAlias.__index=__nuppManagedAlias local function __nuppManagedError(code,message)return{code=code,message=message}end local function __nuppManagedProblem(cell) if type(cell)~="table"or cell._brand~=__nuppManagedBrand then return __nuppManagedError("NUPP2614","value is not a managed alias")end if cell._state=="taken"then return __nuppManagedError("NUPP2614","managed ownership was already taken")end if cell._state=="closed"or cell._state=="closing"then return __nuppManagedError("NUPP2614","managed resource is closed")end return nil end local function __nuppManagedClose(cell,checked) local problem=__nuppManagedProblem(cell);if problem then if checked then return problem end;return nil end if cell._borrows~=0 or cell._exclusive then local busy=__nuppManagedError("NUPP2620","managed resource has an active borrow");if checked then return busy end;error(busy.message,0)end cell._state="closing";local value,cleanup=cell._value,cell._cleanup;cell._value=nil;cell._cleanup=nil local ok,reason=pcall(cleanup,value);cell._state="closed";if not ok then error(reason,0)end;return nil end function __nuppManagedOwner:alias()return setmetatable({_cell=self,_brand=__nuppManagedBrand},__nuppManagedAlias)end function __nuppManagedOwner:close()return __nuppManagedClose(self,false)end local function __nuppAliasCell(self) if type(self)~="table"or self._brand~=__nuppManagedBrand or getmetatable(self)~=__nuppManagedAlias then return nil,__nuppManagedError("NUPP2614","value is not a managed alias")end local cell=self._cell;local problem=__nuppManagedProblem(cell);if problem then return nil,problem end;return cell,nil end function __nuppManagedAlias:with(callback) local cell,problem=__nuppAliasCell(self);if not cell then return nil,problem end if cell._exclusive then return nil,__nuppManagedError("NUPP2620","managed resource is exclusively borrowed")end cell._borrows=cell._borrows+1;cell._state="shared-borrowed("..cell._borrows..")" local ok,result=pcall(callback,cell._value);cell._borrows=cell._borrows-1;cell._state=cell._borrows>0 and("shared-borrowed("..cell._borrows..")")or"live" if not ok then error(result,0)end;return result,nil end function __nuppManagedAlias:withExclusive(callback) local cell,problem=__nuppAliasCell(self);if not cell then return nil,problem end if cell._exclusive or cell._borrows~=0 then return nil,__nuppManagedError("NUPP2620","managed resource is already borrowed")end cell._exclusive=true;cell._state="exclusive-borrowed";local ok,result=pcall(callback,cell._value);cell._exclusive=false;cell._state="live" if not ok then error(result,0)end;return result,nil end function __nuppManagedAlias:take() local cell,problem=__nuppAliasCell(self);if not cell then return nil,problem end if cell._exclusive or cell._borrows~=0 then return nil,__nuppManagedError("NUPP2620","managed resource has an active borrow")end cell._state="taken";local value=cell._value;cell._value=nil;cell._cleanup=nil;return value,nil end function __nuppManagedAlias:close() local cell,problem=__nuppAliasCell(self);if not cell then return problem end;return __nuppManagedClose(cell,true)end function __nuppManagedAlias:_downcast(policy) local cell,problem=__nuppAliasCell(self);if not cell then return nil,problem end if cell._policy~=policy then return nil,__nuppManagedError("NUPP2613","managed alias has the wrong type or cleanup policy")end return self,nil end function __nupp.__manage(value,cleanup,policy) local cell=setmetatable({_brand=__nuppManagedBrand,_value=value,_cleanup=cleanup,_policy=policy,_state="live",_borrows=0,_exclusive=false},__nuppManagedOwner);__nuppManagedCells[cell]=true;return cell end function __nupp.__recoverAlias(value) if type(value)~="table"or value._brand~=__nuppManagedBrand or getmetatable(value)~=__nuppManagedAlias then return nil,__nuppManagedError("NUPP2614","value is not a managed alias")end local cell,problem=__nuppAliasCell(value);if not cell then return nil,problem end;return value,nil end _G.__nuppManagedPolicyCount=function(policy)local count=0;for cell in pairs(__nuppManagedCells)do if cell._policy==policy and(cell._state=="live"or cell._state:match("borrowed"))then count=count+1 end end;return count end local __nuppManagedGroup={};__nuppManagedGroup.__index=__nuppManagedGroup function __nuppManagedGroup:flush()end function __nuppManagedGroup:adopt(cell) if self._closed then error("managed group is closed",2)end local handle=cell:alias();self._entries[#self._entries+1]=handle return handle end function __nuppManagedGroup:remove(handle) if self._closed then error("managed group is closed",2)end for index=#self._entries,1,-1 do if self._entries[index]==handle then table.remove(self._entries,index);local value,problem=handle:take();if problem then error(problem.message,2)end;return value end end error("managed alias is not registered in this group",2) end local function __nuppManagedCloseEntry(entry)local problem=entry:close();if problem and problem.code~="NUPP2614"then error(problem.message,0)end end function __nuppManagedGroup:close() if self._closed then return end;self._closed=true;local first,suppressed=nil,0 for index=#self._entries,1,-1 do local ok,reason=pcall(__nuppManagedCloseEntry,self._entries[index]);if not ok then if first==nil then first=reason else suppressed=suppressed+1 end end end self._entries={};if first~=nil then if suppressed>0 then error(tostring(first).." (suppressed "..tostring(suppressed).." cleanup failure(s))",0)end;error(first,0)end end function __nupp.managedGroup()return setmetatable({_entries={},_closed=false},__nuppManagedGroup)end;local __nuppExports;local __nuppOk,__nuppWhy=pcall(function()
+
+
+
+
+
+
+
+
+
+local scalarIR = require ( "nupp.compiler.aot.scalar" )
+local spirvemit = require ( "nupp.compiler.aot.spirvemit" )
+local visit = require ( "nupp.compiler.aot.visit" )
+local wgslemit = require ( "nupp.compiler.aot.wgslemit" )
+
+local gpuartifact = { }
+
+gpuartifact.Artifact = {} gpuartifact.Artifact.__index = gpuartifact.Artifact
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+const STORAGE_TYPE
+
+= { float = true , int8 = true , int16 = true , int32 = true , uint8 = true , uint16 = true , uint32 = true , }
+
+const UNIFORM_TYPE = { f32 = true , i32 = true , u32 = true , }
+
+local function identifier ( value ) 
+return ( value : gsub ( "[^%w_]" , "_" ) )
+end
+
+local function fixedStorage ( param ) 
+return param . type : match (
+"^struct:"
+) ~= nil or ( param . sourceType ~= nil and STORAGE_TYPE [ param . sourceType ] == true )
+end
+
+
+
+
+
+function gpuartifact . program ( program , browser ) 
+assert ( program . executionTarget == "gpu" , "GPU emission requires @aot(target = \"gpu\")" )
+local loop = program . loop
+local workgroup = program . workgroup
+assert (
+program . entryMode == "kernel" and ( ( loop ~= nil ) ~= ( workgroup ~= nil ) ) ,
+"GPU entry must be a map or phased workgroup kernel"
+)
+if loop ~= nil then
+assert (
+( loop ) . first == 1 and ( loop ) . last == ( loop ) . count ,
+"GPU entry must dispatch one complete span"
+)
+end
+
+local exactCounts = { }
+for _ , guard in ipairs ( program . guards ) do
+exactCounts [ guard . left ] = true
+exactCounts [ guard . right ] = true
+end
+visit . program (
+program , setmetatable({ scalarExpression =
+
+function ( value ) 
+if ( value . op == "load" or value . op == "element_ref" ) and ( value ) . cursor == nil then
+exactCounts [ ( value ) . span ] = true
+end
+end ,  scalarStatement =
+function ( statement ) 
+if statement . op == "store" and ( statement ) . cursor == nil then
+exactCounts [ ( statement ) . span ] = true
+end
+end }, visit.Visitor)
+
+)
+
+local readonly = { }
+local writable = { }
+local uniforms = { }
+for _ , param in ipairs ( program . params ) do
+if param . kind == "read_span" then
+assert ( fixedStorage ( param ) , "GPU span must have fixed-width elements" )
+readonly [ # readonly + 1 ] = param
+elseif param . kind == "write_span" then
+assert ( fixedStorage ( param ) , "GPU span must have fixed-width elements" )
+writable [ # writable + 1 ] = param
+elseif param . kind == "uniform" then
+assert ( param . type ~= "bool" , "GPU boolean uniforms are not yet supported" )
+assert ( UNIFORM_TYPE [ param . type ] == true , "GPU uniform must have fixed width" )
+uniforms [ # uniforms + 1 ] = param
+else
+error ( "GPU subset does not admit scalar ABI parameters" , 0 )
+end
+end
+assert ( # writable >= 1 , "GPU kernels require a writable span" )
+
+local spans = { }
+for _ , param in ipairs ( readonly ) do
+spans [ # spans + 1 ] = param
+end
+for _ , param in ipairs ( writable ) do
+spans [ # spans + 1 ] = param
+end
+for _ , param in ipairs ( uniforms ) do
+for _ , span in ipairs ( spans ) do
+assert ( param . name ~= span . name .. "_count" , "GPU uniform name collides with a span count: " .. param . name )
+assert ( param . name ~= span . name .. "_offset" , "GPU uniform name collides with a span offset: " .. param . name )
+end
+end
+local uniformBytes = 4 * ( 1 + 2 * # spans + # uniforms )
+assert ( uniformBytes <= 128 , "GPU uniform block exceeds 128 bytes" )
+
+local threads = workgroup ~= nil and ( workgroup ) . size or 256
+local spirv = spirvemit . program ( program , readonly , writable , uniforms , threads )
+local wgsl = nil
+if browser then
+wgsl = wgslemit . program ( program , readonly , writable , uniforms , threads )
+else
+local browserOk , browserSource = pcall ( wgslemit . program , program , readonly , writable , uniforms , threads )
+if browserOk then
+wgsl = browserSource
+end
+end
+
+return setmetatable({ spirv =
+spirv ,  wgsl =
+wgsl ,  entrypoint =
+identifier ( program . symbol ) .. "_gpu" ,  readonly =
+readonly ,  writable =
+writable ,  uniforms =
+uniforms ,  uniformBytes =
+uniformBytes ,  threads =
+threads ,  countSpan =
+workgroup ~= nil and (
+workgroup
+) . dispatchSpan or ( loop ) . count ,  exactCounts =
+exactCounts }, gpuartifact.Artifact)
+
+end
+
+const __nuppExportValue= gpuartifact ;__nuppExports=__nuppExportValue
+ end);if not __nuppOk then package.loaded["nupp.compiler.aot.gpuartifact"]=nil;error(__nuppWhy,0) end;package.loaded["nupp.compiler.aot.gpuartifact"]=__nuppExports;return __nuppExports
+end
 package.preload["nupp.compiler.aot.gpubinding"] = function(...)
 _G.assert(_G.loadstring("local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppMath=rawget(__nupp,\"math\")or{};rawset(__nupp,\"math\",__nuppMath) local function __nuppCloseFile(handle)if io.type(handle)==\"closed file\"then return end;local ok,reason=handle:close();if not ok then error(reason or \"the file could not be closed\",0)end end local __nuppManagedBrand=_G.__nuppManagedBrand if not __nuppManagedBrand then __nuppManagedBrand={};_G.__nuppManagedBrand=__nuppManagedBrand end local __nuppManagedCells=_G.__nuppManagedCells if not __nuppManagedCells then __nuppManagedCells=setmetatable({},{__mode=\"k\"});_G.__nuppManagedCells=__nuppManagedCells end local __nuppManagedOwner={};__nuppManagedOwner.__index=__nuppManagedOwner;local __nuppManagedAlias={};__nuppManagedAlias.__index=__nuppManagedAlias local function __nuppManagedError(code,message)return{code=code,message=message}end local function __nuppManagedProblem(cell) if type(cell)~=\"table\"or cell._brand~=__nuppManagedBrand then return __nuppManagedError(\"NUPP2614\",\"value is not a managed alias\")end if cell._state==\"taken\"then return __nuppManagedError(\"NUPP2614\",\"managed ownership was already taken\")end if cell._state==\"closed\"or cell._state==\"closing\"then return __nuppManagedError(\"NUPP2614\",\"managed resource is closed\")end return nil end local function __nuppManagedClose(cell,checked) local problem=__nuppManagedProblem(cell);if problem then if checked then return problem end;return nil end if cell._borrows~=0 or cell._exclusive then local busy=__nuppManagedError(\"NUPP2620\",\"managed resource has an active borrow\");if checked then return busy end;error(busy.message,0)end cell._state=\"closing\";local value,cleanup=cell._value,cell._cleanup;cell._value=nil;cell._cleanup=nil local ok,reason=pcall(cleanup,value);cell._state=\"closed\";if not ok then error(reason,0)end;return nil end function __nuppManagedOwner:alias()return setmetatable({_cell=self,_brand=__nuppManagedBrand},__nuppManagedAlias)end function __nuppManagedOwner:close()return __nuppManagedClose(self,false)end local function __nuppAliasCell(self) if type(self)~=\"table\"or self._brand~=__nuppManagedBrand or getmetatable(self)~=__nuppManagedAlias then return nil,__nuppManagedError(\"NUPP2614\",\"value is not a managed alias\")end local cell=self._cell;local problem=__nuppManagedProblem(cell);if problem then return nil,problem end;return cell,nil end function __nuppManagedAlias:with(callback) local cell,problem=__nuppAliasCell(self);if not cell then return nil,problem end if cell._exclusive then return nil,__nuppManagedError(\"NUPP2620\",\"managed resource is exclusively borrowed\")end cell._borrows=cell._borrows+1;cell._state=\"shared-borrowed(\"..cell._borrows..\")\" local ok,result=pcall(callback,cell._value);cell._borrows=cell._borrows-1;cell._state=cell._borrows>0 and(\"shared-borrowed(\"..cell._borrows..\")\")or\"live\" if not ok then error(result,0)end;return result,nil end function __nuppManagedAlias:withExclusive(callback) local cell,problem=__nuppAliasCell(self);if not cell then return nil,problem end if cell._exclusive or cell._borrows~=0 then return nil,__nuppManagedError(\"NUPP2620\",\"managed resource is already borrowed\")end cell._exclusive=true;cell._state=\"exclusive-borrowed\";local ok,result=pcall(callback,cell._value);cell._exclusive=false;cell._state=\"live\" if not ok then error(result,0)end;return result,nil end function __nuppManagedAlias:take() local cell,problem=__nuppAliasCell(self);if not cell then return nil,problem end if cell._exclusive or cell._borrows~=0 then return nil,__nuppManagedError(\"NUPP2620\",\"managed resource has an active borrow\")end cell._state=\"taken\";local value=cell._value;cell._value=nil;cell._cleanup=nil;return value,nil end function __nuppManagedAlias:close() local cell,problem=__nuppAliasCell(self);if not cell then return problem end;return __nuppManagedClose(cell,true)end function __nuppManagedAlias:_downcast(policy) local cell,problem=__nuppAliasCell(self);if not cell then return nil,problem end if cell._policy~=policy then return nil,__nuppManagedError(\"NUPP2613\",\"managed alias has the wrong type or cleanup policy\")end return self,nil end function __nupp.__manage(value,cleanup,policy) local cell=setmetatable({_brand=__nuppManagedBrand,_value=value,_cleanup=cleanup,_policy=policy,_state=\"live\",_borrows=0,_exclusive=false},__nuppManagedOwner);__nuppManagedCells[cell]=true;return cell end function __nupp.__recoverAlias(value) if type(value)~=\"table\"or value._brand~=__nuppManagedBrand or getmetatable(value)~=__nuppManagedAlias then return nil,__nuppManagedError(\"NUPP2614\",\"value is not a managed alias\")end local cell,problem=__nuppAliasCell(value);if not cell then return nil,problem end;return value,nil end _G.__nuppManagedPolicyCount=function(policy)local count=0;for cell in pairs(__nuppManagedCells)do if cell._policy==policy and(cell._state==\"live\"or cell._state:match(\"borrowed\"))then count=count+1 end end;return count end local __nuppManagedGroup={};__nuppManagedGroup.__index=__nuppManagedGroup function __nuppManagedGroup:flush()end function __nuppManagedGroup:adopt(cell) if self._closed then error(\"managed group is closed\",2)end local handle=cell:alias();self._entries[#self._entries+1]=handle return handle end function __nuppManagedGroup:remove(handle) if self._closed then error(\"managed group is closed\",2)end for index=#self._entries,1,-1 do if self._entries[index]==handle then table.remove(self._entries,index);local value,problem=handle:take();if problem then error(problem.message,2)end;return value end end error(\"managed alias is not registered in this group\",2) end local function __nuppManagedCloseEntry(entry)local problem=entry:close();if problem and problem.code~=\"NUPP2614\"then error(problem.message,0)end end function __nuppManagedGroup:close() if self._closed then return end;self._closed=true;local first,suppressed=nil,0 for index=#self._entries,1,-1 do local ok,reason=pcall(__nuppManagedCloseEntry,self._entries[index]);if not ok then if first==nil then first=reason else suppressed=suppressed+1 end end end self._entries={};if first~=nil then if suppressed>0 then error(tostring(first)..\" (suppressed \"..tostring(suppressed)..\" cleanup failure(s))\",0)end;error(first,0)end end function __nupp.managedGroup()return setmetatable({_entries={},_closed=false},__nuppManagedGroup)end;\n","@nupp-prelude"))();local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppMath=rawget(__nupp,"math")or{};rawset(__nupp,"math",__nuppMath) local function __nuppCloseFile(handle)if io.type(handle)=="closed file"then return end;local ok,reason=handle:close();if not ok then error(reason or "the file could not be closed",0)end end local __nuppManagedBrand=_G.__nuppManagedBrand if not __nuppManagedBrand then __nuppManagedBrand={};_G.__nuppManagedBrand=__nuppManagedBrand end local __nuppManagedCells=_G.__nuppManagedCells if not __nuppManagedCells then __nuppManagedCells=setmetatable({},{__mode="k"});_G.__nuppManagedCells=__nuppManagedCells end local __nuppManagedOwner={};__nuppManagedOwner.__index=__nuppManagedOwner;local __nuppManagedAlias={};__nuppManagedAlias.__index=__nuppManagedAlias local function __nuppManagedError(code,message)return{code=code,message=message}end local function __nuppManagedProblem(cell) if type(cell)~="table"or cell._brand~=__nuppManagedBrand then return __nuppManagedError("NUPP2614","value is not a managed alias")end if cell._state=="taken"then return __nuppManagedError("NUPP2614","managed ownership was already taken")end if cell._state=="closed"or cell._state=="closing"then return __nuppManagedError("NUPP2614","managed resource is closed")end return nil end local function __nuppManagedClose(cell,checked) local problem=__nuppManagedProblem(cell);if problem then if checked then return problem end;return nil end if cell._borrows~=0 or cell._exclusive then local busy=__nuppManagedError("NUPP2620","managed resource has an active borrow");if checked then return busy end;error(busy.message,0)end cell._state="closing";local value,cleanup=cell._value,cell._cleanup;cell._value=nil;cell._cleanup=nil local ok,reason=pcall(cleanup,value);cell._state="closed";if not ok then error(reason,0)end;return nil end function __nuppManagedOwner:alias()return setmetatable({_cell=self,_brand=__nuppManagedBrand},__nuppManagedAlias)end function __nuppManagedOwner:close()return __nuppManagedClose(self,false)end local function __nuppAliasCell(self) if type(self)~="table"or self._brand~=__nuppManagedBrand or getmetatable(self)~=__nuppManagedAlias then return nil,__nuppManagedError("NUPP2614","value is not a managed alias")end local cell=self._cell;local problem=__nuppManagedProblem(cell);if problem then return nil,problem end;return cell,nil end function __nuppManagedAlias:with(callback) local cell,problem=__nuppAliasCell(self);if not cell then return nil,problem end if cell._exclusive then return nil,__nuppManagedError("NUPP2620","managed resource is exclusively borrowed")end cell._borrows=cell._borrows+1;cell._state="shared-borrowed("..cell._borrows..")" local ok,result=pcall(callback,cell._value);cell._borrows=cell._borrows-1;cell._state=cell._borrows>0 and("shared-borrowed("..cell._borrows..")")or"live" if not ok then error(result,0)end;return result,nil end function __nuppManagedAlias:withExclusive(callback) local cell,problem=__nuppAliasCell(self);if not cell then return nil,problem end if cell._exclusive or cell._borrows~=0 then return nil,__nuppManagedError("NUPP2620","managed resource is already borrowed")end cell._exclusive=true;cell._state="exclusive-borrowed";local ok,result=pcall(callback,cell._value);cell._exclusive=false;cell._state="live" if not ok then error(result,0)end;return result,nil end function __nuppManagedAlias:take() local cell,problem=__nuppAliasCell(self);if not cell then return nil,problem end if cell._exclusive or cell._borrows~=0 then return nil,__nuppManagedError("NUPP2620","managed resource has an active borrow")end cell._state="taken";local value=cell._value;cell._value=nil;cell._cleanup=nil;return value,nil end function __nuppManagedAlias:close() local cell,problem=__nuppAliasCell(self);if not cell then return problem end;return __nuppManagedClose(cell,true)end function __nuppManagedAlias:_downcast(policy) local cell,problem=__nuppAliasCell(self);if not cell then return nil,problem end if cell._policy~=policy then return nil,__nuppManagedError("NUPP2613","managed alias has the wrong type or cleanup policy")end return self,nil end function __nupp.__manage(value,cleanup,policy) local cell=setmetatable({_brand=__nuppManagedBrand,_value=value,_cleanup=cleanup,_policy=policy,_state="live",_borrows=0,_exclusive=false},__nuppManagedOwner);__nuppManagedCells[cell]=true;return cell end function __nupp.__recoverAlias(value) if type(value)~="table"or value._brand~=__nuppManagedBrand or getmetatable(value)~=__nuppManagedAlias then return nil,__nuppManagedError("NUPP2614","value is not a managed alias")end local cell,problem=__nuppAliasCell(value);if not cell then return nil,problem end;return value,nil end _G.__nuppManagedPolicyCount=function(policy)local count=0;for cell in pairs(__nuppManagedCells)do if cell._policy==policy and(cell._state=="live"or cell._state:match("borrowed"))then count=count+1 end end;return count end local __nuppManagedGroup={};__nuppManagedGroup.__index=__nuppManagedGroup function __nuppManagedGroup:flush()end function __nuppManagedGroup:adopt(cell) if self._closed then error("managed group is closed",2)end local handle=cell:alias();self._entries[#self._entries+1]=handle return handle end function __nuppManagedGroup:remove(handle) if self._closed then error("managed group is closed",2)end for index=#self._entries,1,-1 do if self._entries[index]==handle then table.remove(self._entries,index);local value,problem=handle:take();if problem then error(problem.message,2)end;return value end end error("managed alias is not registered in this group",2) end local function __nuppManagedCloseEntry(entry)local problem=entry:close();if problem and problem.code~="NUPP2614"then error(problem.message,0)end end function __nuppManagedGroup:close() if self._closed then return end;self._closed=true;local first,suppressed=nil,0 for index=#self._entries,1,-1 do local ok,reason=pcall(__nuppManagedCloseEntry,self._entries[index]);if not ok then if first==nil then first=reason else suppressed=suppressed+1 end end end self._entries={};if first~=nil then if suppressed>0 then error(tostring(first).." (suppressed "..tostring(suppressed).." cleanup failure(s))",0)end;error(first,0)end end function __nupp.managedGroup()return setmetatable({_entries={},_closed=false},__nuppManagedGroup)end;local __nuppExports;local __nuppOk,__nuppWhy=pcall(function()
 
@@ -13028,7 +13196,7 @@ _G.assert(_G.loadstring("local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppM
 
 
 
-local gpuemit = require ( "nupp.compiler.aot.gpuemit" )
+local gpuartifact = require ( "nupp.compiler.aot.gpuartifact" )
 local scalarIR = require ( "nupp.compiler.aot.scalar" )
 
 local gpubinding = { }
@@ -13160,9 +13328,11 @@ lines ,
 .. " borrows (context)"
 )
 append ( lines , "    local artifacts = new " .. runtime .. ".ArtifactSet(" )
+if browser then
+append ( lines , "        wgsl = " .. string . format ( "%q" , artifact . wgsl ) .. "," )
+else
 append ( lines , "        spirv = " .. string . format ( "%q" , artifact . spirv ) .. "," )
-append ( lines , "        msl = " .. string . format ( "%q" , artifact . source ) .. "," )
-append ( lines , "        wgsl = " .. ( artifact . wgsl ~= nil and string . format ( "%q" , artifact . wgsl ) or "nil" ) .. "," )
+end
 append ( lines , "        entrypoint = " .. string . format ( "%q" , artifact . entrypoint ) )
 append ( lines , "    )" )
 append (
@@ -13231,598 +13401,6 @@ end
 
 const __nuppExportValue= gpubinding ;__nuppExports=__nuppExportValue
  end);if not __nuppOk then package.loaded["nupp.compiler.aot.gpubinding"]=nil;error(__nuppWhy,0) end;package.loaded["nupp.compiler.aot.gpubinding"]=__nuppExports;return __nuppExports
-end
-package.preload["nupp.compiler.aot.gpuemit"] = function(...)
-_G.assert(_G.loadstring("local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppMath=rawget(__nupp,\"math\")or{};rawset(__nupp,\"math\",__nuppMath) local function __nuppCloseFile(handle)if io.type(handle)==\"closed file\"then return end;local ok,reason=handle:close();if not ok then error(reason or \"the file could not be closed\",0)end end local __nuppManagedBrand=_G.__nuppManagedBrand if not __nuppManagedBrand then __nuppManagedBrand={};_G.__nuppManagedBrand=__nuppManagedBrand end local __nuppManagedCells=_G.__nuppManagedCells if not __nuppManagedCells then __nuppManagedCells=setmetatable({},{__mode=\"k\"});_G.__nuppManagedCells=__nuppManagedCells end local __nuppManagedOwner={};__nuppManagedOwner.__index=__nuppManagedOwner;local __nuppManagedAlias={};__nuppManagedAlias.__index=__nuppManagedAlias local function __nuppManagedError(code,message)return{code=code,message=message}end local function __nuppManagedProblem(cell) if type(cell)~=\"table\"or cell._brand~=__nuppManagedBrand then return __nuppManagedError(\"NUPP2614\",\"value is not a managed alias\")end if cell._state==\"taken\"then return __nuppManagedError(\"NUPP2614\",\"managed ownership was already taken\")end if cell._state==\"closed\"or cell._state==\"closing\"then return __nuppManagedError(\"NUPP2614\",\"managed resource is closed\")end return nil end local function __nuppManagedClose(cell,checked) local problem=__nuppManagedProblem(cell);if problem then if checked then return problem end;return nil end if cell._borrows~=0 or cell._exclusive then local busy=__nuppManagedError(\"NUPP2620\",\"managed resource has an active borrow\");if checked then return busy end;error(busy.message,0)end cell._state=\"closing\";local value,cleanup=cell._value,cell._cleanup;cell._value=nil;cell._cleanup=nil local ok,reason=pcall(cleanup,value);cell._state=\"closed\";if not ok then error(reason,0)end;return nil end function __nuppManagedOwner:alias()return setmetatable({_cell=self,_brand=__nuppManagedBrand},__nuppManagedAlias)end function __nuppManagedOwner:close()return __nuppManagedClose(self,false)end local function __nuppAliasCell(self) if type(self)~=\"table\"or self._brand~=__nuppManagedBrand or getmetatable(self)~=__nuppManagedAlias then return nil,__nuppManagedError(\"NUPP2614\",\"value is not a managed alias\")end local cell=self._cell;local problem=__nuppManagedProblem(cell);if problem then return nil,problem end;return cell,nil end function __nuppManagedAlias:with(callback) local cell,problem=__nuppAliasCell(self);if not cell then return nil,problem end if cell._exclusive then return nil,__nuppManagedError(\"NUPP2620\",\"managed resource is exclusively borrowed\")end cell._borrows=cell._borrows+1;cell._state=\"shared-borrowed(\"..cell._borrows..\")\" local ok,result=pcall(callback,cell._value);cell._borrows=cell._borrows-1;cell._state=cell._borrows>0 and(\"shared-borrowed(\"..cell._borrows..\")\")or\"live\" if not ok then error(result,0)end;return result,nil end function __nuppManagedAlias:withExclusive(callback) local cell,problem=__nuppAliasCell(self);if not cell then return nil,problem end if cell._exclusive or cell._borrows~=0 then return nil,__nuppManagedError(\"NUPP2620\",\"managed resource is already borrowed\")end cell._exclusive=true;cell._state=\"exclusive-borrowed\";local ok,result=pcall(callback,cell._value);cell._exclusive=false;cell._state=\"live\" if not ok then error(result,0)end;return result,nil end function __nuppManagedAlias:take() local cell,problem=__nuppAliasCell(self);if not cell then return nil,problem end if cell._exclusive or cell._borrows~=0 then return nil,__nuppManagedError(\"NUPP2620\",\"managed resource has an active borrow\")end cell._state=\"taken\";local value=cell._value;cell._value=nil;cell._cleanup=nil;return value,nil end function __nuppManagedAlias:close() local cell,problem=__nuppAliasCell(self);if not cell then return problem end;return __nuppManagedClose(cell,true)end function __nuppManagedAlias:_downcast(policy) local cell,problem=__nuppAliasCell(self);if not cell then return nil,problem end if cell._policy~=policy then return nil,__nuppManagedError(\"NUPP2613\",\"managed alias has the wrong type or cleanup policy\")end return self,nil end function __nupp.__manage(value,cleanup,policy) local cell=setmetatable({_brand=__nuppManagedBrand,_value=value,_cleanup=cleanup,_policy=policy,_state=\"live\",_borrows=0,_exclusive=false},__nuppManagedOwner);__nuppManagedCells[cell]=true;return cell end function __nupp.__recoverAlias(value) if type(value)~=\"table\"or value._brand~=__nuppManagedBrand or getmetatable(value)~=__nuppManagedAlias then return nil,__nuppManagedError(\"NUPP2614\",\"value is not a managed alias\")end local cell,problem=__nuppAliasCell(value);if not cell then return nil,problem end;return value,nil end _G.__nuppManagedPolicyCount=function(policy)local count=0;for cell in pairs(__nuppManagedCells)do if cell._policy==policy and(cell._state==\"live\"or cell._state:match(\"borrowed\"))then count=count+1 end end;return count end local __nuppManagedGroup={};__nuppManagedGroup.__index=__nuppManagedGroup function __nuppManagedGroup:flush()end function __nuppManagedGroup:adopt(cell) if self._closed then error(\"managed group is closed\",2)end local handle=cell:alias();self._entries[#self._entries+1]=handle return handle end function __nuppManagedGroup:remove(handle) if self._closed then error(\"managed group is closed\",2)end for index=#self._entries,1,-1 do if self._entries[index]==handle then table.remove(self._entries,index);local value,problem=handle:take();if problem then error(problem.message,2)end;return value end end error(\"managed alias is not registered in this group\",2) end local function __nuppManagedCloseEntry(entry)local problem=entry:close();if problem and problem.code~=\"NUPP2614\"then error(problem.message,0)end end function __nuppManagedGroup:close() if self._closed then return end;self._closed=true;local first,suppressed=nil,0 for index=#self._entries,1,-1 do local ok,reason=pcall(__nuppManagedCloseEntry,self._entries[index]);if not ok then if first==nil then first=reason else suppressed=suppressed+1 end end end self._entries={};if first~=nil then if suppressed>0 then error(tostring(first)..\" (suppressed \"..tostring(suppressed)..\" cleanup failure(s))\",0)end;error(first,0)end end function __nupp.managedGroup()return setmetatable({_entries={},_closed=false},__nuppManagedGroup)end;\n","@nupp-prelude"))();local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppMath=rawget(__nupp,"math")or{};rawset(__nupp,"math",__nuppMath) local function __nuppCloseFile(handle)if io.type(handle)=="closed file"then return end;local ok,reason=handle:close();if not ok then error(reason or "the file could not be closed",0)end end local __nuppManagedBrand=_G.__nuppManagedBrand if not __nuppManagedBrand then __nuppManagedBrand={};_G.__nuppManagedBrand=__nuppManagedBrand end local __nuppManagedCells=_G.__nuppManagedCells if not __nuppManagedCells then __nuppManagedCells=setmetatable({},{__mode="k"});_G.__nuppManagedCells=__nuppManagedCells end local __nuppManagedOwner={};__nuppManagedOwner.__index=__nuppManagedOwner;local __nuppManagedAlias={};__nuppManagedAlias.__index=__nuppManagedAlias local function __nuppManagedError(code,message)return{code=code,message=message}end local function __nuppManagedProblem(cell) if type(cell)~="table"or cell._brand~=__nuppManagedBrand then return __nuppManagedError("NUPP2614","value is not a managed alias")end if cell._state=="taken"then return __nuppManagedError("NUPP2614","managed ownership was already taken")end if cell._state=="closed"or cell._state=="closing"then return __nuppManagedError("NUPP2614","managed resource is closed")end return nil end local function __nuppManagedClose(cell,checked) local problem=__nuppManagedProblem(cell);if problem then if checked then return problem end;return nil end if cell._borrows~=0 or cell._exclusive then local busy=__nuppManagedError("NUPP2620","managed resource has an active borrow");if checked then return busy end;error(busy.message,0)end cell._state="closing";local value,cleanup=cell._value,cell._cleanup;cell._value=nil;cell._cleanup=nil local ok,reason=pcall(cleanup,value);cell._state="closed";if not ok then error(reason,0)end;return nil end function __nuppManagedOwner:alias()return setmetatable({_cell=self,_brand=__nuppManagedBrand},__nuppManagedAlias)end function __nuppManagedOwner:close()return __nuppManagedClose(self,false)end local function __nuppAliasCell(self) if type(self)~="table"or self._brand~=__nuppManagedBrand or getmetatable(self)~=__nuppManagedAlias then return nil,__nuppManagedError("NUPP2614","value is not a managed alias")end local cell=self._cell;local problem=__nuppManagedProblem(cell);if problem then return nil,problem end;return cell,nil end function __nuppManagedAlias:with(callback) local cell,problem=__nuppAliasCell(self);if not cell then return nil,problem end if cell._exclusive then return nil,__nuppManagedError("NUPP2620","managed resource is exclusively borrowed")end cell._borrows=cell._borrows+1;cell._state="shared-borrowed("..cell._borrows..")" local ok,result=pcall(callback,cell._value);cell._borrows=cell._borrows-1;cell._state=cell._borrows>0 and("shared-borrowed("..cell._borrows..")")or"live" if not ok then error(result,0)end;return result,nil end function __nuppManagedAlias:withExclusive(callback) local cell,problem=__nuppAliasCell(self);if not cell then return nil,problem end if cell._exclusive or cell._borrows~=0 then return nil,__nuppManagedError("NUPP2620","managed resource is already borrowed")end cell._exclusive=true;cell._state="exclusive-borrowed";local ok,result=pcall(callback,cell._value);cell._exclusive=false;cell._state="live" if not ok then error(result,0)end;return result,nil end function __nuppManagedAlias:take() local cell,problem=__nuppAliasCell(self);if not cell then return nil,problem end if cell._exclusive or cell._borrows~=0 then return nil,__nuppManagedError("NUPP2620","managed resource has an active borrow")end cell._state="taken";local value=cell._value;cell._value=nil;cell._cleanup=nil;return value,nil end function __nuppManagedAlias:close() local cell,problem=__nuppAliasCell(self);if not cell then return problem end;return __nuppManagedClose(cell,true)end function __nuppManagedAlias:_downcast(policy) local cell,problem=__nuppAliasCell(self);if not cell then return nil,problem end if cell._policy~=policy then return nil,__nuppManagedError("NUPP2613","managed alias has the wrong type or cleanup policy")end return self,nil end function __nupp.__manage(value,cleanup,policy) local cell=setmetatable({_brand=__nuppManagedBrand,_value=value,_cleanup=cleanup,_policy=policy,_state="live",_borrows=0,_exclusive=false},__nuppManagedOwner);__nuppManagedCells[cell]=true;return cell end function __nupp.__recoverAlias(value) if type(value)~="table"or value._brand~=__nuppManagedBrand or getmetatable(value)~=__nuppManagedAlias then return nil,__nuppManagedError("NUPP2614","value is not a managed alias")end local cell,problem=__nuppAliasCell(value);if not cell then return nil,problem end;return value,nil end _G.__nuppManagedPolicyCount=function(policy)local count=0;for cell in pairs(__nuppManagedCells)do if cell._policy==policy and(cell._state=="live"or cell._state:match("borrowed"))then count=count+1 end end;return count end local __nuppManagedGroup={};__nuppManagedGroup.__index=__nuppManagedGroup function __nuppManagedGroup:flush()end function __nuppManagedGroup:adopt(cell) if self._closed then error("managed group is closed",2)end local handle=cell:alias();self._entries[#self._entries+1]=handle return handle end function __nuppManagedGroup:remove(handle) if self._closed then error("managed group is closed",2)end for index=#self._entries,1,-1 do if self._entries[index]==handle then table.remove(self._entries,index);local value,problem=handle:take();if problem then error(problem.message,2)end;return value end end error("managed alias is not registered in this group",2) end local function __nuppManagedCloseEntry(entry)local problem=entry:close();if problem and problem.code~="NUPP2614"then error(problem.message,0)end end function __nuppManagedGroup:close() if self._closed then return end;self._closed=true;local first,suppressed=nil,0 for index=#self._entries,1,-1 do local ok,reason=pcall(__nuppManagedCloseEntry,self._entries[index]);if not ok then if first==nil then first=reason else suppressed=suppressed+1 end end end self._entries={};if first~=nil then if suppressed>0 then error(tostring(first).." (suppressed "..tostring(suppressed).." cleanup failure(s))",0)end;error(first,0)end end function __nupp.managedGroup()return setmetatable({_entries={},_closed=false},__nuppManagedGroup)end;local __nuppExports;local __nuppOk,__nuppWhy=pcall(function()
-
-
-
-
-
-
-
-
-
-local scalarIR = require ( "nupp.compiler.aot.scalar" )
-local spirvemit = require ( "nupp.compiler.aot.spirvemit" )
-local visit = require ( "nupp.compiler.aot.visit" )
-local wgslemit = require ( "nupp.compiler.aot.wgslemit" )
-
-local gpuemit = { }
-
-gpuemit.Artifact = {} gpuemit.Artifact.__index = gpuemit.Artifact
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-const METAL_TYPE = { f32 = "float" , i32 = "int" , u32 = "uint" , bool = "bool" , }
-const METAL_STORAGE
-
-= {
-float = "float" ,
-int8 = "char" ,
-int16 = "short" ,
-int32 = "int" ,
-uint8 = "uchar" ,
-uint16 = "ushort" ,
-uint32 = "uint" ,
-}
-
-const BINARY
-
-= {
-add = "+" ,
-sub = "-" ,
-mul = "*" ,
-div = "/" ,
-mod = "%" ,
-lt = "<" ,
-le = "<=" ,
-gt = ">" ,
-ge = ">=" ,
-eq = "==" ,
-ne = "!=" ,
-[ "and" ] = "&&" ,
-[ "or" ] = "||" ,
-band = "&" ,
-bor = "|" ,
-bxor = "^" ,
-lshift = "<<" ,
-rshift = ">>" ,
-arshift = ">>" ,
-}
-
-const FIXED
-
-= {
-f32_add = "+" ,
-f32_sub = "-" ,
-f32_mul = "*" ,
-f32_div = "/" ,
-i32_add = "+" ,
-i32_sub = "-" ,
-i32_mul = "*" ,
-u32_add = "+" ,
-u32_sub = "-" ,
-u32_mul = "*" ,
-u32_and = "&" ,
-u32_or = "|" ,
-u32_xor = "^" ,
-u32_shl = "<<" ,
-u32_shr = ">>" ,
-}
-
-local function identifier ( value ) 
-return ( value : gsub ( "[^%w_]" , "_" ) )
-end
-
-local function metalType ( value ) 
-return value : match ( "^struct:(.+)$" ) or METAL_TYPE [ value ]
-end
-
-local function metalStorage ( type_ , sourceType ) 
-return sourceType ~= nil and METAL_STORAGE [ sourceType ] or metalType ( type_ )
-end
-
-
-
-function gpuemit . program ( program ) 
-assert ( program . executionTarget == "gpu" , "GPU emission requires @aot(target = \"gpu\")" )
-local loop = program . loop
-local workgroup = program . workgroup
-assert (
-program . entryMode == "kernel" and ( ( loop ~= nil ) ~= ( workgroup ~= nil ) ) ,
-"GPU entry must be a map or phased workgroup kernel"
-)
-if loop ~= nil then
-assert (
-( loop ) . first == 1 and ( loop ) . last == ( loop ) . count ,
-"GPU entry must dispatch one complete span"
-)
-end
-
-
-
-
-
-local provableCounts = { }
-if loop ~= nil then
-provableCounts [ ( loop ) . count ] = true
-end
-local exactCounts = { }
-for _ , guard in ipairs ( program . guards ) do
-provableCounts [ guard . left ] = true
-provableCounts [ guard . right ] = true
-exactCounts [ guard . left ] = true
-exactCounts [ guard . right ] = true
-end
-visit . program (
-program , setmetatable({ scalarExpression =
-
-function ( value ) 
-if ( value . op == "load" or value . op == "element_ref" ) and ( value ) . cursor == nil then
-exactCounts [ ( value ) . span ] = true
-end
-end ,  scalarStatement =
-function ( statement ) 
-if statement . op == "store" and ( statement ) . cursor == nil then
-exactCounts [ ( statement ) . span ] = true
-end
-end }, visit.Visitor)
-
-)
-local function provenSpanIndex ( value ) 
-local index
-if value . cursor ~= nil then
-index = identifier ( value . cursorCName )
-return "[uniforms." .. identifier ( value . span ) .. "_offset + " .. index .. "]"
-end
-assert (
-loop ~= nil and value . index == ( loop ) . index ,
-"only the dispatch index or a proved cursor may address a GPU span"
-)
-assert (
-provableCounts [ value . span ] == true ,
-"a dispatch-indexed GPU span must be the loop bound or guarded equal to it: " .. tostring ( value . span )
-)
-
-return "[uniforms." .. identifier ( value . span ) .. "_offset + dispatch_index]"
-end
-
-local expression
-expression = function ( value ) 
-local op = value . op
-if op == "local" or op == "helper_param" then
-return identifier ( value . cName or value . name )
-elseif op == "uniform" then
-return "uniforms." .. identifier ( value . name )
-elseif op == "loop_index" then
-return "(dispatch_index + 1u)"
-elseif op == "workgroup_index" then
-return "group_index"
-elseif op == "local_index" then
-return "local_index"
-elseif op == "shared_load" then
-return identifier ( value . shared ) .. "[" .. expression ( value . index ) .. "]"
-elseif op == "load" then
-return identifier ( value . span ) .. provenSpanIndex ( value )
-elseif op == "element_ref" then
-return "&" .. identifier ( value . span ) .. provenSpanIndex ( value )
-elseif op == "span_count" then
-return "uniforms." .. identifier ( value . span ) .. "_count"
-elseif op == "int_to_f64" then
-
-
-
-return expression ( value . value )
-elseif op == "field_load" then
-return "(" .. expression ( value . object ) .. ")->" .. identifier ( value . field )
-elseif op == "constant" or op == "constant_i32" then
-return value . value
-elseif op == "bool" then
-return value . value and "true" or "false"
-elseif op == "u32_div" or op == "u32_mod" then
-local helper = op == "u32_div" and "nupp_u32_div" or "nupp_u32_mod"
-return helper .. "(" .. expression ( value . left ) .. ", " .. expression ( value . right ) .. ")"
-elseif op == "f32_fma" then
-return "nupp_f32_fma(" .. expression (
-value . args [ 1 ]
-) .. ", " .. expression ( value . args [ 2 ] ) .. ", " .. expression ( value . args [ 3 ] ) .. ")"
-elseif op == "f32_min" or op == "f32_max" then
-local helper = op == "f32_min" and "nupp_f32_min" or "nupp_f32_max"
-return helper .. "(" .. expression ( value . left ) .. ", " .. expression ( value . right ) .. ")"
-elseif FIXED [ op ] ~= nil or BINARY [ op ] ~= nil then
-
-
-
-assert (
-not (
-( op == "div" or op == "mod" ) and ( value . left . op == "int_to_f64" or value . right . op == "int_to_f64" )
-) ,
-"GPU subset does not emit binary64 division of integers"
-)
-local token = FIXED [ op ] or BINARY [ op ]
-return "(" .. expression ( value . left ) .. " " .. tostring ( token ) .. " " .. expression ( value . right ) .. ")"
-elseif op == "neg" then
-return "(-" .. expression ( value . value ) .. ")"
-elseif op == "not" then
-return "(!" .. expression ( value . value ) .. ")"
-elseif op == "bnot" or op == "u32_not" then
-return "(~" .. expression ( value . value ) .. ")"
-elseif op == "narrow_f64_f32" then
-return "float(" .. expression ( value . value ) .. ")"
-elseif op == "f16_to_f32" then
-return "nupp_f16_to_f32(" .. expression ( value . value ) .. ")"
-elseif op == "f32_to_f16" then
-return "nupp_f32_to_f16(" .. expression ( value . value ) .. ")"
-elseif op == "bf16_to_f32" then
-return "nupp_bf16_to_f32(" .. expression ( value . value ) .. ")"
-elseif op == "f32_to_bf16" then
-return "nupp_f32_to_bf16(" .. expression ( value . value ) .. ")"
-elseif op == "widen_f32_f64" then
-return expression ( value . value )
-elseif op == "numeric_cast" then
-local converted = metalType ( value . type )
-assert ( converted ~= nil , "GPU cast needs a fixed-width result" )
-return ( converted ) .. "(" .. expression ( value . value ) .. ")"
-elseif op == "f32_sqrt" then
-return "sqrt(" .. expression ( value . value ) .. ")"
-elseif op == "f32_exp" then
-return ( program . fpTranscendentals == true and "exp(" or "nupp_f32_exp(" ) .. expression ( value . value ) .. ")"
-end
-error ( "GPU subset does not emit expression " .. tostring ( op ) , 0 )
-end
-
-local lines = { }
-local function line ( depth , value ) 
-lines [ # lines + 1 ] = string . rep ( "    " , depth ) .. value
-end
-
-local statements
-statements = function ( values , depth ) 
-for _ , statement in ipairs ( values ) do
-local op = statement . op
-if op == "let" then
-local reference = statement . type : match ( "^ref:(.+)$" )
-if reference ~= nil then
-assert ( statement . value . op == "element_ref" , "GPU references must point into spans" )
-local qualifier = statement . value . mutable and "device " or "device const "
-line (
-depth ,
-qualifier .. reference .. "* " .. identifier (
-statement . cName
-) .. " = " .. expression ( statement . value ) .. ";"
-)
-else
-local declared = metalType ( statement . type )
-assert ( declared ~= nil , "GPU local must have fixed width: " .. tostring ( statement . type ) )
-line (
-depth ,
-(
-declared
-) .. " " .. identifier ( statement . cName ) .. " = " .. expression ( statement . value ) .. ";"
-)
-end
-elseif op == "assign" then
-assert ( # statement . values == 1 , "GPU subset does not emit parallel assignment" )
-local assignment = statement . values [ 1 ]
-local target
-if assignment . target . kind == "local" then
-target = identifier ( assignment . target . cName or assignment . target . name )
-elseif assignment . target . kind == "field" then
-target = "(" .. expression ( assignment . target . object ) .. ")->" .. identifier ( assignment . target . field )
-else
-error ( "GPU subset does not emit assignment target " .. tostring ( assignment . target . kind ) , 0 )
-end
-line ( depth , target .. " = " .. expression ( assignment . value ) .. ";" )
-elseif op == "store" then
-line (
-depth ,
-identifier (
-statement . span
-) .. provenSpanIndex ( statement ) .. " = " .. expression ( statement . value ) .. ";"
-)
-elseif op == "shared_store" then
-line (
-depth ,
-identifier (
-statement . shared
-) .. "[" .. expression ( statement . index ) .. "] = " .. expression ( statement . value ) .. ";"
-)
-elseif op == "phase" then
-statements ( statement . body , depth )
-line ( depth , "threadgroup_barrier(mem_flags::mem_threadgroup);" )
-elseif op == "while" then
-line ( depth , "while (" .. expression ( statement . condition ) .. ") {" )
-statements ( statement . body , depth + 1 )
-line ( depth , "}" )
-elseif op == "if" then
-for index , clause in ipairs ( statement . clauses ) do
-line ( depth , ( index == 1 and "if (" or "else if (" ) .. expression ( clause . condition ) .. ") {" )
-statements ( clause . body , depth + 1 )
-line ( depth , "}" )
-end
-if statement . elseBody ~= nil then
-line ( depth , "else {" )
-statements ( statement . elseBody , depth + 1 )
-line ( depth , "}" )
-end
-elseif op == "break" or op == "continue" then
-line ( depth , op .. ";" )
-elseif op == "block" then
-line ( depth , "{" )
-statements ( statement . body , depth + 1 )
-line ( depth , "}" )
-else
-error ( "GPU subset does not emit statement " .. tostring ( op ) , 0 )
-end
-end
-end
-
-local readonly = { }
-local writable = { }
-local uniforms = { }
-for _ , param in ipairs ( program . params ) do
-if param . kind == "read_span" then
-assert ( metalStorage ( param . type , param . sourceType ) ~= nil , "GPU span must have fixed-width elements" )
-readonly [ # readonly + 1 ] = param
-elseif param . kind == "write_span" then
-assert ( metalStorage ( param . type , param . sourceType ) ~= nil , "GPU span must have fixed-width elements" )
-writable [ # writable + 1 ] = param
-elseif param . kind == "uniform" then
-assert ( param . type ~= "bool" , "GPU boolean uniforms are not yet supported" )
-assert ( metalType ( param . type ) ~= nil , "GPU uniform must have fixed width" )
-uniforms [ # uniforms + 1 ] = param
-else
-error ( "GPU subset does not admit scalar ABI parameters" , 0 )
-end
-end
-assert ( # writable >= 1 , "GPU kernels require a writable span" )
-
-
-
-
-
-local spans = { }
-for _ , param in ipairs ( readonly ) do
-spans [ # spans + 1 ] = param
-end
-for _ , param in ipairs ( writable ) do
-spans [ # spans + 1 ] = param
-end
-for _ , param in ipairs ( uniforms ) do
-for _ , span in ipairs ( spans ) do
-assert ( param . name ~= span . name .. "_count" , "GPU uniform name collides with a span count: " .. param . name )
-assert ( param . name ~= span . name .. "_offset" , "GPU uniform name collides with a span offset: " .. param . name )
-end
-end
-local uniformBytes = 4 * ( 1 + 2 * # spans + # uniforms )
-assert ( uniformBytes <= 128 , "GPU uniform block exceeds 128 bytes" )
-
-line ( 0 , "#include <metal_stdlib>" )
-line ( 0 , "using namespace metal;" )
-line ( 0 , "#pragma clang fp contract(" .. ( program . fpContract == true and "fast" or "off" ) .. ")" )
-line ( 0 , "" )
-for _ , layout in ipairs ( program . layouts or { } ) do
-line ( 0 , "struct " .. identifier ( layout . name ) .. " {" )
-for _ , field in ipairs ( layout . fields ) do
-local declared = metalStorage ( field . type , field . sourceType )
-assert ( declared ~= nil , "GPU struct field must have fixed width" )
-line ( 1 , ( declared ) .. " " .. identifier ( field . name ) .. ";" )
-end
-line ( 0 , "};" )
-line ( 0 , "" )
-end
-line ( 0 , "struct NuppUniforms {" )
-line ( 1 , "uint count;" )
-for _ , param in ipairs ( spans ) do
-line ( 1 , "uint " .. identifier ( param . name ) .. "_count;" )
-end
-for _ , param in ipairs ( spans ) do
-line ( 1 , "uint " .. identifier ( param . name ) .. "_offset;" )
-end
-for _ , param in ipairs ( uniforms ) do
-line ( 1 , tostring ( metalType ( param . type ) ) .. " " .. identifier ( param . name ) .. ";" )
-end
-line ( 0 , "};" )
-line ( 0 , "" )
-line ( 0 , "inline uint nupp_u32_div(uint left, uint right) { return right == 0u ? 0u : left / right; }" )
-line ( 0 , "inline uint nupp_u32_mod(uint left, uint right) { return right == 0u ? 0u : left % right; }" )
-line ( 0 , "inline float nupp_f32_fma(float a, float b, float c) {" )
-line ( 1 , "float out = fma(a, b, c);" )
-line ( 1 , "return isnan(out) ? as_type<float>(0x7fc00000u) : out;" )
-line ( 0 , "}" )
-line ( 0 , "inline float nupp_f32_min(float left, float right) {" )
-line ( 1 , "if (isnan(left) || isnan(right)) return as_type<float>(0x7fc00000u);" )
-line (
-1 ,
-"if (left == right) return left == 0.0f ? as_type<float>(as_type<uint>(left) | as_type<uint>(right)) : left;"
-)
-line ( 1 , "return left < right ? left : right;" )
-line ( 0 , "}" )
-line ( 0 , "inline float nupp_f32_max(float left, float right) {" )
-line ( 1 , "if (isnan(left) || isnan(right)) return as_type<float>(0x7fc00000u);" )
-line (
-1 ,
-"if (left == right) return left == 0.0f ? as_type<float>(as_type<uint>(left) & as_type<uint>(right)) : left;"
-)
-line ( 1 , "return left > right ? left : right;" )
-line ( 0 , "}" )
-line ( 0 , "inline float nupp_f32_exp(float value) {" )
-line ( 1 , "float x = max(-104.0f, min(value, 88.0f));" )
-line ( 1 , "float y = x * 0.0078125f;" )
-line ( 1 , "float out = 0.0000000020876757f;" )
-for _ , coefficient in ipairs ( {
-"0.000000025052108f" ,
-"0.00000027557319f" ,
-"0.0000027557319f" ,
-"0.000024801587f" ,
-"0.0001984127f" ,
-"0.0013888889f" ,
-"0.0083333333f" ,
-"0.041666667f" ,
-"0.16666667f" ,
-"0.5f" ,
-"1.0f" ,
-"1.0f" ,
-} ) do
-line ( 1 , "out = nupp_f32_fma(out, y, " .. coefficient .. ");" )
-end
-line ( 1 , "out *= out; out *= out; out *= out; out *= out;" )
-line ( 1 , "out *= out; out *= out; out *= out;" )
-line ( 1 , "return out;" )
-line ( 0 , "}" )
-line ( 0 , "inline float nupp_f16_to_f32(uint input) {" )
-line ( 1 , "uint bits = input & 0xffffu;" )
-line ( 1 , "uint sign = (bits & 0x8000u) << 16u;" )
-line ( 1 , "uint exponent = (bits >> 10u) & 0x1fu;" )
-line ( 1 , "uint mantissa = bits & 0x03ffu;" )
-line ( 1 , "uint out;" )
-line ( 1 , "if (exponent == 0x1fu) out = mantissa == 0u ? sign | 0x7f800000u : 0x7fc00000u;" )
-line ( 1 , "else if (exponent == 0u) {" )
-line ( 2 , "if (mantissa == 0u) out = sign;" )
-line ( 2 , "else {" )
-line ( 3 , "int unbiased = -14;" )
-line ( 3 , "while (mantissa < 0x0400u) { mantissa <<= 1u; unbiased -= 1; }" )
-line ( 3 , "mantissa &= 0x03ffu;" )
-line ( 3 , "out = sign | (uint(unbiased + 127) << 23u) | (mantissa << 13u);" )
-line ( 2 , "}" )
-line ( 1 , "} else out = sign | ((exponent + 112u) << 23u) | (mantissa << 13u);" )
-line ( 1 , "return as_type<float>(out);" )
-line ( 0 , "}" )
-line ( 0 , "inline uint nupp_f32_to_f16(float value) {" )
-line ( 1 , "uint bits = as_type<uint>(value);" )
-line ( 1 , "uint sign = (bits >> 16u) & 0x8000u;" )
-line ( 1 , "uint magnitude = bits & 0x7fffffffu;" )
-line ( 1 , "if (magnitude >= 0x7f800000u) return magnitude == 0x7f800000u ? sign | 0x7c00u : 0x7e00u;" )
-line ( 1 , "if (magnitude >= 0x477ff000u) return sign | 0x7c00u;" )
-line ( 1 , "if (magnitude < 0x33000000u) return sign;" )
-line ( 1 , "uint exponent = magnitude >> 23u;" )
-line ( 1 , "uint mantissa = magnitude & 0x7fffffu;" )
-line ( 1 , "if (exponent >= 113u) {" )
-line ( 2 , "uint out = sign | ((exponent - 112u) << 10u) | (mantissa >> 13u);" )
-line ( 2 , "uint remainder = mantissa & 0x1fffu;" )
-line ( 2 , "return out + (remainder > 0x1000u || (remainder == 0x1000u && (out & 1u)) ? 1u : 0u);" )
-line ( 1 , "}" )
-line ( 1 , "uint significant = mantissa | 0x800000u;" )
-line ( 1 , "uint shift = 126u - exponent;" )
-line ( 1 , "uint out = significant >> shift;" )
-line ( 1 , "uint mask = (1u << shift) - 1u;" )
-line ( 1 , "uint remainder = significant & mask;" )
-line ( 1 , "uint halfway = 1u << (shift - 1u);" )
-line ( 1 , "return sign | (out + (remainder > halfway || (remainder == halfway && (out & 1u)) ? 1u : 0u));" )
-line ( 0 , "}" )
-line ( 0 , "inline float nupp_bf16_to_f32(uint input) {" )
-line ( 1 , "uint bits = (input & 0xffffu) << 16u;" )
-line ( 1 , "if ((bits & 0x7fffffffu) > 0x7f800000u) bits = 0x7fc00000u;" )
-line ( 1 , "return as_type<float>(bits);" )
-line ( 0 , "}" )
-line ( 0 , "inline uint nupp_f32_to_bf16(float value) {" )
-line ( 1 , "uint bits = as_type<uint>(value);" )
-line ( 1 , "if ((bits & 0x7fffffffu) > 0x7f800000u) return 0x7fc0u;" )
-line ( 1 , "uint upper = bits >> 16u;" )
-line ( 1 , "return (bits + 0x7fffu + (upper & 1u)) >> 16u;" )
-line ( 0 , "}" )
-line ( 0 , "" )
-line ( 0 , "kernel void " .. identifier ( program . symbol ) .. "_gpu(" )
-local arguments = { "constant NuppUniforms& uniforms [[buffer(0)]]" }
-local at = 1
-for _ , param in ipairs ( readonly ) do
-arguments [
-# arguments + 1
-] = "device const " .. tostring (
-metalStorage ( param . type , param . sourceType )
-) .. "* " .. identifier ( param . name ) .. " [[buffer(" .. tostring ( at ) .. ")]]"
-at = at + 1
-end
-for _ , param in ipairs ( writable ) do
-arguments [
-# arguments + 1
-] = "device " .. tostring (
-metalStorage ( param . type , param . sourceType )
-) .. "* " .. identifier ( param . name ) .. " [[buffer(" .. tostring ( at ) .. ")]]"
-at = at + 1
-end
-if workgroup ~= nil then
-arguments [ # arguments + 1 ] = "uint group_index [[threadgroup_position_in_grid]]"
-arguments [ # arguments + 1 ] = "uint local_index [[thread_index_in_threadgroup]]"
-else
-arguments [ # arguments + 1 ] = "uint dispatch_index [[thread_position_in_grid]]"
-end
-for index , argument in ipairs ( arguments ) do
-line ( 1 , argument .. ( index < # arguments and "," or "" ) )
-end
-line ( 0 , ") {" )
-if workgroup ~= nil then
-statements ( ( workgroup ) . prelude , 1 )
-for _ , scratch in ipairs ( ( workgroup ) . shared ) do
-line (
-1 ,
-"threadgroup " .. tostring (
-metalType ( scratch . element )
-) .. " " .. identifier ( scratch . name ) .. "[" .. tostring ( scratch . count ) .. "];"
-)
-line ( 1 , identifier ( scratch . name ) .. "[local_index] = " .. expression ( scratch . initial ) .. ";" )
-end
-line ( 1 , "threadgroup_barrier(mem_flags::mem_threadgroup);" )
-statements ( ( workgroup ) . statements , 1 )
-else
-line ( 1 , "if (dispatch_index >= uniforms.count) return;" )
-statements ( ( loop ) . statements , 1 )
-end
-line ( 0 , "}" )
-
-local threads = workgroup ~= nil and ( workgroup ) . size or 256
-local spirv = spirvemit . program ( program , readonly , writable , uniforms , threads )
-local wgsl = nil
-local browserOk , browserSource = pcall ( wgslemit . program , program , readonly , writable , uniforms , threads )
-if browserOk then
-wgsl = browserSource
-end
-
-return setmetatable({ source =
-spirvemit . deriveMsl ( spirv , program . fpContract ) ,  spirv =
-spirv ,  wgsl =
-wgsl ,  entrypoint =
-identifier ( program . symbol ) .. "_gpu" ,  readonly =
-readonly ,  writable =
-writable ,  uniforms =
-uniforms ,  uniformBytes =
-uniformBytes ,  threads =
-threads ,  countSpan =
-workgroup ~= nil and (
-workgroup
-) . dispatchSpan or ( loop ) . count ,  exactCounts =
-exactCounts }, gpuemit.Artifact)
-
-end
-
-const __nuppExportValue= gpuemit ;__nuppExports=__nuppExportValue
- end);if not __nuppOk then package.loaded["nupp.compiler.aot.gpuemit"]=nil;error(__nuppWhy,0) end;package.loaded["nupp.compiler.aot.gpuemit"]=__nuppExports;return __nuppExports
 end
 package.preload["nupp.compiler.aot.instructions"] = function(...)
 _G.assert(_G.loadstring("local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppMath=rawget(__nupp,\"math\")or{};rawset(__nupp,\"math\",__nuppMath) local function __nuppCloseFile(handle)if io.type(handle)==\"closed file\"then return end;local ok,reason=handle:close();if not ok then error(reason or \"the file could not be closed\",0)end end local __nuppManagedBrand=_G.__nuppManagedBrand if not __nuppManagedBrand then __nuppManagedBrand={};_G.__nuppManagedBrand=__nuppManagedBrand end local __nuppManagedCells=_G.__nuppManagedCells if not __nuppManagedCells then __nuppManagedCells=setmetatable({},{__mode=\"k\"});_G.__nuppManagedCells=__nuppManagedCells end local __nuppManagedOwner={};__nuppManagedOwner.__index=__nuppManagedOwner;local __nuppManagedAlias={};__nuppManagedAlias.__index=__nuppManagedAlias local function __nuppManagedError(code,message)return{code=code,message=message}end local function __nuppManagedProblem(cell) if type(cell)~=\"table\"or cell._brand~=__nuppManagedBrand then return __nuppManagedError(\"NUPP2614\",\"value is not a managed alias\")end if cell._state==\"taken\"then return __nuppManagedError(\"NUPP2614\",\"managed ownership was already taken\")end if cell._state==\"closed\"or cell._state==\"closing\"then return __nuppManagedError(\"NUPP2614\",\"managed resource is closed\")end return nil end local function __nuppManagedClose(cell,checked) local problem=__nuppManagedProblem(cell);if problem then if checked then return problem end;return nil end if cell._borrows~=0 or cell._exclusive then local busy=__nuppManagedError(\"NUPP2620\",\"managed resource has an active borrow\");if checked then return busy end;error(busy.message,0)end cell._state=\"closing\";local value,cleanup=cell._value,cell._cleanup;cell._value=nil;cell._cleanup=nil local ok,reason=pcall(cleanup,value);cell._state=\"closed\";if not ok then error(reason,0)end;return nil end function __nuppManagedOwner:alias()return setmetatable({_cell=self,_brand=__nuppManagedBrand},__nuppManagedAlias)end function __nuppManagedOwner:close()return __nuppManagedClose(self,false)end local function __nuppAliasCell(self) if type(self)~=\"table\"or self._brand~=__nuppManagedBrand or getmetatable(self)~=__nuppManagedAlias then return nil,__nuppManagedError(\"NUPP2614\",\"value is not a managed alias\")end local cell=self._cell;local problem=__nuppManagedProblem(cell);if problem then return nil,problem end;return cell,nil end function __nuppManagedAlias:with(callback) local cell,problem=__nuppAliasCell(self);if not cell then return nil,problem end if cell._exclusive then return nil,__nuppManagedError(\"NUPP2620\",\"managed resource is exclusively borrowed\")end cell._borrows=cell._borrows+1;cell._state=\"shared-borrowed(\"..cell._borrows..\")\" local ok,result=pcall(callback,cell._value);cell._borrows=cell._borrows-1;cell._state=cell._borrows>0 and(\"shared-borrowed(\"..cell._borrows..\")\")or\"live\" if not ok then error(result,0)end;return result,nil end function __nuppManagedAlias:withExclusive(callback) local cell,problem=__nuppAliasCell(self);if not cell then return nil,problem end if cell._exclusive or cell._borrows~=0 then return nil,__nuppManagedError(\"NUPP2620\",\"managed resource is already borrowed\")end cell._exclusive=true;cell._state=\"exclusive-borrowed\";local ok,result=pcall(callback,cell._value);cell._exclusive=false;cell._state=\"live\" if not ok then error(result,0)end;return result,nil end function __nuppManagedAlias:take() local cell,problem=__nuppAliasCell(self);if not cell then return nil,problem end if cell._exclusive or cell._borrows~=0 then return nil,__nuppManagedError(\"NUPP2620\",\"managed resource has an active borrow\")end cell._state=\"taken\";local value=cell._value;cell._value=nil;cell._cleanup=nil;return value,nil end function __nuppManagedAlias:close() local cell,problem=__nuppAliasCell(self);if not cell then return problem end;return __nuppManagedClose(cell,true)end function __nuppManagedAlias:_downcast(policy) local cell,problem=__nuppAliasCell(self);if not cell then return nil,problem end if cell._policy~=policy then return nil,__nuppManagedError(\"NUPP2613\",\"managed alias has the wrong type or cleanup policy\")end return self,nil end function __nupp.__manage(value,cleanup,policy) local cell=setmetatable({_brand=__nuppManagedBrand,_value=value,_cleanup=cleanup,_policy=policy,_state=\"live\",_borrows=0,_exclusive=false},__nuppManagedOwner);__nuppManagedCells[cell]=true;return cell end function __nupp.__recoverAlias(value) if type(value)~=\"table\"or value._brand~=__nuppManagedBrand or getmetatable(value)~=__nuppManagedAlias then return nil,__nuppManagedError(\"NUPP2614\",\"value is not a managed alias\")end local cell,problem=__nuppAliasCell(value);if not cell then return nil,problem end;return value,nil end _G.__nuppManagedPolicyCount=function(policy)local count=0;for cell in pairs(__nuppManagedCells)do if cell._policy==policy and(cell._state==\"live\"or cell._state:match(\"borrowed\"))then count=count+1 end end;return count end local __nuppManagedGroup={};__nuppManagedGroup.__index=__nuppManagedGroup function __nuppManagedGroup:flush()end function __nuppManagedGroup:adopt(cell) if self._closed then error(\"managed group is closed\",2)end local handle=cell:alias();self._entries[#self._entries+1]=handle return handle end function __nuppManagedGroup:remove(handle) if self._closed then error(\"managed group is closed\",2)end for index=#self._entries,1,-1 do if self._entries[index]==handle then table.remove(self._entries,index);local value,problem=handle:take();if problem then error(problem.message,2)end;return value end end error(\"managed alias is not registered in this group\",2) end local function __nuppManagedCloseEntry(entry)local problem=entry:close();if problem and problem.code~=\"NUPP2614\"then error(problem.message,0)end end function __nuppManagedGroup:close() if self._closed then return end;self._closed=true;local first,suppressed=nil,0 for index=#self._entries,1,-1 do local ok,reason=pcall(__nuppManagedCloseEntry,self._entries[index]);if not ok then if first==nil then first=reason else suppressed=suppressed+1 end end end self._entries={};if first~=nil then if suppressed>0 then error(tostring(first)..\" (suppressed \"..tostring(suppressed)..\" cleanup failure(s))\",0)end;error(first,0)end end function __nupp.managedGroup()return setmetatable({_entries={},_closed=false},__nuppManagedGroup)end;\n","@nupp-prelude"))();local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppMath=rawget(__nupp,"math")or{};rawset(__nupp,"math",__nuppMath) local function __nuppCloseFile(handle)if io.type(handle)=="closed file"then return end;local ok,reason=handle:close();if not ok then error(reason or "the file could not be closed",0)end end local __nuppManagedBrand=_G.__nuppManagedBrand if not __nuppManagedBrand then __nuppManagedBrand={};_G.__nuppManagedBrand=__nuppManagedBrand end local __nuppManagedCells=_G.__nuppManagedCells if not __nuppManagedCells then __nuppManagedCells=setmetatable({},{__mode="k"});_G.__nuppManagedCells=__nuppManagedCells end local __nuppManagedOwner={};__nuppManagedOwner.__index=__nuppManagedOwner;local __nuppManagedAlias={};__nuppManagedAlias.__index=__nuppManagedAlias local function __nuppManagedError(code,message)return{code=code,message=message}end local function __nuppManagedProblem(cell) if type(cell)~="table"or cell._brand~=__nuppManagedBrand then return __nuppManagedError("NUPP2614","value is not a managed alias")end if cell._state=="taken"then return __nuppManagedError("NUPP2614","managed ownership was already taken")end if cell._state=="closed"or cell._state=="closing"then return __nuppManagedError("NUPP2614","managed resource is closed")end return nil end local function __nuppManagedClose(cell,checked) local problem=__nuppManagedProblem(cell);if problem then if checked then return problem end;return nil end if cell._borrows~=0 or cell._exclusive then local busy=__nuppManagedError("NUPP2620","managed resource has an active borrow");if checked then return busy end;error(busy.message,0)end cell._state="closing";local value,cleanup=cell._value,cell._cleanup;cell._value=nil;cell._cleanup=nil local ok,reason=pcall(cleanup,value);cell._state="closed";if not ok then error(reason,0)end;return nil end function __nuppManagedOwner:alias()return setmetatable({_cell=self,_brand=__nuppManagedBrand},__nuppManagedAlias)end function __nuppManagedOwner:close()return __nuppManagedClose(self,false)end local function __nuppAliasCell(self) if type(self)~="table"or self._brand~=__nuppManagedBrand or getmetatable(self)~=__nuppManagedAlias then return nil,__nuppManagedError("NUPP2614","value is not a managed alias")end local cell=self._cell;local problem=__nuppManagedProblem(cell);if problem then return nil,problem end;return cell,nil end function __nuppManagedAlias:with(callback) local cell,problem=__nuppAliasCell(self);if not cell then return nil,problem end if cell._exclusive then return nil,__nuppManagedError("NUPP2620","managed resource is exclusively borrowed")end cell._borrows=cell._borrows+1;cell._state="shared-borrowed("..cell._borrows..")" local ok,result=pcall(callback,cell._value);cell._borrows=cell._borrows-1;cell._state=cell._borrows>0 and("shared-borrowed("..cell._borrows..")")or"live" if not ok then error(result,0)end;return result,nil end function __nuppManagedAlias:withExclusive(callback) local cell,problem=__nuppAliasCell(self);if not cell then return nil,problem end if cell._exclusive or cell._borrows~=0 then return nil,__nuppManagedError("NUPP2620","managed resource is already borrowed")end cell._exclusive=true;cell._state="exclusive-borrowed";local ok,result=pcall(callback,cell._value);cell._exclusive=false;cell._state="live" if not ok then error(result,0)end;return result,nil end function __nuppManagedAlias:take() local cell,problem=__nuppAliasCell(self);if not cell then return nil,problem end if cell._exclusive or cell._borrows~=0 then return nil,__nuppManagedError("NUPP2620","managed resource has an active borrow")end cell._state="taken";local value=cell._value;cell._value=nil;cell._cleanup=nil;return value,nil end function __nuppManagedAlias:close() local cell,problem=__nuppAliasCell(self);if not cell then return problem end;return __nuppManagedClose(cell,true)end function __nuppManagedAlias:_downcast(policy) local cell,problem=__nuppAliasCell(self);if not cell then return nil,problem end if cell._policy~=policy then return nil,__nuppManagedError("NUPP2613","managed alias has the wrong type or cleanup policy")end return self,nil end function __nupp.__manage(value,cleanup,policy) local cell=setmetatable({_brand=__nuppManagedBrand,_value=value,_cleanup=cleanup,_policy=policy,_state="live",_borrows=0,_exclusive=false},__nuppManagedOwner);__nuppManagedCells[cell]=true;return cell end function __nupp.__recoverAlias(value) if type(value)~="table"or value._brand~=__nuppManagedBrand or getmetatable(value)~=__nuppManagedAlias then return nil,__nuppManagedError("NUPP2614","value is not a managed alias")end local cell,problem=__nuppAliasCell(value);if not cell then return nil,problem end;return value,nil end _G.__nuppManagedPolicyCount=function(policy)local count=0;for cell in pairs(__nuppManagedCells)do if cell._policy==policy and(cell._state=="live"or cell._state:match("borrowed"))then count=count+1 end end;return count end local __nuppManagedGroup={};__nuppManagedGroup.__index=__nuppManagedGroup function __nuppManagedGroup:flush()end function __nuppManagedGroup:adopt(cell) if self._closed then error("managed group is closed",2)end local handle=cell:alias();self._entries[#self._entries+1]=handle return handle end function __nuppManagedGroup:remove(handle) if self._closed then error("managed group is closed",2)end for index=#self._entries,1,-1 do if self._entries[index]==handle then table.remove(self._entries,index);local value,problem=handle:take();if problem then error(problem.message,2)end;return value end end error("managed alias is not registered in this group",2) end local function __nuppManagedCloseEntry(entry)local problem=entry:close();if problem and problem.code~="NUPP2614"then error(problem.message,0)end end function __nuppManagedGroup:close() if self._closed then return end;self._closed=true;local first,suppressed=nil,0 for index=#self._entries,1,-1 do local ok,reason=pcall(__nuppManagedCloseEntry,self._entries[index]);if not ok then if first==nil then first=reason else suppressed=suppressed+1 end end end self._entries={};if first~=nil then if suppressed>0 then error(tostring(first).." (suppressed "..tostring(suppressed).." cleanup failure(s))",0)end;error(first,0)end end function __nupp.managedGroup()return setmetatable({_entries={},_closed=false},__nuppManagedGroup)end;local __nuppExports;local __nuppOk,__nuppWhy=pcall(function()
@@ -25910,15 +25488,9 @@ _G.assert(_G.loadstring("local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppM
 
 
 
-
 local scalarIR = require ( "nupp.compiler.aot.scalar" )
-local envMod = require ( "nupp.compiler.env" )
-local fs = require ( "nupp.compiler.fs" )
-local process = require ( "nupp.compiler.build.process" )
 
 local spirv = { }
-
-local windows = package . config : sub ( 1 , 1 ) == "\\"
 
 
 const OP = {
@@ -26276,7 +25848,14 @@ end
 local zeroU = constant ( u32Type , 0 )
 local oneU = constant ( u32Type , 1 )
 local zeroF = constant ( f32Type , 0 )
-local canonicalNan = constant ( f32Type , 2143289344 )
+local canonicalNanBits = constant ( u32Type , 2143289344 )
+local function canonicalNan ( ) 
+local value = id ( )
+instruction ( functions , OP . Bitcast , { f32Type , value , canonicalNanBits } )
+
+return value
+end
+
 local falseId = id ( )
 instruction ( declarations , OP . ConstantFalse , { boolType , falseId } )
 local trueId = id ( )
@@ -26479,7 +26058,7 @@ instruction ( functions , OP . ExtInst , { f32Type , fused , ext , 50 , fa , fb 
 local fusedNan = id ( )
 instruction ( functions , OP . IsNan , { boolType , fusedNan , fused } )
 local fusedOut = id ( )
-instruction ( functions , OP . Select , { f32Type , fusedOut , fusedNan , canonicalNan , fused } )
+instruction ( functions , OP . Select , { f32Type , fusedOut , fusedNan , canonicalNan ( ) , fused } )
 instruction ( functions , OP . ReturnValue , { fusedOut } )
 instruction ( functions , OP . FunctionEnd , { } )
 
@@ -26514,7 +26093,7 @@ instruction ( functions , OP . Select , { f32Type , unequalValue , ordered , lef
 local finiteValue = id ( )
 instruction ( functions , OP . Select , { f32Type , finiteValue , equal , equalValue , unequalValue } )
 local result = id ( )
-instruction ( functions , OP . Select , { f32Type , result , anyNan , canonicalNan , finiteValue } )
+instruction ( functions , OP . Select , { f32Type , result , anyNan , canonicalNan ( ) , finiteValue } )
 instruction ( functions , OP . ReturnValue , { result } )
 instruction ( functions , OP . FunctionEnd , { } )
 
@@ -26538,7 +26117,7 @@ instruction ( functions , OP . CompositeExtract , { f32Type , unpackedLow , unpa
 local unpackedNan = id ( )
 instruction ( functions , OP . IsNan , { boolType , unpackedNan , unpackedLow } )
 local unpackedOut = id ( )
-instruction ( functions , OP . Select , { f32Type , unpackedOut , unpackedNan , canonicalNan , unpackedLow } )
+instruction ( functions , OP . Select , { f32Type , unpackedOut , unpackedNan , canonicalNan ( ) , unpackedLow } )
 instruction ( functions , OP . ReturnValue , { unpackedOut } )
 instruction ( functions , OP . FunctionEnd , { } )
 
@@ -26552,7 +26131,7 @@ instruction ( functions , OP . Label , { packLabel } )
 local valueNan = id ( )
 instruction ( functions , OP . IsNan , { boolType , valueNan , floatValue } )
 local canonicalValue = id ( )
-instruction ( functions , OP . Select , { f32Type , canonicalValue , valueNan , canonicalNan , floatValue } )
+instruction ( functions , OP . Select , { f32Type , canonicalValue , valueNan , canonicalNan ( ) , floatValue } )
 local pair = id ( )
 instruction ( functions , OP . CompositeConstruct , { vec2fType , pair , canonicalValue , canonicalValue } )
 local packed = id ( )
@@ -26579,7 +26158,7 @@ instruction ( functions , OP . Bitcast , { f32Type , bf16Value , bf16Wide } )
 local bf16Nan = id ( )
 instruction ( functions , OP . IsNan , { boolType , bf16Nan , bf16Value } )
 local bf16Out = id ( )
-instruction ( functions , OP . Select , { f32Type , bf16Out , bf16Nan , canonicalNan , bf16Value } )
+instruction ( functions , OP . Select , { f32Type , bf16Out , bf16Nan , canonicalNan ( ) , bf16Value } )
 instruction ( functions , OP . ReturnValue , { bf16Out } )
 instruction ( functions , OP . FunctionEnd , { } )
 
@@ -26635,7 +26214,7 @@ instruction ( functions , OP . Label , { expLabel } )
 local expNan = id ( )
 instruction ( functions , OP . IsNan , { boolType , expNan , expValue } )
 local expCanonical = id ( )
-instruction ( functions , OP . Select , { f32Type , expCanonical , expNan , canonicalNan , expValue } )
+instruction ( functions , OP . Select , { f32Type , expCanonical , expNan , canonicalNan ( ) , expValue } )
 local low = constant ( f32Type , f32Bits ( - 104.0 ) )
 local high = constant ( f32Type , f32Bits ( 88.0 ) )
 local below = id ( )
@@ -27283,116 +26862,6 @@ bytes [ # bytes + 1 ] = wordBytes ( word )
 end
 
 return table . concat ( bytes )
-end
-
-
-
-function spirv . deriveMsl ( binary , fpContract ) 
-local executable = os . getenv ( "NUPP_SPIRV_CROSS" )
-if not executable then
-local root = envMod . compilerRoot ( )
-assert ( root ~= nil , "GPU builds need NUPP_SPIRV_CROSS when the compiler is not running from a source checkout" )
-local driver = fs . join ( root , "scripts/toolchain" )
-local argv = windows and { "sh.exe" , driver , "spirv-cross" } or { driver , "spirv-cross" }
-local code , output = process . capture ( argv )
-assert ( code == 0 , "cannot provision the pinned SPIRV-Cross: " .. output )
-for line in output : gmatch ( "[^\r\n]+" ) do
-if line : match ( "%S" ) then
-executable = line
-end
-end
-assert ( executable ~= nil , "the pinned SPIRV-Cross build named no executable" )
-end
-
-local candidate = os . tmpname ( )
-os . remove ( candidate )
-
-
-
-local base = candidate .. "-" .. fs . stagingSuffix ( )
-local input = base .. ".spv"
-local output = base .. ".metal"
-local wrote , writeErr = fs . writeFile ( input , binary )
-assert ( wrote , "cannot stage SPIR-V for Metal translation: " .. tostring ( writeErr ) )
-local code , translated = process . capture ( {
-executable ,
-input ,
-"--msl" ,
-"--msl-version" ,
-"20000" ,
-"--output" ,
-output ,
-} )
-local source , readErr = fs . readFile ( output )
-os . remove ( input )
-os . remove ( output )
-assert ( code == 0 , "SPIRV-Cross rejected compiler-emitted SPIR-V: " .. translated )
-assert ( source ~= nil , "SPIRV-Cross wrote no Metal source: " .. tostring ( readErr ) )
-
-
-
-
-
-local metal = ( source ) : gsub ( "\r\n" , "\n" )
-
-local function replaceOne ( before , after , description ) 
-local first , last = metal : find ( before , 1 , true )
-assert ( first ~= nil and last ~= nil , "SPIRV-Cross changed its " .. description )
-assert ( metal : find ( before , ( last ) + 1 , true ) == nil , "SPIRV-Cross emitted duplicate " .. description )
-metal = metal : sub ( 1 , ( first ) - 1 ) .. after .. metal : sub ( ( last ) + 1 )
-end
-
-
-
-
-
-
-
-
-
-replaceOne (
-"using namespace metal;\n" ,
-"using namespace metal;\n#pragma clang fp contract(" .. ( fpContract == true and "fast" or "off" ) .. ")\n" ,
-"Metal namespace header"
-)
-
-local function legalize ( name , conservative , ordinary ) 
-if metal : find ( name .. "(" , 1 , true ) ~= nil then
-replaceOne (
-table . concat (
-{
-"template<typename T>" ,
-"[[clang::optnone]] T " .. name .. "(T l, T r)" ,
-"{" ,
-"    return " .. conservative .. ";" ,
-"}" ,
-} ,
-"\n"
-) ,
-table . concat (
-{
-"template<typename T>" ,
-"inline T " .. name .. "(T l, T r)" ,
-"{" ,
-"    return " .. ordinary .. ";" ,
-"}" ,
-} ,
-"\n"
-) ,
-name .. " NoContraction helper"
-)
-end
-end
-
-legalize ( "spvFMul" , "fma(l, r, T(0))" , "l * r" )
-legalize ( "spvFAdd" , "fma(T(1), l, r)" , "l + r" )
-legalize ( "spvFSub" , "fma(T(-1), r, l)" , "l - r" )
-assert (
-metal : find ( "[[clang::optnone]] T" , 1 , true ) == nil ,
-"SPIRV-Cross emitted an unlegalized scalar optnone helper"
-)
-
-return metal
 end
 
 const __nuppExportValue= spirv ;__nuppExports=__nuppExportValue
@@ -76137,8 +75606,8 @@ list [
 name = "--emit" ,
 key = "emit" ,
 value = "ARTIFACT" ,
-choices = { "ir" , "c" , "spirv" , "msl" , "wgsl" , "asm" , "binding" } ,
-help = "Print one artifact: ir, c, spirv, msl, wgsl, asm, or binding" ,
+choices = { "ir" , "c" , "spirv" , "wgsl" , "asm" , "binding" } ,
+help = "Print one artifact: ir, c, spirv, wgsl, asm, or binding" ,
 }
 list [
 # list + 1
@@ -76187,7 +75656,7 @@ local command = spec . command {
 name = "aot" ,
 summary = "Show what the @aot functions in a file compile to" ,
 usage = {
-"nupp aot [--emit ir|c|spirv|msl|wgsl|asm|binding] [--check] [--function NAME] "
+"nupp aot [--emit ir|c|spirv|wgsl|asm|binding] [--check] [--function NAME] "
 .. "[--target TRIPLE] [--features TIER] <file>" ,
 } ,
 intro = "Reports what the ahead-of-time backend produces for one file, without writing it. "
@@ -76309,7 +75778,6 @@ message = { type = "string" } ,
 ir = { type = "string" } ,
 c = { type = "string" } ,
 spirv = { type = "string" , description = "Canonical SPIR-V bytes as lowercase hexadecimal." } ,
-msl = { type = "string" } ,
 binding = { type = "string" } ,
 asm = {
 type = "object" ,
@@ -76619,7 +76087,6 @@ return 1
 end
 
 local emit = parsed . values . emit
-local mslParts = { }
 local spirvParts = { }
 local wgslParts = { }
 for _ , program in ipairs ( artifacts . programs ) do
@@ -76628,14 +76095,12 @@ local selectedFunction = parsed . values [ "function" ]
 if artifact ~= nil and (
 selectedFunction == nil or selectedFunction == program . name or selectedFunction == program . symbol
 ) then
-mslParts [ # mslParts + 1 ] = artifact . source
 spirvParts [ # spirvParts + 1 ] = artifact . spirv
 if artifact . wgsl ~= nil then
 wgslParts [ # wgslParts + 1 ] = artifact . wgsl
 end
 end
 end
-local msl = table . concat ( mslParts , "\n" )
 local wgsl = table . concat ( wgslParts , "\n" )
 local spirvHex = nil
 if emit == "spirv" and # spirvParts == 1 and parsed . values . format == "json" then
@@ -76644,10 +76109,6 @@ for index = 1 , # spirvParts [ 1 ] do
 bytes [ index ] = ( "%02x" ) : format ( spirvParts [ 1 ] : byte ( index ) )
 end
 spirvHex = table . concat ( bytes )
-end
-if emit == "msl" and # mslParts == 0 then
-io . stderr : write ( "nupp: no GPU function matched --emit msl\n" )
-return 1
 end
 if emit == "wgsl" and # wgslParts == 0 then
 io . stderr : write ( "nupp: no GPU function matched --emit wgsl with the webgpu-int32 profile\n" )
@@ -76724,7 +76185,6 @@ functions = functions ,
 ir = ( emit == nil or emit == "ir" ) and artifacts . irText or nil ,
 c = ( emit == nil or emit == "c" ) and artifacts . c or nil ,
 spirv = spirvHex ,
-msl = emit == "msl" and msl or nil ,
 wgsl = emit == "wgsl" and wgsl or nil ,
 binding = ( emit == nil or emit == "binding" ) and artifacts . binding or nil ,
 asm = instructionReport ,
@@ -76736,8 +76196,6 @@ elseif emit == "c" then
 io . write ( artifacts . c )
 elseif emit == "spirv" then
 io . write ( spirvParts [ 1 ] )
-elseif emit == "msl" then
-io . write ( msl )
 elseif emit == "wgsl" then
 io . write ( wgsl )
 elseif emit == "asm" then
@@ -144316,18 +143774,17 @@ is a named checking error.
 `@aot(target = "gpu")` records a GPU execution family in the verified IR and
 maps one whole-span loop iteration to one GPU invocation. It does not take a CPU
 `lanes` override. With the native `aot = "require"` policy, the compiler emits
-canonical SPIR-V, derives MSL with its pinned SPIRV-Cross, and replaces the
-declaration with a typed kernel specification. Its
+canonical SPIR-V for the Rust WGPU provider and replaces the declaration with
+a typed kernel specification. Its
 `compile(context)` method owns the shader and entrypoint, `bind(...)` accepts
 resident `gpu.Buffer<T>` values in the span parameters' order and types, and
 `dispatch(...)` accepts the scalar parameters and packs their uniform block.
-The generated `compile(...)` call carries an `ArtifactSet` with the SPIR-V,
-MSL, optional WGSL, and entrypoint; the selected device provider chooses the
-member it can consume.
+The generated `compile(...)` call carries the target provider's artifact and
+entrypoint: SPIR-V for native WGPU, or WGSL for browser WebGPU.
 The Wasm policies refuse GPU IR, and `aot = "off"` or `emit-c` retain the
 ordinary function value. `nupp aot --emit spirv FILE` writes the canonical
-binary module, `--emit msl` prints its Metal derivative, and `--emit wgsl`
-prints the `webgpu-int32` artifact when the kernel lies inside that profile.
+binary module, and `--emit wgsl` prints the `webgpu-int32` artifact when the
+kernel lies inside that profile. WGPU performs platform shader translation.
 
 The current GPU subset is one complete-span map with fixed-width elements, any
 number of proved read and write spans, and up to 128 bytes of fixed-width scalar
@@ -185633,11 +185090,11 @@ local native = { }
 
 native . ffi = ffi
 
-const ABI_VERSION = 1
+const ABI_VERSION = 2
 const LIBRARY_KEY = "__nuppNativeV2Library"
 
 local function open ( ) 
-local wanted = os . getenv ( "NUPP_GPU_LIBRARY" ) or os . getenv ( "NUPP_NATIVE_V2_LIBRARY" )
+local wanted = os . getenv ( "NUPP_NATIVE_V2_LIBRARY" )
 if wanted then
 return ffi . load ( wanted )
 end
@@ -187246,8 +186703,6 @@ gpu.Kernel = {} gpu.Kernel.__index = gpu.Kernel
 
 
 gpu.ArtifactSet = {} gpu.ArtifactSet.__index = gpu.ArtifactSet
-
-
 
 
 
@@ -189051,10 +188506,11 @@ gpu . PORTABLE_SCRATCH_BYTES = 16384
 
 native . ffi . cdef [[
 int32_t nuppNativeV2GpuContextCreate(uint64_t *);
+int32_t nuppNativeV2GpuContextDescription(uint64_t, uint8_t *, size_t, size_t *);
 int32_t nuppNativeV2GpuContextRelease(uint64_t);
 int32_t nuppNativeV2GpuBufferCreate(uint64_t, uint64_t, uint64_t *);
 int32_t nuppNativeV2GpuBufferRelease(uint64_t, uint64_t);
-int32_t nuppNativeV2GpuBufferUpload(uint64_t, uint64_t, uint64_t, const uint8_t *, size_t);
+int32_t nuppNativeV2GpuBufferUpload(uint64_t, uint64_t, uint64_t, const void *, size_t);
 int32_t nuppNativeV2GpuKernelCreate(
     uint64_t, const uint8_t *, size_t, const char *, size_t,
     uint32_t, uint32_t, uint64_t, uint32_t, uint32_t, uint32_t, uint64_t *);
@@ -189068,7 +188524,7 @@ int32_t nuppNativeV2GpuDispatch(
 int32_t nuppNativeV2GpuDownloadQueue(uint64_t, uint64_t, uint64_t, uint64_t);
 int32_t nuppNativeV2GpuSynchronize(uint64_t);
 int32_t nuppNativeV2GpuDownloadRead(
-    uint64_t, uint64_t, uint64_t, uint64_t, uint8_t *, size_t);
+    uint64_t, uint64_t, uint64_t, uint64_t, void *, size_t);
 ]]
 
 
@@ -189110,13 +188566,7 @@ gpu.Kernel = {} gpu.Kernel.__index = gpu.Kernel
 
 
 
-
-
-
-
 gpu.ArtifactSet = {} gpu.ArtifactSet.__index = gpu.ArtifactSet
-
-
 
 
 
@@ -189509,8 +188959,13 @@ end
 end
 
 function gpu . Context . driver ( self ) 
-live ( self )
-return "wgpu"
+local length = ffi . new ( "size_t[1]" )
+local handle = live ( self )
+native . succeeded ( C . nuppNativeV2GpuContextDescription ( handle , nil , 0 , length ) , 2 )
+local output = ffi . new ( "uint8_t[?]" , length [ 0 ] + 1 )
+native . succeeded ( C . nuppNativeV2GpuContextDescription ( handle , output , length [ 0 ] + 1 , length ) , 2 )
+
+return ffi . string ( output , length [ 0 ] )
 end
 
 function gpu . Context . buffer (
@@ -215550,8 +215005,8 @@ module nupp.gpu
 --[[
 The public GPU surface.
 
-Native programs answer it with the SDL provider. A selected backend may replace
-this module with another provider under the same name, so generated bindings
+Native programs answer it with the Rust WGPU provider. Browser backends replace
+this module with the WebGPU provider under the same name, so generated bindings
 and user source never name a host implementation directly.
 ]]
 
@@ -233959,11 +233414,11 @@ local native = {}
 --- @export
 native.ffi = ffi
 
-const ABI_VERSION = 1
+const ABI_VERSION = 2
 const LIBRARY_KEY = "__nuppNativeV2Library"
 
 local function open(): any
-    local wanted = os.getenv("NUPP_GPU_LIBRARY") or os.getenv("NUPP_NATIVE_V2_LIBRARY")
+    local wanted = os.getenv("NUPP_NATIVE_V2_LIBRARY")
     if wanted then
         return ffi.load(wanted)
     end
@@ -235564,9 +235019,7 @@ record gpu.Kernel
 end
 
 record gpu.ArtifactSet
-    readonly spirv: string
-    readonly msl: string
-    readonly wgsl: string?
+    readonly wgsl: string
     readonly entrypoint: string
 end
 
@@ -237366,10 +236819,11 @@ const gpu.PORTABLE_SCRATCH_BYTES = 16384
 
 native.ffi.cdef[[
 int32_t nuppNativeV2GpuContextCreate(uint64_t *);
+int32_t nuppNativeV2GpuContextDescription(uint64_t, uint8_t *, size_t, size_t *);
 int32_t nuppNativeV2GpuContextRelease(uint64_t);
 int32_t nuppNativeV2GpuBufferCreate(uint64_t, uint64_t, uint64_t *);
 int32_t nuppNativeV2GpuBufferRelease(uint64_t, uint64_t);
-int32_t nuppNativeV2GpuBufferUpload(uint64_t, uint64_t, uint64_t, const uint8_t *, size_t);
+int32_t nuppNativeV2GpuBufferUpload(uint64_t, uint64_t, uint64_t, const void *, size_t);
 int32_t nuppNativeV2GpuKernelCreate(
     uint64_t, const uint8_t *, size_t, const char *, size_t,
     uint32_t, uint32_t, uint64_t, uint32_t, uint32_t, uint32_t, uint64_t *);
@@ -237383,7 +236837,7 @@ int32_t nuppNativeV2GpuDispatch(
 int32_t nuppNativeV2GpuDownloadQueue(uint64_t, uint64_t, uint64_t, uint64_t);
 int32_t nuppNativeV2GpuSynchronize(uint64_t);
 int32_t nuppNativeV2GpuDownloadRead(
-    uint64_t, uint64_t, uint64_t, uint64_t, uint8_t *, size_t);
+    uint64_t, uint64_t, uint64_t, uint64_t, void *, size_t);
 ]]
 
 --- One typed resident device range. A root buffer owns an allocation; a
@@ -237423,16 +236877,10 @@ record gpu.Kernel
     private readonly _writableBuffers: integer
 end
 
---- The peer artifacts emitted for one verified GPU kernel.
----
---- A context selects the member its provider can consume. Native contexts use
---- the canonical SPIR-V and its MSL derivative; a browser context can instead
---- select WGSL without changing compiler-generated host bindings.
+--- The canonical shader artifact emitted for one verified native GPU kernel.
 --- @internal
 record gpu.ArtifactSet
     readonly spirv: string
-    readonly msl: string
-    readonly wgsl: string?
     readonly entrypoint: string
 end
 
@@ -237824,8 +237272,13 @@ function gpu.Context.drop(takes self: gpu.Context): nil
 end
 
 function gpu.Context.driver(borrows self: gpu.Context): string
-    live(self)
-    return "wgpu"
+    local length = ffi.new("size_t[1]")
+    local handle = live(self)
+    native.succeeded(C.nuppNativeV2GpuContextDescription(handle, nil, 0, length), 2)
+    local output = ffi.new("uint8_t[?]", length[0] + 1)
+    native.succeeded(C.nuppNativeV2GpuContextDescription(handle, output, length[0] + 1, length), 2)
+
+    return ffi.string(output, length[0])
 end
 
 function gpu.Context.buffer<T>(

@@ -25,7 +25,7 @@ local hash = require("nupp.compiler.build.hash")
 local cst = require("nupp.compiler.cst")
 local lexer = require("nupp.compiler.lexer")
 local emit = require("nupp.compiler.aot.emit")
-local gpuemit = require("nupp.compiler.aot.gpuemit")
+local gpuartifact = require("nupp.compiler.aot.gpuartifact")
 local gpuBinding = require("nupp.compiler.aot.gpubinding")
 local intensity = require("nupp.compiler.aot.intensity")
 local lower = require("nupp.compiler.aot.lower")
@@ -87,7 +87,7 @@ record compile.Artifacts
     binding: string
 
     --- Shader artifacts by logical program symbol. CPU programs have no entry.
-    gpu: {[string]: gpuemit.Artifact}
+    gpu: {[string]: gpuartifact.Artifact}
 
     --- Where each program's declaration was written, in the same order.
     sites: {compile.Site}
@@ -763,9 +763,10 @@ function compile.artifacts(
 
     local optimizations: {aotOptimize.Stats} = {}
     local loopReports: {{loopAnalysis.Report}} = {}
-    local gpu: {[string]: gpuemit.Artifact} = {}
+    local gpu: {[string]: gpuartifact.Artifact} = {}
     local cpuPrograms: {scalarIR.Program} = {}
     local declaredModule = parsed ~= nil and cst.declaredModule((parsed as parser.ParseResult).root) ~= nil
+    local browser = selected.triple:match("^wasm") ~= nil
     for position, program in ipairs(programs) do
         optimizations[position] = aotOptimize.program(program)
         -- Every optimized body is checked, whether or not lane lowering will
@@ -773,7 +774,7 @@ function compile.artifacts(
         -- stack state cleared by the optimizer.
         verify.program(program)
         if program.executionTarget == "gpu" then
-            local ok, artifact = pcall(gpuemit.program, program)
+            local ok, artifact = pcall(gpuartifact.program, program, browser)
             if not ok then
                 local site = sites[position]
                 local line, column = sitePosition(source, site ~= nil and (site as compile.Site).from or 1)
@@ -786,8 +787,8 @@ function compile.artifacts(
                     )
                 }
             end
-            (artifact as gpuemit.Artifact).exportTypes = declaredModule
-            gpu[program.symbol] = artifact as gpuemit.Artifact
+            (artifact as gpuartifact.Artifact).exportTypes = declaredModule
+            gpu[program.symbol] = artifact as gpuartifact.Artifact
         else
             compile.lanes(program, filename, selected)
             cpuPrograms[#cpuPrograms + 1] = program
@@ -827,9 +828,7 @@ function compile.artifacts(
     for _, program in ipairs(programs) do
         local artifact = gpu[program.symbol]
         if artifact ~= nil then
-            generatedGpuBindings[
-                #generatedGpuBindings + 1
-            ] = gpuBinding.replacement(program, artifact, selected.triple:match("^wasm") ~= nil)
+            generatedGpuBindings[#generatedGpuBindings + 1] = gpuBinding.replacement(program, artifact, browser)
         end
     end
     local generatedBinding = bindingRules.module(cpuPrograms, library)

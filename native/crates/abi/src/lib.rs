@@ -6,7 +6,7 @@ use std::cell::RefCell;
 use std::ffi::{CStr, CString, c_char};
 use std::fmt;
 
-pub const ABI_VERSION: u32 = 1;
+pub const ABI_VERSION: u32 = 2;
 
 #[repr(i32)]
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]

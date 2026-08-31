@@ -61,12 +61,10 @@ local function scoresCpu(
 end
 
 @aot(target = "gpu")
-local function softmax(
-    exclusive output: span.WriteSpan<float>,
-    borrows input: span.Span<float>,
-    tokens: uint32
-): nil
-    if #output ~= #input then error("length mismatch", 2) end
+local function softmax(exclusive output: span.WriteSpan<float>, borrows input: span.Span<float>, tokens: uint32): nil
+    if #output ~= #input then
+        error("length mismatch", 2)
+    end
     for i = 1, #output do
         local offset = nupp.math.u32.sub(nupp.math.u32.wrap(i), 1)
         local row = nupp.math.u32.div(offset, tokens)
@@ -85,30 +83,30 @@ local function softmax(
         while column < tokens do
             local cursor = nupp.math.u32.add(base, column)
             if cursor < #input then
-                total = nupp.math.f32.add(total, nupp.math.f32.exp(
-                    nupp.math.f32.sub(nupp.math.f32.narrow(input[cursor + 1]), maximum)))
+                total = nupp.math.f32.add(
+                    total,
+                    nupp.math.f32.exp(nupp.math.f32.sub(nupp.math.f32.narrow(input[cursor + 1]), maximum))
+                )
             end
             column = nupp.math.u32.add(column, 1)
         end
         local reciprocal: float = 0.125
         local refinement: uint32 = 0
         while refinement < 8 do
-            reciprocal = nupp.math.f32.mul(reciprocal, nupp.math.f32.sub(
-                2.0, nupp.math.f32.mul(total, reciprocal)))
+            reciprocal = nupp.math.f32.mul(reciprocal, nupp.math.f32.sub(2.0, nupp.math.f32.mul(total, reciprocal)))
             refinement = nupp.math.u32.add(refinement, 1)
         end
-        output[i] = nupp.math.f32.mul(
-            nupp.math.f32.exp(nupp.math.f32.sub(nupp.math.f32.narrow(input[i]), maximum)), reciprocal)
+        output[
+            i
+        ] = nupp.math.f32.mul(nupp.math.f32.exp(nupp.math.f32.sub(nupp.math.f32.narrow(input[i]), maximum)), reciprocal)
     end
 end
 
 @aot
-local function softmaxCpu(
-    exclusive output: span.WriteSpan<float>,
-    borrows input: span.Span<float>,
-    tokens: uint32
-): nil
-    if #output ~= #input then error("length mismatch", 2) end
+local function softmaxCpu(exclusive output: span.WriteSpan<float>, borrows input: span.Span<float>, tokens: uint32): nil
+    if #output ~= #input then
+        error("length mismatch", 2)
+    end
     for i = 1, #output do
         local offset = nupp.math.u32.sub(nupp.math.u32.wrap(i), 1)
         local row = nupp.math.u32.div(offset, tokens)
@@ -127,20 +125,22 @@ local function softmaxCpu(
         while column < tokens do
             local cursor = nupp.math.u32.add(base, column)
             if cursor < #input then
-                total = nupp.math.f32.add(total, nupp.math.f32.exp(
-                    nupp.math.f32.sub(nupp.math.f32.narrow(input[cursor + 1]), maximum)))
+                total = nupp.math.f32.add(
+                    total,
+                    nupp.math.f32.exp(nupp.math.f32.sub(nupp.math.f32.narrow(input[cursor + 1]), maximum))
+                )
             end
             column = nupp.math.u32.add(column, 1)
         end
         local reciprocal: float = 0.125
         local refinement: uint32 = 0
         while refinement < 8 do
-            reciprocal = nupp.math.f32.mul(reciprocal, nupp.math.f32.sub(
-                2.0, nupp.math.f32.mul(total, reciprocal)))
+            reciprocal = nupp.math.f32.mul(reciprocal, nupp.math.f32.sub(2.0, nupp.math.f32.mul(total, reciprocal)))
             refinement = nupp.math.u32.add(refinement, 1)
         end
-        output[i] = nupp.math.f32.mul(
-            nupp.math.f32.exp(nupp.math.f32.sub(nupp.math.f32.narrow(input[i]), maximum)), reciprocal)
+        output[
+            i
+        ] = nupp.math.f32.mul(nupp.math.f32.exp(nupp.math.f32.sub(nupp.math.f32.narrow(input[i]), maximum)), reciprocal)
     end
 end
 
@@ -164,8 +164,7 @@ local function mix(
             if pi < #probabilities then
                 local probability = nupp.math.f32.narrow(probabilities[pi + 1])
                 if vi < #value then
-                    total = nupp.math.f32.fma(
-                        probability, nupp.math.f32.narrow(value[vi + 1]), total)
+                    total = nupp.math.f32.fma(probability, nupp.math.f32.narrow(value[vi + 1]), total)
                 end
             end
             keyIndex = nupp.math.u32.add(keyIndex, 1)
@@ -194,8 +193,7 @@ local function mixCpu(
             if pi < #probabilities then
                 local probability = nupp.math.f32.narrow(probabilities[pi + 1])
                 if vi < #value then
-                    total = nupp.math.f32.fma(
-                        probability, nupp.math.f32.narrow(value[vi + 1]), total)
+                    total = nupp.math.f32.fma(probability, nupp.math.f32.narrow(value[vi + 1]), total)
                 end
             end
             keyIndex = nupp.math.u32.add(keyIndex, 1)
@@ -204,11 +202,4 @@ local function mixCpu(
     end
 end
 
-return {
-    scores = scores,
-    scoresCpu = scoresCpu,
-    softmax = softmax,
-    softmaxCpu = softmaxCpu,
-    mix = mix,
-    mixCpu = mixCpu,
-}
+return {scores = scores, scoresCpu = scoresCpu, softmax = softmax, softmaxCpu = softmaxCpu, mix = mix, mixCpu = mixCpu,}

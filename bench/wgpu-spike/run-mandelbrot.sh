@@ -1,26 +1,26 @@
 #!/bin/sh
-# Build the existing SIMD Mandelbrot controls and add the matched SDL GPU path.
+# Build the existing SIMD Mandelbrot controls and add the matched WGPU path.
 set -eu
 
 ROOT=$(CDPATH= cd -- "$(dirname -- "$0")/../.." && pwd)
 cd "$ROOT"
-BENCH="bench/sdl-gpu-spike"
+BENCH="bench/wgpu-spike"
 BUILD="$BENCH/build/mandelbrot"
-FRAMEWORK=${NUPP_SDL_FRAMEWORK_ROOT:?set NUPP_SDL_FRAMEWORK_ROOT to the SDL3 framework directory}
+LUAJIT=$("$ROOT/scripts/toolchain" luajit)/bin/luajit
 
 ./bin/nupp build
 mkdir -p "$BUILD"
 
 (
     cd "$BENCH"
-    NUPP_SDL_FRAMEWORK_ROOT="$FRAMEWORK" "$ROOT/bin/nupp" build --target typed
+    "$ROOT/bin/nupp" build --target typed
 )
 
 TYPED="$ROOT/$BENCH/build/typed"
 LUA_PATH="$TYPED/?.lua;$TYPED/?/init.lua;$ROOT/.rocks/share/lua/5.1/?.lua;$ROOT/.rocks/share/lua/5.1/?/init.lua;${LUA_PATH:-;}"
 LUA_CPATH="$ROOT/.rocks/lib/lua/5.1/?.so;${LUA_CPATH:-;}"
-NUPP_GPU_LIBRARY="$TYPED/lib/nupp_native"
-export LUA_PATH LUA_CPATH NUPP_GPU_LIBRARY
+NUPP_NATIVE_V2_LIBRARY="$TYPED/lib/nupp_native_v2"
+export LUA_PATH LUA_CPATH NUPP_NATIVE_V2_LIBRARY
 
 MANDELBROT_RESULTS="$ROOT/$BUILD/expected.bin" bench/simd-mandelbrot/run.sh
-exec luajit "$BENCH/mandelbrot-api.lua" "$ROOT/$BUILD/expected.bin"
+exec "$LUAJIT" "$BENCH/mandelbrot-api.lua" "$ROOT/$BUILD/expected.bin"

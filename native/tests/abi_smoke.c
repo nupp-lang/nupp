@@ -16,6 +16,8 @@ int main(void) {
     uint64_t handle = 0;
     uint8_t uuid[37];
     uint8_t digest[32];
+    uint8_t adapter[64];
+    size_t adapter_length = 0;
     int32_t status;
 
     if (nuppNativeV2AbiVersion() != NUPP_NATIVE_V2_ABI_VERSION) {
@@ -32,6 +34,12 @@ int main(void) {
     if (nuppNativeV2GpuBufferRelease(0, 1)
         != NUPP_NATIVE_V2_STALE_HANDLE) {
         fprintf(stderr, "invalid GPU context was accepted\n");
+        return 1;
+    }
+    if (nuppNativeV2GpuContextDescription(
+            0, adapter, sizeof adapter, &adapter_length)
+        != NUPP_NATIVE_V2_STALE_HANDLE) {
+        fprintf(stderr, "invalid GPU context description was accepted\n");
         return 1;
     }
     status = nuppNativeV2BytesCreate(expected, sizeof expected - 1, &handle);

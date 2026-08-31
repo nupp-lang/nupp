@@ -70,7 +70,7 @@ def mandelbrot_kernel(
 
 def main() raises:
     with DeviceContext() as ctx:
-        # Ordinary pageable arrays match the spans passed to Nupp and SDL.
+        # Ordinary pageable arrays match the spans passed to Nupp and WGPU.
         var points = List[Float32](length=2 * COUNT, fill=Float32(0.0))
         var escapes = List[UInt32](length=2 * COUNT, fill=UInt32(0))
         var host_points = ctx.enqueue_create_host_buffer[.float32](2 * COUNT)

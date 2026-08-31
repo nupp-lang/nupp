@@ -455,8 +455,8 @@ the build policy, and what the backend does not do yet.
 `target = "gpu"` records a GPU execution family in the verified IR and maps one
 whole-span loop iteration to one GPU invocation. It therefore does not take a
 CPU `lanes` override. With the native `aot = "require"` policy, the compiler
-emits canonical SPIR-V, derives MSL with its pinned SPIRV-Cross, and replaces
-the declaration with a typed kernel specification. Its
+emits canonical SPIR-V for the Rust WGPU provider and replaces the declaration
+with a typed kernel specification. Its
 `compile(context)` method owns the shader and entrypoint, `bind(...)` accepts
 resident `gpu.Buffer<T>` values in the span parameters' order and types, and
 `dispatch(...)` accepts the scalar parameters and packs their uniform block.
@@ -473,8 +473,8 @@ boundary through bounded Wasm-memory transfer leases. See
 browser target and source example.
 
 `aot = "off"` or `emit-c` retain the ordinary function value. `nupp aot --emit
-spirv FILE` writes the canonical binary module and `--emit msl` prints its Metal
-derivative.
+spirv FILE` writes the native WGPU module; WGPU performs platform shader
+translation internally.
 
 The GPU subset has two entry shapes. A complete-span map assigns one invocation
 to every element. A structured workgroup entry ends in

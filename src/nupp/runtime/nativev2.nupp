@@ -24,11 +24,11 @@ local native = {}
 --- @export
 native.ffi = ffi
 
-const ABI_VERSION = 1
+const ABI_VERSION = 2
 const LIBRARY_KEY = "__nuppNativeV2Library"
 
 local function open(): any
-    local wanted = os.getenv("NUPP_GPU_LIBRARY") or os.getenv("NUPP_NATIVE_V2_LIBRARY")
+    local wanted = os.getenv("NUPP_NATIVE_V2_LIBRARY")
     if wanted then
         return ffi.load(wanted)
     end

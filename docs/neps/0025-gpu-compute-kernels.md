@@ -1,6 +1,6 @@
 ---
 title: GPU compute kernels
-status: Implemented
+status: Superseded by NEP 29
 created: 2026-08-29
 ---
 

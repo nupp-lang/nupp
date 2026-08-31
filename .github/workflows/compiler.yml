@@ -34,10 +34,14 @@ jobs:
       - name: Restore the provisioned toolchain
         uses: actions/cache@v4
         with:
-          path: .nupp-cache/toolchain
+          path: |
+            .nupp-cache/toolchain
+            build/rust
           key: >-
             nupp-gpu-${{ runner.os }}-${{ runner.arch }}-${{
-            hashFiles('scripts/toolchain.pins', 'scripts/toolchain') }}
+            hashFiles('scripts/toolchain.pins', 'scripts/toolchain',
+            'Cargo.lock', 'Cargo.toml', 'native/**/Cargo.toml',
+            'native/**/*.rs', 'native/**/*.c', 'native/**/*.h') }}
           restore-keys: |
             nupp-gpu-${{ runner.os }}-${{ runner.arch }}-
 
@@ -46,10 +50,10 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y libvulkan1
 
-      - name: Provision the compiler, SDL, and software GPU
+      - name: Provision the compiler and software Vulkan adapter
         run: |
           ./scripts/toolchain --all
-          ./scripts/toolchain sdl swiftshader
+          ./scripts/toolchain swiftshader
 
       - name: Run exact GPU dispatch and readback
         id: gpu_conformance
@@ -64,10 +68,14 @@ jobs:
         if: steps.gpu_conformance.outcome == 'failure'
         uses: actions/cache/save@v4
         with:
-          path: .nupp-cache/toolchain
+          path: |
+            .nupp-cache/toolchain
+            build/rust
           key: >-
             nupp-gpu-${{ runner.os }}-${{ runner.arch }}-${{
-            hashFiles('scripts/toolchain.pins', 'scripts/toolchain') }}
+            hashFiles('scripts/toolchain.pins', 'scripts/toolchain',
+            'Cargo.lock', 'Cargo.toml', 'native/**/Cargo.toml',
+            'native/**/*.rs', 'native/**/*.c', 'native/**/*.h') }}
 
       - name: Report GPU conformance failure
         if: steps.gpu_conformance.outcome == 'failure'

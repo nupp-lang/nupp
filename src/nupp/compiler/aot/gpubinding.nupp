@@ -8,7 +8,7 @@ types. Raw shader text, entrypoint names, binding order and uniform packing
 exist only in the generated implementation.
 ]]
 
-local gpuemit = require("nupp.compiler.aot.gpuemit")
+local gpuartifact = require("nupp.compiler.aot.gpuartifact")
 local scalarIR = require("nupp.compiler.aot.scalar")
 
 local gpubinding = {}
@@ -32,7 +32,7 @@ local function append(lines: {string}, value: string): nil
 end
 
 --- What stands in for one authored `@aot(target = "gpu")` declaration.
-function gpubinding.replacement(program: scalarIR.Program, artifact: gpuemit.Artifact, browser: boolean?): string
+function gpubinding.replacement(program: scalarIR.Program, artifact: gpuartifact.Artifact, browser: boolean?): string
     local runtime = scalarIR.cIdentifier("gpuRuntime", program.symbol)
     local native = scalarIR.cIdentifier("gpuNative", program.symbol)
     local uniformType = scalarIR.cIdentifier("gpuUniformType", program.symbol)
@@ -140,9 +140,11 @@ function gpubinding.replacement(program: scalarIR.Program, artifact: gpuemit.Art
         .. " borrows (context)"
     )
     append(lines, "    local artifacts = new " .. runtime .. ".ArtifactSet(")
-    append(lines, "        spirv = " .. string.format("%q", artifact.spirv) .. ",")
-    append(lines, "        msl = " .. string.format("%q", artifact.source) .. ",")
-    append(lines, "        wgsl = " .. (artifact.wgsl ~= nil and string.format("%q", artifact.wgsl) or "nil") .. ",")
+    if browser then
+        append(lines, "        wgsl = " .. string.format("%q", artifact.wgsl as string) .. ",")
+    else
+        append(lines, "        spirv = " .. string.format("%q", artifact.spirv) .. ",")
+    end
     append(lines, "        entrypoint = " .. string.format("%q", artifact.entrypoint))
     append(lines, "    )")
     append(

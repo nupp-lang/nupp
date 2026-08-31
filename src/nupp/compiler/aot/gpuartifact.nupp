@@ -1,0 +1,166 @@
+module nupp.compiler.aot.gpuartifact
+
+--[[
+Backend-neutral artifacts for the checked GPU kernel subset.
+
+SPIR-V is the native WGPU artifact and WGSL is the browser WebGPU artifact.
+Both are emitted from the same verified scalar IR and share the compiler-owned
+buffer order, uniform layout, entrypoint and dispatch shape below.
+]]
+
+local scalarIR = require("nupp.compiler.aot.scalar")
+local spirvemit = require("nupp.compiler.aot.spirvemit")
+local visit = require("nupp.compiler.aot.visit")
+local wgslemit = require("nupp.compiler.aot.wgslemit")
+
+local gpuartifact = {}
+
+record gpuartifact.Artifact
+    spirv: string
+
+    --- Browser source for the exact integer WebGPU profile. Native WGPU
+    --- artifacts remain valid even when their IR lies outside that profile.
+    wgsl: string?
+
+    entrypoint: string
+    readonly: {scalarIR.Param}
+    writable: {scalarIR.Param}
+    uniforms: {scalarIR.Param}
+    uniformBytes: integer
+    threads: integer
+
+    --- The span whose length bounds the dispatch.
+    countSpan: string
+
+    --- Spans the kernel addresses by the dispatch index or a length guard
+    --- promises equal, so the host binding must hold their buffers to the
+    --- dispatch length. A span reached only through proved cursors is absent:
+    --- its bound check travels inside the shader.
+    exactCounts: {[string]: boolean}
+
+    --- Whether declaration replacements may publish their generated nominal
+    --- surfaces from a declared module.
+    exportTypes: boolean?
+end
+
+const STORAGE_TYPE: {
+    [string]: boolean
+} = {float = true, int8 = true, int16 = true, int32 = true, uint8 = true, uint16 = true, uint32 = true,}
+
+const UNIFORM_TYPE: {[string]: boolean} = {f32 = true, i32 = true, u32 = true,}
+
+local function identifier(value: string): string
+    return (value:gsub("[^%w_]", "_"))
+end
+
+local function fixedStorage(param: scalarIR.Param): boolean
+    return param.type:match(
+        "^struct:"
+    ) ~= nil or (param.sourceType ~= nil and STORAGE_TYPE[param.sourceType as string] == true)
+end
+
+--- Emits one verified GPU program, or raises with the subset rule it violates.
+--- Browser builds require the narrower WGSL profile; native builds retain WGSL
+--- only when the same program happens to satisfy it.
+--- @raises when verified IR is outside the GPU kernel subset
+function gpuartifact.program(program: scalarIR.Program, browser: boolean?): gpuartifact.Artifact
+    assert(program.executionTarget == "gpu", "GPU emission requires @aot(target = \"gpu\")")
+    local loop = program.loop
+    local workgroup = program.workgroup
+    assert(
+        program.entryMode == "kernel" and ((loop ~= nil) ~= (workgroup ~= nil)),
+        "GPU entry must be a map or phased workgroup kernel"
+    )
+    if loop ~= nil then
+        assert(
+            (loop as scalarIR.Loop).first == 1 and (loop as scalarIR.Loop).last == (loop as scalarIR.Loop).count,
+            "GPU entry must dispatch one complete span"
+        )
+    end
+
+    local exactCounts: {[string]: boolean} = {}
+    for _, guard in ipairs(program.guards) do
+        exactCounts[guard.left] = true
+        exactCounts[guard.right] = true
+    end
+    visit.program(
+        program,
+        new visit.Visitor(
+            scalarExpression = function(value: scalarIR.Expr): nil
+                if (value.op == "load" or value.op == "element_ref") and (value as any).cursor == nil then
+                    exactCounts[(value as any).span as string] = true
+                end
+            end,
+            scalarStatement = function(statement: scalarIR.Statement): nil
+                if statement.op == "store" and (statement as scalarIR.Store).cursor == nil then
+                    exactCounts[(statement as scalarIR.Store).span] = true
+                end
+            end
+        )
+    )
+
+    local readonly: {scalarIR.Param} = {}
+    local writable: {scalarIR.Param} = {}
+    local uniforms: {scalarIR.Param} = {}
+    for _, param in ipairs(program.params) do
+        if param.kind == "read_span" then
+            assert(fixedStorage(param), "GPU span must have fixed-width elements")
+            readonly[#readonly + 1] = param
+        elseif param.kind == "write_span" then
+            assert(fixedStorage(param), "GPU span must have fixed-width elements")
+            writable[#writable + 1] = param
+        elseif param.kind == "uniform" then
+            assert(param.type ~= "bool", "GPU boolean uniforms are not yet supported")
+            assert(UNIFORM_TYPE[param.type] == true, "GPU uniform must have fixed width")
+            uniforms[#uniforms + 1] = param
+        else
+            error("GPU subset does not admit scalar ABI parameters", 0)
+        end
+    end
+    assert(#writable >= 1, "GPU kernels require a writable span")
+
+    local spans: {scalarIR.Param} = {}
+    for _, param in ipairs(readonly) do
+        spans[#spans + 1] = param
+    end
+    for _, param in ipairs(writable) do
+        spans[#spans + 1] = param
+    end
+    for _, param in ipairs(uniforms) do
+        for _, span in ipairs(spans) do
+            assert(param.name ~= span.name .. "_count", "GPU uniform name collides with a span count: " .. param.name)
+            assert(param.name ~= span.name .. "_offset", "GPU uniform name collides with a span offset: " .. param.name)
+        end
+    end
+    local uniformBytes = 4 * (1 + 2 * #spans + #uniforms)
+    assert(uniformBytes <= 128, "GPU uniform block exceeds 128 bytes")
+
+    local threads: integer = workgroup ~= nil and (workgroup as scalarIR.Workgroup).size or 256
+    local spirv = spirvemit.program(program, readonly, writable, uniforms, threads)
+    local wgsl: string? = nil
+    if browser then
+        wgsl = wgslemit.program(program, readonly, writable, uniforms, threads)
+    else
+        local browserOk, browserSource = pcall(wgslemit.program, program, readonly, writable, uniforms, threads)
+        if browserOk then
+            wgsl = browserSource as string
+        end
+    end
+
+    return new gpuartifact.Artifact(
+        spirv = spirv,
+        wgsl = wgsl,
+        entrypoint = identifier(program.symbol) .. "_gpu",
+        readonly = readonly,
+        writable = writable,
+        uniforms = uniforms,
+        uniformBytes = uniformBytes,
+        threads = threads,
+        countSpan = workgroup ~= nil and (
+            workgroup as scalarIR.Workgroup
+        ).dispatchSpan or (loop as scalarIR.Loop).count,
+        exactCounts = exactCounts
+    )
+end
+
+export = gpuartifact

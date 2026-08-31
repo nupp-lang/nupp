@@ -398,7 +398,7 @@ chunk
 Show what the @aot functions in a file compile to
 
 Usage:
-  nupp aot [--emit ir|c|spirv|msl|wgsl|asm|binding] [--check] [--function NAME] [--target TRIPLE] [--features TIER] <file>
+  nupp aot [--emit ir|c|spirv|wgsl|asm|binding] [--check] [--function NAME] [--target TRIPLE] [--features TIER] <file>
 
 Reports what the ahead-of-time backend produces for one file, without writing it. A native build emits the same artifacts under `aot = "emit-c"` or `aot = "require"`; Lua 5.1 Wasm applications use `emit-wasm` or `require-wasm`.
 
@@ -406,7 +406,7 @@ Options:
   --format FORMAT  Output format: text (default) or json
   --json           Shorthand for --format json
   --text           Shorthand for --format text
-  --emit ARTIFACT  Print one artifact: ir, c, spirv, msl, wgsl, asm, or binding
+  --emit ARTIFACT  Print one artifact: ir, c, spirv, wgsl, asm, or binding
   --function NAME  Show only this function, named as the source or the symbol
                    spells it
   --check          Exit non-zero for a map loop that wanted lanes and ran one

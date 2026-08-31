@@ -2,7 +2,7 @@
 
 use nupp_native_abi::{Arena, Handle, Status, set_last_error};
 use nupp_native_gpu::{GpuContext, GpuError, KernelDescriptor};
-use std::ffi::c_char;
+use std::ffi::{c_char, c_void};
 use std::panic::{AssertUnwindSafe, catch_unwind};
 use std::ptr;
 use std::sync::{Mutex, OnceLock};
@@ -126,6 +126,48 @@ pub unsafe extern "C" fn nuppNativeV2GpuContextCreate(output: *mut u64) -> i32 {
 }
 
 #[unsafe(no_mangle)]
+/// Copies the WGPU backend and adapter name for one live context.
+///
+/// # Safety
+/// `output_length` must be writable. When `capacity` is nonzero, `output` must
+/// be writable for that many bytes, including the trailing NUL. A null output
+/// with zero capacity performs a size query. The reported length excludes NUL.
+pub unsafe extern "C" fn nuppNativeV2GpuContextDescription(
+    raw: u64,
+    output: *mut u8,
+    capacity: usize,
+    output_length: *mut usize,
+) -> i32 {
+    boundary(|| {
+        if output_length.is_null() || (capacity != 0 && output.is_null()) {
+            return Err((
+                Status::InvalidArgument,
+                "context description output is null".to_owned(),
+            ));
+        }
+        let adapter = with_context(raw, |gpu| Ok(gpu.adapter()))?;
+        let description = format!("{}: {}", adapter.backend, adapter.name);
+        // SAFETY: forwarded from this function's ABI contract.
+        unsafe { output_length.write(description.len()) };
+        if capacity == 0 {
+            return Ok(());
+        }
+        if capacity <= description.len() {
+            return Err((
+                Status::Capacity,
+                "context description output is too small".to_owned(),
+            ));
+        }
+        // SAFETY: the capacity check proves the payload and trailing NUL fit.
+        unsafe {
+            ptr::copy_nonoverlapping(description.as_ptr(), output, description.len());
+            output.add(description.len()).write(0);
+        }
+        Ok(())
+    })
+}
+
+#[unsafe(no_mangle)]
 pub extern "C" fn nuppNativeV2GpuContextRelease(raw: u64) -> i32 {
     boundary(|| {
         let mut arena = contexts()
@@ -179,12 +221,12 @@ pub unsafe extern "C" fn nuppNativeV2GpuBufferUpload(
     context: u64,
     buffer: u64,
     offset: u64,
-    data: *const u8,
+    data: *const c_void,
     length: usize,
 ) -> i32 {
     boundary(|| {
         // SAFETY: forwarded from this function's ABI contract.
-        let bytes = unsafe { input(data, length, "upload") }?;
+        let bytes = unsafe { input(data.cast(), length, "upload") }?;
         with_context(context, |gpu| gpu.upload(buffer, offset, bytes))
     })
 }
@@ -345,7 +387,7 @@ pub unsafe extern "C" fn nuppNativeV2GpuDownloadRead(
     buffer: u64,
     offset: u64,
     size: u64,
-    output: *mut u8,
+    output: *mut c_void,
     capacity: usize,
 ) -> i32 {
     boundary(|| {
@@ -361,7 +403,7 @@ pub unsafe extern "C" fn nuppNativeV2GpuDownloadRead(
         let bytes = with_context(context, |gpu| gpu.read_download(buffer, offset, size))?;
         if !bytes.is_empty() {
             // SAFETY: capacity was checked before consuming the queued result.
-            unsafe { ptr::copy_nonoverlapping(bytes.as_ptr(), output, bytes.len()) };
+            unsafe { ptr::copy_nonoverlapping(bytes.as_ptr(), output.cast(), bytes.len()) };
         }
         Ok(())
     })
@@ -375,6 +417,15 @@ mod tests {
     fn invalid_contexts_are_reported_without_pointer_dereferences() {
         assert_eq!(
             nuppNativeV2GpuBufferRelease(0, 1),
+            Status::StaleHandle.code()
+        );
+        let mut output = [0_u8; 64];
+        let mut length = 0_usize;
+        // SAFETY: both outputs are valid for their declared capacities.
+        assert_eq!(
+            unsafe {
+                nuppNativeV2GpuContextDescription(0, output.as_mut_ptr(), output.len(), &mut length)
+            },
             Status::StaleHandle.code()
         );
     }

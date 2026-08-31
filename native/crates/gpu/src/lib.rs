@@ -371,7 +371,8 @@ pub struct GpuContext {
 
 impl GpuContext {
     pub fn new() -> Result<Self, GpuError> {
-        let instance = wgpu::Instance::new(wgpu::InstanceDescriptor::new_without_display_handle());
+        let instance =
+            wgpu::Instance::new(wgpu::InstanceDescriptor::new_without_display_handle_from_env());
         let adapter = pollster::block_on(instance.request_adapter(&wgpu::RequestAdapterOptions {
             power_preference: wgpu::PowerPreference::HighPerformance,
             force_fallback_adapter: false,
@@ -419,7 +420,7 @@ impl GpuContext {
             name: info.name,
             vendor: info.vendor,
             device: info.device,
-            backend: format!("{:?}", info.backend),
+            backend: info.backend.to_str().to_owned(),
             device_type: format!("{:?}", info.device_type),
             driver: info.driver,
             driver_info: info.driver_info,
@@ -1120,15 +1121,22 @@ mod tests {
 
     #[test]
     fn adapter_compute_round_trip_when_available() {
+        let required = std::env::var_os("NUPP_REQUIRE_GPU").is_some();
         let mut gpu = match GpuContext::new() {
             Ok(gpu) => gpu,
             Err(error) => {
+                assert!(!required, "required GPU adapter is unavailable: {error}");
                 eprintln!("GPU adapter test skipped: {error}");
                 return;
             }
         };
-        let Ok(kernel) = gpu.create_test_kernel() else {
-            return;
+        let kernel = match gpu.create_test_kernel() {
+            Ok(kernel) => kernel,
+            Err(error) => {
+                assert!(!required, "required GPU test kernel failed: {error}");
+                eprintln!("GPU adapter test skipped: {error}");
+                return;
+            }
         };
         let buffer = gpu.create_buffer(16).unwrap();
         gpu.upload(buffer, 0, &[1, 0, 0, 0, 2, 0, 0, 0, 3, 0, 0, 0, 4, 0, 0, 0])

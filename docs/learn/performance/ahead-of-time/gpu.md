@@ -5,8 +5,8 @@ order: 637
 # GPU compute
 
 `@aot(target = "gpu")` turns one verified Nupp function into a typed kernel
-specification. Native targets emit SPIR-V and MSL, while browser targets emit
-WGSL from the same checked operation sequence.
+specification. Native targets emit SPIR-V for the Rust WGPU provider, while
+browser targets emit WGSL from the same checked operation sequence.
 
 ```nupp
 local span = require("nupp.mem.span")
@@ -183,9 +183,11 @@ compute.
 
 ## Inspection and limits
 
-`nupp aot --emit spirv FILE` writes the canonical SPIR-V module, and
-`nupp aot --emit msl FILE` prints its Metal derivative. The AOT report records
-the GPU family and the compiler's verified resource facts.
+`nupp aot --emit spirv FILE` writes the native WGPU module. On macOS WGPU
+translates that module for Metal internally; Nupp does not ship a second Metal
+artifact or a shader translator. `nupp aot --emit wgsl FILE` prints the browser
+WebGPU artifact when the kernel belongs to the portable profile. The AOT report
+records the GPU family and the compiler's verified resource facts.
 
 GPU kernels cannot allocate Lua values, suspend, call dynamic functions, or use
 unproved storage. Native workgroup and tensor facilities require the native GPU

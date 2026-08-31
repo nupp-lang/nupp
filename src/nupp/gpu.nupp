@@ -3,8 +3,8 @@ module nupp.gpu
 --[[
 The public GPU surface.
 
-Native programs answer it with the SDL provider. A selected backend may replace
-this module with another provider under the same name, so generated bindings
+Native programs answer it with the Rust WGPU provider. Browser backends replace
+this module with the WebGPU provider under the same name, so generated bindings
 and user source never name a host implementation directly.
 ]]
 

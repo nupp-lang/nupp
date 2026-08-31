@@ -6,7 +6,7 @@ order: 630
 
 `@aot` lowers a checked top-level local function through verified IR before the
 program runs. CPU entries produce C or Wasm, while `target = "gpu"` produces a
-typed resident-buffer kernel and SPIR-V, MSL, or WGSL artifacts.
+typed resident-buffer kernel and either a native SPIR-V or browser WGSL artifact.
 
 ```nupp
 @aot

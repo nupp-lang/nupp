@@ -7,4 +7,4 @@ cd "$ROOT"
 
 MOJO=${MOJO:-mojo}
 exec "$MOJO" --fp-mode contract=off \
-    bench/sdl-gpu-spike/mandelbrot-mojo.mojo
+    bench/wgpu-spike/mandelbrot-mojo.mojo

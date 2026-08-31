@@ -20,7 +20,7 @@
 #   define NUPP_NATIVE_V2_EXPORT __attribute__((visibility("default")))
 #endif
 
-#define NUPP_NATIVE_V2_ABI_VERSION 1u
+#define NUPP_NATIVE_V2_ABI_VERSION 2u
 
 #define NUPP_NATIVE_V2_OK 0
 #define NUPP_NATIVE_V2_INVALID_ARGUMENT 1
@@ -57,6 +57,10 @@ NUPP_NATIVE_V2_EXPORT int32_t nuppNativeV2Uuid7(uint8_t *output, size_t capacity
 /* Present when NUPP_NATIVE_V2_FEATURE_GPU is set. Every object is an opaque,
  * generational integer handle; no provider-owned pointer crosses the ABI. */
 NUPP_NATIVE_V2_EXPORT int32_t nuppNativeV2GpuContextCreate(uint64_t *output);
+/* `length` receives the byte count excluding the trailing NUL. A NULL output
+ * with zero capacity queries that count without copying. */
+NUPP_NATIVE_V2_EXPORT int32_t nuppNativeV2GpuContextDescription(
+    uint64_t context, uint8_t *output, size_t capacity, size_t *length);
 NUPP_NATIVE_V2_EXPORT int32_t nuppNativeV2GpuContextRelease(uint64_t context);
 NUPP_NATIVE_V2_EXPORT int32_t nuppNativeV2GpuBufferCreate(
     uint64_t context, uint64_t size, uint64_t *output);
@@ -64,7 +68,7 @@ NUPP_NATIVE_V2_EXPORT int32_t nuppNativeV2GpuBufferRelease(
     uint64_t context, uint64_t buffer);
 NUPP_NATIVE_V2_EXPORT int32_t nuppNativeV2GpuBufferUpload(
     uint64_t context, uint64_t buffer, uint64_t offset,
-    const uint8_t *data, size_t length);
+    const void *data, size_t length);
 NUPP_NATIVE_V2_EXPORT int32_t nuppNativeV2GpuKernelCreate(
     uint64_t context, const uint8_t *spirv, size_t spirv_length,
     const char *entrypoint, size_t entrypoint_length,
@@ -89,6 +93,6 @@ NUPP_NATIVE_V2_EXPORT int32_t nuppNativeV2GpuDownloadQueue(
 NUPP_NATIVE_V2_EXPORT int32_t nuppNativeV2GpuSynchronize(uint64_t context);
 NUPP_NATIVE_V2_EXPORT int32_t nuppNativeV2GpuDownloadRead(
     uint64_t context, uint64_t buffer, uint64_t offset, uint64_t size,
-    uint8_t *output, size_t capacity);
+    void *output, size_t capacity);
 
 #endif /* NUPP_NATIVE_V2_H */

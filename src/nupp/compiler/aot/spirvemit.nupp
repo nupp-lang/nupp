@@ -3,20 +3,14 @@ module nupp.compiler.aot.spirvemit
 --[[
 Binary SPIR-V emission for the verified GPU scalar subset.
 
-This module deliberately does not pass through a text shader language.  It
+This module deliberately does not pass through a text shader language. It
 serializes the scalar IR's already-proved storage accesses and structured
-control flow into a compute module.  MSL is a derivative of these bytes, made
-by the pinned SPIRV-Cross tool at artifact construction time.
+control flow into a compute module consumed directly by native WGPU.
 ]]
 
 local scalarIR = require("nupp.compiler.aot.scalar")
-local envMod = require("nupp.compiler.env")
-local fs = require("nupp.compiler.fs")
-local process = require("nupp.compiler.build.process")
 
 local spirv = {}
-
-local windows = package.config:sub(1, 1) == "\\"
 
 -- SPIR-V 1.3 core opcodes used by the closed GPU subset.
 const OP = {
@@ -374,7 +368,14 @@ function spirv.program(
     local zeroU = constant(u32Type, 0)
     local oneU = constant(u32Type, 1)
     local zeroF = constant(f32Type, 0)
-    local canonicalNan = constant(f32Type, 2143289344)
+    local canonicalNanBits = constant(u32Type, 2143289344)
+    local function canonicalNan(): integer
+        local value = id()
+        instruction(functions, OP.Bitcast, {f32Type, value, canonicalNanBits})
+
+        return value
+    end
+
     local falseId = id()
     instruction(declarations, OP.ConstantFalse, {boolType, falseId})
     local trueId = id()
@@ -577,7 +578,7 @@ function spirv.program(
     local fusedNan = id()
     instruction(functions, OP.IsNan, {boolType, fusedNan, fused})
     local fusedOut = id()
-    instruction(functions, OP.Select, {f32Type, fusedOut, fusedNan, canonicalNan, fused})
+    instruction(functions, OP.Select, {f32Type, fusedOut, fusedNan, canonicalNan(), fused})
     instruction(functions, OP.ReturnValue, {fusedOut})
     instruction(functions, OP.FunctionEnd, {})
 
@@ -612,7 +613,7 @@ function spirv.program(
         local finiteValue = id()
         instruction(functions, OP.Select, {f32Type, finiteValue, equal, equalValue, unequalValue})
         local result = id()
-        instruction(functions, OP.Select, {f32Type, result, anyNan, canonicalNan, finiteValue})
+        instruction(functions, OP.Select, {f32Type, result, anyNan, canonicalNan(), finiteValue})
         instruction(functions, OP.ReturnValue, {result})
         instruction(functions, OP.FunctionEnd, {})
 
@@ -636,7 +637,7 @@ function spirv.program(
     local unpackedNan = id()
     instruction(functions, OP.IsNan, {boolType, unpackedNan, unpackedLow})
     local unpackedOut = id()
-    instruction(functions, OP.Select, {f32Type, unpackedOut, unpackedNan, canonicalNan, unpackedLow})
+    instruction(functions, OP.Select, {f32Type, unpackedOut, unpackedNan, canonicalNan(), unpackedLow})
     instruction(functions, OP.ReturnValue, {unpackedOut})
     instruction(functions, OP.FunctionEnd, {})
 
@@ -650,7 +651,7 @@ function spirv.program(
     local valueNan = id()
     instruction(functions, OP.IsNan, {boolType, valueNan, floatValue})
     local canonicalValue = id()
-    instruction(functions, OP.Select, {f32Type, canonicalValue, valueNan, canonicalNan, floatValue})
+    instruction(functions, OP.Select, {f32Type, canonicalValue, valueNan, canonicalNan(), floatValue})
     local pair = id()
     instruction(functions, OP.CompositeConstruct, {vec2fType, pair, canonicalValue, canonicalValue})
     local packed = id()
@@ -677,7 +678,7 @@ function spirv.program(
     local bf16Nan = id()
     instruction(functions, OP.IsNan, {boolType, bf16Nan, bf16Value})
     local bf16Out = id()
-    instruction(functions, OP.Select, {f32Type, bf16Out, bf16Nan, canonicalNan, bf16Value})
+    instruction(functions, OP.Select, {f32Type, bf16Out, bf16Nan, canonicalNan(), bf16Value})
     instruction(functions, OP.ReturnValue, {bf16Out})
     instruction(functions, OP.FunctionEnd, {})
 
@@ -733,7 +734,7 @@ function spirv.program(
     local expNan = id()
     instruction(functions, OP.IsNan, {boolType, expNan, expValue})
     local expCanonical = id()
-    instruction(functions, OP.Select, {f32Type, expCanonical, expNan, canonicalNan, expValue})
+    instruction(functions, OP.Select, {f32Type, expCanonical, expNan, canonicalNan(), expValue})
     local low = constant(f32Type, f32Bits(-104.0))
     local high = constant(f32Type, f32Bits(88.0))
     local below = id()
@@ -1381,116 +1382,6 @@ function spirv.program(
     end
 
     return table.concat(bytes)
-end
-
---- Derives Metal source from canonical bytes with the compiler-owned pin.
---- @raises when the translator cannot be provisioned or rejects the module
-function spirv.deriveMsl(binary: string, fpContract: boolean?): string
-    local executable = os.getenv("NUPP_SPIRV_CROSS")
-    if not executable then
-        local root = envMod.compilerRoot()
-        assert(root ~= nil, "GPU builds need NUPP_SPIRV_CROSS when the compiler is not running from a source checkout")
-        local driver = fs.join(root as string, "scripts/toolchain")
-        local argv = windows and {"sh.exe", driver, "spirv-cross"} or {driver, "spirv-cross"}
-        local code, output = process.capture(argv)
-        assert(code == 0, "cannot provision the pinned SPIRV-Cross: " .. output)
-        for line in output:gmatch("[^\r\n]+") do
-            if line:match("%S") then
-                executable = line
-            end
-        end
-        assert(executable ~= nil, "the pinned SPIRV-Cross build named no executable")
-    end
-
-    local candidate = os.tmpname()
-    os.remove(candidate)
-    -- Windows' C runtime can repeat `tmpnam`'s sequence in independent compiler
-    -- processes. Keep the system-selected directory, but make the related
-    -- input/output pair process-local before either path is created.
-    local base = candidate .. "-" .. fs.stagingSuffix()
-    local input = base .. ".spv"
-    local output = base .. ".metal"
-    local wrote, writeErr = fs.writeFile(input, binary)
-    assert(wrote, "cannot stage SPIR-V for Metal translation: " .. tostring(writeErr))
-    local code, translated = process.capture({
-        executable as string,
-        input,
-        "--msl",
-        "--msl-version",
-        "20000",
-        "--output",
-        output,
-    })
-    local source, readErr = fs.readFile(output)
-    os.remove(input)
-    os.remove(output)
-    assert(code == 0, "SPIRV-Cross rejected compiler-emitted SPIR-V: " .. translated)
-    assert(source ~= nil, "SPIRV-Cross wrote no Metal source: " .. tostring(readErr))
-
-    -- SPIRV-Cross writes through a text-mode stream, so its Windows build
-    -- expands line endings even though the translation is otherwise byte-for-
-    -- byte equivalent. Canonicalize before matching and patching the pinned
-    -- templates; generated source uses LF on every host.
-    local metal = (source as string):gsub("\r\n", "\n")
-
-    local function replaceOne(before: string, after: string, description: string): nil
-        local first, last = metal:find(before, 1, true)
-        assert(first ~= nil and last ~= nil, "SPIRV-Cross changed its " .. description)
-        assert(metal:find(before, (last as integer) + 1, true) == nil, "SPIRV-Cross emitted duplicate " .. description)
-        metal = metal:sub(1, (first as integer) - 1) .. after .. metal:sub((last as integer) + 1)
-    end
-
-    -- SPIRV-Cross conservatively implements NoContraction in MSL as an
-    -- `optnone` function call for every add, subtract and multiply.  That is a
-    -- severe inner-loop cost on Metal.  MSL already has the source-level
-    -- spelling Nupp's former direct emitter used: ordinary binary32 operators
-    -- under a translation-unit contraction ban.  Keep NoContraction in the
-    -- canonical SPIR-V for Vulkan, but legalize its Metal derivative to that
-    -- equivalent spelling.  Exact templates make a changed translator fail
-    -- closed instead of silently weakening the arithmetic contract.
-    replaceOne(
-        "using namespace metal;\n",
-        "using namespace metal;\n#pragma clang fp contract(" .. (fpContract == true and "fast" or "off") .. ")\n",
-        "Metal namespace header"
-    )
-
-    local function legalize(name: string, conservative: string, ordinary: string): nil
-        if metal:find(name .. "(", 1, true) ~= nil then
-            replaceOne(
-                table.concat(
-                    {
-                        "template<typename T>",
-                        "[[clang::optnone]] T " .. name .. "(T l, T r)",
-                        "{",
-                        "    return " .. conservative .. ";",
-                        "}",
-                    },
-                    "\n"
-                ),
-                table.concat(
-                    {
-                        "template<typename T>",
-                        "inline T " .. name .. "(T l, T r)",
-                        "{",
-                        "    return " .. ordinary .. ";",
-                        "}",
-                    },
-                    "\n"
-                ),
-                name .. " NoContraction helper"
-            )
-        end
-    end
-
-    legalize("spvFMul", "fma(l, r, T(0))", "l * r")
-    legalize("spvFAdd", "fma(T(1), l, r)", "l + r")
-    legalize("spvFSub", "fma(T(-1), r, l)", "l - r")
-    assert(
-        metal:find("[[clang::optnone]] T", 1, true) == nil,
-        "SPIRV-Cross emitted an unlegalized scalar optnone helper"
-    )
-
-    return metal
 end
 
 export = spirv

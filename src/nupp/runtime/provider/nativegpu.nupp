@@ -60,10 +60,11 @@ const gpu.PORTABLE_SCRATCH_BYTES = 16384
 
 native.ffi.cdef[[
 int32_t nuppNativeV2GpuContextCreate(uint64_t *);
+int32_t nuppNativeV2GpuContextDescription(uint64_t, uint8_t *, size_t, size_t *);
 int32_t nuppNativeV2GpuContextRelease(uint64_t);
 int32_t nuppNativeV2GpuBufferCreate(uint64_t, uint64_t, uint64_t *);
 int32_t nuppNativeV2GpuBufferRelease(uint64_t, uint64_t);
-int32_t nuppNativeV2GpuBufferUpload(uint64_t, uint64_t, uint64_t, const uint8_t *, size_t);
+int32_t nuppNativeV2GpuBufferUpload(uint64_t, uint64_t, uint64_t, const void *, size_t);
 int32_t nuppNativeV2GpuKernelCreate(
     uint64_t, const uint8_t *, size_t, const char *, size_t,
     uint32_t, uint32_t, uint64_t, uint32_t, uint32_t, uint32_t, uint64_t *);
@@ -77,7 +78,7 @@ int32_t nuppNativeV2GpuDispatch(
 int32_t nuppNativeV2GpuDownloadQueue(uint64_t, uint64_t, uint64_t, uint64_t);
 int32_t nuppNativeV2GpuSynchronize(uint64_t);
 int32_t nuppNativeV2GpuDownloadRead(
-    uint64_t, uint64_t, uint64_t, uint64_t, uint8_t *, size_t);
+    uint64_t, uint64_t, uint64_t, uint64_t, void *, size_t);
 ]]
 
 --- One typed resident device range. A root buffer owns an allocation; a
@@ -117,16 +118,10 @@ record gpu.Kernel
     private readonly _writableBuffers: integer
 end
 
---- The peer artifacts emitted for one verified GPU kernel.
----
---- A context selects the member its provider can consume. Native contexts use
---- the canonical SPIR-V and its MSL derivative; a browser context can instead
---- select WGSL without changing compiler-generated host bindings.
+--- The canonical shader artifact emitted for one verified native GPU kernel.
 --- @internal
 record gpu.ArtifactSet
     readonly spirv: string
-    readonly msl: string
-    readonly wgsl: string?
     readonly entrypoint: string
 end
 
@@ -518,8 +513,13 @@ function gpu.Context.drop(takes self: gpu.Context): nil
 end
 
 function gpu.Context.driver(borrows self: gpu.Context): string
-    live(self)
-    return "wgpu"
+    local length = ffi.new("size_t[1]")
+    local handle = live(self)
+    native.succeeded(C.nuppNativeV2GpuContextDescription(handle, nil, 0, length), 2)
+    local output = ffi.new("uint8_t[?]", length[0] + 1)
+    native.succeeded(C.nuppNativeV2GpuContextDescription(handle, output, length[0] + 1, length), 2)
+
+    return ffi.string(output, length[0])
 end
 
 function gpu.Context.buffer<T>(

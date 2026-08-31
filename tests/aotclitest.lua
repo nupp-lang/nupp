@@ -53,7 +53,7 @@ local function spirvWord(module, offset)
     return a + b * 256 + c * 65536 + d * 16777216
 end
 
-local function assertSpirvStructure(module)
+local function spirvInstructions(module)
     local instructions = {}
     local offset = 21
     while offset <= #module do
@@ -68,6 +68,66 @@ local function assertSpirvStructure(module)
         offset = offset + wordCount * 4
     end
     test.equal(offset, #module + 1)
+
+    return instructions
+end
+
+local function spirvOpcodeCount(module, opcode)
+    local count = 0
+    for _, instruction in ipairs(spirvInstructions(module)) do
+        if instruction.opcode == opcode then
+            count = count + 1
+        end
+    end
+
+    return count
+end
+
+local function spirvDecorationCount(module, decoration)
+    local count = 0
+    for _, instruction in ipairs(spirvInstructions(module)) do
+        if instruction.opcode == 71 and instruction.operands[2] == decoration then
+            count = count + 1
+        end
+    end
+
+    return count
+end
+
+local function spirvHasExtendedInstruction(module, number)
+    for _, instruction in ipairs(spirvInstructions(module)) do
+        if instruction.opcode == 12 and instruction.operands[4] == number then
+            return true
+        end
+    end
+
+    return false
+end
+
+local function spirvHasFloatNaNConstant(module)
+    local instructions = spirvInstructions(module)
+    local floatTypes = {}
+    for _, instruction in ipairs(instructions) do
+        if instruction.opcode == 22 and instruction.operands[2] == 32 then
+            floatTypes[instruction.operands[1]] = true
+        end
+    end
+    for _, instruction in ipairs(instructions) do
+        local bits = instruction.operands[3]
+        if instruction.opcode == 43 and floatTypes[instruction.operands[1]] and bits ~= nil then
+            local exponent = math.floor(bits / 8388608) % 256
+            local fraction = bits % 8388608
+            if exponent == 255 and fraction ~= 0 then
+                return true
+            end
+        end
+    end
+
+    return false
+end
+
+local function assertSpirvStructure(module)
+    local instructions = spirvInstructions(module)
 
     local functionReturns = {}
     local functions, loops = 0, 0
@@ -180,29 +240,13 @@ end
 return {doubled = doubled}
 ]],
     })
-    local shader, shaderCode = run(dir, "--emit msl gpu.nupp")
-    test.equal(shaderCode, 0, shader)
-    assert(shader:find("kernel void ks_doubled_gpu", 1, true), shader)
-    assert(shader:find("float nupp_f32_fma", 1, true), shader)
-    assert(shader:find("= fma(", 1, true), shader)
-    assert(shader:find("nupp_f32_fma(", 1, true), shader)
-    assert(shader:find("uniforms._m3", 1, true), shader)
-    assert(shader:find("#pragma clang fp contract(off)", 1, true), shader)
-    assert(shader:find("inline T spvFMul(T l, T r)", 1, true), shader)
-    assert(shader:find("return l * r;", 1, true), shader)
-    assert(shader:find("inline T spvFAdd(T l, T r)", 1, true), shader)
-    assert(shader:find("return l + r;", 1, true), shader)
-    assert(shader:find("inline T spvFSub(T l, T r)", 1, true), shader)
-    assert(shader:find("return l - r;", 1, true), shader)
-    assert(not shader:find("[[clang::optnone]] T spvFMul", 1, true), shader)
-    assert(not shader:find("[[clang::optnone]] T spvFAdd", 1, true), shader)
-    assert(not shader:find("[[clang::optnone]] T spvFSub", 1, true), shader)
-
     local module, moduleCode = run(dir, "--emit spirv gpu.nupp")
     test.equal(moduleCode, 0, module)
     test.equal(#module > 20, true)
     test.equal(module:sub(1, 4), "\3\2\35\7")
     assertSpirvStructure(module)
+    assert(spirvDecorationCount(module, 42) > 0, "strict binary32 arithmetic lost NoContraction")
+    assert(not spirvHasFloatNaNConstant(module), "SPIR-V emitted a validator-rejected NaN float constant")
 
     local binding, bindingCode = run(dir, "--emit binding gpu.nupp")
     test.equal(bindingCode, 0, binding)
@@ -210,7 +254,7 @@ return {doubled = doubled}
     assert(binding:find("scale: float", 1, true), binding)
     assert(binding:find("ArtifactSet", 1, true), binding)
     assert(binding:find("spirv =", 1, true), binding)
-    assert(binding:find("msl =", 1, true), binding)
+    assert(not binding:find("msl =", 1, true), binding)
     assert(binding:find("compileGenerated", 1, true), binding)
     assert(binding:find("bindKernel", 1, true), binding)
     assert(binding:find("setRead(0, input, true)", 1, true), binding)
@@ -218,10 +262,9 @@ return {doubled = doubled}
     assert(binding:find("dispatchPacked", 1, true), binding)
 
     local wasmBinding, wasmBindingCode = run(dir, "--emit binding --target wasm32-unknown-emscripten gpu.nupp")
-    test.equal(wasmBindingCode, 0, wasmBinding)
-    assert(wasmBinding:find("dispatchWords", 1, true), wasmBinding)
-    assert(not wasmBinding:find("nupp.runtime.native", 1, true), wasmBinding)
-    assert(not wasmBinding:find("native.ffi", 1, true), wasmBinding)
+    test.equal(wasmBindingCode, 1, wasmBinding)
+    assert(wasmBinding:find("webgpu-int32", 1, true), wasmBinding)
+    assert(not wasmBinding:find('wgsl = "nil"', 1, true), wasmBinding)
 
     local summary, summaryCode = run(dir, "--check gpu.nupp")
     test.equal(summaryCode, 0, summary)
@@ -261,7 +304,7 @@ return xorMask
     assert(shader:find("output[uniforms.output_offset + dispatch_index]", 1, true), shader)
     assert(shader:find("^ uniforms.mask", 1, true), shader)
 
-    local binding, bindingCode = run(dir, "--emit binding gpu.nupp")
+    local binding, bindingCode = run(dir, "--emit binding --target wasm32-unknown-emscripten gpu.nupp")
     test.equal(bindingCode, 0, binding)
     assert(binding:find("local artifacts = new gpuRuntime_ks_xor_mask.ArtifactSet", 1, true), binding)
     assert(binding:find("wgsl = \"struct NuppUniforms", 1, true), binding)
@@ -356,13 +399,10 @@ end
 return {relaxed = relaxed}
 ]],
     })
-    local shader, code = run(dir, "--emit msl relaxed.nupp")
-    test.equal(code, 0, shader)
-    assert(shader:find("#pragma clang fp contract(fast)", 1, true), shader)
-    assert(shader:find(" * ", 1, true), shader)
-    assert(shader:find(" + ", 1, true), shader)
-    assert(not shader:find("spvFMul", 1, true), shader)
-    assert(not shader:find("spvFAdd", 1, true), shader)
+    local module, code = run(dir, "--emit spirv relaxed.nupp")
+    test.equal(code, 0, module)
+    test.equal(module:sub(1, 4), "\3\2#\7")
+    test.equal(spirvDecorationCount(module, 42), 0, "relaxed arithmetic retained NoContraction")
 end
 
 function M.aotUsesNativeTranscendentalsOnlyWhenGranted()
@@ -393,9 +433,10 @@ end
 return {nativeExp = nativeExp, nativeExpCpu = nativeExpCpu}
 ]],
     })
-    local shader, shaderCode = run(dir, "--emit msl native-exp.nupp")
-    test.equal(shaderCode, 0, shader)
-    assert(shader:find(" = exp(", 1, true), shader)
+    local module, moduleCode = run(dir, "--emit spirv native-exp.nupp")
+    test.equal(moduleCode, 0, module)
+    test.equal(module:sub(1, 4), "\3\2#\7")
+    assert(spirvHasExtendedInstruction(module, 27), "native exponential did not emit GLSL.std.450 Exp")
 
     local c, cCode = run(dir, "--emit c native-exp.nupp")
     test.equal(cCode, 0, c)
@@ -488,16 +529,15 @@ return {
 }
 ]],
     })
-    local shader, code = run(dir, "--emit msl half.nupp")
-    test.equal(code, 0, shader)
-    assert(shader:find("ushort _m0[1]", 1, true), shader)
-    assert(shader:find("float nupp_f16_to_f32", 1, true), shader)
-    assert(shader:find("uint nupp_f32_to_f16", 1, true), shader)
-    assert(shader:find("ushort(nupp_f32_to_f16", 1, true), shader)
-    assert(shader:find("float nupp_bf16_to_f32", 1, true), shader)
-    assert(shader:find("uint nupp_f32_to_bf16", 1, true), shader)
-    assert(shader:find("ushort(nupp_f32_to_bf16", 1, true), shader)
-    assert(shader:find(" = float(", 1, true), shader)
+    local module, code = run(dir, "--emit spirv --function roundTrip half.nupp")
+    test.equal(code, 0, module)
+    test.equal(module:sub(1, 4), "\3\2#\7")
+    assert(spirvOpcodeCount(module, 113) > 0, "half conversion emitted no OpUConvert")
+    assert(spirvOpcodeCount(module, 124) > 0, "half conversion emitted no OpBitcast")
+
+    local signedModule, signedCode = run(dir, "--emit spirv --function signedToFloat half.nupp")
+    test.equal(signedCode, 0, signedModule)
+    assert(spirvOpcodeCount(signedModule, 114) > 0, "signed storage emitted no OpSConvert")
 
     local c, cCode = run(dir, "--emit c half.nupp")
     test.equal(cCode, 0, c)
@@ -537,11 +577,11 @@ end
 return {exponential = exponential, exponentialCpu = exponentialCpu}
 ]],
     })
-    local shader, shaderCode = run(dir, "--emit msl exp.nupp")
-    test.equal(shaderCode, 0, shader)
-    assert(shader:find("nupp_f32_exp", 1, true), shader)
-    assert(shader:find("0.0078125", 1, true), shader)
-    assert(not shader:find("spvUnsafeArray", 1, true), shader)
+    local module, moduleCode = run(dir, "--emit spirv exp.nupp")
+    test.equal(moduleCode, 0, module)
+    test.equal(module:sub(1, 4), "\3\2#\7")
+    assert(not spirvHasExtendedInstruction(module, 27), "IR exponential delegated to GLSL.std.450 Exp")
+    assert(spirvDecorationCount(module, 42) >= 8, "IR exponential lost its binary32 contraction barriers")
 
     local c, cCode = run(dir, "--emit c exp.nupp")
     test.equal(cCode, 0, c)
@@ -580,13 +620,13 @@ end
 return {gemm = gemm}
 ]],
     })
-    local shader, shaderCode = run(dir, "--emit msl gemm.nupp")
-    test.equal(shaderCode, 0, shader)
-    assert(shader:find("rowOf [[buffer(1)]]", 1, true), shader)
-    assert(shader:find("a [[buffer(2)]]", 1, true), shader)
-    assert(shader:find("c [[buffer(3)]]", 1, true), shader)
-    assert(shader:find("< uniforms._m2", 1, true), shader)
-    assert(shader:find("a._m0[uniforms._m5 + v2_ai]", 1, true), shader)
+    local module, moduleCode = run(dir, "--emit spirv gemm.nupp")
+    test.equal(moduleCode, 0, module)
+    test.equal(module:sub(1, 4), "\3\2#\7")
+    assert(spirvDecorationCount(module, 33) >= 4, "SPIR-V lost buffer or uniform bindings")
+    assert(spirvDecorationCount(module, 34) >= 4, "SPIR-V lost descriptor-set assignments")
+    assert(spirvOpcodeCount(module, 65) > 0, "cursor access emitted no OpAccessChain")
+    assert(spirvOpcodeCount(module, 176) > 0, "cursor guard emitted no OpULessThan")
 
     local binding, bindingCode = run(dir, "--emit binding gemm.nupp")
     test.equal(bindingCode, 0, binding)
@@ -702,12 +742,11 @@ end
 return {coordinates = coordinates, coordinatesCpu = coordinatesCpu}
 ]],
     })
-    local shader, code = run(dir, "--emit msl coordinates.nupp")
-    test.equal(code, 0, shader)
-    assert(shader:find("gl_GlobalInvocationID.x + 1u", 1, true), shader)
-    assert(shader:find("nupp_u32_div(v", 1, true), shader)
-    assert(shader:find("nupp_u32_mod(v", 1, true), shader)
-    assert(shader:find(", uniforms._m5)", 1, true), shader)
+    local module, code = run(dir, "--emit spirv coordinates.nupp")
+    test.equal(code, 0, module)
+    test.equal(module:sub(1, 4), "\3\2#\7")
+    assert(spirvOpcodeCount(module, 134) > 0, "coordinate row emitted no OpUDiv")
+    assert(spirvOpcodeCount(module, 137) > 0, "coordinate column emitted no OpUMod")
 
     local c, cCode = run(dir, "--emit c coordinates.nupp")
     test.equal(cCode, 0, c)
@@ -783,17 +822,11 @@ end
 return {reduce = reduce}
 ]],
     })
-    local shader, shaderCode = run(dir, "--emit msl reduce.nupp")
-    test.equal(shaderCode, 0, shader)
-    assert(shader:find("threadgroup spvUnsafeArray<float, 4> values", 1, true), shader)
-    assert(shader:find("gl_WorkGroupID.x", 1, true), shader)
-    assert(shader:find("gl_LocalInvocationID.x + 2u", 1, true), shader)
-    local _, barriers = shader:gsub("threadgroup_barrier%(mem_flags::mem_threadgroup%)", "")
-    assert(barriers == 5, shader)
-
     local spirv, spirvCode = run(dir, "--emit spirv reduce.nupp")
     test.equal(spirvCode, 0, spirv)
     test.equal(spirv:sub(1, 4), "\3\2#\7")
+    test.equal(spirvOpcodeCount(spirv, 224), 5, "reduction emitted the wrong barrier count")
+    assert(spirvDecorationCount(spirv, 11) >= 3, "workgroup kernel lost invocation builtins")
 
     local binding, bindingCode = run(dir, "--emit binding reduce.nupp")
     test.equal(bindingCode, 0, binding)
@@ -835,14 +868,11 @@ end
 return {scan = scan}
 ]],
     })
-    local shader, code = run(dir, "--emit msl scan.nupp")
-    test.equal(code, 0, shader)
-    assert(shader:find("threadgroup spvUnsafeArray<uint, 4> values", 1, true), shader)
-    assert(shader:find("threadgroup spvUnsafeArray<uint, 4> temporary", 1, true), shader)
-    assert(shader:find("gl_LocalInvocationID.x - 1u", 1, true), shader)
-    assert(shader:find("gl_LocalInvocationID.x - 2u", 1, true), shader)
-    local _, barriers = shader:gsub("threadgroup_barrier%(mem_flags::mem_threadgroup%)", "")
-    assert(barriers == 5, shader)
+    local module, code = run(dir, "--emit spirv scan.nupp")
+    test.equal(code, 0, module)
+    test.equal(module:sub(1, 4), "\3\2#\7")
+    test.equal(spirvOpcodeCount(module, 224), 5, "scan emitted the wrong barrier count")
+    assert(spirvDecorationCount(module, 11) >= 3, "scan lost workgroup invocation builtins")
 end
 
 function M.gpuTargetRefusesNonDisjointWorkgroupScratchWrites()
@@ -868,7 +898,7 @@ end
 return {bad = bad}
 ]],
     })
-    local shader, code = run(dir, "--emit msl bad-phase.nupp")
+    local shader, code = run(dir, "--emit spirv bad-phase.nupp")
     assert(code ~= 0, shader)
     assert(shader:find("shared scratch writes must use exactly localIndex", 1, true), shader)
 end
@@ -904,7 +934,7 @@ end
 return {racy = racy}
 ]],
     })
-    local shader, code = run(dir, "--emit msl racy-phase.nupp")
+    local shader, code = run(dir, "--emit spirv racy-phase.nupp")
     assert(code ~= 0, shader)
     assert(shader:find("cannot read another lane", 1, true), shader)
 end
@@ -931,7 +961,7 @@ end
 return {fill = fill}
 ]],
     })
-    local shader, shaderCode = run(dir, "--emit msl fill.nupp")
+    local shader, shaderCode = run(dir, "--emit spirv fill.nupp")
     assert(shaderCode ~= 0, shader)
     assert(shader:find("guarded equal", 1, true), shader)
 end
