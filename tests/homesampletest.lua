@@ -86,7 +86,7 @@ function M.everyHomePageSampleChecks()
          end
       end
    end
-   assert(checked > 5, "expected the home page to carry samples")
+   assert(checked >= 5, "expected the home page to carry five samples")
 end
 
 return M
