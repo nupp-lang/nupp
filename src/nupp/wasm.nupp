@@ -6,6 +6,20 @@ local wasm = {}
 local host: any = assert(rawget(_G, "__nuppWasm"), "nupp: the Wasm host backend is not installed")
 local structs: any = assert(rawget(_G, "__nuppStructvalue"), "nupp: the Wasm struct backend is not installed")
 
+--- One scalar element representation the Wasm storage provider can allocate.
+--- @export
+record wasm.Scalar<T>
+    private readonly physical: any
+end
+
+--- A uint32 scalar-array witness for portable GPU storage.
+--- @export
+const wasm.uint32 = new wasm.Scalar(physical = host.scalar("uint32")) as wasm.Scalar<uint32>
+
+--- An int32 scalar-array witness for portable GPU storage.
+--- @export
+const wasm.int32 = new wasm.Scalar(physical = host.scalar("int32")) as wasm.Scalar<int32>
+
 sealed interface wasm.Span<T>
     readonly count: integer
     metamethod __len: function(self: Span<T>): integer
@@ -163,6 +177,24 @@ function wasm.array<T>(takes witness: T, count: integer): wasm.Array<T>
     local bytes = (physical.size as integer) * count
     if bytes > 4294967295 then
         error("Wasm array byte size exceeds memory32", 2)
+    end
+    local allocation = host.allocate(bytes)
+    local pointer = host.pointer(allocation, 0, 1)
+
+    return new wasm.Array(pointer = pointer, element = physical, count = count) as wasm.Array<T>
+end
+
+--- Allocates one zeroed Wasm-memory array of a fixed-width scalar.
+--- @raises when count or the resulting memory32 byte size is invalid
+--- @export
+function wasm.scalarArray<T>(borrows witness: wasm.Scalar<T>, count: integer): wasm.Array<T>
+    if count < 0 or count % 1 ~= 0 then
+        error("Wasm scalar array count must be a nonnegative integer", 2)
+    end
+    local physical = witness.physical
+    local bytes = (physical.size as integer) * count
+    if bytes > 4294967295 then
+        error("Wasm scalar array byte size exceeds memory32", 2)
     end
     local allocation = host.allocate(bytes)
     local pointer = host.pointer(allocation, 0, 1)

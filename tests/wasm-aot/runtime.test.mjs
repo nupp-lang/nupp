@@ -203,6 +203,100 @@ test("browser WebGPU xor runs one uint32 invocation per input", async () => {
   }]);
 });
 
+test("browser WebGPU runtime transfers Wasm leases without FFI", async () => {
+  const heap = new Uint8Array(128);
+  const released = [];
+  const leases = new Map([
+    [1, {pointer: 8, bytes: 8}],
+    [2, {pointer: 16, bytes: 8}],
+    [3, {pointer: 24, bytes: 24}],
+  ]);
+  new Uint32Array(heap.buffer, 8, 2).set([4, 9]);
+  // count, input count, output count, input offset, output offset, scalar.
+  new Uint32Array(heap.buffer, 24, 6).set([2, 2, 2, 0, 0, 7]);
+
+  const device = {
+    lost: {then() {}},
+    queue: {
+      writeBuffer(buffer, offset, value) {
+        buffer.bytes.set(new Uint8Array(value.buffer, value.byteOffset, value.byteLength), offset);
+      },
+      submit([command]) {
+        if (command.pass) {
+          const [input, output, uniform] = command.pass.group.entries.map((entry) => entry.resource.buffer);
+          const values = new Uint32Array(input.bytes.buffer, input.bytes.byteOffset, input.bytes.byteLength / 4);
+          const result = new Uint32Array(output.bytes.buffer, output.bytes.byteOffset, output.bytes.byteLength / 4);
+          const words = new Uint32Array(uniform.bytes.buffer, uniform.bytes.byteOffset, uniform.bytes.byteLength / 4);
+          for (let index = 0; index < words[0]; index += 1) result[index] = values[index] + words[5];
+        }
+        if (command.copy) command.copy.destination.bytes.set(command.copy.source.bytes);
+      },
+      async onSubmittedWorkDone() {},
+    },
+    createShaderModule: () => ({}),
+    createComputePipelineAsync: async () => ({getBindGroupLayout: () => ({})}),
+    createBuffer({size}) {
+      return {
+        bytes: new Uint8Array(size),
+        destroy() {},
+        async mapAsync() {},
+        getMappedRange() { return this.bytes.buffer; },
+        unmap() {},
+      };
+    },
+    createBindGroup: ({entries}) => ({entries}),
+    createCommandEncoder() {
+      const command = {
+        beginComputePass() {
+          command.pass = {
+            setPipeline() {},
+            setBindGroup(_slot, group) { command.pass.group = group; },
+            dispatchWorkgroups() {},
+            end() {},
+          };
+          return command.pass;
+        },
+        copyBufferToBuffer(source, _sourceOffset, destination) { command.copy = {source, destination}; },
+        finish: () => command,
+      };
+      return command;
+    },
+  };
+  const options = {
+    gpu: {requestAdapter: async () => ({requestDevice: async () => device})},
+    GPUBufferUsage: {STORAGE: 1, COPY_DST: 2, COPY_SRC: 4, UNIFORM: 8, MAP_READ: 16},
+    GPUMapMode: {READ: 1},
+    wasmModule: {
+      HEAPU8: heap,
+      _nupp_wasm_lease_address(id) { return leases.get(id)?.pointer || 0; },
+      _nupp_wasm_lease_size(id) { return leases.get(id)?.bytes || 0; },
+      _nupp_wasm_release_lease(id) { released.push(id); return leases.delete(id) ? 1 : 0; },
+    },
+  };
+  const run = async (id, operation) => {
+    const result = await handleBrowserEffects({kind: "effects", requests: [{id, kind: "gpu", ...operation}]}, options);
+    assert.deepEqual(result.responses[0].ok, true, result.responses[0].error);
+    return result.responses[0].value;
+  };
+
+  await run(1, {operation: "runtime-open"});
+  const input = await run(2, {operation: "runtime-create-buffer", bytes: 8});
+  const output = await run(3, {operation: "runtime-create-buffer", bytes: 8});
+  const kernel = await run(4, {
+    operation: "runtime-compile", wgsl: "@compute @workgroup_size(1) fn main() {}", entrypoint: "main",
+    readonly: 1, writable: 1, uniformBytes: 24, threads: 1,
+  });
+  await run(5, {operation: "runtime-upload", buffer: input.buffer, lease: 1});
+  await run(6, {
+    operation: "runtime-dispatch", kernel: kernel.kernel, read: [input.buffer], write: [output.buffer], count: 2, lease: 3,
+  });
+  await run(7, {operation: "runtime-download", buffer: output.buffer, lease: 2});
+  await run(8, {operation: "runtime-synchronize"});
+
+  assert.deepEqual(Array.from(new Uint32Array(heap.buffer, 16, 2)), [11, 16]);
+  assert.deepEqual(released, [1, 3, 2]);
+});
+
 test("browser WebGPU effects reject invalid uint32 input before opening a device", async () => {
   let requested = false;
   const result = await handleBrowserEffects({

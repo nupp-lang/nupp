@@ -569,7 +569,8 @@ function aot.dispatch(
     gpuArtifacts: {[string]: any},
     library: string?,
     tiers: {string}?,
-    constFamilies: {any}?
+    constFamilies: {any}?,
+    browser: boolean?
 ): string
     local rewritten = source
     local replacements: {any} = {}
@@ -598,7 +599,7 @@ function aot.dispatch(
             if program.executionTarget == "gpu" then
                 local artifact = gpuArtifacts[program.symbol]
                 assert(artifact ~= nil, "GPU program has no emitted shader")
-                replacement = gpuBinding.replacement(program, artifact)
+                replacement = gpuBinding.replacement(program, artifact, browser)
             else
                 replacement = bindingRules.replacement(program, library, tiers, site.from == detectorAt)
             end
@@ -616,16 +617,26 @@ function aot.dispatch(
     return rewritten
 end
 
---- The source with every Wasm AOT declaration replaced by a registry closure.
-function aot.wasmDispatch(source: string, programs: {scalarIR.Program}, sites: {compile.Site}, unit: string): string
+--- The source with Wasm CPU declarations replaced by registry closures and
+--- GPU declarations replaced by the browser-safe generated binding.
+function aot.wasmDispatch(
+    source: string,
+    programs: {scalarIR.Program},
+    sites: {compile.Site},
+    unit: string,
+    gpuArtifacts: {[string]: any}
+): string
     local rewritten = source
     for position = #programs, 1, -1 do
         local site = sites[position]
         if site ~= nil then
-            rewritten = rewritten:sub(
-                1,
-                site.from - 1
-            ) .. wasmBinding.replacement(programs[position], unit) .. rewritten:sub(site.to + 1)
+            local program = programs[position]
+            local replacement = program.executionTarget == "gpu" and gpuBinding.replacement(
+                program,
+                gpuArtifacts[program.symbol],
+                true
+            ) or wasmBinding.replacement(program, unit)
+            rewritten = rewritten:sub(1, site.from - 1) .. replacement .. rewritten:sub(site.to + 1)
         end
     end
 
@@ -1034,6 +1045,13 @@ function aot.emitC(
                 break
             end
         end
+    elseif selectedPolicy == "require-wasm" then
+        for _, source in ipairs(sources) do
+            if mentionsGpuTarget(sourceText[source] as string) then
+                session.stageBundled("nupp.runtime.provider.browserwebgpu")
+                break
+            end
+        end
     end
     local checkedSources: {string} = {}
     for _, source in ipairs(sources) do
@@ -1222,6 +1240,12 @@ record aot.Result
 
     --- Side-module C and Wasm paths, in deterministic source order.
     wasmModules: {string}?
+
+    --- Whether an authored GPU kernel needs the selected compute backend at runtime.
+    gpu: boolean?
+
+    --- Sources with authored GPU kernels, for generated runtime-effect selection.
+    gpuSources: {string}?
 end
 
 --- Writes the portable handoff for an `emit-c` consumer.
@@ -1361,8 +1385,26 @@ function aot.apply(
                         source as string,
                         (artifacts as compile.Artifacts).programs,
                         (artifacts as compile.Artifacts).sites,
-                        one.unit as string
+                        one.unit as string,
+                        (artifacts as compile.Artifacts).gpu
                     )
+                end
+            end
+            for _, sourcePath in ipairs(gpuSources) do
+                if dispatch[sourcePath] == nil then
+                    local artifacts = produced[sourcePath]
+                    local source = fs.readFile(sourcePath)
+                    if artifacts ~= nil and source ~= nil then
+                        dispatch[
+                            sourcePath
+                        ] = aot.wasmDispatch(
+                            source as string,
+                            (artifacts as compile.Artifacts).programs,
+                            (artifacts as compile.Artifacts).sites,
+                            "",
+                            (artifacts as compile.Artifacts).gpu
+                        )
+                    end
                 end
             end
         end
@@ -1374,6 +1416,8 @@ function aot.apply(
             dispatch = dispatch,
             authoredUnused = authoredUnused,
             wasmModules = wasmModules,
+            gpu = #gpuSources > 0,
+            gpuSources = gpuSources,
             specializedBodies = specializedBodies,
             constSelection = constSelection
         ), nil
@@ -1383,6 +1427,8 @@ function aot.apply(
             emitted = emitted as {aot.Emitted},
             manifest = manifest,
             dispatch = {},
+            gpu = #gpuSources > 0,
+            gpuSources = gpuSources,
             specializedBodies = specializedBodies,
             constSelection = constSelection
         ), nil
@@ -1402,7 +1448,8 @@ function aot.apply(
                     (artifacts as compile.Artifacts).gpu,
                     nil,
                     nil,
-                    (artifacts as compile.Artifacts).constFamilies
+                    (artifacts as compile.Artifacts).constFamilies,
+                    wasmPolicy
                 )
             end
         end
@@ -1411,6 +1458,8 @@ function aot.apply(
             manifest = manifest,
             dispatch = dispatch,
             authoredUnused = authoredUnused,
+            gpu = #gpuSources > 0,
+            gpuSources = gpuSources,
             specializedBodies = specializedBodies,
             constSelection = constSelection
         ), nil
@@ -1509,7 +1558,8 @@ function aot.apply(
                 (artifacts as compile.Artifacts).gpu,
                 reference,
                 tierNames,
-                (artifacts as compile.Artifacts).constFamilies
+                (artifacts as compile.Artifacts).constFamilies,
+                wasmPolicy
             )
         end
     end
@@ -1522,6 +1572,8 @@ function aot.apply(
         manifest = manifest,
         dispatch = dispatch,
         authoredUnused = authoredUnused,
+        gpu = #gpuSources > 0,
+        gpuSources = gpuSources,
         specializedBodies = specializedBodies,
         constSelection = constSelection
     ), nil

@@ -773,18 +773,6 @@ function compile.artifacts(
         -- stack state cleared by the optimizer.
         verify.program(program)
         if program.executionTarget == "gpu" then
-            if selected.triple:match("^wasm") then
-                local site = sites[position]
-                local line, column = sitePosition(source, site ~= nil and (site as compile.Site).from or 1)
-                return nil, {
-                    new compile.Diagnostic(
-                        file = filename,
-                        line = line,
-                        column = column,
-                        message = "the Wasm backend does not consume @aot(target = \"gpu\")"
-                    )
-                }
-            end
             local ok, artifact = pcall(gpuemit.program, program)
             if not ok then
                 local site = sites[position]
@@ -839,7 +827,9 @@ function compile.artifacts(
     for _, program in ipairs(programs) do
         local artifact = gpu[program.symbol]
         if artifact ~= nil then
-            generatedGpuBindings[#generatedGpuBindings + 1] = gpuBinding.replacement(program, artifact)
+            generatedGpuBindings[
+                #generatedGpuBindings + 1
+            ] = gpuBinding.replacement(program, artifact, selected.triple:match("^wasm") ~= nil)
         end
     end
     local generatedBinding = bindingRules.module(cpuPrograms, library)

@@ -32,7 +32,7 @@ local function append(lines: {string}, value: string): nil
 end
 
 --- What stands in for one authored `@aot(target = "gpu")` declaration.
-function gpubinding.replacement(program: scalarIR.Program, artifact: gpuemit.Artifact): string
+function gpubinding.replacement(program: scalarIR.Program, artifact: gpuemit.Artifact, browser: boolean?): string
     local runtime = scalarIR.cIdentifier("gpuRuntime", program.symbol)
     local native = scalarIR.cIdentifier("gpuNative", program.symbol)
     local uniformType = scalarIR.cIdentifier("gpuUniformType", program.symbol)
@@ -41,9 +41,12 @@ function gpubinding.replacement(program: scalarIR.Program, artifact: gpuemit.Art
     local bindingType = typeName("GpuBinding", program)
     local lines: {string} = {}
     local recordDeclaration = artifact.exportTypes and "export record " or "local record "
+    local runtimeModule = browser and "nupp.runtime.provider.browserwebgpu" or "nupp.gpu"
 
-    append(lines, "local " .. runtime .. " = require(\"nupp.gpu\")")
-    append(lines, "local " .. native .. " = require(\"nupp.runtime.native\")")
+    append(lines, "local " .. runtime .. " = require(\"" .. runtimeModule .. "\")")
+    if not browser then
+        append(lines, "local " .. native .. " = require(\"nupp.runtime.native\")")
+    end
     -- The block mirrors the shader's NuppUniforms: the dispatch count, one
     -- element count and offset per bound span in slot order, then the authored scalars.
     -- Dispatch patches the leading words from the bound buffers, so generated
@@ -64,13 +67,15 @@ function gpubinding.replacement(program: scalarIR.Program, artifact: gpuemit.Art
     for _, param in ipairs(artifact.uniforms) do
         fields[#fields + 1] = tostring(C_TYPE[param.type]) .. " " .. param.name:gsub("[^%w_]", "_") .. ";"
     end
-    append(
-        lines,
-        "local " .. uniformType .. " = " .. native .. ".ffi.typeof(" .. string.format(
-            "%q",
-            "struct { " .. table.concat(fields, " ") .. " }"
-        ) .. ")"
-    )
+    if not browser then
+        append(
+            lines,
+            "local " .. uniformType .. " = " .. native .. ".ffi.typeof(" .. string.format(
+                "%q",
+                "struct { " .. table.concat(fields, " ") .. " }"
+            ) .. ")"
+        )
+    end
     append(lines, "")
 
     append(lines, recordDeclaration .. specType)
@@ -183,12 +188,20 @@ function gpubinding.replacement(program: scalarIR.Program, artifact: gpuemit.Art
         append(lines, "    " .. param .. (position < #dispatchParams and "," or ""))
     end
     append(lines, "): nil")
-    append(lines, "    local uniforms = " .. native .. ".ffi.new(" .. uniformType .. ")")
-    append(lines, "    uniforms.count = self._binding.count")
-    for _, param in ipairs(artifact.uniforms) do
-        append(lines, "    uniforms." .. param.name:gsub("[^%w_]", "_") .. " = " .. param.name)
+    if browser then
+        append(lines, "    local scalars: {uint32} = {}")
+        for _, param in ipairs(artifact.uniforms) do
+            append(lines, "    scalars[#scalars + 1] = nupp.math.u32.wrap(" .. param.name .. " as integer)")
+        end
+        append(lines, "    self._binding:dispatchWords(scalars)")
+    else
+        append(lines, "    local uniforms = " .. native .. ".ffi.new(" .. uniformType .. ")")
+        append(lines, "    uniforms.count = self._binding.count")
+        for _, param in ipairs(artifact.uniforms) do
+            append(lines, "    uniforms." .. param.name:gsub("[^%w_]", "_") .. " = " .. param.name)
+        end
+        append(lines, "    self._binding:dispatchPacked(uniforms, " .. tostring(artifact.uniformBytes) .. ")")
     end
-    append(lines, "    self._binding:dispatchPacked(uniforms, " .. tostring(artifact.uniformBytes) .. ")")
     append(lines, "end")
     append(lines, "")
     append(lines, "local " .. program.name .. " = new " .. specType .. "(_marker = true)")

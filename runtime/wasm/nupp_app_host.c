@@ -123,6 +123,7 @@ static int32_t finish_resume(int code, const char *operation) {
                 "%s yielded %d values; exactly one protocol string is required",
                 operation, values);
             app_status = NUPP_APP_FAILED;
+            nupp_wasm_release_all_leases();
             return app_status;
         }
         app_payload = lua_tolstring(app_thread, -1, &app_payload_size);
@@ -132,6 +133,7 @@ static int32_t finish_resume(int code, const char *operation) {
     if (code != 0) {
         set_lua_error(app_thread, operation);
         app_status = NUPP_APP_FAILED;
+        nupp_wasm_release_all_leases();
         return app_status;
     }
 
@@ -141,12 +143,14 @@ static int32_t finish_resume(int code, const char *operation) {
             "%s returned %d values; zero values or one structured-result string is required",
             operation, values);
         app_status = NUPP_APP_FAILED;
+        nupp_wasm_release_all_leases();
         return app_status;
     }
     if (values == 1) {
         app_payload = lua_tolstring(app_thread, -1, &app_payload_size);
     }
     app_status = NUPP_APP_COMPLETE;
+    nupp_wasm_release_all_leases();
     return app_status;
 }
 
@@ -220,6 +224,7 @@ int32_t nupp_app_cancel(void) {
         return app_status;
     }
     app_status = NUPP_APP_CANCELLED;
+    nupp_wasm_release_all_leases();
     app_payload = NULL;
     app_payload_size = 0;
     return app_status;

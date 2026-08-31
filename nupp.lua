@@ -263,6 +263,7 @@ for _, resource in ipairs({
    "src/nupp/runtime/provider/browserhttp.g.nupp",
    "src/nupp/runtime/provider/browserpath.nupp",
    "src/nupp/runtime/provider/browserstorage.g.nupp",
+   "src/nupp/runtime/provider/browserwebgpu.nupp",
    "src/nupp/runtime/provider/browsersuspension.g.nupp",
    "src/nupp/runtime/provider/browsertime.g.nupp",
    "src/nupp/runtime/provider/browseruri.g.nupp",

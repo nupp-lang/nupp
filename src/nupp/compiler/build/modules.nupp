@@ -1284,7 +1284,10 @@ local function buildModules(root: string, outDir: string, config: Config, target
                 path,
                 config._coverage and {path = path} or nil,
                 nil,
-                backendResolution
+                backendResolution,
+                nil,
+                nil,
+                ((target as any)._aotGpuSources or {})[normalize(path)] and {["native.gpu"] = true} or nil
             )
             -- Generation is the last word on runtime reachability: it has now seen
             -- which checked nodes survived folding, comptime erasure, materialization,

@@ -165,9 +165,11 @@ return {doubled = doubled}
     assert(binding:find("setWrite(0, output, true)", 1, true), binding)
     assert(binding:find("dispatchPacked", 1, true), binding)
 
-    local wasm, wasmCode = run(dir, "--emit msl --target wasm32-unknown-emscripten gpu.nupp")
-    assert(wasmCode ~= 0, wasm)
-    assert(wasm:find('Wasm backend does not consume @aot(target = "gpu")', 1, true), wasm)
+    local wasmBinding, wasmBindingCode = run(dir, "--emit binding --target wasm32-unknown-emscripten gpu.nupp")
+    test.equal(wasmBindingCode, 0, wasmBinding)
+    assert(wasmBinding:find("dispatchWords", 1, true), wasmBinding)
+    assert(not wasmBinding:find("nupp.runtime.native", 1, true), wasmBinding)
+    assert(not wasmBinding:find("native.ffi", 1, true), wasmBinding)
 
     local summary, summaryCode = run(dir, "--check gpu.nupp")
     test.equal(summaryCode, 0, summary)

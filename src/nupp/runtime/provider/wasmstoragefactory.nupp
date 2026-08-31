@@ -23,7 +23,7 @@ end
 
 function factory.new(memory: any): any
     local provider: any = {referenceValued = true}
-    for _, name in ipairs({"allocate", "pointer", "offset", "load", "store", "copy"}) do
+    for _, name in ipairs({"allocate", "pointer", "offset", "load", "store", "copy", "lease", "releaseLease"}) do
         provider[name] = memory[name]
     end
 

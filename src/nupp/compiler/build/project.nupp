@@ -424,6 +424,7 @@ local function buildOne(root: string?, opts: project.BuildOptions?): integer
     local aotLinkage = target.aotLinkage or (target.standalone and "static" or "shared")
     local aotManifest: string? = nil
     local aotWasmModules: {string} = {}
+    local aotGpu = false
     if not opts.checkOnly and aotPolicy.POLICIES[target.aot or "off"] and target.aot ~= nil and target.aot ~= "off" then
         report:at("aot")
         report:step(
@@ -455,6 +456,11 @@ local function buildOne(root: string?, opts: project.BuildOptions?): integer
         report:addSpecialized((produced as any).specializedBodies or 0)
         local internalTarget = target as any
         internalTarget._constSelection = (produced as any).constSelection
+        local gpuSources: {[string]: boolean} = {}
+        for _, source in ipairs((produced as any).gpuSources or {}) do
+            gpuSources[normalize(source)] = true
+        end
+        internalTarget._aotGpuSources = gpuSources
         -- Recorded like any other output, so `nupp clean` removes it and a
         -- rebuild knows it is there.
         local keys: {[string]: string} = {}
@@ -485,6 +491,7 @@ local function buildOne(root: string?, opts: project.BuildOptions?): integer
         end
         aotOverlays = (produced as any).dispatch as {[string]: string}?
         aotAuthoredUnused = (produced as any).authoredUnused as {[string]: {any}}?
+        aotGpu = (produced as any).gpu == true
     end
     local result, buildErr = buildModules(
         root,
@@ -512,6 +519,10 @@ local function buildOne(root: string?, opts: project.BuildOptions?): integer
             io.stderr:write("nupp: " .. tostring(buildErr) .. "\n")
         end
         return 1
+    end
+    if aotGpu then
+        result.effects = result.effects or {}
+        (result.effects as {[string]: any})["native.gpu"] = true
     end
     if opts.checkOnly then
         if opts.produced then

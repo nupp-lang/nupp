@@ -8,6 +8,7 @@
 
 #define NUPP_ALLOCATION "nupp.wasm.allocation"
 #define NUPP_POINTER "nupp.wasm.pointer"
+#define NUPP_TRANSFER_LEASES 128
 
 /* The header is a union with double so `bytes` sits eight-aligned: AOT
  * kernels cast the payload to double and wider element pointers, and a
@@ -25,6 +26,15 @@ struct nupp_pointer {
     size_t remaining;
     size_t stride;
 };
+
+struct nupp_transfer_lease {
+    uint32_t id;
+    unsigned char *address;
+    size_t bytes;
+};
+
+static struct nupp_transfer_lease transfer_leases[NUPP_TRANSFER_LEASES];
+static uint32_t next_transfer_lease = 1;
 
 static int checked_integer(lua_State *state, int index, size_t *out) {
     lua_Number value = luaL_checknumber(state, index);
@@ -136,6 +146,74 @@ void *nupp_wasm_pointer_address(lua_State *state, int index, size_t bytes) {
         return NULL;
     }
     return pointer->address;
+}
+
+static struct nupp_transfer_lease *find_transfer_lease(uint32_t id) {
+    size_t index;
+    for (index = 0; index < NUPP_TRANSFER_LEASES; index++) {
+        if (transfer_leases[index].id == id) return &transfer_leases[index];
+    }
+    return NULL;
+}
+
+uintptr_t nupp_wasm_lease_address(uint32_t id) {
+    struct nupp_transfer_lease *lease = find_transfer_lease(id);
+    return lease == NULL ? 0 : (uintptr_t)lease->address;
+}
+
+uint32_t nupp_wasm_lease_size(uint32_t id) {
+    struct nupp_transfer_lease *lease = find_transfer_lease(id);
+    return lease == NULL || lease->bytes > UINT32_MAX ? 0 : (uint32_t)lease->bytes;
+}
+
+int nupp_wasm_release_lease(uint32_t id) {
+    struct nupp_transfer_lease *lease = find_transfer_lease(id);
+    if (lease == NULL) return 0;
+    lease->id = 0;
+    lease->address = NULL;
+    lease->bytes = 0;
+    return 1;
+}
+
+void nupp_wasm_release_all_leases(void) {
+    size_t index;
+    for (index = 0; index < NUPP_TRANSFER_LEASES; index++) {
+        transfer_leases[index].id = 0;
+        transfer_leases[index].address = NULL;
+        transfer_leases[index].bytes = 0;
+    }
+}
+
+static int memory_lease(lua_State *state) {
+    struct nupp_pointer *pointer =
+        (struct nupp_pointer *)luaL_checkudata(state, 1, NUPP_POINTER);
+    size_t bytes;
+    size_t index;
+    uint32_t id;
+    if (checked_integer(state, 2, &bytes) != 0) return 0;
+    if (bytes > pointer->remaining || bytes > UINT32_MAX) {
+        return luaL_error(state, "Wasm transfer lease is out of bounds");
+    }
+    for (index = 0; index < NUPP_TRANSFER_LEASES; index++) {
+        if (transfer_leases[index].id == 0) break;
+    }
+    if (index == NUPP_TRANSFER_LEASES) {
+        return luaL_error(state, "Wasm transfer lease limit exceeded");
+    }
+    id = next_transfer_lease++;
+    if (id == 0) id = next_transfer_lease++;
+    transfer_leases[index].id = id;
+    transfer_leases[index].address = pointer->address;
+    transfer_leases[index].bytes = bytes;
+    lua_pushnumber(state, (lua_Number)id);
+    return 1;
+}
+
+static int memory_release_lease(lua_State *state) {
+    size_t raw;
+    if (checked_integer(state, 1, &raw) != 0) return 0;
+    lua_pushboolean(state, raw <= UINT32_MAX && nupp_wasm_release_lease((uint32_t)raw));
+    return 1;
 }
 
 static size_t scalar_size(lua_State *state, const char *kind) {
@@ -268,6 +346,8 @@ static const luaL_Reg memory_functions[] = {
     {"load", memory_load},
     {"store", memory_store},
     {"copy", memory_copy},
+    {"lease", memory_lease},
+    {"releaseLease", memory_release_lease},
     {NULL, NULL},
 };
 

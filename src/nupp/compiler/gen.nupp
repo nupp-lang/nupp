@@ -486,7 +486,8 @@ function gen.generate(
     hot: gen.HotRequest?,
     backendResolution: any?,
     validatingHostDialect: string?,
-    bytecodeBoundary: string?
+    bytecodeBoundary: string?,
+    forcedEffects: {[string]: boolean}?
 ): string, {any}, gen.Coverage?, {[string]: boolean}, gen.HotMetadata?
     local out = {}
     local capabilityResolution = capabilities.resolve(result.dialect or "luajit", backendResolution)
@@ -594,6 +595,9 @@ function gen.generate(
     -- feature at the point its consumer is written keeps the prologue equal to what
     -- the generated body actually needs.
     local emittedFeatureEffects: {[string]: boolean} = {}
+    for effect in pairs(forcedEffects or {}) do
+        emittedFeatureEffects[effect] = true
+    end
     local function needRuntimeEffect(effect: string?, moduleName: string?): nil
         if effect ~= nil then
             emittedFeatureEffects[effect] = true

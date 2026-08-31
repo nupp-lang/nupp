@@ -232,7 +232,159 @@ async function gpuPipeline(device, options) {
   return options.gpuPipeline;
 }
 
+function gpuRuntime(options) {
+  return options.gpuRuntime ||= {buffers: new Map(), kernels: new Map(), nextBuffer: 1, nextKernel: 1};
+}
+
+function gpuLease(effect, options, expectedBytes) {
+  const module = options.wasmModule;
+  const id = effect.lease;
+  if (!module || !Number.isInteger(id) || id < 1 || !module._nupp_wasm_lease_address ||
+      !module._nupp_wasm_lease_size || !module._nupp_wasm_release_lease) {
+    throw new Error("browser GPU operation has no valid Wasm transfer lease");
+  }
+  const pointer = module._nupp_wasm_lease_address(id);
+  const bytes = module._nupp_wasm_lease_size(id);
+  if (!pointer || !bytes || (expectedBytes !== undefined && bytes !== expectedBytes)) {
+    throw new Error("browser GPU transfer lease is stale or has the wrong size");
+  }
+  return {id, bytes, view: module.HEAPU8.subarray(pointer, pointer + bytes), module};
+}
+
+function releaseGpuLease(lease) {
+  if (lease) lease.module._nupp_wasm_release_lease(lease.id);
+}
+
+function gpuBuffer(runtime, id) {
+  const resource = runtime.buffers.get(id);
+  if (!resource) throw new Error("browser GPU buffer handle is unknown");
+  return resource;
+}
+
+async function performGpuRuntimeEffect(effect, options) {
+  const usage = webGpuUsage(options);
+  const device = await gpuDevice(options);
+  if (options.gpuFailure) throw new Error(options.gpuFailure);
+  const runtime = gpuRuntime(options);
+  if (effect.operation === "runtime-open") return {driver: "webgpu"};
+  if (effect.operation === "runtime-create-buffer") {
+    const bytes = uint32(effect.bytes, "buffer byte length");
+    if (bytes === 0 || bytes % 4 !== 0) throw new Error("browser GPU buffers need a positive four-byte size");
+    const id = runtime.nextBuffer++;
+    runtime.buffers.set(id, {
+      bytes,
+      buffer: device.createBuffer({size: bytes, usage: usage.STORAGE | usage.COPY_DST | usage.COPY_SRC}),
+    });
+    return {buffer: id};
+  }
+  if (effect.operation === "runtime-destroy-buffer") {
+    const resource = gpuBuffer(runtime, uint32(effect.buffer, "buffer handle"));
+    resource.buffer.destroy();
+    runtime.buffers.delete(effect.buffer);
+    return null;
+  }
+  if (effect.operation === "runtime-compile") {
+    if (typeof effect.wgsl !== "string" || effect.wgsl.length === 0 ||
+        typeof effect.entrypoint !== "string" || effect.entrypoint.length === 0 ||
+        !Number.isInteger(effect.readonly) || effect.readonly < 0 ||
+        !Number.isInteger(effect.writable) || effect.writable < 1 ||
+        !Number.isInteger(effect.uniformBytes) || effect.uniformBytes < 4 || effect.uniformBytes > 128 ||
+        effect.uniformBytes % 4 !== 0 || !Number.isInteger(effect.threads) || effect.threads < 1 || effect.threads > 256) {
+      throw new Error("browser GPU kernel descriptor is invalid");
+    }
+    const descriptor = {
+      layout: "auto",
+      compute: {module: device.createShaderModule({code: effect.wgsl}), entryPoint: effect.entrypoint},
+    };
+    const pipeline = device.createComputePipelineAsync
+      ? await device.createComputePipelineAsync(descriptor)
+      : device.createComputePipeline(descriptor);
+    const id = runtime.nextKernel++;
+    runtime.kernels.set(id, {pipeline, readonly: effect.readonly, writable: effect.writable,
+      uniformBytes: effect.uniformBytes, threads: effect.threads});
+    return {kernel: id};
+  }
+  if (effect.operation === "runtime-destroy-kernel") {
+    runtime.kernels.delete(uint32(effect.kernel, "kernel handle"));
+    return null;
+  }
+  if (effect.operation === "runtime-upload") {
+    let lease;
+    try {
+      const resource = gpuBuffer(runtime, uint32(effect.buffer, "buffer handle"));
+      lease = gpuLease(effect, options, resource.bytes);
+      device.queue.writeBuffer(resource.buffer, 0, lease.view);
+      return null;
+    } finally {
+      releaseGpuLease(lease);
+    }
+  }
+  if (effect.operation === "runtime-dispatch") {
+    let lease;
+    try {
+      const kernel = runtime.kernels.get(uint32(effect.kernel, "kernel handle"));
+      if (!kernel || !Array.isArray(effect.read) || !Array.isArray(effect.write)) {
+        throw new Error("browser GPU dispatch names an unknown kernel or buffers");
+      }
+      if (effect.read.length !== kernel.readonly || effect.write.length !== kernel.writable) {
+        throw new Error("browser GPU dispatch has the wrong binding count");
+      }
+      const count = uint32(effect.count, "dispatch count");
+      lease = gpuLease(effect, options, kernel.uniformBytes);
+      const entries = [];
+      let binding = 0;
+      for (const id of effect.read) entries.push({binding: binding++, resource: {buffer: gpuBuffer(runtime, uint32(id, "read buffer")).buffer}});
+      for (const id of effect.write) entries.push({binding: binding++, resource: {buffer: gpuBuffer(runtime, uint32(id, "write buffer")).buffer}});
+      const uniform = device.createBuffer({size: kernel.uniformBytes, usage: usage.UNIFORM | usage.COPY_DST});
+      try {
+        device.queue.writeBuffer(uniform, 0, lease.view);
+        entries.push({binding, resource: {buffer: uniform}});
+        const bindGroup = device.createBindGroup({layout: kernel.pipeline.getBindGroupLayout(0), entries});
+        const encoder = device.createCommandEncoder();
+        const pass = encoder.beginComputePass();
+        pass.setPipeline(kernel.pipeline);
+        pass.setBindGroup(0, bindGroup);
+        pass.dispatchWorkgroups(Math.ceil(count / kernel.threads));
+        pass.end();
+        device.queue.submit([encoder.finish()]);
+      } finally {
+        uniform.destroy();
+      }
+      return null;
+    } finally {
+      releaseGpuLease(lease);
+    }
+  }
+  if (effect.operation === "runtime-download") {
+    let lease;
+    let readback;
+    try {
+      const resource = gpuBuffer(runtime, uint32(effect.buffer, "buffer handle"));
+      lease = gpuLease(effect, options, resource.bytes);
+      readback = device.createBuffer({size: resource.bytes, usage: usage.MAP_READ | usage.COPY_DST});
+      const encoder = device.createCommandEncoder();
+      encoder.copyBufferToBuffer(resource.buffer, 0, readback, 0, resource.bytes);
+      device.queue.submit([encoder.finish()]);
+      await readback.mapAsync(webGpuMapMode(options).READ);
+      lease.view.set(new Uint8Array(readback.getMappedRange()));
+      readback.unmap();
+      return null;
+    } finally {
+      if (readback) readback.destroy();
+      releaseGpuLease(lease);
+    }
+  }
+  if (effect.operation === "runtime-synchronize") {
+    if (device.queue.onSubmittedWorkDone) await device.queue.onSubmittedWorkDone();
+    return null;
+  }
+  throw new Error("unsupported browser GPU runtime operation");
+}
+
 async function performGpuEffect(effect, options) {
+  if (typeof effect.operation === "string" && effect.operation.startsWith("runtime-")) {
+    return performGpuRuntimeEffect(effect, options);
+  }
   if (effect.operation !== "xor-u32") throw new Error("unsupported browser GPU operation");
   if (!Array.isArray(effect.values) || effect.values.length < 1 || effect.values.length > 262144) {
     throw new Error("browser GPU xor needs 1 through 262144 uint32 values");
@@ -465,6 +617,7 @@ export async function handleBrowserEffects(message, options = {}) {
 
 async function driveApplication(module, source, options) {
   options.limits = checkedLimits(options.limitOverrides);
+  options.wasmModule = module;
   const started = performance.now();
   const outerSignal = options.signal;
   const deadline = new AbortController();

@@ -11,6 +11,7 @@ const Time = require("nupp.runtime.seam.time")
 const Workers = require("nupp.runtime.seam.workers")
 const HTTP = require("nupp.runtime.seam.http")
 const HMAC = require("nupp.runtime.seam.hmacsha256")
+const GPU = require("nupp.runtime.seam.gpu")
 const JSON = require("nupp.runtime.seam.json")
 const Path = require("nupp.runtime.seam.path")
 const SHA256 = require("nupp.runtime.seam.sha256")
@@ -34,4 +35,5 @@ export = Backend.new("nupp.browser", {
     SHA256.seam("nupp.runtime.provider.browsercrypto"),
     HMAC.seam("nupp.runtime.provider.browsercrypto"),
     UUID.seam("nupp.runtime.provider.browsercrypto"),
+    GPU.seam("nupp.runtime.provider.browserwebgpu"),
 })
