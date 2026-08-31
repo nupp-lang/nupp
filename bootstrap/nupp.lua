@@ -25911,7 +25911,6 @@ _G.assert(_G.loadstring("local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppM
 local scalarIR = require ( "nupp.compiler.aot.scalar" )
 local envMod = require ( "nupp.compiler.env" )
 local fs = require ( "nupp.compiler.fs" )
-local hash = require ( "nupp.compiler.build.hash" )
 local process = require ( "nupp.compiler.build.process" )
 
 local spirv = { }
@@ -27282,8 +27281,7 @@ os . remove ( candidate )
 
 
 
-local nonce = hash . sha256 ( candidate .. tostring ( { } ) .. tostring ( os . clock ( ) ) ) : sub ( 1 , 16 )
-local base = candidate .. "-" .. nonce
+local base = candidate .. "-" .. fs . stagingSuffix ( )
 local input = base .. ".spv"
 local output = base .. ".metal"
 local wrote , writeErr = fs . writeFile ( input , binary )
@@ -107208,15 +107206,26 @@ end
 
 
 
+
 local stagingToken = ( function ( ) 
 local ok , ffi = pcall ( require , "ffi" )
 if not ok then
 return "0"
 end
-local declared = pcall ( ffi . cdef , "int getpid(void);" )
-local read , pid = pcall ( function ( ) 
+local declared
+local read
+local pid
+if package . config : sub ( 1 , 1 ) == "\\" then
+declared = pcall ( ffi . cdef , "int _getpid(void);" )
+read , pid = pcall ( function ( ) 
+return ffi . C . _getpid ( )
+end )
+else
+declared = pcall ( ffi . cdef , "int getpid(void);" )
+read , pid = pcall ( function ( ) 
 return ffi . C . getpid ( )
 end )
+end
 if not declared or not read then
 return "0"
 end
@@ -107226,6 +107235,12 @@ end ) ( )
 
 local staged = 0
 
+
+local function stagingSuffix ( ) 
+staged = staged + 1
+return stagingToken .. "-" .. tostring ( staged )
+end
+
 local function writeFile ( path , text ) 
 if not mkdir ( dirname ( path ) ) then
 return nil , "cannot create " .. dirname ( path )
@@ -107233,8 +107248,7 @@ end
 
 
 
-staged = staged + 1
-local tmp = ( "%s.%s-%d.tmp" ) : format ( path , stagingToken , staged )
+local tmp = ( "%s.%s.tmp" ) : format ( path , stagingSuffix ( ) )
 local f , err = io . open ( tmp , "wb" )
 if not f then
 return nil , err
@@ -107340,6 +107354,7 @@ fs . canonical = canonical
 fs . readFile = readFile
 fs . exists = exists
 fs . mkdir = mkdir
+fs . stagingSuffix = stagingSuffix
 fs . writeFile = writeFile
 fs . writeFileIfChanged = writeFileIfChanged
 fs . copyFile = copyFile
@@ -189035,6 +189050,7 @@ gpu . transposeLayout = tensorlayout . transpose
 gpu . broadcastLayout = tensorlayout . broadcast
 gpu . asStridedLayout = tensorlayout . asStrided
 gpu . Kernel = gpu . Kernel
+gpu . ArtifactSet = gpu . ArtifactSet
 gpu . Binding = gpu . Binding
 gpu . Shared = gpu . Shared
 gpu . Phases = gpu . Phases
@@ -236647,6 +236663,7 @@ gpu.transposeLayout = tensorlayout.transpose
 gpu.broadcastLayout = tensorlayout.broadcast
 gpu.asStridedLayout = tensorlayout.asStrided
 gpu.Kernel = gpu.Kernel
+gpu.ArtifactSet = gpu.ArtifactSet
 gpu.Binding = gpu.Binding
 gpu.Shared = gpu.Shared
 gpu.Phases = gpu.Phases

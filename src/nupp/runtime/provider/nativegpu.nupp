@@ -836,6 +836,7 @@ gpu.transposeLayout = tensorlayout.transpose
 gpu.broadcastLayout = tensorlayout.broadcast
 gpu.asStridedLayout = tensorlayout.asStrided
 gpu.Kernel = gpu.Kernel
+gpu.ArtifactSet = gpu.ArtifactSet
 gpu.Binding = gpu.Binding
 gpu.Shared = gpu.Shared
 gpu.Phases = gpu.Phases
