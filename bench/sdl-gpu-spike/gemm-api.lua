@@ -42,15 +42,34 @@ local cpuElapsed = now() - cpuStarted
 
 local output = ffi.new("float[?]", m * n)
 local context = gpu.open()
+io.write(("GPU driver: %s\n"):format(context:driver()))
+io.stdout:flush()
 local cBuffer = context:buffer(ffi.typeof("float"), m * n)
 local aBuffer = context:buffer(ffi.typeof("float"), m * k)
 local bBuffer = context:buffer(ffi.typeof("float"), k * n)
 local kernel = generated.gemm:compile(context)
 local invocation = kernel:bind(cBuffer, aBuffer, bBuffer)
 
+for i = 0, m * n - 1 do output[i] = 127.25 end
+context:upload(cBuffer, span.fromCarray(output, m * n))
 context:upload(aBuffer, spans.a)
 context:upload(bBuffer, spans.b)
 context:synchronize()
+
+local function verifyTransfer(buffer, source, count, name)
+    local copied = ffi.new("float[?]", count)
+    context:enqueueDownload(buffer)
+    context:synchronize()
+    context:readDownloaded(buffer, span.writeCarray(copied, count))
+    for i = 0, count - 1 do
+        assert(copied[i] == source[i],
+            ("%s transfer mismatch at element %d: got %.9g, want %.9g"):format(
+                name, i, copied[i], source[i]))
+    end
+end
+
+verifyTransfer(aBuffer, a, m * k, "left input")
+verifyTransfer(bBuffer, b, k * n, "right input")
 
 local function dispatch()
     invocation:dispatch(n, k)
@@ -70,6 +89,7 @@ context:enqueueDownload(cBuffer)
 context:synchronize()
 context:readDownloaded(cBuffer, span.writeCarray(output, m * n))
 
+assert(output[0] ~= 127.25, "GEMM dispatch left its output buffer unchanged")
 for i = 0, m * n - 1 do
     assert(output[i] == expected[i],
         ("GEMM mismatch at element %d: got %.9g, want %.9g"):format(i, output[i], expected[i]))
