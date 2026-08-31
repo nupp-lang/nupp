@@ -262,6 +262,23 @@ jobs:
         shell: bash
         run: ./bin/nupp check
 
+      # Fail close to provisioning, and name the last case if the Windows
+      # loader or native networking layer terminates the test process. In the
+      # full suite that process is one long-lived shard, so a loader failure
+      # otherwise appears twenty minutes later as many unrelated unrun suites.
+      - name: Run the Windows native network preflight
+        if: runner.os == 'Windows'
+        shell: bash
+        run: |
+          set -euo pipefail
+          bash_path=$(command -v bash)
+          sh_path=$(dirname "$bash_path")/sh.exe
+          test -f "$sh_path"
+          NUPP_TEST_BASH=$(cygpath -w "$bash_path") \
+          NUPP_TEST_SH=$(cygpath -w "$sh_path") \
+          NUPP_TEST_TRACE_CASES=1 \
+          ./bin/nupp test --jobs=1 netnativetest
+
       # Keep the external corpus and the C importer explicit. The full suite
       # below reaches both too, but a configured corpus used to be absent and
       # silently skipped, while an import-c failure could be buried among

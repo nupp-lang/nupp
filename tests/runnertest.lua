@@ -10,6 +10,7 @@ if not ROOT then
    ROOT = p:read("*l")
    p:close()
 end
+ROOT = ROOT:gsub("\\", "/")
 local NUPP = os.getenv("NUPP_TEST_BIN") or ROOT .. "/bin/nupp"
 
 local function read(path)

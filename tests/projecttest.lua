@@ -99,6 +99,10 @@ local function staticLibraryName(name)
    return "lib" .. name .. ".a"
 end
 
+local function executableName(name)
+   return name .. (jit.os == "Windows" and ".exe" or "")
+end
+
 -- Loads an output tree in a fresh interpreter and reports what its entry module
 -- answered. The tree is named absolutely and the working directory is somewhere
 -- else, so no part of the answer can come from where the process was started.
@@ -2301,7 +2305,7 @@ print(tiny.tiny_add(2, 3))
       ["native/tiny.c"] = "int tiny_add(int a, int b) { return a + b; }\n",
    })
    assertEq(project.build(dir), 0)
-   local output = dir .. "/out/app"
+   local output = executableName(dir .. "/out/app")
    assert(exists(output), "the standalone executable is emitted")
    assert(not exists(dir .. "/out/lib/" .. libraryName("tiny")),
       "the standalone build has no shared FFI sidecar")
