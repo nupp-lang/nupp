@@ -1,0 +1,23 @@
+[package]
+name = "nupp-native"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+
+[lib]
+name = "nupp_native_v2"
+path = "src/lib.rs"
+crate-type = ["rlib", "cdylib", "staticlib"]
+
+[features]
+default = ["base"]
+base = []
+uuid = ["nupp-native-platform/uuid"]
+gpu = ["base", "dep:nupp-native-gpu"]
+
+[dependencies]
+nupp-native-abi = { path = "../abi" }
+nupp-native-gpu = { path = "../gpu", optional = true }
+nupp-native-platform = { path = "../platform" }
+nupp-native-runtime = { path = "../runtime" }

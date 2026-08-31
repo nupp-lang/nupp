@@ -1,0 +1,15 @@
+[workspace]
+members = ["native/crates/*"]
+resolver = "3"
+
+[workspace.package]
+edition = "2024"
+publish = false
+rust-version = "1.98"
+
+# No Rust panic may unwind through LuaJIT's C ABI. Individual crates still own
+# their optimization policy; this is the safety floor shared by native providers
+# and the host.
+[profile.release]
+panic = "abort"
+strip = false

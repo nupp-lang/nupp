@@ -1357,6 +1357,37 @@ function M.sharedNativeFacilitiesBuildOneFeatureGatedProvider()
       "provider has one stable public sidecar name")
 end
 
+function M.nativeFacilityCanSelectItsProviderDriver()
+   local originalCapture, originalCopy = process.capture, fs.copyFile
+   local originalCompilerRoot = compilerEnv.compilerRoot
+   local calls, copies = {}, {}
+   process.capture = function(argv)
+      calls[#calls + 1] = argv
+      return 0, "/built/libnupp_native_v2.dylib\n"
+   end
+   fs.copyFile = function(source, destination)
+      copies[#copies + 1] = {source, destination}
+      return true
+   end
+   compilerEnv.compilerRoot = function() return "." end
+   local ok, outputs, problem = pcall(nativeStage.build, ".", "out", {
+      ["native.gpu"] = true,
+   })
+   process.capture, fs.copyFile = originalCapture, originalCopy
+   compilerEnv.compilerRoot = originalCompilerRoot
+   assert(ok, outputs)
+   assert(outputs, problem)
+   assertEq(#calls, 1, "the facility selects one provider build")
+   local command = "\n" .. table.concat(calls[1], "\n") .. "\n"
+   assert(command:find("\nnative%-rust\n"),
+      "the feature's provider driver is passed to the toolchain")
+   assert(command:find("\ngpu\n", 1, true),
+      "the selected driver receives the provider feature union")
+   assertEq(copies[1][1], "/built/libnupp_native_v2.dylib")
+   assert(copies[1][2]:find("out/lib/nupp_native_v2", 1, true),
+      "the Rust provider has an independent sidecar name")
+end
+
 function M.aTargetKeepsTheRuntimeModuleItAlreadyBuilt()
    local originalCopy = fs.copyFile
    local originalCompilerRoot = compilerEnv.compilerRoot

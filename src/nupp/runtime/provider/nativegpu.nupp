@@ -1,7 +1,7 @@
 module nupp.runtime.provider.nativegpu
 
 --[[
-Resident compute buffers over SDL GPU.
+Resident compute buffers over WGPU's safe Rust implementation.
 
 The context owns every buffer and compiled kernel created from it. Buffers and
 kernels borrow that context, so checked code cannot close the device while one
@@ -36,16 +36,12 @@ applied with `gpu.view(buffer, layout)` without allocating. Transfers remain den
 layout-aware kernels consume the explicit metadata.
 ]]
 
-local native = require("nupp.runtime.native")
+local native = require("nupp.runtime.nativev2")
 local span = require("nupp.mem.span")
 local tensorlayout = require("nupp.gpulayout")
 local {type Layout as TensorLayout} = require("nupp.gpulayout")
 local ffi = native.ffi
--- Ad-hoc runs keep the compiler's broad development provider loaded. A GPU
--- feature build can be named separately so it does not force SDL into that
--- provider; packaged targets use their feature-matched `native.C` as usual.
-local gpuLibrary = os.getenv("NUPP_GPU_LIBRARY")
-local C = gpuLibrary and ffi.load(gpuLibrary) or native.C
+local C = native.C
 local gpu = {}
 
 --- A checked logical tensor layout independent of its element and allocation.
@@ -63,39 +59,26 @@ const gpu.PORTABLE_WORKGROUP_THREADS = 256
 const gpu.PORTABLE_SCRATCH_BYTES = 16384
 
 native.ffi.cdef[[
-typedef struct NuppGpuContext NuppGpuContext;
-typedef struct NuppGpuBuffer NuppGpuBuffer;
-typedef struct NuppGpuKernel NuppGpuKernel;
-typedef struct NuppGpuBinding NuppGpuBinding;
-NuppGpuContext *nuppGpuContextCreate(void);
-const char *nuppGpuContextDriver(const NuppGpuContext *);
-void nuppGpuContextDestroy(NuppGpuContext *);
-NuppGpuBuffer *nuppGpuBufferCreate(NuppGpuContext *, size_t);
-NuppGpuKernel *nuppGpuKernelCreate(
-    NuppGpuContext *, const uint8_t *, size_t, const uint8_t *, size_t,
-    const uint8_t *, size_t,
-    uint32_t, uint32_t, uint32_t, uint32_t);
-bool nuppGpuBufferUpload(NuppGpuContext *, NuppGpuBuffer *, const void *, size_t, size_t);
-NuppGpuBinding *nuppGpuBindingCreate(NuppGpuContext *, NuppGpuKernel *, uint32_t);
-bool nuppGpuBindingSetRead(NuppGpuBinding *, uint32_t, NuppGpuBuffer *, uint32_t, uint32_t, bool);
-bool nuppGpuBindingSetWrite(NuppGpuBinding *, uint32_t, NuppGpuBuffer *, uint32_t, uint32_t, bool);
-bool nuppGpuBindingDispatch(NuppGpuBinding *, const void *, size_t);
-bool nuppGpuBufferDownload(NuppGpuContext *, NuppGpuBuffer *, size_t, size_t);
-bool nuppGpuSynchronize(NuppGpuContext *);
-bool nuppGpuBufferRead(NuppGpuContext *, NuppGpuBuffer *, void *, size_t, size_t);
-bool nuppGpuBufferDestroy(NuppGpuContext *, NuppGpuBuffer *);
-bool nuppGpuKernelDestroy(NuppGpuContext *, NuppGpuKernel *);
-bool nuppGpuBindingDestroy(NuppGpuContext *, NuppGpuBinding *);
+int32_t nuppNativeV2GpuContextCreate(uint64_t *);
+int32_t nuppNativeV2GpuContextRelease(uint64_t);
+int32_t nuppNativeV2GpuBufferCreate(uint64_t, uint64_t, uint64_t *);
+int32_t nuppNativeV2GpuBufferRelease(uint64_t, uint64_t);
+int32_t nuppNativeV2GpuBufferUpload(uint64_t, uint64_t, uint64_t, const uint8_t *, size_t);
+int32_t nuppNativeV2GpuKernelCreate(
+    uint64_t, const uint8_t *, size_t, const char *, size_t,
+    uint32_t, uint32_t, uint64_t, uint32_t, uint32_t, uint32_t, uint64_t *);
+int32_t nuppNativeV2GpuKernelRelease(uint64_t, uint64_t);
+int32_t nuppNativeV2GpuBindingsCreate(uint64_t, uint64_t, uint64_t *);
+int32_t nuppNativeV2GpuBindingsRelease(uint64_t, uint64_t);
+int32_t nuppNativeV2GpuBindingsSetBuffer(
+    uint64_t, uint64_t, int32_t, uint32_t, uint64_t, uint64_t, uint64_t);
+int32_t nuppNativeV2GpuDispatch(
+    uint64_t, uint64_t, uint32_t, uint32_t, uint32_t, const uint8_t *, size_t);
+int32_t nuppNativeV2GpuDownloadQueue(uint64_t, uint64_t, uint64_t, uint64_t);
+int32_t nuppNativeV2GpuSynchronize(uint64_t);
+int32_t nuppNativeV2GpuDownloadRead(
+    uint64_t, uint64_t, uint64_t, uint64_t, uint8_t *, size_t);
 ]]
-
--- `native.C` is late-bound, so restore the ownership contracts that the literal
--- cdef carries for the checker but a table lookup cannot preserve. Resolve the
--- symbol only when a real GPU dispatch happens: the ordinary workgroup/phase
--- implementation remains usable in builds whose provider did not link SDL.
-local function dispatchNative(binding: any, borrows uniforms: const uint8[?], bytes: integer): boolean
-    local call = C.nuppGpuBindingDispatch as function(any, borrows uniforms: const uint8[?], integer): boolean
-    return call(binding, uniforms, bytes)
-end
 
 --- One typed resident device range. A root buffer owns an allocation; a
 --- subview shares it with a checked element offset. Storage is not
@@ -130,6 +113,8 @@ record gpu.Kernel
     private readonly _anchor: any
     private readonly _handle: any
     private readonly _uniformBytes: integer
+    private readonly _readonlyBuffers: integer
+    private readonly _writableBuffers: integer
 end
 
 --- The peer artifacts emitted for one verified GPU kernel.
@@ -151,8 +136,12 @@ end
 --- @internal
 record gpu.Binding
     private readonly _anchor: any
+    private readonly _context: any
     private readonly _handle: any
     private readonly _uniformBytes: integer
+    private readonly _readonlyBuffers: integer
+    private _spanCounts: {integer}
+    private _spanOffsets: {integer}
     private _released: boolean
 
     --- Number of elements dispatched by this binding.
@@ -224,7 +213,7 @@ function gpu.destroyContext<T is gpu.ContextToken>(takes context: T): nil
     context:drop()
 end
 
---- An SDL GPU device and its current asynchronous command stream.
+--- A WGPU compute device and its current asynchronous command stream.
 --- @export
 record gpu.Context is gpu.ContextToken
     private _handle: any
@@ -233,7 +222,7 @@ record gpu.Context is gpu.ContextToken
     --- Releases the device, compiled kernels, and resident buffers.
     drop: nosuspend function(takes self: Context): nil
 
-    --- SDL backend selected for this device.
+    --- Native provider family selected for this device.
     driver: function(borrows self: Context): string
 
     --- Allocates a typed resident device buffer.
@@ -307,12 +296,6 @@ local function live(borrows self: gpu.Context): any
     return self._handle
 end
 
-local function succeeded(ok: boolean, level: integer): nil
-    if not ok then
-        error("nupp: " .. ffi.string(C.nuppNativeError()), level)
-    end
-end
-
 -- Keep the element type on the span crossing the native boundary. Casting the
 -- pointer to bytes would erase its borrow provenance; only the C declaration
 -- needs to forget the pointee type.
@@ -322,9 +305,16 @@ local function uploadTyped<T>(
     borrows source: const T[?],
     offset: integer,
     bytes: integer
-): boolean
-    local call = C.nuppGpuBufferUpload as function(any, any, borrows source: const T[?], integer, integer): boolean
-    return call(context, buffer, source, offset, bytes)
+): integer
+    local call = C.nuppNativeV2GpuBufferUpload as function(
+        any,
+        any,
+        integer,
+        borrows source: const T[?],
+        integer
+    ): integer
+
+    return call(context, buffer, offset, source, bytes)
 end
 
 local function readTyped<T>(
@@ -333,9 +323,37 @@ local function readTyped<T>(
     borrows destination: T[?],
     offset: integer,
     bytes: integer
-): boolean
-    local call = C.nuppGpuBufferRead as function(any, any, borrows destination: T[?], integer, integer): boolean
-    return call(context, buffer, destination, offset, bytes)
+): integer
+    local call = C.nuppNativeV2GpuDownloadRead as function(
+        any,
+        any,
+        integer,
+        integer,
+        borrows destination: T[?],
+        integer
+    ): integer
+
+    return call(context, buffer, offset, bytes, destination, bytes)
+end
+
+local function dispatchNative(
+    context: any,
+    bindings: any,
+    count: integer,
+    borrows uniforms: const uint8[?],
+    bytes: integer
+): integer
+    local call = C.nuppNativeV2GpuDispatch as function(
+        any,
+        any,
+        integer,
+        integer,
+        integer,
+        borrows uniforms: const uint8[?],
+        integer
+    ): integer
+
+    return call(context, bindings, count, 1, 1, uniforms, bytes)
 end
 
 local function denseShape(shape: {integer}): (integer, {integer})
@@ -494,13 +512,14 @@ function gpu.Context.drop(takes self: gpu.Context): nil
     local handle = state._handle
     state._handle = nil
     nosuspend do
-        local destroy = C.nuppGpuContextDestroy as nosuspend function(any): nil
+        local destroy = C.nuppNativeV2GpuContextRelease as nosuspend function(any): integer
         destroy(handle)
     end
 end
 
 function gpu.Context.driver(borrows self: gpu.Context): string
-    return ffi.string(C.nuppGpuContextDriver(live(self)))
+    live(self)
+    return "wgpu"
 end
 
 function gpu.Context.buffer<T>(
@@ -515,10 +534,9 @@ function gpu.Context.buffer<T>(
     if width <= 0 or count == 0 or count > 4294967295 // width then
         error("nupp: GPU buffer must contain 1 through 4294967295 bytes", 2)
     end
-    local handle = C.nuppGpuBufferCreate(live(self), width * count)
-    if handle == nil then
-        error("nupp: " .. ffi.string(C.nuppNativeError()), 2)
-    end
+    local output = ffi.new("uint64_t[1]")
+    native.succeeded(C.nuppNativeV2GpuBufferCreate(live(self), width * count, output), 2)
+    local handle = output[0]
 
     return new gpu.Buffer(
         _anchor = self,
@@ -641,27 +659,40 @@ function gpu.Context.compileGenerated(
     if group < 1 or group > 1024 then
         error("nupp: GPU thread group must be from 1 through 1024", 2)
     end
-    if #artifacts.spirv == 0 or #artifacts.msl == 0 or #artifacts.entrypoint == 0 then
-        error("nupp: native GPU kernels need non-empty SPIR-V, MSL, and an entrypoint", 2)
+    local spans = readonlyBuffers + writableBuffers
+    if uniformBytes < 4 * (1 + 2 * spans) then
+        error("nupp: GPU uniform block does not contain the generated span header", 2)
     end
-    local handle = C.nuppGpuKernelCreate(
-        live(self),
-        artifacts.spirv,
-        #artifacts.spirv,
-        artifacts.msl,
-        #artifacts.msl,
-        artifacts.entrypoint,
-        #artifacts.entrypoint,
-        readonlyBuffers,
-        writableBuffers,
-        uniformBytes,
-        group
+    if #artifacts.spirv == 0 or #artifacts.entrypoint == 0 then
+        error("nupp: native GPU kernels need non-empty SPIR-V and an entrypoint", 2)
+    end
+    local output = ffi.new("uint64_t[1]")
+    native.succeeded(
+        C.nuppNativeV2GpuKernelCreate(
+            live(self),
+            artifacts.spirv,
+            #artifacts.spirv,
+            artifacts.entrypoint,
+            #artifacts.entrypoint,
+            readonlyBuffers,
+            writableBuffers,
+            uniformBytes,
+            group,
+            1,
+            1,
+            output
+        ),
+        2
     )
-    if handle == nil then
-        error("nupp: " .. ffi.string(C.nuppNativeError()), 2)
-    end
+    local handle = output[0]
 
-    return new gpu.Kernel(_anchor = self, _handle = handle, _uniformBytes = uniformBytes)
+    return new gpu.Kernel(
+        _anchor = self,
+        _handle = handle,
+        _uniformBytes = uniformBytes,
+        _readonlyBuffers = readonlyBuffers,
+        _writableBuffers = writableBuffers
+    )
 end
 
 function gpu.Context.bindKernel(
@@ -672,15 +703,26 @@ function gpu.Context.bindKernel(
     if count < 0 or count > 4294967295 then
         error("nupp: GPU dispatch count must be from 0 through 4294967295", 2)
     end
-    local handle = C.nuppGpuBindingCreate(live(self), kernel._handle, count)
-    if handle == nil then
-        error("nupp: " .. ffi.string(C.nuppNativeError()), 2)
+    local context = live(self)
+    local output = ffi.new("uint64_t[1]")
+    native.succeeded(C.nuppNativeV2GpuBindingsCreate(context, kernel._handle, output), 2)
+    local handle = output[0]
+    local spans = kernel._readonlyBuffers + kernel._writableBuffers
+    local spanCounts: {integer} = {}
+    local spanOffsets: {integer} = {}
+    for index = 1, spans do
+        spanCounts[index] = 0
+        spanOffsets[index] = 0
     end
 
     return new gpu.Binding(
         _anchor = self,
+        _context = context,
         _handle = handle,
         _uniformBytes = kernel._uniformBytes,
+        _readonlyBuffers = kernel._readonlyBuffers,
+        _spanCounts = spanCounts,
+        _spanOffsets = spanOffsets,
         _released = false,
         count = count
     )
@@ -690,18 +732,18 @@ function gpu.Context.releaseBuffer<T>(borrows self: gpu.Context, borrows buffer:
     if not buffer._root then
         error("nupp: a GPU view borrows its buffer; release the root buffer", 2)
     end
-    succeeded(C.nuppGpuBufferDestroy(live(self), buffer._handle), 2)
+    native.succeeded(C.nuppNativeV2GpuBufferRelease(live(self), buffer._handle), 2)
 end
 
 function gpu.Context.releaseKernel(borrows self: gpu.Context, borrows kernel: gpu.Kernel): nil
-    succeeded(C.nuppGpuKernelDestroy(live(self), kernel._handle), 2)
+    native.succeeded(C.nuppNativeV2GpuKernelRelease(live(self), kernel._handle), 2)
 end
 
 function gpu.Context.releaseBinding(borrows self: gpu.Context, exclusive binding: gpu.Binding): nil
     if binding._released then
         return
     end
-    succeeded(C.nuppGpuBindingDestroy(live(self), binding._handle), 2)
+    native.succeeded(C.nuppNativeV2GpuBindingsRelease(live(self), binding._handle), 2)
     binding._released = true
 end
 
@@ -718,7 +760,26 @@ function gpu.Binding.setRead<T>(
     if matchCount and not dense then
         error("nupp: dispatch-indexed GPU buffers must be dense", 2)
     end
-    succeeded(C.nuppGpuBindingSetRead(self._handle, slot, buffer._handle, buffer._offset, extent, matchCount), 2)
+    if matchCount and extent ~= self.count then
+        error("nupp: a dispatch-indexed buffer must hold one element per dispatched thread", 2)
+    end
+    if slot < 0 or slot >= self._readonlyBuffers then
+        error("nupp: read binding slot is outside the compiled kernel", 2)
+    end
+    native.succeeded(
+        C.nuppNativeV2GpuBindingsSetBuffer(
+            self._context,
+            self._handle,
+            0,
+            slot,
+            buffer._handle,
+            0,
+            buffer._capacity * buffer._width
+        ),
+        2
+    )
+    self._spanCounts[slot + 1] = extent
+    self._spanOffsets[slot + 1] = buffer._offset
 end
 
 function gpu.Binding.setWrite<T>(
@@ -737,7 +798,28 @@ function gpu.Binding.setWrite<T>(
     if matchCount and not dense then
         error("nupp: dispatch-indexed GPU buffers must be dense", 2)
     end
-    succeeded(C.nuppGpuBindingSetWrite(self._handle, slot, buffer._handle, buffer._offset, extent, matchCount), 2)
+    if matchCount and extent ~= self.count then
+        error("nupp: a dispatch-indexed buffer must hold one element per dispatched thread", 2)
+    end
+    local writable = #self._spanCounts - self._readonlyBuffers
+    if slot < 0 or slot >= writable then
+        error("nupp: write binding slot is outside the compiled kernel", 2)
+    end
+    native.succeeded(
+        C.nuppNativeV2GpuBindingsSetBuffer(
+            self._context,
+            self._handle,
+            1,
+            slot,
+            buffer._handle,
+            0,
+            buffer._capacity * buffer._width
+        ),
+        2
+    )
+    local position = self._readonlyBuffers + slot + 1
+    self._spanCounts[position] = extent
+    self._spanOffsets[position] = buffer._offset
 end
 
 function gpu.Binding.dispatchPacked(borrows self: gpu.Binding, uniforms: any, uniformBytes: integer): nil
@@ -747,8 +829,17 @@ function gpu.Binding.dispatchPacked(borrows self: gpu.Binding, uniforms: any, un
     if uniformBytes ~= self._uniformBytes then
         error("nupp: generated GPU uniform block has the wrong size", 2)
     end
+    local spans = #self._spanCounts
+    unsafe do
+        local words = ffi.cast<uint32[?]>(uniforms)
+        words[0] = self.count
+        for index = 1, spans do
+            words[index] = self._spanCounts[index]
+            words[spans + index] = self._spanOffsets[index]
+        end
+    end
     local uniformPointer = ffi.cast<const uint8[?]>(uniforms)
-    succeeded(dispatchNative(self._handle, uniformPointer, uniformBytes), 2)
+    native.succeeded(dispatchNative(self._context, self._handle, self.count, uniformPointer, uniformBytes), 2)
 end
 
 function gpu.Context.upload<T>(
@@ -763,7 +854,7 @@ function gpu.Context.upload<T>(
         error("nupp: GPU upload span length does not match its buffer", 2)
     end
     local pointer, count = source:ref()
-    succeeded(
+    native.succeeded(
         uploadTyped(live(self), buffer._handle, pointer, buffer._offset * buffer._width, buffer._width * count),
         2
     )
@@ -773,8 +864,8 @@ function gpu.Context.enqueueDownload<T>(borrows self: gpu.Context, borrows buffe
     if not gpu.bufferIsDense(buffer) then
         error("nupp: GPU downloads require a dense tensor view", 2)
     end
-    succeeded(
-        C.nuppGpuBufferDownload(
+    native.succeeded(
+        C.nuppNativeV2GpuDownloadQueue(
             live(self),
             buffer._handle,
             buffer._offset * buffer._width,
@@ -785,7 +876,7 @@ function gpu.Context.enqueueDownload<T>(borrows self: gpu.Context, borrows buffe
 end
 
 function gpu.Context.synchronize(borrows self: gpu.Context): nil
-    succeeded(C.nuppGpuSynchronize(live(self)), 2)
+    native.succeeded(C.nuppNativeV2GpuSynchronize(live(self)), 2)
 end
 
 function gpu.Context.readDownloaded<T>(
@@ -800,7 +891,10 @@ function gpu.Context.readDownloaded<T>(
         error("nupp: GPU download span length does not match its buffer", 2)
     end
     local pointer, count = destination:ref()
-    succeeded(readTyped(live(self), buffer._handle, pointer, buffer._offset * buffer._width, buffer._width * count), 2)
+    native.succeeded(
+        readTyped(live(self), buffer._handle, pointer, buffer._offset * buffer._width, buffer._width * count),
+        2
+    )
 end
 
 function gpu.Context.download<T>(
@@ -813,14 +907,14 @@ function gpu.Context.download<T>(
     self:readDownloaded(buffer, destination)
 end
 
---- Opens the preferred SDL GPU device.
+--- Opens the preferred WGPU compute device.
 --- @export
---- @raises when SDL has no compatible GPU backend
+--- @raises when WGPU has no compatible compute adapter
 function gpu.open(): affine(gpu.Context, gpu.destroyContext)
-    local handle = C.nuppGpuContextCreate()
-    if handle == nil then
-        error("nupp: " .. ffi.string(C.nuppNativeError()), 2)
-    end
+    native.requireFeature(4, "GPU support")
+    local output = ffi.new("uint64_t[1]")
+    native.succeeded(C.nuppNativeV2GpuContextCreate(output), 2)
+    local handle = output[0]
 
     return new gpu.Context(_handle = handle, _closed = false)
 end

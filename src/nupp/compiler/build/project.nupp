@@ -398,6 +398,7 @@ local function buildOne(root: string?, opts: project.BuildOptions?): integer
     end
     if opts.checkOnly and target.aot == "require" and checkedTargetNeedsGpu(root, config, opts.paths) then
         session.stageBundled("nupp.gpulayout")
+        session.stageBundled("nupp.runtime.nativev2")
         session.stageBundled("nupp.runtime.provider.nativegpu")
         session.stageBundled("nupp.gpu")
     end

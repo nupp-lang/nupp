@@ -45,7 +45,7 @@ function gpubinding.replacement(program: scalarIR.Program, artifact: gpuemit.Art
 
     append(lines, "local " .. runtime .. " = require(\"" .. runtimeModule .. "\")")
     if not browser then
-        append(lines, "local " .. native .. " = require(\"nupp.runtime.native\")")
+        append(lines, "local " .. native .. " = require(\"nupp.runtime.nativev2\")")
     end
     -- The block mirrors the shader's NuppUniforms: the dispatch count, one
     -- element count and offset per bound span in slot order, then the authored scalars.

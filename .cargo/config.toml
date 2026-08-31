@@ -1,0 +1,9 @@
+[build]
+# Direct Cargo use stays out of each crate and in the same tree the compiler's
+# toolchain driver owns. Feature-selected production builds override this with
+# a content-addressed directory beneath the same root.
+target-dir = "build/rust/target"
+
+[net]
+git-fetch-with-cli = true
+

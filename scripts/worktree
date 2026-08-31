@@ -36,6 +36,7 @@ copy_if_absent() {
 # These stores validate their own content keys. A stale entry is a miss, so copying
 # them can save work but cannot change an answer.
 copy_if_absent "$ROOT/build/cache" "$TASK_ROOT/build/cache"
+copy_if_absent "$ROOT/build/rust" "$TASK_ROOT/build/rust"
 copy_if_absent "$ROOT/build/.nupp-test-times.json" "$TASK_ROOT/build/.nupp-test-times.json"
 
 # Generated compiler output is reusable only when it represents this exact revision
@@ -52,7 +53,8 @@ if [ -f "$ORIGIN_STAMP" ]; then
         NEWER_SOURCE="$ROOT/nupp.lua"
     fi
 fi
-ORIGIN_SOURCE_CHANGES=$(git -C "$ROOT" status --porcelain --untracked-files=normal -- src nupp.lua runtime/native)
+ORIGIN_SOURCE_CHANGES=$(git -C "$ROOT" status --porcelain --untracked-files=normal -- \
+    src nupp.lua runtime/native native Cargo.toml Cargo.lock rust-toolchain.toml .cargo/config.toml)
 if [ "$ORIGIN_HEAD" = "$TASK_HEAD" ] && [ -f "$ORIGIN_STAMP" ] \
     && [ -f "$ORIGIN_BUILT" ] && [ -z "$NEWER_SOURCE" ] \
     && [ -z "$ORIGIN_SOURCE_CHANGES" ]; then

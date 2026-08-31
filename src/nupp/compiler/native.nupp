@@ -18,6 +18,7 @@ type native.Feature = {
     module: string?,
     exports: {string}?,
     provider: string?,
+    providerDriver: string?,
     providerFeature: string?,
     library: string?,
     binary: boolean?,
@@ -57,11 +58,12 @@ local FEATURES: {[string]: native.Feature} = {
         module = "nupp.runtime.provider.nativegpu",
         modules = {"nupp.gpulayout"},
         runtimeModule = "nupp.runtime.provider.nativegpu",
-        provider = "nupp_native",
+        provider = "nupp_native_v2",
+        providerDriver = "native-rust",
         providerFeature = "gpu",
-        library = "nupp_native",
+        library = "nupp_native_v2",
         binary = true,
-        requires = {"runtime.native", "runtime.spanview"},
+        requires = {"runtime.native_v2", "runtime.spanview"},
     },
     -- The rock, for source that requires it by name. `nupp.data.utf8` is not
     -- that source any more, so this is reached only through bundled Lua --
@@ -170,6 +172,7 @@ local FEATURES: {[string]: native.Feature} = {
         portableRuntime = true,
     },
     ["runtime.native"] = {name = "native_runtime", runtimeModule = "nupp.runtime.native",},
+    ["runtime.native_v2"] = {name = "native_runtime_v2", runtimeModule = "nupp.runtime.nativev2",},
     [
         "native.time"
     ] = {

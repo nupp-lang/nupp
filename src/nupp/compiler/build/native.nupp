@@ -214,6 +214,7 @@ function stage.build(
     local outputs = {}
     local providers: {[string]: {
         provider: string,
+        driver: string,
         library: string,
         names: {string},
         providerFeatures: {string}
@@ -242,10 +243,17 @@ function stage.build(
                 ):format(tostring(selectedPlatform), feature.name, tostring(selectedPlatform))
             end
             local libraryName = feature.library as string
-            local key = feature.provider .. "\0" .. libraryName
+            local driver = feature.providerDriver or "native"
+            local key = driver .. "\0" .. feature.provider .. "\0" .. libraryName
             local provider = providers[key]
             if not provider then
-                provider = {provider = feature.provider, library = libraryName, names = {}, providerFeatures = {}}
+                provider = {
+                    provider = feature.provider,
+                    driver = driver,
+                    library = libraryName,
+                    names = {},
+                    providerFeatures = {},
+                }
                 providers[key] = provider
                 providerKeys[#providerKeys + 1] = key
             end
@@ -265,7 +273,7 @@ function stage.build(
         end
         table.sort(provider.names)
         table.sort(provider.providerFeatures)
-        local built, problem = driven(compilerRoot, "native", provider.providerFeatures)
+        local built, problem = driven(compilerRoot, provider.driver, provider.providerFeatures)
         if not built then
             return nil, ("cannot build native facilities %s:\n%s"):format(table.concat(provider.names, ", "), problem)
         end

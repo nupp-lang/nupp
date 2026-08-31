@@ -38,7 +38,9 @@ usage: scripts/toolchain COMPONENT...
 Components: luajit luarocks lpeg lpeg-source luautf8 ada libuv mbedtls curl
             spirv-cross
             sdl swiftshader
-            native FEATURES, host FEATURES, host-library FEATURES
+            native FEATURES, native-rust FEATURES
+            rust-vendor OUTPUT
+            host FEATURES, host-rust, host-library FEATURES
             host-link FEATURES OUTPUT ARCHIVE... -- LINK_FLAG...
             fixture SOURCE OUTPUT
 
@@ -48,7 +50,10 @@ prints the root the components are installed under without building anything.
 
 Environment:
   NUPP_CC, NUPP_CXX          the compiler pair. Probed when unset.
+  NUPP_CARGO, NUPP_RUSTC     the pinned Rust toolchain. Probed when unset.
   NUPP_TOOLCHAIN_DIR         where to install. Defaults to the repository cache.
+  NUPP_RUST_BUILD_DIR        Rust outputs. Defaults to build/rust.
+  NUPP_RUST_VENDOR_DIR       cargo-vendor directory required by offline Rust builds.
   NUPP_HOST_SOURCE_DIR       a directory of already-downloaded pinned archives.
   NUPP_HOST_SOURCE_BASE_URL  a flat mirror to fetch archives from.
   NUPP_HOST_OFFLINE          refuse to reach the network.
@@ -151,6 +156,25 @@ sources_digest() {
             sha256 "$ROOT/$file"
         done | sha256_stdin | cut -c1-16
 }
+
+# Rust inputs have their own content key. Keeping this separate from the C
+# digest means editing a crate does not rebuild LuaJIT or the legacy provider,
+# while every workspace or lock-file change does rebuild the Rust artifact.
+rust_sources_digest() {
+    {
+        for file in Cargo.toml Cargo.lock rust-toolchain.toml .cargo/config.toml \
+            scripts/toolchain scripts/toolchain.pins; do
+            [ -f "$ROOT/$file" ] && printf '%s\n' "$file"
+        done
+        (cd "$ROOT" && find native/crates -type f \
+            \( -name '*.rs' -o -name '*.c' -o -name '*.h' \
+                -o -name 'Cargo.toml' -o -name 'build.rs' \) \
+            2>/dev/null) || true
+    } | LC_ALL=C sort | while IFS= read -r file; do
+        printf '%s ' "$file"
+        sha256 "$ROOT/$file"
+    done | sha256_stdin | cut -c1-16
+}
 # --- where things go --------------------------------------------------------
 
 # Beside the repository's common git directory, so every worktree of this
@@ -187,6 +211,7 @@ key_material() {
 }
 KEY=$(key_material | sha256_stdin | cut -c1-16)
 PREFIX="$CACHE/$KEY"
+RUST_BUILD_ROOT=${NUPP_RUST_BUILD_DIR:-"$ROOT/build/rust"}
 
 # --- fetching ---------------------------------------------------------------
 
@@ -338,6 +363,8 @@ verify_embedded_notice() {
 LOCK=""
 HOST_OUT=""
 NATIVE_OUT=""
+RUST_NATIVE_OUT=""
+RUST_HOST_OUT=""
 release_lock() { [ -n "$LOCK" ] && rm -rf "$LOCK"; LOCK=""; return 0; }
 
 take_lock() {
@@ -369,6 +396,211 @@ take_lock() {
 }
 
 # --- components -------------------------------------------------------------
+
+# Rust is a deliberate native prerequisite, not another ambient implementation
+# detail. The exact release in rust-toolchain.toml is accepted; a newer stable
+# is not silently substituted, because compiler and Cargo versions participate
+# in the artifact identity and can change code generation or feature solving.
+select_rust_tools() {
+    CARGO=${NUPP_CARGO:-cargo}
+    RUSTC=${NUPP_RUSTC:-rustc}
+    if [ -z "${NUPP_CARGO:-}" ] && ! command -v "$CARGO" >/dev/null 2>&1 \
+        && command -v rustup >/dev/null 2>&1; then
+        CARGO=$(RUSTUP_TOOLCHAIN=stable RUSTUP_SKIP_UPDATE_CHECK=1 rustup which cargo 2>/dev/null || printf cargo)
+    fi
+    if [ -z "${NUPP_RUSTC:-}" ] && ! command -v "$RUSTC" >/dev/null 2>&1 \
+        && command -v rustup >/dev/null 2>&1; then
+        RUSTC=$(RUSTUP_TOOLCHAIN=stable RUSTUP_SKIP_UPDATE_CHECK=1 rustup which rustc 2>/dev/null || printf rustc)
+    fi
+    command -v "$CARGO" >/dev/null 2>&1 \
+        || die "no Cargo found. Install the toolchain pinned by rust-toolchain.toml or name it with NUPP_CARGO"
+    command -v "$RUSTC" >/dev/null 2>&1 \
+        || die "no rustc found. Install the toolchain pinned by rust-toolchain.toml or name it with NUPP_RUSTC"
+
+    expected=$(sed -n 's/^channel = "\([^"]*\)"$/\1/p' "$ROOT/rust-toolchain.toml")
+    [ -n "$expected" ] || die "rust-toolchain.toml names no exact channel"
+    cargo_version=$("$CARGO" --version 2>&1) \
+        || die "cannot run Cargo named by NUPP_CARGO"
+    rustc_version=$("$RUSTC" --version 2>&1) \
+        || die "cannot run rustc named by NUPP_RUSTC"
+    case "$cargo_version" in
+        "cargo $expected "*) ;;
+        *) die "Cargo is $cargo_version; rust-toolchain.toml requires cargo $expected" ;;
+    esac
+    case "$rustc_version" in
+        "rustc $expected "*) ;;
+        *) die "rustc is $rustc_version; rust-toolchain.toml requires rustc $expected" ;;
+    esac
+    rustc_verbose=$("$RUSTC" -vV 2>&1) \
+        || die "cannot inspect rustc named by NUPP_RUSTC"
+    rust_host=$(printf '%s\n' "$rustc_verbose" | sed -n 's/^host: //p')
+    if [ "$PLATFORM" = windows ]; then
+        case "$rust_host" in
+            *-windows-gnu) ;;
+            *) die "Rust host $rust_host is not ABI-compatible with the pinned MinGW LuaJIT; use a windows-gnu Rust toolchain" ;;
+        esac
+    fi
+    RUST_TOOL_MATERIAL=$(printf '%s\n%s\n' "$cargo_version" "$rustc_verbose")
+}
+
+normalize_rust_features() {
+    raw=${1:-}
+    case "$raw" in
+        *[!A-Za-z0-9_,-]*) die "invalid Rust feature list $raw" ;;
+    esac
+    features=$(printf '%s' "$raw" | tr ',' ' ')
+    for feature in $features; do
+        case "$feature" in
+            *[!A-Za-z0-9_-]*) die "invalid Rust feature $feature" ;;
+        esac
+    done
+    printf '%s\n' $features | sed '/^$/d' | LC_ALL=C sort -u \
+        | tr '\n' ',' | sed 's/,$//'
+}
+
+rust_library_filename() {
+    case "$PLATFORM" in
+        darwin)  printf '%s\n' libnupp_native_v2.dylib ;;
+        windows) printf '%s\n' nupp_native_v2.dll ;;
+        *)       printf '%s\n' libnupp_native_v2.so ;;
+    esac
+}
+
+# Cargo accepts ambient knobs that materially alter a binary without changing
+# its source or lock file. Keep supported codegen/profile overrides in the
+# content key, and reject the implicit target override because the artifact
+# path and platform filename below deliberately describe the host target.
+rust_environment_material() {
+    [ -z "${CARGO_BUILD_TARGET:-}" ] \
+        || die "CARGO_BUILD_TARGET is unsupported; Rust host builds require an explicit toolchain target design"
+    env | LC_ALL=C sort | sed -n \
+        -e '/^RUSTFLAGS=/p' \
+        -e '/^CARGO_ENCODED_RUSTFLAGS=/p' \
+        -e '/^CARGO_PROFILE_/p' \
+        -e '/^CARGO_TARGET_.*_RUSTFLAGS=/p' \
+        -e '/^MACOSX_DEPLOYMENT_TARGET=/p' \
+        -e '/^IPHONEOS_DEPLOYMENT_TARGET=/p'
+}
+
+rust_vendor_arguments() {
+    vendor=${NUPP_RUST_VENDOR_DIR:-}
+    if [ -z "$vendor" ]; then
+        offline && die "offline Rust builds require NUPP_RUST_VENDOR_DIR; provision it with scripts/toolchain rust-vendor OUTPUT"
+        return 0
+    fi
+    [ -d "$vendor" ] || die "NUPP_RUST_VENDOR_DIR is not a directory: $vendor"
+    printf '%s\n' \
+        "source.crates-io.replace-with='nupp-vendored-sources'" \
+        "source.nupp-vendored-sources.directory='$vendor'"
+}
+
+provision_rust_vendor() {
+    destination=$1
+    [ -n "$destination" ] || die "rust-vendor needs an output directory"
+    [ ! -e "$destination" ] || die "rust-vendor refuses to replace $destination"
+    select_rust_tools
+    note "provisioning locked Rust sources in $destination"
+    set -- "$CARGO" vendor --locked "$destination"
+    offline && set -- "$@" --offline
+    RUSTC="$RUSTC" "$@" >&2
+}
+
+# Rust entry points are content-addressed under the checkout's build/rust tree.
+# They always build the locked workspace with default features disabled so the
+# compiler-selected feature union is the dependency union.
+build_rust_native() {
+    sorted=$(normalize_rust_features "${1:-}")
+    select_rust_tools
+    rust_environment=$(rust_environment_material)
+    digest=$({
+        printf '%s|%s|%s|%s\n' \
+            nupp-native "$sorted" "$RUST_TOOL_MATERIAL" "$(rust_sources_digest)"
+        printf '%s\n' "$rust_environment"
+    } | sha256_stdin | cut -c1-16)
+    out="$RUST_BUILD_ROOT/native/$digest"
+    filename=$(rust_library_filename)
+    RUST_NATIVE_OUT="$out/target/release/$filename"
+
+    take_lock "rust-native-$digest" "$out/.complete" || return 0
+    [ -f "$out/.complete" ] && [ -f "$RUST_NATIVE_OUT" ] \
+        && { release_lock; return 0; }
+
+    note "building the Rust native provider with $RUSTC"
+    rm -rf "$out"
+    mkdir -p "$out"
+    set -- "$CARGO" build \
+        --manifest-path "$ROOT/Cargo.toml" \
+        --package nupp-native \
+        --release \
+        --locked \
+        --no-default-features \
+        --target-dir "$out/target"
+    if offline; then
+        set -- "$@" --offline
+    fi
+    vendor_arguments=$(rust_vendor_arguments)
+    if [ -n "$vendor_arguments" ]; then
+        while IFS= read -r config; do
+            set -- "$@" --config "$config"
+        done <<EOF
+$vendor_arguments
+EOF
+    fi
+    if [ -n "$sorted" ]; then
+        set -- "$@" --features "$sorted"
+    fi
+    RUSTC="$RUSTC" "$@" >&2
+    [ -f "$RUST_NATIVE_OUT" ] \
+        || die "Cargo built nupp-native but did not write $RUST_NATIVE_OUT"
+    printf 'done\n' > "$out/.complete"
+    release_lock
+}
+
+build_rust_host() {
+    select_rust_tools
+    rust_environment=$(rust_environment_material)
+    digest=$({
+        printf '%s|%s|%s|%s\n' \
+            nupp-native-host "$RUST_TOOL_MATERIAL" "$(rust_sources_digest)" "$KEY"
+        printf '%s\n' "$rust_environment"
+    } | sha256_stdin | cut -c1-16)
+    out="$RUST_BUILD_ROOT/host/$digest"
+    executable=nupp-host-rust
+    [ "$PLATFORM" = windows ] && executable=nupp-host-rust.exe
+    RUST_HOST_OUT="$out/target/release/$executable"
+
+    take_lock "rust-host-$digest" "$out/.complete" || return 0
+    [ -f "$out/.complete" ] && [ -f "$RUST_HOST_OUT" ] \
+        && { release_lock; return 0; }
+
+    note "building the Rust host with $RUSTC"
+    rm -rf "$out"
+    mkdir -p "$out"
+    set -- "$CARGO" build \
+        --manifest-path "$ROOT/Cargo.toml" \
+        --package nupp-native-host \
+        --bin nupp-host-rust \
+        --release \
+        --locked \
+        --no-default-features \
+        --target-dir "$out/target"
+    if offline; then
+        set -- "$@" --offline
+    fi
+    vendor_arguments=$(rust_vendor_arguments)
+    if [ -n "$vendor_arguments" ]; then
+        while IFS= read -r config; do
+            set -- "$@" --config "$config"
+        done <<EOF
+$vendor_arguments
+EOF
+    fi
+    RUSTC="$RUSTC" "$@" >&2
+    [ -f "$RUST_HOST_OUT" ] \
+        || die "Cargo built nupp-native-host but did not write $RUST_HOST_OUT"
+    printf 'done\n' > "$out/.complete"
+    release_lock
+}
 
 shared_flags() {
     case "$PLATFORM" in
@@ -1346,9 +1578,24 @@ case "$1" in
         native_path "$NATIVE_OUT/$(cat "$NATIVE_OUT/.filename")"
         exit 0
         ;;
+    native-rust)
+        build_rust_native "${2:-}"
+        native_path "$RUST_NATIVE_OUT"
+        exit 0
+        ;;
+    rust-vendor)
+        provision_rust_vendor "${2:-}"
+        native_path "${2:-}"
+        exit 0
+        ;;
     host)
         build_host stub "${2:-}"
         native_path "$HOST_OUT/nupp-host"
+        exit 0
+        ;;
+    host-rust)
+        build_rust_host
+        native_path "$RUST_HOST_OUT"
         exit 0
         ;;
     host-library)

@@ -1,0 +1,17 @@
+[package]
+name = "nupp-native-host"
+version = "0.1.0"
+edition = "2024"
+publish = false
+build = "build.rs"
+
+[lib]
+name = "nupp_native_host"
+path = "src/lib.rs"
+
+[[bin]]
+name = "nupp-host-rust"
+path = "src/main.rs"
+
+[dependencies]
+nupp-native-runtime = { path = "../runtime" }

@@ -1,0 +1,101 @@
+@!internal
+
+module nupp.runtime.nativev2
+
+--[[
+The independent loader for the versioned Rust-native provider.
+
+It deliberately does not share `nupp.runtime.native`'s global or fall back to
+its `nupp_native` handle. A process may carry both providers during migration;
+mixing their symbols would also mix their ownership models.
+]]
+
+local ffi = require("ffi")
+
+ffi.cdef[[
+uint32_t nuppNativeV2AbiVersion(void);
+uint64_t nuppNativeV2Features(void);
+const char *nuppNativeV2LastError(void);
+]]
+
+local native = {}
+
+--- The FFI used to declare feature-specific symbols.
+--- @export
+native.ffi = ffi
+
+const ABI_VERSION = 1
+const LIBRARY_KEY = "__nuppNativeV2Library"
+
+local function open(): any
+    local wanted = os.getenv("NUPP_GPU_LIBRARY") or os.getenv("NUPP_NATIVE_V2_LIBRARY")
+    if wanted then
+        return ffi.load(wanted)
+    end
+    local linked = pcall(function(): any
+        return ffi.C.nuppNativeV2AbiVersion
+    end)
+    if linked then
+        return ffi.C
+    end
+    local source = debug.getinfo(1, "S").source
+    local root = source:match("^@(.+)/[^/]+%.lua$") or "."
+    local library = ffi.os == "Windows" and "/lib/nupp_native_v2.dll" or "/lib/nupp_native_v2"
+    local found, value = pcall(ffi.load, root .. library)
+    if found then
+        return value
+    end
+
+    return ffi.load(root .. "/.." .. library)
+end
+
+local function library(): any
+    local value: any = rawget(_G, LIBRARY_KEY)
+    if value == nil then
+        local opened: any = open()
+        local version = opened.nuppNativeV2AbiVersion()
+        if version ~= ABI_VERSION then
+            error(
+                (
+                    "nupp: Rust native ABI mismatch: runtime needs %d, provider has %s"
+                ):format(ABI_VERSION, tostring(version)),
+                3
+            )
+        end
+        rawset(_G, LIBRARY_KEY, opened)
+        value = opened
+    end
+
+    return value
+end
+
+--- Lazily resolved versioned symbols.
+--- @export
+native.C = setmetatable({}, {
+    __index = function(self: any, symbol: string): any
+        local found = library()[symbol]
+        rawset(self, symbol, found)
+
+        return found
+    end,
+}) as any
+
+--- Raises the provider's copied thread-local error for a nonzero status.
+--- @export
+--- @raises when status is nonzero
+function native.succeeded(status: integer, level: integer): nil
+    if status ~= 0 then
+        error("nupp: " .. ffi.string(native.C.nuppNativeV2LastError()), level)
+    end
+end
+
+--- Verifies that the selected versioned provider implements one facility.
+--- @export
+--- @raises when the provider lacks the feature bit
+function native.requireFeature(bit: integer, name: string): nil
+    if native.C.nuppNativeV2Features() & bit == 0 then
+        error("nupp: the Rust native provider was built without " .. name, 3)
+    end
+end
+
+export = native

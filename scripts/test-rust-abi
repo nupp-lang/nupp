@@ -1,0 +1,38 @@
+#!/bin/sh
+
+set -eu
+
+ROOT=$(CDPATH= cd -- "$(dirname "$0")/.." && pwd)
+CC=${NUPP_CC:-${CC:-cc}}
+PROVIDER=$($ROOT/scripts/toolchain native-rust gpu,uuid)
+DIRECTORY=$(dirname "$PROVIDER")
+TEMP=$(mktemp -d "${TMPDIR:-/tmp}/nupp-rust-abi.XXXXXX")
+trap 'rm -r "$TEMP"' EXIT HUP INT TERM
+OUTPUT="$TEMP/abi-smoke"
+
+case "$(uname -s 2>/dev/null || printf unknown)" in
+    MINGW*|MSYS*|CYGWIN*)
+        OUTPUT="$OUTPUT.exe"
+        IMPORT="$DIRECTORY/libnupp_native_v2.dll.a"
+        [ -f "$IMPORT" ] || {
+            printf 'rust ABI smoke: Cargo wrote no import library at %s\n' "$IMPORT" >&2
+            exit 1
+        }
+        "$CC" -std=c11 -Wall -Wextra -Werror \
+            -I"$ROOT/native/include" "$ROOT/native/tests/abi_smoke.c" \
+            "$IMPORT" -o "$OUTPUT"
+        PATH="$DIRECTORY:$PATH" "$OUTPUT"
+        ;;
+    Darwin)
+        "$CC" -std=c11 -Wall -Wextra -Werror \
+            -I"$ROOT/native/include" "$ROOT/native/tests/abi_smoke.c" \
+            "$PROVIDER" -Wl,-rpath,"$DIRECTORY" -o "$OUTPUT"
+        "$OUTPUT"
+        ;;
+    *)
+        "$CC" -std=c11 -Wall -Wextra -Werror \
+            -I"$ROOT/native/include" "$ROOT/native/tests/abi_smoke.c" \
+            "$PROVIDER" -Wl,-rpath,"$DIRECTORY" -o "$OUTPUT"
+        "$OUTPUT"
+        ;;
+esac
