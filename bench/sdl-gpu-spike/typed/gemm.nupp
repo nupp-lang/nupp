@@ -8,6 +8,22 @@ module gemm
 local span = require("nupp.mem.span")
 local gpu = require("nupp.gpu")
 
+-- Small conformance kernels separate storage binding and scalar-uniform
+-- failures before the full GEMM makes either one look like a zero result.
+@aot(target = "gpu")
+local function copyProbe(exclusive output: span.WriteSpan<float>, borrows input: span.Span<float>): nil
+    for i = 1, #output do
+        output[i] = input[i]
+    end
+end
+
+@aot(target = "gpu")
+local function fillProbe(exclusive output: span.WriteSpan<float>, value: float): nil
+    for i = 1, #output do
+        output[i] = value
+    end
+end
+
 @aot(target = "gpu")
 local function gemmNaive(
     exclusive c: span.WriteSpan<float>,
@@ -304,3 +320,5 @@ export const gemm = gemmNaive
 export const cpu = gemmCpu
 export const tiled = gemmTiled
 export const batched = gemmBatched
+export const copy = copyProbe
+export const fill = fillProbe

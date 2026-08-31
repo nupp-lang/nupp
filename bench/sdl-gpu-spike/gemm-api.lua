@@ -71,6 +71,33 @@ end
 verifyTransfer(aBuffer, a, m * k, "left input")
 verifyTransfer(bBuffer, b, k * n, "right input")
 
+local function readBuffer(buffer, count)
+    local copied = ffi.new("float[?]", count)
+    context:enqueueDownload(buffer)
+    context:synchronize()
+    context:readDownloaded(buffer, span.writeCarray(copied, count))
+    return copied
+end
+
+local copy = generated.copy:compile(context):bind(cBuffer, aBuffer)
+copy:dispatch()
+context:synchronize()
+local copied = readBuffer(cBuffer, m * n)
+for i = 0, m * n - 1 do
+    assert(copied[i] == a[i],
+        ("storage binding mismatch at element %d: got %.9g, want %.9g"):format(
+            i, copied[i], a[i]))
+end
+
+local fill = generated.fill:compile(context):bind(cBuffer)
+fill:dispatch(9.25)
+context:synchronize()
+local filled = readBuffer(cBuffer, m * n)
+for i = 0, m * n - 1 do
+    assert(filled[i] == 9.25,
+        ("scalar uniform mismatch at element %d: got %.9g, want 9.25"):format(i, filled[i]))
+end
+
 local function dispatch()
     invocation:dispatch(n, k)
     context:synchronize()

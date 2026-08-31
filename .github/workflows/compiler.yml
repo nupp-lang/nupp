@@ -52,7 +52,26 @@ jobs:
           ./scripts/toolchain sdl swiftshader
 
       - name: Run exact GPU dispatch and readback
+        id: gpu-conformance
+        continue-on-error: true
         run: .github/scripts/test-gpu-conformance.sh
+
+      # A failed conformance step would otherwise skip actions/cache's post
+      # save and rebuild SwiftShader for every diagnostic commit. Preserve the
+      # expensive pinned toolchain before turning the captured outcome back
+      # into the job's verdict.
+      - name: Save a failed conformance toolchain
+        if: steps.gpu-conformance.outcome == 'failure'
+        uses: actions/cache/save@v4
+        with:
+          path: .nupp-cache/toolchain
+          key: >-
+            nupp-gpu-${{ runner.os }}-${{ runner.arch }}-${{
+            hashFiles('scripts/toolchain.pins', 'scripts/toolchain') }}
+
+      - name: Report GPU conformance failure
+        if: steps.gpu-conformance.outcome == 'failure'
+        run: exit 1
 
   portable-compiler:
     name: Portable compiler on official Lua 5.1.5
