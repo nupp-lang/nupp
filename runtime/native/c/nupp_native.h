@@ -116,15 +116,6 @@ void nupp_text_free(NuppText *text);
 /* Whether `length` bytes at `data` are valid UTF-8. */
 bool nupp_is_utf8(const uint8_t *data, size_t length);
 
-/* --- platform ----------------------------------------------------------- */
-
-/* Milliseconds on a clock that only moves forwards. */
-double nupp_monotonic_ms(void);
-
-/* Milliseconds since the Unix epoch, on the clock that tracks the world and can
- * therefore step. What a timestamp is made of, as against a duration. */
-uint64_t nupp_unix_ms(void);
-
 /* --- what the filesystem answers ---------------------------------------- */
 
 #define NUPP_KIND_FILE 1u
@@ -140,19 +131,5 @@ typedef struct {
     uint64_t size;
     double modified;
 } NuppFileInfo;
-
-/* --- what a child's streams are ----------------------------------------- */
-
-/* How a child's stream was asked to be connected. The numbers are the ABI's. */
-#define NUPP_MODE_PIPE 0
-#define NUPP_MODE_INHERIT 1
-#define NUPP_MODE_NULL 2
-#define NUPP_MODE_STDOUT 3
-
-/* What a nonblocking read or write answers when it moved no bytes. Negative, so
- * a caller reads a count and these apart without a second result. */
-#define NUPP_WOULD_BLOCK ((intptr_t)-1)
-#define NUPP_GONE ((intptr_t)-2)
-#define NUPP_FAILED ((intptr_t)-3)
 
 #endif /* NUPP_NATIVE_H */

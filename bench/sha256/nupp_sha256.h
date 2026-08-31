@@ -2,7 +2,7 @@
  *
  * Nothing in Nupp builds this. `nupp.data.sha256` is `nupp.data.digest` now, in
  * Nupp, and the check a stamped binary runs before trusting its payload is
- * XXH64, in `runtime/native/c/xxh64.c`. What is left here is the frozen control
+ * XXH64, in the Rust base provider. What is left here is the frozen control
  * `sha256_control.c` defines and `implementations.lua` calls through the FFI.
  */
 

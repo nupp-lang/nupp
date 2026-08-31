@@ -46,6 +46,7 @@
     <li data-crate="dlib@0.5.3"><a href="https://github.com/elinorbgr/dlib">dlib 0.5.3</a> — MIT</li>
     <li data-crate="document-features@0.2.12"><a href="https://github.com/slint-ui/document-features">document-features 0.2.12</a> — MIT OR Apache-2.0</li>
     <li data-crate="equivalent@1.0.2"><a href="https://github.com/indexmap-rs/equivalent">equivalent 1.0.2</a> — Apache-2.0 OR MIT</li>
+    <li data-crate="errno@0.3.14"><a href="https://github.com/lambda-fairy/rust-errno">errno 0.3.14</a> — MIT OR Apache-2.0</li>
     <li data-crate="find-msvc-tools@0.1.11"><a href="https://github.com/rust-lang/cc-rs">find-msvc-tools 0.1.11</a> — MIT OR Apache-2.0</li>
     <li data-crate="fixedbitset@0.5.7"><a href="https://github.com/petgraph/fixedbitset">fixedbitset 0.5.7</a> — MIT OR Apache-2.0</li>
     <li data-crate="flate2@1.1.10"><a href="https://github.com/rust-lang/flate2-rs">flate2 1.1.10</a> — MIT OR Apache-2.0</li>
@@ -162,6 +163,7 @@
     <li data-crate="serde_core@1.0.229"><a href="https://github.com/serde-rs/serde">serde_core 1.0.229</a> — MIT OR Apache-2.0</li>
     <li data-crate="serde_derive@1.0.229"><a href="https://github.com/serde-rs/serde">serde_derive 1.0.229</a> — MIT OR Apache-2.0</li>
     <li data-crate="shlex@2.0.1"><a href="https://github.com/comex/rust-shlex">shlex 2.0.1</a> — MIT OR Apache-2.0</li>
+    <li data-crate="signal-hook-registry@1.4.8"><a href="https://github.com/vorner/signal-hook">signal-hook-registry 1.4.8</a> — MIT OR Apache-2.0</li>
     <li data-crate="simd-adler32@0.3.10"><a href="https://github.com/mcountryman/simd-adler32">simd-adler32 0.3.10</a> — MIT</li>
     <li data-crate="simd_cesu8@1.2.0"><a href="https://github.com/seancroach/simd_cesu8">simd_cesu8 1.2.0</a> — Apache-2.0 OR MIT</li>
     <li data-crate="simdutf8@0.1.5"><a href="https://github.com/rusticstuff/simdutf8">simdutf8 0.1.5</a> — MIT OR Apache-2.0</li>
@@ -182,6 +184,7 @@
     <li data-crate="thiserror-impl@2.0.20"><a href="https://github.com/dtolnay/thiserror">thiserror-impl 2.0.20</a> — MIT OR Apache-2.0</li>
     <li data-crate="tinystr@0.8.4"><a href="https://github.com/unicode-org/icu4x">tinystr 0.8.4</a> — Unicode-3.0</li>
     <li data-crate="tokio@1.53.1"><a href="https://github.com/tokio-rs/tokio">tokio 1.53.1</a> — MIT</li>
+    <li data-crate="tokio-macros@2.7.0"><a href="https://github.com/tokio-rs/tokio">tokio-macros 2.7.0</a> — MIT</li>
     <li data-crate="tokio-rustls@0.26.4"><a href="https://github.com/rustls/tokio-rustls">tokio-rustls 0.26.4</a> — MIT OR Apache-2.0</li>
     <li data-crate="tokio-stream@0.1.19"><a href="https://github.com/tokio-rs/tokio">tokio-stream 0.1.19</a> — MIT</li>
     <li data-crate="tokio-util@0.7.19"><a href="https://github.com/tokio-rs/tokio">tokio-util 0.7.19</a> — MIT</li>
@@ -3330,6 +3333,7 @@ limitations under the License.
       <li>core-foundation 0.10.1</li>
       <li>displaydoc 0.2.7</li>
       <li>equivalent 1.0.2</li>
+      <li>errno 0.3.14</li>
       <li>find-msvc-tools 0.1.11</li>
       <li>fixedbitset 0.5.7</li>
       <li>flate2 1.1.10</li>
@@ -3364,6 +3368,7 @@ limitations under the License.
       <li>scopeguard 1.2.0</li>
       <li>security-framework-sys 2.17.0</li>
       <li>security-framework 3.7.0</li>
+      <li>signal-hook-registry 1.4.8</li>
       <li>simd_cesu8 1.2.0</li>
       <li>smallvec 1.15.2</li>
       <li>socket2 0.6.5</li>
@@ -6117,6 +6122,36 @@ Permission is hereby granted, free of charge, to any person obtaining a copy of 
 The above copyright notice and this permission notice shall be included in all copies or substantial portions of the Software.
 
 THE SOFTWARE IS PROVIDED &quot;AS IS&quot;, WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+</pre>
+  </section>
+  <section>
+    <h3>MIT License</h3>
+    <p>Used by:</p>
+    <ul>
+      <li>tokio-macros 2.7.0</li>
+    </ul>
+    <pre>MIT License
+
+Copyright (c) 2019 Yoshua Wuyts
+Copyright (c) Tokio Contributors
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the &quot;Software&quot;), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED &quot;AS IS&quot;, WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
 </pre>
   </section>
   <section>

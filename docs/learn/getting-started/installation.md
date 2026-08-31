@@ -182,7 +182,8 @@ alongside:
 | Carried | How | For |
 | --- | --- | --- |
 | `LuaJIT` | linked into the stub | running anything |
-| libuv | linked into the stub | filesystem, processes, threads, and event loops |
+| libuv | linked into the stub | filesystem, threads, and remaining C event loops |
+| Rust native provider | linked into the stub | clocks, payload checks, and child processes |
 | Vendored JSON codec | in the payload | JSON, `--json`, and the LSP |
 | LPeg 1.1 | detected and linked | general PEG and direct LPeg patterns |
 | LPeg `re.lua` | in the payload | runtime textual grammars |

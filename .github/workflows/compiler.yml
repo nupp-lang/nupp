@@ -304,9 +304,11 @@ jobs:
           fi
           export NUPP_COMPILER_ROOT="$compiler_root"
           export NUPP_LUA_CORPUS="$compiler_root/.ci-corpus/teal/tl.lua"
-          export NUPP_NATIVE_LIBRARY
+          export NUPP_NATIVE_LIBRARY NUPP_NATIVE_V2_LIBRARY
           NUPP_NATIVE_LIBRARY=$(./scripts/toolchain \
-            native files,net,tls,process,http,filesystem,uri,uuid)
+            native files,net,tls,filesystem)
+          NUPP_NATIVE_V2_LIBRARY=$(./scripts/toolchain \
+            native-rust base,http,process,uri,uuid)
           # `tests/run` refuses to start on Windows without these, the same way
           # the whole-suite step below names them. This step reaches the runner
           # directly rather than through `nupp test`, so it has to name them

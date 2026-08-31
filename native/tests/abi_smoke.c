@@ -39,6 +39,7 @@ int main(void) {
     uint64_t handle = 0;
     uint8_t uuid[37];
     uint8_t digest[32];
+    uint8_t trailer[8];
     uint8_t adapter[64];
     size_t adapter_length = 0;
     uint64_t uri = 0;
@@ -52,12 +53,21 @@ int main(void) {
     }
     if ((nuppNativeV2Features() & (NUPP_NATIVE_V2_FEATURE_BASE
             | NUPP_NATIVE_V2_FEATURE_UUID | NUPP_NATIVE_V2_FEATURE_GPU
-            | NUPP_NATIVE_V2_FEATURE_URI | NUPP_NATIVE_V2_FEATURE_HTTP))
+            | NUPP_NATIVE_V2_FEATURE_URI | NUPP_NATIVE_V2_FEATURE_HTTP
+            | NUPP_NATIVE_V2_FEATURE_PROCESS))
         != (NUPP_NATIVE_V2_FEATURE_BASE | NUPP_NATIVE_V2_FEATURE_UUID
             | NUPP_NATIVE_V2_FEATURE_GPU | NUPP_NATIVE_V2_FEATURE_URI
-            | NUPP_NATIVE_V2_FEATURE_HTTP)) {
+            | NUPP_NATIVE_V2_FEATURE_HTTP | NUPP_NATIVE_V2_FEATURE_PROCESS)) {
         fprintf(stderr, "a requested Rust-native feature bit is absent\n");
         return 1;
+    }
+    {
+        NuppNativeV2ProcessExit process_exit = {0};
+        if (nuppNativeV2ProcessPollExit(0, &process_exit)
+            != NUPP_NATIVE_V2_STALE_HANDLE) {
+            fprintf(stderr, "invalid process handle was accepted\n");
+            return 1;
+        }
     }
     if (nuppNativeV2GpuBufferRelease(0, 1)
         != NUPP_NATIVE_V2_STALE_HANDLE) {
@@ -103,6 +113,17 @@ int main(void) {
     }
     status = nuppNativeV2Xxh64Digest(NULL, 0, digest, sizeof digest);
     if (status != NUPP_NATIVE_V2_OK) return failed("xxh64", status);
+    status = nuppNativeV2TrailerDigest(NULL, 0, trailer);
+    if (status != NUPP_NATIVE_V2_OK) return failed("trailer digest", status);
+    if (memcmp(trailer, "\x99\xe9\xd8\x51\x37\xdb\x46\xef", 8) != 0) {
+        fprintf(stderr, "trailer digest did not match the published vector\n");
+        return 1;
+    }
+    status = nuppNativeV2SleepMs(-1.0);
+    if (status != NUPP_NATIVE_V2_INVALID_ARGUMENT) {
+        fprintf(stderr, "negative sleep duration was accepted\n");
+        return 1;
+    }
     if (memcmp(digest, "ef46db3751d8e999", 16) != 0) {
         fprintf(stderr, "XXH64 digest changed\n");
         return 1;

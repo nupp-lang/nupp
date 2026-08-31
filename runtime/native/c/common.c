@@ -7,13 +7,6 @@
 #include <stdlib.h>
 #include <string.h>
 
-#if NUPP_WINDOWS
-#   include <windows.h>
-#else
-#   include <errno.h>
-#   include <time.h>
-#endif
-
 /* --- the error slot ----------------------------------------------------- */
 
 /* Per thread, because two threads failing at once would otherwise overwrite each
@@ -311,87 +304,4 @@ void nupp_text_free(NuppText *text) {
     }
     text->value = text->inlined;
     text->length = 0;
-}
-
-/* --- platform ----------------------------------------------------------- */
-
-uint64_t nupp_unix_ms(void) {
-#if NUPP_WINDOWS
-    FILETIME now;
-    ULARGE_INTEGER packed;
-    GetSystemTimeAsFileTime(&now);
-    packed.LowPart = now.dwLowDateTime;
-    packed.HighPart = now.dwHighDateTime;
-    /* Hundred-nanosecond intervals from 1601, wanted as milliseconds from 1970. */
-    return packed.QuadPart / 10000ull - 11644473600000ull;
-#else
-    struct timespec now;
-    clock_gettime(CLOCK_REALTIME, &now);
-    return (uint64_t)now.tv_sec * 1000ull + (uint64_t)(now.tv_nsec / 1000000);
-#endif
-}
-
-double nupp_monotonic_ms(void) {
-#if NUPP_WINDOWS
-    static LARGE_INTEGER frequency;
-    LARGE_INTEGER now;
-    if (frequency.QuadPart == 0) {
-        QueryPerformanceFrequency(&frequency);
-    }
-    QueryPerformanceCounter(&now);
-    return (double)now.QuadPart * 1000.0 / (double)frequency.QuadPart;
-#else
-    struct timespec now;
-    clock_gettime(CLOCK_MONOTONIC, &now);
-    return (double)now.tv_sec * 1000.0 + (double)now.tv_nsec / 1.0e6;
-#endif
-}
-
-/* --- the one clock ------------------------------------------------------ */
-
-/* HTTP and processes each exported their own name for these, so a deadline one
- * measured could not be compared with a deadline the other did. These are the
- * exported pair `nupp.time` publishes, and what every in-process deadline is
- * now measured against.
- */
-
-NUPP_EXPORT double nuppTimeMonotonicMs(void) {
-    return nupp_monotonic_ms();
-}
-
-NUPP_EXPORT double nuppTimeWallMs(void) {
-    return (double)nupp_unix_ms();
-}
-
-/* Only the built-in driver's source wait reaches this: a host polls instead,
- * and a lane that slept here would be a lane not answering its channel.
- */
-NUPP_EXPORT void nuppTimeSleepMs(double milliseconds) {
-    if (!(milliseconds > 0.0)) {
-        return;
-    }
-    /* Converting a double past the integer type's range is undefined, and a
-     * deadline far enough away is a bounded wait, not forever. */
-#if NUPP_WINDOWS
-    if (milliseconds > 4294967294.0) {
-        milliseconds = 4294967294.0;
-    }
-    Sleep((DWORD)(milliseconds + 0.5));
-#else
-    struct timespec requested;
-    struct timespec remaining;
-    if (milliseconds > 2147483647.0e3) {
-        milliseconds = 2147483647.0e3;
-    }
-    requested.tv_sec = (time_t)(milliseconds / 1000.0);
-    requested.tv_nsec = (long)((milliseconds - (double)requested.tv_sec * 1000.0) * 1.0e6);
-    if (requested.tv_nsec < 0) {
-        requested.tv_nsec = 0;
-    } else if (requested.tv_nsec > 999999999L) {
-        requested.tv_nsec = 999999999L;
-    }
-    while (nanosleep(&requested, &remaining) == -1 && errno == EINTR) {
-        requested = remaining;
-    }
-#endif
 }

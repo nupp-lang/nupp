@@ -11,6 +11,8 @@ use std::sync::{Mutex, OnceLock};
 mod gpu;
 #[cfg(feature = "http")]
 mod http;
+#[cfg(feature = "process")]
+mod process;
 #[cfg(feature = "uri")]
 mod uri;
 
@@ -19,6 +21,7 @@ const FEATURE_UUID: u64 = 1 << 1;
 const FEATURE_GPU: u64 = 1 << 2;
 const FEATURE_URI: u64 = 1 << 3;
 const FEATURE_HTTP: u64 = 1 << 4;
+const FEATURE_PROCESS: u64 = 1 << 5;
 
 fn bytes() -> &'static Mutex<Arena<Box<[u8]>>> {
     static BYTES: OnceLock<Mutex<Arena<Box<[u8]>>>> = OnceLock::new();
@@ -67,6 +70,11 @@ pub extern "C" fn nuppNativeV2Features() -> u64 {
         }
         | if cfg!(feature = "http") {
             FEATURE_HTTP
+        } else {
+            0
+        }
+        | if cfg!(feature = "process") {
+            FEATURE_PROCESS
         } else {
             0
         }
@@ -167,9 +175,11 @@ pub extern "C" fn nuppNativeV2WallMs() -> u64 {
 }
 
 #[unsafe(no_mangle)]
-pub extern "C" fn nuppNativeV2SleepMs(milliseconds: u64) -> i32 {
-    nupp_native_platform::sleep_ms(milliseconds);
-    Status::Ok.code()
+pub extern "C" fn nuppNativeV2SleepMs(milliseconds: f64) -> i32 {
+    match nupp_native_platform::sleep_ms(milliseconds) {
+        Ok(()) => Status::Ok.code(),
+        Err(message) => failed(Status::InvalidArgument, message),
+    }
 }
 
 #[unsafe(no_mangle)]
@@ -193,6 +203,30 @@ pub unsafe extern "C" fn nuppNativeV2Xxh64Digest(
         Err(status) => return status,
     };
     // SAFETY: the output capacity was checked above.
+    unsafe { ptr::copy_nonoverlapping(value.as_ptr(), output, value.len()) };
+    Status::Ok.code()
+}
+
+#[unsafe(no_mangle)]
+/// Writes the little-endian XXH64 prefix stored in a stamped payload trailer.
+///
+/// # Safety
+///
+/// When `length` is nonzero, `data` must be readable for `length` bytes.
+/// `output` must be writable for eight bytes.
+pub unsafe extern "C" fn nuppNativeV2TrailerDigest(
+    data: *const u8,
+    length: usize,
+    output: *mut u8,
+) -> i32 {
+    if output.is_null() {
+        return failed(Status::InvalidArgument, "trailer digest output is null");
+    }
+    let value = match input(data, length) {
+        Ok(value) => nupp_native_platform::trailer_digest(value),
+        Err(status) => return status,
+    };
+    // SAFETY: the ABI requires writable storage for the fixed eight-byte digest.
     unsafe { ptr::copy_nonoverlapping(value.as_ptr(), output, value.len()) };
     Status::Ok.code()
 }
@@ -275,6 +309,22 @@ mod tests {
             0
         );
         assert_eq!(&output[..16], b"ef46db3751d8e999");
+        let mut trailer = [0; 8];
+        assert_eq!(
+            unsafe { nuppNativeV2TrailerDigest(ptr::null(), 0, trailer.as_mut_ptr()) },
+            0
+        );
+        assert_eq!(trailer, 0xef46_db37_51d8_e999_u64.to_le_bytes());
+    }
+
+    #[test]
+    fn sleep_rejects_non_finite_and_negative_durations() {
+        assert_eq!(nuppNativeV2SleepMs(0.0), 0);
+        assert_eq!(nuppNativeV2SleepMs(-1.0), Status::InvalidArgument.code());
+        assert_eq!(
+            nuppNativeV2SleepMs(f64::NAN),
+            Status::InvalidArgument.code()
+        );
     }
 
     #[cfg(feature = "uuid")]

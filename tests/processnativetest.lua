@@ -25,20 +25,20 @@ local function temporaryRoot()
       .. "-" .. tostring(math.random(1, 1e9))
 end
 
--- The library the provider opens is chosen by `nupp.runtime.native`, which reads
--- `NUPP_NATIVE_LIBRARY` on the first symbol it is asked for. A suite cannot set an
+-- The library the provider opens is chosen by `nupp.runtime.nativev2`, which reads
+-- `NUPP_NATIVE_V2_LIBRARY` on the first symbol it is asked for. A suite cannot set an
 -- environment variable for its own process, so it preloads that module with the
 -- lookup already answered -- the same substitution this made against the bootstrap
 -- string back when the loader was generated into it.
 local function preloadProvider(libraryPath)
-   local found = assert(package.searchpath("nupp.runtime.native", package.path),
-      "nupp.runtime.native is not on the path")
+   local found = assert(package.searchpath("nupp.runtime.nativev2", package.path),
+      "nupp.runtime.nativev2 is not on the path")
    local text = assert(io.open(found, "rb")):read("*a"):gsub(
-      'os%.getenv%("NUPP_NATIVE_LIBRARY"%)', function()
+      'os%.getenv%("NUPP_NATIVE_V2_LIBRARY"%)', function()
          return ("%q"):format(libraryPath)
       end)
-   package.loaded["nupp.runtime.native"] = nil
-   package.preload["nupp.runtime.native"] = assert(loadstring(text, "@nupp.runtime.native"))
+   package.loaded["nupp.runtime.nativev2"] = nil
+   package.preload["nupp.runtime.nativev2"] = assert(loadstring(text, "@nupp.runtime.nativev2"))
 end
 
 local SHELL = os.getenv("NUPP_TEST_SH") or "/bin/sh"
@@ -48,7 +48,7 @@ end
 
 function M.beforeAll()
    math.randomseed(os.time())
-   local libraryPath = os.getenv("NUPP_NATIVE_LIBRARY")
+   local libraryPath = os.getenv("NUPP_NATIVE_V2_LIBRARY")
    if not libraryPath then
       root = temporaryRoot()
       os.execute("mkdir -p '" .. root .. "'")
@@ -59,11 +59,11 @@ function M.beforeAll()
          unavailable = tostring(problem)
          return
       end
-      libraryPath = root .. "/out/lib/nupp_native"
+      libraryPath = root .. "/out/lib/nupp_native_v2"
    end
 
-   priorPreload = package.preload["nupp.runtime.native"]
-   priorLoaded = package.loaded["nupp.runtime.native"]
+   priorPreload = package.preload["nupp.runtime.nativev2"]
+   priorLoaded = package.loaded["nupp.runtime.nativev2"]
    preloadProvider(libraryPath)
    assert(loadstring(stdlib.bootstrap({
       ["native.process"] = true,
@@ -74,8 +74,8 @@ function M.beforeAll()
 end
 
 function M.afterAll()
-   package.preload["nupp.runtime.native"] = priorPreload
-   package.loaded["nupp.runtime.native"] = priorLoaded
+   package.preload["nupp.runtime.nativev2"] = priorPreload
+   package.loaded["nupp.runtime.nativev2"] = priorLoaded
    if root then
       os.execute("chmod -R u+w '" .. root .. "' 2>/dev/null")
       os.execute("rm -rf '" .. root .. "'")
@@ -264,8 +264,10 @@ function M.thePublicModuleSelectsOnlyItsPrivateProvider()
    test.equal(native.forModule("nupp.io.process"), "native.process")
    local feature = assert(native.feature("native.process"))
    test.equal(feature.providerFeature, "process")
+   test.equal(feature.provider, "nupp_native_v2")
    local expanded = native.expand({["native.process"] = true})
    assert(expanded["runtime.suspension"])
+   assert(expanded["runtime.native_v2"])
 
    -- The binding is part of the module now, so what a program receives is the
    -- module rather than a preload the bootstrap carried, and a program that does not

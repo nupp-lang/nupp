@@ -257,9 +257,10 @@ created by generated code.
 Nested members use the same exact resolution. `nupp.data.sha256(...)` selects
 SHA-256, while an alias such as `local data = nupp.data` followed by
 `data.sha256(...)` selects the same feature without also selecting UUID, JSON,
-or UTF-8. Files, paths and processes use the legacy libuv provider. HTTP uses
-the Rust-native Reqwest transport over Tokio and Rustls, URI uses Rust's `url`
-parser, and UUID uses the Rust-native provider. SHA-256 stages no native
+or UTF-8. Files and filesystem-backed path operations use the legacy libuv
+provider. Processes use the Rust-native shared Tokio executor with bounded pipe
+buffers; HTTP uses Reqwest over Tokio and Rustls, URI uses Rust's `url` parser,
+and UUID uses the Rust-native provider. SHA-256 stages no native
 artifact at all: it is [`nupp.data.digest`](../../src/nupp/data/digest.nupp),
 written in Nupp and compiled ahead of time where the target's [`aot`
 policy](../performance/ahead-of-time/build-and-artifacts.md) asks for that.

@@ -37368,6 +37368,7 @@ end
 
 
 
+
 function hash . trailerDigest ( payload ) 
 local hi , lo = xxh64 ( payload , 0 , 0 )
 
@@ -134108,10 +134109,12 @@ name = "time" ,
 module = "nupp.time" ,
 exports = { "nupp.tasks.runFor" } ,
 runtimeModule = "nupp.time" ,
-provider = "nupp_native" ,
-library = "nupp_native" ,
+provider = "nupp_native_v2" ,
+providerDriver = "native-rust" ,
+providerFeature = "base" ,
+library = "nupp_native_v2" ,
 binary = true ,
-requires = { "runtime.suspension" , "runtime.native" } ,
+requires = { "runtime.suspension" , "runtime.native_v2" } ,
 } ,
 [ "native.net" ] = {
 name = "net" ,
@@ -134151,12 +134154,13 @@ name = "process" ,
 
 module = "nupp.io.process" ,
 runtimeModule = "nupp.io.process" ,
-provider = "nupp_native" ,
+provider = "nupp_native_v2" ,
+providerDriver = "native-rust" ,
 providerFeature = "process" ,
 host = "native-process" ,
-library = "nupp_native" ,
+library = "nupp_native_v2" ,
 binary = true ,
-requires = { "runtime.suspension" } ,
+requires = { "runtime.suspension" , "runtime.native_v2" } ,
 } ,
 [
 "native.workers"
@@ -134399,20 +134403,21 @@ _G.assert(_G.loadstring("local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppM
 
 
 
-const native = require ( "nupp.runtime.native" )
+const native = require ( "nupp.runtime.nativev2" )
 
 native . ffi . cdef [[
-void nuppXxh64Digest(const uint8_t *, size_t, uint8_t *);
+int32_t nuppNativeV2Xxh64Digest(const uint8_t *, size_t, uint8_t *, size_t);
 ]]
 
 local ffi = native . ffi
+const C = native . C
 local ffiString = ffi . string
 local hash = { }
 
 
 function hash . digest ( input ) 
 local output = __nuppFfi.new("uint8_t[32]" )
-native . C . nuppXxh64Digest ( input , # input , output )
+native . succeeded ( C . nuppNativeV2Xxh64Digest ( input , # input , output , 32 ) , 2 )
 
 return ffiString ( __nuppFfi.cast("const uint8_t *" , output ) , 32 )
 end
@@ -176762,162 +176767,100 @@ end
 
 
 
-const native = require ( "nupp.runtime.native" )
+const native = require ( "nupp.runtime.nativev2" )
 
 native . ffi . cdef [[
-typedef struct NuppSpawn NuppSpawn;
-typedef struct NuppChild NuppChild;
-typedef struct NuppStream NuppStream;
+typedef struct {
+    const uint8_t *data;
+    size_t length;
+} NuppNativeV2ProcessSlice;
 
-NuppSpawn *nuppProcessSpawnBegin(void);
-bool nuppProcessSpawnArg(NuppSpawn *, const uint8_t *, size_t);
-bool nuppProcessSpawnEnv(NuppSpawn *, const uint8_t *, size_t);
-bool nuppProcessSpawnClearEnv(NuppSpawn *, bool);
-bool nuppProcessSpawnCwd(NuppSpawn *, const uint8_t *, size_t);
-bool nuppProcessSpawnStdio(NuppSpawn *, uint8_t, uint8_t);
-void nuppProcessSpawnCancel(NuppSpawn *);
-NuppChild *nuppProcessSpawnRun(NuppSpawn *);
+typedef struct {
+    NuppNativeV2ProcessSlice name;
+    NuppNativeV2ProcessSlice value;
+} NuppNativeV2ProcessEnv;
 
-NuppStream *nuppProcessTakeStream(NuppChild *, uint8_t);
-intptr_t nuppProcessTryRead(NuppStream *, uint8_t *, size_t);
-intptr_t nuppProcessTryWrite(NuppStream *, const uint8_t *, size_t);
-uint8_t nuppProcessCloseStream(NuppStream *);
-void nuppProcessStreamDestroy(NuppStream *);
+typedef struct {
+    const NuppNativeV2ProcessSlice *args;
+    size_t arg_count;
+    const NuppNativeV2ProcessEnv *env;
+    size_t env_count;
+    NuppNativeV2ProcessSlice cwd;
+    int32_t cwd_present;
+    int32_t clear_env;
+    uint8_t stdin_mode;
+    uint8_t stdout_mode;
+    uint8_t stderr_mode;
+} NuppNativeV2ProcessSpawn;
 
-int32_t nuppProcessPollExit(NuppChild *, int32_t *, bool *);
-uint32_t nuppProcessId(NuppChild *);
-bool nuppProcessKill(NuppChild *, bool);
-uint8_t nuppProcessReap(NuppChild *);
-void nuppProcessDestroy(NuppChild *);
+typedef struct {
+    uint64_t process;
+    uint64_t stdin_stream;
+    uint64_t stdout_stream;
+    uint64_t stderr_stream;
+    uint32_t pid;
+} NuppNativeV2ProcessStarted;
 
-int32_t nuppProcessWaitReady(NuppStream *const *, size_t, NuppStream *const *, size_t, int32_t);
+typedef struct {
+    int32_t ready;
+    int32_t code;
+    int32_t killed;
+} NuppNativeV2ProcessExit;
+
+int32_t nuppNativeV2ProcessSpawn(
+    const NuppNativeV2ProcessSpawn *, NuppNativeV2ProcessStarted *);
+int32_t nuppNativeV2ProcessPollExit(uint64_t, NuppNativeV2ProcessExit *);
+int32_t nuppNativeV2ProcessKill(uint64_t, int32_t);
+int32_t nuppNativeV2ProcessRelease(uint64_t);
+int32_t nuppNativeV2ProcessStreamRead(
+    uint64_t, uint8_t *, size_t, uint32_t *, size_t *);
+int32_t nuppNativeV2ProcessStreamWrite(
+    uint64_t, const uint8_t *, size_t, uint32_t *, size_t *);
+int32_t nuppNativeV2ProcessStreamRelease(uint64_t);
+int32_t nuppNativeV2ProcessWait(
+    uint64_t, const uint64_t *, size_t, const uint64_t *, size_t,
+    uint64_t, size_t *);
+size_t nuppNativeV2ProcessAbandonedTotal(void);
 ]]
 
 const C = native . C
-
-
+const PROCESS_FEATURE = 32
 const MODE = { pipe = 0 , inherit = 1 , [ "null" ] = 2 , stdout = 3 }
-
-
-const WOULD_BLOCK = - 1
-const GONE = - 2
-
-
-
-const RELEASED = 0
-const RELEASED_WITH_REASON = 1
-
+const READ_DATA = 0
+const READ_PENDING = 1
+const READ_EOF = 2
+const WRITE_ACCEPTED = 0
+const WRITE_PENDING = 1
+const WRITE_GONE = 2
 const READ_SIZE = 65536
 const INT32_MAX = 2147483647
 
-
 local function reason ( prefix ) 
-local said = native . error ( )
-if said == nil or said == "" then
-said = "native process operation failed"
+return prefix .. ": " .. native . ffi . string ( C . nuppNativeV2LastError ( ) )
 end
 
-return prefix .. ": " .. said
-end
-
-
-
-
-
-
-local function maybeDestroy ( owner ) 
-if owner . destroyed or not owner . released then
-return
-end
-for _ , stream in ipairs ( owner . streams ) do
-if not stream . released then
-return
+local function configured ( status , what ) 
+if status ~= 0 then
+error ( reason ( "nupp: could not " .. what ) , 0 )
 end
 end
-owner . destroyed = true
-for _ , stream in ipairs ( owner . streams ) do
-local handle = stream . handle
-stream . handle = nil
-if handle ~= nil then
-C . nuppProcessStreamDestroy ( handle )
-end
-end
-local child = owner . handle
-owner . handle = nil
-if child ~= nil then
-C . nuppProcessDestroy ( child )
-end
-end
-
-
-
-
-
-
-local function abandon ( owner , message ) 
-for _ , stream in ipairs ( owner . streams ) do
-if not stream . released then
-C . nuppProcessCloseStream ( stream . handle )
-stream . released = true
-end
-C . nuppProcessStreamDestroy ( stream . handle )
-stream . handle = nil
-end
-if owner . handle ~= nil then
-C . nuppProcessKill ( owner . handle , true )
-C . nuppProcessDestroy ( owner . handle )
-owner . handle = nil
-end
-owner . destroyed = true
-error ( message , 0 )
-end
-
-
-
-local function configured ( ok , request , what ) 
-if ok then
-return
-end
-local why = reason ( "nupp: could not configure process " .. what )
-C . nuppProcessSpawnCancel ( request )
-error ( why , 0 )
-end
-
-
-local function wrap ( owner , which , expected ) 
-local handle = C . nuppProcessTakeStream ( owner . handle , which )
-if handle == nil then
-if expected then
-abandon ( owner , reason ( "nupp: could not take process stream" ) )
-end
-
-return nil
-end
-local stream = { owner = owner , handle = handle , released = false , scratch = nil , capacity = 0 }
-owner . streams [ # owner . streams + 1 ] = stream
-
-return stream
-end
-
-
 
 local function makeArray ( streams ) 
 local count = # streams
 if count == 0 then
 return nil , 0
 end
-local out = native . ffi . new ( "NuppStream*[?]" , count )
+local out = native . ffi . new ( "uint64_t[?]" , count )
 for index , stream in ipairs ( streams ) do
 local handle = stream and stream . handle
 if handle == nil then
-error ( "nupp: readiness interest named a destroyed process stream" , 0 )
+error ( "nupp: readiness interest named a released process stream" , 0 )
 end
 out [ index - 1 ] = handle
 end
 
 return out , count
 end
-
 
 local function whole ( value ) 
 local number = tonumber ( value ) or 0
@@ -176928,11 +176871,16 @@ end
 return math . floor ( number )
 end
 
+local function wrap ( owner , handle ) 
+if handle == 0 then
+return nil
+end
 
-
-
+return { owner = owner , handle = handle , released = false , scratch = nil , capacity = 0 }
+end
 
 nativeBackend = function ( ) 
+native . requireFeature ( PROCESS_FEATURE , "process" )
 return setmetatable({ spawn =
 function ( self , options ) 
 local inputMode = options . stdin or "pipe"
@@ -176941,7 +176889,6 @@ local errorMode = options . stderr or "pipe"
 if MODE [ inputMode ] == nil then
 error ( "nupp: process has no stdin mode named " .. tostring ( inputMode ) , 0 )
 end
-
 if MODE [ outputMode ] == nil or outputMode == "stdout" then
 error ( "nupp: process has no stdout mode named " .. tostring ( outputMode ) , 0 )
 end
@@ -176949,62 +176896,69 @@ if MODE [ errorMode ] == nil then
 error ( "nupp: process has no stderr mode named " .. tostring ( errorMode ) , 0 )
 end
 
-
-
-
-local entries = { }
-for key , value in pairs ( options . env or { } ) do
-entries [ # entries + 1 ] = key .. "=" .. value
+local arguments = options . args or { }
+local argumentSlices = native . ffi . new ( "NuppNativeV2ProcessSlice[?]" , # arguments )
+for index , argument in ipairs ( arguments ) do
+argumentSlices [ index - 1 ] . data = argument
+argumentSlices [ index - 1 ] . length = # argument
 end
+
+local environment = { }
+for key , value in pairs ( options . env or { } ) do
+environment [ # environment + 1 ] = { name = key , value = value }
+end
+local environmentEntries = native . ffi . new ( "NuppNativeV2ProcessEnv[?]" , # environment )
+for index , entry in ipairs ( environment ) do
+environmentEntries [ index - 1 ] . name . data = entry . name
+environmentEntries [ index - 1 ] . name . length = # entry . name
+environmentEntries [ index - 1 ] . value . data = entry . value
+environmentEntries [ index - 1 ] . value . length = # entry . value
+end
+
 local cwd = nil
 if options . cwd ~= nil then
 cwd = type ( options . cwd ) == "string" and options . cwd or ( options . cwd ) : toString ( )
 end
-local request = C . nuppProcessSpawnBegin ( )
-if request == nil then
-error ( reason ( "nupp: could not begin process spawn" ) , 0 )
-end
-for _ , argument in ipairs ( options . args or { } ) do
-configured ( C . nuppProcessSpawnArg ( request , argument , # argument ) , request , "argument" )
-end
-configured ( C . nuppProcessSpawnClearEnv ( request , options . clearEnv == true ) , request , "environment mode" )
-for _ , entry in ipairs ( entries ) do
-configured ( C . nuppProcessSpawnEnv ( request , entry , # entry ) , request , "environment" )
-end
+local descriptor = native . ffi . new ( "NuppNativeV2ProcessSpawn[1]" )
+local cwdLength = 0
 if cwd ~= nil then
-configured ( C . nuppProcessSpawnCwd ( request , cwd , # cwd ) , request , "working directory" )
+cwdLength = # cwd
 end
-configured ( C . nuppProcessSpawnStdio ( request , 0 , MODE [ inputMode ] ) , request , "stdin" )
-configured ( C . nuppProcessSpawnStdio ( request , 1 , MODE [ outputMode ] ) , request , "stdout" )
-configured ( C . nuppProcessSpawnStdio ( request , 2 , MODE [ errorMode ] ) , request , "stderr" )
-local child = C . nuppProcessSpawnRun ( request )
-if child == nil then
+descriptor [ 0 ] . args = # arguments == 0 and nil or argumentSlices
+descriptor [ 0 ] . arg_count = # arguments
+descriptor [ 0 ] . env = # environment == 0 and nil or environmentEntries
+descriptor [ 0 ] . env_count = # environment
+descriptor [ 0 ] . cwd . data = cwd
+descriptor [ 0 ] . cwd . length = cwdLength
+descriptor [ 0 ] . cwd_present = cwd == nil and 0 or 1
+descriptor [ 0 ] . clear_env = options . clearEnv == true and 1 or 0
+descriptor [ 0 ] . stdin_mode = MODE [ inputMode ]
+descriptor [ 0 ] . stdout_mode = MODE [ outputMode ]
+descriptor [ 0 ] . stderr_mode = MODE [ errorMode ]
+
+local started = native . ffi . new ( "NuppNativeV2ProcessStarted[1]" )
+local status = C . nuppNativeV2ProcessSpawn ( descriptor , started )
+if status ~= 0 then
 return nil , nil , nil , nil , 0 , reason ( "nupp: could not start process" )
 end
-local owner = { handle = child , streams = { } , released = false , destroyed = false }
-local input = wrap ( owner , 0 , inputMode == "pipe" )
-local output = wrap ( owner , 1 , outputMode == "pipe" )
-local err = wrap ( owner , 2 , errorMode == "pipe" )
+local owner = { handle = started [ 0 ] . process , released = false }
+local input = wrap ( owner , started [ 0 ] . stdin_stream )
+local output = wrap ( owner , started [ 0 ] . stdout_stream )
+local err = wrap ( owner , started [ 0 ] . stderr_stream )
 
-return owner , input , output , err , tonumber ( C . nuppProcessId ( child ) )
+return owner , input , output , err , tonumber ( started [ 0 ] . pid )
 end ,  poll =
 function ( self , owner ) 
-local code = native . ffi . new ( "int32_t[1]" )
-local killed = native . ffi . new ( "bool[1]" )
-local status = C . nuppProcessPollExit ( owner . handle , code , killed )
-if status < 0 then
-error ( reason ( "nupp: could not poll process" ) , 0 )
-end
-if status == 0 then
+local output = native . ffi . new ( "NuppNativeV2ProcessExit[1]" )
+configured ( C . nuppNativeV2ProcessPollExit ( owner . handle , output ) , "poll process" )
+if output [ 0 ] . ready == 0 then
 return nil
 end
 
-return process . exited ( tonumber ( code [ 0 ] ) , killed [ 0 ] , false )
+return process . exited ( tonumber ( output [ 0 ] . code ) , output [ 0 ] . killed ~= 0 , false )
 end ,  kill =
 function ( self , owner , force ) 
-if not C . nuppProcessKill ( owner . handle , force ) then
-error ( reason ( "nupp: could not kill process" ) , 0 )
-end
+configured ( C . nuppNativeV2ProcessKill ( owner . handle , force and 1 or 0 ) , "kill process" )
 end ,  read =
 function ( self , stream , limit ) 
 local wanted = whole ( limit )
@@ -177013,75 +176967,70 @@ wanted = 1
 elseif wanted > READ_SIZE then
 wanted = READ_SIZE
 end
-
-
-
 if stream . capacity < wanted then
 stream . scratch = native . ffi . new ( "uint8_t[?]" , wanted )
 stream . capacity = wanted
 end
-local got = tonumber ( C . nuppProcessTryRead ( stream . handle , stream . scratch , wanted ) )
-if got >= 0 then
-return native . ffi . string ( stream . scratch , got )
+local state = native . ffi . new ( "uint32_t[1]" )
+local length = native . ffi . new ( "size_t[1]" )
+configured (
+C . nuppNativeV2ProcessStreamRead ( stream . handle , stream . scratch , wanted , state , length ) ,
+"read process stream"
+)
+if state [ 0 ] == READ_DATA then
+return native . ffi . string ( stream . scratch , tonumber ( length [ 0 ] ) )
 end
-
-
-if got == WOULD_BLOCK then
+if state [ 0 ] == READ_PENDING then
 return ""
 end
-if got == GONE then
+if state [ 0 ] == READ_EOF then
 return nil
 end
-error ( reason ( "nupp: could not read process stream" ) , 0 )
+error ( "nupp: Rust process provider returned an invalid read state" , 0 )
 end ,  write =
 function ( self , stream , bytes ) 
-local sent = tonumber ( C . nuppProcessTryWrite ( stream . handle , bytes , # bytes ) )
-if sent >= 0 then
-return sent , false
+local state = native . ffi . new ( "uint32_t[1]" )
+local length = native . ffi . new ( "size_t[1]" )
+configured (
+C . nuppNativeV2ProcessStreamWrite ( stream . handle , bytes , # bytes , state , length ) ,
+"write process stream"
+)
+if state [ 0 ] == WRITE_ACCEPTED then
+return tonumber ( length [ 0 ] ) , false
 end
-if sent == WOULD_BLOCK then
+if state [ 0 ] == WRITE_PENDING then
 return 0 , false
 end
-if sent == GONE then
+if state [ 0 ] == WRITE_GONE then
 return 0 , true
 end
-error ( reason ( "nupp: could not write process stream" ) , 0 )
+error ( "nupp: Rust process provider returned an invalid write state" , 0 )
 end ,  closeStream =
 function ( self , stream ) 
 if stream . released then
 return true , nil
 end
-local status = C . nuppProcessCloseStream ( stream . handle )
-local why = nil
-if status ~= RELEASED then
-why = reason ( "nupp: could not close process stream" )
+local status = C . nuppNativeV2ProcessStreamRelease ( stream . handle )
+if status ~= 0 then
+return false , reason ( "nupp: could not close process stream" )
 end
-if status == RELEASED or status == RELEASED_WITH_REASON then
 stream . released = true
-maybeDestroy ( stream . owner )
+stream . handle = nil
 
-return true , why
-end
-
-return false , why
+return true , nil
 end ,  reap =
 function ( self , owner ) 
 if owner . released then
 return true , nil
 end
-local status = C . nuppProcessReap ( owner . handle )
-local why = nil
-if status ~= RELEASED then
-why = reason ( "nupp: could not release process" )
+local status = C . nuppNativeV2ProcessRelease ( owner . handle )
+if status ~= 0 then
+return false , reason ( "nupp: could not release process" )
 end
-if status == RELEASED or status == RELEASED_WITH_REASON then
 owner . released = true
-maybeDestroy ( owner )
+owner . handle = nil
 
-return true , why
-end
-
-return false , why
+return true , nil
 end ,  now =
 function ( self ) 
 return time . now ( )
@@ -177095,12 +177044,21 @@ timeout = 0
 elseif timeout > INT32_MAX then
 timeout = INT32_MAX
 end
-local answered = C . nuppProcessWaitReady ( readable , readCount , writable , writeCount , timeout )
-if answered < 0 then
-error ( reason ( "nupp: process readiness wait failed" ) , 0 )
-end
+local ready = native . ffi . new ( "size_t[1]" )
+configured (
+C . nuppNativeV2ProcessWait (
+interest . child . handle ,
+readable ,
+readCount ,
+writable ,
+writeCount ,
+timeout ,
+ready
+) ,
+"wait for process readiness"
+)
 
-return tonumber ( answered )
+return tonumber ( ready [ 0 ] )
 end }, process.Backend)
 
 end
@@ -185085,9 +185043,6 @@ end
 
 return ffi . load ( root .. "/.." .. library )
 end
-
-
-
 
 
 
@@ -197011,13 +196966,13 @@ _G.assert(_G.loadstring("local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppM
 
 
 
-local native = require ( "nupp.runtime.native" )
+local native = require ( "nupp.runtime.nativev2" )
 local suspension = require ( "nupp.suspension" )
 
 native . ffi . cdef (
-"double nuppTimeMonotonicMs(void);\
-double nuppTimeWallMs(void);\
-void nuppTimeSleepMs(double);\
+"uint64_t nuppNativeV2MonotonicNs(void);\
+uint64_t nuppNativeV2WallMs(void);\
+int32_t nuppNativeV2SleepMs(double);\
 "
 
 )
@@ -197060,14 +197015,14 @@ end
 
 
 function time . now ( ) 
-return assert ( tonumber ( C . nuppTimeMonotonicMs ( ) ) )
+return assert ( tonumber ( C . nuppNativeV2MonotonicNs ( ) ) ) / 1.0e6
 end
 
 
 
 
 function time . wallTime ( ) 
-return assert ( tonumber ( C . nuppTimeWallMs ( ) ) )
+return assert ( tonumber ( C . nuppNativeV2WallMs ( ) ) )
 end
 
 
@@ -197147,7 +197102,7 @@ if remaining ~= nil and remaining < slice then
 slice = remaining
 end
 if slice > 0 then
-C . nuppTimeSleepMs ( slice )
+native . succeeded ( C . nuppNativeV2SleepMs ( slice ) , 3 )
 end
 
 return fireDue ( )
@@ -224317,7 +224272,7 @@ record process.Backend
     --- Zero bytes has two meanings and they are opposites: the pipe is full and will
     --- take more later, or nobody is reading and it never will. A backend that reports
     --- only the count leaves a writer unable to tell waiting from finished, so it waits
-    --- forever. The second result separates them. The native backend turns libuv's
+    --- forever. The second result separates them. The Rust-native backend turns a
     --- closed-pipe result into `gone`, without exposing the platform-specific error or
     --- installing process-wide signal policy. Once it is true, the bytes reported
     --- alongside it are the last that will ever go.
@@ -224367,8 +224322,8 @@ record process.Backend
     --- The one operation here that is allowed to block, and it exists so that a caller
     --- with no scheduler does not spin. Every other operation is non-blocking because
     --- waiting belongs to the state machine; *this* is the state machine asking the
-    --- platform to wait efficiently on its behalf. The native backend runs one
-    --- bounded turn of the libuv loop rather than polling in a loop.
+    --- platform to wait efficiently on its behalf. The Rust-native backend waits on
+    --- exact child and stream activity rather than polling in a loop.
     ---
     --- Never called while a suspension handler is installed. Under a scheduler the
     --- frame must keep running, so the state machine parks instead and the handler
@@ -225466,9 +225421,9 @@ local BLOCKING_WAIT_MS = 20
 -- Blocks in the platform until something in `interest` moves, then drives one pass.
 --
 -- Only ever reached with no handler installed. Nobody to yield to, so blocking here is
--- the whole point: `waitReady` drives libuv until a stream moves or the
--- timeout passes, where spinning on a non-blocking poll would burn a core to learn
--- nothing.
+-- the whole point: `waitReady` sleeps on Rust-owned activity until a child or stream
+-- moves, or the timeout passes, where spinning on a non-blocking poll would burn a
+-- core to learn nothing.
 --
 -- Bounded rather than indefinite, because a deadline has to be reached even when the
 -- child never speaks again, and never overshooting it: a wait longer than what is left
@@ -225696,7 +225651,7 @@ The platform binding.
 
 Everything above is platform-neutral: it moves bytes between buffers and decides when
 to wait. This is the other side of `Backend` for the machine the program is on, over
-the symbols the libuv-backed native provider exports.
+the versioned, generational ABI the Rust-native process provider exports.
 
 It used to be a string in the compiler, installed as `nupp.io.processnative` through
 `package.preload` and reached from here by a cast, because a module of its own could
@@ -225709,155 +225664,94 @@ directly and is checked against it, which is what the cast was standing in for.
 -- The native backend
 ----------------------------------------------------------------------------
 
-const native = require("nupp.runtime.native")
+const native = require("nupp.runtime.nativev2")
 
 native.ffi.cdef[[
-typedef struct NuppSpawn NuppSpawn;
-typedef struct NuppChild NuppChild;
-typedef struct NuppStream NuppStream;
+typedef struct {
+    const uint8_t *data;
+    size_t length;
+} NuppNativeV2ProcessSlice;
 
-NuppSpawn *nuppProcessSpawnBegin(void);
-bool nuppProcessSpawnArg(NuppSpawn *, const uint8_t *, size_t);
-bool nuppProcessSpawnEnv(NuppSpawn *, const uint8_t *, size_t);
-bool nuppProcessSpawnClearEnv(NuppSpawn *, bool);
-bool nuppProcessSpawnCwd(NuppSpawn *, const uint8_t *, size_t);
-bool nuppProcessSpawnStdio(NuppSpawn *, uint8_t, uint8_t);
-void nuppProcessSpawnCancel(NuppSpawn *);
-NuppChild *nuppProcessSpawnRun(NuppSpawn *);
+typedef struct {
+    NuppNativeV2ProcessSlice name;
+    NuppNativeV2ProcessSlice value;
+} NuppNativeV2ProcessEnv;
 
-NuppStream *nuppProcessTakeStream(NuppChild *, uint8_t);
-intptr_t nuppProcessTryRead(NuppStream *, uint8_t *, size_t);
-intptr_t nuppProcessTryWrite(NuppStream *, const uint8_t *, size_t);
-uint8_t nuppProcessCloseStream(NuppStream *);
-void nuppProcessStreamDestroy(NuppStream *);
+typedef struct {
+    const NuppNativeV2ProcessSlice *args;
+    size_t arg_count;
+    const NuppNativeV2ProcessEnv *env;
+    size_t env_count;
+    NuppNativeV2ProcessSlice cwd;
+    int32_t cwd_present;
+    int32_t clear_env;
+    uint8_t stdin_mode;
+    uint8_t stdout_mode;
+    uint8_t stderr_mode;
+} NuppNativeV2ProcessSpawn;
 
-int32_t nuppProcessPollExit(NuppChild *, int32_t *, bool *);
-uint32_t nuppProcessId(NuppChild *);
-bool nuppProcessKill(NuppChild *, bool);
-uint8_t nuppProcessReap(NuppChild *);
-void nuppProcessDestroy(NuppChild *);
+typedef struct {
+    uint64_t process;
+    uint64_t stdin_stream;
+    uint64_t stdout_stream;
+    uint64_t stderr_stream;
+    uint32_t pid;
+} NuppNativeV2ProcessStarted;
 
-int32_t nuppProcessWaitReady(NuppStream *const *, size_t, NuppStream *const *, size_t, int32_t);
+typedef struct {
+    int32_t ready;
+    int32_t code;
+    int32_t killed;
+} NuppNativeV2ProcessExit;
+
+int32_t nuppNativeV2ProcessSpawn(
+    const NuppNativeV2ProcessSpawn *, NuppNativeV2ProcessStarted *);
+int32_t nuppNativeV2ProcessPollExit(uint64_t, NuppNativeV2ProcessExit *);
+int32_t nuppNativeV2ProcessKill(uint64_t, int32_t);
+int32_t nuppNativeV2ProcessRelease(uint64_t);
+int32_t nuppNativeV2ProcessStreamRead(
+    uint64_t, uint8_t *, size_t, uint32_t *, size_t *);
+int32_t nuppNativeV2ProcessStreamWrite(
+    uint64_t, const uint8_t *, size_t, uint32_t *, size_t *);
+int32_t nuppNativeV2ProcessStreamRelease(uint64_t);
+int32_t nuppNativeV2ProcessWait(
+    uint64_t, const uint64_t *, size_t, const uint64_t *, size_t,
+    uint64_t, size_t *);
+size_t nuppNativeV2ProcessAbandonedTotal(void);
 ]]
 
 const C = native.C
-
--- How a stdio mode is written for the native provider.
+const PROCESS_FEATURE = 32
 const MODE: {[string]: integer} = {pipe = 0, inherit = 1, ["null"] = 2, stdout = 3}
-
--- What a nonblocking read or write answers instead of a count.
-const WOULD_BLOCK = -1
-const GONE = -2
-
--- What releasing a handle answers. `RELEASED_WITH_REASON` is released and complaining:
--- the handle is gone either way, so the caller stops holding it and still hears why.
-const RELEASED = 0
-const RELEASED_WITH_REASON = 1
-
+const READ_DATA = 0
+const READ_PENDING = 1
+const READ_EOF = 2
+const WRITE_ACCEPTED = 0
+const WRITE_PENDING = 1
+const WRITE_GONE = 2
 const READ_SIZE = 65536
 const INT32_MAX = 2147483647
 
---- Puts what the native provider said behind what this side was trying to do.
 local function reason(prefix: string): string
-    local said = native.error()
-    if said == nil or said == "" then
-        said = "native process operation failed"
-    end
-
-    return prefix .. ": " .. said
+    return prefix .. ": " .. native.ffi.string(C.nuppNativeV2LastError())
 end
 
---- Frees a child once nothing is holding it or any of its streams.
----
---- The native provider owns the child and the streams separately, and either side can
---- be the last to let go, so the free happens here rather than at whichever release ran
---- last.
-local function maybeDestroy(owner: any): nil
-    if owner.destroyed or not owner.released then
-        return
-    end
-    for _, stream in ipairs(owner.streams) do
-        if not stream.released then
-            return
-        end
-    end
-    owner.destroyed = true
-    for _, stream in ipairs(owner.streams) do
-        local handle = stream.handle
-        stream.handle = nil
-        if handle ~= nil then
-            C.nuppProcessStreamDestroy(handle)
-        end
-    end
-    local child = owner.handle
-    owner.handle = nil
-    if child ~= nil then
-        C.nuppProcessDestroy(child)
+local function configured(status: integer, what: string): nil
+    if status ~= 0 then
+        error(reason("nupp: could not " .. what), 0)
     end
 end
 
---- Kills and frees a half-built child, then raises.
----
---- Reached when a spawn got far enough to have a child but not far enough to hand one
---- back. Nothing else knows about it yet, so nothing else can clean it up.
---- @raises always; that is what it is for
-local function abandon(owner: any, message: string): nil
-    for _, stream in ipairs(owner.streams) do
-        if not stream.released then
-            C.nuppProcessCloseStream(stream.handle)
-            stream.released = true
-        end
-        C.nuppProcessStreamDestroy(stream.handle)
-        stream.handle = nil
-    end
-    if owner.handle ~= nil then
-        C.nuppProcessKill(owner.handle, true)
-        C.nuppProcessDestroy(owner.handle)
-        owner.handle = nil
-    end
-    owner.destroyed = true
-    error(message, 0)
-end
-
---- Cancels a spawn request when one of its settings would not take.
---- @raises when the setting failed
-local function configured(ok: boolean, request: any, what: string): nil
-    if ok then
-        return
-    end
-    local why = reason("nupp: could not configure process " .. what)
-    C.nuppProcessSpawnCancel(request)
-    error(why, 0)
-end
-
---- Takes one of a started child's streams, when that mode made one.
-local function wrap(owner: any, which: integer, expected: boolean): any
-    local handle = C.nuppProcessTakeStream(owner.handle, which)
-    if handle == nil then
-        if expected then
-            abandon(owner, reason("nupp: could not take process stream"))
-        end
-
-        return nil
-    end
-    local stream = {owner = owner, handle = handle, released = false, scratch = nil, capacity = 0}
-    owner.streams[#owner.streams + 1] = stream
-
-    return stream
-end
-
---- Packs stream handles into the array `waitReady` takes.
---- @raises when the interest names a stream that has already been freed
 local function makeArray(streams: {any}): (any, integer)
     local count = #streams
     if count == 0 then
         return nil, 0
     end
-    local out = native.ffi.new("NuppStream*[?]", count)
+    local out = native.ffi.new("uint64_t[?]", count)
     for index, stream in ipairs(streams) do
         local handle = stream and stream.handle
         if handle == nil then
-            error("nupp: readiness interest named a destroyed process stream", 0)
+            error("nupp: readiness interest named a released process stream", 0)
         end
         out[index - 1] = handle
     end
@@ -225865,7 +225759,6 @@ local function makeArray(streams: {any}): (any, integer)
     return out, count
 end
 
---- A count the native provider will accept: an integer, with NaN read as zero.
 local function whole(value: number?): integer
     local number = tonumber(value) or 0
     if number ~= number then
@@ -225875,11 +225768,16 @@ local function whole(value: number?): integer
     return math.floor(number) as integer
 end
 
---- The backend for this machine.
----
---- Built on demand rather than at load, so a program that requires this module and
---- never starts a child never opens the library.
+local function wrap(owner: any, handle: any): any
+    if handle == 0 then
+        return nil
+    end
+
+    return {owner = owner, handle = handle, released = false, scratch = nil, capacity = 0}
+end
+
 nativeBackend = function(): process.Backend
+    native.requireFeature(PROCESS_FEATURE, "process")
     return new process.Backend(
         spawn = function(self: process.Backend, options: process.Options): (any?, any?, any?, any?, integer, string?)
             local inputMode = options.stdin or "pipe"
@@ -225888,70 +225786,76 @@ nativeBackend = function(): process.Backend
             if MODE[inputMode] == nil then
                 error("nupp: process has no stdin mode named " .. tostring(inputMode), 0)
             end
-            -- `stdout` as a stdout mode would mean redirecting stdout to itself.
             if MODE[outputMode] == nil or outputMode == "stdout" then
                 error("nupp: process has no stdout mode named " .. tostring(outputMode), 0)
             end
             if MODE[errorMode] == nil then
                 error("nupp: process has no stderr mode named " .. tostring(errorMode), 0)
             end
-            -- Built before the request exists. Concatenating a non-string
-            -- environment value and rendering the working directory can both
-            -- raise, and a raise between `SpawnBegin` and `SpawnRun` that does
-            -- not go through `configured` leaks the request.
-            local entries: {string} = {}
-            for key, value in pairs(options.env or {}) do
-                entries[#entries + 1] = key .. "=" .. value
+
+            local arguments = options.args or {}
+            local argumentSlices = native.ffi.new("NuppNativeV2ProcessSlice[?]", #arguments)
+            for index, argument in ipairs(arguments) do
+                argumentSlices[index - 1].data = argument
+                argumentSlices[index - 1].length = #argument
             end
+
+            local environment: {any} = {}
+            for key, value in pairs(options.env or {}) do
+                environment[#environment + 1] = {name = key, value = value}
+            end
+            local environmentEntries = native.ffi.new("NuppNativeV2ProcessEnv[?]", #environment)
+            for index, entry in ipairs(environment) do
+                environmentEntries[index - 1].name.data = entry.name
+                environmentEntries[index - 1].name.length = #entry.name
+                environmentEntries[index - 1].value.data = entry.value
+                environmentEntries[index - 1].value.length = #entry.value
+            end
+
             local cwd: string? = nil
             if options.cwd ~= nil then
                 cwd = type(options.cwd) == "string" and options.cwd as string or (options.cwd as any):toString()
             end
-            local request = C.nuppProcessSpawnBegin()
-            if request == nil then
-                error(reason("nupp: could not begin process spawn"), 0)
-            end
-            for _, argument in ipairs(options.args or {}) do
-                configured(C.nuppProcessSpawnArg(request, argument, #argument), request, "argument")
-            end
-            configured(C.nuppProcessSpawnClearEnv(request, options.clearEnv == true), request, "environment mode")
-            for _, entry in ipairs(entries) do
-                configured(C.nuppProcessSpawnEnv(request, entry, #entry), request, "environment")
-            end
+            local descriptor = native.ffi.new("NuppNativeV2ProcessSpawn[1]")
+            local cwdLength = 0
             if cwd ~= nil then
-                configured(C.nuppProcessSpawnCwd(request, cwd, #cwd), request, "working directory")
+                cwdLength = #cwd
             end
-            configured(C.nuppProcessSpawnStdio(request, 0, MODE[inputMode]), request, "stdin")
-            configured(C.nuppProcessSpawnStdio(request, 1, MODE[outputMode]), request, "stdout")
-            configured(C.nuppProcessSpawnStdio(request, 2, MODE[errorMode]), request, "stderr")
-            local child = C.nuppProcessSpawnRun(request)
-            if child == nil then
+            descriptor[0].args = #arguments == 0 and nil or argumentSlices
+            descriptor[0].arg_count = #arguments
+            descriptor[0].env = #environment == 0 and nil or environmentEntries
+            descriptor[0].env_count = #environment
+            descriptor[0].cwd.data = cwd
+            descriptor[0].cwd.length = cwdLength
+            descriptor[0].cwd_present = cwd == nil and 0 or 1
+            descriptor[0].clear_env = options.clearEnv == true and 1 or 0
+            descriptor[0].stdin_mode = MODE[inputMode]
+            descriptor[0].stdout_mode = MODE[outputMode]
+            descriptor[0].stderr_mode = MODE[errorMode]
+
+            local started = native.ffi.new("NuppNativeV2ProcessStarted[1]")
+            local status = C.nuppNativeV2ProcessSpawn(descriptor, started)
+            if status ~= 0 then
                 return nil, nil, nil, nil, 0, reason("nupp: could not start process")
             end
-            local owner = {handle = child, streams = {}, released = false, destroyed = false}
-            local input = wrap(owner, 0, inputMode == "pipe")
-            local output = wrap(owner, 1, outputMode == "pipe")
-            local err = wrap(owner, 2, errorMode == "pipe")
+            local owner = {handle = started[0].process, released = false}
+            local input = wrap(owner, started[0].stdin_stream)
+            local output = wrap(owner, started[0].stdout_stream)
+            local err = wrap(owner, started[0].stderr_stream)
 
-            return owner, input, output, err, tonumber(C.nuppProcessId(child)) as integer
+            return owner, input, output, err, tonumber(started[0].pid) as integer
         end,
         poll = function(self: process.Backend, owner: any): process.Exit?
-            local code = native.ffi.new("int32_t[1]")
-            local killed = native.ffi.new("bool[1]")
-            local status = C.nuppProcessPollExit(owner.handle, code, killed)
-            if status < 0 then
-                error(reason("nupp: could not poll process"), 0)
-            end
-            if status == 0 then
+            local output = native.ffi.new("NuppNativeV2ProcessExit[1]")
+            configured(C.nuppNativeV2ProcessPollExit(owner.handle, output), "poll process")
+            if output[0].ready == 0 then
                 return nil
             end
 
-            return process.exited(tonumber(code[0]) as integer, killed[0], false)
+            return process.exited(tonumber(output[0].code) as integer, output[0].killed ~= 0, false)
         end,
         kill = function(self: process.Backend, owner: any, force: boolean): nil
-            if not C.nuppProcessKill(owner.handle, force) then
-                error(reason("nupp: could not kill process"), 0)
-            end
+            configured(C.nuppNativeV2ProcessKill(owner.handle, force and 1 or 0), "kill process")
         end,
         read = function(self: process.Backend, stream: any, limit: integer): string?
             local wanted = whole(limit)
@@ -225960,75 +225864,70 @@ nativeBackend = function(): process.Backend
             elseif wanted > READ_SIZE then
                 wanted = READ_SIZE
             end
-            -- The scratch buffer grows to the largest read this stream has been asked
-            -- for and is then reused, so a drain loop allocates once rather than once
-            -- per pass.
             if stream.capacity < wanted then
                 stream.scratch = native.ffi.new("uint8_t[?]", wanted)
                 stream.capacity = wanted
             end
-            local got = tonumber(C.nuppProcessTryRead(stream.handle, stream.scratch, wanted))
-            if got >= 0 then
-                return native.ffi.string(stream.scratch, got as integer)
+            local state = native.ffi.new("uint32_t[1]")
+            local length = native.ffi.new("size_t[1]")
+            configured(
+                C.nuppNativeV2ProcessStreamRead(stream.handle, stream.scratch, wanted, state, length),
+                "read process stream"
+            )
+            if state[0] == READ_DATA then
+                return native.ffi.string(stream.scratch, tonumber(length[0]) as integer)
             end
-            -- Nothing yet is an empty read; the far end being gone is nil. The state
-            -- machine tells them apart to know whether to wait again.
-            if got == WOULD_BLOCK then
+            if state[0] == READ_PENDING then
                 return ""
             end
-            if got == GONE then
+            if state[0] == READ_EOF then
                 return nil
             end
-            error(reason("nupp: could not read process stream"), 0)
+            error("nupp: Rust process provider returned an invalid read state", 0)
         end,
         write = function(self: process.Backend, stream: any, bytes: string): (integer, boolean)
-            local sent = tonumber(C.nuppProcessTryWrite(stream.handle, bytes, #bytes))
-            if sent >= 0 then
-                return sent as integer, false
+            local state = native.ffi.new("uint32_t[1]")
+            local length = native.ffi.new("size_t[1]")
+            configured(
+                C.nuppNativeV2ProcessStreamWrite(stream.handle, bytes, #bytes, state, length),
+                "write process stream"
+            )
+            if state[0] == WRITE_ACCEPTED then
+                return tonumber(length[0]) as integer, false
             end
-            if sent == WOULD_BLOCK then
+            if state[0] == WRITE_PENDING then
                 return 0, false
             end
-            if sent == GONE then
+            if state[0] == WRITE_GONE then
                 return 0, true
             end
-            error(reason("nupp: could not write process stream"), 0)
+            error("nupp: Rust process provider returned an invalid write state", 0)
         end,
         closeStream = function(self: process.Backend, stream: any): (boolean, string?)
             if stream.released then
                 return true, nil
             end
-            local status = C.nuppProcessCloseStream(stream.handle)
-            local why: string? = nil
-            if status ~= RELEASED then
-                why = reason("nupp: could not close process stream")
+            local status = C.nuppNativeV2ProcessStreamRelease(stream.handle)
+            if status ~= 0 then
+                return false, reason("nupp: could not close process stream")
             end
-            if status == RELEASED or status == RELEASED_WITH_REASON then
-                stream.released = true
-                maybeDestroy(stream.owner)
+            stream.released = true
+            stream.handle = nil
 
-                return true, why
-            end
-
-            return false, why
+            return true, nil
         end,
         reap = function(self: process.Backend, owner: any): (boolean, string?)
             if owner.released then
                 return true, nil
             end
-            local status = C.nuppProcessReap(owner.handle)
-            local why: string? = nil
-            if status ~= RELEASED then
-                why = reason("nupp: could not release process")
+            local status = C.nuppNativeV2ProcessRelease(owner.handle)
+            if status ~= 0 then
+                return false, reason("nupp: could not release process")
             end
-            if status == RELEASED or status == RELEASED_WITH_REASON then
-                owner.released = true
-                maybeDestroy(owner)
+            owner.released = true
+            owner.handle = nil
 
-                return true, why
-            end
-
-            return false, why
+            return true, nil
         end,
         now = function(self: process.Backend): number
             return time.now()
@@ -226042,12 +225941,21 @@ nativeBackend = function(): process.Backend
             elseif timeout > INT32_MAX then
                 timeout = INT32_MAX
             end
-            local answered = C.nuppProcessWaitReady(readable, readCount, writable, writeCount, timeout)
-            if answered < 0 then
-                error(reason("nupp: process readiness wait failed"), 0)
-            end
+            local ready = native.ffi.new("size_t[1]")
+            configured(
+                C.nuppNativeV2ProcessWait(
+                    interest.child.handle,
+                    readable,
+                    readCount,
+                    writable,
+                    writeCount,
+                    timeout,
+                    ready
+                ),
+                "wait for process readiness"
+            )
 
-            return tonumber(answered) as integer
+            return tonumber(ready[0]) as integer
         end
     )
 end
@@ -233512,17 +233420,14 @@ end
 --- Where the opened library is kept, which is not this module.
 ---
 --- LuaJIT collects an `ffi.load` handle like anything else, and closing it
---- closes the library. That is ordinarily harmless and here it is not: the
---- provider links libuv, and spawning a process makes libuv install a `SIGCHLD`
---- handler that lives in the library's own text. Unload it and the disposition
---- survives, pointing at a mapping that is gone, so the next child to exit --
---- inside `system()`, in whatever unrelated code called it -- delivers a signal
---- to an address that no longer exists.
+--- closes the library. Native functions and libuv callbacks live in that
+--- mapping, so the provider handle must remain reachable for as long as any
+--- module using those functions can run.
 ---
 --- Nothing here unloads it deliberately. Dropping the module does: a suite that
 --- clears `package.loaded["nupp.runtime.native"]` to prove the load is lazy
---- takes the last reference to the handle with it. That is what the Linux
---- workers were dying of, four at a time, each in whichever suite ran the next
+--- takes the last reference to the handle with it. That used to make Linux
+--- workers die, four at a time, each in whichever suite ran the next
 --- `os.execute`.
 ---
 --- So the handle is held by the interpreter rather than by this table, and one
@@ -247283,14 +247188,14 @@ print(time.now() - started)
 :::
 ]]
 
-local native = require("nupp.runtime.native")
+local native = require("nupp.runtime.nativev2")
 local suspension = require("nupp.suspension")
 
 native.ffi.cdef(
     dedent[[
-    double nuppTimeMonotonicMs(void);
-    double nuppTimeWallMs(void);
-    void nuppTimeSleepMs(double);
+    uint64_t nuppNativeV2MonotonicNs(void);
+    uint64_t nuppNativeV2WallMs(void);
+    int32_t nuppNativeV2SleepMs(double);
     ]]
 )
 
@@ -247332,14 +247237,14 @@ end
 ---
 --- @return milliseconds since this process's clock origin
 function time.now(): number
-    return assert(tonumber(C.nuppTimeMonotonicMs()))
+    return assert(tonumber(C.nuppNativeV2MonotonicNs())) / 1.0e6
 end
 
 --- Get number of milliseconds since the Unix epoch, 1970-01-01T00:00:00Z.
 ---
 --- @return milliseconds since the Unix epoch
 function time.wallTime(): number
-    return assert(tonumber(C.nuppTimeWallMs()))
+    return assert(tonumber(C.nuppNativeV2WallMs()))
 end
 
 ----------------------------------------------------------------------------
@@ -247419,7 +247324,7 @@ const function sleepUntilDue(maxMs: integer): integer
         slice = remaining
     end
     if slice > 0 then
-        C.nuppTimeSleepMs(slice)
+        native.succeeded(C.nuppNativeV2SleepMs(slice), 3)
     end
 
     return fireDue()

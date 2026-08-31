@@ -107,7 +107,7 @@ to every command, against a tool whose design goal is that an unchanged project
 answers in about the time it takes to start. XXH64 answers the same question in
 under a millisecond.
 
-`src/nupp/compiler/build/hash.nupp` writes it and `runtime/native/c/xxh64.c`
+`src/nupp/compiler/build/hash.nupp` writes it and the Rust base provider
 checks it. They are one contract with two spellings, and the input is read
 little-endian in both so a binary stamped on one machine verifies on another.
 
@@ -401,8 +401,10 @@ A distributed binary is deliberately none of these things.
   Nupp's compiler payload detects two native modules, and its compiler-owned
   host links exactly those features: LPeg, which backs direct LPeg patterns and every
   general `nupp.peg` matcher; and `luautf8`, which Lunamark's entity table uses.
-  The host also links libuv beneath its filesystem, process, thread and event
+  The host links libuv beneath its filesystem, thread and remaining C event
   operations; libuv is not a Lua module and has no separate feature to detect.
+  Clocks, payload trailer verification and child processes come from the
+  feature-selected Rust native archive linked into the same host.
   The official `re.lua` module remains ordinary Lua in the payload. Another
   payload selects whatever its own code and bundled dependencies need; the
   format has no opinion.

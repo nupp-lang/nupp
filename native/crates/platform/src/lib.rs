@@ -1,7 +1,8 @@
 //! Native facilities that require no asynchronous executor.
 
+#[cfg(any(target_vendor = "apple", target_os = "windows"))]
 use std::sync::OnceLock;
-use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
 #[cfg(feature = "uuid")]
 use uuid::Uuid;
 
@@ -13,9 +14,95 @@ const P5: u64 = 0x27D4_EB2F_1656_67C5;
 const SECOND_SEED: u64 = 0x9E37_79B9_7F4A_7C15;
 
 pub fn monotonic_ns() -> u64 {
-    static START: OnceLock<Instant> = OnceLock::new();
-    let elapsed = START.get_or_init(Instant::now).elapsed().as_nanos();
-    elapsed.min(u128::from(u64::MAX)) as u64
+    platform_monotonic_ns()
+}
+
+#[cfg(target_vendor = "apple")]
+#[repr(C)]
+struct MachTimebaseInfo {
+    numer: u32,
+    denom: u32,
+}
+
+#[cfg(target_vendor = "apple")]
+unsafe extern "C" {
+    fn mach_absolute_time() -> u64;
+    fn mach_timebase_info(info: *mut MachTimebaseInfo) -> i32;
+}
+
+#[cfg(target_vendor = "apple")]
+fn platform_monotonic_ns() -> u64 {
+    static TIMEBASE: OnceLock<(u64, u64)> = OnceLock::new();
+    let (numer, denom) = *TIMEBASE.get_or_init(|| {
+        let mut info = MachTimebaseInfo { numer: 0, denom: 0 };
+        // SAFETY: `info` is writable and the Darwin function fills this fixed
+        // record without retaining the pointer.
+        let status = unsafe { mach_timebase_info(&mut info) };
+        assert_eq!(status, 0, "mach_timebase_info failed");
+        assert_ne!(
+            info.denom, 0,
+            "mach_timebase_info returned a zero denominator"
+        );
+        (u64::from(info.numer), u64::from(info.denom))
+    });
+    // SAFETY: this has no arguments and returns the kernel's monotonic ticks.
+    let ticks = unsafe { mach_absolute_time() };
+    (u128::from(ticks) * u128::from(numer) / u128::from(denom)).min(u128::from(u64::MAX)) as u64
+}
+
+#[cfg(all(unix, not(target_vendor = "apple")))]
+#[repr(C)]
+struct Timespec {
+    seconds: std::os::raw::c_long,
+    nanoseconds: std::os::raw::c_long,
+}
+
+#[cfg(all(unix, not(target_vendor = "apple")))]
+unsafe extern "C" {
+    fn clock_gettime(clock: i32, time: *mut Timespec) -> i32;
+}
+
+#[cfg(all(unix, not(target_vendor = "apple")))]
+fn platform_monotonic_ns() -> u64 {
+    const CLOCK_MONOTONIC: i32 = 1;
+    let mut time = Timespec {
+        seconds: 0,
+        nanoseconds: 0,
+    };
+    // SAFETY: `time` is writable and clock_gettime does not retain it.
+    let status = unsafe { clock_gettime(CLOCK_MONOTONIC, &mut time) };
+    assert_eq!(status, 0, "clock_gettime(CLOCK_MONOTONIC) failed");
+    let seconds = u64::try_from(time.seconds).expect("monotonic seconds are non-negative");
+    let nanoseconds =
+        u64::try_from(time.nanoseconds).expect("monotonic nanoseconds are non-negative");
+    seconds
+        .saturating_mul(1_000_000_000)
+        .saturating_add(nanoseconds)
+}
+
+#[cfg(target_os = "windows")]
+#[link(name = "kernel32")]
+unsafe extern "system" {
+    fn QueryPerformanceCounter(value: *mut i64) -> i32;
+    fn QueryPerformanceFrequency(value: *mut i64) -> i32;
+}
+
+#[cfg(target_os = "windows")]
+fn platform_monotonic_ns() -> u64 {
+    static FREQUENCY: OnceLock<u64> = OnceLock::new();
+    let frequency = *FREQUENCY.get_or_init(|| {
+        let mut value = 0_i64;
+        // SAFETY: `value` is writable and the Windows API does not retain it.
+        let status = unsafe { QueryPerformanceFrequency(&mut value) };
+        assert_ne!(status, 0, "QueryPerformanceFrequency failed");
+        u64::try_from(value).expect("performance-counter frequency is positive")
+    });
+    let mut value = 0_i64;
+    // SAFETY: `value` is writable and the Windows API does not retain it.
+    let status = unsafe { QueryPerformanceCounter(&mut value) };
+    assert_ne!(status, 0, "QueryPerformanceCounter failed");
+    let ticks = u64::try_from(value).expect("performance-counter reading is non-negative");
+    (u128::from(ticks) * 1_000_000_000 / u128::from(frequency)).min(u128::from(u64::MAX)) as u64
 }
 
 pub fn wall_ms() -> u64 {
@@ -26,8 +113,21 @@ pub fn wall_ms() -> u64 {
         .min(u128::from(u64::MAX)) as u64
 }
 
-pub fn sleep_ms(milliseconds: u64) {
-    std::thread::sleep(Duration::from_millis(milliseconds));
+pub fn sleep_ms(milliseconds: f64) -> Result<(), &'static str> {
+    if !milliseconds.is_finite() || milliseconds < 0.0 {
+        return Err("sleep duration must be a finite non-negative number");
+    }
+    if milliseconds == 0.0 {
+        return Ok(());
+    }
+    // `Duration::from_secs_f64` keeps the sub-millisecond part instead of
+    // rounding the public Nupp duration down to an integer. Bound the input at
+    // the longest wait the former Windows implementation admitted; callers use
+    // deadlines and repeat bounded waits, so longer values did not mean an
+    // uninterruptible sleep there either.
+    let bounded = milliseconds.min(f64::from(u32::MAX - 1));
+    std::thread::sleep(Duration::from_secs_f64(bounded / 1_000.0));
+    Ok(())
 }
 
 #[cfg(feature = "uuid")]
@@ -168,8 +268,18 @@ mod tests {
     #[test]
     fn clocks_have_explicit_units() {
         let before = monotonic_ns();
-        sleep_ms(1);
+        sleep_ms(1.0).unwrap();
         assert!(monotonic_ns() >= before);
         assert!(wall_ms() > 1_500_000_000_000);
+    }
+
+    #[test]
+    fn sleep_preserves_fractional_milliseconds_and_rejects_invalid_values() {
+        let started = std::time::Instant::now();
+        sleep_ms(0.25).unwrap();
+        assert!(started.elapsed() >= Duration::from_micros(250));
+        assert!(sleep_ms(-1.0).is_err());
+        assert!(sleep_ms(f64::NAN).is_err());
+        assert!(sleep_ms(f64::INFINITY).is_err());
     }
 }

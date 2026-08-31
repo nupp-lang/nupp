@@ -7,6 +7,7 @@
 -- could break it.
 local time = require("nupp.time")
 local suspension = require("nupp.suspension")
+local native = require("nupp.compiler.native")
 
 local M = {}
 
@@ -47,6 +48,12 @@ function M.sleepWaitsAtLeastTheRequestedDuration()
    local started = time.now()
    time.sleep(25)
    assertTrue(time.now() - started >= 25, "sleep returned early")
+end
+
+function M.fractionalSleepKeepsItsSubMillisecondPart()
+   local started = time.now()
+   time.sleep(1.5)
+   assertTrue(time.now() - started >= 1.5, "fractional sleep returned early")
 end
 
 function M.sleepingForNothingDoesNotPark()
@@ -137,6 +144,16 @@ function M.aSleepInsideAHandlerParksRatherThanBlocking()
 
    assertEq(parked, 1, "the sleep did not reach the installed handler")
    assertTrue(time.now() - started >= 25, "the parked sleep returned early")
+end
+
+function M.timeSelectsTheRustBaseProvider()
+   local feature = assert(native.feature("native.time"))
+   assertEq(feature.provider, "nupp_native_v2", "time provider")
+   assertEq(feature.providerDriver, "native-rust", "time provider driver")
+   assertEq(feature.providerFeature, "base", "time provider feature")
+   local expanded = native.expand({["native.time"] = true})
+   assertTrue(expanded["runtime.native_v2"], "time omitted the Rust ABI runtime")
+   assertTrue(not expanded["runtime.native"], "time retained the legacy C ABI runtime")
 end
 
 return M

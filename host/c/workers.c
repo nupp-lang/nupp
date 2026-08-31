@@ -28,9 +28,13 @@
 #define MAX_CHANNEL_SCHEMAS 254u
 #define MAX_SCHEMA_FIELDS 16u
 
-/* The one native monotonic provider exported by the common runtime. Worker
+/* The one native monotonic provider exported by the Rust base runtime. Worker
  * deadlines read it rather than defining another clock surface here. */
-extern double nuppTimeMonotonicMs(void);
+extern uint64_t nuppNativeV2MonotonicNs(void);
+
+static double monotonic_ms(void) {
+    return (double)nuppNativeV2MonotonicNs() / 1.0e6;
+}
 
 /* --- threads ------------------------------------------------------------ */
 
@@ -1525,7 +1529,7 @@ static int worker_task_start(lua_State *state) {
         MUTEX_LOCK(&worker->taskGuard);
         task = worker_task_find(worker, id);
         if (task != NULL && task->status == TASK_QUEUED) {
-            deadline = task->hasDeadline && nuppTimeMonotonicMs() >= task->deadline;
+            deadline = task->hasDeadline && monotonic_ms() >= task->deadline;
             if (deadline) {
                 task->status = TASK_CANCELLED;
             } else {
@@ -1550,7 +1554,7 @@ static int worker_task_checkpoint(lua_State *state) {
         MUTEX_LOCK(&worker->taskGuard);
         task = worker_task_find(worker, worker->currentTask);
         if (task != NULL) {
-            deadline = task->hasDeadline && nuppTimeMonotonicMs() >= task->deadline;
+            deadline = task->hasDeadline && monotonic_ms() >= task->deadline;
             cancelled = deadline || task->status == TASK_CANCEL_REQUESTED
                 || task->status == TASK_CANCELLED;
             if (cancelled && task->status == TASK_RUNNING) {
@@ -1574,7 +1578,7 @@ static int worker_task_finish(lua_State *state) {
         MUTEX_LOCK(&worker->taskGuard);
         task = worker_task_find(worker, id);
         if (task != NULL) {
-            deadline = task->hasDeadline && nuppTimeMonotonicMs() >= task->deadline;
+            deadline = task->hasDeadline && monotonic_ms() >= task->deadline;
             cancelled = deadline || task->status == TASK_CANCEL_REQUESTED
                 || task->status == TASK_CANCELLED;
             task->status = TASK_DONE;

@@ -184,10 +184,12 @@ local FEATURES: {[string]: native.Feature} = {
         module = "nupp.time",
         exports = {"nupp.tasks.runFor"},
         runtimeModule = "nupp.time",
-        provider = "nupp_native",
-        library = "nupp_native",
+        provider = "nupp_native_v2",
+        providerDriver = "native-rust",
+        providerFeature = "base",
+        library = "nupp_native_v2",
         binary = true,
-        requires = {"runtime.suspension", "runtime.native"},
+        requires = {"runtime.suspension", "runtime.native_v2"},
     },
     ["native.net"] = {
         name = "net",
@@ -227,12 +229,13 @@ local FEATURES: {[string]: native.Feature} = {
         -- backend ABI is not something to promise by accident.
         module = "nupp.io.process",
         runtimeModule = "nupp.io.process",
-        provider = "nupp_native",
+        provider = "nupp_native_v2",
+        providerDriver = "native-rust",
         providerFeature = "process",
         host = "native-process",
-        library = "nupp_native",
+        library = "nupp_native_v2",
         binary = true,
-        requires = {"runtime.suspension"},
+        requires = {"runtime.suspension", "runtime.native_v2"},
     },
     [
         "native.workers"

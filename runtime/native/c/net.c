@@ -7,8 +7,8 @@
  *
  * A reactor per lane rather than one for the process. A loop is created by
  * whoever will drive it and never shared, because a libuv loop is not
- * thread-safe and worker lanes are threads: `process.c`'s process-wide loop is
- * safe only because one lane spawns, and a listener is not that. Every handle
+ * thread-safe and worker lanes are threads. The Rust process provider has its
+ * own shared executor and is deliberately not coupled to this loop. Every handle
  * belongs to the loop it was made on, which is also what `uv_accept` requires.
  *
  * Nothing here calls Lua. Progress lands in buffers and counters that the Lua

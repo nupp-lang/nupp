@@ -1,4 +1,5 @@
 #include "nupp_native.h"
+#include "nupp_native_v2.h"
 
 #include <stdint.h>
 #include <stdio.h>
@@ -19,7 +20,7 @@ static void fail(const char *what) {
 
 static double batch(const char *path, int concurrency) {
     NuppRequest **requests = calloc((size_t)concurrency, sizeof *requests);
-    double started = nupp_monotonic_ms();
+    double started = (double)nuppNativeV2MonotonicNs() / 1.0e6;
     int submitted;
     int pending = concurrency;
     int index;
@@ -44,7 +45,7 @@ static double batch(const char *path, int concurrency) {
         }
     }
     free(requests);
-    return nupp_monotonic_ms() - started;
+    return (double)nuppNativeV2MonotonicNs() / 1.0e6 - started;
 }
 
 int main(int argc, char **argv) {

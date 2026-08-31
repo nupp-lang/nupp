@@ -283,7 +283,8 @@ end
 ---
 --- XXH64 of the payload under seed zero. This is the one number in this file
 --- that a *reader elsewhere* has to arrive at: the stub recomputes it in
---- `runtime/native/c/xxh64.c` before handing a byte of the payload to Lua, so
+--- the statically linked Rust base provider before handing a byte of the payload
+--- to Lua, so
 --- the two implementations are one contract and `tests/hostbinarytest.lua` is
 --- what holds them to it.
 ---

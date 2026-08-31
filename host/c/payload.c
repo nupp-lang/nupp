@@ -31,17 +31,17 @@
 #define PAYLOAD_FLAGS_KNOWN PAYLOAD_FLAG_BYTECODE
 
 /* The trailer's digest is checked before a byte of the payload is handed to
- * Lua, on every run, so it cannot be the Nupp implementation the rest of the
- * program uses: it is the check that decides whether that program may run at
- * all. What it can be is cheap. See `nupp_xxh64.h` for why this is not a
- * cryptographic digest and what that does and does not buy. */
-#include "nupp_xxh64.h"
+ * Lua, on every run. The Rust base provider is linked statically into the host,
+ * so this check does not depend on loading the payload or a sidecar first. */
+#include "nupp_native_v2.h"
 
 void nupp_host_digest_prefix(const uint8_t *bytes, size_t length, uint8_t out[8]) {
-    uint64_t digest = nuppXxh64(bytes, length);
-    size_t at;
-    for (at = 0; at < 8; at++) {
-        out[at] = (uint8_t)((digest >> (8 * at)) & 0xFFu);
+    if (nuppNativeV2TrailerDigest(bytes, length, out) != NUPP_NATIVE_V2_OK) {
+        /* The host always supplies a valid slice and fixed output. Keep a
+         * deterministic mismatch if an incompatible static provider somehow
+         * reaches this impossible branch; the ordinary integrity error remains
+         * safer than handing an unchecked payload to Lua. */
+        memset(out, 0, 8);
     }
 }
 

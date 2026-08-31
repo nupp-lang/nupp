@@ -1,0 +1,17 @@
+[package]
+name = "nupp-native-process"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+
+[lib]
+path = "src/lib.rs"
+
+[dependencies]
+nupp-native-runtime = { path = "../runtime", features = ["async"] }
+tokio = { version = "1", features = ["io-util", "macros", "net", "process", "sync", "time"] }
+tokio-util = { version = "0.7", features = ["rt"] }
+
+[target.'cfg(unix)'.dependencies]
+libc = "0.2"

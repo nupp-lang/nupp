@@ -525,9 +525,11 @@ build_rust_native() {
     out="$RUST_BUILD_ROOT/native/$digest"
     filename=$(rust_library_filename)
     RUST_NATIVE_OUT="$out/target/release/$filename"
+    RUST_NATIVE_STATIC_OUT="$out/target/release/libnupp_native_v2.a"
 
     take_lock "rust-native-$digest" "$out/.complete" || return 0
     [ -f "$out/.complete" ] && [ -f "$RUST_NATIVE_OUT" ] \
+        && [ -f "$RUST_NATIVE_STATIC_OUT" ] \
         && { release_lock; return 0; }
 
     note "building the Rust native provider with $RUSTC"
@@ -566,6 +568,8 @@ EOF
     CC="$CC" CXX="$CXX" RUSTC="$RUSTC" "$@" >&2
     [ -f "$RUST_NATIVE_OUT" ] \
         || die "Cargo built nupp-native but did not write $RUST_NATIVE_OUT"
+    [ -f "$RUST_NATIVE_STATIC_OUT" ] \
+        || die "Cargo built nupp-native but did not write $RUST_NATIVE_STATIC_OUT"
     printf 'done\n' > "$out/.complete"
     release_lock
 }
@@ -911,12 +915,10 @@ build_mbedtls() {
 # Which C a feature is. The names are the ones the compiler's feature registry
 # uses, so this file and that registry are the two halves of one list.
 provider_sources() {
-    # `xxh64.c` is in the base rather than behind a feature: it is the digest a
-    # stamped binary's trailer is checked with, which is not optional. SHA-256
-    # is not here at all any more -- `nupp.data.sha256` is Nupp, and the one
-    # remaining C copy is compiled directly by the playground's own build for
-    # its bundle check.
-    printf '%s' "c/common.c c/xxh64.c"
+    # Common C ownership remains while the filesystem, network and TLS providers
+    # migrate. Clocks, XXH64 and processes are Rust providers, including
+    # the digest a stamped host links statically for pre-Lua payload checking.
+    printf '%s' "c/common.c"
     case " $1 " in
         *" files "*|*" native-files "*|*" filesystem "*) printf '%s' " c/files.c" ;;
     esac
@@ -924,7 +926,10 @@ provider_sources() {
         case "$feature" in
             files|native-files) printf '%s' " c/glob.c c/fslane.c" ;;
             filesystem) ;;
-            process|native-process) printf '%s' " c/process.c" ;;
+            process) die "process is a Rust-native provider feature" ;;
+            # The host flag controls whether the process module is embedded;
+            # its provider implementation is selected from the Rust archive.
+            native-process) ;;
             net|native-net)    printf '%s' " c/net.c" ;;
             tls|native-tls)    printf '%s' " c/tls.c" ;;
             # Host-only features select no provider source of their own.
@@ -1128,9 +1133,26 @@ build_native_library() {
 # decide which C is compiled and which staged library is linked.
 build_host() {
     kind=$1
+    # This helper assigns shell-global scratch names (`out`, `digest`, `sorted`).
+    # Build the mandatory static base before deriving the host's own values so
+    # the provider cannot replace the host cache path underneath this function.
     features=$(printf '%s' "${2:-}" | tr ',' ' ')
     sorted=$(printf '%s\n' $features | sort | tr '\n' ' ')
-    digest=$(printf '%s|%s|%s' "$kind" "$sorted" "$(sources_digest)" | sha256_stdin | cut -c1-16)
+    rust_features=base
+    case " $sorted " in
+        *" native-process "*|*" process "*) rust_features=base,process ;;
+    esac
+    host_features=$features
+    host_sorted=$sorted
+    build_rust_native "$rust_features"
+    rust_base=$RUST_NATIVE_STATIC_OUT
+    # build_rust_native uses the driver's shell-global scratch names. Restore
+    # the host feature set before it contributes to the cache key or selects C.
+    features=$host_features
+    sorted=$host_sorted
+    digest=$(printf '%s|%s|%s|%s' \
+        "$kind" "$sorted" "$(sources_digest)" "$(rust_sources_digest)" \
+        | sha256_stdin | cut -c1-16)
     out="$PREFIX/host/$digest"
     HOST_OUT="$out"
 
@@ -1189,6 +1211,9 @@ build_host() {
             native-process)
                 defines=$(printf '%s' "$defines" | sed 's/-DNUPP_FEATURE_NATIVE_PROCESS=0/-DNUPP_FEATURE_NATIVE_PROCESS=1/')
                 ;;
+            # Rust provider features select archive contents above. They are
+            # not C host capabilities and add no provider source here.
+            base|process) ;;
             *) die "unknown host feature $feature" ;;
         esac
     done
@@ -1209,6 +1234,7 @@ build_host() {
         # shellcheck disable=SC2086
         "$CC" -c -std=gnu11 -O2 -DNDEBUG -Wall -Wextra $defines \
             -I"$ROOT/host/c" -I"$ROOT/host/include" -I"$ROOT/runtime/native/c" \
+            -I"$ROOT/native/include" \
             -I"$include" $uvInclude $tlsInclude -o "$object" "$full" >&2
         objects="$objects $object"
     done
@@ -1229,6 +1255,14 @@ build_host() {
     esac
 
     if [ "$kind" = library ]; then
+        # An embedding application gets one archive. Merge the Rust base members
+        # into it so payload verification cannot acquire a hidden second link
+        # input merely because the implementation crossed languages.
+        mkdir -p "$out/rust-objects"
+        (cd "$out/rust-objects" && ar x "$rust_base")
+        for object in "$out"/rust-objects/*.o; do
+            objects="$objects $object"
+        done
         # shellcheck disable=SC2086
         ar rcs "$out/libnupp.a" $objects
         cp "$luajit_prefix/lib/libluajit-5.1.a" "$out/libluajit.a" 2>/dev/null || true
@@ -1236,7 +1270,7 @@ build_host() {
         mkdir -p "$out"
         # shellcheck disable=SC2086
         "$linker" -o "$out/nupp-host" \
-            $objects $libraries "$uv_prefix/lib/libuv.a" \
+            $objects $libraries "$rust_base" "$uv_prefix/lib/libuv.a" \
             "$luajit_prefix/lib/libluajit-5.1.a" $platform_libraries >&2
     fi
     printf 'done\n' > "$out/.complete"
@@ -1256,6 +1290,7 @@ link_host() {
 
     build_host stub "$features"
     host_out=$HOST_OUT
+    rust_base=$RUST_NATIVE_STATIC_OUT
     archives=""
     while [ "$#" -gt 0 ] && [ "$1" != "--" ]; do
         archives="$archives
@@ -1288,7 +1323,7 @@ $1"
                 ;;
         esac
     done
-    set -- "$@" "$PREFIX/libuv/lib/libuv.a" "$PREFIX/luajit/lib/libluajit-5.1.a"
+    set -- "$@" "$rust_base" "$PREFIX/libuv/lib/libuv.a" "$PREFIX/luajit/lib/libluajit-5.1.a"
 
     if [ -n "$archives" ]; then
         case "$PLATFORM" in

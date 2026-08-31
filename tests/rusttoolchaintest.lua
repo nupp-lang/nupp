@@ -121,7 +121,10 @@ done
 [ -n "$target" ] || exit 3
 mkdir -p "$target/release"
 case "$package" in
-   nupp-native) artifact=$NUPP_TEST_RUST_LIBRARY ;;
+   nupp-native)
+      artifact=$NUPP_TEST_RUST_LIBRARY
+      printf '%%s\n' built > "$target/release/libnupp_native_v2.a"
+      ;;
    nupp-native-host)
       [ "$binary" = nupp-host-rust ] || exit 4
       artifact=$NUPP_TEST_RUST_HOST

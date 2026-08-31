@@ -170,7 +170,7 @@ function M.theNativeContentDigestMatchesThePortableOne()
    end
 end
 
--- The eight bytes a stamped binary's trailer records. `runtime/native/c/xxh64.c`
+-- The eight bytes a stamped binary's trailer records. The Rust base provider
 -- recomputes them on every run of that binary before handing a byte of the
 -- payload to Lua, so this is one contract with two spellings and these are the
 -- numbers both have to produce. The order matters as much as the value: the

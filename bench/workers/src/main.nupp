@@ -3,7 +3,7 @@ const ffi = require("ffi")
 const workers = require("nupp.workers")
 local workerRuntime = workers as any
 
-ffi.cdef[[double nuppTimeMonotonicMs(void);]]
+ffi.cdef[[uint64_t nuppNativeV2MonotonicNs(void);]]
 const C = ffi.C
 
 -- The host clock is part of this benchmark fixture, not measured work.
@@ -21,7 +21,7 @@ local type Row = {
 }
 
 local function now(): number
-    return tonumber(C.nuppTimeMonotonicMs()) as number
+    return tonumber(C.nuppNativeV2MonotonicNs()) as number / 1.0e6
 end
 
 local function median(values: {number}): number

@@ -34,6 +34,7 @@
 #define NUPP_NATIVE_V2_FEATURE_GPU (UINT64_C(1) << 2)
 #define NUPP_NATIVE_V2_FEATURE_URI (UINT64_C(1) << 3)
 #define NUPP_NATIVE_V2_FEATURE_HTTP (UINT64_C(1) << 4)
+#define NUPP_NATIVE_V2_FEATURE_PROCESS (UINT64_C(1) << 5)
 
 #ifdef __cplusplus
 extern "C" {
@@ -51,9 +52,11 @@ NUPP_NATIVE_V2_EXPORT int32_t nuppNativeV2BytesRelease(uint64_t handle);
 
 NUPP_NATIVE_V2_EXPORT uint64_t nuppNativeV2MonotonicNs(void);
 NUPP_NATIVE_V2_EXPORT uint64_t nuppNativeV2WallMs(void);
-NUPP_NATIVE_V2_EXPORT int32_t nuppNativeV2SleepMs(uint64_t milliseconds);
+NUPP_NATIVE_V2_EXPORT int32_t nuppNativeV2SleepMs(double milliseconds);
 NUPP_NATIVE_V2_EXPORT int32_t nuppNativeV2Xxh64Digest(
     const uint8_t *data, size_t length, uint8_t *output, size_t capacity);
+NUPP_NATIVE_V2_EXPORT int32_t nuppNativeV2TrailerDigest(
+    const uint8_t *data, size_t length, uint8_t output[8]);
 
 /* Present when NUPP_NATIVE_V2_FEATURE_UUID is set. Both outputs require a
  * capacity of at least 37 bytes and include their trailing NUL. */
@@ -171,6 +174,67 @@ NUPP_NATIVE_V2_EXPORT int32_t nuppNativeV2HttpClientWait(
     uint64_t client, uint64_t wait_ms,
     NuppNativeV2HttpReady *output, size_t capacity,
     size_t *count, int32_t *more);
+
+/* Present when NUPP_NATIVE_V2_FEATURE_PROCESS is set. The complete spawn
+ * descriptor is copied synchronously. Child and stream values are opaque
+ * generational handles; absent streams are zero. */
+typedef struct {
+    const uint8_t *data;
+    size_t length;
+} NuppNativeV2ProcessSlice;
+
+typedef struct {
+    NuppNativeV2ProcessSlice name;
+    NuppNativeV2ProcessSlice value;
+} NuppNativeV2ProcessEnv;
+
+typedef struct {
+    const NuppNativeV2ProcessSlice *args;
+    size_t arg_count;
+    const NuppNativeV2ProcessEnv *env;
+    size_t env_count;
+    NuppNativeV2ProcessSlice cwd;
+    int32_t cwd_present;
+    int32_t clear_env;
+    uint8_t stdin_mode;
+    uint8_t stdout_mode;
+    uint8_t stderr_mode;
+} NuppNativeV2ProcessSpawn;
+
+typedef struct {
+    uint64_t process;
+    uint64_t stdin_stream;
+    uint64_t stdout_stream;
+    uint64_t stderr_stream;
+    uint32_t pid;
+} NuppNativeV2ProcessStarted;
+
+typedef struct {
+    int32_t ready;
+    int32_t code;
+    int32_t killed;
+} NuppNativeV2ProcessExit;
+
+NUPP_NATIVE_V2_EXPORT int32_t nuppNativeV2ProcessSpawn(
+    const NuppNativeV2ProcessSpawn *spawn, NuppNativeV2ProcessStarted *output);
+NUPP_NATIVE_V2_EXPORT int32_t nuppNativeV2ProcessPollExit(
+    uint64_t process, NuppNativeV2ProcessExit *output);
+NUPP_NATIVE_V2_EXPORT int32_t nuppNativeV2ProcessKill(
+    uint64_t process, int32_t force);
+NUPP_NATIVE_V2_EXPORT int32_t nuppNativeV2ProcessRelease(uint64_t process);
+NUPP_NATIVE_V2_EXPORT int32_t nuppNativeV2ProcessStreamRead(
+    uint64_t stream, uint8_t *output, size_t capacity,
+    uint32_t *state, size_t *length);
+NUPP_NATIVE_V2_EXPORT int32_t nuppNativeV2ProcessStreamWrite(
+    uint64_t stream, const uint8_t *data, size_t length,
+    uint32_t *state, size_t *accepted);
+NUPP_NATIVE_V2_EXPORT int32_t nuppNativeV2ProcessStreamRelease(uint64_t stream);
+NUPP_NATIVE_V2_EXPORT int32_t nuppNativeV2ProcessWait(
+    uint64_t process,
+    const uint64_t *readable, size_t readable_count,
+    const uint64_t *writable, size_t writable_count,
+    uint64_t timeout_ms, size_t *ready);
+NUPP_NATIVE_V2_EXPORT size_t nuppNativeV2ProcessAbandonedTotal(void);
 
 /* Present when NUPP_NATIVE_V2_FEATURE_GPU is set. Every object is an opaque,
  * generational integer handle; no provider-owned pointer crosses the ABI. */
