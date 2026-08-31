@@ -55,6 +55,11 @@ type manifest.Target = {
     --- stamping the payload, producing an executable with no native sidecars.
     standalone: boolean?,
 
+    --- How linked AOT code reaches its consumer. Static archives are consumed
+    --- by a standalone host or by an embedding application, never mapped by
+    --- the generated component.
+    aotLinkage: string?,
+
     --- Compiler-owned distribution platforms. Their public spellings are target
     --- triples; only triples with cataloged native stubs are accepted.
     platforms: {string}?,
@@ -300,6 +305,7 @@ local TARGET_KEYS = {
     "kind",
     "optimize",
     "aot",
+    "aotLinkage",
     "aotFeatures",
     "aotTarget",
     "aotCflags",
@@ -710,6 +716,21 @@ local function validateTarget(target, label, dependencies)
             target.aot == "emit-wasm" or target.aot == "require-wasm"
         ) and target.aotTarget ~= nil and target.aotTarget ~= "wasm32-unknown-emscripten" then
             return nil, label .. ".aot = \"" .. target.aot .. "\" fixes aotTarget to wasm32-unknown-emscripten"
+        end
+    end
+    if target.aotLinkage ~= nil then
+        local valid, err = validateString(target.aotLinkage, label .. ".aotLinkage")
+        if not valid then
+            return nil, err
+        end
+        if target.aotLinkage ~= "shared" and target.aotLinkage ~= "static" then
+            return nil, label .. ".aotLinkage must be \"shared\" or \"static\""
+        end
+        if target.aotLinkage == "static" and kind ~= "component" and not target.standalone then
+            return nil, label .. ".aotLinkage = \"static\" requires a component or standalone binary target"
+        end
+        if target.aotLinkage == "shared" and target.standalone then
+            return nil, label .. ".standalone requires aotLinkage = \"static\""
         end
     end
     if target.aotTarget ~= nil then

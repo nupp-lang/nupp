@@ -108,6 +108,16 @@ NUPP_API nupp_status nupp_runtime_preload(
     nupp_error **error
 );
 
+/* Calls an AOT archive registrar with this runtime's Lua state and stores the
+ * returned table under `key`. It must happen before a component using that
+ * archive is loaded. */
+NUPP_API nupp_status nupp_runtime_register_aot_builders(
+    nupp_runtime *runtime,
+    const char *key,
+    nupp_lua_CFunction registrar,
+    nupp_error **error
+);
+
 NUPP_API nupp_status nupp_component_load(
     nupp_runtime *runtime,
     const void *bytes,

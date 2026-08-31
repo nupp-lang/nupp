@@ -332,6 +332,25 @@ function binding.builderLoader(
     detector: boolean?
 ): {string}
     local prefix = program.symbol .. "_builder"
+    if library == nil then
+        -- A static archive's registrar has the Lua C-module ABI, so generated
+        -- Lua cannot call it: only the embedding host owns lua_State. The host
+        -- registers its returned table before this component is loaded.
+        local key = tostring(program.registrar)
+        return {
+            "local function " .. prefix .. "Load()",
+            "    local modules: any = rawget(_G, \"__nuppAotBuilderModules\")",
+            "    local registered: any = modules and modules[" .. string.format("%q", key) .. "]",
+            "    if type(registered) ~= \"table\" then error(\"AOT builder archive is not registered: "
+            .. key
+            .. "\", 0) end",
+            "    local builder: any = registered[" .. string.format("%q", program.name) .. "]",
+            "    if type(builder) ~= \"function\" then error(\"AOT builder registration is malformed\", 0) end",
+            "    return builder",
+            "end",
+            "local " .. prefix .. " = " .. prefix .. "Load()",
+        }
+    end
     local relative = library:match("^@(.+)$") or library
     local registrar = tostring(program.registrar)
     local lines: {string} = {}

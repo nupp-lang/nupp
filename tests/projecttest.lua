@@ -2344,6 +2344,7 @@ local function triangular(count: integer): number
    end
    return result
 end
+
 print(triangular(4))
 ]],
    })
@@ -2361,6 +2362,45 @@ print(triangular(4))
    local code, text = process.capture({dir .. "/out/app"})
    assertEq(code, 0, text)
    assertEq(text:match("[^\r\n]+"), "10", "the executable resolves its AOT entry internally")
+   remove(dir)
+end
+
+function M.staticAotComponentProducesAnArchiveAndDefaultNamespaceBinding()
+   local dir = tempProject({
+      ["src/main.nupp"] = [[
+@aot(lanes = false)
+local function triangular(count: integer): number
+   local result = 0.0
+   for index = 1, count do result = result + index end
+   return result
+end
+return {triangular = triangular}
+]],
+   })
+   write(dir .. "/nupp.lua", ([=[return {include = {"src"}, build = {kind = "component",
+      aot = "require", aotLinkage = "static", outDir = %q,
+      output = %q, entries = {"main"}}}]=]):format(dir .. "/out", dir .. "/out/component.lua"))
+   if require("nupp.compiler.build.aot").toolchain() == nil then remove(dir); return require("assert").skip("C compiler is unavailable") end
+   assertEq(project.build(dir), 0)
+   assert(exists(dir .. "/out/lib/libdefault_aot.a"), "static component AOT emits an archive")
+   assert(not read(dir .. "/out/component.lua"):find('from"@lib/', 1, true), "static component binds through ffi.C")
+   remove(dir)
+end
+
+function M.staticAotComponentRegistersLuaBuildersThroughTheHost()
+   local dir = tempProject({["src/main.nupp"] = [[
+@aot(lanes = false)
+local function make(): {string: any} return {ready = true} end
+return {make = make}
+]]})
+   write(dir .. "/nupp.lua", ([=[return {include = {"src"}, build = {kind = "component",
+      aot = "require", aotLinkage = "static", outDir = %q,
+      output = %q, entries = {"main"}}}]=]):format(dir .. "/out", dir .. "/out/component.lua"))
+   if require("nupp.compiler.build.aot").toolchain() == nil then remove(dir); return require("assert").skip("C compiler is unavailable") end
+   assertEq(project.build(dir), 0)
+   local component = read(dir .. "/out/component.lua")
+   assert(component:find("__nuppAotBuilderModules", 1, true), "static builder reads host registration")
+   assert(not component:find("package.loadlib", 1, true), "static builder does not dynamically load")
    remove(dir)
 end
 

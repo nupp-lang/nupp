@@ -266,6 +266,23 @@ nupp_status nupp_runtime_preload(
         NUPP_ERROR_CONFIGURATION);
 }
 
+nupp_status nupp_runtime_register_aot_builders(
+    nupp_runtime *runtime, const char *key, nupp_lua_CFunction registrar, nupp_error **error
+) {
+    nupp_status status = NUPP_STATUS_OK;
+    begin_error(error);
+    if (!have_runtime(runtime, error, &status)) {
+        return status;
+    }
+    if (key == NULL || key[0] == '\0' || registrar == NULL) {
+        return refuse(error, NUPP_STATUS_INVALID_ARGUMENT, NUPP_ERROR_CONFIGURATION,
+            "registering AOT builders needs a key and a registrar");
+    }
+    return settled(error,
+        nupp_host_register_aot_builders((NuppRuntime *)runtime, key, (lua_CFunction)registrar),
+        NUPP_ERROR_CONFIGURATION);
+}
+
 /* --- components --------------------------------------------------------- */
 
 nupp_status nupp_component_load(

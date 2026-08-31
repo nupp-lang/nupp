@@ -105,6 +105,26 @@ end
 --- rather than swallowing one.
 local REFUSED = {}
 
+--- Every emitted symbol lives in the process-wide C namespace when an archive
+--- is linked statically. Qualify by source before either shared or static
+--- linkage is selected, so C emission and its cache have one identity.
+local function qualifySymbols(programs: {scalarIR.Program}, filename: string): nil
+    local identity = hash.digest(filename):sub(1, 16)
+    local registrars: {[string]: string} = {}
+    for _, program in ipairs(programs) do
+        program.symbol = "ks_" .. identity .. "_" .. program.symbol:sub(4)
+        if program.registrar ~= nil then
+            local registrar = program.registrar as string
+            local qualified = registrars[registrar]
+            if qualified == nil then
+                qualified = "ks_register_" .. identity .. "_" .. registrar:sub(#"ks_register_" + 1)
+                registrars[registrar] = qualified
+            end
+            program.registrar = qualified
+        end
+    end
+end
+
 --- Where one `@aot` declaration was written, as byte offsets.
 ---
 --- From the first annotation rather than from the function, because replacing
@@ -710,7 +730,8 @@ function compile.artifacts(
     library: string,
     selected: targets.Target,
     symbolTier: string?,
-    constPlans: {any}?
+    constPlans: {any}?,
+    staticLinkage: boolean?
 ): (compile.Artifacts?, {compile.Diagnostic})
     local programs, diagnostics, sites = compile.lower(source, filename, parsed)
     if #diagnostics > 0 then
@@ -802,6 +823,16 @@ function compile.artifacts(
             optimizations[#optimizations + 1] = (constArtifacts as compile.Artifacts).optimizations[position]
             loopReports[#loopReports + 1] = (constArtifacts as compile.Artifacts).loops[position]
         end
+    end
+
+    -- The checker identifies a private declaration by its logical symbol, so
+    -- that name must survive lowering and verification. C has one process-wide
+    -- namespace, however, and separate component archives can otherwise both
+    -- export `ks_main`. Change the ABI spelling only after those checks; the
+    -- emitted C and generated binding then agree on the qualified name. Shared
+    -- libraries already have their own linker namespace; an archive does not.
+    if staticLinkage then
+        qualifySymbols(cpuPrograms, filename)
     end
 
     local generatedGpuBindings: {string} = {}

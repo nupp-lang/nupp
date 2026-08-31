@@ -991,7 +991,8 @@ function aot.emitC(
     previous: {[string]: string},
     session: nupp.compiler.build.modules.Session,
     features: string?,
-    triple: string?
+    triple: string?,
+    staticLinkage: boolean?
 ): ({aot.Emitted}?, string?, {[string]: compile.Artifacts}, {[string]: {any}}, any?, {string})
     local produced: {[string]: compile.Artifacts} = {}
     local gpuSources: {string} = {}
@@ -1065,7 +1066,8 @@ function aot.emitC(
                     "<object>",
                     tierTarget,
                     tierTarget.tier,
-                    constPlans
+                    constPlans,
+                    staticLinkage
                 )
                 if artifacts == nil then
                     -- A file that only mentioned the annotation is not
@@ -1285,7 +1287,7 @@ function aot.apply(
     features: string?,
     triple: string?,
     cflags: {string}?,
-    standalone: boolean?
+    linkage: string?
 ): (aot.Result?, string?)
     local wasmPolicy = aot.linksWasm(policy)
     if wasmPolicy then
@@ -1299,7 +1301,8 @@ function aot.apply(
         previous,
         session,
         features,
-        triple
+        triple,
+        linkage == "static"
     )
     if emitted == nil then
         return nil, emitErr
@@ -1428,13 +1431,14 @@ function aot.apply(
         end
     end
 
+    local static = linkage == "static"
     local shared, suffix = aot.linkage(selected, needsLua)
-    if standalone then
+    if static then
         shared, suffix = {"static"}, ".a"
     end
     local library = aot.libraryPath(outDir, name, suffix)
     local reference = nil
-    if not standalone then
+    if not static then
         reference = aot.libraryReference(name, suffix)
     end
     local keyedFlags: {string} = {}
@@ -1462,7 +1466,7 @@ function aot.apply(
             library,
             cflags,
             needsLua,
-            standalone
+            static
         )
         if linkErr ~= nil then
             return nil, tostring(linkErr)

@@ -219,6 +219,10 @@ local function buildOne(root: string?, opts: project.BuildOptions?): integer
             io.stderr:write("nupp: --standalone requires a binary target with stub = \"nupp\"\n")
             return 1
         end
+        if target.aotLinkage == "shared" then
+            io.stderr:write("nupp: --standalone requires aotLinkage = \"static\"\n")
+            return 1
+        end
         target.standalone = true
     end
     local dialectLabel = opts.dialect ~= nil and "--dialect" or "dialect"
@@ -417,6 +421,7 @@ local function buildOne(root: string?, opts: project.BuildOptions?): integer
     local aotOverlays: {[string]: string}? = nil
     local aotAuthoredUnused: {[string]: {any}}? = nil
     local aotLibrary: string? = nil
+    local aotLinkage = target.aotLinkage or (target.standalone and "static" or "shared")
     local aotManifest: string? = nil
     local aotWasmModules: {string} = {}
     if not opts.checkOnly and aotPolicy.POLICIES[target.aot or "off"] and target.aot ~= nil and target.aot ~= "off" then
@@ -439,7 +444,7 @@ local function buildOne(root: string?, opts: project.BuildOptions?): integer
             target.aotFeatures as string?,
             target.aotTarget as string?,
             target.aotCflags as {string}?,
-            target.standalone
+            aotLinkage
         )
         report:clear()
         if produced == nil then
@@ -729,7 +734,7 @@ local function buildOne(root: string?, opts: project.BuildOptions?): integer
         -- beside the module that calls it, and for these kinds that module is
         -- the artifact, so the copy goes beside the artifact rather than staying
         -- in the build directory the artifact was assembled in.
-        if aotLibrary ~= nil and not target.standalone then
+        if aotLibrary ~= nil and aotLinkage == "shared" then
             local beside = join(dirname(output), "lib/" .. basename(aotLibrary as string))
             local copied, copyErr = copyFile(aotLibrary as string, beside)
             if not copied then

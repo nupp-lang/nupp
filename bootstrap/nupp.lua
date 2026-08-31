@@ -4365,6 +4365,25 @@ tiers ,
 detector
 ) 
 local prefix = program . symbol .. "_builder"
+if library == nil then
+
+
+
+local key = tostring ( program . registrar )
+return {
+"local function " .. prefix .. "Load()" ,
+"    local modules: any = rawget(_G, \"__nuppAotBuilderModules\")" ,
+"    local registered: any = modules and modules[" .. string . format ( "%q" , key ) .. "]" ,
+"    if type(registered) ~= \"table\" then error(\"AOT builder archive is not registered: "
+.. key
+.. "\", 0) end" ,
+"    local builder: any = registered[" .. string . format ( "%q" , program . name ) .. "]" ,
+"    if type(builder) ~= \"function\" then error(\"AOT builder registration is malformed\", 0) end" ,
+"    return builder" ,
+"end" ,
+"local " .. prefix .. " = " .. prefix .. "Load()" ,
+}
+end
 local relative = library : match ( "^@(.+)$" ) or library
 local registrar = tostring ( program . registrar )
 local lines = { }
@@ -4872,6 +4891,26 @@ end
 
 
 local REFUSED = { }
+
+
+
+
+local function qualifySymbols ( programs , filename ) 
+local identity = hash . digest ( filename ) : sub ( 1 , 16 )
+local registrars = { }
+for _ , program in ipairs ( programs ) do
+program . symbol = "ks_" .. identity .. "_" .. program . symbol : sub ( 4 )
+if program . registrar ~= nil then
+local registrar = program . registrar
+local qualified = registrars [ registrar ]
+if qualified == nil then
+qualified = "ks_register_" .. identity .. "_" .. registrar : sub ( # "ks_register_" + 1 )
+registrars [ registrar ] = qualified
+end
+program . registrar = qualified
+end
+end
+end
 
 
 
@@ -5478,7 +5517,8 @@ parsed ,
 library ,
 selected ,
 symbolTier ,
-constPlans
+constPlans ,
+staticLinkage
 ) 
 local programs , diagnostics , sites = compile . lower ( source , filename , parsed )
 if # diagnostics > 0 then
@@ -5570,6 +5610,16 @@ cpuPrograms [ # cpuPrograms + 1 ] = program
 optimizations [ # optimizations + 1 ] = ( constArtifacts ) . optimizations [ position ]
 loopReports [ # loopReports + 1 ] = ( constArtifacts ) . loops [ position ]
 end
+end
+
+
+
+
+
+
+
+if staticLinkage then
+qualifySymbols ( cpuPrograms , filename )
 end
 
 local generatedGpuBindings = { }
@@ -34725,7 +34775,8 @@ roots ,
 previous ,
 session ,
 features ,
-triple
+triple ,
+staticLinkage
 ) 
 local produced = { }
 local gpuSources = { }
@@ -34799,7 +34850,8 @@ tree ,
 "<object>" ,
 tierTarget ,
 tierTarget . tier ,
-constPlans
+constPlans ,
+staticLinkage
 )
 if artifacts == nil then
 
@@ -35019,7 +35071,7 @@ session ,
 features ,
 triple ,
 cflags ,
-standalone
+linkage
 ) 
 local wasmPolicy = aot . linksWasm ( policy )
 if wasmPolicy then
@@ -35033,7 +35085,8 @@ roots ,
 previous ,
 session ,
 features ,
-triple
+triple ,
+linkage == "static"
 )
 if emitted == nil then
 return nil , emitErr
@@ -35162,13 +35215,14 @@ needsLua = needsLua or program . entryMode == "lua-builder"
 end
 end
 
+local static = linkage == "static"
 local shared , suffix = aot . linkage ( selected , needsLua )
-if standalone then
+if static then
 shared , suffix = { "static" } , ".a"
 end
 local library = aot . libraryPath ( outDir , name , suffix )
 local reference = nil
-if not standalone then
+if not static then
 reference = aot . libraryReference ( name , suffix )
 end
 local keyedFlags = { }
@@ -35196,7 +35250,7 @@ emitted ,
 library ,
 cflags ,
 needsLua ,
-standalone
+static
 )
 if linkErr ~= nil then
 return nil , tostring ( linkErr )
@@ -37938,6 +37992,11 @@ local manifest = { }
 
 
 
+
+
+
+
+
 local function validateArray ( value , label , itemType , required ) 
 if value == nil then
 if required then
@@ -38065,6 +38124,7 @@ local TARGET_KEYS = {
 "kind" ,
 "optimize" ,
 "aot" ,
+"aotLinkage" ,
 "aotFeatures" ,
 "aotTarget" ,
 "aotCflags" ,
@@ -38475,6 +38535,21 @@ if (
 target . aot == "emit-wasm" or target . aot == "require-wasm"
 ) and target . aotTarget ~= nil and target . aotTarget ~= "wasm32-unknown-emscripten" then
 return nil , label .. ".aot = \"" .. target . aot .. "\" fixes aotTarget to wasm32-unknown-emscripten"
+end
+end
+if target . aotLinkage ~= nil then
+local valid , err = validateString ( target . aotLinkage , label .. ".aotLinkage" )
+if not valid then
+return nil , err
+end
+if target . aotLinkage ~= "shared" and target . aotLinkage ~= "static" then
+return nil , label .. ".aotLinkage must be \"shared\" or \"static\""
+end
+if target . aotLinkage == "static" and kind ~= "component" and not target . standalone then
+return nil , label .. ".aotLinkage = \"static\" requires a component or standalone binary target"
+end
+if target . aotLinkage == "shared" and target . standalone then
+return nil , label .. ".standalone requires aotLinkage = \"static\""
 end
 end
 if target . aotTarget ~= nil then
@@ -42917,6 +42992,10 @@ if target . kind ~= "binary" or target . stub ~= "nupp" then
 io . stderr : write ( "nupp: --standalone requires a binary target with stub = \"nupp\"\n" )
 return 1
 end
+if target . aotLinkage == "shared" then
+io . stderr : write ( "nupp: --standalone requires aotLinkage = \"static\"\n" )
+return 1
+end
 target . standalone = true
 end
 local dialectLabel = opts . dialect ~= nil and "--dialect" or "dialect"
@@ -43115,6 +43194,7 @@ end
 local aotOverlays = nil
 local aotAuthoredUnused = nil
 local aotLibrary = nil
+local aotLinkage = target . aotLinkage or ( target . standalone and "static" or "shared" )
 local aotManifest = nil
 local aotWasmModules = { }
 if not opts . checkOnly and aotPolicy . POLICIES [ target . aot or "off" ] and target . aot ~= nil and target . aot ~= "off" then
@@ -43137,7 +43217,7 @@ session ,
 target . aotFeatures ,
 target . aotTarget ,
 target . aotCflags ,
-target . standalone
+aotLinkage
 )
 report : clear ( )
 if produced == nil then
@@ -43427,7 +43507,7 @@ newState . outputs [ output ] = true
 
 
 
-if aotLibrary ~= nil and not target . standalone then
+if aotLibrary ~= nil and aotLinkage == "shared" then
 local beside = join ( dirname ( output ) , "lib/" .. basename ( aotLibrary ) )
 local copied , copyErr = copyFile ( aotLibrary , beside )
 if not copied then

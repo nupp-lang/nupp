@@ -308,6 +308,37 @@ char *nupp_host_run(
     return NULL;
 }
 
+char *nupp_host_register_aot_builders(NuppRuntime *runtime, const char *key, lua_CFunction registrar) {
+    char *problem = check_thread(runtime);
+    lua_State *state;
+    if (problem != NULL) {
+        return problem;
+    }
+    if (runtime->frozen) {
+        return say("AOT builders must be registered before a component is loaded");
+    }
+    state = runtime->state;
+    lua_getfield(state, LUA_GLOBALSINDEX, "__nuppAotBuilderModules");
+    if (lua_isnil(state, -1)) {
+        lua_pop(state, 1);
+        lua_createtable(state, 0, 4);
+        lua_pushvalue(state, -1);
+        lua_setfield(state, LUA_GLOBALSINDEX, "__nuppAotBuilderModules");
+    }
+    lua_pushcfunction(state, registrar);
+    if (lua_pcall(state, 0, 1, 0) != 0) {
+        lua_remove(state, -2);
+        return take_error(state);
+    }
+    if (!lua_istable(state, -1)) {
+        lua_pop(state, 2);
+        return say("an AOT builder registrar must return a table");
+    }
+    lua_setfield(state, -2, key);
+    lua_pop(state, 1);
+    return NULL;
+}
+
 /* Sets the global `arg` the way a standalone interpreter does: the script's own
  * arguments from 1 upward. A program reading `arg` should not be able to tell
  * whether it was run from a bundle or from a file. */

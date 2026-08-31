@@ -1,6 +1,6 @@
 ---
 title: Embedded static AOT profiles
-status: Draft
+status: Accepted
 created: 2026-08-30
 ---
 
@@ -39,20 +39,19 @@ platform.
 - Replacing the engine's build or link step.
 - Making arbitrary Lua code, arbitrary FFI loading, or FFI callbacks valid on
   a host that cannot support them.
-- Opening the C layout model merely to admit a new triple. A target that uses an
-  existing model should reference it.
+- Opening the set of layout models merely to admit a new triple. A verified
+  target descriptor may admit a triple by referencing an existing model.
 - Changing the portable Lua 5.1 dialect or making it the console route.
 
 ## Motivation
 
 ### A component is not necessarily a file
 
-The ordinary AOT path names a shared library relative to the generated module.
-That is appropriate for a program delivered as files, but an engine commonly
-loads component bytes into a state it already owns. There is no source path to
-walk and no library for the operating system to map. Preserving that path would
-make filesystem discovery and dynamic loading accidental requirements of an
-otherwise embeddable component.
+The [AOT guide](../guides/ahead-of-time.md) describes the file-based shared
+library path. An engine commonly loads component bytes into a state it already
+owns. There is no source path to walk and no library for the operating system
+to map. Preserving that path would make filesystem discovery and dynamic loading
+accidental requirements of an otherwise embeddable component.
 
 The default C namespace is the right boundary instead. An engine can make its
 own symbols available to its VM and link one archive using the same toolchain
@@ -74,13 +73,17 @@ missed.
 Some admitted AOT bodies construct fresh Lua strings and tables. Their native
 entry has the Lua C-module ABI: it receives `lua_State *` and registers Lua
 closures. A numeric kernel can be called through `ffi.C`, but a Lua builder
-cannot be invoked directly from Lua because Lua source has no `lua_State *`.
+cannot be invoked directly from Lua because generated FFI code never fabricates
+or discovers a `lua_State *`; see [AOT lowering](../guides/ahead-of-time.md).
 
 Static linkage must therefore not disguise a C-module registrar as an FFI
 function. The engine, which owns the state, performs registration during
-startup and puts the resulting closure table in the Nupp-owned registry slot
-the generated wrapper reads. This makes builder registration a defined host
-handoff instead of a hidden `package.loadlib` dependency.
+startup and calls `nupp_runtime_register_aot_builders(runtime, key, registrar,
+...)` before component load. The API calls the registrar with the runtime's
+state, requires one table result, and stores it at `__nuppAotBuilderModules[key]`.
+The generated wrapper reads that table during module load. This makes builder
+registration a defined host handoff instead of a hidden `package.loadlib`
+dependency.
 
 ### One executable has one C namespace
 
@@ -89,6 +92,8 @@ default C namespace does not. Two components must not export the same AOT
 symbol merely because their source functions happen to have the same name, and
 they must not collide with engine symbols. Each static archive therefore needs
 a deterministic component identity in every exported AOT and registrar symbol.
+The static-linkage decision reaches lowering before C emission, so qualification
+happens before the archive fixes any symbol names.
 
 ## Overview and specification
 
@@ -131,7 +136,7 @@ local function scale(
     exclusive output: span.WriteSpan<float>,
     borrows input: span.Span<float>
 ): nil
-    for index = 1, output.count do
+    for index = 1, #output do
         output[index] = input[index] * 0.5
     end
 end
@@ -140,8 +145,8 @@ end
 The static build produces a component, an archive, and link metadata. The
 engine force-links the archive, registers its exported symbols in the LuaJIT
 default namespace, attaches Nupp to its own `lua_State`, and loads the
-component. The engine also registers any Lua-builder entry before the component
-can call it.
+component. The engine registers every Lua-builder entry before it loads the
+component.
 
 ### Lowering
 
@@ -149,9 +154,10 @@ The compiled kernel is emitted as private C and placed in an archive with a
 component-qualified symbol:
 
 ```c [Generated C, private]
-void ks_gameScripts_a91c2e_scale__neon(float *output, const float *input,
-                                       uint64_t count) {
-    for (uint64_t index = 0; index < count; index++) {
+KS_API void ks_gameScripts_a91c2e_scale__neon(
+    float *restrict output, const float *restrict input, size_t count
+) {
+    for (size_t index = 0; index < count; index++) {
         output[index] = input[index] * 0.5f;
     }
 }
@@ -162,20 +168,35 @@ ordinary foreign-binding lowering reaches `ffi.C`:
 
 ```nupp [Generated wrapper, private]
 cdef function ks_gameScripts_a91c2e_scale__neon(
-    borrows output: float*, borrows input: float*, count: uint64
-): nil
+    exclusive output: voidptr,
+    borrows input: voidptr,
+    count: uint64
+)
 
-local function scale(output: span.WriteSpan<float>, input: span.Span<float>): nil
+local function scale(
+    exclusive output: span.WriteSpan<float>,
+    borrows input: span.Span<float>
+): nil
+    local nativeOutput, nativeOutputCount = output:ref()
+    local nativeInput, nativeInputCount = input:ref()
+    if nativeInputCount ~= nativeOutputCount then
+        error("native spans have incompatible lengths", 0)
+    end
     unsafe do
-        ks_gameScripts_a91c2e_scale__neon(output:ref(), input:ref(), output.count)
+        ks_gameScripts_a91c2e_scale__neon(
+            nativeOutput as voidptr,
+            nativeInput as voidptr,
+            nativeOutputCount
+        )
     end
 end
 ```
 
-The archive also exports a deterministic fingerprint probe. Before installing
-the wrappers, the generated component reads it through `ffi.C`. A missing probe
-reports that the component's AOT archive was not linked into the host; a
-mismatched probe reports that the linked archive does not match the component.
+The archive also exports a deterministic fingerprint probe. Its declaration is
+placed with the first generated replacement, following the feature detector's
+existing doc-comment placement rule. A missing probe reports that the
+component's AOT archive was not linked into the host; a mismatched probe reports
+that the linked archive does not match the component.
 
 For a Lua-building entry, the archive exports a similarly qualified registrar
 with the `lua_CFunction` ABI. The engine calls it with its `lua_State *` and
@@ -197,7 +218,8 @@ The host contract is deliberately narrow:
 1. Link and retain the archive.
 2. Expose its AOT and probe symbols to the VM's default C namespace.
 3. Call each builder registrar with the owned `lua_State *`.
-4. Install the returned builder table in the Nupp registry slot.
+4. Call `nupp_runtime_register_aot_builders` before component load for each
+   builder registrar.
 
 The engine need not learn Nupp source types, parse generated code, or accept a
 Nupp-owned executable.
@@ -234,6 +256,12 @@ project lint setting.
 - A minimal `libnupp.a` is a prerequisite to an on-device integration test. It
   must build against the vendor's LuaJIT and disable providers the host does not
   supply; a public toolchain is not required for that private vendor build.
+- The standard native provider must be exposed through the host's default
+  namespace or unavailable to a static component; it may not fall through to a
+  sidecar load.
+- `aot = "emit-c"` with static linkage emits the same link manifest and C units;
+  the vendor compiles and archives them. `aot = "require"` uses the pack's
+  compiler and archiver.
 - A library carrying `@jit` is not portable to a no-JIT target under this
   proposal. That is intentional: the annotation would assert a contract the
   target cannot meet.
@@ -263,3 +291,12 @@ keeps SDK-specific knowledge out of the public release catalog.
 **Treat absent tracing as a successful `@jit` contract.** This would permit a
 program to run correctly and slowly while claiming a property the target cannot
 provide.
+
+::: seealso
+
+- [NEP 8: C interop and embedding](0008-c-interop-and-embedding.md)
+- [NEP 9: Ahead-of-time compilation](0009-ahead-of-time-compilation.md)
+- [Ahead-of-time compilation](../guides/ahead-of-time.md)
+- [Embedding Nupp](../guides/embedding.md)
+- [NEP 13: Dialects and capability backends](0013-dialects-and-capability-backends.md)
+:::

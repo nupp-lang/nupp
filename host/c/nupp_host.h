@@ -51,6 +51,7 @@ char *nupp_host_add_feature(NuppRuntime *runtime, const char *feature);
 char *nupp_host_add_resource(
     NuppRuntime *runtime, const char *path, const void *bytes, size_t length);
 char *nupp_host_preload(NuppRuntime *runtime, const char *module, lua_CFunction opener);
+char *nupp_host_register_aot_builders(NuppRuntime *runtime, const char *key, lua_CFunction registrar);
 
 /* A component and a handle are named by a number rather than a pointer, so one
  * belonging to another runtime is refused rather than dereferenced. */

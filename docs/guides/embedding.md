@@ -172,6 +172,24 @@ nupp_runtime_add_feature(runtime, "engine.clock", &error);
 nupp_runtime_add_resource(runtime, "engine/defaults.json", data, length, &error);
 ```
 
+An AOT archive that contains a Lua builder has one more registration before the
+component is loaded. Link the archive into the executable, then pass its
+registrar and the key generated in the component binding to the runtime:
+
+```c
+extern int ks_register_example(lua_State *state);
+
+nupp_runtime_register_aot_builders(
+    runtime, "ks_register_example", ks_register_example, &error
+);
+```
+
+The registrar runs with the embedded runtime's Lua state and returns the table
+of builder functions for that archive. Registration is rejected after the first
+component load, just like every other provider registration. Static AOT code
+without a Lua builder needs no registration: its generated binding resolves C
+symbols from the process image.
+
 `nupp_runtime_preload` accepts an ordinary `lua_CFunction` and places it in
 `package.preload`. Requiring `engine.clock` from Lua or Nupp invokes the opener
 once through normal Lua module semantics. The opener is compiled against
