@@ -281,7 +281,7 @@ jobs:
           ./bin/nupp test --jobs=1 netnativetest
           NUPP_TEST_BASH=$(cygpath -w "$bash_path") \
           NUPP_TEST_SH=$(cygpath -w "$sh_path") \
-          ./bin/nupp test --jobs=1 runnertest worktreetest
+          ./bin/nupp test --jobs=1 runnertest soatest worktreetest
 
       # Keep the external corpus and the C importer explicit. The full suite
       # below reaches both too, but a configured corpus used to be absent and
