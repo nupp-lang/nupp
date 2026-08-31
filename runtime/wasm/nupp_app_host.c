@@ -7,6 +7,11 @@
 #include "lualib.h"
 #include "nupp_memory.h"
 
+/* LPeg is compiled into this host rather than loaded from a file. Declared here
+ * because LPeg's headers are its own internals; the opener is the whole of the
+ * surface a host needs. */
+int luaopen_lpeg(lua_State *state);
+
 #define LAST_ERROR_SIZE 1024
 
 enum {
@@ -69,6 +74,20 @@ static void open_library(const char *name, lua_CFunction open) {
     lua_call(app_state, 1, 0);
 }
 
+/* A C module the application requires by name.
+ *
+ * There is no filesystem and no dynamic loader here, so a binary module cannot
+ * arrive the way it does on a machine: it is linked into this host and handed to
+ * `require` through `package.preload`. Preload rather than `package.loaded`, so a
+ * program that never mentions it never pays for opening it. */
+static void preload_library(const char *name, lua_CFunction open) {
+    lua_getglobal(app_state, "package");
+    lua_getfield(app_state, -1, "preload");
+    lua_pushcfunction(app_state, open);
+    lua_setfield(app_state, -2, name);
+    lua_pop(app_state, 2);
+}
+
 uintptr_t nupp_app_boot(void) {
     if (app_state != NULL) {
         snprintf(last_error, sizeof(last_error), "the app host is already booted");
@@ -84,6 +103,7 @@ uintptr_t nupp_app_boot(void) {
     open_library(LUA_TABLIBNAME, luaopen_table);
     open_library(LUA_STRLIBNAME, luaopen_string);
     open_library(LUA_MATHLIBNAME, luaopen_math);
+    preload_library("lpeg", luaopen_lpeg);
     nupp_wasm_install_memory(app_state);
     last_error[0] = '\0';
     return (uintptr_t)app_state;

@@ -35,7 +35,8 @@ usage: scripts/toolchain COMPONENT...
        scripts/toolchain --all
        scripts/toolchain --prefix
 
-Components: luajit luarocks lpeg luautf8 ada libuv mbedtls curl spirv-cross
+Components: luajit luarocks lpeg lpeg-source luautf8 ada libuv mbedtls curl
+            spirv-cross
             sdl swiftshader
             native FEATURES, host FEATURES, host-library FEATURES
             host-link FEATURES OUTPUT ARCHIVE... -- LINK_FLAG...
@@ -552,18 +553,27 @@ build_lua_module() {
     ar rcs "$out/lib/lib$name.a" $objects
 }
 
+# The pinned, verified LPeg source tree. A caller that compiles LPeg with a
+# compiler of its own -- the playground's Emscripten host links it into the
+# application VM, where a loadable C module is not a thing that exists -- wants
+# the sources rather than this machine's build of them, and wants them fetched
+# through the same pin and the same notice check.
+lpeg_source() {
+    directory="lpeg-$LPEG_VERSION"
+    url="https://www.inf.puc-rio.br/~roberto/lpeg/lpeg-$LPEG_VERSION.tar.gz"
+    tree=$(source_tree "$directory" "$url" "$LPEG_SHA256" "$LPEG_MARKER")
+    verify_embedded_notice "$tree/lpeg.html" LPeg-LICENSE.txt
+    printf '%s\n' "$tree"
+}
+
 build_lpeg() {
     out="$PREFIX/lpeg"
     # Before the lock, not inside it: these locks do not nest, and building
     # LuaJIT under the LPeg lock would release the LPeg one on its way out.
     include=$(luajit_include)
+    tree=$(lpeg_source)
     take_lock lpeg "$out/.complete" || return 0
     [ -f "$out/.complete" ] && { release_lock; return 0; }
-
-    directory="lpeg-$LPEG_VERSION"
-    url="https://www.inf.puc-rio.br/~roberto/lpeg/lpeg-$LPEG_VERSION.tar.gz"
-    tree=$(source_tree "$directory" "$url" "$LPEG_SHA256" "$LPEG_MARKER")
-    verify_embedded_notice "$tree/lpeg.html" LPeg-LICENSE.txt
 
     note "building LPeg with $CC"
     rm -rf "$out"
@@ -1361,6 +1371,7 @@ for component in "$@"; do
         luajit)   build_luajit;   native_path "$PREFIX/luajit" ;;
         luarocks) build_luarocks; native_path "$PREFIX/luarocks" ;;
         lpeg)     build_lpeg;     native_path "$PREFIX/lpeg" ;;
+        lpeg-source) native_path "$(lpeg_source)" ;;
         luautf8)  build_luautf8;  native_path "$PREFIX/luautf8" ;;
         ada)      build_ada;      native_path "$PREFIX/ada" ;;
         libuv)    build_libuv;    native_path "$PREFIX/libuv" ;;

@@ -14,6 +14,7 @@ const HMAC = require("nupp.runtime.seam.hmacsha256")
 const GPU = require("nupp.runtime.seam.gpu")
 const JSON = require("nupp.runtime.seam.json")
 const Path = require("nupp.runtime.seam.path")
+const Peg = require("nupp.runtime.seam.peg")
 const Simd = require("nupp.runtime.seam.simd")
 const SHA256 = require("nupp.runtime.seam.sha256")
 const Suspension = require("nupp.runtime.seam.suspension")
@@ -26,6 +27,7 @@ export = Backend.new("nupp.browser", {
     Bitops.seam("nupp.runtime.provider.scalarbitops"),
     JSON.seam("nupp.runtime.provider.lunajson"),
     Path.seam("nupp.runtime.provider.browserpath"),
+    Peg.seam("re"),
     Simd.seam("nupp.runtime.provider.scalarsimd"),
     Suspension.seam("nupp.runtime.provider.browsersuspension"),
     TextBuffer.seam("nupp.runtime.provider.tablebuffer"),

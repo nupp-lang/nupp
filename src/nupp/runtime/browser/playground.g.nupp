@@ -16,6 +16,9 @@ local browserGpu = require("nupp.browser.gpu")
 local derive = require("nupp.derive")
 local serde = require("nupp.data.serde")
 local dataJson = require("nupp.data.json")
+-- And the PEG runtime, which a materialized matcher requires by name. Its
+-- general backend is LPeg, which the application host links in.
+local pegRuntime = require("nupp.compiler.runtime.peg")
 local lines: {string} = {}
 local outputBytes = 0
 local OUTPUT_LIMIT = 1048576
@@ -39,6 +42,9 @@ _G.__nuppPlaygroundRun = function(source: string): string
     end
     if derive == nil or serde == nil or dataJson == nil then
         error("nupp: derive runtime did not load", 0)
+    end
+    if pegRuntime == nil then
+        error("nupp: PEG runtime did not load", 0)
     end
     lines = {}
     outputBytes = 0

@@ -51,6 +51,13 @@ function prepareCompilerAsset() {
   }
   copyFileSync(compiler, path.join(dist, compilerName));
 
+  // LPeg, for the application host below. The compiler host has no use for it:
+  // a `comptime` grammar is compiled by the checker's own PEG front end, and
+  // only the matcher it materializes needs an engine to run on.
+  const lpegSource = execFileSync(
+    path.join(repoRoot, "scripts/toolchain"), ["lpeg-source"], { encoding: "utf8" },
+  ).trim();
+
   const wasmSource = path.join(root, "wasm");
   const luaSource = process.env.NUPP_LUA51_SOURCE || path.join(
     process.env.RUNNER_TEMP || "/tmp",
@@ -71,6 +78,7 @@ function prepareCompilerAsset() {
   run(path.join(repoRoot, "runtime/wasm/build-app-host.sh"), [
     path.join(dist, "nupp-runner.mjs"),
     luaSource,
+    lpegSource,
   ], { env: process.env });
 
   const after = readFileSync(compiler);

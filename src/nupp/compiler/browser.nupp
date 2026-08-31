@@ -53,7 +53,7 @@ local type HoverResponse = {
 local BROWSER_DESCRIPTOR = {
     name = "nupp.browser",
     module = "nupp.runtime.backend.browser",
-    digest = "portable-browser-providers-4",
+    digest = "portable-browser-providers-5",
     seams = {},
 }
 local BACKENDS = {modules = {BROWSER_DESCRIPTOR}, seams = {}, byEffect = {},}
@@ -69,6 +69,7 @@ local BROWSER_SEAMS = {
     {"text.buffer", "nupp.runtime.provider.tablebuffer"},
     {"data.json", "nupp.runtime.provider.lunajson"},
     {"host.path", "nupp.runtime.provider.browserpath"},
+    {"peg", "re"},
     {"numeric.simd", "nupp.runtime.provider.scalarsimd"},
     {"suspension", "nupp.runtime.provider.browsersuspension"},
     {"io.uri", "nupp.runtime.provider.browseruri"},

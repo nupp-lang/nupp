@@ -7,6 +7,7 @@ archive="$work/lua-5.1.5.tar.gz"
 source="$work/lua-5.1.5"
 host="$work/nupp-portable-host"
 expected_json="$work/portable-compiler-reference.json"
+lpeg_module_dir="$work/lpeg-lua51"
 generated_image="$work/preludeimage-source.bin"
 roundtrip_image="$work/preludeimage-roundtrip.bin"
 expected=2640fc56a795f29d28ef15e13c34a47e223960b0240e8cb0a82d9b0738695333
@@ -24,8 +25,14 @@ if [ ! -d "$source" ]; then
     tar -xzf "$archive" -C "$work"
 fi
 case "$(uname -s)" in
-    Darwin*) lua_target=macosx; host_libraries=-lm ;;
-    *) lua_target=generic; host_libraries=-lm ;;
+    Darwin*)
+        lua_target=macosx; host_libraries=-lm
+        module_flags="-bundle -undefined dynamic_lookup"
+        ;;
+    *)
+        lua_target=generic; host_libraries=-lm
+        module_flags="-shared -fPIC"
+        ;;
 esac
 make -C "$source" clean
 make -C "$source" "$lua_target"
@@ -59,5 +66,17 @@ ${CC:-cc} -std=c99 -Wall -Wextra -Werror \
     "$source/src/liblua.a" $host_libraries -o "$host"
 "$host" build/playground/nupp-compiler.lua \
     tests/portable-compiler/smoke.lua "$expected_json"
-"$source/src/lua" tests/portable-compiler/playground-runtime.lua \
+# The application runtime carries the PEG runtime, whose general backend is
+# LPeg, so the interpreter that runs it needs the same engine the browser host
+# links in. Built here against this job's Lua rather than taken from the
+# toolchain, which builds LPeg against the pinned LuaJIT.
+lpeg_source=$("$root/scripts/toolchain" lpeg-source)
+mkdir -p "$lpeg_module_dir"
+# shellcheck disable=SC2086
+${CC:-cc} -std=c99 -O2 -I"$source/src" $module_flags \
+    "$lpeg_source"/lpvm.c "$lpeg_source"/lpcap.c "$lpeg_source"/lptree.c \
+    "$lpeg_source"/lpcode.c "$lpeg_source"/lpprint.c "$lpeg_source"/lpcset.c \
+    -o "$lpeg_module_dir/lpeg.so"
+LUA_CPATH="$lpeg_module_dir/?.so;;" \
+    "$source/src/lua" tests/portable-compiler/playground-runtime.lua \
     build/playground/nupp-app-runtime.lua

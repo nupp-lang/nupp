@@ -33605,7 +33605,7 @@ local preludeImage = require ( "nupp.compiler.preludeimage" )
 local BROWSER_DESCRIPTOR = {
 name = "nupp.browser" ,
 module = "nupp.runtime.backend.browser" ,
-digest = "portable-browser-providers-4" ,
+digest = "portable-browser-providers-5" ,
 seams = { } ,
 }
 local BACKENDS = { modules = { BROWSER_DESCRIPTOR } , seams = { } , byEffect = { } , }
@@ -33621,6 +33621,7 @@ local BROWSER_SEAMS = {
 { "text.buffer" , "nupp.runtime.provider.tablebuffer" } ,
 { "data.json" , "nupp.runtime.provider.lunajson" } ,
 { "host.path" , "nupp.runtime.provider.browserpath" } ,
+{ "peg" , "re" } ,
 { "numeric.simd" , "nupp.runtime.provider.scalarsimd" } ,
 { "suspension" , "nupp.runtime.provider.browsersuspension" } ,
 { "io.uri" , "nupp.runtime.provider.browseruri" } ,
@@ -184430,6 +184431,7 @@ const HMAC = require ( "nupp.runtime.seam.hmacsha256" )
 const GPU = require ( "nupp.runtime.seam.gpu" )
 const JSON = require ( "nupp.runtime.seam.json" )
 const Path = require ( "nupp.runtime.seam.path" )
+const Peg = require ( "nupp.runtime.seam.peg" )
 const Simd = require ( "nupp.runtime.seam.simd" )
 const SHA256 = require ( "nupp.runtime.seam.sha256" )
 const Suspension = require ( "nupp.runtime.seam.suspension" )
@@ -184442,6 +184444,7 @@ const __nuppExportValue= Backend . new ( "nupp.browser" , {
 Bitops . seam ( "nupp.runtime.provider.scalarbitops" ) ,
 JSON . seam ( "nupp.runtime.provider.lunajson" ) ,
 Path . seam ( "nupp.runtime.provider.browserpath" ) ,
+Peg . seam ( "re" ) ,
 Simd . seam ( "nupp.runtime.provider.scalarsimd" ) ,
 Suspension . seam ( "nupp.runtime.provider.browsersuspension" ) ,
 TextBuffer . seam ( "nupp.runtime.provider.tablebuffer" ) ,
@@ -184604,6 +184607,9 @@ local browserGpu = require ( "nupp.browser.gpu" )
 local derive = require ( "nupp.derive" )
 local serde = require ( "nupp.data.serde" )
 local dataJson = require ( "nupp.data.json" )
+
+
+local pegRuntime = require ( "nupp.compiler.runtime.peg" )
 local lines = { }
 local outputBytes = 0
 local OUTPUT_LIMIT = 1048576
@@ -184627,6 +184633,9 @@ error ( "nupp: browser GPU runtime did not load" , 0 )
 end
 if derive == nil or serde == nil or dataJson == nil then
 error ( "nupp: derive runtime did not load" , 0 )
+end
+if pegRuntime == nil then
+error ( "nupp: PEG runtime did not load" , 0 )
 end
 lines = { }
 outputBytes = 0
@@ -192691,7 +192700,14 @@ modules = { [ "nupp.gpu" ] = "" } ,
 {
 name = "peg" ,
 effect = "native.lpeg" ,
-effects = { "native.lpeg" , "stdlib.lpeg.re" , "stdlib.peg" , "stdlib.peg.compile" } ,
+
+
+
+
+
+
+
+effects = { "native.lpeg" } ,
 binding = "runtime" ,
 factoryModule = "nupp.runtime.seam.peg" ,
 } ,
@@ -233069,6 +233085,7 @@ const HMAC = require("nupp.runtime.seam.hmacsha256")
 const GPU = require("nupp.runtime.seam.gpu")
 const JSON = require("nupp.runtime.seam.json")
 const Path = require("nupp.runtime.seam.path")
+const Peg = require("nupp.runtime.seam.peg")
 const Simd = require("nupp.runtime.seam.simd")
 const SHA256 = require("nupp.runtime.seam.sha256")
 const Suspension = require("nupp.runtime.seam.suspension")
@@ -233081,6 +233098,7 @@ export = Backend.new("nupp.browser", {
     Bitops.seam("nupp.runtime.provider.scalarbitops"),
     JSON.seam("nupp.runtime.provider.lunajson"),
     Path.seam("nupp.runtime.provider.browserpath"),
+    Peg.seam("re"),
     Simd.seam("nupp.runtime.provider.scalarsimd"),
     Suspension.seam("nupp.runtime.provider.browsersuspension"),
     TextBuffer.seam("nupp.runtime.provider.tablebuffer"),
@@ -240757,7 +240775,14 @@ local CONTRACTS: {any} = {
     {
         name = "peg",
         effect = "native.lpeg",
-        effects = {"native.lpeg", "stdlib.lpeg.re", "stdlib.peg", "stdlib.peg.compile"},
+        -- The engine, and only the engine. A provider stands in for the LPeg
+        -- rock a native host would stage; it cannot stand in for `stdlib.peg`
+        -- or `stdlib.peg.compile`, which bind the runtime module into locals of
+        -- the chunk a materialized matcher is generated against, and a module
+        -- has no way to become a local of its caller's chunk. Claiming those
+        -- meant selecting this seam deleted the prologue the generated program
+        -- calls, so every materialized matcher failed on a nil upvalue.
+        effects = {"native.lpeg"},
         binding = "runtime",
         factoryModule = "nupp.runtime.seam.peg",
     },

@@ -113,7 +113,14 @@ local CONTRACTS: {any} = {
     {
         name = "peg",
         effect = "native.lpeg",
-        effects = {"native.lpeg", "stdlib.lpeg.re", "stdlib.peg", "stdlib.peg.compile"},
+        -- The engine, and only the engine. A provider stands in for the LPeg
+        -- rock a native host would stage; it cannot stand in for `stdlib.peg`
+        -- or `stdlib.peg.compile`, which bind the runtime module into locals of
+        -- the chunk a materialized matcher is generated against, and a module
+        -- has no way to become a local of its caller's chunk. Claiming those
+        -- meant selecting this seam deleted the prologue the generated program
+        -- calls, so every materialized matcher failed on a nil upvalue.
+        effects = {"native.lpeg"},
         binding = "runtime",
         factoryModule = "nupp.runtime.seam.peg",
     },

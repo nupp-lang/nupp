@@ -37,7 +37,8 @@ if ! grep -Fq 'dispatchWords' "$gpu_project/dist/app.lua" ||
   echo "browser GPU binding was not emitted without LuaJIT FFI" >&2
   exit 1
 fi
+lpeg_source=$("$repo/scripts/toolchain" lpeg-source)
 EMCC="$emcc_command" "$repo/runtime/wasm/build-app-host.sh" \
-  "$host/nupp-app.mjs" "$lua_source"
+  "$host/nupp-app.mjs" "$lua_source" "$lpeg_source"
 node "$script_dir/run.mjs" "$scalar_project" "$host" scalar
 node "$script_dir/run.mjs" "$simd_project" "$host" simd128

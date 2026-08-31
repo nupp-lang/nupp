@@ -1,19 +1,24 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-if [[ $# -ne 2 ]]; then
-  echo "usage: $0 OUTPUT_MJS LUA_SOURCE_DIR" >&2
+if [[ $# -ne 3 ]]; then
+  echo "usage: $0 OUTPUT_MJS LUA_SOURCE_DIR LPEG_SOURCE_DIR" >&2
   exit 2
 fi
 
 output=$1
 lua_source=$2
+lpeg_source=$3
 script_dir=$(cd "$(dirname "$0")" && pwd)
 emcc_command=$(printenv EMCC || true)
 if [[ -z $emcc_command ]]; then emcc_command=emcc; fi
 
 if [[ ! -f "$lua_source/lapi.c" ]]; then
   echo "Lua 5.1 source directory is incomplete: $lua_source" >&2
+  exit 2
+fi
+if [[ ! -f "$lpeg_source/lpvm.c" ]]; then
+  echo "LPeg source directory is incomplete: $lpeg_source" >&2
   exit 2
 fi
 if ! command -v "$emcc_command" >/dev/null 2>&1; then
@@ -33,6 +38,14 @@ for source in "$lua_source"/*.c; do
     lua.c|luac.c|print.c) ;;
     *) set -- "$@" "$source" ;;
   esac
+done
+
+# LPeg, linked in rather than loaded. A materialized PEG matcher whose graph no
+# specialization template covers runs on LPeg, and a browser has no loadable C
+# module to require, so the engine has to be part of the host or those matchers
+# have nowhere to run. The six files are LPeg's own build list.
+for unit in lpvm lpcap lptree lpcode lpprint lpcset; do
+  set -- "$@" "$lpeg_source/$unit.c"
 done
 
 # Side modules call this public Lua 5.1 surface directly. Pointer kernels use
@@ -101,7 +114,7 @@ exported_functions='[
 
 "$emcc_command" \
   -std=c99 -O3 -flto \
-  -I"$lua_source" -I"$script_dir" \
+  -I"$lua_source" -I"$lpeg_source" -I"$script_dir" \
   "$@" \
   "$script_dir/nupp_memory.c" \
   "$script_dir/nupp_app_host.c" \

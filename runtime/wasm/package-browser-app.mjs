@@ -15,7 +15,12 @@ import {
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
-import { buildRuntimePackage, luaSourceDigest, runtimeSourceDigest } from "./build-runtime-package.mjs";
+import {
+  buildRuntimePackage,
+  lpegSourceDirectory,
+  luaSourceDigest,
+  runtimeSourceDigest,
+} from "./build-runtime-package.mjs";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const repo = path.resolve(here, "../..");
@@ -82,9 +87,13 @@ function runtimePackage(directory, luaSource, environment) {
   // A check with no Lua tree in hand can only vouch for the runtime's own
   // sources; one with a tree must not reuse a module built from another Lua.
   const expectedLua = luaSource ? luaSourceDigest(path.resolve(luaSource)) : undefined;
+  // LPeg comes from the pinned toolchain rather than from a caller, so it can
+  // always be compared: a module built from another LPeg is as stale as one
+  // built from another Lua.
+  const expectedLpeg = luaSourceDigest(lpegSourceDirectory());
   const stale = (candidate) =>
     !candidate || candidate.schemaVersion !== 1 || candidate.emscripten !== "6.0.8" ||
-    candidate.sourceSha256 !== expectedSource ||
+    candidate.sourceSha256 !== expectedSource || candidate.lpegSha256 !== expectedLpeg ||
     (expectedLua !== undefined && candidate.luaSha256 !== expectedLua);
   if (stale(manifest)) {
     if (!luaSource) {
@@ -93,7 +102,7 @@ function runtimePackage(directory, luaSource, environment) {
         `the reusable Wasm runtime is ${state}; pass --lua-source or set NUPP_LUA51_SOURCE`,
       );
     }
-    buildRuntimePackage(directory, luaSource, environment);
+    buildRuntimePackage(directory, luaSource, undefined, environment);
     manifest = JSON.parse(readFileSync(manifestPath, "utf8"));
   }
   if (stale(manifest)) {
