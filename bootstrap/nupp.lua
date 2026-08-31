@@ -186952,9 +186952,30 @@ _G.assert(_G.loadstring("local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppM
 
 
 local response = require ( "nupp.runtime.browser.response" )
-local storage = require ( "nupp.runtime.provider.wasmstorage" )
-local wasm = require ( "nupp.wasm" )
 local gpu = { }
+
+
+
+
+
+local storageValue = nil
+local function storage ( ) 
+local value = storageValue
+if value == nil then
+value = require ( "nupp.runtime.provider.wasmstorage" )
+storageValue = value
+end
+
+return value
+end
+
+
+
+
+
+
+
+
 
 gpu . PORTABLE_WORKGROUP_THREADS = 256
 gpu . PORTABLE_SCRATCH_BYTES = 16384
@@ -187282,12 +187303,13 @@ end
 if # words * 4 ~= self . _kernel . _uniformBytes then
 error ( "nupp: browser GPU uniform block has the wrong size" , 2 )
 end
-local allocation = storage . allocate ( # words * 4 )
-local pointer = storage . pointer ( allocation , 0 , 1 )
+local memory = storage ( )
+local allocation = memory . allocate ( # words * 4 )
+local pointer = memory . pointer ( allocation , 0 , 1 )
 for index , value in ipairs ( words ) do
-storage . store ( pointer , ( index - 1 ) * 4 , "uint32" , value )
+memory . store ( pointer , ( index - 1 ) * 4 , "uint32" , value )
 end
-local lease = storage . lease ( pointer , # words * 4 )
+local lease = memory . lease ( pointer , # words * 4 )
 response . await ( "gpu" , {
 operation = "runtime-dispatch" ,
 kernel = self . _kernel . _handle ,
@@ -187296,7 +187318,7 @@ write = self . _write ,
 count = self . count ,
 lease = lease ,
 } )
-storage . releaseLease ( lease )
+memory . releaseLease ( lease )
 end
 
 function gpu . Context . upload (
@@ -187309,9 +187331,10 @@ local pointer , count = source : ref ( )
 if count ~= buffer . count or buffer . _released then
 error ( "nupp: browser GPU upload span length does not match its buffer" , 2 )
 end
-local lease = storage . lease ( pointer , count * buffer . _width )
+local memory = storage ( )
+local lease = memory . lease ( pointer , count * buffer . _width )
 response . await ( "gpu" , { operation = "runtime-upload" , buffer = buffer . _handle , lease = lease , } )
-storage . releaseLease ( lease )
+memory . releaseLease ( lease )
 end
 
 function gpu . Context . enqueueDownload ( self , buffer ) 
@@ -187336,9 +187359,10 @@ local pointer , count = destination : ref ( )
 if count ~= buffer . count or buffer . _released then
 error ( "nupp: browser GPU download span length does not match its buffer" , 2 )
 end
-local lease = storage . lease ( pointer , count * buffer . _width )
+local memory = storage ( )
+local lease = memory . lease ( pointer , count * buffer . _width )
 response . await ( "gpu" , { operation = "runtime-download" , buffer = buffer . _handle , lease = lease , } )
-storage . releaseLease ( lease )
+memory . releaseLease ( lease )
 end
 
 function gpu . Context . download (
@@ -235037,9 +235061,30 @@ module nupp.runtime.provider.browserwebgpu
 --[[WebGPU provider over the browser Worker's Wasm memory and effect boundary.]]
 
 local response = require("nupp.runtime.browser.response")
-local storage = require("nupp.runtime.provider.wasmstorage")
-local wasm = require("nupp.wasm")
 local gpu = {}
+
+-- The portable compiler also runs under an ordinary native Lua 5.1 host,
+-- where the browser's Wasm memory service is intentionally absent. Keep the
+-- provider loadable there and resolve storage only when an actual WebGPU
+-- operation needs it.
+local storageValue: any? = nil
+local function storage(): any
+    local value = storageValue
+    if value == nil then
+        value = require("nupp.runtime.provider.wasmstorage")
+        storageValue = value
+    end
+
+    return value
+end
+
+local interface ReadSpan<T>
+    ref: function(self: ReadSpan<T>): (any, integer)
+end
+
+local interface WriteSpan<T>
+    ref: function(self: WriteSpan<T>): (any, integer)
+end
 
 const gpu.PORTABLE_WORKGROUP_THREADS = 256
 const gpu.PORTABLE_SCRATCH_BYTES = 16384
@@ -235152,18 +235197,18 @@ record gpu.Context is gpu.ContextToken
     releaseBuffer: function<T>(borrows self: gpu.Context, borrows buffer: gpu.Buffer<T>): nil
     releaseKernel: function(borrows self: gpu.Context, borrows kernel: gpu.Kernel): nil
     releaseBinding: function(borrows self: gpu.Context, exclusive binding: gpu.Binding): nil
-    upload: function<T>(borrows self: gpu.Context, borrows buffer: gpu.Buffer<T>, borrows source: wasm.Span<T>): nil
+    upload: function<T>(borrows self: gpu.Context, borrows buffer: gpu.Buffer<T>, borrows source: ReadSpan<T>): nil
     enqueueDownload: function<T>(borrows self: gpu.Context, borrows buffer: gpu.Buffer<T>): nil
     synchronize: function(borrows self: gpu.Context): nil
     readDownloaded: function<T>(
         borrows self: gpu.Context,
         borrows buffer: gpu.Buffer<T>,
-        borrows destination: wasm.WriteSpan<T>
+        borrows destination: WriteSpan<T>
     ): nil
     download: function<T>(
         borrows self: gpu.Context,
         borrows buffer: gpu.Buffer<T>,
-        borrows destination: wasm.WriteSpan<T>
+        borrows destination: WriteSpan<T>
     ): nil
 end
 
@@ -235367,12 +235412,13 @@ function gpu.Binding.dispatchWords(borrows self: gpu.Binding, scalars: {uint32})
     if #words * 4 ~= self._kernel._uniformBytes then
         error("nupp: browser GPU uniform block has the wrong size", 2)
     end
-    local allocation = storage.allocate(#words * 4)
-    local pointer = storage.pointer(allocation, 0, 1)
+    local memory = storage()
+    local allocation = memory.allocate(#words * 4)
+    local pointer = memory.pointer(allocation, 0, 1)
     for index, value in ipairs(words) do
-        storage.store(pointer, (index - 1) * 4, "uint32", value)
+        memory.store(pointer, (index - 1) * 4, "uint32", value)
     end
-    local lease = storage.lease(pointer, #words * 4)
+    local lease = memory.lease(pointer, #words * 4)
     response.await("gpu", {
         operation = "runtime-dispatch",
         kernel = self._kernel._handle,
@@ -235381,22 +235427,23 @@ function gpu.Binding.dispatchWords(borrows self: gpu.Binding, scalars: {uint32})
         count = self.count,
         lease = lease,
     })
-    storage.releaseLease(lease)
+    memory.releaseLease(lease)
 end
 
 function gpu.Context.upload<T>(
     borrows self: gpu.Context,
     borrows buffer: gpu.Buffer<T>,
-    borrows source: wasm.Span<T>
+    borrows source: ReadSpan<T>
 ): nil
     live(self)
     local pointer, count = source:ref()
     if count ~= buffer.count or buffer._released then
         error("nupp: browser GPU upload span length does not match its buffer", 2)
     end
-    local lease = storage.lease(pointer, count * buffer._width)
+    local memory = storage()
+    local lease = memory.lease(pointer, count * buffer._width)
     response.await("gpu", {operation = "runtime-upload", buffer = buffer._handle, lease = lease,})
-    storage.releaseLease(lease)
+    memory.releaseLease(lease)
 end
 
 function gpu.Context.enqueueDownload<T>(borrows self: gpu.Context, borrows buffer: gpu.Buffer<T>): nil
@@ -235414,22 +235461,23 @@ end
 function gpu.Context.readDownloaded<T>(
     borrows self: gpu.Context,
     borrows buffer: gpu.Buffer<T>,
-    borrows destination: wasm.WriteSpan<T>
+    borrows destination: WriteSpan<T>
 ): nil
     live(self)
     local pointer, count = destination:ref()
     if count ~= buffer.count or buffer._released then
         error("nupp: browser GPU download span length does not match its buffer", 2)
     end
-    local lease = storage.lease(pointer, count * buffer._width)
+    local memory = storage()
+    local lease = memory.lease(pointer, count * buffer._width)
     response.await("gpu", {operation = "runtime-download", buffer = buffer._handle, lease = lease,})
-    storage.releaseLease(lease)
+    memory.releaseLease(lease)
 end
 
 function gpu.Context.download<T>(
     borrows self: gpu.Context,
     borrows buffer: gpu.Buffer<T>,
-    borrows destination: wasm.WriteSpan<T>
+    borrows destination: WriteSpan<T>
 ): nil
     self:enqueueDownload(buffer)
     self:synchronize()
@@ -249841,12 +249889,8 @@ module backend
 
 const Backend = require("nupp.runtime.backend")
 const Structvalue = require("nupp.runtime.seam.structvalue")
-const Wasm = require("nupp.runtime.seam.wasm")
 
-export = Backend.new("${name}.wasm", {
-    Structvalue.seam("nupp.runtime.provider.wasmstorage"),
-    Wasm.seam("nupp.runtime.provider.wasmstorage"),
-})
+export = Backend.new("${name}.wasm", {Structvalue.seam("nupp.runtime.provider.wasmstorage"),})
 ]],
 ["/templates/browser-simd/src/scalar.nupp"] = [[
 local wasm = require("nupp.wasm")
