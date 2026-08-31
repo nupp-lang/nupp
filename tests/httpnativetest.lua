@@ -11,7 +11,7 @@ local M = {}
 
 local HERE = assert(debug.getinfo(1, "S").source:match("^@(.*)[/\\]"))
 local root, http, buffers, process, files, port, server
-local priorPreload, priorLoaded, unavailable
+local priorPreload, priorLoaded, priorV2Preload, priorV2Loaded, unavailable
 
 local function startProcess(options)
    return process.Process.__nuppCtor1(options)
@@ -49,20 +49,17 @@ local function startServer()
    return nil, "the loopback server did not become ready"
 end
 
--- The library the provider opens is chosen by `nupp.runtime.native`, which reads
--- `NUPP_NATIVE_LIBRARY` on the first symbol it is asked for. A suite cannot set an
--- environment variable for its own process, so it preloads that module with the
--- lookup already answered -- the same substitution this made against the bootstrap
--- string back when the loader was generated into it.
-local function preloadProvider(libraryPath)
-   local found = assert(package.searchpath("nupp.runtime.native", package.path),
-      "nupp.runtime.native is not on the path")
+-- A suite cannot set an environment variable for its own process, so substitute
+-- each staged provider path into its loader before the public modules are loaded.
+local function preloadProvider(module, variable, libraryPath)
+   local found = assert(package.searchpath(module, package.path),
+      module .. " is not on the path")
    local text = assert(io.open(found, "rb")):read("*a"):gsub(
-      'os%.getenv%("NUPP_NATIVE_LIBRARY"%)', function()
+      'os%.getenv%("' .. variable .. '"%)', function()
          return ("%q"):format(libraryPath)
       end)
-   package.loaded["nupp.runtime.native"] = nil
-   package.preload["nupp.runtime.native"] = assert(loadstring(text, "@nupp.runtime.native"))
+   package.loaded[module] = nil
+   package.preload[module] = assert(loadstring(text, "@" .. module))
 end
 
 function M.beforeAll()
@@ -71,7 +68,8 @@ function M.beforeAll()
    os.execute("mkdir -p '" .. root .. "'")
 
    local libraryPath = os.getenv("NUPP_NATIVE_LIBRARY")
-   if not libraryPath then
+   local rustLibraryPath = os.getenv("NUPP_NATIVE_V2_LIBRARY")
+   if not libraryPath or not rustLibraryPath then
       local staged, problem = nativeStage.build(root, "out", {
          ["native.http"] = true,
          ["native.process"] = true,
@@ -85,6 +83,7 @@ function M.beforeAll()
          return
       end
       libraryPath = root .. "/out/lib/nupp_native"
+      rustLibraryPath = root .. "/out/lib/nupp_native_v2"
    end
 
    local effects = native.expand({
@@ -94,7 +93,10 @@ function M.beforeAll()
    })
    priorPreload = package.preload["nupp.runtime.native"]
    priorLoaded = package.loaded["nupp.runtime.native"]
-   preloadProvider(libraryPath)
+   priorV2Preload = package.preload["nupp.runtime.nativev2"]
+   priorV2Loaded = package.loaded["nupp.runtime.nativev2"]
+   preloadProvider("nupp.runtime.native", "NUPP_NATIVE_LIBRARY", libraryPath)
+   preloadProvider("nupp.runtime.nativev2", "NUPP_NATIVE_V2_LIBRARY", rustLibraryPath)
    assert(loadstring(stdlib.bootstrap(effects)))()
    process = require("nupp.io.process")
    http = require("nupp.io.http")
@@ -107,6 +109,8 @@ function M.afterAll()
    if server then server:close() end
    package.preload["nupp.runtime.native"] = priorPreload
    package.loaded["nupp.runtime.native"] = priorLoaded
+   package.preload["nupp.runtime.nativev2"] = priorV2Preload
+   package.loaded["nupp.runtime.nativev2"] = priorV2Loaded
    if root then
       os.execute("chmod -R u+w '" .. root .. "' 2>/dev/null")
       os.execute("rm -rf '" .. root .. "'")
@@ -150,6 +154,16 @@ function M.smallInlineRequestsUseThePooledPublicPath()
    test.equal(response.body:read(1), "")
    response:close()
    assert(output:close())
+   client:close()
+end
+
+function M.aLargeReadUpperBoundKeepsItsScratchBufferBounded()
+   local client = ready()
+   local response, reason = client:send({url = endpoint("/small")})
+   assert(response, reason)
+   test.equal(response.body:read(2 ^ 40), "small response\n")
+   test.equal(response.body:read(1), "")
+   response:close()
    client:close()
 end
 
@@ -480,7 +494,8 @@ function M.thePublicModuleSelectsItsFeatureClosure()
    -- the feature never sees the module at all.
    test.equal(feature.runtimeModule, "nupp.io.http")
    assert(not stdlib.bootstrap(expanded):find(
-      "nuppHttpClientCreate", 1, true), "the ABI is the module's, not the bootstrap's")
+      "nuppNativeV2HttpClientCreate", 1, true),
+      "the ABI is the module's, not the bootstrap's")
 end
 
 return M

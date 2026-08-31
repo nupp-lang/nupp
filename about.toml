@@ -1,0 +1,27 @@
+# cargo-about is a maintainer tool for refreshing the committed Rust notice.
+# Release and ordinary test builds consume that notice without installing it.
+accepted = [
+    "Apache-2.0",
+    "BSD-2-Clause",
+    "BSD-3-Clause",
+    "CDLA-Permissive-2.0",
+    "ISC",
+    "MIT",
+    "MPL-2.0",
+    "OpenSSL",
+    "Unicode-3.0",
+    "Unicode-DFS-2016",
+    "Zlib",
+]
+ignore-build-dependencies = false
+ignore-dev-dependencies = false
+ignore-transitive-dependencies = false
+
+[private]
+ignore = true
+
+[ring]
+accepted = ["OpenSSL"]
+
+[unicode-ident]
+accepted = ["Unicode-DFS-2016"]

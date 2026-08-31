@@ -5,9 +5,10 @@ order: 90
 # Installation
 
 Nupp is written in Nupp. A checkout carries a stage-0 compiler already lowered
-to Lua, and building the real one takes a C and a C++ compiler. The interpreter
-it runs on and the libraries it links are fetched from pinned sources and built
-by the checkout itself when the machine does not already have them.
+to Lua, and building the real one takes C, C++, and the exact Rust toolchain in
+`rust-toolchain.toml`. The interpreter it runs on and the libraries it links are
+fetched from pinned sources and built by the checkout itself when the machine
+does not already have them.
 
 ```bash
 git clone https://github.com/nupp-lang/nupp
@@ -18,19 +19,24 @@ cd nupp
 ## Requirements
 
 **A C and a C++ compiler**, either `clang` with `clang++` or `gcc` with `g++`,
-plus the shell, `tar` and a downloader. The C++ half must understand C++20,
-which Clang 10 and GCC 10 were the first to do. `NUPP_CC` and `NUPP_CXX` name them; with
+plus the shell, `tar` and a downloader. `NUPP_CC` and `NUPP_CXX` name them; with
 neither set, Unix probes `clang`, `cc` and `gcc` in that order. Windows probes
 the MinGW `gcc` pair first because the provisioned dependencies use GNU make;
 the corresponding C++ names are probed beside each C compiler.
 
+**Rust 1.98.0 with Cargo**, selected exactly rather than by a minimum version.
+Rustup reads the committed toolchain file automatically. `NUPP_RUSTC` and
+`NUPP_CARGO` may name an equivalent toolchain explicitly; the build refuses a
+different release so its content-addressed native artifacts remain reproducible.
+
 Everything else is provisioned. `scripts/toolchain` fetches LuaJIT, LuaRocks,
-LPeg, luautf8, ada, libuv, libcurl and mbedTLS by pinned revision,
+LPeg, luautf8, libuv and mbedTLS by pinned revision,
 refuses any archive whose SHA-256 is not the one written down, builds each with
 that compiler pair, and caches the result beside the repository so every
-worktree shares one build. It also builds what Nupp itself is made of: the
-native providers and the binary host, both C. `bin/nupp` runs it for what is
-missing and nothing more.
+worktree shares one build. Cargo resolves the Rust-native crates through the
+committed lockfile. The toolchain driver builds Nupp's C and Rust native
+providers and its binary hosts; `bin/nupp` runs it for what is missing and
+nothing more.
 
 ### LuaJIT
 
@@ -99,9 +105,12 @@ next command rather than by the next person who remembers to build.
 
 ### Shared toolchain cache
 
-Everything `scripts/toolchain` builds lands beside the repository's common Git
-directory, so every worktree of a checkout shares one build of LuaJIT, libuv,
-libcurl, and each provider and host feature set. `NUPP_TOOLCHAIN_DIR` moves it:
+Downloaded sources and the classic toolchain components land beside the
+repository's common Git directory, so every worktree shares LuaJIT, libuv, and
+the C provider cache. Rust outputs default to the worktree's `build/rust` and
+the worktree helper seeds that content-validated cache from the originating
+checkout. `NUPP_TOOLCHAIN_DIR` moves the shared store; `NUPP_RUST_BUILD_DIR`
+moves Rust outputs:
 
 ```bash
 export NUPP_TOOLCHAIN_DIR=/var/cache/nupp/toolchain

@@ -1,6 +1,6 @@
 ---
 title: C-only toolchain
-status: Implemented
+status: Superseded by NEP 30
 created: 2026-08-21
 ---
 

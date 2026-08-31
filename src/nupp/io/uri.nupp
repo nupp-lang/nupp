@@ -146,23 +146,20 @@ through 65535. Every field is URI text rather than a filesystem name.
 :::
 ]]
 
-const native = require("nupp.runtime.native")
+const native = require("nupp.runtime.nativev2")
 
--- Only the handle type is declared here, because `ffi.new` names the out-parameters and
--- the checker has to know those. The functions are reached through the handle
--- `nupp.runtime.native` opened rather than the default namespace a `cdef function`
--- binds to.
 native.ffi.cdef[[
-typedef struct NuppUri NuppUri;
-NuppUri *nuppUriParse(const uint8_t *, size_t);
-const uint8_t *nuppUriPart(const NuppUri *, uint32_t, size_t *);
-bool nuppUriPort(const NuppUri *, uint16_t *);
-NuppUri *nuppUriWithText(const NuppUri *, uint32_t, const uint8_t *, size_t, bool);
-NuppUri *nuppUriWithPort(const NuppUri *, int32_t);
-NuppUri *nuppUriConcatPath(const NuppUri *, const uint8_t *, size_t);
-NuppUri *nuppUriResolve(const NuppUri *, const uint8_t *, size_t);
-NuppUri *nuppUriWithEndpoint(const NuppUri *, const NuppUri *);
-void nuppUriDestroy(NuppUri *);
+int32_t nuppNativeV2UriParse(const uint8_t *, size_t, uint64_t *);
+int32_t nuppNativeV2UriRelease(uint64_t);
+int32_t nuppNativeV2UriPart(
+    uint64_t, uint32_t, uint8_t *, size_t, size_t *, int32_t *);
+int32_t nuppNativeV2UriPort(uint64_t, int32_t *);
+int32_t nuppNativeV2UriWithText(
+    uint64_t, uint32_t, const uint8_t *, size_t, int32_t, uint64_t *);
+int32_t nuppNativeV2UriWithPort(uint64_t, int32_t, uint64_t *);
+int32_t nuppNativeV2UriConcatPath(uint64_t, const uint8_t *, size_t, uint64_t *);
+int32_t nuppNativeV2UriResolve(uint64_t, const uint8_t *, size_t, uint64_t *);
+int32_t nuppNativeV2UriWithEndpoint(uint64_t, uint64_t, uint64_t *);
 ]]
 
 local ffi = native.ffi
@@ -195,12 +192,20 @@ end
 
 -- Declared ahead of the record because its methods call them, and defined below it
 -- because they name the record. The types are the contract either way.
-local parsed: function(handle: any): (URI?, string?)
-local changed: function(handle: any): URI
+local parsed: function(status: integer, handle: any): (URI?, string?)
+local changed: function(status: integer, handle: any): URI
 local part: function(self: URI, kind: integer): string?
 local required: function(value: any, what: string): string
 local withText: function(self: URI, kind: integer, value: string?): URI
 local compose: function(components: any): (string?, string?)
+
+local function raw(self: URI): any
+    return (self as any)._handle[0]
+end
+
+local function outputHandle(): any
+    return ffi.new<uint64[1]>()
+end
 
 const URI_CACHE_CAPACITY = 1024
 local uriCache: {[string]: any} = {}
@@ -297,8 +302,9 @@ export record URI
     --- @param self this URI
     --- @return the port, or nil when the URI names none
     function port(self): integer?
-        local value = ffi.new<uint16[1]>()
-        if not C.nuppUriPort(self._handle, value) then
+        local value = ffi.new<int32[1]>()
+        native.succeeded(C.nuppNativeV2UriPort(raw(self), value), 2)
+        if value[0] < 0 then
             return nil
         end
         local found = 0
@@ -416,7 +422,10 @@ export record URI
             return self
         end
 
-        return changed(C.nuppUriWithPort(self._handle, port or -1))
+        local output = outputHandle()
+        local status = C.nuppNativeV2UriWithPort(raw(self), port or -1, output)
+
+        return changed(status, output)
     end
 
     --- The URI with more appended to its path.
@@ -430,7 +439,10 @@ export record URI
             return self
         end
 
-        return changed(C.nuppUriConcatPath(self._handle, value, #value))
+        local output = outputHandle()
+        local status = C.nuppNativeV2UriConcatPath(raw(self), value, #value, output)
+
+        return changed(status, output)
     end
 
     --- The URI with another's scheme and authority.
@@ -443,7 +455,10 @@ export record URI
             error("nupp: URI endpoint must be an io.URI", 2)
         end
 
-        return changed(C.nuppUriWithEndpoint(self._handle, endpoint._handle))
+        local output = outputHandle()
+        local status = C.nuppNativeV2UriWithEndpoint(raw(self), raw(endpoint), output)
+
+        return changed(status, output)
     end
 
     --- Resolves a reference against this URI, as a browser resolves a link.
@@ -470,24 +485,45 @@ export record URI
             return nil, "nupp: URI reference needs a string"
         end
 
-        return parsed(C.nuppUriResolve(self._handle, reference, #reference))
+        local output = outputHandle()
+        local status = C.nuppNativeV2UriResolve(raw(self), reference, #reference, output)
+
+        return parsed(status, output)
     end
 
     metamethod __tostring: function(self): string
     metamethod __eq: function(self, any): boolean
 end
 
-local function adopt(handle: any): URI
-    local length = ffi.new<uint64[1]>()
-    local bytes = C.nuppUriPart(handle, 0, length)
-    local size = 0
-    unsafe do
-        size = tonumber(length[0]) or 0
+local function release(handle: any): nil
+    local value = handle[0]
+    if value ~= 0 then
+        C.nuppNativeV2UriRelease(value)
+        handle[0] = 0
     end
-    local text = ffi.string(bytes, size as integer)
+end
+
+local function copyPart(handle: any, kind: integer): string?
+    local length = ffi.new("size_t[1]")
+    local present = ffi.new<int32[1]>()
+    native.succeeded(C.nuppNativeV2UriPart(handle[0], kind, nil, 0, length, present), 3)
+    if present[0] == 0 then
+        return nil
+    end
+    if length[0] == 0 then
+        return ""
+    end
+    local output = ffi.new("uint8_t[?]", length[0])
+    native.succeeded(C.nuppNativeV2UriPart(handle[0], kind, output, length[0], length, present), 3)
+
+    return ffi.string(output, length[0])
+end
+
+local function adopt(handle: any): URI
+    local text = copyPart(handle, 0) as string
     local found = uriCache[text]
     if found ~= nil then
-        C.nuppUriDestroy(handle)
+        release(handle)
         if found ~= uriCacheNewest then
             local older, newer = found.older, found.newer
             if older ~= nil then
@@ -507,7 +543,7 @@ local function adopt(handle: any): URI
         return found.value
     end
 
-    local value = setmetatable({_handle = ffi.gc(handle, C.nuppUriDestroy), _text = text,} as any, URI as any) as URI
+    local value = setmetatable({_handle = ffi.gc(handle, release), _text = text,} as any, URI as any) as URI
     local entry = {value = value, older = uriCacheNewest, newer = nil}
     if uriCacheNewest ~= nil then
         uriCacheNewest.newer = entry
@@ -531,18 +567,18 @@ end
 -- A parse that failed answers nil and the reason, because bad input is an ordinary
 -- answer. A modification that failed raises, because the input was already a URI and
 -- the caller asked for something the grammar cannot express.
-parsed = function(handle: any): (URI?, string?)
-    if handle == nil then
-        return nil, native.error()
+parsed = function(status: integer, handle: any): (URI?, string?)
+    if status ~= 0 then
+        return nil, ffi.string(C.nuppNativeV2LastError())
     end
 
     return adopt(handle), nil
 end
 
 --- @raises when the library cannot express the change
-changed = function(handle: any): URI
-    if handle == nil then
-        error("nupp: cannot modify URI: " .. native.error(), 3)
+changed = function(status: integer, handle: any): URI
+    if status ~= 0 then
+        error("nupp: cannot modify URI: " .. ffi.string(C.nuppNativeV2LastError()), 3)
     end
 
     return adopt(handle)
@@ -551,17 +587,7 @@ end
 -- The library numbers the components: 0 whole, 1 scheme, 2 authority, 3 username,
 -- 4 password, 5 host, 6 path, 7 query, 8 fragment.
 part = function(self: URI, kind: integer): string?
-    local length = ffi.new<uint64[1]>()
-    local data = C.nuppUriPart((self as any)._handle, kind, length)
-    if data == nil then
-        return nil
-    end
-    local size = 0
-    unsafe do
-        size = tonumber(length[0]) or 0
-    end
-
-    return ffi.string(data, size as integer)
+    return copyPart((self as any)._handle, kind)
 end
 
 --- @raises when value is not a string
@@ -577,9 +603,17 @@ end
 -- ones, minus the whole-URI slot: 0 scheme, 1 user information, 2 host, 3 path,
 -- 4 query, 5 fragment.
 withText = function(self: URI, kind: integer, value: string?): URI
-    return changed(
-        C.nuppUriWithText((self as any)._handle, kind, value or "", value and #(value as string) or 0, value ~= nil)
+    local output = outputHandle()
+    local status = C.nuppNativeV2UriWithText(
+        raw(self),
+        kind,
+        value or "",
+        value and #(value as string) or 0,
+        value ~= nil and 1 or 0,
+        output
     )
+
+    return changed(status, output)
 end
 
 -- Components are assembled into text and then parsed, so one grammar decides what is
@@ -698,8 +732,11 @@ export function newURI(value: string | Components): (URI?, string?)
         text = composed
     end
     local source = text as string
+    native.requireFeature(8, "URI support")
+    local output = outputHandle()
+    local status = C.nuppNativeV2UriParse(source, #source, output)
 
-    return parsed(C.nuppUriParse(source, #source))
+    return parsed(status, output)
 end
 
 --- Reports whether text parses as an absolute URI, without building one.
@@ -711,11 +748,13 @@ export function validate(text: string): (boolean, string?)
     if type(text) ~= "string" then
         return false, "nupp: io.URI.validate needs a string"
     end
-    local handle = C.nuppUriParse(text, #text)
-    if handle == nil then
-        return false, native.error()
+    native.requireFeature(8, "URI support")
+    local handle = outputHandle()
+    local status = C.nuppNativeV2UriParse(text, #text, handle)
+    if status ~= 0 then
+        return false, ffi.string(C.nuppNativeV2LastError())
     end
-    C.nuppUriDestroy(handle)
+    release(handle)
 
     return true, nil
 end

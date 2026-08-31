@@ -127,10 +127,12 @@ local FEATURES: {[string]: native.Feature} = {
     ] = {
         name = "uri",
         modules = {"nupp.io.uri"},
-        provider = "nupp_native",
+        provider = "nupp_native_v2",
+        providerDriver = "native-rust",
         providerFeature = "uri",
-        library = "nupp_native",
+        library = "nupp_native_v2",
         binary = true,
+        requires = {"runtime.native_v2"},
     },
     [
         "native.uuid"
@@ -264,11 +266,12 @@ local FEATURES: {[string]: native.Feature} = {
         name = "http",
         module = "nupp.io.http",
         runtimeModule = "nupp.io.http",
-        provider = "nupp_native",
+        provider = "nupp_native_v2",
+        providerDriver = "native-rust",
         providerFeature = "http",
-        library = "nupp_native",
+        library = "nupp_native_v2",
         binary = true,
-        requires = {"runtime.suspension", "native.uri", "stdlib.io"},
+        requires = {"runtime.suspension", "runtime.native_v2", "native.uri", "stdlib.io"},
     },
     -- SHA-256 stopped being native when `nupp.data.digest` replaced the C one,
     -- so this selects a runtime module rather than a provider. The effect keeps

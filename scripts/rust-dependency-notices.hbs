@@ -1,0 +1,32 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>Nupp Rust dependency notices</title>
+</head>
+<body>
+  <h1>Nupp Rust dependency notices</h1>
+  <p>
+    This file covers the third-party Cargo packages locked by the Nupp
+    workspace. It is generated from <code>Cargo.lock</code>; do not edit it by
+    hand.
+  </p>
+  <h2>Packages</h2>
+  <ul id="locked-packages">
+@@NUPP_LOCKED_PACKAGES@@
+  </ul>
+  <h2>License texts</h2>
+  {{#each licenses}}
+  <section>
+    <h3>{{name}}</h3>
+    <p>Used by:</p>
+    <ul>
+    {{#each used_by}}
+      <li>{{crate.name}} {{crate.version}}</li>
+    {{/each}}
+    </ul>
+    <pre>{{text}}</pre>
+  </section>
+  {{/each}}
+</body>
+</html>

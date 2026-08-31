@@ -271,4 +271,58 @@ function M.hostArtifactFollowsTheLuaJitCompilerIdentity()
     assert(answer(firstOutput) ~= answer(secondOutput), "two LuaJIT compiler identities shared one Rust host")
 end
 
+-- Every Cargo package can end up in a provider for some feature, platform or
+-- build mode. Releases copy host/notices without running Cargo, so the committed
+-- aggregate must cover the whole lock file rather than only this machine's
+-- resolved graph.
+function M.everyLockedRustDependencyHasACommittedNotice()
+    local lock = read(ROOT .. "/Cargo.lock")
+    local notice = read(ROOT .. "/host/notices/Rust-dependencies.html")
+    local expected = {}
+    local expectedCount = 0
+    local name, version, thirdParty
+
+    local function finishPackage()
+        if thirdParty then
+            assert(name and version, "a locked Cargo package has no name or version")
+            local marker = name .. "@" .. version
+            assert(not expected[marker], "duplicate locked Cargo package " .. marker)
+            expected[marker] = true
+            expectedCount = expectedCount + 1
+        end
+        name, version, thirdParty = nil, nil, false
+    end
+
+    for line in (lock .. "\n[[package]]\n"):gmatch("[^\r\n]+") do
+        if line == "[[package]]" then
+            finishPackage()
+        elseif name == nil then
+            name = line:match('^name = "([^"]+)"$')
+        elseif version == nil then
+            version = line:match('^version = "([^"]+)"$')
+        end
+        if line:match("^source = ") then
+            thirdParty = true
+        end
+    end
+
+    local seen = {}
+    local seenCount = 0
+    for marker in notice:gmatch('data%-crate="([^"]+)"') do
+        assert(expected[marker], "Rust notice names an unlocked package " .. marker)
+        assert(not seen[marker], "Rust notice repeats package " .. marker)
+        seen[marker] = true
+        seenCount = seenCount + 1
+    end
+
+    assert(seenCount == expectedCount,
+        ("Rust notice covers %d of %d locked packages"):format(seenCount, expectedCount))
+    for marker in pairs(expected) do
+        assert(seen[marker], "Rust notice omits locked package " .. marker)
+    end
+    assert(read(ROOT .. "/host/NOTICE.md"):find(
+        "notices/Rust-dependencies.html", 1, true),
+        "the release notice does not point readers to the Rust aggregate")
+end
+
 return M

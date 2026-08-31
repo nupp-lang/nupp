@@ -4,7 +4,7 @@ set -eu
 
 ROOT=$(CDPATH= cd -- "$(dirname "$0")/.." && pwd)
 CC=${NUPP_CC:-${CC:-cc}}
-PROVIDER=$($ROOT/scripts/toolchain native-rust gpu,uuid)
+PROVIDER=$($ROOT/scripts/toolchain native-rust gpu,http,uri,uuid)
 DIRECTORY=$(dirname "$PROVIDER")
 TEMP=$(mktemp -d "${TMPDIR:-/tmp}/nupp-rust-abi.XXXXXX")
 trap 'rm -r "$TEMP"' EXIT HUP INT TERM
@@ -14,6 +14,10 @@ case "$(uname -s 2>/dev/null || printf unknown)" in
     MINGW*|MSYS*|CYGWIN*)
         OUTPUT="$OUTPUT.exe"
         IMPORT="$DIRECTORY/libnupp_native_v2.dll.a"
+        SEARCH_DIRECTORY="$DIRECTORY"
+        if command -v cygpath >/dev/null 2>&1; then
+            SEARCH_DIRECTORY=$(cygpath -u "$DIRECTORY")
+        fi
         [ -f "$IMPORT" ] || {
             printf 'rust ABI smoke: Cargo wrote no import library at %s\n' "$IMPORT" >&2
             exit 1
@@ -21,7 +25,7 @@ case "$(uname -s 2>/dev/null || printf unknown)" in
         "$CC" -std=c11 -Wall -Wextra -Werror \
             -I"$ROOT/native/include" "$ROOT/native/tests/abi_smoke.c" \
             "$IMPORT" -o "$OUTPUT"
-        PATH="$DIRECTORY:$PATH" "$OUTPUT"
+        PATH="$SEARCH_DIRECTORY:$PATH" "$OUTPUT"
         ;;
     Darwin)
         "$CC" -std=c11 -Wall -Wextra -Werror \

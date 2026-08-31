@@ -9,22 +9,28 @@ use std::sync::{Mutex, OnceLock};
 
 #[cfg(feature = "gpu")]
 mod gpu;
+#[cfg(feature = "http")]
+mod http;
+#[cfg(feature = "uri")]
+mod uri;
 
 const FEATURE_BASE: u64 = 1 << 0;
 const FEATURE_UUID: u64 = 1 << 1;
 const FEATURE_GPU: u64 = 1 << 2;
+const FEATURE_URI: u64 = 1 << 3;
+const FEATURE_HTTP: u64 = 1 << 4;
 
 fn bytes() -> &'static Mutex<Arena<Box<[u8]>>> {
     static BYTES: OnceLock<Mutex<Arena<Box<[u8]>>>> = OnceLock::new();
     BYTES.get_or_init(|| Mutex::new(Arena::new()))
 }
 
-fn failed(status: Status, message: &str) -> i32 {
+pub(crate) fn failed(status: Status, message: &str) -> i32 {
     set_last_error(message);
     status.code()
 }
 
-fn input<'a>(data: *const u8, length: usize) -> Result<&'a [u8], i32> {
+pub(crate) fn input<'a>(data: *const u8, length: usize) -> Result<&'a [u8], i32> {
     if length == 0 {
         return Ok(&[]);
     }
@@ -51,6 +57,16 @@ pub extern "C" fn nuppNativeV2Features() -> u64 {
         }
         | if cfg!(feature = "gpu") {
             FEATURE_GPU
+        } else {
+            0
+        }
+        | if cfg!(feature = "uri") {
+            FEATURE_URI
+        } else {
+            0
+        }
+        | if cfg!(feature = "http") {
+            FEATURE_HTTP
         } else {
             0
         }

@@ -1012,8 +1012,8 @@ NUPP_EXPORT void nuppNetListenerDestroy(NuppNetListener *listener) {
 /* --- connecting --------------------------------------------------------- */
 
 /* A connect is two waits, resolution and the handshake, behind one handle. The
- * name lookup is libuv's threaded resolver, so it is off the caller's frame for
- * the same reason libcurl's is in the HTTP transport. */
+ * name lookup is libuv's threaded resolver, so it is off the caller's frame
+ * rather than blocking the Nupp scheduler. */
 struct NuppNetConnect {
     uv_getaddrinfo_t resolve;
     uv_connect_t connect;

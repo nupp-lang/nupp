@@ -1,0 +1,20 @@
+[package]
+name = "nupp-native-http"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+
+[lib]
+path = "src/lib.rs"
+
+[dependencies]
+bytes = "1"
+nupp-native-abi = { path = "../abi" }
+nupp-native-runtime = { path = "../runtime", features = ["async"] }
+reqwest = { version = "0.13.4", default-features = false, features = ["deflate", "gzip", "rustls-no-provider", "socks", "stream"] }
+rustls = { version = "0.23", default-features = false, features = ["ring", "std", "tls12"] }
+tokio = { version = "1", features = ["fs", "io-util", "net", "rt-multi-thread", "sync", "time"] }
+tokio-stream = "0.1"
+tokio-util = { version = "0.7", features = ["io", "rt"] }
+url = "2.5"

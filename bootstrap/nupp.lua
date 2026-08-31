@@ -134051,10 +134051,12 @@ binary = true ,
 ] = {
 name = "uri" ,
 modules = { "nupp.io.uri" } ,
-provider = "nupp_native" ,
+provider = "nupp_native_v2" ,
+providerDriver = "native-rust" ,
 providerFeature = "uri" ,
-library = "nupp_native" ,
+library = "nupp_native_v2" ,
 binary = true ,
+requires = { "runtime.native_v2" } ,
 } ,
 [
 "native.uuid"
@@ -134188,11 +134190,12 @@ requires = { "runtime.spanview" } ,
 name = "http" ,
 module = "nupp.io.http" ,
 runtimeModule = "nupp.io.http" ,
-provider = "nupp_native" ,
+provider = "nupp_native_v2" ,
+providerDriver = "native-rust" ,
 providerFeature = "http" ,
-library = "nupp_native" ,
+library = "nupp_native_v2" ,
 binary = true ,
-requires = { "runtime.suspension" , "native.uri" , "stdlib.io" } ,
+requires = { "runtime.suspension" , "runtime.native_v2" , "native.uri" , "stdlib.io" } ,
 } ,
 
 
@@ -170131,7 +170134,7 @@ end ;__nuppExports["userFolder"]=userFolder
 local __nuppWorkerRecords=_G.rawget(_G.nupp,"__workerRecords");if _G.type(__nuppWorkerRecords)~="table" then __nuppWorkerRecords=_G.setmetatable({},{__mode="k"});_G.rawset(_G.nupp,"__workerRecords",__nuppWorkerRecords) end;__nuppWorkerRecords[Entry]="nupp.io.files\0Entry";__nuppWorkerRecords[File]="nupp.io.files\0File";__nuppWorkerRecords[FileReader]="nupp.io.files\0FileReader";__nuppWorkerRecords[FileWriter]="nupp.io.files\0FileWriter";__nuppWorkerRecords[Info]="nupp.io.files\0Info";__nuppWorkerRecords[TemporaryOptions]="nupp.io.files\0TemporaryOptions";__nuppWorkerRecords[TemporaryPath]="nupp.io.files\0TemporaryPath"; end);if not __nuppOk then package.loaded["nupp.io.files"]=nil;error(__nuppWhy,0) end;package.loaded["nupp.io.files"]=__nuppExports;return __nuppExports
 end
 package.preload["nupp.io.http"] = function(...)
-_G.assert(_G.loadstring("local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppMath=rawget(__nupp,\"math\")or{};rawset(__nupp,\"math\",__nuppMath) local function __nuppCloseFile(handle)if io.type(handle)==\"closed file\"then return end;local ok,reason=handle:close();if not ok then error(reason or \"the file could not be closed\",0)end end local __nuppManagedBrand=_G.__nuppManagedBrand if not __nuppManagedBrand then __nuppManagedBrand={};_G.__nuppManagedBrand=__nuppManagedBrand end local __nuppManagedCells=_G.__nuppManagedCells if not __nuppManagedCells then __nuppManagedCells=setmetatable({},{__mode=\"k\"});_G.__nuppManagedCells=__nuppManagedCells end local __nuppManagedOwner={};__nuppManagedOwner.__index=__nuppManagedOwner;local __nuppManagedAlias={};__nuppManagedAlias.__index=__nuppManagedAlias local function __nuppManagedError(code,message)return{code=code,message=message}end local function __nuppManagedProblem(cell) if type(cell)~=\"table\"or cell._brand~=__nuppManagedBrand then return __nuppManagedError(\"NUPP2614\",\"value is not a managed alias\")end if cell._state==\"taken\"then return __nuppManagedError(\"NUPP2614\",\"managed ownership was already taken\")end if cell._state==\"closed\"or cell._state==\"closing\"then return __nuppManagedError(\"NUPP2614\",\"managed resource is closed\")end return nil end local function __nuppManagedClose(cell,checked) local problem=__nuppManagedProblem(cell);if problem then if checked then return problem end;return nil end if cell._borrows~=0 or cell._exclusive then local busy=__nuppManagedError(\"NUPP2620\",\"managed resource has an active borrow\");if checked then return busy end;error(busy.message,0)end cell._state=\"closing\";local value,cleanup=cell._value,cell._cleanup;cell._value=nil;cell._cleanup=nil local ok,reason=pcall(cleanup,value);cell._state=\"closed\";if not ok then error(reason,0)end;return nil end function __nuppManagedOwner:alias()return setmetatable({_cell=self,_brand=__nuppManagedBrand},__nuppManagedAlias)end function __nuppManagedOwner:close()return __nuppManagedClose(self,false)end local function __nuppAliasCell(self) if type(self)~=\"table\"or self._brand~=__nuppManagedBrand or getmetatable(self)~=__nuppManagedAlias then return nil,__nuppManagedError(\"NUPP2614\",\"value is not a managed alias\")end local cell=self._cell;local problem=__nuppManagedProblem(cell);if problem then return nil,problem end;return cell,nil end function __nuppManagedAlias:with(callback) local cell,problem=__nuppAliasCell(self);if not cell then return nil,problem end if cell._exclusive then return nil,__nuppManagedError(\"NUPP2620\",\"managed resource is exclusively borrowed\")end cell._borrows=cell._borrows+1;cell._state=\"shared-borrowed(\"..cell._borrows..\")\" local ok,result=pcall(callback,cell._value);cell._borrows=cell._borrows-1;cell._state=cell._borrows>0 and(\"shared-borrowed(\"..cell._borrows..\")\")or\"live\" if not ok then error(result,0)end;return result,nil end function __nuppManagedAlias:withExclusive(callback) local cell,problem=__nuppAliasCell(self);if not cell then return nil,problem end if cell._exclusive or cell._borrows~=0 then return nil,__nuppManagedError(\"NUPP2620\",\"managed resource is already borrowed\")end cell._exclusive=true;cell._state=\"exclusive-borrowed\";local ok,result=pcall(callback,cell._value);cell._exclusive=false;cell._state=\"live\" if not ok then error(result,0)end;return result,nil end function __nuppManagedAlias:take() local cell,problem=__nuppAliasCell(self);if not cell then return nil,problem end if cell._exclusive or cell._borrows~=0 then return nil,__nuppManagedError(\"NUPP2620\",\"managed resource has an active borrow\")end cell._state=\"taken\";local value=cell._value;cell._value=nil;cell._cleanup=nil;return value,nil end function __nuppManagedAlias:close() local cell,problem=__nuppAliasCell(self);if not cell then return problem end;return __nuppManagedClose(cell,true)end function __nuppManagedAlias:_downcast(policy) local cell,problem=__nuppAliasCell(self);if not cell then return nil,problem end if cell._policy~=policy then return nil,__nuppManagedError(\"NUPP2613\",\"managed alias has the wrong type or cleanup policy\")end return self,nil end function __nupp.__manage(value,cleanup,policy) local cell=setmetatable({_brand=__nuppManagedBrand,_value=value,_cleanup=cleanup,_policy=policy,_state=\"live\",_borrows=0,_exclusive=false},__nuppManagedOwner);__nuppManagedCells[cell]=true;return cell end function __nupp.__recoverAlias(value) if type(value)~=\"table\"or value._brand~=__nuppManagedBrand or getmetatable(value)~=__nuppManagedAlias then return nil,__nuppManagedError(\"NUPP2614\",\"value is not a managed alias\")end local cell,problem=__nuppAliasCell(value);if not cell then return nil,problem end;return value,nil end _G.__nuppManagedPolicyCount=function(policy)local count=0;for cell in pairs(__nuppManagedCells)do if cell._policy==policy and(cell._state==\"live\"or cell._state:match(\"borrowed\"))then count=count+1 end end;return count end local __nuppManagedGroup={};__nuppManagedGroup.__index=__nuppManagedGroup function __nuppManagedGroup:flush()end function __nuppManagedGroup:adopt(cell) if self._closed then error(\"managed group is closed\",2)end local handle=cell:alias();self._entries[#self._entries+1]=handle return handle end function __nuppManagedGroup:remove(handle) if self._closed then error(\"managed group is closed\",2)end for index=#self._entries,1,-1 do if self._entries[index]==handle then table.remove(self._entries,index);local value,problem=handle:take();if problem then error(problem.message,2)end;return value end end error(\"managed alias is not registered in this group\",2) end local function __nuppManagedCloseEntry(entry)local problem=entry:close();if problem and problem.code~=\"NUPP2614\"then error(problem.message,0)end end function __nuppManagedGroup:close() if self._closed then return end;self._closed=true;local first,suppressed=nil,0 for index=#self._entries,1,-1 do local ok,reason=pcall(__nuppManagedCloseEntry,self._entries[index]);if not ok then if first==nil then first=reason else suppressed=suppressed+1 end end end self._entries={};if first~=nil then if suppressed>0 then error(tostring(first)..\" (suppressed \"..tostring(suppressed)..\" cleanup failure(s))\",0)end;error(first,0)end end function __nupp.managedGroup()return setmetatable({_entries={},_closed=false},__nuppManagedGroup)end;\n","@nupp-prelude"))();local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppMath=rawget(__nupp,"math")or{};rawset(__nupp,"math",__nuppMath) local function __nuppCloseFile(handle)if io.type(handle)=="closed file"then return end;local ok,reason=handle:close();if not ok then error(reason or "the file could not be closed",0)end end local __nuppManagedBrand=_G.__nuppManagedBrand if not __nuppManagedBrand then __nuppManagedBrand={};_G.__nuppManagedBrand=__nuppManagedBrand end local __nuppManagedCells=_G.__nuppManagedCells if not __nuppManagedCells then __nuppManagedCells=setmetatable({},{__mode="k"});_G.__nuppManagedCells=__nuppManagedCells end local __nuppManagedOwner={};__nuppManagedOwner.__index=__nuppManagedOwner;local __nuppManagedAlias={};__nuppManagedAlias.__index=__nuppManagedAlias local function __nuppManagedError(code,message)return{code=code,message=message}end local function __nuppManagedProblem(cell) if type(cell)~="table"or cell._brand~=__nuppManagedBrand then return __nuppManagedError("NUPP2614","value is not a managed alias")end if cell._state=="taken"then return __nuppManagedError("NUPP2614","managed ownership was already taken")end if cell._state=="closed"or cell._state=="closing"then return __nuppManagedError("NUPP2614","managed resource is closed")end return nil end local function __nuppManagedClose(cell,checked) local problem=__nuppManagedProblem(cell);if problem then if checked then return problem end;return nil end if cell._borrows~=0 or cell._exclusive then local busy=__nuppManagedError("NUPP2620","managed resource has an active borrow");if checked then return busy end;error(busy.message,0)end cell._state="closing";local value,cleanup=cell._value,cell._cleanup;cell._value=nil;cell._cleanup=nil local ok,reason=pcall(cleanup,value);cell._state="closed";if not ok then error(reason,0)end;return nil end function __nuppManagedOwner:alias()return setmetatable({_cell=self,_brand=__nuppManagedBrand},__nuppManagedAlias)end function __nuppManagedOwner:close()return __nuppManagedClose(self,false)end local function __nuppAliasCell(self) if type(self)~="table"or self._brand~=__nuppManagedBrand or getmetatable(self)~=__nuppManagedAlias then return nil,__nuppManagedError("NUPP2614","value is not a managed alias")end local cell=self._cell;local problem=__nuppManagedProblem(cell);if problem then return nil,problem end;return cell,nil end function __nuppManagedAlias:with(callback) local cell,problem=__nuppAliasCell(self);if not cell then return nil,problem end if cell._exclusive then return nil,__nuppManagedError("NUPP2620","managed resource is exclusively borrowed")end cell._borrows=cell._borrows+1;cell._state="shared-borrowed("..cell._borrows..")" local ok,result=pcall(callback,cell._value);cell._borrows=cell._borrows-1;cell._state=cell._borrows>0 and("shared-borrowed("..cell._borrows..")")or"live" if not ok then error(result,0)end;return result,nil end function __nuppManagedAlias:withExclusive(callback) local cell,problem=__nuppAliasCell(self);if not cell then return nil,problem end if cell._exclusive or cell._borrows~=0 then return nil,__nuppManagedError("NUPP2620","managed resource is already borrowed")end cell._exclusive=true;cell._state="exclusive-borrowed";local ok,result=pcall(callback,cell._value);cell._exclusive=false;cell._state="live" if not ok then error(result,0)end;return result,nil end function __nuppManagedAlias:take() local cell,problem=__nuppAliasCell(self);if not cell then return nil,problem end if cell._exclusive or cell._borrows~=0 then return nil,__nuppManagedError("NUPP2620","managed resource has an active borrow")end cell._state="taken";local value=cell._value;cell._value=nil;cell._cleanup=nil;return value,nil end function __nuppManagedAlias:close() local cell,problem=__nuppAliasCell(self);if not cell then return problem end;return __nuppManagedClose(cell,true)end function __nuppManagedAlias:_downcast(policy) local cell,problem=__nuppAliasCell(self);if not cell then return nil,problem end if cell._policy~=policy then return nil,__nuppManagedError("NUPP2613","managed alias has the wrong type or cleanup policy")end return self,nil end function __nupp.__manage(value,cleanup,policy) local cell=setmetatable({_brand=__nuppManagedBrand,_value=value,_cleanup=cleanup,_policy=policy,_state="live",_borrows=0,_exclusive=false},__nuppManagedOwner);__nuppManagedCells[cell]=true;return cell end function __nupp.__recoverAlias(value) if type(value)~="table"or value._brand~=__nuppManagedBrand or getmetatable(value)~=__nuppManagedAlias then return nil,__nuppManagedError("NUPP2614","value is not a managed alias")end local cell,problem=__nuppAliasCell(value);if not cell then return nil,problem end;return value,nil end _G.__nuppManagedPolicyCount=function(policy)local count=0;for cell in pairs(__nuppManagedCells)do if cell._policy==policy and(cell._state=="live"or cell._state:match("borrowed"))then count=count+1 end end;return count end local __nuppManagedGroup={};__nuppManagedGroup.__index=__nuppManagedGroup function __nuppManagedGroup:flush()end function __nuppManagedGroup:adopt(cell) if self._closed then error("managed group is closed",2)end local handle=cell:alias();self._entries[#self._entries+1]=handle return handle end function __nuppManagedGroup:remove(handle) if self._closed then error("managed group is closed",2)end for index=#self._entries,1,-1 do if self._entries[index]==handle then table.remove(self._entries,index);local value,problem=handle:take();if problem then error(problem.message,2)end;return value end end error("managed alias is not registered in this group",2) end local function __nuppManagedCloseEntry(entry)local problem=entry:close();if problem and problem.code~="NUPP2614"then error(problem.message,0)end end function __nuppManagedGroup:close() if self._closed then return end;self._closed=true;local first,suppressed=nil,0 for index=#self._entries,1,-1 do local ok,reason=pcall(__nuppManagedCloseEntry,self._entries[index]);if not ok then if first==nil then first=reason else suppressed=suppressed+1 end end end self._entries={};if first~=nil then if suppressed>0 then error(tostring(first).." (suppressed "..tostring(suppressed).." cleanup failure(s))",0)end;error(first,0)end end function __nupp.managedGroup()return setmetatable({_entries={},_closed=false},__nuppManagedGroup)end local function __nuppLazy(target,name,loader)local meta=getmetatable(target)or{};local loaders=meta.__nuppLoaders;if not loaders then loaders={};local prior=meta.__index;meta.__nuppLoaders=loaders;meta.__index=function(t,k)local load=loaders[k];if load then local value=load(k);loaders[k]=nil;if value==nil then value=rawget(t,k)else rawset(t,k,value)end;return value end;if type(prior)=="function"then return prior(t,k)elseif prior then return prior[k]end end;setmetatable(target,meta)end;if name~=nil and rawget(target,name)==nil and loaders[name]==nil then loaders[name]=loader end end;const __nuppT55={}; const function __nuppT52(...) return {n=select("#",...),...} end; const __nuppT56,__nuppT57,__nuppT58,__nuppT59,__nuppT60,__nuppT61,__nuppT62,__nuppT63=pcall,xpcall,error,unpack,select,setmetatable,tostring,ipairs; const function __nuppT53(value) return value end; const function __nuppT54(primary,errors,start) const secondary={} for i=start,#errors do secondary[#secondary+1]=errors[i] end return __nuppT61({primary=primary,suppressed=secondary},{__tostring=function(v) local text=__nuppT62(v.primary) for _,reason in __nuppT63(v.suppressed) do text=text.."\ncleanup: "..__nuppT62(reason) end return text end}) end; local __nuppCleanups=_G.__nuppCleanupRegistry;if __nuppCleanups==nil then __nuppCleanups={};_G.__nuppCleanupRegistry=__nuppCleanups end;local __nuppCleanup1;__nuppCleanup1=function(value) local cleanup=__nuppCleanups["nupp.mem.span#destroyWriteSpan"];if cleanup==nil then return _G.error("Nupp cleanup provider is not loaded: nupp.mem.span#destroyWriteSpan") end;__nuppCleanup1=cleanup;return cleanup(value) end;local __nuppCleanup2;__nuppCleanup2=function(value) local cleanup=__nuppCleanups["nupp.io#destroyOwner"];if cleanup==nil then return _G.error("Nupp cleanup provider is not loaded: nupp.io#destroyOwner") end;__nuppCleanup2=cleanup;return cleanup(value) end;const __nuppDrop1 = function(__nuppV) if __nuppV == nil then return end __nuppCleanup1(__nuppV);  end;const __nuppClosureCleanup2 = function(__nuppV) return __nuppV:__nuppRelease() end;const __nuppCleanup3 = function(__nuppV) return __nuppV:close() end;local __nuppExports;local __nuppOk,__nuppWhy=pcall(function()
+_G.assert(_G.loadstring("local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppMath=rawget(__nupp,\"math\")or{};rawset(__nupp,\"math\",__nuppMath) local function __nuppCloseFile(handle)if io.type(handle)==\"closed file\"then return end;local ok,reason=handle:close();if not ok then error(reason or \"the file could not be closed\",0)end end local __nuppManagedBrand=_G.__nuppManagedBrand if not __nuppManagedBrand then __nuppManagedBrand={};_G.__nuppManagedBrand=__nuppManagedBrand end local __nuppManagedCells=_G.__nuppManagedCells if not __nuppManagedCells then __nuppManagedCells=setmetatable({},{__mode=\"k\"});_G.__nuppManagedCells=__nuppManagedCells end local __nuppManagedOwner={};__nuppManagedOwner.__index=__nuppManagedOwner;local __nuppManagedAlias={};__nuppManagedAlias.__index=__nuppManagedAlias local function __nuppManagedError(code,message)return{code=code,message=message}end local function __nuppManagedProblem(cell) if type(cell)~=\"table\"or cell._brand~=__nuppManagedBrand then return __nuppManagedError(\"NUPP2614\",\"value is not a managed alias\")end if cell._state==\"taken\"then return __nuppManagedError(\"NUPP2614\",\"managed ownership was already taken\")end if cell._state==\"closed\"or cell._state==\"closing\"then return __nuppManagedError(\"NUPP2614\",\"managed resource is closed\")end return nil end local function __nuppManagedClose(cell,checked) local problem=__nuppManagedProblem(cell);if problem then if checked then return problem end;return nil end if cell._borrows~=0 or cell._exclusive then local busy=__nuppManagedError(\"NUPP2620\",\"managed resource has an active borrow\");if checked then return busy end;error(busy.message,0)end cell._state=\"closing\";local value,cleanup=cell._value,cell._cleanup;cell._value=nil;cell._cleanup=nil local ok,reason=pcall(cleanup,value);cell._state=\"closed\";if not ok then error(reason,0)end;return nil end function __nuppManagedOwner:alias()return setmetatable({_cell=self,_brand=__nuppManagedBrand},__nuppManagedAlias)end function __nuppManagedOwner:close()return __nuppManagedClose(self,false)end local function __nuppAliasCell(self) if type(self)~=\"table\"or self._brand~=__nuppManagedBrand or getmetatable(self)~=__nuppManagedAlias then return nil,__nuppManagedError(\"NUPP2614\",\"value is not a managed alias\")end local cell=self._cell;local problem=__nuppManagedProblem(cell);if problem then return nil,problem end;return cell,nil end function __nuppManagedAlias:with(callback) local cell,problem=__nuppAliasCell(self);if not cell then return nil,problem end if cell._exclusive then return nil,__nuppManagedError(\"NUPP2620\",\"managed resource is exclusively borrowed\")end cell._borrows=cell._borrows+1;cell._state=\"shared-borrowed(\"..cell._borrows..\")\" local ok,result=pcall(callback,cell._value);cell._borrows=cell._borrows-1;cell._state=cell._borrows>0 and(\"shared-borrowed(\"..cell._borrows..\")\")or\"live\" if not ok then error(result,0)end;return result,nil end function __nuppManagedAlias:withExclusive(callback) local cell,problem=__nuppAliasCell(self);if not cell then return nil,problem end if cell._exclusive or cell._borrows~=0 then return nil,__nuppManagedError(\"NUPP2620\",\"managed resource is already borrowed\")end cell._exclusive=true;cell._state=\"exclusive-borrowed\";local ok,result=pcall(callback,cell._value);cell._exclusive=false;cell._state=\"live\" if not ok then error(result,0)end;return result,nil end function __nuppManagedAlias:take() local cell,problem=__nuppAliasCell(self);if not cell then return nil,problem end if cell._exclusive or cell._borrows~=0 then return nil,__nuppManagedError(\"NUPP2620\",\"managed resource has an active borrow\")end cell._state=\"taken\";local value=cell._value;cell._value=nil;cell._cleanup=nil;return value,nil end function __nuppManagedAlias:close() local cell,problem=__nuppAliasCell(self);if not cell then return problem end;return __nuppManagedClose(cell,true)end function __nuppManagedAlias:_downcast(policy) local cell,problem=__nuppAliasCell(self);if not cell then return nil,problem end if cell._policy~=policy then return nil,__nuppManagedError(\"NUPP2613\",\"managed alias has the wrong type or cleanup policy\")end return self,nil end function __nupp.__manage(value,cleanup,policy) local cell=setmetatable({_brand=__nuppManagedBrand,_value=value,_cleanup=cleanup,_policy=policy,_state=\"live\",_borrows=0,_exclusive=false},__nuppManagedOwner);__nuppManagedCells[cell]=true;return cell end function __nupp.__recoverAlias(value) if type(value)~=\"table\"or value._brand~=__nuppManagedBrand or getmetatable(value)~=__nuppManagedAlias then return nil,__nuppManagedError(\"NUPP2614\",\"value is not a managed alias\")end local cell,problem=__nuppAliasCell(value);if not cell then return nil,problem end;return value,nil end _G.__nuppManagedPolicyCount=function(policy)local count=0;for cell in pairs(__nuppManagedCells)do if cell._policy==policy and(cell._state==\"live\"or cell._state:match(\"borrowed\"))then count=count+1 end end;return count end local __nuppManagedGroup={};__nuppManagedGroup.__index=__nuppManagedGroup function __nuppManagedGroup:flush()end function __nuppManagedGroup:adopt(cell) if self._closed then error(\"managed group is closed\",2)end local handle=cell:alias();self._entries[#self._entries+1]=handle return handle end function __nuppManagedGroup:remove(handle) if self._closed then error(\"managed group is closed\",2)end for index=#self._entries,1,-1 do if self._entries[index]==handle then table.remove(self._entries,index);local value,problem=handle:take();if problem then error(problem.message,2)end;return value end end error(\"managed alias is not registered in this group\",2) end local function __nuppManagedCloseEntry(entry)local problem=entry:close();if problem and problem.code~=\"NUPP2614\"then error(problem.message,0)end end function __nuppManagedGroup:close() if self._closed then return end;self._closed=true;local first,suppressed=nil,0 for index=#self._entries,1,-1 do local ok,reason=pcall(__nuppManagedCloseEntry,self._entries[index]);if not ok then if first==nil then first=reason else suppressed=suppressed+1 end end end self._entries={};if first~=nil then if suppressed>0 then error(tostring(first)..\" (suppressed \"..tostring(suppressed)..\" cleanup failure(s))\",0)end;error(first,0)end end function __nupp.managedGroup()return setmetatable({_entries={},_closed=false},__nuppManagedGroup)end;\n","@nupp-prelude"))();const __nuppFfi = require("ffi"); local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppMath=rawget(__nupp,"math")or{};rawset(__nupp,"math",__nuppMath) local function __nuppCloseFile(handle)if io.type(handle)=="closed file"then return end;local ok,reason=handle:close();if not ok then error(reason or "the file could not be closed",0)end end local __nuppManagedBrand=_G.__nuppManagedBrand if not __nuppManagedBrand then __nuppManagedBrand={};_G.__nuppManagedBrand=__nuppManagedBrand end local __nuppManagedCells=_G.__nuppManagedCells if not __nuppManagedCells then __nuppManagedCells=setmetatable({},{__mode="k"});_G.__nuppManagedCells=__nuppManagedCells end local __nuppManagedOwner={};__nuppManagedOwner.__index=__nuppManagedOwner;local __nuppManagedAlias={};__nuppManagedAlias.__index=__nuppManagedAlias local function __nuppManagedError(code,message)return{code=code,message=message}end local function __nuppManagedProblem(cell) if type(cell)~="table"or cell._brand~=__nuppManagedBrand then return __nuppManagedError("NUPP2614","value is not a managed alias")end if cell._state=="taken"then return __nuppManagedError("NUPP2614","managed ownership was already taken")end if cell._state=="closed"or cell._state=="closing"then return __nuppManagedError("NUPP2614","managed resource is closed")end return nil end local function __nuppManagedClose(cell,checked) local problem=__nuppManagedProblem(cell);if problem then if checked then return problem end;return nil end if cell._borrows~=0 or cell._exclusive then local busy=__nuppManagedError("NUPP2620","managed resource has an active borrow");if checked then return busy end;error(busy.message,0)end cell._state="closing";local value,cleanup=cell._value,cell._cleanup;cell._value=nil;cell._cleanup=nil local ok,reason=pcall(cleanup,value);cell._state="closed";if not ok then error(reason,0)end;return nil end function __nuppManagedOwner:alias()return setmetatable({_cell=self,_brand=__nuppManagedBrand},__nuppManagedAlias)end function __nuppManagedOwner:close()return __nuppManagedClose(self,false)end local function __nuppAliasCell(self) if type(self)~="table"or self._brand~=__nuppManagedBrand or getmetatable(self)~=__nuppManagedAlias then return nil,__nuppManagedError("NUPP2614","value is not a managed alias")end local cell=self._cell;local problem=__nuppManagedProblem(cell);if problem then return nil,problem end;return cell,nil end function __nuppManagedAlias:with(callback) local cell,problem=__nuppAliasCell(self);if not cell then return nil,problem end if cell._exclusive then return nil,__nuppManagedError("NUPP2620","managed resource is exclusively borrowed")end cell._borrows=cell._borrows+1;cell._state="shared-borrowed("..cell._borrows..")" local ok,result=pcall(callback,cell._value);cell._borrows=cell._borrows-1;cell._state=cell._borrows>0 and("shared-borrowed("..cell._borrows..")")or"live" if not ok then error(result,0)end;return result,nil end function __nuppManagedAlias:withExclusive(callback) local cell,problem=__nuppAliasCell(self);if not cell then return nil,problem end if cell._exclusive or cell._borrows~=0 then return nil,__nuppManagedError("NUPP2620","managed resource is already borrowed")end cell._exclusive=true;cell._state="exclusive-borrowed";local ok,result=pcall(callback,cell._value);cell._exclusive=false;cell._state="live" if not ok then error(result,0)end;return result,nil end function __nuppManagedAlias:take() local cell,problem=__nuppAliasCell(self);if not cell then return nil,problem end if cell._exclusive or cell._borrows~=0 then return nil,__nuppManagedError("NUPP2620","managed resource has an active borrow")end cell._state="taken";local value=cell._value;cell._value=nil;cell._cleanup=nil;return value,nil end function __nuppManagedAlias:close() local cell,problem=__nuppAliasCell(self);if not cell then return problem end;return __nuppManagedClose(cell,true)end function __nuppManagedAlias:_downcast(policy) local cell,problem=__nuppAliasCell(self);if not cell then return nil,problem end if cell._policy~=policy then return nil,__nuppManagedError("NUPP2613","managed alias has the wrong type or cleanup policy")end return self,nil end function __nupp.__manage(value,cleanup,policy) local cell=setmetatable({_brand=__nuppManagedBrand,_value=value,_cleanup=cleanup,_policy=policy,_state="live",_borrows=0,_exclusive=false},__nuppManagedOwner);__nuppManagedCells[cell]=true;return cell end function __nupp.__recoverAlias(value) if type(value)~="table"or value._brand~=__nuppManagedBrand or getmetatable(value)~=__nuppManagedAlias then return nil,__nuppManagedError("NUPP2614","value is not a managed alias")end local cell,problem=__nuppAliasCell(value);if not cell then return nil,problem end;return value,nil end _G.__nuppManagedPolicyCount=function(policy)local count=0;for cell in pairs(__nuppManagedCells)do if cell._policy==policy and(cell._state=="live"or cell._state:match("borrowed"))then count=count+1 end end;return count end local __nuppManagedGroup={};__nuppManagedGroup.__index=__nuppManagedGroup function __nuppManagedGroup:flush()end function __nuppManagedGroup:adopt(cell) if self._closed then error("managed group is closed",2)end local handle=cell:alias();self._entries[#self._entries+1]=handle return handle end function __nuppManagedGroup:remove(handle) if self._closed then error("managed group is closed",2)end for index=#self._entries,1,-1 do if self._entries[index]==handle then table.remove(self._entries,index);local value,problem=handle:take();if problem then error(problem.message,2)end;return value end end error("managed alias is not registered in this group",2) end local function __nuppManagedCloseEntry(entry)local problem=entry:close();if problem and problem.code~="NUPP2614"then error(problem.message,0)end end function __nuppManagedGroup:close() if self._closed then return end;self._closed=true;local first,suppressed=nil,0 for index=#self._entries,1,-1 do local ok,reason=pcall(__nuppManagedCloseEntry,self._entries[index]);if not ok then if first==nil then first=reason else suppressed=suppressed+1 end end end self._entries={};if first~=nil then if suppressed>0 then error(tostring(first).." (suppressed "..tostring(suppressed).." cleanup failure(s))",0)end;error(first,0)end end function __nupp.managedGroup()return setmetatable({_entries={},_closed=false},__nuppManagedGroup)end local function __nuppLazy(target,name,loader)local meta=getmetatable(target)or{};local loaders=meta.__nuppLoaders;if not loaders then loaders={};local prior=meta.__index;meta.__nuppLoaders=loaders;meta.__index=function(t,k)local load=loaders[k];if load then local value=load(k);loaders[k]=nil;if value==nil then value=rawget(t,k)else rawset(t,k,value)end;return value end;if type(prior)=="function"then return prior(t,k)elseif prior then return prior[k]end end;setmetatable(target,meta)end;if name~=nil and rawget(target,name)==nil and loaders[name]==nil then loaders[name]=loader end end;const __nuppT61={}; const function __nuppT58(...) return {n=select("#",...),...} end; const __nuppT62,__nuppT63,__nuppT64,__nuppT65,__nuppT66,__nuppT67,__nuppT68,__nuppT69=pcall,xpcall,error,unpack,select,setmetatable,tostring,ipairs; const function __nuppT59(value) return value end; const function __nuppT60(primary,errors,start) const secondary={} for i=start,#errors do secondary[#secondary+1]=errors[i] end return __nuppT67({primary=primary,suppressed=secondary},{__tostring=function(v) local text=__nuppT68(v.primary) for _,reason in __nuppT69(v.suppressed) do text=text.."\ncleanup: "..__nuppT68(reason) end return text end}) end; local __nuppCleanups=_G.__nuppCleanupRegistry;if __nuppCleanups==nil then __nuppCleanups={};_G.__nuppCleanupRegistry=__nuppCleanups end;local __nuppCleanup1;__nuppCleanup1=function(value) local cleanup=__nuppCleanups["nupp.mem.span#destroyWriteSpan"];if cleanup==nil then return _G.error("Nupp cleanup provider is not loaded: nupp.mem.span#destroyWriteSpan") end;__nuppCleanup1=cleanup;return cleanup(value) end;local __nuppCleanup2;__nuppCleanup2=function(value) local cleanup=__nuppCleanups["nupp.io#destroyOwner"];if cleanup==nil then return _G.error("Nupp cleanup provider is not loaded: nupp.io#destroyOwner") end;__nuppCleanup2=cleanup;return cleanup(value) end;const __nuppDrop1 = function(__nuppV) if __nuppV == nil then return end __nuppCleanup1(__nuppV);  end;const __nuppClosureCleanup2 = function(__nuppV) return __nuppV:__nuppRelease() end;const __nuppCleanup3 = function(__nuppV) return __nuppV:close() end;local __nuppExports;local __nuppOk,__nuppWhy=pcall(function()
 
 
 
@@ -170283,17 +170286,11 @@ local http = { }
 
 
 
-const native = require ( "nupp.runtime.native" )
-
-
-
+const native = require ( "nupp.runtime.nativev2" )
 
 native . ffi . cdef [[
-typedef struct NuppHttpClient NuppHttpClient;
-typedef struct NuppHttpTransfer NuppHttpTransfer;
-
-typedef struct { const uint8_t *data; size_t length; } NuppHttpSlice;
-typedef struct { NuppHttpSlice name; NuppHttpSlice value; } NuppHttpHeader;
+typedef struct { const uint8_t *data; size_t length; } NuppNativeV2HttpSlice;
+typedef struct { NuppNativeV2HttpSlice name; NuppNativeV2HttpSlice value; } NuppNativeV2HttpHeader;
 
 typedef struct {
     uint64_t connect_timeout_ms;
@@ -170304,64 +170301,61 @@ typedef struct {
     int compressed;
     int has_insecure_hosts;
     int proxy_mode;
-    NuppHttpSlice proxy;
+    NuppNativeV2HttpSlice proxy;
     int no_proxy_set;
-    NuppHttpSlice no_proxy;
-    NuppHttpSlice proxy_credentials;
-} NuppHttpClientOptions;
+    NuppNativeV2HttpSlice no_proxy;
+    NuppNativeV2HttpSlice proxy_credentials;
+} NuppNativeV2HttpClientOptions;
 
 typedef struct {
-    const NuppUri *uri;
-    NuppHttpSlice method;
-    const NuppHttpHeader *headers;
+    NuppNativeV2HttpSlice url;
+    NuppNativeV2HttpSlice method;
+    const NuppNativeV2HttpHeader *headers;
     size_t header_count;
-    NuppHttpSlice body;
+    NuppNativeV2HttpSlice body;
     uint32_t body_kind;
     int64_t body_length;
     uint64_t timeout_ms;
     uint64_t stall_timeout_ms;
     uint64_t max_bytes;
     int insecure;
-} NuppHttpRequest;
+} NuppNativeV2HttpRequest;
 
 typedef struct {
+    uint32_t state;
     uint16_t status;
     uint8_t version;
-    const uint8_t *url;
     size_t url_length;
-    const uint8_t *headers;
     size_t headers_length;
-} NuppHttpResponseHead;
+} NuppNativeV2HttpHead;
 
-typedef struct { const NuppHttpTransfer *transfer; uint32_t tokens; } NuppHttpReady;
+typedef struct { uint64_t transfer; uint32_t tokens; } NuppNativeV2HttpReady;
 
-NuppHttpClient *nuppHttpClientCreate(const NuppHttpClientOptions *);
-void nuppHttpClientDestroy(NuppHttpClient *);
-const NuppHttpTransfer *nuppHttpClientSend(NuppHttpClient *, const NuppHttpRequest *);
-void nuppHttpTransferCancel(const NuppHttpTransfer *);
-void nuppHttpTransferDestroy(const NuppHttpTransfer *);
-int nuppHttpTransferOffer(const NuppHttpTransfer *, const uint8_t *, size_t, bool);
-uint32_t nuppHttpTransferPollHeaders(const NuppHttpTransfer *, NuppHttpResponseHead *);
-const char *nuppHttpTransferError(const NuppHttpTransfer *);
-const NuppHttpTransfer *nuppHttpTransferTakeBody(const NuppHttpTransfer *);
-bool nuppHttpBodyArm(const NuppHttpTransfer *);
-bool nuppHttpBodyPeek(const NuppHttpTransfer *, const uint8_t **, size_t *, uint32_t *);
-bool nuppHttpBodyConsume(const NuppHttpTransfer *, size_t);
-const char *nuppHttpBodyError(const NuppHttpTransfer *);
-void nuppHttpBodyDestroy(const NuppHttpTransfer *);
-size_t nuppHttpClientPoll(NuppHttpClient *, NuppHttpReady *, size_t, bool *);
-size_t nuppHttpClientWait(NuppHttpClient *, uint64_t, NuppHttpReady *, size_t, bool *);
-void nuppHttpReadyRelease(const NuppHttpTransfer *);
-size_t nuppHttpClientPending(const NuppHttpClient *);
+int32_t nuppNativeV2HttpClientCreate(const NuppNativeV2HttpClientOptions *, uint64_t *);
+int32_t nuppNativeV2HttpClientRelease(uint64_t);
+int32_t nuppNativeV2HttpClientSend(uint64_t, const NuppNativeV2HttpRequest *, uint64_t *);
+int32_t nuppNativeV2HttpClientPending(uint64_t, size_t *);
+int32_t nuppNativeV2HttpTransferCancel(uint64_t);
+int32_t nuppNativeV2HttpTransferRelease(uint64_t);
+int32_t nuppNativeV2HttpTransferOffer(uint64_t, const uint8_t *, size_t, int32_t, int32_t *);
+int32_t nuppNativeV2HttpTransferPollHead(
+    uint64_t, NuppNativeV2HttpHead *, uint8_t *, size_t, uint8_t *, size_t);
+int32_t nuppNativeV2HttpTransferError(uint64_t, uint8_t *, size_t, size_t *);
+int32_t nuppNativeV2HttpTransferTakeBody(uint64_t, uint64_t *);
+int32_t nuppNativeV2HttpBodyArm(uint64_t);
+int32_t nuppNativeV2HttpBodyRead(uint64_t, uint8_t *, size_t, uint32_t *, size_t *);
+int32_t nuppNativeV2HttpBodyError(uint64_t, uint8_t *, size_t, size_t *);
+int32_t nuppNativeV2HttpClientPoll(
+    uint64_t, NuppNativeV2HttpReady *, size_t, size_t *, int32_t *);
+int32_t nuppNativeV2HttpClientWait(
+    uint64_t, uint64_t, NuppNativeV2HttpReady *, size_t, size_t *, int32_t *);
 ]]
 
+local ffi = native . ffi
 const C = native . C
-local transferOffer
 
 
-
-
-= C . nuppHttpTransferOffer
+const ABI_CAPACITY = 2
 
 
 const HEAD_PENDING = 0
@@ -170394,6 +170388,10 @@ const READY_SLOTS = 256
 
 
 
+const BODY_READ_BYTES = 64 * 1024
+
+
+
 
 
 
@@ -170402,7 +170400,7 @@ const READY_SLOTS = 256
 
 
 local function slice ( value , pointer , length ) 
-local out = native . ffi . new ( "NuppHttpSlice" )
+local out = native . ffi . new ( "NuppNativeV2HttpSlice" )
 if pointer ~= nil then
 out . data = pointer
 out . length = length
@@ -170414,14 +170412,53 @@ end
 return out
 end
 
+local function raw ( handle ) 
+return handle [ 0 ]
+end
 
-local function reason ( pointer , fallback ) 
-if pointer == nil then
+local function outputHandle ( ) 
+return __nuppFfi.new("uint64_t[1]" )
+end
+
+local function releaseTransfer ( handle ) 
+if handle [ 0 ] ~= 0 then
+C . nuppNativeV2HttpTransferRelease ( handle [ 0 ] )
+handle [ 0 ] = 0
+end
+end
+
+local function releaseClient ( handle ) 
+if handle [ 0 ] ~= 0 then
+C . nuppNativeV2HttpClientRelease ( handle [ 0 ] )
+handle [ 0 ] = 0
+end
+end
+
+local function lastError ( ) 
+return ffi . string ( C . nuppNativeV2LastError ( ) )
+end
+
+
+local function copiedError ( call , handle , fallback ) 
+local length = ffi . new ( "size_t[1]" )
+call ( raw ( handle ) , nil , 0 , length )
+if length [ 0 ] == 0 then
 return fallback
 end
-local text = native . ffi . string ( pointer )
+local output = ffi . new ( "uint8_t[?]" , length [ 0 ] )
+if call ( raw ( handle ) , output , length [ 0 ] , length ) ~= 0 then
+return lastError ( )
+end
+local text = ffi . string ( output , length [ 0 ] )
 
 return text ~= "" and text or fallback
+end
+
+local function pending ( handle ) 
+local output = ffi . new ( "size_t[1]" )
+native . succeeded ( C . nuppNativeV2HttpClientPending ( raw ( handle ) , output ) , 3 )
+
+return tonumber ( output [ 0 ] )
 end
 
 
@@ -170532,7 +170569,7 @@ local forget = addWaiter ( self , "_bodyWaiters" , wake )
 
 
 if self . _body ~= nil then
-C . nuppHttpBodyArm ( self . _body )
+C . nuppNativeV2HttpBodyArm ( raw ( self . _body ) )
 end
 
 return forget
@@ -170543,25 +170580,42 @@ return addWaiter ( self , "_uploadWaiters" , wake )
 end
 
 function Transfer:head() 
-local out = native . ffi . new ( "NuppHttpResponseHead[1]" )
-local state = C . nuppHttpTransferPollHeaders ( self . _handle , out )
+local out = native . ffi . new ( "NuppNativeV2HttpHead[1]" )
+local status = C . nuppNativeV2HttpTransferPollHead ( raw ( self . _handle ) , out , nil , 0 , nil , 0 )
+local state = tonumber ( out [ 0 ] . state )
+if status ~= 0 and status ~= ABI_CAPACITY then
+return "failed" , nil , nil , nil , nil , lastError ( )
+end
 if state == HEAD_PENDING then
 return "pending" , nil , nil , nil , nil , nil
 end
 if state == HEAD_FAILED then
-return "failed" , nil , nil , nil , nil , reason ( C . nuppHttpTransferError ( self . _handle ) , "HTTP transfer failed" )
+return "failed" , nil , nil , nil , nil , copiedError (
+C . nuppNativeV2HttpTransferError ,
+self . _handle ,
+"HTTP transfer failed"
+)
 end
 local head = out [ 0 ]
-local url = nil
-if head . url ~= nil then
-url = native . ffi . string ( head . url , tonumber ( head . url_length ) )
+local urlLength = tonumber ( head . url_length )
+local headersLength = tonumber ( head . headers_length )
+local urlOutput = urlLength > 0 and ffi . new ( "uint8_t[?]" , urlLength ) or nil
+local headersOutput = headersLength > 0 and ffi . new ( "uint8_t[?]" , headersLength ) or nil
+status = C . nuppNativeV2HttpTransferPollHead (
+raw ( self . _handle ) ,
+out ,
+urlOutput ,
+urlLength ,
+headersOutput ,
+headersLength
+)
+if status ~= 0 then
+return "failed" , nil , nil , nil , nil , lastError ( )
 end
+local url = urlLength > 0 and ffi . string ( urlOutput , urlLength ) or nil
+local headers = headersLength > 0 and ffi . string ( headersOutput , headersLength ) or ""
 
-return "ready" , tonumber (
-head . status
-) , tonumber (
-head . version
-) , url , native . ffi . string ( head . headers , tonumber ( head . headers_length ) ) , nil
+return "ready" , tonumber ( head . status ) , tonumber ( head . version ) , url , headers , nil
 end
 
 function Transfer:offer(value, count) 
@@ -170570,13 +170624,15 @@ local length = count or # bytes
 if length < 0 or length > # bytes then
 error ( "nupp: HTTP upload offer is outside its bytes" , 2 )
 end
-local view = span . fromString ( bytes )
-local data = view : ref ( )
-local answer = transferOffer ( self . _handle , data , length , false )
-if answer == UPLOAD_ACCEPTED then
+local answer = __nuppFfi.new("int32_t[1]" )
+local status = C . nuppNativeV2HttpTransferOffer ( raw ( self . _handle ) , bytes , length , 0 , answer )
+if status ~= 0 then
+return "closed"
+end
+if answer [ 0 ] == UPLOAD_ACCEPTED then
 return "accepted"
 end
-if answer == UPLOAD_BACKPRESSURE then
+if answer [ 0 ] == UPLOAD_BACKPRESSURE then
 return "backpressure"
 end
 
@@ -170584,8 +170640,9 @@ return "closed"
 end
 
 function Transfer:finishUpload() 
-local answer = C . nuppHttpTransferOffer ( self . _handle , nil , 0 , true )
-if answer == UPLOAD_ACCEPTED then
+local answer = __nuppFfi.new("int32_t[1]" )
+local status = C . nuppNativeV2HttpTransferOffer ( raw ( self . _handle ) , nil , 0 , 1 , answer )
+if status == 0 and answer [ 0 ] == UPLOAD_ACCEPTED then
 return "accepted"
 end
 
@@ -170594,11 +170651,11 @@ end
 
 function Transfer:takeBody() 
 if self . _body == nil then
-local handle = C . nuppHttpTransferTakeBody ( self . _handle )
-if handle == nil then
-return nil , "the HTTP response has no body"
+local handle = outputHandle ( )
+if C . nuppNativeV2HttpTransferTakeBody ( raw ( self . _handle ) , handle ) ~= 0 then
+return nil , lastError ( )
 end
-self . _body = native . ffi . gc ( handle , C . nuppHttpBodyDestroy )
+self . _body = ffi . gc ( handle , releaseTransfer )
 end
 
 return true , nil
@@ -170607,13 +170664,13 @@ end
 
 
 
-
 function Transfer:bodyRead(count) 
-local data = native . ffi . new ( "const uint8_t*[1]" )
-local length = native . ffi . new ( "size_t[1]" )
-local state = native . ffi . new ( "uint32_t[1]" )
-if not C . nuppHttpBodyPeek ( self . _body , data , length , state ) then
-return "failed" , nil , native . error ( )
+local capacity = math . min ( count , BODY_READ_BYTES )
+local data = ffi . new ( "uint8_t[?]" , capacity )
+local length = ffi . new ( "size_t[1]" )
+local state = __nuppFfi.new("uint32_t[1]" )
+if C . nuppNativeV2HttpBodyRead ( raw ( self . _body ) , data , capacity , state , length ) ~= 0 then
+return "failed" , nil , lastError ( )
 end
 local kind = tonumber ( state [ 0 ] )
 if kind == BODY_PENDING then
@@ -170623,23 +170680,19 @@ if kind == BODY_EOF then
 return "eof" , nil , nil
 end
 if kind == BODY_FAILED then
-return "failed" , nil , reason ( C . nuppHttpBodyError ( self . _body ) , "HTTP response body failed" )
+return "failed" , nil , copiedError ( C . nuppNativeV2HttpBodyError , self . _body , "HTTP response body failed" )
 end
 if kind == BODY_CLOSED then
 return "closed" , nil , "the body is closed"
 end
-local take = math . min ( count , tonumber ( length [ 0 ] ) )
-local bytes = native . ffi . string ( data [ 0 ] , take )
-if not C . nuppHttpBodyConsume ( self . _body , take ) then
-return "failed" , nil , native . error ( )
-end
+local bytes = ffi . string ( data , length [ 0 ] )
 
 return "data" , bytes , nil
 end
 
 function Transfer:cancel() 
 if self . _handle ~= nil then
-C . nuppHttpTransferCancel ( self . _handle )
+C . nuppNativeV2HttpTransferCancel ( raw ( self . _handle ) )
 end
 end
 
@@ -170653,19 +170706,19 @@ if self . _closed then
 return
 end
 self . _closed = true
-self . _client . _byHandle [ tostring ( self . _handle ) ] = nil
+self . _client . _byHandle [ tostring ( raw ( self . _handle ) ) ] = nil
 if self . _body ~= nil then
 local body = self . _body
 self . _body = nil
-native . ffi . gc ( body , nil )
-C . nuppHttpBodyDestroy ( body )
+ffi . gc ( body , nil )
+releaseTransfer ( body )
 else
-C . nuppHttpTransferCancel ( self . _handle )
+C . nuppNativeV2HttpTransferCancel ( raw ( self . _handle ) )
 end
 local handle = self . _handle
 self . _handle = nil
-native . ffi . gc ( handle , nil )
-C . nuppHttpTransferDestroy ( handle )
+ffi . gc ( handle , nil )
+releaseTransfer ( handle )
 end
 
 
@@ -170688,7 +170741,7 @@ const Client = {} Client.__index = Client
 
 
 function Client:onAdmission(wake) 
-if self . _closed or ( tonumber ( C . nuppHttpClientPending ( self . _handle ) ) ) < self . _maxPending then
+if self . _closed or pending ( self . _handle ) < self . _maxPending then
 wake ( )
 
 return function ( ) 
@@ -170701,7 +170754,7 @@ end
 function Client:send(descriptor) 
 local headers = descriptor . headers or { }
 local count = # headers
-local packed = count > 0 and native . ffi . new ( "NuppHttpHeader[?]" , count ) or nil
+local packed = count > 0 and native . ffi . new ( "NuppNativeV2HttpHeader[?]" , count ) or nil
 for index = 1 , count do
 local item = headers [ index ]
 packed [ index - 1 ] . name = slice ( item [ 1 ] )
@@ -170718,8 +170771,8 @@ elseif descriptor . bodyKind == BODY_FILE then
 bodyPointer = value
 bodyLength = # ( value )
 end
-local request = native . ffi . new ( "NuppHttpRequest" )
-request . uri = rawget ( descriptor . uri , "_handle" )
+local request = native . ffi . new ( "NuppNativeV2HttpRequest" )
+request . url = slice ( descriptor . uri : toString ( ) )
 request . method = slice ( descriptor . method )
 request . headers = packed
 request . header_count = count
@@ -170730,15 +170783,16 @@ request . timeout_ms = descriptor . timeoutMs
 request . stall_timeout_ms = descriptor . stallTimeoutMs
 request . max_bytes = descriptor . maxBytes
 request . insecure = descriptor . insecure and 1 or 0
-local handle = C . nuppHttpClientSend ( self . _handle , request )
-if handle == nil then
-local why = native . error ( )
+local handle = outputHandle ( )
+local status = C . nuppNativeV2HttpClientSend ( raw ( self . _handle ) , request , handle )
+if status ~= 0 then
+local why = lastError ( )
 
-return nil , why , why == "the HTTP client has reached maxPendingRequests"
+return nil , why , status == ABI_CAPACITY
 end
-handle = native . ffi . gc ( handle , C . nuppHttpTransferDestroy )
+handle = ffi . gc ( handle , releaseTransfer )
 local transfer = setmetatable({ _client =  self ,  _handle =  handle ,  _body =  nil ,  _closed =  false }, Transfer)
-self . _byHandle [ tostring ( handle ) ] = transfer
+self . _byHandle [ tostring ( raw ( handle ) ) ] = transfer
 
 return transfer , nil , nil
 end
@@ -170752,15 +170806,26 @@ end
 
 
 function Client:poll(waitMs) 
-local count
+local count = ffi . new ( "size_t[1]" )
 local moved = 0
+local status
 if waitMs > 0 then
-count = C . nuppHttpClientWait ( self . _handle , waitMs , self . _ready , READY_SLOTS , self . _more )
+status = C . nuppNativeV2HttpClientWait (
+raw ( self . _handle ) ,
+waitMs ,
+self . _ready ,
+READY_SLOTS ,
+count ,
+self . _more
+)
 else
-count = C . nuppHttpClientPoll ( self . _handle , self . _ready , READY_SLOTS , self . _more )
+status = C . nuppNativeV2HttpClientPoll ( raw ( self . _handle ) , self . _ready , READY_SLOTS , count , self . _more )
+end
+if status ~= 0 then
+error ( "nupp: " .. lastError ( ) , 2 )
 end
 local failure = nil
-for index = 0 , ( tonumber ( count ) ) - 1 do
+for index = 0 , ( tonumber ( count [ 0 ] ) ) - 1 do
 local item = self . _ready [ index ]
 local transfer = self . _byHandle [ tostring ( item . transfer ) ]
 if transfer ~= nil then
@@ -170771,14 +170836,11 @@ if not ok and failure == nil then
 failure = problem
 end
 end
-C . nuppHttpReadyRelease ( item . transfer )
 end
 if failure ~= nil then
 error ( failure , 0 )
 end
-if self . _admissionWaiters ~= nil and (
-tonumber ( C . nuppHttpClientPending ( self . _handle ) )
-) < self . _maxPending then
+if self . _admissionWaiters ~= nil and ( pending ( self . _handle ) ) < self . _maxPending then
 moved = moved + dispatchOne ( self , "_admissionWaiters" )
 end
 
@@ -170790,7 +170852,7 @@ if self . _closed then
 return 0
 end
 
-return tonumber ( C . nuppHttpClientPending ( self . _handle ) )
+return pending ( self . _handle )
 end
 
 
@@ -170820,8 +170882,8 @@ transfers [ index ] : close ( )
 end
 local handle = self . _handle
 self . _handle = nil
-native . ffi . gc ( handle , nil )
-C . nuppHttpClientDestroy ( handle )
+ffi . gc ( handle , nil )
+releaseClient ( handle )
 end
 
 
@@ -170830,7 +170892,8 @@ local function newClient ( options )
 
 
 local proxyMode = options . proxy == nil and 0 or ( options . proxy == "" and 1 or 2 )
-local settings = native . ffi . new ( "NuppHttpClientOptions" )
+native . requireFeature ( 16 , "HTTP support" )
+local settings = native . ffi . new ( "NuppNativeV2HttpClientOptions" )
 settings . connect_timeout_ms = options . connectTimeoutMs
 settings . max_redirects = options . maxRedirects
 settings . max_pending_requests = options . maxPendingRequests
@@ -170843,19 +170906,19 @@ settings . proxy = slice ( options . proxy or "" )
 settings . no_proxy_set = options . noProxy ~= nil and 1 or 0
 settings . no_proxy = slice ( options . noProxy or "" )
 settings . proxy_credentials = slice ( options . proxyCredentials or "" )
-local handle = C . nuppHttpClientCreate ( settings )
-if handle == nil then
-return nil , native . error ( )
+local handle = outputHandle ( )
+if C . nuppNativeV2HttpClientCreate ( settings , handle ) ~= 0 then
+return nil , lastError ( )
 end
 
 return setmetatable({ _handle =
-native . ffi . gc ( handle , C . nuppHttpClientDestroy ) ,  _closed =
+ffi . gc ( handle , releaseClient ) ,  _closed =
 false ,  _byHandle =
 { } ,  _admissionWaiters =
 nil ,  _maxPending =
 options . maxPendingRequests ,  _ready =
-native . ffi . new ( "NuppHttpReady[?]" , READY_SLOTS ) ,  _more =
-native . ffi . new ( "bool[1]" ) }, Client)
+native . ffi . new ( "NuppNativeV2HttpReady[?]" , READY_SLOTS ) ,  _more =  __nuppFfi.new("int32_t[1]" ) }, Client)
+
 , nil
 end
 
@@ -171359,17 +171422,17 @@ if # chunk == 0 then
 return 0
 end
 local input = span . fromString ( chunk )
-do local __nuppT64=0; local  __nuppT70 ; local __nuppT71=false ; const __nuppT65,__nuppT66,__nuppT67=__nuppT57(function() do const __nuppT72= destination : reserveWrite ( at , wanted ) ; __nuppT70= __nuppT72 ; __nuppT64=1;  __nuppT71=true;  local lease=__nuppT70;
+do local __nuppT70=0; local  __nuppT76 ; local __nuppT77=false ; const __nuppT71,__nuppT72,__nuppT73=__nuppT63(function() do const __nuppT78= destination : reserveWrite ( at , wanted ) ; __nuppT76= __nuppT78 ; __nuppT70=1;  __nuppT77=true;  local lease=__nuppT76;
 do
-do local __nuppT73=0; local  __nuppT79 ; local __nuppT80=false ; const __nuppT74,__nuppT75,__nuppT76=__nuppT57(function() do const __nuppT81= lease : span ( ) ; __nuppT79= __nuppT81 ; __nuppT73=1;  __nuppT80=true;  local output=__nuppT79;
+do local __nuppT79=0; local  __nuppT85 ; local __nuppT86=false ; const __nuppT80,__nuppT81,__nuppT82=__nuppT63(function() do const __nuppT87= lease : span ( ) ; __nuppT85= __nuppT87 ; __nuppT79=1;  __nuppT86=true;  local output=__nuppT85;
 for index = 1 , # chunk do
 output :set( index , input :get( index ) )
 end
-do __nuppT80=false; __nuppDrop1( output ) end end; return "normal" end,__nuppT53); const __nuppT77={}; local __nuppT78=0; if __nuppT73>=1 and __nuppT80 then  const __nuppT82,__nuppT83=__nuppT56(__nuppCleanup1,__nuppT79);  if not __nuppT82 then __nuppT78=__nuppT78+1; __nuppT77[__nuppT78]=__nuppT83 end; end; if not __nuppT74 then if __nuppT78>0 then __nuppT58(__nuppT54(__nuppT75,__nuppT77,1),0) else __nuppT58(__nuppT75,0) end end; if __nuppT78>0 then if __nuppT78>1 then __nuppT58(__nuppT54(__nuppT77[1],__nuppT77,2),0) else __nuppT58(__nuppT77[1],0) end end; if __nuppT75=="return" then  return "return",__nuppT76  end; end
+do __nuppT86=false; __nuppDrop1( output ) end end; return "normal" end,__nuppT59); const __nuppT83={}; local __nuppT84=0; if __nuppT79>=1 and __nuppT86 then  const __nuppT88,__nuppT89=__nuppT62(__nuppCleanup1,__nuppT85);  if not __nuppT88 then __nuppT84=__nuppT84+1; __nuppT83[__nuppT84]=__nuppT89 end; end; if not __nuppT80 then if __nuppT84>0 then __nuppT64(__nuppT60(__nuppT81,__nuppT83,1),0) else __nuppT64(__nuppT81,0) end end; if __nuppT84>0 then if __nuppT84>1 then __nuppT64(__nuppT60(__nuppT83[1],__nuppT83,2),0) else __nuppT64(__nuppT83[1],0) end end; if __nuppT81=="return" then  return "return",__nuppT82  end; end
 end
-do (function(__nuppT84,...)  __nuppT71=false;  return __nuppT84:commit(...)  end)( lease , # chunk ) end
+do (function(__nuppT90,...)  __nuppT77=false;  return __nuppT90:commit(...)  end)( lease , # chunk ) end
 
-return "return",__nuppT52( # chunk ) end; return "normal" end,__nuppT53); const __nuppT68={}; local __nuppT69=0; if __nuppT64>=1 and __nuppT71 then  const __nuppT85,__nuppT86=__nuppT56(__nuppCleanup2,__nuppT70);  if not __nuppT85 then __nuppT69=__nuppT69+1; __nuppT68[__nuppT69]=__nuppT86 end; end; if not __nuppT65 then if __nuppT69>0 then __nuppT58(__nuppT54(__nuppT66,__nuppT68,1),0) else __nuppT58(__nuppT66,0) end end; if __nuppT69>0 then if __nuppT69>1 then __nuppT58(__nuppT54(__nuppT68[1],__nuppT68,2),0) else __nuppT58(__nuppT68[1],0) end end; if __nuppT66=="return" then  return __nuppT59(__nuppT67,1,__nuppT67.n)  end; end
+return "return",__nuppT58( # chunk ) end; return "normal" end,__nuppT59); const __nuppT74={}; local __nuppT75=0; if __nuppT70>=1 and __nuppT77 then  const __nuppT91,__nuppT92=__nuppT62(__nuppCleanup2,__nuppT76);  if not __nuppT91 then __nuppT75=__nuppT75+1; __nuppT74[__nuppT75]=__nuppT92 end; end; if not __nuppT71 then if __nuppT75>0 then __nuppT64(__nuppT60(__nuppT72,__nuppT74,1),0) else __nuppT64(__nuppT72,0) end end; if __nuppT75>0 then if __nuppT75>1 then __nuppT64(__nuppT60(__nuppT74[1],__nuppT74,2),0) else __nuppT64(__nuppT74[1],0) end end; if __nuppT72=="return" then  return __nuppT65(__nuppT73,1,__nuppT73.n)  end; end
 end
 
 
@@ -171802,7 +171865,7 @@ error ( "nupp: HTTP method is not a valid token" , 2 )
 end
 local requestBody = given . body
 local body , bodyKind , bodyLength = requestBody , 0 , nil
-do local __nuppT110=0; local  __nuppT116,__nuppT117 ; local __nuppT118=false ; const __nuppT111,__nuppT112,__nuppT113=__nuppT57(function() do const __nuppT119= nil ; __nuppT116= __nuppT119 ; __nuppT110=1;  local reader=__nuppT116;
+do local __nuppT116=0; local  __nuppT122,__nuppT123 ; local __nuppT124=false ; const __nuppT117,__nuppT118,__nuppT119=__nuppT63(function() do const __nuppT125= nil ; __nuppT122= __nuppT125 ; __nuppT116=1;  local reader=__nuppT122;
 local contentType = nil
 if body ~= nil then
 local concrete = body
@@ -171851,7 +171914,7 @@ local now = self . _native : now ( )
 local deadline = given . _deadline or ( now + requestTimeout )
 local remaining = math . floor ( deadline - now )
 if remaining < 1 then
-return "return",__nuppT52( nil , "HTTP request timed out" )
+return "return",__nuppT58( nil , "HTTP request timed out" )
 end
 local descriptor = {
 uri = given . url ,
@@ -171876,25 +171939,25 @@ local transfer , reason
 while transfer == nil do
 remaining = math . floor ( deadline - self . _native : now ( ) )
 if remaining < 1 then
-return "return",__nuppT52( nil , "HTTP request timed out waiting for admission" )
+return "return",__nuppT58( nil , "HTTP request timed out waiting for admission" )
 end
 descriptor . timeoutMs = remaining
 local full
 transfer , reason , full = self . _native : send ( descriptor )
 if transfer == nil and not full then
-return "return",__nuppT52( nil , reason )
+return "return",__nuppT58( nil , reason )
 elseif transfer == nil then
 waitAdmission ( self )
 if self . _closed then
-return "return",__nuppT52( nil , "the HTTP client is closed" )
+return "return",__nuppT58( nil , "the HTTP client is closed" )
 end
 end
 end
 local head , problem
 if reader ~= nil then
-do local __nuppT120=0; local  __nuppT126,__nuppT128 ; local __nuppT127=false ; local __nuppT129=false ; const __nuppT121,__nuppT122,__nuppT123=__nuppT57(function() do const __nuppT130= io . newBuffer ( UPLOAD_SIZE ) ; __nuppT126= __nuppT130 ; __nuppT120=1;  __nuppT127=true;  local scratch=__nuppT126;
-local uploadTransfer = transfer const __nuppT131= (function(scratch) local __nuppT132=true;  __nuppT127=false;  local __nuppT133=function
-( ) local __nuppT135; do const  __nuppT142= scratch ; __nuppT135=__nuppT135 or {} ; local __nuppT143=__nuppT135[1]; if not __nuppT143 then __nuppT143=function(scratch) do
+do local __nuppT126=0; local  __nuppT132,__nuppT134 ; local __nuppT133=false ; local __nuppT135=false ; const __nuppT127,__nuppT128,__nuppT129=__nuppT63(function() do const __nuppT136= io . newBuffer ( UPLOAD_SIZE ) ; __nuppT132= __nuppT136 ; __nuppT126=1;  __nuppT133=true;  local scratch=__nuppT132;
+local uploadTransfer = transfer const __nuppT137= (function(scratch) local __nuppT138=true;  __nuppT133=false;  local __nuppT139=function
+( ) local __nuppT141; do const  __nuppT148= scratch ; __nuppT141=__nuppT141 or {} ; local __nuppT149=__nuppT141[1]; if not __nuppT149 then __nuppT149=function(scratch) do
 local transferred = 0
 while true do
 scratch : clear ( )
@@ -171928,7 +171991,7 @@ local accepted = uploadTransfer : offer ( source , offered )
 if accepted == "accepted" then
 break
 elseif accepted == "closed" then
-return "return",__nuppT52( waitHead ( self , transfer , false ) )
+return "return",__nuppT58( waitHead ( self , transfer , false ) )
 end
 appendWaiter ( self , transfer , "upload space" , false )
 end
@@ -171943,29 +172006,29 @@ error (
 )
 end
 if transfer : finishUpload ( ) == "closed" then
-return "return",__nuppT52( waitHead ( self , transfer , false ) )
+return "return",__nuppT58( waitHead ( self , transfer , false ) )
 end
-return "return",__nuppT52( waitHead ( self , transfer , false ) )
+return "return",__nuppT58( waitHead ( self , transfer , false ) )
 end
-end end; return "normal" end; __nuppT135[1]=__nuppT143 end; const __nuppT137,__nuppT138,__nuppT139=__nuppT57(__nuppT143,__nuppT53,__nuppT142); const __nuppT136=1; const __nuppT140={}; local __nuppT141=0; if __nuppT136>=1 then  const __nuppT144,__nuppT145=__nuppT56(__nuppCleanup2,__nuppT142);  if not __nuppT144 then __nuppT141=__nuppT141+1; __nuppT140[__nuppT141]=__nuppT145 end; end; if not __nuppT137 then if __nuppT141>0 then __nuppT58(__nuppT54(__nuppT138,__nuppT140,1),0) else __nuppT58(__nuppT138,0) end end; if __nuppT141>0 then if __nuppT141>1 then __nuppT58(__nuppT54(__nuppT140[1],__nuppT140,2),0) else __nuppT58(__nuppT140[1],0) end end; if __nuppT138=="return" then  return __nuppT59(__nuppT139,1,__nuppT139.n)  end; end
-end ; local __nuppT134={};  __nuppT134.__nuppRelease=function() if not __nuppT132 then return end; __nuppT132=false;  local __nuppT146={}; local __nuppT147=0;  local __nuppT148,__nuppT149=__nuppT56(__nuppCleanup2,scratch); if not __nuppT148 then __nuppT147=__nuppT147+1; __nuppT146[__nuppT147]=__nuppT149 end;  if __nuppT147>0 then if __nuppT147>1 then __nuppT58(__nuppT54(__nuppT146[1],__nuppT146,2),0) else __nuppT58(__nuppT146[1],0) end end end;  return setmetatable(__nuppT134,{__call=function(_,...) if not __nuppT132 then __nuppT58("nupp: affine closure was already called or dropped",2) end;  __nuppT132=false; return __nuppT133(...) end}) end)( scratch ) ; __nuppT128= __nuppT131 ; __nuppT120=2;  __nuppT129=true;  local uploadAndWait=__nuppT128;
+end end; return "normal" end; __nuppT141[1]=__nuppT149 end; const __nuppT143,__nuppT144,__nuppT145=__nuppT63(__nuppT149,__nuppT59,__nuppT148); const __nuppT142=1; const __nuppT146={}; local __nuppT147=0; if __nuppT142>=1 then  const __nuppT150,__nuppT151=__nuppT62(__nuppCleanup2,__nuppT148);  if not __nuppT150 then __nuppT147=__nuppT147+1; __nuppT146[__nuppT147]=__nuppT151 end; end; if not __nuppT143 then if __nuppT147>0 then __nuppT64(__nuppT60(__nuppT144,__nuppT146,1),0) else __nuppT64(__nuppT144,0) end end; if __nuppT147>0 then if __nuppT147>1 then __nuppT64(__nuppT60(__nuppT146[1],__nuppT146,2),0) else __nuppT64(__nuppT146[1],0) end end; if __nuppT144=="return" then  return __nuppT65(__nuppT145,1,__nuppT145.n)  end; end
+end ; local __nuppT140={};  __nuppT140.__nuppRelease=function() if not __nuppT138 then return end; __nuppT138=false;  local __nuppT152={}; local __nuppT153=0;  local __nuppT154,__nuppT155=__nuppT62(__nuppCleanup2,scratch); if not __nuppT154 then __nuppT153=__nuppT153+1; __nuppT152[__nuppT153]=__nuppT155 end;  if __nuppT153>0 then if __nuppT153>1 then __nuppT64(__nuppT60(__nuppT152[1],__nuppT152,2),0) else __nuppT64(__nuppT152[1],0) end end end;  return setmetatable(__nuppT140,{__call=function(_,...) if not __nuppT138 then __nuppT64("nupp: affine closure was already called or dropped",2) end;  __nuppT138=false; return __nuppT139(...) end}) end)( scratch ) ; __nuppT134= __nuppT137 ; __nuppT126=2;  __nuppT135=true;  local uploadAndWait=__nuppT134;
 
-local ok , value = pcall ( (function(uploadAndWait) local __nuppT150=true;  __nuppT129=false;  local __nuppT151=function ( )  do local __nuppT154=0; local  __nuppT160 ; local __nuppT161=false ; const __nuppT155,__nuppT156,__nuppT157=__nuppT57(function() do const __nuppT162= uploadAndWait ; __nuppT160= __nuppT162 ; __nuppT154=1;  __nuppT161=true;  local uploadAndWait=__nuppT160;
-local answer = (function(__nuppT163,...)  __nuppT161=false;  return __nuppT163(...)  end)( suspension . race , {
+local ok , value = pcall ( (function(uploadAndWait) local __nuppT156=true;  __nuppT135=false;  local __nuppT157=function ( )  do local __nuppT160=0; local  __nuppT166 ; local __nuppT167=false ; const __nuppT161,__nuppT162,__nuppT163=__nuppT63(function() do const __nuppT168= uploadAndWait ; __nuppT166= __nuppT168 ; __nuppT160=1;  __nuppT167=true;  local uploadAndWait=__nuppT166;
+local answer = (function(__nuppT169,...)  __nuppT167=false;  return __nuppT169(...)  end)( suspension . race , {
 uploadAndWait ,
 function ( ) 
 return waitHead ( self , transfer , false )
 end
 } )
 
-return "return",__nuppT52( answer ) end; return "normal" end,__nuppT53); const __nuppT158={}; local __nuppT159=0; if __nuppT154>=1 and __nuppT161 then  const __nuppT165,__nuppT166=__nuppT56(__nuppClosureCleanup2,__nuppT160);  if not __nuppT165 then __nuppT159=__nuppT159+1; __nuppT158[__nuppT159]=__nuppT166 end; end; if not __nuppT155 then if __nuppT159>0 then __nuppT58(__nuppT54(__nuppT156,__nuppT158,1),0) else __nuppT58(__nuppT156,0) end end; if __nuppT159>0 then if __nuppT159>1 then __nuppT58(__nuppT54(__nuppT158[1],__nuppT158,2),0) else __nuppT58(__nuppT158[1],0) end end; if __nuppT156=="return" then  return __nuppT59(__nuppT157,1,__nuppT157.n)  end; end
-end ; local __nuppT152={};  __nuppT152.__nuppRelease=function() if not __nuppT150 then return end; __nuppT150=false;  local __nuppT167={}; local __nuppT168=0;  local __nuppT169,__nuppT170=__nuppT56(__nuppClosureCleanup2,uploadAndWait); if not __nuppT169 then __nuppT168=__nuppT168+1; __nuppT167[__nuppT168]=__nuppT170 end;  if __nuppT168>0 then if __nuppT168>1 then __nuppT58(__nuppT54(__nuppT167[1],__nuppT167,2),0) else __nuppT58(__nuppT167[1],0) end end end;  return setmetatable(__nuppT152,{__call=function(_,...) if not __nuppT150 then __nuppT58("nupp: affine closure was already called or dropped",2) end;  __nuppT150=false; return __nuppT151(...) end}) end)( uploadAndWait ) )
+return "return",__nuppT58( answer ) end; return "normal" end,__nuppT59); const __nuppT164={}; local __nuppT165=0; if __nuppT160>=1 and __nuppT167 then  const __nuppT171,__nuppT172=__nuppT62(__nuppClosureCleanup2,__nuppT166);  if not __nuppT171 then __nuppT165=__nuppT165+1; __nuppT164[__nuppT165]=__nuppT172 end; end; if not __nuppT161 then if __nuppT165>0 then __nuppT64(__nuppT60(__nuppT162,__nuppT164,1),0) else __nuppT64(__nuppT162,0) end end; if __nuppT165>0 then if __nuppT165>1 then __nuppT64(__nuppT60(__nuppT164[1],__nuppT164,2),0) else __nuppT64(__nuppT164[1],0) end end; if __nuppT162=="return" then  return __nuppT65(__nuppT163,1,__nuppT163.n)  end; end
+end ; local __nuppT158={};  __nuppT158.__nuppRelease=function() if not __nuppT156 then return end; __nuppT156=false;  local __nuppT173={}; local __nuppT174=0;  local __nuppT175,__nuppT176=__nuppT62(__nuppClosureCleanup2,uploadAndWait); if not __nuppT175 then __nuppT174=__nuppT174+1; __nuppT173[__nuppT174]=__nuppT176 end;  if __nuppT174>0 then if __nuppT174>1 then __nuppT64(__nuppT60(__nuppT173[1],__nuppT173,2),0) else __nuppT64(__nuppT173[1],0) end end end;  return setmetatable(__nuppT158,{__call=function(_,...) if not __nuppT156 then __nuppT64("nupp: affine closure was already called or dropped",2) end;  __nuppT156=false; return __nuppT157(...) end}) end)( uploadAndWait ) )
 if not ok then
 transfer : cancel ( )
 transfer : close ( )
 error ( value , 0 )
 end
-head = value end; return "normal" end,__nuppT53); const __nuppT124={}; local __nuppT125=0; if __nuppT120>=2 and __nuppT129 then  const __nuppT171,__nuppT172=__nuppT56(__nuppClosureCleanup2,__nuppT128);  if not __nuppT171 then __nuppT125=__nuppT125+1; __nuppT124[__nuppT125]=__nuppT172 end; end; if __nuppT120>=1 and __nuppT127 then  const __nuppT173,__nuppT174=__nuppT56(__nuppCleanup2,__nuppT126);  if not __nuppT173 then __nuppT125=__nuppT125+1; __nuppT124[__nuppT125]=__nuppT174 end; end; if not __nuppT121 then if __nuppT125>0 then __nuppT58(__nuppT54(__nuppT122,__nuppT124,1),0) else __nuppT58(__nuppT122,0) end end; if __nuppT125>0 then if __nuppT125>1 then __nuppT58(__nuppT54(__nuppT124[1],__nuppT124,2),0) else __nuppT58(__nuppT124[1],0) end end; if __nuppT122=="return" then  return "return",__nuppT123  end; end
+head = value end; return "normal" end,__nuppT59); const __nuppT130={}; local __nuppT131=0; if __nuppT126>=2 and __nuppT135 then  const __nuppT177,__nuppT178=__nuppT62(__nuppClosureCleanup2,__nuppT134);  if not __nuppT177 then __nuppT131=__nuppT131+1; __nuppT130[__nuppT131]=__nuppT178 end; end; if __nuppT126>=1 and __nuppT133 then  const __nuppT179,__nuppT180=__nuppT62(__nuppCleanup2,__nuppT132);  if not __nuppT179 then __nuppT131=__nuppT131+1; __nuppT130[__nuppT131]=__nuppT180 end; end; if not __nuppT127 then if __nuppT131>0 then __nuppT64(__nuppT60(__nuppT128,__nuppT130,1),0) else __nuppT64(__nuppT128,0) end end; if __nuppT131>0 then if __nuppT131>1 then __nuppT64(__nuppT60(__nuppT130[1],__nuppT130,2),0) else __nuppT64(__nuppT130[1],0) end end; if __nuppT128=="return" then  return "return",__nuppT129  end; end
 else
 
 
@@ -171981,7 +172044,7 @@ end
 if head == nil or head . reason ~= nil then
 problem = head and head . reason or "HTTP transfer failed"
 transfer : close ( )
-return "return",__nuppT52( nil , problem )
+return "return",__nuppT58( nil , problem )
 end
 local status = head . status
 local location = manualRedirects and packedHeader ( head . headers , "location" ) or nil
@@ -171994,18 +172057,18 @@ if self . _options . maxRedirects == 0 then
 location = nil
 else
 transfer : close ( )
-return "return",__nuppT52( nil , "HTTP request exceeded maxRedirects" )
+return "return",__nuppT58( nil , "HTTP request exceeded maxRedirects" )
 end
 end
 if location ~= nil then
 local target , targetReason = given . url : resolve ( location )
 if target == nil then
 transfer : close ( )
-return "return",__nuppT52( nil , targetReason or "HTTP redirect has an invalid location" )
+return "return",__nuppT58( nil , targetReason or "HTTP redirect has an invalid location" )
 end
 if target : scheme ( ) ~= "http" and target : scheme ( ) ~= "https" then
 transfer : close ( )
-return "return",__nuppT52( nil , "HTTP redirect must use http or https" )
+return "return",__nuppT58( nil , "HTTP redirect must use http or https" )
 end
 local nextMethod , nextBody = method , requestBody
 local dropsBody = status == 303 and method ~= "HEAD" or (
@@ -172022,7 +172085,7 @@ end
 end
 elseif reader ~= nil then
 transfer : close ( )
-return "return",__nuppT52( nil , "HTTP redirect cannot replay a ReaderBody" )
+return "return",__nuppT58( nil , "HTTP redirect cannot replay a ReaderBody" )
 end
 if origin ( given . url ) ~= origin ( target ) then
 for _ , name in ipairs ( { "authorization" , "proxy-authorization" , "cookie" , "host" } ) do
@@ -172033,7 +172096,7 @@ end
 end
 end
 transfer : close ( )
-return "return",__nuppT52( self : send ( setmetatable({ url =
+return "return",__nuppT58( self : send ( setmetatable({ url =
 
 target ,  method =
 nextMethod ,  headers =
@@ -172052,17 +172115,17 @@ end
 local bodyReady , bodyReason = transfer : takeBody ( )
 if not bodyReady then
 transfer : close ( )
-return "return",__nuppT52( nil , bodyReason )
+return "return",__nuppT58( nil , bodyReason )
 end
 local effective = head . url == nil and given . url or uri . newURI ( head . url )
 if effective == nil then
 transfer : close ( )
-return "return",__nuppT52( nil , "the HTTP provider returned an invalid effective URL" )
+return "return",__nuppT58( nil , "the HTTP provider returned an invalid effective URL" )
 end
 local version = head . version == 10 and "1.0" or head . version == 20 and "2" or "1.1"
-const __nuppT175= makeBody ( self , transfer ) ; __nuppT117= __nuppT175 ; __nuppT110=2;  __nuppT118=true;  local responseBody=__nuppT117;
+const __nuppT181= makeBody ( self , transfer ) ; __nuppT123= __nuppT181 ; __nuppT116=2;  __nuppT124=true;  local responseBody=__nuppT123;
 
-return "return",__nuppT52( (function(__nuppT176,...)  __nuppT118=false;  return __nuppT176(...)  end)( makeResponse , head . status , version , effective , responseBody , head . headers ) ) end; return "normal" end,__nuppT53); const __nuppT114={}; local __nuppT115=0; if __nuppT110>=2 and __nuppT118 then  const __nuppT177,__nuppT178=__nuppT56(__nuppCleanup3,__nuppT117);  if not __nuppT177 then __nuppT115=__nuppT115+1; __nuppT114[__nuppT115]=__nuppT178 end; end; if __nuppT110>=1 and __nuppT116~=nil then  const __nuppT179,__nuppT180=__nuppT56(__nuppCleanup3,__nuppT116);  if not __nuppT179 then __nuppT115=__nuppT115+1; __nuppT114[__nuppT115]=__nuppT180 end; end; if not __nuppT111 then if __nuppT115>0 then __nuppT58(__nuppT54(__nuppT112,__nuppT114,1),0) else __nuppT58(__nuppT112,0) end end; if __nuppT115>0 then if __nuppT115>1 then __nuppT58(__nuppT54(__nuppT114[1],__nuppT114,2),0) else __nuppT58(__nuppT114[1],0) end end; if __nuppT112=="return" then  return __nuppT59(__nuppT113,1,__nuppT113.n)  end; end
+return "return",__nuppT58( (function(__nuppT182,...)  __nuppT124=false;  return __nuppT182(...)  end)( makeResponse , head . status , version , effective , responseBody , head . headers ) ) end; return "normal" end,__nuppT59); const __nuppT120={}; local __nuppT121=0; if __nuppT116>=2 and __nuppT124 then  const __nuppT183,__nuppT184=__nuppT62(__nuppCleanup3,__nuppT123);  if not __nuppT183 then __nuppT121=__nuppT121+1; __nuppT120[__nuppT121]=__nuppT184 end; end; if __nuppT116>=1 and __nuppT122~=nil then  const __nuppT185,__nuppT186=__nuppT62(__nuppCleanup3,__nuppT122);  if not __nuppT185 then __nuppT121=__nuppT121+1; __nuppT120[__nuppT121]=__nuppT186 end; end; if not __nuppT117 then if __nuppT121>0 then __nuppT64(__nuppT60(__nuppT118,__nuppT120,1),0) else __nuppT64(__nuppT118,0) end end; if __nuppT121>0 then if __nuppT121>1 then __nuppT64(__nuppT60(__nuppT120[1],__nuppT120,2),0) else __nuppT64(__nuppT120[1],0) end end; if __nuppT118=="return" then  return __nuppT65(__nuppT119,1,__nuppT119.n)  end; end
 end
 
 
@@ -178503,23 +178566,20 @@ _G.assert(_G.loadstring("local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppM
 
 
 
-const native = require ( "nupp.runtime.native" )
-
-
-
-
+const native = require ( "nupp.runtime.nativev2" )
 
 native . ffi . cdef [[
-typedef struct NuppUri NuppUri;
-NuppUri *nuppUriParse(const uint8_t *, size_t);
-const uint8_t *nuppUriPart(const NuppUri *, uint32_t, size_t *);
-bool nuppUriPort(const NuppUri *, uint16_t *);
-NuppUri *nuppUriWithText(const NuppUri *, uint32_t, const uint8_t *, size_t, bool);
-NuppUri *nuppUriWithPort(const NuppUri *, int32_t);
-NuppUri *nuppUriConcatPath(const NuppUri *, const uint8_t *, size_t);
-NuppUri *nuppUriResolve(const NuppUri *, const uint8_t *, size_t);
-NuppUri *nuppUriWithEndpoint(const NuppUri *, const NuppUri *);
-void nuppUriDestroy(NuppUri *);
+int32_t nuppNativeV2UriParse(const uint8_t *, size_t, uint64_t *);
+int32_t nuppNativeV2UriRelease(uint64_t);
+int32_t nuppNativeV2UriPart(
+    uint64_t, uint32_t, uint8_t *, size_t, size_t *, int32_t *);
+int32_t nuppNativeV2UriPort(uint64_t, int32_t *);
+int32_t nuppNativeV2UriWithText(
+    uint64_t, uint32_t, const uint8_t *, size_t, int32_t, uint64_t *);
+int32_t nuppNativeV2UriWithPort(uint64_t, int32_t, uint64_t *);
+int32_t nuppNativeV2UriConcatPath(uint64_t, const uint8_t *, size_t, uint64_t *);
+int32_t nuppNativeV2UriResolve(uint64_t, const uint8_t *, size_t, uint64_t *);
+int32_t nuppNativeV2UriWithEndpoint(uint64_t, uint64_t, uint64_t *);
 ]]
 
 local ffi = native . ffi
@@ -178558,6 +178618,14 @@ local part
 local required
 local withText
 local compose
+
+local function raw ( self ) 
+return ( self ) . _handle [ 0 ]
+end
+
+local function outputHandle ( ) 
+return __nuppFfi.new("uint64_t[1]" )
+end
 
 const URI_CACHE_CAPACITY = 1024
 local uriCache = { }
@@ -178654,8 +178722,9 @@ end
 
 
 function URI:port() 
-local value = __nuppFfi.new("uint16_t[1]" )
-if not C . nuppUriPort ( self . _handle , value ) then
+local value = __nuppFfi.new("int32_t[1]" )
+native . succeeded ( C . nuppNativeV2UriPort ( raw ( self ) , value ) , 2 )
+if value [ 0 ] < 0 then
 return nil
 end
 local found = 0
@@ -178773,7 +178842,10 @@ if port == self : port ( ) then
 return self
 end
 
-return changed ( C . nuppUriWithPort ( self . _handle , port or - 1 ) )
+local output = outputHandle ( )
+local status = C . nuppNativeV2UriWithPort ( raw ( self ) , port or - 1 , output )
+
+return changed ( status , output )
 end
 
 
@@ -178787,7 +178859,10 @@ if value == "" then
 return self
 end
 
-return changed ( C . nuppUriConcatPath ( self . _handle , value , # value ) )
+local output = outputHandle ( )
+local status = C . nuppNativeV2UriConcatPath ( raw ( self ) , value , # value , output )
+
+return changed ( status , output )
 end
 
 
@@ -178800,7 +178875,10 @@ if type ( endpoint ) ~= "table" or getmetatable ( endpoint ) ~= URI then
 error ( "nupp: URI endpoint must be an io.URI" , 2 )
 end
 
-return changed ( C . nuppUriWithEndpoint ( self . _handle , endpoint . _handle ) )
+local output = outputHandle ( )
+local status = C . nuppNativeV2UriWithEndpoint ( raw ( self ) , raw ( endpoint ) , output )
+
+return changed ( status , output )
 end
 
 
@@ -178827,24 +178905,45 @@ if type ( reference ) ~= "string" then
 return nil , "nupp: URI reference needs a string"
 end
 
-return parsed ( C . nuppUriResolve ( self . _handle , reference , # reference ) )
+local output = outputHandle ( )
+local status = C . nuppNativeV2UriResolve ( raw ( self ) , reference , # reference , output )
+
+return parsed ( status , output )
 end ;__nuppExports["URI"]=URI
 
 
 
 
 
-local function adopt ( handle ) 
-local length = __nuppFfi.new("uint64_t[1]" )
-local bytes = C . nuppUriPart ( handle , 0 , length )
-local size = 0
-do
-size = tonumber ( length [ 0 ] ) or 0
+local function release ( handle ) 
+local value = handle [ 0 ]
+if value ~= 0 then
+C . nuppNativeV2UriRelease ( value )
+handle [ 0 ] = 0
 end
-local text = ffi . string ( bytes , size )
+end
+
+local function copyPart ( handle , kind ) 
+local length = ffi . new ( "size_t[1]" )
+local present = __nuppFfi.new("int32_t[1]" )
+native . succeeded ( C . nuppNativeV2UriPart ( handle [ 0 ] , kind , nil , 0 , length , present ) , 3 )
+if present [ 0 ] == 0 then
+return nil
+end
+if length [ 0 ] == 0 then
+return ""
+end
+local output = ffi . new ( "uint8_t[?]" , length [ 0 ] )
+native . succeeded ( C . nuppNativeV2UriPart ( handle [ 0 ] , kind , output , length [ 0 ] , length , present ) , 3 )
+
+return ffi . string ( output , length [ 0 ] )
+end
+
+local function adopt ( handle ) 
+local text = copyPart ( handle , 0 )
 local found = uriCache [ text ]
 if found ~= nil then
-C . nuppUriDestroy ( handle )
+release ( handle )
 if found ~= uriCacheNewest then
 local older , newer = found . older , found . newer
 if older ~= nil then
@@ -178864,7 +178963,7 @@ end
 return found . value
 end
 
-local value = setmetatable ( { _handle = ffi . gc ( handle , C . nuppUriDestroy ) , _text = text , } , URI )
+local value = setmetatable ( { _handle = ffi . gc ( handle , release ) , _text = text , } , URI )
 local entry = { value = value , older = uriCacheNewest , newer = nil }
 if uriCacheNewest ~= nil then
 uriCacheNewest . newer = entry
@@ -178888,18 +178987,18 @@ end
 
 
 
-parsed = function ( handle ) 
-if handle == nil then
-return nil , native . error ( )
+parsed = function ( status , handle ) 
+if status ~= 0 then
+return nil , ffi . string ( C . nuppNativeV2LastError ( ) )
 end
 
 return adopt ( handle ) , nil
 end
 
 
-changed = function ( handle ) 
-if handle == nil then
-error ( "nupp: cannot modify URI: " .. native . error ( ) , 3 )
+changed = function ( status , handle ) 
+if status ~= 0 then
+error ( "nupp: cannot modify URI: " .. ffi . string ( C . nuppNativeV2LastError ( ) ) , 3 )
 end
 
 return adopt ( handle )
@@ -178908,17 +179007,7 @@ end
 
 
 part = function ( self , kind ) 
-local length = __nuppFfi.new("uint64_t[1]" )
-local data = C . nuppUriPart ( ( self ) . _handle , kind , length )
-if data == nil then
-return nil
-end
-local size = 0
-do
-size = tonumber ( length [ 0 ] ) or 0
-end
-
-return ffi . string ( data , size )
+return copyPart ( ( self ) . _handle , kind )
 end
 
 
@@ -178934,9 +179023,17 @@ end
 
 
 withText = function ( self , kind , value ) 
-return changed (
-C . nuppUriWithText ( ( self ) . _handle , kind , value or "" , value and # ( value ) or 0 , value ~= nil )
+local output = outputHandle ( )
+local status = C . nuppNativeV2UriWithText (
+raw ( self ) ,
+kind ,
+value or "" ,
+value and # ( value ) or 0 ,
+value ~= nil and 1 or 0 ,
+output
 )
+
+return changed ( status , output )
 end
 
 
@@ -179055,8 +179152,11 @@ end
 text = composed
 end
 local source = text
+native . requireFeature ( 8 , "URI support" )
+local output = outputHandle ( )
+local status = C . nuppNativeV2UriParse ( source , # source , output )
 
-return parsed ( C . nuppUriParse ( source , # source ) )
+return parsed ( status , output )
 end ;__nuppExports["newURI"]=newURI
 
 
@@ -179068,11 +179168,13 @@ validate=function ( text )
 if type ( text ) ~= "string" then
 return false , "nupp: io.URI.validate needs a string"
 end
-local handle = C . nuppUriParse ( text , # text )
-if handle == nil then
-return false , native . error ( )
+native . requireFeature ( 8 , "URI support" )
+local handle = outputHandle ( )
+local status = C . nuppNativeV2UriParse ( text , # text , handle )
+if status ~= 0 then
+return false , ffi . string ( C . nuppNativeV2LastError ( ) )
 end
-C . nuppUriDestroy ( handle )
+release ( handle )
 
 return true , nil
 end ;__nuppExports["validate"]=validate
@@ -216957,7 +217059,7 @@ end
 module nupp.io.http
 
 --[[
-`nupp.io.http` sends HTTP requests over the native libcurl transport
+`nupp.io.http` sends HTTP requests over the native Rust Reqwest transport
 without blocking the caller's frame. Reach for it when a program needs a client
 that works the same in a CLI, a scheduler and a game host.
 
@@ -216975,7 +217077,7 @@ client:close()
 ```
 
 Calls suspend through [`nupp.suspension`](docs/learn/runtime/concurrency/suspension.md): a CLI
-blocks on the provider's condvar, while a scheduler or SDL host only drives the
+blocks on the provider's condvar, while a scheduler or frame host only drives the
 nonblocking source. See [0005-suspension.md](docs/neps/0005-suspension.md) for
 why waiting is a suspension rather than a block.
 
@@ -217090,15 +217192,15 @@ The platform binding.
 
 Everything below is platform-neutral: it owns the affine policy, the suspension, and
 the shapes a caller sees. This is the other side of `NativeClient` and
-`NativeTransfer` for the machine the program is on, over the symbols the native
-libcurl transport exports.
+`NativeTransfer` for the machine the program is on, over the versioned
+Rust-native Reqwest transport.
 
 It used to be a string in the compiler, installed as `nupp.io.httpnative` through
 `package.preload` and reached from here by a cast onto those two interfaces. Written
 here it implements them, so the contracts above are checked against the code that
 answers them rather than asserted about a module the checker could not see.
 
-The library is not opened by requiring this module: `nupp.runtime.native` opens on the first
+The library is not opened by requiring this module: `nupp.runtime.nativev2` opens on the first
 symbol read, and nothing here reads one until a client is created.
 ]]
 
@@ -217106,17 +217208,11 @@ symbol read, and nothing here reads one until a client is created.
 -- The native binding
 ----------------------------------------------------------------------------
 
-const native = require("nupp.runtime.native")
+const native = require("nupp.runtime.nativev2")
 
--- `NuppUri` is not declared here: it is `nupp.io.uri`'s handle, that module declares
--- it, and this one requires it above. The loader that used to install this carried a
--- copy of the typedef because it had no module to depend on.
 native.ffi.cdef[[
-typedef struct NuppHttpClient NuppHttpClient;
-typedef struct NuppHttpTransfer NuppHttpTransfer;
-
-typedef struct { const uint8_t *data; size_t length; } NuppHttpSlice;
-typedef struct { NuppHttpSlice name; NuppHttpSlice value; } NuppHttpHeader;
+typedef struct { const uint8_t *data; size_t length; } NuppNativeV2HttpSlice;
+typedef struct { NuppNativeV2HttpSlice name; NuppNativeV2HttpSlice value; } NuppNativeV2HttpHeader;
 
 typedef struct {
     uint64_t connect_timeout_ms;
@@ -217127,64 +217223,61 @@ typedef struct {
     int compressed;
     int has_insecure_hosts;
     int proxy_mode;
-    NuppHttpSlice proxy;
+    NuppNativeV2HttpSlice proxy;
     int no_proxy_set;
-    NuppHttpSlice no_proxy;
-    NuppHttpSlice proxy_credentials;
-} NuppHttpClientOptions;
+    NuppNativeV2HttpSlice no_proxy;
+    NuppNativeV2HttpSlice proxy_credentials;
+} NuppNativeV2HttpClientOptions;
 
 typedef struct {
-    const NuppUri *uri;
-    NuppHttpSlice method;
-    const NuppHttpHeader *headers;
+    NuppNativeV2HttpSlice url;
+    NuppNativeV2HttpSlice method;
+    const NuppNativeV2HttpHeader *headers;
     size_t header_count;
-    NuppHttpSlice body;
+    NuppNativeV2HttpSlice body;
     uint32_t body_kind;
     int64_t body_length;
     uint64_t timeout_ms;
     uint64_t stall_timeout_ms;
     uint64_t max_bytes;
     int insecure;
-} NuppHttpRequest;
+} NuppNativeV2HttpRequest;
 
 typedef struct {
+    uint32_t state;
     uint16_t status;
     uint8_t version;
-    const uint8_t *url;
     size_t url_length;
-    const uint8_t *headers;
     size_t headers_length;
-} NuppHttpResponseHead;
+} NuppNativeV2HttpHead;
 
-typedef struct { const NuppHttpTransfer *transfer; uint32_t tokens; } NuppHttpReady;
+typedef struct { uint64_t transfer; uint32_t tokens; } NuppNativeV2HttpReady;
 
-NuppHttpClient *nuppHttpClientCreate(const NuppHttpClientOptions *);
-void nuppHttpClientDestroy(NuppHttpClient *);
-const NuppHttpTransfer *nuppHttpClientSend(NuppHttpClient *, const NuppHttpRequest *);
-void nuppHttpTransferCancel(const NuppHttpTransfer *);
-void nuppHttpTransferDestroy(const NuppHttpTransfer *);
-int nuppHttpTransferOffer(const NuppHttpTransfer *, const uint8_t *, size_t, bool);
-uint32_t nuppHttpTransferPollHeaders(const NuppHttpTransfer *, NuppHttpResponseHead *);
-const char *nuppHttpTransferError(const NuppHttpTransfer *);
-const NuppHttpTransfer *nuppHttpTransferTakeBody(const NuppHttpTransfer *);
-bool nuppHttpBodyArm(const NuppHttpTransfer *);
-bool nuppHttpBodyPeek(const NuppHttpTransfer *, const uint8_t **, size_t *, uint32_t *);
-bool nuppHttpBodyConsume(const NuppHttpTransfer *, size_t);
-const char *nuppHttpBodyError(const NuppHttpTransfer *);
-void nuppHttpBodyDestroy(const NuppHttpTransfer *);
-size_t nuppHttpClientPoll(NuppHttpClient *, NuppHttpReady *, size_t, bool *);
-size_t nuppHttpClientWait(NuppHttpClient *, uint64_t, NuppHttpReady *, size_t, bool *);
-void nuppHttpReadyRelease(const NuppHttpTransfer *);
-size_t nuppHttpClientPending(const NuppHttpClient *);
+int32_t nuppNativeV2HttpClientCreate(const NuppNativeV2HttpClientOptions *, uint64_t *);
+int32_t nuppNativeV2HttpClientRelease(uint64_t);
+int32_t nuppNativeV2HttpClientSend(uint64_t, const NuppNativeV2HttpRequest *, uint64_t *);
+int32_t nuppNativeV2HttpClientPending(uint64_t, size_t *);
+int32_t nuppNativeV2HttpTransferCancel(uint64_t);
+int32_t nuppNativeV2HttpTransferRelease(uint64_t);
+int32_t nuppNativeV2HttpTransferOffer(uint64_t, const uint8_t *, size_t, int32_t, int32_t *);
+int32_t nuppNativeV2HttpTransferPollHead(
+    uint64_t, NuppNativeV2HttpHead *, uint8_t *, size_t, uint8_t *, size_t);
+int32_t nuppNativeV2HttpTransferError(uint64_t, uint8_t *, size_t, size_t *);
+int32_t nuppNativeV2HttpTransferTakeBody(uint64_t, uint64_t *);
+int32_t nuppNativeV2HttpBodyArm(uint64_t);
+int32_t nuppNativeV2HttpBodyRead(uint64_t, uint8_t *, size_t, uint32_t *, size_t *);
+int32_t nuppNativeV2HttpBodyError(uint64_t, uint8_t *, size_t, size_t *);
+int32_t nuppNativeV2HttpClientPoll(
+    uint64_t, NuppNativeV2HttpReady *, size_t, size_t *, int32_t *);
+int32_t nuppNativeV2HttpClientWait(
+    uint64_t, uint64_t, NuppNativeV2HttpReady *, size_t, size_t *, int32_t *);
 ]]
 
+local ffi = native.ffi
 const C = native.C
-local transferOffer: function(
-    handle: any,
-    borrows data: const uint8[?],
-    length: integer,
-    finished: boolean
-): integer = C.nuppHttpTransferOffer as any
+
+-- Immediate ABI status used by query/copy calls and admission.
+const ABI_CAPACITY = 2
 
 -- What polling the headers answers.
 const HEAD_PENDING = 0
@@ -217215,6 +217308,10 @@ const UPLOAD_ACCEPTED = 1
 -- How many readiness events one poll collects.
 const READY_SLOTS = 256
 
+-- A read may ask for an arbitrary upper bound. Keep the FFI scratch allocation
+-- proportional to the transport's largest body segment rather than that bound.
+const BODY_READ_BYTES = 64 * 1024
+
 ----------------------------------------------------------------------------
 -- Slices and dispatch
 ----------------------------------------------------------------------------
@@ -217225,7 +217322,7 @@ const READY_SLOTS = 256
 --- the string itself is the pointer. Nothing is copied either way, so the value has to
 --- outlive the call, which it does, because every caller holds it across one.
 local function slice(value: any, pointer: any?, length: integer?): any
-    local out = native.ffi.new("NuppHttpSlice")
+    local out = native.ffi.new("NuppNativeV2HttpSlice")
     if pointer ~= nil then
         out.data = pointer
         out.length = length
@@ -217237,14 +217334,53 @@ local function slice(value: any, pointer: any?, length: integer?): any
     return out
 end
 
---- What the native transport said, or what to say when it said nothing.
-local function reason(pointer: any, fallback: string): string
-    if pointer == nil then
+local function raw(handle: any): any
+    return handle[0]
+end
+
+local function outputHandle(): any
+    return ffi.new<uint64[1]>()
+end
+
+local function releaseTransfer(handle: any): nil
+    if handle[0] ~= 0 then
+        C.nuppNativeV2HttpTransferRelease(handle[0])
+        handle[0] = 0
+    end
+end
+
+local function releaseClient(handle: any): nil
+    if handle[0] ~= 0 then
+        C.nuppNativeV2HttpClientRelease(handle[0])
+        handle[0] = 0
+    end
+end
+
+local function lastError(): string
+    return ffi.string(C.nuppNativeV2LastError())
+end
+
+--- Copies an error retained by a transfer or body.
+local function copiedError(call: any, handle: any, fallback: string): string
+    local length = ffi.new("size_t[1]")
+    call(raw(handle), nil, 0, length)
+    if length[0] == 0 then
         return fallback
     end
-    local text = native.ffi.string(pointer)
+    local output = ffi.new("uint8_t[?]", length[0])
+    if call(raw(handle), output, length[0], length) ~= 0 then
+        return lastError()
+    end
+    local text = ffi.string(output, length[0])
 
     return text ~= "" and text or fallback
+end
+
+local function pending(handle: any): integer
+    local output = ffi.new("size_t[1]")
+    native.succeeded(C.nuppNativeV2HttpClientPending(raw(handle), output), 3)
+
+    return tonumber(output[0]) as integer
 end
 
 --- Wakes everything waiting on one channel and answers how many moved.
@@ -217355,7 +217491,7 @@ local record Transfer is NativeTransfer
         -- without it a body that is already complete never produces another readiness
         -- event.
         if self._body ~= nil then
-            C.nuppHttpBodyArm(self._body)
+            C.nuppNativeV2HttpBodyArm(raw(self._body))
         end
 
         return forget
@@ -217366,25 +217502,42 @@ local record Transfer is NativeTransfer
     end
 
     function head(self: Transfer): (string, integer?, integer?, string?, string?, string?)
-        local out = native.ffi.new("NuppHttpResponseHead[1]")
-        local state = C.nuppHttpTransferPollHeaders(self._handle, out)
+        local out = native.ffi.new("NuppNativeV2HttpHead[1]")
+        local status = C.nuppNativeV2HttpTransferPollHead(raw(self._handle), out, nil, 0, nil, 0)
+        local state = tonumber(out[0].state) as integer
+        if status ~= 0 and status ~= ABI_CAPACITY then
+            return "failed", nil, nil, nil, nil, lastError()
+        end
         if state == HEAD_PENDING then
             return "pending", nil, nil, nil, nil, nil
         end
         if state == HEAD_FAILED then
-            return "failed", nil, nil, nil, nil, reason(C.nuppHttpTransferError(self._handle), "HTTP transfer failed")
+            return "failed", nil, nil, nil, nil, copiedError(
+                C.nuppNativeV2HttpTransferError,
+                self._handle,
+                "HTTP transfer failed"
+            )
         end
         local head = out[0]
-        local url: string? = nil
-        if head.url ~= nil then
-            url = native.ffi.string(head.url, tonumber(head.url_length) as integer)
+        local urlLength = tonumber(head.url_length) as integer
+        local headersLength = tonumber(head.headers_length) as integer
+        local urlOutput = urlLength > 0 and ffi.new("uint8_t[?]", urlLength) or nil
+        local headersOutput = headersLength > 0 and ffi.new("uint8_t[?]", headersLength) or nil
+        status = C.nuppNativeV2HttpTransferPollHead(
+            raw(self._handle),
+            out,
+            urlOutput,
+            urlLength,
+            headersOutput,
+            headersLength
+        )
+        if status ~= 0 then
+            return "failed", nil, nil, nil, nil, lastError()
         end
+        local url = urlLength > 0 and ffi.string(urlOutput, urlLength) or nil
+        local headers = headersLength > 0 and ffi.string(headersOutput, headersLength) or ""
 
-        return "ready", tonumber(
-            head.status
-        ) as integer, tonumber(
-            head.version
-        ) as integer, url, native.ffi.string(head.headers, tonumber(head.headers_length) as integer), nil
+        return "ready", tonumber(head.status) as integer, tonumber(head.version) as integer, url, headers, nil
     end
 
     function offer(self: Transfer, value: any, count: integer?): string
@@ -217393,13 +217546,15 @@ local record Transfer is NativeTransfer
         if length < 0 or length > #bytes then
             error("nupp: HTTP upload offer is outside its bytes", 2)
         end
-        local view = span.fromString(bytes)
-        local data = view:ref()
-        local answer = transferOffer(self._handle, data, length, false)
-        if answer == UPLOAD_ACCEPTED then
+        local answer = ffi.new<int32[1]>()
+        local status = C.nuppNativeV2HttpTransferOffer(raw(self._handle), bytes, length, 0, answer)
+        if status ~= 0 then
+            return "closed"
+        end
+        if answer[0] == UPLOAD_ACCEPTED then
             return "accepted"
         end
-        if answer == UPLOAD_BACKPRESSURE then
+        if answer[0] == UPLOAD_BACKPRESSURE then
             return "backpressure"
         end
 
@@ -217407,8 +217562,9 @@ local record Transfer is NativeTransfer
     end
 
     function finishUpload(self: Transfer): string
-        local answer = C.nuppHttpTransferOffer(self._handle, nil, 0, true)
-        if answer == UPLOAD_ACCEPTED then
+        local answer = ffi.new<int32[1]>()
+        local status = C.nuppNativeV2HttpTransferOffer(raw(self._handle), nil, 0, 1, answer)
+        if status == 0 and answer[0] == UPLOAD_ACCEPTED then
             return "accepted"
         end
 
@@ -217417,11 +217573,11 @@ local record Transfer is NativeTransfer
 
     function takeBody(self: Transfer): (boolean?, string?)
         if self._body == nil then
-            local handle = C.nuppHttpTransferTakeBody(self._handle)
-            if handle == nil then
-                return nil, "the HTTP response has no body"
+            local handle = outputHandle()
+            if C.nuppNativeV2HttpTransferTakeBody(raw(self._handle), handle) ~= 0 then
+                return nil, lastError()
             end
-            self._body = native.ffi.gc(handle, C.nuppHttpBodyDestroy)
+            self._body = ffi.gc(handle, releaseTransfer)
         end
 
         return true, nil
@@ -217429,14 +217585,14 @@ local record Transfer is NativeTransfer
 
     --- Reads body bytes, into a buffer when one was given and as a string otherwise.
     ---
-    --- The native transport lends the bytes rather than copying them, so this consumes
-    --- only what it took and leaves the rest for the next call.
+    --- The versioned ABI copies and consumes only what fits in this call's buffer.
     function bodyRead(self: Transfer, count: integer): (string, any?, string?)
-        local data = native.ffi.new("const uint8_t*[1]")
-        local length = native.ffi.new("size_t[1]")
-        local state = native.ffi.new("uint32_t[1]")
-        if not C.nuppHttpBodyPeek(self._body, data, length, state) then
-            return "failed", nil, native.error()
+        local capacity = math.min(count, BODY_READ_BYTES)
+        local data = ffi.new("uint8_t[?]", capacity)
+        local length = ffi.new("size_t[1]")
+        local state = ffi.new<uint32[1]>()
+        if C.nuppNativeV2HttpBodyRead(raw(self._body), data, capacity, state, length) ~= 0 then
+            return "failed", nil, lastError()
         end
         local kind = tonumber(state[0])
         if kind == BODY_PENDING then
@@ -217446,23 +217602,19 @@ local record Transfer is NativeTransfer
             return "eof", nil, nil
         end
         if kind == BODY_FAILED then
-            return "failed", nil, reason(C.nuppHttpBodyError(self._body), "HTTP response body failed")
+            return "failed", nil, copiedError(C.nuppNativeV2HttpBodyError, self._body, "HTTP response body failed")
         end
         if kind == BODY_CLOSED then
             return "closed", nil, "the body is closed"
         end
-        local take = math.min(count, tonumber(length[0]) as integer)
-        local bytes = native.ffi.string(data[0], take)
-        if not C.nuppHttpBodyConsume(self._body, take) then
-            return "failed", nil, native.error()
-        end
+        local bytes = ffi.string(data, length[0])
 
         return "data", bytes, nil
     end
 
     function cancel(self: Transfer): nil
         if self._handle ~= nil then
-            C.nuppHttpTransferCancel(self._handle)
+            C.nuppNativeV2HttpTransferCancel(raw(self._handle))
         end
     end
 
@@ -217476,19 +217628,19 @@ local record Transfer is NativeTransfer
             return
         end
         self._closed = true
-        self._client._byHandle[tostring(self._handle)] = nil
+        self._client._byHandle[tostring(raw(self._handle))] = nil
         if self._body ~= nil then
             local body = self._body
             self._body = nil
-            native.ffi.gc(body, nil)
-            C.nuppHttpBodyDestroy(body)
+            ffi.gc(body, nil)
+            releaseTransfer(body)
         else
-            C.nuppHttpTransferCancel(self._handle)
+            C.nuppNativeV2HttpTransferCancel(raw(self._handle))
         end
         local handle = self._handle
         self._handle = nil
-        native.ffi.gc(handle, nil)
-        C.nuppHttpTransferDestroy(handle)
+        ffi.gc(handle, nil)
+        releaseTransfer(handle)
     end
 end
 
@@ -217501,7 +217653,7 @@ local record Client is NativeClient
     _handle: any
     _closed: boolean
 
-    --- Every live transfer, keyed by its handle's address, because a readiness event
+    --- Every live transfer, keyed by its generational handle, because a readiness event
     --- names the handle and this is what turns that back into the object.
     _byHandle: {[string]: Transfer}
 
@@ -217511,7 +217663,7 @@ local record Client is NativeClient
     _more: any
 
     function onAdmission(self: Client, wake: function()): function()
-        if self._closed or (tonumber(C.nuppHttpClientPending(self._handle)) as integer) < self._maxPending then
+        if self._closed or pending(self._handle) < self._maxPending then
             wake()
 
             return function(): nil
@@ -217524,7 +217676,7 @@ local record Client is NativeClient
     function send(self: Client, descriptor: any): (NativeTransfer?, string?, boolean?)
         local headers = descriptor.headers or {}
         local count = #headers
-        local packed = count > 0 and native.ffi.new("NuppHttpHeader[?]", count) or nil
+        local packed = count > 0 and native.ffi.new("NuppNativeV2HttpHeader[?]", count) or nil
         for index = 1, count do
             local item = headers[index]
             packed[index - 1].name = slice(item[1])
@@ -217541,8 +217693,8 @@ local record Client is NativeClient
             bodyPointer = value
             bodyLength = #(value as string)
         end
-        local request = native.ffi.new("NuppHttpRequest")
-        request.uri = rawget(descriptor.uri, "_handle")
+        local request = native.ffi.new("NuppNativeV2HttpRequest")
+        request.url = slice(descriptor.uri:toString())
         request.method = slice(descriptor.method)
         request.headers = packed
         request.header_count = count
@@ -217553,15 +217705,16 @@ local record Client is NativeClient
         request.stall_timeout_ms = descriptor.stallTimeoutMs
         request.max_bytes = descriptor.maxBytes
         request.insecure = descriptor.insecure and 1 or 0
-        local handle = C.nuppHttpClientSend(self._handle, request)
-        if handle == nil then
-            local why = native.error()
+        local handle = outputHandle()
+        local status = C.nuppNativeV2HttpClientSend(raw(self._handle), request, handle)
+        if status ~= 0 then
+            local why = lastError()
 
-            return nil, why, why == "the HTTP client has reached maxPendingRequests"
+            return nil, why, status == ABI_CAPACITY
         end
-        handle = native.ffi.gc(handle, C.nuppHttpTransferDestroy)
+        handle = ffi.gc(handle, releaseTransfer)
         local transfer = new Transfer(_client = self, _handle = handle, _body = nil, _closed = false)
-        self._byHandle[tostring(handle)] = transfer
+        self._byHandle[tostring(raw(handle))] = transfer
 
         return transfer, nil, nil
     end
@@ -217575,15 +217728,26 @@ local record Client is NativeClient
     --- @raises with whatever a woken waiter raised first, once the whole batch has
     ---     been released
     function poll(self: Client, waitMs: integer): integer
-        local count: any
+        local count = ffi.new("size_t[1]")
         local moved: integer = 0
+        local status: integer
         if waitMs > 0 then
-            count = C.nuppHttpClientWait(self._handle, waitMs, self._ready, READY_SLOTS, self._more)
+            status = C.nuppNativeV2HttpClientWait(
+                raw(self._handle),
+                waitMs,
+                self._ready,
+                READY_SLOTS,
+                count,
+                self._more
+            )
         else
-            count = C.nuppHttpClientPoll(self._handle, self._ready, READY_SLOTS, self._more)
+            status = C.nuppNativeV2HttpClientPoll(raw(self._handle), self._ready, READY_SLOTS, count, self._more)
+        end
+        if status ~= 0 then
+            error("nupp: " .. lastError(), 2)
         end
         local failure: any = nil
-        for index = 0, (tonumber(count) as integer) - 1 do
+        for index = 0, (tonumber(count[0]) as integer) - 1 do
             local item = self._ready[index]
             local transfer = self._byHandle[tostring(item.transfer)]
             if transfer ~= nil then
@@ -217594,14 +217758,11 @@ local record Client is NativeClient
                     failure = problem
                 end
             end
-            C.nuppHttpReadyRelease(item.transfer)
         end
         if failure ~= nil then
             error(failure, 0)
         end
-        if self._admissionWaiters ~= nil and (
-            tonumber(C.nuppHttpClientPending(self._handle)) as integer
-        ) < self._maxPending then
+        if self._admissionWaiters ~= nil and (pending(self._handle)) < self._maxPending then
             moved = moved + dispatchOne(self, "_admissionWaiters")
         end
 
@@ -217613,7 +217774,7 @@ local record Client is NativeClient
             return 0
         end
 
-        return tonumber(C.nuppHttpClientPending(self._handle)) as integer
+        return pending(self._handle)
     end
 
     -- A request deadline is comparable with a process deadline and with a task
@@ -217643,8 +217804,8 @@ local record Client is NativeClient
         end
         local handle = self._handle
         self._handle = nil
-        native.ffi.gc(handle, nil)
-        C.nuppHttpClientDestroy(handle)
+        ffi.gc(handle, nil)
+        releaseClient(handle)
     end
 end
 
@@ -217653,7 +217814,8 @@ local function newClient(options: any): (NativeClient?, string?)
     -- Three proxy modes rather than two: unset means take the environment's, and empty
     -- means deliberately none, which is not the same answer.
     local proxyMode = options.proxy == nil and 0 or (options.proxy == "" and 1 or 2)
-    local settings = native.ffi.new("NuppHttpClientOptions")
+    native.requireFeature(16, "HTTP support")
+    local settings = native.ffi.new("NuppNativeV2HttpClientOptions")
     settings.connect_timeout_ms = options.connectTimeoutMs
     settings.max_redirects = options.maxRedirects
     settings.max_pending_requests = options.maxPendingRequests
@@ -217666,19 +217828,19 @@ local function newClient(options: any): (NativeClient?, string?)
     settings.no_proxy_set = options.noProxy ~= nil and 1 or 0
     settings.no_proxy = slice(options.noProxy or "")
     settings.proxy_credentials = slice(options.proxyCredentials or "")
-    local handle = C.nuppHttpClientCreate(settings)
-    if handle == nil then
-        return nil, native.error()
+    local handle = outputHandle()
+    if C.nuppNativeV2HttpClientCreate(settings, handle) ~= 0 then
+        return nil, lastError()
     end
 
     return new Client(
-        _handle = native.ffi.gc(handle, C.nuppHttpClientDestroy),
+        _handle = ffi.gc(handle, releaseClient),
         _closed = false,
         _byHandle = {},
         _admissionWaiters = nil,
         _maxPending = options.maxPendingRequests,
-        _ready = native.ffi.new("NuppHttpReady[?]", READY_SLOTS),
-        _more = native.ffi.new("bool[1]")
+        _ready = native.ffi.new("NuppNativeV2HttpReady[?]", READY_SLOTS),
+        _more = ffi.new<int32[1]>()
     ), nil
 end
 
@@ -227350,23 +227512,20 @@ through 65535. Every field is URI text rather than a filesystem name.
 :::
 ]]
 
-const native = require("nupp.runtime.native")
+const native = require("nupp.runtime.nativev2")
 
--- Only the handle type is declared here, because `ffi.new` names the out-parameters and
--- the checker has to know those. The functions are reached through the handle
--- `nupp.runtime.native` opened rather than the default namespace a `cdef function`
--- binds to.
 native.ffi.cdef[[
-typedef struct NuppUri NuppUri;
-NuppUri *nuppUriParse(const uint8_t *, size_t);
-const uint8_t *nuppUriPart(const NuppUri *, uint32_t, size_t *);
-bool nuppUriPort(const NuppUri *, uint16_t *);
-NuppUri *nuppUriWithText(const NuppUri *, uint32_t, const uint8_t *, size_t, bool);
-NuppUri *nuppUriWithPort(const NuppUri *, int32_t);
-NuppUri *nuppUriConcatPath(const NuppUri *, const uint8_t *, size_t);
-NuppUri *nuppUriResolve(const NuppUri *, const uint8_t *, size_t);
-NuppUri *nuppUriWithEndpoint(const NuppUri *, const NuppUri *);
-void nuppUriDestroy(NuppUri *);
+int32_t nuppNativeV2UriParse(const uint8_t *, size_t, uint64_t *);
+int32_t nuppNativeV2UriRelease(uint64_t);
+int32_t nuppNativeV2UriPart(
+    uint64_t, uint32_t, uint8_t *, size_t, size_t *, int32_t *);
+int32_t nuppNativeV2UriPort(uint64_t, int32_t *);
+int32_t nuppNativeV2UriWithText(
+    uint64_t, uint32_t, const uint8_t *, size_t, int32_t, uint64_t *);
+int32_t nuppNativeV2UriWithPort(uint64_t, int32_t, uint64_t *);
+int32_t nuppNativeV2UriConcatPath(uint64_t, const uint8_t *, size_t, uint64_t *);
+int32_t nuppNativeV2UriResolve(uint64_t, const uint8_t *, size_t, uint64_t *);
+int32_t nuppNativeV2UriWithEndpoint(uint64_t, uint64_t, uint64_t *);
 ]]
 
 local ffi = native.ffi
@@ -227399,12 +227558,20 @@ end
 
 -- Declared ahead of the record because its methods call them, and defined below it
 -- because they name the record. The types are the contract either way.
-local parsed: function(handle: any): (URI?, string?)
-local changed: function(handle: any): URI
+local parsed: function(status: integer, handle: any): (URI?, string?)
+local changed: function(status: integer, handle: any): URI
 local part: function(self: URI, kind: integer): string?
 local required: function(value: any, what: string): string
 local withText: function(self: URI, kind: integer, value: string?): URI
 local compose: function(components: any): (string?, string?)
+
+local function raw(self: URI): any
+    return (self as any)._handle[0]
+end
+
+local function outputHandle(): any
+    return ffi.new<uint64[1]>()
+end
 
 const URI_CACHE_CAPACITY = 1024
 local uriCache: {[string]: any} = {}
@@ -227501,8 +227668,9 @@ export record URI
     --- @param self this URI
     --- @return the port, or nil when the URI names none
     function port(self): integer?
-        local value = ffi.new<uint16[1]>()
-        if not C.nuppUriPort(self._handle, value) then
+        local value = ffi.new<int32[1]>()
+        native.succeeded(C.nuppNativeV2UriPort(raw(self), value), 2)
+        if value[0] < 0 then
             return nil
         end
         local found = 0
@@ -227620,7 +227788,10 @@ export record URI
             return self
         end
 
-        return changed(C.nuppUriWithPort(self._handle, port or -1))
+        local output = outputHandle()
+        local status = C.nuppNativeV2UriWithPort(raw(self), port or -1, output)
+
+        return changed(status, output)
     end
 
     --- The URI with more appended to its path.
@@ -227634,7 +227805,10 @@ export record URI
             return self
         end
 
-        return changed(C.nuppUriConcatPath(self._handle, value, #value))
+        local output = outputHandle()
+        local status = C.nuppNativeV2UriConcatPath(raw(self), value, #value, output)
+
+        return changed(status, output)
     end
 
     --- The URI with another's scheme and authority.
@@ -227647,7 +227821,10 @@ export record URI
             error("nupp: URI endpoint must be an io.URI", 2)
         end
 
-        return changed(C.nuppUriWithEndpoint(self._handle, endpoint._handle))
+        local output = outputHandle()
+        local status = C.nuppNativeV2UriWithEndpoint(raw(self), raw(endpoint), output)
+
+        return changed(status, output)
     end
 
     --- Resolves a reference against this URI, as a browser resolves a link.
@@ -227674,24 +227851,45 @@ export record URI
             return nil, "nupp: URI reference needs a string"
         end
 
-        return parsed(C.nuppUriResolve(self._handle, reference, #reference))
+        local output = outputHandle()
+        local status = C.nuppNativeV2UriResolve(raw(self), reference, #reference, output)
+
+        return parsed(status, output)
     end
 
     metamethod __tostring: function(self): string
     metamethod __eq: function(self, any): boolean
 end
 
-local function adopt(handle: any): URI
-    local length = ffi.new<uint64[1]>()
-    local bytes = C.nuppUriPart(handle, 0, length)
-    local size = 0
-    unsafe do
-        size = tonumber(length[0]) or 0
+local function release(handle: any): nil
+    local value = handle[0]
+    if value ~= 0 then
+        C.nuppNativeV2UriRelease(value)
+        handle[0] = 0
     end
-    local text = ffi.string(bytes, size as integer)
+end
+
+local function copyPart(handle: any, kind: integer): string?
+    local length = ffi.new("size_t[1]")
+    local present = ffi.new<int32[1]>()
+    native.succeeded(C.nuppNativeV2UriPart(handle[0], kind, nil, 0, length, present), 3)
+    if present[0] == 0 then
+        return nil
+    end
+    if length[0] == 0 then
+        return ""
+    end
+    local output = ffi.new("uint8_t[?]", length[0])
+    native.succeeded(C.nuppNativeV2UriPart(handle[0], kind, output, length[0], length, present), 3)
+
+    return ffi.string(output, length[0])
+end
+
+local function adopt(handle: any): URI
+    local text = copyPart(handle, 0) as string
     local found = uriCache[text]
     if found ~= nil then
-        C.nuppUriDestroy(handle)
+        release(handle)
         if found ~= uriCacheNewest then
             local older, newer = found.older, found.newer
             if older ~= nil then
@@ -227711,7 +227909,7 @@ local function adopt(handle: any): URI
         return found.value
     end
 
-    local value = setmetatable({_handle = ffi.gc(handle, C.nuppUriDestroy), _text = text,} as any, URI as any) as URI
+    local value = setmetatable({_handle = ffi.gc(handle, release), _text = text,} as any, URI as any) as URI
     local entry = {value = value, older = uriCacheNewest, newer = nil}
     if uriCacheNewest ~= nil then
         uriCacheNewest.newer = entry
@@ -227735,18 +227933,18 @@ end
 -- A parse that failed answers nil and the reason, because bad input is an ordinary
 -- answer. A modification that failed raises, because the input was already a URI and
 -- the caller asked for something the grammar cannot express.
-parsed = function(handle: any): (URI?, string?)
-    if handle == nil then
-        return nil, native.error()
+parsed = function(status: integer, handle: any): (URI?, string?)
+    if status ~= 0 then
+        return nil, ffi.string(C.nuppNativeV2LastError())
     end
 
     return adopt(handle), nil
 end
 
 --- @raises when the library cannot express the change
-changed = function(handle: any): URI
-    if handle == nil then
-        error("nupp: cannot modify URI: " .. native.error(), 3)
+changed = function(status: integer, handle: any): URI
+    if status ~= 0 then
+        error("nupp: cannot modify URI: " .. ffi.string(C.nuppNativeV2LastError()), 3)
     end
 
     return adopt(handle)
@@ -227755,17 +227953,7 @@ end
 -- The library numbers the components: 0 whole, 1 scheme, 2 authority, 3 username,
 -- 4 password, 5 host, 6 path, 7 query, 8 fragment.
 part = function(self: URI, kind: integer): string?
-    local length = ffi.new<uint64[1]>()
-    local data = C.nuppUriPart((self as any)._handle, kind, length)
-    if data == nil then
-        return nil
-    end
-    local size = 0
-    unsafe do
-        size = tonumber(length[0]) or 0
-    end
-
-    return ffi.string(data, size as integer)
+    return copyPart((self as any)._handle, kind)
 end
 
 --- @raises when value is not a string
@@ -227781,9 +227969,17 @@ end
 -- ones, minus the whole-URI slot: 0 scheme, 1 user information, 2 host, 3 path,
 -- 4 query, 5 fragment.
 withText = function(self: URI, kind: integer, value: string?): URI
-    return changed(
-        C.nuppUriWithText((self as any)._handle, kind, value or "", value and #(value as string) or 0, value ~= nil)
+    local output = outputHandle()
+    local status = C.nuppNativeV2UriWithText(
+        raw(self),
+        kind,
+        value or "",
+        value and #(value as string) or 0,
+        value ~= nil and 1 or 0,
+        output
     )
+
+    return changed(status, output)
 end
 
 -- Components are assembled into text and then parsed, so one grammar decides what is
@@ -227902,8 +228098,11 @@ export function newURI(value: string | Components): (URI?, string?)
         text = composed
     end
     local source = text as string
+    native.requireFeature(8, "URI support")
+    local output = outputHandle()
+    local status = C.nuppNativeV2UriParse(source, #source, output)
 
-    return parsed(C.nuppUriParse(source, #source))
+    return parsed(status, output)
 end
 
 --- Reports whether text parses as an absolute URI, without building one.
@@ -227915,11 +228114,13 @@ export function validate(text: string): (boolean, string?)
     if type(text) ~= "string" then
         return false, "nupp: io.URI.validate needs a string"
     end
-    local handle = C.nuppUriParse(text, #text)
-    if handle == nil then
-        return false, native.error()
+    native.requireFeature(8, "URI support")
+    local handle = outputHandle()
+    local status = C.nuppNativeV2UriParse(text, #text, handle)
+    if status ~= 0 then
+        return false, ffi.string(C.nuppNativeV2LastError())
     end
-    C.nuppUriDestroy(handle)
+    release(handle)
 
     return true, nil
 end

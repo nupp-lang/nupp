@@ -41,18 +41,6 @@ LUAUTF8_URL='https://github.com/starwing/luautf8/archive/refs/tags/${LUAUTF8_VER
 LUAUTF8_MARKER=lutf8lib.c
 LUAUTF8_DIRECTORY='luautf8-${LUAUTF8_VERSION}'
 
-# The HTTP transport and the TLS under it. Pinned together: a libcurl is built
-# against one TLS backend, and the pair is what was tested.
-#
-# Owning these means owning their security updates. A CVE in either is a digest
-# change here and a release; that is the price of a build that does not depend
-# on what the machine happens to have.
-CURL_VERSION=8.11.1
-CURL_SHA256=a889ac9dbba3644271bd9d1302b5c22a088893719b72be3487bc3d401e5c4e80
-CURL_URL='https://curl.se/download/curl-${CURL_VERSION}.tar.gz'
-CURL_MARKER=configure
-CURL_DIRECTORY='curl-${CURL_VERSION}'
-
 # The long-term-support line, and the release tarball rather than the GitHub
 # archive: only the release carries the framework the build reads.
 MBEDTLS_VERSION=3.6.2
@@ -61,20 +49,6 @@ MBEDTLS_URL='https://github.com/Mbed-TLS/mbedtls/releases/download/mbedtls-${MBE
 MBEDTLS_SUFFIX=.tar.bz2
 MBEDTLS_MARKER=Makefile
 MBEDTLS_DIRECTORY='mbedtls-${MBEDTLS_VERSION}'
-
-# The URL parser. WHATWG rather than RFC 3986, which is the model
-# `nupp.io.uri` documents: an opaque `mailto:` keeps its path, a non-special
-# scheme keeps its host's case, and a default port is not written down.
-#
-# Distributed as three loose files rather than an archive, which is why this pin
-# carries a digest for each. C++20, and the only thing in the tree that needs
-# more than C++17.
-ADA_VERSION=4.0.0
-ADA_URL='https://github.com/ada-url/ada/releases/download/v${ADA_VERSION}'
-ADA_CPP_SHA256=1c722f8f5355d6bf2bf3601870684edc875aa8f56b4d4735440d96263dd0207c
-ADA_H_SHA256=0010b17b3ff489e13998e86d921b16e1643e370ee3276c584f1b0c4b72bdf628
-ADA_C_H_SHA256=75641082708f01f61f4a8924ae6df19e172e737ced7265965b01a83ebec14f7c
-ADA_LICENSE_SHA256=af0d7d2cef91fc243cf4ad98570b03d1f26f5e0227cad0f5f4a7376e2feb3160
 
 # The platform layer: filesystem, processes, pipes, threads and an event loop,
 # on Linux, macOS and Windows. Node.js runs on it, which is the only reason to

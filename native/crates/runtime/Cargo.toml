@@ -8,5 +8,10 @@ publish.workspace = true
 [lib]
 path = "src/lib.rs"
 
+[features]
+default = []
+async = ["dep:tokio"]
+
 [dependencies]
 nupp-native-abi = { path = "../abi" }
+tokio = { version = "1", features = ["fs", "io-util", "net", "rt-multi-thread", "sync", "time"], optional = true }

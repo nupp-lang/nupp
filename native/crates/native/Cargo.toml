@@ -15,9 +15,13 @@ default = ["base"]
 base = []
 uuid = ["nupp-native-platform/uuid"]
 gpu = ["base", "dep:nupp-native-gpu"]
+uri = ["base", "dep:url"]
+http = ["base", "dep:nupp-native-http"]
 
 [dependencies]
 nupp-native-abi = { path = "../abi" }
 nupp-native-gpu = { path = "../gpu", optional = true }
+nupp-native-http = { path = "../http", optional = true }
 nupp-native-platform = { path = "../platform" }
 nupp-native-runtime = { path = "../runtime" }
+url = { version = "2.5.7", optional = true }

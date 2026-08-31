@@ -35,7 +35,7 @@ usage: scripts/toolchain COMPONENT...
        scripts/toolchain --all
        scripts/toolchain --prefix
 
-Components: luajit luarocks lpeg lpeg-source luautf8 ada libuv mbedtls curl
+Components: luajit luarocks lpeg lpeg-source luautf8 libuv mbedtls
             swiftshader
             native FEATURES, native-rust FEATURES
             rust-vendor OUTPUT
@@ -403,21 +403,27 @@ take_lock() {
 select_rust_tools() {
     CARGO=${NUPP_CARGO:-cargo}
     RUSTC=${NUPP_RUSTC:-rustc}
+    expected=$(sed -n 's/^channel = "\([^"]*\)"$/\1/p' "$ROOT/rust-toolchain.toml")
+    [ -n "$expected" ] || die "rust-toolchain.toml names no exact channel"
+    rustup_which() {
+        RUSTUP_TOOLCHAIN="$expected" RUSTUP_SKIP_UPDATE_CHECK=1 \
+            rustup which "$1" 2>/dev/null \
+            || RUSTUP_TOOLCHAIN=stable RUSTUP_SKIP_UPDATE_CHECK=1 \
+                rustup which "$1" 2>/dev/null
+    }
     if [ -z "${NUPP_CARGO:-}" ] && ! command -v "$CARGO" >/dev/null 2>&1 \
         && command -v rustup >/dev/null 2>&1; then
-        CARGO=$(RUSTUP_TOOLCHAIN=stable RUSTUP_SKIP_UPDATE_CHECK=1 rustup which cargo 2>/dev/null || printf cargo)
+        CARGO=$(rustup_which cargo || printf cargo)
     fi
     if [ -z "${NUPP_RUSTC:-}" ] && ! command -v "$RUSTC" >/dev/null 2>&1 \
         && command -v rustup >/dev/null 2>&1; then
-        RUSTC=$(RUSTUP_TOOLCHAIN=stable RUSTUP_SKIP_UPDATE_CHECK=1 rustup which rustc 2>/dev/null || printf rustc)
+        RUSTC=$(rustup_which rustc || printf rustc)
     fi
     command -v "$CARGO" >/dev/null 2>&1 \
         || die "no Cargo found. Install the toolchain pinned by rust-toolchain.toml or name it with NUPP_CARGO"
     command -v "$RUSTC" >/dev/null 2>&1 \
         || die "no rustc found. Install the toolchain pinned by rust-toolchain.toml or name it with NUPP_RUSTC"
 
-    expected=$(sed -n 's/^channel = "\([^"]*\)"$/\1/p' "$ROOT/rust-toolchain.toml")
-    [ -n "$expected" ] || die "rust-toolchain.toml names no exact channel"
     cargo_version=$("$CARGO" --version 2>&1) \
         || die "cannot run Cargo named by NUPP_CARGO"
     rustc_version=$("$RUSTC" --version 2>&1) \
@@ -512,8 +518,8 @@ build_rust_native() {
     select_rust_tools
     rust_environment=$(rust_environment_material)
     digest=$({
-        printf '%s|%s|%s|%s\n' \
-            nupp-native "$sorted" "$RUST_TOOL_MATERIAL" "$(rust_sources_digest)"
+        printf '%s|%s|%s|%s|%s\n' \
+            nupp-native "$sorted" "$RUST_TOOL_MATERIAL" "$(rust_sources_digest)" "$KEY"
         printf '%s\n' "$rust_environment"
     } | sha256_stdin | cut -c1-16)
     out="$RUST_BUILD_ROOT/native/$digest"
@@ -527,13 +533,16 @@ build_rust_native() {
     note "building the Rust native provider with $RUSTC"
     rm -rf "$out"
     mkdir -p "$out"
-    set -- "$CARGO" build \
+    cargo_action=build
+    [ "$PLATFORM" = darwin ] && cargo_action=rustc
+    set -- "$CARGO" "$cargo_action" \
         --manifest-path "$ROOT/Cargo.toml" \
         --package nupp-native \
         --release \
         --locked \
         --no-default-features \
         --target-dir "$out/target"
+    [ "$PLATFORM" = darwin ] && set -- "$@" --lib
     if offline; then
         set -- "$@" --offline
     fi
@@ -548,7 +557,13 @@ EOF
     if [ -n "$sorted" ]; then
         set -- "$@" --features "$sorted"
     fi
-    RUSTC="$RUSTC" "$@" >&2
+    # rustc otherwise records the content-addressed target directory as this
+    # dylib's identity. A program linked against the provider would then load
+    # that cache path after the library was staged or packaged elsewhere.
+    if [ "$PLATFORM" = darwin ]; then
+        set -- "$@" -- -C "link-arg=-Wl,-install_name,@rpath/$filename"
+    fi
+    CC="$CC" CXX="$CXX" RUSTC="$RUSTC" "$@" >&2
     [ -f "$RUST_NATIVE_OUT" ] \
         || die "Cargo built nupp-native but did not write $RUST_NATIVE_OUT"
     printf 'done\n' > "$out/.complete"
@@ -891,68 +906,6 @@ build_mbedtls() {
     release_lock
 }
 
-build_curl() {
-    out="$PREFIX/curl"
-    tls=$(build_mbedtls; printf '%s' "$PREFIX/mbedtls")
-    take_lock curl "$out/.complete" || return 0
-    [ -f "$out/.complete" ] && { release_lock; return 0; }
-
-    directory="curl-$CURL_VERSION"
-    url="https://curl.se/download/curl-$CURL_VERSION.tar.gz"
-    tree=$(source_tree "$directory" "$url" "$CURL_SHA256" "$CURL_MARKER")
-    verify_notice "$tree/COPYING" curl-COPYING.txt
-
-    note "building libcurl with $CC"
-    rm -rf "$out"
-    configureLibraries=""
-    if [ "$PLATFORM" = windows ]; then
-        # mbedTLS' entropy provider calls BCryptGenRandom. curl adds bcrypt
-        # after selecting a TLS backend, so its selection probe needs it here.
-        configureLibraries="-lbcrypt"
-    fi
-    # Static, HTTP and its neighbours only, and everything optional left out:
-    # what is wanted here is a transport, and each thing switched on is another
-    # pinned source to own. The threaded resolver is what keeps a name lookup
-    # off the scheduler's frame without a second library to do it.
-    ( cd "$tree" && CONFIG_SHELL=/bin/sh SHELL=/bin/sh ./configure \
-        --prefix="$out" \
-        --disable-shared --enable-static \
-        --with-mbedtls="$tls" \
-        --without-libpsl --without-zlib --without-brotli --without-zstd \
-        --without-libidn2 --without-nghttp2 --without-ngtcp2 --without-librtmp \
-        --disable-ldap --disable-ldaps --disable-rtsp --disable-dict \
-        --disable-telnet --disable-tftp --disable-pop3 --disable-imap \
-        --disable-smb --disable-smtp --disable-gopher --disable-mqtt \
-        --disable-docs --disable-manual --disable-ntlm \
-        --enable-threaded-resolver \
-        CC="$CC" LIBS="$configureLibraries" ) >&2
-    if [ "$PLATFORM" = windows ]; then
-        # Autoconf expands Git Bash's shell to its path below `Program Files`.
-        # Automake does not quote that value in recursive compile rules. Native
-        # MinGW make can resolve `sh.exe` through PATH, so normalize the files
-        # configure generated before any make process reads them. Spell it out
-        # in LIBTOOL too: GNU make on Windows gives its environment's SHELL
-        # special treatment, so $(SHELL) need not expand to the assignment in
-        # the generated Makefile.
-        find "$tree" -type f -name Makefile -exec \
-            sed -i 's|^SHELL = .*|SHELL = sh.exe|' {} +
-        find "$tree" -type f -name Makefile -exec \
-            sed -i 's|^LIBTOOL = .*|LIBTOOL = sh.exe $(top_builddir)/libtool|' {} +
-        sed -i 's|^SHELL=.*|SHELL="sh.exe"|' "$tree/libtool"
-        grep -q '^SHELL = sh\.exe$' "$tree/lib/Makefile" \
-            || die "curl generated no usable Windows make shell"
-        grep -q '^LIBTOOL = sh\.exe $(top_builddir)/libtool$' \
-            "$tree/lib/Makefile" \
-            || die "curl generated no usable Windows libtool command"
-        grep -q '^SHELL="sh\.exe"$' "$tree/libtool" \
-            || die "curl generated no usable Windows libtool shell"
-    fi
-    "$MAKE" -C "$tree" -j"${NUPP_TOOLCHAIN_JOBS:-4}" >&2
-    "$MAKE" -C "$tree" install >&2
-    printf 'done\n' > "$out/.complete"
-    release_lock
-}
-
 # --- the compiler's own native code -------------------------------------
 
 # Which C a feature is. The names are the ones the compiler's feature registry
@@ -971,11 +924,9 @@ provider_sources() {
         case "$feature" in
             files|native-files) printf '%s' " c/glob.c c/fslane.c" ;;
             filesystem) ;;
-            uri)               printf '%s' " c/uri.c" ;;
             process|native-process) printf '%s' " c/process.c" ;;
             net|native-net)    printf '%s' " c/net.c" ;;
             tls|native-tls)    printf '%s' " c/tls.c" ;;
-            http)              printf '%s' " c/http.c" ;;
             uuid) ;;
             # Host-only features select no provider source of their own.
             json|lpeg|lua-utf8|workers) ;;
@@ -1094,34 +1045,6 @@ build_libuv() {
     release_lock
 }
 
-build_ada() {
-    out="$PREFIX/ada"
-    take_lock ada "$out/.complete" || return 0
-    [ -f "$out/.complete" ] && { release_lock; return 0; }
-
-    base="https://github.com/ada-url/ada/releases/download/v$ADA_VERSION"
-    amalgamation=$(pinned_file "ada-$ADA_VERSION.cpp" "$base/ada.cpp" "$ADA_CPP_SHA256")
-    header=$(pinned_file "ada-$ADA_VERSION.h" "$base/ada.h" "$ADA_H_SHA256")
-    api=$(pinned_file "ada_c-$ADA_VERSION.h" "$base/ada_c.h" "$ADA_C_H_SHA256")
-    licence=$(pinned_file "ada-$ADA_VERSION-LICENSE-MIT" \
-        "https://raw.githubusercontent.com/ada-url/ada/v$ADA_VERSION/LICENSE-MIT" \
-        "$ADA_LICENSE_SHA256")
-    verify_notice "$licence" ada-LICENSE.txt
-
-    note "building ada with $CXX"
-    rm -rf "$out"
-    mkdir -p "$out/lib" "$out/include"
-    cp "$header" "$out/include/ada.h"
-    cp "$api" "$out/include/ada_c.h"
-    # C++20, for `std::endian`. It is the only thing here that asks for more
-    # than C++17, and it is why the documented floor moved.
-    "$CXX" -c -std=c++20 -O2 -DNDEBUG -fPIC -I"$out/include" \
-        -o "$out/lib/ada.o" "$amalgamation" >&2
-    ar rcs "$out/lib/libada.a" "$out/lib/ada.o"
-    printf 'done\n' > "$out/.complete"
-    release_lock
-}
-
 # --- the native provider -------------------------------------------------
 
 # Builds the provider as a shared library for one set of features, and answers
@@ -1151,15 +1074,10 @@ build_native_library() {
     uv_prefix=$(build_libuv; printf '%s' "$PREFIX/libuv")
     libraries="$uv_prefix/lib/libuv.a"
     uvInclude="-I$uv_prefix/include"
-    adaInclude=""
     tlsInclude=""
     linker=$CC
     for feature in $sorted; do
         case "$feature" in
-            http)
-                curl_prefix=$(build_curl; printf '%s' "$PREFIX/curl")
-                libraries="$libraries $("$curl_prefix/bin/curl-config" --static-libs)"
-                ;;
             tls)
                 tls_prefix=$(build_mbedtls; printf '%s' "$PREFIX/mbedtls")
                 tlsInclude="-I$tls_prefix/include"
@@ -1168,33 +1086,15 @@ build_native_library() {
                 libraries="$libraries $tls_prefix/lib/libmbedx509.a"
                 libraries="$libraries $tls_prefix/lib/libmbedcrypto.a"
                 ;;
-            uri)
-                ada_prefix=$(build_ada; printf '%s' "$PREFIX/ada")
-                adaInclude="-I$ada_prefix/include"
-                libraries="$libraries $ada_prefix/lib/libada.a"
-                # ada is C++, and the C++ runtime comes in with it.
-                linker=$CXX
-                ;;
         esac
     done
 
-    curlInclude=""
-    curlDefine=""
-    if [ -n "${curl_prefix:-}" ]; then
-        curlInclude="-I$curl_prefix/include"
-        if [ "$PLATFORM" = windows ]; then
-            # curl.h otherwise decorates its API as dllimport on Windows.
-            # This provider links the pinned static archive built above.
-            curlDefine="-DCURL_STATICLIB"
-        fi
-    fi
     objects=""
     for source in $providerSources; do
         object="$out/objects/$(basename "$source" .c).o"
         # shellcheck disable=SC2086
         "$CC" -c -std=gnu11 -O2 -fPIC -DNDEBUG -Wall -Wextra \
-            -I"$ROOT/runtime/native/c" -I"$include" $uvInclude $curlInclude \
-            $curlDefine $adaInclude $tlsInclude \
+            -I"$ROOT/runtime/native/c" -I"$include" $uvInclude $tlsInclude \
             -o "$object" "$ROOT/runtime/native/$source" >&2
         objects="$objects $object"
     done
@@ -1490,9 +1390,7 @@ case "$1" in
         build_luarocks
         build_lpeg
         build_luautf8
-        build_ada
         build_libuv
-        build_curl
         exit 0
         ;;
     native)
@@ -1542,10 +1440,8 @@ for component in "$@"; do
         lpeg)     build_lpeg;     native_path "$PREFIX/lpeg" ;;
         lpeg-source) native_path "$(lpeg_source)" ;;
         luautf8)  build_luautf8;  native_path "$PREFIX/luautf8" ;;
-        ada)      build_ada;      native_path "$PREFIX/ada" ;;
         libuv)    build_libuv;    native_path "$PREFIX/libuv" ;;
         mbedtls)  build_mbedtls;  native_path "$PREFIX/mbedtls" ;;
-        curl)     build_curl;     native_path "$PREFIX/curl" ;;
         swiftshader) build_swiftshader; cat "$PREFIX/swiftshader/.icd" ;;
         *) note "unknown component $component"; usage ;;
     esac

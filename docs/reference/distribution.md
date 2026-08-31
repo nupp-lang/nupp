@@ -203,7 +203,7 @@ window and own an event loop before step 6; Nupp's own does none of that.
 ## Host source acquisition
 
 The compiler-owned toolchain builds pinned LuaJIT, LuaRocks, LPeg, luautf8,
-ada, libuv, libcurl and mbedTLS sources rather than committing
+libuv and mbedTLS sources rather than committing
 generated native artifacts or source archives. An ordinary cold build downloads
 the exact upstream files and verifies their SHA-256 digests before extraction
 or compilation. A verified source already in the toolchain cache is reused
@@ -221,7 +221,7 @@ NUPP_HOST_OFFLINE=1 \
 
 `NUPP_HOST_SOURCE_DIR` may be relative to the command's working directory,
 though an absolute path is usually clearer. It contains archives named after
-their extracted directories and ada's loose release files:
+their extracted directories:
 
 ```text
 LuaJIT-1edc3e52b67eaf6ce5f809be8e17d6862594b8bc.tar.gz
@@ -229,12 +229,7 @@ luarocks-3.13.0.tar.gz
 lpeg-1.1.0.tar.gz
 luautf8-0.2.1.tar.gz
 libuv-1.52.1.tar.gz
-curl-8.11.1.tar.gz
 mbedtls-3.6.2.tar.bz2
-ada-4.0.0.cpp
-ada-4.0.0.h
-ada_c-4.0.0.h
-ada-4.0.0-LICENSE-MIT
 ```
 
 Every supplied archive is checked against the same committed digest as a
@@ -247,6 +242,19 @@ after the output cache and source directory miss. `NUPP_HOST_OFFLINE` accepts
 `1`, `true`, `yes` or `on` to forbid that last network fallback, and the
 corresponding false values to allow it. An offline miss names the archive and
 the source-directory setting needed to supply it.
+
+Cargo dependencies use the committed `Cargo.lock` and Cargo checksums rather
+than the archive list above. Provision an offline source tree once, then name it
+for Rust-native builds:
+
+```sh
+./scripts/toolchain rust-vendor /opt/nupp-rust-sources
+NUPP_RUST_VENDOR_DIR=/opt/nupp-rust-sources \
+NUPP_HOST_OFFLINE=1 \
+./scripts/toolchain native-rust http,uri
+```
+
+An offline Rust build without `NUPP_RUST_VENDOR_DIR` fails before Cargo runs.
 
 ## Cross-target stub acquisition
 
@@ -282,19 +290,22 @@ Release CI uses a Developer ID identity and notarizes the final stamped bytes.
 ## Third-party notices
 
 The compiler-owned stub links LuaJIT and libuv and, where the features are on,
-LPeg and luautf8. Compiler-owned provider sidecars may additionally
-link ada or libcurl over mbedTLS. A stamped binary or provider is a distribution
+LPeg and luautf8. The legacy TLS provider may additionally link mbedTLS.
+A stamped binary or provider is a distribution
 of what it links, so the notices ship in
 [`host/NOTICE.md`](https://github.com/nupp-lang/nupp/blob/main/host/NOTICE.md)
-and `host/notices/`, which carry the notice files as they arrive in the pinned
-sources, byte for byte. Hand them over with the binary the way a release archive
-carries a README.
+and `host/notices/`. C-source notices are carried as they arrive in the pinned
+sources, byte for byte. The generated Rust notice covers every third-party
+package in `Cargo.lock`, so one committed notice set is valid for every provider
+feature and target. Hand the directory over with the binary the way a release
+archive carries a README.
 
-The sources are fetched at build time rather than committed, so nothing else in
-the tree carries those notices. `scripts/toolchain` compares each committed
+The C sources are fetched at build time rather than committed, so nothing else
+in the tree carries their notices. `scripts/toolchain` compares each committed
 copy against the source it has just verified by digest and fails the build when
-they differ, because a notice that has drifted from what was distributed is a
-false statement rather than a stale file.
+they differ. `scripts/rust-dependency-notices --write` refreshes the Cargo
+aggregate; the test suite refuses a lockfile whose third-party package inventory
+is not represented there.
 
 ## Signing for macOS
 

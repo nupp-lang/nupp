@@ -145,16 +145,12 @@ end
 function M.everyPinHasAVersionAndADigest()
    local recorded = pins()
    for _, component in ipairs({
-      "LUAJIT", "LUAROCKS", "LPEG", "LUAUTF8", "CURL",
-      "MBEDTLS", "ADA", "LIBUV",
+      "LUAJIT", "LUAROCKS", "LPEG", "LUAUTF8", "MBEDTLS", "LIBUV",
    }) do
       local marker = component == "LUAJIT" and "REV" or "VERSION"
       assert(recorded[component .. "_" .. marker],
          component .. " has no version or revision")
-      -- ada is three loose files rather than an archive, so its digests are
-      -- named for the file each one authenticates.
       local digest = recorded[component .. "_SHA256"]
-         or recorded[component .. "_CPP_SHA256"]
       assert(digest and #digest == 64,
          component .. " has no SHA-256, or one that is not 64 characters")
       assert(digest:match("^%x+$"), component .. "'s digest is not hexadecimal")
@@ -167,8 +163,7 @@ end
 function M.everyPinnedSourceHasANotice()
    for _, notice in ipairs({
       "LuaJIT-COPYRIGHT.txt", "LPeg-LICENSE.txt", "luautf8-LICENSE.txt",
-      "curl-COPYING.txt", "mbedtls-LICENSE.txt",
-      "ada-LICENSE.txt", "libuv-LICENSE.txt",
+      "mbedtls-LICENSE.txt", "libuv-LICENSE.txt",
    }) do
       assert(io.open(ROOT .. "/host/notices/" .. notice, "rb"),
          "host/notices/" .. notice .. " is missing")
@@ -264,19 +259,47 @@ function M.anUnknownNativeFeatureStopsTheDriver()
       "the refusal does not name the unknown feature:\n" .. output)
 end
 
-function M.legacyCGpuFeatureIsNotBuildable()
+function M.migratedRustFeaturesAreNotBuildableInLegacyC()
    local directory = temporary()
    local compiler = fakeCompiler(directory, "fake-cc", "fake")
-   local status, output = run({
-      NUPP_TOOLCHAIN_DIR = directory .. "/cache",
-      NUPP_CC = compiler,
-      NUPP_CXX = compiler,
-      PATH = "$PATH",
-   }, "native gpu")
+   for _, feature in ipairs({"gpu", "http", "uri"}) do
+      local status, output = run({
+         NUPP_TOOLCHAIN_DIR = directory .. "/cache",
+         NUPP_CC = compiler,
+         NUPP_CXX = compiler,
+         PATH = "$PATH",
+      }, "native " .. feature)
 
-   assert(status ~= 0, "the removed C GPU provider returned success:\n" .. output)
-   assert(output:find("unknown native feature gpu", 1, true),
-      "the refusal does not establish the WGPU-only provider boundary:\n" .. output)
+      assert(status ~= 0,
+         "the removed C " .. feature .. " provider returned success:\n" .. output)
+      assert(output:find("unknown native feature " .. feature, 1, true),
+         "the refusal does not establish the Rust-only provider boundary:\n" .. output)
+   end
+end
+
+-- The fallback exists for installations where rustup itself is on PATH but
+-- its Cargo and rustc proxies are not. `stable` moves, so an installed exact
+-- channel gets first refusal. A stable alias which still names the exact
+-- version remains usable, and the version check below refuses it after it moves.
+function M.rustupFallbackSelectsThePinnedToolchain()
+   local driver = read(ROOT .. "/scripts/toolchain")
+   assert(driver:find('RUSTUP_TOOLCHAIN="$expected"', 1, true),
+      "the rustup fallback does not try rust-toolchain.toml's exact channel")
+   local exact = assert(driver:find('RUSTUP_TOOLCHAIN="$expected"', 1, true))
+   local stable = assert(driver:find("RUSTUP_TOOLCHAIN=stable", exact, true))
+   assert(exact < stable, "the moving stable alias is tried before the exact channel")
+end
+
+-- Cargo gives a macOS cdylib an absolute install name beneath target-dir by
+-- default. The Rust provider's target directory is a content cache; recording
+-- it would make a linked consumer reach back into that cache after the dylib
+-- had been staged or packaged elsewhere.
+function M.macOSRustProviderUsesARelocatableInstallName()
+   local driver = read(ROOT .. "/scripts/toolchain")
+   assert(driver:find("[ \"$PLATFORM\" = darwin ] && cargo_action=rustc", 1, true),
+      "the macOS Rust provider is not built through cargo rustc")
+   assert(driver:find("-install_name,@rpath/$filename", 1, true),
+      "the macOS Rust provider records its content-cache path")
 end
 
 -- The dependency builds use GNU make. Windows' hosted clang targets MSVC, so
@@ -385,6 +408,17 @@ function M.windowsAnswersNativePaths()
 
    assert(status == 0, prefix)
    assert(prefix:match("^C:/"), "Windows answered an MSYS path: " .. prefix)
+end
+
+-- `native-rust` deliberately answers a drive-letter path for native compiler
+-- arguments. That spelling cannot be inserted into Git Bash's colon-separated
+-- PATH: its drive colon becomes a separator and the DLL is not found.
+function M.windowsRustAbiSmokeConvertsTheDllSearchPath()
+   local smoke = read(ROOT .. "/scripts/test-rust-abi")
+   assert(smoke:find('SEARCH_DIRECTORY=$(cygpath -u "$DIRECTORY")', 1, true),
+      "the Rust ABI smoke does not convert its native DLL directory for PATH")
+   assert(smoke:find('PATH="$SEARCH_DIRECTORY:$PATH"', 1, true),
+      "the Rust ABI smoke inserts the drive-letter directory into PATH")
 end
 
 -- The native spelling belongs in compiler arguments, but not in the colon-

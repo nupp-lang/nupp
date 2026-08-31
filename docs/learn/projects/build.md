@@ -257,14 +257,15 @@ created by generated code.
 Nested members use the same exact resolution. `nupp.data.sha256(...)` selects
 SHA-256, while an alias such as `local data = nupp.data` followed by
 `data.sha256(...)` selects the same feature without also selecting UUID, JSON,
-or UTF-8. Files, paths and processes use libuv; HTTP adds libcurl over mbedTLS;
-URI adds ada; and UUID uses the provider's own C. SHA-256 stages no native
+or UTF-8. Files, paths and processes use the legacy libuv provider. HTTP uses
+the Rust-native Reqwest transport over Tokio and Rustls, URI uses Rust's `url`
+parser, and UUID uses the Rust-native provider. SHA-256 stages no native
 artifact at all: it is [`nupp.data.digest`](../../src/nupp/data/digest.nupp),
 written in Nupp and compiled ahead of time where the target's [`aot`
 policy](../performance/ahead-of-time/build-and-artifacts.md) asks for that.
-The rest share one
-`build/lib/nupp_native`, built with the union of the selected sources and
-libraries. Pure facilities such as buffers, checksums and `nupp.math` emit
+The Rust facilities share the versioned `build/lib/nupp_native_v2` sidecar;
+remaining C facilities share `build/lib/nupp_native`. Each is built with the
+union of its selected features. Pure facilities such as buffers, checksums and `nupp.math` emit
 their Lua adapters but stage no native artifact. At `-O1` and above the build
 recomputes these effects from the post-folding tree, so a use found only in a
 constant-dead branch or loop is removed with that code.
