@@ -23,6 +23,8 @@ struct bytes {
 
 static int require_reference;
 
+int luaopen_lpeg(lua_State *state);
+
 static int read_file(const char *path, struct bytes *out) {
     FILE *file = fopen(path, "rb");
     long length;
@@ -60,6 +62,14 @@ static void open_library(lua_State *state, const char *name, lua_CFunction open)
     lua_pushcfunction(state, open);
     lua_pushstring(state, name);
     lua_call(state, 1, 0);
+}
+
+static void preload_library(lua_State *state, const char *name, lua_CFunction open) {
+    lua_getglobal(state, "package");
+    lua_getfield(state, -1, "preload");
+    lua_pushcfunction(state, open);
+    lua_setfield(state, -2, name);
+    lua_pop(state, 2);
 }
 
 static int traced_require(lua_State *state) {
@@ -119,6 +129,7 @@ int main(int argc, char **argv) {
     open_library(state, LUA_TABLIBNAME, luaopen_table);
     open_library(state, LUA_STRLIBNAME, luaopen_string);
     open_library(state, LUA_MATHLIBNAME, luaopen_math);
+    preload_library(state, "lpeg", luaopen_lpeg);
     install_require_trace(state);
     if (expected.data != NULL) {
         lua_pushlstring(state, expected.data, expected.length);

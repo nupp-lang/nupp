@@ -1,8 +1,7 @@
 -- The playground runner is checked source carried by the application VM, not
 -- source assembled in JavaScript. Exercise it independently under stock 5.1.
 
-dofile(assert(arg[1], "the checked application runtime bundle is required"))
-
+return function()
 local result = __nuppPlaygroundRun([[print("hello", 42)]])
 assert(result:find('"stdout":"hello\\t42"', 1, true), result)
 
@@ -41,3 +40,4 @@ local matcher = peg.codegen({
 local fields = matcher("red,green")
 assert(type(fields) == "table", "the general PEG backend returned " .. type(fields))
 assert(table.concat(fields, "/") == "red/green", table.concat(fields, "/"))
+end

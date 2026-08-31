@@ -7,7 +7,6 @@ archive="$work/lua-5.1.5.tar.gz"
 source="$work/lua-5.1.5"
 host="$work/nupp-portable-host"
 expected_json="$work/portable-compiler-reference.json"
-lpeg_module_dir="$work/lpeg-lua51"
 generated_image="$work/preludeimage-source.bin"
 roundtrip_image="$work/preludeimage-roundtrip.bin"
 expected=2640fc56a795f29d28ef15e13c34a47e223960b0240e8cb0a82d9b0738695333
@@ -27,11 +26,9 @@ fi
 case "$(uname -s)" in
     Darwin*)
         lua_target=macosx; host_libraries=-lm
-        module_flags="-bundle -undefined dynamic_lookup"
         ;;
     *)
         lua_target=generic; host_libraries=-lm
-        module_flags="-shared -fPIC"
         ;;
 esac
 make -C "$source" clean
@@ -60,23 +57,13 @@ cmp build/playground/preludeimage.bin "$generated_image"
 "$source/src/lua" editors/playground/tools/generate-prelude-image.lua \
     build/playground/nupp-compiler.lua "$roundtrip_image" image
 cmp build/playground/preludeimage.bin "$roundtrip_image"
-${CC:-cc} -std=c99 -Wall -Wextra -Werror \
-    -I"$source/src" \
+lpeg_source=$("$root/scripts/toolchain" lpeg-source)
+${CC:-cc} -std=c99 -Wall -Wextra -Werror -I"$source/src" -I"$lpeg_source" \
     tests/portable-compiler/minimal-host.c \
+    "$lpeg_source"/lpvm.c "$lpeg_source"/lpcap.c "$lpeg_source"/lptree.c \
+    "$lpeg_source"/lpcode.c "$lpeg_source"/lpprint.c "$lpeg_source"/lpcset.c \
     "$source/src/liblua.a" $host_libraries -o "$host"
 "$host" build/playground/nupp-compiler.lua \
     tests/portable-compiler/smoke.lua "$expected_json"
-# The application runtime carries the PEG runtime, whose general backend is
-# LPeg, so the interpreter that runs it needs the same engine the browser host
-# links in. Built here against this job's Lua rather than taken from the
-# toolchain, which builds LPeg against the pinned LuaJIT.
-lpeg_source=$("$root/scripts/toolchain" lpeg-source)
-mkdir -p "$lpeg_module_dir"
-# shellcheck disable=SC2086
-${CC:-cc} -std=c99 -O2 -I"$source/src" $module_flags \
-    "$lpeg_source"/lpvm.c "$lpeg_source"/lpcap.c "$lpeg_source"/lptree.c \
-    "$lpeg_source"/lpcode.c "$lpeg_source"/lpprint.c "$lpeg_source"/lpcset.c \
-    -o "$lpeg_module_dir/lpeg.so"
-LUA_CPATH="$lpeg_module_dir/?.so;;" \
-    "$source/src/lua" tests/portable-compiler/playground-runtime.lua \
-    build/playground/nupp-app-runtime.lua
+"$host" build/playground/nupp-app-runtime.lua \
+    tests/portable-compiler/playground-runtime.lua
