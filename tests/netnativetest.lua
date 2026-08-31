@@ -20,6 +20,13 @@ local function assertTrue(cond, label)
    if not cond then error(label or "expected true", 2) end
 end
 
+local function trace(stage)
+   local emit = rawget(_G, "__NUPP_TEST_TRACE")
+   if emit then
+      emit(stage)
+   end
+end
+
 -- A listener, a connection to it, and the connection it accepted.
 local function pair()
    local listener = assert(net.listen({host = "127.0.0.1", port = 0}))
@@ -82,15 +89,24 @@ function M.aLargeValueCrossesInPieces()
 end
 
 function M.aReaderViewReadsARealConnection()
+   trace("reader pair")
    local listener, client, served = pair()
+   trace("reader write")
    assertTrue(client:write("through the contract"), "the client writes")
+   trace("reader borrow")
    local reader = net.asReader(served)
+   trace("reader read")
    assertEq(assert(reader:read(64)), "through the contract",
       "a borrowed view reads through the shared Reader contract")
+   trace("reader view close")
    reader:close()
+   trace("reader stream close")
    served:close()
+   trace("reader client close")
    client:close()
+   trace("reader listener close")
    listener:close()
+   trace("reader done")
 end
 
 function M.closingTheWriterViewEndsOneDirection()

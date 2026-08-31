@@ -513,6 +513,12 @@ do
    end
 end
 
+if os.getenv("NUPP_TEST_TRACE_CASES") then
+   rawset(_G, "__NUPP_TEST_TRACE", function(stage)
+      progressWrite("__stage__:" .. tostring(stage) .. "\n")
+   end)
+end
+
 local RESET = "\27[0m"
 local function paint(code, text)
    return useColor and ("\27[" .. code .. "m" .. text .. RESET) or text
@@ -759,6 +765,9 @@ local function recordResult(suite, name, defined, ok, err, stdout, stderr, elaps
       local message, errFile, errLine = errorPosition(err)
       record.failure = {message = message, file = errFile, line = errLine}
       record.output = {stdout = stdout, stderr = stderr}
+      if os.getenv("NUPP_TEST_TRACE_CASES") then
+         io.stderr:write("__failure__:", tostring(message), "\n")
+      end
       if not queueDir then mark("E") end
    end
    if verbose then
