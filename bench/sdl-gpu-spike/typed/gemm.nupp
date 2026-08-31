@@ -12,6 +12,7 @@ local gpu = require("nupp.gpu")
 -- failures before the full GEMM makes either one look like a zero result.
 @aot(target = "gpu")
 local function copyProbe(exclusive output: span.WriteSpan<float>, borrows input: span.Span<float>): nil
+    assert(#output == #input)
     for i = 1, #output do
         output[i] = input[i]
     end
