@@ -127,11 +127,12 @@ activations in one host turn. Nested task scopes and the suspension combinators
 share that token; they do not multiply the budget. Exhaustion performs one
 ordinary suspension and resumes from the next host poll.
 
-This is the SDL/Tecs integration boundary: the host keeps ownership of the main
-thread, frame barriers, priorities, and poll points, while Nupp owns ordering
-inside one aggregate. A handler that refuses parking remains visible through
-nested task scopes and combinators. Readiness callbacks only mark work ready;
-they do not resume application code inside an SDL, native, or ECS callback.
+This is the native application integration boundary: a host such as SDL or
+Tecs keeps ownership of the main thread, frame barriers, priorities, and poll
+points, while Nupp owns ordering inside one aggregate. A handler that refuses
+parking remains visible through nested task scopes and combinators. Readiness
+callbacks only mark work ready; they do not resume application code inside a
+native, UI, or ECS callback.
 
 The budget is cooperative. One activation can compute until it returns or
 parks, so long CPU work still belongs on a worker and should call

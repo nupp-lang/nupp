@@ -71,7 +71,8 @@ print(pending.name)
   standalone binaries, and static components.
 - [Portable libraries](../projects/portability/libraries.md) lower one checked
   source tree for LuaJIT or the portable Lua 5.1 surface.
-- [Embedding](../projects/embedding.md) loads checked components into a C host.
+- [Embedding](../projects/embedding.md) loads checked components into a C or C++
+  application through the Rust-owned SDK.
 - [Hot reload](../projects/hot-reload.md) replaces compatible function bodies
   at explicit safe points.
 - [Integrations](../projects/integrations/index.md) covers LuaRocks, LuaCATS,

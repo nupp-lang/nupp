@@ -40,7 +40,8 @@ beside the repository so every worktree shares one build. Cargo resolves the
 Rust-native crates, including networking and TLS, through the committed
 lockfile. The toolchain driver builds Nupp's Rust native providers, executable
 host, and embedding libraries; `bin/nupp` runs it for what is missing and
-nothing more.
+nothing more. See [Native runtime and support](../../reference/native-runtime.md)
+for the feature mapping, retained non-Rust boundaries, and release matrix.
 
 ### LuaJIT
 

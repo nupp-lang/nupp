@@ -404,14 +404,17 @@ A distributed binary is deliberately none of these things.
   The official `re.lua` module remains ordinary Lua in the payload. Another
   payload selects whatever its own code and bundled dependencies need; the
   format has no opinion.
-- **It does not make Nupp a C project either.** The host is a component, built by
-  the same machinery that already builds a project's other native dependencies.
+- **It does not make Nupp a C project either.** The production host and native
+  resource owners are Rust. LuaJIT, LPeg, protected VM shims, and generated C
+  AOT remain deliberate native boundaries; the complete ownership and support
+  matrix is in [Native runtime and support](native-runtime.md).
 
 ::: seealso
 - [build.md](../learn/projects/build.md#rock-dependencies) for the targets and rock
   globs a payload is assembled from
 - [embedding.md](../learn/projects/embedding.md) for running Nupp inside a host you own
   rather than one the packager stamps
+- [native-runtime.md](native-runtime.md) for the exact Rust/native boundary
 - [NEP 8](../neps/0008-c-interop-and-embedding.md) for the design record behind
   the C boundary a stub sits on
 :::

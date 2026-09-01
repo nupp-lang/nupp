@@ -42,9 +42,10 @@ the public embedding surface.
 
 ## Complete example
 
-The repository carries a C host in `host/examples/embed.c` and its component
-project in `host/examples/component`. Build the component from its project
-directory:
+The repository carries a C application example in `host/examples/embed.c` and
+its component project in `host/examples/component`. The example calls the
+public C ABI implemented by the Rust-owned SDK; it is not the removed legacy C
+host implementation. Build the component from its project directory:
 
 ```bash
 cd host/examples/component
@@ -343,7 +344,7 @@ Nupp's [ownership contracts](../runtime/ownership/borrowing.md#borrowing-and-pin
 govern native pointers retained by FFI calls. Pinning a Lua-managed owner and
 rooting a value solve different lifetime problems: the pin protects a native
 relationship described to the checker, while the registry handle keeps a Lua
-value reachable for the C host.
+value reachable for the calling application.
 
 ::: deepdive
 Nupp runs in the host's own state, on the host's own heap. A second embedded VM
